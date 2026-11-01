@@ -15,7 +15,7 @@ import { AppError, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { PUBLIC_API_SCOPES, publicApiClients, publicApiTokens, type PublicApiClient, type PublicApiScope } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabled, isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 const TOKEN_TTL_SECONDS = 3600;
@@ -55,6 +55,8 @@ export async function issueToken(input: { grantType: string; clientId: string; c
   const [client] = await db.select().from(publicApiClients).where(and(eq(publicApiClients.clientId, input.clientId), isNull(publicApiClients.revokedAt)));
   const given = Buffer.from(hash(input.clientSecret));
   if (!client || given.length !== client.secretHash.length || !timingSafeEqual(given, Buffer.from(client.secretHash))) throw oauthError(401, "invalid_client", "Unknown client or wrong secret.");
+  // QA D-110: the client's shop must be in a district the flag covers.
+  if (!(await isFeatureEnabledForShop("billing_v2", client.shopId))) throw new AppError("NOT_FOUND", "This feature is not available.");
   const wanted = input.scope ? input.scope.split(/\s+/).filter(Boolean) : client.scopes;
   if (wanted.some((s) => !client.scopes.includes(s))) throw oauthError(400, "invalid_scope", "The client may not ask for that scope.");
   const token = `gkt_${randomBytes(32).toString("base64url")}`;
@@ -82,5 +84,6 @@ export async function authenticateApi(request: NextRequest, scope: PublicApiScop
     .where(and(eq(publicApiTokens.tokenHash, hash(m[1])), gt(publicApiTokens.expiresAt, new Date()), isNull(publicApiClients.revokedAt)));
   if (!row) throw new AppError("UNAUTHENTICATED", "The access token is not valid or has expired.");
   if (!row.scopes.includes(scope)) throw new AppError("FORBIDDEN", `This token lacks the "${scope}" scope.`);
+  if (!(await isFeatureEnabledForShop("billing_v2", row.client.shopId))) throw new AppError("NOT_FOUND", "This feature is not available.");
   return { shopId: row.client.shopId, clientId: row.client.clientId, scopes: row.scopes };
 }

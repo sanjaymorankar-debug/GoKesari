@@ -7,7 +7,7 @@ import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireShopAccess, requireUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { cancelEwayBill, extendEwayBill, updateEwayPartB } from "@/server/gst/einvoice-extras";
-import { requireFeature } from "@/server/services/feature-flags";
+import { requireFeature, requireFeatureForShop } from "@/server/services/feature-flags";
 import { getInvoice } from "@/server/services/invoices";
 
 const reason = z.enum(["1", "2", "3", "4"]);
@@ -19,6 +19,7 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   const id = z.string().uuid().parse(raw);
   const invoice = await getInvoice(id);
   const { user } = await requireShopAccess(invoice.shopId, { anyPermission: PERMISSIONS.STATUTORY_MANAGE });
+  await requireFeatureForShop("ewaybill", invoice.shopId);
   if (action === "part-b") {
     const b = await parseBody(request, z.object({ vehicleNo: z.string().trim().min(6).max(15), reason, remark: z.string().trim().max(100).default("") }));
     return ok(await updateEwayPartB(id, b.vehicleNo, b.reason, b.remark, user));

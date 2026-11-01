@@ -30,11 +30,13 @@ import {
   invStockLedger,
   products,
   shopProducts,
+  shops,
   taxInvoices,
 } from "@/server/db/schema";
 import type { InvoiceSnapshot } from "@/server/services/invoices";
 import type { CreditNoteSnapshot } from "@/server/gst/credit-notes";
 import type { BillingReportKind, ReportTable } from "./reports";
+import { counterBillKind } from "./sales";
 import { stockSummary } from "./stock";
 
 const r2 = (p: number) => Math.round(p) / 100;
@@ -256,8 +258,10 @@ async function marketplaceTaxReport(shopId: string, from: string, to: string, su
     .innerJoin(accSalesLines, eq(accSalesLines.salesId, accSalesInvoices.id))
     .where(and(eq(accSalesInvoices.shopId, shopId), eq(accSalesInvoices.status, "ISSUED"), gte(accSalesInvoices.invoiceDate, from), lt(accSalesInvoices.invoiceDate, to)))
     .orderBy(asc(accSalesInvoices.invoiceDate), asc(accSalesLines.lineNo));
+  const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
+  const counterDoc = shop && counterBillKind(shop) === "TAX_INVOICE" ? "Tax invoice" : "Bill of supply";
   for (const { inv, line } of sales) {
-    rows.push(["Sale", "Tax invoice", inv.invoiceNo, inv.invoiceDate, inv.buyerGstin, inv.buyerGstin ? "B2B" : "B2C", inv.placeOfSupply, line.hsn, line.description, line.qtyMilli / 1000, line.unit, r2(line.taxablePaise), line.gstRateBp / 100, r2(line.cgstPaise), r2(line.sgstPaise), r2(line.igstPaise), r2(line.cessPaise), r2(line.totalPaise), null, "Counter"]);
+    rows.push(["Sale", counterDoc, inv.invoiceNo, inv.invoiceDate, inv.buyerGstin, inv.buyerGstin ? "B2B" : "B2C", inv.placeOfSupply, line.hsn, line.description, line.qtyMilli / 1000, line.unit, r2(line.taxablePaise), line.gstRateBp / 100, r2(line.cgstPaise), r2(line.sgstPaise), r2(line.igstPaise), r2(line.cessPaise), r2(line.totalPaise), null, "Counter"]);
   }
   const docs = await db
     .select()

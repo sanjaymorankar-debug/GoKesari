@@ -26,15 +26,17 @@ import {
   type FeatureFlagKey,
 } from "@/server/db/schema";
 import { cancelDocument, createDocument, documentNumber, documentPdf } from "@/server/accounts/documents";
-import { createSalesInvoice } from "@/server/accounts/sales";
+import { billingReport } from "@/server/accounts/billing-reports";
+import { counterBillKind, createSalesInvoice, salesInvoicePdf } from "@/server/accounts/sales";
 import { updateSettings } from "@/server/accounts/books";
 import { issueCreditNoteForRefund, returnedLineWeights } from "@/server/gst/credit-notes";
 import { buildGstr1 } from "@/server/gst/gstr1";
-import { invoiceJson, renderInvoiceReceipt, salesReceiptPdf, upiPaymentUri, whatsappShareUrl } from "@/server/invoicing/outputs";
+import { counterBillShareText, invoiceJson, invoiceShareText, renderInvoiceReceipt, salesReceiptPdf, upiPaymentUri, whatsappShareUrl } from "@/server/invoicing/outputs";
 import { addToCart } from "@/server/services/cart";
 import { checkout, updateOrderStatus } from "@/server/services/orders";
-import { type InvoiceSnapshot } from "@/server/services/invoices";
-import { deliveryInvoiceNumber, renderDeliveryFeeInvoicePdf } from "@/server/tax/delivery-invoice";
+import { invoiceKindsForOrders, invoiceTextLines, orderInvoiceLabel, paidHow, type InvoiceSnapshot } from "@/server/services/invoices";
+import { deliveryInvoiceNumber, platformInvoiceLabel, platformInvoicesForOrders, renderDeliveryFeeInvoicePdf } from "@/server/tax/delivery-invoice";
+import { formatPaise } from "@/lib/money";
 import { cancelTaxInvoice } from "@/server/tax/invoice-cancel";
 import { deliveredOrder, gstin, gstShop, resetBatchE, rules } from "../helpers/batch-e";
 import { createUser, createUserWithWallet, resetDatabase } from "../helpers/fixtures";
@@ -180,6 +182,10 @@ describe("billing v2 — documents", () => {
       expect(pdf).toContain("9\\(5\\)");
       expect(pdf).toContain("Input tax credit has not been taken");
       expect(await failure(db.update(platformDeliveryInvoices).set({ feePaise: 1 }).where(eq(platformDeliveryInvoices.id, issued[0].id)))).toMatch(/cannot be changed/);
+      // QA D-112: the customer's order pages list it.
+      const listed = await platformInvoicesForOrders([issued[0].orderId]);
+      expect(listed.get(issued[0].orderId)).toEqual([{ id: issued[0].id, kind: "DELIVERY", invoiceNumber: issued[0].invoiceNumber }]);
+      expect(platformInvoiceLabel("DELIVERY")).toBe("Delivery fee invoice (GoKesari)");
     });
 
     it("is not issued for a pickup or when delivery_9_5 is off", async () => {
@@ -287,6 +293,35 @@ describe("billing v2 — documents", () => {
       const bill = (await salesReceiptPdf(shop.id, sale.id)).bytes.toString("latin1");
       expect(bill).toContain("/QR1 Do");
       expect(bill).toContain("dairy@okhdfcbank");
+      expect(counterBillShareText({ kind: "TAX_INVOICE", invoiceNo: sale.invoiceNo, invoiceDate: sale.invoiceDate, shopName: "Dairy GST", totalPaise: sale.totalPaise, upiVpa: "dairy@okhdfcbank" })).toMatch(
+        new RegExp(`^Tax invoice ${sale.invoiceNo} from Dairy GST, .*Pay by UPI to dairy@okhdfcbank\\.$`),
+      );
+    });
+
+    it("a shop outside GST: bill of supply on the counter bill, its receipt, its PDF and the MTR; the order's bill has no s.52 or GST-inclusive note and names an online payment (QA D-113, D-116, D-117)", async () => {
+      await flag("billing_v2", true);
+      const { owner, shop, milkSp } = await gstShop({ gstin: null });
+      const [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
+      expect(counterBillKind(row)).toBe("BILL_OF_SUPPLY");
+      const sale = await createSalesInvoice(shop.id, { paymentMode: "CASH", lines: [{ description: "Bread", qtyMilli: 1000, ratePaise: 4_000, gstRateBp: 0 }] }, owner);
+      expect((await salesReceiptPdf(shop.id, sale.id)).bytes.toString("latin1")).toContain("BILL OF SUPPLY");
+      const a4 = (await salesInvoicePdf(shop.id, sale.id)).bytes.toString("latin1");
+      expect(a4).toContain("BILL OF SUPPLY");
+      expect(a4).not.toContain("TAX INVOICE");
+      const day = sale.invoiceDate;
+      const next = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+      const mtr = await billingReport(shop.id, "mtr", day, next, "");
+      expect(mtr.rows.filter((r) => r[2] === sale.invoiceNo).map((r) => r[1])).toEqual(["Bill of supply"]);
+
+      const { invoice } = await deliveredOrder(admin, [[milkSp.id, 2]]);
+      const s = invoice!.snapshot as unknown as InvoiceSnapshot;
+      expect(s.kind).toBe("BILL_OF_SUPPLY");
+      expect(s.notes.join(" ")).not.toMatch(/section 52|inclusive of GST/);
+      expect(invoiceShareText(s)).toBe(`Bill of supply ${s.invoiceNumber} from ${s.seller.name} for order ${s.orderNumber}: ${formatPaise(s.totals.totalPaise)}.`);
+      expect([paidHow("ONLINE"), paidHow("COD"), paidHow("WALLET")]).toEqual(["online payment", "cash on delivery", "GoKesari wallet"]);
+      expect(invoiceTextLines({ ...s, payment: { ...s.payment, method: "ONLINE" } }).map((l) => l.text).join("\n")).toContain("Paid by customer (online payment)");
+      expect((await invoiceKindsForOrders([invoice!.orderId])).get(invoice!.orderId)).toBe("BILL_OF_SUPPLY");
+      expect(orderInvoiceLabel("BILL_OF_SUPPLY")).toBe("Bill of supply");
     });
   });
 });

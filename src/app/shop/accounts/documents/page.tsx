@@ -6,7 +6,7 @@ import { Badge, EmptyState } from "@/components/ui";
 import { formatPaise } from "@/lib/money";
 import { DOCUMENT_TITLE, listDocuments } from "@/server/accounts/documents";
 import { loadAccountsPage } from "@/server/accounts/page";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Notes, vouchers & challans" };
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function DocumentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
   const { shop, lang, shopQuery } = await loadAccountsPage(params);
-  if (!(await isFeatureEnabled("billing_v2"))) redirect(`/shop/accounts${shopQuery}`);
+  if (!(await isFeatureEnabledForShop("billing_v2", shop))) redirect(`/shop/accounts${shopQuery}`);
   const docs = await listDocuments(shop.id);
   return (
     <div className="mx-auto w-full max-w-6xl">

@@ -43,7 +43,7 @@ import { createApiClient, listApiClients, revokeApiClient } from "@/server/publi
 import { posBillSchema, posItems, syncPosBills } from "@/server/accounts/pos";
 import { getShopRegistration, registrationInput, setShopRegistration } from "@/server/tax/registration";
 import { decideIms, draftBillFromEinvoice, fileWithEvc, imsInward, listFilings, portalLedgers, prepareReturn, requestFilingOtp, saveToPortal, supplierEinvoices } from "@/server/gsp/returns";
-import { requireFeature } from "@/server/services/feature-flags";
+import { requireFeatureForShop } from "@/server/services/feature-flags";
 import { cancelSalesInvoice, createSalesInvoice, getSalesInvoice, listSalesInvoices, salesInvoicePdf, salesSchema } from "@/server/accounts/sales";
 import { adjustStockTo, expiringBatches, ledgerDrift, listingLedger, listListings, setTrackBatches, stockSummary, writeOffStock } from "@/server/accounts/stock";
 import {
@@ -107,7 +107,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
   /* ------------------------------------- documents (billing v2, §4.1) */
   documents: {
     GET: async (req, shopId, _u, [did, action]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (!did) {
         const kind = q(req, "kind");
         return ok(await listDocuments(shopId, { kind: kind ? z.enum(ACC_DOCUMENT_KINDS).parse(kind) : undefined, from: q(req, "from"), to: q(req, "to") }));
@@ -119,11 +119,11 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       return ok(await getDocument(shopId, id(did)));
     },
     POST: async (req, shopId, user) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       return ok(await createDocument(shopId, await parseBody(req, documentSchema), user), 201);
     },
     DELETE: async (req, shopId, user, [did]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
       return ok(await cancelDocument(shopId, id(did), body.reason, user));
     },
@@ -132,14 +132,14 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
   /* --------------------- journals, contra, stock journal (billing v2, §6.1) */
   journals: {
     POST: async (req, shopId, user, [kind]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (kind === "contra") return ok(await recordContra(shopId, await parseBody(req, contraSchema), user), 201);
       if (kind === "stock") return ok(await recordStockJournal(shopId, await parseBody(req, stockJournalSchema), user), 201);
       if (kind) throw notFound("Endpoint");
       return ok(await recordJournal(shopId, await parseBody(req, journalSchema), user), 201);
     },
     DELETE: async (req, shopId, user, [sourceId]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
       return ok({ reversed: await reverseJournal(shopId, id(sourceId), body.reason, user) });
     },
@@ -148,12 +148,12 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
   /* --------------------------- counter POS, offline-first (billing v2, §4.7) */
   pos: {
     GET: async (_req, shopId, _u, [action]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (action !== "items") throw notFound("Endpoint");
       return ok(await posItems(shopId));
     },
     POST: async (req, shopId, user, [action]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (action !== "sync") throw notFound("Endpoint");
       const b = await parseBody(req, z.object({ bills: z.array(posBillSchema).min(1).max(200) }));
       return ok(await syncPosBills(shopId, b.bills, user));
@@ -163,11 +163,11 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
   /* ------------------------ GST registration type (billing v2, §3.1, G5) */
   "gst-registration": {
     GET: async (_req, shopId) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       return ok(await getShopRegistration(shopId));
     },
     PATCH: async (req, shopId, user) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       return ok(await setShopRegistration(shopId, await parseBody(req, registrationInput), user));
     },
   },
@@ -175,17 +175,17 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
   /* ---------------------- public API clients (billing v2, §8 "Generic") */
   "api-clients": {
     GET: async (_req, shopId) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       return ok(await listApiClients(shopId));
     },
     POST: async (req, shopId, user) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       const b = await parseBody(req, z.object({ name: z.string().trim().min(2).max(80), scopes: z.array(z.enum(PUBLIC_API_SCOPES)).min(1) }));
       const { client, clientSecret } = await createApiClient(shopId, b, user);
       return ok({ id: client.id, clientId: client.clientId, clientSecret, scopes: client.scopes, note: "Copy the secret now: it is not shown again." }, 201);
     },
     DELETE: async (_req, shopId, user, [cid]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       await revokeApiClient(shopId, id(cid), user);
       return ok({ revoked: true });
     },
@@ -194,7 +194,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
   /* ------------------------- GST portal through the GSP (billing v2, §9) */
   portal: {
     GET: async (req, shopId, user, [section, fid, action]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (section === "filings" && !fid) return ok(await listFilings(shopId));
       if (section === "filings" && action === "download") {
         const f = (await listFilings(shopId)).find((x) => x.id === id(fid));
@@ -207,7 +207,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       throw notFound("Endpoint");
     },
     POST: async (req, shopId, user, [section, fid, action]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (section === "filings" && !fid) {
         const b = await parseBody(req, z.object({ returnType: z.enum(GST_FILING_TYPES), period: z.string().trim().max(12) }));
         return ok(await prepareReturn(shopId, b.returnType, b.period), 201);
@@ -242,7 +242,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
   /* ---------------------- sync with accounting software (billing v2, §7–8) */
   sync: {
     GET: async (req, shopId, user, [action]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (!action) return ok(await syncDashboard(shopId));
       if (action === "templates") return file(await templatePack(), "application/zip", "gokesari-template-pack.zip");
       const from = isoDate.parse(q(req, "from"));
@@ -261,7 +261,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       throw notFound("Endpoint");
     },
     POST: async (req, shopId, user, [action, conflictId]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (action === "import") {
         const tool = z.enum(SYNC_SYSTEMS).parse(q(req, "tool") ?? "GENERIC");
         const { files } = await formFiles(req);
@@ -277,7 +277,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       throw notFound("Endpoint");
     },
     PUT: async (req, shopId, _u, [action]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (action !== "units") throw notFound("Endpoint");
       const body = await parseBody(req, z.object({ unit: z.string().trim().min(1).max(30), uqc: z.string().trim().length(3) }));
       await setUnitUqc(shopId, body.unit, body.uqc);
@@ -288,7 +288,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
   /* ----------------- statements from GoKesari (billing v2, §5.4–5.6) */
   statements: {
     GET: async (req, shopId, _u, [kind]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       const k = z.enum(["wallet", "tax", "settlement"]).parse(kind);
       const p = period.parse(q(req, "period"));
       const format = z.enum(["pdf", "csv"]).parse(q(req, "format") ?? (k === "settlement" ? "csv" : "pdf"));
@@ -411,7 +411,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       }
       // Billing v2 (§4.6): 80 mm receipt with the shop's UPI payment QR.
       if (action === "receipt") {
-        await requireFeature("billing_v2");
+        await requireFeatureForShop("billing_v2", shopId);
         const pdf = await salesReceiptPdf(shopId, id(sid));
         return file(pdf.bytes, "application/pdf", pdf.filename);
       }
@@ -472,7 +472,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
     },
     // Billing v2 (§6.1): bring GoKesari's orders, fees, taxes and payouts into the books now.
     POST: async (_req, shopId, _u, [action]) => {
-      await requireFeature("billing_v2");
+      await requireFeatureForShop("billing_v2", shopId);
       if (action !== "gokesari") throw notFound("Endpoint");
       return ok(await postGokesariActivity(shopId));
     },
@@ -557,7 +557,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       if (kind === "tally") return file(Buffer.from(await tallyXml(shopId, from, to, q(req, "company")), "utf8"), "application/xml", `gokesari-tally-${from}-to-${to}.xml`);
       const k = z.enum(["pnl", "stock", "daybook", "purchases", "sales", "gst", "ledger", ...BILLING_REPORT_KINDS]).parse(kind) as ReportKind;
       // Billing v2 reports (trial balance, balance sheet, stock movement / ageing, TCS-TDS credit, MTR).
-      if ((BILLING_REPORT_KINDS as readonly string[]).includes(k)) await requireFeature("billing_v2");
+      if ((BILLING_REPORT_KINDS as readonly string[]).includes(k)) await requireFeatureForShop("billing_v2", shopId);
       const table = await reportTable(shopId, k, from, to);
       if (format === "xlsx") return file(await tableToXlsx(table), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `${k}-${from}-to-${to}.xlsx`);
       if (format === "pdf") return file(tableToPdf(table), "application/pdf", `${k}-${from}-to-${to}.pdf`);

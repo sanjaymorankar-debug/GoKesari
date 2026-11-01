@@ -65,6 +65,19 @@ describe("canonical model and validation (§7.1, §7.6, §2.3)", () => {
   });
 });
 
+describe("a shop outside GST (QA D-111)", () => {
+  it("exports without HSN, GST rate or GST unit code; an unbalanced voucher still blocks", async () => {
+    const s = await gstShop({ gstin: null });
+    const gheeProductId = (await db.select().from(shopProducts).where(eq(shopProducts.id, s.gheeSp.id)))[0].productId;
+    await db.update(products).set({ hsnCode: null, unit: "crate" }).where(eq(products.id, gheeProductId));
+    const books = await buildCanonicalBooks(s.shop.id, range.from, range.to);
+    expect(books.company.gstRegistered).toBe(false);
+    expect(validateBooks(books).filter((f) => f.entity === "STOCK_ITEM" || f.entity === "UNIT")).toEqual([]);
+    // The same books from a GST-registered shop would be blocked.
+    expect(validateBooks({ ...books, company: { ...books.company, gstRegistered: true } }).some((f) => f.entity === "STOCK_ITEM" && /HSN/.test(f.problem))).toBe(true);
+  });
+});
+
 describe("Tally (§8, scenario 9)", () => {
   it("exports XML + Excel + mapping; the XML reads back the same; re-export reports unchanged", async () => {
     const s = await readyShop();

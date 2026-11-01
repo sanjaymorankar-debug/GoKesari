@@ -12,11 +12,13 @@ import { creditNotesForInvoice } from "@/server/gst/credit-notes";
 import { einvoiceApplies, ewayBillRequirement, gstDocumentsFor } from "@/server/gst/einvoice";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
-import { amountInWords, canViewInvoice, getInvoice, type InvoiceSnapshot } from "@/server/services/invoices";
+import { invoiceShareText, whatsappShareUrl } from "@/server/invoicing/outputs";
+import { amountInWords, canViewInvoice, getInvoice, paidHow, type InvoiceSnapshot } from "@/server/services/invoices";
 
 export const metadata = { title: "Invoice" };
 export const dynamic = "force-dynamic";
 
+const SIDE_LINK = "inline-flex min-h-10 items-center rounded-xl border border-[var(--gk-line)] bg-white px-3 text-sm font-semibold text-ink-900 hover:bg-kesari-50";
 const pct = (bp: number) => `${(bp / 100).toFixed(bp % 100 ? 2 : 0)}%`;
 const date = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
@@ -43,6 +45,20 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     <div className="mx-auto max-w-4xl space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
         <LinkButton href={`/api/invoices/${invoice.id}/pdf`}>Download PDF</LinkButton>
+        {/* Billing v2 (QA D-115): the 80 mm receipt, the JSON and a WhatsApp share. */}
+        {s.billingV2 ? (
+          <>
+            <a href={`/api/invoices/${invoice.id}/pdf?format=thermal`} className={SIDE_LINK}>
+              80 mm receipt
+            </a>
+            <a href={`/api/invoices/${invoice.id}/json`} className={SIDE_LINK}>
+              JSON
+            </a>
+            <a href={whatsappShareUrl(invoiceShareText(s))} target="_blank" rel="noreferrer" className={SIDE_LINK}>
+              Share on WhatsApp
+            </a>
+          </>
+        ) : null}
         <PrintButton />
       </div>
       <Card className="space-y-5 p-6 text-sm print:border-0 print:shadow-none" data-testid="invoice">
@@ -159,7 +175,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
             </p>
           ) : null}
           <p>
-            Paid by the customer ({s.payment.method === "COD" ? "cash on delivery" : "GoKesari wallet"}):{" "}
+            Paid by the customer ({paidHow(s.payment.method)}):{" "}
             {formatPaise(s.payment.paidByCustomerPaise)}
           </p>
           {s.notes.map((n) => (

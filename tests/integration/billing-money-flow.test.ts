@@ -9,7 +9,8 @@ import { eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { deliveryPartners, featureFlags, orderFulfilmentArrangements, orderMoneyFlows, orders, type FeatureFlagKey } from "@/server/db/schema";
+import { deliveryPartners, featureFlags, orderFulfilmentArrangements, orderMoneyFlows, orders, shops, type FeatureFlagKey } from "@/server/db/schema";
+import { setFeatureFlag } from "@/server/services/feature-flags";
 import { recordOrderMoneyFlow } from "@/server/tax/money-flow";
 import { getShopRegistration, setShopRegistration } from "@/server/tax/registration";
 import { deliveredOrder, gstShop, resetBatchE, rules } from "../helpers/batch-e";
@@ -39,6 +40,17 @@ describe("billing v2 money flow", () => {
     const { milkSp } = await gstShop();
     const { order } = await deliveredOrder(admin, [[milkSp.id, 2]]);
     expect(await db.select().from(orderMoneyFlows).where(eq(orderMoneyFlows.orderId, order.id))).toEqual([]);
+  });
+
+  it("a flag limited to districts records only the orders of shops there (QA D-110)", async () => {
+    await setFeatureFlag("billing_v2", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", admin);
+    const { shop, milkSp } = await gstShop();
+    await db.update(shops).set({ pincode: "411001" }).where(eq(shops.id, shop.id));
+    const { order } = await deliveredOrder(admin, [[milkSp.id, 2]]);
+    expect(await db.select().from(orderMoneyFlows).where(eq(orderMoneyFlows.orderId, order.id))).toHaveLength(1);
+    // The same shop outside the pilot district: nothing is recorded.
+    await db.update(shops).set({ pincode: "400001" }).where(eq(shops.id, shop.id));
+    expect(await rerecord(order.id)).toBeNull();
   });
 
   it("a prepaid order delivered by a GoKesari partner: GoKesari received the money, TCS and TDS in scope", async () => {

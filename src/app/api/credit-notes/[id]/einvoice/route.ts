@@ -10,7 +10,7 @@ import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { creditNotes } from "@/server/db/schema";
 import { requestCreditNoteEinvoice } from "@/server/gst/einvoice-extras";
-import { requireFeature } from "@/server/services/feature-flags";
+import { requireFeature, requireFeatureForShop } from "@/server/services/feature-flags";
 
 export const POST = route(async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
   await requireUser();
@@ -19,5 +19,6 @@ export const POST = route(async (_request: NextRequest, context: RouteContext<{ 
   const [note] = await db.select().from(creditNotes).where(eq(creditNotes.id, id));
   if (!note) throw notFound("Credit note");
   const { user } = await requireShopAccess(note.shopId, { anyPermission: PERMISSIONS.STATUTORY_MANAGE });
+  await requireFeatureForShop("einvoice", note.shopId);
   return ok(await requestCreditNoteEinvoice(id, user));
 });

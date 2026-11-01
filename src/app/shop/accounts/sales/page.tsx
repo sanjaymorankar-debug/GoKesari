@@ -7,7 +7,7 @@ import { ACCOUNTS_NAV } from "@/lib/accounts/menu";
 import { formatPaise } from "@/lib/money";
 import { currentPeriod, loadAccountsPage, monthRange } from "@/server/accounts/page";
 import { listSalesInvoices } from "@/server/accounts/sales";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Sales invoices" };
 export const dynamic = "force-dynamic";
@@ -45,7 +45,7 @@ export default async function SalesRegisterPage({ searchParams }: { searchParams
   const credit = issued.filter((i) => i.paymentMode === "CREDIT").reduce((n, i) => n + i.totalPaise, 0);
   const navLabel = ACCOUNTS_NAV.find((n) => n.key === "sales")!.label;
   // Billing v2 (docs/billing §4.7): the offline-first counter POS.
-  const posOn = await isFeatureEnabled("billing_v2");
+  const posOn = await isFeatureEnabledForShop("billing_v2", shop);
 
   return (
     <div className="mx-auto w-full max-w-6xl">

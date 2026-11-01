@@ -33,7 +33,7 @@ import {
   statutoryRates,
   type OrderMoneyFlow,
 } from "@/server/db/schema";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabled, isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { getRule } from "@/server/services/settings";
 import { istDay, sec95RestaurantOn, statutoryResolver, tcsOn, tdsOn, unregisteredRulesOn } from "@/server/statutory/rates";
 import { placeOfSupplyOf } from "./checkout";
@@ -46,10 +46,12 @@ export async function recordOrderMoneyFlow(orderId: string, client: DbClient = d
   const [order] = await client.select().from(orders).where(eq(orders.id, orderId));
   if (!order) return null;
   const [shopRow] = await client
-    .select({ gstRegistrationType: shops.gstRegistrationType, gstStatus: shops.gstStatus, gstin: shops.gstin, shopType: shops.shopType, name: shops.name, legalName: shops.legalBusinessName })
+    .select({ gstRegistrationType: shops.gstRegistrationType, gstStatus: shops.gstStatus, gstin: shops.gstin, shopType: shops.shopType, name: shops.name, legalName: shops.legalBusinessName, pincode: shops.pincode })
     .from(shops)
     .where(eq(shops.id, order.shopId));
   if (!shopRow) return null;
+  // A flag limited to pilot districts covers only the shops there (QA D-110).
+  if (!(await isFeatureEnabledForShop("billing_v2", shopRow))) return null;
   const shop = { registrationType: effectiveRegistrationType(shopRow) };
 
   const [arrangement] = await client
@@ -100,7 +102,7 @@ export async function recordOrderMoneyFlow(orderId: string, client: DbClient = d
   const platformState = gstState((await getRule("platformTaxProfile")).stateCode || null)?.alpha ?? null;
   const placeOfSupply = placeOfSupplyOf(address ? { state: address.state, pincode: address.pincode } : order.deliveryAddressSnapshot ? { pincode: order.deliveryAddressSnapshot.pincode } : null);
   const supply = supplyTypeOf(platformState, placeOfSupply);
-  const s95 = (await isFeatureEnabled("delivery_9_5")) ? await resolve("GST_S95_LOCAL_DELIVERY", day) : null;
+  const s95 = (await isFeatureEnabledForShop("delivery_9_5", shopRow)) ? await resolve("GST_S95_LOCAL_DELIVERY", day) : null;
   const delivery = deliveryFeeGst({
     fulfilment,
     feePaise: order.deliveryFeePaise,

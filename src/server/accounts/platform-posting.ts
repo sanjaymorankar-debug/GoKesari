@@ -39,7 +39,7 @@ import {
   taxInvoices,
 } from "@/server/db/schema";
 import type { InvoiceSnapshot } from "@/server/services/invoices";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabled, isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { postVoucher, reverseSource, type Leg } from "./books";
 
 const istDay = (at: Date) => new Date(at.getTime() + 330 * 60_000).toISOString().slice(0, 10);
@@ -61,7 +61,7 @@ const gstLegs = (side: "debit" | "credit", t: { cgstPaise: number; sgstPaise: nu
 
 /** Posts everything GoKesari recorded for the shop that is not in its books yet. */
 export async function postGokesariActivity(shopId: string, options: { limit?: number } = {}): Promise<PostingResult> {
-  if (!(await isFeatureEnabled("billing_v2"))) return { posted: 0, reversed: 0 };
+  if (!(await isFeatureEnabledForShop("billing_v2", shopId))) return { posted: 0, reversed: 0 };
   const limit = options.limit ?? 2000;
   return db.transaction(async (tx) => {
     // One poster per shop at a time; a second waits and then finds everything posted.

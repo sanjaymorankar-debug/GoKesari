@@ -12,7 +12,7 @@ import type { CustomerLocation } from "@/lib/location";
 import { lineTotalPaise, MILLI_PER_UNIT } from "@/lib/money";
 import type { AuthenticatedUser } from "@/server/authz/guards";
 import { listAddresses } from "@/server/services/addresses";
-import { enabledFeatureKeys } from "@/server/services/feature-flags";
+import { enabledFeatureKeys, enabledFeatureKeysForShop } from "@/server/services/feature-flags";
 import {
   customerCounts,
   getActiveOrder,
@@ -121,7 +121,7 @@ export interface ShopBoardData {
 export const loadShopCounts = cache((shopId: string): Promise<Counts> => shopCounts(shopId));
 
 export async function loadShopBoard(shopId: string, user: AuthenticatedUser): Promise<ShopBoardData> {
-  const [counts, facts, features] = await Promise.all([loadShopCounts(shopId), shopBoardFacts(shopId, user), enabledFeatureKeys()]);
+  const [counts, facts, features] = await Promise.all([loadShopCounts(shopId), shopBoardFacts(shopId, user), enabledFeatureKeysForShop(shopId)]);
   return { counts, facts, features };
 }
 

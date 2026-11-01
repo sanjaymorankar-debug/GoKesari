@@ -8,7 +8,7 @@ import { ACCOUNTS_TEXT, ACCOUNTS_TILES } from "@/lib/accounts/menu";
 import { todayIst } from "@/server/accounts/books";
 import { loadAccountsPage, monthRange } from "@/server/accounts/page";
 import { reportTable, type ReportKind } from "@/server/accounts/reports";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Reports" };
 export const dynamic = "force-dynamic";
@@ -78,7 +78,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const { shop, lang, shopQuery } = await loadAccountsPage(params);
   const tile = ACCOUNTS_TILES.find((t) => t.key === "reports")!;
   const today = todayIst();
-  const kinds = (await isFeatureEnabled("billing_v2")) ? [...KINDS, ...BILLING_KINDS] : KINDS;
+  const kinds = (await isFeatureEnabledForShop("billing_v2", shop)) ? [...KINDS, ...BILLING_KINDS] : KINDS;
   const kind: ReportKind = kinds.find((k) => k.kind === params.kind)?.kind ?? "pnl";
 
   // `to` is exclusive (as in the API and monthRange); the form sends `until`, the last day included.

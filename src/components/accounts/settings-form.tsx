@@ -4,6 +4,7 @@
  * Inventory & Accounting settings (docs/inventory-accounting-2026-10): stock
  * valuation, where purchased stock goes, GST filing frequency, invoice prefix
  * and reminder windows → PATCH settings. Every change is logged on the server.
+ * Billing v2 (QA D-114): the shop's UPI id, printed as a payment QR on receipts.
  */
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -19,6 +20,8 @@ export interface AccountsSettingsValues {
   salesInvoicePrefix: string;
   reminderDaysBefore: number;
   expiryAlertDays: number;
+  /** Billing v2 only (absent otherwise): the UPI id for the receipt's payment QR; "" = none. */
+  upiVpa?: string;
 }
 
 function Choice<T extends string>({
@@ -77,9 +80,9 @@ export function AccountsSettingsForm({ shopId, initial }: { shopId: string; init
     try {
       const updated = await accountsApi<AccountsSettingsValues>(shopId, "settings", {
         method: "PATCH",
-        body: { ...values, salesInvoicePrefix: values.salesInvoicePrefix.trim() },
+        body: { ...values, salesInvoicePrefix: values.salesInvoicePrefix.trim(), ...(values.upiVpa === undefined ? {} : { upiVpa: values.upiVpa.trim() || null }) },
       });
-      setValues((v) => ({ ...v, salesInvoicePrefix: updated.salesInvoicePrefix ?? v.salesInvoicePrefix }));
+      setValues((v) => ({ ...v, salesInvoicePrefix: updated.salesInvoicePrefix ?? v.salesInvoicePrefix, ...(v.upiVpa === undefined ? {} : { upiVpa: updated.upiVpa ?? "" }) }));
       setSaved(true);
       router.refresh();
     } catch (e) {
@@ -164,6 +167,19 @@ export function AccountsSettingsForm({ shopId, initial }: { shopId: string; init
           />
         </Field>
       </div>
+      {values.upiVpa !== undefined ? (
+        <Field label="UPI id for receipts" hint="Printed as a payment QR on 80 mm receipts, e.g. shopname@okhdfcbank. Leave empty for none.">
+          <input
+            className={`${inputClass} min-h-11`}
+            value={values.upiVpa}
+            onChange={(e) => set("upiVpa", e.target.value.trim())}
+            maxLength={300}
+            inputMode="email"
+            autoComplete="off"
+            placeholder="name@bank"
+          />
+        </Field>
+      ) : null}
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={busy || !dirty}>
           {busy ? "Saving…" : "Save settings"}

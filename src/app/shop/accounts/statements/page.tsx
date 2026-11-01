@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { AccountsHeader, AccountsNav } from "@/components/accounts/accounts-nav";
 import { formatPaise } from "@/lib/money";
 import { currentPeriod, loadAccountsPage } from "@/server/accounts/page";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { shopTaxStatement } from "@/server/tax/compliance";
 import { shopWalletStatement } from "@/server/tax/statements";
 
@@ -21,7 +21,7 @@ type SP = Record<string, string | string[] | undefined>;
 export default async function StatementsPage({ searchParams }: { searchParams: Promise<SP> }) {
   const params = await searchParams;
   const { shop, lang, shopQuery } = await loadAccountsPage(params);
-  if (!(await isFeatureEnabled("billing_v2"))) redirect(`/shop/accounts${shopQuery}`);
+  if (!(await isFeatureEnabledForShop("billing_v2", shop))) redirect(`/shop/accounts${shopQuery}`);
   const now = currentPeriod();
   const period = typeof params.period === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.period) ? params.period : now;
   const [tax, wallet] = await Promise.all([shopTaxStatement(shop.id, period), shopWalletStatement(shop.id, period)]);

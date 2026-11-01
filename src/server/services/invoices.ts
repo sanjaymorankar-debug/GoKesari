@@ -24,7 +24,7 @@
  * issuing transaction — a rolled-back issue gives its number back, so there
  * are no gaps and never two invoices for one order.
  */
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { conflict, notFound } from "@/lib/errors";
 import { formatPaise, formatQuantity } from "@/lib/money";
@@ -54,7 +54,7 @@ import { documentNumbering, formatDocumentNumber, hsnFallbackRate } from "@/serv
 import { uqcFor } from "@/server/integrations/canonical";
 import { istDay, sec95RestaurantOn, statutoryResolver } from "@/server/statutory/rates";
 import { effectiveRegistrationType } from "@/server/tax/engine";
-import { isFeatureEnabled } from "./feature-flags";
+import { isFeatureEnabledForShop } from "./feature-flags";
 import {
   PLACE_OF_SUPPLY_NOTE,
   resolvePlaceOfSupply,
@@ -210,7 +210,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
 
   const gstin = await registeredGstin(shop, client);
   // Billing v2 (docs/billing §4.3, §4.4): buyer GSTIN from checkout, the ECO's GSTIN, UQC. Off: as before.
-  const billingV2 = await isFeatureEnabled("billing_v2");
+  const billingV2 = await isFeatureEnabledForShop("billing_v2", shop);
   // §5.3: GoKesari pays the GST on a listed restaurant type's food (s.9(5)), so the shop charges none.
   const sec95 = billingV2 ? await sec95RestaurantOn(istDay(issuedAt), shop.shopType, statutoryResolver(client)) : null;
   const kind: InvoiceSnapshot["kind"] = gstin && !sec95 ? "TAX_INVOICE" : "BILL_OF_SUPPLY";
@@ -327,9 +327,16 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   }
   if (placeOfSupplySource && PLACE_OF_SUPPLY_NOTE[placeOfSupplySource]) notes.push(PLACE_OF_SUPPLY_NOTE[placeOfSupplySource]!);
   if (enrolmentId) notes.push(`Supplier holds GST Enrolment ID ${enrolmentId} (Notification 34/2023-Central Tax): intra-state supplies only.`);
-  if (eco && !sec95) notes.push(`Supplied through the electronic commerce operator ${eco.legalName} (GSTIN ${eco.gstin}), which collects tax at source under section 52 of the CGST Act.`);
+  // QA D-116: TCS under s.52 is collected only on a GST-registered supplier's taxable supply.
+  if (eco && !sec95) {
+    notes.push(
+      kind === "TAX_INVOICE"
+        ? `Supplied through the electronic commerce operator ${eco.legalName} (GSTIN ${eco.gstin}), which collects tax at source under section 52 of the CGST Act.`
+        : `Supplied through the electronic commerce operator ${eco.legalName} (GSTIN ${eco.gstin}).`,
+    );
+  }
   if (lines.some((l) => l.rateAssumed)) notes.push("Lines marked * have no GST rate on record for the product; the default rate was applied.");
-  if (!sec95) notes.push("Prices are inclusive of GST. Tax is shown as included in each line.");
+  if (!sec95 && kind === "TAX_INVOICE") notes.push("Prices are inclusive of GST. Tax is shown as included in each line.");
 
   const snapshot: Omit<InvoiceSnapshot, "invoiceNumber" | "financialYear"> = {
     kind,
@@ -504,6 +511,19 @@ export async function listInvoicesForShop(shopId: string, limit = 100): Promise<
 }
 
 /** The order's customer, its shop's owner, and operations may see an invoice. */
+/**
+ * The kind of the invoice already issued for each of these orders, so a link can say "Tax invoice"
+ * or "Bill of supply" (QA D-113); an order without one yet is absent.
+ */
+export async function invoiceKindsForOrders(orderIds: string[]): Promise<Map<string, TaxInvoice["kind"]>> {
+  if (!orderIds.length) return new Map();
+  const rows = await db.select({ orderId: taxInvoices.orderId, kind: taxInvoices.kind }).from(taxInvoices).where(inArray(taxInvoices.orderId, orderIds));
+  return new Map(rows.map((r) => [r.orderId, r.kind]));
+}
+
+/** Link text for an order's own invoice: its kind once issued, else neutral. */
+export const orderInvoiceLabel = (kind: TaxInvoice["kind"] | undefined) => (kind === "TAX_INVOICE" ? "Tax invoice" : kind === "BILL_OF_SUPPLY" ? "Bill of supply" : "Invoice");
+
 export async function canViewInvoice(invoice: TaxInvoice, user: { id: string; role: UserRole }): Promise<boolean> {
   if (user.role === "ADMIN" || user.role === "OPERATOR") return true;
   const [row] = await db
@@ -603,7 +623,7 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
   if (s.payment.couponPaise > 0) {
     pair(`Coupon ${s.payment.couponCode ?? ""} (paid by GoKesari)`, money(s.payment.couponPaise));
   }
-  pair(`Paid by customer (${s.payment.method === "COD" ? "cash on delivery" : "GoKesari wallet"})`, money(s.payment.paidByCustomerPaise));
+  pair(`Paid by customer (${paidHow(s.payment.method)})`, money(s.payment.paidByCustomerPaise));
   add();
   for (const note of s.notes) wrap(`Note: ${note}`);
   add();
@@ -611,6 +631,11 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
   add("Authorised signatory (electronically issued)");
   add("This is a computer-generated document issued through GoKesari on behalf of the seller.");
   return out;
+}
+
+/** How the customer paid, as the invoice says it (QA D-117: an online payment is not the wallet). */
+export function paidHow(method: string): string {
+  return method === "COD" ? "cash on delivery" : method === "ONLINE" ? "online payment" : "GoKesari wallet";
 }
 
 export function renderInvoicePdf(invoice: TaxInvoice, einvoice?: { irn: string; ackNo: string | null; ackDate: string | null } | null): Buffer {

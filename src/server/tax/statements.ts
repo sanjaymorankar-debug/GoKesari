@@ -14,6 +14,7 @@ import { PDF_LINE_WIDTH, textPdf, type PdfLine } from "@/lib/pdf";
 import { db } from "@/server/db";
 import { payoutCycleLines, platformInvoices, shops, shopWalletTransactions } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { notify } from "@/server/services/notifications";
 import { notFound } from "@/lib/errors";
 import { monthBounds, orderSettlementReport, shopTaxStatement, type ShopTaxStatement } from "./compliance";
@@ -172,7 +173,10 @@ export async function sendMonthlyShopStatements(today: string): Promise<{ sent: 
     .from(payoutCycleLines)
     .where(and(gte(payoutCycleLines.occurredOn, from), lt(payoutCycleLines.occurredOn, to)));
   if (!active.length) return { sent: 0 };
-  const owners = await db.select({ id: shops.id, ownerId: shops.ownerId, name: shops.name }).from(shops).where(inArray(shops.id, active.map((a) => a.shopId)));
+  const rows = await db.select({ id: shops.id, ownerId: shops.ownerId, name: shops.name, pincode: shops.pincode }).from(shops).where(inArray(shops.id, active.map((a) => a.shopId)));
+  // Only shops the billing_v2 flag covers have the statements page (QA D-110).
+  const covered = await Promise.all(rows.map((o) => isFeatureEnabledForShop("billing_v2", o)));
+  const owners = rows.filter((_, i) => covered[i]);
   for (const o of owners) {
     await notify({
       userId: o.ownerId,

@@ -34,7 +34,9 @@ import { DeliveryCodePanel } from "@/components/delivery-code-panel";
 import { maskEmailAddress } from "@/lib/contact";
 import { getLiveDisputesForOrders } from "@/server/services/disputes";
 import { referencesForGroups } from "@/server/services/order-groups";
+import { invoiceKindsForOrders, orderInvoiceLabel } from "@/server/services/invoices";
 import { listOrdersForUser } from "@/server/services/orders";
+import { platformInvoiceLabel, platformInvoicesForOrders } from "@/server/tax/delivery-invoice";
 import { listMyRatingsByOrder } from "@/server/services/ratings";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
 import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
@@ -101,11 +103,15 @@ export default async function OrdersPage({
   // Fulfilment options (docs/four-features-2026-10): pickup / own delivery / GoKesari plan and time.
   const fulfilmentPlans = await getBuyerFulfilmentViews(orders.map((o) => o.id), user);
   // NEW-007: delivery photo and invoice links on delivered orders.
-  const [proofPhotos, invoicingRule, cancellationRule, afterPackingRule] = await Promise.all([
-    proofPhotosForOrders(orders.filter((o) => o.status === "DELIVERED").map((o) => o.id)),
+  const deliveredIds = orders.filter((o) => o.status === "DELIVERED").map((o) => o.id);
+  const [proofPhotos, invoicingRule, cancellationRule, afterPackingRule, invoiceKinds, gokesariInvoices] = await Promise.all([
+    proofPhotosForOrders(deliveredIds),
     getRule("invoicing"),
     getRule("cancellation"),
     getRule("afterPackingCancellation"), // batch-2026-10 WS-C
+    // Billing v2 (QA D-112, D-113): the invoice's own kind, and GoKesari's s.9(5) invoices.
+    invoiceKindsForOrders(deliveredIds),
+    platformInvoicesForOrders(deliveredIds),
   ]);
   // TC-ORD-008: the server's own D10 rule (lib/order-cancellation.ts) — before
   // packing by rule `cancellation`, after packing for the fee (WS-C), and after
@@ -238,13 +244,18 @@ export default async function OrdersPage({
                 })}
                 {order.deliveryDate && !order.scheduledSlotStart ? ` · for ${order.deliveryDate}` : ""}
               </p>
-              {order.status === "DELIVERED" && (invoicingRule.enabled || proofPhotos.has(order.id)) ? (
+              {order.status === "DELIVERED" && (invoicingRule.enabled || proofPhotos.has(order.id) || gokesariInvoices.has(order.id)) ? (
                 <p className="mt-1 flex flex-wrap gap-3 text-xs" data-testid="order-documents">
                   {invoicingRule.enabled ? (
                     <a href={`/api/orders/${order.id}/invoice`} className="font-medium text-kesari-700 hover:underline">
-                      Tax invoice
+                      {orderInvoiceLabel(invoiceKinds.get(order.id))}
                     </a>
                   ) : null}
+                  {(gokesariInvoices.get(order.id) ?? []).map((g) => (
+                    <a key={g.id} href={`/api/delivery-invoices/${g.id}/pdf`} className="font-medium text-kesari-700 hover:underline">
+                      {platformInvoiceLabel(g.kind)}
+                    </a>
+                  ))}
                   {proofPhotos.has(order.id) ? (
                     <a href={proofPhotos.get(order.id)!.url} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline">
                       Photo at delivery

@@ -39,7 +39,7 @@ import {
 } from "@/lib/shop-onboarding";
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { getShopRegistration } from "@/server/tax/registration";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { listShopProducts, suggestProductsForShop } from "@/server/services/catalogue";
@@ -415,7 +415,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
 
     case "gst-pan": {
       // Billing v2 (docs/billing §3.1): Enrolment ID / PAN-only declaration.
-      const registration = (await isFeatureEnabled("billing_v2")) ? await getShopRegistration(shop.id) : null;
+      const registration = (await isFeatureEnabledForShop("billing_v2", shop)) ? await getShopRegistration(shop.id) : null;
       return (
         <>
           {header}
