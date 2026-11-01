@@ -287,6 +287,7 @@ export const TABLE_OWNERSHIP = {
   platform_credit_debit_notes: "seller",
   // Dated statutory settings and the document email outbox: platform (core).
   statutory_rates: "platform",
+  statutory_filings: "platform",
   document_emails: "platform",
   /* <<< end WS-E */
   //

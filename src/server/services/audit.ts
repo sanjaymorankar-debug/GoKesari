@@ -428,6 +428,8 @@ export const AUDIT_ACTIONS = {
   PLATFORM_NOTE_ISSUED: "platform_invoice.note_issued", // batch-2026-10 WS-E
   STATUTORY_RATE_CHANGED: "statutory_rate.changed", // batch-2026-10 WS-E
   STATUTORY_REPORT_EXPORTED: "statutory.report_exported", // batch-2026-10 WS-E
+  /** Billing v2: one of GoKesari's own returns marked filed, with the portal acknowledgement. */
+  STATUTORY_RETURN_FILED: "statutory.return_filed",
   // batch-2026-10 WS-D — Operator-Limited onboarding (F8.4.2): every action is audited.
   OPLTD_OWNER_OTP_SENT: "operator_limited.owner_otp_sent",
   OPLTD_OWNER_VERIFIED: "operator_limited.owner_verified",

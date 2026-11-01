@@ -34,6 +34,7 @@ import { cancelPurchase, confirmPurchase, correctPurchase, getPurchase, listPurc
 import { reportTable, tableToPdf, tableToXlsx, tallyXml, type ReportKind } from "@/server/accounts/reports";
 import { cancelDocument, createDocument, documentPdf, documentSchema, getDocument, listDocuments } from "@/server/accounts/documents";
 import { salesReceiptPdf } from "@/server/invoicing/outputs";
+import { shopStatementFiles } from "@/server/tax/statements";
 import { requireFeature } from "@/server/services/feature-flags";
 import { cancelSalesInvoice, createSalesInvoice, getSalesInvoice, listSalesInvoices, salesInvoicePdf, salesSchema } from "@/server/accounts/sales";
 import { adjustStockTo, expiringBatches, ledgerDrift, listingLedger, listListings, setTrackBatches, stockSummary, writeOffStock } from "@/server/accounts/stock";
@@ -117,6 +118,18 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       await requireFeature("billing_v2");
       const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
       return ok(await cancelDocument(shopId, id(did), body.reason, user));
+    },
+  },
+
+  /* ----------------- statements from GoKesari (billing v2, §5.4–5.6) */
+  statements: {
+    GET: async (req, shopId, _u, [kind]) => {
+      await requireFeature("billing_v2");
+      const k = z.enum(["wallet", "tax", "settlement"]).parse(kind);
+      const p = period.parse(q(req, "period"));
+      const format = z.enum(["pdf", "csv"]).parse(q(req, "format") ?? (k === "settlement" ? "csv" : "pdf"));
+      const f = await shopStatementFiles(shopId, k, p, format);
+      return file(f.bytes, f.contentType, f.filename);
     },
   },
 

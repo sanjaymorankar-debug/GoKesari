@@ -9477,6 +9477,42 @@ export const statutoryRates = pgTable(
 export type StatutoryRate = typeof statutoryRates.$inferSelect;
 
 /**
+ * Billing v2 (0129, docs/billing §5.4, §5.5, §5.7): GoKesari's own statutory
+ * returns per period — GSTR-8 (TCS), GSTR-1 and GSTR-3B for its own fees and
+ * s.9(5) supplies, the quarterly TDS statement — with what was generated (the
+ * payload and its checksum), and when and how it was filed (ARN / token).
+ * A FILED period is never regenerated; a correction is an amendment.
+ */
+export const STATUTORY_RETURN_TYPES = ["GSTR8", "GSTR1", "GSTR3B", "TDS_STATEMENT"] as const;
+export type StatutoryReturnType = (typeof STATUTORY_RETURN_TYPES)[number];
+
+export const statutoryFilings = pgTable(
+  "statutory_filings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnType: text("return_type", { enum: STATUTORY_RETURN_TYPES }).notNull(),
+    /** "2026-10" (month) or "2026-27-Q3" (quarter). */
+    period: text("period").notNull(),
+    /** The GoKesari GSTIN (or TAN for TDS) the return is for. */
+    registration: text("registration").notNull(),
+    status: text("status", { enum: ["GENERATED", "SUBMITTED", "FILED"] }).notNull().default("GENERATED"),
+    dueDate: date("due_date").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    checksum: text("checksum").notNull(),
+    rows: integer("rows").notNull().default(0),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+    generatedBy: uuid("generated_by"),
+    filedAt: timestamp("filed_at", { withTimezone: true }),
+    filedBy: uuid("filed_by"),
+    /** ARN (GST) or token / provisional receipt number (TDS) from the portal. */
+    acknowledgement: text("acknowledgement"),
+    note: text("note"),
+  },
+  (t) => [uniqueIndex("statutory_filings_period_uq").on(t.returnType, t.period, t.registration)],
+);
+export type StatutoryFiling = typeof statutoryFilings.$inferSelect;
+
+/**
  * Emails that carry a document (invoice PDF, payout statement PDF + CSV) —
  * the notification outbox holds text only, so documents get their own small
  * outbox with the same retry discipline. The document is rendered again at

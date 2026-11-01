@@ -13,7 +13,7 @@ import type { AccountsOverview } from "@/server/accounts/overview";
  * then every function as a tile — two columns on a phone, four on a wide
  * screen, all on one screen. Server component: plain links.
  */
-export function AccountsBoard({ lang, shopName, overview, shopQuery = "" }: { lang: Lang; shopName: string; overview: AccountsOverview; shopQuery?: string }) {
+export function AccountsBoard({ lang, shopName, overview, shopQuery = "", features = [] }: { lang: Lang; shopName: string; overview: AccountsOverview; shopQuery?: string; features?: readonly string[] }) {
   const facts: { key: string; label: string; value: string | null; href: string; tone: string }[] = [
     { key: "gst", label: tr(ACCOUNTS_TEXT.gstPayable, lang), value: overview.gstPayablePaise != null ? formatPaiseCompact(overview.gstPayablePaise) : null, href: "/shop/accounts/gst", tone: "text-violet-800" },
     { key: "stock", label: tr(ACCOUNTS_TEXT.stockValue, lang), value: overview.stockValuePaise != null ? formatPaiseCompact(overview.stockValuePaise) : null, href: "/shop/accounts/stock", tone: "text-teal-800" },
@@ -38,7 +38,7 @@ export function AccountsBoard({ lang, shopName, overview, shopQuery = "" }: { la
       </ul>
       <nav aria-label={tr(ACCOUNTS_TEXT.title, lang)} className="min-h-0 flex-1">
         <ul className="grid h-full grid-cols-2 gap-1.5 [grid-auto-rows:minmax(4.25rem,1fr)] sm:grid-cols-3 lg:grid-cols-4 lg:gap-2.5">
-          {ACCOUNTS_TILES.map((tile) => (
+          {ACCOUNTS_TILES.filter((tile) => !tile.feature || features.includes(tile.feature)).map((tile) => (
             <li key={tile.key} className="min-w-0">
               <Link
                 href={`${tile.href}${shopQuery ? (tile.href.includes("?") ? `&${shopQuery.slice(1)}` : shopQuery) : ""}`}

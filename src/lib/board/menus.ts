@@ -268,6 +268,7 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "accounting", label: L("Accounting software", "अकाउंटिंग सॉफ़्टवेयर", "अकाउंटिंग सॉफ्टवेअर"), icon: "database", href: "/shop/settings/integrations" },
       { key: "registrationFee", label: L("Registration fee", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/shop/manage/registration" },
       { key: "statements", label: L("Payout statements", "भुगतान विवरण", "पेमेंट विवरण"), icon: "file-text", href: "/shop/finance#statements", permission: PERMISSIONS.SETTLEMENT_VIEW_OWN }, // batch-2026-10 WS-E
+      { key: "taxStatements", label: L("TCS, TDS & wallet statements", "TCS, TDS और वॉलेट विवरण", "TCS, TDS आणि वॉलेट विवरणे"), icon: "landmark", href: "/shop/accounts/statements", feature: "billing_v2" }, // docs/billing
     ],
   },
   {
@@ -462,6 +463,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "riderPayouts", label: L("Rider payouts", "राइडर भुगतान", "रायडर पेमेंट"), icon: "bike", href: "/admin/rider-payouts", permission: PERMISSIONS.FINANCE_VIEW, feature: "rider_bank_account_enabled" }, // docs/gig-bank-payouts-2026-10
       { key: "feeInvoices", label: L("GoKesari invoices", "GoKesari बिल", "GoKesari बिले"), icon: "receipt", href: "/admin/platform-invoices", permission: PERMISSIONS.PLATFORM_INVOICE_MANAGE }, // batch-2026-10 WS-E
       { key: "statutory", label: L("TCS / TDS settings", "TCS / TDS सेटिंग", "TCS / TDS सेटिंग्ज"), icon: "file-text", href: "/admin/statutory", permission: PERMISSIONS.STATUTORY_MANAGE }, // batch-2026-10 WS-E
+      { key: "compliance", label: L("Tax returns & due dates", "टैक्स रिटर्न और तारीख़ें", "कर रिटर्न आणि तारखा"), icon: "calendar-clock", href: "/admin/compliance", permission: PERMISSIONS.STATUTORY_MANAGE, feature: "billing_v2" }, // docs/billing
     ],
   },
   {
