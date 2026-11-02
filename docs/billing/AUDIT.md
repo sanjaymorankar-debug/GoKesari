@@ -165,4 +165,4 @@ Expo SDK 57 / React Native 0.86 WebView wrapper (`mobile/`, v1.6.0): every web p
 
 ## §15 Product tracker
 
-Trackers exist: `docs/gokesari-audit/GOKESARI_FEATURE_STATUS_REPORT_<date>.xlsx` (Feature Register, Process Flow Tree, PR Register, Blockers & Decisions), `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx`, `test-cases.xlsx`. None has gap id, Test/Prod environment or web/Android/iOS columns — the billing tracker adds them (`docs/billing/BILLING_TRACKER_2026-11-01.xlsx`).
+Trackers exist: `docs/gokesari-audit/GOKESARI_FEATURE_STATUS_REPORT_<date>.xlsx` (Feature Register, Process Flow Tree, PR Register, Blockers & Decisions), `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx`, `test-cases.xlsx`. None has gap id, Test/Prod environment or web/Android/iOS columns — the billing tracker adds them (`docs/billing/BILLING_TRACKER_2026-11-02.xlsx`).

@@ -115,11 +115,26 @@ Defects found, and what was done:
 
 Not code: E-15 (QA sweeps now list `/api/public/v1/` as token-protected and the DigiLocker mock as a test-site stand-in), E-16 (staging data: COD limit, drained wallet, stale orders, rider and limited-operator sessions), E-17 (SD-01 shop state, SD-05 connection drop).
 
-STAGING_RETEST_RESULTS
+### Fixes on staging, 01-Nov-2026
+
+| Item | Value |
+|---|---|
+| Merge | PR #323 into `staging` 22.27 IST, merge commit `41ef27cc`; CI `test`, `test-split` and `scope` passed on `9169ed1d` (`test` after one re-run: a rider-withdrawal test that waits for an e-mailed code, in code the PR does not touch, failed once and passed on the re-run and in `test-split`) |
+| Deploy | Hostinger build of `41ef27cc` for test.gokesari.com completed 22.32 IST; no migrations |
+| Post-deploy check | test.gokesari.com: 3 healthy rounds in a row, 22.34–22.35 IST |
+| Retest of D-110 to D-117 on staging | **Not run yet.** The owner asked for the production release before it (01-Nov-2026 22.3x IST). The fixes are covered by the automated tests on both layouts (local and CI); the billing flags are off on both sites, so none of the fixed paths runs for shops until a flag is switched on |
 
 ## Prod (gokesari.com)
 
-Not deployed. Waits for: the CA's answers (BLOCKERS B2, B3), a staging pass, and an owner-approved release window (B8). Flags stay OFF after the production deploy, so the deploy itself changes nothing for shops.
+| Item | Value |
+|---|---|
+| Owner's instruction | "push all code to main" (01-Nov-2026 22.3x IST), then "Yes, migrate and merge" |
+| In flight before | none: no other PR into main, last Post-deploy check (b8531a5a) passed, last Hostinger build of gokesari.com completed |
+| Migrations | "Production database" workflow `migrate`, source `staging` (run 41330029033), 01-Nov-2026 22.39–22.41 IST: split layout, **11 migrations applied (0125–0135)**, 0 repairs, 136 recorded, none missing. Restore point 17:09:58 UTC, LSN `0/19BDDA10` (Neon → Restore, PROD_DB.md). Applied before the merge, as DEPLOYMENT.md requires: the old code ran on the new schema overnight (the migrations only add) |
+| Merge | PR #324 (`staging` → `main`) 02-Nov-2026 08.27 IST, merge commit `85a12aa6`; CI `test`, `test-split`, `build` and `scope` passed on `41ef27cc` |
+| Deploy | gokesari.com serves the new build from 08.32 IST (a new route, `/api/invoices/<id>/json`, answers 401 instead of 404) |
+| Post-deploy check | `scripts/release/post-deploy-check.sh https://gokesari.com`: 5 healthy rounds in a row, 08.32–08.36 IST; "Post-deploy check" workflow run 41380443658 passed |
+| Flags | All billing flags off: `POST /api/public/v1/oauth/token` → 404 "This feature is not available." The release changes nothing for shops and customers until a flag is switched on, which waits for the CA's answers (BLOCKERS B2, B3) |
 
 ## Mobile
 
@@ -130,5 +145,5 @@ The Android and iOS apps are a WebView over the website: every billing screen, i
 | Environment | Status |
 |---|---|
 | Local | Pass for phases 1–8 and the gap closure, both layouts (full run 01-Nov-2026 12.17–13.34 IST; pre-existing and environment failures listed above) |
-| Test | Not started |
-| Prod | Not started |
+| Test | Deployed 01-Nov-2026. Staging test 14.55–16.53 IST found D-110 to D-117; all fixed (PR #323, both layouts) and deployed 22.32 IST. Retest of the fixes on staging pending |
+| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. Switching billing on waits for the CA (B2, B3) and a staging retest of D-110 to D-117 |
