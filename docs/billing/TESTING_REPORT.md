@@ -122,7 +122,30 @@ Not code: E-15 (QA sweeps now list `/api/public/v1/` as token-protected and the 
 | Merge | PR #323 into `staging` 22.27 IST, merge commit `41ef27cc`; CI `test`, `test-split` and `scope` passed on `9169ed1d` (`test` after one re-run: a rider-withdrawal test that waits for an e-mailed code, in code the PR does not touch, failed once and passed on the re-run and in `test-split`) |
 | Deploy | Hostinger build of `41ef27cc` for test.gokesari.com completed 22.32 IST; no migrations |
 | Post-deploy check | test.gokesari.com: 3 healthy rounds in a row, 22.34–22.35 IST |
-| Retest of D-110 to D-117 on staging | **Not run yet.** The owner asked for the production release before it (01-Nov-2026 22.3x IST). The fixes are covered by the automated tests on both layouts (local and CI); the billing flags are off on both sites, so none of the fixed paths runs for shops until a flag is switched on |
+| Retest of D-110 to D-117 on staging | Run 02-Nov-2026 11.17–11.44 IST, after the production release (the owner asked for the release first): all pass, see below |
+
+### Retest on staging, 02-Nov-2026 11.17–11.44 IST
+
+test.gokesari.com on `41ef27cc`. The same five flags were switched on for Mysuru (KA-MYS) only, then for Pune (MH-PUN) only, then restored: 19 flags compared before and after, 0 differences, all 11 billing flags off. Evidence: `test-results/qa/billing-v2-staging-retest-2026-11-02/` (log, 50 screenshots, 39 files); collected run `docs/testing/qa-runs/2026-11-02-staging-billing-v2-retest.json`.
+
+| # | Result |
+|---|---|
+| D-110 | Pass. Flags on for KA-MYS only: the Pune shop gets 404 on all 7 billing APIs tried; POS, documents, journals, statements and sync pages go to `/shop/accounts`; no billing tiles, menu item, UPI field or bill links on desktop or phone. Flags on for MH-PUN: all served |
+| D-111 | Pass. Export check: 0 fixes needed (was 254); the Tally zip downloads from the screen and the API; 6 vouchers, all balanced |
+| D-112 | Pass. "Delivery fee invoice (GoKesari)" on the order page and My orders opens GKS/2627/000001 and GKS/2627/000002 (PDF, 200). customer2 404, shop 404, signed out 401, operations 200 (by design) |
+| D-113 | Pass. S2627-00001 (cancelled) to -00004: "Bill of supply" on the page (desktop and phone), A4 PDF, 80 mm receipt, MTR rows and the customer's link |
+| D-114 | Pass. "UPI id for receipts" saved as `testsuccess@gocash` puts a UPI QR on the receipt (`upi://pay?pa=testsuccess%40gocash…`); cleared afterwards |
+| D-115 | Pass. "80 mm receipt", "JSON" (200) and "Share on WhatsApp" (wa.me link naming the document) on the counter bill and the order invoice pages; none on the cancelled bill |
+| D-116 | Pass. New prepaid order DB-20261102-ERAAO8 (₹85, built-in sandbox "Pay (success)", delivered 11.38 IST): its bill of supply BKS-000021/2026-27/000020 has neither the s.52 clause nor "Prices are inclusive of GST". BKS-…/000019 keeps its old notes (notes are fixed at issue, by design) |
+| D-117 | Pass. Both orders: "Paid by customer (online payment) Rs. 85.00" |
+| E-15 | Pass. TC-SEC-001, TC-RBAC-002, TC-AUTH-033 (desktop, 7 rows): 211 pages, 397 write endpoints, 11 public writes and 26 cron endpoints refused |
+
+New defects (open):
+
+| # | Severity | Found |
+|---|---|---|
+| D-118 | Medium (not billing-specific) | API error answers carry no `Cache-Control`; Hostinger's CDN (`server: hcdn`) kept a 404 for about 10–20 s and gave it to the next caller, so the customer briefly got 404 on their own invoice after customer2's refused request. 200 answers are not cached; 401 / 403 were not reused. gokesari.com's 404s also come without `Cache-Control` (checked 02-Nov-2026 as a guest) |
+| D-119 | Low | A bill of supply still says "Invoice total (inclusive of tax)" with CGST / SGST rows in the PDF, and "Total (tax inclusive)" on the page |
 
 ## Prod (gokesari.com)
 
@@ -145,5 +168,5 @@ The Android and iOS apps are a WebView over the website: every billing screen, i
 | Environment | Status |
 |---|---|
 | Local | Pass for phases 1–8 and the gap closure, both layouts (full run 01-Nov-2026 12.17–13.34 IST; pre-existing and environment failures listed above) |
-| Test | Deployed 01-Nov-2026. Staging test 14.55–16.53 IST found D-110 to D-117; all fixed (PR #323, both layouts) and deployed 22.32 IST. Retest of the fixes on staging pending |
-| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. Switching billing on waits for the CA (B2, B3) and a staging retest of D-110 to D-117 |
+| Test | Pass. Staging test 01-Nov-2026 found D-110 to D-117; fixed (PR #323) and all retested as passing on 02-Nov-2026 11.17–11.44 IST. Open: D-118 (Medium), D-119 (Low) |
+| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. Switching billing on waits for the CA (B2, B3); D-118 and D-119 should be fixed first |

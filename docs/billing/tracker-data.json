@@ -1,5 +1,5 @@
 {
-  "updated": "02-Nov-2026 08.40 IST (released to gokesari.com, all billing flags off)",
+  "updated": "02-Nov-2026 11.55 IST (on gokesari.com with flags off; staging retest of D-110..D-117 passed)",
   "branch": "main 85a12aa6 (PR #324); staging 41ef27cc",
   "testingReport": "docs/billing/TESTING_REPORT.md",
   "rows": [
@@ -437,13 +437,13 @@
       "feature": "Testing report (Test and Prod)",
       "section": "§13",
       "gap": "—",
-      "status": "In progress",
+      "status": "Done",
       "env": "Prod (flags off)",
       "web": "—",
       "android": "—",
       "ios": "—",
-      "test": "Local: full suite passed on both layouts. Staging 01-Nov: test found D-110..D-117, fixed in PR #323 (CI both layouts). Prod 02-Nov 08.32 IST: migrations 0125-0135, post-deploy check 5/5, flags off",
-      "notes": "docs/billing/TESTING_REPORT.md (+ PDF). Pending: staging retest of D-110..D-117"
+      "test": "Local: full suite passed, both layouts. Staging: D-110..D-117 found 01-Nov, fixed (PR #323), all retested Pass 02-Nov 11.17-11.44 IST. Prod 02-Nov 08.32 IST: migrations 0125-0135, post-deploy check 5/5, flags off",
+      "notes": "docs/billing/TESTING_REPORT.md (+ PDF). Open: D-118 (Medium, CDN reuses API 404s), D-119 (Low, tax wording on a bill of supply)"
     }
   ]
 }

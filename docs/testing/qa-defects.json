@@ -1697,7 +1697,9 @@
       "actual": "PUT /api/admin/feature-flags {key:billing_v2, enabled:true, districtCodes:[\"KA-MYS\"]} (15.27 IST); as the owner of E2E Four Features Bakery (PIN 411005 → MH-PUN) GET /api/shops/976135a1-ef87-4059-8ca7-2989db8724af/accounts/pos/items → 200 and /shop/accounts/pos serves the POS screen.",
       "expected": "A shop outside the flag's districts gets 404 FEATURE_NOT_AVAILABLE and is redirected away from the POS, as when the flag is off.",
       "fix": "Every billing check calls isFeatureEnabled(key) / requireFeature(key) without { districtCode } (accounts API route, every /shop/accounts page, tax/money-flow.ts:45 and :103, payouts/cycle.ts:253, accounts/platform-posting.ts, tax/daily.ts, public-api/auth.ts), which means 'on anywhere'. Pass the shop's district (districtCodeForPincode(shop.pincode)); for per-order work use the order's shop. Must be fixed before any pilot-district switch-on on gokesari.com, else TCS/TDS/s.9(5) start for every shop in India. — Fixed 01-Nov-2026 (branch fix/billing-v2-staging-qa): isFeatureEnabledForShop / requireFeatureForShop / enabledFeatureKeysForShop (shop PIN → district) used by every billing check — accounts API, /shop/accounts pages, shop menus, money flow, s.9(5), payout TCS/TDS per shop, books posting, statement notices, checkout, invoices, credit notes, public API, Tally connector, e-invoice / e-way bill routes. Tests: billing-security, billing-money-flow (QA D-110).",
-      "status": "Fixed — staging retest pending"
+      "status": "Closed — retested on staging 02-Nov-2026",
+      "fixedIn": "PR #323 (9169ed1d; test.gokesari.com at 41ef27cc)",
+      "retest": "02-Nov-2026 11.21-11.23 IST, test.gokesari.com: billing_v2, tcs_engine, tds_engine, delivery_9_5, tally_connector on for [KA-MYS] only → the Pune shop (PIN 411005 → MH-PUN) gets 404 FEATURE_NOT_AVAILABLE on accounts/pos/items, documents, sync, statements, gst-registration, reports/mtr and the 80 mm receipt; /shop/accounts/pos, documents, journals, statements, sync redirect to /shop/accounts (gst/returns → /shop/accounts/gst); desktop and phone show no billing tiles, no 'TCS, TDS & wallet statements' menu item, no 'UPI id for receipts' field, no Counter POS link, no receipt/JSON/WhatsApp links, no billing reports. On [MH-PUN]: all 7 APIs 200, all 6 pages served, everything shown. Pass. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/d110-probe.json, shots/01-*.png, flags-during.json; run docs/testing/qa-runs/2026-11-02-staging-billing-v2-retest.json."
     },
     {
       "id": "D-111",
@@ -1711,7 +1713,9 @@
       "actual": "/shop/accounts/sync, from 2026-11-01 to 2026-11-02, Tally card → 'Send to software': HTTP 409 FIX_FIRST '254 item(s) must be fixed before exporting' — 126 × 'No HSN code', 126 × 'No GST rate' (every catalogue item, sold or not) and 2 units without UQC. Nothing downloads. The shop is UNREGISTERED and issues bills of supply.",
       "expected": "The zip (gokesari-tally.xml, gokesari-tally.xlsx, gokesari-tally-mapping.tsf) downloads and contains the period's bills (S2627-00002..00004, BKS-000021/2026-27/000019).",
       "fix": "sync/model.ts validateBooks (lines ~331-335) checks every stock item of the shop. Limit the check to items used in the period's vouchers, and do not require HSN/GST rate for a shop that is not GST-registered (or export with a warning). The older Reports → Tally XML does contain the four bills. — Fixed 01-Nov-2026: validateBooks asks HSN, GST rate and UQC of GST-registered shops only (CCompany.gstRegistered). Test: billing-sync 'a shop outside GST (QA D-111)'.",
-      "status": "Fixed — staging retest pending"
+      "status": "Closed — retested on staging 02-Nov-2026",
+      "fixedIn": "PR #323 (9169ed1d; test.gokesari.com at 41ef27cc)",
+      "retest": "02-Nov-2026 11.23-11.24 IST: unregistered shop, tally_connector + billing_v2 on MH-PUN. sync/fixes 2026-11-01..02 → 0 fixes (was 254); Accounts → Sync → Tally 'Send to software' downloads gokesari-tally-2026-11-01-to-2026-11-02.zip (xml, xlsx, tsf); API export 200. The XML holds S2627-00002, -00003, -00004 and BKS-000021/2026-27/000019, 6 vouchers each balancing to 0.00. Pass. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/tally-export-ui/gokesari-tally.xml, shots/02-sync-after-export-desktop.png."
     },
     {
       "id": "D-112",
@@ -1725,7 +1729,9 @@
       "actual": "Order DB-20261101-4NGI5U delivered 15.16 IST; GoKesari's invoice GKS/2627/000001 (5%, taxable ₹23.81, CGST ₹0.59, SGST ₹0.60, GSTIN 27AAAAA0000A1Z5) exists — it is in GoKesari's GSTR-1 2026-11 Table 15. The customer's order page, invoice page, past-orders list and notifications show no link to it; no API returns its id (deliveryFeeInvoiceForOrder has no caller), so /api/delivery-invoices/<id>/pdf cannot be reached.",
       "expected": "The customer gets GoKesari's tax invoice for the delivery fee (link on the order page next to the shop's bill, and/or in the delivered notification).",
       "fix": "Expose deliveryFeeInvoiceForOrder on the order page (and order API) with a link to /api/delivery-invoices/<id>/pdf; consider the delivered notification. — Fixed 01-Nov-2026: platformInvoicesForOrders; 'Delivery fee invoice (GoKesari)' / 'Food invoice (GoKesari)' links on /orders and /orders/[id] (to /api/delivery-invoices/[id]/pdf).",
-      "status": "Fixed — staging retest pending"
+      "status": "Closed — retested on staging 02-Nov-2026",
+      "fixedIn": "PR #323 (9169ed1d; test.gokesari.com at 41ef27cc)",
+      "retest": "02-Nov-2026 11.25-11.33 IST and 11.40 IST: the customer's /orders/<DB-20261101-4NGI5U> (desktop + phone) shows 'Delivery fee invoice (GoKesari)' → /api/delivery-invoices/5e877766…/pdf → 200 PDF of GKS/2627/000001 (click downloads GKS_2627_000001.pdf). Probed one role at a time: customer2 404 (and no access to the order page), signed out 401, shop owner 404, operations 200 (by design). The old order is no longer among the customer's latest 50, so My orders cannot list it; the new order DB-20261102-ERAAO8 shows the link on My orders (past, page 1) and its order page → GKS/2627/000002, 200. Pass. Same-second probes first returned a CDN-cached 404 to every role — see D-118. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/gokesari-delivery-invoice.pdf, shots/03-order-page-*.png, 08-orders-past-*.png."
     },
     {
       "id": "D-113",
@@ -1739,7 +1745,9 @@
       "actual": "E2E Four Features Bakery (UNREGISTERED, GSTIN none). Counter bill S2627-00002: /shop/accounts/sales/4a8321c8-… heading 'Tax invoice'; A4 PDF 'TAX INVOICE … GSTIN: -'; Reports → Marketplace tax report rows for S2627-00002..00004 'Tax invoice'; the same bill's 80 mm receipt 'BILL OF SUPPLY'. The customer's past-orders link for an order is labelled 'Tax invoice' and opens a 'Bill of supply'.",
       "expected": "A shop that is not GST-registered issues bills of supply everywhere (s.31(3)(c), rule 49); one document type across page, PDF, receipt and reports.",
       "fix": "accounts/sales.ts:278 and sales/[id]/page.tsx (pre-existing, 15 Oct) and accounts/billing-reports.ts:260 (billing v2) — choose the title from the shop's registration as salesReceiptPdf does. — Fixed 01-Nov-2026: counterBillKind() for the counter bill page, A4 PDF, 80 mm receipt and MTR; the customer's link shows the issued kind (orderInvoiceLabel).",
-      "status": "Fixed — staging retest pending"
+      "status": "Closed — retested on staging 02-Nov-2026",
+      "fixedIn": "PR #323 (9169ed1d; test.gokesari.com at 41ef27cc)",
+      "retest": "02-Nov-2026 11.26-11.27 IST: S2627-00001 (cancelled) to -00004 — page heading 'Bill of supply' (desktop + phone, no 'Tax invoice' on the page), A4 PDF 'BILL OF SUPPLY', 80 mm receipt 'BILL OF SUPPLY'; MTR (API and screen) rows 'Bill of supply'; the customer's link for both orders reads 'Bill of supply'. Pass. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/counter-*.pdf, mtr-2026-11-01..03.json, shots/04-*.png."
     },
     {
       "id": "D-114",
@@ -1752,7 +1760,9 @@
       "actual": "inv_settings.upiVpa is read by salesReceiptPdf but only PATCH /api/shops/<id>/accounts/settings writes it; /shop/accounts/settings has no UPI field. With it empty the 80 mm receipt has no QR. Set through the API to the Cashfree sandbox VPA testsuccess@gocash, the receipt shows the QR captioned 'Pay Rs.40.00 by UPI'.",
       "expected": "An owner can enter the shop's UPI id in Settings and the receipt shows the payment QR.",
       "fix": "Add the UPI id field to the accounts Settings form (validate VPA format). — Fixed 01-Nov-2026: 'UPI id for receipts' field under Accounts → Settings while billing_v2 covers the shop.",
-      "status": "Fixed — staging retest pending"
+      "status": "Closed — retested on staging 02-Nov-2026",
+      "fixedIn": "PR #323 (9169ed1d; test.gokesari.com at 41ef27cc)",
+      "retest": "02-Nov-2026 11.34-11.35 IST: Accounts → Settings shows 'UPI id for receipts' (desktop + phone) while billing_v2 covers MH-PUN (hidden under KA-MYS). Saved testsuccess@gocash (Cashfree sandbox VPA) through the form → 'Saved.'; the 80 mm receipt of S2627-00002 then carries a QR decoding to upi://pay?pa=testsuccess%40gocash&…&am=40.00&cu=INR, caption 'Pay Rs.40.00 by UPI'. Cleared through the form → upiVpa null. Pass. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/receipt-S2627-00002-with-upi.png, shots/05-settings-*.png."
     },
     {
       "id": "D-115",
@@ -1766,7 +1776,9 @@
       "actual": "whatsappShareUrl (invoicing/outputs.ts) has no caller: no WhatsApp share anywhere. The counter-bill page offers only 'Download PDF' (the 80 mm receipt is linked only from the POS 'Sent bills' list); /invoices/<id> offers only 'Download PDF' — ?format=thermal and /api/invoices/<id>/json work (200) but are not linked.",
       "expected": "§4.6: A4 + 80 mm, WhatsApp/email, UPI QR, JSON reachable from the bill.",
       "fix": "Add 80 mm receipt, JSON and WhatsApp share actions to /shop/accounts/sales/[id] and /invoices/[id]. — Fixed 01-Nov-2026: '80 mm receipt', 'JSON' and 'Share on WhatsApp' on the counter bill page and the order's invoice page.",
-      "status": "Fixed — staging retest pending"
+      "status": "Closed — retested on staging 02-Nov-2026",
+      "fixedIn": "PR #323 (9169ed1d; test.gokesari.com at 41ef27cc)",
+      "retest": "02-Nov-2026 11.34-11.39 IST: counter bill S2627-00002 has '80 mm receipt' (200 PDF), 'JSON' (200) and 'Share on WhatsApp' (wa.me, text 'Bill of supply S2627-00002 from E2E Four Features Bakery, 2026-11-01: ₹40.00. …'); cancelled S2627-00001 has no WhatsApp link; /invoices/<BKS-000021…019> (desktop + phone) and the new …000020 have the same three links (200 / 200 / wa.me text naming the bill of supply and order). Pass. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/shots/06-*.png, log.jsonl step 6."
     },
     {
       "id": "D-116",
@@ -1780,7 +1792,9 @@
       "actual": "BKS-000021/2026-27/000019 (unregistered shop; money flow TCS applicable 0) prints 'Supplied through the electronic commerce operator … which collects tax at source under section 52 of the CGST Act' and 'Prices are inclusive of GST. Tax is shown as included in each line.'",
       "expected": "No TCS statement where TCS is not collected (D13); no GST-inclusive wording on a bill of supply.",
       "fix": "services/invoices.ts:330 (added in bf6d71be): only when TCS applies to the supplier; skip the inclusive-GST note for BILL_OF_SUPPLY. — Fixed 01-Nov-2026: the s.52 TCS note and 'Prices are inclusive of GST' only on tax invoices.",
-      "status": "Fixed — staging retest pending"
+      "status": "Closed — retested on staging 02-Nov-2026",
+      "fixedIn": "PR #323 (9169ed1d; test.gokesari.com at 41ef27cc)",
+      "retest": "02-Nov-2026 11.36-11.39 IST: new ONLINE order DB-20261102-ERAAO8 (sandbox 'Pay (success)', delivered 11.38 IST) → bill of supply BKS-000021/2026-27/000020: no 's.52 … collects tax at source' clause and no 'Prices are inclusive of GST' on the A4 PDF, 80 mm receipt, JSON or invoice page; the ECO note reads 'Supplied through the electronic commerce operator … (GSTIN 27AAAAA0000A1Z5).' BKS-000021/…/000019 keeps its issue-time notes, by design. Pass. Remaining 'Invoice total (inclusive of tax)' label: D-119. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/new-DB-20261102-ERAAO8-invoice-a4.txt, shots/08-new-*-invoice-page-*.png."
     },
     {
       "id": "D-117",
@@ -1793,7 +1807,9 @@
       "actual": "DB-20261101-4NGI5U was paid through the gateway (sandbox UPI); its bill of supply's PAYMENT block reads 'Paid by customer (GoKesari wallet) Rs. 85.00'.",
       "expected": "'online payment' for ONLINE, 'GoKesari wallet' for WALLET, 'cash on delivery' for COD.",
       "fix": "services/invoices.ts:606 maps every non-COD method to 'GoKesari wallet'. — Fixed 01-Nov-2026: paidHow() — 'online payment' / 'GoKesari wallet' / 'cash on delivery' on the PDF and the invoice page.",
-      "status": "Fixed — staging retest pending"
+      "status": "Closed — retested on staging 02-Nov-2026",
+      "fixedIn": "PR #323 (9169ed1d; test.gokesari.com at 41ef27cc)",
+      "retest": "02-Nov-2026 11.39-11.40 IST: DB-20261101-4NGI5U (rendered now) and DB-20261102-ERAAO8 — A4 PDF 'Paid by customer (online payment) Rs. 85.00', invoice page 'Paid by the customer (online payment): ₹85.00'; no 'GoKesari wallet'. Pass. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/old-DB-20261101-4NGI5U-invoice-a4.txt, new-DB-20261102-ERAAO8-invoice-a4.txt."
     },
     {
       "id": "E-15",
@@ -1808,7 +1824,9 @@
       "actual": "Guest: POST /api/public/v1/books → 404 NOT_FOUND and POST /api/public/v1/oauth/token → 404 NOT_FOUND ('This feature is not available.' — billing_v2 off); POST /api/kyc-mock/digilocker → 400; GET /mobile-auth/digilocker-mock → 200.",
       "expected": "By design: /api/public/v1/* and /api/connector/v1/* carry their own bearer token, not a session (billing DECISIONS D29), and answer 404 while billing_v2 is off; the DigiLocker mock page and endpoint stand in for DigiLocker's external screens on non-production sites (notFound() on gokesari.com).",
       "fix": "Fixed 01-Nov-2026 in tests/qa/lib/routes.ts: /api/public/v1/ in SECRET_PREFIXES, /api/kyc-mock/digilocker in PUBLIC_WRITES, /mobile-auth/digilocker-mock in PUBLIC_PAGES.",
-      "status": "Fixed — staging retest pending"
+      "status": "Closed — retested on staging 02-Nov-2026",
+      "fixedIn": "PR #323 (tests/qa/lib/routes.ts)",
+      "retest": "02-Nov-2026 11.17-11.20 IST, test.gokesari.com, billing flags all off: tests/qa/guest -g 'TC-SEC-001|TC-RBAC-002|TC-AUTH-033' → 4 checks, 7 rows, all pass (211 signed-in pages and account APIs refused; 397 session-protected write endpoints refused; 11 public write endpoints refused; 26 cron endpoints refused). Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/e15-run.log, files/e15-results-desktop.jsonl; run docs/testing/qa-runs/2026-11-02-staging-billing-v2-retest.json."
     },
     {
       "id": "E-16",
@@ -1840,6 +1858,33 @@
       "actual": "SD-01 with an empty stash: POST /api/shops → 409 'QA Docs 2026-10-29 mvwqg3hm is already waiting for approval'; with the stash restored it reuses that shop, which the 31 Oct run moved past SD-01's precondition (fee API no longer refuses: reason undefined). SD-05: page.goto /admin/shops/missing-documents?view=pending → net::ERR_CONNECTION_CLOSED twice (16.47, 16.49 IST), while direct requests and a fresh browser get 200 in < 1 s on desktop and phone (16.49 IST).",
       "expected": "SD-01 runs on a shop without verified or promised documents; SD-05 loads the page.",
       "fix": "Test data: approve/close the pending QA Docs shop so SD-01 can register a fresh one, or let SD-01 block when the reused shop is past its state. SD-05: inspect the trace (test-results/qa/artifacts/test.gokesari.com/…SD-05…); not reproduced outside the check. Neither touches billing v2.",
+      "status": "Open"
+    },
+    {
+      "id": "D-118",
+      "title": "Hostinger's CDN serves an API route's 404 to other sessions for 10-20 s: error answers carry no Cache-Control",
+      "cases": [
+        "BILLING-V2 retest step 3 (D-112 access check)"
+      ],
+      "severity": "Medium",
+      "found": "2026-11-02 staging billing v2 retest (test.gokesari.com at 41ef27cc), 11.26-11.33 IST — not billing v2 specific",
+      "actual": "GET /api/delivery-invoices/5e877766-223d-4a00-9586-2cb8a4e3f93c/pdf at 11.27.59 IST: customer 200 PDF (Cache-Control: private, no-store; x-hcdn-cache-status DYNAMIC) → customer2 404 {\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Invoice not found.\"}} with no Cache-Control → the customer then gets that 404 (age: 0, server hcdn), and a signed-out caller gets 404 instead of the route's 401; at 11.28.17 the customer's own invoice answered 404 for 10-20 s (age 0 → 10) before 200 again. Same on /api/invoices/<id>/json and /pdf (customer2 404 → customer 404 age=0). 200 JSON answers (wallet, settings) are DYNAMIC; 401 and 403 answers were not reused. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/d118-cdn-404-probe.txt, log.jsonl step 3.",
+      "expected": "An answer that depends on who is signed in is never shared: a 404 / 401 for one user is not served to another; the invoice's own customer always gets the PDF.",
+      "fix": "Suggested (not changed in this retest): send Cache-Control: private, no-store on API error answers — toClientError users: route() in src/server/api/handler.ts and hand-written routes such as src/app/api/delivery-invoices/[id]/pdf/route.ts and src/app/api/invoices/[id]/* — or a Hostinger CDN rule that bypasses the cache for /api/*. gokesari.com was not probed (production is read-only for this retest); check whether it sits behind the same CDN. QA: refusal checks that switch roles on one URL must pause about 25 s or use distinct URLs.",
+      "status": "Open"
+    },
+    {
+      "id": "D-119",
+      "title": "Bill of supply still labels its total 'inclusive of tax' and lists CGST / SGST rows",
+      "cases": [
+        "BILLING-V2 retest step 7 (D-116 follow-up)",
+        "scenario 3"
+      ],
+      "severity": "Low",
+      "found": "2026-11-02 staging billing v2 retest (test.gokesari.com at 41ef27cc), 11.39 IST",
+      "actual": "BKS-000021/2026-27/000020 of DB-20261102-ERAAO8 (E2E Four Features Bakery, not GST-registered; its note says 'Bill of supply: no GST is charged.'): the A4 PDF reads 'Supply: Intra-state (CGST + SGST)', rows 'CGST Rs. 0.00', 'SGST Rs. 0.00' and 'Invoice total (inclusive of tax) Rs. 60.00'; the invoice page /invoices/87e9fe19-… reads 'Total (tax inclusive)'. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/new-DB-20261102-ERAAO8-invoice-a4.txt, shots/08-new-DB-20261102-ERAAO8-invoice-page-desktop.png.",
+      "expected": "D-116's expected result: no GST-inclusive wording on a bill of supply (s.31(3)(c), Rule 49) — e.g. 'Total' / 'Amount' without tax wording and without CGST/SGST rows when the document is a bill of supply.",
+      "fix": "Suggested (not changed in this retest): src/server/services/invoices.ts:616 (invoiceTextLines, 'Invoice total (inclusive of tax)' for every kind) and src/app/invoices/[id]/page.tsx:162 ('Total (tax inclusive)'): choose the label by s.kind, and leave out the CGST/SGST/IGST rows and the supply-type tax note for BILL_OF_SUPPLY. Snapshots keep their data; only the rendering changes.",
       "status": "Open"
     }
   ]
