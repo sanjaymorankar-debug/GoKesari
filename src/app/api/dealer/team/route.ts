@@ -2,6 +2,8 @@
  * The dealer portal's TIERED network (docs/dealer-programme/TIERED_COMMISSION.md), for a
  * main dealer and for a team lead or agent signed in with their own account.
  *
+ * GET ?view=mapping[&format=csv] / ?view=history → the main dealer's team mapping table and history;
+ *     ?view=shops → my own shops (drill-down).
  * GET → who I am in the network, the team tree (main dealer and leads), my earnings by type
  *     and level, and the TRADING progress of my shops.
  * POST { action, … }:
@@ -10,7 +12,7 @@
  *   addMember {employeeId, name, mobile?, role, parentId?} — the main dealer, in their own network
  *   payee {pan?, bankHolderName?, bankAccount?, ifsc?} — a team member's own payment details
  */
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { TEAM_ROLES } from "@/lib/dealer-tiers";
@@ -19,7 +21,19 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { requireUser } from "@/server/authz/guards";
 import { requireDealerProgramme } from "@/server/dealers/http";
 import { addSalesperson, getDealerForUser } from "@/server/dealers/service";
-import { acceptAgentAgreement, earningsByType, getMemberForUser, requestSubAgent, saveMemberPayee, teamTree, tradingProgress } from "@/server/dealers/tiered";
+import {
+  acceptAgentAgreement,
+  earningsByType,
+  getMemberForUser,
+  mappingHistory,
+  memberShops,
+  requestSubAgent,
+  saveMemberPayee,
+  teamMapping,
+  teamMappingCsv,
+  teamTree,
+  tradingProgress,
+} from "@/server/dealers/tiered";
 
 export const dynamic = "force-dynamic";
 
@@ -38,10 +52,25 @@ async function whoAmI(userId: string) {
   throw forbidden("Only an approved dealer or a member of a dealer team can see this.");
 }
 
-export const GET = route(async () => {
+export const GET = route(async (request: NextRequest) => {
   await requireDealerProgramme();
   const user = await requireUser();
   const { dealer, member } = await whoAmI(user.id);
+  const params = request.nextUrl.searchParams;
+  // Gap report A9: the main dealer's team mapping table (CSV) and history; anyone's own shops.
+  if (params.get("view") === "mapping") {
+    if (member) throw forbidden("Only the main dealer sees the whole team mapping.");
+    const rows = await teamMapping(dealer.id);
+    if (params.get("format") === "csv") {
+      return new NextResponse(teamMappingCsv(rows), { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="my-team.csv"', "cache-control": "private, no-store" } });
+    }
+    return ok({ rows });
+  }
+  if (params.get("view") === "history") {
+    if (member) throw forbidden("Only the main dealer sees the team history.");
+    return ok({ history: await mappingHistory(dealer.id) });
+  }
+  if (params.get("view") === "shops") return ok({ shops: await memberShops(dealer.id, member ? member.id : null) });
   const [tree, earnings, trading] = await Promise.all([
     !member || member.teamRole === "TEAM_LEAD" ? teamTree(dealer.id) : null,
     earningsByType(dealer.id, member ? member.id : null),
@@ -59,7 +88,12 @@ export const POST = route(async (request: NextRequest) => {
   const actor = { id: user.id, role: user.role };
   switch (body.action) {
     case "acceptAgreement":
-      return ok(await acceptAgentAgreement(actor, body.version));
+      return ok(
+        await acceptAgentAgreement(actor, body.version, {
+          ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
+          userAgent: request.headers.get("user-agent"),
+        }),
+      );
     case "requestSubAgent":
       return ok(await requestSubAgent(actor, body));
     case "addMember": {

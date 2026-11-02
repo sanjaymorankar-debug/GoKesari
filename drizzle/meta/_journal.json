@@ -967,6 +967,13 @@
       "when": 1793176040000,
       "tag": "0137_shop_referrals",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1793176050000,
+      "tag": "0138_dealer_team_history",
+      "breakpoints": true
     }
   ]
 }

@@ -27,6 +27,7 @@ interface MemberView {
   panOnFile: boolean;
   bankStatus: string;
   activatedShops: number;
+  mobileMasked?: string | null;
 }
 export interface TeamTreeView {
   dealer: { id: string; name: string; model: string; agreementAccepted: boolean; activatedShops: number };
@@ -208,7 +209,14 @@ export function DealerTeam({
 
       {tree ? (
         <section aria-label="Team" className="space-y-2">
-          <h3 className="text-sm font-bold text-ink-900">Team</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-ink-900">Team</h3>
+            {role === "MAIN_DEALER" ? (
+              <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 px-3 text-sm font-medium text-ink-700 hover:bg-cream-100" href="/api/dealer/team?view=mapping&format=csv">
+                Download team (CSV)
+              </a>
+            ) : null}
+          </div>
           <ul className="space-y-2 text-sm" data-testid="team-tree">
             {role === "MAIN_DEALER" ? (
               <li className="font-semibold">
@@ -218,7 +226,7 @@ export function DealerTeam({
             {tree.members.map((m) => (
               <li key={m.id} className="rounded-xl border border-cream-200 p-2">
                 <p>
-                  <span className="font-semibold">{m.name}</span> ({m.employeeId}) · {NETWORK_ROLE_LABELS[m.role]} · {LEVEL[m.level]} · {m.activatedShops} shops
+                  <span className="font-semibold">{m.name}</span> ({m.employeeId}{m.mobileMasked ? ` · ${m.mobileMasked}` : ""}) · {NETWORK_ROLE_LABELS[m.role]} · {LEVEL[m.level]} · {m.activatedShops} shops
                   {!m.agreementAccepted ? <Badge tone="warning">agreement pending</Badge> : null}
                   {m.status !== "ACTIVE" ? <Badge tone="neutral">inactive</Badge> : null}
                 </p>
@@ -226,7 +234,7 @@ export function DealerTeam({
                   <ul className="mt-1 space-y-1 border-l-2 border-cream-200 pl-3">
                     {m.agents.map((a) => (
                       <li key={a.id}>
-                        {a.name} ({a.employeeId}) · {NETWORK_ROLE_LABELS[a.role]} · {LEVEL[a.level]} · {a.activatedShops} shops
+                        {a.name} ({a.employeeId}{a.mobileMasked ? ` · ${a.mobileMasked}` : ""}) · {NETWORK_ROLE_LABELS[a.role]} · {LEVEL[a.level]} · {a.activatedShops} shops
                         {!a.agreementAccepted ? <Badge tone="warning">agreement pending</Badge> : null}
                       </li>
                     ))}

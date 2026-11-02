@@ -38,22 +38,27 @@
  * in routes); a main dealer may add members to his own network. Everything is
  * audited with the old value, the new value and the reason.
  */
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 
 import { checkAccountNumber, checkIfsc } from "@/lib/bank-accounts";
-import { AGENT_AGREEMENT_VERSION, type CommissionEntryType, type NetworkRole, type TeamRole } from "@/lib/dealer-tiers";
+import { createHash } from "node:crypto";
+
+import { AGENT_AGREEMENT_TEXT, AGENT_AGREEMENT_VERSION, type CommissionEntryType, type NetworkRole, type TeamRole } from "@/lib/dealer-tiers";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
 import { db, type DbClient } from "@/server/db";
 import {
+  dealerAgreementAcceptances,
   dealerCommissionLedger,
   dealerSalespeople,
   dealerTeamDevelopments,
+  dealerTeamMappingHistory,
   dealerTeamRequests,
   dealerTierShopPlans,
   dealers,
   orderStatusHistory,
   orders,
+  referralCodes,
   shopAttributions,
   shopPayments,
   shops,
@@ -63,6 +68,7 @@ import {
   type DealerCommissionEntry,
   type DealerCommissionSettings,
   type DealerSalesperson,
+  type DealerTeamMapping,
   type DealerTierShopPlan,
   type LedgerMilestone,
   type Shop,
@@ -86,6 +92,9 @@ interface Actor {
 
 export type TierRule = Awaited<ReturnType<typeof tierRule>>;
 export const tierRule = () => getRule("dealerTieredCommission");
+
+/** The agreement's text fingerprint, kept with every acceptance. */
+export const AGENT_AGREEMENT_SHA256 = createHash("sha256").update(AGENT_AGREEMENT_TEXT.join("\n")).digest("hex");
 
 /** Note on an entry waiting for its payee to accept the agent agreement; acceptance releases it. */
 export const AGREEMENT_HOLD_NOTE = "held: the agent agreement is not accepted yet — released when it is";
@@ -208,14 +217,18 @@ async function placementFor(tx: DbClient, dealerId: string, signerId: string | n
   if (!signerId) return { direct: null, lead: null, mainOverride: false, development: null };
   const [direct] = await tx.select().from(dealerSalespeople).where(and(eq(dealerSalespeople.id, signerId), eq(dealerSalespeople.dealerId, dealerId)));
   if (!direct) return { direct: null, lead: null, mainOverride: false, development: null };
+  // Gap report A9: the signer's place in the team on the shop's registration date, not today's.
+  const placed = await mappingAt(tx, direct.id, at);
+  const role = placed?.teamRole ?? direct.teamRole;
+  const parentId = placed ? placed.parentId : direct.parentId;
   let lead: DealerSalesperson | null = null;
-  if (direct.teamRole === "AGENT" && direct.parentId) {
-    const [p] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, direct.parentId));
+  if (role === "AGENT" && parentId) {
+    const [p] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, parentId));
     // An inactive lead is a missing level.
-    lead = p && p.status === "ACTIVE" && p.teamRole === "TEAM_LEAD" ? p : null;
+    lead = p && p.status === "ACTIVE" ? p : null;
   }
   // The team whose former lead may have a development bonus: the lead's team (or the lead's own shop).
-  const teamLeadId = direct.teamRole === "TEAM_LEAD" ? direct.id : lead?.id ?? null;
+  const teamLeadId = role === "TEAM_LEAD" ? direct.id : lead?.id ?? null;
   let development: Placement["development"] = null;
   if (teamLeadId) {
     const [dev] = await tx
@@ -230,6 +243,67 @@ async function placementFor(tx: DbClient, dealerId: string, signerId: string | n
     }
   }
   return { direct, lead, mainOverride: true, development };
+}
+
+/* ======================================================= mapping history */
+
+/** The place a member held at `at` (gap report A9); null when the history has no row for then. */
+export async function mappingAt(client: DbClient, memberId: string, at: Date): Promise<DealerTeamMapping | null> {
+  const [row] = await client
+    .select()
+    .from(dealerTeamMappingHistory)
+    .where(and(eq(dealerTeamMappingHistory.memberId, memberId), lte(dealerTeamMappingHistory.validFrom, at), or(isNull(dealerTeamMappingHistory.validTo), gt(dealerTeamMappingHistory.validTo, at))))
+    .orderBy(desc(dealerTeamMappingHistory.validFrom))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Closes the member's open place and opens the current one (role, level, lead)
+ * from `at`. Called by every change of place, inside its transaction.
+ */
+export async function recordMapping(tx: DbClient, memberId: string, reason: string, actorId: string | null, at: Date = new Date()): Promise<void> {
+  const [m] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId));
+  if (!m) return;
+  const [open] = await tx.select().from(dealerTeamMappingHistory).where(and(eq(dealerTeamMappingHistory.memberId, memberId), isNull(dealerTeamMappingHistory.validTo)));
+  if (open && open.teamRole === m.teamRole && open.depth === m.depth && open.parentId === m.parentId) return;
+  if (open) await tx.update(dealerTeamMappingHistory).set({ validTo: at }).where(eq(dealerTeamMappingHistory.id, open.id));
+  await tx.insert(dealerTeamMappingHistory).values({ dealerId: m.dealerId, memberId, teamRole: m.teamRole, depth: m.depth, parentId: m.parentId, validFrom: at, reason: reason.slice(0, 500), changedBy: actorId });
+}
+
+export interface MappingHistoryRow {
+  memberId: string;
+  memberName: string;
+  role: TeamRole;
+  level: number;
+  leadName: string | null;
+  validFrom: Date;
+  validTo: Date | null;
+  reason: string;
+  changedBy: string | null;
+}
+
+/** A dealer's mapping history, newest first (admin, and the main dealer for his own network). */
+export async function mappingHistory(dealerId: string, memberId?: string): Promise<MappingHistoryRow[]> {
+  const rows = await db
+    .select({ h: dealerTeamMappingHistory, memberName: dealerSalespeople.name })
+    .from(dealerTeamMappingHistory)
+    .innerJoin(dealerSalespeople, eq(dealerSalespeople.id, dealerTeamMappingHistory.memberId))
+    .where(and(eq(dealerTeamMappingHistory.dealerId, dealerId), memberId ? eq(dealerTeamMappingHistory.memberId, memberId) : sql`true`))
+    .orderBy(desc(dealerTeamMappingHistory.validFrom))
+    .limit(2000);
+  const names = new Map((await db.select({ id: dealerSalespeople.id, name: dealerSalespeople.name }).from(dealerSalespeople).where(eq(dealerSalespeople.dealerId, dealerId))).map((m) => [m.id, m.name]));
+  return rows.map(({ h, memberName }) => ({
+    memberId: h.memberId,
+    memberName,
+    role: h.teamRole,
+    level: h.depth,
+    leadName: h.parentId ? (names.get(h.parentId) ?? null) : null,
+    validFrom: h.validFrom,
+    validTo: h.validTo,
+    reason: h.reason,
+    changedBy: h.changedBy,
+  }));
 }
 
 /* ================================================================ ledger */
@@ -396,7 +470,8 @@ export async function accrueTieredActivation(
     if (!plan) {
       const fee = feeBasePaise(shop);
       if (fee <= 0) return null;
-      const place = await placementFor(tx, dealerId, salespersonId, now);
+      // Gap report A9: who earns follows the team on the shop's registration date.
+      const place = await placementFor(tx, dealerId, salespersonId, shop.createdAt);
       const rates = tierRatesFor(dealer, rule);
       const adj = bonusOn ? ratingAdjustmentBp(dealer.rating, dealer.ratingStepBp ?? settings.ratingStepBp) : 0;
       [plan] = await tx
@@ -830,6 +905,8 @@ export interface TeamMemberView {
   bankLast4: string | null;
   activatedShops: number;
   promotedAt: Date | null;
+  /** "+91••••••1234" (gap report A9: masked, never left out). */
+  mobileMasked: string | null;
 }
 
 export interface TeamTree {
@@ -872,6 +949,7 @@ export async function teamTree(dealerId: string): Promise<TeamTree> {
     bankLast4: m.bankAccountLast4,
     activatedShops: counts.get(m.id) ?? 0,
     promotedAt: m.promotedAt,
+    mobileMasked: maskMobile(m.mobileE164),
   });
   return {
     dealer: {
@@ -884,6 +962,149 @@ export async function teamTree(dealerId: string): Promise<TeamTree> {
     members: members.filter((m) => m.depth === 2).map((m) => ({ ...view(m), agents: members.filter((a) => a.parentId === m.id).map(view) })),
     pendingRequests: pending,
   };
+}
+
+const maskMobile = (e164: string | null) => (e164 ? `${e164.slice(0, 3)}••••••${e164.slice(-4)}` : null);
+
+/* ======================================================= team mapping table */
+
+export interface TeamMappingRow {
+  /** Null: the main dealer's own row. */
+  memberId: string | null;
+  employeeId: string;
+  name: string;
+  mobileMasked: string | null;
+  role: NetworkRole;
+  level: number;
+  leadName: string | null;
+  status: string;
+  agreementAccepted: boolean;
+  code: string | null;
+  registered: number;
+  activated: number;
+  trading: number;
+  /** Shops of theirs with a delivered order in the last 30 days. */
+  active30: number;
+  commissionMonthPaise: number;
+  commissionAllPaise: number;
+}
+
+/**
+ * Gap report A9: the team mapping table — every person in the network with
+ * their place, counts and commission; filters by role, lead and status.
+ */
+export async function teamMapping(dealerId: string, filter: { role?: NetworkRole; leadId?: string; status?: "ACTIVE" | "INACTIVE" } = {}): Promise<TeamMappingRow[]> {
+  const [dealer] = await db.select().from(dealers).where(eq(dealers.id, dealerId));
+  if (!dealer) throw notFound("Dealer");
+  const { listDealerCodes } = await import("./codes");
+  const [members, attributions, plans, ledger, codes] = await Promise.all([
+    db.select().from(dealerSalespeople).where(eq(dealerSalespeople.dealerId, dealerId)).orderBy(asc(dealerSalespeople.createdAt)),
+    db.select({ shopId: shopAttributions.shopId, member: shopAttributions.salespersonId, status: shopAttributions.status, activatedAt: shopAttributions.activatedAt }).from(shopAttributions).where(eq(shopAttributions.dealerId, dealerId)),
+    db.select({ shopId: dealerTierShopPlans.shopId, member: dealerTierShopPlans.directMemberId, status: dealerTierShopPlans.status }).from(dealerTierShopPlans).where(eq(dealerTierShopPlans.dealerId, dealerId)),
+    db
+      .select({ payee: dealerCommissionLedger.payeeMemberId, amount: dealerCommissionLedger.amountPaise, status: dealerCommissionLedger.status, createdAt: dealerCommissionLedger.createdAt })
+      .from(dealerCommissionLedger)
+      .where(eq(dealerCommissionLedger.dealerId, dealerId)),
+    listDealerCodes(dealerId),
+  ]);
+  const since = new Date(Date.now() - 30 * DAY);
+  const shopIds = attributions.filter((a) => a.status === "ACTIVE").map((a) => a.shopId);
+  const activeShops = new Set(
+    shopIds.length
+      ? (
+          await db
+            .selectDistinct({ shopId: orders.shopId })
+            .from(orderStatusHistory)
+            .innerJoin(orders, eq(orders.id, orderStatusHistory.orderId))
+            .where(and(inArray(orders.shopId, shopIds), eq(orderStatusHistory.newStatus, "DELIVERED"), gte(orderStatusHistory.createdAt, since)))
+        ).map((r) => r.shopId)
+      : [],
+  );
+  const monthStart = new Date(`${new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 7)}-01T00:00:00+05:30`);
+  const names = new Map(members.map((m) => [m.id, m.name]));
+  const row = (m: DealerSalesperson | null): TeamMappingRow => {
+    const key = m?.id ?? null;
+    const mine = attributions.filter((a) => a.status === "ACTIVE" && a.member === key);
+    const earned = ledger.filter((e) => e.payee === key && e.status !== "REVERSED");
+    const code = codes.filter((c) => c.status === "ACTIVE" && (m ? c.salespersonId === m.id : c.kind !== "SALESPERSON")).at(-1)?.code ?? null;
+    return {
+      memberId: key,
+      employeeId: m?.employeeId ?? "—",
+      name: m?.name ?? dealer.legalName,
+      mobileMasked: maskMobile(m ? m.mobileE164 : dealer.mobileE164),
+      role: roleOf(m),
+      level: levelOf(m),
+      leadName: m?.parentId ? (names.get(m.parentId) ?? null) : null,
+      status: m?.status ?? dealer.status,
+      agreementAccepted: agreementAccepted(m, dealer),
+      code,
+      registered: mine.length,
+      activated: mine.filter((a) => a.activatedAt).length,
+      trading: plans.filter((p) => p.member === key && p.status === "TRADING").length,
+      active30: mine.filter((a) => activeShops.has(a.shopId)).length,
+      commissionMonthPaise: earned.filter((e) => e.createdAt >= monthStart).reduce((t, e) => t + e.amount, 0),
+      commissionAllPaise: earned.reduce((t, e) => t + e.amount, 0),
+    };
+  };
+  return [row(null), ...members.map(row)].filter(
+    (r) =>
+      (!filter.role || r.role === filter.role) &&
+      (!filter.status || r.status === filter.status) &&
+      (!filter.leadId || members.find((m) => m.id === r.memberId)?.parentId === filter.leadId || r.memberId === filter.leadId),
+  );
+}
+
+/** The team mapping table as CSV (masked mobiles). */
+export function teamMappingCsv(rows: TeamMappingRow[]): string {
+  const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const head = ["Employee ID", "Name", "Mobile", "Role", "Level", "Team lead", "Status", "Agreement", "Code", "Registered", "Activated", "Trading", "Active (30 days)", "Commission this month (Rs)", "Commission all time (Rs)"];
+  return [
+    head.map(esc).join(","),
+    ...rows.map((r) =>
+      [r.employeeId, r.name, r.mobileMasked ?? "", r.role, r.level, r.leadName ?? "", r.status, r.agreementAccepted ? "accepted" : "pending", r.code ?? "", r.registered, r.activated, r.trading, r.active30, r.commissionMonthPaise / 100, r.commissionAllPaise / 100]
+        .map(esc)
+        .join(","),
+    ),
+  ].join("\n");
+}
+
+export interface MemberShopRow {
+  shopId: string;
+  shopName: string;
+  registrationNumber: string | null;
+  pincode: string;
+  signedBy: string;
+  code: string | null;
+  registeredOn: string;
+  shopStatus: string;
+  attribution: "ACTIVE" | "REVERSED";
+  plan: DealerTierShopPlan["status"] | null;
+}
+
+/** Drill-down from the tree: the shops one person signed (memberId null: the main dealer's own). */
+export async function memberShops(dealerId: string, memberId: string | null): Promise<MemberShopRow[]> {
+  const rows = await db
+    .select({ a: shopAttributions, shop: shops, signer: dealerSalespeople.name, plan: dealerTierShopPlans.status, code: referralCodes.code })
+    .from(shopAttributions)
+    .innerJoin(shops, eq(shops.id, shopAttributions.shopId))
+    .leftJoin(dealerSalespeople, eq(dealerSalespeople.id, shopAttributions.salespersonId))
+    .leftJoin(dealerTierShopPlans, eq(dealerTierShopPlans.shopId, shopAttributions.shopId))
+    .leftJoin(referralCodes, eq(referralCodes.id, shopAttributions.referralCodeId))
+    .where(and(eq(shopAttributions.dealerId, dealerId), memberId ? eq(shopAttributions.salespersonId, memberId) : isNull(shopAttributions.salespersonId)))
+    .orderBy(desc(shopAttributions.createdAt))
+    .limit(1000);
+  return rows.map((r) => ({
+    shopId: r.shop.id,
+    shopName: r.shop.name,
+    registrationNumber: r.shop.registrationNumber,
+    pincode: r.shop.pincode,
+    signedBy: r.signer ?? "Main dealer",
+    code: r.code ?? null,
+    registeredOn: new Date(r.shop.createdAt.getTime() + 330 * 60_000).toISOString().slice(0, 10),
+    shopStatus: r.shop.status,
+    attribution: r.a.status,
+    plan: r.plan ?? null,
+  }));
 }
 
 /** The team member behind a signed-in user (an agent or lead using the dealer portal), with their dealer. */
@@ -949,6 +1170,7 @@ export async function setMemberPlacement(memberId: string, input: { role: TeamRo
       .set({ teamRole: input.role, depth, parentId: parent?.id ?? null, parentDepth: parent ? 2 : null, parentRole: parent ? "TEAM_LEAD" : null, updatedAt: new Date() })
       .where(eq(dealerSalespeople.id, memberId))
       .returning();
+    await recordMapping(tx, memberId, why, actor.id);
     await recordAudit(
       {
         actorId: actor.id,
@@ -1020,6 +1242,8 @@ export async function promoteToTeamLead(memberId: string, input: { reason: strin
         .set({ depth: 3, parentId: memberId, parentDepth: 2, parentRole: "TEAM_LEAD", updatedAt: now })
         .where(inArray(dealerSalespeople.id, [...moving]));
     }
+    await recordMapping(tx, memberId, `promoted to team lead: ${why}`, actor.id, now);
+    for (const id of moving) await recordMapping(tx, id, `moved with ${before.name} on his promotion`, actor.id, now);
     let developmentId: string | null = null;
     if (formerLeadId && rule.developmentBp > 0) {
       const [dev] = await tx
@@ -1230,7 +1454,7 @@ export async function linkMemberAccount(memberId: string, email: string, actor: 
  * The signed-in member (or main dealer) accepts the agent agreement
  * (AGENT_AGREEMENT_VERSION, timestamped). Entries held for it are released.
  */
-export async function acceptAgentAgreement(actor: Actor, version: string): Promise<{ released: number }> {
+export async function acceptAgentAgreement(actor: Actor, version: string, device: { ipAddress?: string | null; userAgent?: string | null } = {}): Promise<{ released: number }> {
   if (version !== AGENT_AGREEMENT_VERSION) throw conflict("The agreement has changed; reload the page and read the current version.");
   const now = new Date();
   const me = await getMemberForUser(actor.id);
@@ -1244,6 +1468,17 @@ export async function acceptAgentAgreement(actor: Actor, version: string): Promi
     } else {
       [dealer] = await tx.update(dealers).set({ tierAgreementVersion: version, tierAgreementAcceptedAt: now, updatedAt: now }).where(eq(dealers.id, owned!.id)).returning();
     }
+    // Gap report A8: every acceptance is kept (version, text hash, time, device); the row above holds the latest.
+    await tx.insert(dealerAgreementAcceptances).values({
+      dealerId: dealer.id,
+      memberId: me ? me.member.id : null,
+      userId: actor.id,
+      version,
+      textSha256: AGENT_AGREEMENT_SHA256,
+      acceptedAt: now,
+      ipAddress: device.ipAddress?.slice(0, 64) ?? null,
+      userAgent: device.userAgent?.slice(0, 300) ?? null,
+    });
     const held = await tx
       .select()
       .from(dealerCommissionLedger)

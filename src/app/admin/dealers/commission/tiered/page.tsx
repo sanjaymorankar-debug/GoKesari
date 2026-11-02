@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
 import { dealers } from "@/server/db/schema";
-import { earningsByType, listTeamRequests, teamTree, tierRule, tradingProgress } from "@/server/dealers/tiered";
+import { earningsByType, listTeamRequests, mappingHistory, teamMapping, teamTree, tierRule, tradingProgress } from "@/server/dealers/tiered";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { getRule } from "@/server/services/settings";
 
@@ -34,7 +34,9 @@ export default async function TieredCommissionPage({ searchParams }: { searchPar
       .orderBy(dealers.legalName),
   ]);
   const selected = list.find((d) => d.id === dealerId) ?? null;
-  const [tree, earnings, trading] = selected ? await Promise.all([teamTree(selected.id), earningsByType(selected.id), tradingProgress(selected.id)]) : [null, [], []];
+  const [tree, earnings, trading, mapping, history] = selected
+    ? await Promise.all([teamTree(selected.id), earningsByType(selected.id), tradingProgress(selected.id), teamMapping(selected.id), mappingHistory(selected.id)])
+    : [null, [], [], [], []];
   const plain = (v: unknown) => JSON.parse(JSON.stringify(v));
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -55,6 +57,8 @@ export default async function TieredCommissionPage({ searchParams }: { searchPar
         earnings={earnings}
         trading={plain(trading)}
         requests={plain(requests)}
+        mapping={plain(mapping)}
+        history={plain(history)}
       />
     </div>
   );

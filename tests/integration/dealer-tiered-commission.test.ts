@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { AGENT_AGREEMENT_VERSION } from "@/lib/dealer-tiers";
 import { db } from "@/server/db";
 import {
+  dealerAgreementAcceptances,
   dealerCommissionLedger,
   dealerCommissionMonths,
   dealerPayoutBatches,
@@ -32,8 +33,14 @@ import { approveEntries, checkCommissionMilestones, createPayoutBatch, markPayou
 import { closeCommissionMonth } from "@/server/dealers/monthly-payout";
 import { addSalesperson } from "@/server/dealers/service";
 import {
+  AGENT_AGREEMENT_SHA256,
   acceptAgentAgreement,
   checkTradingMilestone,
+  mappingHistory,
+  memberShops,
+  setMemberPlacement,
+  teamMapping,
+  teamMappingCsv,
   earningsByType,
   promoteToTeamLead,
   runTieredDaily,
@@ -63,7 +70,11 @@ beforeEach(async () => {
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, role: "ADMIN" };
   // A cap high enough not to bite (one test sets it low on purpose).
-  await setCommissionSettings({ capPaise: 10_000_000, catalogueMinProducts: 1, branchEligible: false, commissionModel: "BASE_PERCENT", basePercentBp: 4000, ratingStepBp: 100 }, "test defaults", admin);
+  await setCommissionSettings(
+    { capPaise: 10_000_000, catalogueMinProducts: 1, branchEligible: false, commissionModel: "BASE_PERCENT", basePercentBp: 4000, ratingStepBp: 100, autoApproveAtMonthEnd: true, payoutDayOfMonth: 5 },
+    "test defaults",
+    admin,
+  );
   await setFeatureFlag("dealer_programme_enabled", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", admin);
   await setFeatureFlag("dealer_rating_bonus_enabled", { enabled: false, districtCodes: null }, "off (test)", admin);
   for (const key of ["dealerTieredCommission", "dealerPayoutTds"]) await db.execute(sql`delete from platform_settings where key = ${key}`);
@@ -220,6 +231,71 @@ describe("commission per shop on the three fee slabs", () => {
     expect(within).toBe(20_000);
     expect(rows.filter((r) => r.aboveCap).every((r) => r.status === "PENDING")).toBe(true);
     expect(rows.reduce((s, r) => s + r.amountPaise, 0)).toBe(27_972);
+  });
+});
+
+describe("gap report A8 / A9: history, registration-date mapping, mapping table", () => {
+  it("commission follows the team on the shop's REGISTRATION date: a move before activation pays the old lead", async () => {
+    const dealer = await newDealer();
+    const oldLead = await member(dealer.id, "Old Lead", "TEAM_LEAD");
+    const newLead = await member(dealer.id, "New Lead", "TEAM_LEAD");
+    const agent = await member(dealer.id, "Agent", "AGENT", oldLead.id);
+    // The shop registers under the old lead…
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, { name: "Moved Mart", status: "PENDING_APPROVAL", shopType: "GENERAL_TRADING" as never, registrationFeePaise: 117_882 });
+    await db.update(shops).set({ registrationFeeBasePaise: 99_900, registrationFeeDiscountPaise: 0, registrationFeeGstPaise: 17_982 }).where(eq(shops.id, shop.id));
+    await db.insert(shopAttributions).values({ shopId: shop.id, dealerId: dealer.id, salespersonId: agent.id, source: "CODE_AT_REGISTRATION", matchKind: "NONE" });
+    // …then the agent moves to the new lead before the shop is approved.
+    await setMemberPlacement(agent.id, { role: "AGENT", parentId: newLead.id }, "territory change (test)", admin);
+    await recordPayment({ shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 117_882, method: "ONLINE", transactionId: `cf_${shop.id.slice(0, 8)}` }, admin);
+    for (const docType of ["PAN", "GSTIN", "SHOP_ACT"] as const) {
+      await db.insert(sellerVerifications).values({ shopId: shop.id, docType, status: "VERIFIED", providerId: "mock", verifiedAt: new Date() });
+    }
+    await approveShop(shop.id, { classification: "KESARI" }, admin);
+    const [plan] = await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shop.id));
+    expect(plan.leadMemberId).toBe(oldLead.id);
+    // A shop registered after the move follows the new lead.
+    const later = await signedShop(dealer.id, agent.id, 99_900);
+    const [laterPlan] = await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, later.id));
+    expect(laterPlan.leadMemberId).toBe(newLead.id);
+
+    const history = await mappingHistory(dealer.id, agent.id);
+    expect(history.map((h) => [h.leadName, h.validTo === null, h.reason])).toEqual([
+      ["New Lead", true, "territory change (test)"],
+      ["Old Lead", false, "added to the team"],
+    ]);
+  });
+
+  it("every agreement acceptance is kept with version, text hash, time and device", async () => {
+    const dealer = await newDealer();
+    const user = await createUser({ role: "DEALER" });
+    const a = await member(dealer.id, "Agent", "AGENT", null, null, false);
+    await db.update(dealerSalespeople).set({ userId: user.id }).where(eq(dealerSalespeople.id, a.id));
+    await acceptAgentAgreement({ id: user.id, role: "DEALER" }, AGENT_AGREEMENT_VERSION, { ipAddress: "10.0.0.1", userAgent: "QA" });
+    await acceptAgentAgreement({ id: user.id, role: "DEALER" }, AGENT_AGREEMENT_VERSION, { ipAddress: "10.0.0.2", userAgent: "QA2" });
+    const rows = await db.select().from(dealerAgreementAcceptances).where(eq(dealerAgreementAcceptances.memberId, a.id));
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.ipAddress).sort()).toEqual(["10.0.0.1", "10.0.0.2"]);
+    expect(rows[0]).toMatchObject({ version: AGENT_AGREEMENT_VERSION, textSha256: AGENT_AGREEMENT_SHA256, userId: user.id });
+  });
+
+  it("the team mapping table counts each person's shops and commission, and exports CSV with masked mobiles", async () => {
+    const dealer = await newDealer();
+    const l = await member(dealer.id, "Lead", "TEAM_LEAD");
+    await db.update(dealerSalespeople).set({ mobileE164: "+919876543210" }).where(eq(dealerSalespeople.id, l.id));
+    const a = await member(dealer.id, "Agent", "AGENT", l.id);
+    const shop = await signedShop(dealer.id, a.id, 99_900);
+    await deliverOrders(shop.id, 2);
+    const rows = await teamMapping(dealer.id);
+    const agentRow = rows.find((r) => r.memberId === a.id)!;
+    expect(agentRow).toMatchObject({ role: "AGENT", level: 3, leadName: "Lead", registered: 1, activated: 1, trading: 1, active30: 1, commissionAllPaise: 19_980 });
+    expect(rows.find((r) => r.memberId === l.id)).toMatchObject({ commissionAllPaise: 4_995, mobileMasked: "+91••••••3210" });
+    expect(rows.find((r) => r.memberId === null)).toMatchObject({ role: "MAIN_DEALER", commissionAllPaise: 2_997 });
+    expect((await teamMapping(dealer.id, { role: "AGENT" })).map((r) => r.memberId)).toEqual([a.id]);
+    const csv = teamMappingCsv(rows);
+    expect(csv).toContain("+91••••••3210");
+    expect(csv).not.toContain("9876543210");
+    expect((await memberShops(dealer.id, a.id))[0]).toMatchObject({ shopId: shop.id, signedBy: "Agent", plan: "TRADING" });
   });
 });
 

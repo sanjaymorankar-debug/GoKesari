@@ -32,6 +32,34 @@ interface DealerRow {
   tierLeadOverrideBp: number | null;
   tierMainOverrideBp: number | null;
 }
+interface MappingRow {
+  memberId: string | null;
+  employeeId: string;
+  name: string;
+  mobileMasked: string | null;
+  role: "MAIN_DEALER" | "TEAM_LEAD" | "AGENT";
+  level: number;
+  leadName: string | null;
+  status: string;
+  code: string | null;
+  registered: number;
+  activated: number;
+  trading: number;
+  active30: number;
+  commissionMonthPaise: number;
+  commissionAllPaise: number;
+}
+interface ShopRow {
+  shopId: string;
+  shopName: string;
+  registrationNumber: string | null;
+  pincode: string;
+  signedBy: string;
+  code: string | null;
+  registeredOn: string;
+  shopStatus: string;
+  plan: string | null;
+}
 interface RequestRow {
   r: { id: string; dealerId: string; employeeId: string; name: string; note: string | null; createdAt: string };
   dealerName: string;
@@ -62,6 +90,8 @@ export function TieredAdmin({
   earnings,
   trading,
   requests,
+  mapping = [],
+  history = [],
 }: {
   isAdmin: boolean;
   rule: Rule;
@@ -72,6 +102,9 @@ export function TieredAdmin({
   earnings: { entryType: CommissionEntryType; level: number | null; earnedPaise: number; paidPaise: number }[];
   trading: { shopId: string; shopName: string; directName: string; status: TierPlanStatus; deliveredOrders: number; tradingOrders: number; daysLeft: number }[];
   requests: RequestRow[];
+  /** Gap report A9: the team mapping table and history (server-rendered). */
+  mapping?: MappingRow[];
+  history?: { memberName: string; role: string; level: number; leadName: string | null; validFrom: string; validTo: string | null; reason: string }[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -83,6 +116,17 @@ export function TieredAdmin({
     main: selected?.tierMainOverrideBp != null ? String(selected.tierMainOverrideBp / 100) : "",
   });
   const [member, setMember] = useState({ employeeId: "", name: "", mobile: "", role: "AGENT", parentId: "" });
+  const [roleFilter, setRoleFilter] = useState("");
+  const [drill, setDrill] = useState<{ name: string; shops: ShopRow[] } | null>(null);
+
+  async function openShops(row: MappingRow) {
+    if (!selected) return;
+    setError(null);
+    const res = await fetch(`/api/admin/dealer-tiers?dealerId=${selected.id}&view=shops&memberId=${row.memberId ?? "main"}`);
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) return setError(payload?.error?.message ?? "Could not load the shops.");
+    setDrill({ name: row.name, shops: payload.shops });
+  }
 
   async function post(body: Record<string, unknown>, done: string, askReason = true) {
     let reason: string | null = null;
@@ -335,6 +379,101 @@ export function TieredAdmin({
               </li>
             ))}
           </ul>
+        </Card>
+      ) : null}
+
+      {selected && mapping.length ? (
+        <Card className="space-y-2 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-bold">Team mapping</h2>
+            <span className="flex flex-wrap items-center gap-2">
+              <select aria-label="Filter by role" className={`${inputClass} w-auto`} value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+                <option value="">Every role</option>
+                <option value="MAIN_DEALER">Main dealer</option>
+                <option value="TEAM_LEAD">Team leads</option>
+                <option value="AGENT">Agents</option>
+              </select>
+              <a
+                className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 px-3 text-sm font-medium text-ink-700 hover:bg-cream-100"
+                href={`/api/admin/dealer-tiers?dealerId=${selected.id}&view=mapping&format=csv${roleFilter ? `&role=${roleFilter}` : ""}`}
+              >
+                Download CSV
+              </a>
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="team-mapping">
+              <thead>
+                <tr className="text-left text-xs text-ink-500">
+                  <th className="py-1">Person</th>
+                  <th>Role</th>
+                  <th>Lead</th>
+                  <th className="text-right">Registered</th>
+                  <th className="text-right">Activated</th>
+                  <th className="text-right">Trading</th>
+                  <th className="text-right">Active 30 d</th>
+                  <th className="text-right">This month</th>
+                  <th className="text-right">All time</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {mapping
+                  .filter((r) => !roleFilter || r.role === roleFilter)
+                  .map((r) => (
+                    <tr key={r.memberId ?? "main"} className="border-t border-cream-200">
+                      <td className="py-1">
+                        {r.name} <span className="text-xs text-ink-500">{[r.employeeId, r.mobileMasked, r.code].filter(Boolean).join(" · ")}</span>
+                      </td>
+                      <td>
+                        {NETWORK_ROLE_LABELS[r.role]} (L{r.level})
+                      </td>
+                      <td>{r.leadName ?? "—"}</td>
+                      <td className="text-right">{r.registered}</td>
+                      <td className="text-right">{r.activated}</td>
+                      <td className="text-right">{r.trading}</td>
+                      <td className="text-right">{r.active30}</td>
+                      <td className="text-right">{rs(r.commissionMonthPaise)}</td>
+                      <td className="text-right">{rs(r.commissionAllPaise)}</td>
+                      <td>
+                        <Button size="sm" variant="ghost" onClick={() => openShops(r)}>
+                          Shops
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          {drill ? (
+            <div className="space-y-1 border-t border-cream-200 pt-2" data-testid="member-shops">
+              <h3 className="text-sm font-bold">Shops signed by {drill.name}</h3>
+              {drill.shops.length === 0 ? <p className="text-sm text-ink-500">None yet.</p> : null}
+              <ul className="space-y-1 text-sm">
+                {drill.shops.map((sh) => (
+                  <li key={sh.shopId}>
+                    {sh.registeredOn} · {sh.shopName}
+                    {sh.registrationNumber ? ` (${sh.registrationNumber})` : ""} · PIN {sh.pincode} · by {sh.signedBy}
+                    {sh.code ? ` · code ${sh.code}` : ""} · {sh.shopStatus.toLowerCase().replace("_", " ")}
+                    {sh.plan ? ` · ${TIER_PLAN_STATUS_LABELS[sh.plan as TierPlanStatus]}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {history.length ? (
+            <details>
+              <summary className="min-h-11 cursor-pointer text-sm font-semibold">Mapping history ({history.length})</summary>
+              <ul className="space-y-1 text-sm" data-testid="mapping-history">
+                {history.map((h, i) => (
+                  <li key={i}>
+                    {h.validFrom.slice(0, 10)}
+                    {h.validTo ? ` → ${h.validTo.slice(0, 10)}` : " → now"} · {h.memberName}: {NETWORK_ROLE_LABELS[h.role as "AGENT"]} (L{h.level}){h.leadName ? ` under ${h.leadName}` : ""} — {h.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </Card>
       ) : null}
 

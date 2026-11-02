@@ -11127,6 +11127,61 @@ export const dealerTeamDevelopments = pgTable(
 );
 export type DealerTeamDevelopment = typeof dealerTeamDevelopments.$inferSelect;
 
+/**
+ * 0138 (gap report A9): every place a team member has held — role, level and
+ * lead, from when to when (valid_to null = now). Commission follows the place
+ * the signer held on the shop's registration date. Written by every change.
+ */
+export const dealerTeamMappingHistory = pgTable(
+  "dealer_team_mapping_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    memberId: uuid("member_id")
+      .notNull()
+      .references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    teamRole: text("team_role", { enum: TEAM_ROLES }).notNull(),
+    depth: smallint("depth").notNull(),
+    parentId: uuid("parent_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    validFrom: timestamp("valid_from", { withTimezone: true }).notNull(),
+    validTo: timestamp("valid_to", { withTimezone: true }),
+    reason: text("reason").notNull(),
+    changedBy: uuid("changed_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_team_mapping_history_member_idx").on(t.memberId, t.validFrom),
+    index("dealer_team_mapping_history_dealer_idx").on(t.dealerId, t.validFrom),
+    uniqueIndex("dealer_team_mapping_history_open_unique").on(t.memberId).where(sql`${t.validTo} IS NULL`),
+    check("dealer_team_mapping_history_window", sql`${t.validTo} IS NULL OR ${t.validTo} >= ${t.validFrom}`),
+  ],
+);
+export type DealerTeamMapping = typeof dealerTeamMappingHistory.$inferSelect;
+
+/** 0138 (gap report A8): every acceptance of the agent agreement — version, text hash, time, device. */
+export const dealerAgreementAcceptances = pgTable(
+  "dealer_agreement_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    /** Null: the main dealer accepted. */
+    memberId: uuid("member_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    /** users is a core table: no foreign key. */
+    userId: uuid("user_id").notNull(),
+    version: text("version").notNull(),
+    textSha256: text("text_sha256").notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+  },
+  (t) => [index("dealer_agreement_acceptances_payee_idx").on(t.dealerId, t.memberId, t.acceptedAt)],
+);
+export type DealerAgreementAcceptance = typeof dealerAgreementAcceptances.$inferSelect;
+
 /** TIERED (0136): a team member asks for a sub-agent; only an admin approves (agents never appoint one themselves). */
 export const dealerTeamRequests = pgTable(
   "dealer_team_requests",

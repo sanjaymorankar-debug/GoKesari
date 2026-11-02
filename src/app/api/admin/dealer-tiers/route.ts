@@ -1,6 +1,8 @@
 /**
  * TIERED dealer commission administration (docs/dealer-programme/TIERED_COMMISSION.md).
  *
+ * GET ?dealerId=&view=mapping[&format=csv&role=&leadId=&status=] → the team mapping table (CSV: masked mobiles);
+ *     ?dealerId=&view=history[&memberId=] → the mapping history; ?dealerId=&view=shops&memberId=<id|main> → one person's shops.
  * GET ?dealerId= → the rule (dealerTieredCommission, dealerPayoutTds), the dealer's team tree,
  *     earnings by type and level, TRADING progress, and the open sub-agent requests. Admin and operator (read only).
  * POST { action, … } → ADMIN only (the services check the role again):
@@ -10,7 +12,7 @@
  *   payee {memberId, pan?, bankHolderName?, bankAccount?, ifsc?} · verifyBank {memberId, verified, reason}
  *   linkAccount {memberId, email}
  */
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { TEAM_ROLES } from "@/lib/dealer-tiers";
@@ -23,11 +25,15 @@ import {
   earningsByType,
   linkMemberAccount,
   listTeamRequests,
+  mappingHistory,
+  memberShops,
   promoteToTeamLead,
   saveMemberPayee,
   setDealerCommissionModel,
   setDealerTierRates,
   setMemberPlacement,
+  teamMapping,
+  teamMappingCsv,
   teamTree,
   tierRule,
   tradingProgress,
@@ -69,7 +75,28 @@ const schema = z.discriminatedUnion("action", [
 export const GET = route(async (request: NextRequest) => {
   await requireDealerProgramme();
   await requireRole("ADMIN", "OPERATOR");
-  const dealerId = z.string().uuid().safeParse(request.nextUrl.searchParams.get("dealerId")).data;
+  const params = request.nextUrl.searchParams;
+  const dealerId = z.string().uuid().safeParse(params.get("dealerId")).data;
+  // Gap report A9: the team mapping table (CSV with format=csv), the mapping history, one person's shops.
+  const view = params.get("view");
+  if (dealerId && view === "mapping") {
+    const rows = await teamMapping(dealerId, {
+      role: z.enum(["MAIN_DEALER", "TEAM_LEAD", "AGENT"]).safeParse(params.get("role")).data,
+      leadId: z.string().uuid().safeParse(params.get("leadId")).data,
+      status: z.enum(["ACTIVE", "INACTIVE"]).safeParse(params.get("status")).data,
+    });
+    if (params.get("format") === "csv") {
+      return new NextResponse(teamMappingCsv(rows), {
+        headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="team-mapping-${dealerId.slice(0, 8)}.csv"`, "cache-control": "private, no-store" },
+      });
+    }
+    return ok({ rows });
+  }
+  if (dealerId && view === "history") return ok({ history: await mappingHistory(dealerId, z.string().uuid().safeParse(params.get("memberId")).data) });
+  if (dealerId && view === "shops") {
+    const memberId = params.get("memberId");
+    return ok({ shops: await memberShops(dealerId, memberId && memberId !== "main" ? z.string().uuid().parse(memberId) : null) });
+  }
   const [rule, tds, requests] = await Promise.all([tierRule(), getRule("dealerPayoutTds"), listTeamRequests()]);
   if (!dealerId) return ok({ rule, tds, requests });
   const [tree, earnings, trading] = await Promise.all([teamTree(dealerId), earningsByType(dealerId), tradingProgress(dealerId)]);

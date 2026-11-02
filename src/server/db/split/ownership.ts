@@ -349,6 +349,8 @@ export const TABLE_OWNERSHIP = {
   dealer_tier_shop_plans: "seller", // TIERED commission (0136)
   dealer_team_developments: "seller", // TIERED promotion development bonus (0136)
   dealer_team_requests: "seller", // TIERED sub-agent requests (0136)
+  dealer_team_mapping_history: "seller", // TIERED team placement history (0138)
+  dealer_agreement_acceptances: "seller", // agent agreement acceptance history (0138)
   shop_referral_codes: "seller", // shop-refers-shop (0137)
   shop_referrals: "seller", // shop-refers-shop (0137)
   support_service_types: "platform",
