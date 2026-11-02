@@ -139,7 +139,7 @@ export async function getMarketplaceKpis(window: KpiWindow): Promise<Marketplace
   const placed = sql`(select o.* from orders o
     where o.created_at >= ${start} and o.created_at < ${end} ${shopFilter("o")} and ${reached("o", "CONFIRMED")})`;
 
-  const ordersRow = await one(sql`
+  const ordersRowQ = one(sql`
     select count(*)::int as placed,
       coalesce(sum(p.total_paise + p.refunded_paise), 0)::bigint as placed_value,
       count(*) filter (where ${reached("p", "DELIVERED")})::int as delivered,
@@ -148,49 +148,49 @@ export async function getMarketplaceKpis(window: KpiWindow): Promise<Marketplace
       coalesce(sum(case when p.status = 'REFUNDED' then p.total_paise + p.refunded_paise else p.refunded_paise end), 0)::bigint as refunded_value
     from ${placed} p`);
 
-  const itemsRow = await one(sql`
+  const itemsRowQ = one(sql`
     select count(*)::int as lines, count(*) filter (where i.fulfilment_status <> 'REMOVED')::int as kept
     from order_items i join ${placed} p on p.id = i.order_id`);
 
-  const acceptance = await one(sql`
+  const acceptanceQ = one(sql`
     select ${durationSelect(confirmedAt("o"), sql`coalesce(o.accepted_at, ${reachedAt("o", "PREPARING")})`)}
     from orders o
     where coalesce(o.accepted_at, ${reachedAt("o", "PREPARING")}) >= ${start}
       and coalesce(o.accepted_at, ${reachedAt("o", "PREPARING")}) < ${end} ${shopFilter("o")}
       and ${confirmedAt("o")} is not null`);
 
-  const pickPack = await one(sql`
+  const pickPackQ = one(sql`
     select ${durationSelect(sql`coalesce(o.accepted_at, ${reachedAt("o", "PREPARING")})`, sql`o.packed_at`)}
     from orders o
     where o.packed_at >= ${start} and o.packed_at < ${end} ${shopFilter("o")}
       and coalesce(o.accepted_at, ${reachedAt("o", "PREPARING")}) is not null`);
 
-  const assignment = await one(sql`
+  const assignmentQ = one(sql`
     select ${durationSelect(sql`o.packed_at`, sql`d.accepted_at`)}
     from delivery_orders d join orders o on o.id = d.order_id
     where d.accepted_at >= ${start} and d.accepted_at < ${end} ${shopFilter("o")}
       and o.packed_at is not null and d.accepted_at >= o.packed_at`);
 
-  const riderDelivery = await one(sql`
+  const riderDeliveryQ = one(sql`
     select ${durationSelect(sql`d.picked_up_at`, sql`d.delivered_at`)}
     from delivery_orders d join orders o on o.id = d.order_id
     where d.status = 'DELIVERED' and d.delivered_at >= ${start} and d.delivered_at < ${end} ${shopFilter("o")}
       and d.picked_up_at is not null`);
 
-  const endToEnd = await one(sql`
+  const endToEndQ = one(sql`
     select ${durationSelect(confirmedAt("o"), reachedAt("o", "DELIVERED"))}
     from orders o
     where ${reachedAt("o", "DELIVERED")} >= ${start} and ${reachedAt("o", "DELIVERED")} < ${end} ${shopFilter("o")}
       and ${confirmedAt("o")} is not null`);
 
-  const onTime = await one(sql`
+  const onTimeQ = one(sql`
     select count(*)::int as promised,
       count(*) filter (where ${reachedAt("o", "DELIVERED")} <= o.promised_by_at)::int as on_time
     from orders o
     where o.promised_by_at is not null and ${reachedAt("o", "DELIVERED")} >= ${start}
       and ${reachedAt("o", "DELIVERED")} < ${end} ${shopFilter("o")}`);
 
-  const customers = await one(sql`
+  const customersQ = one(sql`
     select count(*)::int as ordering,
       count(*) filter (where c.orders >= 2)::int as repeat,
       count(*) filter (where c.earlier)::int as returning
@@ -201,7 +201,7 @@ export async function getMarketplaceKpis(window: KpiWindow): Promise<Marketplace
       from ${placed} p group by p.user_id
     ) c`);
 
-  const subs = await one(sql`
+  const subsQ = one(sql`
     select
       count(*) filter (where s.created_at < ${start} and (s.cancelled_at is null or s.cancelled_at >= ${start})
         and s.status <> 'COMPLETED')::int as live_at_start,
@@ -211,7 +211,7 @@ export async function getMarketplaceKpis(window: KpiWindow): Promise<Marketplace
       count(*) filter (where s.cancelled_at >= ${start} and s.cancelled_at < ${end})::int as cancelled_in_window
     from subscriptions s where true ${shopFilter("s")}`);
 
-  const marketing = await one(sql`
+  const marketingQ = one(sql`
     select count(distinct c.id)::int as campaigns, count(r.id)::int as recipients,
       count(r.id) filter (where exists (select 1 from notifications nt where nt.dedupe_key = r.notification_key and nt.read_at is not null))::int as opened,
       count(r.id) filter (where conv.first_order is not null)::int as converted,
@@ -226,38 +226,58 @@ export async function getMarketplaceKpis(window: KpiWindow): Promise<Marketplace
     ) conv on true
     where c.sent_at >= ${start} and c.sent_at < ${end} ${shopFilter("c")}`);
 
-  const trend = await all(sql`
+  const trendQ = all(sql`
     select to_char(f.delivered_at at time zone ${tz}, 'YYYY-MM-DD') as day,
       coalesce(sum(f.gmv_paise), 0)::bigint as gmv, count(*)::int as orders
     from order_financials f
     where f.delivered_at >= ${start} and f.delivered_at < ${end} ${shopFilter("f")}
     group by 1 order by 1`);
 
+  // Marketplace-wide only (no shop filter): rider offers, hours and shop retention.
+  const ridersQ = shopId
+    ? null
+    : (() => {
+        const offersQ = one(sql`
+          select count(*) filter (where d.accepted_at is not null)::int as accepted,
+            coalesce(sum(cardinality(d.rejected_partner_ids)), 0)::int as declined
+          from delivery_orders d where d.offered_at >= ${start} and d.offered_at < ${end}`);
+        // An open session ends at last heartbeat + idle cap; rows count only if that effective end falls inside the window.
+        const onlineQ = one(sql`
+          select coalesce(sum(greatest(0, extract(epoch from (e.end_at - greatest(s.started_at, ${start}))))), 0) / 3600.0 as hours
+          from delivery_partner_sessions s
+          join delivery_partners p on p.id = s.delivery_partner_id
+          cross join lateral (
+            select least(
+              coalesce(s.ended_at, least(now(), greatest(p.last_location_at, s.started_at) + make_interval(mins => ${RIDER_IDLE_CAP_MINUTES}))),
+              ${end}
+            ) as end_at
+          ) e
+          where s.started_at < ${end} and e.end_at > greatest(s.started_at, ${start})`);
+        const busyQ = one(sql`
+          select coalesce(sum(extract(epoch from (
+            least(coalesce(d.delivered_at, d.failed_at, d.cancelled_at, now()), ${end}) - greatest(d.accepted_at, ${start})))), 0) / 3600.0 as hours
+          from delivery_orders d
+          where d.accepted_at is not null and d.accepted_at < ${end}
+            and coalesce(d.delivered_at, d.failed_at, d.cancelled_at, now()) > ${start}`);
+        const days = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+        const prevStart = sql`((${addDays(from, -days)})::date::timestamp at time zone ${tz})`;
+        const retentionQ = one(sql`
+          with prev as (select distinct shop_id from order_financials where delivered_at >= ${prevStart} and delivered_at < ${start}),
+               cur as (select distinct shop_id from order_financials where delivered_at >= ${start} and delivered_at < ${end})
+          select (select count(*) from prev)::int as previous_active,
+                 (select count(*) from prev join cur using (shop_id))::int as retained`);
+        return Promise.all([offersQ, onlineQ, busyQ, retentionQ]);
+      })();
+
+  // Independent queries: run them together rather than one after another.
+  const [ordersRow, itemsRow, acceptance, pickPack, assignment, riderDelivery, endToEnd, onTime, customers, subs, marketing, trend, riderRows] = await Promise.all([
+    ordersRowQ, itemsRowQ, acceptanceQ, pickPackQ, assignmentQ, riderDeliveryQ, endToEndQ, onTimeQ, customersQ, subsQ, marketingQ, trendQ, ridersQ,
+  ]);
+
   let riders: MarketplaceKpis["riders"] = null;
   let shopRetention: MarketplaceKpis["shopRetention"] = null;
-  if (!shopId) {
-    const offers = await one(sql`
-      select count(*) filter (where d.accepted_at is not null)::int as accepted,
-        coalesce(sum(cardinality(d.rejected_partner_ids)), 0)::int as declined
-      from delivery_orders d where d.offered_at >= ${start} and d.offered_at < ${end}`);
-    // An open session ends at last heartbeat + idle cap; rows count only if that effective end falls inside the window.
-    const online = await one(sql`
-      select coalesce(sum(greatest(0, extract(epoch from (e.end_at - greatest(s.started_at, ${start}))))), 0) / 3600.0 as hours
-      from delivery_partner_sessions s
-      join delivery_partners p on p.id = s.delivery_partner_id
-      cross join lateral (
-        select least(
-          coalesce(s.ended_at, least(now(), greatest(p.last_location_at, s.started_at) + make_interval(mins => ${RIDER_IDLE_CAP_MINUTES}))),
-          ${end}
-        ) as end_at
-      ) e
-      where s.started_at < ${end} and e.end_at > greatest(s.started_at, ${start})`);
-    const busy = await one(sql`
-      select coalesce(sum(extract(epoch from (
-        least(coalesce(d.delivered_at, d.failed_at, d.cancelled_at, now()), ${end}) - greatest(d.accepted_at, ${start})))), 0) / 3600.0 as hours
-      from delivery_orders d
-      where d.accepted_at is not null and d.accepted_at < ${end}
-        and coalesce(d.delivered_at, d.failed_at, d.cancelled_at, now()) > ${start}`);
+  if (riderRows) {
+    const [offers, online, busy, retention] = riderRows;
     const accepted = n(offers.accepted);
     const declined = n(offers.declined);
     const onlineHours = Math.round(Math.max(0, n(online.hours)) * 10) / 10;
@@ -271,13 +291,6 @@ export async function getMarketplaceKpis(window: KpiWindow): Promise<Marketplace
       utilisation: onlineHours > 0 ? Math.min(1, Math.round((busyHours / onlineHours) * 1000) / 1000) : null,
     };
 
-    const days = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
-    const prevStart = sql`((${addDays(from, -days)})::date::timestamp at time zone ${tz})`;
-    const retention = await one(sql`
-      with prev as (select distinct shop_id from order_financials where delivered_at >= ${prevStart} and delivered_at < ${start}),
-           cur as (select distinct shop_id from order_financials where delivered_at >= ${start} and delivered_at < ${end})
-      select (select count(*) from prev)::int as previous_active,
-             (select count(*) from prev join cur using (shop_id))::int as retained`);
     shopRetention = {
       previousActive: n(retention.previous_active),
       retained: n(retention.retained),

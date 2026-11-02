@@ -27,7 +27,7 @@ import {
   stockAlerts,
 } from "@/server/db/schema";
 import { RETURN_TERMINAL } from "@/lib/return-states";
-import { defaultWindow, getLiveOperations, getMarketplaceKpis } from "./analytics";
+import { defaultWindow, getLiveOperations, getMarketplaceKpis, type LiveOperations, type MarketplaceKpis } from "./analytics";
 import { getInventoryDashboard, listInventory } from "./inventory-alerts";
 import { getDeliveryStats } from "./notifications";
 import { listOpsExceptions } from "./ops-exceptions";
@@ -64,7 +64,21 @@ export async function getShopDashboard(shopId: string, userId: string): Promise<
   const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
   if (!shop) return null;
 
-  const [orderCounts, revenueRows, placedRows] = await Promise.all([
+  // Every figure below depends only on the shop: fetch them together.
+  const [
+    orderCounts,
+    revenueRows,
+    placedRows,
+    openReturnRows,
+    inventory,
+    rows,
+    [alertCount],
+    readyOrders,
+    [grievanceRow],
+    [unread],
+    recent,
+    [susp],
+  ] = await Promise.all([
     db
       .select({ status: orders.status, n: sql<number>`count(*)::int`, cancelledWithReason: sql<number>`count(*) filter (where ${orders.cancellationReason} is not null)::int` })
       .from(orders)
@@ -83,7 +97,44 @@ export async function getShopDashboard(shopId: string, userId: string): Promise<
       .select({ value: sql<number>`coalesce(sum(${orders.totalPaise}), 0)::bigint` })
       .from(orders)
       .where(and(eq(orders.shopId, shopId), isToday(orders.createdAt), sql`${orders.status} NOT IN ('PENDING','PAYMENT_FAILED','WALLET_INSUFFICIENT')`)),
+    db
+      .select({ status: returnRequests.status, n: sql<number>`count(*)::int`, today: sql<number>`count(*) filter (where ${isToday(returnRequests.createdAt)})::int` })
+      .from(returnRequests)
+      .where(eq(returnRequests.shopId, shopId))
+      .groupBy(returnRequests.status),
+    getInventoryDashboard(shopId),
+    listInventory(shopId),
+    db.select({ n: count() }).from(stockAlerts).where(and(eq(stockAlerts.shopId, shopId), eq(stockAlerts.status, "OPEN"))),
+    // READY orders and how the rider search for them stands.
+    db
+      .select({
+        id: orders.id,
+        deliveryStatus: sql<string | null>`(select d.status::text from delivery_orders d where d.order_id = ${orders.id})`,
+        searchStatus: riderSearches.status,
+      })
+      .from(orders)
+      .leftJoin(riderSearches, eq(riderSearches.orderId, orders.id))
+      .where(and(eq(orders.shopId, shopId), inArray(orders.status, ["READY", "ASSIGNED"]))),
+    db
+      .select({ n: count() })
+      .from(grievances)
+      .innerJoin(orders, eq(grievances.orderId, orders.id))
+      .where(and(eq(orders.shopId, shopId), inArray(grievances.status, ["OPEN", "IN_PROGRESS"]))),
+    db
+      .select({ n: count() })
+      .from(notifications)
+      .where(and(eq(notifications.userId, userId), eq(notifications.channel, "IN_APP"), isNull(notifications.readAt))),
+    db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.userId, userId), eq(notifications.channel, "IN_APP")))
+      .orderBy(desc(notifications.createdAt))
+      .limit(5),
+    shop.status === "SUSPENDED"
+      ? db.select().from(shopSuspensions).where(and(eq(shopSuspensions.shopId, shopId), eq(shopSuspensions.status, "ACTIVE"))).limit(1)
+      : Promise.resolve([]),
   ]);
+
   const byStatus = new Map(orderCounts.map((r) => [r.status as string, r.n]));
   const sumOf = (statuses: readonly string[]) => statuses.reduce((n, s) => n + (byStatus.get(s) ?? 0), 0);
   const todayTotal = orderCounts.reduce((n, r) => n + r.n, 0);
@@ -91,54 +142,11 @@ export async function getShopDashboard(shopId: string, userId: string): Promise<
     .filter((r) => r.status === "CANCELLED" || r.status === "REFUNDED")
     .reduce((n, r) => n + (r.status === "CANCELLED" ? r.n : r.cancelledWithReason), 0);
 
-  const openReturnRows = await db
-    .select({ status: returnRequests.status, n: sql<number>`count(*)::int`, today: sql<number>`count(*) filter (where ${isToday(returnRequests.createdAt)})::int` })
-    .from(returnRequests)
-    .where(eq(returnRequests.shopId, shopId))
-    .groupBy(returnRequests.status);
   const terminal: readonly string[] = RETURN_TERMINAL;
   const openReturns = openReturnRows.filter((r) => !terminal.includes(r.status)).reduce((n, r) => n + r.n, 0);
 
-  const [inventory, rows, [alertCount]] = await Promise.all([
-    getInventoryDashboard(shopId),
-    listInventory(shopId),
-    db.select({ n: count() }).from(stockAlerts).where(and(eq(stockAlerts.shopId, shopId), eq(stockAlerts.status, "OPEN"))),
-  ]);
-
-  // READY orders and how the rider search for them stands.
-  const readyOrders = await db
-    .select({
-      id: orders.id,
-      deliveryStatus: sql<string | null>`(select d.status::text from delivery_orders d where d.order_id = ${orders.id})`,
-      searchStatus: riderSearches.status,
-    })
-    .from(orders)
-    .leftJoin(riderSearches, eq(riderSearches.orderId, orders.id))
-    .where(and(eq(orders.shopId, shopId), inArray(orders.status, ["READY", "ASSIGNED"])));
   const riderCount = (predicate: (r: (typeof readyOrders)[number]) => boolean) => readyOrders.filter(predicate).length;
   const hasActiveDelivery = (r: (typeof readyOrders)[number]) => ["OFFERED", "ACCEPTED", "PICKED_UP"].includes(r.deliveryStatus ?? "");
-
-  const [grievanceRow] = await db
-    .select({ n: count() })
-    .from(grievances)
-    .innerJoin(orders, eq(grievances.orderId, orders.id))
-    .where(and(eq(orders.shopId, shopId), inArray(grievances.status, ["OPEN", "IN_PROGRESS"])));
-
-  const [unread] = await db
-    .select({ n: count() })
-    .from(notifications)
-    .where(and(eq(notifications.userId, userId), eq(notifications.channel, "IN_APP"), isNull(notifications.readAt)));
-  const recent = await db
-    .select()
-    .from(notifications)
-    .where(and(eq(notifications.userId, userId), eq(notifications.channel, "IN_APP")))
-    .orderBy(desc(notifications.createdAt))
-    .limit(5);
-
-  const [susp] =
-    shop.status === "SUSPENDED"
-      ? await db.select().from(shopSuspensions).where(and(eq(shopSuspensions.shopId, shopId), eq(shopSuspensions.status, "ACTIVE"))).limit(1)
-      : [];
 
   return {
     shop: { id: shop.id, name: shop.name, status: shop.status, ordersPaused: shop.ordersPaused, deliveryAvailable: shop.deliveryAvailable },
@@ -204,13 +212,39 @@ export interface AdminDashboard {
   kpis: { fillRate: number | null; onTimeRate: number | null; cancellationRate: number | null; refundRate: number | null; repeatRate: number | null };
 }
 
-export async function getAdminDashboard(): Promise<AdminDashboard> {
+/**
+ * `preloaded` lets a page that already has today's KPIs and the live snapshot
+ * (or is fetching them) hand them over instead of computing them a second time.
+ */
+export async function getAdminDashboard(preloaded?: {
+  kpis?: Promise<MarketplaceKpis> | MarketplaceKpis;
+  live?: Promise<LiveOperations> | LiveOperations;
+}): Promise<AdminDashboard> {
   const today = defaultWindow(1);
   const since = new Date(Date.now() - 24 * 3_600_000);
 
-  const [kpis, live, shopCounts, suspensions, exceptions, notificationStats, mrpSummary, violations, corrections, risk] = await Promise.all([
-    getMarketplaceKpis(today),
-    getLiveOperations(),
+  const [
+    kpis,
+    live,
+    shopCounts,
+    suspensions,
+    exceptions,
+    notificationStats,
+    mrpSummary,
+    violations,
+    corrections,
+    risk,
+    [riderPending],
+    [stopped],
+    returnRows,
+    [returnRefunds],
+    alertRows,
+    outShops,
+    [refToVerify],
+    otpRows,
+  ] = await Promise.all([
+    preloaded?.kpis ?? getMarketplaceKpis(today),
+    preloaded?.live ?? getLiveOperations(),
     countShopsByStatus(),
     listActiveSuspensions(),
     listOpsExceptions(),
@@ -219,29 +253,22 @@ export async function getAdminDashboard(): Promise<AdminDashboard> {
     listMrpViolations(500),
     listCorrections("PENDING"),
     countOpenRiskFlags(),
-  ]);
-
-  const [riderPending] = await db
-    .select({ n: count() })
-    .from(deliveryPartners)
-    .where(and(inArray(deliveryPartners.status, ["REGISTERED", "UNDER_REVIEW"]), isNull(deliveryPartners.deletedAt)));
-  const [stopped] = await db
-    .select({ n: count() })
-    .from(riderSearches)
-    .where(and(eq(riderSearches.status, "STOPPED"), isToday(riderSearches.stoppedAt)));
-
-  const returnRows = await db
-    .select({ status: returnRequests.status, n: sql<number>`count(*)::int` })
-    .from(returnRequests)
-    .groupBy(returnRequests.status);
-  const rs = new Map(returnRows.map((r) => [r.status as string, r.n]));
-  const terminal: readonly string[] = RETURN_TERMINAL;
-  const [returnRefunds] = await db
-    .select({ paise: sql<number>`coalesce(sum(${returnRequests.refundedPaise}), 0)::bigint` })
-    .from(returnRequests)
-    .where(and(eq(returnRequests.status, "REFUND_COMPLETED"), isToday(returnRequests.updatedAt)));
-
-  const [alertRows, outShops] = await Promise.all([
+    db
+      .select({ n: count() })
+      .from(deliveryPartners)
+      .where(and(inArray(deliveryPartners.status, ["REGISTERED", "UNDER_REVIEW"]), isNull(deliveryPartners.deletedAt))),
+    db
+      .select({ n: count() })
+      .from(riderSearches)
+      .where(and(eq(riderSearches.status, "STOPPED"), isToday(riderSearches.stoppedAt))),
+    db
+      .select({ status: returnRequests.status, n: sql<number>`count(*)::int` })
+      .from(returnRequests)
+      .groupBy(returnRequests.status),
+    db
+      .select({ paise: sql<number>`coalesce(sum(${returnRequests.refundedPaise}), 0)::bigint` })
+      .from(returnRequests)
+      .where(and(eq(returnRequests.status, "REFUND_COMPLETED"), isToday(returnRequests.updatedAt))),
     db
       .select({ type: stockAlerts.alertType, n: sql<number>`count(*)::int` })
       .from(stockAlerts)
@@ -251,15 +278,17 @@ export async function getAdminDashboard(): Promise<AdminDashboard> {
       .select({ n: sql<number>`count(distinct ${stockAlerts.shopId})::int` })
       .from(stockAlerts)
       .where(and(eq(stockAlerts.status, "OPEN"), eq(stockAlerts.alertType, "OUT_OF_STOCK"))),
+    db.execute<{ n: number }>(sql`select count(*)::int as n from external_price_references where verification_status = 'UNVERIFIED'`),
+    db
+      .select({ action: auditLogs.action, n: sql<number>`count(*)::int` })
+      .from(auditLogs)
+      .where(and(gte(auditLogs.createdAt, since), sql`${auditLogs.action} LIKE 'auth.otp_%'`))
+      .groupBy(auditLogs.action),
   ]);
-  const alertBy = new Map(alertRows.map((r) => [r.type as string, r.n]));
 
-  const [refToVerify] = await db.execute<{ n: number }>(sql`select count(*)::int as n from external_price_references where verification_status = 'UNVERIFIED'`);
-  const otpRows = await db
-    .select({ action: auditLogs.action, n: sql<number>`count(*)::int` })
-    .from(auditLogs)
-    .where(and(gte(auditLogs.createdAt, since), sql`${auditLogs.action} LIKE 'auth.otp_%'`))
-    .groupBy(auditLogs.action);
+  const rs = new Map(returnRows.map((r) => [r.status as string, r.n]));
+  const terminal: readonly string[] = RETURN_TERMINAL;
+  const alertBy = new Map(alertRows.map((r) => [r.type as string, r.n]));
   const otp = new Map(otpRows.map((r) => [r.action as string, r.n]));
 
   const awaitingReview = suspensions.map((s) => ({
