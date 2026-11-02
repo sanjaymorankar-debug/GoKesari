@@ -166,7 +166,7 @@ New defect:
 
 | # | Severity | Found | Status |
 |---|---|---|---|
-| D-121 | Low (older than PR #326) | Operations' order list (`/admin/orders`) and the shop's order list (`/shop/orders`, Done) label the link to a bill of supply "Tax invoice" (`order-monitoring-table.tsx:158`, `shop-order-manager.tsx:287`); the customer's order page already says "Bill of supply" | Open |
+| D-121 | Low (older than PR #326) | Operations' order list (`/admin/orders`) and the shop's order list (`/shop/orders`, Done) label the link to a bill of supply "Tax invoice" (`order-monitoring-table.tsx:158`, `shop-order-manager.tsx:287`); the customer's order page already says "Bill of supply" | Fixed in PR #328 (to staging, 21169956): both lists label the link by the issued kind. Retest on staging after the merge |
 
 ## Prod (gokesari.com)
 
@@ -189,5 +189,5 @@ The Android and iOS apps are a WebView over the website: every billing screen, i
 | Environment | Status |
 |---|---|
 | Local | Pass for phases 1–8 and the gap closure, both layouts (full run 01-Nov-2026 12.17–13.34 IST; pre-existing and environment failures listed above) |
-| Test | Pass. Staging test 01-Nov-2026 found D-110 to D-117; fixed (PR #323) and all retested as passing on 02-Nov-2026 11.17–11.44 IST. D-118 (Medium), D-119 (Low) and D-120 (Medium) fixed in PR #326 and retested as passing on staging 02-Nov-2026 22.59–23.16 IST. Open: D-121 (Low) |
+| Test | Pass. Staging test 01-Nov-2026 found D-110 to D-117; fixed (PR #323) and all retested as passing on 02-Nov-2026 11.17–11.44 IST. D-118 (Medium), D-119 (Low) and D-120 (Medium) fixed in PR #326 and retested as passing on staging 02-Nov-2026 22.59–23.16 IST. D-121 (Low) fixed in PR #328, to be retested on staging after the merge |
 | Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. Switching billing on waits for the CA (B2, B3); D-118, D-119 and D-120 (PR #326, passed on staging) should be released to gokesari.com first |

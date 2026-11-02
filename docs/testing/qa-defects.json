@@ -1916,8 +1916,9 @@
       "found": "2026-11-02 staging retest of D-118..D-120 (test.gokesari.com at 8fe24140), 23.07 IST — pre-existing, not changed by PR #326",
       "actual": "DB-20261102-ERAAO8's document is bill of supply BKS-000021/2026-27/000020, but its link reads 'Tax invoice' on /admin/orders (operations, desktop and phone) and on the bakery's /shop/orders Done tab (desktop and phone); every delivered order's link there says 'Tax invoice'. The customer's order page says 'Bill of supply' (D-113). Evidence: test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02/shots/05-admin-orders-desktop.png, 05-admin-orders-phone.png, 05-shop-orders-done-desktop.png, 05-shop-orders-done-phone.png; log.jsonl step 5.",
       "expected": "The link names the document issued, as on the customer's pages: 'Bill of supply' for a bill of supply, 'Tax invoice' for a tax invoice (D-113: bills of supply everywhere).",
-      "fix": "src/components/order-monitoring-table.tsx:158 and src/components/shop-order-manager.tsx:287 print a fixed 'Tax invoice'. Pass the issued kind from invoiceKindsForOrders() where the rows are built (src/app/admin/orders/page.tsx:41, src/app/shop/orders/page.tsx:134) and label the link with orderInvoiceLabel(), as src/app/orders/[id]/page.tsx:154 does.",
-      "status": "Open"
+      "fix": "src/app/admin/orders/page.tsx and src/app/shop/orders/page.tsx look up the issued kind with invoiceKindsForOrders() and pass invoiceLabel: orderInvoiceLabel(kind); OrderMonitoringTable and ShopOrderManager show it instead of a fixed 'Tax invoice' ('Invoice' before one is issued). Test: tests/unit/order-list-invoice-label.test.ts (fails on the old components). Retest on staging after the merge: /admin/orders and /shop/orders (Done) show 'Bill of supply' for DB-20261102-ERAAO8.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "PR #328 (fix/billing-v2-d121, 21169956 → staging)"
     }
   ]
 }
