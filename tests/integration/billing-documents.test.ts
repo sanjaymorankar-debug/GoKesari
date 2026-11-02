@@ -31,7 +31,7 @@ import { counterBillKind, createSalesInvoice, salesInvoicePdf } from "@/server/a
 import { updateSettings } from "@/server/accounts/books";
 import { issueCreditNoteForRefund, returnedLineWeights } from "@/server/gst/credit-notes";
 import { buildGstr1 } from "@/server/gst/gstr1";
-import { counterBillShareText, invoiceJson, invoiceShareText, renderInvoiceReceipt, salesReceiptPdf, upiPaymentUri, whatsappShareUrl } from "@/server/invoicing/outputs";
+import { counterBillShareText, invoiceJson, invoiceReceiptLines, invoiceShareText, renderInvoiceReceipt, salesReceiptPdf, upiPaymentUri, whatsappShareUrl } from "@/server/invoicing/outputs";
 import { addToCart } from "@/server/services/cart";
 import { checkout, updateOrderStatus } from "@/server/services/orders";
 import { invoiceKindsForOrders, invoiceTextLines, orderInvoiceLabel, paidHow, type InvoiceSnapshot } from "@/server/services/invoices";
@@ -322,6 +322,19 @@ describe("billing v2 — documents", () => {
       expect(invoiceTextLines({ ...s, payment: { ...s.payment, method: "ONLINE" } }).map((l) => l.text).join("\n")).toContain("Paid by customer (online payment)");
       expect((await invoiceKindsForOrders([invoice!.orderId])).get(invoice!.orderId)).toBe("BILL_OF_SUPPLY");
       expect(orderInvoiceLabel("BILL_OF_SUPPLY")).toBe("Bill of supply");
+
+      // QA D-119: no tax wording, tax split or tax rows on the bill of supply (A4 and 80 mm); a tax invoice keeps them.
+      const a4Text = invoiceTextLines(s).map((l) => l.text).join("\n");
+      const receiptText = invoiceReceiptLines(s).map((l) => l.text).join("\n");
+      for (const text of [a4Text, receiptText]) {
+        expect(text).toContain("BILL OF SUPPLY");
+        expect(text).not.toMatch(/inclusive of tax|CGST|SGST|IGST|Taxable|Intra-state|Inter-state|@0%/);
+      }
+      const total = formatPaise(s.totals.totalPaise).replace("₹", "Rs. ");
+      expect(a4Text.split("\n").find((line) => line.startsWith("Total "))?.trim()).toMatch(new RegExp(`^Total +${total.replace(/[.]/g, "\\.")}$`));
+      const taxInvoiceText = invoiceTextLines({ ...s, kind: "TAX_INVOICE" }).map((l) => l.text).join("\n");
+      expect(taxInvoiceText).toContain("Invoice total (inclusive of tax)");
+      expect(taxInvoiceText).toMatch(/CGST|IGST/);
     });
   });
 });

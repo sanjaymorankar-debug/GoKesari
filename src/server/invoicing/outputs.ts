@@ -78,19 +78,23 @@ export function invoiceReceiptLines(s: InvoiceSnapshot): PdfLine[] {
   wrap(`To ${s.buyer.name}${s.buyer.gstin ? ` GSTIN ${s.buyer.gstin}` : ""}`);
   wrap(`POS ${stateLabel(s.placeOfSupply) ?? s.placeOfSupply}`);
   add(rule);
+  // QA D-119: a bill of supply charges no GST, so no rate on the lines and no tax rows.
+  const bos = s.kind === "BILL_OF_SUPPLY";
   for (const l of s.lines) {
     wrap(`${l.description}${l.hsn ? ` (${l.hsn})` : ""}`);
-    pair(`  ${l.quantity}${l.uqc ? ` ${l.uqc}` : ""} @${(l.rateBp / 100).toFixed(l.rateBp % 100 ? 2 : 0)}%`, money(l.grossPaise));
+    pair(`  ${l.quantity}${l.uqc ? ` ${l.uqc}` : ""}${bos ? "" : ` @${(l.rateBp / 100).toFixed(l.rateBp % 100 ? 2 : 0)}%`}`, money(l.grossPaise));
   }
   add(rule);
-  pair("Taxable", money(s.totals.taxablePaise));
-  if (s.supplyType === "INTRA") {
-    pair("CGST", money(s.totals.cgstPaise));
-    pair("SGST", money(s.totals.sgstPaise));
-  } else {
-    pair("IGST", money(s.totals.igstPaise));
+  if (!bos) {
+    pair("Taxable", money(s.totals.taxablePaise));
+    if (s.supplyType === "INTRA") {
+      pair("CGST", money(s.totals.cgstPaise));
+      pair("SGST", money(s.totals.sgstPaise));
+    } else {
+      pair("IGST", money(s.totals.igstPaise));
+    }
+    if (s.totals.cessPaise) pair("Cess", money(s.totals.cessPaise));
   }
-  if (s.totals.cessPaise) pair("Cess", money(s.totals.cessPaise));
   pair("TOTAL", money(s.totals.totalPaise));
   add(rule);
   if (s.eco) wrap(`Through e-commerce operator ${s.eco.legalName} GSTIN ${s.eco.gstin}`);

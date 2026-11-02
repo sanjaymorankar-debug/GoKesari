@@ -581,8 +581,12 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
   wrap(s.buyer.name);
   wrap(s.buyer.address);
   if (s.buyer.gstin) add(`GSTIN: ${s.buyer.gstin}`);
+  // QA D-119: a bill of supply charges no GST, so it names no tax split, tax column or tax total.
+  const bos = s.kind === "BILL_OF_SUPPLY";
   wrap(
-    `Place of supply: ${stateLabel(s.placeOfSupply) ?? s.placeOfSupply}   Supply: ${s.supplyType === "INTRA" ? "Intra-state (CGST + SGST)" : "Inter-state (IGST)"}   Reverse charge: No`,
+    bos
+      ? `Place of supply: ${stateLabel(s.placeOfSupply) ?? s.placeOfSupply}`
+      : `Place of supply: ${stateLabel(s.placeOfSupply) ?? s.placeOfSupply}   Supply: ${s.supplyType === "INTRA" ? "Intra-state (CGST + SGST)" : "Inter-state (IGST)"}   Reverse charge: No`,
   );
   if (s.einvoice) {
     add(`IRN: ${s.einvoice.irn}`);
@@ -591,29 +595,37 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
   add(rule);
 
   const intra = s.supplyType === "INTRA";
-  const head = `${"#".padEnd(3)}${"Item".padEnd(30)}${"HSN".padEnd(8)}${"Qty".padEnd(10)}${"GST".padStart(6)}${"Taxable".padStart(13)}${(intra ? "CGST+SGST" : "IGST").padStart(12)}${"Amount".padStart(12)}`;
+  const head = bos
+    ? `${"#".padEnd(3)}${"Item".padEnd(30)}${"HSN".padEnd(8)}${"Qty".padEnd(10)}${"Amount".padStart(43)}`
+    : `${"#".padEnd(3)}${"Item".padEnd(30)}${"HSN".padEnd(8)}${"Qty".padEnd(10)}${"GST".padStart(6)}${"Taxable".padStart(13)}${(intra ? "CGST+SGST" : "IGST").padStart(12)}${"Amount".padStart(12)}`;
   add(head.slice(0, W), true);
   s.lines.forEach((l, i) => {
     const tax = l.cgstPaise + l.sgstPaise + l.igstPaise;
     const name = `${l.description}${l.rateAssumed ? " *" : ""}`;
     const row =
       `${String(i + 1).padEnd(3)}${name.slice(0, 29).padEnd(30)}${(l.hsn ?? "-").slice(0, 7).padEnd(8)}${l.quantity.slice(0, 9).padEnd(10)}` +
-      `${pct(l.rateBp).padStart(6)}${money(l.taxablePaise).padStart(13)}${money(tax).padStart(12)}${money(l.grossPaise).padStart(12)}`;
+      (bos
+        ? money(l.grossPaise).padStart(43)
+        : `${pct(l.rateBp).padStart(6)}${money(l.taxablePaise).padStart(13)}${money(tax).padStart(12)}${money(l.grossPaise).padStart(12)}`);
     add(row.slice(0, W));
     if (name.length > 29) add(`   ${name.slice(29, 29 + W - 3)}`);
     const extra = [l.mrpPaise != null ? `MRP ${money(l.mrpPaise)}` : null, s.billingV2 && l.uqc ? `UQC ${l.uqc}` : null].filter(Boolean);
     if (extra.length) add(`   ${extra.join("   ")}`);
   });
   add(rule);
-  pair("Taxable value", money(s.totals.taxablePaise));
-  if (intra) {
-    pair("CGST", money(s.totals.cgstPaise));
-    pair("SGST", money(s.totals.sgstPaise));
+  if (bos) {
+    pair("Total", money(s.totals.totalPaise));
   } else {
-    pair("IGST", money(s.totals.igstPaise));
+    pair("Taxable value", money(s.totals.taxablePaise));
+    if (intra) {
+      pair("CGST", money(s.totals.cgstPaise));
+      pair("SGST", money(s.totals.sgstPaise));
+    } else {
+      pair("IGST", money(s.totals.igstPaise));
+    }
+    if (s.totals.cessPaise) pair("Cess", money(s.totals.cessPaise));
+    pair("Invoice total (inclusive of tax)", money(s.totals.totalPaise));
   }
-  if (s.totals.cessPaise) pair("Cess", money(s.totals.cessPaise));
-  pair("Invoice total (inclusive of tax)", money(s.totals.totalPaise));
   wrap(amountInWords(s.totals.totalPaise));
   add(rule);
   add("PAYMENT", true);

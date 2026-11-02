@@ -33,6 +33,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   if (!invoice || !(await canViewInvoice(invoice, user))) notFound();
   const s = invoice.snapshot as unknown as InvoiceSnapshot;
   const intra = s.supplyType === "INTRA";
+  // QA D-119: a bill of supply charges no GST, so it shows no tax split, tax columns or tax total.
+  const bos = s.kind === "BILL_OF_SUPPLY";
   // Module 2: e-invoice / e-way bill and credit notes.
   const [gstDocs, notes] = await Promise.all([gstDocumentsFor(invoice.id), creditNotesForInvoice(invoice.id)]);
   const [shop] = await db.select({ ownerId: shops.ownerId }).from(shops).where(eq(shops.id, invoice.shopId));
@@ -91,9 +93,10 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
             <p className="text-ink-600">{s.buyer.address}</p>
             {s.buyer.gstin ? <p className="text-ink-600">GSTIN {s.buyer.gstin}</p> : null}
             <p className="text-ink-600">
-              Place of supply {stateLabel(s.placeOfSupply) ?? s.placeOfSupply} · {intra ? "intra-state (CGST + SGST)" : "inter-state (IGST)"}
+              Place of supply {stateLabel(s.placeOfSupply) ?? s.placeOfSupply}
+              {bos ? null : <> · {intra ? "intra-state (CGST + SGST)" : "inter-state (IGST)"}</>}
             </p>
-            <p className="text-ink-600">Reverse charge: No</p>
+            {bos ? null : <p className="text-ink-600">Reverse charge: No</p>}
           </div>
         </div>
 
@@ -104,9 +107,13 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                 <th className="py-2 pr-2">Item</th>
                 <th className="py-2 pr-2">HSN/SAC</th>
                 <th className="py-2 pr-2">Qty</th>
-                <th className="py-2 pr-2 text-right">GST</th>
-                <th className="py-2 pr-2 text-right">Taxable</th>
-                {intra ? (
+                {bos ? null : (
+                  <>
+                    <th className="py-2 pr-2 text-right">GST</th>
+                    <th className="py-2 pr-2 text-right">Taxable</th>
+                  </>
+                )}
+                {bos ? null : intra ? (
                   <>
                     <th className="py-2 pr-2 text-right">CGST</th>
                     <th className="py-2 pr-2 text-right">SGST</th>
@@ -128,9 +135,13 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                   </td>
                   <td className="py-2 pr-2">{l.hsn ?? "—"}</td>
                   <td className="py-2 pr-2">{l.quantity}</td>
-                  <td className="py-2 pr-2 text-right">{pct(l.rateBp)}</td>
-                  <td className="py-2 pr-2 text-right">{formatPaise(l.taxablePaise)}</td>
-                  {intra ? (
+                  {bos ? null : (
+                    <>
+                      <td className="py-2 pr-2 text-right">{pct(l.rateBp)}</td>
+                      <td className="py-2 pr-2 text-right">{formatPaise(l.taxablePaise)}</td>
+                    </>
+                  )}
+                  {bos ? null : intra ? (
                     <>
                       <td className="py-2 pr-2 text-right">{formatPaise(l.cgstPaise)}</td>
                       <td className="py-2 pr-2 text-right">{formatPaise(l.sgstPaise)}</td>
@@ -146,8 +157,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         </div>
 
         <dl className="ml-auto max-w-xs space-y-1">
-          <div className="flex justify-between"><dt>Taxable value</dt><dd>{formatPaise(s.totals.taxablePaise)}</dd></div>
-          {intra ? (
+          {bos ? null : <div className="flex justify-between"><dt>Taxable value</dt><dd>{formatPaise(s.totals.taxablePaise)}</dd></div>}
+          {bos ? null : intra ? (
             <>
               <div className="flex justify-between"><dt>CGST</dt><dd>{formatPaise(s.totals.cgstPaise)}</dd></div>
               <div className="flex justify-between"><dt>SGST</dt><dd>{formatPaise(s.totals.sgstPaise)}</dd></div>
@@ -155,11 +166,11 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           ) : (
             <div className="flex justify-between"><dt>IGST</dt><dd>{formatPaise(s.totals.igstPaise)}</dd></div>
           )}
-          {s.totals.cessPaise ? (
+          {!bos && s.totals.cessPaise ? (
             <div className="flex justify-between"><dt>Cess</dt><dd>{formatPaise(s.totals.cessPaise)}</dd></div>
           ) : null}
           <div className="flex justify-between border-t border-cream-200 pt-1 font-semibold text-ink-900">
-            <dt>Total (tax inclusive)</dt>
+            <dt>{bos ? "Total" : "Total (tax inclusive)"}</dt>
             <dd>{formatPaise(s.totals.totalPaise)}</dd>
           </div>
         </dl>
