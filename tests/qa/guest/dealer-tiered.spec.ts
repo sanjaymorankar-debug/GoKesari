@@ -48,3 +48,18 @@ qa("TC-SREF-002", "/r/SHOP… goes to Add my shop with the code where shop refer
     await guest.dispose();
   }
 });
+
+qa("TC-DPAY-005", "guest: payout reports, the TDS API and the bank file refuse a caller without a session", async () => {
+  const guest = await anonymous();
+  const seen: string[] = [];
+  try {
+    for (const path of ["/api/admin/dealer-payout-reports?report=summary&format=csv", "/api/admin/commission-tds", "/api/admin/dealer-commission?bankFile=1", "/api/dealer/tds"]) {
+      const res = await call(guest, "GET", path);
+      expect([401, 403, 404], `${path} → ${res.status}`).toContain(res.status);
+      seen.push(`${path.split("?")[0]} ${res.status}`);
+    }
+  } finally {
+    await guest.dispose();
+  }
+  return seen.join("; ");
+}, { partial: "the operator's 403 on the bank file is in tests/qa/signed-in/dealer-tiered.spec.ts" });

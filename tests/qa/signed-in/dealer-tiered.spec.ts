@@ -103,3 +103,40 @@ qa("TC-SREF-003", "one code: a shop code is accepted by the registration code ch
 manual(["TC-TIER-002", "TC-TIER-003", "TC-TIER-004", "TC-TIER-005", "TC-TIER-007", "TC-TIER-008", "TC-TIER-009"], "TIERED amounts, TRADING, renewal, reversal, payouts and TDS", "needs a TIERED dealer network with paid shops and delivered orders on the site; every amount is proven by tests/integration/dealer-tiered-commission.test.ts on both database layouts");
 manual(["TC-TIER-006", "TC-TIER-010"], "promotion with the development bonus; agent agreement and standard dealers", "needs a TIERED network with linked member accounts on the site; proven by tests/integration/dealer-tiered-commission.test.ts");
 manual(["TC-SREF-004", "TC-SREF-005"], "shop-referral reward on the first delivery and its guards", "needs a second shop registered with a code, approved, with a delivered order; proven by tests/integration/shop-referrals.test.ts");
+
+qa("TC-DPAY-004", "admin: the four payout reports download as CSV and XLSX; an operator reads them but not the bank file", async () => {
+  const admin = await as("admin");
+  const notes: string[] = [];
+  for (const report of ["summary", "lines", "pending", "failed"]) {
+    const csv = await call(admin, "GET", `/api/admin/dealer-payout-reports?report=${report}&format=csv`);
+    if (csv.status === 404) blocked("dealer_programme_enabled is off on this site");
+    expectStatus(csv, 200, `${report} CSV`);
+    expect(csv.headers["content-type"]).toContain("text/csv");
+    const xlsx = await call(admin, "GET", `/api/admin/dealer-payout-reports?report=${report}&format=xlsx`);
+    expectStatus(xlsx, 200, `${report} XLSX`);
+    expect(xlsx.headers["content-type"]).toContain("spreadsheetml");
+    notes.push(report);
+  }
+  const ops = await as("ops");
+  expectStatus(await call(ops, "GET", "/api/admin/dealer-payout-reports?report=summary&format=json"), 200, "operator reads the reports");
+  expectStatus(await call(ops, "GET", "/api/admin/dealer-commission?bankFile=1"), 403, "operator: no bank file");
+  return `${notes.join(", ")} in CSV and XLSX; operator read-only`;
+}, { ...signed, partial: "the statement email's CSV is proven by tests/integration/dealer-payouts-pan-tds.test.ts" });
+
+qa("TC-TDS-003", "admin: TDS on commission shows dated rows (CA-confirmed or not), certificates, challans, downloads and exceptions", async ({ browser }) => {
+  const { context, page } = await pageAs(browser, "admin");
+  try {
+    await page.goto("/admin/tds-commission");
+    await expect(page.getByRole("heading", { name: "TDS on commission" })).toBeVisible();
+    await expect(page.getByTestId("tds-rows")).toContainText(/PAN/);
+    await expect(page.getByTestId("tds-certificates")).toBeAttached();
+    await expect(page.getByTestId("tds-exceptions")).toBeAttached();
+    await expect(page.getByRole("link", { name: /26Q data/ })).toBeVisible();
+    return (await page.getByTestId("tds-rows").innerText()).split("\n")[0];
+  } finally {
+    await context.close();
+  }
+}, { ...signed, mobile: true, partial: "the payee's TDS card needs a dealer account on the site" });
+
+manual(["TC-DPAY-001", "TC-DPAY-002", "TC-DPAY-003"], "payouts by PAN, holds and the minimum, maker-checker and the automatic transfer", "needs dealers and team members with earnings and a month close on the site; proven by tests/integration/dealer-payouts-pan-tds.test.ts on both database layouts");
+manual(["TC-TDS-001", "TC-TDS-002"], "the unconfirmed-row block, the CA's confirmation, modes and certificates", "needs a CA account and payouts on the site; proven by tests/integration/dealer-payouts-pan-tds.test.ts on both database layouts");
