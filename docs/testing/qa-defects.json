@@ -1872,7 +1872,7 @@
       "expected": "An answer that depends on who is signed in is never shared: a 404 / 401 for one user is not served to another; the invoice's own customer always gets the PDF.",
       "fix": "errorResponse() in src/server/api/handler.ts answers every error with Cache-Control: private, no-store; route() and the 11 hand-written file routes use it; the accounts / connector 409s and the proxy's 401 / 429 say no-store too. Test: tests/unit/api-error-no-store.test.ts. Retest on staging after the merge (customer2 refused, then the customer gets the PDF at once).",
       "status": "Fixed (re-test pending)",
-      "fixedIn": "PR #326 (fix/billing-v2-d118-d119, fee765d3 → staging)"
+      "fixedIn": "PR #326 (fix/billing-v2-d118-d119, fee765d3 → staging; merged 8fe24140, live on test.gokesari.com 02-Nov-2026 22.45 IST)"
     },
     {
       "id": "D-119",
@@ -1887,7 +1887,7 @@
       "expected": "D-116's expected result: no GST-inclusive wording on a bill of supply (s.31(3)(c), Rule 49) — e.g. 'Total' / 'Amount' without tax wording and without CGST/SGST rows when the document is a bill of supply.",
       "fix": "invoiceTextLines (A4), invoiceReceiptLines (80 mm) and /invoices/[id] leave out the tax split, tax columns and tax rows on a BILL_OF_SUPPLY and say \"Total\"; snapshots unchanged. Test: tests/integration/billing-documents.test.ts. Retest on staging after the merge.",
       "status": "Fixed (re-test pending)",
-      "fixedIn": "PR #326 (fix/billing-v2-d118-d119, fee765d3 → staging)"
+      "fixedIn": "PR #326 (fix/billing-v2-d118-d119, fee765d3 → staging; merged 8fe24140, live on test.gokesari.com 02-Nov-2026 22.45 IST)"
     },
     {
       "id": "D-120",
@@ -1901,7 +1901,7 @@
       "expected": "A shop whose counter bills are bills of supply (no GSTIN, composition, Enrolment ID or PAN only) charges no GST: a non-zero rate is refused (or forced to 0) on counter bills, POS bills and shop documents, and the form does not offer a GST rate.",
       "fix": "issueSalesInvoice (counter and POS bills) and createDocument take every line at 0% for a shop whose counter bills are bills of supply (a note / refund against a bill that did carry GST still reverses it); posItems gives the device 0%; printsWithoutGst() drops the tax split, columns and rows from the counter bill's page, A4, 80 mm receipt and the document PDF; the sale form, document form and POS screen hide the GST rate. Test: tests/integration/billing-documents.test.ts (both layouts). Retest on staging after the merge.",
       "status": "Fixed (re-test pending)",
-      "fixedIn": "PR #326 (fix/billing-v2-d118-d119, 7c4bf638 → staging)"
+      "fixedIn": "PR #326 (fix/billing-v2-d118-d119, 7c4bf638 → staging; merged 8fe24140, live on test.gokesari.com 02-Nov-2026 22.45 IST)"
     }
   ]
 }
