@@ -349,6 +349,16 @@ export const NOTIFICATION_TYPES = {
   DEALER_COMMISSION_STATEMENT: "dealer.commission_statement",
   /** To the dealer: an admin lowered the rating, with the reason. */
   DEALER_RATING_CHANGED: "dealer.rating_changed",
+  /** TIERED (0136): to a payee — commission earned on a shop (part 1, part 2, override, renewal, bonus); push too. */
+  DEALER_COMMISSION_EARNED: "dealer.commission_earned",
+  /** TIERED (0136): to every payee on a shop — its commission was reversed (refund, waiver, fraud, duplicate); push too. */
+  DEALER_COMMISSION_REVERSED: "dealer.commission_reversed",
+  /** TIERED (0136): to a team member — promoted, moved, or a sub-agent request decided. */
+  DEALER_TEAM_CHANGED: "dealer.team_changed",
+  /** Shop-refers-shop (0137): to the shop owner — a referral reward was credited; push too. */
+  SHOP_REFERRAL_REWARDED: "shop.referral_rewarded",
+  /** Shop-refers-shop (0137): to the shop owner — a referral reward was taken back after a review; push too. */
+  SHOP_REFERRAL_REVERSED: "shop.referral_reversed",
   /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */
   SHOP_READY_FOR_PRODUCT_UPLOAD: "shop.ready_for_product_upload",
   /* <<< end dealer programme */

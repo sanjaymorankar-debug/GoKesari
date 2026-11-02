@@ -38,6 +38,10 @@ export const DEEP_LINK_ROUTES = [
   { kind: "ticket", example: "/support/tickets/<id>", prefix: "/support/tickets/" },
   // docs/homepage-uiux-2026-10 (F4): a product's price comparison ("Compare N prices").
   { kind: "compare", example: "/search/compare?product=<id>", prefix: "/search/compare" },
+  // docs/dealer-programme/TIERED_COMMISSION.md: the dealer portal (pushes for commission, reversal and payouts open it)
+  // and Add my shop (a shop's referral link /r/SHOP… lands there with the code filled in).
+  { kind: "dealer", example: "/dealer", prefix: "/dealer" },
+  { kind: "shop-register", example: "/shop/register?ref=<code>", prefix: "/shop/register" },
 ] as const;
 
 /** test.gokesari.com (and any test.* host) is the preview build; everything else the store build. */

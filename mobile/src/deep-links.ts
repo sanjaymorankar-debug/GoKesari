@@ -27,6 +27,10 @@ export const DEEP_LINK_ROUTES = [
   { kind: "ticket", prefix: "/support/tickets/" },
   // 1.3.0 (docs/homepage-uiux-2026-10): "Compare N prices" links.
   { kind: "compare", prefix: "/search/compare" },
+  // 1.7.0 (docs/dealer-programme/TIERED_COMMISSION.md): the dealer portal (team, earnings, statements) —
+  // commission and payout pushes open it — and Add my shop, where a shop's /r/SHOP… link lands.
+  { kind: "dealer", prefix: "/dealer" },
+  { kind: "shop-register", prefix: "/shop/register" },
 ] as const;
 
 export type DeepLinkKind = (typeof DEEP_LINK_ROUTES)[number]["kind"] | "page";

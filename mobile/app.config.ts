@@ -89,7 +89,7 @@ const APP_LINK_PATH_PREFIXES = [
  * Pages not (yet) top-level directories of the website, such as the help
  * desk's /support/tickets/…, are listed here so the intent filter has them.
  */
-const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/", "/search/compare"];
+const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/", "/search/compare", "/dealer", "/shop/register"];
 
 const INTENT_PATH_PREFIXES = [...new Set([...APP_LINK_PATH_PREFIXES, ...DEEP_LINK_ROUTE_PREFIXES])];
 
@@ -120,10 +120,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // 1.5.0: update check (docs/app-install-2026-10 at the repository root) — at launch and when the app
   // comes back, the app asks the website for the newest build (and, once listed, the App Store) and
   // offers "Update", which opens the store listing; below the minimum version the update is required.
+  // 1.7.0: dealer team and earnings, a shop's own referral link (/r/SHOP…) and registration code — the
+  // dealer portal and Add my shop are deep-link routes, and commission / reward / reversal pushes open them.
   // 1.6.0: Aadhaar by DigiLocker (Sandbox.co.in stopped the Aadhaar OTP check) — the KYC page asks the
   // app to open DigiLocker in the in-app browser (ASWebAuthenticationSession / Custom Tab) and the
   // website's return link hands back to `<scheme>://digilocker-return` (src/digilocker.ts).
-  version: "1.6.0",
+  version: "1.7.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -132,7 +134,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "7",
+    buildNumber: "8",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -149,7 +151,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 7,
+    versionCode: 8,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",

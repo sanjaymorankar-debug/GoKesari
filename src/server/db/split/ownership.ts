@@ -346,6 +346,11 @@ export const TABLE_OWNERSHIP = {
   dealer_payout_batches: "seller",
   dealer_commission_months: "seller", // monthly payout close (0116)
   dealer_commission_ledger: "seller",
+  dealer_tier_shop_plans: "seller", // TIERED commission (0136)
+  dealer_team_developments: "seller", // TIERED promotion development bonus (0136)
+  dealer_team_requests: "seller", // TIERED sub-agent requests (0136)
+  shop_referral_codes: "seller", // shop-refers-shop (0137)
+  shop_referrals: "seller", // shop-refers-shop (0137)
   support_service_types: "platform",
   support_service_charges: "platform",
   support_service_settings: "platform",

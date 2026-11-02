@@ -85,6 +85,8 @@ describe("incoming deep links", () => {
       ["/orders/abc", "order"],
       ["/r/KES123", "referral"],
       ["/refer", "referral"],
+      ["/dealer", "dealer"],
+      ["/shop/register?ref=SHOPAB2CD", "shop-register"],
       ["/notifications/5", "notification"],
       ["/support/tickets/9", "ticket"],
       ["/wallet", "page"],

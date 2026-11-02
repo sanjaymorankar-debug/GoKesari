@@ -405,6 +405,14 @@ export const TEMPLATES: Record<string, Template> = {
     "{{month}}: {{registrations}} shops registered through you, {{earned}} commission earned. Payout for the month: {{payout}} — GoKesari transfers it to your bank account and you'll get the UTR when it is paid. See and download the full statement on your dealer page.",
   ),
   [T.DEALER_RATING_CHANGED]: t("Your dealer rating is now {{rating}}", "GoKesari changed your onboarding rating to {{rating}}. Reason: {{reason}}. It applies to commission earned from now on."),
+  [T.DEALER_COMMISSION_EARNED]: t("Commission earned: {{amount}}", "{{what}} for {{shopName}}: {{amount}}. It is paid with your monthly payout on the 5th."),
+  [T.DEALER_COMMISSION_REVERSED]: t(
+    "Commission reversed: {{shopName}}",
+    "The commission on {{shopName}} was reversed ({{reason}}). Anything already paid is taken from your next payout.",
+  ),
+  [T.DEALER_TEAM_CHANGED]: t("Your dealer team changed", "{{message}}"),
+  [T.SHOP_REFERRAL_REWARDED]: t("Referral reward: {{reward}}", "{{shopName}}, which joined GoKesari with your shop's referral code, is live and has delivered its first order. {{reward}} — {{detail}}"),
+  [T.SHOP_REFERRAL_REVERSED]: t("Referral reward reversed", "A shop referral reward was reversed after a review. {{detail}}"),
   [T.DEALER_SHOP_APPROVED]: t("Shop approved: {{shopName}}", "{{shopName}}, counted for you, is approved and can now add products and take orders."),
   [T.SHOP_READY_FOR_PRODUCT_UPLOAD]: t(
     "Registration successful — {{shopName}} is ready for product upload",

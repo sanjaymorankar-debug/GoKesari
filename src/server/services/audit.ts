@@ -413,6 +413,15 @@ export const AUDIT_ACTIONS = {
   DEALER_COMMISSION_MONTH_CLOSED: "dealer.commission_month_closed", // docs/dealer-programme: monthly payout drafted
   DEALER_RATING_SLAB_CHANGED: "dealer.rating_slab_changed", // docs/dealer-programme
   DEALER_RATING_CHANGED: "dealer.rating_changed", // docs/dealer-programme
+  DEALER_COMMISSION_MODEL_CHANGED: "dealer.commission_model_changed", // TIERED (0136): STANDARD ↔ TIERED, own rates
+  DEALER_TEAM_CHANGED: "dealer.team_changed", // TIERED (0136): role, parent, promotion, development bonus
+  DEALER_TEAM_REQUEST: "dealer.team_request", // TIERED (0136): sub-agent requested / decided
+  DEALER_MEMBER_PAYEE_SAVED: "dealer.member_payee_saved", // TIERED (0136): a member's PAN / bank
+  DEALER_AGREEMENT_ACCEPTED: "dealer.agent_agreement_accepted", // TIERED (0136)
+  DEALER_TIER_PLAN_CHANGED: "dealer.tier_plan_changed", // TIERED (0136): TRADING reached / lapsed
+  SHOP_REFERRAL_APPLIED: "shop_referral.applied", // shop-refers-shop (0137)
+  SHOP_REFERRAL_DECIDED: "shop_referral.decided", // shop-refers-shop (0137)
+  SHOP_REFERRAL_REVERSED: "shop_referral.reversed", // shop-refers-shop (0137)
   SUPPORT_SERVICE_REQUESTED: "support_service.requested", // docs/dealer-programme
   SUPPORT_SERVICE_PAID: "support_service.paid", // docs/dealer-programme
   SUPPORT_SERVICE_CANCELLED: "support_service.cancelled", // docs/dealer-programme

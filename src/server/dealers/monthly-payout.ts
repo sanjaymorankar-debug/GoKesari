@@ -36,8 +36,8 @@ import {
   dealers,
   shopAttributions,
   shops,
-  type CommissionMilestone,
   type CommissionStatus,
+  type LedgerMilestone,
   type DealerCommissionMonth,
   type DealerPayoutBatch,
   type UserRole,
@@ -47,7 +47,10 @@ import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { notify } from "@/server/services/notifications";
-import { getCommissionSettings } from "./commission";
+import { getRule } from "@/server/services/settings";
+import { COMMISSION_ENTRY_TYPE_LABELS, STATEMENT_LINES, type CommissionEntryType } from "@/lib/dealer-tiers";
+import { getCommissionSettings, payoutTds } from "./commission";
+import { accrueTargetBonuses } from "./tiered";
 
 interface Actor {
   id: string;
@@ -92,8 +95,9 @@ export interface MonthCloseResult {
   month: string;
   alreadyClosed: boolean;
   autoApproved: number;
-  payouts: { dealerId: string; batchId: string; totalPaise: number; entries: number }[];
-  carried: { dealerId: string; netPaise: number }[];
+  /** memberId: the team member paid (TIERED); null = the dealer. totalPaise is the gross; the transfer is gross − TDS. */
+  payouts: { dealerId: string; memberId: string | null; batchId: string; totalPaise: number; tdsPaise: number; entries: number }[];
+  carried: { dealerId: string; memberId: string | null; netPaise: number }[];
   notified: number;
 }
 
@@ -112,6 +116,9 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
   const result = await db.transaction(async (tx) => {
     const [claimed] = await tx.insert(dealerCommissionMonths).values({ periodMonth: month, closedBy: actor?.id ?? null }).onConflictDoNothing().returning();
     if (!claimed) return null;
+
+    // 0. TIERED (0136): the month's target bonuses, dated inside the month, before anything is approved.
+    const bonuses = await accrueTargetBonuses(tx, month, start, end, actor);
 
     // 1. The month's earned accruals, approved first when the setting says so.
     let autoApproved: string[] = [];
@@ -137,40 +144,55 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
       eq(dealerCommissionLedger.status, "APPROVED"),
       and(eq(dealerCommissionLedger.kind, "REVERSAL"), inArray(dealerCommissionLedger.status, ["EARNED", "APPROVED"])),
     );
-    const dealerIds = (
+    // One payout per payee: the dealer itself, or (TIERED) each team member, paid directly.
+    const payees = (
       await tx
-        .selectDistinct({ dealerId: dealerCommissionLedger.dealerId })
+        .selectDistinct({ dealerId: dealerCommissionLedger.dealerId, memberId: dealerCommissionLedger.payeeMemberId })
         .from(dealerCommissionLedger)
         .where(and(isNull(dealerCommissionLedger.payoutBatchId), lt(dealerCommissionLedger.createdAt, end), payable))
-    ).map((r) => r.dealerId);
+    ).sort((a, b) => a.dealerId.localeCompare(b.dealerId) || (a.memberId ?? "").localeCompare(b.memberId ?? ""));
 
+    const tdsRule = await getRule("dealerPayoutTds");
     const payouts: MonthCloseResult["payouts"] = [];
     const carried: MonthCloseResult["carried"] = [];
-    for (const dealerId of dealerIds.sort()) {
-      await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
-      await touchSellerRow(tx, dealers, dealerId);
+    const locked = new Set<string>();
+    for (const { dealerId, memberId } of payees) {
+      if (!locked.has(dealerId)) {
+        await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
+        await touchSellerRow(tx, dealers, dealerId);
+        locked.add(dealerId);
+      }
       const rows = await tx
         .select({ id: dealerCommissionLedger.id, amountPaise: dealerCommissionLedger.amountPaise })
         .from(dealerCommissionLedger)
-        .where(and(eq(dealerCommissionLedger.dealerId, dealerId), isNull(dealerCommissionLedger.payoutBatchId), lt(dealerCommissionLedger.createdAt, end), payable));
+        .where(
+          and(
+            eq(dealerCommissionLedger.dealerId, dealerId),
+            memberId ? eq(dealerCommissionLedger.payeeMemberId, memberId) : isNull(dealerCommissionLedger.payeeMemberId),
+            isNull(dealerCommissionLedger.payoutBatchId),
+            lt(dealerCommissionLedger.createdAt, end),
+            payable,
+          ),
+        );
       const total = rows.reduce((s, r) => s + r.amountPaise, 0);
       if (rows.length === 0) continue;
       if (total <= 0) {
-        carried.push({ dealerId, netPaise: total });
+        carried.push({ dealerId, memberId, netPaise: total });
         continue;
       }
+      const tdsPaise = await payoutTds(tx, dealerId, memberId, total, tdsRule, new Date(end.getTime() - 1));
       const [batch] = await tx
         .insert(dealerPayoutBatches)
-        .values({ dealerId, totalPaise: total, periodMonth: month, note: `Commission for ${monthLabel(month)}`, createdBy: actor?.id ?? null })
+        .values({ dealerId, memberId, totalPaise: total, tdsPaise, tdsRateBp: tdsPaise > 0 ? tdsRule.rateBp : 0, periodMonth: month, note: `Commission for ${monthLabel(month)}`, createdBy: actor?.id ?? null })
         .returning();
       await tx.update(dealerCommissionLedger).set({ payoutBatchId: batch.id, updatedAt: new Date() }).where(inArray(dealerCommissionLedger.id, rows.map((r) => r.id)));
-      payouts.push({ dealerId, batchId: batch.id, totalPaise: total, entries: rows.length });
+      payouts.push({ dealerId, memberId, batchId: batch.id, totalPaise: total, tdsPaise, entries: rows.length });
     }
 
     const totalPaise = payouts.reduce((s, p) => s + p.totalPaise, 0);
     await tx
       .update(dealerCommissionMonths)
-      .set({ autoApproved: autoApproved.length, payouts: payouts.length, totalPaise, summary: { payouts, carried, autoApproved } })
+      .set({ autoApproved: autoApproved.length, payouts: payouts.length, totalPaise, summary: { payouts, carried, autoApproved, bonuses: bonuses.map((b) => b.id) } })
       .where(eq(dealerCommissionMonths.periodMonth, month));
     await recordAudit(
       {
@@ -179,7 +201,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
         action: AUDIT_ACTIONS.DEALER_COMMISSION_MONTH_CLOSED,
         entityType: "dealer_commission_month",
         entityId: month,
-        newValue: { month, payouts: payouts.length, totalPaise, carried, autoApproved: autoApproved.length },
+        newValue: { month, payouts: payouts.length, totalPaise, carried, autoApproved: autoApproved.length, targetBonuses: bonuses.length },
       },
       tx,
     );
@@ -214,28 +236,47 @@ async function sendMonthStatements(month: string, start: Date, end: Date, payout
     .select({ id: dealers.id, userId: dealers.userId })
     .from(dealers)
     .where(and(inArray(dealers.id, [...active]), eq(dealers.status, "APPROVED")));
+  // TIERED: team members with entries in the month (or a payout) get their own statement.
+  const memberIds = new Set<string>(payouts.map((p) => p.memberId).filter((m): m is string => Boolean(m)));
+  for (const r of await db
+    .selectDistinct({ memberId: dealerCommissionLedger.payeeMemberId })
+    .from(dealerCommissionLedger)
+    .where(and(gte(dealerCommissionLedger.createdAt, start), lt(dealerCommissionLedger.createdAt, end), sql`${dealerCommissionLedger.payeeMemberId} IS NOT NULL`))) {
+    memberIds.add(r.memberId!);
+  }
+  const members = memberIds.size
+    ? await db
+        .select({ id: dealerSalespeople.id, dealerId: dealerSalespeople.dealerId, userId: dealerSalespeople.userId })
+        .from(dealerSalespeople)
+        .innerJoin(dealers, eq(dealers.id, dealerSalespeople.dealerId))
+        .where(and(inArray(dealerSalespeople.id, [...memberIds]), eq(dealers.status, "APPROVED")))
+    : [];
+  const targets = [
+    ...recipients.map((d) => ({ dealerId: d.id, memberId: null as string | null, userId: d.userId })),
+    ...members.map((m) => ({ dealerId: m.dealerId, memberId: m.id as string | null, userId: m.userId })),
+  ];
   let sent = 0;
-  for (const dealer of recipients) {
-    if (!dealer.userId) continue;
+  for (const target of targets) {
+    if (!target.userId) continue;
     try {
-      const s = await dealerMonthStatement(dealer.id, month);
+      const s = await dealerMonthStatement(target.dealerId, month, target.memberId);
       await notify({
-        userId: dealer.userId,
+        userId: target.userId,
         type: NOTIFICATION_TYPES.DEALER_COMMISSION_STATEMENT,
         vars: {
           month: s.label,
           registrations: String(s.totals.registrations),
           earned: rupees(s.totals.earnedPaise),
-          payout: s.payout ? rupees(s.payout.totalPaise) : "₹0",
+          payout: s.payout ? rupees(s.payout.netPaise) : "₹0",
         },
         actionUrl: `/dealer?statement=${month}`,
-        dedupeKey: `dealer-statement:${month}:${dealer.id}`,
-        metadata: { month, dealerId: dealer.id },
+        dedupeKey: `dealer-statement:${month}:${target.memberId ?? target.dealerId}`,
+        metadata: { month, dealerId: target.dealerId, memberId: target.memberId },
       });
       sent += 1;
     } catch (error) {
-      // The month is closed whatever happens here; one dealer's notice never stops the others.
-      console.error("[dealer-monthly-payout] statement notice failed", month, dealer.id, error instanceof Error ? error.message : error);
+      // The month is closed whatever happens here; one payee's notice never stops the others.
+      console.error("[dealer-monthly-payout] statement notice failed", month, target.memberId ?? target.dealerId, error instanceof Error ? error.message : error);
     }
   }
   return sent;
@@ -273,7 +314,9 @@ export interface StatementEntry {
   id: string;
   date: string;
   shopName: string;
-  milestone: CommissionMilestone;
+  milestone: LedgerMilestone;
+  entryType: CommissionEntryType;
+  level: number | null;
   kind: string;
   status: CommissionStatus;
   amountPaise: number;
@@ -288,7 +331,12 @@ export interface DealerMonthStatement {
   registrations: StatementRegistration[];
   /** Commission entries created in the month, whatever their status now. */
   entries: StatementEntry[];
-  payout: (Pick<DealerPayoutBatch, "id" | "status" | "totalPaise" | "paymentReference"> & { paidAt: string | null; entries: StatementEntry[] }) | null;
+  /** totalPaise is the gross; netPaise = gross − TDS, the bank transfer. */
+  payout: (Pick<DealerPayoutBatch, "id" | "status" | "totalPaise" | "tdsPaise" | "tdsRateBp" | "paymentReference"> & { netPaise: number; paidAt: string | null; entries: StatementEntry[] }) | null;
+  /** One line per entry type (direct-1, direct-2, override, renewal, development, bonus): earned in the month. */
+  lines: { key: string; label: string; amountPaise: number }[];
+  /** Whose statement: the dealer (null) or a team member. */
+  payee: { memberId: string | null; name: string };
   totals: {
     registrations: number;
     activated: number;
@@ -310,14 +358,16 @@ async function entryRows(where: ReturnType<typeof and>): Promise<(StatementEntry
   const rows = await db
     .select({ e: dealerCommissionLedger, shopName: shops.name })
     .from(dealerCommissionLedger)
-    .innerJoin(shops, eq(shops.id, dealerCommissionLedger.shopId))
+    .leftJoin(shops, eq(shops.id, dealerCommissionLedger.shopId))
     .where(where)
     .orderBy(asc(dealerCommissionLedger.createdAt));
   return rows.map((r) => ({
     id: r.e.id,
     date: day(r.e.createdAt),
-    shopName: r.shopName,
+    shopName: r.shopName ?? "Monthly target bonus",
     milestone: r.e.milestone,
+    entryType: r.e.entryType,
+    level: r.e.level,
     kind: r.e.kind,
     status: r.e.status,
     amountPaise: r.e.amountPaise,
@@ -326,18 +376,25 @@ async function entryRows(where: ReturnType<typeof and>): Promise<(StatementEntry
   }));
 }
 
-/** One dealer's statement for one month — their own rows only. */
-export async function dealerMonthStatement(dealerId: string, month: string): Promise<DealerMonthStatement> {
+/**
+ * One payee's statement for one month — their own rows only. `memberId` null
+ * (the default): the dealer itself; a team member's id: that member's (TIERED).
+ */
+export async function dealerMonthStatement(dealerId: string, month: string, memberId: string | null = null): Promise<DealerMonthStatement> {
   assertMonth(month);
   const { start, end } = monthBounds(month);
   const inMonth = (col: typeof shopAttributions.createdAt | typeof dealerCommissionLedger.createdAt) => and(gte(col, start), lt(col, end));
+  const payeeIs = memberId ? eq(dealerCommissionLedger.payeeMemberId, memberId) : isNull(dealerCommissionLedger.payeeMemberId);
+  const [member] = memberId ? await db.select().from(dealerSalespeople).where(and(eq(dealerSalespeople.id, memberId), eq(dealerSalespeople.dealerId, dealerId))) : [];
+  if (memberId && !member) throw validationFailed("Not a member of this dealer's team.");
+  const [dealerRow] = await db.select({ name: dealers.legalName }).from(dealers).where(eq(dealers.id, dealerId));
 
   const shopsRows = await db
     .select({ a: shopAttributions, shop: shops, employee: dealerSalespeople.name })
     .from(shopAttributions)
     .innerJoin(shops, eq(shops.id, shopAttributions.shopId))
     .leftJoin(dealerSalespeople, eq(dealerSalespeople.id, shopAttributions.salespersonId))
-    .where(and(eq(shopAttributions.dealerId, dealerId), inMonth(shopAttributions.createdAt)))
+    .where(and(eq(shopAttributions.dealerId, dealerId), memberId ? eq(shopAttributions.salespersonId, memberId) : sql`true`, inMonth(shopAttributions.createdAt)))
     .orderBy(asc(shopAttributions.createdAt));
   const registrations: StatementRegistration[] = shopsRows.map((r) => ({
     shopId: r.shop.id,
@@ -350,16 +407,25 @@ export async function dealerMonthStatement(dealerId: string, month: string): Pro
     shopStatus: r.shop.status,
   }));
 
-  const entries = await entryRows(and(eq(dealerCommissionLedger.dealerId, dealerId), inMonth(dealerCommissionLedger.createdAt))!);
+  const entries = await entryRows(and(eq(dealerCommissionLedger.dealerId, dealerId), payeeIs, inMonth(dealerCommissionLedger.createdAt))!);
   const [batch] = await db
     .select()
     .from(dealerPayoutBatches)
-    .where(and(eq(dealerPayoutBatches.dealerId, dealerId), eq(dealerPayoutBatches.periodMonth, month), sql`${dealerPayoutBatches.status} <> 'CANCELLED'`))
+    .where(
+      and(
+        eq(dealerPayoutBatches.dealerId, dealerId),
+        memberId ? eq(dealerPayoutBatches.memberId, memberId) : isNull(dealerPayoutBatches.memberId),
+        eq(dealerPayoutBatches.periodMonth, month),
+        sql`${dealerPayoutBatches.status} <> 'CANCELLED'`,
+      ),
+    )
     .orderBy(desc(dealerPayoutBatches.createdAt))
     .limit(1);
   const payoutEntries = batch ? await entryRows(eq(dealerCommissionLedger.payoutBatchId, batch.id) as ReturnType<typeof and>) : [];
   const [closedRow] = await db.select().from(dealerCommissionMonths).where(eq(dealerCommissionMonths.periodMonth, month));
-  const carried = ((closedRow?.summary as { carried?: { dealerId: string; netPaise: number }[] } | undefined)?.carried ?? []).find((c) => c.dealerId === dealerId);
+  const carried = ((closedRow?.summary as { carried?: { dealerId: string; memberId?: string | null; netPaise: number }[] } | undefined)?.carried ?? []).find(
+    (c) => c.dealerId === dealerId && (c.memberId ?? null) === memberId,
+  );
 
   const sum = (pick: (e: StatementEntry & { aboveCap: boolean }) => boolean) => entries.filter(pick).reduce((s, e) => s + e.amountPaise, 0);
   const strip = (e: StatementEntry & { aboveCap: boolean }): StatementEntry => ({
@@ -367,11 +433,17 @@ export async function dealerMonthStatement(dealerId: string, month: string): Pro
     date: e.date,
     shopName: e.shopName,
     milestone: e.milestone,
+    entryType: e.entryType,
+    level: e.level,
     kind: e.kind,
     status: e.status,
     amountPaise: e.amountPaise,
     note: e.note,
   });
+  const earning = (e: StatementEntry & { aboveCap: boolean }) => e.kind === "ACCRUAL" && !e.aboveCap && e.status !== "REVERSED";
+  const lines = STATEMENT_LINES.map((l) => ({ key: l.key, label: l.label, amountPaise: sum((e) => earning(e) && l.types.includes(e.entryType)) })).filter(
+    (l) => l.amountPaise !== 0 || l.key !== "standard" || entries.length === 0,
+  );
   return {
     month,
     label: monthLabel(month),
@@ -379,12 +451,24 @@ export async function dealerMonthStatement(dealerId: string, month: string): Pro
     registrations,
     entries: entries.map(strip),
     payout: batch
-      ? { id: batch.id, status: batch.status, totalPaise: batch.totalPaise, paymentReference: batch.paymentReference, paidAt: batch.paidAt?.toISOString() ?? null, entries: payoutEntries.map(strip) }
+      ? {
+          id: batch.id,
+          status: batch.status,
+          totalPaise: batch.totalPaise,
+          tdsPaise: batch.tdsPaise,
+          tdsRateBp: batch.tdsRateBp,
+          netPaise: batch.totalPaise - batch.tdsPaise,
+          paymentReference: batch.paymentReference,
+          paidAt: batch.paidAt?.toISOString() ?? null,
+          entries: payoutEntries.map(strip),
+        }
       : null,
+    lines,
+    payee: { memberId, name: member?.name ?? dealerRow?.name ?? "" },
     totals: {
       registrations: registrations.filter((r) => r.attribution === "ACTIVE").length,
       activated: entries.filter((e) => e.kind === "ACCRUAL" && e.milestone === "ACTIVATED").length,
-      earnedPaise: sum((e) => e.kind === "ACCRUAL" && !e.aboveCap && e.status !== "REVERSED"),
+      earnedPaise: sum(earning),
       heldPaise: sum((e) => e.status === "ON_HOLD"),
       aboveCapPaise: sum((e) => e.aboveCap && e.status === "PENDING"),
       reversedPaise: -sum((e) => e.kind === "REVERSAL") + sum((e) => e.kind === "ACCRUAL" && e.status === "REVERSED"),
@@ -412,6 +496,7 @@ export function monthStatementCsv(s: DealerMonthStatement): string {
   const r = (paise: number) => (paise / 100).toFixed(2);
   const out: string[] = [
     line([`GoKesari dealer commission statement — ${s.label}${s.closed ? "" : " (month in progress)"}`]),
+    line(["Payee", s.payee.name]),
     "",
     line(["Summary"]),
     line(["Shops registered", s.totals.registrations]),
@@ -421,7 +506,10 @@ export function monthStatementCsv(s: DealerMonthStatement): string {
     line(["On hold (Rs)", r(s.totals.heldPaise)]),
     line(["Above the per-shop cap, pending (Rs)", r(s.totals.aboveCapPaise)]),
     line(["Reversed (Rs)", r(s.totals.reversedPaise)]),
-    line(["Payout for the month (Rs)", s.payout ? r(s.payout.totalPaise) : "0.00"]),
+    ...s.lines.map((l) => line([`  ${l.label} (Rs)`, r(l.amountPaise)])),
+    line(["Payout for the month, gross (Rs)", s.payout ? r(s.payout.totalPaise) : "0.00"]),
+    line(["TDS deducted (Rs)", s.payout ? r(s.payout.tdsPaise) : "0.00"]),
+    line(["Net paid to your bank (Rs)", s.payout ? r(s.payout.netPaise) : "0.00"]),
     line(["Payout status", s.payout ? `${s.payout.status}${s.payout.paymentReference ? ` (UTR ${s.payout.paymentReference})` : ""}` : "—"]),
     line(["Carried forward, owed back (Rs)", r(s.totals.carriedForwardPaise)]),
     "",
@@ -430,8 +518,8 @@ export function monthStatementCsv(s: DealerMonthStatement): string {
     ...s.registrations.map((x) => line([x.registeredOn, x.shopName, x.registrationNumber ?? "", x.pincode ?? "", x.employee ?? "", x.attribution === "ACTIVE" ? "Yes" : "Reversed", x.shopStatus])),
     "",
     line(["Commission entries this month"]),
-    line(["Date", "Shop", "Milestone", "Kind", "Status", "Amount (Rs)", "Note"]),
-    ...s.entries.map((e) => line([e.date, e.shopName, e.milestone, e.kind, e.status, r(e.amountPaise), e.note ?? ""])),
+    line(["Date", "Shop", "Milestone", "Type", "Level", "Kind", "Status", "Amount (Rs)", "Note"]),
+    ...s.entries.map((e) => line([e.date, e.shopName, e.milestone, COMMISSION_ENTRY_TYPE_LABELS[e.entryType], e.level ?? "", e.kind, e.status, r(e.amountPaise), e.note ?? ""])),
   ];
   if (s.payout) {
     out.push("", line(["Entries in this payout (earlier months' approved entries included)"]), line(["Date", "Shop", "Milestone", "Kind", "Amount (Rs)"]));

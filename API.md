@@ -913,6 +913,27 @@ Shop self-registration (`POST /api/shop-registrations/referral-check`, `/otp`,
 `referral_required_shop` is `OPTIONAL` (the shop is approved on payment
 without a code) and refuses it (`reason: REQUIRED`) while `MANDATORY`.
 
+## TIERED dealer commission and shop referrals (docs/dealer-programme/TIERED_COMMISSION.md)
+
+Rules `dealerTieredCommission`, `dealerPayoutTds`, `shopReferrals` (off by default). Dealer routes need the
+`dealer_programme_enabled` flag (404 otherwise). Every change by an admin is checked again in the service and
+audited with the old value, the new value and the reason.
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/api/admin/dealer-tiers?dealerId=` | ADMIN, OPERATOR | rule values, TDS rule, open sub-agent requests; with `dealerId`: team tree, earnings by type and level, TRADING progress |
+| POST | `/api/admin/dealer-tiers` | ADMIN | `{action}`: `setModel {dealerId, model: STANDARD\|TIERED, reason}` · `setRates {dealerId, directBp, leadOverrideBp, mainOverrideBp, reason}` (null = default) · `addMember {dealerId, employeeId, name, mobile?, role, parentId?}` · `placeMember {memberId, role, parentId, reason}` · `promote {memberId, reason, override?}` · `decideRequest {requestId, approve, note?}` · `payee {memberId, pan?, bankHolderName?, bankAccount?, ifsc?}` · `verifyBank {memberId, verified, reason}` · `linkAccount {memberId, email}` |
+| GET | `/api/dealer/team` | approved dealer or a linked team member | who I am in the network, the tree (main dealer, or a lead's own branch), my earnings by type and level, my shops' TRADING progress |
+| POST | `/api/dealer/team` | same | `acceptAgreement {version}` · `requestSubAgent {employeeId, name, mobile?, note?}` (members) · `addMember {…, role, parentId?}` (main dealer) · `payee {pan?, bankHolderName?, bankAccount?, ifsc?}` (members) |
+| POST | `/api/admin/dealer-commission` | ADMIN | `createPayout` now takes `memberId` (a team member's payout); `payoutPaid` is refused (409 `PAYEE_NOT_READY`) without the payee's PAN and a verified bank account |
+| GET | `/api/dealer/commission/statement?month=YYYY-MM` | dealer or team member | the payee's own statement (CSV) with a line per entry type and gross / TDS / net |
+| GET | `/api/admin/shop-referrals?status=` | ADMIN, OPERATOR | shop referrals with their outcome |
+| POST | `/api/admin/shop-referrals` | ADMIN | `{action: "reverse", id, reason}` — takes the reward back |
+| GET | `/r/{code}` | anyone | a shop code (`SHOP…`, rule on) redirects to `/shop/register?ref={code}`; a customer code as before |
+
+Errors: 409 `REFERRAL_CODE_LOCKED` (a second, different code in the registration wizard), 409 `NOT_ELIGIBLE`
+(promotion below `promotionMinShops` without `override`), 422 on a 4th level ("at most 3 levels").
+
 ## Rate limits
 
 | Scope | Limit |

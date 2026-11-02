@@ -4,6 +4,7 @@ Keeps the test plan workbook (test-cases.xlsx) in step with the QA suite.
   python3 scripts/qa/plan_workbook.py add-qa-cases          # the QA-automation module (24 Oct 2026)
   python3 scripts/qa/plan_workbook.py add-list-cases        # the Purchase lists module (24 Oct 2026)
   python3 scripts/qa/plan_workbook.py add-app-cases         # the App install & updates module (31 Oct 2026)
+  python3 scripts/qa/plan_workbook.py add-tier-cases        # Dealer network & shop referrals (2 Nov 2026)
   python3 scripts/qa/plan_workbook.py add-opg-cases         # the Order, payment & GST module (31 Oct 2026)
   python3 scripts/qa/plan_workbook.py statuses REGISTER.xlsx  # write each case's overall status back
 
@@ -524,6 +525,96 @@ def add_list_cases():
     print("plan_workbook: Read me counts refreshed")
 
 
+TIER_MODULE = "Dealer network & shop referrals"
+TIER_SOURCE = "docs/dealer-programme/TIERED_COMMISSION.md (owner brief 02-Nov-2026)"
+
+TIER_CASES = [
+    # id, features, title, type, priority, role, method, preconditions, steps, expected
+    ("TC-TIER-001", "A1", "A 4th level is refused", "Negative", "P0", "Admin", "API",
+     "Rule dealerTieredCommission on; a TIERED dealer with a lead and an agent under him",
+     "1. Add an agent whose parent is an agent\n2. Add a team lead with a parent",
+     "Both refused (422, 'at most 3 levels' / 'a 4th level is not allowed'); the database also refuses a direct insert."),
+    ("TC-TIER-002", "A2, A3", "Direct 20% at ACTIVATED (60%) and TRADING (40%), overrides 5% / 3% on each fee slab", "Positive", "P0", "Admin", "API",
+     "TIERED dealer, agent under a lead; shops on the ₹999 / ₹4,999 / ₹9,999 slabs",
+     "1. Approve the shop\n2. Deliver the TRADING number of orders",
+     "₹999: part 1 ₹119.88 at approval; at TRADING part 2 ₹79.92, lead ₹49.95, main ₹29.97 (28% in all). ₹4,999 and ₹9,999 in proportion."),
+    ("TC-TIER-003", "A2", "Missing levels are not paid; nobody twice", "Positive", "P0", "Admin", "API",
+     "Agent straight under the main dealer; the main dealer's own shop; a lead's own shop",
+     "1. Approve and trade each shop",
+     "No lead override when there is no lead; the main dealer's own shop has no override; a lead's own shop has no lead override."),
+    ("TC-TIER-004", "A3", "TRADING lapses after the window", "Positive", "P1", "Admin", "API",
+     "TIERED shop activated, fewer than N orders by the deadline",
+     "1. Let the deadline pass\n2. Run the daily job",
+     "Part 2 and the overrides are zero entries with the note 'lapsed: n of N orders …'; later deliveries pay nothing."),
+    ("TC-TIER-005", "A4", "Renewal commission 10% before GST", "Positive", "P1", "Admin", "API",
+     "TIERED shop approved",
+     "1. Record a renewal payment of ₹1,178.82",
+     "The direct earner gets ₹99.90 (10% of ₹999); switched off → nothing."),
+    ("TC-TIER-006", "A5", "Promotion with recruits and the development bonus", "Positive", "P0", "Admin", "UI",
+     "Agent under a lead, with a recruited agent",
+     "1. Promote below the shop count without override\n2. Promote with override and a reason\n3. Trade a shop of the recruit",
+     "Refused 'Not eligible yet'; then team lead at level 2 with the recruit under him; the former lead earns 1% development on the recruit's shop."),
+    ("TC-TIER-007", "A6", "Monthly target bonus at the month close", "Positive", "P1", "Admin", "API",
+     "Targets on; an agent reaches his target",
+     "1. Close the month",
+     "A BONUS entry for the agent (and main dealer when reached); one draft payout per payee."),
+    ("TC-TIER-008", "A7", "A refund reverses every level", "Positive", "P0", "Admin", "API",
+     "TIERED shop traded, part 1 paid",
+     "1. Record a refund of the fee",
+     "Unpaid entries REVERSED; the paid one gets a negative entry for its payee, carried into the next payout; the plan is REVERSED."),
+    ("TC-TIER-009", "A8", "Payout needs PAN and a verified bank; TDS off / on shows gross, TDS, net", "Positive", "P0", "Admin", "API",
+     "Approved TIERED entries",
+     "1. Pay a member without a verified bank\n2. Verify, pay\n3. Switch dealerPayoutTds on above the threshold",
+     "Refused 'bank account is not verified'; then paid; with TDS on the payout shows 2% TDS (catch-up on the year) and the net."),
+    ("TC-TIER-010", "A9, A10", "Standard dealers unchanged; agent agreement before earning", "Positive", "P0", "Dealer", "UI",
+     "A STANDARD dealer; a TIERED member who has not accepted the agreement",
+     "1. Approve a STANDARD dealer's shop\n2. Approve a member's shop, then accept the agreement on /dealer",
+     "STANDARD: one 40% entry as before. Member: entry ON_HOLD until the agreement is accepted, then released."),
+    ("TC-TIER-011", "A1-A10 (screens)", "Admin TIERED screen and dealer team card", "Positive", "P1", "Admin", "UI",
+     "Dealer programme on",
+     "1. Open Admin → Dealers → Commission → TIERED model\n2. Open /dealer as a TIERED dealer",
+     "Admin sees the TIERED settings, TDS settings, target bonuses, dealer selector, team tree and requests; the dealer sees the team card with earnings by type and level and TRADING progress."),
+    ("TC-SREF-001", "B1", "An approved shop has its own code and link with share buttons", "Positive", "P0", "Shop Owner", "UI",
+     "Rule shopReferrals on; an approved shop",
+     "1. Open My Shop → Registration and fee",
+     "A 'Refer another shop' card with a SHOP… code, the /r/CODE link and WhatsApp / Share / Copy buttons."),
+    ("TC-SREF-002", "B1, B2", "/r/SHOP… opens Add my shop with the code", "Positive", "P1", "Guest", "API",
+     "Rule on",
+     "1. GET /r/SHOPAB2CD",
+     "307 to /shop/register?ref=SHOPAB2CD; with the rule off the customer referral flow as before."),
+    ("TC-SREF-003", "B2, B3", "One code; 10% discount on the fee", "Positive", "P0", "Shop Owner", "API",
+     "Rule on",
+     "1. Enter a shop code in the wizard\n2. Enter a different code\n3. Register",
+     "The second code is refused (REFERRAL_CODE_LOCKED); the fee base less 10% (₹999 → ₹89.91 + GST)."),
+    ("TC-SREF-004", "B4", "Reward when the new shop is approved and delivers its first order", "Positive", "P0", "Shop Owner", "API",
+     "Referred shop registered with the code",
+     "1. Approve it\n2. Deliver its first order",
+     "₹200 promotional credit in the referring shop's wallet (or 1 month membership); idempotent; promotional credit cannot be refunded to a bank."),
+    ("TC-SREF-005", "B5", "Guards: same PAN / GSTIN / mobile / bank / owner, branch or duplicate, yearly cap", "Negative", "P0", "Admin", "API",
+     "Pairs of shops sharing each identifier",
+     "1. Deliver the referred shop's first order",
+     "REJECTED with the reason; beyond 20 a year decided without a reward."),
+    ("TC-SREF-006", "B5, B6", "Admin Shop referrals list and reversal", "Positive", "P1", "Admin", "UI",
+     "A rewarded referral",
+     "1. Open Admin → Shop referrals\n2. Reverse with a reason",
+     "The list shows outcomes; the reward is taken back (never below zero) and the status is REVERSED."),
+    ("TC-SREF-007", "B6", "Production with the rules off: nothing changes", "Positive", "P0", "Guest", "API",
+     "gokesari.com, rules off",
+     "1. GET /admin/shop-referrals as a guest\n2. GET /api/dealer/team as a guest",
+     "Sign-in required / refused as before; no shop code is valid."),
+]
+
+TIER_COVERAGE = [
+    ("TIER-A", "Dealer network & shop referrals", "TIERED 3-level dealer commission (A1-A10)", "BUILT 02-Nov", "TC-TIER-001, TC-TIER-002, TC-TIER-003, TC-TIER-004, TC-TIER-005, TC-TIER-006, TC-TIER-007, TC-TIER-008, TC-TIER-009, TC-TIER-010, TC-TIER-011"),
+    ("SREF-B", "Dealer network & shop referrals", "Shop-refers-shop reward (B1-B6)", "BUILT 02-Nov", "TC-SREF-001, TC-SREF-002, TC-SREF-003, TC-SREF-004, TC-SREF-005, TC-SREF-006, TC-SREF-007"),
+]
+
+TIER_CHANGE = ("TIER 02-Nov", "New module",
+               "Dealer network & shop referrals (docs/dealer-programme/TIERED_COMMISSION.md): TC-TIER-001 to 011, TC-SREF-001 to 007. "
+               "Money rules in tests/integration/dealer-tiered-commission.test.ts and shop-referrals.test.ts (both layouts); "
+               "site checks in tests/qa/signed-in/dealer-tiered.spec.ts and tests/qa/guest/dealer-tiered.spec.ts.")
+
+
 STATUS_MAP = {"Pass": "Pass", "Pass (partial)": "Pass", "Fail": "Fail", "Blocked": "Blocked", "Manual": "Blocked",
               "Not run (rule)": "Not run", "Not run": "Not run"}
 
@@ -580,6 +671,8 @@ if __name__ == "__main__":
         add_module(APP_MODULE, APP_CASES, APP_SOURCE, (), APP_COVERAGE, APP_CHANGE)
     elif len(sys.argv) >= 2 and sys.argv[1] == "add-opg-cases":
         add_module(OPG_MODULE, OPG_CASES, OPG_SOURCE, (), OPG_COVERAGE, OPG_CHANGE)
+    elif len(sys.argv) >= 2 and sys.argv[1] == "add-tier-cases":
+        add_module(TIER_MODULE, TIER_CASES, TIER_SOURCE, (), TIER_COVERAGE, TIER_CHANGE)
     elif len(sys.argv) >= 3 and sys.argv[1] == "statuses":
         statuses(sys.argv[2])
     else:

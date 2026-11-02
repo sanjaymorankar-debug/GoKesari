@@ -44,6 +44,14 @@ import {
 import type { ShopTypeKey } from "@/lib/shop-types";
 import { DEALER_BANK_STATUSES, DEALER_CODE_KINDS, DEALER_CODE_STATUSES, DEALER_DOC_TYPES, DEALER_STATUSES, DEALER_TYPES } from "@/lib/dealers";
 import {
+  COMMISSION_ENTRY_TYPES,
+  DEALER_COMMISSION_MODELS,
+  SHOP_REFERRAL_STATUSES,
+  TEAM_REQUEST_STATUSES,
+  TEAM_ROLES,
+  TIER_PLAN_STATUSES,
+} from "@/lib/dealer-tiers";
+import {
   IMPORT_JOB_STATUSES,
   IMPORT_MATCH_TYPES,
   IMPORT_ROW_ACTIONS,
@@ -61,6 +69,7 @@ import {
   check,
   customType,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -68,6 +77,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -5759,13 +5769,19 @@ export const shopWallets = pgTable(
       .references(() => shops.id, { onDelete: "restrict" }),
     /** Maintained by the ledger trigger only. */
     balancePaise: bigint("balance_paise", { mode: "number" }).notNull().default(0),
+    /**
+     * 0137: the part of the balance that is promotional credit (shop-refers-shop
+     * reward). Spent first on commission and delivery charges; never refunded
+     * to a bank or used for anything else. Moved by applyShopWalletEntry.
+     */
+    promoBalancePaise: bigint("promo_balance_paise", { mode: "number" }).notNull().default(0),
     currency: text("currency").notNull().default("INR"),
     /** Set when the low-balance alert is sent; cleared when the balance is back above the threshold. */
     lowBalanceNotifiedAt: timestamp("low_balance_notified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("shop_wallets_shop_unique").on(t.shopId)],
+  (t) => [uniqueIndex("shop_wallets_shop_unique").on(t.shopId), check("shop_wallets_promo", sql`${t.promoBalancePaise} >= 0`)],
 );
 
 /** Immutable ledger of a shop wallet. Each row carries the balance before and after it. */
@@ -10269,6 +10285,20 @@ export const dealers = pgTable(
      */
     commissionPercentBp: integer("commission_percent_bp"),
     ratingStepBp: integer("rating_step_bp"),
+    /**
+     * 0136 (owner brief, 2 Nov 2026): STANDARD — the commission model in
+     * dealer_commission_settings (BASE_PERCENT today); TIERED — the 3-level
+     * network model (rule dealerTieredCommission). Existing dealers stay
+     * STANDARD until an admin moves each one.
+     */
+    commissionModel: text("commission_model", { enum: DEALER_COMMISSION_MODELS }).notNull().default("STANDARD"),
+    /** TIERED: this dealer's own %s (basis points of the fee); null = the rule's defaults. */
+    tierDirectBp: integer("tier_direct_bp"),
+    tierLeadOverrideBp: integer("tier_lead_override_bp"),
+    tierMainOverrideBp: integer("tier_main_override_bp"),
+    /** The agent agreement (src/lib/dealer-tiers.ts) the main dealer accepted for TIERED earnings. */
+    tierAgreementVersion: text("tier_agreement_version"),
+    tierAgreementAcceptedAt: timestamp("tier_agreement_accepted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -10286,6 +10316,11 @@ export const dealers = pgTable(
     check("dealers_agreement_dates", sql`${t.agreementEnd} IS NULL OR ${t.agreementStart} IS NULL OR ${t.agreementEnd} >= ${t.agreementStart}`),
     check("dealers_commission_percent", sql`${t.commissionPercentBp} IS NULL OR ${t.commissionPercentBp} BETWEEN 0 AND 10000`),
     check("dealers_rating_step", sql`${t.ratingStepBp} IS NULL OR ${t.ratingStepBp} BETWEEN 0 AND 1000`),
+    check("dealers_commission_model", sql`${t.commissionModel} in ('STANDARD', 'TIERED')`),
+    check(
+      "dealers_tier_percents",
+      sql`(${t.tierDirectBp} IS NULL OR ${t.tierDirectBp} BETWEEN 0 AND 10000) AND (${t.tierLeadOverrideBp} IS NULL OR ${t.tierLeadOverrideBp} BETWEEN 0 AND 10000) AND (${t.tierMainOverrideBp} IS NULL OR ${t.tierMainOverrideBp} BETWEEN 0 AND 10000)`,
+    ),
   ],
 );
 export type Dealer = typeof dealers.$inferSelect;
@@ -10359,8 +10394,57 @@ export const dealerSalespeople = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    /**
+     * 0136, TIERED network (max 3 levels; the main dealer is level 1). depth 2
+     * reports to the main dealer, depth 3 to a TEAM_LEAD of the same dealer.
+     * The composite foreign key below, with the checks, makes a fourth level
+     * impossible in the database: a parent must be a TEAM_LEAD at depth − 1,
+     * and depth is 2 or 3. Existing employees are AGENTs at depth 2.
+     */
+    teamRole: text("team_role", { enum: TEAM_ROLES }).notNull().default("AGENT"),
+    depth: smallint("depth").notNull().default(2),
+    parentId: uuid("parent_id"),
+    parentDepth: smallint("parent_depth"),
+    parentRole: text("parent_role", { enum: TEAM_ROLES }),
+    /** Who brought this member in (an agent's approved request); moves with them on a promotion. Not a level. */
+    recruitedById: uuid("recruited_by_id"),
+    promotedAt: timestamp("promoted_at", { withTimezone: true }),
+    /** Payee details (TIERED members are paid directly). AES-GCM as on dealers. */
+    panEnc: text("pan_enc"),
+    panHash: text("pan_hash"),
+    panLast4: text("pan_last4"),
+    bankHolderName: text("bank_holder_name"),
+    bankAccountEnc: text("bank_account_enc"),
+    bankAccountLast4: text("bank_account_last4"),
+    bankIfsc: text("bank_ifsc"),
+    bankStatus: text("bank_status", { enum: DEALER_BANK_STATUSES }).notNull().default("NOT_PROVIDED"),
+    bankStatusReason: text("bank_status_reason"),
+    bankVerifiedAt: timestamp("bank_verified_at", { withTimezone: true }),
+    bankCheckRef: text("bank_check_ref"),
+    agreementVersion: text("agreement_version"),
+    agreementAcceptedAt: timestamp("agreement_accepted_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("dealer_salespeople_employee_unique").on(t.dealerId, sql`lower(${t.employeeId})`)],
+  (t) => [
+    uniqueIndex("dealer_salespeople_employee_unique").on(t.dealerId, sql`lower(${t.employeeId})`),
+    uniqueIndex("dealer_salespeople_level_key").on(t.dealerId, t.id, t.depth, t.teamRole),
+    uniqueIndex("dealer_salespeople_dealer_key").on(t.dealerId, t.id),
+    index("dealer_salespeople_parent_idx").on(t.parentId).where(sql`${t.parentId} IS NOT NULL`),
+    index("dealer_salespeople_user_idx").on(t.userId).where(sql`${t.userId} IS NOT NULL`),
+    foreignKey({
+      name: "dealer_salespeople_parent_fk",
+      columns: [t.dealerId, t.parentId, t.parentDepth, t.parentRole],
+      foreignColumns: [t.dealerId, t.id, t.depth, t.teamRole],
+    }),
+    foreignKey({ name: "dealer_salespeople_recruiter_fk", columns: [t.dealerId, t.recruitedById], foreignColumns: [t.dealerId, t.id] }),
+    check("dealer_salespeople_role", sql`${t.teamRole} in ('TEAM_LEAD', 'AGENT')`),
+    check("dealer_salespeople_depth", sql`${t.depth} in (2, 3)`),
+    check(
+      "dealer_salespeople_parent_shape",
+      sql`(${t.parentId} IS NULL AND ${t.parentDepth} IS NULL AND ${t.parentRole} IS NULL AND ${t.depth} = 2) OR (${t.parentId} IS NOT NULL AND ${t.parentDepth} = ${t.depth} - 1 AND ${t.parentRole} = 'TEAM_LEAD' AND ${t.depth} = 3)`,
+    ),
+    check("dealer_salespeople_lead_depth", sql`${t.teamRole} <> 'TEAM_LEAD' OR ${t.depth} = 2`),
+    check("dealer_salespeople_bank_status", sql`${t.bankStatus} in ('NOT_PROVIDED', 'PENDING', 'VERIFIED', 'FAILED')`),
+  ],
 );
 export type DealerSalesperson = typeof dealerSalespeople.$inferSelect;
 
@@ -10757,6 +10841,9 @@ export const shopDocumentReminders = pgTable(
 export type ShopDocumentReminder = typeof shopDocumentReminders.$inferSelect;
 
 export const COMMISSION_MILESTONES = ["REGISTERED", "VERIFIED_CATALOGUE", "ACTIVATED"] as const;
+/** Ledger milestones: the three above, and for TIERED (0136) TRADING, RENEWAL and MONTHLY (target bonuses). */
+export const LEDGER_MILESTONES = [...COMMISSION_MILESTONES, "TRADING", "RENEWAL", "MONTHLY"] as const;
+export type LedgerMilestone = (typeof LEDGER_MILESTONES)[number];
 export type CommissionMilestone = (typeof COMMISSION_MILESTONES)[number];
 export const COMMISSION_STATUSES = ["EARNED", "PENDING", "APPROVED", "PAID", "REVERSED", "ON_HOLD"] as const;
 export type CommissionStatus = (typeof COMMISSION_STATUSES)[number];
@@ -10861,6 +10948,11 @@ export const dealerPayoutBatches = pgTable(
     totalPaise: integer("total_paise").notNull(),
     paymentReference: text("payment_reference"),
     note: text("note"),
+    /** 0136: the team member this payout is for (TIERED, paid directly); null = the dealer itself. */
+    memberId: uuid("member_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    /** 0136: income-tax TDS (rule dealerPayoutTds) — total_paise is the gross; net = gross − TDS. */
+    tdsPaise: integer("tds_paise").notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp").notNull().default(0),
     /** Monthly payout (0116): the month closed into this payout ("2026-10"); null for one made by hand. */
     periodMonth: text("period_month"),
     /** Null for a payout the monthly job drafted (0116). */
@@ -10869,7 +10961,11 @@ export const dealerPayoutBatches = pgTable(
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("dealer_payout_batches_dealer_idx").on(t.dealerId, t.createdAt)],
+  (t) => [
+    index("dealer_payout_batches_dealer_idx").on(t.dealerId, t.createdAt),
+    index("dealer_payout_batches_member_idx").on(t.memberId).where(sql`${t.memberId} IS NOT NULL`),
+    check("dealer_payout_batches_tds", sql`${t.tdsPaise} >= 0 AND ${t.tdsPaise} <= greatest(${t.totalPaise}, 0) AND ${t.tdsRateBp} BETWEEN 0 AND 10000`),
+  ],
 );
 export type DealerPayoutBatch = typeof dealerPayoutBatches.$inferSelect;
 
@@ -10895,11 +10991,22 @@ export const dealerCommissionLedger = pgTable(
       .notNull()
       .references(() => dealers.id, { onDelete: "restrict" }),
     salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
-    shopId: uuid("shop_id")
-      .notNull()
-      .references(() => shops.id, { onDelete: "restrict" }),
-    milestone: text("milestone", { enum: COMMISSION_MILESTONES }).notNull(),
+    /** Null only for a monthly target bonus (entry_type BONUS), which belongs to no shop. */
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "restrict" }),
+    milestone: text("milestone", { enum: LEDGER_MILESTONES }).notNull(),
     kind: text("kind", { enum: ["ACCRUAL", "REVERSAL", "ADJUSTMENT"] }).notNull().default("ACCRUAL"),
+    /** 0136: what the entry is for (one statement line per type). BASE: the standard model. */
+    entryType: text("entry_type", { enum: COMMISSION_ENTRY_TYPES }).notNull().default("BASE"),
+    /** 0136: who is paid — a team member; null = the dealer (main dealer) itself. */
+    payeeMemberId: uuid("payee_member_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    /** 0136: the payee's level in the network (1 main dealer, 2, 3); null for BASE entries. */
+    level: smallint("level"),
+    /**
+     * 0136: one accrual per key (with above_cap) — "D1:<shop>", "RN:<payment>",
+     * "BN:<dealer>:<payee>:<month>"… Null on BASE accruals, which keep the old
+     * key (shop, milestone).
+     */
+    accrualKey: text("accrual_key"),
     ruleId: uuid("rule_id").references(() => dealerCommissionRules.id, { onDelete: "restrict" }),
     ruleVersion: integer("rule_version"),
     feePaise: integer("fee_paise").notNull().default(0),
@@ -10923,13 +11030,200 @@ export const dealerCommissionLedger = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("dealer_commission_ledger_accrual_unique").on(t.shopId, t.milestone, t.aboveCap).where(sql`${t.kind} = 'ACCRUAL'`),
+    uniqueIndex("dealer_commission_ledger_accrual_key_unique")
+      .on(sql`coalesce(${t.accrualKey}, 'BASE:' || ${t.shopId}::text || ':' || ${t.milestone})`, t.aboveCap)
+      .where(sql`${t.kind} = 'ACCRUAL'`),
+    index("dealer_commission_ledger_payee_idx").on(t.payeeMemberId).where(sql`${t.payeeMemberId} IS NOT NULL`),
+    check("dealer_commission_ledger_shop", sql`${t.shopId} IS NOT NULL OR ${t.entryType} = 'BONUS'`),
     index("dealer_commission_ledger_dealer_idx").on(t.dealerId, t.status, t.createdAt),
     index("dealer_commission_ledger_shop_idx").on(t.shopId),
     index("dealer_commission_ledger_batch_idx").on(t.payoutBatchId).where(sql`${t.payoutBatchId} IS NOT NULL`),
   ],
 );
 export type DealerCommissionEntry = typeof dealerCommissionLedger.$inferSelect;
+
+/**
+ * TIERED (0136): one row per shop of a TIERED dealer, written when the shop is
+ * ACTIVATED. It freezes who earns what on the shop — the direct earner, the
+ * lead and main-dealer overrides and any development bonus — so a later
+ * promotion or rate change never alters it, and it tracks the TRADING
+ * milestone (N delivered orders within D days of activation) or its lapse.
+ */
+export const dealerTierShopPlans = pgTable(
+  "dealer_tier_shop_plans",
+  {
+    shopId: uuid("shop_id")
+      .primaryKey()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    /** Who signed the shop; null = the main dealer itself. */
+    directMemberId: uuid("direct_member_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    directLevel: smallint("direct_level").notNull(),
+    /** The team lead earning the override; null when there is none (or the lead signed it). */
+    leadMemberId: uuid("lead_member_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    /** Main-dealer override paid (false when the main dealer signed the shop itself). */
+    mainOverride: boolean("main_override").notNull(),
+    developmentId: uuid("development_id"),
+    developmentMemberId: uuid("development_member_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    feePaise: integer("fee_paise").notNull(),
+    directBp: integer("direct_bp").notNull(),
+    ratingAdjustmentBp: integer("rating_adjustment_bp").notNull().default(0),
+    firstPartBp: integer("first_part_bp").notNull(),
+    leadOverrideBp: integer("lead_override_bp").notNull(),
+    mainOverrideBp: integer("main_override_bp").notNull(),
+    developmentBp: integer("development_bp").notNull().default(0),
+    tradingOrders: integer("trading_orders").notNull(),
+    activatedAt: timestamp("activated_at", { withTimezone: true }).notNull(),
+    tradingDeadline: timestamp("trading_deadline", { withTimezone: true }).notNull(),
+    status: text("status", { enum: TIER_PLAN_STATUSES }).notNull().default("PENDING"),
+    deliveredOrders: integer("delivered_orders").notNull().default(0),
+    tradingAt: timestamp("trading_at", { withTimezone: true }),
+    lapsedAt: timestamp("lapsed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_tier_shop_plans_dealer_idx").on(t.dealerId, t.status),
+    index("dealer_tier_shop_plans_deadline_idx").on(t.tradingDeadline).where(sql`${t.status} = 'PENDING'`),
+    check("dealer_tier_shop_plans_status", sql`${t.status} in ('PENDING', 'TRADING', 'LAPSED', 'REVERSED')`),
+    check("dealer_tier_shop_plans_level", sql`${t.directLevel} in (1, 2, 3)`),
+  ],
+);
+export type DealerTierShopPlan = typeof dealerTierShopPlans.$inferSelect;
+
+/**
+ * TIERED (0136): an agent promoted to TEAM_LEAD leaves his former lead a
+ * development bonus (bp of the fee) on the shops his new team activates
+ * between starts_at and ends_at.
+ */
+export const dealerTeamDevelopments = pgTable(
+  "dealer_team_developments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    beneficiaryMemberId: uuid("beneficiary_member_id")
+      .notNull()
+      .references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    teamLeadMemberId: uuid("team_lead_member_id")
+      .notNull()
+      .references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    bp: integer("bp").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    reason: text("reason").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_team_developments_lead_idx").on(t.teamLeadMemberId, t.endsAt),
+    check("dealer_team_developments_bp", sql`${t.bp} BETWEEN 0 AND 10000`),
+    check("dealer_team_developments_window", sql`${t.endsAt} > ${t.startsAt}`),
+    check("dealer_team_developments_people", sql`${t.beneficiaryMemberId} <> ${t.teamLeadMemberId}`),
+  ],
+);
+export type DealerTeamDevelopment = typeof dealerTeamDevelopments.$inferSelect;
+
+/** TIERED (0136): a team member asks for a sub-agent; only an admin approves (agents never appoint one themselves). */
+export const dealerTeamRequests = pgTable(
+  "dealer_team_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    requestedByMemberId: uuid("requested_by_member_id")
+      .notNull()
+      .references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    employeeId: text("employee_id").notNull(),
+    name: text("name").notNull(),
+    mobileE164: text("mobile_e164"),
+    note: text("note"),
+    status: text("status", { enum: TEAM_REQUEST_STATUSES }).notNull().default("PENDING"),
+    decidedBy: uuid("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    createdMemberId: uuid("created_member_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_team_requests_status_idx").on(t.status, t.createdAt),
+    check("dealer_team_requests_status", sql`${t.status} in ('PENDING', 'APPROVED', 'REJECTED')`),
+  ],
+);
+export type DealerTeamRequest = typeof dealerTeamRequests.$inferSelect;
+
+/** Shop-refers-shop (0137): every approved shop's own code ("SHOP" + 5), created on first use. */
+export const shopReferralCodes = pgTable(
+  "shop_referral_codes",
+  {
+    shopId: uuid("shop_id")
+      .primaryKey()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("shop_referral_codes_code_unique").on(t.code), check("shop_referral_codes_format", sql`${t.code} ~ '^SHOP[A-HJ-NP-Z2-9]{5}$'`)],
+);
+export type ShopReferralCode = typeof shopReferralCodes.$inferSelect;
+
+/**
+ * Shop-refers-shop (0137, rule shopReferrals): one row per referred shop,
+ * written at registration with the code it entered (the only code — a dealer
+ * code and a shop code never both). Decided once, when the referred shop is
+ * ACTIVATED and its first order is DELIVERED; reversible by an admin.
+ */
+export const shopReferrals = pgTable(
+  "shop_referrals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referrerShopId: uuid("referrer_shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    referredShopId: uuid("referred_shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    code: text("code").notNull(),
+    status: text("status", { enum: SHOP_REFERRAL_STATUSES }).notNull().default("PENDING"),
+    /** What the referred shop gets: a fee discount (taken at registration) or a welcome wallet credit (at the reward). */
+    referredMode: text("referred_mode", { enum: ["DISCOUNT", "WALLET_CREDIT"] }).notNull(),
+    discountPaise: integer("discount_paise").notNull().default(0),
+    referredRewardPaise: integer("referred_reward_paise").notNull().default(0),
+    /** What the referring shop gets: promotional wallet credit or a membership extension. */
+    referrerRewardKind: text("referrer_reward_kind", { enum: ["WALLET_CREDIT", "MEMBERSHIP_EXTENSION"] }),
+    referrerRewardPaise: integer("referrer_reward_paise").notNull().default(0),
+    referrerExtensionMonths: integer("referrer_extension_months").notNull().default(0),
+    /** The referrer's membership end before and after the extension (for a reversal). */
+    membershipBefore: timestamp("membership_before", { withTimezone: true }),
+    membershipAfter: timestamp("membership_after", { withTimezone: true }),
+    rejectionReason: text("rejection_reason"),
+    /** orders is a customer table: no foreign key. */
+    qualifyingOrderId: uuid("qualifying_order_id"),
+    rewardedAt: timestamp("rewarded_at", { withTimezone: true }),
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversedBy: uuid("reversed_by"),
+    reversalReason: text("reversal_reason"),
+    referrerRecoveredPaise: integer("referrer_recovered_paise"),
+    referredRecoveredPaise: integer("referred_recovered_paise"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_referrals_referred_unique").on(t.referredShopId),
+    index("shop_referrals_referrer_idx").on(t.referrerShopId, t.status),
+    check("shop_referrals_not_self", sql`${t.referrerShopId} <> ${t.referredShopId}`),
+    check("shop_referrals_status", sql`${t.status} in ('PENDING', 'REWARDED', 'REJECTED', 'REVERSED')`),
+    check(
+      "shop_referrals_mode",
+      sql`${t.referredMode} in ('DISCOUNT', 'WALLET_CREDIT') AND (${t.referrerRewardKind} IS NULL OR ${t.referrerRewardKind} in ('WALLET_CREDIT', 'MEMBERSHIP_EXTENSION'))`,
+    ),
+    check("shop_referrals_amounts", sql`${t.discountPaise} >= 0 AND ${t.referredRewardPaise} >= 0 AND ${t.referrerRewardPaise} >= 0 AND ${t.referrerExtensionMonths} >= 0`),
+  ],
+);
+export type ShopReferral = typeof shopReferrals.$inferSelect;
 
 export const SUPPORT_CHARGE_MODELS = ["FREE", "PER_REQUEST", "PER_ITEM", "PER_BATCH"] as const;
 export type SupportChargeModel = (typeof SUPPORT_CHARGE_MODELS)[number];
