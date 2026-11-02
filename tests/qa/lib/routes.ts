@@ -130,6 +130,7 @@ export const PUBLIC_PAGES = new Set([
   "/shops/nearby",
   "/signin",
   "/orders/pay/sandbox/[ref]", // sandbox payment page (test site only; 404 on production)
+  "/mobile-auth/digilocker-mock", // DigiLocker's screens stood in for on test sites (#312; 404 on production) — QA E-15
 ]);
 
 /**
@@ -155,6 +156,7 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/webhooks/payouts/[provider]": "payout webhook: signature checked",
   "/api/dev/settle-registration": "development only: 404 in a production build",
   "/api/dev/settle-topup": "development only: 404 in a production build",
+  "/api/kyc-mock/digilocker": "DigiLocker stand-in on test sites (#312): 404 on production (QA E-15)",
 };
 
 /** Route prefixes protected by a secret or key instead of a session. */
@@ -162,6 +164,7 @@ export const SECRET_PREFIXES: Record<string, string> = {
   "/api/cron/": "cron secret",
   "/api/v1/": "API key",
   "/api/connector/": "connector key",
+  "/api/public/v1/": "OAuth2 bearer token (billing v2 public API, DECISIONS D29; 404 while billing_v2 is off) — QA E-15",
   "/api/inbound/": "inbound mail secret",
   "/api/auth/": "Auth.js",
 };

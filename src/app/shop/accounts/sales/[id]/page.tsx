@@ -9,11 +9,15 @@ import { formatMilli } from "@/lib/accounts/units";
 import { gstState, stateLabel } from "@/lib/gst-states";
 import { formatPaise } from "@/lib/money";
 import { loadAccountsPage } from "@/server/accounts/page";
-import { getSalesInvoice } from "@/server/accounts/sales";
+import { getSettings } from "@/server/accounts/books";
+import { counterBillKind, getSalesInvoice } from "@/server/accounts/sales";
+import { counterBillShareText, whatsappShareUrl } from "@/server/invoicing/outputs";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Sales invoice" };
 export const dynamic = "force-dynamic";
 
+const SIDE_LINK = "inline-flex min-h-10 items-center rounded-xl border border-[var(--gk-line)] bg-white px-3 text-sm font-semibold text-ink-900 hover:bg-kesari-50";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MODE_LABEL: Record<string, string> = { CASH: "Cash", UPI: "UPI", BANK: "Bank transfer", CARD: "Card", CREDIT: "Credit (to be paid)" };
 const dateLabel = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
@@ -32,6 +36,8 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
   }
   const { invoice: inv, lines } = data;
   const cancelled = inv.status === "CANCELLED";
+  const docTitle = counterBillKind(shop) === "TAX_INVOICE" ? "Tax invoice" : "Bill of supply";
+  const [billingV2, settings] = await Promise.all([isFeatureEnabledForShop("billing_v2", shop), getSettings(shop.id)]);
   const address = [shop.addressLine1, shop.addressLine2, shop.area, shop.city, shop.pincode].filter(Boolean).join(", ");
 
   return (
@@ -48,6 +54,27 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
             <a href={`/api/shops/${shop.id}/accounts/sales/${inv.id}/pdf`} download className="inline-flex min-h-10 items-center rounded-xl bg-kesari-700 px-3 text-sm font-bold text-white hover:bg-kesari-800">
               Download PDF
             </a>
+            {/* Billing v2 (QA D-115): the 80 mm receipt, the JSON and a WhatsApp share. */}
+            {billingV2 ? (
+              <>
+                <a href={`/api/shops/${shop.id}/accounts/sales/${inv.id}/receipt`} download className={SIDE_LINK}>
+                  80 mm receipt
+                </a>
+                <a href={`/api/shops/${shop.id}/accounts/sales/${inv.id}`} className={SIDE_LINK}>
+                  JSON
+                </a>
+                {cancelled ? null : (
+                  <a
+                    href={whatsappShareUrl(counterBillShareText({ kind: counterBillKind(shop), invoiceNo: inv.invoiceNo, invoiceDate: inv.invoiceDate, shopName: shop.name, totalPaise: inv.totalPaise, upiVpa: settings.upiVpa }))}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={SIDE_LINK}
+                  >
+                    Share on WhatsApp
+                  </a>
+                )}
+              </>
+            ) : null}
             {cancelled ? null : <CancelEntryButton shopId={shop.id} path={`sales/${inv.id}`} what="invoice" />}
           </div>
         }
@@ -61,9 +88,9 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
         </div>
       ) : null}
 
-      <article className="rounded-2xl border border-[var(--gk-line)] bg-white p-3 sm:p-4" aria-label="Tax invoice">
+      <article className="rounded-2xl border border-[var(--gk-line)] bg-white p-3 sm:p-4" aria-label={docTitle}>
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--gk-line)] pb-2">
-          <h2 className="text-lg font-bold text-ink-900">Tax invoice</h2>
+          <h2 className="text-lg font-bold text-ink-900">{docTitle}</h2>
           {cancelled ? <Badge tone="danger">Cancelled</Badge> : <Badge tone="success">Issued</Badge>}
         </div>
 

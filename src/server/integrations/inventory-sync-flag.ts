@@ -25,3 +25,27 @@ export async function inventorySyncEnabled(): Promise<boolean> {
 export async function assertInventorySyncEnabled(): Promise<void> {
   if (!(await inventorySyncEnabled())) throw new AppError("CONFLICT", INVENTORY_SYNC_OFF_MESSAGE, { reason: "INVENTORY_SYNC_DISABLED" });
 }
+
+/**
+ * Billing v2 (docs/billing §8 phase 2): a live connector also runs when its own
+ * feature flag is on (tally_connector, zoho_connector, odoo_connector) — books
+ * sync is wanted even where inventory sync stays descoped. Without a provider:
+ * is any live connector on.
+ */
+const PROVIDER_FLAG = { TALLY: "tally_connector", ZOHO_BOOKS: "zoho_connector", ODOO: "odoo_connector" } as const;
+
+export async function integrationSyncEnabled(provider?: string | null): Promise<boolean> {
+  if (await inventorySyncEnabled()) return true;
+  const { isFeatureEnabled } = await import("@/server/services/feature-flags");
+  if (provider) {
+    const key = PROVIDER_FLAG[provider as keyof typeof PROVIDER_FLAG];
+    return key ? isFeatureEnabled(key) : false;
+  }
+  for (const key of Object.values(PROVIDER_FLAG)) if (await isFeatureEnabled(key)) return true;
+  return false;
+}
+
+/** The Tally connector's endpoints: on with rule inventorySync or the tally_connector flag. */
+export async function assertConnectorEnabled(): Promise<void> {
+  if (!(await integrationSyncEnabled("TALLY"))) throw new AppError("CONFLICT", INVENTORY_SYNC_OFF_MESSAGE, { reason: "INVENTORY_SYNC_DISABLED" });
+}

@@ -13,7 +13,18 @@ export type FeatureFlagKey =
   | "shop_onboarding_wizard_enabled"
   | "rider_bank_account_enabled"
   | "rider_withdrawal_enabled"
-  | "rider_monthly_payout_enabled";
+  | "rider_monthly_payout_enabled"
+  | "billing_v2"
+  | "tcs_engine"
+  | "tds_engine"
+  | "delivery_9_5"
+  | "gsp_live"
+  | "einvoice"
+  | "ewaybill"
+  | "tally_connector"
+  | "zoho_connector"
+  | "odoo_connector"
+  | "ondc_mode";
 
 interface FlagValue {
   enabled: boolean;

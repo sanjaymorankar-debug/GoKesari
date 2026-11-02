@@ -7,6 +7,7 @@ import { ACCOUNTS_NAV } from "@/lib/accounts/menu";
 import { formatPaise } from "@/lib/money";
 import { currentPeriod, loadAccountsPage, monthRange } from "@/server/accounts/page";
 import { listSalesInvoices } from "@/server/accounts/sales";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Sales invoices" };
 export const dynamic = "force-dynamic";
@@ -43,6 +44,8 @@ export default async function SalesRegisterPage({ searchParams }: { searchParams
   const tax = issued.reduce((n, i) => n + i.cgstPaise + i.sgstPaise + i.igstPaise + i.cessPaise, 0);
   const credit = issued.filter((i) => i.paymentMode === "CREDIT").reduce((n, i) => n + i.totalPaise, 0);
   const navLabel = ACCOUNTS_NAV.find((n) => n.key === "sales")!.label;
+  // Billing v2 (docs/billing §4.7): the offline-first counter POS.
+  const posOn = await isFeatureEnabledForShop("billing_v2", shop);
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -51,9 +54,16 @@ export default async function SalesRegisterPage({ searchParams }: { searchParams
         title={tr(navLabel, lang)}
         subtitle={`${shop.name} — GST invoices for counter and B2B sales. GoKesari orders have their own invoices.`}
         action={
-          <Link href={href("/shop/accounts/sales/new", {}, shopQuery)} className="inline-flex min-h-11 items-center rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white hover:bg-kesari-800">
-            + New invoice
-          </Link>
+          <span className="flex flex-wrap gap-2">
+            {posOn ? (
+              <Link href={href("/shop/accounts/pos", {}, shopQuery)} className="inline-flex min-h-11 items-center rounded-xl border border-kesari-700 px-4 text-sm font-bold text-kesari-800 hover:bg-kesari-50">
+                Counter POS (works offline)
+              </Link>
+            ) : null}
+            <Link href={href("/shop/accounts/sales/new", {}, shopQuery)} className="inline-flex min-h-11 items-center rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white hover:bg-kesari-800">
+              + New invoice
+            </Link>
+          </span>
         }
       />
 

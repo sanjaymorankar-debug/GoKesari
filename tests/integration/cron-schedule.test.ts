@@ -31,7 +31,7 @@ describe("schedule", () => {
   it("covers every job that had its own crontab line", () => {
     expect([...names(EVERY_MINUTE), ...names(HOURLY), ...names(DAILY)].sort()).toEqual(
       [
-        "aftercare", "auth-housekeeping", "bill-captures", "broadcast-dispatch", "daily-orders", "dealer-monthly-payout", "dispute-escalation",
+        "aftercare", "auth-housekeeping", "bill-captures", "billing-daily", "broadcast-dispatch", "daily-orders", "dealer-monthly-payout", "dispute-escalation",
         "document-emails", "finance-weekly", "gst-reminders", "integration-sync", "notification-retry", "operator-onboarding",
         "payments-reconcile", "payout-cycle", "payout-retries", "pmd-ingest", "purchase-list-reminders", "push-receipts",
         "rider-monthly-payout", "risk-rules", "seller-verification", "shop-document-follow-up", "timeout-sweep",
@@ -51,8 +51,8 @@ describe("schedule", () => {
   });
 
   it("runs the finance week on Mondays only; the payout cycle every day (it acts on Saturdays)", () => {
-    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-monthly-payout", "purchase-list-reminders", "shop-document-follow-up"]); // Monday
-    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-monthly-payout", "purchase-list-reminders", "shop-document-follow-up"]); // Saturday
+    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-monthly-payout", "purchase-list-reminders", "shop-document-follow-up", "billing-daily"]); // Monday
+    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-monthly-payout", "purchase-list-reminders", "shop-document-follow-up", "billing-daily"]); // Saturday
   });
 });
 

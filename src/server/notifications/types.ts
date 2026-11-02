@@ -362,6 +362,12 @@ export const NOTIFICATION_TYPES = {
   /** To the rider: the monthly run carried their earnings forward (below the minimum, no verified account…). */
   RIDER_PAYOUT_CARRIED: "delivery.rider_payout_carried",
   /* <<< rider bank payouts */
+  /* >>> billing v2 (docs/billing) */
+  /** To admins: one of GoKesari's own returns (GSTR-8, GSTR-1, GSTR-3B, TDS) is due soon and not marked filed. */
+  ADMIN_COMPLIANCE_DUE: "compliance.due_reminder",
+  /** To the shop owner: the monthly TCS / TDS statement from GoKesari is ready. */
+  SHOP_TAX_STATEMENT_READY: "shop.tax_statement_ready",
+  /* <<< billing v2 */
   //
 } as const;
 

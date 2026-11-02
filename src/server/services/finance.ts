@@ -66,6 +66,7 @@ import { applyWalletMutation } from "./wallet";
 import { getRule } from "./settings";
 import { payoutHoldReason } from "./shop-onboarding";
 import { onRefundRecorded } from "@/server/integrations/hooks";
+import { recordOrderMoneyFlow } from "@/server/tax/money-flow";
 
 interface Actor {
   id: string;
@@ -282,6 +283,8 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
     .onConflictDoNothing()
     .returning();
   if (!snapshot) return;
+  // Billing v2 (docs/billing §5.1): who received the money; nothing while billing_v2 is off.
+  await recordOrderMoneyFlow(orderId, client);
 
   const base = { orderId, sourceType: "order_financials", sourceId: orderId, reference: debit?.id ?? null };
   await postLedger(
@@ -398,7 +401,7 @@ export interface RefundDeliveredInput {
   /** Client-generated id so a double submit cannot refund twice. */
   requestId: string;
   /** Module 2: what the shop's credit note says. Default: a refund, goods not returned. */
-  creditNote?: { reason: "REFUND" | "RETURN"; restock: boolean };
+  creditNote?: { reason: "REFUND" | "RETURN"; restock: boolean; returnId?: string | null };
 }
 
 /**
@@ -558,6 +561,7 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
         amountPaise: input.amountPaise,
         reason: input.creditNote?.reason ?? "REFUND",
         restock: input.creditNote?.restock ?? false,
+        returnId: input.creditNote?.returnId ?? null,
         actorId: actor.id,
       },
       tx,

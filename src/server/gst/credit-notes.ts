@@ -8,6 +8,9 @@
  * Refunds are amounts, not lines, so the credited amount is spread over the
  * invoice lines in proportion to their value (largest remainder, so the parts
  * add up exactly) and each part's tax is worked out of it at the line's rate.
+ * Billing v2 (docs/billing §4.5, while billing_v2 is on): a return's note
+ * credits only the returned lines, in proportion to the quantity returned,
+ * and never more than those lines were sold for.
  * The total credited on an invoice never exceeds the invoice; the refund's
  * own key (`source_ref`) is unique, so one refund never makes two notes.
  * Cancellations before delivery have no invoice and need no credit note.
@@ -18,7 +21,8 @@ import { formatPaise } from "@/lib/money";
 import { PDF_LINE_WIDTH, textPdf, type PdfLine } from "@/lib/pdf";
 import { stateLabel } from "@/lib/gst-states";
 import { db, type DbClient } from "@/server/db";
-import { creditNoteCounters, creditNotes, shops, taxInvoices, type CreditNote } from "@/server/db/schema";
+import { creditNoteCounters, creditNotes, orderItems, returnItems, shops, taxInvoices, type CreditNote } from "@/server/db/schema";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { amountInWords, financialYearOf, lineTax, type InvoiceLine, type InvoiceSnapshot } from "@/server/services/invoices";
 import { documentNumbering, formatDocumentNumber } from "./rules";
@@ -71,6 +75,30 @@ export interface IssueCreditNoteInput {
   /** Goods came back to the shop. */
   restock: boolean;
   actorId?: string | null;
+  /** Billing v2: the return being refunded — its items decide which lines are credited. */
+  returnId?: string | null;
+}
+
+/**
+ * Weight of each invoice line in a return's credit: the line's value times
+ * the share of its quantity that came back (by listing). Null when the return
+ * names no invoiced line (the note is then spread over all lines, as before).
+ */
+export function returnedLineWeights(
+  lines: Pick<InvoiceLine, "grossPaise" | "shopProductId" | "qty">[],
+  returned: { shopProductId: string | null; quantityMilli: number }[],
+): number[] | null {
+  const left = new Map<string, number>();
+  for (const r of returned) if (r.shopProductId) left.set(r.shopProductId, (left.get(r.shopProductId) ?? 0) + r.quantityMilli);
+  const weights = lines.map((line) => {
+    if (!line.shopProductId || !left.has(line.shopProductId)) return 0;
+    const lineMilli = Math.round((line.qty ?? 0) * 1000);
+    if (lineMilli <= 0) return line.grossPaise;
+    const take = Math.min(left.get(line.shopProductId)!, lineMilli);
+    left.set(line.shopProductId, left.get(line.shopProductId)! - take);
+    return Math.round((line.grossPaise * take) / lineMilli);
+  });
+  return weights.some((w) => w > 0) ? weights : null;
 }
 
 /** Issues the credit note for a refund, or returns the one already issued for it. Null when the order has no invoice. */
@@ -83,11 +111,24 @@ export async function issueCreditNoteForRefund(input: IssueCreditNoteInput, clie
     .select({ credited: sql<number>`coalesce(sum(${creditNotes.totalPaise}), 0)::bigint` })
     .from(creditNotes)
     .where(eq(creditNotes.taxInvoiceId, invoice.id));
-  const amount = Math.min(input.amountPaise, invoice.totalPaise - Number(credited));
+  let amount = Math.min(input.amountPaise, invoice.totalPaise - Number(credited));
   if (amount <= 0) return null;
 
   const inv = invoice.snapshot as unknown as InvoiceSnapshot;
-  const parts = allocate(amount, inv.lines.map((l) => l.grossPaise));
+  let weights = inv.lines.map((l) => l.grossPaise);
+  if (input.returnId && (await isFeatureEnabledForShop("billing_v2", invoice.shopId))) {
+    const returned = await client
+      .select({ shopProductId: orderItems.shopProductId, quantityMilli: returnItems.quantityMilli })
+      .from(returnItems)
+      .innerJoin(orderItems, eq(orderItems.id, returnItems.orderItemId))
+      .where(eq(returnItems.returnId, input.returnId));
+    const byLine = returnedLineWeights(inv.lines, returned);
+    if (byLine) {
+      weights = byLine;
+      amount = Math.min(amount, byLine.reduce((s, w) => s + w, 0));
+    }
+  }
+  const parts = allocate(amount, weights);
   const lines: CreditNoteLine[] = [];
   inv.lines.forEach((line, index) => {
     const gross = parts[index];

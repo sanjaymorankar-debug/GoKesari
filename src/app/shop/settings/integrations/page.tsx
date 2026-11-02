@@ -1,7 +1,7 @@
 import { FileSync } from "@/components/integrations/file-sync";
 import { IntegrationSettings } from "@/components/integrations/integration-settings";
 import { Alert, PageHeader } from "@/components/ui";
-import { inventorySyncEnabled } from "@/server/integrations/inventory-sync-flag";
+import { integrationSyncEnabled } from "@/server/integrations/inventory-sync-flag";
 import { getIntegrationView, listConnectorTokens, providerCatalogue } from "@/server/integrations/connections";
 import { isCredentialEncryptionConfigured } from "@/server/integrations/credentials";
 import { listItemImports } from "@/server/integrations/file-sync";
@@ -15,7 +15,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
   const params = await searchParams;
   const { actor, shop } = await integrationPageShop(params.shop);
   // batch-2026-10 WS-D (F9.2.6): inventory sync descoped — the connect screen is hidden while the rule is off.
-  if (!(await inventorySyncEnabled())) {
+  if (!(await integrationSyncEnabled())) {
     return (
       <div className="mx-auto max-w-3xl space-y-4">
         <PageHeader title="Accounting software" description={shop.name} />

@@ -91,6 +91,8 @@ import {
 } from "@/lib/order-cancellation";
 import { executeCancellationRefund, planCancellationRefund } from "@/server/aftercare/refunds"; // batch-2026-10 WS-C
 import { chargesGst, listingsMissingTaxData } from "@/server/gst/tax-data-check";
+import { isFeatureEnabledForShop } from "./feature-flags";
+import { assertSuppliesAllowed, resolveBuyerGstin, type BuyerGstin } from "@/server/tax/checkout";
 import { recordOrderStatusEvent } from "@/server/events/order-status-record";
 
 /**
@@ -199,6 +201,11 @@ export interface CheckoutInput {
   acknowledgeClosedShopIds?: string[];
   /** F7: an order-level coupon code. Validated and priced on the server. */
   couponCode?: string | null;
+  /**
+   * Billing v2 (docs/billing §4.4): the customer's own GSTIN, so the shop's
+   * invoice is B2B. Personal orders only, and only while billing_v2 is on.
+   */
+  buyerGstin?: string | null;
 }
 
 export interface CheckoutResult {
@@ -362,6 +369,26 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       if (!check.deliversHere) {
         throw validationFailed(`${shopRow.name} does not deliver to this address. ${check.reason ?? ""}`.trim());
       }
+    }
+  }
+
+  // Billing v2 (docs/billing §3.3, §4.4): supplies the shop may not make are
+  // refused before payment, and the customer's GSTIN is checked. Off: unchanged.
+  let buyerGstin: BuyerGstin | null = null;
+  // A flag limited to pilot districts covers only the shops there (QA D-110); a buyer GSTIN needs every shop of the cart covered.
+  const cartShops = purchasableGroups.map((g) => cartShopById.get(g.shop.id)).filter((r): r is NonNullable<typeof r> => Boolean(r));
+  const covered = await Promise.all(cartShops.map((r) => isFeatureEnabledForShop("billing_v2", r)));
+  const billingShops = cartShops.filter((_, i) => covered[i]);
+  const billingV2 = billingShops.length > 0;
+  if (input.buyerGstin?.trim() && !(billingV2 && billingShops.length === cartShops.length)) throw validationFailed("A GSTIN on the order is not available yet.");
+  if (billingV2) {
+    const addressState = input.addressId
+      ? (await db.select({ state: addresses.state }).from(addresses).where(eq(addresses.id, input.addressId)))[0]?.state ?? null
+      : null;
+    await assertSuppliesAllowed(billingShops, addressSnapshot ? { state: addressState, pincode: addressSnapshot.pincode } : null);
+    if (input.buyerGstin?.trim()) {
+      if (orderType !== "PERSONAL") throw validationFailed("A business order uses the buying shop's GSTIN.");
+      buyerGstin = await resolveBuyerGstin(input.buyerGstin, { id: input.userId });
     }
   }
 
@@ -620,6 +647,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           source: "DIRECT",
           orderType,
           buyerShopId,
+          buyerGstin: buyerGstin?.gstin ?? null,
+          buyerLegalName: buyerGstin?.legalName ?? null,
+          buyerGstinStatus: buyerGstin?.status ?? null,
           paymentMethod,
           placedWhileClosed: closedShops.has(group.shop.id),
           expectedOpenAt: closedShops.get(group.shop.id) ?? null,

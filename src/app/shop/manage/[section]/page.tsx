@@ -8,6 +8,7 @@ import { RegistrationPanel } from "@/components/registration-panel";
 import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
 import { ShopCustomerContactForm } from "@/components/shop-customer-contact-form";
 import { ShopDashboardView } from "@/components/shop-dashboard";
+import { GstRegistrationType } from "@/components/billing/gst-registration-type";
 import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
 import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
 import { ShopProductManager } from "@/components/shop-product-manager";
@@ -38,6 +39,8 @@ import {
 } from "@/lib/shop-onboarding";
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
+import { getShopRegistration } from "@/server/tax/registration";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { listShopProducts, suggestProductsForShop } from "@/server/services/catalogue";
 import { getShopDashboard } from "@/server/services/dashboards";
@@ -410,7 +413,9 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
       );
     }
 
-    case "gst-pan":
+    case "gst-pan": {
+      // Billing v2 (docs/billing §3.1): Enrolment ID / PAN-only declaration.
+      const registration = (await isFeatureEnabledForShop("billing_v2", shop)) ? await getShopRegistration(shop.id) : null;
       return (
         <>
           {header}
@@ -427,6 +432,11 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
               }}
             />
           </div>
+          {registration ? (
+            <div className="mb-8">
+              <GstRegistrationType shopId={shop.id} initial={registration} />
+            </div>
+          ) : null}
           <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="verification-link">
             <span>
               <span className="font-medium text-ink-900">Shop verification</span>
@@ -438,6 +448,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
           </Card>
         </>
       );
+    }
 
     case "shop-types": {
       const list = await getShopCategories(shop.id);

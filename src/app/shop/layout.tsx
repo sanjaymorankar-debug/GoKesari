@@ -9,7 +9,7 @@ import type { UserRole } from "@/server/db/schema";
 import { unreadCount } from "@/server/services/notifications";
 import { listUserRoles } from "@/server/services/roles";
 import { listShopsForOwner } from "@/server/services/shops";
-import { enabledFeatureKeys } from "@/server/services/feature-flags";
+import { enabledFeatureKeysForShop } from "@/server/services/feature-flags";
 
 export const metadata = {
   title: { default: "Seller Central", template: "%s · GoKesari Seller Central" },
@@ -33,7 +33,7 @@ export default async function SellerCentralLayout({ children }: { children: Reac
   ]);
   const shop = shops.length > 0 ? await activeShop(shops) : null;
   const counts = shop ? await loadShopCounts(shop.id).catch(() => ({})) : {};
-  const features = user && shop ? await enabledFeatureKeys() : [];
+  const features = user && shop ? await enabledFeatureKeysForShop(shop) : [];
   const groups = user && shop ? groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug, features }, "shop")) : [];
 
   return (

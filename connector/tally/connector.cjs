@@ -28,7 +28,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0"; // 1.1.0: two-way books (billing v2)
 
 const IS_SEA = (() => {
   try {
@@ -130,8 +130,26 @@ function client(config, fetchFn = fetch) {
     }
     return data;
   }
+  /** Billing v2: a call whose answer is XML, not JSON (the books). */
+  async function callRaw(method, pathName, body, contentType = "text/xml; charset=utf-8", timeoutMs = 150000) {
+    const res = await fetchFn(`${config.server}/api/connector/v1${pathName}`, {
+      method,
+      headers: { Authorization: `Bearer ${config.token}`, "X-Connector-Version": VERSION, ...(body !== undefined ? { "Content-Type": contentType } : {}) },
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const text = await res.text();
+    if (res.status === 401) {
+      const e = new Error("The connector token is not valid.");
+      e.fatal = true;
+      throw e;
+    }
+    return { status: res.status, text };
+  }
   return {
     hello: (info) => call("POST", "/hello", info),
+    booksOut: () => callRaw("GET", "/books"),
+    booksIn: (xml) => call("POST", "/books", xml, "text/xml; charset=utf-8", 150000),
     jobs: (wait) => call("GET", `/jobs?wait=${wait}`, undefined, undefined, (wait + 20) * 1000),
     result: (jobId, result) => call("POST", `/jobs/${jobId}/result`, result, "application/json", 150000),
     items: (xml) => call("POST", "/items", xml, "text/xml; charset=utf-8", 150000),
@@ -188,8 +206,49 @@ async function hello(api, config, state, fetchFn = fetch) {
   state.pollSeconds = reply.pollSeconds || 25;
   state.itemCheckSeconds = reply.itemCheckSeconds || 120;
   state.paused = Boolean(reply.paused);
+  state.company = reply.company || null;
+  state.books = reply.books || null;
   log("INFO", `Connected to GoKesari for ${reply.shop && reply.shop.name} (Tally company: ${reply.company || "not set"}).`);
   return reply;
+}
+
+/**
+ * Billing v2 (docs/billing §8): two-way books. GoKesari's books since the last
+ * exchange go into the open Tally company; Tally's Day Book of the last few
+ * days goes back to GoKesari (only when it changed). GoKesari keys vouchers by
+ * type + date + number, so what it sent comes back as "unchanged".
+ */
+async function syncBooks(api, config, state, fetchFn = fetch) {
+  if (!state.books || !state.books.enabled) return false;
+  const out = await api.booksOut();
+  if (out.status === 409) {
+    log("WARN", "GoKesari has items to fix before the books can be sent (GoKesari → Accounts → Sync).");
+  } else if (out.status === 200 && /<(VOUCHER|LEDGER|STOCKITEM)\b/.test(out.text)) {
+    const r = await callTally(config.tallyUrl, out.text, fetchFn);
+    if (r.ok) log("INFO", "GoKesari's books imported into Tally.");
+    else log("WARN", `Tally did not import GoKesari's books: ${r.errorCode} ${r.detail || ""}`);
+  } else if (out.status !== 200) {
+    log("WARN", `GoKesari books: HTTP ${out.status}`);
+  }
+  const fmt = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const from = new Date(Date.now() - (state.books.daysBack || 7) * 86400000);
+  const company = state.company ? `<SVCURRENTCOMPANY>${encodeXml(state.company)}</SVCURRENTCOMPANY>` : "";
+  const request = `<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>Day Book</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT><SVFROMDATE>${fmt(from)}</SVFROMDATE><SVTODATE>${fmt(new Date())}</SVTODATE>${company}</STATICVARIABLES></DESC></BODY></ENVELOPE>`;
+  const day = await callTally(config.tallyUrl, request, fetchFn);
+  if (!day.ok) {
+    log("WARN", `Tally day book: ${day.errorCode} ${day.detail || ""}`);
+    return false;
+  }
+  const hash = crypto.createHash("sha256").update(day.response).digest("hex");
+  if (hash === state.dayBookHash) return true;
+  const reply = await api.booksIn(day.response);
+  state.dayBookHash = hash;
+  if (reply && reply.vouchers) log("INFO", `Sent Tally's day book to GoKesari: ${reply.vouchers.created} added, ${reply.conflicts} to decide, ${reply.vouchers.skipped.length} skipped.`);
+  return true;
+}
+
+function encodeXml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
 function decodeXml(s) {
@@ -211,6 +270,10 @@ async function run(config, options = {}) {
       if (!state.paused && Date.now() - state.lastItemsAt >= state.itemCheckSeconds * 1000) {
         state.lastItemsAt = Date.now();
         await checkItems(api, config, state, fetchFn);
+      }
+      if (!state.paused && state.books && state.books.enabled && Date.now() - (state.lastBooksAt || 0) >= (state.books.intervalSeconds || 900) * 1000) {
+        state.lastBooksAt = Date.now();
+        await syncBooks(api, config, state, fetchFn);
       }
       const reply = await api.jobs(state.paused ? 5 : state.pollSeconds);
       for (const job of (reply && reply.jobs) || []) {
@@ -265,7 +328,7 @@ async function main() {
   await run(config);
 }
 
-module.exports = { VERSION, loadConfig, callTally, client, runJob, checkItems, hello, run };
+module.exports = { VERSION, loadConfig, callTally, client, runJob, checkItems, syncBooks, hello, run };
 
 if (IS_SEA || require.main === module) {
   main().catch((error) => {

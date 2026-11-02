@@ -24,7 +24,7 @@
  * issuing transaction — a rolled-back issue gives its number back, so there
  * are no gaps and never two invoices for one order.
  */
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { conflict, notFound } from "@/lib/errors";
 import { formatPaise, formatQuantity } from "@/lib/money";
@@ -52,6 +52,9 @@ import { toStateCode } from "./seller-verification-checks";
 import { getRule } from "./settings";
 import { documentNumbering, formatDocumentNumber, hsnFallbackRate } from "@/server/gst/rules";
 import { uqcFor } from "@/server/integrations/canonical";
+import { istDay, sec95RestaurantOn, statutoryResolver } from "@/server/statutory/rates";
+import { effectiveRegistrationType } from "@/server/tax/engine";
+import { isFeatureEnabledForShop } from "./feature-flags";
 import {
   PLACE_OF_SUPPLY_NOTE,
   resolvePlaceOfSupply,
@@ -121,6 +124,18 @@ export interface InvoiceSnapshot {
   /** batch-2026-10 WS-E (rule invoiceDelivery): how the place of supply was found, and the supplier's GST registration. */
   placeOfSupplySource?: PlaceOfSupplySource;
   sellerRegistration?: "REGISTERED" | "COMPOSITION" | "UNREGISTERED";
+  /** Billing v2 (docs/billing §4.3): issued while billing_v2 was on — prints the GST unit codes. */
+  billingV2?: boolean;
+  /**
+   * Billing v2 §5.3: a restaurant's food on which GoKesari pays GST under
+   * s.9(5) — this is a bill of supply at the value without that GST; GoKesari's
+   * own invoice (kind RESTAURANT) is the customer's tax invoice.
+   */
+  sec95?: { rateBp: number; gstPaise: number };
+  /** Billing v2: the e-commerce operator the supply was made through (GoKesari), for GSTR-1 Table 14. */
+  eco?: { legalName: string; gstin: string };
+  /** Billing v2: an Enrolment-ID supplier's enrolment id (Notification 34/2023-CT). */
+  sellerEnrolmentId?: string | null;
 }
 
 /** Financial year (April–March) of a moment, in IST: "2026-27". */
@@ -131,30 +146,9 @@ export function financialYearOf(at: Date): string {
   return `${start}-${String((start + 1) % 100).padStart(2, "0")}`;
 }
 
-/** Tax out of a tax-inclusive amount. */
-export function splitInclusive(grossPaise: number, rateBp: number, supply: "INTRA" | "INTER") {
-  const taxable = rateBp > 0 ? Math.round((grossPaise * 10_000) / (10_000 + rateBp)) : grossPaise;
-  const tax = grossPaise - taxable;
-  if (supply === "INTER") return { taxablePaise: taxable, cgstPaise: 0, sgstPaise: 0, igstPaise: tax };
-  const cgst = Math.floor(tax / 2);
-  return { taxablePaise: taxable, cgstPaise: cgst, sgstPaise: tax - cgst, igstPaise: 0 };
-}
-
-/**
- * Tax out of a tax-inclusive amount that also carries an ad-valorem cess:
- * taxable = round(gross × 10000 / (10000 + rate + cess)); cess = round(taxable
- * × cess rate); GST = the rest. With no cess this is exactly splitInclusive.
- */
-export function splitInclusiveWithCess(grossPaise: number, rateBp: number, cessBp: number, supply: "INTRA" | "INTER") {
-  if (cessBp <= 0) return { ...splitInclusive(grossPaise, rateBp, supply), cessPaise: 0 };
-  const taxable = Math.round((grossPaise * 10_000) / (10_000 + rateBp + cessBp));
-  // Never more than the tax part of the price (tiny amounts at a high cess would otherwise leave GST at −1 paisa).
-  const cess = rateBp > 0 ? Math.min(Math.round((taxable * cessBp) / 10_000), grossPaise - taxable) : grossPaise - taxable;
-  const tax = grossPaise - taxable - cess;
-  if (supply === "INTER") return { taxablePaise: taxable, cgstPaise: 0, sgstPaise: 0, igstPaise: tax, cessPaise: cess };
-  const cgst = Math.floor(tax / 2);
-  return { taxablePaise: taxable, cgstPaise: cgst, sgstPaise: tax - cgst, igstPaise: 0, cessPaise: cess };
-}
+// Billing v2: the inclusive-tax split lives in tax/split.ts (shared with the tax engine, no import cycle).
+export { splitInclusive, splitInclusiveWithCess } from "@/server/tax/split";
+import { splitInclusive, splitInclusiveWithCess } from "@/server/tax/split";
 
 const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
 const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
@@ -215,7 +209,11 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   if (order.status !== "DELIVERED") throw conflict("An invoice is issued once the order is delivered.");
 
   const gstin = await registeredGstin(shop, client);
-  const kind: InvoiceSnapshot["kind"] = gstin ? "TAX_INVOICE" : "BILL_OF_SUPPLY";
+  // Billing v2 (docs/billing §4.3, §4.4): buyer GSTIN from checkout, the ECO's GSTIN, UQC. Off: as before.
+  const billingV2 = await isFeatureEnabledForShop("billing_v2", shop);
+  // §5.3: GoKesari pays the GST on a listed restaurant type's food (s.9(5)), so the shop charges none.
+  const sec95 = billingV2 ? await sec95RestaurantOn(istDay(issuedAt), shop.shopType, statutoryResolver(client)) : null;
+  const kind: InvoiceSnapshot["kind"] = gstin && !sec95 ? "TAX_INVOICE" : "BILL_OF_SUPPLY";
   // A composition dealer issues a bill of supply but is still GST-registered:
   // its GSTIN goes on the bill (Rule 46/49 CGST Rules).
   const compositionGstin =
@@ -297,21 +295,48 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       mrpPaise: (substituted ? item.substituteMrpPaise : item.mrpPaise) ?? null,
     });
   }
+  let sec95GstPaise = 0;
+  if (sec95) {
+    // The restaurant's supply is the food's value without the GST GoKesari charges and pays on it.
+    for (const l of lines) {
+      const net = splitInclusiveWithCess(l.grossPaise, sec95.rateBp, 0, "INTRA").taxablePaise;
+      sec95GstPaise += l.grossPaise - net;
+      l.grossPaise = net;
+      l.taxablePaise = net;
+    }
+  }
   const sum = (k: keyof Pick<InvoiceLine, "taxablePaise" | "cgstPaise" | "sgstPaise" | "igstPaise" | "grossPaise">) =>
     lines.reduce((s, l) => s + l[k], 0);
   const buyerShop = order.buyerShopId ? await client.query.shops.findFirst({ where: eq(shops.id, order.buyerShopId) }) : undefined;
   const snap = order.deliveryAddressSnapshot;
   const notes: string[] = [];
+  const profile = billingV2 ? await getRule("platformTaxProfile") : null;
+  const eco = profile?.gstin ? { legalName: profile.legalName, gstin: profile.gstin } : undefined;
+  const enrolmentId = billingV2 && effectiveRegistrationType(shop) === "ENROLMENT_ID" ? shop.gstEnrolmentId : null;
+  const buyerGstin = buyerShop?.gstin ?? (billingV2 ? order.buyerGstin : null) ?? null;
   const sellerRegistration = sellerRegistrationOf(gstin, shop.gstStatus);
   const panMasked = shop.panLast4 ? `XXXXXX${shop.panLast4}` : null;
-  if (kind === "BILL_OF_SUPPLY") {
+  if (sec95) {
+    notes.push(
+      `Restaurant service supplied through the electronic commerce operator ${eco?.legalName ?? "GoKesari"}${eco ? ` (GSTIN ${eco.gstin})` : ""}, which pays GST at ${(sec95.rateBp / 100).toFixed(2)}% (${formatPaise(sec95GstPaise)}) on it under section 9(5) of the CGST Act and issues the customer's tax invoice. Amounts here are the value of the supply without that GST.`,
+    );
+  } else if (kind === "BILL_OF_SUPPLY") {
     // WS-E: precise wording (PAN-only / unregistered, or composition) when invoiceDelivery is on.
     if (extras.enabled) notes.push(...sellerRegistrationNotes(sellerRegistration, panMasked));
     else notes.push("Supplier not registered under GST (or under the composition scheme): no tax is charged on this bill of supply.");
   }
   if (placeOfSupplySource && PLACE_OF_SUPPLY_NOTE[placeOfSupplySource]) notes.push(PLACE_OF_SUPPLY_NOTE[placeOfSupplySource]!);
+  if (enrolmentId) notes.push(`Supplier holds GST Enrolment ID ${enrolmentId} (Notification 34/2023-Central Tax): intra-state supplies only.`);
+  // QA D-116: TCS under s.52 is collected only on a GST-registered supplier's taxable supply.
+  if (eco && !sec95) {
+    notes.push(
+      kind === "TAX_INVOICE"
+        ? `Supplied through the electronic commerce operator ${eco.legalName} (GSTIN ${eco.gstin}), which collects tax at source under section 52 of the CGST Act.`
+        : `Supplied through the electronic commerce operator ${eco.legalName} (GSTIN ${eco.gstin}).`,
+    );
+  }
   if (lines.some((l) => l.rateAssumed)) notes.push("Lines marked * have no GST rate on record for the product; the default rate was applied.");
-  notes.push("Prices are inclusive of GST. Tax is shown as included in each line.");
+  if (!sec95 && kind === "TAX_INVOICE") notes.push("Prices are inclusive of GST. Tax is shown as included in each line.");
 
   const snapshot: Omit<InvoiceSnapshot, "invoiceNumber" | "financialYear"> = {
     kind,
@@ -330,9 +355,9 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       registrationNumber: shop.registrationNumber,
     },
     buyer: {
-      name: buyerShop?.legalBusinessName ?? buyerShop?.name ?? customer.name ?? "Customer",
+      name: buyerShop?.legalBusinessName ?? buyerShop?.name ?? (billingV2 ? order.buyerLegalName : null) ?? customer.name ?? "Customer",
       address: snap ? [snap.line1, snap.line2, snap.area, snap.city, snap.pincode].filter(Boolean).join(", ") : "Collected from the shop",
-      gstin: buyerShop?.gstin ?? null,
+      gstin: kind === "TAX_INVOICE" ? buyerGstin : (buyerShop?.gstin ?? null),
     },
     placeOfSupply: buyerState ?? sellerState ?? "Local",
     reverseCharge: false,
@@ -354,6 +379,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
     },
     notes,
     ...(extras.enabled ? { placeOfSupplySource, sellerRegistration } : {}),
+    ...(billingV2 ? { billingV2: true, ...(eco ? { eco } : {}), ...(enrolmentId ? { sellerEnrolmentId: enrolmentId } : {}), ...(sec95 ? { sec95: { rateBp: sec95.rateBp, gstPaise: sec95GstPaise } } : {}) } : {}),
   };
   return { order, shop, snapshot };
 }
@@ -485,6 +511,19 @@ export async function listInvoicesForShop(shopId: string, limit = 100): Promise<
 }
 
 /** The order's customer, its shop's owner, and operations may see an invoice. */
+/**
+ * The kind of the invoice already issued for each of these orders, so a link can say "Tax invoice"
+ * or "Bill of supply" (QA D-113); an order without one yet is absent.
+ */
+export async function invoiceKindsForOrders(orderIds: string[]): Promise<Map<string, TaxInvoice["kind"]>> {
+  if (!orderIds.length) return new Map();
+  const rows = await db.select({ orderId: taxInvoices.orderId, kind: taxInvoices.kind }).from(taxInvoices).where(inArray(taxInvoices.orderId, orderIds));
+  return new Map(rows.map((r) => [r.orderId, r.kind]));
+}
+
+/** Link text for an order's own invoice: its kind once issued, else neutral. */
+export const orderInvoiceLabel = (kind: TaxInvoice["kind"] | undefined) => (kind === "TAX_INVOICE" ? "Tax invoice" : kind === "BILL_OF_SUPPLY" ? "Bill of supply" : "Invoice");
+
 export async function canViewInvoice(invoice: TaxInvoice, user: { id: string; role: UserRole }): Promise<boolean> {
   if (user.role === "ADMIN" || user.role === "OPERATOR") return true;
   const [row] = await db
@@ -533,6 +572,8 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
       .join("   "),
   );
   add(`GoKesari shop no: ${s.seller.registrationNumber}`);
+  if (s.sellerEnrolmentId) add(`GST Enrolment ID: ${s.sellerEnrolmentId}`);
+  if (s.eco) wrap(`Supplied through e-commerce operator ${s.eco.legalName}, GSTIN ${s.eco.gstin}`);
   add();
   if (s.seller.stateCode) add(`State: ${stateLabel(s.seller.stateCode) ?? s.seller.stateCode}`);
   add();
@@ -560,7 +601,8 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
       `${pct(l.rateBp).padStart(6)}${money(l.taxablePaise).padStart(13)}${money(tax).padStart(12)}${money(l.grossPaise).padStart(12)}`;
     add(row.slice(0, W));
     if (name.length > 29) add(`   ${name.slice(29, 29 + W - 3)}`);
-    if (l.mrpPaise != null) add(`   MRP ${money(l.mrpPaise)}`);
+    const extra = [l.mrpPaise != null ? `MRP ${money(l.mrpPaise)}` : null, s.billingV2 && l.uqc ? `UQC ${l.uqc}` : null].filter(Boolean);
+    if (extra.length) add(`   ${extra.join("   ")}`);
   });
   add(rule);
   pair("Taxable value", money(s.totals.taxablePaise));
@@ -581,7 +623,7 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
   if (s.payment.couponPaise > 0) {
     pair(`Coupon ${s.payment.couponCode ?? ""} (paid by GoKesari)`, money(s.payment.couponPaise));
   }
-  pair(`Paid by customer (${s.payment.method === "COD" ? "cash on delivery" : "GoKesari wallet"})`, money(s.payment.paidByCustomerPaise));
+  pair(`Paid by customer (${paidHow(s.payment.method)})`, money(s.payment.paidByCustomerPaise));
   add();
   for (const note of s.notes) wrap(`Note: ${note}`);
   add();
@@ -589,6 +631,11 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
   add("Authorised signatory (electronically issued)");
   add("This is a computer-generated document issued through GoKesari on behalf of the seller.");
   return out;
+}
+
+/** How the customer paid, as the invoice says it (QA D-117: an online payment is not the wallet). */
+export function paidHow(method: string): string {
+  return method === "COD" ? "cash on delivery" : method === "ONLINE" ? "online payment" : "GoKesari wallet";
 }
 
 export function renderInvoicePdf(invoice: TaxInvoice, einvoice?: { irn: string; ackNo: string | null; ackDate: string | null } | null): Buffer {

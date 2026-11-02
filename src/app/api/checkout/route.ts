@@ -37,6 +37,8 @@ const schema = z.object({
   acknowledgeClosedShopIds: z.array(z.string().uuid()).max(20).optional(),
   /** F7: order-level coupon code; validated and priced server-side. */
   couponCode: z.string().trim().max(32).nullish(),
+  /** Billing v2: the customer's GSTIN for a B2B invoice. */
+  buyerGstin: z.string().trim().max(20).nullish(),
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -60,6 +62,7 @@ export const POST = route(async (request: NextRequest) => {
     paymentMethod: body.paymentMethod,
     acknowledgeClosedShopIds: body.acknowledgeClosedShopIds,
     couponCode: body.couponCode ?? null,
+    buyerGstin: body.buyerGstin ?? null,
   };
   // batch-2026-10 WS-A: "Pay online" goes through its own service; wallet / COD unchanged.
   const { paymentMethod: _method, ...onlineInput } = input;

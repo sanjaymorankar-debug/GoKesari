@@ -3,7 +3,7 @@
  * from dated rules, credit notes on refunds, GSTIN validation through the
  * GSP (mock), e-invoice (IRN) and the GSTR-1-ready export. Real PostgreSQL.
  */
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserRole } from "@/server/db/schema";
@@ -118,12 +118,27 @@ async function delivered(lines: [string, number][], requestId: string) {
 /** Simulates a B2B sale (buyer GSTIN on the invoice) — GoKesari's B2B orders carry it the same way. */
 async function makeB2b(invoice: TaxInvoice, buyerGstin = BUYER): Promise<TaxInvoice> {
   const snap = invoice.snapshot as unknown as InvoiceSnapshot;
-  const [row] = await db
-    .update(taxInvoices)
-    .set({ snapshot: { ...snap, buyer: { ...snap.buyer, gstin: buyerGstin, name: "Hotel Sunrise" } } as unknown as Record<string, unknown> })
-    .where(eq(taxInvoices.id, invoice.id))
-    .returning();
+  const [row] = await rewritingIssuedInvoices(() =>
+    db
+      .update(taxInvoices)
+      .set({ snapshot: { ...snap, buyer: { ...snap.buyer, gstin: buyerGstin, name: "Hotel Sunrise" } } as unknown as Record<string, unknown> })
+      .where(eq(taxInvoices.id, invoice.id))
+      .returning(),
+  );
   return row;
+}
+
+/**
+ * Issued invoices cannot be changed (trigger tax_invoices_immutable, 0127). These tests fake a B2B
+ * or inter-state invoice by rewriting one, so they switch the trigger off around the rewrite only.
+ */
+async function rewritingIssuedInvoices<T>(fn: () => Promise<T>): Promise<T> {
+  await db.execute(sql`ALTER TABLE tax_invoices DISABLE TRIGGER tax_invoices_immutable`);
+  try {
+    return await fn();
+  } finally {
+    await db.execute(sql`ALTER TABLE tax_invoices ENABLE TRIGGER tax_invoices_immutable`);
+  }
 }
 
 /* ============================================================== numbering */
@@ -273,7 +288,7 @@ describe("GSTR-1-ready export", () => {
     await makeB2b(b.invoice);
     const cSnap = c.invoice.snapshot as unknown as InvoiceSnapshot;
     const inter = { ...cSnap, supplyType: "INTER" as const, placeOfSupply: "KA", lines: cSnap.lines.map((l) => ({ ...l, igstPaise: l.cgstPaise + l.sgstPaise, cgstPaise: 0, sgstPaise: 0 })), totals: { ...cSnap.totals, igstPaise: cSnap.totals.cgstPaise + cSnap.totals.sgstPaise, cgstPaise: 0, sgstPaise: 0 } };
-    await db.update(taxInvoices).set({ snapshot: inter as unknown as Record<string, unknown>, supplyType: "INTER", igstPaise: inter.totals.igstPaise, cgstPaise: 0, sgstPaise: 0 }).where(eq(taxInvoices.id, c.invoice.id));
+    await rewritingIssuedInvoices(() => db.update(taxInvoices).set({ snapshot: inter as unknown as Record<string, unknown>, supplyType: "INTER", igstPaise: inter.totals.igstPaise, cgstPaise: 0, sgstPaise: 0 }).where(eq(taxInvoices.id, c.invoice.id)));
     // A refund against the B2C small invoice.
     await issueCreditNoteForRefund({ orderId: a.order.id, sourceRef: "r-a", amountPaise: 10_500, reason: "REFUND", restock: false });
 

@@ -15,8 +15,9 @@ import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
 import { tallyAdapter } from "@/server/integrations/adapters/tally";
 import { authenticateConnector } from "@/server/integrations/connections";
-import { assertInventorySyncEnabled } from "@/server/integrations/inventory-sync-flag";
+import { assertConnectorEnabled } from "@/server/integrations/inventory-sync-flag";
 import { contextFor, logSync } from "@/server/integrations/jobs";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ const schema = z.object({
 
 export const POST = route(async (request: NextRequest) => {
   const session = await authenticateConnector(request);
-  await assertInventorySyncEnabled(); // batch-2026-10 WS-D (F9.2.6)
+  await assertConnectorEnabled(); // batch-2026-10 WS-D (F9.2.6)
   enforceRateLimit(`connector-hello:${session.tokenId}`, { limit: 30, windowMs: 10 * 60_000 });
   const body = await parseBody(request, schema);
   const [shop] = await db.select({ name: shops.name }).from(shops).where(eq(shops.id, session.integration.shopId));
@@ -60,6 +61,8 @@ export const POST = route(async (request: NextRequest) => {
       pollSeconds: 25,
       itemCheckSeconds: 120,
       itemsRequest,
+      // Billing v2: two-way books (GET / POST /books) every 15 minutes while the flags are on.
+      books: { enabled: (await isFeatureEnabledForShop("billing_v2", session.integration.shopId)) && (await isFeatureEnabledForShop("tally_connector", session.integration.shopId)), intervalSeconds: 900, daysBack: 7 },
     },
     { headers: { "cache-control": "no-store" } },
   );
