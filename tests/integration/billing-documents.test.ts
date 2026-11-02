@@ -27,11 +27,12 @@ import {
 } from "@/server/db/schema";
 import { cancelDocument, createDocument, documentNumber, documentPdf } from "@/server/accounts/documents";
 import { billingReport } from "@/server/accounts/billing-reports";
-import { counterBillKind, createSalesInvoice, salesInvoicePdf } from "@/server/accounts/sales";
+import { posItems, syncPosBills } from "@/server/accounts/pos";
+import { counterBillKind, createSalesInvoice, getSalesInvoice, printsWithoutGst, salesInvoicePdf } from "@/server/accounts/sales";
 import { updateSettings } from "@/server/accounts/books";
 import { issueCreditNoteForRefund, returnedLineWeights } from "@/server/gst/credit-notes";
 import { buildGstr1 } from "@/server/gst/gstr1";
-import { counterBillShareText, invoiceJson, invoiceShareText, renderInvoiceReceipt, salesReceiptPdf, upiPaymentUri, whatsappShareUrl } from "@/server/invoicing/outputs";
+import { counterBillShareText, invoiceJson, invoiceReceiptLines, invoiceShareText, renderInvoiceReceipt, salesReceiptPdf, upiPaymentUri, whatsappShareUrl } from "@/server/invoicing/outputs";
 import { addToCart } from "@/server/services/cart";
 import { checkout, updateOrderStatus } from "@/server/services/orders";
 import { invoiceKindsForOrders, invoiceTextLines, orderInvoiceLabel, paidHow, type InvoiceSnapshot } from "@/server/services/invoices";
@@ -322,6 +323,52 @@ describe("billing v2 — documents", () => {
       expect(invoiceTextLines({ ...s, payment: { ...s.payment, method: "ONLINE" } }).map((l) => l.text).join("\n")).toContain("Paid by customer (online payment)");
       expect((await invoiceKindsForOrders([invoice!.orderId])).get(invoice!.orderId)).toBe("BILL_OF_SUPPLY");
       expect(orderInvoiceLabel("BILL_OF_SUPPLY")).toBe("Bill of supply");
+
+      // QA D-119: no tax wording, tax split or tax rows on the bill of supply (A4 and 80 mm); a tax invoice keeps them.
+      const a4Text = invoiceTextLines(s).map((l) => l.text).join("\n");
+      const receiptText = invoiceReceiptLines(s).map((l) => l.text).join("\n");
+      for (const text of [a4Text, receiptText]) {
+        expect(text).toContain("BILL OF SUPPLY");
+        expect(text).not.toMatch(/inclusive of tax|CGST|SGST|IGST|Taxable|Intra-state|Inter-state|@0%/);
+      }
+      const total = formatPaise(s.totals.totalPaise).replace("₹", "Rs. ");
+      expect(a4Text.split("\n").find((line) => line.startsWith("Total "))?.trim()).toMatch(new RegExp(`^Total +${total.replace(/[.]/g, "\\.")}$`));
+      const taxInvoiceText = invoiceTextLines({ ...s, kind: "TAX_INVOICE" }).map((l) => l.text).join("\n");
+      expect(taxInvoiceText).toContain("Invoice total (inclusive of tax)");
+      expect(taxInvoiceText).toMatch(/CGST|IGST/);
+    });
+
+    it("a shop outside GST charges no GST: counter bill, POS bill and documents go at 0% and print no tax rows; a note on an older taxed bill still reverses its GST (QA D-120)", async () => {
+      const { owner, shop, milkSp } = await gstShop();
+      // Issued while the shop was still GST-registered.
+      const taxed = await createSalesInvoice(shop.id, { paymentMode: "CASH", lines: [{ shopProductId: milkSp.id, description: "Cow Milk", qtyMilli: 1000, ratePaise: 10_000, gstRateBp: 500 }] }, owner);
+      expect(taxed.cgstPaise + taxed.sgstPaise).toBeGreaterThan(0);
+      await db.update(shops).set({ gstin: null, gstStatus: "NOT_REGISTERED" }).where(eq(shops.id, shop.id));
+      const [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
+      expect(counterBillKind(row)).toBe("BILL_OF_SUPPLY");
+      expect(printsWithoutGst(row, taxed)).toBe(false);
+
+      const sale = await createSalesInvoice(shop.id, { paymentMode: "CASH", pricesIncludeTax: false, lines: [{ shopProductId: milkSp.id, description: "Cow Milk", qtyMilli: 2000, ratePaise: 10_000, gstRateBp: 500 }] }, owner);
+      expect([sale.cgstPaise, sale.sgstPaise, sale.igstPaise, sale.totalPaise]).toEqual([0, 0, 0, 20_000]);
+      expect((await getSalesInvoice(shop.id, sale.id)).lines.map((l) => l.gstRateBp)).toEqual([0]);
+      const a4 = (await salesInvoicePdf(shop.id, sale.id)).bytes.toString("latin1");
+      const receipt = (await salesReceiptPdf(shop.id, sale.id)).bytes.toString("latin1");
+      for (const text of [a4, receipt]) {
+        expect(text).toContain("BILL OF SUPPLY");
+        expect(text).not.toMatch(/CGST|SGST|IGST|Taxable|@0%/);
+      }
+
+      // POS: the device's list shows 0%, and a bill still carrying the catalogue's 5% is billed at 0%.
+      expect((await posItems(shop.id)).map((i) => i.gstRateBp)).toEqual([0, 0]);
+      const [pos] = await syncPosBills(shop.id, [{ clientRef: "d120-pos-0001", createdAt: new Date().toISOString(), paymentMode: "CASH", lines: [{ shopProductId: milkSp.id, name: "Cow Milk", qtyMilli: 1000, pricePaise: 10_500, gstRateBp: 500 }] }], owner);
+      expect([pos.status, pos.totalPaise]).toEqual(["CREATED", 10_500]);
+
+      // Documents: an estimate at 18% charges and prints no GST; a credit note on the older taxed bill reverses its GST.
+      const est = await createDocument(shop.id, { kind: "ESTIMATE", buyerName: "Hotel Sunrise", lines: [{ description: "Paneer", qtyMilli: 1000, ratePaise: 30_000, gstRateBp: 1800 }] }, owner);
+      expect([est.cgstPaise + est.sgstPaise + est.igstPaise, est.totalPaise]).toEqual([0, 30_000]);
+      expect((await documentPdf(shop.id, est.id)).bytes.toString("latin1")).not.toMatch(/CGST|SGST|Taxable/);
+      const cn = await createDocument(shop.id, { kind: "CREDIT_NOTE", againstSalesId: taxed.id, reason: "Returned", lines: [{ description: "Cow Milk", qtyMilli: 1000, ratePaise: 10_000, gstRateBp: 500 }] }, owner);
+      expect(cn.cgstPaise + cn.sgstPaise).toBe(taxed.cgstPaise + taxed.sgstPaise);
     });
   });
 });

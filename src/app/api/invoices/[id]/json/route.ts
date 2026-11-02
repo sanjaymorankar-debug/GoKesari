@@ -4,7 +4,8 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AppError, toClientError } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
+import { errorResponse } from "@/server/api/handler";
 import { getCurrentUser } from "@/server/authz/guards";
 import { invoiceJson } from "@/server/invoicing/outputs";
 import { canViewInvoice, getInvoice } from "@/server/services/invoices";
@@ -27,7 +28,6 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       },
     });
   } catch (error) {
-    const { status, body } = toClientError(error);
-    return NextResponse.json(body, { status });
+    return errorResponse(error);
   }
 }

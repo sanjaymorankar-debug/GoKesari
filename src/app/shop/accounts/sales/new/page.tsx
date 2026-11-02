@@ -9,6 +9,7 @@ import { ACCOUNTS_TILES } from "@/lib/accounts/menu";
 import { gstState } from "@/lib/gst-states";
 import { todayIst } from "@/server/accounts/books";
 import { loadAccountsPage } from "@/server/accounts/page";
+import { counterBillKind } from "@/server/accounts/sales";
 
 export const metadata = { title: "New sales invoice" };
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export default async function NewSalesInvoicePage({ searchParams }: { searchPara
           </Alert>
         </div>
       )}
-      <SalesInvoiceForm shopId={shop.id} shopQuery={shopQuery} sellerState={sellerState} today={todayIst()} />
+      <SalesInvoiceForm shopId={shop.id} shopQuery={shopQuery} sellerState={sellerState} today={todayIst()} billOfSupply={counterBillKind(shop) === "BILL_OF_SUPPLY"} />
     </div>
   );
 }

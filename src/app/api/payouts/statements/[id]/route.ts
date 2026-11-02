@@ -2,9 +2,10 @@
  * A payout statement (batch-2026-10 WS-E) as PDF (default) or CSV
  * (?format=csv). The shop's owner and finance only; anyone else gets "not found".
  */
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 
-import { AppError, toClientError } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
+import { errorResponse } from "@/server/api/handler";
 import { getCurrentUser } from "@/server/authz/guards";
 import { fileResponse, isUuid } from "@/server/payouts/http";
 import { canViewStatement, renderPayoutStatement } from "@/server/payouts/statements";
@@ -23,7 +24,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const csv = new URL(request.url).searchParams.get("format") === "csv";
     return csv ? fileResponse(doc.csv, `${doc.basename}.csv`, "text/csv; charset=utf-8") : fileResponse(doc.pdf, `${doc.basename}.pdf`, "application/pdf");
   } catch (error) {
-    const { status, body } = toClientError(error);
-    return NextResponse.json(body, { status });
+    return errorResponse(error);
   }
 }

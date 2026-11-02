@@ -29,7 +29,20 @@ interface Line {
 }
 const blank = (): Line => ({ description: "", hsn: "", qty: "1", unit: "", rate: "", gst: "5" });
 
-export function DocumentForm({ shopId, backHref, invoices, receipts }: { shopId: string; backHref: string; invoices: { id: string; label: string }[]; receipts: { id: string; label: string }[] }) {
+export function DocumentForm({
+  shopId,
+  backHref,
+  invoices,
+  receipts,
+  billOfSupply = false,
+}: {
+  shopId: string;
+  backHref: string;
+  invoices: { id: string; label: string }[];
+  receipts: { id: string; label: string }[];
+  /** QA D-120: the shop is outside GST, so its documents charge no GST — no rate field. */
+  billOfSupply?: boolean;
+}) {
   const router = useRouter();
   const [kind, setKind] = useState<(typeof KINDS)[number][0]>("CREDIT_NOTE");
   const [againstSalesId, setAgainstSalesId] = useState("");
@@ -60,7 +73,7 @@ export function DocumentForm({ shopId, backHref, invoices, receipts }: { shopId:
         paymentMode: kind === "DELIVERY_CHALLAN" || kind === "ESTIMATE" ? null : paymentMode,
         reason: reason || null,
         restock: kind === "CREDIT_NOTE" ? restock : false,
-        pricesIncludeTax: includesTax,
+        pricesIncludeTax: billOfSupply ? false : includesTax,
         lines: lines
           .filter((l) => l.description.trim())
           .map((l) => ({
@@ -69,7 +82,7 @@ export function DocumentForm({ shopId, backHref, invoices, receipts }: { shopId:
             qtyMilli: Math.round(Number(l.qty) * 1000),
             unit: l.unit.trim() || null,
             ratePaise: Math.round(Number(l.rate) * 100),
-            gstRateBp: Math.round(Number(l.gst) * 100),
+            gstRateBp: billOfSupply ? 0 : Math.round(Number(l.gst) * 100),
           })),
       };
       const response = await fetch(`/api/shops/${shopId}/accounts/documents`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -151,9 +164,13 @@ export function DocumentForm({ shopId, backHref, invoices, receipts }: { shopId:
             <input type="checkbox" checked={restock} onChange={(e) => setRestock(e.target.checked)} /> Goods came back into stock
           </label>
         ) : null}
-        <label className="flex min-h-11 items-center gap-2">
-          <input type="checkbox" checked={includesTax} onChange={(e) => setIncludesTax(e.target.checked)} /> Rates include GST
-        </label>
+        {billOfSupply ? (
+          <p className="flex min-h-11 items-center text-ink-700">Your shop is outside GST, so no GST is charged. The rate is the amount.</p>
+        ) : (
+          <label className="flex min-h-11 items-center gap-2">
+            <input type="checkbox" checked={includesTax} onChange={(e) => setIncludesTax(e.target.checked)} /> Rates include GST
+          </label>
+        )}
       </div>
       <fieldset className="grid gap-2">
         <legend className="mb-1 text-sm font-bold text-ink-900">Lines</legend>
@@ -163,7 +180,9 @@ export function DocumentForm({ shopId, backHref, invoices, receipts }: { shopId:
             <input aria-label={`Line ${i + 1} HSN`} placeholder="HSN/SAC" className={inputClass} value={l.hsn} onChange={(e) => set(i, { hsn: e.target.value })} />
             <input aria-label={`Line ${i + 1} quantity`} placeholder="Qty" inputMode="decimal" className={inputClass} value={l.qty} onChange={(e) => set(i, { qty: e.target.value })} />
             <input aria-label={`Line ${i + 1} rate`} placeholder="Rate ₹" inputMode="decimal" className={inputClass} value={l.rate} onChange={(e) => set(i, { rate: e.target.value })} />
-            <input aria-label={`Line ${i + 1} GST percent`} placeholder="GST %" inputMode="decimal" className={inputClass} value={l.gst} onChange={(e) => set(i, { gst: e.target.value })} />
+            {billOfSupply ? null : (
+              <input aria-label={`Line ${i + 1} GST percent`} placeholder="GST %" inputMode="decimal" className={inputClass} value={l.gst} onChange={(e) => set(i, { gst: e.target.value })} />
+            )}
           </div>
         ))}
         <div>
