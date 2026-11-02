@@ -21,6 +21,8 @@ export interface MonitoringRow {
   tripId?: string | null;
   /** NEW-007: invoice and delivery-photo links. */
   invoiceUrl?: string | null;
+  /** QA D-121: "Tax invoice", "Bill of supply" or "Invoice" (not issued yet), from orderInvoiceLabel. */
+  invoiceLabel?: string;
   proofPhotoUrl?: string | null;
 }
 
@@ -155,7 +157,7 @@ export function OrderMonitoringTable({
                       )}
                       {order.invoiceUrl ? (
                         <a href={order.invoiceUrl} className="block text-xs text-kesari-700 hover:underline">
-                          Tax invoice
+                          {order.invoiceLabel ?? "Invoice"}
                         </a>
                       ) : null}
                     </td>

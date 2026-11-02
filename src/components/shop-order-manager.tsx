@@ -89,6 +89,8 @@ export interface ShopOrderRow {
   acceptByAt?: string | null;
   /** NEW-007: links for a delivered order. */
   invoiceUrl?: string | null;
+  /** QA D-121: "Tax invoice", "Bill of supply" or "Invoice" (not issued yet), from orderInvoiceLabel. */
+  invoiceLabel?: string;
   proofPhotoUrl?: string | null;
   /** Fulfilment options (docs/four-features-2026-10): the order's pickup / delivery plan. */
   fulfilmentPlan?: PlannerPlan | null;
@@ -284,7 +286,7 @@ function OrderRow({
         <p className="mt-2 flex flex-wrap gap-3 text-xs">
           {order.invoiceUrl ? (
             <a href={order.invoiceUrl} className="font-medium text-kesari-700 hover:underline">
-              Tax invoice
+              {order.invoiceLabel ?? "Invoice"}
             </a>
           ) : null}
           {order.proofPhotoUrl ? (
