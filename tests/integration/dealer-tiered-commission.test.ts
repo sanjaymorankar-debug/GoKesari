@@ -46,12 +46,12 @@ import { updateOrderStatus } from "@/server/services/orders";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { recordPayment } from "@/server/services/shop-payments";
 import { approveShop } from "@/server/services/shops";
-import { RULES } from "@/server/config/rules";
+import { RULES, type RuleValue } from "@/server/config/rules";
 import { createOrder, createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 let admin: { id: string; role: "ADMIN" };
 
-async function tiered(over: Partial<(typeof RULES)["dealerTieredCommission"]["defaults"]> = {}) {
+async function tiered(over: Partial<RuleValue<"dealerTieredCommission">> = {}) {
   await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, tradingOrders: 2, ...over }, admin);
   clearRuleCache();
 }

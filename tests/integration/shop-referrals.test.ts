@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { encryptSecret } from "@/lib/pan-crypto";
 import { db } from "@/server/db";
 import { bankAccounts, orders, sellerVerifications, shopReferrals, shopWallets, shops, type Shop } from "@/server/db/schema";
-import { RULES } from "@/server/config/rules";
+import { RULES, type RuleValue } from "@/server/config/rules";
 import { updateOrderStatus } from "@/server/services/orders";
 import { assertRegistrationReferralCode } from "@/server/services/referral-requests";
 import { clearRuleCache, setRule } from "@/server/services/settings";
@@ -31,7 +31,7 @@ import { createOrder, createShop, createUser, resetDatabase } from "../helpers/f
 let admin: { id: string; role: "ADMIN" };
 let counter = 0;
 
-async function enable(over: Partial<(typeof RULES)["shopReferrals"]["defaults"]> = {}) {
+async function enable(over: Partial<RuleValue<"shopReferrals">> = {}) {
   await setRule("shopReferrals", { ...RULES.shopReferrals.defaults, enabled: true, ...over }, admin);
   clearRuleCache();
 }
