@@ -34,6 +34,7 @@ const ROLE_ORDER: readonly UserRole[] = [
   "SOCIETY_ADMIN",
   "OPERATOR_LIMITED", // batch-2026-10 WS-D
   "DEALER", // docs/dealer-programme
+  "CA", // gap report D4: Chartered Accountant
   "OPERATOR",
   "ADMIN",
 ];
@@ -52,6 +53,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: "Administrator",
   OPERATOR_LIMITED: "Operator (Limited)", // batch-2026-10 WS-D
   DEALER: "Dealer", // docs/dealer-programme
+  CA: "Chartered Accountant", // gap report D4
 };
 
 const label = (role: UserRole) => ROLE_LABELS[role] ?? role;

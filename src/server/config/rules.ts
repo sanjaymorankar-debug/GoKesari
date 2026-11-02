@@ -761,10 +761,31 @@ export const RULES = {
   },
   dealerPayoutTds: {
     description:
-      "Income-tax TDS on dealer and team-member commission payouts (every model). Off until the CA confirms the section and rate. On: a payout deducts rateBp of its gross once the payee's commission paid in the financial year (April–March), this payout included, passes annualThresholdPaise — the first payout above it also deducts on what was paid earlier in the year without TDS. The statement shows gross, TDS and net; the bank transfer is the net.",
+      "Income-tax TDS on dealer and team-member commission payouts (every model). Off until the CA confirms. On: each payout is taxed by the dated rows in Admin → TDS on commission (payee type, PAN status, rate, annual threshold, CATCH_UP or EXCESS_ONLY, the section, the CA's confirmation), summed per PAN over the financial year (April–March), with a payee's lower / nil certificate where one applies. A payout taxed under a row the CA has not confirmed is blocked until an admin overrides it with a reason. The statement shows gross, TDS and net; the bank transfer is the net. rateBp and annualThresholdPaise are the starting values the first rows were seeded with (no longer read).",
     schema: z.object({ enabled: z.boolean(), rateBp: int(0, 5000), annualThresholdPaise: int(0, 1_000_000_000) }),
     // Starting values (owner brief, 2 Nov 2026): 2% above ₹20,000 a year — to be confirmed by the CA.
     defaults: { enabled: false, rateBp: 200, annualThresholdPaise: 2_000_000 },
+  },
+  dealerPayouts: {
+    description:
+      "Dealer commission payouts (gap report Part C), every model: one payout per PAN per month — a person who earns in two roles is paid once. A TIERED team member is paid only with a PAN, a verified bank account and the agent agreement — and so is a dealer when enforcePayeeChecks is on (off: dealers are drafted and paid as before); otherwise the month's amount is held and carried to the next month, and with reminderEnabled the payee is reminded at the month's close what is missing. A net below minPayoutPaise is carried forward too (0 = no minimum, as before).",
+    schema: z.object({ enforcePayeeChecks: z.boolean(), minPayoutPaise: int(0, 10_000_000), reminderEnabled: z.boolean() }),
+    // Owner to set the minimum (₹100 suggested, as riders) and switch the checks on for dealers;
+    // off / 0 keep today's behaviour for dealers. TIERED team members are always checked.
+    defaults: { enforcePayeeChecks: false, minPayoutPaise: 0, reminderEnabled: true },
+  },
+  dealerAutoPayout: {
+    description:
+      "Automatic bank transfer of dealer commission payouts (gap report C4) through the shop payout providers. Off: an admin pays by hand and records the bank reference, as today. On: a drafted payout is approved by an admin other than the one who drafted it (the monthly job counts as the drafter), then sent to provider (SANDBOX never on gokesari.com; RAZORPAYX or CASHFREE with their payout keys) by mode; the signed webhook brings the UTR and marks it paid. A failure is retried maxRetries times, retryBackoffMinutes × attempt apart, then flagged for finance (retry, pay by hand, or cancel). bankFile: approved payouts can always be downloaded as a bank upload file.",
+    schema: z.object({
+      enabled: z.boolean(),
+      provider: z.enum(["SANDBOX", "RAZORPAYX", "CASHFREE"]),
+      mode: z.enum(["IMPS", "NEFT"]),
+      maxRetries: int(0, 10),
+      retryBackoffMinutes: int(1, 1440),
+      sandboxAutoWebhook: z.boolean(),
+    }),
+    defaults: { enabled: false, provider: "SANDBOX", mode: "IMPS", maxRetries: 3, retryBackoffMinutes: 60, sandboxAutoWebhook: true },
   },
   shopReferrals: {
     description:

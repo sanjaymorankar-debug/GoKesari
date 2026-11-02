@@ -10,9 +10,11 @@
  *   approve {ids, capOverride?, reason?} · reverse {id, reason} · release {id, reason}
  *   createPayout {dealerId, memberId?, note?} (memberId: a TIERED team member, paid directly; TDS by rule dealerPayoutTds)
  *   payoutPaid {batchId, reference} (PAN and a verified bank account required) · cancelPayout {batchId}
+ *   approvePayout {batchId} (another admin than the drafter; sends it when rule dealerAutoPayout is on) · retryPayout {batchId}
+ * GET ?bankFile=1 → the bank upload file of approved payouts (ADMIN; audited)
  *   closeMonth {month: "YYYY-MM"} — the monthly payout now, instead of waiting for the payout day
  */
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { COMMISSION_MILESTONES, COMMISSION_STATUSES } from "@/server/db/schema";
@@ -39,6 +41,7 @@ import {
 } from "@/server/dealers/commission";
 import { requireDealerProgramme } from "@/server/dealers/http";
 import { closeCommissionMonth, listClosedMonths } from "@/server/dealers/monthly-payout";
+import { approvePayoutBatch, dealerBankFile, retryFlaggedPayout } from "@/server/dealers/auto-payout";
 
 export const dynamic = "force-dynamic";
 
@@ -89,13 +92,21 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("createPayout"), dealerId: z.string().uuid(), memberId: z.string().uuid().nullish(), note: z.string().max(300).nullish() }),
   z.object({ action: z.literal("payoutPaid"), batchId: z.string().uuid(), reference: z.string().max(120) }),
   z.object({ action: z.literal("cancelPayout"), batchId: z.string().uuid() }),
+  // Gap report C4 (rule dealerAutoPayout): approve (maker-checker; sends when the rule is on), retry a flagged one.
+  z.object({ action: z.literal("approvePayout"), batchId: z.string().uuid() }),
+  z.object({ action: z.literal("retryPayout"), batchId: z.string().uuid() }),
   z.object({ action: z.literal("closeMonth"), month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) }),
 ]);
 
 export const GET = route(async (request: NextRequest) => {
   await requireDealerProgramme();
-  await requireRole("ADMIN", "OPERATOR");
+  const viewer = await requireRole("ADMIN", "OPERATOR");
   const params = request.nextUrl.searchParams;
+  // Gap report C4: the bank upload file of approved payouts (full account numbers: admin only, audited).
+  if (params.get("bankFile") === "1") {
+    const file = await dealerBankFile(viewer);
+    return new NextResponse(file.csv, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="dealer-payouts-bank-file.csv"', "cache-control": "private, no-store" } });
+  }
   const dealerId = z.string().uuid().safeParse(params.get("dealerId")).data;
   const statusRaw = params.get("status");
   const status = (COMMISSION_STATUSES as readonly string[]).includes(statusRaw ?? "") ? (statusRaw as (typeof COMMISSION_STATUSES)[number]) : undefined;
@@ -148,6 +159,10 @@ export const POST = route(async (request: NextRequest) => {
     case "cancelPayout":
       await cancelPayout(body.batchId, admin);
       return ok({ done: true });
+    case "approvePayout":
+      return ok({ batch: await approvePayoutBatch(body.batchId, admin) });
+    case "retryPayout":
+      return ok({ batch: await retryFlaggedPayout(body.batchId, admin) });
     case "closeMonth":
       return ok({ closed: await closeCommissionMonth(body.month, admin) });
   }

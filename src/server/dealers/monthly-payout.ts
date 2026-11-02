@@ -27,7 +27,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-o
 import { addDays, todayIn, type IsoDate } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { conflict, forbidden, validationFailed } from "@/lib/errors";
-import { db } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   dealerCommissionLedger,
   dealerCommissionMonths,
@@ -47,9 +47,11 @@ import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { notify } from "@/server/services/notifications";
+import { queueDocumentEmail } from "@/server/documents/email";
 import { getRule } from "@/server/services/settings";
 import { COMMISSION_ENTRY_TYPE_LABELS, STATEMENT_LINES, type CommissionEntryType } from "@/lib/dealer-tiers";
-import { getCommissionSettings, payoutTds } from "./commission";
+import { getCommissionSettings, payeeStatus, payoutTds, tdsColumns } from "./commission";
+import { financialYear } from "@/server/tax/commission-tds";
 import { accrueTargetBonuses } from "./tiered";
 
 interface Actor {
@@ -97,7 +99,8 @@ export interface MonthCloseResult {
   autoApproved: number;
   /** memberId: the team member paid (TIERED); null = the dealer. totalPaise is the gross; the transfer is gross − TDS. */
   payouts: { dealerId: string; memberId: string | null; batchId: string; totalPaise: number; tdsPaise: number; entries: number }[];
-  carried: { dealerId: string; memberId: string | null; netPaise: number }[];
+  /** Not drafted this month: owed back, below the minimum, or held (no PAN / bank / agreement — `missing`). */
+  carried: { dealerId: string; memberId: string | null; netPaise: number; reason?: string; missing?: string[] }[];
   notified: number;
 }
 
@@ -152,10 +155,12 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
         .where(and(isNull(dealerCommissionLedger.payoutBatchId), lt(dealerCommissionLedger.createdAt, end), payable))
     ).sort((a, b) => a.dealerId.localeCompare(b.dealerId) || (a.memberId ?? "").localeCompare(b.memberId ?? ""));
 
-    const tdsRule = await getRule("dealerPayoutTds");
+    const payoutRule = await getRule("dealerPayouts");
     const payouts: MonthCloseResult["payouts"] = [];
     const carried: MonthCloseResult["carried"] = [];
     const locked = new Set<string>();
+    // Gap report C1 / C2: each payee's payable rows and whether they can be paid (PAN, verified bank, agreement).
+    const ready: { dealerId: string; memberId: string | null; panHash: string | null; key: string; rows: { id: string; amountPaise: number }[]; total: number }[] = [];
     for (const { dealerId, memberId } of payees) {
       if (!locked.has(dealerId)) {
         await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
@@ -176,17 +181,44 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
         );
       const total = rows.reduce((s, r) => s + r.amountPaise, 0);
       if (rows.length === 0) continue;
-      if (total <= 0) {
-        carried.push({ dealerId, memberId, netPaise: total });
+      const payee = await payeeStatus(tx, dealerId, memberId);
+      // Team members always; dealers when rule dealerPayouts.enforcePayeeChecks is on (off: as before).
+      if (payee.missing.length && (memberId || payoutRule.enforcePayeeChecks)) {
+        carried.push({ dealerId, memberId, netPaise: total, reason: `held: ${payee.missing.join(", ")}`, missing: payee.missing });
         continue;
       }
-      const tdsPaise = await payoutTds(tx, dealerId, memberId, total, tdsRule, new Date(end.getTime() - 1));
+      ready.push({ dealerId, memberId, panHash: payee.panHash, key: payee.panHash ?? `dealer:${dealerId}`, rows, total });
+    }
+    // One payout per PAN: a person paid in two roles (or two networks) gets one transfer.
+    for (const key of [...new Set(ready.map((r) => r.key))].sort()) {
+      const group = ready.filter((r) => r.key === key);
+      const panHash = group[0].panHash;
+      const total = group.reduce((t, g) => t + g.total, 0);
+      const first = group[0];
+      if (total <= 0 || total < payoutRule.minPayoutPaise) {
+        for (const g of group) carried.push({ dealerId: g.dealerId, memberId: g.memberId, netPaise: g.total, reason: total <= 0 ? "owed back" : `below the ₹${(payoutRule.minPayoutPaise / 100).toLocaleString("en-IN")} minimum` });
+        continue;
+      }
+      const tds = await payoutTds(tx, first.dealerId, first.memberId, total, new Date(end.getTime() - 1), panHash);
+      const tdsPaise = tds.tdsPaise;
+      const ids = group.flatMap((g) => g.rows.map((r) => r.id));
       const [batch] = await tx
         .insert(dealerPayoutBatches)
-        .values({ dealerId, memberId, totalPaise: total, tdsPaise, tdsRateBp: tdsPaise > 0 ? tdsRule.rateBp : 0, periodMonth: month, note: `Commission for ${monthLabel(month)}`, createdBy: actor?.id ?? null })
+        .values({
+          dealerId: first.dealerId,
+          memberId: first.memberId,
+          payeePanHash: panHash,
+          totalPaise: total,
+          ...tdsColumns(tds),
+          // Gap report D3: a reversal of money paid in an earlier financial year goes to the CA.
+          ...((await crossesFinancialYear(tx, ids, end)) && !tds.flag ? { tdsFlag: "REVERSAL_PRIOR_FY" } : {}),
+          periodMonth: month,
+          note: `Commission for ${monthLabel(month)}${group.length > 1 ? ` (${group.length} roles, one PAN)` : ""}`,
+          createdBy: actor?.id ?? null,
+        })
         .returning();
-      await tx.update(dealerCommissionLedger).set({ payoutBatchId: batch.id, updatedAt: new Date() }).where(inArray(dealerCommissionLedger.id, rows.map((r) => r.id)));
-      payouts.push({ dealerId, memberId, batchId: batch.id, totalPaise: total, tdsPaise, entries: rows.length });
+      await tx.update(dealerCommissionLedger).set({ payoutBatchId: batch.id, updatedAt: new Date() }).where(inArray(dealerCommissionLedger.id, ids));
+      payouts.push({ dealerId: first.dealerId, memberId: first.memberId, batchId: batch.id, totalPaise: total, tdsPaise, entries: ids.length });
     }
 
     const totalPaise = payouts.reduce((s, p) => s + p.totalPaise, 0);
@@ -215,7 +247,31 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
 
   // 3. The statements, after the commit (the notification outbox retries a failed email).
   const notified = await sendMonthStatements(month, start, end, result.payouts);
+  // Gap report C2: payees held for a missing PAN, bank account or agreement are told what to add.
+  await remindHeldPayees(month, result.carried);
   return { month, alreadyClosed: false, ...result, notified };
+}
+
+/** Gap report C2: the monthly reminder to a payee whose commission is held — what is missing, and the amount waiting. */
+async function remindHeldPayees(month: string, carried: MonthCloseResult["carried"]): Promise<number> {
+  if (!(await getRule("dealerPayouts")).reminderEnabled) return 0;
+  let sent = 0;
+  for (const c of carried.filter((x) => x.missing?.length && x.netPaise > 0)) {
+    const [payee] = c.memberId
+      ? await db.select({ userId: dealerSalespeople.userId }).from(dealerSalespeople).where(eq(dealerSalespeople.id, c.memberId))
+      : await db.select({ userId: dealers.userId }).from(dealers).where(eq(dealers.id, c.dealerId));
+    if (!payee?.userId) continue;
+    await notify({
+      userId: payee.userId,
+      type: NOTIFICATION_TYPES.DEALER_PAYOUT_HELD,
+      vars: { month: monthLabel(month), amount: rupees(c.netPaise), missing: c.missing!.join(", ") },
+      actionUrl: "/dealer",
+      channels: ["PUSH"],
+      dedupeKey: `dealer-payout-held:${month}:${c.memberId ?? c.dealerId}`,
+    });
+    sent += 1;
+  }
+  return sent;
 }
 
 /** Every approved dealer with something in the month (a registration, an entry, a payout) is told. */
@@ -260,6 +316,19 @@ async function sendMonthStatements(month: string, start: Date, end: Date, payout
     if (!target.userId) continue;
     try {
       const s = await dealerMonthStatement(target.dealerId, month, target.memberId);
+      // Gap report C5: a payout's statement is also emailed with the CSV attached.
+      if (s.payout) {
+        await queueDocumentEmail({
+          docType: "DEALER_STATEMENT",
+          docId: s.payout.id,
+          userId: target.userId,
+          recipientRole: "DEALER",
+          title: `Your commission statement for ${s.label}`,
+          body: `Gross ${rupees(s.payout.totalPaise)}, TDS ${rupees(s.payout.tdsPaise)}, net ${rupees(s.payout.netPaise)}. The statement is attached (CSV) and on your dealer page.`,
+          actionUrl: `/dealer?statement=${month}`,
+          category: "GENERAL",
+        }).catch((error) => console.error("[dealer-monthly-payout] statement email failed", error));
+      }
       await notify({
         userId: target.userId,
         type: NOTIFICATION_TYPES.DEALER_COMMISSION_STATEMENT,
@@ -408,15 +477,15 @@ export async function dealerMonthStatement(dealerId: string, month: string, memb
   }));
 
   const entries = await entryRows(and(eq(dealerCommissionLedger.dealerId, dealerId), payeeIs, inMonth(dealerCommissionLedger.createdAt))!);
+  // The month's payout holding this payee's entries (one per PAN: it may carry another role's too).
   const [batch] = await db
     .select()
     .from(dealerPayoutBatches)
     .where(
       and(
-        eq(dealerPayoutBatches.dealerId, dealerId),
-        memberId ? eq(dealerPayoutBatches.memberId, memberId) : isNull(dealerPayoutBatches.memberId),
         eq(dealerPayoutBatches.periodMonth, month),
         sql`${dealerPayoutBatches.status} <> 'CANCELLED'`,
+        sql`${dealerPayoutBatches.id} in (select ${dealerCommissionLedger.payoutBatchId} from ${dealerCommissionLedger} where ${dealerCommissionLedger.dealerId} = ${dealerId} and ${memberId ? sql`${dealerCommissionLedger.payeeMemberId} = ${memberId}` : sql`${dealerCommissionLedger.payeeMemberId} is null`})`,
       ),
     )
     .orderBy(desc(dealerPayoutBatches.createdAt))
@@ -476,6 +545,32 @@ export async function dealerMonthStatement(dealerId: string, month: string, memb
       carriedForwardPaise: carried ? -carried.netPaise : 0,
     },
   };
+}
+
+/** Whether any of these entries reverses money paid in an earlier financial year than `periodEnd`'s. */
+async function crossesFinancialYear(tx: DbClient, entryIds: string[], periodEnd: Date): Promise<boolean> {
+  if (entryIds.length === 0) return false;
+  const reversals = await tx
+    .select({ reversesId: dealerCommissionLedger.reversesId })
+    .from(dealerCommissionLedger)
+    .where(and(inArray(dealerCommissionLedger.id, entryIds), eq(dealerCommissionLedger.kind, "REVERSAL")));
+  const ids = reversals.map((r) => r.reversesId).filter((x): x is string => Boolean(x));
+  if (ids.length === 0) return false;
+  const paid = await tx
+    .select({ paidAt: dealerPayoutBatches.paidAt })
+    .from(dealerCommissionLedger)
+    .innerJoin(dealerPayoutBatches, eq(dealerPayoutBatches.id, dealerCommissionLedger.payoutBatchId))
+    .where(inArray(dealerCommissionLedger.id, ids));
+  const fy = financialYear(new Date(periodEnd.getTime() - 1)).label;
+  return paid.some((p) => p.paidAt && financialYear(p.paidAt).label !== fy);
+}
+
+/** Gap report C5: the statement a payout's email carries (the payee it was drafted for, its month). */
+export async function dealerStatementForBatch(batchId: string): Promise<{ basename: string; csv: string } | null> {
+  const [b] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId));
+  if (!b?.periodMonth) return null;
+  const statement = await dealerMonthStatement(b.dealerId, b.periodMonth, b.memberId);
+  return { basename: `gokesari-commission-${b.periodMonth}`, csv: monthStatementCsv(statement) };
 }
 
 /** The months a dealer's page lists: this month so far, then the closed months, newest first. */

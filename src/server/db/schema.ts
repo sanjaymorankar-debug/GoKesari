@@ -104,6 +104,7 @@ export const userRoleEnum = pgEnum("user_role", [
   "SOCIETY_ADMIN",
   "OPERATOR_LIMITED", // batch-2026-10 WS-D (F8.4.2: onboards shops for their owners; own shops only)
   "DEALER", // docs/dealer-programme (0101): authorised dealers and their salespeople; own records only
+  "CA", // gap report D4 (0140): the Chartered Accountant — TDS settings and reports, read-only payouts
 ]);
 
 /**
@@ -9730,6 +9731,112 @@ export const statutoryRates = pgTable(
 export type StatutoryRate = typeof statutoryRates.$inferSelect;
 
 /**
+ * Gap report D1 (0141): dated "TDS on commission" rows — by payee type and PAN
+ * status: rate, annual threshold, mode, the section as free text (it changed
+ * under the Income-tax Act 2025; the CA gives it), effective dates and the CA's
+ * confirmation. Adding a row closes the previous one of the same payee type
+ * and PAN status; editing withdraws the confirmation. While rule
+ * dealerPayoutTds is on, a payout whose row is not CA-confirmed is blocked
+ * unless an admin overrides it with a reason.
+ */
+export const commissionTdsRates = pgTable(
+  "commission_tds_rates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    payeeType: text("payee_type", { enum: ["INDIVIDUAL", "FIRM", "COMPANY", "ANY"] }).notNull(),
+    panStatus: text("pan_status", { enum: ["PAN_OK", "NO_PAN"] }).notNull(),
+    rateBp: integer("rate_bp").notNull(),
+    /** Commission paid to one PAN in the financial year below which nothing is deducted. */
+    thresholdPaise: bigint("threshold_paise", { mode: "number" }).notNull(),
+    /** CATCH_UP: once past the threshold, the whole year is taxed (less TDS already deducted). EXCESS_ONLY: only the part above it. */
+    mode: text("mode", { enum: ["CATCH_UP", "EXCESS_ONLY"] }).notNull().default("CATCH_UP"),
+    section: text("section").notNull(),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveTo: date("effective_to"),
+    note: text("note"),
+    confirmedByCa: boolean("confirmed_by_ca").notNull().default(false),
+    confirmedBy: uuid("confirmed_by"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("commission_tds_rates_from_unique").on(t.payeeType, t.panStatus, t.effectiveFrom),
+    check("commission_tds_rates_rate", sql`${t.rateBp} BETWEEN 0 AND 10000 AND ${t.thresholdPaise} >= 0`),
+    check("commission_tds_rates_dates", sql`${t.effectiveTo} IS NULL OR ${t.effectiveTo} >= ${t.effectiveFrom}`),
+  ],
+);
+export type CommissionTdsRate = typeof commissionTdsRates.$inferSelect;
+
+/** Gap report D2 (0141): a payee's lower / nil deduction certificate — its rate, validity and the amount it covers. */
+export const commissionTdsCertificates = pgTable(
+  "commission_tds_certificates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The payee's PAN blind index (dealers / dealer_salespeople.pan_hash); PAN itself is never stored here. */
+    panHash: text("pan_hash").notNull(),
+    payeeLabel: text("payee_label").notNull(),
+    certificateNumber: text("certificate_number").notNull(),
+    rateBp: integer("rate_bp").notNull(),
+    validFrom: date("valid_from").notNull(),
+    validTo: date("valid_to").notNull(),
+    /** The commission the certificate covers; above it the normal row applies. Null: no limit. */
+    limitPaise: bigint("limit_paise", { mode: "number" }),
+    note: text("note"),
+    status: text("status", { enum: ["ACTIVE", "WITHDRAWN"] }).notNull().default("ACTIVE"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("commission_tds_certificates_pan_idx").on(t.panHash, t.validFrom),
+    check("commission_tds_certificates_rate", sql`${t.rateBp} BETWEEN 0 AND 10000`),
+    check("commission_tds_certificates_dates", sql`${t.validTo} >= ${t.validFrom}`),
+  ],
+);
+export type CommissionTdsCertificate = typeof commissionTdsCertificates.$inferSelect;
+
+/** Gap report D5 (0141): the challan that deposited a month's commission TDS (for 26Q). */
+export const commissionTdsChallans = pgTable(
+  "commission_tds_challans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The month the TDS was deducted ("2026-11"). */
+    periodMonth: text("period_month").notNull(),
+    section: text("section").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    bsrCode: text("bsr_code").notNull(),
+    challanSerial: text("challan_serial").notNull(),
+    depositedOn: date("deposited_on").notNull(),
+    note: text("note"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("commission_tds_challans_unique").on(t.bsrCode, t.challanSerial, t.depositedOn), index("commission_tds_challans_month_idx").on(t.periodMonth)],
+);
+export type CommissionTdsChallan = typeof commissionTdsChallans.$inferSelect;
+
+/** Gap report D5 (0141): a payee's Form 16A for one quarter — the PDF the CA uploads, shown on the payee's dealer page. */
+export const commissionTdsForms16a = pgTable(
+  "commission_tds_forms16a",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    panHash: text("pan_hash").notNull(),
+    payeeLabel: text("payee_label").notNull(),
+    /** "2026-27". */
+    financialYear: text("financial_year").notNull(),
+    quarter: smallint("quarter").notNull(),
+    certificateNumber: text("certificate_number").notNull(),
+    fileName: text("file_name").notNull(),
+    /** AES-GCM (src/lib/pan-crypto.ts encryptBytes). */
+    dataEncrypted: bytea("data_encrypted").notNull(),
+    uploadedBy: uuid("uploaded_by"),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("commission_tds_forms16a_unique").on(t.panHash, t.financialYear, t.quarter), check("commission_tds_forms16a_quarter", sql`${t.quarter} BETWEEN 1 AND 4`)],
+);
+export type CommissionTdsForm16a = typeof commissionTdsForms16a.$inferSelect;
+
+/**
  * Billing v2 (0129, docs/billing §5.4, §5.5, §5.7): GoKesari's own statutory
  * returns per period — GSTR-8 (TCS), GSTR-1 and GSTR-3B for its own fees and
  * s.9(5) supplies, the quarterly TDS statement — with what was generated (the
@@ -10944,7 +11051,12 @@ export const dealerPayoutBatches = pgTable(
     dealerId: uuid("dealer_id")
       .notNull()
       .references(() => dealers.id, { onDelete: "restrict" }),
-    status: text("status", { enum: ["DRAFT", "PAID", "CANCELLED"] }).notNull().default("DRAFT"),
+    /**
+     * 0139: DRAFT → APPROVED (a second admin, maker-checker) → PROCESSING (sent to the payout
+     * provider, rule dealerAutoPayout) → PAID with the UTR; FAILED waits for a retry or for finance
+     * (needs_review). An admin can still pay by hand from DRAFT, APPROVED or FAILED.
+     */
+    status: text("status", { enum: ["DRAFT", "APPROVED", "PROCESSING", "FAILED", "PAID", "CANCELLED"] }).notNull().default("DRAFT"),
     totalPaise: integer("total_paise").notNull(),
     paymentReference: text("payment_reference"),
     note: text("note"),
@@ -10953,6 +11065,24 @@ export const dealerPayoutBatches = pgTable(
     /** 0136: income-tax TDS (rule dealerPayoutTds) — total_paise is the gross; net = gross − TDS. */
     tdsPaise: integer("tds_paise").notNull().default(0),
     tdsRateBp: integer("tds_rate_bp").notNull().default(0),
+    /** 0139 (gap report C1 / D3): the payee's PAN (blind index) — one payout per PAN per month. */
+    payeePanHash: text("payee_pan_hash"),
+    /** 0142 (gap report D3): the dated TDS row (commission_tds_rates, core: no FK), section and certificate applied. */
+    tdsRateId: uuid("tds_rate_id"),
+    tdsSection: text("tds_section"),
+    tdsCertificateId: uuid("tds_certificate_id"),
+    /** UNCONFIRMED_RATE / NO_RATE (blocks paying until overridden), REVERSAL_PRIOR_FY (for the CA). */
+    tdsFlag: text("tds_flag"),
+    tdsOverrideReason: text("tds_override_reason"),
+    tdsOverrideBy: uuid("tds_override_by"),
+    approvedBy: uuid("approved_by"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    provider: text("provider"),
+    providerRef: text("provider_ref"),
+    attempts: integer("attempts").notNull().default(0),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    needsReview: boolean("needs_review").notNull().default(false),
+    failureReason: text("failure_reason"),
     /** Monthly payout (0116): the month closed into this payout ("2026-10"); null for one made by hand. */
     periodMonth: text("period_month"),
     /** Null for a payout the monthly job drafted (0116). */
@@ -10964,6 +11094,10 @@ export const dealerPayoutBatches = pgTable(
   (t) => [
     index("dealer_payout_batches_dealer_idx").on(t.dealerId, t.createdAt),
     index("dealer_payout_batches_member_idx").on(t.memberId).where(sql`${t.memberId} IS NOT NULL`),
+    index("dealer_payout_batches_pan_idx").on(t.payeePanHash, t.periodMonth).where(sql`${t.payeePanHash} IS NOT NULL`),
+    index("dealer_payout_batches_retry_idx").on(t.status, t.nextRetryAt),
+    index("dealer_payout_batches_provider_ref_idx").on(t.providerRef).where(sql`${t.providerRef} IS NOT NULL`),
+    check("dealer_payout_batches_status", sql`${t.status} in ('DRAFT', 'APPROVED', 'PROCESSING', 'FAILED', 'PAID', 'CANCELLED')`),
     check("dealer_payout_batches_tds", sql`${t.tdsPaise} >= 0 AND ${t.tdsPaise} <= greatest(${t.totalPaise}, 0) AND ${t.tdsRateBp} BETWEEN 0 AND 10000`),
   ],
 );

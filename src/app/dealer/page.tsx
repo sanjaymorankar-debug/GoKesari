@@ -9,6 +9,8 @@ import { DealerStatements } from "@/components/dealer/dealer-statements";
 import { dealerPerformance } from "@/server/dealers/performance";
 import { DealerWork } from "@/components/dealer/dealer-work";
 import { DealerTeam } from "@/components/dealer/dealer-team";
+import { DealerTdsCard } from "@/components/dealer/dealer-tds-card";
+import { payeeTdsView } from "@/server/tax/commission-tds";
 import type { Dealer, DealerSalesperson } from "@/server/db/schema";
 import { AGENT_AGREEMENT_VERSION } from "@/lib/dealer-tiers";
 import { earningsByType, getMemberForUser, isTieredDealer, teamTree, tierRatesFor, tierRule, tradingProgress } from "@/server/dealers/tiered";
@@ -113,6 +115,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
         employees={employees}
       />
       {network ? <DealerTeam {...network} /> : null}
+      <DealerTdsCard view={await payeeTdsView({ panHash: dealer.panHash, dealerType: dealer.dealerType, isMember: false })} />
       <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} myRate={myRate} entries={iso(entries)} bonusOn={bonusOn} />
       <DealerStatements statements={iso(statements)} payoutDay={commissionSettings.payoutDayOfMonth} open={openStatement} />
       <DealerWork
@@ -165,6 +168,7 @@ async function MemberPortal({ member, dealer, openStatement }: { member: DealerS
         <Alert tone="warning">You have no active code; ask {dealer.legalName} or GoKesari.</Alert>
       )}
       <DealerTeam {...network} />
+      <DealerTdsCard view={await payeeTdsView({ panHash: member.panHash, dealerType: dealer.dealerType, isMember: true })} />
       <DealerStatements statements={JSON.parse(JSON.stringify(statements))} payoutDay={commissionSettings.payoutDayOfMonth} open={openStatement} />
     </div>
   );

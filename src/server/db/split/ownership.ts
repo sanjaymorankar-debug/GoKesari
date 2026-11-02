@@ -293,6 +293,10 @@ export const TABLE_OWNERSHIP = {
   platform_credit_debit_notes: "seller",
   // Dated statutory settings and the document email outbox: platform (core).
   statutory_rates: "platform",
+  commission_tds_rates: "platform", // gap report D1 (0141)
+  commission_tds_certificates: "platform", // gap report D2 (0141)
+  commission_tds_challans: "platform", // gap report D5 (0141)
+  commission_tds_forms16a: "platform", // gap report D5 (0141)
   statutory_filings: "platform",
   gsp_call_log: "platform",
   public_api_clients: "platform",

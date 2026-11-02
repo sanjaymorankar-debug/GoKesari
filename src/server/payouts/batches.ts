@@ -488,7 +488,12 @@ export async function handlePayoutWebhook(providerParam: string, rawBody: string
     .returning({ id: payoutEvents.id });
   if (!recorded) return { status: 200, body: { ok: true, duplicate: true } };
   // docs/gig-bank-payouts-2026-10: no shop payout item — a rider bank transfer?
-  if (!item) return (await import("@/server/rider-wallet/transfers")).handleRiderTransferEvent(provider.name, event);
+  if (!item) {
+    const rider = await (await import("@/server/rider-wallet/transfers")).handleRiderTransferEvent(provider.name, event);
+    // Gap report C4: nor a rider transfer — a dealer commission payout (rule dealerAutoPayout)?
+    if (!rider.body.ignored) return rider;
+    return (await import("@/server/dealers/auto-payout")).handleDealerPayoutEvent(provider.name, event);
+  }
   const system = { id: null, role: null };
   if (event.status === "SUCCESS") {
     if (!event.utr) {

@@ -86,9 +86,10 @@ import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-fl
 import { districtCodeForPincode } from "@/server/services/geo-areas";
 import { notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
+import { computeCommissionTds, payeeTypeFor, tdsBlock, type CommissionTds } from "@/server/tax/commission-tds";
 import { deferredReviewDocTypes, hasDocumentWaiver, missingMandatoryDocuments } from "@/server/services/shop-onboarding";
 import { COMMISSION_ENTRY_TYPE_LABELS, type CommissionEntryType } from "@/lib/dealer-tiers";
-import { AGREEMENT_HOLD_NOTE, accrueTieredActivation, financialYearBounds, isTieredDealer, reversePlan, tdsForPayout, tellReversal } from "./tiered";
+import { AGREEMENT_HOLD_NOTE, accrueTieredActivation, agreementAccepted, isTieredDealer, reversePlan, tellReversal } from "./tiered";
 
 interface Actor {
   id: string;
@@ -912,7 +913,6 @@ export async function releaseHeldEntry(entryId: string, reason: string, actor: A
  */
 export async function createPayoutBatch(dealerId: string, actor: Actor, note?: string | null, memberId: string | null = null) {
   requireAdmin(actor, "create payouts");
-  const tds = await getRule("dealerPayoutTds");
   return db.transaction(async (tx) => {
     await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
     await touchSellerRow(tx, dealers, dealerId);
@@ -930,10 +930,12 @@ export async function createPayoutBatch(dealerId: string, actor: Actor, note?: s
       );
     const total = rows.reduce((s, r) => s + r.amountPaise, 0);
     if (rows.length === 0 || total <= 0) throw conflict(total < 0 ? `The dealer owes ₹${(-total / 100).toLocaleString("en-IN")} from reversals; it is carried to the next payout.` : "Nothing approved to pay.");
-    const tdsPaise = await payoutTds(tx, dealerId, memberId, total, tds);
+    const { panHash } = await payeeStatus(tx, dealerId, memberId);
+    const tds = await payoutTds(tx, dealerId, memberId, total, new Date(), panHash);
+    const tdsPaise = tds.tdsPaise;
     const [batch] = await tx
       .insert(dealerPayoutBatches)
-      .values({ dealerId, memberId, totalPaise: total, tdsPaise, tdsRateBp: tdsPaise > 0 ? tds.rateBp : 0, note: note?.trim().slice(0, 300) || null, createdBy: actor.id })
+      .values({ dealerId, memberId, payeePanHash: panHash, totalPaise: total, ...tdsColumns(tds), note: note?.trim().slice(0, 300) || null, createdBy: actor.id })
       .returning();
     await tx.update(dealerCommissionLedger).set({ payoutBatchId: batch.id, updatedAt: new Date() }).where(inArray(dealerCommissionLedger.id, rows.map((r) => r.id)));
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batch.id, newValue: { dealerId, memberId, totalPaise: total, tdsPaise, netPaise: total - tdsPaise, entries: rows.length, status: "DRAFT" } }, tx);
@@ -942,28 +944,42 @@ export async function createPayoutBatch(dealerId: string, actor: Actor, note?: s
 }
 
 /**
- * Income-tax TDS for a payout to one payee (rule dealerPayoutTds; 0 while it is
- * off): the payee's gross and TDS in the financial year so far (drafts and paid
- * payouts), this one added — see tdsForPayout.
+ * Income-tax TDS for a payout (gap report Part D; rule dealerPayoutTds, off):
+ * the dated row for the payee's type and PAN status, a certificate if one
+ * applies, summed per PAN over the financial year — see
+ * src/server/tax/commission-tds.ts. `flag` set: paying is blocked until an
+ * admin overrides (the row is not CA-confirmed, or none applies).
  */
-export async function payoutTds(tx: DbClient, dealerId: string, memberId: string | null, grossPaise: number, rule: { enabled: boolean; rateBp: number; annualThresholdPaise: number }, at: Date = new Date()): Promise<number> {
-  if (!rule.enabled || grossPaise <= 0) return 0;
-  // The year of the commission's month (period_month) for a monthly payout, of its creation otherwise.
-  const { start, end } = financialYearBounds(at);
-  const ist = (d: Date) => new Date(d.getTime() + 330 * 60_000).toISOString().slice(0, 10);
-  const [year] = await tx
-    .select({ gross: sql<number>`coalesce(sum(${dealerPayoutBatches.totalPaise}), 0)::int`, tds: sql<number>`coalesce(sum(${dealerPayoutBatches.tdsPaise}), 0)::int` })
-    .from(dealerPayoutBatches)
-    .where(
-      and(
-        eq(dealerPayoutBatches.dealerId, dealerId),
-        memberId ? eq(dealerPayoutBatches.memberId, memberId) : isNull(dealerPayoutBatches.memberId),
-        inArray(dealerPayoutBatches.status, ["DRAFT", "PAID"]),
-        sql`coalesce(to_date(${dealerPayoutBatches.periodMonth}, 'YYYY-MM'), (${dealerPayoutBatches.createdAt} at time zone 'Asia/Kolkata')::date) >= ${ist(start)}::date`,
-        sql`coalesce(to_date(${dealerPayoutBatches.periodMonth}, 'YYYY-MM'), (${dealerPayoutBatches.createdAt} at time zone 'Asia/Kolkata')::date) < ${ist(end)}::date`,
-      ),
-    );
-  return tdsForPayout({ grossPaise, yearGrossBeforePaise: year?.gross ?? 0, yearTdsBeforePaise: year?.tds ?? 0, rateBp: rule.rateBp, thresholdPaise: rule.annualThresholdPaise, enabled: rule.enabled });
+export async function payoutTds(
+  tx: DbClient,
+  dealerId: string,
+  memberId: string | null,
+  grossPaise: number,
+  at: Date = new Date(),
+  panHash: string | null = null,
+): Promise<CommissionTds> {
+  const [d] = await tx.select({ dealerType: dealers.dealerType }).from(dealers).where(eq(dealers.id, dealerId));
+  return computeCommissionTds(tx, { panHash, payeeType: memberId ? "INDIVIDUAL" : payeeTypeFor(d?.dealerType ?? null), grossPaise, at, dealerId, memberId });
+}
+
+/** The payout columns that record a TDS computation. */
+export const tdsColumns = (t: CommissionTds) => ({ tdsPaise: t.tdsPaise, tdsRateBp: t.tdsPaise > 0 ? t.rateBp : 0, tdsRateId: t.rateId, tdsSection: t.section, tdsCertificateId: t.certificateId, tdsFlag: t.flag });
+
+/**
+ * Gap report C2: the payee's PAN (blind index) and what still stops a payout —
+ * no PAN, no verified bank account, (TIERED) the agent agreement not accepted.
+ */
+export async function payeeStatus(client: DbClient, dealerId: string, memberId: string | null): Promise<{ panHash: string | null; missing: string[] }> {
+  const [d] = await client.select().from(dealers).where(eq(dealers.id, dealerId));
+  if (!d) return { panHash: null, missing: ["dealer not found"] };
+  const m = memberId ? (await client.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId)))[0] : null;
+  if (memberId && !m) return { panHash: null, missing: ["team member not found"] };
+  const panHash = m ? m.panHash : d.panHash;
+  const missing: string[] = [];
+  if (!panHash) missing.push("PAN");
+  if ((m ? m.bankStatus : d.bankStatus) !== "VERIFIED") missing.push("verified bank account");
+  if (d.commissionModel === "TIERED" && !agreementAccepted(m ?? null, d)) missing.push("agent agreement");
+  return { panHash, missing };
 }
 
 /** Why a payee cannot be paid yet (PAN and a verified bank account are mandatory), or null. */
@@ -988,23 +1004,44 @@ async function payeeNotReady(tx: DbClient, b: { dealerId: string; memberId: stri
  * up to the batch total. The payee needs PAN and a verified bank account; the
  * transfer is the net (gross less TDS).
  */
-export async function markPayoutPaid(batchId: string, paymentReference: string, actor: Actor) {
-  requireAdmin(actor, "record payouts");
+export async function markPayoutPaid(batchId: string, paymentReference: string, actor: Actor, options: { viaProvider?: boolean } = {}) {
+  // The payout provider's webhook (rule dealerAutoPayout) records its UTR the same way.
+  if (!options.viaProvider) requireAdmin(actor, "record payouts");
   const ref = paymentReference.trim().slice(0, 120);
   if (ref.length < 3) throw validationFailed("Enter the bank / UTR reference of the transfer.", { fields: { paymentReference: "Required." } });
   const batch = await db.transaction(async (tx) => {
     const [b] = await tx.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId)).for("update");
     if (!b) throw notFound("Payout");
-    if (b.status !== "DRAFT") throw conflict("This payout is already closed.");
-    const notReady = await payeeNotReady(tx, b);
+    const open = options.viaProvider ? ["APPROVED", "PROCESSING", "FAILED"] : ["DRAFT", "APPROVED", "FAILED"];
+    if (!open.includes(b.status)) throw conflict(b.status === "PROCESSING" ? "This payout is with the bank; wait for its answer." : "This payout is already closed.");
+    // Team members always; dealers when rule dealerPayouts.enforcePayeeChecks is on (off: as before).
+    const notReady = b.memberId || (await getRule("dealerPayouts")).enforcePayeeChecks ? await payeeNotReady(tx, b) : null;
     if (notReady) throw conflict(`${notReady} A payout is paid only with PAN and a verified bank account on file.`, { reason: "PAYEE_NOT_READY" });
+    // Gap report D3: an unconfirmed (or missing) TDS row blocks paying until an admin overrides it.
+    const blocked = tdsBlock(b);
+    if (blocked) throw conflict(`${blocked} An admin can override it with a reason.`, { reason: "TDS_UNCONFIRMED" });
     const rows = await tx.select().from(dealerCommissionLedger).where(eq(dealerCommissionLedger.payoutBatchId, batchId));
     const sum = rows.reduce((s, r) => s + r.amountPaise, 0);
     if (sum !== b.totalPaise) throw conflict(`Does not reconcile: entries add up to ₹${sum / 100}, the payout is ₹${b.totalPaise / 100}. Cancel it and create it again.`);
     const now = new Date();
     await tx.update(dealerCommissionLedger).set({ status: "PAID", updatedAt: now }).where(eq(dealerCommissionLedger.payoutBatchId, batchId));
-    const [paid] = await tx.update(dealerPayoutBatches).set({ status: "PAID", paymentReference: ref, paidBy: actor.id, paidAt: now }).where(eq(dealerPayoutBatches.id, batchId)).returning();
-    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batchId, previousValue: { status: "DRAFT" }, newValue: { status: "PAID", paymentReference: ref, totalPaise: b.totalPaise, tdsPaise: b.tdsPaise, netPaise: b.totalPaise - b.tdsPaise } }, tx);
+    const [paid] = await tx
+      .update(dealerPayoutBatches)
+      .set({ status: "PAID", paymentReference: ref, paidBy: options.viaProvider ? null : actor.id, paidAt: now, needsReview: false, nextRetryAt: null })
+      .where(eq(dealerPayoutBatches.id, batchId))
+      .returning();
+    await recordAudit(
+      {
+        actorId: options.viaProvider ? null : actor.id,
+        actorRole: options.viaProvider ? null : actor.role,
+        action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED,
+        entityType: "dealer_payout_batch",
+        entityId: batchId,
+        previousValue: { status: b.status },
+        newValue: { status: "PAID", paymentReference: ref, viaProvider: Boolean(options.viaProvider), totalPaise: b.totalPaise, tdsPaise: b.tdsPaise, netPaise: b.totalPaise - b.tdsPaise },
+      },
+      tx,
+    );
     return paid;
   });
   const [payee] = batch.memberId
@@ -1022,7 +1059,7 @@ export async function cancelPayout(batchId: string, actor: Actor): Promise<void>
   requireAdmin(actor, "cancel payouts");
   await db.transaction(async (tx) => {
     const [b] = await tx.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId)).for("update");
-    if (!b || b.status !== "DRAFT") throw conflict("Only a draft payout can be cancelled.");
+    if (!b || !["DRAFT", "APPROVED", "FAILED"].includes(b.status)) throw conflict("Only a payout not yet with the bank can be cancelled.");
     await tx.update(dealerCommissionLedger).set({ payoutBatchId: null, updatedAt: new Date() }).where(eq(dealerCommissionLedger.payoutBatchId, batchId));
     await tx.update(dealerPayoutBatches).set({ status: "CANCELLED" }).where(eq(dealerPayoutBatches.id, batchId));
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batchId, newValue: { status: "CANCELLED" } }, tx);

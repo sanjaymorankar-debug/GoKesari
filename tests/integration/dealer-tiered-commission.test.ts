@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { AGENT_AGREEMENT_VERSION } from "@/lib/dealer-tiers";
 import { db } from "@/server/db";
 import {
+  commissionTdsRates,
   dealerAgreementAcceptances,
   dealerCommissionLedger,
   dealerCommissionMonths,
@@ -77,7 +78,10 @@ beforeEach(async () => {
   );
   await setFeatureFlag("dealer_programme_enabled", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", admin);
   await setFeatureFlag("dealer_rating_bonus_enabled", { enabled: false, districtCodes: null }, "off (test)", admin);
-  for (const key of ["dealerTieredCommission", "dealerPayoutTds"]) await db.execute(sql`delete from platform_settings where key = ${key}`);
+  for (const key of ["dealerTieredCommission", "dealerPayoutTds", "dealerPayouts", "dealerAutoPayout"]) await db.execute(sql`delete from platform_settings where key = ${key}`);
+  // The seeded TDS rows as migration 0141 left them (a test may change them).
+  await db.execute(sql`delete from commission_tds_rates where effective_from <> date '2026-04-01'`);
+  await db.execute(sql`update commission_tds_rates set threshold_paise = case when pan_status = 'PAN_OK' then 2000000 else 0 end, confirmed_by_ca = false, mode = 'CATCH_UP', effective_to = null`);
   clearRuleCache();
   await tiered();
 });
@@ -456,6 +460,8 @@ describe("agent agreement, payee checks and TDS", () => {
 
     await setRule("dealerPayoutTds", { enabled: true, rateBp: 200, annualThresholdPaise: 200_000 }, admin);
     clearRuleCache();
+    // Gap report D1: the dated row decides (here a CA-confirmed 2% above ₹2,000 for the test).
+    await db.update(commissionTdsRates).set({ thresholdPaise: 200_000, confirmedByCa: true }).where(and(eq(commissionTdsRates.payeeType, "ANY"), eq(commissionTdsRates.panStatus, "PAN_OK")));
     const second = await signedShop(dealer.id, null, 999_900);
     await approveEntries((await ledger(second.id)).map((r) => r.id), admin);
     const on = await createPayoutBatch(dealer.id, admin);

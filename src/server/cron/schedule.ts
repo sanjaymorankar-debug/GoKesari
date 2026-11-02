@@ -169,6 +169,8 @@ export const HOURLY: readonly Job[] = [
   // docs/gig-bank-payouts-2026-10: rider monthly payout on the 5th from 09:00 IST (a no-op at other times
   // and while its flag is off; resumes a stopped run), then due retries of rider transfers.
   { name: "rider-monthly-payout", run: riderMonthlyPayout },
+  // Gap report C4: failed dealer commission transfers whose backoff has passed (a no-op while dealerAutoPayout is off).
+  { name: "dealer-payout-retries", run: async () => (await import("@/server/dealers/auto-payout")).retryDueDealerPayouts() },
   {
     name: "auth-housekeeping",
     run: async () => ({
