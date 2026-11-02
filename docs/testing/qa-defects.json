@@ -1870,8 +1870,9 @@
       "found": "2026-11-02 staging billing v2 retest (test.gokesari.com at 41ef27cc), 11.26-11.33 IST — not billing v2 specific",
       "actual": "GET /api/delivery-invoices/5e877766-223d-4a00-9586-2cb8a4e3f93c/pdf at 11.27.59 IST: customer 200 PDF (Cache-Control: private, no-store; x-hcdn-cache-status DYNAMIC) → customer2 404 {\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Invoice not found.\"}} with no Cache-Control → the customer then gets that 404 (age: 0, server hcdn), and a signed-out caller gets 404 instead of the route's 401; at 11.28.17 the customer's own invoice answered 404 for 10-20 s (age 0 → 10) before 200 again. Same on /api/invoices/<id>/json and /pdf (customer2 404 → customer 404 age=0). 200 JSON answers (wallet, settings) are DYNAMIC; 401 and 403 answers were not reused. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/d118-cdn-404-probe.txt, log.jsonl step 3.",
       "expected": "An answer that depends on who is signed in is never shared: a 404 / 401 for one user is not served to another; the invoice's own customer always gets the PDF.",
-      "fix": "Suggested (not changed in this retest): send Cache-Control: private, no-store on API error answers — toClientError users: route() in src/server/api/handler.ts and hand-written routes such as src/app/api/delivery-invoices/[id]/pdf/route.ts and src/app/api/invoices/[id]/* — or a Hostinger CDN rule that bypasses the cache for /api/*. gokesari.com was not probed (production is read-only for this retest); check whether it sits behind the same CDN. QA: refusal checks that switch roles on one URL must pause about 25 s or use distinct URLs.",
-      "status": "Open"
+      "fix": "errorResponse() in src/server/api/handler.ts answers every error with Cache-Control: private, no-store; route() and the 11 hand-written file routes use it; the accounts / connector 409s and the proxy's 401 / 429 say no-store too. Test: tests/unit/api-error-no-store.test.ts. Retest on staging after the merge (customer2 refused, then the customer gets the PDF at once).",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "PR #326 (fix/billing-v2-d118-d119, 9e9dd6d7 → staging)"
     },
     {
       "id": "D-119",
@@ -1884,7 +1885,21 @@
       "found": "2026-11-02 staging billing v2 retest (test.gokesari.com at 41ef27cc), 11.39 IST",
       "actual": "BKS-000021/2026-27/000020 of DB-20261102-ERAAO8 (E2E Four Features Bakery, not GST-registered; its note says 'Bill of supply: no GST is charged.'): the A4 PDF reads 'Supply: Intra-state (CGST + SGST)', rows 'CGST Rs. 0.00', 'SGST Rs. 0.00' and 'Invoice total (inclusive of tax) Rs. 60.00'; the invoice page /invoices/87e9fe19-… reads 'Total (tax inclusive)'. Evidence: test-results/qa/billing-v2-staging-retest-2026-11-02/files/new-DB-20261102-ERAAO8-invoice-a4.txt, shots/08-new-DB-20261102-ERAAO8-invoice-page-desktop.png.",
       "expected": "D-116's expected result: no GST-inclusive wording on a bill of supply (s.31(3)(c), Rule 49) — e.g. 'Total' / 'Amount' without tax wording and without CGST/SGST rows when the document is a bill of supply.",
-      "fix": "Suggested (not changed in this retest): src/server/services/invoices.ts:616 (invoiceTextLines, 'Invoice total (inclusive of tax)' for every kind) and src/app/invoices/[id]/page.tsx:162 ('Total (tax inclusive)'): choose the label by s.kind, and leave out the CGST/SGST/IGST rows and the supply-type tax note for BILL_OF_SUPPLY. Snapshots keep their data; only the rendering changes.",
+      "fix": "invoiceTextLines (A4), invoiceReceiptLines (80 mm) and /invoices/[id] leave out the tax split, tax columns and tax rows on a BILL_OF_SUPPLY and say \"Total\"; snapshots unchanged. Test: tests/integration/billing-documents.test.ts. Retest on staging after the merge.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "PR #326 (fix/billing-v2-d118-d119, 9e9dd6d7 → staging)"
+    },
+    {
+      "id": "D-120",
+      "title": "A shop outside GST can charge GST on a counter bill, POS bill or shop document titled 'Bill of supply'",
+      "cases": [
+        "BILLING-V2 scenario 3 (shop outside GST)"
+      ],
+      "severity": "Medium",
+      "found": "2026-11-02, code review while fixing D-119 (not seen on a site yet) — older than billing v2",
+      "actual": "issueSalesInvoice (src/server/accounts/sales.ts) applies each line's gstRateBp whatever the shop's GST position; the POS sale (src/server/accounts/pos.ts) and shop documents (src/server/accounts/documents.ts) take gstRateBp the same way. counterBillKind() titles the bill 'Bill of supply' for a shop outside GST, so the bill can show and charge CGST / SGST. Counter-bill creation (POST /api/shops/[id]/accounts/sales) is not behind the billing_v2 flag.",
+      "expected": "A shop whose counter bills are bills of supply (no GSTIN, composition, Enrolment ID or PAN only) charges no GST: a non-zero rate is refused (or forced to 0) on counter bills, POS bills and shop documents, and the form does not offer a GST rate.",
+      "fix": "Suggested: in issueSalesInvoice, the POS sale and shop documents, refuse a non-zero gstRateBp when counterBillKind(shop) is BILL_OF_SUPPLY; hide the GST rate field in the sales form for such a shop; add a test with a 5% line from a shop outside GST.",
       "status": "Open"
     }
   ]
