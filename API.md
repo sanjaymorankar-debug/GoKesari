@@ -931,6 +931,23 @@ audited with the old value, the new value and the reason.
 | POST | `/api/admin/shop-referrals` | ADMIN | `{action: "reverse", id, reason}` — takes the reward back |
 | GET | `/r/{code}` | anyone | a shop code (`SHOP…`, rule on) redirects to `/shop/register?ref={code}`; a customer code as before |
 
+Gap report additions (03-Nov-2026, docs/referrals-dealer-2026-11):
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/api/admin/dealer-tiers?dealerId=&view=mapping[&format=csv&role=&leadId=&status=]` | ADMIN, OPERATOR | team mapping table (counts, commission; CSV with masked mobiles) |
+| GET | `/api/admin/dealer-tiers?dealerId=&view=history[&memberId=]` · `&view=shops&memberId=<id\|main>` | ADMIN, OPERATOR | mapping history; one person's shops |
+| GET | `/api/dealer/team?view=mapping[&format=csv]` · `?view=history` · `?view=shops` | main dealer (mapping, history), anyone in the network (own shops) | the same for the dealer portal |
+| POST | `/api/admin/dealer-commission` | ADMIN | `approvePayout {batchId}` (another admin than the drafter; sends it when `dealerAutoPayout` is on) · `retryPayout {batchId}`; `payoutPaid` also refused (409 `TDS_UNCONFIRMED`) while the TDS row is unconfirmed and not overridden |
+| GET | `/api/admin/dealer-commission?bankFile=1` | ADMIN | bank upload file of approved payouts (full account numbers; audited) |
+| GET | `/api/admin/dealer-payout-reports?report=summary\|lines\|pending\|failed&month=&dealerId=&role=&status=&format=csv\|xlsx\|json` | `dealers:payouts:read` (ADMIN, OPERATOR, CA) | payout reports |
+| GET | `/api/admin/commission-tds?view=settings\|deductions\|26q\|16a\|16a-file` | ADMIN, CA | TDS rows, certificates, challans, exceptions; monthly TDS (CSV); 26Q data (CSV, full PANs, audited); Form 16A tracker / PDF |
+| POST | `/api/admin/commission-tds` | ADMIN, CA (confirm: CA only; override: ADMIN only) | `addRate`, `confirmRate`, `addCertificate`, `withdrawCertificate`, `addChallan`, `uploadForm16a`, `overrideBlock` |
+| GET | `/api/dealer/tds[?form16a=<id>]` | dealer or team member | own PAN status, rate, TDS this year, Form 16A PDF |
+| POST | `/api/dealer/team` `acceptAgreement` | dealer or team member | now also keeps every acceptance (version, text hash, time, IP, device) |
+
+Payout webhooks: `/api/payouts/webhooks/{provider}` (unchanged) now also settles dealer payouts — after shop payout items and rider transfers.
+
 Errors: 409 `REFERRAL_CODE_LOCKED` (a second, different code in the registration wizard), 409 `NOT_ELIGIBLE`
 (promotion below `promotionMinShops` without `override`), 422 on a 4th level ("at most 3 levels").
 

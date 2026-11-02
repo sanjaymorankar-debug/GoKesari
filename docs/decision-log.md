@@ -273,3 +273,20 @@ Guide: [docs/dealer-programme/TIERED_COMMISSION.md](dealer-programme/TIERED_COMM
 - **DT-15 — Promotional shop-wallet credit** is tracked on the wallet (`promo_balance_paise`), spent first on commission and delivery charges, and refused for every other debit (support-service charges, an admin's refund to a bank). A reversal takes back only the unspent promotional part, never below zero.
 - **DT-16 — The yearly cap is 12 rolling months;** a referral beyond it is decided REWARDED with no reward and the note, so it is never rewarded later. A membership extension runs from the current end (or today when it has passed); a reversal takes the months off again, never before the end it had.
 - **DT-17 — Members use the same dealer portal (`/dealer`)** once an admin links their GoKesari account (by email; they get the DEALER role): their code, team (leads), earnings by type and level, TRADING progress, statements with gross / TDS / net, the agreement and their payment details.
+
+## Gap report build (03-Nov-2026, owner brief 02-Nov-2026 21.33 IST)
+
+Gap report: [docs/referrals-dealer-2026-11/GAP_REPORT.md](referrals-dealer-2026-11/GAP_REPORT.md). Guides in the same folder. Migrations 0138–0142 with rollbacks.
+
+- **DG-01 — Part 0 fixes P0-1…P0-5 were made** after the owner said "restart development" (02/03-Nov-2026) while the decision question was open: a reversal takes back only unspent promotional credit (the rest is unrecovered), the admin page needs WALLET_ADJUST like the API, a reversal flags both customers (risk rule REFERRAL_REVERSED, D-25), the referrer row is locked before the cap is counted, and the address guard also matches line 1 + line 2 together and pins within 30 m. *Owner may ask for any to be undone.*
+- **DG-02 — Commission follows the team on the shop's registration date** (gap report A9), from `dealer_team_mapping_history`; this replaces DT-04's "frozen at activation" for who is placed where (the amounts are still frozen at activation).
+- **DG-03 — Every agent-agreement acceptance is kept** (`dealer_agreement_acceptances`: version, SHA-256 of the text, time, IP, device).
+- **DG-04 — One payout per PAN per month** (`dealer_payout_batches.payee_pan_hash`); TDS is summed per PAN. A batch is drafted for the first payee and holds every role's entries; each role's statement shows it.
+- **DG-05 — Payee checks** (PAN, verified bank, TIERED agreement) always apply to team members and apply to dealers only with `dealerPayouts.enforcePayeeChecks` (off) — so today's dealers are drafted and paid as before until the owner switches it on. Minimum payout `minPayoutPaise` 0 (off).
+- **DG-06 — Automatic transfer (`dealerAutoPayout`, off) is maker-checker**: the drafter (or the monthly job) cannot approve; the provider's webhook settles; a failure is retried `maxRetries` times then flagged; the bank file and paying by hand stay.
+- **DG-07 — TDS by dated rows** (`commission_tds_rates`, core), seeded unconfirmed with the brief's starting values; only the CA role confirms; an unconfirmed or missing row blocks approving / paying unless an admin overrides with a reason (kept on the payout). The flat fields of rule `dealerPayoutTds` are no longer read.
+- **DG-08 — A certificate's rate applies up to its limit and the normal rate above it, without catch-up** on certified money.
+- **DG-09 — A reversal of commission paid in an earlier financial year is flagged REVERSAL_PRIOR_FY** for the CA; nothing is adjusted across years automatically.
+- **DG-10 — The CA role** (0140) gets statutory, commission TDS and read-only dealer payouts; it works from the customer board and opens `/admin/tds-commission` by link (the approved board menus are unchanged).
+- **DG-11 — Module 3 `referral_commissions` are NOT moved into the dealer ledger** until the owner confirms (risk of paying twice; REUSE_GAP_ANALYSIS kept them apart).
+- **DG-12 — The monthly statement email carries the statement CSV** (document outbox type DEALER_STATEMENT, one per payout).

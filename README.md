@@ -133,7 +133,10 @@ three levels — main dealer → team lead → agent; the database refuses a fou
 Who earns what on a shop is frozen when it is approved; part of it waits for the
 TRADING milestone. Each team member is paid to their own verified bank account.
 Shops refer shops with their own `SHOP…` code (rule `shopReferrals`, off).
-See [docs/dealer-programme/TIERED_COMMISSION.md](docs/dealer-programme/TIERED_COMMISSION.md).
+Payouts are one per PAN per month; TDS on commission follows dated rows the CA
+confirms (rule `dealerPayoutTds`, off); a `CA` role reads payouts and keeps the
+TDS records. See [docs/dealer-programme/TIERED_COMMISSION.md](docs/dealer-programme/TIERED_COMMISSION.md)
+and [docs/referrals-dealer-2026-11/](docs/referrals-dealer-2026-11/).
 
 ## Testing
 
