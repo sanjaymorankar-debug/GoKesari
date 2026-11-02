@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AccountsNav } from "@/components/accounts/accounts-nav";
 import { PosScreen } from "@/components/billing/pos-screen";
 import { loadAccountsPage } from "@/server/accounts/page";
+import { counterBillKind } from "@/server/accounts/sales";
 import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Counter POS" };
@@ -20,7 +21,7 @@ export default async function PosPage({ searchParams }: { searchParams: Promise<
   return (
     <div className="mx-auto w-full max-w-6xl">
       <AccountsNav lang={lang} current="sales" shopQuery={shopQuery} />
-      <PosScreen shopId={shop.id} shopName={shop.name} />
+      <PosScreen shopId={shop.id} shopName={shop.name} billOfSupply={counterBillKind(shop) === "BILL_OF_SUPPLY"} />
     </div>
   );
 }

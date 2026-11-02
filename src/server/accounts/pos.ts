@@ -16,11 +16,14 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/server/db";
-import { accSalesInvoices, products, shopProducts } from "@/server/db/schema";
+import { accSalesInvoices, products, shopProducts, shops } from "@/server/db/schema";
 import { todayIst } from "./books";
-import { createSalesInvoiceOnce } from "./sales";
+import { counterBillKind, createSalesInvoiceOnce } from "./sales";
 
 export async function posItems(shopId: string) {
+  // QA D-120: a shop outside GST bills at 0% (createSalesInvoiceOnce enforces it), so the device shows no GST either.
+  const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
+  const noGst = !shop || counterBillKind(shop) === "BILL_OF_SUPPLY";
   const rows = await db
     .select({ sp: shopProducts, p: products })
     .from(shopProducts)
@@ -32,7 +35,7 @@ export async function posItems(shopId: string) {
     unit: p.unit,
     barcode: p.barcode ?? p.gtin ?? null,
     hsn: sp.hsnCode ?? p.hsnCode ?? null,
-    gstRateBp: sp.gstRateBp ?? p.gstRateBp ?? 0,
+    gstRateBp: noGst ? 0 : (sp.gstRateBp ?? p.gstRateBp ?? 0),
     pricePaise: sp.offlinePricePaise ?? sp.onlinePricePaise ?? p.mrpPaise ?? null,
     stock: (sp.offlineStock ?? 0) + (sp.onlineStock ?? 0),
   }));

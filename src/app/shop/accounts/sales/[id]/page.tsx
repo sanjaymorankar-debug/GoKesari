@@ -10,7 +10,7 @@ import { gstState, stateLabel } from "@/lib/gst-states";
 import { formatPaise } from "@/lib/money";
 import { loadAccountsPage } from "@/server/accounts/page";
 import { getSettings } from "@/server/accounts/books";
-import { counterBillKind, getSalesInvoice } from "@/server/accounts/sales";
+import { counterBillKind, getSalesInvoice, printsWithoutGst } from "@/server/accounts/sales";
 import { counterBillShareText, whatsappShareUrl } from "@/server/invoicing/outputs";
 import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
@@ -37,6 +37,8 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
   const { invoice: inv, lines } = data;
   const cancelled = inv.status === "CANCELLED";
   const docTitle = counterBillKind(shop) === "TAX_INVOICE" ? "Tax invoice" : "Bill of supply";
+  // QA D-120: a bill of supply that charged no GST shows no tax split, tax columns or tax rows.
+  const noGst = printsWithoutGst(shop, inv);
   const [billingV2, settings] = await Promise.all([isFeatureEnabledForShop("billing_v2", shop), getSettings(shop.id)]);
   const address = [shop.addressLine1, shop.addressLine2, shop.area, shop.city, shop.pincode].filter(Boolean).join(", ");
 
@@ -126,10 +128,12 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
             <dt className="text-xs text-ink-600">Date</dt>
             <dd className="font-semibold">{dateLabel(inv.invoiceDate)}</dd>
           </div>
-          <div>
-            <dt className="text-xs text-ink-600">Supply</dt>
-            <dd className="font-semibold">{inv.interState ? "Inter-state (IGST)" : "Intra-state (CGST + SGST)"}</dd>
-          </div>
+          {noGst ? null : (
+            <div>
+              <dt className="text-xs text-ink-600">Supply</dt>
+              <dd className="font-semibold">{inv.interState ? "Inter-state (IGST)" : "Intra-state (CGST + SGST)"}</dd>
+            </div>
+          )}
           <div>
             <dt className="text-xs text-ink-600">Payment</dt>
             <dd className="font-semibold">
@@ -150,9 +154,13 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
                 <th scope="col" className="px-2 py-1.5 text-right">Qty</th>
                 <th scope="col" className="px-2 py-1.5 text-right">Rate</th>
                 <th scope="col" className="px-2 py-1.5 text-right">Disc.</th>
-                <th scope="col" className="px-2 py-1.5 text-right">Taxable</th>
-                <th scope="col" className="px-2 py-1.5 text-right">GST</th>
-                <th scope="col" className="px-2 py-1.5 text-right">{inv.interState ? "IGST" : "CGST + SGST"}</th>
+                {noGst ? null : (
+                  <>
+                    <th scope="col" className="px-2 py-1.5 text-right">Taxable</th>
+                    <th scope="col" className="px-2 py-1.5 text-right">GST</th>
+                    <th scope="col" className="px-2 py-1.5 text-right">{inv.interState ? "IGST" : "CGST + SGST"}</th>
+                  </>
+                )}
                 <th scope="col" className="px-2 py-1.5 text-right">Total</th>
               </tr>
             </thead>
@@ -173,9 +181,13 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
                   <td className="px-2 py-1.5 text-right">{formatMilli(l.qtyMilli, l.unit)}</td>
                   <td className="px-2 py-1.5 text-right">{formatPaise(l.ratePaise)}</td>
                   <td className="px-2 py-1.5 text-right">{l.discountPaise ? formatPaise(l.discountPaise) : "—"}</td>
-                  <td className="px-2 py-1.5 text-right">{formatPaise(l.taxablePaise)}</td>
-                  <td className="px-2 py-1.5 text-right">{l.gstRateBp / 100}%</td>
-                  <td className="px-2 py-1.5 text-right">{inv.interState ? formatPaise(l.igstPaise) : `${formatPaise(l.cgstPaise)} + ${formatPaise(l.sgstPaise)}`}</td>
+                  {noGst ? null : (
+                    <>
+                      <td className="px-2 py-1.5 text-right">{formatPaise(l.taxablePaise)}</td>
+                      <td className="px-2 py-1.5 text-right">{l.gstRateBp / 100}%</td>
+                      <td className="px-2 py-1.5 text-right">{inv.interState ? formatPaise(l.igstPaise) : `${formatPaise(l.cgstPaise)} + ${formatPaise(l.sgstPaise)}`}</td>
+                    </>
+                  )}
                   <td className="px-2 py-1.5 text-right font-semibold">{formatPaise(l.totalPaise)}</td>
                 </tr>
               ))}
@@ -184,9 +196,13 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
         </div>
 
         <dl className="ml-auto mt-3 grid max-w-xs grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 text-sm tabular-nums">
-          <dt className="text-ink-700">Taxable value</dt>
-          <dd className="text-right">{formatPaise(inv.taxablePaise)}</dd>
-          {inv.interState ? (
+          {noGst ? null : (
+            <>
+              <dt className="text-ink-700">Taxable value</dt>
+              <dd className="text-right">{formatPaise(inv.taxablePaise)}</dd>
+            </>
+          )}
+          {noGst ? null : inv.interState ? (
             <>
               <dt className="text-ink-700">IGST</dt>
               <dd className="text-right">{formatPaise(inv.igstPaise)}</dd>

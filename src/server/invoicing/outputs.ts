@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/server/db";
 import { shops, type TaxInvoice } from "@/server/db/schema";
 import { getSettings } from "@/server/accounts/books";
-import { counterBillKind, getSalesInvoice } from "@/server/accounts/sales";
+import { counterBillKind, getSalesInvoice, printsWithoutGst } from "@/server/accounts/sales";
 import { einvoiceFor, type InvoiceSnapshot } from "@/server/services/invoices";
 import { invoiceQrPayload } from "./delivery";
 
@@ -182,18 +182,22 @@ export async function salesReceiptPdf(shopId: string, salesId: string): Promise<
   if (invoice.buyerName) add(`To ${invoice.buyerName}`.slice(0, W));
   if (invoice.buyerGstin) add(`GSTIN ${invoice.buyerGstin}`);
   add("-".repeat(W));
+  // QA D-120: a bill of supply that charged no GST shows no rate and no tax rows.
+  const noGst = printsWithoutGst(shop, invoice);
   for (const l of lines) {
     add(`${l.description}${l.hsn ? ` (${l.hsn})` : ""}`.slice(0, W));
-    pair(`  ${l.qtyMilli / 1000}${l.unit ? ` ${l.unit}` : ""} @${l.gstRateBp / 100}%`, money(l.totalPaise));
+    pair(`  ${l.qtyMilli / 1000}${l.unit ? ` ${l.unit}` : ""}${noGst ? "" : ` @${l.gstRateBp / 100}%`}`, money(l.totalPaise));
   }
   add("-".repeat(W));
-  pair("Taxable", money(invoice.taxablePaise));
-  if (invoice.interState) pair("IGST", money(invoice.igstPaise));
-  else {
-    pair("CGST", money(invoice.cgstPaise));
-    pair("SGST", money(invoice.sgstPaise));
+  if (!noGst) {
+    pair("Taxable", money(invoice.taxablePaise));
+    if (invoice.interState) pair("IGST", money(invoice.igstPaise));
+    else {
+      pair("CGST", money(invoice.cgstPaise));
+      pair("SGST", money(invoice.sgstPaise));
+    }
+    if (invoice.cessPaise) pair("Cess", money(invoice.cessPaise));
   }
-  if (invoice.cessPaise) pair("Cess", money(invoice.cessPaise));
   if (invoice.roundOffPaise) pair("Round off", money(invoice.roundOffPaise));
   pair("TOTAL", money(invoice.totalPaise));
   add("Thank you!");
