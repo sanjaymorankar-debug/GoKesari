@@ -390,6 +390,9 @@ export async function accrueTieredActivation(
 
     let [plan] = await tx.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shop.id));
     const now = new Date();
+    // Only a fee actually paid earns (brief A2 / A10): an approved shop whose fee is still due earns nothing yet;
+    // the fee payment re-runs the milestone check (recordPayment → approval hooks).
+    if (!plan && shop.feePaymentStatus !== "PAID") return null;
     if (!plan) {
       const fee = feeBasePaise(shop);
       if (fee <= 0) return null;

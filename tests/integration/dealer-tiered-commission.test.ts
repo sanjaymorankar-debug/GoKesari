@@ -28,7 +28,7 @@ import {
   shops,
   type DealerSalesperson,
 } from "@/server/db/schema";
-import { approveEntries, createPayoutBatch, markPayoutPaid, setCommissionSettings } from "@/server/dealers/commission";
+import { approveEntries, checkCommissionMilestones, createPayoutBatch, markPayoutPaid, setCommissionSettings } from "@/server/dealers/commission";
 import { closeCommissionMonth } from "@/server/dealers/monthly-payout";
 import { addSalesperson } from "@/server/dealers/service";
 import {
@@ -220,6 +220,22 @@ describe("commission per shop on the three fee slabs", () => {
     expect(within).toBe(20_000);
     expect(rows.filter((r) => r.aboveCap).every((r) => r.status === "PENDING")).toBe(true);
     expect(rows.reduce((s, r) => s + r.amountPaise, 0)).toBe(27_972);
+  });
+});
+
+describe("only a fee actually paid earns", () => {
+  it("an approved shop whose fee is still due earns nothing until the fee is paid", async () => {
+    const dealer = await newDealer();
+    const a = await member(dealer.id, "Agent", "AGENT");
+    const shop = await signedShop(dealer.id, a.id, 99_900);
+    await db.delete(dealerCommissionLedger).where(eq(dealerCommissionLedger.shopId, shop.id));
+    await db.delete(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shop.id));
+    await db.update(shops).set({ feePaymentStatus: "PENDING" }).where(eq(shops.id, shop.id));
+    await checkCommissionMilestones(shop.id);
+    expect(await ledger(shop.id)).toHaveLength(0);
+    await db.update(shops).set({ feePaymentStatus: "PAID" }).where(eq(shops.id, shop.id));
+    await checkCommissionMilestones(shop.id);
+    expect((await ledger(shop.id)).map((r) => [r.entryType, r.amountPaise])).toEqual([["DIRECT_1", 11_988]]);
   });
 });
 

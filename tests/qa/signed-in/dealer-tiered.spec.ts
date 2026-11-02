@@ -60,7 +60,7 @@ qa("TC-SREF-006", "admin: Shop referrals lists outcomes (and says when the rule 
   const { context, page } = await pageAs(browser, "admin");
   try {
     await page.goto("/admin/shop-referrals");
-    await expect(page.getByRole("heading", { name: "Shop referrals" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Shop-refers-shop rewards" })).toBeVisible();
     const empty = await page.getByText("No shop referrals yet.").isVisible().catch(() => false);
     if (!empty) await expect(page.getByTestId("shop-referrals-table")).toBeVisible();
     return empty ? "no referrals yet" : `${await page.getByTestId("shop-referral-row").count()} referrals listed`;

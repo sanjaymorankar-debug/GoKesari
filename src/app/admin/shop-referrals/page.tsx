@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { getRule } from "@/server/services/settings";
 import { listShopReferrals } from "@/server/services/shop-referrals";
 
-export const metadata = { title: "Shop referrals" };
+export const metadata = { title: "Shop-refers-shop rewards" };
 export const dynamic = "force-dynamic";
 
 /** Shop-refers-shop (0137): referrals with their outcome; a reward found fraudulent can be reversed (admin). */
@@ -18,7 +18,7 @@ export default async function ShopReferralsPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <PageHeader
-        title="Shop referrals"
+        title="Shop-refers-shop rewards"
         description="A shop registers with another shop's code: the referring shop is rewarded when the new shop is approved and delivers its first order. Shared PAN, GSTIN, mobile, bank account or owner, a branch or a duplicate block the reward. A reward found fraudulent can be reversed."
       />
       {!rule.enabled ? <Alert tone="info">Rule shopReferrals is off: shops have no codes and nothing is credited (Admin → Settings → shopReferrals).</Alert> : null}
