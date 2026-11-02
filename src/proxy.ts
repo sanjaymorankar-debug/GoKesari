@@ -78,7 +78,7 @@ export function proxy(request: NextRequest) {
     if (!safeEqual(given, basic)) {
       return new NextResponse("Authentication required", {
         status: 401,
-        headers: { "WWW-Authenticate": 'Basic realm="GoKesari test"', "X-Robots-Tag": "noindex, nofollow" },
+        headers: { "WWW-Authenticate": 'Basic realm="GoKesari test"', "X-Robots-Tag": "noindex, nofollow", "Cache-Control": "private, no-store" },
       });
     }
   }
@@ -86,7 +86,7 @@ export function proxy(request: NextRequest) {
   if (pathname.startsWith("/api/") && !/webhook/i.test(pathname)) {
     const limit = Number(process.env.API_RATE_LIMIT_PER_MIN ?? 240);
     if (limit > 0 && rateLimited(clientIp(request), limit)) {
-      return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": "60" } });
+      return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } });
     }
   }
 

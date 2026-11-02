@@ -1,7 +1,7 @@
 /** GET → the fee receipt as a PDF, once the registration is approved. */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { toClientError } from "@/lib/errors";
+import { errorResponse } from "@/server/api/handler";
 import { registrationReceiptPdf } from "@/server/registration/service";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,6 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ to
       },
     });
   } catch (error) {
-    const { status, body } = toClientError(error);
-    return NextResponse.json(body, { status });
+    return errorResponse(error);
   }
 }

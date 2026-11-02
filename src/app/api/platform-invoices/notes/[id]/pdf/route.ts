@@ -1,8 +1,9 @@
 /** A credit or debit note on GoKesari's fee invoice, as a PDF (shop owner and finance only). */
 import { eq } from "drizzle-orm";
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 
-import { AppError, toClientError } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
+import { errorResponse } from "@/server/api/handler";
 import { getCurrentUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
 import { platformCreditDebitNotes } from "@/server/db/schema";
@@ -21,7 +22,6 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
     if (!note || !(await canViewPlatformDocument(note.shopId, user))) throw new AppError("NOT_FOUND", "Note not found.");
     return fileResponse(renderPlatformNotePdf(note), `${note.noteNumber.replace(/[^A-Za-z0-9-]+/g, "_")}.pdf`, "application/pdf");
   } catch (error) {
-    const { status, body } = toClientError(error);
-    return NextResponse.json(body, { status });
+    return errorResponse(error);
   }
 }

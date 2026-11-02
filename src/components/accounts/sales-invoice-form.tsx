@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button, Field, inputClass } from "@/components/ui";
@@ -84,7 +84,20 @@ function computeLine(l: LineDraft, inclusive: boolean, inter: boolean): LineTax 
  * or free text — with a live CGST + SGST / IGST preview computed exactly as
  * the server will. Submits POST sales and opens the new invoice.
  */
-export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }: { shopId: string; shopQuery?: string; sellerState: string | null; today: string }) {
+export function SalesInvoiceForm({
+  shopId,
+  shopQuery = "",
+  sellerState,
+  today,
+  billOfSupply = false,
+}: {
+  shopId: string;
+  shopQuery?: string;
+  sellerState: string | null;
+  today: string;
+  /** QA D-120: the shop is outside GST, so the bill charges no GST — no rate, no tax rows. */
+  billOfSupply?: boolean;
+}) {
   const router = useRouter();
   const formId = useId();
   const [listings, setListings] = useState<Listing[] | null>(null);
@@ -118,7 +131,8 @@ export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }:
   const pos = posChoice ?? autoPos;
   const inter = isInterState(sellerState, pos);
 
-  const computed = useMemo(() => lines.map((l) => computeLine(l, inclusive, inter)), [lines, inclusive, inter]);
+  const rated = useCallback((l: LineDraft): LineDraft => (billOfSupply ? { ...l, gstBp: 0 } : l), [billOfSupply]);
+  const computed = useMemo(() => lines.map((l) => computeLine(rated(l), inclusive, inter)), [lines, inclusive, inter, rated]);
   const totals = useMemo(() => invoiceTotals(computed.filter((t): t is LineTax => t != null)), [computed]);
 
   function update(key: number, patch: Partial<LineDraft>) {
@@ -154,7 +168,7 @@ export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }:
       if (parseQtyMilli(l.qty) == null) return setError(`Line ${i + 1}: enter the quantity.`);
       if (parseRupees(l.rate) == null) return setError(`Line ${i + 1}: enter the rate in rupees.`);
       if (l.discount.trim() && parseRupees(l.discount) == null) return setError(`Line ${i + 1}: the discount is not a valid amount.`);
-      if (!computeLine(l, inclusive, inter)) return setError(`Line ${i + 1}: the discount is more than the amount.`);
+      if (!computeLine(rated(l), inclusive, inter)) return setError(`Line ${i + 1}: the discount is more than the amount.`);
     }
     if (!gstinValid) return setError("Buyer GSTIN is not valid. Check it or leave it empty.");
     if (mode === "CREDIT" && !buyerName.trim()) return setError("A credit sale needs the customer's name.");
@@ -179,7 +193,7 @@ export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }:
             unit: l.unit.trim() || null,
             ratePaise: parseRupees(l.rate)!,
             discountPaise: l.discount.trim() ? parseRupees(l.discount)! : 0,
-            gstRateBp: l.gstBp,
+            gstRateBp: rated(l).gstBp,
           })),
         },
       });
@@ -234,10 +248,14 @@ export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }:
               <input type="date" className={inputClass} value={dueDate} min={invoiceDate} onChange={(e) => setDueDate(e.target.value)} />
             </Field>
           ) : null}
-          <label className="flex min-h-11 items-center gap-2 text-sm font-medium text-ink-700 sm:col-span-2">
-            <input type="checkbox" className="h-5 w-5" checked={inclusive} onChange={(e) => setInclusive(e.target.checked)} />
-            Prices include GST (MRP-style)
-          </label>
+          {billOfSupply ? (
+            <p className="text-sm text-ink-700 sm:col-span-2">Bill of supply: your shop is outside GST, so no GST is charged. The rate is what the customer pays.</p>
+          ) : (
+            <label className="flex min-h-11 items-center gap-2 text-sm font-medium text-ink-700 sm:col-span-2">
+              <input type="checkbox" className="h-5 w-5" checked={inclusive} onChange={(e) => setInclusive(e.target.checked)} />
+              Prices include GST (MRP-style)
+            </label>
+          )}
         </section>
 
         {/* ---------------------------------------------------------- lines */}
@@ -291,7 +309,7 @@ export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }:
                               {s.name} <span className="font-normal text-ink-600">· {s.sellableUnit}</span>
                             </span>
                             <span className="shrink-0 text-xs text-ink-600">
-                              {formatStock(s.offlineStock + s.onlineStock)} in stock{s.gstRateBp != null ? ` · GST ${pct(s.gstRateBp)}` : ""}
+                              {formatStock(s.offlineStock + s.onlineStock)} in stock{s.gstRateBp != null && !billOfSupply ? ` · GST ${pct(s.gstRateBp)}` : ""}
                             </span>
                           </button>
                         </li>
@@ -302,27 +320,33 @@ export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }:
                     <Field label="Qty">
                       <input className={inputClass} inputMode="decimal" value={l.qty} onChange={(e) => update(l.key, { qty: e.target.value })} />
                     </Field>
-                    <Field label={inclusive ? "Rate ₹ (incl. GST)" : "Rate ₹ (before GST)"}>
+                    <Field label={billOfSupply ? "Rate ₹" : inclusive ? "Rate ₹ (incl. GST)" : "Rate ₹ (before GST)"}>
                       <input className={inputClass} inputMode="decimal" value={l.rate} onChange={(e) => update(l.key, { rate: e.target.value })} placeholder="0.00" />
                     </Field>
                     <Field label="Discount ₹">
                       <input className={inputClass} inputMode="decimal" value={l.discount} onChange={(e) => update(l.key, { discount: e.target.value })} placeholder="0" />
                     </Field>
-                    <Field label="GST %">
-                      <select className={inputClass} value={l.gstBp} onChange={(e) => update(l.key, { gstBp: Number(e.target.value) })}>
-                        {gstOptions.map((bp) => (
-                          <option key={bp} value={bp}>
-                            {pct(bp)}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
+                    {billOfSupply ? null : (
+                      <Field label="GST %">
+                        <select className={inputClass} value={l.gstBp} onChange={(e) => update(l.key, { gstBp: Number(e.target.value) })}>
+                          {gstOptions.map((bp) => (
+                            <option key={bp} value={bp}>
+                              {pct(bp)}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    )}
                     <Field label="HSN">
                       <input className={inputClass} inputMode="numeric" value={l.hsn} maxLength={8} onChange={(e) => update(l.key, { hsn: e.target.value })} />
                     </Field>
                   </div>
                   <p className="mt-1 text-right text-xs text-ink-700 tabular-nums">
-                    {t ? (
+                    {t && billOfSupply ? (
+                      <>
+                        Amount <strong className="text-ink-900">{rupees(t.totalPaise)}</strong>
+                      </>
+                    ) : t ? (
                       <>
                         Taxable {rupees(t.taxablePaise)} + GST {rupees(t.taxPaise)} = <strong className="text-ink-900">{rupees(t.totalPaise)}</strong>
                       </>
@@ -348,13 +372,17 @@ export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }:
       {/* ---------------------------------------------------------- preview */}
       <aside className="flex flex-col gap-2 self-start rounded-2xl bg-green-100 p-3 lg:sticky lg:top-4" aria-labelledby={`${formId}-preview`} aria-live="polite">
         <h2 id={`${formId}-preview`} className="text-base font-bold text-ink-900">
-          Invoice total
+          {billOfSupply ? "Bill total" : "Invoice total"}
         </h2>
-        <p className="text-xs font-semibold text-green-900">{inter ? "Inter-state supply: IGST" : "Within your state: CGST + SGST"}</p>
+        <p className="text-xs font-semibold text-green-900">{billOfSupply ? "Bill of supply: no GST" : inter ? "Inter-state supply: IGST" : "Within your state: CGST + SGST"}</p>
         <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-sm tabular-nums">
-          <dt className="text-ink-700">Taxable value</dt>
-          <dd className="text-right">{rupees(totals.taxablePaise)}</dd>
-          {inter ? (
+          {billOfSupply ? null : (
+            <>
+              <dt className="text-ink-700">Taxable value</dt>
+              <dd className="text-right">{rupees(totals.taxablePaise)}</dd>
+            </>
+          )}
+          {billOfSupply ? null : inter ? (
             <>
               <dt className="text-ink-700">IGST</dt>
               <dd className="text-right">{rupees(totals.igstPaise)}</dd>
@@ -382,7 +410,7 @@ export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }:
         </p>
         {sellerState ? null : <p className="text-xs font-semibold text-red-800">Add your shop&apos;s GSTIN or state before issuing GST invoices.</p>}
         <Button type="submit" size="lg" disabled={busy}>
-          {busy ? "Creating…" : "Create invoice"}
+          {busy ? "Creating…" : billOfSupply ? "Create bill of supply" : "Create invoice"}
         </Button>
         <FormError message={error} />
       </aside>

@@ -110,7 +110,7 @@ function subscribeOnline(onChange: () => void) {
   };
 }
 
-export function PosScreen({ shopId, shopName }: { shopId: string; shopName: string }) {
+export function PosScreen({ shopId, shopName, billOfSupply = false }: { shopId: string; shopName: string; billOfSupply?: boolean }) {
   const api = `/api/shops/${shopId}/accounts`;
   const keys = useMemo(() => ({ items: `gk-pos:${shopId}:items`, queue: `gk-pos:${shopId}:queue`, done: `gk-pos:${shopId}:done` }), [shopId]);
   const items = useStored(keys.items, NO_ITEMS).items;
@@ -292,7 +292,7 @@ export function PosScreen({ shopId, shopName }: { shopId: string; shopName: stri
           ))}
         </ul>
         <p className="flex justify-between border-t pt-2 font-bold">
-          <span>Total (incl. GST)</span>
+          <span>{billOfSupply ? "Total" : "Total (incl. GST)"}</span>
           <span className="tabular-nums">{rupees(total)}</span>
         </p>
         <select aria-label="Payment" className={inputClass} value={mode} onChange={(e) => setMode(e.target.value as QueuedBill["paymentMode"])}>

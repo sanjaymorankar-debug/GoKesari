@@ -254,7 +254,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
           const out = await exportForTool(shopId, tool, { from, to }, user);
           return file(out.bytes, out.contentType, out.filename);
         } catch (error) {
-          if (error instanceof ExportBlocked) return NextResponse.json({ error: { code: "FIX_FIRST", message: error.message, fixes: error.fixes } }, { status: 409 });
+          if (error instanceof ExportBlocked) return NextResponse.json({ error: { code: "FIX_FIRST", message: error.message, fixes: error.fixes } }, { status: 409, headers: { "Cache-Control": "private, no-store" } });
           throw error;
         }
       }
