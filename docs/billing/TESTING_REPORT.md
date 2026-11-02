@@ -142,13 +142,31 @@ test.gokesari.com on `41ef27cc`. The same five flags were switched on for Mysuru
 
 New defects:
 
-PR #326 (D-118, D-119, D-120): CI `test`, `test-split` and `scope` green on 7c4bf638; merged into staging 02-Nov-2026 22.40 IST (8fe24140); new build live on test.gokesari.com 22.45 IST; post-deploy check 3/3 22.45–22.47 IST. Spot check (guest): API 401 and 404 answers now carry `Cache-Control: private, no-store`. The signed-in retest of all three is still to do.
+PR #326 (D-118, D-119, D-120): CI `test`, `test-split` and `scope` green on 7c4bf638; merged into staging 02-Nov-2026 22.40 IST (8fe24140); new build live on test.gokesari.com 22.45 IST; post-deploy check 3/3 22.45–22.47 IST. Spot check (guest): API 401 and 404 answers now carry `Cache-Control: private, no-store`. Signed-in retest: all three pass (below).
 
 | # | Severity | Found | Status |
 |---|---|---|---|
-| D-118 | Medium (not billing-specific) | API error answers carry no `Cache-Control`; Hostinger's CDN (`server: hcdn`) kept a 404 for about 10–20 s and gave it to the next caller, so the customer briefly got 404 on their own invoice after customer2's refused request. 200 answers are not cached; 401 / 403 were not reused. gokesari.com's 404s also come without `Cache-Control` (checked 02-Nov-2026 as a guest) | Fixed in PR #326 (to staging): every API error answer says `Cache-Control: private, no-store`. Merged to staging 22.40 IST (8fe24140), live 22.45 IST; retest pending |
-| D-119 | Low | A bill of supply still says "Invoice total (inclusive of tax)" with CGST / SGST rows in the PDF, and "Total (tax inclusive)" on the page | Fixed in PR #326: a bill of supply shows Item, HSN, Qty, Amount and "Total" (A4 PDF, 80 mm receipt, page). Merged to staging 22.40 IST (8fe24140), live 22.45 IST; retest pending |
-| D-120 | Medium (older than billing v2) | Found while fixing D-119 (code, 02-Nov-2026): a shop outside GST can put a GST rate on a counter bill, a POS bill or a shop document, so its "Bill of supply" charges GST (an unregistered person may not collect tax, s.32 CGST Act). Counter-bill creation is not behind the billing_v2 flag | Fixed in PR #326: counter bills, POS bills and shop documents of such a shop go at 0% and print no tax rows; a note on an older taxed bill still reverses its GST. Merged to staging 22.40 IST (8fe24140), live 22.45 IST; retest pending |
+| D-118 | Medium (not billing-specific) | API error answers carry no `Cache-Control`; Hostinger's CDN (`server: hcdn`) kept a 404 for about 10–20 s and gave it to the next caller, so the customer briefly got 404 on their own invoice after customer2's refused request. 200 answers are not cached; 401 / 403 were not reused. gokesari.com's 404s also come without `Cache-Control` (checked 02-Nov-2026 as a guest) | Fixed in PR #326 (to staging): every API error answer says `Cache-Control: private, no-store`. Merged to staging 22.40 IST (8fe24140), live 22.45 IST; retest passed 02-Nov-2026 23.04–23.14 IST |
+| D-119 | Low | A bill of supply still says "Invoice total (inclusive of tax)" with CGST / SGST rows in the PDF, and "Total (tax inclusive)" on the page | Fixed in PR #326: a bill of supply shows Item, HSN, Qty, Amount and "Total" (A4 PDF, 80 mm receipt, page). Merged to staging 22.40 IST (8fe24140), live 22.45 IST; retest passed 02-Nov-2026 23.04–23.14 IST |
+| D-120 | Medium (older than billing v2) | Found while fixing D-119 (code, 02-Nov-2026): a shop outside GST can put a GST rate on a counter bill, a POS bill or a shop document, so its "Bill of supply" charges GST (an unregistered person may not collect tax, s.32 CGST Act). Counter-bill creation is not behind the billing_v2 flag | Fixed in PR #326: counter bills, POS bills and shop documents of such a shop go at 0% and print no tax rows; a note on an older taxed bill still reverses its GST. Merged to staging 22.40 IST (8fe24140), live 22.45 IST; retest passed 02-Nov-2026 23.04–23.14 IST |
+
+### Retest of D-118 to D-120 on staging, 02-Nov-2026 22.59–23.16 IST
+
+test.gokesari.com at 8fe24140. Evidence: `test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02/` (log.jsonl, files/, shots/; desktop and phone). Run: `docs/testing/qa-runs/2026-11-02-staging-d118-d120-retest.json`.
+
+| # | Result |
+|---|---|
+| D-118 | Pass. Three invoice URLs (GoKesari's delivery-fee invoice PDF, the bill of supply's PDF and JSON), three rounds each, no pauses (23.04.09–23.04.45): customer 200 → customer2 404 → customer again 0.3–1.4 s later 200 → signed out 401. All 36 answers `Cache-Control: private, no-store`; no `age` header, no cache hit |
+| D-119 | Pass. BKS-000021/2026-27/000020: A4, 80 mm and the page (desktop, phone) read "Bill of supply" with Item, HSN, Qty, Amount and "Total Rs. 60.00"; no "inclusive of tax", CGST, SGST, IGST, Taxable, Intra-state, Reverse charge or @0%. GoKesari's tax invoice GKS/2627/000001 still shows its CGST / SGST rows (staging has no order tax invoice from a GST-registered shop to compare) |
+| D-120 | Pass (E2E Four Features Bakery, outside GST). Sale form: no GST % field, no "Prices include GST", "Create bill of supply". Counter bill sent at 5% (S2627-00005): ₹50.00, tax 0, no tax rows on page / A4 / 80 mm. With billing_v2 on for MH-PUN (23.10–23.14): POS list 0%, POS total "Total", POS bill sent at 5% (S2627-00006) ₹60.00 tax 0; document form without GST %; estimate at 18% (ES2627-000002) ₹100.00 tax 0. Older bill S2627-00001 (carried IGST) keeps its rows; S2627-00002..04 print without zero tax rows. S2627-00005, S2627-00006 and ES2627-000002 cancelled ("QA D-120 retest"); flags back with 0 differences |
+
+Not checkable on staging: a credit / debit note against a bill that carried GST (the only one, S2627-00001, is cancelled; covered by the integration test).
+
+New defect:
+
+| # | Severity | Found | Status |
+|---|---|---|---|
+| D-121 | Low (older than PR #326) | Operations' order list (`/admin/orders`) and the shop's order list (`/shop/orders`, Done) label the link to a bill of supply "Tax invoice" (`order-monitoring-table.tsx:158`, `shop-order-manager.tsx:287`); the customer's order page already says "Bill of supply" | Open |
 
 ## Prod (gokesari.com)
 
@@ -171,5 +189,5 @@ The Android and iOS apps are a WebView over the website: every billing screen, i
 | Environment | Status |
 |---|---|
 | Local | Pass for phases 1–8 and the gap closure, both layouts (full run 01-Nov-2026 12.17–13.34 IST; pre-existing and environment failures listed above) |
-| Test | Pass. Staging test 01-Nov-2026 found D-110 to D-117; fixed (PR #323) and all retested as passing on 02-Nov-2026 11.17–11.44 IST. D-118 (Medium), D-119 (Low) and D-120 (Medium) fixed in PR #326, to be retested on staging after the merge |
-| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. Switching billing on waits for the CA (B2, B3); D-118, D-119 and D-120 (PR #326) should be live first |
+| Test | Pass. Staging test 01-Nov-2026 found D-110 to D-117; fixed (PR #323) and all retested as passing on 02-Nov-2026 11.17–11.44 IST. D-118 (Medium), D-119 (Low) and D-120 (Medium) fixed in PR #326 and retested as passing on staging 02-Nov-2026 22.59–23.16 IST. Open: D-121 (Low) |
+| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. Switching billing on waits for the CA (B2, B3); D-118, D-119 and D-120 (PR #326, passed on staging) should be released to gokesari.com first |
