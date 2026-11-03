@@ -194,6 +194,20 @@ Seen during the run, not a defect: refunded test orders kept arriving at the top
 | Post-deploy check | `scripts/release/post-deploy-check.sh https://gokesari.com`: 5 healthy rounds in a row, 08.32–08.36 IST; "Post-deploy check" workflow run 41380443658 passed |
 | Flags | All billing flags off: `POST /api/public/v1/oauth/token` → 404 "This feature is not available." The release changes nothing for shops and customers until a flag is switched on, which waits for the CA's answers (BLOCKERS B2, B3) |
 
+### Release of 03-Nov-2026 (PR #332): D-118 to D-121, with the dealer programme and #329
+
+| Item | Value |
+|---|---|
+| Owner's instruction | "Yes, release now" (D-118 to D-121), then "All of staging" and "Include #329" (03-Nov-2026 ~07.00 IST); held at 08.55 IST for the staging QA run on `b034cae1` ("Yes, hold it", staging-diff session), released on "Go: check and merge" after its results (no fail from the release's code; STAGING_RELEASE_332_QA_RESULTS_2026-11-03.md) |
+| Carries | #326 (D-118, D-119, D-120), #328 (D-121), #327 (referrals, 3-level dealer commission, shop referrals, dealer payouts by PAN, TDS, CA role; all new rules off), #329 (prepared statements in transactions, faster dashboards and checkout), #330 (docs and scripts: FDW removal on the test database only) |
+| In flight before | none: no other PR into main, last Post-deploy check (`85a12aa6`) passed, nothing pushed to main since 02-Nov |
+| Migrations | "Production database" `verify` (run 41562465665, 07.21 IST): 136 recorded, lacking exactly 0136–0142. `migrate`, source `staging` (run 41566797127), 08.03–08.08 IST: split layout, **7 migrations applied (0136–0142)**, 0 repairs, 143 recorded, none missing. Restore point 02:33:11 UTC, LSN `0/1EA99F80`. The old code kept answering 200 on the new schema |
+| Merge | PR #332 (`release/2026-11-03`, pinned at staging `b034cae1`, → `main`) 03-Nov-2026 09.07 IST, merge commit `9aedb9ae`. Main merged with `b034cae1` gives exactly `b034cae1`'s files (tree `0ad5d2c7`); staging CI on `b034cae1` passed `scope`, `test`, `test-split`; CI on `main` at `9aedb9ae` passed |
+| Deploy | gokesari.com serves the new build (`lG6GkXzZXVW2n4_F4vWRk`, before `ZviCwcAQJmRz3R06bWRBo`) |
+| Post-deploy check | "Post-deploy check" workflow run 41573270937 on `9aedb9ae` passed, 09.07–09.13 IST |
+| Checks on gokesari.com (guest, read-only, 11.29 IST) | D-118: `/api/invoices/<id>/json`, `/api/invoices/<id>/pdf`, `/api/delivery-invoices/<id>/pdf` → 401 with `Cache-Control: private, no-store`. Billing flags off: `POST /api/public/v1/oauth/token` → 404 "This feature is not available." (no-store). Shop referrals off: `/r/SHOPAB2CD` → 307 `/signin` (the customer flow, not `/shop/register`). Dealer-programme APIs refuse a guest: `/api/dealer/team`, `/api/admin/dealer-tiers`, `/api/dealer/tds`, payout reports → 404; `/api/admin/shop-referrals`, `/api/admin/commission-tds` → 401. `/`, `/shops`, `/robots.txt` → 200 |
+| Not checked on gokesari.com | D-119 to D-121 need a signed-in shop or operations account and a bill of supply; they were retested on staging (above) |
+
 ## Mobile
 
 The Android and iOS apps are a WebView over the website: every billing screen, including the offline POS once open, reaches them with the web deploy. Bluetooth thermal printing, a native scanner and opening the POS with no network at all need a store release (B7).
@@ -204,4 +218,4 @@ The Android and iOS apps are a WebView over the website: every billing screen, i
 |---|---|
 | Local | Pass for phases 1–8 and the gap closure, both layouts (full run 01-Nov-2026 12.17–13.34 IST; pre-existing and environment failures listed above) |
 | Test | Pass. Staging test 01-Nov-2026 found D-110 to D-117; fixed (PR #323) and all retested as passing on 02-Nov-2026 11.17–11.44 IST. D-118 (Medium), D-119 (Low) and D-120 (Medium) fixed in PR #326 and retested as passing on staging 02-Nov-2026 22.59–23.16 IST. D-121 (Low) fixed in PR #328 and retested as passing on staging 03-Nov-2026 06.33–06.36 IST |
-| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. Switching billing on waits for the CA (B2, B3); D-118, D-119 and D-120 (PR #326) and D-121 (PR #328), all passed on staging, should be released to gokesari.com first |
+| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. D-118 to D-121 released 03-Nov-2026 09.07 IST (PR #332, `9aedb9ae`, with migrations 0136–0142); post-deploy check passed; D-118's no-store confirmed on gokesari.com. Switching billing on waits for the CA (B2, B3) |

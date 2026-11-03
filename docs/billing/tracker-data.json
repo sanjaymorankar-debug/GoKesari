@@ -1,5 +1,5 @@
 {
-  "updated": "03-Nov-2026 06.38 IST (gokesari.com flags off; D-118..D-121 live and retested on staging; not yet on gokesari.com)",
+  "updated": "03-Nov-2026 11.30 IST (D-118..D-121 released to gokesari.com 09.07 IST, PR #332; billing flags off)",
   "branch": "main 85a12aa6 (PR #324); staging 8fe24140 (PR #326)",
   "testingReport": "docs/billing/TESTING_REPORT.md",
   "rows": [
@@ -442,8 +442,8 @@
       "web": "—",
       "android": "—",
       "ios": "—",
-      "test": "Local: full suite passed, both layouts. Staging: D-110..D-117 found 01-Nov, fixed (PR #323), all retested Pass 02-Nov 11.17-11.44 IST. Prod 02-Nov 08.32 IST: migrations 0125-0135, post-deploy check 5/5, flags off. D-118..D-120 (PR #326) retested Pass on staging 02-Nov 22.59-23.16 IST. D-121 (PR #328) retested Pass on staging 03-Nov 06.33-06.36 IST",
-      "notes": "docs/billing/TESTING_REPORT.md (+ PDF). D-118, D-119, D-120 fixed (PR #326) and retested on staging; not yet on gokesari.com. D-121 (Low, order lists label a bill of supply 'Tax invoice') fixed in PR #328 and retested on staging 03-Nov; D-118..D-121 not yet on gokesari.com"
+      "test": "Local: full suite passed, both layouts. Staging: D-110..D-117 found 01-Nov, fixed (PR #323), all retested Pass 02-Nov 11.17-11.44 IST. Prod 02-Nov 08.32 IST: migrations 0125-0135, post-deploy check 5/5, flags off. D-118..D-120 (PR #326) retested Pass on staging 02-Nov 22.59-23.16 IST. D-121 (PR #328) retested Pass on staging 03-Nov 06.33-06.36 IST. Prod 03-Nov 09.07 IST: PR #332 (9aedb9ae) with migrations 0136-0142, post-deploy check passed, D-118 no-store confirmed, flags off",
+      "notes": "docs/billing/TESTING_REPORT.md (+ PDF). D-118, D-119, D-120 fixed (PR #326) and retested on staging; not yet on gokesari.com. D-121 (Low, order lists label a bill of supply 'Tax invoice') fixed in PR #328 and retested on staging 03-Nov; D-118..D-121 released to gokesari.com 03-Nov-2026 09.07 IST (PR #332)"
     }
   ]
 }
