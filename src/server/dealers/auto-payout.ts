@@ -28,7 +28,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { tdsBlock } from "@/server/tax/commission-tds";
-import { markPayoutPaid, payeeStatus } from "./commission";
+import { OUTCOME_UNKNOWN, markPayoutPaid, payeeStatus, payoutOutcomeUnknown } from "./commission";
 
 interface Actor {
   id: string;
@@ -116,7 +116,8 @@ export async function sendDealerPayout(batchId: string, actor: Actor | typeof SY
   }
   const [claimed] = await db
     .update(dealerPayoutBatches)
-    .set({ status: "PROCESSING", attempts: current.attempts + 1, provider: provider.name, nextRetryAt: null, needsReview: false, failureReason: null })
+    // A new attempt forgets the last attempt's reference: a late event for that attempt matches nothing.
+    .set({ status: "PROCESSING", attempts: current.attempts + 1, provider: provider.name, providerRef: null, nextRetryAt: null, needsReview: false, failureReason: null })
     .where(and(eq(dealerPayoutBatches.id, batchId), inArray(dealerPayoutBatches.status, ["APPROVED", "FAILED"])))
     .returning();
   if (!claimed) return current;
@@ -142,7 +143,7 @@ export async function sendDealerPayout(batchId: string, actor: Actor | typeof SY
   } catch (error) {
     // The request may or may not have reached the bank: never retry blind — finance checks.
     const reason = error instanceof Error ? error.message : "The payout provider could not be reached.";
-    return applyDealerPayoutOutcome(claimed.id, { status: "FAILED", reason: `Outcome unknown — ${reason}`, review: true });
+    return applyDealerPayoutOutcome(claimed.id, { status: "FAILED", reason: `${OUTCOME_UNKNOWN} — ${reason}`, review: true });
   }
   const [after] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, claimed.id));
   return after;
@@ -197,7 +198,19 @@ export async function applyDealerPayoutOutcome(batchId: string, outcome: Outcome
 export async function handleDealerPayoutEvent(source: string, event: PayoutWebhookEvent): Promise<{ status: number; body: Record<string, unknown> }> {
   let batch: DealerPayoutBatch | undefined;
   if (event.providerRef) [batch] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.providerRef, event.providerRef));
-  if (!batch && event.referenceId && /^[0-9a-f-]{36}$/i.test(event.referenceId)) [batch] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, event.referenceId));
+  if (!batch && event.referenceId && /^[0-9a-f-]{36}$/i.test(event.referenceId)) {
+    // By our id only while we do not know the attempt's reference: an event of an earlier attempt
+    // must never decide a later one (each attempt's reference replaces the last).
+    const [byId] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, event.referenceId));
+    if (byId && !byId.providerRef) {
+      if (byId.status === "PROCESSING") return { status: 409, body: { ok: false, retry: "The transfer is still being sent — deliver this event again later." } };
+      if (payoutOutcomeUnknown(byId)) {
+        // The bank's answer for the attempt whose outcome we did not know.
+        if (event.providerRef) await db.update(dealerPayoutBatches).set({ providerRef: event.providerRef }).where(eq(dealerPayoutBatches.id, byId.id));
+        batch = byId;
+      }
+    }
+  }
   if (!batch) return { status: 200, body: { ok: true, ignored: "No payout matches this event." } };
   if (event.status === "SUCCESS") {
     if (!event.utr) return { status: 200, body: { ok: true, pending: "Success without a UTR — waiting for the bank reference." } };
@@ -242,7 +255,14 @@ export async function dealerBankFile(actor: Actor): Promise<{ csv: string; count
   const rows = await db
     .select()
     .from(dealerPayoutBatches)
-    .where(or(eq(dealerPayoutBatches.status, "APPROVED"), and(eq(dealerPayoutBatches.status, "FAILED"), isNull(dealerPayoutBatches.providerRef))));
+    // Never sent, or rejected by the bank with no automatic retry due. Not a payout whose outcome is
+    // unknown or that finance is reviewing: the bank may already have paid it.
+    .where(
+      or(
+        eq(dealerPayoutBatches.status, "APPROVED"),
+        and(eq(dealerPayoutBatches.status, "FAILED"), eq(dealerPayoutBatches.needsReview, false), isNull(dealerPayoutBatches.nextRetryAt)),
+      ),
+    );
   const lines = ["Beneficiary name,Account number,IFSC,Amount (Rs),Reference,Narration"];
   let count = 0;
   for (const b of rows) {
