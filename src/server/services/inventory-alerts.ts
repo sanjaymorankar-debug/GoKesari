@@ -112,12 +112,19 @@ export async function evaluateStockAlerts(
   shopProductId: string,
   client: DbClient = db,
 ): Promise<void> {
-  const [row] = await client
-    .select({ sp: shopProducts, shop: shops, product: products })
-    .from(shopProducts)
-    .innerJoin(shops, eq(shopProducts.shopId, shops.id))
-    .innerJoin(products, eq(shopProducts.productId, products.id))
-    .where(eq(shopProducts.id, shopProductId));
+  // Both reads at once: inside a transaction postgres-js sends them back to back on its one connection.
+  const [[row], open] = await Promise.all([
+    client
+      .select({ sp: shopProducts, shop: shops, product: products })
+      .from(shopProducts)
+      .innerJoin(shops, eq(shopProducts.shopId, shops.id))
+      .innerJoin(products, eq(shopProducts.productId, products.id))
+      .where(eq(shopProducts.id, shopProductId)),
+    client
+      .select()
+      .from(stockAlerts)
+      .where(and(eq(stockAlerts.shopProductId, shopProductId), eq(stockAlerts.status, "OPEN"))),
+  ]);
   if (!row || !row.sp.trackInventory) return;
   const { sp, shop, product } = row;
   const effective = resolveThresholds(sp, product, shop);
@@ -130,11 +137,6 @@ export async function evaluateStockAlerts(
   if (status === "OUT_OF_STOCK") wanted.push("OUT_OF_STOCK");
   else if (status === "LOW_STOCK") wanted.push("LOW_STOCK");
   if (reorder) wanted.push("REORDER");
-
-  const open = await client
-    .select()
-    .from(stockAlerts)
-    .where(and(eq(stockAlerts.shopProductId, shopProductId), eq(stockAlerts.status, "OPEN")));
 
   // Close anything no longer true — §17's "replenished, so it's available again".
   for (const alert of open) {
