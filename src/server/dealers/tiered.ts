@@ -100,6 +100,22 @@ export const AGENT_AGREEMENT_SHA256 = createHash("sha256").update(AGENT_AGREEMEN
 export const AGREEMENT_HOLD_NOTE = "held: the agent agreement is not accepted yet — released when it is";
 /** The registration-commission entry types the per-shop cap covers. */
 export const CAPPED_TYPES: CommissionEntryType[] = ["DIRECT_1", "DIRECT_2", "OVERRIDE_LEAD", "OVERRIDE_MAIN"];
+/** The cap also counts what the shop earned on the standard model (BASE), so nothing is paid twice. */
+const CAP_COUNTED_TYPES: CommissionEntryType[] = ["BASE", ...CAPPED_TYPES];
+
+/**
+ * True when the shop already earned commission on the standard model (a BASE accrual, paid or not).
+ * Such a shop stays on the standard model when its dealer moves to TIERED (grandfathered): it never
+ * gets a TIERED plan, so its registration fee is never paid on twice.
+ */
+export async function hasStandardCommission(client: DbClient, shopId: string): Promise<boolean> {
+  const [row] = await client
+    .select({ id: dealerCommissionLedger.id })
+    .from(dealerCommissionLedger)
+    .where(and(eq(dealerCommissionLedger.shopId, shopId), eq(dealerCommissionLedger.kind, "ACCRUAL"), eq(dealerCommissionLedger.entryType, "BASE")))
+    .limit(1);
+  return Boolean(row);
+}
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -346,7 +362,7 @@ async function writeEntry(tx: DbClient, input: EntryInput): Promise<DealerCommis
     const [{ net }] = await tx
       .select({ net: sql<number>`coalesce(sum(${dealerCommissionLedger.amountPaise}) filter (where ${dealerCommissionLedger.status} <> 'REVERSED' and not ${dealerCommissionLedger.aboveCap}), 0)::int` })
       .from(dealerCommissionLedger)
-      .where(and(eq(dealerCommissionLedger.shopId, input.shopId), inArray(dealerCommissionLedger.entryType, CAPPED_TYPES)));
+      .where(and(eq(dealerCommissionLedger.shopId, input.shopId), inArray(dealerCommissionLedger.entryType, CAP_COUNTED_TYPES)));
     within = Math.min(input.amountPaise, Math.max(0, input.capPaise - net));
   }
   const above = input.amountPaise - within;
@@ -467,6 +483,8 @@ export async function accrueTieredActivation(
     // Only a fee actually paid earns (brief A2 / A10): an approved shop whose fee is still due earns nothing yet;
     // the fee payment re-runs the milestone check (recordPayment → approval hooks).
     if (!plan && shop.feePaymentStatus !== "PAID") return null;
+    // A shop that already earned on the standard model stays there (checked again under the lock).
+    if (!plan && (await hasStandardCommission(tx, shop.id))) return null;
     if (!plan) {
       const fee = feeBasePaise(shop);
       if (fee <= 0) return null;
@@ -1383,7 +1401,19 @@ export async function saveMemberPayee(memberId: string, input: { pan?: string | 
   if (input.pan) {
     const pan = input.pan.trim().toUpperCase();
     if (!PAN.test(pan)) throw validationFailed("A PAN is 10 characters, like ABCDE1234F.", { fields: { pan: "Check the PAN." } });
-    Object.assign(patch, { panEnc: encryptSecret(pan), panHash: panBlindIndex(pan), panLast4: pan.slice(-4) });
+    const panHash = panBlindIndex(pan);
+    // A member cannot take a PAN already on another dealer or member (it would open their payouts and TDS);
+    // the same person's two records (one linked account) may share it, and an admin may set it after checking.
+    if (actor.role !== "ADMIN") {
+      const others = [
+        ...(await db.select({ userId: dealerSalespeople.userId }).from(dealerSalespeople).where(and(eq(dealerSalespeople.panHash, panHash), ne(dealerSalespeople.id, memberId)))),
+        ...(await db.select({ userId: dealers.userId }).from(dealers).where(eq(dealers.panHash, panHash))),
+      ];
+      if (others.some((o) => !o.userId || o.userId !== member.userId)) {
+        throw conflict("This PAN is already on file for someone else. Ask GoKesari to check it.", { fields: { pan: "Already on file." } });
+      }
+    }
+    Object.assign(patch, { panEnc: encryptSecret(pan), panHash, panLast4: pan.slice(-4) });
   }
   if (input.bankAccount || input.ifsc || input.bankHolderName) {
     const account = checkAccountNumber(input.bankAccount ?? "");
@@ -1658,6 +1688,16 @@ export async function tradingProgress(dealerId: string, memberId?: string | null
 }
 
 /** Marks a shop's plan REVERSED (inside the reversal's transaction) so it never reaches TRADING. */
+/**
+ * Takes the locks the TRADING settlement holds (the dealer row, touched, then the shop's plan), in the
+ * same order, so a reversal never reads the shop's entries while the 10th delivery is settling it.
+ */
+export async function lockShopCommission(tx: DbClient, dealerId: string, shopId: string): Promise<void> {
+  await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
+  await touchSellerRow(tx, dealers, dealerId);
+  await tx.select({ shopId: dealerTierShopPlans.shopId }).from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shopId)).for("update");
+}
+
 export async function reversePlan(tx: DbClient, shopId: string): Promise<void> {
   await tx.update(dealerTierShopPlans).set({ status: "REVERSED", updatedAt: new Date() }).where(and(eq(dealerTierShopPlans.shopId, shopId), ne(dealerTierShopPlans.status, "REVERSED")));
 }

@@ -290,3 +290,11 @@ Gap report: [docs/referrals-dealer-2026-11/GAP_REPORT.md](referrals-dealer-2026-
 - **DG-10 — The CA role** (0140) gets statutory, commission TDS and read-only dealer payouts; it works from the customer board and opens `/admin/tds-commission` by link (the approved board menus are unchanged).
 - **DG-11 — Module 3 `referral_commissions` are NOT moved into the dealer ledger** until the owner confirms (risk of paying twice; REUSE_GAP_ANALYSIS kept them apart).
 - **DG-12 — The monthly statement email carries the statement CSV** (document outbox type DEALER_STATEMENT, one per payout).
+- **DG-13 — Fixes from the release #332 code check (03-Nov-2026, DP-1…DP-6; owner: "Yes, all of them").**
+  DP-1: a shop that already earned on the standard model (a BASE accrual) stays on it when its dealer moves to TIERED — no TIERED plan, no second payment; the per-shop cap also counts BASE.
+  DP-2: a team member cannot enter a PAN already held by another dealer or member (unless both records are linked to the same account; an admin may set it); payees sharing a PAN are paid together only into one bank account, otherwise all are held for an admin ("PAN check by an admin").
+  DP-3: a payout whose outcome is unknown is left out of the bank file and cannot be cancelled; each new attempt clears the last provider reference, and a webhook matches our payout id only while the outcome is unknown (an attempt still being sent answers 409 so the provider retries).
+  DP-4: TDS on a payout an admin made by hand (no period month) belongs to the IST month it was made in, so it appears in the deductions, 26Q and Form 16A.
+  DP-5: the shop-referral yearly cap is decided under a lock on the referrer's code row (touched, for the two-database layout).
+  DP-6: a commission reversal takes the dealer (touched) and plan locks first, in the TRADING settlement's order.
+  Open for the owner: from the 5-Dec month close every dealer with a payout gets the statement e-mail with its CSV (no flag controls it).

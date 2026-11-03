@@ -52,8 +52,10 @@
  * value, the new value and the reason.
  */
 import { and, asc, desc, eq, gte, inArray, isNull, like, lte, ne, or, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { decryptSecret } from "@/lib/pan-crypto";
 import { db, type DbClient } from "@/server/db";
 import {
   COMMISSION_MILESTONES,
@@ -74,6 +76,7 @@ import {
   type DealerCommissionEntry,
   type DealerCommissionRule,
   type DealerCommissionSettings,
+  type DealerPayoutBatch,
   type Dealer,
   type Shop,
   type UserRole,
@@ -89,7 +92,7 @@ import { getRule } from "@/server/services/settings";
 import { computeCommissionTds, payeeTypeFor, tdsBlock, type CommissionTds } from "@/server/tax/commission-tds";
 import { deferredReviewDocTypes, hasDocumentWaiver, missingMandatoryDocuments } from "@/server/services/shop-onboarding";
 import { COMMISSION_ENTRY_TYPE_LABELS, type CommissionEntryType } from "@/lib/dealer-tiers";
-import { AGREEMENT_HOLD_NOTE, accrueTieredActivation, agreementAccepted, isTieredDealer, reversePlan, tellReversal } from "./tiered";
+import { AGREEMENT_HOLD_NOTE, accrueTieredActivation, agreementAccepted, hasStandardCommission, isTieredDealer, lockShopCommission, reversePlan, tellReversal } from "./tiered";
 
 interface Actor {
   id: string;
@@ -528,7 +531,8 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
   const out: DealerCommissionEntry[] = [];
   // TIERED dealers (0136, rule dealerTieredCommission on): the network commission, part 1 at activation.
   const [dealerRow] = await db.select({ commissionModel: dealers.commissionModel }).from(dealers).where(eq(dealers.id, row.a.dealerId));
-  const tiered = dealerRow ? await isTieredDealer(dealerRow) : false;
+  // A shop that already earned on the standard model stays on it when its dealer moves to TIERED.
+  const tiered = dealerRow ? (await isTieredDealer(dealerRow)) && !(await hasStandardCommission(db, shopId)) : false;
   // Base % model: the whole commission is earned at activation; the other milestones earn nothing.
   const earning = tiered || settings.commissionModel === "BASE_PERCENT" ? reached.filter((m) => m === "ACTIVATED") : reached;
   // A waived fee earns the dealer nothing; the rating below still counts the shop.
@@ -706,10 +710,22 @@ async function reverseAccruals(tx: DbClient, shopId: string, why: string, actor:
  * entries become REVERSED; a paid one gets a negative entry carried into the
  * dealer's next payout. The shop stops counting for the dealer's rating.
  */
+/**
+ * A reversal's locks: the dealer row (touched) and the shop's TIERED plan first — the order the TRADING
+ * settlement takes them — then the attribution. Returns the attribution, or null when there is none.
+ */
+async function lockForReversal(tx: DbClient, shopId: string) {
+  const [seen] = await tx.select({ dealerId: shopAttributions.dealerId }).from(shopAttributions).where(eq(shopAttributions.shopId, shopId));
+  if (!seen) return null;
+  await lockShopCommission(tx, seen.dealerId, shopId);
+  const [attribution] = await tx.select().from(shopAttributions).where(eq(shopAttributions.shopId, shopId)).for("update");
+  return attribution ?? null;
+}
+
 export async function reverseShopCommission(shopId: string, reason: string, actor: Actor | null): Promise<number> {
   const why = (reason ?? "").trim().slice(0, 500) || "reversed";
   const result = await db.transaction(async (tx) => {
-    const [attribution] = await tx.select().from(shopAttributions).where(eq(shopAttributions.shopId, shopId)).for("update");
+    const attribution = await lockForReversal(tx, shopId);
     if (!attribution) return null;
     const n = await reverseAccruals(tx, shopId, why, actor);
     // TIERED: every level goes (direct, overrides, development); the plan never reaches TRADING.
@@ -753,7 +769,7 @@ export async function reverseWaivedFeeCommissionSafely(shopId: string, actor: Ac
     if (!(await getFeatureFlag("dealer_programme_enabled")).enabled) return;
     const why = "registration fee waived — no commission";
     await db.transaction(async (tx) => {
-      const [attribution] = await tx.select().from(shopAttributions).where(eq(shopAttributions.shopId, shopId)).for("update");
+      const attribution = await lockForReversal(tx, shopId);
       if (!attribution) return;
       const n = await reverseAccruals(tx, shopId, why, actor);
       await reversePlan(tx, shopId);
@@ -969,17 +985,30 @@ export const tdsColumns = (t: CommissionTds) => ({ tdsPaise: t.tdsPaise, tdsRate
  * Gap report C2: the payee's PAN (blind index) and what still stops a payout —
  * no PAN, no verified bank account, (TIERED) the agent agreement not accepted.
  */
-export async function payeeStatus(client: DbClient, dealerId: string, memberId: string | null): Promise<{ panHash: string | null; missing: string[] }> {
+export async function payeeStatus(client: DbClient, dealerId: string, memberId: string | null): Promise<{ panHash: string | null; bankKey: string | null; missing: string[] }> {
   const [d] = await client.select().from(dealers).where(eq(dealers.id, dealerId));
-  if (!d) return { panHash: null, missing: ["dealer not found"] };
+  if (!d) return { panHash: null, bankKey: null, missing: ["dealer not found"] };
   const m = memberId ? (await client.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId)))[0] : null;
-  if (memberId && !m) return { panHash: null, missing: ["team member not found"] };
+  if (memberId && !m) return { panHash: null, bankKey: null, missing: ["team member not found"] };
   const panHash = m ? m.panHash : d.panHash;
   const missing: string[] = [];
   if (!panHash) missing.push("PAN");
   if ((m ? m.bankStatus : d.bankStatus) !== "VERIFIED") missing.push("verified bank account");
   if (d.commissionModel === "TIERED" && !agreementAccepted(m ?? null, d)) missing.push("agent agreement");
-  return { panHash, missing };
+  return { panHash, bankKey: bankKeyOf(m ? m.bankAccountEnc : d.bankAccountEnc, m ? m.bankIfsc : d.bankIfsc), missing };
+}
+
+/**
+ * The bank account a payout goes to, as a fingerprint (never the number): payees sharing a PAN are
+ * paid together only when it is the same account. Null when it cannot be read.
+ */
+function bankKeyOf(accountEnc: string | null, ifsc: string | null): string | null {
+  if (!accountEnc || !ifsc) return null;
+  try {
+    return createHash("sha256").update(`${ifsc.toUpperCase()}:${decryptSecret(accountEnc)}`).digest("hex");
+  } catch {
+    return null;
+  }
 }
 
 /** Why a payee cannot be paid yet (PAN and a verified bank account are mandatory), or null. */
@@ -1055,11 +1084,21 @@ export async function markPayoutPaid(batchId: string, paymentReference: string, 
 }
 
 /** ADMIN only: cancel a draft payout; its entries go back to waiting. */
+/** Reason prefix of a payout whose transfer request may or may not have reached the bank. */
+export const OUTCOME_UNKNOWN = "Outcome unknown";
+
+/** True when nobody knows yet whether the bank paid this payout: never cancel it, resend it or list it in a bank file. */
+export function payoutOutcomeUnknown(b: Pick<DealerPayoutBatch, "status" | "needsReview" | "failureReason">): boolean {
+  return b.status === "FAILED" && b.needsReview && (b.failureReason ?? "").startsWith(OUTCOME_UNKNOWN);
+}
+
 export async function cancelPayout(batchId: string, actor: Actor): Promise<void> {
   requireAdmin(actor, "cancel payouts");
   await db.transaction(async (tx) => {
     const [b] = await tx.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId)).for("update");
     if (!b || !["DRAFT", "APPROVED", "FAILED"].includes(b.status)) throw conflict("Only a payout not yet with the bank can be cancelled.");
+    // Cancelling would free its entries for the next payout while the bank may still have paid this one.
+    if (payoutOutcomeUnknown(b)) throw conflict("The bank may have paid this payout. Check with the bank first: record the UTR if it was paid, or retry it.");
     await tx.update(dealerCommissionLedger).set({ payoutBatchId: null, updatedAt: new Date() }).where(eq(dealerCommissionLedger.payoutBatchId, batchId));
     await tx.update(dealerPayoutBatches).set({ status: "CANCELLED" }).where(eq(dealerPayoutBatches.id, batchId));
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batchId, newValue: { status: "CANCELLED" } }, tx);

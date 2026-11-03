@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/server/db";
 import {
   accDocuments,
+  accSalesInvoices,
   accLedgerEntries,
   addresses,
   featureFlags,
@@ -28,7 +29,7 @@ import {
 import { cancelDocument, createDocument, documentNumber, documentPdf } from "@/server/accounts/documents";
 import { billingReport } from "@/server/accounts/billing-reports";
 import { posItems, syncPosBills } from "@/server/accounts/pos";
-import { counterBillKind, createSalesInvoice, getSalesInvoice, printsWithoutGst, salesInvoicePdf } from "@/server/accounts/sales";
+import { counterBillKind, createSalesInvoice, getSalesInvoice, printsWithoutGst, salesBillKind, salesInvoicePdf } from "@/server/accounts/sales";
 import { updateSettings } from "@/server/accounts/books";
 import { issueCreditNoteForRefund, returnedLineWeights } from "@/server/gst/credit-notes";
 import { buildGstr1 } from "@/server/gst/gstr1";
@@ -346,7 +347,7 @@ describe("billing v2 — documents", () => {
       await db.update(shops).set({ gstin: null, gstStatus: "NOT_REGISTERED" }).where(eq(shops.id, shop.id));
       const [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
       expect(counterBillKind(row)).toBe("BILL_OF_SUPPLY");
-      expect(printsWithoutGst(row, taxed)).toBe(false);
+      expect(printsWithoutGst(salesBillKind(taxed, row), taxed)).toBe(false);
 
       const sale = await createSalesInvoice(shop.id, { paymentMode: "CASH", pricesIncludeTax: false, lines: [{ shopProductId: milkSp.id, description: "Cow Milk", qtyMilli: 2000, ratePaise: 10_000, gstRateBp: 500 }] }, owner);
       expect([sale.cgstPaise, sale.sgstPaise, sale.igstPaise, sale.totalPaise]).toEqual([0, 0, 0, 20_000]);
@@ -369,6 +370,42 @@ describe("billing v2 — documents", () => {
       expect((await documentPdf(shop.id, est.id)).bytes.toString("latin1")).not.toMatch(/CGST|SGST|Taxable/);
       const cn = await createDocument(shop.id, { kind: "CREDIT_NOTE", againstSalesId: taxed.id, reason: "Returned", lines: [{ description: "Cow Milk", qtyMilli: 1000, ratePaise: 10_000, gstRateBp: 500 }] }, owner);
       expect(cn.cgstPaise + cn.sgstPaise).toBe(taxed.cgstPaise + taxed.sgstPaise);
+    });
+
+    it("a counter bill keeps the document it was issued as when the shop's GST status changes later (release #332 check B-1)", async () => {
+      const { owner, shop, milkSp } = await gstShop();
+      const line = { shopProductId: milkSp.id, description: "Cow Milk", qtyMilli: 1000, ratePaise: 10_000, gstRateBp: 500 };
+      const titles = async (id: string) => [(await salesInvoicePdf(shop.id, id)).bytes.toString("latin1"), (await salesReceiptPdf(shop.id, id)).bytes.toString("latin1")];
+      const taxed = await createSalesInvoice(shop.id, { paymentMode: "CASH", lines: [line] }, owner);
+      expect(taxed.kind).toBe("TAX_INVOICE");
+
+      // The shop leaves GST: its new bills are bills of supply; the earlier tax invoice stays one, with its GST rows.
+      await db.update(shops).set({ gstin: null, gstStatus: "NOT_REGISTERED" }).where(eq(shops.id, shop.id));
+      const supply = await createSalesInvoice(shop.id, { paymentMode: "CASH", lines: [line] }, owner);
+      expect(supply.kind).toBe("BILL_OF_SUPPLY");
+      for (const text of await titles(taxed.id)) {
+        expect(text).toContain("TAX INVOICE");
+        expect(text).not.toContain("BILL OF SUPPLY");
+        expect(text).toMatch(/CGST|@5%/);
+      }
+
+      // It registers again: the bill of supply issued meanwhile stays a bill of supply, without tax rows.
+      await db.update(shops).set({ gstin: shop.gstin, gstStatus: "REGISTERED" }).where(eq(shops.id, shop.id));
+      for (const text of await titles(supply.id)) {
+        expect(text).toContain("BILL OF SUPPLY");
+        expect(text).not.toContain("TAX INVOICE");
+        expect(text).not.toMatch(/CGST|SGST|Taxable|@0%/);
+      }
+      const nextDay = new Date(Date.parse(`${supply.invoiceDate}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+      const report = await billingReport(shop.id, "mtr", taxed.invoiceDate, nextDay, "B-1");
+      const docOf = (no: string) => report.rows.find((r) => r[2] === no)?.[1];
+      expect([docOf(taxed.invoiceNo), docOf(supply.invoiceNo)]).toEqual(["Tax invoice", "Bill of supply"]);
+
+      // A bill issued before 0143 (no kind) reads as the shop is now.
+      await db.update(accSalesInvoices).set({ kind: null }).where(eq(accSalesInvoices.id, supply.id));
+      const [legacy] = await db.select().from(accSalesInvoices).where(eq(accSalesInvoices.id, supply.id));
+      const [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
+      expect(salesBillKind(legacy, row)).toBe("TAX_INVOICE");
     });
   });
 });

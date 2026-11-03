@@ -1,0 +1,83 @@
+{
+ "run": {
+  "target": "staging",
+  "host": "test.gokesari.com",
+  "label": "d118-d120-retest",
+  "note": "Retest of D-118, D-119 and D-120 on test.gokesari.com (site at 8fe24140, PR #326 live 22.45 IST), 02-Nov-2026 22.59-23.16 IST. Scripted retest rows D-118..D-120 and new defect D-121; evidence test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02/ (log.jsonl, shots/, files/, flags-before/during/after.json). billing_v2 on for MH-PUN 23.10.43-23.14.36 only; flags after = before (19 flags, 0 differences). Created and cancelled: S2627-00005, S2627-00006, ES2627-000002. Not run: tax-invoice control on an order invoice (none on staging); a note against a GST-carrying bill (only one, cancelled). Production not touched.",
+  "suiteCommit": "scripted retest, no suite run (site: 8fe24140)",
+  "startedAt": "2026-11-02T17:29:15.000Z",
+  "finishedAt": "2026-11-02T17:46:02.000Z",
+  "cases": 4,
+  "rows": 4,
+  "totals": {
+   "pass": 3,
+   "fail": 1,
+   "blocked": 0,
+   "skipped": 0
+  }
+ },
+ "results": [
+  {
+   "id": "D-118",
+   "title": "No API error answer is reused across users by the CDN (Cache-Control: private, no-store)",
+   "status": "pass",
+   "detail": "23.04.09-23.04.45 IST. /api/delivery-invoices/5e877766…/pdf, /api/invoices/87e9fe19…/pdf, /api/invoices/87e9fe19…/json; 3 rounds each, no pauses: customer 200 (private, no-store, DYNAMIC) → customer2 404 'Invoice not found.' (private, no-store) → customer again 200 (0.3-1.4 s later) → signed out 401 UNAUTHENTICATED (private, no-store). 36/36 as expected; no age header, no HIT.",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02 (scripted staging retest; log.jsonl)",
+   "test": "D-118 No API error answer is reused across users by the CDN (Cache-Control: private, no-store)",
+   "at": "2026-11-02T17:34:45.000Z",
+   "durationMs": 0,
+   "evidence": "test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02/files/d118-signed-probe.txt, d118-signed-probe.json"
+  },
+  {
+   "id": "D-119",
+   "title": "Bill of supply shows no tax wording, tax columns or tax rows (A4, 80 mm, invoice page)",
+   "status": "pass",
+   "detail": "23.05.30-23.06.36 IST. BKS-000021/2026-27/000020: A4 'BILL OF SUPPLY', '# Item HSN Qty Amount', 'Total Rs. 60.00'; 80 mm 'BILL OF SUPPLY', 'TOTAL Rs.60.00'; /invoices/87e9fe19… desktop + phone 'Bill of supply', Item / HSN/SAC / Qty / Amount, 'Total ₹60.00'. No 'inclusive of tax', 'Total (tax inclusive)', CGST, SGST, IGST, Taxable, Intra-state, Reverse charge or '@0%'. ₹60.00 + GoKesari delivery-fee invoice GKS/2627/000002 ₹25.00 = ₹85.00 paid online. BKS-000021/…/000019 the same.",
+   "partial": "Control on an order tax invoice not possible: no order invoice of kind TAX_INVOICE exists on staging (the 20 delivered orders are from two shops outside GST). GoKesari's TAX INVOICE GKS/2627/000001 still shows Taxable value, CGST 2.50%, SGST 2.50% and 'Total (inclusive of tax)'.",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02 (scripted staging retest; log.jsonl)",
+   "test": "D-119 Bill of supply shows no tax wording, tax columns or tax rows (A4, 80 mm, invoice page)",
+   "at": "2026-11-02T17:36:36.000Z",
+   "durationMs": 0,
+   "evidence": "test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02/files/BKS-000021-000020-invoice-a4.txt, BKS-000021-000020-invoice-80mm.txt; shots/02-invoice-BKS-000021-000020-*.png"
+  },
+  {
+   "id": "D-120",
+   "title": "A shop outside GST charges and shows no GST on counter bills, POS bills and shop documents",
+   "status": "pass",
+   "detail": "23.10.13-23.14.20 IST, E2E Four Features Bakery. (a) /shop/accounts/sales/new desktop + phone: no 'GST %', no 'Prices include GST', 'Bill of supply: … no GST is charged', preview without tax rows, 'Create bill of supply'. (b) POST sales at gstRateBp 500 → S2627-00005 ₹50.00, tax 0, line 0%; page, A4 and 80 mm without tax rows, 'BILL OF SUPPLY'. (c) billing_v2 on MH-PUN 23.10.43-23.14.36: pos/items 126 items all 0%; POS total 'Total'; POS sync at 500 → CREATED S2627-00006 ₹60.00, tax 0; documents/new without 'GST percent' / 'Rates include GST'; ESTIMATE at 18% → ES2627-000002 ₹100.00, tax 0, PDF without CGST/SGST/Taxable. (d) S2627-00001 (IGST ₹12.00) keeps its tax rows; -00002..-00004 print without zero tax rows, totals unchanged. (e) S2627-00005, S2627-00006, ES2627-000002 cancelled 'QA D-120 retest'.",
+   "partial": "pos/items 0% cannot show the override by itself (the bakery's listings carry no GST rate; the POS sync at 500 → 0% does). A note against a bill that carried GST was not run: the only such bill (S2627-00001) is cancelled and a new one can no longer be made.",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02 (scripted staging retest; log.jsonl)",
+   "test": "D-120 A shop outside GST charges and shows no GST on counter bills, POS bills and shop documents",
+   "at": "2026-11-02T17:44:20.000Z",
+   "durationMs": 0,
+   "evidence": "test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02/files/counter-S2627-00005-*.txt, pos-S2627-00006-*.txt, estimate-ES2627-000002.txt, pos-items.json, old-S2627-0000*-*.txt; shots/03a-*.png, 03b-*.png, 03c-*.png, 03d-*.png"
+  },
+  {
+   "id": "D-121",
+   "title": "Operations' and the shop's order lists label a bill of supply 'Tax invoice'",
+   "status": "fail",
+   "detail": "New 23.07.26-23.07.54 IST. DB-20261102-ERAAO8 (bill of supply BKS-000021/2026-27/000020): link 'Tax invoice' on /admin/orders (ops) and /shop/orders Done tab (bakery owner), desktop + phone; the customer's order page says 'Bill of supply'.",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02 (scripted staging retest; log.jsonl)",
+   "test": "D-121 Operations' and the shop's order lists label a bill of supply 'Tax invoice'",
+   "at": "2026-11-02T17:37:54.000Z",
+   "durationMs": 0,
+   "evidence": "test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02/shots/05-admin-orders-*.png, 05-shop-orders-done-*.png"
+  }
+ ]
+}

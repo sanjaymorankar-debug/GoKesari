@@ -160,7 +160,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
     const carried: MonthCloseResult["carried"] = [];
     const locked = new Set<string>();
     // Gap report C1 / C2: each payee's payable rows and whether they can be paid (PAN, verified bank, agreement).
-    const ready: { dealerId: string; memberId: string | null; panHash: string | null; key: string; rows: { id: string; amountPaise: number }[]; total: number }[] = [];
+    const ready: { dealerId: string; memberId: string | null; panHash: string | null; bankKey: string | null; key: string; rows: { id: string; amountPaise: number }[]; total: number }[] = [];
     for (const { dealerId, memberId } of payees) {
       if (!locked.has(dealerId)) {
         await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
@@ -187,7 +187,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
         carried.push({ dealerId, memberId, netPaise: total, reason: `held: ${payee.missing.join(", ")}`, missing: payee.missing });
         continue;
       }
-      ready.push({ dealerId, memberId, panHash: payee.panHash, key: payee.panHash ?? `dealer:${dealerId}`, rows, total });
+      ready.push({ dealerId, memberId, panHash: payee.panHash, bankKey: payee.bankKey, key: payee.panHash ?? `dealer:${dealerId}`, rows, total });
     }
     // One payout per PAN: a person paid in two roles (or two networks) gets one transfer.
     for (const key of [...new Set(ready.map((r) => r.key))].sort()) {
@@ -195,6 +195,11 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
       const panHash = group[0].panHash;
       const total = group.reduce((t, g) => t + g.total, 0);
       const first = group[0];
+      // Payees sharing a PAN are paid together only to one bank account; otherwise an admin checks who owns the PAN.
+      if (group.length > 1 && (group.some((g) => !g.bankKey) || new Set(group.map((g) => g.bankKey)).size > 1)) {
+        for (const g of group) carried.push({ dealerId: g.dealerId, memberId: g.memberId, netPaise: g.total, reason: "held: this PAN is on payees with different bank accounts — an admin must check it", missing: ["PAN check by an admin"] });
+        continue;
+      }
       if (total <= 0 || total < payoutRule.minPayoutPaise) {
         for (const g of group) carried.push({ dealerId: g.dealerId, memberId: g.memberId, netPaise: g.total, reason: total <= 0 ? "owed back" : `below the ₹${(payoutRule.minPayoutPaise / 100).toLocaleString("en-IN")} minimum` });
         continue;

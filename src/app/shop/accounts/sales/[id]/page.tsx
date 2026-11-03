@@ -10,7 +10,7 @@ import { gstState, stateLabel } from "@/lib/gst-states";
 import { formatPaise } from "@/lib/money";
 import { loadAccountsPage } from "@/server/accounts/page";
 import { getSettings } from "@/server/accounts/books";
-import { counterBillKind, getSalesInvoice, printsWithoutGst } from "@/server/accounts/sales";
+import { getSalesInvoice, printsWithoutGst, salesBillKind } from "@/server/accounts/sales";
 import { counterBillShareText, whatsappShareUrl } from "@/server/invoicing/outputs";
 import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
@@ -36,9 +36,11 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
   }
   const { invoice: inv, lines } = data;
   const cancelled = inv.status === "CANCELLED";
-  const docTitle = counterBillKind(shop) === "TAX_INVOICE" ? "Tax invoice" : "Bill of supply";
+  // Release #332 check B-1: the document the bill was issued as, not what the shop is now.
+  const kind = salesBillKind(inv, shop);
+  const docTitle = kind === "TAX_INVOICE" ? "Tax invoice" : "Bill of supply";
   // QA D-120: a bill of supply that charged no GST shows no tax split, tax columns or tax rows.
-  const noGst = printsWithoutGst(shop, inv);
+  const noGst = printsWithoutGst(kind, inv);
   const [billingV2, settings] = await Promise.all([isFeatureEnabledForShop("billing_v2", shop), getSettings(shop.id)]);
   const address = [shop.addressLine1, shop.addressLine2, shop.area, shop.city, shop.pincode].filter(Boolean).join(", ");
 
@@ -67,7 +69,7 @@ export default async function SalesInvoicePage({ params, searchParams }: { param
                 </a>
                 {cancelled ? null : (
                   <a
-                    href={whatsappShareUrl(counterBillShareText({ kind: counterBillKind(shop), invoiceNo: inv.invoiceNo, invoiceDate: inv.invoiceDate, shopName: shop.name, totalPaise: inv.totalPaise, upiVpa: settings.upiVpa }))}
+                    href={whatsappShareUrl(counterBillShareText({ kind, invoiceNo: inv.invoiceNo, invoiceDate: inv.invoiceDate, shopName: shop.name, totalPaise: inv.totalPaise, upiVpa: settings.upiVpa }))}
                     target="_blank"
                     rel="noreferrer"
                     className={SIDE_LINK}
