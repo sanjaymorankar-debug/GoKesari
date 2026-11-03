@@ -293,6 +293,10 @@ export const TABLE_OWNERSHIP = {
   platform_credit_debit_notes: "seller",
   // Dated statutory settings and the document email outbox: platform (core).
   statutory_rates: "platform",
+  commission_tds_rates: "platform", // gap report D1 (0141)
+  commission_tds_certificates: "platform", // gap report D2 (0141)
+  commission_tds_challans: "platform", // gap report D5 (0141)
+  commission_tds_forms16a: "platform", // gap report D5 (0141)
   statutory_filings: "platform",
   gsp_call_log: "platform",
   public_api_clients: "platform",
@@ -346,6 +350,13 @@ export const TABLE_OWNERSHIP = {
   dealer_payout_batches: "seller",
   dealer_commission_months: "seller", // monthly payout close (0116)
   dealer_commission_ledger: "seller",
+  dealer_tier_shop_plans: "seller", // TIERED commission (0136)
+  dealer_team_developments: "seller", // TIERED promotion development bonus (0136)
+  dealer_team_requests: "seller", // TIERED sub-agent requests (0136)
+  dealer_team_mapping_history: "seller", // TIERED team placement history (0138)
+  dealer_agreement_acceptances: "seller", // agent agreement acceptance history (0138)
+  shop_referral_codes: "seller", // shop-refers-shop (0137)
+  shop_referrals: "seller", // shop-refers-shop (0137)
   support_service_types: "platform",
   support_service_charges: "platform",
   support_service_settings: "platform",

@@ -1,16 +1,22 @@
 /**
  * F11: a customer's referral link. Remembers the code for 30 days and sends
  * the visitor to sign in (or, when signed in, to the referral page to apply it).
+ * Shop-refers-shop (0137): a shop's code (SHOP…) goes to Add my shop with the
+ * code filled in, while rule shopReferrals is on.
  */
 import { NextResponse, type NextRequest } from "next/server";
 
 import { REFERRAL_COOKIE } from "@/lib/customer-referrals";
 import { getCurrentUser } from "@/server/authz/guards";
 import { normalizeReferralCode } from "@/server/services/customer-referrals";
+import { looksLikeShopCode, shopReferralRule } from "@/server/services/shop-referrals";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ code: string }> }) {
   const { code } = await context.params;
   const clean = normalizeReferralCode(code).slice(0, 16);
+  if (looksLikeShopCode(clean) && (await shopReferralRule()).enabled) {
+    return new NextResponse(null, { status: 307, headers: { Location: `/shop/register?ref=${clean}` } });
+  }
   const user = await getCurrentUser();
   // Relative Location: behind the host's proxy request.url carries the
   // internal address (0.0.0.0:3000), not the public domain.

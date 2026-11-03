@@ -28,7 +28,18 @@ export interface PortalEmployee {
  * reactivate. The full dashboard (shops, commission, rating) comes with the
  * later steps.
  */
-export function DealerPortal({ legalName, code, employees }: { legalName: string; code: PortalCode | null; employees: PortalEmployee[] }) {
+export function DealerPortal({
+  legalName,
+  code,
+  employees,
+  showEmployees = true,
+}: {
+  legalName: string;
+  code: PortalCode | null;
+  employees: PortalEmployee[];
+  /** False on a team member's own portal (TIERED): only the main dealer adds employees. */
+  showEmployees?: boolean;
+}) {
   const router = useRouter();
   const [people, setPeople] = useState(employees);
   const [draft, setDraft] = useState({ employeeId: "", name: "", mobile: "" });
@@ -115,6 +126,7 @@ export function DealerPortal({ legalName, code, employees }: { legalName: string
         <Alert tone="warning">Your code is not active. Contact GoKesari.</Alert>
       )}
 
+      {showEmployees ? (
       <Card className="space-y-3 p-4" id="dealer-employees">
         <h2 className="text-base font-bold text-ink-900">Your employees</h2>
         <p className="text-sm text-ink-700">
@@ -168,6 +180,7 @@ export function DealerPortal({ legalName, code, employees }: { legalName: string
           {busy === "add" ? "Adding…" : "Add employee"}
         </Button>
       </Card>
+      ) : null}
     </div>
   );
 }

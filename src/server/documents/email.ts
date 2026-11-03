@@ -22,20 +22,20 @@ import { EmailUnavailableError, emailMode, sendEmail, type EmailAttachment } fro
 import { renderEmail } from "@/server/notifications/templates";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 
-export const DOCUMENT_TYPES = ["TAX_INVOICE", "CREDIT_NOTE", "PAYOUT_STATEMENT", "PLATFORM_INVOICE"] as const;
+export const DOCUMENT_TYPES = ["TAX_INVOICE", "CREDIT_NOTE", "PAYOUT_STATEMENT", "PLATFORM_INVOICE", "DEALER_STATEMENT"] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export interface QueueDocumentEmailInput {
   docType: DocumentType;
   docId: string;
   userId: string;
-  recipientRole: "CUSTOMER" | "SHOP_OWNER";
+  recipientRole: "CUSTOMER" | "SHOP_OWNER" | "DEALER";
   title: string;
   body: string;
   /** In-app path the email links to. */
   actionUrl?: string;
   /** Notification category whose email opt-out applies. */
-  category: "ORDERS" | "SHOP";
+  category: "ORDERS" | "SHOP" | "GENERAL";
   maxAttempts?: number;
 }
 
@@ -109,6 +109,12 @@ export async function renderDocumentAttachments(docType: string, docId: string):
           { filename: `${doc.basename}.csv`, content: Buffer.from(doc.csv, "utf8"), contentType: "text/csv" },
         ],
       };
+    }
+    case "DEALER_STATEMENT": {
+      // Gap report C5: the month's dealer / team-member statement as CSV; docId is the payout.
+      const { dealerStatementForBatch } = await import("@/server/dealers/monthly-payout");
+      const doc = await dealerStatementForBatch(docId);
+      return doc ? { attachments: [{ filename: `${doc.basename}.csv`, content: Buffer.from(doc.csv, "utf8"), contentType: "text/csv" }] } : null;
     }
     case "PLATFORM_INVOICE": {
       const { renderPlatformInvoiceById } = await import("@/server/platform-invoices/service");

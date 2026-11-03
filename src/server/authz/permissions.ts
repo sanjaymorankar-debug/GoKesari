@@ -342,6 +342,14 @@ export const PERMISSIONS = {
    * route also needs the dealer_programme_enabled flag.
    */
   DEALER_PORTAL: "dealer:portal",
+  /**
+   * Gap report D4: read-only access to dealer commission — the ledger, payouts
+   * and the payout reports (admin, operator and CA). Approving, paying and
+   * changing rules stay ADMIN only, checked in the services.
+   */
+  DEALER_PAYOUTS_READ: "dealers:payouts:read",
+  /** Gap report D2 / D5: TDS certificates (lower / nil), challans and Form 16A on commission (admin and CA). */
+  COMMISSION_TDS_MANAGE: "tds:commission:manage",
   /* <<< end dealer programme */
 } as const;
 
@@ -413,6 +421,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
 ];
 
 const OPERATOR_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.DEALER_PAYOUTS_READ, // gap report D4: read-only, as the dealer commission screens already were
   PERMISSIONS.SHOP_CREATE,
   PERMISSIONS.ORDER_PLACE,
   PERMISSIONS.ORDER_VIEW_OWN,
@@ -534,6 +543,23 @@ const DEALER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.DEALER_PORTAL,
 ];
 
+/**
+ * Gap report D4: the Chartered Accountant. Customer basics, plus the dated
+ * statutory settings (TDS rows, with CA confirmation), certificates, challans
+ * and Form 16A, and read-only dealer payouts, ledger and reports with their
+ * exports. Never approves or pays, never manages dealers or changes rules.
+ */
+const CA_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.ORDER_PLACE,
+  PERMISSIONS.ORDER_VIEW_OWN,
+  PERMISSIONS.ORDER_CANCEL_OWN,
+  PERMISSIONS.WALLET_VIEW_OWN,
+  PERMISSIONS.WALLET_TOPUP_OWN,
+  PERMISSIONS.STATUTORY_MANAGE,
+  PERMISSIONS.COMMISSION_TDS_MANAGE,
+  PERMISSIONS.DEALER_PAYOUTS_READ,
+];
+
 const OPERATOR_LIMITED_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.ORDER_PLACE,
   PERMISSIONS.ORDER_VIEW_OWN,
@@ -556,6 +582,7 @@ export const ROLE_PERMISSIONS: Readonly<
   SOCIETY_ADMIN: SOCIETY_ADMIN_PERMISSIONS,
   OPERATOR_LIMITED: OPERATOR_LIMITED_PERMISSIONS, // batch-2026-10 WS-D
   DEALER: DEALER_PERMISSIONS, // docs/dealer-programme
+  CA: CA_PERMISSIONS, // gap report D4
 };
 
 const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
@@ -567,6 +594,7 @@ const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
   SOCIETY_ADMIN: new Set(SOCIETY_ADMIN_PERMISSIONS),
   OPERATOR_LIMITED: new Set(OPERATOR_LIMITED_PERMISSIONS), // batch-2026-10 WS-D
   DEALER: new Set(DEALER_PERMISSIONS), // docs/dealer-programme
+  CA: new Set(CA_PERMISSIONS), // gap report D4
 };
 
 export function can(role: UserRole, permission: Permission): boolean {
@@ -593,6 +621,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   SOCIETY_ADMIN: "Society Admin",
   OPERATOR_LIMITED: "Operator (Limited)", // batch-2026-10 WS-D
   DEALER: "Dealer", // docs/dealer-programme
+  CA: "Chartered Accountant", // gap report D4
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
@@ -750,5 +779,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   //
   /* >>> dealer programme (docs/dealer-programme) */
   [PERMISSIONS.DEALER_PORTAL]: "Use the dealer portal for one's own dealer: code, salespeople, shops, leads and commission",
+  [PERMISSIONS.DEALER_PAYOUTS_READ]: "Read dealer commission ledgers, payouts and payout reports (no approving or paying)",
+  [PERMISSIONS.COMMISSION_TDS_MANAGE]: "Keep TDS certificates, challans and Form 16A for commission payees",
   /* <<< end dealer programme */
 };

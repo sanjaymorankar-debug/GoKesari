@@ -95,6 +95,8 @@ export interface ShopWalletStatus {
   /** Rule shopWallet.enabled: when off, nothing is charged and orders are not gated. */
   enabled: boolean;
   balancePaise: number;
+  /** 0137: the part of the balance that is promotional credit (pays commission and delivery charges only). */
+  promoBalancePaise: number;
   minBalancePaise: number;
   lowBalanceThresholdPaise: number;
   /** False while the rule is on and the balance is below the minimum. */
@@ -117,16 +119,18 @@ export interface ShopWalletView extends ShopWalletStatus {
 export async function getShopWalletStatus(shopId: string): Promise<ShopWalletStatus> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
-  const [rules, balancePaise, rate] = await Promise.all([
+  const [rules, balancePaise, rate, [promo]] = await Promise.all([
     getRule("shopWallet"),
     getShopWalletBalance(shopId),
     resolveCommissionRate(shop),
+    db.select({ p: shopWallets.promoBalancePaise }).from(shopWallets).where(eq(shopWallets.shopId, shopId)),
   ]);
   return {
     shopId,
     shopName: shop.name,
     enabled: rules.enabled,
     balancePaise,
+    promoBalancePaise: Number(promo?.p ?? 0),
     minBalancePaise: rules.minBalancePaise,
     lowBalanceThresholdPaise: rules.lowBalanceThresholdPaise,
     canAcceptOrders: !rules.enabled || balancePaise >= rules.minBalancePaise,
@@ -164,6 +168,12 @@ export interface ShopWalletEntryInput {
    * cover it (the order was delivered); a manual debit must not overdraw.
    */
   allowNegative?: boolean;
+  /**
+   * 0137 (shop-refers-shop): a credit of promotional money, or the debit that
+   * takes it back. Promotional credit is spent first on commission and delivery
+   * charges and never on anything else (no refund to a bank, no other debit).
+   */
+  promotional?: boolean;
 }
 
 export interface ShopWalletEntryResult {
@@ -219,6 +229,19 @@ export async function applyShopWalletEntry(input: ShopWalletEntryInput, client?:
         { requiredPaise: input.amountPaise, availablePaise: before, shortfallPaise: input.amountPaise - before },
       );
     }
+    // 0137: promotional credit pays commission and delivery charges only.
+    const promoBefore = Number(locked.promoBalancePaise ?? 0);
+    const spendable = before - promoBefore;
+    if (!credit && !input.promotional && !ORDER_CHARGE_TYPES.has(input.type) && promoBefore > 0 && input.amountPaise > spendable && !input.allowNegative) {
+      throw new AppError(
+        "INSUFFICIENT_BALANCE",
+        `The shop wallet holds ${formatPaise(before)}, of which ${formatPaise(promoBefore)} is promotional credit that only pays GoKesari commission and delivery charges.`,
+        { requiredPaise: input.amountPaise, availablePaise: Math.max(0, spendable), shortfallPaise: input.amountPaise - Math.max(0, spendable) },
+      );
+    }
+    const promoAfter = credit
+      ? promoBefore + (input.promotional ? input.amountPaise : 0)
+      : Math.min(input.promotional || ORDER_CHARGE_TYPES.has(input.type) ? Math.max(0, promoBefore - input.amountPaise) : promoBefore, Math.max(0, after));
 
     // 3. The ledger row IS the balance change (trigger shop_wallet_txn_apply).
     const [transaction] = await tx
@@ -238,6 +261,7 @@ export async function applyShopWalletEntry(input: ShopWalletEntryInput, client?:
         createdBy: input.createdBy ?? null,
       })
       .returning();
+    if (promoAfter !== promoBefore) await tx.update(shopWallets).set({ promoBalancePaise: promoAfter }).where(eq(shopWallets.id, locked.id));
     return { transaction, balancePaise: after, deduplicated: false };
   };
 

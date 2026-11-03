@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ReverseReferralButton } from "@/components/customer-referral-reverse";
 import { Badge, Card, EmptyState, Money, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listCustomerReferrals } from "@/server/services/customer-referrals";
 
 export const metadata = { title: "Customer referrals" };
@@ -12,7 +13,8 @@ export const dynamic = "force-dynamic";
 export default async function CustomerReferralsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  if (user.role !== "ADMIN") redirect("/");
+  // Gap report P0-2: the same permission as the reversal API (it debits wallets).
+  if (!can(user.role, PERMISSIONS.WALLET_ADJUST)) redirect("/");
   const rows = await listCustomerReferrals();
   return (
     <div className="mx-auto max-w-4xl space-y-4">

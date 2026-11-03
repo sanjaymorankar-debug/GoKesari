@@ -127,6 +127,17 @@ per-date override may adjust or skip it. An override never creates a delivery on
 an unscheduled day, and because it is scoped to one date the schedule reverts
 automatically the next day.
 
+**Dealer commission is per payee and frozen per shop.** A dealer on the TIERED
+model (rule `dealerTieredCommission`, off by default) runs a network of at most
+three levels — main dealer → team lead → agent; the database refuses a fourth.
+Who earns what on a shop is frozen when it is approved; part of it waits for the
+TRADING milestone. Each team member is paid to their own verified bank account.
+Shops refer shops with their own `SHOP…` code (rule `shopReferrals`, off).
+Payouts are one per PAN per month; TDS on commission follows dated rows the CA
+confirms (rule `dealerPayoutTds`, off); a `CA` role reads payouts and keeps the
+TDS records. See [docs/dealer-programme/TIERED_COMMISSION.md](docs/dealer-programme/TIERED_COMMISSION.md)
+and [docs/referrals-dealer-2026-11/](docs/referrals-dealer-2026-11/).
+
 ## Testing
 
 ```bash

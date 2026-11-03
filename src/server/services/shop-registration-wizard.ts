@@ -75,6 +75,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { featureNotAvailable, isFeatureEnabled } from "./feature-flags";
 import { assertRegistrationReferralCode, attributeRegistrationReferral } from "./referral-requests";
 import { isReferralRequired } from "./referral-settings";
+import { looksLikeShopCode, shopReferralRule } from "./shop-referrals";
 import { registrationFeeDue } from "./registration-fee-payment";
 import { applyDocumentChecks, type ShopFacts } from "./seller-verification-checks";
 import {
@@ -434,8 +435,16 @@ async function lockReadyDraft(tx: DbClient, ownerId: string): Promise<ShopRegist
 export async function answerDraftReferral(input: { actor: Actor; referralCode: string | null }): Promise<WizardView> {
   const code = await assertRegistrationReferralCode(input.referralCode);
   await assertOwnerExists(input.actor.id);
+  // Shop-refers-shop (rule shopReferrals on): one code — the first one entered is kept.
+  const oneCode = (await shopReferralRule()).enabled;
   const draft = await db.transaction(async (tx) => {
     const locked = await lockOpenDraft(tx, input.actor.id);
+    if (oneCode && locked.referralCode && locked.referralCode !== code) {
+      throw conflict(`You already entered referral code ${locked.referralCode}. Only one code can be used — a dealer's or a shop's — and the first one is kept.`, {
+        reason: "REFERRAL_CODE_LOCKED",
+        fields: { referralCode: "The first code entered is kept." },
+      });
+    }
     const [updated] = await tx
       .update(shopRegistrationDrafts)
       .set({ referralCode: code, referralAnsweredAt: new Date(), updatedAt: new Date() })
@@ -946,6 +955,8 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
         categoryIds: details.categoryIds?.length ? details.categoryIds : undefined,
         annualTurnoverRupees: details.annualTurnoverRupees,
         couponCode: details.couponCode,
+        // A shop's referral code (0137) gives its discount and is recorded with the shop; a dealer code is attributed after.
+        referralCode: looksLikeShopCode(referralCode) ? referralCode : undefined,
         gstin,
         panNumber: pan,
         panHolderName: panRecordName ?? details.ownerName,

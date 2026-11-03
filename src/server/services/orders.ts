@@ -65,6 +65,8 @@ import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
 import { quoteCoupon, redeemCouponForOrder } from "./coupons";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
 import { rewardReferralOnDelivery } from "./customer-referrals";
+import { checkTradingOnDelivery } from "@/server/dealers/tiered";
+import { rewardShopReferralOnDelivery } from "./shop-referrals";
 import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
@@ -1056,6 +1058,20 @@ export async function updateOrderStatus(
           if (isSerializationFailure(error)) throw error; // split layout: retry the whole delivery instead
           console.error("[referrals] reward check failed for order", orderId, error);
         });
+      // docs/dealer-programme TIERED: the shop's TRADING milestone (N delivered orders within D days of
+      // activation) pays part 2 and the overrides; shop-refers-shop rewards the referring shop once the
+      // referred one has its first delivery. Savepoints, so a problem here can never block the delivery.
+      for (const [label, hook] of [
+        ["dealer trading", checkTradingOnDelivery],
+        ["shop referral", rewardShopReferralOnDelivery],
+      ] as const) {
+        await tx
+          .transaction((sp) => hook(orderId, sp))
+          .catch((error) => {
+            if (isSerializationFailure(error)) throw error; // split layout: retry the whole delivery instead
+            console.error(`[${label}] check failed for order`, orderId, error);
+          });
+      }
       // NEW-007: the shop's invoice is issued at delivery (rule invoicing).
       // Its own savepoint, so a problem here never blocks the delivery.
       // Module 2: also sent to the shop's accounting software / e-invoiced.
