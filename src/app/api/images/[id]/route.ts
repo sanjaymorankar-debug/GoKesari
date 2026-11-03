@@ -11,7 +11,8 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AppError, toClientError } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
+import { errorResponse } from "@/server/api/handler";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getImageMeta, readImageBytes, type ImageSize } from "@/server/services/image-store";
 import { isHiddenProductFile, isImageStaff } from "@/server/services/product-images";
@@ -91,7 +92,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       headers: { ...headers, "Content-Length": String(served.bytes.length) },
     });
   } catch (error) {
-    const { status, body } = toClientError(error);
-    return NextResponse.json(body, { status });
+    return errorResponse(error);
   }
 }

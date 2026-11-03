@@ -4,7 +4,7 @@ import { AccountsHeader, AccountsNav } from "@/components/accounts/accounts-nav"
 import { DocumentForm } from "@/components/billing/document-form";
 import { listDocuments } from "@/server/accounts/documents";
 import { loadAccountsPage } from "@/server/accounts/page";
-import { listSalesInvoices } from "@/server/accounts/sales";
+import { counterBillKind, listSalesInvoices } from "@/server/accounts/sales";
 import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const metadata = { title: "New document" };
@@ -25,6 +25,7 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
         backHref={`/shop/accounts/documents${shopQuery}`}
         invoices={sales.filter((s) => s.status === "ISSUED").map((s) => ({ id: s.id, label: `${s.invoiceNo} · ${s.buyerName ?? "Cash customer"} · ₹${(s.totalPaise / 100).toFixed(2)}` }))}
         receipts={receipts.filter((r) => r.status === "ISSUED").map((r) => ({ id: r.id, label: `${r.docNo} · ${r.buyerName ?? "—"} · ₹${(r.totalPaise / 100).toFixed(2)}` }))}
+        billOfSupply={counterBillKind(shop) === "BILL_OF_SUPPLY"}
       />
     </div>
   );

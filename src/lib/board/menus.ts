@@ -411,7 +411,9 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       // Gig worker flow (docs/gig-worker-2026-10): PAN / Aadhaar checks, police verification, gate override, society access.
       { key: "riderVerification", label: L("Rider verification", "राइडर सत्यापन", "रायडर पडताळणी"), icon: "user-check", href: "/admin/rider-verification", permission: ADMIN_ONLY },
       { key: "riderChanges", label: L("Rider profile changes", "राइडर प्रोफ़ाइल बदलाव", "रायडर प्रोफाइल बदल"), icon: "user-check", href: "/admin/rider-changes", count: "riderChanges", permission: PERMISSIONS.DELIVERY_PARTNER_MANAGE },
-      { key: "customerReferrals", label: L("Customer referrals", "ग्राहक रेफ़रल", "ग्राहक रेफरल"), icon: "gift", href: "/admin/customer-referrals", permission: ADMIN_ONLY },
+      { key: "customerReferrals", label: L("Customer referrals", "ग्राहक रेफ़रल", "ग्राहक रेफरल"), icon: "gift", href: "/admin/customer-referrals", permission: PERMISSIONS.WALLET_ADJUST },
+      { key: "tdsCommission", label: L("TDS on commission", "कमीशन पर TDS", "कमिशनवर TDS"), icon: "landmark", href: "/admin/tds-commission", permission: PERMISSIONS.COMMISSION_TDS_MANAGE },
+      { key: "shopReferrals", label: L("Shop-refers-shop rewards", "दुकान-से-दुकान रेफ़रल इनाम", "दुकान-ते-दुकान रेफरल बक्षीस"), icon: "gift", href: "/admin/shop-referrals", permission: ADMIN_ONLY },
       { key: "societies", label: L("Societies", "सोसाइटी", "सोसायट्या"), icon: "building-2", href: "/admin/societies", count: "societiesApplied", permission: PERMISSIONS.SOCIETY_MANAGE_ANY },
     ],
   },

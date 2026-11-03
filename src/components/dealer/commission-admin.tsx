@@ -42,6 +42,10 @@ interface Entry {
   id: string;
   dealerId: string;
   dealerName: string;
+  /** 0136: the team member paid (TIERED), and their name (the dealer's otherwise). */
+  payeeMemberId?: string | null;
+  payeeName?: string;
+  entryType?: string;
   shopName: string;
   milestone: string;
   kind: string;
@@ -58,8 +62,15 @@ interface Entry {
 interface Payout {
   id: string;
   dealerId: string;
+  memberId?: string | null;
   status: string;
   totalPaise: number;
+  /** 0136 / 0139 / 0142: TDS, the automatic transfer and its review flag, the TDS block. */
+  tdsPaise?: number;
+  needsReview?: boolean;
+  failureReason?: string | null;
+  tdsFlag?: string | null;
+  tdsOverrideReason?: string | null;
   paymentReference: string | null;
   periodMonth?: string | null;
   createdAt: string;
@@ -565,16 +576,49 @@ export function CommissionAdmin({
               ))}
             </div>
           ) : null}
+          <p className="flex flex-wrap gap-3 text-sm" data-testid="payout-reports">
+            {(["summary", "lines", "pending", "failed"] as const).map((r) => (
+              <span key={r}>
+                {{ summary: "Payout summary", lines: "Ledger lines", pending: "Pending payees", failed: "Failed transfers" }[r]}:{" "}
+                <a className="underline" href={`/api/admin/dealer-payout-reports?report=${r}&format=csv`}>
+                  CSV
+                </a>{" "}
+                ·{" "}
+                <a className="underline" href={`/api/admin/dealer-payout-reports?report=${r}&format=xlsx`}>
+                  XLSX
+                </a>
+              </span>
+            ))}
+            {isAdmin ? (
+              <a className="underline" href="/api/admin/dealer-commission?bankFile=1">
+                Bank file (approved payouts)
+              </a>
+            ) : null}
+          </p>
           <ul className="divide-y divide-cream-200 text-sm" data-testid="payouts">
             {payouts.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>
-                  {ledger.find((e) => e.dealerId === p.dealerId)?.dealerName ?? "Dealer"} · {rs(p.totalPaise)} · {p.periodMonth ? `${p.periodMonth} · ` : ""}
-                  {p.createdAt.slice(0, 10)} <Badge tone={p.status === "PAID" ? "success" : "neutral"}>{p.status.toLowerCase()}</Badge>
+                  {ledger.find((e) => e.dealerId === p.dealerId && (e.payeeMemberId ?? null) === (p.memberId ?? null))?.payeeName ?? ledger.find((e) => e.dealerId === p.dealerId)?.dealerName ?? "Dealer"} · gross {rs(p.totalPaise)}
+                  {p.tdsPaise ? ` · TDS ${rs(p.tdsPaise)} · net ${rs(p.totalPaise - p.tdsPaise)}` : ""} · {p.periodMonth ? `${p.periodMonth} · ` : ""}
+                  {p.createdAt.slice(0, 10)} <Badge tone={p.status === "PAID" ? "success" : p.status === "FAILED" ? "danger" : "neutral"}>{p.status.toLowerCase()}</Badge>
+                  {p.needsReview ? <Badge tone="warning">needs review</Badge> : null}
+                  {p.tdsFlag && !p.tdsOverrideReason ? <Badge tone="warning">TDS: {p.tdsFlag.toLowerCase().replace(/_/g, " ")}</Badge> : null}
+                  {p.failureReason ? <span className="text-ink-500"> · {p.failureReason}</span> : null}
                   {p.paymentReference ? <span className="text-ink-500"> · ref {p.paymentReference}</span> : null}
                 </span>
-                {isAdmin && p.status === "DRAFT" ? (
+                {isAdmin && (p.status === "DRAFT" || p.status === "APPROVED" || p.status === "FAILED") ? (
                   <span className="flex gap-2">
+                    {p.status === "DRAFT" ? (
+                      <Button size="sm" variant="secondary" disabled={busy} onClick={() => post({ action: "approvePayout", batchId: p.id }, "Payout approved (sent to the bank when automatic payouts are on).", false)}>
+                        Approve
+                      </Button>
+                    ) : null}
+                    {p.status === "FAILED" ? (
+                      <Button size="sm" variant="secondary" disabled={busy} onClick={() => post({ action: "retryPayout", batchId: p.id }, "Sent again.", false)}>
+                        Retry transfer
+                      </Button>
+                    ) : null}
                     <Button
                       size="sm"
                       disabled={busy}

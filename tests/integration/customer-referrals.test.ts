@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { addresses, customerReferrals, orders, platformSettings, users, walletTransactions, wallets } from "@/server/db/schema";
+import { addresses, customerReferrals, orders, platformSettings, riskFlags, users, walletTransactions, wallets } from "@/server/db/schema";
 import {
   applyReferralCode,
   canApplyReferralCode,
@@ -190,6 +190,28 @@ describe("D-25: reversing a rewarded referral found fraudulent", () => {
     expect(await getReferralSummary(r.id)).toMatchObject({ rewarded: 0, earnedPaise: 0 });
   });
 
+  it("gap report P0-1 / P0-3: never takes the customer's own topped-up money back; flags both customers", async () => {
+    await enable();
+    const r = await referrer();
+    const friend = await createUser();
+    await applyReferralCode(friend.id, await getOrCreateReferralCode(r.id));
+    await deliverOrderFor(friend.id);
+    // The referrer tops up ₹100 and then spends ₹60: the ₹50 promotional credit goes first.
+    await applyWalletMutation({ userId: r.id, amountPaise: 10_000, type: "TOP_UP", idempotencyKey: "own-money", description: "top-up" });
+    await applyWalletMutation({ userId: r.id, amountPaise: 6_000, type: "PRODUCT_PURCHASE", idempotencyKey: "spent-all-promo", description: "order" });
+    const [before] = await db.select().from(wallets).where(eq(wallets.userId, r.id));
+    expect(before).toMatchObject({ balancePaise: 9_000, promotionalBalancePaise: 0 });
+
+    const [referral] = await db.select().from(customerReferrals).where(eq(customerReferrals.refereeUserId, friend.id));
+    const reversed = await reverseCustomerReferral(referral.id, "Same device as the referrer", admin);
+    expect(reversed).toMatchObject({ referrerRecoveredPaise: 0, refereeRecoveredPaise: 3000 });
+    const [after] = await db.select().from(wallets).where(eq(wallets.userId, r.id));
+    expect(after.balancePaise).toBe(9_000);
+
+    const flags = await db.select().from(riskFlags).where(eq(riskFlags.ruleCode, "REFERRAL_REVERSED"));
+    expect(flags.map((f) => f.subjectId).sort()).toEqual([r.id, friend.id].sort());
+  });
+
   it("keeps the friend's mobile used: a new account on it earns nothing", async () => {
     await enable();
     const r = await referrer();
@@ -208,5 +230,15 @@ describe("D-25: reversing a rewarded referral found fraudulent", () => {
     const [second] = await db.select().from(customerReferrals).where(eq(customerReferrals.refereeUserId, again.id));
     expect(second).toMatchObject({ status: "REJECTED", rejectionReason: expect.stringMatching(/already earned/) });
     expect(await promo(again.id)).toBe(0);
+  });
+});
+
+describe("gap report P0-5: the referrer's own address, written differently", () => {
+  it("matches line 1 + line 2 read together, and two pins within 30 m", async () => {
+    const { sameAddress } = await import("@/server/services/customer-referrals");
+    expect(sameAddress({ line1: "Flat 5, A Wing", pincode: "411001" }, { line1: "Flat 5", line2: "A-Wing", pincode: "411001" })).toBe(true);
+    expect(sameAddress({ line1: "Flat 5", pincode: "411001" }, { line1: "Flat 6", pincode: "411001" })).toBe(false);
+    expect(sameAddress({ line1: "Flat 5", pincode: "411001" }, { line1: "Flat 5", pincode: "411002" })).toBe(false);
+    expect(sameAddress({ line1: "Rose Villa", pincode: "411001", latitude: "18.52040", longitude: "73.85670" }, { line1: "Near temple", pincode: "411004", latitude: "18.52050", longitude: "73.85680" })).toBe(true);
   });
 });

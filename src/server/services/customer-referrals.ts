@@ -19,6 +19,7 @@
 import { and, count, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
+import { haversineDistanceKm } from "@/lib/geo/haversine";
 import { formatPaise } from "@/lib/money";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -33,6 +34,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { flagReversedReferral } from "./risk";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getRule } from "./settings";
 import { applyWalletMutation, getOrCreateWallet } from "./wallet";
@@ -55,6 +57,38 @@ export async function getOrCreateReferralCode(userId: string): Promise<string> {
 }
 
 const normalizeLine = (v: string | null | undefined) => (v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+interface AddressLike {
+  line1: string;
+  line2?: string | null;
+  pincode: string;
+  latitude?: string | null;
+  longitude?: string | null;
+}
+
+/** Metres within which two pinned addresses count as the same place. */
+const SAME_PLACE_METRES = 30;
+
+/**
+ * Gap report P0-5: the same home written differently. Same PIN and the same
+ * line 1, or the same line 1 + line 2 read together ("Flat 5, A Wing" split
+ * over two lines); or both pinned within SAME_PLACE_METRES of each other.
+ */
+export function sameAddress(a: AddressLike, b: AddressLike): boolean {
+  if (a.pincode === b.pincode) {
+    if (normalizeLine(a.line1) && normalizeLine(a.line1) === normalizeLine(b.line1)) return true;
+    const both = (x: AddressLike) => normalizeLine(`${x.line1}${x.line2 ?? ""}`);
+    if (both(a) && both(a) === both(b)) return true;
+  }
+  const point = (x: AddressLike) => {
+    const lat = Number(x.latitude);
+    const lng = Number(x.longitude);
+    return x.latitude && x.longitude && Number.isFinite(lat) && Number.isFinite(lng) ? { latitude: lat, longitude: lng } : null;
+  };
+  const p = point(a);
+  const q = point(b);
+  return Boolean(p && q && haversineDistanceKm(p, q) * 1000 <= SAME_PLACE_METRES);
+}
 
 /** Why this customer can't apply a code now, or null when they can. */
 async function ineligibility(userId: string, applyWithinDays: number): Promise<string | null> {
@@ -189,10 +223,10 @@ export async function rewardReferralOnDelivery(orderId: string, tx: DbClient): P
   if (!rejection && order.deliveryAddressSnapshot) {
     const snap = order.deliveryAddressSnapshot;
     const referrerAddresses = await tx
-      .select({ line1: addresses.line1, pincode: addresses.pincode })
+      .select({ line1: addresses.line1, line2: addresses.line2, pincode: addresses.pincode, latitude: addresses.latitude, longitude: addresses.longitude })
       .from(addresses)
       .where(and(eq(addresses.userId, referral.referrerUserId), isNull(addresses.deletedAt)));
-    if (referrerAddresses.some((a) => a.pincode === snap.pincode && normalizeLine(a.line1) === normalizeLine(snap.line1))) {
+    if (referrerAddresses.some((a) => sameAddress(a, snap))) {
       rejection = "Delivered to the referrer's own address.";
     }
   }
@@ -209,6 +243,9 @@ export async function rewardReferralOnDelivery(orderId: string, tx: DbClient): P
     return;
   }
 
+  // Gap report P0-4: two friends' first deliveries at the same moment must not both take the referrer's last
+  // reward — the referrer's row is the gate, locked before counting (users is a core table: no fdw gate needed).
+  await tx.select({ id: users.id }).from(users).where(eq(users.id, referral.referrerUserId)).for("update");
   const [{ earnedCount }] = await tx
     .select({ earnedCount: count() })
     .from(customerReferrals)
@@ -304,7 +341,9 @@ export async function reverseCustomerReferral(
       const original = await tx.query.walletTransactions.findFirst({ where: eq(walletTransactions.idempotencyKey, `referral:${row.id}:${who}`) });
       if (!original) continue; // never paid
       const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).for("update");
-      const take = Math.min(reward, Math.max(0, wallet?.balancePaise ?? 0));
+      // Gap report P0-1: only the promotional credit still unspent comes back — never money the customer
+      // topped up (a REVERSAL draws promotional credit first, then customer money). The rest is unrecovered.
+      const take = Math.min(reward, Math.max(0, Number(wallet?.promotionalBalancePaise ?? 0)), Math.max(0, wallet?.balancePaise ?? 0));
       if (take > 0) {
         await applyWalletMutation(
           {
@@ -323,6 +362,8 @@ export async function reverseCustomerReferral(
       credited.push({ userId, recovered: take });
     }
 
+    // D-25 follow-up (gap report P0-3): both customers are flagged for review.
+    await flagReversedReferral({ referralId: row.id, referrerUserId: row.referrerUserId, refereeUserId: row.refereeUserId, reason: note }, tx);
     const [updated] = await tx
       .update(customerReferrals)
       .set({

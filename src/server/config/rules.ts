@@ -713,6 +713,104 @@ export const RULES = {
     }),
     defaults: { leadWindowDays: 30, maxOpenLeadsPerDealer: 200, duplicateDistanceMeters: 150, nameSimilarity: 80, assistedConsentMinutes: 60 },
   },
+  dealerTieredCommission: {
+    description:
+      "TIERED dealer commission (docs/dealer-programme/TIERED_COMMISSION.md), for dealers an admin moved to TIERED (Admin → Dealers → Commission). A network has at most 3 levels: main dealer → team lead → agent. On every paid shop registration (% of the fee actually paid, before GST, after coupons): directBp to whoever signed the shop (moved by the dealer's rating, as today), leadOverrideBp to the agent's team lead, mainOverrideBp to the main dealer — a missing level is not paid and nobody earns twice on a shop. firstPartBp of the direct part is earned at ACTIVATED; the rest of it, and the overrides, at TRADING: tradingOrders delivered orders within tradingDays of activation, or it lapses. Renewal: renewalBp of a paid renewal fee (before GST) to the direct earner while the shop is active (renewalEnabled). Promotion: an agent with promotionMinShops activated shops can be made a team lead (an admin may override with a reason); his former lead earns developmentBp on the new team for developmentMonths. Monthly target bonuses (targetBonusesEnabled): targets lists { role, minShops, bonusPaise } — the highest target reached in a month is paid. Everyone accepts the agent agreement before earning; no joining fees and no payment for recruiting. Off: no dealer can be moved to TIERED, and TIERED dealers earn under the standard model. Defaults per dealer can be set on the dealer.",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        directBp: int(0, 10_000),
+        leadOverrideBp: int(0, 10_000),
+        mainOverrideBp: int(0, 10_000),
+        firstPartBp: int(0, 10_000),
+        tradingOrders: int(1, 10_000),
+        tradingDays: int(1, 730),
+        renewalEnabled: z.boolean(),
+        renewalBp: int(0, 10_000),
+        promotionMinShops: int(0, 10_000),
+        developmentBp: int(0, 10_000),
+        developmentMonths: int(1, 60),
+        targetBonusesEnabled: z.boolean(),
+        targets: z
+          .array(z.object({ role: z.enum(["MAIN_DEALER", "TEAM_LEAD", "AGENT"]), minShops: int(1, 100_000), bonusPaise: int(0, 100_000_000) }))
+          .max(30),
+      })
+      .refine((v) => v.directBp + v.leadOverrideBp + v.mainOverrideBp <= 10_000, { message: "Direct and overrides together cannot pass 100% of the fee.", path: ["directBp"] }),
+    // Owner brief, 2 Nov 2026: 20% / 5% / 3% (at most 28% a shop), 60% of the direct part at activation,
+    // TRADING = 10 delivered orders within 90 days, renewal 10%, promotion at 10 shops, 1% for 6 months.
+    defaults: {
+      enabled: false,
+      directBp: 2000,
+      leadOverrideBp: 500,
+      mainOverrideBp: 300,
+      firstPartBp: 6000,
+      tradingOrders: 10,
+      tradingDays: 90,
+      renewalEnabled: true,
+      renewalBp: 1000,
+      promotionMinShops: 10,
+      developmentBp: 100,
+      developmentMonths: 6,
+      targetBonusesEnabled: false,
+      targets: [
+        { role: "AGENT", minShops: 10, bonusPaise: 100_000 },
+        { role: "TEAM_LEAD", minShops: 30, bonusPaise: 250_000 },
+        { role: "MAIN_DEALER", minShops: 100, bonusPaise: 500_000 },
+      ],
+    },
+  },
+  dealerPayoutTds: {
+    description:
+      "Income-tax TDS on dealer and team-member commission payouts (every model). Off until the CA confirms. On: each payout is taxed by the dated rows in Admin → TDS on commission (payee type, PAN status, rate, annual threshold, CATCH_UP or EXCESS_ONLY, the section, the CA's confirmation), summed per PAN over the financial year (April–March), with a payee's lower / nil certificate where one applies. A payout taxed under a row the CA has not confirmed is blocked until an admin overrides it with a reason. The statement shows gross, TDS and net; the bank transfer is the net. rateBp and annualThresholdPaise are the starting values the first rows were seeded with (no longer read).",
+    schema: z.object({ enabled: z.boolean(), rateBp: int(0, 5000), annualThresholdPaise: int(0, 1_000_000_000) }),
+    // Starting values (owner brief, 2 Nov 2026): 2% above ₹20,000 a year — to be confirmed by the CA.
+    defaults: { enabled: false, rateBp: 200, annualThresholdPaise: 2_000_000 },
+  },
+  dealerPayouts: {
+    description:
+      "Dealer commission payouts (gap report Part C), every model: one payout per PAN per month — a person who earns in two roles is paid once. A TIERED team member is paid only with a PAN, a verified bank account and the agent agreement — and so is a dealer when enforcePayeeChecks is on (off: dealers are drafted and paid as before); otherwise the month's amount is held and carried to the next month, and with reminderEnabled the payee is reminded at the month's close what is missing. A net below minPayoutPaise is carried forward too (0 = no minimum, as before).",
+    schema: z.object({ enforcePayeeChecks: z.boolean(), minPayoutPaise: int(0, 10_000_000), reminderEnabled: z.boolean() }),
+    // Owner to set the minimum (₹100 suggested, as riders) and switch the checks on for dealers;
+    // off / 0 keep today's behaviour for dealers. TIERED team members are always checked.
+    defaults: { enforcePayeeChecks: false, minPayoutPaise: 0, reminderEnabled: true },
+  },
+  dealerAutoPayout: {
+    description:
+      "Automatic bank transfer of dealer commission payouts (gap report C4) through the shop payout providers. Off: an admin pays by hand and records the bank reference, as today. On: a drafted payout is approved by an admin other than the one who drafted it (the monthly job counts as the drafter), then sent to provider (SANDBOX never on gokesari.com; RAZORPAYX or CASHFREE with their payout keys) by mode; the signed webhook brings the UTR and marks it paid. A failure is retried maxRetries times, retryBackoffMinutes × attempt apart, then flagged for finance (retry, pay by hand, or cancel). bankFile: approved payouts can always be downloaded as a bank upload file.",
+    schema: z.object({
+      enabled: z.boolean(),
+      provider: z.enum(["SANDBOX", "RAZORPAYX", "CASHFREE"]),
+      mode: z.enum(["IMPS", "NEFT"]),
+      maxRetries: int(0, 10),
+      retryBackoffMinutes: int(1, 1440),
+      sandboxAutoWebhook: z.boolean(),
+    }),
+    defaults: { enabled: false, provider: "SANDBOX", mode: "IMPS", maxRetries: 3, retryBackoffMinutes: 60, sandboxAutoWebhook: true },
+  },
+  shopReferrals: {
+    description:
+      "Shop-refers-shop rewards (not the same as shopReferral, the operator-issued codes a shop needs to register; docs/dealer-programme/TIERED_COMMISSION.md, Part B), like the customer referral reward. On: every approved shop has its own code (SHOP…) and link (/r/CODE) on its manage page. A registering shop enters one code — a dealer code or a shop code, never both; the first code entered is locked. The referred shop gets referredDiscountBp off its registration fee (referredMode DISCOUNT) or referredCreditPaise of promotional wallet credit (WALLET_CREDIT). The referring shop gets referrerCreditPaise of promotional wallet credit (referrerMode WALLET_CREDIT) or referrerExtensionMonths more membership (MEMBERSHIP_EXTENSION), once the referred shop is approved and its first order is delivered. Promotional credit pays GoKesari commission and delivery charges only; it is never paid out to a bank. No reward when the two shops share a PAN, GSTIN, mobile, bank account or owner, or the new shop looks like a branch or a duplicate; at most maxRewardsPerYear rewards per referring shop in 12 months. An admin can reverse a reward (Admin → Shop referrals).",
+    schema: z.object({
+      enabled: z.boolean(),
+      referredMode: z.enum(["DISCOUNT", "WALLET_CREDIT"]),
+      referredDiscountBp: int(0, 10_000),
+      referredCreditPaise: int(0, 10_000_000),
+      referrerMode: z.enum(["WALLET_CREDIT", "MEMBERSHIP_EXTENSION"]),
+      referrerCreditPaise: int(0, 10_000_000),
+      referrerExtensionMonths: int(1, 24),
+      maxRewardsPerYear: int(1, 1000),
+    }),
+    defaults: {
+      enabled: false,
+      referredMode: "DISCOUNT",
+      referredDiscountBp: 1000,
+      referredCreditPaise: 10_000,
+      referrerMode: "WALLET_CREDIT",
+      referrerCreditPaise: 20_000,
+      referrerExtensionMonths: 1,
+      maxRewardsPerYear: 20,
+    },
+  },
   dealerPerformanceScore: {
     description:
       "Dealer performance score (docs/dealer-programme, GKS-AN-001) — for analysis and ranking only; the onboarding rating drives commission. Weights in % (they must add up to 100): activatedShops — shops that went live, against the best dealer in the same district; registrationQuality — registrations not rejected, not duplicates and not reversed; activity30 — live shops with an order in the last 30 days; costPerActivatedShop — commission per live shop, cheapest in the district scores highest; coverage — areas of the dealer's territory with at least one of its shops (not a duplicate or rejected one). Shown in Admin → Dealers → Analytics.",

@@ -15,6 +15,7 @@ import { listShopProducts } from "@/server/services/catalogue";
 import { listOrdersForShop } from "@/server/services/orders";
 import { listShopsForOwner } from "@/server/services/shops";
 import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
+import { invoiceKindsForOrders, orderInvoiceLabel } from "@/server/services/invoices";
 import { getRule } from "@/server/services/settings";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { getShopFulfilmentViews, listDeliveryStaff, plannerOptions } from "@/server/services/fulfilment-options";
@@ -73,7 +74,8 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
   const partners = await getShopOrderPartners(orders.map((o) => o.id));
   // NEW-007: invoice and delivery-photo links on delivered orders.
   const delivered = orders.filter((o) => o.status === "DELIVERED").map((o) => o.id);
-  const [proofPhotos, invoicingRule] = await Promise.all([proofPhotosForOrders(delivered), getRule("invoicing")]);
+  // QA D-121: invoiceKinds names the link by the document issued (a shop outside GST issues a bill of supply).
+  const [proofPhotos, invoicingRule, invoiceKinds] = await Promise.all([proofPhotosForOrders(delivered), getRule("invoicing"), invoiceKindsForOrders(delivered)]);
   // Only READY orders of a delivering shop are waiting for a rider.
   const searchByOrder = new Map(
     shop.deliveryAvailable
@@ -132,6 +134,7 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
             cashCollected: o.codCollectedAt != null,
             acceptByAt: o.acceptByAt ? o.acceptByAt.toISOString() : null,
             invoiceUrl: o.status === "DELIVERED" && invoicingRule.enabled ? `/api/orders/${o.id}/invoice` : null,
+            invoiceLabel: orderInvoiceLabel(invoiceKinds.get(o.id)),
             proofPhotoUrl: proofPhotos.get(o.id)?.url ?? null,
             scheduledSlot:
               o.scheduledSlotStart && o.scheduledSlotEnd

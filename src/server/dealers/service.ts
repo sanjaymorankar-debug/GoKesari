@@ -64,6 +64,8 @@ import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { newReferralCode } from "@/server/services/referrals";
 import { activeCodeFor, issueCode, listDealerCodes, replaceCode, setCodesStatus } from "./codes";
 import { holdDealerCommission } from "./commission";
+import { placeNewMember, recordMapping } from "./tiered";
+import type { TeamRole } from "@/lib/dealer-tiers";
 
 export interface DealerActor {
   id: string;
@@ -1028,7 +1030,7 @@ export async function requireApprovedDealer(actor: DealerActor): Promise<Dealer>
  */
 export async function addSalesperson(
   dealerId: string,
-  input: { employeeId: string; name: string; mobile?: string | null },
+  input: { employeeId: string; name: string; mobile?: string | null; role?: TeamRole; parentId?: string | null; recruitedById?: string | null },
   actor: DealerActor,
 ): Promise<SalespersonView> {
   const employeeId = clean(input.employeeId, 48);
@@ -1054,9 +1056,15 @@ export async function addSalesperson(
       .insert(dealerSalespeople)
       .values({ dealerId, employeeId, name, mobileE164, source: actor.role === "ADMIN" ? "ADMIN" : "DEALER" })
       .returning();
+    // TIERED (0136): a place in the tree — at most 3 levels (refused here and by the database).
+    if (input.role || input.parentId || input.recruitedById) {
+      await placeNewMember(tx, dealerId, person.id, input.role ?? "AGENT", input.parentId ?? null, input.recruitedById ?? null);
+    }
+    // 0138: the member's first place in the team, kept in the mapping history.
+    await recordMapping(tx, person.id, "added to the team", actor.id);
     await issueCode(tx, { dealerId, salespersonId: person.id, kind: "SALESPERSON", makeCode: newReferralCode, label: `${dealer.legalName}: ${name} (${employeeId})`, referrerName: name }, actor);
     await recordAudit(
-      { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_SALESPERSON_SAVED, entityType: "dealer", entityId: dealerId, newValue: { salespersonId: person.id, employeeId, status: "ACTIVE" } },
+      { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_SALESPERSON_SAVED, entityType: "dealer", entityId: dealerId, newValue: { salespersonId: person.id, employeeId, status: "ACTIVE", role: input.role ?? "AGENT", parentId: input.parentId ?? null, recruitedById: input.recruitedById ?? null } },
       tx,
     );
     return (await salespersonViews(dealerId, tx)).find((p) => p.id === person.id)!;

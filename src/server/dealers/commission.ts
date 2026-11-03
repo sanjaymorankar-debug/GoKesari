@@ -63,11 +63,13 @@ import {
   dealerPayoutBatches,
   dealerRatingHistory,
   dealerRatingSlabs,
+  dealerSalespeople,
   dealers,
   shopAttributions,
   shopProducts,
   shops,
   type CommissionMilestone,
+  type LedgerMilestone,
   type CommissionStatus,
   type DealerCommissionEntry,
   type DealerCommissionRule,
@@ -83,7 +85,11 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-flags";
 import { districtCodeForPincode } from "@/server/services/geo-areas";
 import { notify } from "@/server/services/notifications";
+import { getRule } from "@/server/services/settings";
+import { computeCommissionTds, payeeTypeFor, tdsBlock, type CommissionTds } from "@/server/tax/commission-tds";
 import { deferredReviewDocTypes, hasDocumentWaiver, missingMandatoryDocuments } from "@/server/services/shop-onboarding";
+import { COMMISSION_ENTRY_TYPE_LABELS, type CommissionEntryType } from "@/lib/dealer-tiers";
+import { AGREEMENT_HOLD_NOTE, accrueTieredActivation, agreementAccepted, isTieredDealer, reversePlan, tellReversal } from "./tiered";
 
 interface Actor {
   id: string;
@@ -520,11 +526,19 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
   if (row.shop.status === "APPROVED") reached.push("ACTIVATED");
 
   const out: DealerCommissionEntry[] = [];
+  // TIERED dealers (0136, rule dealerTieredCommission on): the network commission, part 1 at activation.
+  const [dealerRow] = await db.select({ commissionModel: dealers.commissionModel }).from(dealers).where(eq(dealers.id, row.a.dealerId));
+  const tiered = dealerRow ? await isTieredDealer(dealerRow) : false;
   // Base % model: the whole commission is earned at activation; the other milestones earn nothing.
-  const earning = settings.commissionModel === "BASE_PERCENT" ? reached.filter((m) => m === "ACTIVATED") : reached;
+  const earning = tiered || settings.commissionModel === "BASE_PERCENT" ? reached.filter((m) => m === "ACTIVATED") : reached;
   // A waived fee earns the dealer nothing; the rating below still counts the shop.
   for (const milestone of feeWaived(row.shop) ? [] : earning) {
-    out.push(...(await accrue(row.shop, row.a.dealerId, row.a.salespersonId, milestone, district, settings, actor, { holdForDocuments: milestone === "ACTIVATED" && awaitingDocuments })));
+    const holdForDocuments = milestone === "ACTIVATED" && awaitingDocuments;
+    out.push(
+      ...(tiered
+        ? await accrueTieredActivation(row.shop, row.a.dealerId, row.a.salespersonId, district, settings, actor, { holdForDocuments })
+        : await accrue(row.shop, row.a.dealerId, row.a.salespersonId, milestone, district, settings, actor, { holdForDocuments })),
+    );
   }
   // No rating credit until the documents are verified; then the held activation is released.
   if (awaitingDocuments) return out;
@@ -667,6 +681,9 @@ async function reverseAccruals(tx: DbClient, shopId: string, why: string, actor:
         salespersonId: e.salespersonId,
         shopId,
         milestone: e.milestone,
+        entryType: e.entryType,
+        payeeMemberId: e.payeeMemberId,
+        level: e.level,
         kind: "REVERSAL",
         ruleId: e.ruleId,
         ruleVersion: e.ruleVersion,
@@ -695,6 +712,8 @@ export async function reverseShopCommission(shopId: string, reason: string, acto
     const [attribution] = await tx.select().from(shopAttributions).where(eq(shopAttributions.shopId, shopId)).for("update");
     if (!attribution) return null;
     const n = await reverseAccruals(tx, shopId, why, actor);
+    // TIERED: every level goes (direct, overrides, development); the plan never reaches TRADING.
+    await reversePlan(tx, shopId);
     await tx.update(shopAttributions).set({ status: "REVERSED", note: `reversed: ${why}`, updatedAt: new Date() }).where(eq(shopAttributions.shopId, shopId));
     await recordAudit(
       {
@@ -711,6 +730,7 @@ export async function reverseShopCommission(shopId: string, reason: string, acto
   });
   if (!result) return 0;
   await recountRating(result.dealerId, `a shop was reversed: ${why}`, null);
+  await tellReversal(shopId, why).catch((error) => console.error("[dealers] reversal notice failed", shopId, error));
   return result.n;
 }
 
@@ -736,6 +756,7 @@ export async function reverseWaivedFeeCommissionSafely(shopId: string, actor: Ac
       const [attribution] = await tx.select().from(shopAttributions).where(eq(shopAttributions.shopId, shopId)).for("update");
       if (!attribution) return;
       const n = await reverseAccruals(tx, shopId, why, actor);
+      await reversePlan(tx, shopId);
       if (n === 0) return;
       await recordAudit(
         {
@@ -763,7 +784,7 @@ export async function reverseEntry(entryId: string, reason: string, actor: Actor
     if (!e || e.kind !== "ACCRUAL") throw notFound("Commission entry");
     if (e.status === "REVERSED") throw conflict("Already reversed.");
     if (e.status === "PAID") {
-      await tx.insert(dealerCommissionLedger).values({ dealerId: e.dealerId, salespersonId: e.salespersonId, shopId: e.shopId, milestone: e.milestone, kind: "REVERSAL", ruleId: e.ruleId, ruleVersion: e.ruleVersion, amountPaise: -e.amountPaise, status: "EARNED", reversesId: e.id, note: `reversal after payment: ${why}`, createdBy: actor.id });
+      await tx.insert(dealerCommissionLedger).values({ dealerId: e.dealerId, salespersonId: e.salespersonId, shopId: e.shopId, milestone: e.milestone, entryType: e.entryType, payeeMemberId: e.payeeMemberId, level: e.level, kind: "REVERSAL", ruleId: e.ruleId, ruleVersion: e.ruleVersion, amountPaise: -e.amountPaise, status: "EARNED", reversesId: e.id, note: `reversal after payment: ${why}`, createdBy: actor.id });
     } else {
       await tx.update(dealerCommissionLedger).set({ status: "REVERSED", payoutBatchId: null, note: `reversed: ${why}`, updatedAt: new Date() }).where(eq(dealerCommissionLedger.id, e.id));
     }
@@ -822,8 +843,9 @@ export async function holdDealerCommission(dealerId: string, hold: boolean, acto
       return open.length;
     }
     // Entries held for a shop's documents stay held: only the documents release them.
+    // ...and so do entries waiting for the payee's agent agreement (TIERED).
     const held = (await tx.select().from(dealerCommissionLedger).where(and(eq(dealerCommissionLedger.dealerId, dealerId), eq(dealerCommissionLedger.status, "ON_HOLD")))).filter(
-      (e) => !e.note?.startsWith(DOCUMENTS_HOLD_NOTE),
+      (e) => !e.note?.startsWith(DOCUMENTS_HOLD_NOTE) && !e.note?.includes(AGREEMENT_HOLD_NOTE),
     );
     for (const e of held) await tx.update(dealerCommissionLedger).set({ status: e.heldFromStatus ?? "EARNED", heldFromStatus: null, updatedAt: new Date() }).where(eq(dealerCommissionLedger.id, e.id));
     return held.length;
@@ -851,7 +873,7 @@ async function releaseDocumentHold(shopId: string, actor: Actor | null): Promise
     const rows = held.map((e) => ({ e, dealerStatus: statusOf.get(e.dealerId) }));
     for (const { e, dealerStatus } of rows) {
       const note = e.note!.slice(DOCUMENTS_HOLD_NOTE.length).replace(/^; /, "") || null;
-      const status = dealerStatus === "APPROVED" ? (e.heldFromStatus ?? "EARNED") : "ON_HOLD";
+      const status = dealerStatus === "APPROVED" && !note?.includes(AGREEMENT_HOLD_NOTE) ? (e.heldFromStatus ?? "EARNED") : "ON_HOLD";
       await tx
         .update(dealerCommissionLedger)
         .set({ status, heldFromStatus: status === "ON_HOLD" ? e.heldFromStatus : null, note, updatedAt: new Date() })
@@ -889,7 +911,7 @@ export async function releaseHeldEntry(entryId: string, reason: string, actor: A
  * reversal not yet settled, netted. Refused when the net is not positive (the
  * negative balance is carried to the next one).
  */
-export async function createPayoutBatch(dealerId: string, actor: Actor, note?: string | null) {
+export async function createPayoutBatch(dealerId: string, actor: Actor, note?: string | null, memberId: string | null = null) {
   requireAdmin(actor, "create payouts");
   return db.transaction(async (tx) => {
     await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
@@ -900,44 +922,134 @@ export async function createPayoutBatch(dealerId: string, actor: Actor, note?: s
       .where(
         and(
           eq(dealerCommissionLedger.dealerId, dealerId),
+          // One payout per payee: the dealer itself, or (TIERED) one team member.
+          memberId ? eq(dealerCommissionLedger.payeeMemberId, memberId) : isNull(dealerCommissionLedger.payeeMemberId),
           isNull(dealerCommissionLedger.payoutBatchId),
           or(eq(dealerCommissionLedger.status, "APPROVED"), and(eq(dealerCommissionLedger.kind, "REVERSAL"), inArray(dealerCommissionLedger.status, ["EARNED", "APPROVED"]))),
         ),
       );
     const total = rows.reduce((s, r) => s + r.amountPaise, 0);
     if (rows.length === 0 || total <= 0) throw conflict(total < 0 ? `The dealer owes ₹${(-total / 100).toLocaleString("en-IN")} from reversals; it is carried to the next payout.` : "Nothing approved to pay.");
-    const [batch] = await tx.insert(dealerPayoutBatches).values({ dealerId, totalPaise: total, note: note?.trim().slice(0, 300) || null, createdBy: actor.id }).returning();
+    const { panHash } = await payeeStatus(tx, dealerId, memberId);
+    const tds = await payoutTds(tx, dealerId, memberId, total, new Date(), panHash);
+    const tdsPaise = tds.tdsPaise;
+    const [batch] = await tx
+      .insert(dealerPayoutBatches)
+      .values({ dealerId, memberId, payeePanHash: panHash, totalPaise: total, ...tdsColumns(tds), note: note?.trim().slice(0, 300) || null, createdBy: actor.id })
+      .returning();
     await tx.update(dealerCommissionLedger).set({ payoutBatchId: batch.id, updatedAt: new Date() }).where(inArray(dealerCommissionLedger.id, rows.map((r) => r.id)));
-    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batch.id, newValue: { dealerId, totalPaise: total, entries: rows.length, status: "DRAFT" } }, tx);
+    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batch.id, newValue: { dealerId, memberId, totalPaise: total, tdsPaise, netPaise: total - tdsPaise, entries: rows.length, status: "DRAFT" } }, tx);
     return batch;
   });
 }
 
 /**
+ * Income-tax TDS for a payout (gap report Part D; rule dealerPayoutTds, off):
+ * the dated row for the payee's type and PAN status, a certificate if one
+ * applies, summed per PAN over the financial year — see
+ * src/server/tax/commission-tds.ts. `flag` set: paying is blocked until an
+ * admin overrides (the row is not CA-confirmed, or none applies).
+ */
+export async function payoutTds(
+  tx: DbClient,
+  dealerId: string,
+  memberId: string | null,
+  grossPaise: number,
+  at: Date = new Date(),
+  panHash: string | null = null,
+): Promise<CommissionTds> {
+  const [d] = await tx.select({ dealerType: dealers.dealerType }).from(dealers).where(eq(dealers.id, dealerId));
+  return computeCommissionTds(tx, { panHash, payeeType: memberId ? "INDIVIDUAL" : payeeTypeFor(d?.dealerType ?? null), grossPaise, at, dealerId, memberId });
+}
+
+/** The payout columns that record a TDS computation. */
+export const tdsColumns = (t: CommissionTds) => ({ tdsPaise: t.tdsPaise, tdsRateBp: t.tdsPaise > 0 ? t.rateBp : 0, tdsRateId: t.rateId, tdsSection: t.section, tdsCertificateId: t.certificateId, tdsFlag: t.flag });
+
+/**
+ * Gap report C2: the payee's PAN (blind index) and what still stops a payout —
+ * no PAN, no verified bank account, (TIERED) the agent agreement not accepted.
+ */
+export async function payeeStatus(client: DbClient, dealerId: string, memberId: string | null): Promise<{ panHash: string | null; missing: string[] }> {
+  const [d] = await client.select().from(dealers).where(eq(dealers.id, dealerId));
+  if (!d) return { panHash: null, missing: ["dealer not found"] };
+  const m = memberId ? (await client.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId)))[0] : null;
+  if (memberId && !m) return { panHash: null, missing: ["team member not found"] };
+  const panHash = m ? m.panHash : d.panHash;
+  const missing: string[] = [];
+  if (!panHash) missing.push("PAN");
+  if ((m ? m.bankStatus : d.bankStatus) !== "VERIFIED") missing.push("verified bank account");
+  if (d.commissionModel === "TIERED" && !agreementAccepted(m ?? null, d)) missing.push("agent agreement");
+  return { panHash, missing };
+}
+
+/** Why a payee cannot be paid yet (PAN and a verified bank account are mandatory), or null. */
+async function payeeNotReady(tx: DbClient, b: { dealerId: string; memberId: string | null }): Promise<string | null> {
+  if (b.memberId) {
+    const [m] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, b.memberId));
+    if (!m) return "The team member is not found.";
+    if (!m.panHash) return `${m.name} has no PAN on file.`;
+    if (m.bankStatus !== "VERIFIED") return `${m.name}'s bank account is not verified.`;
+    return null;
+  }
+  const [d] = await tx.select().from(dealers).where(eq(dealers.id, b.dealerId));
+  if (!d) return "The dealer is not found.";
+  if (!d.panHash) return "The dealer has no PAN on file.";
+  if (d.bankStatus !== "VERIFIED") return "The dealer's bank account is not verified.";
+  return null;
+}
+
+/**
  * ADMIN only: the bank transfer was made (outside GoKesari) — record its
  * reference; every entry becomes PAID. Reconciled: the entries must still add
- * up to the batch total.
+ * up to the batch total. The payee needs PAN and a verified bank account; the
+ * transfer is the net (gross less TDS).
  */
-export async function markPayoutPaid(batchId: string, paymentReference: string, actor: Actor) {
-  requireAdmin(actor, "record payouts");
+export async function markPayoutPaid(batchId: string, paymentReference: string, actor: Actor, options: { viaProvider?: boolean } = {}) {
+  // The payout provider's webhook (rule dealerAutoPayout) records its UTR the same way.
+  if (!options.viaProvider) requireAdmin(actor, "record payouts");
   const ref = paymentReference.trim().slice(0, 120);
   if (ref.length < 3) throw validationFailed("Enter the bank / UTR reference of the transfer.", { fields: { paymentReference: "Required." } });
   const batch = await db.transaction(async (tx) => {
     const [b] = await tx.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId)).for("update");
     if (!b) throw notFound("Payout");
-    if (b.status !== "DRAFT") throw conflict("This payout is already closed.");
+    const open = options.viaProvider ? ["APPROVED", "PROCESSING", "FAILED"] : ["DRAFT", "APPROVED", "FAILED"];
+    if (!open.includes(b.status)) throw conflict(b.status === "PROCESSING" ? "This payout is with the bank; wait for its answer." : "This payout is already closed.");
+    // Team members always; dealers when rule dealerPayouts.enforcePayeeChecks is on (off: as before).
+    const notReady = b.memberId || (await getRule("dealerPayouts")).enforcePayeeChecks ? await payeeNotReady(tx, b) : null;
+    if (notReady) throw conflict(`${notReady} A payout is paid only with PAN and a verified bank account on file.`, { reason: "PAYEE_NOT_READY" });
+    // Gap report D3: an unconfirmed (or missing) TDS row blocks paying until an admin overrides it.
+    const blocked = tdsBlock(b);
+    if (blocked) throw conflict(`${blocked} An admin can override it with a reason.`, { reason: "TDS_UNCONFIRMED" });
     const rows = await tx.select().from(dealerCommissionLedger).where(eq(dealerCommissionLedger.payoutBatchId, batchId));
     const sum = rows.reduce((s, r) => s + r.amountPaise, 0);
     if (sum !== b.totalPaise) throw conflict(`Does not reconcile: entries add up to ₹${sum / 100}, the payout is ₹${b.totalPaise / 100}. Cancel it and create it again.`);
     const now = new Date();
     await tx.update(dealerCommissionLedger).set({ status: "PAID", updatedAt: now }).where(eq(dealerCommissionLedger.payoutBatchId, batchId));
-    const [paid] = await tx.update(dealerPayoutBatches).set({ status: "PAID", paymentReference: ref, paidBy: actor.id, paidAt: now }).where(eq(dealerPayoutBatches.id, batchId)).returning();
-    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batchId, previousValue: { status: "DRAFT" }, newValue: { status: "PAID", paymentReference: ref, totalPaise: b.totalPaise } }, tx);
+    const [paid] = await tx
+      .update(dealerPayoutBatches)
+      .set({ status: "PAID", paymentReference: ref, paidBy: options.viaProvider ? null : actor.id, paidAt: now, needsReview: false, nextRetryAt: null })
+      .where(eq(dealerPayoutBatches.id, batchId))
+      .returning();
+    await recordAudit(
+      {
+        actorId: options.viaProvider ? null : actor.id,
+        actorRole: options.viaProvider ? null : actor.role,
+        action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED,
+        entityType: "dealer_payout_batch",
+        entityId: batchId,
+        previousValue: { status: b.status },
+        newValue: { status: "PAID", paymentReference: ref, viaProvider: Boolean(options.viaProvider), totalPaise: b.totalPaise, tdsPaise: b.tdsPaise, netPaise: b.totalPaise - b.tdsPaise },
+      },
+      tx,
+    );
     return paid;
   });
-  const [dealer] = await db.select({ userId: dealers.userId }).from(dealers).where(eq(dealers.id, batch.dealerId));
-  if (dealer?.userId) {
-    await notify({ userId: dealer.userId, type: NOTIFICATION_TYPES.DEALER_PAYOUT_PAID, vars: { amount: `₹${(batch.totalPaise / 100).toLocaleString("en-IN")}`, reference: ref }, actionUrl: "/dealer", dedupeKey: `dealer-payout:${batchId}` });
+  const [payee] = batch.memberId
+    ? await db.select({ userId: dealerSalespeople.userId }).from(dealerSalespeople).where(eq(dealerSalespeople.id, batch.memberId))
+    : await db.select({ userId: dealers.userId }).from(dealers).where(eq(dealers.id, batch.dealerId));
+  if (payee?.userId) {
+    const net = batch.totalPaise - batch.tdsPaise;
+    await notify({ userId: payee.userId, type: NOTIFICATION_TYPES.DEALER_PAYOUT_PAID, vars: { amount: `₹${(net / 100).toLocaleString("en-IN")}`, reference: ref }, actionUrl: "/dealer", channels: ["PUSH"], dedupeKey: `dealer-payout:${batchId}` });
   }
   return batch;
 }
@@ -947,7 +1059,7 @@ export async function cancelPayout(batchId: string, actor: Actor): Promise<void>
   requireAdmin(actor, "cancel payouts");
   await db.transaction(async (tx) => {
     const [b] = await tx.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId)).for("update");
-    if (!b || b.status !== "DRAFT") throw conflict("Only a draft payout can be cancelled.");
+    if (!b || !["DRAFT", "APPROVED", "FAILED"].includes(b.status)) throw conflict("Only a payout not yet with the bank can be cancelled.");
     await tx.update(dealerCommissionLedger).set({ payoutBatchId: null, updatedAt: new Date() }).where(eq(dealerCommissionLedger.payoutBatchId, batchId));
     await tx.update(dealerPayoutBatches).set({ status: "CANCELLED" }).where(eq(dealerPayoutBatches.id, batchId));
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batchId, newValue: { status: "CANCELLED" } }, tx);
@@ -960,9 +1072,15 @@ export interface LedgerRow {
   id: string;
   dealerId: string;
   dealerName: string;
-  shopId: string;
+  /** Null for a monthly target bonus. */
+  shopId: string | null;
   shopName: string;
-  milestone: CommissionMilestone;
+  milestone: LedgerMilestone;
+  entryType: CommissionEntryType;
+  /** The team member paid (TIERED); null = the dealer itself. */
+  payeeMemberId: string | null;
+  payeeName: string;
+  level: number | null;
   kind: string;
   status: CommissionStatus;
   amountPaise: number;
@@ -978,13 +1096,20 @@ export interface LedgerRow {
   createdAt: Date;
 }
 
-export async function listLedger(filter: { dealerId?: string; status?: CommissionStatus } = {}): Promise<LedgerRow[]> {
+export async function listLedger(filter: { dealerId?: string; status?: CommissionStatus; payeeMemberId?: string | null } = {}): Promise<LedgerRow[]> {
   const rows = await db
-    .select({ e: dealerCommissionLedger, dealerName: dealers.legalName, shopName: shops.name })
+    .select({ e: dealerCommissionLedger, dealerName: dealers.legalName, shopName: shops.name, payeeName: dealerSalespeople.name })
     .from(dealerCommissionLedger)
     .innerJoin(dealers, eq(dealers.id, dealerCommissionLedger.dealerId))
-    .innerJoin(shops, eq(shops.id, dealerCommissionLedger.shopId))
-    .where(and(filter.dealerId ? eq(dealerCommissionLedger.dealerId, filter.dealerId) : sql`true`, filter.status ? eq(dealerCommissionLedger.status, filter.status) : sql`true`))
+    .leftJoin(shops, eq(shops.id, dealerCommissionLedger.shopId))
+    .leftJoin(dealerSalespeople, eq(dealerSalespeople.id, dealerCommissionLedger.payeeMemberId))
+    .where(
+      and(
+        filter.dealerId ? eq(dealerCommissionLedger.dealerId, filter.dealerId) : sql`true`,
+        filter.status ? eq(dealerCommissionLedger.status, filter.status) : sql`true`,
+        filter.payeeMemberId === undefined ? sql`true` : filter.payeeMemberId === null ? isNull(dealerCommissionLedger.payeeMemberId) : eq(dealerCommissionLedger.payeeMemberId, filter.payeeMemberId),
+      ),
+    )
     .orderBy(desc(dealerCommissionLedger.createdAt))
     .limit(2000);
   return rows.map((r) => ({
@@ -992,8 +1117,12 @@ export async function listLedger(filter: { dealerId?: string; status?: Commissio
     dealerId: r.e.dealerId,
     dealerName: r.dealerName,
     shopId: r.e.shopId,
-    shopName: r.shopName,
+    shopName: r.shopName ?? (r.e.entryType === "BONUS" ? "Monthly target bonus" : "—"),
     milestone: r.e.milestone,
+    entryType: r.e.entryType,
+    payeeMemberId: r.e.payeeMemberId,
+    payeeName: r.payeeName ?? r.dealerName,
+    level: r.e.level,
     kind: r.e.kind,
     status: r.e.status,
     amountPaise: r.e.amountPaise,
@@ -1032,9 +1161,29 @@ export async function listPayouts(dealerId?: string) {
 /** A dealer's statement as CSV (their own rows only). */
 export function statementCsv(rows: LedgerRow[]): string {
   const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const head = ["Date", "Shop", "Milestone", "Kind", "Status", "Fee (Rs)", "Base (Rs)", "Rating", "Bonus %", "Bonus (Rs)", "Amount (Rs)", "Rule version", "Payout", "Note"];
+  const head = ["Date", "Shop", "Milestone", "Type", "Payee", "Level", "Kind", "Status", "Fee (Rs)", "Base (Rs)", "Rating", "Bonus %", "Bonus (Rs)", "Amount (Rs)", "Rule version", "Payout", "Note"];
   const lines = rows.map((r) =>
-    [r.createdAt.toISOString().slice(0, 10), r.shopName, r.milestone, r.kind, r.status, r.feePaise / 100, r.basePaise / 100, r.rating ?? "", r.bonusBp / 100, r.bonusPaise / 100, r.amountPaise / 100, r.ruleVersion ?? "", r.payoutBatchId ?? "", r.note ?? ""].map(esc).join(","),
+    [
+      r.createdAt.toISOString().slice(0, 10),
+      r.shopName,
+      r.milestone,
+      COMMISSION_ENTRY_TYPE_LABELS[r.entryType],
+      r.payeeName,
+      r.level ?? "",
+      r.kind,
+      r.status,
+      r.feePaise / 100,
+      r.basePaise / 100,
+      r.rating ?? "",
+      r.bonusBp / 100,
+      r.bonusPaise / 100,
+      r.amountPaise / 100,
+      r.ruleVersion ?? "",
+      r.payoutBatchId ?? "",
+      r.note ?? "",
+    ]
+      .map(esc)
+      .join(","),
   );
   return [head.map(esc).join(","), ...lines].join("\n");
 }

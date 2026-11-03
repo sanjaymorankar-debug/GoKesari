@@ -1,5 +1,31 @@
 # GoKesari app — release notes
 
+## 1.7.0 (Android versionCode 8, iPhone build 8) — 2 Nov 2026
+
+Dealer network (TIERED commission) and shop-refers-shop
+(docs/dealer-programme/TIERED_COMMISSION.md at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Dealers and their team leads and agents: see your team, what you earned by
+> type and level, each shop's progress to its trading milestone, and your
+> monthly statement with gross, TDS and net. Shop owners: share your shop's own
+> referral link and earn a reward when another shop joins with it.
+
+Changes in the app itself:
+- The dealer portal (`/dealer`) and Add my shop (`/shop/register`) are
+  deep-link routes (App Links on Android, Universal Links on iPhone): a shop's
+  referral link `https://gokesari.com/r/SHOP…` opens the app, which lands on
+  Add my shop with the code filled in (the `/r/` route was already linked).
+- Push notifications for commission earned, commission reversed, payouts paid
+  and shop-referral rewards / reversals open the dealer portal or the shop
+  wallet in the app (the website sends them on the push channel).
+- The team tree, earnings, TRADING progress, the referral code field in shop
+  registration and the shop's share card are website pages, so they need no
+  native change; older builds (1.6.0 and before) show them too, and only miss
+  the new deep-link routes (those links open in the browser instead).
+- Version 1.6.0 → 1.7.0, versionCode / build 7 → 8. No new permissions.
+
 ## 1.6.0 (Android versionCode 7, iPhone build 7) — 31 Oct 2026
 
 Aadhaar by DigiLocker for delivery partners (docs/gig-worker-2026-10 at the

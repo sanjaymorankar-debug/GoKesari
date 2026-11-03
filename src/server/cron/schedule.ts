@@ -169,6 +169,8 @@ export const HOURLY: readonly Job[] = [
   // docs/gig-bank-payouts-2026-10: rider monthly payout on the 5th from 09:00 IST (a no-op at other times
   // and while its flag is off; resumes a stopped run), then due retries of rider transfers.
   { name: "rider-monthly-payout", run: riderMonthlyPayout },
+  // Gap report C4: failed dealer commission transfers whose backoff has passed (a no-op while dealerAutoPayout is off).
+  { name: "dealer-payout-retries", run: async () => (await import("@/server/dealers/auto-payout")).retryDueDealerPayouts() },
   {
     name: "auth-housekeeping",
     run: async () => ({
@@ -190,6 +192,8 @@ export const DAILY: readonly Job[] = [
   // docs/dealer-programme: dealer commission monthly — on the payout day (default the 5th) the month
   // before is closed once: draft payouts and statements; a no-op on other days.
   { name: "dealer-monthly-payout", run: async () => (await import("@/server/dealers/monthly-payout")).runMonthlyDealerPayout() },
+  // TIERED (0136): shops past their TRADING window lapse (part 2 and overrides not earned); a no-op while the rule is off.
+  { name: "dealer-tiered-daily", run: async () => (await import("@/server/dealers/tiered")).runTieredDaily() },
   // docs/purchase-lists-2026-10: "time to reorder" for weekly / monthly lists that are due again.
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
   // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.

@@ -40,6 +40,11 @@ export default async function DealerCommissionPage() {
         ← Dealers
       </Link>
       <PageHeader title="Dealer commission" description="The base commission % and how the rating moves it, the per-shop cap, rating slabs, and the ledger from earned to paid. Only an admin changes them; every change needs a reason and is logged." />
+      <p className="mb-3 text-sm">
+        <Link href="/admin/dealers/commission/tiered" className="font-semibold text-kesari-800 underline" data-testid="tiered-link">
+          TIERED model: team tree, promotions, target bonuses and TDS →
+        </Link>
+      </p>
       <CommissionAdmin
         isAdmin={user.role === "ADMIN"}
         rules={plain(rules)}

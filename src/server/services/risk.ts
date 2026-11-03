@@ -40,7 +40,7 @@
 import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
-import { db } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   deliveryPartners,
   riskFlags,
@@ -296,7 +296,10 @@ function buildRules(t: RiskThresholds, otpMaxAttempts: number): Rule[] {
 /** The rules at their default thresholds — used for the labels. */
 const RULES: Rule[] = buildRules(RULE_DEFAULTS.riskRules, RULE_DEFAULTS.deliveryOtp.maxAttempts);
 
-export const RISK_RULE_LABELS: Record<string, string> = Object.fromEntries(RULES.map((r) => [r.code, r.label]));
+export const RISK_RULE_LABELS: Record<string, string> = {
+  ...Object.fromEntries(RULES.map((r) => [r.code, r.label])),
+  REFERRAL_REVERSED: "Referral reward reversed as fraudulent",
+};
 
 /** Raises a new OPEN flag or refreshes the open one; returns the flags that are new. */
 async function raiseFlags(rule: Rule, rows: Record<string, unknown>[]): Promise<{ raised: RiskFlag[]; refreshed: number }> {
@@ -335,6 +338,31 @@ async function raiseFlags(rule: Rule, rows: Record<string, unknown>[]): Promise<
     else refreshed += 1;
   }
   return { raised, refreshed };
+}
+
+/**
+ * D-25 follow-up (gap report P0-3): a referral reward reversed as fraudulent
+ * flags both customers for review (rule REFERRAL_REVERSED). Inside the
+ * reversal's transaction; refreshes an open flag rather than adding another.
+ */
+export async function flagReversedReferral(
+  input: { referralId: string; referrerUserId: string; refereeUserId: string; reason: string },
+  client: DbClient = db,
+): Promise<void> {
+  for (const [userId, role] of [
+    [input.referrerUserId, "referrer"],
+    [input.refereeUserId, "referred friend"],
+  ] as const) {
+    const details = { referralId: input.referralId, role, reason: input.reason };
+    await client
+      .insert(riskFlags)
+      .values({ subjectType: "USER", subjectId: userId, ruleCode: "REFERRAL_REVERSED", severity: "MEDIUM", summary: `Referral reward reversed as fraudulent (${role})`, details })
+      .onConflictDoUpdate({
+        target: [riskFlags.subjectType, riskFlags.subjectId, riskFlags.ruleCode],
+        targetWhere: sql`${riskFlags.status} = 'OPEN'`,
+        set: { details, lastDetectedAt: new Date(), occurrences: sql`${riskFlags.occurrences} + 1` },
+      });
+  }
 }
 
 /** Evaluates every rule; raises new flags and refreshes open ones. Safe to re-run. */
