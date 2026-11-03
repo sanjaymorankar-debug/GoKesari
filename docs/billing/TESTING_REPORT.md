@@ -115,11 +115,98 @@ Defects found, and what was done:
 
 Not code: E-15 (QA sweeps now list `/api/public/v1/` as token-protected and the DigiLocker mock as a test-site stand-in), E-16 (staging data: COD limit, drained wallet, stale orders, rider and limited-operator sessions), E-17 (SD-01 shop state, SD-05 connection drop).
 
-STAGING_RETEST_RESULTS
+### Fixes on staging, 01-Nov-2026
+
+| Item | Value |
+|---|---|
+| Merge | PR #323 into `staging` 22.27 IST, merge commit `41ef27cc`; CI `test`, `test-split` and `scope` passed on `9169ed1d` (`test` after one re-run: a rider-withdrawal test that waits for an e-mailed code, in code the PR does not touch, failed once and passed on the re-run and in `test-split`) |
+| Deploy | Hostinger build of `41ef27cc` for test.gokesari.com completed 22.32 IST; no migrations |
+| Post-deploy check | test.gokesari.com: 3 healthy rounds in a row, 22.34–22.35 IST |
+| Retest of D-110 to D-117 on staging | Run 02-Nov-2026 11.17–11.44 IST, after the production release (the owner asked for the release first): all pass, see below |
+
+### Retest on staging, 02-Nov-2026 11.17–11.44 IST
+
+test.gokesari.com on `41ef27cc`. The same five flags were switched on for Mysuru (KA-MYS) only, then for Pune (MH-PUN) only, then restored: 19 flags compared before and after, 0 differences, all 11 billing flags off. Evidence: `test-results/qa/billing-v2-staging-retest-2026-11-02/` (log, 50 screenshots, 39 files); collected run `docs/testing/qa-runs/2026-11-02-staging-billing-v2-retest.json`.
+
+| # | Result |
+|---|---|
+| D-110 | Pass. Flags on for KA-MYS only: the Pune shop gets 404 on all 7 billing APIs tried; POS, documents, journals, statements and sync pages go to `/shop/accounts`; no billing tiles, menu item, UPI field or bill links on desktop or phone. Flags on for MH-PUN: all served |
+| D-111 | Pass. Export check: 0 fixes needed (was 254); the Tally zip downloads from the screen and the API; 6 vouchers, all balanced |
+| D-112 | Pass. "Delivery fee invoice (GoKesari)" on the order page and My orders opens GKS/2627/000001 and GKS/2627/000002 (PDF, 200). customer2 404, shop 404, signed out 401, operations 200 (by design) |
+| D-113 | Pass. S2627-00001 (cancelled) to -00004: "Bill of supply" on the page (desktop and phone), A4 PDF, 80 mm receipt, MTR rows and the customer's link |
+| D-114 | Pass. "UPI id for receipts" saved as `testsuccess@gocash` puts a UPI QR on the receipt (`upi://pay?pa=testsuccess%40gocash…`); cleared afterwards |
+| D-115 | Pass. "80 mm receipt", "JSON" (200) and "Share on WhatsApp" (wa.me link naming the document) on the counter bill and the order invoice pages; none on the cancelled bill |
+| D-116 | Pass. New prepaid order DB-20261102-ERAAO8 (₹85, built-in sandbox "Pay (success)", delivered 11.38 IST): its bill of supply BKS-000021/2026-27/000020 has neither the s.52 clause nor "Prices are inclusive of GST". BKS-…/000019 keeps its old notes (notes are fixed at issue, by design) |
+| D-117 | Pass. Both orders: "Paid by customer (online payment) Rs. 85.00" |
+| E-15 | Pass. TC-SEC-001, TC-RBAC-002, TC-AUTH-033 (desktop, 7 rows): 211 pages, 397 write endpoints, 11 public writes and 26 cron endpoints refused |
+
+New defects:
+
+PR #326 (D-118, D-119, D-120): CI `test`, `test-split` and `scope` green on 7c4bf638; merged into staging 02-Nov-2026 22.40 IST (8fe24140); new build live on test.gokesari.com 22.45 IST; post-deploy check 3/3 22.45–22.47 IST. Spot check (guest): API 401 and 404 answers now carry `Cache-Control: private, no-store`. Signed-in retest: all three pass (below).
+
+| # | Severity | Found | Status |
+|---|---|---|---|
+| D-118 | Medium (not billing-specific) | API error answers carry no `Cache-Control`; Hostinger's CDN (`server: hcdn`) kept a 404 for about 10–20 s and gave it to the next caller, so the customer briefly got 404 on their own invoice after customer2's refused request. 200 answers are not cached; 401 / 403 were not reused. gokesari.com's 404s also come without `Cache-Control` (checked 02-Nov-2026 as a guest) | Fixed in PR #326 (to staging): every API error answer says `Cache-Control: private, no-store`. Merged to staging 22.40 IST (8fe24140), live 22.45 IST; retest passed 02-Nov-2026 23.04–23.14 IST |
+| D-119 | Low | A bill of supply still says "Invoice total (inclusive of tax)" with CGST / SGST rows in the PDF, and "Total (tax inclusive)" on the page | Fixed in PR #326: a bill of supply shows Item, HSN, Qty, Amount and "Total" (A4 PDF, 80 mm receipt, page). Merged to staging 22.40 IST (8fe24140), live 22.45 IST; retest passed 02-Nov-2026 23.04–23.14 IST |
+| D-120 | Medium (older than billing v2) | Found while fixing D-119 (code, 02-Nov-2026): a shop outside GST can put a GST rate on a counter bill, a POS bill or a shop document, so its "Bill of supply" charges GST (an unregistered person may not collect tax, s.32 CGST Act). Counter-bill creation is not behind the billing_v2 flag | Fixed in PR #326: counter bills, POS bills and shop documents of such a shop go at 0% and print no tax rows; a note on an older taxed bill still reverses its GST. Merged to staging 22.40 IST (8fe24140), live 22.45 IST; retest passed 02-Nov-2026 23.04–23.14 IST |
+
+### Retest of D-118 to D-120 on staging, 02-Nov-2026 22.59–23.16 IST
+
+test.gokesari.com at 8fe24140. Evidence: `test-results/qa/billing-v2-staging-retest-d118-d120-2026-11-02/` (log.jsonl, files/, shots/; desktop and phone). Run: `docs/testing/qa-runs/2026-11-02-staging-d118-d120-retest.json`.
+
+| # | Result |
+|---|---|
+| D-118 | Pass. Three invoice URLs (GoKesari's delivery-fee invoice PDF, the bill of supply's PDF and JSON), three rounds each, no pauses (23.04.09–23.04.45): customer 200 → customer2 404 → customer again 0.3–1.4 s later 200 → signed out 401. All 36 answers `Cache-Control: private, no-store`; no `age` header, no cache hit |
+| D-119 | Pass. BKS-000021/2026-27/000020: A4, 80 mm and the page (desktop, phone) read "Bill of supply" with Item, HSN, Qty, Amount and "Total Rs. 60.00"; no "inclusive of tax", CGST, SGST, IGST, Taxable, Intra-state, Reverse charge or @0%. GoKesari's tax invoice GKS/2627/000001 still shows its CGST / SGST rows (staging has no order tax invoice from a GST-registered shop to compare) |
+| D-120 | Pass (E2E Four Features Bakery, outside GST). Sale form: no GST % field, no "Prices include GST", "Create bill of supply". Counter bill sent at 5% (S2627-00005): ₹50.00, tax 0, no tax rows on page / A4 / 80 mm. With billing_v2 on for MH-PUN (23.10–23.14): POS list 0%, POS total "Total", POS bill sent at 5% (S2627-00006) ₹60.00 tax 0; document form without GST %; estimate at 18% (ES2627-000002) ₹100.00 tax 0. Older bill S2627-00001 (carried IGST) keeps its rows; S2627-00002..04 print without zero tax rows. S2627-00005, S2627-00006 and ES2627-000002 cancelled ("QA D-120 retest"); flags back with 0 differences |
+
+Not checkable on staging: a credit / debit note against a bill that carried GST (the only one, S2627-00001, is cancelled; covered by the integration test).
+
+New defect:
+
+| # | Severity | Found | Status |
+|---|---|---|---|
+| D-121 | Low (older than PR #326) | Operations' order list (`/admin/orders`) and the shop's order list (`/shop/orders`, Done) label the link to a bill of supply "Tax invoice" (`order-monitoring-table.tsx:158`, `shop-order-manager.tsx:287`); the customer's order page already says "Bill of supply" | Fixed in PR #328 (to staging, 21169956): both lists label the link by the issued kind. Retest passed on staging 03-Nov-2026 06.33–06.36 IST (below) |
+
+### Retest of D-121 on staging, 03-Nov-2026 06.33–06.36 IST
+
+PR #328 (D-121): CI `test`, `test-split` and `scope` green on 21169956; merged into staging 03-Nov-2026 06.21 IST (2e47fa60); new build (`yCAHWAcv6OLthMXeyQ4Fe`) live on test.gokesari.com 06.25.56 IST; post-deploy check 3/3 healthy rounds, 06.25–06.27 IST.
+
+test.gokesari.com at 2e47fa60, saved operations and shop-owner sessions (desktop 1366 px and phone 390 px). Evidence: `test-results/qa/billing-v2-staging-retest-d121-2026-11-03/` (log.jsonl, shots/, retest-d121.mjs). Run: `docs/testing/qa-runs/2026-11-03-staging-d121-retest.json`.
+
+| # | Result |
+|---|---|
+| D-121 | Pass. `/admin/orders?status=DELIVERED` (desktop, phone): 20 links, all "Bill of supply", DB-20261102-ERAAO8 included; `/admin/orders` (all statuses): 2 links, both "Bill of supply". E2E Four Features Bakery's `/shop/orders` Done tab (desktop, phone; page 2): DB-20261102-ERAAO8 "Bill of supply". Each of the 20 links followed once as operations: every one opens a document whose page says "Bill of supply" (DB-20261102-ERAAO8 → BKS-000021/2026-27/000020), so no label disagrees with its document. On the old build (06.25 IST) the same rows read "Tax invoice" |
+
+Not checkable on staging: a "Tax invoice" label, because no delivered order on staging has a tax invoice (every shop is outside GST); the unit test covers it, and the "Invoice" label for a delivered order not invoiced yet. A plain "Invoice" link issues the invoice when opened, so the retest followed only links that already name a document. Nothing was created or changed on staging.
+
+Seen during the run, not a defect: refunded test orders kept arriving at the top of the bakery's Done tab (17 pages), which moved the order to page 2. Between 06.29 and 06.35 IST the operations pages took about 30 s to finish loading in the test browser, though the page itself arrived in under 1 s; at 06.38 IST every page loaded in 0.4–1.0 s.
 
 ## Prod (gokesari.com)
 
-Not deployed. Waits for: the CA's answers (BLOCKERS B2, B3), a staging pass, and an owner-approved release window (B8). Flags stay OFF after the production deploy, so the deploy itself changes nothing for shops.
+| Item | Value |
+|---|---|
+| Owner's instruction | "push all code to main" (01-Nov-2026 22.3x IST), then "Yes, migrate and merge" |
+| In flight before | none: no other PR into main, last Post-deploy check (b8531a5a) passed, last Hostinger build of gokesari.com completed |
+| Migrations | "Production database" workflow `migrate`, source `staging` (run 41330029033), 01-Nov-2026 22.39–22.41 IST: split layout, **11 migrations applied (0125–0135)**, 0 repairs, 136 recorded, none missing. Restore point 17:09:58 UTC, LSN `0/19BDDA10` (Neon → Restore, PROD_DB.md). Applied before the merge, as DEPLOYMENT.md requires: the old code ran on the new schema overnight (the migrations only add) |
+| Merge | PR #324 (`staging` → `main`) 02-Nov-2026 08.27 IST, merge commit `85a12aa6`; CI `test`, `test-split`, `build` and `scope` passed on `41ef27cc` |
+| Deploy | gokesari.com serves the new build from 08.32 IST (a new route, `/api/invoices/<id>/json`, answers 401 instead of 404) |
+| Post-deploy check | `scripts/release/post-deploy-check.sh https://gokesari.com`: 5 healthy rounds in a row, 08.32–08.36 IST; "Post-deploy check" workflow run 41380443658 passed |
+| Flags | All billing flags off: `POST /api/public/v1/oauth/token` → 404 "This feature is not available." The release changes nothing for shops and customers until a flag is switched on, which waits for the CA's answers (BLOCKERS B2, B3) |
+
+### Release of 03-Nov-2026 (PR #332): D-118 to D-121, with the dealer programme and #329
+
+| Item | Value |
+|---|---|
+| Owner's instruction | "Yes, release now" (D-118 to D-121), then "All of staging" and "Include #329" (03-Nov-2026 ~07.00 IST); held at 08.55 IST for the staging QA run on `b034cae1` ("Yes, hold it", staging-diff session), released on "Go: check and merge" after its results (no fail from the release's code; STAGING_RELEASE_332_QA_RESULTS_2026-11-03.md) |
+| Carries | #326 (D-118, D-119, D-120), #328 (D-121), #327 (referrals, 3-level dealer commission, shop referrals, dealer payouts by PAN, TDS, CA role; all new rules off), #329 (prepared statements in transactions, faster dashboards and checkout), #330 (docs and scripts: FDW removal on the test database only) |
+| In flight before | none: no other PR into main, last Post-deploy check (`85a12aa6`) passed, nothing pushed to main since 02-Nov |
+| Migrations | "Production database" `verify` (run 41562465665, 07.21 IST): 136 recorded, lacking exactly 0136–0142. `migrate`, source `staging` (run 41566797127), 08.03–08.08 IST: split layout, **7 migrations applied (0136–0142)**, 0 repairs, 143 recorded, none missing. Restore point 02:33:11 UTC, LSN `0/1EA99F80`. The old code kept answering 200 on the new schema |
+| Merge | PR #332 (`release/2026-11-03`, pinned at staging `b034cae1`, → `main`) 03-Nov-2026 09.07 IST, merge commit `9aedb9ae`. Main merged with `b034cae1` gives exactly `b034cae1`'s files (tree `0ad5d2c7`); staging CI on `b034cae1` passed `scope`, `test`, `test-split`; CI on `main` at `9aedb9ae` passed |
+| Deploy | gokesari.com serves the new build (`lG6GkXzZXVW2n4_F4vWRk`, before `ZviCwcAQJmRz3R06bWRBo`) |
+| Post-deploy check | "Post-deploy check" workflow run 41573270937 on `9aedb9ae` passed, 09.07–09.13 IST |
+| Checks on gokesari.com (guest, read-only, 11.29 IST) | D-118: `/api/invoices/<id>/json`, `/api/invoices/<id>/pdf`, `/api/delivery-invoices/<id>/pdf` → 401 with `Cache-Control: private, no-store`. Billing flags off: `POST /api/public/v1/oauth/token` → 404 "This feature is not available." (no-store). Shop referrals off: `/r/SHOPAB2CD` → 307 `/signin` (the customer flow, not `/shop/register`). Dealer-programme APIs refuse a guest: `/api/dealer/team`, `/api/admin/dealer-tiers`, `/api/dealer/tds`, payout reports → 404; `/api/admin/shop-referrals`, `/api/admin/commission-tds` → 401. `/`, `/shops`, `/robots.txt` → 200 |
+| Not checked on gokesari.com | D-119 to D-121 need a signed-in shop or operations account and a bill of supply; they were retested on staging (above) |
 
 ## Mobile
 
@@ -130,5 +217,5 @@ The Android and iOS apps are a WebView over the website: every billing screen, i
 | Environment | Status |
 |---|---|
 | Local | Pass for phases 1–8 and the gap closure, both layouts (full run 01-Nov-2026 12.17–13.34 IST; pre-existing and environment failures listed above) |
-| Test | Not started |
-| Prod | Not started |
+| Test | Pass. Staging test 01-Nov-2026 found D-110 to D-117; fixed (PR #323) and all retested as passing on 02-Nov-2026 11.17–11.44 IST. D-118 (Medium), D-119 (Low) and D-120 (Medium) fixed in PR #326 and retested as passing on staging 02-Nov-2026 22.59–23.16 IST. D-121 (Low) fixed in PR #328 and retested as passing on staging 03-Nov-2026 06.33–06.36 IST |
+| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. D-118 to D-121 released 03-Nov-2026 09.07 IST (PR #332, `9aedb9ae`, with migrations 0136–0142); post-deploy check passed; D-118's no-store confirmed on gokesari.com. Switching billing on waits for the CA (B2, B3) |

@@ -22,6 +22,7 @@ import { MAX_PRICE_PAISE, MIN_PRICE_PAISE } from "@/lib/price-rules";
 import { effectiveDescriptions } from "@/lib/product-text";
 import { formatStock, hasMilliPrecision, roundStock, stockQuantityProblem, type ProductKind } from "@/lib/stock-quantity";
 import { db, type DbClient } from "@/server/db";
+import { together } from "@/server/db/together";
 import {
   inventoryMovements,
   productCategories,
@@ -1493,19 +1494,21 @@ export async function consumeOnlineStock(
     throw outOfStock("This product is currently unavailable online.");
   }
 
-  await client.insert(inventoryMovements).values({
-    shopProductId,
-    channel: "ONLINE",
-    deltaUnits: -units,
-    previousUnits: updated.previousStock,
-    newUnits: updated.onlineStock,
-    reason,
-    orderId: orderId ?? null,
-  });
-
-  // Inside the caller's transaction, so an alert can never outlive a
-  // rolled-back order.
-  await evaluateStockAlerts(shopProductId, client);
+  // The ledger row (started first) and the alert check go out together, one
+  // round trip. Inside the caller's transaction, so an alert can never outlive
+  // a rolled-back order.
+  await together([
+    client.insert(inventoryMovements).values({
+      shopProductId,
+      channel: "ONLINE",
+      deltaUnits: -units,
+      previousUnits: updated.previousStock,
+      newUnits: updated.onlineStock,
+      reason,
+      orderId: orderId ?? null,
+    }).execute(),
+    evaluateStockAlerts(shopProductId, client),
+  ]);
 }
 
 /**
@@ -1546,20 +1549,22 @@ export async function restockOnline(
     if (!row) throw notFound("Product");
     const { previousStock, ...updated } = row;
 
-    await tx.insert(inventoryMovements).values({
-      shopProductId,
-      channel: "ONLINE",
-      deltaUnits: units,
-      previousUnits: previousStock,
-      newUnits: updated.onlineStock,
-      reason,
-      createdBy: actorId,
-      ...(orderId ? { orderId } : {}),
-    });
-
-    // Resolves any open LOW_STOCK/OUT_OF_STOCK alert and flips the line back
-    // to available — §17's replenishment path, with nothing to re-enter.
-    await evaluateStockAlerts(shopProductId, tx);
+    // The ledger row (started first) and the alert check go out together, one
+    // round trip. The check resolves any open LOW_STOCK/OUT_OF_STOCK alert and
+    // flips the line back to available — §17's replenishment path.
+    await together([
+      tx.insert(inventoryMovements).values({
+        shopProductId,
+        channel: "ONLINE",
+        deltaUnits: units,
+        previousUnits: previousStock,
+        newUnits: updated.onlineStock,
+        reason,
+        createdBy: actorId,
+        ...(orderId ? { orderId } : {}),
+      }).execute(),
+      evaluateStockAlerts(shopProductId, tx),
+    ]);
     return updated;
   };
   return client ? run(client) : db.transaction(run);
