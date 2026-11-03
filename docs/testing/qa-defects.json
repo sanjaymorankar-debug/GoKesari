@@ -1841,6 +1841,38 @@
       "expected": "SD-01 runs on a shop without verified or promised documents; SD-05 loads the page.",
       "fix": "Test data: approve/close the pending QA Docs shop so SD-01 can register a fresh one, or let SD-01 block when the reused shop is past its state. SD-05: inspect the trace (test-results/qa/artifacts/test.gokesari.com/…SD-05…); not reproduced outside the check. Neither touches billing v2.",
       "status": "Open"
+    },
+    {
+      "id": "E-18",
+      "title": "The staging shop owner's active shop is the one waiting for approval, so the shop-referral card is not shown",
+      "cases": [
+        "TC-SREF-001",
+        "TC-SREF-003"
+      ],
+      "severity": "Info",
+      "found": "2026-11-03 staging run dealer-tiered-flags-on",
+      "actual": "gk-shop owns 11 shops; with no gk_shop cookie /shop/manage/registration shows 'QA Docs 2026-10-29 mvwqg3hm' (PENDING_APPROVAL), which by design has no shop code, so both checks were blocked. With gk_shop set to shop A (E2E Four Features Bakery, APPROVED) the page shows code SHOPVH3YP, the /r/SHOPVH3YP link and Share on WhatsApp; /r/SHOPVH3YP -> 307 /shop/register?ref=SHOPVH3YP; /api/referral-codes/check accepts SHOPVH3YP and refuses SHOPZZZZZ (03-Nov 09.0x IST).",
+      "expected": "The checks open the registration page of an approved shop.",
+      "fix": "Test: open the page with the gk_shop cookie of world shop A (or approve / close the pending QA Docs shop, see E-17). The feature itself works.",
+      "status": "Open",
+      "fixedIn": null,
+      "retest": "Manual check passed 03-Nov with shop A active"
+    },
+    {
+      "id": "E-19",
+      "title": "A shop-settings check in the run re-saves shop A with area 'Deccan', so the area search for 'Kothrud' no longer finds it",
+      "cases": [
+        "TC-DISC-004",
+        "TC-DISC-005"
+      ],
+      "severity": "Info",
+      "found": "2026-11-03 staging run dealer-tiered-flags-on",
+      "actual": "shops.area of E2E Four Features Bakery changed Kothrud -> Deccan at 03-Nov 02.18-02.19 UTC (audit shop.updated by gk-shop, six saves during the suite; pincode 411005). GET /api/shops?q=Kothrud then lists 1 shop, not shop A.",
+      "expected": "Shop A keeps area Kothrud through the run, or the search check uses the area the shop has.",
+      "fix": "Test data / test order: restore area Kothrud after the settings checks, or have TC-DISC-004 read shop A's area first.",
+      "status": "Open",
+      "fixedIn": null,
+      "retest": null
     }
   ]
 }
