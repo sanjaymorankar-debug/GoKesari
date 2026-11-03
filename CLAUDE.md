@@ -95,6 +95,15 @@ and "After every production deploy".
   - if the check fails, restart the Node.js app (hPanel, or
     `hosting_nodejs_restart-application`), re-run the check, and tell the owner.
 
+# Staging: finished PRs go through the staging queue
+
+Do **not** merge into `staging` yourself. Open the PR into `staging` and add
+the label **`ready-for-staging`**; the "Staging queue" workflow merges labelled
+PRs one at a time and tests each on test.gokesari.com (CI, migration, deploy,
+post-deploy check, guest QA) before the next. A fix for a paused queue gets
+`staging-fix`. Status: the issue labelled `staging-queue-tracker`. Details:
+[docs/staging-queue/README.md](docs/staging-queue/README.md).
+
 # Payment testing on staging: Cashfree sandbox test data
 
 For any payment test on test.gokesari.com (staging), use Cashfree **sandbox**

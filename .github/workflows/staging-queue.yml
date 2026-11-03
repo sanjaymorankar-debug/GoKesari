@@ -1,0 +1,88 @@
+# Staging queue — merges finished PRs into `staging` one at a time and tests
+# each one on test.gokesari.com before the next (docs/staging-queue/README.md,
+# logic in scripts/release/staging-queue.sh).
+#
+# Sessions label their PR `ready-for-staging` instead of merging it. Every
+# trigger below starts the same scan; only one run works at a time (the
+# concurrency group), and a run keeps going until the queue is empty, so a PR
+# labelled while another is being tested simply waits its turn.
+#
+#   pull_request labeled   a PR into staging got ready-for-staging / staging-fix
+#   push to staging        something landed on staging (incl. the queue's own merges)
+#   issues closed          a "Staging queue paused" issue was closed  ┐ only once this
+#   schedule (hourly)      safety net if a trigger was missed         │ file is on main
+#   workflow_dispatch      by hand: Actions → Staging queue           ┘ (default branch)
+#
+# Needs the secret STAGING_QUEUE_TOKEN (a fine-grained personal token; README):
+# merges made with the default GITHUB_TOKEN start no workflows, so staging's CI
+# and the "Test database" migration would not run.
+#
+# Production is untouched: staging → main stays the owner's approval (CLAUDE.md).
+name: Staging queue
+
+on:
+  pull_request:
+    types: [labeled]
+    branches: [staging]
+  push:
+    branches: [staging]
+  issues:
+    types: [closed]
+  schedule:
+    - cron: "47 * * * *" # hourly, at :17 IST
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only report what would be merged (writes nothing)
+        type: boolean
+        default: false
+
+concurrency:
+  group: staging-queue
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  staging-queue:
+    if: >-
+      (github.event_name != 'pull_request' ||
+        github.event.label.name == 'ready-for-staging' || github.event.label.name == 'staging-fix') &&
+      (github.event_name != 'issues' || contains(github.event.issue.labels.*.name, 'staging-queue-paused'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: staging
+          fetch-depth: 1
+          token: ${{ secrets.STAGING_QUEUE_TOKEN || github.token }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # The QA step checks other commits out; run the queue from a copy so the
+      # script on disk never changes under it.
+      - name: Run the queue
+        env:
+          GH_TOKEN: ${{ secrets.STAGING_QUEUE_TOKEN }}
+          QUEUE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          QUEUE_RESULTS: ${{ runner.temp }}/queue-results
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/queue"
+          cp scripts/release/staging-queue.sh scripts/release/staging-queue-qa.sh \
+             scripts/release/post-deploy-check.sh "$RUNNER_TEMP/queue/"
+          QUEUE_DIR="$RUNNER_TEMP/queue" QUEUE_QA_SCRIPT="$RUNNER_TEMP/queue/staging-queue-qa.sh" \
+            bash "$RUNNER_TEMP/queue/staging-queue.sh"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-queue-qa-${{ github.run_id }}
+          path: ${{ runner.temp }}/queue-results
+          if-no-files-found: ignore
+          retention-days: 30
