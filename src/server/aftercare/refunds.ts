@@ -26,6 +26,7 @@ import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { conflict, notFound } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import { db, type DbClient } from "@/server/db";
+import { together } from "@/server/db/together";
 import {
   financialAdjustments,
   orderCharges,
@@ -281,10 +282,13 @@ async function announceRefund(
 }
 
 async function setOrderStatus(tx: DbClient, orderId: string, from: OrderStatus, to: OrderStatus, actorId: string | null, note: string) {
-  await tx.update(orders).set({ status: to, updatedAt: new Date() }).where(eq(orders.id, orderId));
-  await tx.insert(orderStatusHistory).values({ orderId, previousStatus: from, newStatus: to, changedBy: actorId, note });
+  // Sent together (one round trip); the update and the history row are started first.
   // Checked against the order state machine and logged as an event, like every other status change.
-  await recordOrderStatusEvent(tx, orderId, from, to, actorId ? { id: actorId, role: null } : null, note);
+  await together([
+    tx.update(orders).set({ status: to, updatedAt: new Date() }).where(eq(orders.id, orderId)),
+    tx.insert(orderStatusHistory).values({ orderId, previousStatus: from, newStatus: to, changedBy: actorId, note }),
+    recordOrderStatusEvent(tx, orderId, from, to, actorId ? { id: actorId, role: null } : null, note),
+  ]);
 }
 
 const PART_KEY_PREFIX = "order-refund:part:";
@@ -512,26 +516,29 @@ export async function executeCancellationRefund(
     .onConflictDoNothing()
     .returning();
   if (!refund) throw conflict("This order has already been refunded.");
-  await appendRefundEvent(
-    tx,
-    refund,
-    "REQUESTED",
-    method === "WALLET"
-      ? `Refund of ${formatPaise(refund.amountPaise)} to your GoKesari wallet requested.`
-      : `Refund of ${formatPaise(refund.amountPaise)} to your original payment method requested.`,
-    actorId,
-  );
-  await recordAudit(
-    {
+  // The timeline step and the audit row go out together (one round trip).
+  await together([
+    appendRefundEvent(
+      tx,
+      refund,
+      "REQUESTED",
+      method === "WALLET"
+        ? `Refund of ${formatPaise(refund.amountPaise)} to your GoKesari wallet requested.`
+        : `Refund of ${formatPaise(refund.amountPaise)} to your original payment method requested.`,
       actorId,
-      actorRole: input.actor?.role ?? null,
-      action: AUDIT_ACTIONS.ORDER_REFUND_RECORDED,
-      entityType: "order",
-      entityId: order.id,
-      newValue: { refundId: refund.id, method, amountPaise: refund.amountPaise, deductionsPaise: refund.deductionsPaise },
-    },
-    tx,
-  );
+    ),
+    recordAudit(
+      {
+        actorId,
+        actorRole: input.actor?.role ?? null,
+        action: AUDIT_ACTIONS.ORDER_REFUND_RECORDED,
+        entityType: "order",
+        entityId: order.id,
+        newValue: { refundId: refund.id, method, amountPaise: refund.amountPaise, deductionsPaise: refund.deductionsPaise },
+      },
+      tx,
+    ),
+  ]);
 
   if (refund.amountPaise === 0) {
     const [done] = await tx
@@ -545,17 +552,20 @@ export async function executeCancellationRefund(
   }
 
   if (method === "WALLET") {
-    await completeToWallet(tx, refund, order, input.actor, "Refunded to your GoKesari wallet.");
-    await setOrderStatus(
-      tx,
-      order.id,
-      "CANCELLED",
-      "REFUNDED",
-      actorId,
-      breakdown.deductionsPaise > 0
-        ? `Wallet refunded ${formatPaise(refund.amountPaise)} (${formatPaise(breakdown.deductionsPaise)} kept: ${breakdown.deductions.map((d) => d.label).join(", ")})`
-        : "Wallet refunded",
-    );
+    // The refund and the order's status change do not depend on each other: they go out together.
+    await together([
+      completeToWallet(tx, refund, order, input.actor, "Refunded to your GoKesari wallet."),
+      setOrderStatus(
+        tx,
+        order.id,
+        "CANCELLED",
+        "REFUNDED",
+        actorId,
+        breakdown.deductionsPaise > 0
+          ? `Wallet refunded ${formatPaise(refund.amountPaise)} (${formatPaise(breakdown.deductionsPaise)} kept: ${breakdown.deductions.map((d) => d.label).join(", ")})`
+          : "Wallet refunded",
+      ),
+    ]);
     return "REFUNDED";
   }
 
@@ -587,8 +597,10 @@ async function completeToWallet(tx: DbClient, refund: OrderRefund, order: Order,
     })
     .where(eq(orderRefunds.id, refund.id))
     .returning();
-  await appendRefundEvent(tx, done, "SUCCESS", note, actor?.id ?? null);
-  await announceRefund(tx, done, order.orderNumber, "has been added to your GoKesari wallet — it is ready to use now.", actor);
+  await together([
+    appendRefundEvent(tx, done, "SUCCESS", note, actor?.id ?? null),
+    announceRefund(tx, done, order.orderNumber, "has been added to your GoKesari wallet — it is ready to use now.", actor),
+  ]);
   return done;
 }
 

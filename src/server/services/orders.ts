@@ -18,6 +18,8 @@
  *    are under the cart's lock, and exactly those lines leave the cart: a unit
  *    added while checkout runs is ordered or stays in the cart, never dropped.
  */
+import { randomUUID } from "node:crypto";
+
 import { and, desc, eq, inArray, isNull, like, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -30,6 +32,7 @@ import { formatPaise, formatQuantity, lineTotalPaise, sumPaise } from "@/lib/mon
 import { milliToStockUnits, quantityToMilli } from "@/lib/stock-quantity";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import { db, isSerializationFailure, type DbClient } from "@/server/db";
+import { together } from "@/server/db/together";
 import {
   addresses,
   deliveryOrders,
@@ -489,15 +492,15 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
     // Fast path: this shop's order was already placed under this request id
     // (found by its checkout key; older wallet orders by their debit).
-    const priorOrder = await db.query.orders.findFirst({ where: eq(orders.checkoutKey, idempotencyKey) });
+    const [priorOrder, priorTxn] = await Promise.all([
+      db.query.orders.findFirst({ where: eq(orders.checkoutKey, idempotencyKey) }),
+      db.query.walletTransactions.findFirst({ where: eq(walletTransactions.idempotencyKey, idempotencyKey) }),
+    ]);
     if (priorOrder) {
       created.push(priorOrder);
       anyDeduplicated = true;
       continue;
     }
-    const priorTxn = await db.query.walletTransactions.findFirst({
-      where: eq(walletTransactions.idempotencyKey, idempotencyKey),
-    });
     if (priorTxn?.orderId) {
       const existing = await db.query.orders.findFirst({
         where: eq(orders.id, priorTxn.orderId),
@@ -539,8 +542,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       // order is made from them and exactly they leave the cart below. An add since the cart was
       // read above is ordered with them; one from now on waits for this transaction and stays.
       const inCart = await lockCartLinesForShop(input.userId, group.shop.id, tx);
-      // A double submit of this request that held the lock before us has placed the order.
-      const placedMeanwhile = await tx.query.orders.findFirst({ where: eq(orders.checkoutKey, idempotencyKey) });
+      // Under the cart's lock, these reads go out together (one round trip; the
+      // database still runs them in order). A double submit of this request that
+      // held the lock before us has placed the order.
+      const [placedMeanwhile, shopOffersLive, [shopRow]] = await together([
+        tx.query.orders.findFirst({ where: eq(orders.checkoutKey, idempotencyKey) }),
+        getLiveOffers([group.shop.id], new Date(), tx),
+        tx.select().from(shops).where(eq(shops.id, group.shop.id)),
+      ]);
       if (placedMeanwhile) return { order: placedMeanwhile, deduplicated: true as const };
       if (inCart.length === 0) {
         throw conflict(
@@ -560,14 +569,13 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       }[] = [];
 
       // Re-validate and re-price every line inside the transaction. The cart
-      // view is a hint; this is the authority.
-      const shopOffersLive = await getLiveOffers([group.shop.id], new Date(), tx);
-      for (const line of cartLinesToOrder(group.lines, inCart)) {
-        const loaded = await loadPurchasableShopProduct(
-          line.shopProductId,
-          line.quantity,
-          tx,
-        );
+      // view is a hint; this is the authority. Every line is read at once.
+      const toOrder = cartLinesToOrder(group.lines, inCart);
+      const loadedLines = await together(
+        toOrder.map((line) => loadPurchasableShopProduct(line.shopProductId, line.quantity, tx)),
+      );
+      for (const [i, line] of toOrder.entries()) {
+        const loaded = loadedLines[i];
         const quantityMilli = quantityToMilli(line.quantity, loaded.product.unitSizeMilli);
         // F8: a live shop offer lowers the unit price (the same pricing as the cart).
         const unitPricePaise =
@@ -593,10 +601,6 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       }
 
       const subtotalPaise = sumPaise(lines.map((l) => l.lineTotalPaise));
-      const [shopRow] = await tx
-        .select()
-        .from(shops)
-        .where(eq(shops.id, group.shop.id));
       // Again on the lines ordered: the cart may have changed since the check above.
       assertMinimumOrder(shopRow, subtotalPaise, addressSnapshot != null);
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
@@ -637,42 +641,59 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         }
       }
 
-      const [orderRow] = await tx
-        .insert(orders)
-        .values({
-          orderNumber: generateOrderNumber(),
-          userId: input.userId,
-          shopId: group.shop.id,
-          addressId: input.addressId ?? null,
-          deliveryAddressSnapshot: addressSnapshot,
-          status: "PENDING",
-          source: "DIRECT",
-          orderType,
-          buyerShopId,
-          buyerGstin: buyerGstin?.gstin ?? null,
-          buyerLegalName: buyerGstin?.legalName ?? null,
-          buyerGstinStatus: buyerGstin?.status ?? null,
-          paymentMethod,
-          placedWhileClosed: closedShops.has(group.shop.id),
-          expectedOpenAt: closedShops.get(group.shop.id) ?? null,
-          checkoutKey: idempotencyKey,
-          societyId: orderSocietyId,
-          subtotalPaise,
-          deliveryFeePaise,
-          taxPaise,
-          totalPaise,
-          deliveryWindow,
-          promisedByAt,
-          deliverySlotKey,
-          scheduledSlotStart: scheduledSlot?.start ?? null,
-          scheduledSlotEnd: scheduledSlot?.end ?? null,
-          deliveryDate: scheduledSlot?.date ?? null,
-          orderGroupId: orderGroup?.id ?? null,
-          discountPaise,
-          couponCode: couponQuote ? couponQuote.code : null,
-          notes: input.notes ?? null,
-        })
-        .returning();
+      // The order's id is made here so its lines can be written in the same round trip.
+      const orderId = randomUUID();
+      const [[orderRow]] = await together([
+        tx
+          .insert(orders)
+          .values({
+            id: orderId,
+            orderNumber: generateOrderNumber(),
+            userId: input.userId,
+            shopId: group.shop.id,
+            addressId: input.addressId ?? null,
+            deliveryAddressSnapshot: addressSnapshot,
+            status: "PENDING",
+            source: "DIRECT",
+            orderType,
+            buyerShopId,
+            buyerGstin: buyerGstin?.gstin ?? null,
+            buyerLegalName: buyerGstin?.legalName ?? null,
+            buyerGstinStatus: buyerGstin?.status ?? null,
+            paymentMethod,
+            placedWhileClosed: closedShops.has(group.shop.id),
+            expectedOpenAt: closedShops.get(group.shop.id) ?? null,
+            checkoutKey: idempotencyKey,
+            societyId: orderSocietyId,
+            subtotalPaise,
+            deliveryFeePaise,
+            taxPaise,
+            totalPaise,
+            deliveryWindow,
+            promisedByAt,
+            deliverySlotKey,
+            scheduledSlotStart: scheduledSlot?.start ?? null,
+            scheduledSlotEnd: scheduledSlot?.end ?? null,
+            deliveryDate: scheduledSlot?.date ?? null,
+            orderGroupId: orderGroup?.id ?? null,
+            discountPaise,
+            couponCode: couponQuote ? couponQuote.code : null,
+            notes: input.notes ?? null,
+          })
+          .returning(),
+        tx.insert(orderItems).values(
+          lines.map((l) => ({
+            orderId,
+            shopProductId: l.shopProductId,
+            productNameSnapshot: l.productName,
+            unitSnapshot: l.unit,
+            unitPricePaise: l.unitPricePaise,
+            quantityMilli: l.quantityMilli,
+            lineTotalPaise: l.lineTotalPaise,
+            mrpPaise: l.mrpPaise,
+          })),
+        ),
+      ]);
 
       if (couponQuote) {
         await redeemCouponForOrder(tx, {
@@ -685,28 +706,10 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         });
       }
 
-      await tx.insert(orderItems).values(
-        lines.map((l) => ({
-          orderId: orderRow.id,
-          shopProductId: l.shopProductId,
-          productNameSnapshot: l.productName,
-          unitSnapshot: l.unit,
-          unitPricePaise: l.unitPricePaise,
-          quantityMilli: l.quantityMilli,
-          lineTotalPaise: l.lineTotalPaise,
-          mrpPaise: l.mrpPaise,
-        })),
+      // Every line's stock together, in line order: the rows are locked in that order, as before.
+      await together(
+        lines.map((l) => consumeOnlineStock(l.shopProductId, l.quantityUnits, "Online order", tx, orderRow.id)),
       );
-
-      for (const l of lines) {
-        await consumeOnlineStock(
-          l.shopProductId,
-          l.quantityUnits,
-          "Online order",
-          tx,
-          orderRow.id,
-        );
-      }
 
       // Charge the wallet. Throws INSUFFICIENT_BALANCE, which rolls the whole
       // transaction back — no order, no stock consumed, no deduction (§23).
@@ -733,117 +736,120 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         return { order: orderRow, shopOwnerId: shopRow.ownerId, deduplicated: false as const };
       }
 
-      const [confirmed] = await tx
-        .update(orders)
-        .set({
-          status: "CONFIRMED",
-          paidAt: paymentMethod === "WALLET" ? new Date() : null,
-          // NEW-007: the shop's accept-by time (null while the rule is off).
-          acceptByAt: acceptBy,
-          updatedAt: new Date(),
-        })
-        .where(eq(orders.id, orderRow.id))
-        .returning();
-
-      await tx.insert(orderStatusHistory).values({
-        orderId: orderRow.id,
-        previousStatus: "PENDING",
-        newStatus: "CONFIRMED",
-        changedBy: input.userId,
-        note: paymentMethod === "WALLET" ? "Paid from wallet" : "Cash on delivery",
-      });
-
-      await recordAudit(
-        {
-          actorId: input.userId,
-          action: AUDIT_ACTIONS.ORDER_PLACED,
-          entityType: "order",
-          entityId: orderRow.id,
-          newValue: { orderNumber: orderRow.orderNumber, totalPaise, paymentMethod },
-        },
-        tx,
-      );
-      // Event layer: the placed order on the event log. The customer and shop
-      // notifications below stay where they are (they depend on opening hours).
-      await emitEvent(
-        {
-          type: "order.placed",
-          subjectId: orderRow.id,
+      // The order's remaining writes do not depend on each other's results, so they go out
+      // together (one round trip each step instead of one per statement). The database still
+      // runs them in this order, inside this transaction; if one fails, all roll back.
+      const opensAt = closedShops.get(group.shop.id);
+      const [[confirmed]] = await together([
+        tx
+          .update(orders)
+          .set({
+            status: "CONFIRMED",
+            paidAt: paymentMethod === "WALLET" ? new Date() : null,
+            // NEW-007: the shop's accept-by time (null while the rule is off).
+            acceptByAt: acceptBy,
+            updatedAt: new Date(),
+          })
+          .where(eq(orders.id, orderRow.id))
+          .returning(),
+        tx.insert(orderStatusHistory).values({
           orderId: orderRow.id,
-          transition: { from: "PENDING", to: "CONFIRMED" },
-          actor: { id: input.userId, role: input.actorRole ?? "CUSTOMER" },
-          payload: {
-            orderId: orderRow.id,
-            orderNumber: orderRow.orderNumber,
-            buyerId: input.userId,
-            shopOwnerId: shopRow.ownerId,
-            shopName: shopRow.name,
-          },
-        },
-        tx,
-      );
-
-      // DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a paid order
-      // previously notified nobody. The customer learns it's confirmed; the
-      // shop learns it has a new order to prepare — there was no "new order"
-      // notification type at all before this.
-      await notify(
-        {
-          userId: input.userId,
-          type: NOTIFICATION_TYPES.ORDER_CONFIRMED,
-          title: "Order confirmed",
-          body: `Your order ${orderRow.orderNumber} from ${shopRow.name} is confirmed.`,
-          actionUrl: `/orders`,
-          // TC-SPI-004: the e-mail lists what was ordered and what it costs.
-          emailDetail: orderConfirmedEmailRows({
-            lines: lines.map((l) => ({ name: l.productName, unit: l.unit, quantityMilli: l.quantityMilli, lineTotalPaise: l.lineTotalPaise })),
-            deliveryFeePaise,
-            taxPaise,
-            discountPaise,
-            totalPaise,
-            paymentMethod,
-          }),
-        },
-        tx,
-      );
-      if (closedShops.has(group.shop.id)) {
-        // Alert 1 of 2: immediately, even though the shop is closed. Alert 2
-        // goes out once when the shop opens (sendShopOpeningAlerts).
-        const opensAt = closedShops.get(group.shop.id);
-        await notify(
+          previousStatus: "PENDING",
+          newStatus: "CONFIRMED",
+          changedBy: input.userId,
+          note: paymentMethod === "WALLET" ? "Paid from wallet" : "Cash on delivery",
+        }),
+        recordAudit(
           {
-            userId: shopRow.ownerId,
-            type: NOTIFICATION_TYPES.SHOP_ORDER_WHILE_CLOSED,
-            title: "New order while your shop is closed",
-            body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}${paymentMethod === "COD" ? " (cash on delivery)" : ""} — was placed while your shop is closed. The customer chose to wait; you will get another alert when your shop opens.`,
-            actionUrl: "/shop/orders",
+            actorId: input.userId,
+            action: AUDIT_ACTIONS.ORDER_PLACED,
+            entityType: "order",
+            entityId: orderRow.id,
+            newValue: { orderNumber: orderRow.orderNumber, totalPaise, paymentMethod },
           },
           tx,
-        );
-        await notify(
+        ),
+        // Event layer: the placed order on the event log. The customer and shop
+        // notifications below stay where they are (they depend on opening hours).
+        emitEvent(
+          {
+            type: "order.placed",
+            subjectId: orderRow.id,
+            orderId: orderRow.id,
+            transition: { from: "PENDING", to: "CONFIRMED" },
+            actor: { id: input.userId, role: input.actorRole ?? "CUSTOMER" },
+            payload: {
+              orderId: orderRow.id,
+              orderNumber: orderRow.orderNumber,
+              buyerId: input.userId,
+              shopOwnerId: shopRow.ownerId,
+              shopName: shopRow.name,
+            },
+          },
+          tx,
+        ),
+        // DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a paid order
+        // previously notified nobody. The customer learns it's confirmed; the
+        // shop learns it has a new order to prepare — there was no "new order"
+        // notification type at all before this.
+        notify(
           {
             userId: input.userId,
-            type: NOTIFICATION_TYPES.ORDER_QUEUED_SHOP_CLOSED,
-            title: "Order placed — shop is closed now",
-            body: `Your order ${orderRow.orderNumber} was sent to ${shopRow.name}. The shop is closed right now, so it may be processed once it opens${opensAt ? ` (${formatShopTime(opensAt)})` : ""}.`,
-            actionUrl: "/orders",
+            type: NOTIFICATION_TYPES.ORDER_CONFIRMED,
+            title: "Order confirmed",
+            body: `Your order ${orderRow.orderNumber} from ${shopRow.name} is confirmed.`,
+            actionUrl: `/orders`,
+            // TC-SPI-004: the e-mail lists what was ordered and what it costs.
+            emailDetail: orderConfirmedEmailRows({
+              lines: lines.map((l) => ({ name: l.productName, unit: l.unit, quantityMilli: l.quantityMilli, lineTotalPaise: l.lineTotalPaise })),
+              deliveryFeePaise,
+              taxPaise,
+              discountPaise,
+              totalPaise,
+              paymentMethod,
+            }),
           },
           tx,
-        );
-      } else {
-        await notify(
-          {
-            userId: shopRow.ownerId,
-            type: NOTIFICATION_TYPES.SHOP_NEW_ORDER,
-            title: "New order",
-            body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}${paymentMethod === "COD" ? " (cash on delivery)" : ""}.`,
-            actionUrl: "/shop/orders",
-          },
-          tx,
-        );
-      }
-
-      await removeCartLines(inCart.map((l) => l.id), tx);
+        ),
+        ...(closedShops.has(group.shop.id)
+          ? [
+              // Alert 1 of 2: immediately, even though the shop is closed. Alert 2
+              // goes out once when the shop opens (sendShopOpeningAlerts).
+              notify(
+                {
+                  userId: shopRow.ownerId,
+                  type: NOTIFICATION_TYPES.SHOP_ORDER_WHILE_CLOSED,
+                  title: "New order while your shop is closed",
+                  body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}${paymentMethod === "COD" ? " (cash on delivery)" : ""} — was placed while your shop is closed. The customer chose to wait; you will get another alert when your shop opens.`,
+                  actionUrl: "/shop/orders",
+                },
+                tx,
+              ),
+              notify(
+                {
+                  userId: input.userId,
+                  type: NOTIFICATION_TYPES.ORDER_QUEUED_SHOP_CLOSED,
+                  title: "Order placed — shop is closed now",
+                  body: `Your order ${orderRow.orderNumber} was sent to ${shopRow.name}. The shop is closed right now, so it may be processed once it opens${opensAt ? ` (${formatShopTime(opensAt)})` : ""}.`,
+                  actionUrl: "/orders",
+                },
+                tx,
+              ),
+            ]
+          : [
+              notify(
+                {
+                  userId: shopRow.ownerId,
+                  type: NOTIFICATION_TYPES.SHOP_NEW_ORDER,
+                  title: "New order",
+                  body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}${paymentMethod === "COD" ? " (cash on delivery)" : ""}.`,
+                  actionUrl: "/shop/orders",
+                },
+                tx,
+              ),
+            ]),
+        removeCartLines(inCart.map((l) => l.id), tx),
+      ]);
       return { order: confirmed, shopOwnerId: shopRow.ownerId, deduplicated: false as const };
     });
 
@@ -1310,23 +1316,41 @@ export async function cancelOrder(
       Boolean(options.selfService) &&
       (order.status === "OUT_FOR_DELIVERY" || order.status === "PICKED_UP");
 
-    const [updated] = await tx
-      .update(orders)
-      .set({
-        status: "CANCELLED",
-        cancellationReason: reason,
-        updatedAt: new Date(),
-      })
-      .where(eq(orders.id, orderId))
-      .returning();
-
-    await tx.insert(orderStatusHistory).values({
-      orderId,
-      previousStatus: order.status,
-      newStatus: "CANCELLED",
-      changedBy: actor?.id ?? null,
-      note: reason,
-    });
+    // The status change and the reads below go out together (one round trip):
+    // none needs another's result.
+    const [[updated], , items, [activeDelivery], [shopRow]] = await together([
+      tx
+        .update(orders)
+        .set({
+          status: "CANCELLED",
+          cancellationReason: reason,
+          updatedAt: new Date(),
+        })
+        .where(eq(orders.id, orderId))
+        .returning(),
+      tx.insert(orderStatusHistory).values({
+        orderId,
+        previousStatus: order.status,
+        newStatus: "CANCELLED",
+        changedBy: actor?.id ?? null,
+        note: reason,
+      }),
+      tx
+        .select({
+          shopProductId: orderItems.shopProductId,
+          quantityMilli: orderItems.quantityMilli,
+          fulfilmentStatus: orderItems.fulfilmentStatus,
+          substituteShopProductId: orderItems.substituteShopProductId,
+          substituteQuantityMilli: orderItems.substituteQuantityMilli,
+        })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, orderId)),
+      tx
+        .select()
+        .from(deliveryOrders)
+        .where(and(eq(deliveryOrders.orderId, orderId), inArray(deliveryOrders.status, ACTIVE_DELIVERY_ORDER_STATUSES))),
+      tx.select({ ownerId: shops.ownerId, name: shops.name }).from(shops).where(eq(shops.id, order.shopId)),
+    ]);
 
     // DEF-01: every cancellation restores the stock checkout() consumed —
     // previously nothing did, so a cancelled order permanently lost the unit.
@@ -1340,16 +1364,6 @@ export async function cancelOrder(
     // Slice 3: a REMOVED line is not restocked (the shop reported it
     // unavailable, so there is nothing to put back), and a SUBSTITUTED line
     // restocks the substitute that was actually taken from stock.
-    const items = await tx
-      .select({
-        shopProductId: orderItems.shopProductId,
-        quantityMilli: orderItems.quantityMilli,
-        fulfilmentStatus: orderItems.fulfilmentStatus,
-        substituteShopProductId: orderItems.substituteShopProductId,
-        substituteQuantityMilli: orderItems.substituteQuantityMilli,
-      })
-      .from(orderItems)
-      .where(eq(orderItems.orderId, orderId));
     const restockLines = items
       .filter((i) => i.fulfilmentStatus !== "REMOVED")
       .map((i) =>
@@ -1390,15 +1404,6 @@ export async function cancelOrder(
     // eventual markDelivered would throw, unpaid). The rider still earns for
     // a trip they already picked up, per D10 — creditDeliveryEarnings now
     // allows a CANCELLED-after-pickup assignment as well as a DELIVERED one.
-    const [activeDelivery] = await tx
-      .select()
-      .from(deliveryOrders)
-      .where(
-        and(
-          eq(deliveryOrders.orderId, orderId),
-          inArray(deliveryOrders.status, ACTIVE_DELIVERY_ORDER_STATUSES),
-        ),
-      );
     let cancelledRiderUserId: string | null = null;
     if (activeDelivery) {
       const wasPickedUp = activeDelivery.pickedUpAt != null;
@@ -1426,54 +1431,54 @@ export async function cancelOrder(
     // TC-DSP-011: the rider search ends with the order (it stayed SEARCHING before).
     // Imported lazily: delivery-assignment.ts imports this module.
     const { closeRiderSearchForCancelledOrder } = await import("./delivery-assignment");
-    await closeRiderSearchForCancelledOrder(orderId, tx);
 
     // Event layer: the cancellation as one event. The customer hears when
     // someone else cancelled (DEF-02); the shop when support did, or the
     // customer after the shop had started (D6); a rider who had the order is
     // told to stop. A customer cancelling their own order is not told about it.
-    const [shopRow] = await tx
-      .select({ ownerId: shops.ownerId, name: shops.name })
-      .from(shops)
-      .where(eq(shops.id, order.shopId));
-    await emitEvent(
-      {
-        type: "order.cancelled",
-        subjectId: orderId,
-        orderId,
-        transition: { from: order.status, to: "CANCELLED" },
-        actor: actor ?? { id: null, role: null },
-        payload: {
-          orderId,
-          orderNumber: order.orderNumber,
-          buyerId: order.userId,
-          shopOwnerId: shopRow?.ownerId ?? null,
-          shopName: shopRow?.name ?? "the shop",
-          riderUserId: cancelledRiderUserId,
-          reason,
-          cancelledBy: !actor
-            ? "SYSTEM"
-            : actor.id === order.userId
-              ? "CUSTOMER"
-              : actor.role === "OPERATOR" || actor.role === "ADMIN"
-                ? "SUPPORT"
-                : "SHOP",
-          beforePacking: customerCancelBeforePacking,
-        },
-      },
-      tx,
-    );
-
+    //
     // batch-2026-10 WS-C (F6.1.3 / F6.2.3): an after-packing cancel, a
     // customer's refund choice, or an order paid online is refunded through
     // the aftercare path (itemised deductions, wallet or original method,
     // refund timeline). Every other cancellation continues below, unchanged.
-    const aftercare = await planCancellationRefund(tx, order, {
-      selfService: Boolean(options.selfService),
-      afterPacking: customerCancelAfterPacking,
-      refundMethod: options.refundMethod,
-      expectedRefundPaise: options.expectedRefundPaise,
-    });
+    // The rider search, the event and the refund plan do not depend on each
+    // other: they go out together.
+    const [, , aftercare] = await together([
+      closeRiderSearchForCancelledOrder(orderId, tx),
+      emitEvent(
+        {
+          type: "order.cancelled",
+          subjectId: orderId,
+          orderId,
+          transition: { from: order.status, to: "CANCELLED" },
+          actor: actor ?? { id: null, role: null },
+          payload: {
+            orderId,
+            orderNumber: order.orderNumber,
+            buyerId: order.userId,
+            shopOwnerId: shopRow?.ownerId ?? null,
+            shopName: shopRow?.name ?? "the shop",
+            riderUserId: cancelledRiderUserId,
+            reason,
+            cancelledBy: !actor
+              ? "SYSTEM"
+              : actor.id === order.userId
+                ? "CUSTOMER"
+                : actor.role === "OPERATOR" || actor.role === "ADMIN"
+                  ? "SUPPORT"
+                  : "SHOP",
+            beforePacking: customerCancelBeforePacking,
+          },
+        },
+        tx,
+      ),
+      planCancellationRefund(tx, order, {
+        selfService: Boolean(options.selfService),
+        afterPacking: customerCancelAfterPacking,
+        refundMethod: options.refundMethod,
+        expectedRefundPaise: options.expectedRefundPaise,
+      }),
+    ]);
     if (aftercare) {
       const status = await executeCancellationRefund(tx, order, aftercare, { actor, reason });
       return { ...updated, status };

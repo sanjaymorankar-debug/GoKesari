@@ -16,6 +16,7 @@ import { and, count, eq, isNull, sql } from "drizzle-orm";
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatStock, milliToStockUnits, roundStock } from "@/lib/stock-quantity";
 import { db, type DbClient } from "@/server/db";
+import { together } from "@/server/db/together";
 import {
   orderItems,
   orders,
@@ -113,7 +114,7 @@ export async function evaluateStockAlerts(
   client: DbClient = db,
 ): Promise<void> {
   // Both reads at once: inside a transaction postgres-js sends them back to back on its one connection.
-  const [[row], open] = await Promise.all([
+  const [[row], open] = await together([
     client
       .select({ sp: shopProducts, shop: shops, product: products })
       .from(shopProducts)
