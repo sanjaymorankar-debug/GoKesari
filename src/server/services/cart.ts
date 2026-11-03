@@ -144,6 +144,9 @@ function assertQuantityInRange(quantity: number, allowZero: boolean): void {
  * after the lock sees the line as the previous holder left it.
  */
 export async function lockCart(userId: string, tx: DbClient): Promise<{ id: string }> {
+  // Found and locked in one round trip (one cart per user); a first cart is created, then locked.
+  const [locked] = await tx.select({ id: carts.id }).from(carts).where(eq(carts.userId, userId)).for("update");
+  if (locked) return locked;
   const cart = await getOrCreateCart(userId, tx);
   await tx.select({ id: carts.id }).from(carts).where(eq(carts.id, cart.id)).for("update");
   return cart;
