@@ -14,7 +14,7 @@ vi.mock("next/link", () => ({
 
 import { LinkButton } from "@/components/ui";
 
-const render = (href: string) => renderToStaticMarkup(createElement(LinkButton, { href, children: "Go" }));
+const render = (href: string) => renderToStaticMarkup(createElement(LinkButton, { href } as Parameters<typeof LinkButton>[0], "Go"));
 
 describe("LinkButton (release #332 check B-2)", () => {
   it("links to an API route without the router, so nothing is prefetched", () => {
