@@ -254,17 +254,24 @@ export function LinkButton({
   variant?: "primary" | "secondary";
   className?: string;
 }) {
+  const classes = clsx(
+    "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+    variant === "primary"
+      ? "bg-kesari-600 text-white hover:bg-kesari-800"
+      : "border border-cream-200 bg-white text-ink-700 hover:bg-cream-100",
+    className,
+  );
+  // Release #332 check B-2: an API route (a PDF, a file) is not a page. A plain link, so the
+  // router does not prefetch it (building the file on every view) or try to render it.
+  if (href.startsWith("/api/")) {
+    return (
+      <a href={href} className={classes}>
+        {children}
+      </a>
+    );
+  }
   return (
-    <Link
-      href={href}
-      className={clsx(
-        "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-        variant === "primary"
-          ? "bg-kesari-600 text-white hover:bg-kesari-800"
-          : "border border-cream-200 bg-white text-ink-700 hover:bg-cream-100",
-        className,
-      )}
-    >
+    <Link href={href} className={classes}>
       {children}
     </Link>
   );

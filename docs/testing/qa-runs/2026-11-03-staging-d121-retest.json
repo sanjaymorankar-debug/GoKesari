@@ -1,0 +1,81 @@
+{
+ "run": {
+  "target": "staging",
+  "host": "test.gokesari.com",
+  "label": "d121-retest",
+  "note": "Retest of D-121 on test.gokesari.com (site at 2e47fa60, PR #328 merged 06.21 IST, build yCAHWAcv6OLthMXeyQ4Fe live 06.25.56 IST, post-deploy check 3/3 06.25-06.27 IST), 03-Nov-2026 06.33-06.36 IST. Saved operations and shop-owner sessions; desktop 1366 px and phone 390 px. Evidence test-results/qa/billing-v2-staging-retest-d121-2026-11-03/ (log.jsonl, shots/, retest-d121.mjs). Read-only: no flag changed, nothing created. Not run: a 'Tax invoice' label (no delivered order on staging has a tax invoice; unit test tests/unit/order-list-invoice-label.test.ts) and an 'Invoice' label before issue (opening it would issue one). Seen, not a defect: operations pages took about 30 s to reach 'load' in the test browser 06.29-06.35 IST (HTML under 1 s); 0.4-1.0 s at 06.38 IST. Production not touched.",
+  "suiteCommit": "scripted retest, no suite run (site: 2e47fa60)",
+  "startedAt": "2026-11-03T01:03:39.000Z",
+  "finishedAt": "2026-11-03T01:06:18.000Z",
+  "cases": 1,
+  "rows": 4,
+  "totals": {
+   "pass": 4,
+   "fail": 0,
+   "blocked": 0,
+   "skipped": 0
+  }
+ },
+ "results": [
+  {
+   "id": "D-121",
+   "title": "Operations' order list names the order's invoice by its kind (desktop)",
+   "status": "pass",
+   "detail": "06.33.39 IST. /admin/orders?status=DELIVERED: 20 invoice links, all 'Bill of supply', DB-20261102-ERAAO8 → /api/orders/561212da…/invoice 'Bill of supply'; /admin/orders (06.34.43): 2 links, both 'Bill of supply'. Old build at 06.25 IST: the same rows read 'Tax invoice'.",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "test-results/qa/billing-v2-staging-retest-d121-2026-11-03 (scripted staging retest; log.jsonl, retest-d121.mjs)",
+   "test": "D-121 /admin/orders invoice link label (desktop)",
+   "at": "2026-11-03T01:03:39.000Z",
+   "durationMs": 0,
+   "evidence": "test-results/qa/billing-v2-staging-retest-d121-2026-11-03/shots/admin-orders-desktop.png, admin-orders-all-desktop.png; log.jsonl"
+  },
+  {
+   "id": "D-121",
+   "title": "Operations' order list names the order's invoice by its kind (phone)",
+   "status": "pass",
+   "detail": "06.34.11 IST. Same lists at 390 px: 20 links on DELIVERED and 2 on all statuses, all 'Bill of supply', DB-20261102-ERAAO8 included.",
+   "tier": "signed",
+   "project": "phone",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "test-results/qa/billing-v2-staging-retest-d121-2026-11-03 (scripted staging retest; log.jsonl, retest-d121.mjs)",
+   "test": "D-121 /admin/orders invoice link label (phone)",
+   "at": "2026-11-03T01:04:11.000Z",
+   "durationMs": 0,
+   "evidence": "test-results/qa/billing-v2-staging-retest-d121-2026-11-03/shots/admin-orders-phone.png, admin-orders-all-phone.png; log.jsonl"
+  },
+  {
+   "id": "D-121",
+   "title": "The shop's order list (Done) names the order's invoice by its kind (desktop and phone)",
+   "status": "pass",
+   "detail": "06.35.22-06.35.27 IST. E2E Four Features Bakery (chosen as in the shop switcher), /shop/orders?status=done page 2: DB-20261102-ERAAO8 'Bill of supply' on desktop and phone (refunded test orders arriving during the run moved it off page 1).",
+   "tier": "signed",
+   "project": "desktop+phone",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "test-results/qa/billing-v2-staging-retest-d121-2026-11-03 (scripted staging retest; log.jsonl, retest-d121.mjs)",
+   "test": "D-121 /shop/orders Done invoice link label",
+   "at": "2026-11-03T01:05:22.000Z",
+   "durationMs": 0,
+   "evidence": "test-results/qa/billing-v2-staging-retest-d121-2026-11-03/shots/shop-orders-done-desktop.png, shop-orders-done-phone.png; log.jsonl"
+  },
+  {
+   "id": "D-121",
+   "title": "Every labelled link opens a document of that kind",
+   "status": "pass",
+   "detail": "06.35.30-06.36.18 IST. The 20 distinct links followed once as operations: each opens /invoices/<id> headed 'Bill of supply' (DB-20261102-ERAAO8 → /invoices/87e9fe19…, BKS-000021/2026-27/000020); 20/20 match. Only links naming an issued document followed (a plain 'Invoice' link issues one on open); nothing created or changed.",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "test-results/qa/billing-v2-staging-retest-d121-2026-11-03 (scripted staging retest; log.jsonl, retest-d121.mjs)",
+   "test": "D-121 label matches the issued document",
+   "at": "2026-11-03T01:06:18.000Z",
+   "durationMs": 0,
+   "evidence": "test-results/qa/billing-v2-staging-retest-d121-2026-11-03/shots/document-DB-20261102-ERAAO8-desktop.png; log.jsonl"
+  }
+ ]
+}

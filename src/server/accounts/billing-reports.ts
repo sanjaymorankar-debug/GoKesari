@@ -259,9 +259,11 @@ async function marketplaceTaxReport(shopId: string, from: string, to: string, su
     .where(and(eq(accSalesInvoices.shopId, shopId), eq(accSalesInvoices.status, "ISSUED"), gte(accSalesInvoices.invoiceDate, from), lt(accSalesInvoices.invoiceDate, to)))
     .orderBy(asc(accSalesInvoices.invoiceDate), asc(accSalesLines.lineNo));
   const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
-  const counterDoc = shop && counterBillKind(shop) === "TAX_INVOICE" ? "Tax invoice" : "Bill of supply";
+  // Release #332 check B-1: each bill as it was issued.
+  const counterDoc = (inv: typeof accSalesInvoices.$inferSelect) =>
+    (inv.kind ?? (shop ? counterBillKind(shop) : "BILL_OF_SUPPLY")) === "TAX_INVOICE" ? "Tax invoice" : "Bill of supply";
   for (const { inv, line } of sales) {
-    rows.push(["Sale", counterDoc, inv.invoiceNo, inv.invoiceDate, inv.buyerGstin, inv.buyerGstin ? "B2B" : "B2C", inv.placeOfSupply, line.hsn, line.description, line.qtyMilli / 1000, line.unit, r2(line.taxablePaise), line.gstRateBp / 100, r2(line.cgstPaise), r2(line.sgstPaise), r2(line.igstPaise), r2(line.cessPaise), r2(line.totalPaise), null, "Counter"]);
+    rows.push(["Sale", counterDoc(inv), inv.invoiceNo, inv.invoiceDate, inv.buyerGstin, inv.buyerGstin ? "B2B" : "B2C", inv.placeOfSupply, line.hsn, line.description, line.qtyMilli / 1000, line.unit, r2(line.taxablePaise), line.gstRateBp / 100, r2(line.cgstPaise), r2(line.sgstPaise), r2(line.igstPaise), r2(line.cessPaise), r2(line.totalPaise), null, "Counter"]);
   }
   const docs = await db
     .select()

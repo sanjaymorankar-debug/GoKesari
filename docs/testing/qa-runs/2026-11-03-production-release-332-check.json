@@ -1,0 +1,96 @@
+{
+ "run": {
+  "target": "production",
+  "host": "gokesari.com",
+  "label": "release-332-check",
+  "note": "Guest, read-only checks on gokesari.com after release PR #332 (merged 03-Nov-2026 09.07 IST as 9aedb9ae; new build lG6GkXzZXVW2n4_F4vWRk; production migrations 0136-0142 applied 08.03-08.08 IST, run 41566797127). Nothing signed in, nothing written. D-119 to D-121 need signed-in accounts and were retested on staging.",
+  "suiteCommit": "scripted checks, no suite run (site: 9aedb9ae)",
+  "startedAt": "2026-11-03T05:59:00.000Z",
+  "finishedAt": "2026-11-03T05:59:30.000Z",
+  "cases": 5,
+  "rows": 5,
+  "totals": {
+   "pass": 5,
+   "fail": 0,
+   "blocked": 0,
+   "skipped": 0
+  }
+ },
+ "results": [
+  {
+   "id": "D-118",
+   "title": "Guest error answers on invoice routes carry Cache-Control: private, no-store",
+   "status": "pass",
+   "detail": "11.29 IST. /api/invoices/<zero>/json, /api/invoices/<zero>/pdf, /api/delivery-invoices/<zero>/pdf → 401, 'private, no-store'.",
+   "tier": "guest",
+   "project": "api",
+   "target": "production",
+   "host": "gokesari.com",
+   "spec": "scripted guest checks after release PR #332 (prod-after-checks.sh; read-only)",
+   "test": "D-118 Guest error answers on invoice routes carry Cache-Control: private, no-store",
+   "at": "2026-11-03T05:59:00.000Z",
+   "durationMs": 0,
+   "evidence": "docs/billing/TESTING_REPORT.md, 'Release of 03-Nov-2026 (PR #332)'"
+  },
+  {
+   "id": "REL-332-FLAGS",
+   "title": "Billing flags off on gokesari.com",
+   "status": "pass",
+   "detail": "POST /api/public/v1/oauth/token → 404 {code NOT_FOUND, 'This feature is not available.'}, 'private, no-store'.",
+   "tier": "guest",
+   "project": "api",
+   "target": "production",
+   "host": "gokesari.com",
+   "spec": "scripted guest checks after release PR #332 (prod-after-checks.sh; read-only)",
+   "test": "REL-332-FLAGS Billing flags off on gokesari.com",
+   "at": "2026-11-03T05:59:00.000Z",
+   "durationMs": 0,
+   "evidence": "docs/billing/TESTING_REPORT.md, 'Release of 03-Nov-2026 (PR #332)'"
+  },
+  {
+   "id": "TC-SREF-002",
+   "title": "Shop referrals off: /r/SHOP… keeps the customer flow",
+   "status": "pass",
+   "detail": "GET /r/SHOPAB2CD → 307 /signin (not /shop/register).",
+   "tier": "guest",
+   "project": "api",
+   "target": "production",
+   "host": "gokesari.com",
+   "spec": "scripted guest checks after release PR #332 (prod-after-checks.sh; read-only)",
+   "test": "TC-SREF-002 Shop referrals off: /r/SHOP… keeps the customer flow",
+   "at": "2026-11-03T05:59:00.000Z",
+   "durationMs": 0,
+   "evidence": "docs/billing/TESTING_REPORT.md, 'Release of 03-Nov-2026 (PR #332)'"
+  },
+  {
+   "id": "TC-SREF-007 / TC-DPAY-005",
+   "title": "Dealer-programme APIs refuse a guest",
+   "status": "pass",
+   "detail": "/api/dealer/team, /api/admin/dealer-tiers, /api/dealer/tds, /api/admin/dealer-payout-reports → 404; /api/admin/shop-referrals, /api/admin/commission-tds → 401; all 'private, no-store'.",
+   "tier": "guest",
+   "project": "api",
+   "target": "production",
+   "host": "gokesari.com",
+   "spec": "scripted guest checks after release PR #332 (prod-after-checks.sh; read-only)",
+   "test": "TC-SREF-007 / TC-DPAY-005 Dealer-programme APIs refuse a guest",
+   "at": "2026-11-03T05:59:00.000Z",
+   "durationMs": 0,
+   "evidence": "docs/billing/TESTING_REPORT.md, 'Release of 03-Nov-2026 (PR #332)'"
+  },
+  {
+   "id": "REL-332-PAGES",
+   "title": "Public pages answer after the deploy",
+   "status": "pass",
+   "detail": "/ 200 (0.37 s), /shops 200 (0.28 s), /robots.txt 200 (0.06 s); 'Post-deploy check' workflow run 41573270937 on 9aedb9ae passed 09.07-09.13 IST.",
+   "tier": "guest",
+   "project": "api",
+   "target": "production",
+   "host": "gokesari.com",
+   "spec": "scripted guest checks after release PR #332 (prod-after-checks.sh; read-only)",
+   "test": "REL-332-PAGES Public pages answer after the deploy",
+   "at": "2026-11-03T05:59:00.000Z",
+   "durationMs": 0,
+   "evidence": "docs/billing/TESTING_REPORT.md, 'Release of 03-Nov-2026 (PR #332)'"
+  }
+ ]
+}

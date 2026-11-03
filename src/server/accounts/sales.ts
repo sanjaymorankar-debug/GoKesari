@@ -112,7 +112,8 @@ async function issueSalesInvoice(shopId: string, input: SalesInput, date: string
     const pos = input.placeOfSupply ?? stateOfGstin(gstin) ?? sellerState;
     const inter = isInterState(sellerState, pos);
 
-    const noGst = counterBillKind(shop) === "BILL_OF_SUPPLY";
+    const kind = counterBillKind(shop);
+    const noGst = kind === "BILL_OF_SUPPLY";
     const lines = input.lines.map((entered) => {
       // QA D-120: a shop outside GST may not collect tax (s.32 CGST Act). Its bill of supply takes every
       // line at 0% — a POS bill carries the catalogue's rate — and the price is the amount charged.
@@ -158,6 +159,7 @@ async function issueSalesInvoice(shopId: string, input: SalesInput, date: string
         igstPaise: totals.igstPaise,
         cessPaise: totals.cessPaise,
         roundOffPaise: totals.roundOffPaise,
+        kind,
         totalPaise: totals.totalPaise,
         note: input.note ?? null,
         clientRef: input.clientRef ?? null,
@@ -285,15 +287,27 @@ export function counterBillKind(shop: Pick<typeof shops.$inferSelect, "gstRegist
 }
 
 /**
+ * Release #332 check B-1: the document a counter bill was issued as, kept on the bill (0143), so a
+ * shop that registers for GST later (or leaves it) does not retitle bills already issued. A bill
+ * from before 0143 without one reads as the shop is now.
+ */
+export function salesBillKind(
+  invoice: Pick<AccSalesInvoice, "kind">,
+  shop: Pick<typeof shops.$inferSelect, "gstRegistrationType" | "gstStatus" | "gstin">,
+): "TAX_INVOICE" | "BILL_OF_SUPPLY" {
+  return invoice.kind ?? counterBillKind(shop);
+}
+
+/**
  * QA D-120: a bill of supply that charged no GST is shown without a tax split, tax columns or
  * tax rows (page, A4, 80 mm, shop documents). One that did carry GST — issued before the fix —
  * keeps them, so its figures still add up.
  */
 export function printsWithoutGst(
-  shop: Pick<typeof shops.$inferSelect, "gstRegistrationType" | "gstStatus" | "gstin">,
+  kind: "TAX_INVOICE" | "BILL_OF_SUPPLY",
   doc: { cgstPaise: number; sgstPaise: number; igstPaise: number; cessPaise: number },
 ): boolean {
-  return counterBillKind(shop) === "BILL_OF_SUPPLY" && doc.cgstPaise + doc.sgstPaise + doc.igstPaise + doc.cessPaise === 0;
+  return kind === "BILL_OF_SUPPLY" && doc.cgstPaise + doc.sgstPaise + doc.igstPaise + doc.cessPaise === 0;
 }
 
 /** The printable tax invoice / bill of supply (Rule 46 / 49 fields), as a plain-text PDF. */
@@ -301,9 +315,10 @@ export async function salesInvoicePdf(shopId: string, salesId: string): Promise<
   const { invoice, lines } = await getSalesInvoice(shopId, salesId);
   const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
   const rs = (p: number) => formatPaise(p).replace("₹", "Rs. ");
-  const noGst = printsWithoutGst(shop, invoice);
+  const kind = salesBillKind(invoice, shop);
+  const noGst = printsWithoutGst(kind, invoice);
   const out: PdfLine[] = [
-    { text: `${counterBillKind(shop) === "TAX_INVOICE" ? "TAX INVOICE" : "BILL OF SUPPLY"}${invoice.status === "CANCELLED" ? "  (CANCELLED)" : ""}`, bold: true },
+    { text: `${kind === "TAX_INVOICE" ? "TAX INVOICE" : "BILL OF SUPPLY"}${invoice.status === "CANCELLED" ? "  (CANCELLED)" : ""}`, bold: true },
     { text: shop.legalBusinessName ?? shop.name, bold: true },
     { text: `${[shop.addressLine1, shop.addressLine2, shop.area, shop.city, shop.pincode].filter(Boolean).join(", ")}` },
     { text: `GSTIN: ${shop.gstin ?? "-"}   State: ${gstState(invoice.sellerStateCode)?.name ?? invoice.sellerStateCode} (${invoice.sellerStateCode})` },

@@ -55,15 +55,18 @@ export function proxy(request: NextRequest) {
     // (timeouts, payment reconcile, payouts) and stay on; only the legacy per-job
     // routes are retired unless CRON_ROUTES_ENABLED=true.
     const entryPoint = /^\/api\/cron\/(every-minute|hourly|daily)\/?$/.test(pathname);
+    // Release #332 check B-3 (as QA D-118): never cached, or the CDN could hand a stray caller's
+    // 401 to the crontab's own call a moment later.
+    const noStore = { "Cache-Control": "private, no-store" };
     if (!entryPoint && process.env.CRON_ROUTES_ENABLED !== "true") {
-      return NextResponse.json({ error: "Gone", message: "Scheduled endpoints are disabled." }, { status: 410 });
+      return NextResponse.json({ error: "Gone", message: "Scheduled endpoints are disabled." }, { status: 410, headers: noStore });
     }
     const secret = process.env.CRON_SECRET ?? "";
     const bearer = request.headers.get("authorization") ?? "";
     const provided =
       request.headers.get("x-cron-secret") ?? (bearer.startsWith("Bearer ") ? bearer.slice(7) : "");
     if (!secret || !safeEqual(provided, secret)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStore });
     }
     return NextResponse.next();
   }

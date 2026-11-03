@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/server/db";
 import { shops, type TaxInvoice } from "@/server/db/schema";
 import { getSettings } from "@/server/accounts/books";
-import { counterBillKind, getSalesInvoice, printsWithoutGst } from "@/server/accounts/sales";
+import { getSalesInvoice, printsWithoutGst, salesBillKind } from "@/server/accounts/sales";
 import { einvoiceFor, type InvoiceSnapshot } from "@/server/services/invoices";
 import { invoiceQrPayload } from "./delivery";
 
@@ -173,7 +173,8 @@ export async function salesReceiptPdf(shopId: string, salesId: string): Promise<
   const pair = (l: string, r: string) => add(l.slice(0, W - r.length - 1).padEnd(W - r.length) + r);
   const legal = shop.legalBusinessName ?? shop.name;
   if (invoice.status === "CANCELLED") add("*** CANCELLED ***", true);
-  add(counterBillKind(shop) === "TAX_INVOICE" ? "TAX INVOICE" : "BILL OF SUPPLY", true);
+  const kind = salesBillKind(invoice, shop);
+  add(kind === "TAX_INVOICE" ? "TAX INVOICE" : "BILL OF SUPPLY", true);
   add(legal.slice(0, W));
   add([shop.addressLine1, shop.city, shop.pincode].filter(Boolean).join(", ").slice(0, W));
   if (shop.gstin) add(`GSTIN ${shop.gstin}`);
@@ -183,7 +184,7 @@ export async function salesReceiptPdf(shopId: string, salesId: string): Promise<
   if (invoice.buyerGstin) add(`GSTIN ${invoice.buyerGstin}`);
   add("-".repeat(W));
   // QA D-120: a bill of supply that charged no GST shows no rate and no tax rows.
-  const noGst = printsWithoutGst(shop, invoice);
+  const noGst = printsWithoutGst(kind, invoice);
   for (const l of lines) {
     add(`${l.description}${l.hsn ? ` (${l.hsn})` : ""}`.slice(0, W));
     pair(`  ${l.qtyMilli / 1000}${l.unit ? ` ${l.unit}` : ""}${noGst ? "" : ` @${l.gstRateBp / 100}%`}`, money(l.totalPaise));
