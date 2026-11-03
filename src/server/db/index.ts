@@ -52,10 +52,21 @@ function createClient() {
  * `unsafe()`, which postgres-js leaves unprepared unless told otherwise; ask
  * for prepared statements by default (a caller passing `prepare` still wins).
  */
-function withPreparedStatements(sql: postgres.Sql): postgres.Sql {
+export function withPreparedStatements<T extends postgres.Sql | postgres.TransactionSql>(sql: T): T {
   const unsafe = sql.unsafe.bind(sql);
   sql.unsafe = ((query: string, args?: postgres.ParameterOrJSON<never>[], options?: postgres.UnsafeQueryOptions) =>
     unsafe(query, args, { prepare: true, ...options })) as typeof sql.unsafe;
+  // A transaction (and each savepoint inside it) runs on a fresh scoped `sql`
+  // from postgres-js, without the wrapper above: wrap that one too, or every
+  // statement Drizzle sends inside db.transaction stays unprepared.
+  type Callback = (tx: postgres.TransactionSql) => unknown;
+  const wrapCallback = (args: unknown[]) =>
+    args.map((a) => (typeof a === "function" ? (tx: postgres.TransactionSql) => (a as Callback)(withPreparedStatements(tx)) : a));
+  const scoped = sql as unknown as { begin?: (...args: unknown[]) => unknown; savepoint?: (...args: unknown[]) => unknown };
+  for (const key of ["begin", "savepoint"] as const) {
+    const original = scoped[key];
+    if (typeof original === "function") scoped[key] = (...args: unknown[]) => original.apply(sql, wrapCallback(args));
+  }
   return sql;
 }
 
