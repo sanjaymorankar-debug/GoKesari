@@ -104,6 +104,18 @@ post-deploy check, guest QA) before the next. A fix for a paused queue gets
 `staging-fix`. Status: the issue labelled `staging-queue-tracker`. Details:
 [docs/staging-queue/README.md](docs/staging-queue/README.md).
 
+After labelling, **stay subscribed to your PR until it is `staging-verified`**
+and act on the queue's comments yourself, without asking the owner:
+- **`staging-blocked`** (CI red or merge conflict, not merged): fix it on the
+  same branch, push, and add `ready-for-staging` again.
+- **`staging-failed`** (merged, then failed on test.gokesari.com; the queue is
+  paused): branch from `origin/staging`, reproduce from the comment and the
+  run's `staging-queue-qa-*` artifact, fix, test locally, and open a new PR
+  into `staging` titled `Fix #<n>: …` labelled **`staging-fix`** — don't merge
+  it. Stay on it the same way until it is verified; the queue then resumes.
+- Any session may pick up a failure whose owning session has ended (the
+  "Staging queue paused" issue names the PR).
+
 # Payment testing on staging: Cashfree sandbox test data
 
 For any payment test on test.gokesari.com (staging), use Cashfree **sandbox**

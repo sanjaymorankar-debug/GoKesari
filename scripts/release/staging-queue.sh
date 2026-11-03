@@ -242,7 +242,7 @@ process_pr() {
     note "#$n is $behind commit(s) behind $BASE — updating the branch"
     if ! write -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" >/dev/null 2>&1; then
       add_label "$n" "$BLOCKED"; remove_label "$n" "$READY"
-      comment "$n" "⛔ **Staging queue** ($(ist)): could not bring this branch up to date with \`$BASE\` (merge conflict). Resolve it, then add \`$READY\` again."
+      comment "$n" "⛔ **Staging queue** ($(ist)): could not bring this branch up to date with \`$BASE\` (merge conflict). **Session that owns this PR:** merge \`origin/$BASE\` into this branch, resolve the conflict, run the tests, push, and add \`$READY\` again — no need to ask the owner."
       return 2
     fi
     [ "$DRY_RUN" = 1 ] && return 2
@@ -256,7 +256,7 @@ process_pr() {
   state="$(wait_checks "$sha")"
   if [ "$state" != success ]; then
     add_label "$n" "$BLOCKED"; remove_label "$n" "$READY"
-    comment "$n" "⛔ **Staging queue** ($(ist)): not merged — checks on \`${sha:0:7}\`: ${state#failure:}. Fix it, then add \`$READY\` again."
+    comment "$n" "⛔ **Staging queue** ($(ist)): not merged — checks on \`${sha:0:7}\`: ${state#failure:}. **Session that owns this PR:** fix it on this branch, push, and add \`$READY\` again — no need to ask the owner."
     note "#$n blocked: ${state#failure:}"; return 2
   fi
 
@@ -266,7 +266,7 @@ process_pr() {
   done
   if [ "$m" = false ]; then
     add_label "$n" "$BLOCKED"; remove_label "$n" "$READY"
-    comment "$n" "⛔ **Staging queue** ($(ist)): merge conflict with \`$BASE\`. Resolve it, then add \`$READY\` again."
+    comment "$n" "⛔ **Staging queue** ($(ist)): merge conflict with \`$BASE\`. **Session that owns this PR:** merge \`origin/$BASE\` into this branch, resolve the conflict, run the tests, push, and add \`$READY\` again — no need to ask the owner."
     return 2
   fi
 
@@ -284,7 +284,7 @@ process_pr() {
   update_tracker "🧪 testing #$n on $SITE"
   comment "$n" "🧪 **Staging queue** ($(ist)): merged into \`$BASE\` as \`${merged_sha:0:7}\`. Testing on $SITE now${RUN_URL:+ ([run]($RUN_URL))}."
 
-  local fail=""
+  local fail="" failed_tests=""
   runs="$(wait_merge_runs "$merged_sha")"
   [ "$runs" = success ] || fail="staging runs: ${runs#failure:}"
   if [ -z "$fail" ] && ! wait_deploy "$before" "$merged_at"; then
@@ -296,7 +296,8 @@ process_pr() {
   if [ -z "$fail" ] && [ -n "$QA_SCRIPT" ]; then
     qa_log="$(mktemp)"
     if ! bash "$QA_SCRIPT" "$merged_sha" "$SITE" "$n" 2>&1 | tee "$qa_log" >&2; then
-      fail="guest QA tier failed on $SITE: $(grep -E '^\s+[0-9]+ failed|✘' "$qa_log" | head -5 | tr '\n' ' ')"
+      failed_tests="$(grep -E '✘|^\s+[0-9]+\) ' "$qa_log" | sed 's/^[[:space:]]*//' | sort -u | head -15)"
+      fail="guest QA tier failed on $SITE ($(grep -oE '[0-9]+ failed' "$qa_log" | tail -1))"
     fi
   fi
 
@@ -307,7 +308,20 @@ process_pr() {
     note "#$n verified on $SITE"; return 0
   fi
   add_label "$n" "$FAILED"
-  comment "$n" "❌ **Staging queue** ($(ist)): **failed on $SITE** — $fail. The queue is paused. Push a fix as a new PR into \`$BASE\` labelled \`$FIX\` (it goes first and un-pauses the queue when it passes)${RUN_URL:+ · [run]($RUN_URL)}."
+  comment "$n" "❌ **Staging queue** ($(ist)): **failed on $SITE** — $fail
+${failed_tests:+
+Failing checks:
+\`\`\`
+$failed_tests
+\`\`\`
+}
+The queue is paused; nothing else is merged into \`$BASE\` until a fix passes.
+
+**Session that owns this PR — fix it now, no need to ask the owner:**
+1. \`git fetch origin $BASE\` and branch from \`origin/$BASE\` (this PR is already merged, so don't reuse its branch).
+2. Reproduce with the details above${RUN_URL:+ and the [run log]($RUN_URL) (artifact \`staging-queue-qa-*\`)}, fix, and run the tests locally.
+3. Open a PR into \`$BASE\` titled \`Fix #$n: …\` and add the label **\`$FIX\`** — do not merge it. The queue merges and tests fixes first and resumes by itself when one passes.
+4. If the failure was not caused by this change (site/host down), say so here and close the \`$PAUSED\` issue instead."
   note "#$n FAILED: $fail"
   echo "$fail"; return 1
 }

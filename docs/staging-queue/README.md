@@ -19,6 +19,15 @@ Files: `.github/workflows/staging-queue.yml`, `scripts/release/staging-queue.sh`
 3. **Do not merge it yourself.** The queue merges it, tests it and comments the
    result on the PR (times in IST).
 
+4. **Stay subscribed to the PR until it is `staging-verified`** and act on the
+   queue's comments yourself, without asking the owner:
+   - `staging-blocked` → fix on the same branch, push, add `ready-for-staging`
+     again;
+   - `staging-failed` → new branch from `origin/staging`, fix, open a PR into
+     `staging` titled `Fix #<n>: …` labelled `staging-fix` (don't merge it),
+     and stay on that PR the same way. The failure comment lists the failing
+     checks and links the run.
+
 A PR that is still being worked on simply has no label; the queue ignores it.
 `staging-hold` keeps a labelled PR out of the queue for now.
 
@@ -40,9 +49,12 @@ Then:
 
 - **passed** → `staging-verified`, and the next PR starts at once;
 - **failed** → `staging-failed`, a **"Staging queue paused"** issue is opened
-  (GitHub e-mails it) and nothing else is merged. Fix it in a new PR into
-  `staging` labelled **`staging-fix`**: the queue merges and tests only fixes
-  while paused, and closes the pause issue itself when one passes. If the
+  and nothing else is merged. The comment on the PR tells the owning session
+  what failed and how to fix it; the session opens the fix PR labelled
+  **`staging-fix`**, the queue merges and tests only fixes while paused, and
+  closes the pause issue itself when one passes — no owner step. If the owning
+  session has already ended, the pause issue (GitHub e-mails it) is the cue to
+  tell any GoKesari session "fix the staging queue failure". If the
   failure was not caused by the change (host down), close the issue instead.
 - **CI red or merge conflict before merging** → `staging-blocked`, the
   `ready-for-staging` label is removed and the queue moves on (nothing was
