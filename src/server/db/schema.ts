@@ -7883,12 +7883,20 @@ export const accSalesInvoices = pgTable(
      * duplicate, and the number is given at sync so the series has no gaps.
      */
     clientRef: text("client_ref"),
+    /**
+     * Release #332 check B-1 (0143): the document the bill was issued as, fixed at issue so a
+     * later change in the shop's GST status does not retitle it. NULL only on a bill issued by
+     * the release before 0143 while the migration ran ahead of the deploy: it reads as the shop
+     * is now (salesBillKind).
+     */
+    kind: text("kind", { enum: ["TAX_INVOICE", "BILL_OF_SUPPLY"] }),
     createdBy: uuid("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("acc_sales_invoices_no_unique").on(t.shopId, t.invoiceNo),
+    check("acc_sales_invoices_kind", sql`${t.kind} IS NULL OR ${t.kind} IN ('TAX_INVOICE', 'BILL_OF_SUPPLY')`),
     uniqueIndex("acc_sales_invoices_client_ref_uq").on(t.shopId, t.clientRef).where(sql`${t.clientRef} IS NOT NULL`),
     index("acc_sales_invoices_shop_date_idx").on(t.shopId, t.invoiceDate),
   ],
