@@ -166,7 +166,21 @@ New defect:
 
 | # | Severity | Found | Status |
 |---|---|---|---|
-| D-121 | Low (older than PR #326) | Operations' order list (`/admin/orders`) and the shop's order list (`/shop/orders`, Done) label the link to a bill of supply "Tax invoice" (`order-monitoring-table.tsx:158`, `shop-order-manager.tsx:287`); the customer's order page already says "Bill of supply" | Fixed in PR #328 (to staging, 21169956): both lists label the link by the issued kind. Retest on staging after the merge |
+| D-121 | Low (older than PR #326) | Operations' order list (`/admin/orders`) and the shop's order list (`/shop/orders`, Done) label the link to a bill of supply "Tax invoice" (`order-monitoring-table.tsx:158`, `shop-order-manager.tsx:287`); the customer's order page already says "Bill of supply" | Fixed in PR #328 (to staging, 21169956): both lists label the link by the issued kind. Retest passed on staging 03-Nov-2026 06.33–06.36 IST (below) |
+
+### Retest of D-121 on staging, 03-Nov-2026 06.33–06.36 IST
+
+PR #328 (D-121): CI `test`, `test-split` and `scope` green on 21169956; merged into staging 03-Nov-2026 06.21 IST (2e47fa60); new build (`yCAHWAcv6OLthMXeyQ4Fe`) live on test.gokesari.com 06.25.56 IST; post-deploy check 3/3 healthy rounds, 06.25–06.27 IST.
+
+test.gokesari.com at 2e47fa60, saved operations and shop-owner sessions (desktop 1366 px and phone 390 px). Evidence: `test-results/qa/billing-v2-staging-retest-d121-2026-11-03/` (log.jsonl, shots/, retest-d121.mjs). Run: `docs/testing/qa-runs/2026-11-03-staging-d121-retest.json`.
+
+| # | Result |
+|---|---|
+| D-121 | Pass. `/admin/orders?status=DELIVERED` (desktop, phone): 20 links, all "Bill of supply", DB-20261102-ERAAO8 included; `/admin/orders` (all statuses): 2 links, both "Bill of supply". E2E Four Features Bakery's `/shop/orders` Done tab (desktop, phone; page 2): DB-20261102-ERAAO8 "Bill of supply". Each of the 20 links followed once as operations: every one opens a document whose page says "Bill of supply" (DB-20261102-ERAAO8 → BKS-000021/2026-27/000020), so no label disagrees with its document. On the old build (06.25 IST) the same rows read "Tax invoice" |
+
+Not checkable on staging: a "Tax invoice" label, because no delivered order on staging has a tax invoice (every shop is outside GST); the unit test covers it, and the "Invoice" label for a delivered order not invoiced yet. A plain "Invoice" link issues the invoice when opened, so the retest followed only links that already name a document. Nothing was created or changed on staging.
+
+Seen during the run, not a defect: refunded test orders kept arriving at the top of the bakery's Done tab (17 pages), which moved the order to page 2. Between 06.29 and 06.35 IST the operations pages took about 30 s to finish loading in the test browser, though the page itself arrived in under 1 s; at 06.38 IST every page loaded in 0.4–1.0 s.
 
 ## Prod (gokesari.com)
 
@@ -189,5 +203,5 @@ The Android and iOS apps are a WebView over the website: every billing screen, i
 | Environment | Status |
 |---|---|
 | Local | Pass for phases 1–8 and the gap closure, both layouts (full run 01-Nov-2026 12.17–13.34 IST; pre-existing and environment failures listed above) |
-| Test | Pass. Staging test 01-Nov-2026 found D-110 to D-117; fixed (PR #323) and all retested as passing on 02-Nov-2026 11.17–11.44 IST. D-118 (Medium), D-119 (Low) and D-120 (Medium) fixed in PR #326 and retested as passing on staging 02-Nov-2026 22.59–23.16 IST. D-121 (Low) fixed in PR #328, to be retested on staging after the merge |
-| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. Switching billing on waits for the CA (B2, B3); D-118, D-119 and D-120 (PR #326, passed on staging) should be released to gokesari.com first |
+| Test | Pass. Staging test 01-Nov-2026 found D-110 to D-117; fixed (PR #323) and all retested as passing on 02-Nov-2026 11.17–11.44 IST. D-118 (Medium), D-119 (Low) and D-120 (Medium) fixed in PR #326 and retested as passing on staging 02-Nov-2026 22.59–23.16 IST. D-121 (Low) fixed in PR #328 and retested as passing on staging 03-Nov-2026 06.33–06.36 IST |
+| Prod | Released 02-Nov-2026 08.32 IST with every billing flag off; migrations 0125–0135 applied; post-deploy check passed. Switching billing on waits for the CA (B2, B3); D-118, D-119 and D-120 (PR #326) and D-121 (PR #328), all passed on staging, should be released to gokesari.com first |
