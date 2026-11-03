@@ -55,6 +55,15 @@ function requirePermission(actor: Actor, permission: (typeof PERMISSIONS)[keyof 
 
 /* ================================================================= years */
 
+/**
+ * The month a payout's TDS belongs to: its period month (month close), or for a payout an admin made
+ * by hand (no period month) the IST month it was made in — so its TDS is in 26Q and Form 16A too.
+ */
+const batchMonthSql = sql<string>`coalesce(${dealerPayoutBatches.periodMonth}, to_char(${dealerPayoutBatches.createdAt} at time zone 'Asia/Kolkata', 'YYYY-MM'))`;
+function batchMonth(b: { periodMonth: string | null; createdAt: Date }): string {
+  return b.periodMonth ?? new Date(b.createdAt.getTime() + 330 * 60_000).toISOString().slice(0, 7);
+}
+
 /** The financial year (IST) an instant falls in, as "2026-27" with its first and last day. */
 export function financialYear(at: Date): { label: string; from: string; to: string } {
   const d = istDay(at);
@@ -373,7 +382,7 @@ export async function tdsDeductions(filter: { month?: string; financialYear?: st
         })()
       : [];
   if (months.length === 0) throw validationFailed("Give a month, or a financial year and quarter.");
-  const rows = await db.select().from(dealerPayoutBatches).where(and(inArray(dealerPayoutBatches.periodMonth, months), sql`${dealerPayoutBatches.tdsPaise} > 0`, sql`${dealerPayoutBatches.status} <> 'CANCELLED'`));
+  const rows = await db.select().from(dealerPayoutBatches).where(and(inArray(batchMonthSql, months), sql`${dealerPayoutBatches.tdsPaise} > 0`, sql`${dealerPayoutBatches.status} <> 'CANCELLED'`));
   const [ds, ms, challans, certs] = await Promise.all([
     db.select({ id: dealers.id, name: dealers.legalName, panEnc: dealers.panEnc, panLast4: dealers.panLast4 }).from(dealers),
     db.select({ id: dealerSalespeople.id, name: dealerSalespeople.name, panEnc: dealerSalespeople.panEnc, panLast4: dealerSalespeople.panLast4 }).from(dealerSalespeople),
@@ -385,10 +394,10 @@ export async function tdsDeductions(filter: { month?: string; financialYear?: st
   if (withPan) await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAN_REVEALED, entityType: "commission_tds", newValue: { months, rows: rows.length, reason: "26Q return data" } });
   return rows.map((b) => {
     const who = b.memberId ? memberOf.get(b.memberId) : dealerOf.get(b.dealerId);
-    const challan = challans.find((c) => c.periodMonth === b.periodMonth && c.section === b.tdsSection);
+    const challan = challans.find((c) => c.periodMonth === batchMonth(b) && c.section === b.tdsSection);
     return {
       batchId: b.id,
-      periodMonth: b.periodMonth ?? "",
+      periodMonth: batchMonth(b),
       payeeName: who?.name ?? "—",
       panMasked: who?.panLast4 ? `••••••${who.panLast4}` : "no PAN",
       pan: withPan && who?.panEnc ? decryptSecret(who.panEnc) : null,
@@ -464,7 +473,7 @@ export async function tdsExceptions(actor: Actor) {
     if (!who?.pan && r.amount > 0) held.push({ dealerId: r.dealerId, memberId: r.memberId, amountPaise: r.amount });
   }
   return {
-    flagged: flagged.map((b) => ({ batchId: b.id, month: b.periodMonth, flag: b.tdsFlag, overridden: Boolean(b.tdsOverrideReason), overrideReason: b.tdsOverrideReason, grossPaise: b.totalPaise, tdsPaise: b.tdsPaise, status: b.status })),
+    flagged: flagged.map((b) => ({ batchId: b.id, month: batchMonth(b), flag: b.tdsFlag, overridden: Boolean(b.tdsOverrideReason), overrideReason: b.tdsOverrideReason, grossPaise: b.totalPaise, tdsPaise: b.tdsPaise, status: b.status })),
     heldWithoutPan: held,
   };
 }
@@ -480,7 +489,7 @@ export async function payeeTdsView(input: { panHash: string | null; dealerType: 
     ? await db
         .select({ gross: sql<number>`coalesce(sum(${dealerPayoutBatches.totalPaise}), 0)::bigint`, tds: sql<number>`coalesce(sum(${dealerPayoutBatches.tdsPaise}), 0)::bigint` })
         .from(dealerPayoutBatches)
-        .where(and(eq(dealerPayoutBatches.payeePanHash, input.panHash), eq(dealerPayoutBatches.status, "PAID"), sql`to_date(${dealerPayoutBatches.periodMonth}, 'YYYY-MM') between ${fy.from}::date and ${fy.to}::date`))
+        .where(and(eq(dealerPayoutBatches.payeePanHash, input.panHash), eq(dealerPayoutBatches.status, "PAID"), sql`to_date(${batchMonthSql}, 'YYYY-MM') between ${fy.from}::date and ${fy.to}::date`))
     : [];
   const forms = input.panHash
     ? await db.select({ id: commissionTdsForms16a.id, financialYear: commissionTdsForms16a.financialYear, quarter: commissionTdsForms16a.quarter, certificateNumber: commissionTdsForms16a.certificateNumber }).from(commissionTdsForms16a).where(eq(commissionTdsForms16a.panHash, input.panHash)).orderBy(desc(commissionTdsForms16a.financialYear), desc(commissionTdsForms16a.quarter))

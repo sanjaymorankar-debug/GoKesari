@@ -303,6 +303,27 @@ describe("gap report A8 / A9: history, registration-date mapping, mapping table"
   });
 });
 
+describe("DP-1: moving a dealer to TIERED never pays a shop twice", () => {
+  it("a shop that earned on the standard model stays on it: no TIERED plan, no DIRECT_1", async () => {
+    const user = await createUser({ role: "DEALER" });
+    const [standard] = await db
+      .insert(dealers)
+      .values({ userId: user.id, legalName: "Old Network", contactName: "O", dealerType: "PROPRIETORSHIP", status: "APPROVED", panHash: `pan-${user.id}`, bankStatus: "VERIFIED", tierAgreementVersion: AGENT_AGREEMENT_VERSION, tierAgreementAcceptedAt: new Date() })
+      .returning();
+    const shop = await signedShop(standard.id, null);
+    const before = await ledger(shop.id);
+    expect(byType(before, "BASE").length).toBeGreaterThan(0);
+    await setDealerCommissionModel(standard.id, "TIERED", "moved after the shop earned (test)", admin);
+    await checkCommissionMilestones(shop.id, admin);
+    const after = await ledger(shop.id);
+    expect(after.map((r) => r.id).sort()).toEqual(before.map((r) => r.id).sort());
+    expect(await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shop.id))).toHaveLength(0);
+    // A shop signed after the move earns on TIERED as usual.
+    const fresh = await signedShop(standard.id, null);
+    expect(byType(await ledger(fresh.id), "DIRECT_1")).toHaveLength(1);
+  });
+});
+
 describe("only a fee actually paid earns", () => {
   it("an approved shop whose fee is still due earns nothing until the fee is paid", async () => {
     const dealer = await newDealer();

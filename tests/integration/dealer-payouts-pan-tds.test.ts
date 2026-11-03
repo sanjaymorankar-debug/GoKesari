@@ -24,14 +24,16 @@ import {
   documentEmails,
   notifications,
 } from "@/server/db/schema";
-import { approvePayoutBatch, retryFlaggedPayout } from "@/server/dealers/auto-payout";
-import { createPayoutBatch, markPayoutPaid } from "@/server/dealers/commission";
+import { approvePayoutBatch, dealerBankFile, handleDealerPayoutEvent, retryFlaggedPayout } from "@/server/dealers/auto-payout";
+import { OUTCOME_UNKNOWN, cancelPayout, createPayoutBatch, markPayoutPaid } from "@/server/dealers/commission";
+import { saveMemberPayee } from "@/server/dealers/tiered";
+import { encryptSecret } from "@/lib/pan-crypto";
 import { closeCommissionMonth, dealerMonthStatement, dealerStatementForBatch } from "@/server/dealers/monthly-payout";
 import { payoutReport, payoutReportFile } from "@/server/dealers/payout-reports";
 import { renderDocumentAttachments } from "@/server/documents/email";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { RULES } from "@/server/config/rules";
-import { addTdsCertificate, deduction, overrideTdsBlock, setCommissionTdsConfirmation } from "@/server/tax/commission-tds";
+import { addTdsCertificate, deduction, overrideTdsBlock, setCommissionTdsConfirmation, tdsDeductions } from "@/server/tax/commission-tds";
 import { createUser, resetDatabase } from "../helpers/fixtures";
 
 let admin: { id: string; role: "ADMIN" };
@@ -90,9 +92,10 @@ async function earn(dealerId: string, memberId: string | null, amount: number) {
 
 describe("C1 / C3: one payout per PAN per month", () => {
   it("a person who is a main dealer and a team member elsewhere (same PAN) gets one payout; each statement shows it", async () => {
-    const x = await dealer({ panHash: "same-pan" });
+    const bank = { bankAccountEnc: encryptSecret("123456789012"), bankIfsc: "SBIN0001234", bankHolderName: "Same Person" };
+    const x = await dealer({ panHash: "same-pan", ...bank });
     const y = await dealer();
-    const m = await memberOf(y.id, { panHash: "same-pan" });
+    const m = await memberOf(y.id, { panHash: "same-pan", ...bank, bankAccountEnc: encryptSecret("123456789012") });
     await earn(x.id, null, 30_000);
     await earn(y.id, m.id, 20_000);
     await earn(y.id, null, 10_000);
@@ -102,6 +105,72 @@ describe("C1 / C3: one payout per PAN per month", () => {
     expect(merged).toMatchObject({ totalPaise: 50_000, periodMonth: month });
     expect((await dealerMonthStatement(x.id, month)).payout?.id).toBe(merged.id);
     expect((await dealerMonthStatement(y.id, month, m.id)).payout?.id).toBe(merged.id);
+  });
+});
+
+describe("DP-2: a PAN cannot be borrowed", () => {
+  it("payees sharing a PAN but paid into different bank accounts are held for an admin, not paid together", async () => {
+    const x = await dealer({ panHash: "shared-pan", bankAccountEnc: encryptSecret("111111111111"), bankIfsc: "SBIN0001234" });
+    const y = await dealer();
+    const m = await memberOf(y.id, { panHash: "shared-pan", bankAccountEnc: encryptSecret("222222222222"), bankIfsc: "HDFC0001234" });
+    await earn(x.id, null, 30_000);
+    await earn(y.id, m.id, 20_000);
+    const result = await closeCommissionMonth(month, admin, afterMonth);
+    expect(result.payouts).toHaveLength(0);
+    expect(result.carried.map((c) => c.missing)).toEqual([["PAN check by an admin"], ["PAN check by an admin"]]);
+    expect(await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.payeePanHash, "shared-pan"))).toHaveLength(0);
+  });
+
+  it("a member cannot type a PAN already on someone else; the same person's two records and an admin can", async () => {
+    const d = await dealer();
+    const first = await memberOf(d.id, { panHash: null });
+    await saveMemberPayee(first.id, { pan: "ABCDE1234F" }, admin);
+    const otherUser = await createUser({ role: "DEALER" });
+    const other = await memberOf(d.id, { panHash: null, userId: otherUser.id });
+    await expect(saveMemberPayee(other.id, { pan: "abcde1234f" }, { id: otherUser.id, role: "DEALER" })).rejects.toThrow(/already on file/);
+    await expect(saveMemberPayee(other.id, { pan: "ABCDE1234F" }, admin)).resolves.toMatchObject({ panLast4: "234F" });
+    // One account behind both records: the same person in two networks.
+    const person = await createUser({ role: "DEALER" });
+    const a = await memberOf(d.id, { panHash: null, userId: person.id });
+    const e = await dealer();
+    const b = await memberOf(e.id, { panHash: null, userId: person.id });
+    await saveMemberPayee(a.id, { pan: "PQRST6789K" }, { id: person.id, role: "DEALER" });
+    await expect(saveMemberPayee(b.id, { pan: "PQRST6789K" }, { id: person.id, role: "DEALER" })).resolves.toMatchObject({ panLast4: "789K" });
+  });
+});
+
+describe("DP-3: a payout whose outcome is unknown is never paid twice", () => {
+  async function unknownOutcome() {
+    const d = await dealer({ bankAccountEnc: encryptSecret("123456789012"), bankIfsc: "SBIN0001234", bankHolderName: "Dealer" });
+    await earn(d.id, null, 30_000);
+    const batch = await createPayoutBatch(d.id, admin);
+    const [b] = await db
+      .update(dealerPayoutBatches)
+      .set({ status: "FAILED", needsReview: true, attempts: 1, provider: "SANDBOX", providerRef: null, failureReason: `${OUTCOME_UNKNOWN} — the provider timed out` })
+      .where(eq(dealerPayoutBatches.id, batch.id))
+      .returning();
+    return b;
+  }
+
+  it("is left out of the bank file and cannot be cancelled; the bank's late answer settles it", async () => {
+    const b = await unknownOutcome();
+    expect((await dealerBankFile(admin)).csv).not.toContain(b.id);
+    await expect(cancelPayout(b.id, admin)).rejects.toThrow(/may have paid/);
+    const event = { eventId: "e1", providerRef: "sbx-late-1", referenceId: b.id, status: "SUCCESS" as const, utr: "UTR123456", failureReason: null, raw: {} };
+    await handleDealerPayoutEvent("sandbox", event);
+    const [after] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, b.id));
+    expect(after).toMatchObject({ status: "PAID", providerRef: "sbx-late-1", paymentReference: "UTR123456" });
+  });
+
+  it("a late event of an earlier attempt does not decide the attempt being sent now", async () => {
+    const d = await dealer({ bankAccountEnc: encryptSecret("123456789012"), bankIfsc: "SBIN0001234", bankHolderName: "Dealer" });
+    await earn(d.id, null, 30_000);
+    const batch = await createPayoutBatch(d.id, admin);
+    await db.update(dealerPayoutBatches).set({ status: "PROCESSING", attempts: 2, provider: "SANDBOX", providerRef: "sbx-attempt-2" }).where(eq(dealerPayoutBatches.id, batch.id));
+    const late = await handleDealerPayoutEvent("sandbox", { eventId: "e2", providerRef: "sbx-attempt-1", referenceId: batch.id, status: "FAILED", utr: null, failureReason: "rejected", raw: {} });
+    expect(late.body.ignored).toBeTruthy();
+    const [after] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batch.id));
+    expect(after.status).toBe("PROCESSING");
   });
 });
 
@@ -201,6 +270,10 @@ describe("D1 / D3 / D2 / D4: dated TDS rows", () => {
     const next = await createPayoutBatch(d.id, admin);
     // Catch-up: the year is ₹1,000 → 2% = ₹20, less ₹10 already deducted.
     expect(next).toMatchObject({ tdsPaise: 1_000, tdsFlag: null });
+    // DP-4: payouts an admin made by hand (no period month) are in the month's deductions (26Q, Form 16A).
+    const rows = await tdsDeductions({ month }, ca);
+    expect(rows.map((r) => r.batchId).sort()).toEqual([batch.id, next.id].sort());
+    expect(rows.every((r) => r.periodMonth === month)).toBe(true);
   });
 
   it("CATCH_UP vs EXCESS_ONLY, and a nil certificate", () => {
