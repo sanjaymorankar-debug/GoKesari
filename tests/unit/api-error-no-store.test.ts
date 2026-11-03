@@ -7,6 +7,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { NextRequest } from "next/server";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -19,6 +20,7 @@ vi.mock("@/server/auth", () => ({
 
 import { GET as invoiceJsonGet } from "@/app/api/invoices/[id]/json/route";
 import { AppError } from "@/lib/errors";
+import { proxy } from "@/proxy";
 import { errorResponse, ok, parseBody, route } from "@/server/api/handler";
 
 const NO_STORE = "private, no-store";
@@ -60,6 +62,23 @@ describe("API error answers are never cached (QA D-118)", () => {
     const response = await invoiceJsonGet(new Request("http://localhost/x") as never, { params: Promise.resolve({ id: "not-an-id" }) });
     expect(response.status).toBe(404);
     expect(response.headers.get("cache-control")).toBe(NO_STORE);
+  });
+
+  it("the cron guard's 410 and 401 are never cached either (release #332 check B-3)", () => {
+    vi.stubEnv("CRON_ROUTES_ENABLED", "false");
+    vi.stubEnv("CRON_SECRET", "s3cret");
+    try {
+      const retired = proxy(new NextRequest("http://localhost/api/cron/old-job"));
+      expect(retired.status).toBe(410);
+      expect(retired.headers.get("cache-control")).toBe(NO_STORE);
+      const refused = proxy(new NextRequest("http://localhost/api/cron/every-minute"));
+      expect(refused.status).toBe(401);
+      expect(refused.headers.get("cache-control")).toBe(NO_STORE);
+      const allowed = proxy(new NextRequest("http://localhost/api/cron/every-minute", { headers: { authorization: "Bearer s3cret" } }));
+      expect(allowed.status).toBe(200);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("no GET route builds its own error answer from toClientError", () => {

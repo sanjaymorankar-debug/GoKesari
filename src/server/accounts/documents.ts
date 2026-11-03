@@ -458,7 +458,7 @@ export async function documentPdf(shopId: string, documentId: string): Promise<{
       gstin: shop.gstin,
     },
     againstNo,
-    printsWithoutGst(shop, doc),
+    printsWithoutGst(counterBillKind(shop), doc),
   );
   return { bytes: textPdf(lines, { title: `${DOCUMENT_TITLE[doc.kind]} ${doc.docNo}` }), filename: `${doc.docNo}.pdf` };
 }
