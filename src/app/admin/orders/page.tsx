@@ -12,6 +12,7 @@ import {
   orderStatusOptions,
 } from "@/server/services/orders";
 import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
+import { invoiceKindsForOrders, orderInvoiceLabel } from "@/server/services/invoices";
 import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Order Monitoring" };
@@ -34,11 +35,14 @@ export default async function OrdersMonitoringPage({
     getRule("invoicing"),
   ]);
   // NEW-007: delivery photo and invoice links for delivered orders.
-  const proofPhotos = await proofPhotosForOrders(rawOrders.filter((o) => o.status === "DELIVERED").map((o) => o.id));
+  const deliveredIds = rawOrders.filter((o) => o.status === "DELIVERED").map((o) => o.id);
+  // QA D-121: the link names the document issued (a shop outside GST issues a bill of supply).
+  const [proofPhotos, invoiceKinds] = await Promise.all([proofPhotosForOrders(deliveredIds), invoiceKindsForOrders(deliveredIds)]);
   const orders = rawOrders.map((o) => ({
     ...o,
     proofPhotoUrl: proofPhotos.get(o.id)?.url ?? null,
     invoiceUrl: o.status === "DELIVERED" && invoicingRule.enabled ? `/api/orders/${o.id}/invoice` : null,
+    invoiceLabel: orderInvoiceLabel(invoiceKinds.get(o.id)),
   }));
 
   return (
