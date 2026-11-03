@@ -1,7 +1,8 @@
 /** Public API (billing v2, docs/billing §8): OAuth2 token endpoint, client credentials only. */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AppError, toClientError } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
+import { errorResponse } from "@/server/api/handler";
 import { enforceRateLimit, clientKey } from "@/server/api/rate-limit";
 import { issueToken } from "@/server/public-api/auth";
 
@@ -24,7 +25,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const oauth = error instanceof AppError ? (error.details as { oauthError?: string } | undefined)?.oauthError : undefined;
     if (oauth) return NextResponse.json({ error: oauth, error_description: (error as Error).message }, { status: oauth === "invalid_client" ? 401 : 400 });
-    const { status, body } = toClientError(error);
-    return NextResponse.json(body, { status });
+    return errorResponse(error);
   }
 }

@@ -8,7 +8,10 @@ export interface MonthStatementView {
   label: string;
   closed: boolean;
   registrations: { shopId: string; shopName: string; registrationNumber: string | null; registeredOn: string; employee: string | null; attribution: string; shopStatus: string }[];
-  payout: { status: string; totalPaise: number; paymentReference: string | null; paidAt: string | null } | null;
+  /** totalPaise is the gross; netPaise (gross − TDS) is what reaches the bank. */
+  payout: { status: string; totalPaise: number; tdsPaise?: number; netPaise?: number; paymentReference: string | null; paidAt: string | null } | null;
+  /** One line per entry type (direct-1, direct-2, override, renewal, development, bonus). */
+  lines?: { key: string; label: string; amountPaise: number }[];
   totals: {
     registrations: number;
     activated: number;
@@ -50,7 +53,7 @@ export function DealerStatements({ statements, payoutDay, open }: { statements: 
                   {s.payout ? (
                     <>
                       {" "}
-                      · payout {rs(s.payout.totalPaise)} <Badge tone={s.payout.status === "PAID" ? "success" : "neutral"}>{s.payout.status === "PAID" ? "paid" : "to be paid"}</Badge>
+                      · payout {rs(s.payout.netPaise ?? s.payout.totalPaise)} <Badge tone={s.payout.status === "PAID" ? "success" : "neutral"}>{s.payout.status === "PAID" ? "paid" : "to be paid"}</Badge>
                     </>
                   ) : null}
                 </span>
@@ -75,6 +78,32 @@ export function DealerStatements({ statements, payoutDay, open }: { statements: 
                     </div>
                   ))}
                 </dl>
+                {s.lines && s.lines.some((l) => l.key !== "standard") ? (
+                  <ul className="space-y-1" data-testid="statement-lines">
+                    {s.lines.map((l) => (
+                      <li key={l.key} className="flex justify-between gap-2">
+                        <span className="text-ink-700">{l.label}</span>
+                        <span className="font-semibold text-ink-900">{rs(l.amountPaise)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {s.payout ? (
+                  <dl className="grid grid-cols-3 gap-2" data-testid="statement-payout">
+                    {(
+                      [
+                        ["Gross", rs(s.payout.totalPaise)],
+                        ["TDS", rs(s.payout.tdsPaise ?? 0)],
+                        ["Net to your bank", rs(s.payout.netPaise ?? s.payout.totalPaise)],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <div key={label} className="rounded-xl bg-cream-50 p-2">
+                        <dt className="text-xs text-ink-500">{label}</dt>
+                        <dd className="font-semibold text-ink-900">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
                 {s.payout?.paymentReference ? (
                   <p className="text-ink-700">
                     Paid {s.payout.paidAt?.slice(0, 10)} · bank reference {s.payout.paymentReference}

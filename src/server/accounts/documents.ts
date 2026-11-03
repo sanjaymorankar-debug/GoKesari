@@ -46,6 +46,7 @@ import { uqcFor } from "@/server/integrations/canonical";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { getSettings, logChange, nextNumber, postVoucher, reverseSource, todayIst } from "./books";
 import { getParty } from "./parties";
+import { counterBillKind, printsWithoutGst } from "./sales";
 import { postStock } from "./stock";
 
 export const DOCUMENT_PREFIX: Record<AccDocumentKind, string> = {
@@ -178,7 +179,12 @@ export async function createDocument(shopId: string, raw: DocumentInput, actor: 
       if (listingIds.some((id) => !mine.has(id))) throw validationFailed("A product on this document is not in your shop.");
     }
 
-    const lines: AccDocumentLine[] = input.lines.map((l) => {
+    // QA D-120: a shop outside GST charges and shows no GST, so its lines go at 0%; a note or refund
+    // against a bill that did carry GST (issued before this fix) still reverses that GST.
+    const taxedOriginal = [against, receipt].some((d) => d && d.cgstPaise + d.sgstPaise + d.igstPaise + d.cessPaise > 0);
+    const noGst = counterBillKind(shop) === "BILL_OF_SUPPLY" && !taxedOriginal;
+    const lines: AccDocumentLine[] = input.lines.map((entered) => {
+      const l = noGst ? { ...entered, gstRateBp: 0 } : entered;
       let taxable = grossPaise(l.qtyMilli, l.ratePaise);
       if (input.pricesIncludeTax) taxable = Math.round((taxable * 10_000) / (10_000 + l.gstRateBp));
       // A challan or estimate shows the tax a sale would carry, but charges none.
@@ -389,7 +395,7 @@ export async function getDocument(shopId: string, documentId: string): Promise<A
 
 const money = (p: number) => formatPaise(p).replace("₹", "Rs. ");
 
-export function documentTextLines(doc: AccDocument, shop: { name: string; legalName: string; address: string; gstin: string | null }, againstNo: string | null): PdfLine[] {
+export function documentTextLines(doc: AccDocument, shop: { name: string; legalName: string; address: string; gstin: string | null }, againstNo: string | null, noGst = false): PdfLine[] {
   const W = PDF_LINE_WIDTH;
   const out: PdfLine[] = [];
   const add = (text = "", bold = false) => out.push({ text, bold });
@@ -407,19 +413,23 @@ export function documentTextLines(doc: AccDocument, shop: { name: string; legalN
   if (doc.buyerGstin) add(`GSTIN: ${doc.buyerGstin}`);
   add(`Place of supply: ${stateLabel(doc.placeOfSupply) ?? doc.placeOfSupply}`);
   add("-".repeat(W));
-  add(`${"#".padEnd(3)}${"Item".padEnd(34)}${"HSN".padEnd(9)}${"Qty".padEnd(12)}${"GST".padStart(6)}${"Taxable".padStart(13)}${"Total".padStart(13)}`.slice(0, W), true);
+  // QA D-120: a shop outside GST prints no GST column or tax rows (noGst from printsWithoutGst).
+  add(`${"#".padEnd(3)}${"Item".padEnd(34)}${"HSN".padEnd(9)}${"Qty".padEnd(12)}${noGst ? "" : `${"GST".padStart(6)}${"Taxable".padStart(13)}`}${"Total".padStart(noGst ? 32 : 13)}`.slice(0, W), true);
   doc.lines.forEach((l, i) => {
     const qty = `${l.qtyMilli / 1000}${l.uqc ? ` ${l.uqc}` : ""}`;
-    add(`${String(i + 1).padEnd(3)}${l.description.slice(0, 33).padEnd(34)}${(l.hsn ?? "-").padEnd(9)}${qty.slice(0, 11).padEnd(12)}${`${l.gstRateBp / 100}%`.padStart(6)}${money(l.taxablePaise).padStart(13)}${money(l.totalPaise).padStart(13)}`.slice(0, W));
+    const tax = noGst ? "" : `${`${l.gstRateBp / 100}%`.padStart(6)}${money(l.taxablePaise).padStart(13)}`;
+    add(`${String(i + 1).padEnd(3)}${l.description.slice(0, 33).padEnd(34)}${(l.hsn ?? "-").padEnd(9)}${qty.slice(0, 11).padEnd(12)}${tax}${money(l.totalPaise).padStart(noGst ? 32 : 13)}`.slice(0, W));
   });
   add("-".repeat(W));
-  pair("Taxable value", money(doc.taxablePaise));
-  if (doc.interState) pair("IGST", money(doc.igstPaise));
-  else {
-    pair("CGST", money(doc.cgstPaise));
-    pair("SGST", money(doc.sgstPaise));
+  if (!noGst) {
+    pair("Taxable value", money(doc.taxablePaise));
+    if (doc.interState) pair("IGST", money(doc.igstPaise));
+    else {
+      pair("CGST", money(doc.cgstPaise));
+      pair("SGST", money(doc.sgstPaise));
+    }
+    if (doc.cessPaise) pair("Cess", money(doc.cessPaise));
   }
-  if (doc.cessPaise) pair("Cess", money(doc.cessPaise));
   pair("Total", money(doc.totalPaise));
   if (doc.kind === "DELIVERY_CHALLAN") add("Delivery challan (Rule 55): not a tax invoice; no tax is charged on this document.");
   if (doc.kind === "ESTIMATE") add("Estimate / quotation: not a tax invoice.");
@@ -448,6 +458,7 @@ export async function documentPdf(shopId: string, documentId: string): Promise<{
       gstin: shop.gstin,
     },
     againstNo,
+    printsWithoutGst(shop, doc),
   );
   return { bytes: textPdf(lines, { title: `${DOCUMENT_TITLE[doc.kind]} ${doc.docNo}` }), filename: `${doc.docNo}.pdf` };
 }

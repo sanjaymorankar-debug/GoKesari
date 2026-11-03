@@ -1,10 +1,12 @@
 import { SectionTabs } from "@/components/board/section-tabs";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { BankAccountPrompt } from "@/components/bank-account-prompt";
 import { LegalDocumentsBanner } from "@/components/legal-documents-banner";
 import { RegistrationPanel } from "@/components/registration-panel";
+import { ShopReferralCard } from "@/components/shop-referrals/shop-referral-card";
 import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
 import { ShopCustomerContactForm } from "@/components/shop-customer-contact-form";
 import { ShopDashboardView } from "@/components/shop-dashboard";
@@ -54,6 +56,8 @@ import { getShopCategories } from "@/server/services/shop-categories";
 import { membershipStatus } from "@/server/services/shop-membership";
 import { getShopOnboarding } from "@/server/services/shop-onboarding";
 import { listPaymentsForShop } from "@/server/services/shop-payments";
+import { shopReferralSummary } from "@/server/services/shop-referrals";
+import { originFromHeaders } from "@/server/dealers/http";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -463,10 +467,14 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
     }
 
     case "registration": {
-      const [payments, referral] = await Promise.all([
+      const [payments, referral, shopReferral, referralRule] = await Promise.all([
         listPaymentsForShop(shop.id),
         shop.referralCodeId ? getReferralCodeById(shop.referralCodeId) : null,
+        shopReferralSummary(shop.id),
+        getRule("shopReferrals"),
       ]);
+      const origin = originFromHeaders(await headers());
+      const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
       return (
         <>
           {header}
@@ -501,6 +509,18 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
               }))}
             />
           </div>
+          {shopReferral.enabled && shopReferral.code ? (
+            <ShopReferralCard
+              code={shopReferral.code}
+              link={`${origin}/r/${shopReferral.code}`}
+              offer={{
+                referred: referralRule.referredMode === "DISCOUNT" ? `${referralRule.referredDiscountBp / 100}% off their registration fee` : `${rupees(referralRule.referredCreditPaise)} welcome credit`,
+                referrer:
+                  referralRule.referrerMode === "WALLET_CREDIT" ? `${rupees(referralRule.referrerCreditPaise)} promotional credit in your shop wallet` : `${referralRule.referrerExtensionMonths} month(s) more membership`,
+              }}
+              summary={shopReferral}
+            />
+          ) : null}
         </>
       );
     }

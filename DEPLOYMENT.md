@@ -148,6 +148,13 @@ Promotion is a merge of `staging` into `main`, which is also the human approval
 gate. Give each environment its **own database** and its own Cashfree keys — use
 Cashfree sandbox keys on staging so no real money moves.
 
+### Into staging: the staging queue
+
+Sessions don't merge into `staging` themselves: they label the PR
+`ready-for-staging` and the "Staging queue" workflow merges and tests the PRs
+on test.gokesari.com one at a time ([docs/staging-queue/README.md](docs/staging-queue/README.md);
+needs the `STAGING_QUEUE_TOKEN` secret).
+
 ### One production release at a time
 
 Every push to `main` makes Hostinger build and restart gokesari.com, and it

@@ -250,3 +250,17 @@ truncates tables, so it must never point there. Before Phase 3 coding begins,
 either a separate Neon database/branch is created for `TEST_DATABASE_URL`, or
 verification relies on GitHub Actions CI (which already provisions Postgres 16
 per push).
+
+## Addendum — CA role and named dealer permissions (03-Nov-2026, gap report D4)
+
+Source: owner brief of 02-Nov-2026 (21.33 IST), [docs/referrals-dealer-2026-11/GAP_REPORT.md](docs/referrals-dealer-2026-11/GAP_REPORT.md) Part D.
+
+| Role | New in | Permissions |
+|---|---|---|
+| `CA` (Chartered Accountant) | migration 0140 (`user_role` value on both databases) | customer basics, `statutory:manage` (dated statutory and TDS rows; only the CA confirms a TDS row), `tds:commission:manage` (certificates, challans, 26Q data, Form 16A), `dealers:payouts:read` (read-only ledger, payouts and payout reports with CSV / XLSX) |
+
+New named permissions:
+- `dealers:payouts:read` — ADMIN, OPERATOR, CA. Read-only; approving, paying, cancelling and changing commission rules stay ADMIN only, checked in the services (`requireAdmin`).
+- `tds:commission:manage` — ADMIN, CA.
+
+A CA is never given `referral:manage` (dealer administration), `wallet:adjust` or any approval. An admin grants the role in Admin → Users → privileges ("Chartered Accountant"). The CA opens Admin → TDS on commission at `/admin/tds-commission` (the CA's board is the customer board; the page is reached by its link, which the CA guide gives).

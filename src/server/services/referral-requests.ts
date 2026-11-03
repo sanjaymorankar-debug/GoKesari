@@ -24,6 +24,7 @@ import { sendEmail, emailMode } from "@/server/email/transport";
 import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { attributeShopToCode, createReferralCode, resolveCodeForShop } from "./referrals";
+import { looksLikeShopCode, resolveShopReferralCode, shopReferralRule } from "./shop-referrals";
 import { isReferralRequired } from "./referral-settings";
 import { getRule } from "./settings";
 
@@ -52,6 +53,8 @@ export async function assertRegistrationReferralCode(raw: string | null | undefi
     throw validationFailed("Enter your referral code, or request one.", { fields: { referralCode: "A referral code is required to register a shop." } });
   }
   try {
+    // Shop-refers-shop (0137): another shop's code is the one code too, while rule shopReferrals is on.
+    if (looksLikeShopCode(code) && (await shopReferralRule()).enabled) return (await resolveShopReferralCode(code)).code;
     return (await resolveCodeForShop(code)).code;
   } catch (error) {
     if (error instanceof AppError && error.code === "VALIDATION_FAILED") {
@@ -64,7 +67,8 @@ export async function assertRegistrationReferralCode(raw: string | null | undefi
 /** For the form's on-blur check: valid or not, nothing more. */
 export async function checkReferralCode(raw: string): Promise<{ valid: boolean; message: string | null }> {
   try {
-    await resolveCodeForShop(raw);
+    if (looksLikeShopCode(raw) && (await shopReferralRule()).enabled) await resolveShopReferralCode(raw);
+    else await resolveCodeForShop(raw);
     return { valid: true, message: null };
   } catch (error) {
     if (error instanceof AppError && error.code === "VALIDATION_FAILED") return { valid: false, message: error.message };
@@ -373,6 +377,8 @@ export async function attributeRegistrationReferral(
   actor: Actor,
 ): Promise<void> {
   if (shop.referralCodeId) return;
+  // A shop's code is recorded by registerShop (shop_referrals), never as a dealer code.
+  if (looksLikeShopCode(code)) return;
   try {
     await attributeShopToCode(shop.id, code, actor);
   } catch (error) {

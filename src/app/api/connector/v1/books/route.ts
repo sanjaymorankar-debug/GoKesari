@@ -39,7 +39,7 @@ export const GET = route(async (request: NextRequest) => {
   } catch (error) {
     if (error instanceof ExportBlocked) {
       await logSync(session.integration, { level: "WARN", event: "books.blocked", message: error.message, detail: { fixes: error.fixes.slice(0, 20) } });
-      return NextResponse.json({ error: { code: "FIX_FIRST", message: error.message, fixes: error.fixes } }, { status: 409 });
+      return NextResponse.json({ error: { code: "FIX_FIRST", message: error.message, fixes: error.fixes } }, { status: 409, headers: { "cache-control": "private, no-store" } });
     }
     throw error;
   }

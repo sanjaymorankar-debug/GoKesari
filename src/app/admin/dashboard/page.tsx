@@ -36,12 +36,16 @@ export default async function AdminDashboardPage() {
     can(user.role, PERMISSIONS.FINANCE_VIEW) || can(user.role, PERMISSIONS.FINANCE_EXCEPTIONS_VIEW);
 
   const today = defaultWindow(1);
-  const [kpis, live, shopCounts, riskCounts, disputeCounts] = await Promise.all([
-    getMarketplaceKpis(today),
-    getLiveOperations(),
+  // getAdminDashboard needs the same KPIs and live snapshot: compute them once.
+  const kpisQ = getMarketplaceKpis(today);
+  const liveQ = getLiveOperations();
+  const [kpis, live, shopCounts, riskCounts, disputeCounts, ops] = await Promise.all([
+    kpisQ,
+    liveQ,
     countShopsByLifecycle(),
     canReviewRisk ? countOpenRiskFlags() : Promise.resolve(null),
     canWorkDisputes ? countDisputes() : Promise.resolve(null),
+    getAdminDashboard({ kpis: kpisQ, live: liveQ }),
   ]);
 
   const deliveredGmvPaise = kpis.gmvTrend.reduce((sum, d) => sum + d.gmvPaise, 0);
@@ -61,7 +65,6 @@ export default async function AdminDashboardPage() {
     href: canViewOrders ? `/admin/orders?status=${s.status}` : undefined,
   }));
 
-  const ops = await getAdminDashboard();
   const pendingShops = shopCounts.KYC_PENDING + shopCounts.PAYMENT_PENDING + shopCounts.VERIFIED;
   const openRiskTotal = riskCounts ? riskCounts.HIGH + riskCounts.MEDIUM + riskCounts.LOW : 0;
 

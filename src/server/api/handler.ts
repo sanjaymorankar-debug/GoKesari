@@ -26,6 +26,16 @@ export function noContent(): NextResponse {
 }
 
 /**
+ * An error answer. QA D-118: Hostinger's CDN kept a 404 with no Cache-Control
+ * for 10–20 s and served it to the next caller (the invoice's own customer got
+ * another user's "not found"), so an error is never stored by any cache.
+ */
+export function errorResponse(error: unknown): NextResponse {
+  const { status, body } = toClientError(error);
+  return NextResponse.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
+}
+
+/**
  * Wraps a handler with uniform error handling.
  *
  * ZodError is converted to a field-level 422 so forms can highlight the exact
@@ -43,15 +53,13 @@ export function route<Args extends unknown[]>(
         for (const issue of error.issues) {
           fieldErrors[issue.path.join(".") || "_"] = issue.message;
         }
-        const { status, body } = toClientError(
+        return errorResponse(
           validationFailed("Please check the highlighted fields.", {
             fields: fieldErrors,
           }),
         );
-        return NextResponse.json(body, { status });
       }
-      const { status, body } = toClientError(error);
-      return NextResponse.json(body, { status });
+      return errorResponse(error);
     }
   };
 }

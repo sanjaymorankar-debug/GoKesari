@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/server/db";
 import { shops, type TaxInvoice } from "@/server/db/schema";
 import { getSettings } from "@/server/accounts/books";
-import { counterBillKind, getSalesInvoice } from "@/server/accounts/sales";
+import { counterBillKind, getSalesInvoice, printsWithoutGst } from "@/server/accounts/sales";
 import { einvoiceFor, type InvoiceSnapshot } from "@/server/services/invoices";
 import { invoiceQrPayload } from "./delivery";
 
@@ -78,19 +78,23 @@ export function invoiceReceiptLines(s: InvoiceSnapshot): PdfLine[] {
   wrap(`To ${s.buyer.name}${s.buyer.gstin ? ` GSTIN ${s.buyer.gstin}` : ""}`);
   wrap(`POS ${stateLabel(s.placeOfSupply) ?? s.placeOfSupply}`);
   add(rule);
+  // QA D-119: a bill of supply charges no GST, so no rate on the lines and no tax rows.
+  const bos = s.kind === "BILL_OF_SUPPLY";
   for (const l of s.lines) {
     wrap(`${l.description}${l.hsn ? ` (${l.hsn})` : ""}`);
-    pair(`  ${l.quantity}${l.uqc ? ` ${l.uqc}` : ""} @${(l.rateBp / 100).toFixed(l.rateBp % 100 ? 2 : 0)}%`, money(l.grossPaise));
+    pair(`  ${l.quantity}${l.uqc ? ` ${l.uqc}` : ""}${bos ? "" : ` @${(l.rateBp / 100).toFixed(l.rateBp % 100 ? 2 : 0)}%`}`, money(l.grossPaise));
   }
   add(rule);
-  pair("Taxable", money(s.totals.taxablePaise));
-  if (s.supplyType === "INTRA") {
-    pair("CGST", money(s.totals.cgstPaise));
-    pair("SGST", money(s.totals.sgstPaise));
-  } else {
-    pair("IGST", money(s.totals.igstPaise));
+  if (!bos) {
+    pair("Taxable", money(s.totals.taxablePaise));
+    if (s.supplyType === "INTRA") {
+      pair("CGST", money(s.totals.cgstPaise));
+      pair("SGST", money(s.totals.sgstPaise));
+    } else {
+      pair("IGST", money(s.totals.igstPaise));
+    }
+    if (s.totals.cessPaise) pair("Cess", money(s.totals.cessPaise));
   }
-  if (s.totals.cessPaise) pair("Cess", money(s.totals.cessPaise));
   pair("TOTAL", money(s.totals.totalPaise));
   add(rule);
   if (s.eco) wrap(`Through e-commerce operator ${s.eco.legalName} GSTIN ${s.eco.gstin}`);
@@ -178,18 +182,22 @@ export async function salesReceiptPdf(shopId: string, salesId: string): Promise<
   if (invoice.buyerName) add(`To ${invoice.buyerName}`.slice(0, W));
   if (invoice.buyerGstin) add(`GSTIN ${invoice.buyerGstin}`);
   add("-".repeat(W));
+  // QA D-120: a bill of supply that charged no GST shows no rate and no tax rows.
+  const noGst = printsWithoutGst(shop, invoice);
   for (const l of lines) {
     add(`${l.description}${l.hsn ? ` (${l.hsn})` : ""}`.slice(0, W));
-    pair(`  ${l.qtyMilli / 1000}${l.unit ? ` ${l.unit}` : ""} @${l.gstRateBp / 100}%`, money(l.totalPaise));
+    pair(`  ${l.qtyMilli / 1000}${l.unit ? ` ${l.unit}` : ""}${noGst ? "" : ` @${l.gstRateBp / 100}%`}`, money(l.totalPaise));
   }
   add("-".repeat(W));
-  pair("Taxable", money(invoice.taxablePaise));
-  if (invoice.interState) pair("IGST", money(invoice.igstPaise));
-  else {
-    pair("CGST", money(invoice.cgstPaise));
-    pair("SGST", money(invoice.sgstPaise));
+  if (!noGst) {
+    pair("Taxable", money(invoice.taxablePaise));
+    if (invoice.interState) pair("IGST", money(invoice.igstPaise));
+    else {
+      pair("CGST", money(invoice.cgstPaise));
+      pair("SGST", money(invoice.sgstPaise));
+    }
+    if (invoice.cessPaise) pair("Cess", money(invoice.cessPaise));
   }
-  if (invoice.cessPaise) pair("Cess", money(invoice.cessPaise));
   if (invoice.roundOffPaise) pair("Round off", money(invoice.roundOffPaise));
   pair("TOTAL", money(invoice.totalPaise));
   add("Thank you!");

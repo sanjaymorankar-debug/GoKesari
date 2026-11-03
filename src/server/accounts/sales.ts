@@ -112,7 +112,11 @@ async function issueSalesInvoice(shopId: string, input: SalesInput, date: string
     const pos = input.placeOfSupply ?? stateOfGstin(gstin) ?? sellerState;
     const inter = isInterState(sellerState, pos);
 
-    const lines = input.lines.map((l) => {
+    const noGst = counterBillKind(shop) === "BILL_OF_SUPPLY";
+    const lines = input.lines.map((entered) => {
+      // QA D-120: a shop outside GST may not collect tax (s.32 CGST Act). Its bill of supply takes every
+      // line at 0% — a POS bill carries the catalogue's rate — and the price is the amount charged.
+      const l = noGst ? { ...entered, gstRateBp: 0 } : entered;
       const gross = grossPaise(l.qtyMilli, l.ratePaise);
       const discount = l.discountPaise ?? 0;
       let taxable = gross - discount;
@@ -280,11 +284,24 @@ export function counterBillKind(shop: Pick<typeof shops.$inferSelect, "gstRegist
   return shop.gstin && (type === "REGULAR" || type === "UNREGISTERED") ? "TAX_INVOICE" : "BILL_OF_SUPPLY";
 }
 
+/**
+ * QA D-120: a bill of supply that charged no GST is shown without a tax split, tax columns or
+ * tax rows (page, A4, 80 mm, shop documents). One that did carry GST — issued before the fix —
+ * keeps them, so its figures still add up.
+ */
+export function printsWithoutGst(
+  shop: Pick<typeof shops.$inferSelect, "gstRegistrationType" | "gstStatus" | "gstin">,
+  doc: { cgstPaise: number; sgstPaise: number; igstPaise: number; cessPaise: number },
+): boolean {
+  return counterBillKind(shop) === "BILL_OF_SUPPLY" && doc.cgstPaise + doc.sgstPaise + doc.igstPaise + doc.cessPaise === 0;
+}
+
 /** The printable tax invoice / bill of supply (Rule 46 / 49 fields), as a plain-text PDF. */
 export async function salesInvoicePdf(shopId: string, salesId: string): Promise<{ bytes: Buffer; filename: string }> {
   const { invoice, lines } = await getSalesInvoice(shopId, salesId);
   const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
   const rs = (p: number) => formatPaise(p).replace("₹", "Rs. ");
+  const noGst = printsWithoutGst(shop, invoice);
   const out: PdfLine[] = [
     { text: `${counterBillKind(shop) === "TAX_INVOICE" ? "TAX INVOICE" : "BILL OF SUPPLY"}${invoice.status === "CANCELLED" ? "  (CANCELLED)" : ""}`, bold: true },
     { text: shop.legalBusinessName ?? shop.name, bold: true },
@@ -293,20 +310,25 @@ export async function salesInvoicePdf(shopId: string, salesId: string): Promise<
     { text: "" },
     { text: `Invoice no: ${invoice.invoiceNo}     Date: ${invoice.invoiceDate}` },
     { text: `Bill to: ${invoice.buyerName ?? "Cash customer"}${invoice.buyerGstin ? `   GSTIN: ${invoice.buyerGstin}` : ""}` },
-    { text: `Place of supply: ${gstState(invoice.placeOfSupply)?.name ?? invoice.placeOfSupply} (${invoice.placeOfSupply})   ${invoice.interState ? "Inter-state (IGST)" : "Intra-state (CGST + SGST)"}` },
+    { text: `Place of supply: ${gstState(invoice.placeOfSupply)?.name ?? invoice.placeOfSupply} (${invoice.placeOfSupply})${noGst ? "" : `   ${invoice.interState ? "Inter-state (IGST)" : "Intra-state (CGST + SGST)"}`}` },
     { text: "" },
-    { text: "#  Item                         HSN       Qty     Rate      Taxable   GST%   Tax       Total", bold: true },
+    { text: noGst ? "#  Item                         HSN       Qty     Rate      Total" : "#  Item                         HSN       Qty     Rate      Taxable   GST%   Tax       Total", bold: true },
   ];
   for (const l of lines) {
     const tax = l.cgstPaise + l.sgstPaise + l.igstPaise + l.cessPaise;
+    const head = `${String(l.lineNo).padEnd(3)}${l.description.slice(0, 28).padEnd(29)}${(l.hsn ?? "").padEnd(10)}${String(l.qtyMilli / 1000).padEnd(8)}${String((l.ratePaise / 100).toFixed(2)).padEnd(10)}`;
     out.push({
-      text: `${String(l.lineNo).padEnd(3)}${l.description.slice(0, 28).padEnd(29)}${(l.hsn ?? "").padEnd(10)}${String(l.qtyMilli / 1000).padEnd(8)}${String((l.ratePaise / 100).toFixed(2)).padEnd(10)}${String((l.taxablePaise / 100).toFixed(2)).padEnd(10)}${String(l.gstRateBp / 100).padEnd(7)}${String((tax / 100).toFixed(2)).padEnd(10)}${(l.totalPaise / 100).toFixed(2)}`,
+      text: noGst
+        ? `${head}${(l.totalPaise / 100).toFixed(2)}`
+        : `${head}${String((l.taxablePaise / 100).toFixed(2)).padEnd(10)}${String(l.gstRateBp / 100).padEnd(7)}${String((tax / 100).toFixed(2)).padEnd(10)}${(l.totalPaise / 100).toFixed(2)}`,
     });
   }
   out.push({ text: "" });
-  out.push({ text: `Taxable value: ${rs(invoice.taxablePaise)}` });
-  if (invoice.interState) out.push({ text: `IGST: ${rs(invoice.igstPaise)}` });
-  else out.push({ text: `CGST: ${rs(invoice.cgstPaise)}   SGST: ${rs(invoice.sgstPaise)}` });
+  if (!noGst) {
+    out.push({ text: `Taxable value: ${rs(invoice.taxablePaise)}` });
+    if (invoice.interState) out.push({ text: `IGST: ${rs(invoice.igstPaise)}` });
+    else out.push({ text: `CGST: ${rs(invoice.cgstPaise)}   SGST: ${rs(invoice.sgstPaise)}` });
+  }
   if (invoice.roundOffPaise) out.push({ text: `Round off: ${rs(invoice.roundOffPaise)}` });
   out.push({ text: `TOTAL: ${rs(invoice.totalPaise)}`, bold: true });
   out.push({ text: `Payment: ${invoice.paymentMode}` });

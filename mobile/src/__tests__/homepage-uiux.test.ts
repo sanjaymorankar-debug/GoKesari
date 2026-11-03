@@ -18,7 +18,8 @@ describe("1.3.0 — compare links", () => {
   });
 
   it("keeps every earlier route", () => {
-    expect(DEEP_LINK_ROUTES.map((r) => r.kind)).toEqual(["product", "shop", "order", "referral", "referral", "notification", "ticket", "compare"]);
+    // 1.7.0 added dealer and shop-register after them.
+    expect(DEEP_LINK_ROUTES.map((r) => r.kind).slice(0, 8)).toEqual(["product", "shop", "order", "referral", "referral", "notification", "ticket", "compare"]);
   });
 
   it("still never opens the search API in the app", () => {

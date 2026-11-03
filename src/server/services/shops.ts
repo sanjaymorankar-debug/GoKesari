@@ -48,6 +48,7 @@ import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getChannelProvider, smsChannel } from "@/server/notifications/channels";
 import { attributeShopToCode } from "./referrals";
+import { looksLikeShopCode, normalizeShopCode, recordShopReferral, resolveShopReferralCode, shopReferralDiscount, shopReferralRule } from "./shop-referrals";
 import { applyShopCategories } from "./shop-categories";
 import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateBp } from "./registration-fee-coupons";
 import { assertShopType, isKnownShopType } from "./shop-types";
@@ -319,6 +320,10 @@ export async function registerShop(
   const [base, gstRateBp] =
     override === null ? await Promise.all([baseRegistrationFee(turnover), registrationFeeGstRateBp()]) : [null, 0];
   const couponCode = override === null ? input.couponCode?.trim() || null : null;
+  // Shop-refers-shop (0137, rule shopReferrals): the code typed may be another shop's — one code only.
+  const shopReferralCode = override === null && looksLikeShopCode(input.referralCode) ? normalizeShopCode(input.referralCode) : null;
+  const shopReferral = shopReferralCode ? await shopReferralRule() : null;
+  if (shopReferral?.enabled) await resolveShopReferralCode(shopReferralCode!);
 
   // What the owner typed — shared by a new registration and a resubmission.
   // Text is stored without its outer spaces; spaces alone are no value (TC-FLD-037).
@@ -456,13 +461,10 @@ export async function registerShop(
       // The coupon is locked and its limits checked again here, so two
       // registrations can never both take its last use.
       const coupon = couponCode ? await lockRegistrationFeeCoupon(tx, couponCode, ownerId) : null;
-      const fee = base
-        ? registrationFeeBreakdown(
-            base.basePaise,
-            coupon ? registrationCouponDiscount(coupon, base.basePaise) : 0,
-            gstRateBp,
-          )
-        : null;
+      const couponDiscount = base && coupon ? registrationCouponDiscount(coupon, base.basePaise) : 0;
+      // The referred shop's discount (DISCOUNT mode) is on the fee left after any coupon.
+      const referralDiscount = base && shopReferral?.enabled ? shopReferralDiscount(base.basePaise - couponDiscount, shopReferral) : 0;
+      const fee = base ? registrationFeeBreakdown(base.basePaise, couponDiscount + referralDiscount, gstRateBp) : null;
       const registrationFeePaise = fee ? fee.totalPaise : override!;
 
       const [shop] = await tx
@@ -495,6 +497,7 @@ export async function registerShop(
         .returning();
       await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
       if (input.categoryIds) await applyShopCategories(tx, shop.id, input.categoryIds);
+      if (shopReferral?.enabled) await recordShopReferral(tx, { referredShop: shop, code: shopReferralCode!, discountPaise: referralDiscount, actor });
       if (options.onSaved) await options.onSaved(tx, shop);
       return { kind: "created", shop };
     });
@@ -547,7 +550,7 @@ export async function registerShop(
   }
 
   const shop = outcome.shop;
-  if (privileged && input.referralCode) {
+  if (privileged && input.referralCode && !shopReferralCode) {
     await attributeShopToCode(shop.id, input.referralCode, actor);
   }
 

@@ -7,7 +7,7 @@
  * on add-to-cart, at checkout, and on every subscription order generation.
  * Nothing bypasses it.
  */
-import { and, asc, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import {
   conflict,
@@ -1462,14 +1462,10 @@ export async function consumeOnlineStock(
   orderId?: string,
 ): Promise<void> {
   units = roundStock(units);
-  const [current] = await client
-    .select()
-    .from(shopProducts)
-    .where(eq(shopProducts.id, shopProductId));
-  if (!current) throw notFound("Product");
-  if (!current.trackInventory) return;
-
-  const updated = await client
+  // One round trip in the usual case: the guarded UPDATE also hands back the
+  // stock it started from. The row is read only when nothing was updated, to
+  // tell "not found", "not tracked" and "out of stock" apart.
+  const [updated] = await client
     .update(shopProducts)
     .set({
       onlineStock: sql`${shopProducts.onlineStock} - ${units}`,
@@ -1478,12 +1474,22 @@ export async function consumeOnlineStock(
     .where(
       and(
         eq(shopProducts.id, shopProductId),
+        eq(shopProducts.trackInventory, true),
         sql`${shopProducts.onlineStock} >= ${units}`,
       ),
     )
-    .returning();
+    .returning({
+      onlineStock: shopProducts.onlineStock,
+      previousStock: sql`${shopProducts.onlineStock} + ${units}`.mapWith(shopProducts.onlineStock),
+    });
 
-  if (updated.length === 0) {
+  if (!updated) {
+    const [current] = await client
+      .select({ trackInventory: shopProducts.trackInventory })
+      .from(shopProducts)
+      .where(eq(shopProducts.id, shopProductId));
+    if (!current) throw notFound("Product");
+    if (!current.trackInventory) return;
     throw outOfStock("This product is currently unavailable online.");
   }
 
@@ -1491,8 +1497,8 @@ export async function consumeOnlineStock(
     shopProductId,
     channel: "ONLINE",
     deltaUnits: -units,
-    previousUnits: current.onlineStock,
-    newUnits: updated[0].onlineStock,
+    previousUnits: updated.previousStock,
+    newUnits: updated.onlineStock,
     reason,
     orderId: orderId ?? null,
   });
@@ -1525,27 +1531,26 @@ export async function restockOnline(
   }
   units = roundStock(units);
   const run = async (tx: DbClient): Promise<ShopProduct> => {
-    const [current] = await tx
-      .select()
-      .from(shopProducts)
-      .where(eq(shopProducts.id, shopProductId))
-      .for("update");
-    if (!current) throw notFound("Product");
-
-    const [updated] = await tx
+    // The UPDATE locks the row; RETURNING gives the stock it started from.
+    const [row] = await tx
       .update(shopProducts)
       .set({
         onlineStock: sql`${shopProducts.onlineStock} + ${units}`,
         updatedAt: new Date(),
       })
       .where(eq(shopProducts.id, shopProductId))
-      .returning();
+      .returning({
+        ...getTableColumns(shopProducts),
+        previousStock: sql`${shopProducts.onlineStock} - ${units}`.mapWith(shopProducts.onlineStock),
+      });
+    if (!row) throw notFound("Product");
+    const { previousStock, ...updated } = row;
 
     await tx.insert(inventoryMovements).values({
       shopProductId,
       channel: "ONLINE",
       deltaUnits: units,
-      previousUnits: current.onlineStock,
+      previousUnits: previousStock,
       newUnits: updated.onlineStock,
       reason,
       createdBy: actorId,

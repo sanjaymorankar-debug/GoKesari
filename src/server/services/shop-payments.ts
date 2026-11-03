@@ -29,6 +29,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { extendMembership } from "./shop-membership";
 import { autoApproveShopIfReady } from "./shops";
 import { reverseShopCommissionSafely, reverseWaivedFeeCommissionSafely } from "@/server/dealers/commission";
+import { accrueRenewalCommissionSafely } from "@/server/dealers/tiered";
 
 interface Actor {
   id: string;
@@ -233,6 +234,8 @@ export async function recordPayment(
   }
   // docs/dealer-programme: a refunded registration fee takes back the dealer's commission for the shop.
   if (input.paymentType === "REFUND" && client === db) await reverseShopCommissionSafely(input.shopId, "registration fee refunded", actor);
+  // TIERED (0136): a paid renewal of a shop still active earns its direct earner the renewal commission.
+  if (input.paymentType === "RENEWAL" && client === db) await accrueRenewalCommissionSafely(recorded.payment.id, actor);
   return recorded;
 }
 
