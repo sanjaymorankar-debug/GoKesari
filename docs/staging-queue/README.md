@@ -59,6 +59,17 @@ Then:
 - **CI red or merge conflict before merging** → `staging-blocked`, the
   `ready-for-staging` label is removed and the queue moves on (nothing was
   merged, so it does not pause). Fix it and add `ready-for-staging` again.
+  Only a real merge conflict counts: if GitHub refuses to update the branch
+  for any other reason (token, the branch moved meanwhile, GitHub down), the
+  PR keeps `ready-for-staging` and the run fails instead.
+- **GitHub refuses a write** (label, comment, branch update, merge, tracker)
+  → the run fails with a red X and the error in its log and summary. Each run
+  first checks that the token can write and stops at once if it cannot; a
+  write refused later ends the run after the PR in hand (no new PR is
+  started). PRs not dealt with keep `ready-for-staging` and are picked up by
+  the next run. (On 3 Nov 2026 the token could read but not write for 5½
+  hours, and every run still ended green while #334, #336 and #339 sat
+  unmerged.)
 
 The live status is the issue labelled **`staging-queue-tracker`** (open PRs,
 their place and state, recently verified PRs, all times IST). It is an issue,
@@ -90,7 +101,16 @@ therefore uses a personal token:
 2. Repository → Settings → Secrets and variables → Actions → New repository
    secret: name **`STAGING_QUEUE_TOKEN`**, value the token.
 
-Without the secret every run stops with a warning and changes nothing.
+Without the secret every run stops with a warning and changes nothing. With a
+token that cannot write (expired, or read-only permissions) every run fails at
+its first step with "STAGING_QUEUE_TOKEN cannot write to …" or "… has no write
+access …": renew the token with the permissions above and update the secret.
+
+## Tests
+
+`scripts/release/staging-queue.test.sh` runs the queue script against a fake
+`gh` (403 / 422 answers, dry runs; nothing goes to GitHub). CI runs it in the
+`scope` job; locally it needs bash 4+ and jq (macOS: `brew install bash jq`).
 
 ## Triggers
 
