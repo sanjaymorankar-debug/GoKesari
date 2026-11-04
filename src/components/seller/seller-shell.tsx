@@ -125,7 +125,7 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, shops, group
   const storeHref = shop?.status === "APPROVED" ? `/shops/${shop.slug}` : null;
 
   return (
-    <div data-seller-central lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-slate-100 text-ink-900">
+    <div data-seller-central lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-slate-50 text-ink-900">
       <header className="sticky top-0 z-40 bg-ink-900 text-white shadow-sm" data-testid="seller-topbar">
         <div className="flex h-14 items-center gap-1.5 px-2 sm:gap-2 sm:px-4 lg:h-16 lg:px-6">
           {withNav ? (
