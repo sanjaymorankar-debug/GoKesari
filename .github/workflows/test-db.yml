@@ -23,7 +23,8 @@
 #   batch-2026-10-settings |
 #   rollback-0058 (type ROLLBACK 0058 to confirm)
 #
-# Every change is preceded by a pg_dump backup kept as a workflow artifact for 14 days.
+# Every change is preceded by a backup: a Neon branch auto-backup-<date>-run<N> (no data
+# transfer); the newest 5 are kept. Restore: docs/event-driven-2026-10/DB_AUTOMATION.md.
 name: Test database
 
 on:
@@ -147,37 +148,62 @@ jobs:
           sudo apt-get install -y -qq "postgresql-client-$major" > /dev/null
           echo "/usr/lib/postgresql/$major/bin" >> "$GITHUB_PATH"
 
-      - name: Back up
+      - name: Back up (Neon branch)
         if: env.DO_BACKUP == 'yes'
+        # A Neon branch is a copy-on-write copy made inside Neon: no rows leave the
+        # database, so a backup costs no data transfer. The pg_dump this replaces
+        # pulled ~45 MB of rows to GitHub per run (~1.2 GB a month from the nightly
+        # backup alone; RCA of test's 490 MB a day, 04 Nov 2026). The branch holds
+        # every database of the project, the old seller database included.
         env:
-          TEST_SELLER_DATABASE_URL: ${{ secrets.TEST_SELLER_DATABASE_URL }}
+          # A Neon API key that can see the test project only (Neon → Organization settings →
+          # API keys → project-scoped key for GoKesari-test-sg), saved on the `test` environment.
+          NEON_API_KEY: ${{ secrets.TEST_NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.TEST_NEON_PROJECT_ID || 'curly-night-16641982' }}
+          # Newest auto-backup-* branches kept; the Launch plan includes 10 per project.
+          KEEP_BACKUPS: 5
         run: |
-          file="gokesari_test_$(date -u +%Y-%m-%d_%H%M)_run${GITHUB_RUN_NUMBER}.dump"
-          pg_dump "$TEST_DATABASE_URL" --format=custom --no-owner --no-privileges --file="$file"
-          size=$(stat -c %s "$file")
-          [ "$size" -gt 1024 ] || { echo "::error::Backup is only $size bytes — stopping before any change."; exit 1; }
-          echo "BACKUP_FILE=$file" >> "$GITHUB_ENV"
-          echo "Backup: $file ($((size / 1024)) KiB) — artifact, kept 14 days" | tee -a "$GITHUB_STEP_SUMMARY"
-          # After the seller / customer switch the seller rows live in the seller database: back it up too.
-          split=$(psql "$TEST_DATABASE_URL" -X -tAc "select exists (select 1 from pg_foreign_table t join pg_foreign_server s on s.oid = t.ftserver where s.srvname = 'gk_seller')")
-          if [ "$split" = "t" ]; then
-            [ -n "$TEST_SELLER_DATABASE_URL" ] || { echo "::error::The test database is split but TEST_SELLER_DATABASE_URL is not set — cannot back up the seller rows."; exit 1; }
-            # Trimmed: a secret saved with a trailing newline breaks libpq's URL parsing ("invalid channel_binding value").
-            seller_url=$(printf '%s' "$TEST_SELLER_DATABASE_URL" | tr -d '\r\n')
-            pg_dump "$seller_url" --format=custom --no-owner --no-privileges --file="seller_$file"
-            mv "$file" "core_$file"; mkdir "$file.d"; mv "core_$file" "seller_$file" "$file.d/"
-            echo "BACKUP_FILE=$file.d" >> "$GITHUB_ENV"
-            echo "Split layout: the seller database is in the same backup (seller_$file)." | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
+          fail() { echo "::error::$1"; exit 1; }
+          [ -n "$NEON_API_KEY" ] || fail "Secret TEST_NEON_API_KEY is not set — cannot back up. Stopping before any change."
+          api() {
+            local method=$1 path=$2; shift 2
+            curl -sS --fail-with-body --retry 3 -X "$method" \
+              -H "Authorization: Bearer $NEON_API_KEY" -H "Accept: application/json" -H "Content-Type: application/json" \
+              "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID$path" "$@"
+          }
 
-      - name: Keep the backup (14 days)
-        if: env.DO_BACKUP == 'yes'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.BACKUP_FILE }}
-          path: ${{ env.BACKUP_FILE }}
-          retention-days: 14
-          if-no-files-found: error
+          # Back up the branch whose compute serves TEST_DATABASE_HOST: the test site's branch,
+          # so a wrong project id finds nothing and stops here.
+          endpoint=${EXPECTED_HOST%%.*}; endpoint=${endpoint%-pooler}
+          endpoints=$(api GET /endpoints 2>&1) || fail "Neon refused the TEST_NEON_API_KEY secret for project $NEON_PROJECT_ID (404 = the key can't see that project): $endpoints. Stopping before any change."
+          parent=$(jq -r --arg ep "$endpoint" '.endpoints[] | select(.id == $ep) | .branch_id' <<<"$endpoints")
+          [ -n "$parent" ] || fail "No compute $endpoint in Neon project $NEON_PROJECT_ID — stopping before any change."
+
+          name="auto-backup-$(date -u +%Y-%m-%d-%H%M)-run${GITHUB_RUN_NUMBER}"
+          body=$(jq -n --arg p "$parent" --arg n "$name" '{branch: {parent_id: $p, name: $n}}')
+          # Neon answers 423 while another operation runs on the project: wait and try again.
+          for try in 1 2 3 4 5 6; do
+            if created=$(api POST /branches -d "$body" 2>&1); then break; fi
+            [ "$try" = 6 ] && fail "Could not create backup branch $name: $created"
+            sleep 10
+          done
+          id=$(jq -r .branch.id <<<"$created")
+          for _ in $(seq 60); do
+            state=$(api GET "/branches/$id" | jq -r .branch.current_state)
+            [ "$state" = ready ] && break
+            sleep 5
+          done
+          [ "$state" = ready ] || fail "Backup branch $name ($id) is '$state', not ready — stopping before any change."
+          echo "BACKUP_BRANCH=$name" >> "$GITHUB_ENV"
+          echo "Backup: Neon branch \`$name\` ($id) of $parent" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # Keep the newest KEEP_BACKUPS automatic backups; a failed delete only warns.
+          api GET /branches | jq -r '.branches | map(select(.name | startswith("auto-backup-"))) | sort_by(.created_at) | reverse | .[] | "\(.id) \(.name)"' \
+            | tail -n +$((KEEP_BACKUPS + 1)) | while read -r old_id old_name; do
+                [ "$old_id" = "$id" ] && continue
+                if api DELETE "/branches/$old_id" > /dev/null; then echo "Deleted old backup branch $old_name."
+                else echo "::warning::Could not delete old backup branch $old_name ($old_id)."; fi
+              done
 
       - uses: actions/setup-node@v5
         if: env.DO_MIGRATE == 'yes'
