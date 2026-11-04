@@ -46,6 +46,11 @@ jobs:
           BEFORE: ${{ github.event.before }}
           GH_TOKEN: ${{ github.token }}
 
+      # The staging queue's error handling against a fake gh: a few seconds,
+      # no npm install, so it rides along here instead of in a job of its own.
+      - name: Staging queue script tests
+        run: bash scripts/release/staging-queue.test.sh
+
   test:
     needs: scope
     if: needs.scope.outputs.app == 'yes'

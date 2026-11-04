@@ -3,16 +3,102 @@
   "host": "test.gokesari.com",
   "note": "The existing staging test accounts (decision D-041) and the E2E shop. Plus-aliases of the owner's mailbox; sign-in is the normal emailed code (scripts/qa/signin-staging.ts). Ids are looked up through the site's APIs at run time.",
   "users": {
-    "customer": { "email": "sanjaymorankar+gk-lc14@gmail.com" },
-    "customer2": { "email": "sanjaymorankar+gk-cust@gmail.com" },
-    "shop": { "email": "sanjaymorankar+gk-shop@gmail.com" },
-    "rider": { "email": "sanjaymorankar+gk-rider@gmail.com" },
-    "admin": { "email": "sanjaymorankar+gk-admin@gmail.com" },
-    "ops": { "email": "sanjaymorankar+gk-ops@gmail.com" },
-    "oplim": { "email": "sanjaymorankar+gk-oplim@gmail.com" }
+    "customer": {
+      "email": "sanjaymorankar+gk-lc14@gmail.com"
+    },
+    "customer2": {
+      "email": "sanjaymorankar+gk-cust@gmail.com"
+    },
+    "shop": {
+      "email": "sanjaymorankar+gk-shop@gmail.com"
+    },
+    "rider": {
+      "email": "sanjaymorankar+gk-rider@gmail.com"
+    },
+    "admin": {
+      "email": "sanjaymorankar+gk-admin@gmail.com"
+    },
+    "ops": {
+      "email": "sanjaymorankar+gk-ops@gmail.com"
+    },
+    "oplim": {
+      "email": "sanjaymorankar+gk-oplim@gmail.com"
+    },
+    "rider2": {
+      "email": "firstshop.gokesari@gmail.com"
+    },
+    "shopB": {
+      "email": "firstshop.gokesari@gmail.com"
+    }
   },
   "shops": {
-    "A": { "name": "E2E Four Features Bakery" }
+    "A": {
+      "name": "E2E Four Features Bakery",
+      "id": "976135a1-ef87-4059-8ca7-2989db8724af",
+      "slug": "e2e-four-features-bakery-d31pf",
+      "pincode": "411005"
+    },
+    "B": {
+      "id": "e3bc5e22-ec54-4a6f-a2be-ec50618751da",
+      "slug": "asmy-test2-zk68a",
+      "name": "Asmy test2",
+      "pincode": "411005"
+    }
   },
-  "listings": {}
+  "listings": {
+    "milk": {
+      "shopProductId": "ee985aa1-15cc-4841-85ba-f51030decfde",
+      "productId": "be9a0c34-dedf-4438-b7b8-6482e005b5b6",
+      "name": "Cow Milk",
+      "pricePaise": 7000,
+      "stock": 500
+    },
+    "premium": {
+      "shopProductId": "5c222a98-4ba8-42b0-ae4c-62043c1bd750",
+      "productId": "77ec1bc4-8a83-4fd7-bc1c-18185403d39f",
+      "name": "Buffalo Ghee",
+      "pricePaise": 65000,
+      "stock": 30
+    },
+    "lowStock": {
+      "shopProductId": "1dcc3166-6de9-4d84-91fc-04d8f45e630b",
+      "productId": "01d61b7f-e6a0-48d9-a5c4-88fffeec7573",
+      "name": "Chocolate Pastry",
+      "pricePaise": 3500,
+      "stock": 2
+    },
+    "packaged": {
+      "shopProductId": "3bf26320-45f0-4e03-8f59-4482c597d21e",
+      "productId": "be16ded6-4481-4b73-8e7d-6f30a8dfa474",
+      "name": "Butter Cookies",
+      "pricePaise": 6000,
+      "stock": 98
+    },
+    "sharedA": {
+      "shopProductId": "a66abc8f-1e44-4076-8f3f-2ec032625da6",
+      "productId": "bab67d1f-8523-4652-b5a3-8a7efa422fb2",
+      "name": "Bread",
+      "pricePaise": 4000,
+      "stock": 87
+    },
+    "sharedB": {
+      "shopProductId": "294021a4-0207-493a-81cc-6edc9967d59a",
+      "productId": "bab67d1f-8523-4652-b5a3-8a7efa422fb2",
+      "name": "Bread",
+      "pricePaise": 4500,
+      "stock": 60
+    },
+    "offlineOnly": {
+      "shopProductId": "faeea6f7-57d7-4e8f-87c2-650057a2a847",
+      "productId": "c22c52eb-046f-4b86-b44f-7233eed062ee",
+      "name": "Butter Khari",
+      "pricePaise": null,
+      "stock": 40
+    }
+  },
+  "location": {
+    "pincode": "411005",
+    "lat": 18.5204,
+    "lng": 73.8567
+  }
 }

@@ -23,6 +23,13 @@
 # and skipped (nothing was merged, so the queue does not pause). Re-add
 # ready-for-staging after fixing it — the queue removes staging-blocked then.
 #
+# A write GitHub refuses fails the run (red X): each run first checks that the
+# token can write and stops at once if not, and any later refused write ends
+# the run once the PR in hand is dealt with. A PR is blocked only for its own
+# fault (CI, merge conflict); anything else leaves it queued for the next run.
+# On 3 Nov 2026 the token could read but not write for 5½ hours, and every run
+# ended "success" while not one label, comment or merge went through.
+#
 # Status lives in one GitHub issue labelled staging-queue-tracker (times in
 # IST), so no tracker commit ever triggers another deploy. Production (`main`)
 # is never touched: staging → main stays the owner's approval gate (CLAUDE.md).
@@ -55,6 +62,7 @@ summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
 ist() { TZ=Asia/Kolkata date "+%d %b %Y %I:%M %p IST"; }
 log() { echo "[$(TZ=Asia/Kolkata date +%H:%M:%S) IST] $*" >&2; }
 note() { log "$*"; echo "- $(TZ=Asia/Kolkata date +%H:%M) IST — $*" >> "$summary"; }
+die() { echo "::error::$*" >&2; echo "❌ $*" >> "$summary"; exit 1; }
 
 if [ -z "${GH_TOKEN:-}" ]; then
   msg="Secret STAGING_QUEUE_TOKEN is not set. The queue needs it to merge and so that the merge starts staging's CI and \"Test database\" runs (merges made with the default GITHUB_TOKEN start no workflows). Setup: docs/staging-queue/README.md."
@@ -63,8 +71,48 @@ if [ -z "${GH_TOKEN:-}" ]; then
 fi
 
 api() { gh api -H "X-GitHub-Api-Version: 2022-11-28" "$@"; }
-write() { # write calls are skipped in a dry run
-  if [ "$DRY_RUN" = 1 ]; then log "DRY RUN: gh api $*"; echo '{}'; else api "$@"; fi
+
+# try_write: a write whose failure the caller handles. Afterwards WRITE_OUT
+# holds GitHub's answer; on failure (return 1) WRITE_STATUS the HTTP status
+# (000 = no answer) and WRITE_ERROR GitHub's message. gh prints an error's
+# JSON on stdout, so never read a failed call's output as a result.
+# write: a write that must not fail; a refused one is counted (write_failed)
+# and fails the run at the end, and no further PR is started after it.
+write_errors=0 WRITE_CALL="" WRITE_OUT="" WRITE_STATUS="" WRITE_ERROR=""
+try_write() { # write calls are skipped in a dry run
+  local call="$*" err
+  WRITE_CALL="${call%% -f *}" WRITE_OUT='{}' WRITE_STATUS="" WRITE_ERROR=""
+  if [ "$DRY_RUN" = 1 ]; then log "DRY RUN: gh api $*"; echo "$WRITE_OUT"; return 0; fi
+  err="$(mktemp)"
+  if WRITE_OUT="$(api "$@" 2>"$err")"; then rm -f "$err"; echo "$WRITE_OUT"; return 0; fi
+  WRITE_ERROR="$(sed -n '/^gh: /{s///p;q;}' "$err")"
+  [ -n "$WRITE_ERROR" ] || WRITE_ERROR="$(head -1 "$err")"
+  WRITE_STATUS="$(sed -n 's/.*(HTTP \([0-9][0-9][0-9]\))$/\1/p' <<<"$WRITE_ERROR")"
+  WRITE_STATUS="${WRITE_STATUS:-000}" WRITE_ERROR="${WRITE_ERROR% \(HTTP [0-9][0-9][0-9]\)}"
+  rm -f "$err"; return 1
+}
+write_failed() { # $1 = what failed (default: the last try_write)
+  local msg="${1:-GitHub refused a write: gh api $WRITE_CALL → HTTP $WRITE_STATUS: $WRITE_ERROR}"
+  [ -z "${1:-}" ] && [ "$WRITE_STATUS" = 403 ] &&
+    msg="$msg — can STAGING_QUEUE_TOKEN still write? (docs/staging-queue/README.md, one-time setup)"
+  write_errors=$((write_errors + 1))
+  echo "::error::$msg" >&2; echo "- ❌ $msg" >> "$summary"
+}
+write() { try_write "$@" || write_failed; }
+
+# Before anything else: can the token write? permissions.push is the user's
+# right on the repository, but a fine-grained token can lack write permission
+# of its own (3 Nov 2026), so also send a write GitHub refuses either way:
+# re-creating an existing label gets 422 when the token may write, 403 if not.
+check_write_access() {
+  local push fix="Give STAGING_QUEUE_TOKEN read and write permissions (docs/staging-queue/README.md, one-time setup)."
+  push="$(api "repos/$REPO" --jq .permissions.push)" ||
+    die "could not read $REPO with STAGING_QUEUE_TOKEN (gh error above). $fix"
+  [ "$push" = true ] ||
+    die "STAGING_QUEUE_TOKEN has no write access to $REPO (permissions.push: ${push:-none}), so the queue can neither label, comment nor merge. $fix"
+  [ "$DRY_RUN" = 1 ] && return 0
+  try_write "repos/$REPO/labels" -f name="$READY" -f color=0e8a16 >/dev/null || [ "$WRITE_STATUS" = 422 ] ||
+    die "STAGING_QUEUE_TOKEN cannot write to $REPO (HTTP $WRITE_STATUS: $WRITE_ERROR), so the queue can neither label, comment nor merge. $fix"
 }
 
 ensure_labels() {
@@ -72,12 +120,16 @@ ensure_labels() {
   for spec in "$READY:0e8a16" "$FIX:5319e7" "$HOLD:bfdadc" "$TESTING:fbca04" "$VERIFIED:1d76db" \
               "$BLOCKED:d93f0b" "$FAILED:b60205" "$PAUSED:b60205" "$TRACKER:c5def5"; do
     name="${spec%%:*}" color="${spec##*:}"
-    api "repos/$REPO/labels/$name" >/dev/null 2>&1 ||
-      write "repos/$REPO/labels" -f name="$name" -f color="$color" >/dev/null 2>&1 || true
+    api "repos/$REPO/labels/$name" >/dev/null 2>&1 && continue
+    # 422: it exists after all
+    try_write "repos/$REPO/labels" -f name="$name" -f color="$color" >/dev/null ||
+      [ "$WRITE_STATUS" = 422 ] || write_failed
   done
 }
 add_label() { write "repos/$REPO/issues/$1/labels" -f "labels[]=$2" >/dev/null; }
-remove_label() { write -X DELETE "repos/$REPO/issues/$1/labels/$2" >/dev/null 2>&1 || true; }
+remove_label() { # 404: it did not carry the label
+  try_write -X DELETE "repos/$REPO/issues/$1/labels/$2" >/dev/null || [ "$WRITE_STATUS" = 404 ] || write_failed
+}
 comment() { write "repos/$REPO/issues/$1/comments" -f body="$2" >/dev/null; }
 
 # ---------------------------------------------------------------- the queue
@@ -116,6 +168,13 @@ wait_checks() { # $1 sha → prints final state
     [ $((SECONDS - start)) -ge "$CI_WAIT" ] && { echo "failure:checks still running after $((CI_WAIT / 60)) min"; return; }
     sleep 30
   done
+}
+mergeable() { # $1 = PR → true | false | null (GitHub still working it out after 2 min)
+  local m start=$SECONDS
+  while m="$(api "repos/$REPO/pulls/$1" --jq .mergeable)"; [ "$m" = null ]; do
+    [ $((SECONDS - start)) -ge 120 ] && break; sleep 5
+  done
+  echo "$m"
 }
 
 # Workflow runs on staging other than this queue (push or by hand).
@@ -176,18 +235,21 @@ wait_deploy() { # $1 version before the merge, $2 epoch of the merge
 }
 
 # ---------------------------------------------------------------- tracker
-tracker_issue() {
+tracker_issue() { # its number, opened if missing (empty in a dry run); fails on a GitHub error
   local n
-  n="$(api "repos/$REPO/issues?state=open&labels=$TRACKER&per_page=1" --jq '.[0].number // empty')"
-  if [ -z "$n" ] && [ "$DRY_RUN" != 1 ]; then
+  n="$(api "repos/$REPO/issues?state=open&labels=$TRACKER&per_page=1" --jq '.[0].number // empty')" || return 1
+  if [ -z "$n" ]; then
+    [ "$DRY_RUN" = 1 ] && return 0
     n="$(api "repos/$REPO/issues" -f title="Staging queue — status (test.gokesari.com)" \
-          -f body="Created by the staging queue." -f "labels[]=$TRACKER" --jq .number)"
+          -f body="Created by the staging queue." -f "labels[]=$TRACKER" --jq .number)" || return 1
   fi
+  case "$n" in ''|*[!0-9]*) return 1 ;; esac
   echo "$n"
 }
 update_tracker() { # $1 = state line
   local n body rows
-  n="$(tracker_issue)"; [ -z "$n" ] && return 0
+  n="$(tracker_issue)" || { write_failed "could not find or open the issue labelled $TRACKER (gh error above)"; return 0; }
+  [ -z "$n" ] && return 0
   rows="$(api "repos/$REPO/pulls?state=open&base=$BASE&per_page=100" --jq "
     def ist: (sub(\"\\\\.[0-9]+Z$\"; \"Z\") | fromdateiso8601 + 19800 | strftime(\"%d %b %I:%M %p\"));
     def st: [ .labels[].name ] as \$l
@@ -221,7 +283,7 @@ ${rows:-| – | nothing open | | | |}
 ${done_rows:-| – | none yet | | |}
 
 Production (\`main\`) is not part of this queue: staging → main stays the owner's approval."
-  write -X PATCH "repos/$REPO/issues/$n" -f body="$body" >/dev/null || true
+  write -X PATCH "repos/$REPO/issues/$n" -f body="$body" >/dev/null
 }
 
 # ---------------------------------------------------------------- one PR
@@ -240,7 +302,14 @@ process_pr() {
   behind="$(api "repos/$REPO/compare/$BASE...$sha" --jq .behind_by)"
   if [ "$behind" -gt 0 ]; then
     note "#$n is $behind commit(s) behind $BASE — updating the branch"
-    if ! write -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" >/dev/null 2>&1; then
+    if ! try_write -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" >/dev/null; then
+      # Only a merge conflict is for the PR's session to fix. Anything else (the
+      # token cannot write, the branch moved since it was read, GitHub down)
+      # leaves the PR queued and fails the run; the next trigger tries again.
+      if [ "$WRITE_STATUS" != 422 ] || { [[ "$WRITE_ERROR" != *onflict* ]] && [ "$(mergeable "$n")" != false ]; }; then
+        note "#$n left queued: could not update its branch (HTTP $WRITE_STATUS: $WRITE_ERROR)"
+        write_failed; return 2
+      fi
       add_label "$n" "$BLOCKED"; remove_label "$n" "$READY"
       comment "$n" "⛔ **Staging queue** ($(ist)): could not bring this branch up to date with \`$BASE\` (merge conflict). **Session that owns this PR:** merge \`origin/$BASE\` into this branch, resolve the conflict, run the tests, push, and add \`$READY\` again — no need to ask the owner."
       return 2
@@ -260,11 +329,7 @@ process_pr() {
     note "#$n blocked: ${state#failure:}"; return 2
   fi
 
-  local m start=$SECONDS
-  while m="$(api "repos/$REPO/pulls/$n" --jq '.mergeable')"; [ "$m" = null ]; do
-    [ $((SECONDS - start)) -ge 120 ] && break; sleep 5
-  done
-  if [ "$m" = false ]; then
+  if [ "$(mergeable "$n")" = false ]; then
     add_label "$n" "$BLOCKED"; remove_label "$n" "$READY"
     comment "$n" "⛔ **Staging queue** ($(ist)): merge conflict with \`$BASE\`. **Session that owns this PR:** merge \`origin/$BASE\` into this branch, resolve the conflict, run the tests, push, and add \`$READY\` again — no need to ask the owner."
     return 2
@@ -273,12 +338,21 @@ process_pr() {
   wait_staging_idle
   before="$(site_version || true)"
   if [ "$DRY_RUN" = 1 ]; then note "DRY RUN: would merge #$n at ${sha:0:7} and test $SITE"; return 2; fi
+  # Not while GitHub refuses this run's writes: the PR could not be labelled
+  # or told how its test went.
+  [ "$write_errors" = 0 ] || return 2
 
   merged_at=$(date +%s)
-  merged_sha="$(api -X PUT "repos/$REPO/pulls/$n/merge" -f merge_method=merge -f sha="$sha" --jq .sha)" || {
-    comment "$n" "⛔ **Staging queue** ($(ist)): GitHub refused the merge. Will retry on the next trigger."
+  if ! try_write -X PUT "repos/$REPO/pulls/$n/merge" -f merge_method=merge -f sha="$sha" --jq .sha >/dev/null; then
+    # 405 not mergeable right now, 409 the branch moved: the next trigger
+    # tries again. Anything else fails the run.
+    case "$WRITE_STATUS" in
+      405|409) comment "$n" "⛔ **Staging queue** ($(ist)): GitHub refused the merge (HTTP $WRITE_STATUS: $WRITE_ERROR). Will retry on the next trigger." ;;
+      *) note "#$n left queued: GitHub refused the merge"; write_failed ;;
+    esac
     return 2
-  }
+  fi
+  merged_sha="$WRITE_OUT"
   remove_label "$n" "$READY"; add_label "$n" "$TESTING"
   note "#$n merged into $BASE as ${merged_sha:0:7}"
   update_tracker "🧪 testing #$n on $SITE"
@@ -327,6 +401,7 @@ The queue is paused; nothing else is merged into \`$BASE\` until a fix passes.
 }
 
 # ---------------------------------------------------------------- main
+check_write_access
 ensure_labels
 note "queue started (base $BASE, site $SITE$([ "$DRY_RUN" = 1 ] && echo ', DRY RUN'))"
 processed=0 rc=0
@@ -347,6 +422,7 @@ while [ "$processed" -lt "$MAX_PRS" ]; do
   fi
   seen="${seen:-} $next"
   update_tracker "▶️ running — checking #$next"
+  [ "$write_errors" = 0 ] || break # GitHub refused a write: start no PR (fails below)
   out="$(mktemp)"
   set +e; process_pr "$next" > "$out"; res=$?; set -e
   reason="$(tail -1 "$out")"
@@ -374,4 +450,9 @@ Run: $RUN_URL}" >/dev/null
     rc=1; break
   fi
 done
+if [ "$write_errors" -gt 0 ]; then
+  note "run failed: GitHub refused $write_errors write(s) (errors above); PRs not dealt with stay queued"
+  update_tracker "⛔ run failed — GitHub refused a write; queued PRs stay queued for the next run"
+  rc=1
+fi
 exit "$rc"

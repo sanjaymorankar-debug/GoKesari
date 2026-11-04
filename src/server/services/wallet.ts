@@ -24,6 +24,7 @@ import { isUniqueViolation } from "@/lib/errors";
 import { insufficientBalance, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import { db, type DbClient } from "@/server/db";
+import { together } from "@/server/db/together";
 import {
   walletTransactions,
   wallets,
@@ -169,18 +170,17 @@ export async function applyWalletMutation(
 
   const run = async (tx: DbClient): Promise<WalletMutationResult> => {
     // 1. Lock the wallet row. Concurrent mutations queue here.
-    const [locked] = await tx
-      .select()
-      .from(wallets)
-      .where(eq(wallets.userId, mutation.userId))
-      .for("update");
+    // 2. Inside the lock, check whether this operation already happened. Both
+    //    go out together (one round trip); the database runs the check after
+    //    the lock is held, with its own snapshot, exactly as one after another.
+    const [[locked], prior] = await together([
+      tx.select().from(wallets).where(eq(wallets.userId, mutation.userId)).for("update"),
+      tx.query.walletTransactions.findFirst({
+        where: eq(walletTransactions.idempotencyKey, mutation.idempotencyKey),
+      }),
+    ]);
 
     if (!locked) throw notFound("Wallet");
-
-    // 2. Inside the lock, check whether this operation already happened.
-    const prior = await tx.query.walletTransactions.findFirst({
-      where: eq(walletTransactions.idempotencyKey, mutation.idempotencyKey),
-    });
     if (prior) {
       return {
         transaction: prior,
@@ -230,36 +230,38 @@ export async function applyWalletMutation(
       throw validationFailed("Promotional balance calculation is inconsistent.");
     }
 
-    // 5. Move the money and record it. Both statements share this transaction.
-    await tx
-      .update(wallets)
-      .set({
-        balancePaise: newBalance,
-        promotionalBalancePaise: newPromotionalBalance,
-        updatedAt: new Date(),
-      })
-      .where(eq(wallets.id, locked.id));
-
-    const [transaction] = await tx
-      .insert(walletTransactions)
-      .values({
-        walletId: locked.id,
-        userId: mutation.userId,
-        type: mutation.type,
-        amountPaise: signedAmount,
-        promotionalAmountPaise: signedPromotionalAmount,
-        previousBalancePaise: previousBalance,
-        newBalancePaise: newBalance,
-        orderId: mutation.orderId ?? null,
-        subscriptionId: mutation.subscriptionId ?? null,
-        paymentId: mutation.paymentId ?? null,
-        voucherRedemptionId: mutation.voucherRedemptionId ?? null,
-        idempotencyKey: mutation.idempotencyKey,
-        description: mutation.description,
-        createdBy: mutation.createdBy ?? null,
-        reversalOfId: mutation.reversalOfId ?? null,
-      })
-      .returning();
+    // 5. Move the money and record it. Both statements share this transaction
+    //    and go out together; the database runs them in this order.
+    const [, [transaction]] = await together([
+      tx
+        .update(wallets)
+        .set({
+          balancePaise: newBalance,
+          promotionalBalancePaise: newPromotionalBalance,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.id, locked.id)),
+      tx
+        .insert(walletTransactions)
+        .values({
+          walletId: locked.id,
+          userId: mutation.userId,
+          type: mutation.type,
+          amountPaise: signedAmount,
+          promotionalAmountPaise: signedPromotionalAmount,
+          previousBalancePaise: previousBalance,
+          newBalancePaise: newBalance,
+          orderId: mutation.orderId ?? null,
+          subscriptionId: mutation.subscriptionId ?? null,
+          paymentId: mutation.paymentId ?? null,
+          voucherRedemptionId: mutation.voucherRedemptionId ?? null,
+          idempotencyKey: mutation.idempotencyKey,
+          description: mutation.description,
+          createdBy: mutation.createdBy ?? null,
+          reversalOfId: mutation.reversalOfId ?? null,
+        })
+        .returning(),
+    ]);
 
     return {
       transaction,
