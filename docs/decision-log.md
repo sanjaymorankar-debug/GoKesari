@@ -298,3 +298,10 @@ Gap report: [docs/referrals-dealer-2026-11/GAP_REPORT.md](referrals-dealer-2026-
   DP-5: the shop-referral yearly cap is decided under a lock on the referrer's code row (touched, for the two-database layout).
   DP-6: a commission reversal takes the dealer (touched) and plan locks first, in the TRADING settlement's order.
   Open for the owner: from the 5-Dec month close every dealer with a payout gets the statement e-mail with its CSV (no flag controls it).
+
+## Seller / customer split removed (04-Nov-2026)
+
+- **DS-01 — Both sites run on one database.** Owner: "move production to single database now and stop the split database" (04-Nov-2026). test.gokesari.com was cut over on 02-Nov (docs/db-fdw-removal-2026-11/TEST_RESULTS_TEST_2026-11-03.md), gokesari.com on 04-Nov 09.14–09.17 IST (PROD_RESULTS_2026-11-04.md): the seller tables were copied into `neondb`, 181/181 tables and every row matched, and the postgres_fdw link was retired. This reverses the 19 Oct 2026 two-database decision.
+- **DS-02 — The split code is removed** (owner, 04-Nov-2026): `src/server/db/split/*`, `scripts/db-split/*`, `scripts/split-migrate.mjs`, the `test-split` CI job, `db-split.yml`, `DB_SPLIT_MODE`, `SELLER_DATABASE_URL`, `CUSTOMER_DATABASE_URL`, the 40001 transaction re-run, the touched gate rows and the product master's second pool. A rollback to two databases now needs this change reverted as well as the database restored.
+- **DS-03 — Kept:** `upsertRow` (its callers rely on it), no foreign keys between seller and customer tables (explicit checks and deletes stay), `isRetryableTransactionError` (a deadlock aborts the transaction; catches inside it rethrow).
+- **DS-04 — Old databases are kept until 11-Nov-2026** for rollback (`PROD_SELLER_DATABASE_URL`, `gokesari_seller`, the parked `fdw_old_*` schemas and the `pre-fdw-removal-*` Neon branches), then removed by the owner.

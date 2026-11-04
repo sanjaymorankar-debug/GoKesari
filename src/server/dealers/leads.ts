@@ -13,7 +13,6 @@ import { and, asc, count, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { dealerLeads, dealers, dealerSalespeople, shops, type Dealer, type DealerLead, type UserRole } from "@/server/db/schema";
-import { touchSellerRow } from "@/server/db/split/gate";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-flags";
 import { districtCodeForPincode } from "@/server/services/geo-areas";
@@ -109,9 +108,8 @@ export async function createLead(dealer: Dealer, input: LeadInput, actor: Actor)
   const rule = await getRule("dealerProgramme");
   await expireLeads();
   return db.transaction(async (tx) => {
-    // The dealer row is the gate for counting the dealer's open leads (split layout: touched after the lock).
+    // The dealer row is the gate for counting the dealer's open leads.
     await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealer.id)).for("update");
-    await touchSellerRow(tx, dealers, dealer.id);
     const [{ n }] = await tx
       .select({ n: count() })
       .from(dealerLeads)

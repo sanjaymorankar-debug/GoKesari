@@ -22,7 +22,7 @@ import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { accSalesInvoices, gstFilings, gstPortalLinks, imsActions, shops, taxInvoices, type GstFiling, type GstFilingType } from "@/server/db/schema";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 import { decryptCredentials } from "@/server/integrations/credentials";
 import { buildGstr1 } from "@/server/gst/gstr1";
 import { GspError } from "@/server/gst/gsp/types";

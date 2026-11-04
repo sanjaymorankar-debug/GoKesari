@@ -63,7 +63,7 @@ import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { detectDocumentFile, shopSellsFood } from "./seller-verification";
 import { getRule } from "./settings";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 
 interface Actor {
   id: string;

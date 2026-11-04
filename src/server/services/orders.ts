@@ -31,7 +31,7 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { formatPaise, formatQuantity, lineTotalPaise, sumPaise } from "@/lib/money";
 import { milliToStockUnits, quantityToMilli } from "@/lib/stock-quantity";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
-import { db, isSerializationFailure, type DbClient } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import { together } from "@/server/db/together";
 import {
   addresses,
@@ -1061,7 +1061,6 @@ export async function updateOrderStatus(
       await tx
         .transaction((sp) => rewardReferralOnDelivery(orderId, sp))
         .catch((error) => {
-          if (isSerializationFailure(error)) throw error; // split layout: retry the whole delivery instead
           console.error("[referrals] reward check failed for order", orderId, error);
         });
       // docs/dealer-programme TIERED: the shop's TRADING milestone (N delivered orders within D days of
@@ -1074,7 +1073,6 @@ export async function updateOrderStatus(
         await tx
           .transaction((sp) => hook(orderId, sp))
           .catch((error) => {
-            if (isSerializationFailure(error)) throw error; // split layout: retry the whole delivery instead
             console.error(`[${label}] check failed for order`, orderId, error);
           });
       }
@@ -1082,7 +1080,6 @@ export async function updateOrderStatus(
       // Its own savepoint, so a problem here never blocks the delivery.
       // Module 2: also sent to the shop's accounting software / e-invoiced.
       await onOrderDelivered(orderId, order.shopId, tx).catch((error) => {
-        if (isSerializationFailure(error)) throw error; // split layout: retry the whole delivery instead
         console.error("[invoices] issue failed for order", orderId, error);
       });
     }

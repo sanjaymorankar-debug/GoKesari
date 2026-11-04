@@ -1,18 +1,17 @@
 /**
- * INSERT … ON CONFLICT (keys) DO UPDATE, written so it also works on a seller
- * table that is a postgres_fdw foreign table in the core database
- * (docs/db-split-2026-10/CODE_SPLIT_PLAN.md §2): postgres_fdw cannot see the
- * remote unique index, so it refuses a conflict target and DO UPDATE.
+ * INSERT … ON CONFLICT (keys) DO UPDATE, as an update by key followed by an
+ * insert inside a savepoint. Written for the seller / customer split (Oct 2026,
+ * when postgres_fdw refused a conflict target); kept on one database because it
+ * behaves the same and its callers rely on it.
  *
  * Update the row by its key; when there is none, insert it inside a savepoint;
  * if another request inserted the same key in between (unique violation),
- * update that row instead. Same result as the upsert, on one database or two.
+ * update that row instead.
  */
 import { and, eq, getTableColumns } from "drizzle-orm";
 import type { PgColumn, PgTable, PgUpdateSetSource } from "drizzle-orm/pg-core";
 
-import { getEnv } from "@/lib/env";
-import { db, type DbClient } from "@/server/db";
+import type { DbClient } from "@/server/db";
 
 export function isUniqueViolation(error: unknown): boolean {
   const e = error as { code?: string; cause?: { code?: string } } | null;
@@ -54,11 +53,6 @@ export async function upsertRow<T extends PgTable>(
       });
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
-      // Split layout, inside a transaction: the seller side reads one snapshot, so the row the other request
-      // just inserted stays invisible to the update above. Have db.transaction run the whole thing again.
-      if (client !== db && getEnv().DB_SPLIT_MODE === "split") {
-        throw Object.assign(new Error("upsertRow: another request inserted the same key; run the transaction again."), { code: "40001" });
-      }
     }
   }
   throw new Error("upsertRow: the row kept changing under concurrent writes; try again.");

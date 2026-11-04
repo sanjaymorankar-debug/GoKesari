@@ -184,8 +184,8 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
       if (!input.deferDelivery) scheduleDelivery(client);
     }
   } catch (error) {
-    // Seller / customer split: a serialization failure has already aborted the caller's transaction;
-    // swallowing it would only fail that transaction's next statement. Let the caller's transaction re-run.
+    // A deadlock or serialization failure has already aborted the caller's transaction;
+    // swallowing it would only fail that transaction's next statement.
     if (client !== db && isRetryableTransactionError(error)) throw error;
     console.error("[notifications] failed to deliver", input.type, error);
   }

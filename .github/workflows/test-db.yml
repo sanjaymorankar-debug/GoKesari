@@ -219,9 +219,6 @@ jobs:
         if: env.DO_MIGRATE == 'yes'
         # The deploy build's migrator, with its lock: safe even if MIGRATE_ON_BUILD
         # is on and Hostinger's build migrates at the same moment.
-        # Once the database is switched to the seller / customer split, the migrator also needs the seller database.
-        env:
-          SELLER_DATABASE_URL: ${{ secrets.TEST_SELLER_DATABASE_URL }}
         run: MIGRATE_ON_BUILD=true DATABASE_URL="$TEST_DATABASE_URL" node scripts/migrate-on-build.mjs | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Apply test settings
