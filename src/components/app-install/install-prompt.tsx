@@ -233,6 +233,8 @@ export function AppInstallPrompt({ lang, signedIn, stores }: { lang: Lang; signe
         ];
   const storeUrl = decision.method === "store" ? (decision.platform === "ios" ? stores.ios : stores.android) : null;
 
+  // z-[45]: above the phone bottom menu (z-40), below modal dialogs (z-50),
+  // which share z-50 and would otherwise lose taps to this card (D-145).
   return (
     <section
       lang={LANG_TAG[lang]}
@@ -241,7 +243,7 @@ export function AppInstallPrompt({ lang, signedIn, stores }: { lang: Lang; signe
       aria-labelledby="gk-install-title"
       data-testid="app-install-prompt"
       data-method={decision.method}
-      className="fixed inset-x-0 bottom-0 z-50 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-96 lg:px-0 lg:pb-0"
+      className="fixed inset-x-0 bottom-0 z-[45] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-96 lg:px-0 lg:pb-0"
     >
       <div className="mx-auto max-w-xl rounded-2xl border border-cream-200 border-l-4 border-l-kesari-600 bg-white p-4 shadow-xl shadow-ink-900/15">
         <div className="flex items-start gap-3">
