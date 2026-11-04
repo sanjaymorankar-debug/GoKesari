@@ -172,6 +172,7 @@ export function ExcelPriceUpload({
             ref={fileRef}
             type="file"
             accept=".xlsx,.xlsm"
+            aria-label={uploadType === "GOODS" ? "Upload goods price list (.xlsx)" : "Upload price list (.xlsx)"}
             disabled={busy}
             onChange={(e) => {
               const file = e.target.files?.[0];
