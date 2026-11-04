@@ -70,8 +70,10 @@ existed, it stops at the guard and changes nothing: open that run and press
   site's branch, named `auto-backup-<UTC date>-run<N>` (no compute attached).
   The branch is made inside Neon, so no rows leave the database and the
   backup costs no data transfer. The newest 5 are kept; older ones are deleted
-  by the next backup. If the branch can't be made (no `NEON_API_KEY` secret,
-  wrong project), the run stops before any change. Until 04 Nov 2026 this was
+  by the next backup. The workflow needs the secret `TEST_NEON_API_KEY` on the
+  `test` environment: a Neon API key scoped to the project `GoKesari-test-sg`.
+  If the branch can't be made (no key, or a key that can't see the project),
+  the run stops before any change. Until 04 Nov 2026 this was
   a `pg_dump` to a workflow artifact: it moved ~45 MB per run, and the nightly
   run alone came to ~1.2 GB a month of the test project's data transfer.
 - **One at a time.** Runs queue rather than overlap, and the migrator takes a

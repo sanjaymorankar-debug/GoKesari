@@ -156,13 +156,15 @@ jobs:
         # backup alone; RCA of test's 490 MB a day, 04 Nov 2026). The branch holds
         # every database of the project, the old seller database included.
         env:
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          # A Neon API key that can see the test project only (Neon → Organization settings →
+          # API keys → project-scoped key for GoKesari-test-sg), saved on the `test` environment.
+          NEON_API_KEY: ${{ secrets.TEST_NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ vars.TEST_NEON_PROJECT_ID || 'curly-night-16641982' }}
           # Newest auto-backup-* branches kept; the Launch plan includes 10 per project.
           KEEP_BACKUPS: 5
         run: |
           fail() { echo "::error::$1"; exit 1; }
-          [ -n "$NEON_API_KEY" ] || fail "Secret NEON_API_KEY is not set — cannot back up. Stopping before any change."
+          [ -n "$NEON_API_KEY" ] || fail "Secret TEST_NEON_API_KEY is not set — cannot back up. Stopping before any change."
           api() {
             local method=$1 path=$2; shift 2
             curl -sS --fail-with-body --retry 3 -X "$method" \
@@ -173,7 +175,8 @@ jobs:
           # Back up the branch whose compute serves TEST_DATABASE_HOST: the test site's branch,
           # so a wrong project id finds nothing and stops here.
           endpoint=${EXPECTED_HOST%%.*}; endpoint=${endpoint%-pooler}
-          parent=$(api GET /endpoints | jq -r --arg ep "$endpoint" '.endpoints[] | select(.id == $ep) | .branch_id')
+          endpoints=$(api GET /endpoints 2>&1) || fail "Neon refused the TEST_NEON_API_KEY secret for project $NEON_PROJECT_ID (404 = the key can't see that project): $endpoints. Stopping before any change."
+          parent=$(jq -r --arg ep "$endpoint" '.endpoints[] | select(.id == $ep) | .branch_id' <<<"$endpoints")
           [ -n "$parent" ] || fail "No compute $endpoint in Neon project $NEON_PROJECT_ID — stopping before any change."
 
           name="auto-backup-$(date -u +%Y-%m-%d-%H%M)-run${GITHUB_RUN_NUMBER}"
