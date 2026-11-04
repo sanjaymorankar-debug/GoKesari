@@ -31,7 +31,7 @@ import {
   PAID_PAYMENT_INTENT_STATUSES,
   type PaymentIntentStatusValue,
 } from "@/lib/payment-intent-states";
-import { db, transactionOnce, type DbClient } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   orderRefunds,
   orderStatusHistory,
@@ -218,10 +218,10 @@ export async function createPaymentIntent(input: CreatePaymentIntentInput, clien
  * locked, so a double click waits and then finds it done. On its own (no
  * caller's transaction) it is never re-run: a re-run would send the same
  * merchant order id to the gateway again, which refuses it, and leave the
- * intent stuck until it expires (seller / customer split, transactionOnce).
+ * intent stuck until it expires.
  */
 async function openAtGateway(intentId: string, client: DbClient | undefined): Promise<PaymentIntentRow> {
-  const open = (run: (tx: DbClient) => Promise<PaymentIntentRow>) => (client ? client.transaction(run) : transactionOnce(run));
+  const open = (run: (tx: DbClient) => Promise<PaymentIntentRow>) => (client ? client.transaction(run) : db.transaction(run));
   return open(async (tx) => {
     const row = await lockIntent(tx, intentId);
     if (!row) throw notFound("Payment");

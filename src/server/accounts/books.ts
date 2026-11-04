@@ -11,7 +11,7 @@ import { validationFailed } from "@/lib/errors";
 import type { BookAccount, VoucherType } from "@/lib/accounts/constants";
 import { db, type DbClient } from "@/server/db";
 import { accChangeLog, accCounters, accLedgerEntries, invLedgerMarks, invSettings, type AccLedgerEntry, type InvSettings } from "@/server/db/schema";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 
 export interface Leg {
   account: BookAccount;

@@ -44,7 +44,7 @@ import { addCategoryToShop } from "@/server/services/product-categories";
 import { getSettings, logChange, postVoucher, reverseSource, todayIst } from "./books";
 import { findOrCreateSupplier } from "./parties";
 import { postStock, type StockPosting } from "./stock";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 
 const paise = z.number().int().min(0);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);

@@ -7,7 +7,7 @@
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import {
   addresses,
@@ -137,43 +137,12 @@ const RESET_TABLES = [
   "users",
 ];
 
-/**
- * On the seller / customer split layout (docs/db-split-2026-10/CODE_SPLIT_PLAN.md)
- * the foreign keys between the two databases are gone, so TRUNCATE … CASCADE
- * stops at the database boundary. Empty every table the single-database
- * cascade would have reached, from the relationships the overlay recorded.
- * Does nothing on the single-database layout.
- */
-async function truncateAcrossSplit(): Promise<void> {
-  const [{ split }] = (await db.execute(sql`select to_regclass('public.split_layout_foreign_keys') is not null as split`)) as unknown as { split: boolean }[];
-  if (!split) return;
-  const fks = (await db.execute(sql`select child, parent from public.split_layout_foreign_keys`)) as unknown as { child: string; parent: string }[];
-  const reached = new Set<string>(RESET_TABLES);
-  for (let grew = true; grew; ) {
-    grew = false;
-    for (const fk of fks) {
-      if (reached.has(fk.parent) && !reached.has(fk.child)) {
-        reached.add(fk.child);
-        grew = true;
-      }
-    }
-  }
-  const foreign = (await db.execute(
-    sql`select case when foreign_table_schema = 'public' then foreign_table_name else foreign_table_schema || '.' || foreign_table_name end as name from information_schema.foreign_tables`,
-  )) as unknown as { name: string }[];
-  const extra = foreign.map((f) => f.name).filter((n) => reached.has(n) && !RESET_TABLES.includes(n));
-  if (extra.length === 0) return;
-  const list = extra.map((n) => n.split(".").map((part) => `"${part}"`).join(".")).join(", ");
-  await db.execute(sql.raw(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`));
-}
-
 export async function resetDatabase(): Promise<void> {
   const maxAttempts = 5;
 
   for (let attempt = 1; ; attempt += 1) {
     try {
       await db.execute(sql.raw(`TRUNCATE TABLE ${RESET_TABLES.join(", ")} RESTART IDENTITY CASCADE`));
-      await truncateAcrossSplit();
       // docs/document-upload-2026-10: the FSSAI-for-food rule ships on. Tests written
       // before it approve dairy shops without a licence, so they run with it off;
       // tests/integration/document-uploads.test.ts switches it on for its own cases.

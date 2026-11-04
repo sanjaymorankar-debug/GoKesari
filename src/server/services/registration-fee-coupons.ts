@@ -24,7 +24,6 @@ import {
 } from "@/lib/registration-fee";
 import { db, type DbClient } from "@/server/db";
 import { registrationFeeCoupons, shops, type RegistrationFeeCoupon, type UserRole } from "@/server/db/schema";
-import { touchSellerRow } from "@/server/db/split/gate";
 import { istDay, platformFeeGstRateOn, statutoryResolver } from "@/server/statutory/rates";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { resolveFeeForNewRegistration } from "./registration-fees";
@@ -138,7 +137,6 @@ export async function lockRegistrationFeeCoupon(
     .from(registrationFeeCoupons)
     .where(eq(registrationFeeCoupons.code, normalizeCouponCode(code)))
     .for("update");
-  if (coupon) await touchSellerRow(tx, registrationFeeCoupons, coupon.id);
   assertUsable(coupon, now);
   await assertWithinLimits(coupon, ownerId, tx);
   return coupon;

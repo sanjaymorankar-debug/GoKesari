@@ -18,7 +18,7 @@ import {
   isValidNewReferralCode,
 } from "@/lib/referral-codes";
 import { db, type DbClient } from "@/server/db";
-import { isUniqueViolation } from "@/server/db/split/upsert";
+import { isUniqueViolation } from "@/server/db/upsert";
 import { setCodesStatus } from "@/server/dealers/codes";
 import {
   dealerCodes,

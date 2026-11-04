@@ -18,60 +18,24 @@ continue in that project's own chat window. Where a request mixes GoKesari with
 one of these, do only the GoKesari part and say which part was left out and
 where to take it.
 
-# Two databases: every change follows the seller / customer split
+# One database (the seller / customer split is gone)
 
-Owner decision, 19 Oct 2026: GoKesari runs on **two physically separate
-databases**. The site's own database (`DATABASE_URL`) holds customers, orders
-and everything after an order, wallets, vouchers and the platform tables; the
-**seller database** (`SELLER_DATABASE_URL`) holds the seller tables (shops,
-KYC and documents, catalogue incl. the `pmd` product master, inventory,
-pricing, shop wallet, payouts) and the site reaches them through postgres_fdw
-foreign tables of the same names. Design, the list of differences and the
-switch runbook: [docs/db-split-2026-10/CODE_SPLIT_PLAN.md](docs/db-split-2026-10/CODE_SPLIT_PLAN.md).
+The two-database layout of 19 Oct 2026 was removed in Nov 2026: test.gokesari.com
+moved back on 02-Nov and gokesari.com on 04-Nov-2026 (owner's request). Each site
+has one database (`DATABASE_URL`, `neondb`) with every table in it; there is no
+postgres_fdw link, no `SELLER_DATABASE_URL` and no `DB_SPLIT_MODE`. Record:
+[docs/db-fdw-removal-2026-11/](docs/db-fdw-removal-2026-11/).
 
-Every change — feature, fix, migration, test — must work on **both** layouts
-(one database, and the two-database split). Rules:
-
-- **New table:** classify it in `src/server/db/split/ownership.ts` (seller or
-  customer); a unit test fails otherwise.
-- **Migration:** first line `-- split: seller`, `-- split: core` or
-  `-- split: both` (a unit test enforces it). No foreign key and no cascade
-  between a seller table and a customer table — check the link in the service
-  (`src/server/db/split/integrity.ts`) and delete dependants explicitly.
-- **Writes to seller tables:** no `ON CONFLICT … DO UPDATE` and no
-  `ON CONFLICT (target)` — use `upsertRow` (`src/server/db/split/upsert.ts`),
-  or `onConflictDoNothing()` without a target when the table has one unique key.
-- **No session settings** (`set_config`, GUCs) that seller-side triggers must
-  see; leave a row instead (e.g. `inv_ledger_marks`).
-- **Errors:** don't rely on `constraint_name` for seller tables (also match the
-  index name in the message); a savepoint that swallows errors must rethrow
-  40001 (`isSerializationFailure`).
-- **Transactions** run at READ COMMITTED on the core (never SERIALIZABLE: its
-  check can fail at COMMIT after postgres_fdw has already committed the seller
-  side, leaving a transaction half applied); the seller side runs at
-  REPEATABLE READ. On the split layout a transaction is re-run from the start
-  on 40001 / 40P01. A seller row locked only as a gate — the transaction then
-  counts or checks *other* seller rows, as a referral code's last slot or the
-  stock ledger does — must be touched right after the lock with
-  `touchSellerRow` (`src/server/db/split/gate.ts`). Keep external side effects (payment gateway,
-  SMS, e-mail, push, uploads) out of `db.transaction` — do them after commit or
-  through an idempotent outbox / idempotency key. Where an outside call must
-  happen under the transaction's lock, use `transactionOnce`
-  (`src/server/db/index.ts`), which never re-runs. Anything a transaction
-  collects in memory (lists, caches) must be kept only once it commits.
-- **Product master:** use `await appSql()` (`src/server/pmd/db.ts`); never
-  connect pmd code to `DATABASE_URL` directly.
-- **Tests:** CI job `test-split` (the whole suite on the two-database layout)
-  is blocking. Locally: `npx tsx scripts/db-split/test-layout.ts --core <url>
-  --seller <url>`, then `TEST_DATABASE_URL=<core> DB_SPLIT_MODE=split
-  SELLER_DATABASE_URL=<seller> npm test`.
-- **Sites:** a site moves only through the "Database split" workflow
-  (`switch-check` → `switch`; undo with `switch-back`). test.gokesari.com first;
-  gokesari.com only in an owner-approved window. Hostinger needs
-  `DB_SPLIT_MODE=split` and `SELLER_DATABASE_URL` (test: `gokesari_seller`;
-  production: the database named `PROD_SELLER_DATABASE_URL`). The site's own
-  database stays the customer database; the separate `*_CUSTOMER_*` databases
-  are not used.
+- Write ordinary single-database code; do not reintroduce the split rules
+  (`-- split:` migration headers, `upsertRow` instead of `ON CONFLICT`,
+  touched gate rows, 40001 re-runs). `upsertRow` (`src/server/db/upsert.ts`)
+  stays for its existing callers.
+- Seller and customer tables still have **no foreign keys between them** (the
+  cut-over did not add them): keep checking those links in the service and
+  deleting dependants explicitly.
+- Keep external side effects (payment gateway, SMS, e-mail, push, uploads) out
+  of `db.transaction` — do them after commit or through an idempotent outbox.
+- Product master: use `await appSql()` (`src/server/pmd/db.ts`).
 
 # Production releases: one at a time, checked after every deploy
 

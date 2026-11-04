@@ -179,10 +179,8 @@ export async function rewardShopReferralOnDelivery(orderId: string, tx: DbClient
   }
 
   // The referrer's code row is the gate for its yearly cap: two first deliveries at the same moment
-  // must not both take the last reward. Touched as well as locked, so on the two-database layout the
-  // second transaction fails and is run again (touchSellerRow's rule; this table's key is shop_id).
+  // must not both take the last reward.
   await tx.select({ shopId: shopReferralCodes.shopId }).from(shopReferralCodes).where(eq(shopReferralCodes.shopId, referral.referrerShopId)).for("update");
-  await tx.execute(sql`update ${shopReferralCodes} set shop_id = shop_id where shop_id = ${referral.referrerShopId}`);
   const since = new Date(Date.now() - 365 * 86_400_000);
   const [{ used }] = await tx
     .select({ used: count() })

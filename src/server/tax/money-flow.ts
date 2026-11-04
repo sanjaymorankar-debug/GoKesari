@@ -17,7 +17,7 @@ import { and, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { gstState } from "@/lib/gst-states";
 import { formatQuantity } from "@/lib/money";
-import { db, isSerializationFailure, type DbClient } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   addresses,
   deliveryOrders,
@@ -149,7 +149,6 @@ export async function recordOrderMoneyFlow(orderId: string, client: DbClient = d
         ),
       )
       .catch((error) => {
-        if (isSerializationFailure(error)) throw error;
         console.error("[billing] delivery-fee invoice not issued for order", orderId, error);
       });
   }
@@ -159,7 +158,6 @@ export async function recordOrderMoneyFlow(orderId: string, client: DbClient = d
     await client
       .transaction((sp) => issueRestaurantS95Invoice(orderId, { rateBp: food.rateBp, withoutItc: food.withoutItc, supplyType: supply, placeOfSupply, lines: foodLines, restaurant }, sp, at))
       .catch((error) => {
-        if (isSerializationFailure(error)) throw error;
         console.error("[billing] restaurant s.9(5) invoice not issued for order", orderId, error);
       });
   }

@@ -17,7 +17,7 @@ import { districtShortCode } from "@/lib/indian-states";
 
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 import { GEO_LEVELS, geoAreaPincodes, geoAreas, type GeoArea, type GeoLevel, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 

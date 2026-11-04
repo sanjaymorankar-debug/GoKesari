@@ -74,7 +74,6 @@ import {
   type Shop,
   type UserRole,
 } from "@/server/db/schema";
-import { touchSellerRow } from "@/server/db/split/gate";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-flags";
@@ -471,7 +470,6 @@ export async function accrueTieredActivation(
   const result = await db.transaction(async (tx) => {
     // The dealer row is the gate (the cap sums this shop's other entries).
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
-    await touchSellerRow(tx, dealers, dealerId);
     if (!dealer || dealer.isInternal) return null;
     const [attribution] = await tx.select().from(shopAttributions).where(eq(shopAttributions.shopId, shop.id));
     if (!attribution || attribution.status !== "ACTIVE" || attribution.dealerId !== dealerId) return null;
@@ -657,7 +655,6 @@ async function settleTrading(plan: DealerTierShopPlan, outcome: "TRADING" | "LAP
   const days = Math.round((plan.tradingDeadline.getTime() - plan.activatedAt.getTime()) / DAY);
   const result = await client.transaction(async (tx) => {
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, plan.dealerId)).for("update");
-    await touchSellerRow(tx, dealers, plan.dealerId);
     const [locked] = await tx.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, plan.shopId)).for("update");
     if (!dealer || !locked || locked.status !== "PENDING") return null;
     const members = new Map(
@@ -797,7 +794,6 @@ export async function accrueRenewalCommission(paymentId: string, actor: Actor | 
   const settings = await getCommissionSettings();
   const result = await db.transaction(async (tx) => {
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, plan.dealerId)).for("update");
-    await touchSellerRow(tx, dealers, plan.dealerId);
     if (!dealer || dealer.isInternal || dealer.commissionModel !== "TIERED") return null;
     const payee = plan.directMemberId ? ((await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, plan.directMemberId)))[0] ?? null) : null;
     const rows = await writeEntry(tx, {
@@ -869,7 +865,6 @@ export async function accrueTargetBonuses(tx: DbClient, month: string, start: Da
   const out: DealerCommissionEntry[] = [];
   for (const dealerId of [...new Set(plans.map((p) => p.dealerId))].sort()) {
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
-    await touchSellerRow(tx, dealers, dealerId);
     if (!dealer || dealer.isInternal || dealer.commissionModel !== "TIERED") continue;
     const mine = plans.filter((p) => p.dealerId === dealerId);
     const members = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.dealerId, dealerId));
@@ -1177,7 +1172,6 @@ export async function setMemberPlacement(memberId: string, input: { role: TeamRo
     const [before] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId)).for("update");
     if (!before) throw notFound("Team member");
     await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, before.dealerId)).for("update");
-    await touchSellerRow(tx, dealers, before.dealerId);
     if (before.teamRole === "TEAM_LEAD" && input.role === "AGENT") {
       const [{ n }] = await tx.select({ n: sql<number>`count(*)::int` }).from(dealerSalespeople).where(eq(dealerSalespeople.parentId, memberId));
       if (n > 0) throw conflict(`This team lead still has ${n} agent(s); move them to another lead first.`);
@@ -1224,7 +1218,6 @@ export async function promoteToTeamLead(memberId: string, input: { reason: strin
     const [before] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId)).for("update");
     if (!before) throw notFound("Team member");
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, before.dealerId)).for("update");
-    await touchSellerRow(tx, dealers, before.dealerId);
     if (!dealer || dealer.commissionModel !== "TIERED") throw conflict("Promotion is part of the TIERED model: move the dealer to TIERED first.");
     if (before.teamRole !== "AGENT") throw conflict("Only an agent can be promoted to team lead.");
     if (before.status !== "ACTIVE") throw conflict("Only an active agent can be promoted.");
@@ -1694,7 +1687,6 @@ export async function tradingProgress(dealerId: string, memberId?: string | null
  */
 export async function lockShopCommission(tx: DbClient, dealerId: string, shopId: string): Promise<void> {
   await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
-  await touchSellerRow(tx, dealers, dealerId);
   await tx.select({ shopId: dealerTierShopPlans.shopId }).from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shopId)).for("update");
 }
 

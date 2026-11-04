@@ -31,7 +31,7 @@ import { bestNameMatch } from "@/lib/kyc/name-match";
 import { AppError, conflict, notFound, validationFailed } from "@/lib/errors";
 import { docBlindIndex, encryptSecret } from "@/lib/pan-crypto";
 import { db, type DbClient } from "@/server/db";
-import { isUniqueViolation } from "@/server/db/split/upsert";
+import { isUniqueViolation } from "@/server/db/upsert";
 import {
   shopRegistrationDrafts,
   shops,

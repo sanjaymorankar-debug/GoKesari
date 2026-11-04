@@ -42,7 +42,6 @@ import {
   type DealerPayoutBatch,
   type UserRole,
 } from "@/server/db/schema";
-import { touchSellerRow } from "@/server/db/split/gate";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
@@ -164,7 +163,6 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
     for (const { dealerId, memberId } of payees) {
       if (!locked.has(dealerId)) {
         await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
-        await touchSellerRow(tx, dealers, dealerId);
         locked.add(dealerId);
       }
       const rows = await tx

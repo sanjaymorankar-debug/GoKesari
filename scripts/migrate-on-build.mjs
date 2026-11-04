@@ -26,7 +26,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
-import { cleanDatabaseUrl, isSplitLayout, migrateSplit } from "./split-migrate.mjs";
+import { cleanDatabaseUrl } from "./db-url.mjs";
 
 const TAG = "[migrate-on-build]";
 /** Shared with src/server/db/migrate.ts — one migration run per database at a time. */
@@ -85,24 +85,7 @@ try {
   console.log(
     `${TAG} database "${db}" on ${new URL(url).hostname}: ${before.count} migrations recorded, newest ${before.newest}.`,
   );
-  if (await isSplitLayout(client)) {
-    // Seller / customer split: each migration runs in the database its tables live in.
-    const sellerUrl = process.env.SELLER_DATABASE_URL ? cleanDatabaseUrl(process.env.SELLER_DATABASE_URL) : "";
-    if (!sellerUrl) throw new Error("this database is split (seller tables are in the seller database) but SELLER_DATABASE_URL is not set");
-    const sellerSsl = (() => {
-      const mode = new URL(sellerUrl).searchParams.get("sslmode");
-      return !mode || mode === "disable" ? false : "require";
-    })();
-    const seller = postgres(sellerUrl, { max: 1, ssl: sellerSsl, onnotice: () => {} });
-    try {
-      const { applied, repaired } = await migrateSplit({ core: client, seller, coreUrl: url, log: (line) => console.log(`${TAG} ${line}`) });
-      console.log(`${TAG} split layout: ${applied.length} migration(s) applied, ${repaired.length} repair(s).`);
-    } finally {
-      await seller.end();
-    }
-  } else {
-    await migrate(drizzle(client), { migrationsFolder: "./drizzle" });
-  }
+  await migrate(drizzle(client), { migrationsFolder: "./drizzle" });
   const after = await recorded(client);
   console.log(
     `${TAG} applied ${after.count - before.count} new migration(s); ${after.count} recorded, newest ${after.newest}.`,

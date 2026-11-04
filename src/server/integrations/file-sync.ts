@@ -37,7 +37,7 @@ import { applyPulledItems, type PullSummary } from "./pull";
 import { adapterFor, isFileAdapter } from "./registry";
 import { readSheet, sheetTypeOf, toCsv, toXlsx } from "./tabular";
 import { FILE_ITEM_FIELDS, type FileItemField } from "./types";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 export const MAX_IMPORT_ROWS = 20_000;

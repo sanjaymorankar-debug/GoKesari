@@ -39,7 +39,6 @@ import {
   type BroadcastAudience,
   type UserRole,
 } from "@/server/db/schema";
-import { sellerDb } from "@/server/db/split/clients";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { deliverPending, NOTIFICATION_TYPES, notify } from "./notifications";
 import { getRule } from "./settings";
@@ -138,7 +137,7 @@ async function shopOwnersIn(cities: string[], pincodes: string[]): Promise<strin
   const parts: SQL[] = [];
   if (cities.length) parts.push(sql`lower(trim(${shops.city})) in (${sql.join(cities.map((c) => sql`${c}`), sql`, `)})`);
   if (pincodes.length) parts.push(inArray(shops.pincode, pincodes));
-  const rows = await sellerDb()
+  const rows = await db
     .selectDistinct({ ownerId: shops.ownerId })
     .from(shops)
     .where(or(...parts));

@@ -30,7 +30,7 @@ import { conflict, notFound } from "@/lib/errors";
 import { formatPaise, formatQuantity } from "@/lib/money";
 import { PDF_LINE_WIDTH, textPdf, type PdfLine } from "@/lib/pdf";
 import { stateLabel } from "@/lib/gst-states";
-import { db, isSerializationFailure, type DbClient } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   addresses,
   einvoiceRecords,
@@ -475,7 +475,6 @@ export async function issueInvoiceForOrder(
     await tx
       .transaction((sp) => onInvoiceIssued(invoice, order, sp))
       .catch((error) => {
-        if (isSerializationFailure(error)) throw error; // split layout: retry the whole transaction instead
         console.error("[invoices] delivery of invoice failed", invoice.id, error);
       });
     return invoice;

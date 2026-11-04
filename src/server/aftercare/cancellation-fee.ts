@@ -27,7 +27,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { getRule } from "@/server/services/settings";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 
 export type FeeType = "FLAT" | "PERCENT";
 type FeeRule = RuleValue<"afterPackingCancellation">;

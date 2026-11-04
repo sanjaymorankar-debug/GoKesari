@@ -13,7 +13,6 @@ import { bannerIsLive, DEFAULT_BANNERS, isSafeBannerLink } from "@/lib/home-bann
 import { fill, HOME } from "@/lib/home-i18n";
 import { appAllowsVoiceSearch } from "@/lib/mobile-app";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { TABLE_OWNERSHIP } from "@/server/db/split/ownership";
 import { RULES } from "@/server/config/rules";
 import { likePattern, matchCategories, normaliseQuery } from "@/server/services/search-suggest";
 
@@ -138,10 +137,5 @@ describe("new routes, permission, rule and tables", () => {
   it("switches the new home on by default, with a way back", () => {
     expect(RULES.homeDiscovery.defaults).toEqual({ enabled: true, bannerSeconds: 6 });
     expect(RULES.homeDiscovery.schema.safeParse({ enabled: false, bannerSeconds: 2 }).success).toBe(false);
-  });
-
-  it("puts the new tables in the core database", () => {
-    expect(TABLE_OWNERSHIP.home_banners).toBe("platform");
-    expect(TABLE_OWNERSHIP.search_queries).toBe("platform");
   });
 });

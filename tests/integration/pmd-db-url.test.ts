@@ -1,8 +1,7 @@
 /**
  * The product master's connection (src/server/pmd/db.ts createSql) opens a Neon
  * copy-paste URL: channel_binding=require is a libpq-only setting that postgres.js
- * would otherwise send to the server, which refuses it. On a split site the product
- * master reads the seller database straight from SELLER_DATABASE_URL.
+ * would otherwise send to the server, which refuses it.
  */
 import { afterAll, describe, expect, it } from "vitest";
 

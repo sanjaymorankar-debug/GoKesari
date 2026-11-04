@@ -66,9 +66,16 @@ existed, it stops at the guard and changes nothing: open that run and press
   which database it is before anything runs.
 - **Merged code only.** Anything that changes the database runs only from
   `staging`; a read-only run (backup, verify) may start from elsewhere.
-- **Backup first.** Every change is preceded by a `pg_dump` (custom format),
-  kept 14 days as a workflow artifact. A backup under 1 KiB stops the run
-  before any change.
+- **Backup first.** Every change is preceded by a Neon branch of the test
+  site's branch, named `auto-backup-<UTC date>-run<N>` (no compute attached).
+  The branch is made inside Neon, so no rows leave the database and the
+  backup costs no data transfer. The newest 5 are kept; older ones are deleted
+  by the next backup. The workflow needs the secret `TEST_NEON_API_KEY` on the
+  `test` environment: a Neon API key scoped to the project `GoKesari-test-sg`.
+  If the branch can't be made (no key, or a key that can't see the project),
+  the run stops before any change. Until 04 Nov 2026 this was
+  a `pg_dump` to a workflow artifact: it moved ~45 MB per run, and the nightly
+  run alone came to ~1.2 GB a month of the test project's data transfer.
 - **One at a time.** Runs queue rather than overlap, and the migrator takes a
   Postgres lock, so two runs that start at the same moment are safe: one
   applies the migrations, the other finds nothing left to do.
@@ -81,16 +88,16 @@ existed, it stops at the guard and changes nothing: open that run and press
 
 ## Restoring a backup
 
-Download the `.dump` from the run's **Artifacts**, then (any machine with the
-PostgreSQL 16+ client):
+The run's summary names the backup branch. In the Neon console (project
+`GoKesari-test-sg`) → **Branches** → the test site's branch (`main`) →
+**Restore** → *From another branch* → pick `auto-backup-…`. Neon keeps the
+state before the restore as a branch of its own, so a restore can be undone.
 
-```bash
-read -s TEST_DATABASE_URL && export TEST_DATABASE_URL
-pg_restore --clean --if-exists --no-owner --no-privileges -d "$TEST_DATABASE_URL" gokesari_test_<date>_run<N>.dump
-```
+To look at the old data without restoring, add a compute to the backup branch
+and connect to it, or compare it with **Schema diff**.
 
-Backups contain whatever is in the test database (test accounts, addresses).
-They are visible to everyone with access to this (private) repository's Actions.
+Backup branches hold whatever is in the test database (test accounts,
+addresses), like the test database itself.
 
 ## Still manual
 

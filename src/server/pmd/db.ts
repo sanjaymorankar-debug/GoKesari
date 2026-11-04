@@ -33,9 +33,7 @@ function resolveSsl(url: string): "require" | false {
 /**
  * Settings only libpq understands. postgres.js sends unknown URL settings to the server as
  * session settings, which Postgres refuses ("unrecognized configuration parameter"), and
- * Neon's copy-paste URLs carry channel_binding=require: a SELLER_DATABASE_URL pasted that
- * way would fail every product-master query once the site reads the seller database
- * directly. Same list as src/server/db/split/tools.ts.
+ * Neon's copy-paste URLs carry channel_binding=require. Same list as scripts/db-url.mjs.
  */
 const LIBPQ_ONLY_PARAMS = ["channel_binding", "gssencmode", "sslcert", "sslkey", "sslpassword", "sslcrl", "krbsrvname"];
 
@@ -88,95 +86,16 @@ export function createSql(url: string, opts: { max?: number; applicationName?: s
   });
 }
 
-const globalForPmd = globalThis as unknown as { __pmdSql?: Sql; __pmdSellerSql?: Sql; __pmdLayout?: { split: boolean; at: number } };
-
-/** How long the site trusts its last look at the layout: a switch, or a switch back, reaches every server within this. */
-export const LAYOUT_CHECK_MS = 30_000;
-
-/** The postgres_fdw server the switch creates in the core (scripts/split-migrate.mjs SELLER_SERVER). */
-const SELLER_SERVER = "gk_seller";
-
-function pool(key: "__pmdSql" | "__pmdSellerSql", url: string | undefined): Sql {
-  if (!globalForPmd[key]) {
-    if (!url) throw new Error("DATABASE_URL is not set");
-    globalForPmd[key] = createSql(url, { max: 5, applicationName: "gokesari-pmd-app" });
-  }
-  return globalForPmd[key]!;
-}
-
-/** Host (Neon's pooled and direct hosts are the same database) and database name of a connection string. */
-export function databaseOf(url: string): string {
-  try {
-    const u = new URL(url);
-    return `${decodeURIComponent(u.pathname.replace(/^\//, ""))} on ${u.hostname.replace(/-pooler(?=\.)/, "")}`;
-  } catch {
-    return "(not a database URL)";
-  }
-}
+const globalForPmd = globalThis as unknown as { __pmdSql?: Sql };
 
 /**
- * Whether the site's database has been switched to the split layout, and
- * SELLER_DATABASE_URL is the database the switch filled (looked up at most
- * every LAYOUT_CHECK_MS). A different seller database is not used: the site
- * then stays on its own connection (which reaches the seller tables through
- * the switch's link) and says so in the log.
- */
-async function switched(core: Sql, sellerUrl: string, cached: boolean): Promise<boolean> {
-  const known = globalForPmd.__pmdLayout;
-  if (cached && known && Date.now() - known.at < LAYOUT_CHECK_MS) return known.split;
-  const [row] = await core<{ host: string | null; dbname: string | null }[]>`
-    select (select substr(o, 6) from unnest(s.srvoptions) o where o like 'host=%') as host,
-           (select substr(o, 8) from unnest(s.srvoptions) o where o like 'dbname=%') as dbname
-    from pg_foreign_server s
-    where s.srvname = ${SELLER_SERVER} and exists (select 1 from pg_foreign_table t where t.ftserver = s.oid)`;
-  let split = Boolean(row);
-  if (row && `${row.dbname} on ${row.host}` !== databaseOf(sellerUrl)) {
-    console.error(
-      `[pmd] SELLER_DATABASE_URL is ${databaseOf(sellerUrl)}, but this site's seller tables are in ${row.dbname} on ${row.host}. ` +
-        "Not using it; set SELLER_DATABASE_URL to the seller database the switch filled.",
-    );
-    split = false;
-  }
-  if (cached) globalForPmd.__pmdLayout = { split, at: Date.now() };
-  return split;
-}
-
-/**
- * The application's own PMD connection (API routes, dashboard), reused across
- * dev hot reloads.
- *
- * The product master lives in the seller database (docs/db-split-2026-10).
- * Once the site's database has been switched to the split layout and
- * DB_SPLIT_MODE=split, it is reached directly there, so its set-based SQL
- * (ON CONFLICT upserts, trigram search) runs natively; the few core tables it
- * touches (audit_logs, users) are foreign tables in the seller database.
- * Otherwise it is the site's one database (DATABASE_URL), as before. The site
- * looks at its database for this, so the two settings can be made on the host
- * before the switch, and nothing writes to the seller database while it is not
- * the live one.
+ * The application's own PMD connection (API routes, dashboard), on the site's
+ * database (DATABASE_URL), reused across dev hot reloads.
  */
 export async function appSql(env: NodeJS.ProcessEnv = process.env): Promise<Sql> {
-  const core = pool("__pmdSql", env.DATABASE_URL);
-  return (await goesToSellerDatabase(core, env)) ? pool("__pmdSellerSql", env.SELLER_DATABASE_URL) : core;
-}
-
-/**
- * The code for a catalogue product the product master creates, when it writes
- * to the seller database directly (split layout); null otherwise, and the
- * column default applies. Every product the site creates goes through the
- * core's foreign table and takes its code from the core's product_code_seq;
- * the seller database's own copy of that sequence lags behind, so a default
- * drawn there re-issues codes already used (products_code_unique → 500).
- */
-export async function catalogueProductCode(env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
-  const core = pool("__pmdSql", env.DATABASE_URL);
-  if (!(await goesToSellerDatabase(core, env))) return null;
-  const [row] = await core<{ code: string }[]>`SELECT 'P' || lpad(nextval('product_code_seq')::text, 5, '0') AS code`;
-  return row.code;
-}
-
-/** Whether the product master goes to SELLER_DATABASE_URL directly (see appSql). */
-export async function goesToSellerDatabase(core: Sql, env: Record<string, string | undefined> = process.env, options: { cached?: boolean } = {}): Promise<boolean> {
-  if (env.DB_SPLIT_MODE !== "split" || !env.SELLER_DATABASE_URL) return false;
-  return switched(core, env.SELLER_DATABASE_URL, options.cached ?? true);
+  if (!globalForPmd.__pmdSql) {
+    if (!env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
+    globalForPmd.__pmdSql = createSql(env.DATABASE_URL, { max: 5, applicationName: "gokesari-pmd-app" });
+  }
+  return globalForPmd.__pmdSql;
 }

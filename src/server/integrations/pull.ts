@@ -42,7 +42,7 @@ import { createShopProduct, updateShopProduct } from "@/server/services/catalogu
 import { OPEN_ORDER_STATUSES } from "@/server/services/inventory-alerts";
 import { canonicalItem, type CanonicalItem } from "./canonical";
 import { logSync } from "./jobs";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 
 export interface PullOptions {
   stock: boolean;
