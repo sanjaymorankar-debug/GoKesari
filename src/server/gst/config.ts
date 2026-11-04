@@ -14,7 +14,7 @@ import { db } from "@/server/db";
 import { gstRules, hsnTaxRates, shops, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { istDate } from "./rules";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 
 const paise = z.number().int().min(0);
 

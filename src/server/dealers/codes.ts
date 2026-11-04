@@ -20,8 +20,8 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { type DealerCodeKind, type DealerCodeStatus } from "@/lib/dealers";
 import { conflict, notFound } from "@/lib/errors";
-import { db, isSerializationFailure, type DbClient } from "@/server/db";
-import { isUniqueViolation } from "@/server/db/split/upsert";
+import { db, type DbClient } from "@/server/db";
+import { isUniqueViolation } from "@/server/db/upsert";
 import { dealerCodes, referralCodes, type DealerCode, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 
@@ -70,7 +70,6 @@ export async function issueCode(
         return row.id;
       });
     } catch (error) {
-      if (isSerializationFailure(error)) throw error;
       if (isUniqueViolation(error) || /referral_codes_code_unique/.test(String((error as Error)?.message ?? ""))) continue;
       throw error;
     }

@@ -73,11 +73,6 @@ GRIDLINES_API_KEY=<live key>
 # DOCUMENT_OCR_BROWSER=on   (photos are read in the owner's browser; "off" = server only)
 # ANTHROPIC_API_KEY=<only with DOCUMENT_OCR_PROVIDER=claude>
 
-# Seller / customer database split — docs/db-split-2026-10/README.md.
-# Leave DB_SPLIT_MODE unset (= single) until the cut-over steps there.
-# DB_SPLIT_MODE=single
-# SELLER_DATABASE_URL=<gokesari_seller — placeholder until shared>
-# CUSTOMER_DATABASE_URL=<gokesari_customer — defaults to DATABASE_URL>
 ```
 
 Generate secrets properly:
@@ -212,7 +207,7 @@ Actions workflows**, never during a Hostinger build:
 
 | Site | How its databases are migrated |
 |---|---|
-| test.gokesari.com | **"Test database"** (`.github/workflows/test-db.yml`), automatically on every push to `staging` that adds a migration: backup (`pg_dump`), then migrate the customer and seller databases, then verify. By hand: Actions → "Test database" → Run workflow → `migrate`. Setup: `docs/event-driven-2026-10/DB_AUTOMATION.md`. |
+| test.gokesari.com | **"Test database"** (`.github/workflows/test-db.yml`), automatically on every push to `staging` that adds a migration: backup (`pg_dump`), then migrate the database, then verify. By hand: Actions → "Test database" → Run workflow → `migrate`. Setup: `docs/event-driven-2026-10/DB_AUTOMATION.md`. |
 | gokesari.com | **"Production database"** (`.github/workflows/prod-db.yml`), by hand only: `migrate`, source `staging`, confirm `MIGRATE PRODUCTION`, **before** merging staging into `main`. It refuses a migration the test database does not already have. Setup: `docs/event-driven-2026-10/PROD_DB.md`. |
 
 For a local or new database:
@@ -238,9 +233,7 @@ preview of an unmerged PR migrated the real databases: PRs into `main`
 brought 0089–0094 to production early, and on 29 Oct 2026 a PR into
 `staging` applied 0114/0115 to the test databases, so staging's own 0114 was
 skipped. **Do not set `MIGRATE_ON_BUILD` in hPanel** (remove it where it is
-still set); it has no effect there any more. It has nothing to do with the
-database split: which database the running site uses is decided by
-`DB_SPLIT_MODE` and `SELLER_DATABASE_URL` only.
+still set); it has no effect there any more.
 
 **The staging gap.** Hostinger deploys a merge into `staging` while the "Test
 database" workflow is still backing up and migrating, so the new code can be

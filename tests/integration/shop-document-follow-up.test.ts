@@ -29,7 +29,7 @@ import { clearRuleCache, setRule } from "@/server/services/settings";
 import { promiseShopDocuments } from "@/server/services/shop-document-gate";
 import { nextFollowUpDay, runShopDocumentFollowUp, shopsMissingDocuments } from "@/server/services/shop-document-follow-up";
 import { approveShop, autoApproveShopIfReady } from "@/server/services/shops";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 import { createShop, createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
 
 let admin: { id: string; role: "ADMIN" };

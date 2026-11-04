@@ -551,7 +551,7 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
         if (!facts) continue;
         const billedIn = orderIds.includes(a.orderId!) ? cycle.id : null;
         const credited = await creditCommissionOnRefund(a, cycle.id, billedIn, facts, tx).catch((error: unknown) => {
-          // Split layout: the close is run again from the start; swallowing it would settle the refund without its note.
+          // The transaction is already aborted; swallowing it would settle the refund without its note.
           if (isRetryableTransactionError(error)) throw error;
           warnings.push(`No fee credit note for refund ${a.id}: ${error instanceof Error ? error.message : "error"}`);
           return null;

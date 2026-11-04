@@ -10189,9 +10189,9 @@ export type PurchaseList = typeof purchaseLists.$inferSelect;
 
 /**
  * One product on a list: a shop's product (as in the cart) and how many.
- * shop_product_id lives in the seller database, so it has no foreign key —
- * the service checks it exists before writing (src/server/db/split/integrity.ts)
- * and shows a line whose product is gone as "no longer sold".
+ * shop_product_id has no foreign key (it was in the seller database until
+ * Nov 2026) — the service checks it exists before writing and shows a line
+ * whose product is gone as "no longer sold".
  */
 export const purchaseListItems = pgTable(
   "purchase_list_items",

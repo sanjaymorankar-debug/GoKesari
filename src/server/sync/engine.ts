@@ -36,7 +36,7 @@ import {
   type SyncEntity,
   type SyncSystem,
 } from "@/server/db/schema";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 import { readSheet, sheetTypeOf, toCsv } from "@/server/integrations/tabular";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { todayIst } from "@/server/accounts/books";

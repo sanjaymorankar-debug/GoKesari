@@ -53,7 +53,6 @@ import {
   type RegistrationPayment,
   type ShopRegistration,
 } from "@/server/db/schema";
-import { touchSellerRow } from "@/server/db/split/gate";
 import { emitEvent } from "@/server/events/emit";
 import { isTextChannelAvailable, sendText } from "@/server/messaging/sms-whatsapp";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
@@ -205,8 +204,6 @@ export async function createRegistration(
     const [code] = referralText
       ? await tx.select().from(referralCodes).where(eq(referralCodes.code, normaliseCode(referralText))).for("update")
       : [];
-    // The code's last slot is decided by counting the registrations holding it (seller rows).
-    if (code) await touchSellerRow(tx, referralCodes, code.id);
     if (referralText) {
       const problem = await referralProblem(code, tx);
       if (problem) throw validationFailed(REFERRAL_MESSAGES[problem], { reason: problem });
@@ -332,7 +329,6 @@ export async function startRegistrationPayment(token: string): Promise<StartedPa
     await db.transaction(async (tx) => {
       if (reg.referralCodeId) {
         const [code] = await tx.select().from(referralCodes).where(eq(referralCodes.id, reg.referralCodeId)).for("update");
-        if (code) await touchSellerRow(tx, referralCodes, code.id);
         const problem = await referralProblem(code, tx, reg.id);
         if (problem) throw validationFailed(`${REFERRAL_MESSAGES[problem]} This registration cannot be paid now.`, { reason: problem });
       }

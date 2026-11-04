@@ -19,7 +19,7 @@ import {
   shops,
   statusChanges,
 } from "@/server/db/schema";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 import { emailChannel, smsChannel } from "@/server/notifications/channels";
 import { getShopOnboarding } from "@/server/services/shop-onboarding";
 import { clearRuleCache } from "@/server/services/settings";

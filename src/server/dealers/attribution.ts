@@ -42,7 +42,7 @@ import {
   type ShopAttribution,
   type UserRole,
 } from "@/server/db/schema";
-import { isUniqueViolation } from "@/server/db/split/upsert";
+import { isUniqueViolation } from "@/server/db/upsert";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-flags";

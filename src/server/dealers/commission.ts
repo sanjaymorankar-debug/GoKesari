@@ -82,7 +82,6 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { stateCodeOfArea } from "@/lib/indian-states";
-import { touchSellerRow } from "@/server/db/split/gate";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-flags";
@@ -575,9 +574,8 @@ async function accrue(
   options: { holdForDocuments?: boolean } = {},
 ): Promise<DealerCommissionEntry[]> {
   return db.transaction(async (tx) => {
-    // The dealer row is the gate: the cap sums this shop's other entries (split layout: touched after the lock).
+    // The dealer row is the gate: the cap sums this shop's other entries.
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
-    await touchSellerRow(tx, dealers, dealerId);
     if (!dealer || dealer.isInternal) return [];
     const [already] = await tx
       .select({ id: dealerCommissionLedger.id })
@@ -931,7 +929,6 @@ export async function createPayoutBatch(dealerId: string, actor: Actor, note?: s
   requireAdmin(actor, "create payouts");
   return db.transaction(async (tx) => {
     await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, dealerId)).for("update");
-    await touchSellerRow(tx, dealers, dealerId);
     const rows = await tx
       .select()
       .from(dealerCommissionLedger)

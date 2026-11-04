@@ -53,7 +53,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { amountInWords, financialYearOf } from "@/server/services/invoices";
 import { getRule } from "@/server/services/settings";
 import { istDay, platformFeeGstRateOn, statutoryResolver, type StatutoryResolver } from "@/server/statutory/rates";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 
 interface Actor {
   id: string;

@@ -32,7 +32,7 @@ import {
   users,
   type PurchaseList,
 } from "@/server/db/schema";
-import { isUniqueViolation } from "@/server/db/split/upsert";
+import { isUniqueViolation } from "@/server/db/upsert";
 import { isOnlinePurchasable } from "./catalogue";
 import {
   describeUnavailability,

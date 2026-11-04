@@ -36,8 +36,7 @@ import {
 } from "@/server/db/schema";
 import { evaluateStockAlerts, resolveThresholds } from "@/server/services/inventory-alerts";
 import { getSettings, logChange, manageLedgerInThisTransaction, todayIst } from "./books";
-import { touchSellerRow } from "@/server/db/split/gate";
-import { upsertRow } from "@/server/db/split/upsert";
+import { upsertRow } from "@/server/db/upsert";
 
 export interface StockPosting {
   shopId: string;
@@ -94,8 +93,6 @@ export async function postStock(entries: StockPosting[], client: DbClient): Prom
       .from(shopProducts)
       .innerJoin(products, eq(shopProducts.productId, products.id))
       .where(eq(shopProducts.id, e.shopProductId));
-    // The count comes from the ledger (seller rows); a posting that leaves the count as it was does not update the listing.
-    await touchSellerRow(client, shopProducts, listing.id);
     const before = await channelTotal(e.shopProductId, e.channel, client);
     const [row] = await client
       .insert(invStockLedger)
