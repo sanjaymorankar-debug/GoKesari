@@ -45,6 +45,7 @@ export function OrderFilters({ shopOptions = [], statusOptions = [] }: OrderFilt
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
           <select
+            aria-label="Status"
             value={filters.status}
             onChange={(e) => setFilters({ ...filters, status: e.target.value })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -62,6 +63,7 @@ export function OrderFilters({ shopOptions = [], statusOptions = [] }: OrderFilt
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Shop</label>
           <select
+            aria-label="Shop"
             value={filters.shopId}
             onChange={(e) => setFilters({ ...filters, shopId: e.target.value })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -80,6 +82,7 @@ export function OrderFilters({ shopOptions = [], statusOptions = [] }: OrderFilt
           <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
           <input
             type="date"
+            aria-label="From date"
             value={filters.dateFrom}
             onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -91,6 +94,7 @@ export function OrderFilters({ shopOptions = [], statusOptions = [] }: OrderFilt
           <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
           <input
             type="date"
+            aria-label="To date"
             value={filters.dateTo}
             onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"

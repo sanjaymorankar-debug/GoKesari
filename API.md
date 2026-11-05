@@ -946,10 +946,17 @@ Gap report additions (03-Nov-2026, docs/referrals-dealer-2026-11):
 | GET | `/api/dealer/tds[?form16a=<id>]` | dealer or team member | own PAN status, rate, TDS this year, Form 16A PDF |
 | POST | `/api/dealer/team` `acceptAgreement` | dealer or team member | now also keeps every acceptance (version, text hash, time, IP, device) |
 
+Team performance (05-Nov-2026, decisions DT-21, DT-22):
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/api/dealer/team?view=performance[&period=MONTH\|DAY\|WEEK][&format=csv]` | dealer or team member | per person: registrations started, shops registered (own, team), commission earned in the period, all-time shops / commission / paid, this month's target progress. The main dealer sees everyone, a lead his team, an agent himself. MONTH = this month so far (live); DAY = yesterday; WEEK = last Monday–Sunday (IST) |
+| GET | `/api/admin/dealer-tiers?dealerId=&view=performance[&period=…][&format=csv]` | ADMIN, OPERATOR | the same for a whole dealer network |
+
 Payout webhooks: `/api/payouts/webhooks/{provider}` (unchanged) now also settles dealer payouts — after shop payout items and rider transfers.
 
 Errors: 409 `REFERRAL_CODE_LOCKED` (a second, different code in the registration wizard), 409 `NOT_ELIGIBLE`
-(promotion below `promotionMinShops` without `override`), 422 on a 4th level ("at most 3 levels").
+(promotion below `promotionMinShops` or `promotionMinAgents` without `override`), 422 on a 4th level ("at most 3 levels").
 
 ## Rate limits
 

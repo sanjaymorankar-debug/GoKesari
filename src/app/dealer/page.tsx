@@ -9,6 +9,7 @@ import { DealerStatements } from "@/components/dealer/dealer-statements";
 import { dealerPerformance } from "@/server/dealers/performance";
 import { DealerWork } from "@/components/dealer/dealer-work";
 import { DealerTeam } from "@/components/dealer/dealer-team";
+import { TeamPerformance } from "@/components/dealer/team-performance";
 import { DealerTdsCard } from "@/components/dealer/dealer-tds-card";
 import { payeeTdsView } from "@/server/tax/commission-tds";
 import type { Dealer, DealerSalesperson } from "@/server/db/schema";
@@ -114,6 +115,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
         code={code ? { code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, dealer.legalName), qrSvg: await codeQrSvg(origin, code) } : null}
         employees={employees}
       />
+      {network ? <TeamPerformance endpoint="/api/dealer/team?view=performance" /> : null}
       {network ? <DealerTeam {...network} /> : null}
       <DealerTdsCard view={await payeeTdsView({ panHash: dealer.panHash, dealerType: dealer.dealerType, isMember: false })} />
       <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} myRate={myRate} entries={iso(entries)} bonusOn={bonusOn} />
@@ -139,7 +141,7 @@ async function networkProps(dealer: Dealer, member: DealerSalesperson | null) {
   return {
     role: member ? member.teamRole : ("MAIN_DEALER" as const),
     agreementAccepted: member ? member.agreementVersion === AGENT_AGREEMENT_VERSION : dealer.tierAgreementVersion === AGENT_AGREEMENT_VERSION,
-    rates: { ...rates, tradingOrders: rule.tradingOrders, tradingDays: rule.tradingDays, renewalBp: rule.renewalEnabled ? rule.renewalBp : null },
+    rates: { ...rates, tradingOrders: rule.tradingOrders, tradingDays: rule.tradingDays, renewalBp: rule.renewalEnabled ? rule.renewalBp : null, renewalLeadBp: rule.renewalLeadBp, renewalMainBp: rule.renewalMainBp, renewalYears: rule.renewalYears },
     // A lead sees his own branch of the tree only.
     tree: tree ? plain(member ? { ...tree, members: tree.members.filter((m) => m.id === member.id) } : tree) : null,
     earnings,
@@ -167,6 +169,7 @@ async function MemberPortal({ member, dealer, openStatement }: { member: DealerS
       ) : (
         <Alert tone="warning">You have no active code; ask {dealer.legalName} or GoKesari.</Alert>
       )}
+      <TeamPerformance endpoint="/api/dealer/team?view=performance" />
       <DealerTeam {...network} />
       <DealerTdsCard view={await payeeTdsView({ panHash: member.panHash, dealerType: dealer.dealerType, isMember: true })} />
       <DealerStatements statements={JSON.parse(JSON.stringify(statements))} payoutDay={commissionSettings.payoutDayOfMonth} open={openStatement} />

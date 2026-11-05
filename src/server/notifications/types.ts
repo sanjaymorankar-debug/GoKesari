@@ -355,6 +355,8 @@ export const NOTIFICATION_TYPES = {
   DEALER_COMMISSION_REVERSED: "dealer.commission_reversed",
   /** TIERED (0136): to a team member — promoted, moved, or a sub-agent request decided. */
   DEALER_TEAM_CHANGED: "dealer.team_changed",
+  /** Owner, 5 Nov 2026: the daily / weekly team report — to the main dealer, each team lead (own team) and admins; e-mail too. */
+  DEALER_TEAM_REPORT: "dealer.team_report",
   /** Gap report C2: to a payee — the month's commission is held until the PAN / bank / agreement is added; push too. */
   DEALER_PAYOUT_HELD: "dealer.payout_held",
   /** Gap report C7: to a payee — the bank transfer failed (it is retried, or finance follows up); push too. */

@@ -29,9 +29,9 @@
  * rule; for a fixed-only rule figured on the fee (or on the fixed amount, by
  * setting). Never negative.
  *
- * Cap: everything accrued for one shop (bonus included, reversals netted)
- * stays within capPaise; the part above it is a separate PENDING entry that
- * only an admin override releases (audited).
+ * No per-shop cap (owner, 5 Nov 2026): a fee the shop owner paid earns its
+ * full commission. (dealer_commission_settings.cap_paise and the above_cap
+ * flag stay for the history of entries written before.)
  *
  * A shop whose registration fee an admin waived earns no commission at any
  * milestone (owner, 29 Oct 2026); anything accrued before the waiver is
@@ -42,8 +42,8 @@
  * branchEligible. A suspended or terminated dealer's entries go ON_HOLD for an
  * admin to decide; reactivation releases them.
  *
- * Ledger: EARNED → APPROVED (admin) → PAID (payout batch with the bank
- * reference); PENDING (above cap) → APPROVED with an override; REVERSED (fee
+ * Ledger: EARNED → APPROVED (admin, or the month close) → PAID (payout batch
+ * with the bank reference); REVERSED (fee
  * refunded, fraud, duplicate — with a reason). A reversal after payment is a
  * negative entry carried into the dealer's next payout.
  *
@@ -141,11 +141,10 @@ export async function getCommissionSettings(client: DbClient = db): Promise<Deal
 }
 
 type SettingsPatch = Partial<
-  Pick<DealerCommissionSettings, "capPaise" | "fixedBonusBase" | "catalogueMinProducts" | "branchEligible" | "payoutDayOfMonth" | "autoApproveAtMonthEnd" | "commissionModel" | "basePercentBp" | "ratingStepBp">
+  Pick<DealerCommissionSettings, "fixedBonusBase" | "catalogueMinProducts" | "branchEligible" | "payoutDayOfMonth" | "autoApproveAtMonthEnd" | "commissionModel" | "basePercentBp" | "ratingStepBp">
 >;
 
 const settingsAudit = (s: DealerCommissionSettings) => ({
-  capPaise: s.capPaise,
   fixedBonusBase: s.fixedBonusBase,
   catalogueMinProducts: s.catalogueMinProducts,
   branchEligible: s.branchEligible,
@@ -171,7 +170,6 @@ export async function setCommissionSettings(
 ): Promise<DealerCommissionSettings> {
   requireAdmin(actor, "change commission settings");
   const why = requireReason(reason);
-  if (patch.capPaise != null && (!Number.isInteger(patch.capPaise) || patch.capPaise < 0 || patch.capPaise > 100_000_000)) throw validationFailed("Cap: whole paise, 0 or more.");
   if (patch.catalogueMinProducts != null && (!Number.isInteger(patch.catalogueMinProducts) || patch.catalogueMinProducts < 1 || patch.catalogueMinProducts > 10_000)) {
     throw validationFailed("Catalogue size: 1 to 10,000 products.");
   }
@@ -574,7 +572,7 @@ async function accrue(
   options: { holdForDocuments?: boolean } = {},
 ): Promise<DealerCommissionEntry[]> {
   return db.transaction(async (tx) => {
-    // The dealer row is the gate: the cap sums this shop's other entries.
+    // The dealer row is the gate: one accrual per shop and milestone.
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
     if (!dealer || dealer.isInternal) return [];
     const [already] = await tx
@@ -597,16 +595,9 @@ async function accrue(
     const amount = rate ? percentCommissionAmount(rate, fee) : commissionAmount(rule!, fee, bonusBp, settings.fixedBonusBase);
     // Base % model with a 0% rate: nothing to record.
     if (rate && amount.totalPaise === 0) return [];
-    const [{ net }] = await tx
-      .select({ net: sql<number>`coalesce(sum(${dealerCommissionLedger.amountPaise}) filter (where ${dealerCommissionLedger.status} <> 'REVERSED' and not ${dealerCommissionLedger.aboveCap}), 0)::int` })
-      .from(dealerCommissionLedger)
-      .where(eq(dealerCommissionLedger.shopId, shop.id));
-    const room = Math.max(0, settings.capPaise - net);
-    const within = Math.min(amount.totalPaise, room);
-    const above = amount.totalPaise - within;
     const held = dealer.status === "APPROVED" && !options.holdForDocuments ? null : "EARNED";
     const docsNote = options.holdForDocuments ? DOCUMENTS_HOLD_NOTE : null;
-    const common = {
+    const row = {
       dealerId,
       salespersonId,
       shopId: shop.id,
@@ -620,23 +611,14 @@ async function accrue(
       bonusBp: amount.bonusBp,
       bonusPaise: amount.bonusPaise,
       createdBy: actor?.id ?? null,
+      amountPaise: amount.totalPaise,
+      aboveCap: false,
+      status: (held ? "ON_HOLD" : "EARNED") as CommissionStatus,
+      heldFromStatus: held as CommissionStatus | null,
+      note: docsNote,
     };
-    const rows = [];
-    if (within > 0 || above === 0) {
-      rows.push({ ...common, amountPaise: within, aboveCap: false, status: (held ? "ON_HOLD" : "EARNED") as CommissionStatus, heldFromStatus: held as CommissionStatus | null, note: docsNote });
-    }
-    if (above > 0) {
-      rows.push({
-        ...common,
-        amountPaise: above,
-        aboveCap: true,
-        status: (held ? "ON_HOLD" : "PENDING") as CommissionStatus,
-        heldFromStatus: (held ? "PENDING" : null) as CommissionStatus | null,
-        note: [docsNote, `above the per-shop cap of ₹${(settings.capPaise / 100).toLocaleString("en-IN")} — needs an admin override`].filter(Boolean).join("; "),
-      });
-    }
     // dealer_commission_ledger has more than one unique key, so no ON CONFLICT: the check above (under the dealer lock) guards it.
-    const inserted = rows.length ? await tx.insert(dealerCommissionLedger).values(rows).returning() : [];
+    const inserted = await tx.insert(dealerCommissionLedger).values(row).returning();
     await recordAudit(
       {
         actorId: actor?.id ?? null,
@@ -653,8 +635,6 @@ async function accrue(
           ...(rate ? { basePercentBp: rate.basePercentBp, ratingStepBp: rate.ratingStepBp, effectivePercentBp: rate.effectivePercentBp } : {}),
           feePaise: fee,
           ...amount,
-          capPaise: settings.capPaise,
-          abovePaise: above,
           held: Boolean(held),
           heldForDocuments: Boolean(docsNote),
         },
@@ -809,29 +789,25 @@ export async function reverseEntry(entryId: string, reason: string, actor: Actor
 /* =========================================================== approval, hold */
 
 /**
- * ADMIN only. EARNED → APPROVED; a PENDING above-cap entry needs
- * `capOverride` with a reason (audited). ON_HOLD entries are released or
+ * ADMIN only. EARNED → APPROVED (and an entry still PENDING from the old
+ * per-shop cap, which no longer exists). ON_HOLD entries are released or
  * reversed, not approved.
  */
-export async function approveEntries(entryIds: string[], actor: Actor, options: { capOverride?: boolean; reason?: string } = {}): Promise<number> {
+export async function approveEntries(entryIds: string[], actor: Actor, options: { reason?: string } = {}): Promise<number> {
   requireAdmin(actor, "approve commission");
   if (entryIds.length === 0) return 0;
-  const why = options.capOverride ? requireReason(options.reason) : (options.reason ?? null);
+  const why = options.reason ?? null;
   return db.transaction(async (tx) => {
     const rows = await tx.select().from(dealerCommissionLedger).where(inArray(dealerCommissionLedger.id, entryIds)).for("update");
     let n = 0;
     for (const e of rows) {
-      if (e.status === "EARNED" && !e.aboveCap) {
-        // proceed
-      } else if (e.status === "PENDING" && e.aboveCap) {
-        if (!options.capOverride) throw conflict("Above the per-shop cap: approving needs an explicit cap override with a reason.");
-      } else continue;
+      if (e.status !== "EARNED" && !(e.status === "PENDING" && e.aboveCap)) continue;
       await tx.update(dealerCommissionLedger).set({ status: "APPROVED", approvedBy: actor.id, approvedAt: new Date(), updatedAt: new Date() }).where(eq(dealerCommissionLedger.id, e.id));
       await recordAudit(
         {
           actorId: actor.id,
           actorRole: actor.role,
-          action: e.aboveCap ? AUDIT_ACTIONS.DEALER_COMMISSION_CAP_OVERRIDE : AUDIT_ACTIONS.DEALER_COMMISSION_APPROVED,
+          action: AUDIT_ACTIONS.DEALER_COMMISSION_APPROVED,
           entityType: "dealer_commission_entry",
           entityId: e.id,
           previousValue: { status: e.status },

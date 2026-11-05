@@ -87,7 +87,7 @@ beforeEach(async () => {
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, email: a.email, name: a.name, role: "ADMIN" };
   // These tests cover the milestone rules model (fixed ₹ / % per milestone); the base % model is in dealer-base-commission.test.ts.
-  await setCommissionSettings({ capPaise: 99_900, fixedBonusBase: "FEE", catalogueMinProducts: 1, branchEligible: false, commissionModel: "MILESTONE_RULES" }, "test defaults", admin);
+  await setCommissionSettings({ fixedBonusBase: "FEE", catalogueMinProducts: 1, branchEligible: false, commissionModel: "MILESTONE_RULES" }, "test defaults", admin);
   await db.execute(sql`delete from dealer_rating_slabs where min_shops not in (0, 200, 250, 500)`);
   await setFeatureFlag("dealer_programme_enabled", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", admin);
   await setFeatureFlag("dealer_rating_bonus_enabled", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", admin);
@@ -197,9 +197,8 @@ describe("rules (scenarios 39, 40, 41, 42, 43)", () => {
   });
 });
 
-describe("cap, approval, payout, reversal (scenarios 44, 45, 46, 53)", () => {
-  it("above the cap waits for an override; payout with a reference; a refund after payment is carried to the next payout", async () => {
-    await setCommissionSettings({ capPaise: 30_000 }, "tight cap for the test", admin);
+describe("no cap, approval, payout, reversal (scenarios 44, 45, 46, 53)", () => {
+  it("every milestone is earned in full (no per-shop cap); payout with a reference; a refund after payment is carried to the next payout", async () => {
     const { user, dealer } = await newDealer();
     const shop = await attributedShop(dealer.id);
     await payFee(shop.id);
@@ -207,15 +206,10 @@ describe("cap, approval, payout, reversal (scenarios 44, 45, 46, 53)", () => {
     await checkCommissionMilestones(shop.id);
     await approveShop(shop.id, { classification: "KESARI" }, admin);
     const rows = await entries(shop.id);
-    // ₹100 + ₹150 fit ₹300; of the last ₹150, ₹50 fits and ₹100 waits.
-    expect(rows.filter((r) => !r.aboveCap).reduce((s, r) => s + r.amountPaise, 0)).toBe(30_000);
-    const above = rows.find((r) => r.aboveCap)!;
-    expect(above).toMatchObject({ amountPaise: 10_000, status: "PENDING" });
-
-    await expect(approveEntries([above.id], admin)).rejects.toMatchObject({ status: 409 });
-    await approveEntries(rows.filter((r) => !r.aboveCap).map((r) => r.id), admin);
-    await approveEntries([above.id], admin, { capOverride: true, reason: "agreed bonus for the first pilot shop" });
-    expect(await db.select().from(auditLogs).where(eq(auditLogs.action, "dealer.commission_cap_override"))).toHaveLength(1);
+    // ₹100 + ₹150 + ₹150, all earned: there is no per-shop cap (owner, 5 Nov 2026).
+    expect(rows.every((r) => !r.aboveCap && r.status === "EARNED")).toBe(true);
+    expect(rows.reduce((s, r) => s + r.amountPaise, 0)).toBe(40_000);
+    await approveEntries(rows.map((r) => r.id), admin);
 
     const batch = await createPayoutBatch(dealer.id, admin);
     expect(batch.totalPaise).toBe(40_000);
@@ -270,14 +264,13 @@ describe("rating and bonus (scenarios 48–55)", () => {
     await recordPayment({ shopId: first.id, paymentType: "REFUND", amountPaise: 118_000, method: "ONLINE", transactionId: "refund-2" }, admin);
     expect((await ratingView(dealer.id)).rating).toBe(5);
 
-    // A bonus that would break the cap is cut at the cap.
-    await setCommissionSettings({ capPaise: 10_500 }, "cap test", admin);
+    // No per-shop cap: the rating bonus is earned in full.
     await db.update(dealers).set({ rating: 6, startRating: 6 }).where(eq(dealers.id, dealer.id));
     const third = await attributedShop(dealer.id);
     await payFee(third.id);
     const rows = await entries(third.id);
-    expect(rows.find((r) => !r.aboveCap)!.amountPaise).toBe(10_500);
-    expect(rows.find((r) => r.aboveCap)).toMatchObject({ amountPaise: 500, status: "PENDING" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ aboveCap: false, bonusBp: 100, amountPaise: 11_000 });
   });
 
   it("an admin sets a starting rating of 6.0 (audited) and lowers a rating with a reason the dealer sees; others cannot", async () => {

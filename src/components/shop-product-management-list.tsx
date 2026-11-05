@@ -57,6 +57,7 @@ export function ShopProductManagementList({ shops, canSuspend = false }: { shops
           className={`${inputClass} max-w-xs`}
         />
         <select
+          aria-label="Shop status"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           className={`${inputClass} max-w-[160px]`}

@@ -88,7 +88,7 @@ beforeEach(async () => {
   admin = { id: a.id, email: a.email, name: a.name, role: "ADMIN" };
   // Payout tests: the fixed ₹ amounts of the milestone rules model (the base % model is in dealer-base-commission.test.ts).
   await setCommissionSettings(
-    { capPaise: 99_900, fixedBonusBase: "FEE", catalogueMinProducts: 1, branchEligible: false, payoutDayOfMonth: 5, autoApproveAtMonthEnd: false, commissionModel: "MILESTONE_RULES" },
+    { fixedBonusBase: "FEE", catalogueMinProducts: 1, branchEligible: false, payoutDayOfMonth: 5, autoApproveAtMonthEnd: false, commissionModel: "MILESTONE_RULES" },
     "test defaults",
     admin,
   );

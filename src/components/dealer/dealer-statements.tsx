@@ -67,7 +67,8 @@ export function DealerStatements({ statements, payoutDay, open }: { statements: 
                       ["Earned", rs(s.totals.earnedPaise)],
                       ["Awaiting approval", rs(s.totals.awaitingApprovalPaise)],
                       ["On hold", rs(s.totals.heldPaise)],
-                      ["Above cap", rs(s.totals.aboveCapPaise)],
+                      // Only on statements from before the per-shop cap was removed (5 Nov 2026).
+                      ...(s.totals.aboveCapPaise > 0 ? ([["Above cap", rs(s.totals.aboveCapPaise)]] as const) : []),
                       ["Reversed", rs(s.totals.reversedPaise)],
                       ["Owed back (next payout)", rs(s.totals.carriedForwardPaise)],
                     ] as const
