@@ -411,6 +411,7 @@ export const TEMPLATES: Record<string, Template> = {
     "The commission on {{shopName}} was reversed ({{reason}}). Anything already paid is taken from your next payout.",
   ),
   [T.DEALER_TEAM_CHANGED]: t("Your dealer team changed", "{{message}}"),
+  [T.DEALER_TEAM_REPORT]: t("{{period}} team report: {{registered}} registered, {{commission}} earned", "{{period}} ({{label}}): {{started}} registrations started, {{registered}} shops registered, {{commission}} commission earned. Each person's numbers are on your dealer page."),
   [T.DEALER_PAYOUT_HELD]: t("Commission waiting: add your {{missing}}", "{{amount}} of commission for {{month}} is waiting. It is paid as soon as your {{missing}} is added on your dealer page; it is carried to the next payout until then."),
   [T.DEALER_PAYOUT_FAILED]: t("Commission transfer did not go through", "The bank transfer of {{amount}} failed ({{reason}}). {{next}}"),
   [T.SHOP_REFERRAL_REWARDED]: t("Referral reward: {{reward}}", "{{shopName}}, which joined GoKesari with your shop's referral code, is live and has delivered its first order. {{reward}} — {{detail}}"),

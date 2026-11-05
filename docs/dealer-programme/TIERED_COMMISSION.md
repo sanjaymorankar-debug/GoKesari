@@ -63,11 +63,18 @@ Worked examples (fee before GST):
 | A team lead himself | lead ₹999.80 · main dealer ₹99.98 (22%) | lead ₹1,999.80 · main dealer ₹199.98 |
 | The main dealer himself | main dealer ₹999.80 (20%) | main dealer ₹1,999.80 |
 
-**Renewals.** When a shop that is still active pays its membership renewal, whoever signed it
-earns 10% of the renewal (before GST). Can be switched off.
+**Renewals** (owner, 5 Nov 2026 — DT-18). When a shop that is still active pays its membership
+renewal, and the payment is received: whoever signed it earns **10%** of the renewal (before GST), the
+agent's team lead **2%** and the main dealer **1%** (a missing level is not paid). Only renewals paid
+within **3 years** of the shop's approval earn (`renewalYears`, configurable). Can be switched off.
 
-**Promotion.** An admin can promote an agent to team lead once he has 10 activated shops (or
-earlier, with an override and a reason). He then reports to the main dealer and takes the agents
+| ₹4,999 renewal, shop signed by an agent under a lead | agent ₹499.90 · lead ₹99.98 · main dealer ₹49.99 |
+|---|---|
+
+**Promotion** (owner, 5 Nov 2026 — DT-20). An admin can promote an agent to team lead once he has
+**50 activated shops** of his own **and 3 ready agents** — active agents he brought in (sub-agent
+requests an admin approved) who have accepted the agent agreement. The admin screen shows the
+progress ("Promotion: 42/50 shops · 2/3 ready agents"); earlier promotion needs an override and a reason. He then reports to the main dealer and takes the agents
 he brought in with him. His former lead earns a **1% development bonus** on that team's shops (the
 new lead's own and his agents') for 6 months — but **only for a calendar month in which the new team
 registers at least 100 shops**. A month below 100 pays no development bonus (the ledger says so:
@@ -79,8 +86,31 @@ month 2, 80 shops → nothing; month 3, 100 shops → 100 × ₹49.99. After 6 m
 
 **Sub-agents.** Agents cannot appoint anyone. They ask from their dealer page; an admin approves.
 
-**Monthly target bonuses** (off by default): a fixed ₹ amount per role when a target is reached in a
-month (default examples: agent ₹1,000 at 10 shops, team lead ₹2,500 at 30, main dealer ₹5,000 at 100).
+**Monthly target bonus** (owner, 5 Nov 2026 — DT-19; on). Every calendar month, anyone who reaches
+**50 shops** gets a bonus of **10% of the commission they earned that month** (direct and overrides;
+not renewals or other bonuses), paid with that month's payout on the 5th. The count starts again from
+zero every month.
+
+| Who | What counts towards the 50 | Bonus |
+|---|---|---|
+| Agent | shops he signed this month | 10% of his direct commission this month |
+| Team lead | shops his team signed (his own and his agents') | 10% of his direct + 4% override commission this month |
+| Main dealer | shops the whole network signed | 10% of his direct + 2% override commission this month |
+
+Example: an agent signs 55 shops of ₹4,999 in November → 55 × ₹999.80 = ₹54,989 commission, bonus
+₹5,498.90. With 49 shops there is no bonus. Targets and % are in the rule (`targets`: role, minShops,
+bonusBp, and an optional fixed bonusPaise).
+
+**Earnings dashboard and team performance** (DT-21). On `/dealer`, everyone sees **what they earned
+this month so far** — it updates as each shop pays and is approved (the card refreshes itself) — plus
+all-time earned and paid and their progress to the 50-shop target. The main dealer sees every person,
+a team lead his team, side by side: registrations started with their code, shops registered,
+commission earned, target progress, all-time totals — grouped main dealer → team lead → agent. Views:
+this month, yesterday, last week; **Download (Excel / CSV)**. The admin sees the same per dealer.
+
+**Daily and weekly reports** (DT-22). Every morning (05:00 IST) yesterday's report, and on Mondays last
+week's, go by e-mail and in-app to the main dealer (whole network), each team lead (his team) and the
+admins (one summary of all dealers) — only when something happened.
 
 **Reversals.** A refund, a waived fee, fraud or a duplicate takes back **every level** on that shop
 (direct, overrides, development). Money already paid is taken from the person's next payout.
@@ -125,10 +155,13 @@ See "Open items for the owner" at the end of this file.
 
 1. Admin → Settings → `dealerTieredCommission`: set `enabled` to true; check the values
    (directBp 2000 = 20%, leadOverrideBp 400 = 4%, mainOverrideBp 200 = 2%, firstPartBp 10000 = all at
-   activation, tradingOrders 0 = no trading condition, renewalEnabled / renewalBp 1000,
-   promotionMinShops 10, developmentBp 100 / developmentMonths 6 / developmentMinShopsPerMonth 100,
-   targetBonusesEnabled + targets). A reason is asked and logged. If the rule was saved before
-   5 Nov 2026, the saved values win over the new defaults: set them to these.
+   activation, tradingOrders 0 = no trading condition, renewalEnabled / renewalBp 1000 /
+   renewalLeadBp 200 / renewalMainBp 100 / renewalYears 3, promotionMinShops 50 / promotionMinAgents 3,
+   developmentBp 100 / developmentMonths 6 / developmentMinShopsPerMonth 100, targetBonusesEnabled true +
+   targets: AGENT, TEAM_LEAD, MAIN_DEALER each minShops 50, bonusBp 1000, bonusPaise 0). A reason is
+   asked and logged. If the rule was saved before, the saved values win over the new defaults: set
+   promotionMinShops, targetBonusesEnabled and targets to these (the new renewal fields and
+   promotionMinAgents take their defaults).
 2. Admin → Dealers → Commission → **TIERED model** (`/admin/dealers/commission/tiered`): choose the
    dealer → **Move this dealer to TIERED** (reason). Optionally set the dealer's own %s.
 4. Build the team: **Add a member** (role, and who they report to), or let the main dealer add them
@@ -141,8 +174,11 @@ See "Open items for the owner" at the end of this file.
 
 * **TRADING** is checked on every delivered order, and once a day for shops past their window
   (cron job `dealer-tiered-daily`).
-* **Promote**: TIERED screen → the agent → *Promote to team lead* (or *Promote anyway (override)*
-  below the shop count). A reason is required.
+* **Promote**: TIERED screen → the agent → *Promote to team lead* (shown once he has the shops and the
+  ready agents; otherwise *Promote anyway (override)*). A reason is required.
+* **Team performance**: TIERED screen → choose the dealer → *Team performance* (this month live,
+  yesterday, last week; CSV). Reports by e-mail: cron jobs `dealer-team-report-daily` and
+  `dealer-team-report-weekly` (Mondays).
 * **Move an agent** to another lead: *Move to…* (reason). A lead with agents cannot become an agent.
 * **Sub-agent requests**: TIERED screen → *Sub-agent requests* → Approve / Decline.
 * **Ledger, approvals, payouts**: Admin → Dealers → Commission → Ledger & payouts, as today.
@@ -196,5 +232,6 @@ payments; export them first).
 | O-5 | If the TIERED rule is switched off, TIERED dealers earn the standard model for new shops (DT-02) | standard | Per-dealer model: assumed confirmed with the 5 Nov structure (DT-13) |
 | O-6 | Development bonus when the promoted agent reported straight to the main dealer: nobody (DT-05) | nobody | Needs your confirmation |
 | O-9 | The 100-shop monthly minimum counts shops the new team **registered (paid and approved) in that calendar month** (DT-16) | registered in the month | Assumed from your message of 5 Nov 2026 |
-| O-7 | Target bonus amounts (examples only) | off | Needs your amounts |
+| O-7 | Target bonus amounts | 50 shops, 10% of the month's commission, every role (DT-19) | Done (owner, 5 Nov 2026) |
+| O-10 | Promotion: automatic once 50 shops and 3 ready agents, or the admin's click (DT-20) | admin's click | Needs your confirmation |
 | O-8 | Agent agreement text (src/lib/dealer-tiers.ts) — legal review | draft | Needs legal review |

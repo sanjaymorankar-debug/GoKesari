@@ -18,12 +18,16 @@ interface Rule {
   tradingDays: number;
   renewalEnabled: boolean;
   renewalBp: number;
+  renewalLeadBp: number;
+  renewalMainBp: number;
+  renewalYears: number;
   promotionMinShops: number;
+  promotionMinAgents: number;
   developmentBp: number;
   developmentMonths: number;
   developmentMinShopsPerMonth: number;
   targetBonusesEnabled: boolean;
-  targets: { role: "MAIN_DEALER" | "TEAM_LEAD" | "AGENT"; minShops: number; bonusPaise: number }[];
+  targets: { role: "MAIN_DEALER" | "TEAM_LEAD" | "AGENT"; minShops: number; bonusPaise: number; bonusBp: number }[];
 }
 interface DealerRow {
   id: string;
@@ -69,6 +73,9 @@ interface RequestRow {
 }
 
 const rs = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+/** "10% of the month's commission", "₹1,000", or both. */
+const targetWords = (t: { bonusPaise: number; bonusBp: number }) =>
+  [t.bonusBp > 0 ? `${formatBp(t.bonusBp)} of the month's commission` : null, t.bonusPaise > 0 || t.bonusBp === 0 ? rs(t.bonusPaise) : null].filter(Boolean).join(" + ");
 const toBp = (text: string) => {
   const n = Number(text.replace(/[%\s]/g, ""));
   return text.trim() === "" || !Number.isFinite(n) ? null : Math.round(n * 100);
@@ -153,6 +160,7 @@ export function TieredAdmin({
 
   const leads = tree?.members.filter((m) => m.role === "TEAM_LEAD") ?? [];
   const everyone = tree ? tree.members.flatMap((m) => [m, ...m.agents]) : [];
+  const promotable = (m: { activatedShops: number; readyAgents?: number }) => m.activatedShops >= rule.promotionMinShops && (m.readyAgents ?? 0) >= rule.promotionMinAgents;
 
   return (
     <div className="space-y-4" data-testid="tiered-admin">
@@ -176,14 +184,20 @@ export function TieredAdmin({
               ? "No trading condition: everything is earned at activation and paid on the payout day of the next month. No per-shop cap."
               : `TRADING: ${rule.tradingOrders} delivered orders within ${rule.tradingDays} days of activation, otherwise part 2 and the overrides lapse.`}
           </li>
-          <li>Renewal commission: {rule.renewalEnabled ? formatBp(rule.renewalBp) : "off"}.</li>
+          <li data-testid="renewal-settings">
+            Renewal commission:{" "}
+            {rule.renewalEnabled
+              ? `${formatBp(rule.renewalBp)} to whoever signed the shop, ${formatBp(rule.renewalLeadBp)} to the team lead, ${formatBp(rule.renewalMainBp)} to the main dealer — on renewals paid within ${rule.renewalYears} years of activation`
+              : "off"}
+            .
+          </li>
           <li>
-            Promotion at {rule.promotionMinShops} activated shops; the former lead earns {formatBp(rule.developmentBp)} on the new team for {rule.developmentMonths} months
+            Promotion at {rule.promotionMinShops} activated shops and {rule.promotionMinAgents} ready agents of his own; the former lead earns {formatBp(rule.developmentBp)} on the new team for {rule.developmentMonths} months
             {rule.developmentMinShopsPerMonth > 0 ? `, for each month the new team registers at least ${rule.developmentMinShopsPerMonth} shops` : ""}.
           </li>
           <li data-testid="target-bonuses">
             Monthly target bonuses: {rule.targetBonusesEnabled ? "on" : "off"} —{" "}
-            {rule.targets.map((t) => `${NETWORK_ROLE_LABELS[t.role]} ${rs(t.bonusPaise)} at ${t.minShops} shops`).join("; ") || "none"}.
+            {rule.targets.map((t) => `${NETWORK_ROLE_LABELS[t.role]} ${targetWords(t)} at ${t.minShops} shops a month`).join("; ") || "none"}.
           </li>
           <li data-testid="tds-settings">
             TDS on payouts: {tds.enabled ? `on — ${formatBp(tds.rateBp)} above ${rs(tds.annualThresholdPaise)} a year` : `off (starting values ${formatBp(tds.rateBp)} above ${rs(tds.annualThresholdPaise)} a year, waiting for the CA)`}.
@@ -274,11 +288,16 @@ export function TieredAdmin({
                 {isAdmin ? (
                   <div className="mt-1 flex flex-wrap gap-2">
                     {m.role === "AGENT" ? (
+                      <span className="self-center text-xs text-ink-600" data-testid="promotion-progress">
+                        Promotion: {m.activatedShops}/{rule.promotionMinShops} shops · {m.readyAgents ?? 0}/{rule.promotionMinAgents} ready agents
+                      </span>
+                    ) : null}
+                    {m.role === "AGENT" && promotable(m) ? (
                       <Button size="sm" variant="secondary" disabled={busy} onClick={() => post({ action: "promote", memberId: m.id }, `${m.name} is now a team lead.`)}>
                         Promote to team lead
                       </Button>
                     ) : null}
-                    {m.role === "AGENT" && m.activatedShops < rule.promotionMinShops ? (
+                    {m.role === "AGENT" && !promotable(m) ? (
                       <Button size="sm" variant="ghost" disabled={busy} onClick={() => post({ action: "promote", memberId: m.id, override: true }, `${m.name} is now a team lead (override).`)}>
                         Promote anyway (override)
                       </Button>

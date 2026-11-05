@@ -743,40 +743,53 @@ export async function runTieredDaily(now: Date = new Date()): Promise<{ checked:
 
 /**
  * A membership renewal fee was paid for a shop that is still active: the shop's
- * direct earner gets renewalBp of it (before GST). Once per payment. Only for a
- * TIERED shop (one with a plan) that is not reversed.
+ * direct earner gets renewalBp of it (before GST), the agent's team lead
+ * renewalLeadBp and the main dealer renewalMainBp (owner, 5 Nov 2026) — the
+ * people frozen on the plan, a missing level not paid. Only for renewals paid
+ * within renewalYears of the shop's activation. Once per payment and payee. Only
+ * for a TIERED shop (one with a plan) that is not reversed.
  */
 export async function accrueRenewalCommission(paymentId: string, actor: Actor | null): Promise<DealerCommissionEntry[]> {
   const rule = await tierRule();
-  if (!rule.enabled || !rule.renewalEnabled || rule.renewalBp <= 0) return [];
+  if (!rule.enabled || !rule.renewalEnabled) return [];
   if (!(await getFeatureFlag("dealer_programme_enabled")).enabled) return [];
   const [payment] = await db.select().from(shopPayments).where(eq(shopPayments.id, paymentId));
   if (!payment || payment.paymentType !== "RENEWAL" || payment.amountPaise <= 0) return [];
   const [plan] = await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, payment.shopId));
   if (!plan || plan.status === "REVERSED") return [];
+  if (payment.paidAt.getTime() >= renewalWindowEnd(plan.activatedAt, rule.renewalYears).getTime()) return [];
   const [row] = await db.select({ shop: shops, a: shopAttributions }).from(shops).innerJoin(shopAttributions, eq(shopAttributions.shopId, shops.id)).where(eq(shops.id, payment.shopId));
   if (!row || row.shop.status !== "APPROVED" || row.a.status !== "ACTIVE") return [];
   const base = renewalBasePaise(Number(payment.amountPaise), await registrationFeeGstRateBp(payment.paidAt));
-  const amount = Math.round((base * rule.renewalBp) / 10_000);
-  if (amount <= 0) return [];
+  const share = (bp: number) => Math.round((base * bp) / 10_000);
   const result = await db.transaction(async (tx) => {
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, plan.dealerId)).for("update");
     if (!dealer || dealer.isInternal || dealer.commissionModel !== "TIERED") return null;
-    const payee = plan.directMemberId ? ((await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, plan.directMemberId)))[0] ?? null) : null;
-    const rows = await writeEntry(tx, {
-      dealer,
-      payee,
-      shopId: plan.shopId,
-      salespersonId: row.a.salespersonId,
-      milestone: "RENEWAL",
-      entryType: "RENEWAL",
-      accrualKey: `RN:${payment.id}`,
-      feePaise: base,
-      basePaise: amount,
-      amountPaise: amount,
-      note: `renewal ${payment.reference}`,
-      actor,
-    });
+    const member = async (id: string | null) => (id ? ((await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, id)))[0] ?? null) : null);
+    const parts: { payee: DealerSalesperson | null; bp: number; key: string }[] = [{ payee: await member(plan.directMemberId), bp: rule.renewalBp, key: `RN:${payment.id}` }];
+    if (plan.leadMemberId) parts.push({ payee: await member(plan.leadMemberId), bp: rule.renewalLeadBp, key: `RN:${payment.id}:LEAD` });
+    if (plan.mainOverride) parts.push({ payee: null, bp: rule.renewalMainBp, key: `RN:${payment.id}:MAIN` });
+    const rows: DealerCommissionEntry[] = [];
+    for (const part of parts) {
+      const amount = share(part.bp);
+      if (amount <= 0) continue;
+      rows.push(
+        ...(await writeEntry(tx, {
+          dealer,
+          payee: part.payee,
+          shopId: plan.shopId,
+          salespersonId: row.a.salespersonId,
+          milestone: "RENEWAL",
+          entryType: "RENEWAL",
+          accrualKey: part.key,
+          feePaise: base,
+          basePaise: amount,
+          amountPaise: amount,
+          note: `renewal ${payment.reference}`,
+          actor,
+        })),
+      );
+    }
     if (rows.length) {
       await recordAudit(
         {
@@ -785,7 +798,15 @@ export async function accrueRenewalCommission(paymentId: string, actor: Actor | 
           action: AUDIT_ACTIONS.DEALER_COMMISSION_ACCRUED,
           entityType: "shop",
           entityId: plan.shopId,
-          newValue: { dealerId: dealer.id, model: "TIERED", entryType: "RENEWAL", paymentId, renewalBasePaise: base, renewalBp: rule.renewalBp, amountPaise: amount },
+          newValue: {
+            dealerId: dealer.id,
+            model: "TIERED",
+            entryType: "RENEWAL",
+            paymentId,
+            renewalBasePaise: base,
+            rates: { direct: rule.renewalBp, lead: rule.renewalLeadBp, main: rule.renewalMainBp },
+            entries: rows.map((r) => ({ id: r.id, payeeMemberId: r.payeeMemberId, amountPaise: r.amountPaise, status: r.status })),
+          },
         },
         tx,
       );
@@ -795,6 +816,13 @@ export async function accrueRenewalCommission(paymentId: string, actor: Actor | 
   if (!result) return [];
   await tellPayees(result.dealer, result.rows, row.shop.name);
   return result.rows;
+}
+
+/** The end of a shop's renewal-commission window: renewalYears after its activation. */
+export function renewalWindowEnd(activatedAt: Date, years: number): Date {
+  const end = new Date(activatedAt);
+  end.setUTCFullYear(end.getUTCFullYear() + years);
+  return end;
 }
 
 export async function accrueRenewalCommissionSafely(paymentId: string, actor: Actor | null): Promise<void> {
@@ -807,12 +835,65 @@ export async function accrueRenewalCommissionSafely(paymentId: string, actor: Ac
 
 /* ========================================================= target bonuses */
 
+/** Entry types a percentage target bonus is worked out on: the month's direct and override commission (owner, 5 Nov 2026). */
+export const TARGET_BASE_TYPES: CommissionEntryType[] = ["DIRECT_1", "DIRECT_2", "OVERRIDE_LEAD", "OVERRIDE_MAIN"];
+
+/**
+ * A payee's direct and override commission accrued in [start, end), not
+ * reversed (held entries count: they are earned, only waiting). `payee` null =
+ * the main dealer.
+ */
+export async function monthCommissionPaise(client: DbClient, dealerId: string, payee: string | null, start: Date, end: Date): Promise<number> {
+  const [{ total }] = await client
+    .select({ total: sql<number>`coalesce(sum(${dealerCommissionLedger.amountPaise}), 0)::int` })
+    .from(dealerCommissionLedger)
+    .where(
+      and(
+        eq(dealerCommissionLedger.dealerId, dealerId),
+        payee === null ? isNull(dealerCommissionLedger.payeeMemberId) : eq(dealerCommissionLedger.payeeMemberId, payee),
+        eq(dealerCommissionLedger.kind, "ACCRUAL"),
+        inArray(dealerCommissionLedger.entryType, TARGET_BASE_TYPES),
+        ne(dealerCommissionLedger.status, "REVERSED"),
+        gte(dealerCommissionLedger.createdAt, start),
+        lt(dealerCommissionLedger.createdAt, end),
+      ),
+    );
+  return total;
+}
+
+type Target = TierRule["targets"][number];
+
+/** The highest target a role reached with `shops` shops this month, or null. */
+export function bestTarget(targets: readonly Target[], role: NetworkRole, shops: number): Target | null {
+  return (
+    targets
+      .filter((t) => t.role === role && shops >= t.minShops)
+      .sort((a, b) => b.minShops - a.minShops || b.bonusBp - a.bonusBp || b.bonusPaise - a.bonusPaise)[0] ?? null
+  );
+}
+
+/** A target's bonus on a month's commission: the fixed amount plus its percentage. */
+export function targetBonusPaise(target: Pick<Target, "bonusPaise" | "bonusBp">, monthCommission: number): number {
+  return target.bonusPaise + Math.round((Math.max(0, monthCommission) * target.bonusBp) / 10_000);
+}
+
+/** The shops that count for a payee's target: an agent's own, a lead's team's, the main dealer's whole network. */
+export function targetShopCount(plans: readonly Pick<DealerTierShopPlan, "directMemberId" | "leadMemberId">[], payee: Pick<DealerSalesperson, "id" | "teamRole"> | null): number {
+  if (!payee) return plans.length;
+  return payee.teamRole === "TEAM_LEAD"
+    ? plans.filter((p) => p.directMemberId === payee.id || p.leadMemberId === payee.id).length
+    : plans.filter((p) => p.directMemberId === payee.id).length;
+}
+
 /**
  * At the month's close (before the payouts are drafted): each payee of a TIERED
  * dealer who reached a target that month gets the highest one reached — an
  * agent for the shops he signed, a lead for his team's, the main dealer for the
  * whole network ("activated" = the plan created that month and not reversed).
- * Dated inside the month so the close picks it up. Once per payee and month.
+ * The bonus is the target's fixed amount plus its percentage of the direct and
+ * override commission the payee earned in the month (owner, 5 Nov 2026: 50
+ * shops, 10%). Counted afresh every month. Dated inside the month so the close
+ * picks it up. Once per payee and month.
  */
 export async function accrueTargetBonuses(tx: DbClient, month: string, start: Date, end: Date, actor: Actor | null): Promise<DealerCommissionEntry[]> {
   const rule = await tierRule();
@@ -822,24 +903,21 @@ export async function accrueTargetBonuses(tx: DbClient, month: string, start: Da
     .from(dealerTierShopPlans)
     .where(and(gte(dealerTierShopPlans.activatedAt, start), lt(dealerTierShopPlans.activatedAt, end), ne(dealerTierShopPlans.status, "REVERSED")));
   if (plans.length === 0) return [];
-  const bestTarget = (role: NetworkRole, n: number) =>
-    rule.targets
-      .filter((t) => t.role === role && n >= t.minShops)
-      .sort((a, b) => b.minShops - a.minShops || b.bonusPaise - a.bonusPaise)[0] ?? null;
   const out: DealerCommissionEntry[] = [];
   for (const dealerId of [...new Set(plans.map((p) => p.dealerId))].sort()) {
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
     if (!dealer || dealer.isInternal || dealer.commissionModel !== "TIERED") continue;
     const mine = plans.filter((p) => p.dealerId === dealerId);
     const members = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.dealerId, dealerId));
-    const counts: { payee: DealerSalesperson | null; n: number }[] = [{ payee: null, n: mine.length }];
-    for (const m of members) {
-      const n = m.teamRole === "TEAM_LEAD" ? mine.filter((p) => p.directMemberId === m.id || p.leadMemberId === m.id).length : mine.filter((p) => p.directMemberId === m.id).length;
-      if (n > 0) counts.push({ payee: m, n });
-    }
-    for (const { payee, n } of counts) {
-      const target = bestTarget(roleOf(payee), n);
-      if (!target || target.bonusPaise <= 0) continue;
+    for (const payee of [null, ...members]) {
+      const n = targetShopCount(mine, payee);
+      if (n === 0) continue;
+      const target = bestTarget(rule.targets, roleOf(payee), n);
+      if (!target) continue;
+      const commission = target.bonusBp > 0 ? await monthCommissionPaise(tx, dealerId, payee?.id ?? null, start, end) : 0;
+      const amount = targetBonusPaise(target, commission);
+      if (amount <= 0) continue;
+      const pct = target.bonusBp > 0 ? ` — ${target.bonusBp / 100}% of ${rupees(commission)} commission` : "";
       out.push(
         ...(await writeEntry(tx, {
           dealer,
@@ -850,9 +928,11 @@ export async function accrueTargetBonuses(tx: DbClient, month: string, start: Da
           entryType: "BONUS",
           accrualKey: `BN:${dealerId}:${payee?.id ?? "main"}:${month}`,
           feePaise: 0,
-          basePaise: target.bonusPaise,
-          amountPaise: target.bonusPaise,
-          note: `${month}: ${n} shops activated — target ${target.minShops} reached`,
+          basePaise: target.bonusBp > 0 ? commission : target.bonusPaise,
+          bonusBp: target.bonusBp,
+          bonusPaise: target.bonusPaise,
+          amountPaise: amount,
+          note: `${month}: ${n} shops activated — target ${target.minShops} reached${pct}`,
           createdAt: new Date(end.getTime() - 1),
           actor,
         })),
@@ -959,6 +1039,8 @@ export interface TeamMemberView {
   bankStatus: DealerSalesperson["bankStatus"];
   bankLast4: string | null;
   activatedShops: number;
+  /** Active agents he recruited who have accepted the agent agreement (promotion needs promotionMinAgents). */
+  readyAgents: number;
   promotedAt: Date | null;
   /** "+91••••••1234" (gap report A9: masked, never left out). */
   mobileMasked: string | null;
@@ -1003,6 +1085,7 @@ export async function teamTree(dealerId: string): Promise<TeamTree> {
     bankStatus: m.bankStatus,
     bankLast4: m.bankAccountLast4,
     activatedShops: counts.get(m.id) ?? 0,
+    readyAgents: members.filter((a) => a.recruitedById === m.id && a.teamRole === "AGENT" && a.status === "ACTIVE" && a.agreementVersion === AGENT_AGREEMENT_VERSION).length,
     promotedAt: m.promotedAt,
     mobileMasked: maskMobile(m.mobileE164),
   });
@@ -1252,6 +1335,47 @@ export async function setMemberPlacement(memberId: string, input: { role: TeamRo
  * with him; his former lead earns developmentBp on that team for
  * developmentMonths (none when he reported to the main dealer).
  */
+export interface PromotionCheck {
+  activatedShops: number;
+  minShops: number;
+  /** Active agents he recruited who have accepted the agent agreement — ready to work. */
+  readyAgents: number;
+  minAgents: number;
+  eligible: boolean;
+}
+
+/**
+ * Whether an agent can be promoted to team lead (owner, 5 Nov 2026): at least
+ * promotionMinShops activated shops of his own, and at least promotionMinAgents
+ * agents he recruited who are active and have accepted the agent agreement.
+ */
+export async function promotionEligibility(client: DbClient, member: Pick<DealerSalesperson, "id">, rule: Pick<TierRule, "promotionMinShops" | "promotionMinAgents">): Promise<PromotionCheck> {
+  const [[{ shops: activatedShops }], [{ agents: readyAgents }]] = await Promise.all([
+    client
+      .select({ shops: sql<number>`count(*)::int` })
+      .from(dealerTierShopPlans)
+      .where(and(eq(dealerTierShopPlans.directMemberId, member.id), ne(dealerTierShopPlans.status, "REVERSED"))),
+    client
+      .select({ agents: sql<number>`count(*)::int` })
+      .from(dealerSalespeople)
+      .where(
+        and(
+          eq(dealerSalespeople.recruitedById, member.id),
+          eq(dealerSalespeople.teamRole, "AGENT"),
+          eq(dealerSalespeople.status, "ACTIVE"),
+          eq(dealerSalespeople.agreementVersion, AGENT_AGREEMENT_VERSION),
+        ),
+      ),
+  ]);
+  return {
+    activatedShops,
+    minShops: rule.promotionMinShops,
+    readyAgents,
+    minAgents: rule.promotionMinAgents,
+    eligible: activatedShops >= rule.promotionMinShops && readyAgents >= rule.promotionMinAgents,
+  };
+}
+
 export async function promoteToTeamLead(memberId: string, input: { reason: string; override?: boolean }, actor: Actor): Promise<{ member: DealerSalesperson; movedAgents: number; developmentId: string | null }> {
   requireAdmin(actor, "promote team members");
   const why = requireReason(input.reason);
@@ -1263,12 +1387,12 @@ export async function promoteToTeamLead(memberId: string, input: { reason: strin
     if (!dealer || dealer.commissionModel !== "TIERED") throw conflict("Promotion is part of the TIERED model: move the dealer to TIERED first.");
     if (before.teamRole !== "AGENT") throw conflict("Only an agent can be promoted to team lead.");
     if (before.status !== "ACTIVE") throw conflict("Only an active agent can be promoted.");
-    const [{ n }] = await tx
-      .select({ n: sql<number>`count(*)::int` })
-      .from(dealerTierShopPlans)
-      .where(and(eq(dealerTierShopPlans.directMemberId, memberId), ne(dealerTierShopPlans.status, "REVERSED")));
-    if (n < rule.promotionMinShops && !input.override) {
-      throw conflict(`Not eligible yet: ${n} of ${rule.promotionMinShops} activated shops. An admin can promote anyway with an override and a reason.`, { reason: "NOT_ELIGIBLE", activatedShops: n });
+    const check = await promotionEligibility(tx, before, rule);
+    if (!check.eligible && !input.override) {
+      throw conflict(
+        `Not eligible yet: ${check.activatedShops} of ${check.minShops} activated shops, ${check.readyAgents} of ${check.minAgents} ready agents. An admin can promote anyway with an override and a reason.`,
+        { reason: "NOT_ELIGIBLE", activatedShops: check.activatedShops, readyAgents: check.readyAgents },
+      );
     }
     const formerLeadId = before.parentId;
     const now = new Date();
@@ -1327,9 +1451,10 @@ export async function promoteToTeamLead(memberId: string, input: { reason: strin
           depth: 2,
           parentId: null,
           promoted: true,
-          activatedShops: n,
-          eligible: n >= rule.promotionMinShops,
-          override: Boolean(input.override) && n < rule.promotionMinShops,
+          activatedShops: check.activatedShops,
+          readyAgents: check.readyAgents,
+          eligible: check.eligible,
+          override: Boolean(input.override) && !check.eligible,
           movedAgents: [...moving],
           development: developmentId ? { id: developmentId, beneficiaryMemberId: formerLeadId, bp: rule.developmentBp, months: rule.developmentMonths } : null,
           reason: why,

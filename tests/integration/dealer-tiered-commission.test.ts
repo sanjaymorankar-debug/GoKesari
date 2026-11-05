@@ -24,9 +24,11 @@ import {
   dealerTeamDevelopments,
   dealerTierShopPlans,
   dealers,
+  notifications,
   orders,
   sellerVerifications,
   shopAttributions,
+  shopPayments,
   shops,
   type DealerSalesperson,
 } from "@/server/db/schema";
@@ -483,17 +485,146 @@ describe("the owner's structure (5 Nov 2026): 20% / 4% / 2%, all earned at regis
 });
 
 describe("renewal commission", () => {
-  it("10% of a paid renewal (before GST) to the direct earner while the shop is active; off → nothing", async () => {
+  it("10% of a paid renewal (before GST) to the direct earner, 1% to the main dealer while the shop is active; off → nothing", async () => {
     const dealer = await newDealer();
     const a = await member(dealer.id, "Agent", "AGENT");
     const shop = await signedShop(dealer.id, a.id, 99_900);
     await recordPayment({ shopId: shop.id, paymentType: "RENEWAL", amountPaise: 117_882, method: "ONLINE", transactionId: `rn_${shop.id.slice(0, 8)}` }, admin);
-    const [renewal] = byType(await ledger(shop.id), "RENEWAL");
-    expect(renewal).toMatchObject({ amountPaise: 9_990, payeeMemberId: a.id, milestone: "RENEWAL", feePaise: 99_900 });
+    const renewals = byType(await ledger(shop.id), "RENEWAL");
+    expect(renewals.map((r) => [r.payeeMemberId, r.amountPaise]).sort()).toEqual([[a.id, 9_990], [null, 999]].sort());
+    expect(renewals.find((r) => r.payeeMemberId === a.id)).toMatchObject({ milestone: "RENEWAL", feePaise: 99_900 });
 
     await tiered({ renewalEnabled: false });
     await recordPayment({ shopId: shop.id, paymentType: "RENEWAL", amountPaise: 117_882, method: "ONLINE", transactionId: `rn2_${shop.id.slice(0, 8)}` }, admin);
-    expect(byType(await ledger(shop.id), "RENEWAL")).toHaveLength(1);
+    expect(byType(await ledger(shop.id), "RENEWAL")).toHaveLength(2);
+  });
+
+  it("owner, 5 Nov 2026: 10% / 2% / 1% to agent, team lead and main dealer — only within 3 years of activation", async () => {
+    await ownerStructure();
+    const dealer = await newDealer();
+    const lead = await member(dealer.id, "Lead", "TEAM_LEAD");
+    const a = await member(dealer.id, "Agent", "AGENT", lead.id);
+    const shop = await signedShop(dealer.id, a.id, 499_900);
+    await recordPayment({ shopId: shop.id, paymentType: "RENEWAL", amountPaise: 589_882, method: "ONLINE", transactionId: `rn_${shop.id.slice(0, 8)}` }, admin);
+    const renewals = byType(await ledger(shop.id), "RENEWAL");
+    expect(renewals.map((r) => [r.payeeMemberId, r.amountPaise]).sort()).toEqual([[a.id, 49_990], [lead.id, 9_998], [null, 4_999]].sort());
+
+    // The same renewal again (a webhook re-run) earns nothing more.
+    const [payment] = await db.select({ id: shopPayments.id }).from(shopPayments).where(and(eq(shopPayments.shopId, shop.id), eq(shopPayments.paymentType, "RENEWAL")));
+    const { accrueRenewalCommission } = await import("@/server/dealers/tiered");
+    expect(await accrueRenewalCommission(payment.id, admin)).toEqual([]);
+
+    // Activated more than 3 years ago → the window has closed.
+    await db.update(dealerTierShopPlans).set({ activatedAt: new Date(Date.now() - (3 * 365 + 2) * 86_400_000) }).where(eq(dealerTierShopPlans.shopId, shop.id));
+    await recordPayment({ shopId: shop.id, paymentType: "RENEWAL", amountPaise: 589_882, method: "ONLINE", transactionId: `rn3_${shop.id.slice(0, 8)}` }, admin);
+    expect(byType(await ledger(shop.id), "RENEWAL")).toHaveLength(3);
+
+    // The window is configurable: 5 years → paid again.
+    await ownerStructure({ renewalYears: 5 });
+    await recordPayment({ shopId: shop.id, paymentType: "RENEWAL", amountPaise: 589_882, method: "ONLINE", transactionId: `rn4_${shop.id.slice(0, 8)}` }, admin);
+    expect(byType(await ledger(shop.id), "RENEWAL")).toHaveLength(6);
+  });
+});
+
+describe("owner, 5 Nov 2026: monthly target of 50 shops pays 10% of the month's commission", () => {
+  it("agent, team lead (team count) and main dealer (network count) each get 10% of their own direct + override commission", async () => {
+    // The owner's targets with a smaller count, so the test stays quick: 3 shops instead of 50.
+    const targets = (["AGENT", "TEAM_LEAD", "MAIN_DEALER"] as const).map((role) => ({ role, minShops: 3, bonusPaise: 0, bonusBp: 1000 }));
+    await ownerStructure({ targets });
+    const dealer = await newDealer();
+    const lead = await member(dealer.id, "Lead", "TEAM_LEAD");
+    const a = await member(dealer.id, "Agent", "AGENT", lead.id);
+    const slow = await member(dealer.id, "Slow", "AGENT", lead.id);
+    for (let i = 0; i < 3; i++) await signedShop(dealer.id, a.id, 99_900); // agent: 3 → target
+    await signedShop(dealer.id, slow.id, 99_900); // 1 → no target
+
+    // Live figures before the close: the agent's row shows the target reached and the bonus so far.
+    const { reportPeriod, teamReport } = await import("@/server/dealers/team-report");
+    const live = await teamReport(dealer.id, reportPeriod("MONTH"));
+    const row = (id: string | null) => live.rows.find((r) => r.memberId === id)!;
+    expect(row(a.id)).toMatchObject({ registered: 3, commissionPaise: 3 * 19_980, totalShops: 3 });
+    expect(row(a.id).target.reached).toMatchObject({ minShops: 3, bonusSoFarPaise: 5_994 });
+    expect(row(slow.id).target).toMatchObject({ shops: 1, reached: null, next: { minShops: 3, toGo: 2 } });
+    expect(row(lead.id)).toMatchObject({ registered: 0, teamRegistered: 4, commissionPaise: 4 * 3_996 });
+    expect(row(null)).toMatchObject({ teamRegistered: 4, commissionPaise: 4 * 1_998 });
+    expect(live.rows.map((r) => r.name)).toEqual(["Shree Sai Network", "Lead", "Agent", "Slow"]);
+    expect(live.totals).toMatchObject({ registered: 4, started: 4 });
+
+    // A lead sees himself and his agents; an agent only himself.
+    expect((await teamReport(dealer.id, reportPeriod("MONTH"), lead)).rows.map((r) => r.name)).toEqual(["Lead", "Agent", "Slow"]);
+    expect((await teamReport(dealer.id, reportPeriod("MONTH"), slow)).rows.map((r) => r.name)).toEqual(["Slow"]);
+
+    await closeThisMonth();
+    const bonuses = await db.select().from(dealerCommissionLedger).where(eq(dealerCommissionLedger.entryType, "BONUS"));
+    // Agent 10% of 3 × ₹199.80; lead 10% of 4 × ₹39.96 overrides; main dealer 10% of 4 × ₹19.98; Slow nothing.
+    expect(bonuses.map((b) => [b.payeeMemberId, b.amountPaise]).sort()).toEqual([[a.id, 5_994], [lead.id, 1_598], [null, 799]].sort());
+    expect(bonuses.find((b) => b.payeeMemberId === a.id)).toMatchObject({ basePaise: 59_940, bonusBp: 1000 });
+    expect(bonuses.find((b) => b.payeeMemberId === a.id)!.note).toMatch(/3 shops activated — target 3 reached — 10% of ₹599\.40 commission/);
+  });
+
+  it("the defaults are 50 shops and 10% for every role, on", async () => {
+    const d = RULES.dealerTieredCommission.defaults;
+    expect(d.targetBonusesEnabled).toBe(true);
+    expect(d.targets).toEqual([
+      { role: "AGENT", minShops: 50, bonusPaise: 0, bonusBp: 1000 },
+      { role: "TEAM_LEAD", minShops: 50, bonusPaise: 0, bonusBp: 1000 },
+      { role: "MAIN_DEALER", minShops: 50, bonusPaise: 0, bonusBp: 1000 },
+    ]);
+    expect(d).toMatchObject({ renewalBp: 1000, renewalLeadBp: 200, renewalMainBp: 100, renewalYears: 3, promotionMinShops: 50, promotionMinAgents: 3 });
+  });
+
+  it("a target saved before 5 Nov 2026 (fixed ₹, no bonusBp) still reads", async () => {
+    await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, targets: [{ role: "AGENT", minShops: 10, bonusPaise: 100_000 }] } as never, admin);
+    clearRuleCache();
+    const { tierRule } = await import("@/server/dealers/tiered");
+    expect((await tierRule()).targets).toEqual([{ role: "AGENT", minShops: 10, bonusPaise: 100_000, bonusBp: 0 }]);
+  });
+});
+
+describe("owner, 5 Nov 2026: daily and weekly team reports", () => {
+  it("yesterday's report goes to the main dealer, each team lead (his team) and the admins — once", async () => {
+    await ownerStructure();
+    const dealer = await newDealer();
+    const leadUser = await createUser({ role: "DEALER" });
+    const lead = await member(dealer.id, "Lead", "TEAM_LEAD");
+    await db.update(dealerSalespeople).set({ userId: leadUser.id }).where(eq(dealerSalespeople.id, lead.id));
+    const a = await member(dealer.id, "Agent", "AGENT", lead.id);
+    await signedShop(dealer.id, a.id, 99_900);
+    await signedShop(dealer.id, null, 99_900);
+
+    const { sendTeamReports } = await import("@/server/dealers/team-report");
+    const tomorrow = new Date(Date.now() + 86_400_000);
+    const first = await sendTeamReports("DAY", tomorrow);
+    expect(first).toMatchObject({ dealers: 1 });
+    const reports = await db.select().from(notifications).where(and(eq(notifications.type, "dealer.team_report"), eq(notifications.channel, "IN_APP")));
+    const to = (userId: string) => reports.find((n) => n.userId === userId);
+    expect(to(dealer.userId!)?.title).toMatch(/^Daily team report: 2 registered, ₹/);
+    expect(to(leadUser.id)?.title).toMatch(/^Daily team report: 1 registered, ₹/);
+    expect(to(admin.id)?.title).toBe("Daily dealer report: 2 shops registered");
+
+    // Run again (a re-run of the cron): nothing new. A day with nothing happening sends nothing.
+    await sendTeamReports("DAY", tomorrow);
+    expect(await db.select().from(notifications).where(and(eq(notifications.type, "dealer.team_report"), eq(notifications.channel, "IN_APP")))).toHaveLength(reports.length);
+    expect(await sendTeamReports("DAY", new Date(Date.now() + 3 * 86_400_000))).toMatchObject({ dealers: 0, sent: 0 });
+  });
+});
+
+describe("owner, 5 Nov 2026: promotion needs 50 shops and 3 ready agents", () => {
+  it("refuses until he has the shops and 3 active agents of his own who accepted the agreement", async () => {
+    await ownerStructure({ promotionMinShops: 2, promotionMinAgents: 3 });
+    const dealer = await newDealer();
+    const star = await member(dealer.id, "Star", "AGENT");
+    await signedShop(dealer.id, star.id, 99_900);
+    await signedShop(dealer.id, star.id, 99_900);
+    await member(dealer.id, "R1", "AGENT", null, star.id);
+    await member(dealer.id, "R2", "AGENT", null, star.id);
+    await member(dealer.id, "R3", "AGENT", null, star.id, false); // not accepted the agreement → not ready
+    await expect(promoteToTeamLead(star.id, { reason: "good month" }, admin)).rejects.toThrow(/2 of 2 activated shops, 2 of 3 ready agents/);
+    expect((await teamTree(dealer.id)).members.find((m) => m.id === star.id)).toMatchObject({ activatedShops: 2, readyAgents: 2 });
+
+    await member(dealer.id, "R4", "AGENT", null, star.id);
+    const result = await promoteToTeamLead(star.id, { reason: "good month" }, admin);
+    expect(result.movedAgents).toBe(4);
   });
 });
 
@@ -574,7 +705,7 @@ describe("agent agreement, payee checks and TDS", () => {
 
 describe("monthly close per payee, with target bonuses", () => {
   it("drafts one payout per payee and pays the highest target reached", async () => {
-    await tiered({ targetBonusesEnabled: true, targets: [{ role: "AGENT", minShops: 2, bonusPaise: 100_000 }, { role: "MAIN_DEALER", minShops: 3, bonusPaise: 50_000 }] });
+    await tiered({ targetBonusesEnabled: true, targets: [{ role: "AGENT", minShops: 2, bonusPaise: 100_000, bonusBp: 0 }, { role: "MAIN_DEALER", minShops: 3, bonusPaise: 50_000, bonusBp: 0 }] });
     const dealer = await newDealer();
     const a = await member(dealer.id, "Agent", "AGENT");
     await signedShop(dealer.id, a.id, 99_900);
