@@ -7,7 +7,7 @@
  *   saveRule {rule, reason} · disableRule {ruleKey, reason} · settings {patch, reason}
  *   dealerRates {dealerId, commissionPercentBp, ratingStepBp, reason} (null: the default)
  *   saveSlab {minShops, rating, reason} · deleteSlab {minShops, reason}
- *   approve {ids, capOverride?, reason?} · reverse {id, reason} · release {id, reason}
+ *   approve {ids, reason?} · reverse {id, reason} · release {id, reason}
  *   createPayout {dealerId, memberId?, note?} (memberId: a TIERED team member, paid directly; TDS by rule dealerPayoutTds)
  *   payoutPaid {batchId, reference} (PAN and a verified bank account required) · cancelPayout {batchId}
  *   approvePayout {batchId} (another admin than the drafter; sends it when rule dealerAutoPayout is on) · retryPayout {batchId}
@@ -66,7 +66,6 @@ const schema = z.discriminatedUnion("action", [
     action: z.literal("settings"),
     reason,
     patch: z.object({
-      capPaise: z.number().int().optional(),
       fixedBonusBase: z.enum(["FEE", "BASE_AMOUNT"]).optional(),
       catalogueMinProducts: z.number().int().optional(),
       branchEligible: z.boolean().optional(),
@@ -86,7 +85,7 @@ const schema = z.discriminatedUnion("action", [
   }),
   z.object({ action: z.literal("saveSlab"), minShops: z.number().int(), rating: z.number(), reason }),
   z.object({ action: z.literal("deleteSlab"), minShops: z.number().int(), reason }),
-  z.object({ action: z.literal("approve"), ids: z.array(z.string().uuid()).max(500), capOverride: z.boolean().optional(), reason: reason.optional() }),
+  z.object({ action: z.literal("approve"), ids: z.array(z.string().uuid()).max(500), reason: reason.optional() }),
   z.object({ action: z.literal("reverse"), id: z.string().uuid(), reason }),
   z.object({ action: z.literal("release"), id: z.string().uuid(), reason }),
   z.object({ action: z.literal("createPayout"), dealerId: z.string().uuid(), memberId: z.string().uuid().nullish(), note: z.string().max(300).nullish() }),
@@ -145,7 +144,7 @@ export const POST = route(async (request: NextRequest) => {
       await deleteRatingSlab(body.minShops, body.reason, admin);
       return ok({ slabs: await listRatingSlabs() });
     case "approve":
-      return ok({ approved: await approveEntries(body.ids, admin, { capOverride: body.capOverride, reason: body.reason }) });
+      return ok({ approved: await approveEntries(body.ids, admin, { reason: body.reason }) });
     case "reverse":
       await reverseEntry(body.id, body.reason, admin);
       return ok({ done: true });

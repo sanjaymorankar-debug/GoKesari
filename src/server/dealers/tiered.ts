@@ -13,14 +13,20 @@
  *                 model (flag dealer_rating_bonus_enabled) — the direct part only
  *   lead override leadOverrideBp to an agent's team lead
  *   main override mainOverrideBp to the main dealer on every shop a member signed
- *   development   a promoted lead's former lead, developmentBp for developmentMonths
+ *   development   a promoted lead's former lead, developmentBp for developmentMonths,
+ *                 only for a calendar month in which the new team activates at
+ *                 least developmentMinShopsPerMonth shops (owner, 5 Nov 2026) —
+ *                 settled when the month closes (accrueDevelopmentBonuses)
  *
- * A missing level is not paid and nobody earns twice on a shop (20 + 5 + 3 = 28%
- * at most). firstPartBp of the direct part is earned at ACTIVATED (DIRECT_1);
- * the rest (DIRECT_2) and every override at TRADING — tradingOrders delivered
- * orders within tradingDays of activation. Not reached in time: those parts
- * lapse, with a zero ledger entry saying so. Who earns what is frozen in
- * dealer_tier_shop_plans at activation, so a promotion later never changes it.
+ * A missing level is not paid and nobody earns twice on a shop (20 + 4 + 2 = 26%
+ * at most, owner 5 Nov 2026). With tradingOrders 0 (the default since 5 Nov 2026)
+ * everything is earned when the shop pays and is activated: the whole direct part
+ * (DIRECT_1, firstPartBp 100%) and every override, straight after. With a trading
+ * condition, firstPartBp of the direct part is earned at ACTIVATED; the rest
+ * (DIRECT_2) and every override at TRADING — tradingOrders delivered orders within
+ * tradingDays of activation, or those parts lapse with a zero ledger entry saying
+ * so. Who earns what is frozen in dealer_tier_shop_plans at activation, so a
+ * promotion later never changes it.
  *
  * Also: a renewal commission (renewalBp of a paid renewal, before GST) to the
  * direct earner while the shop is active; monthly target bonuses; promotion of
@@ -28,9 +34,8 @@
  * requests an admin approves; the agent agreement every payee accepts before
  * earning (entries wait ON_HOLD until then).
  *
- * The per-shop cap (dealer_commission_settings.cap_paise) covers the shop's
- * registration commission at every level (DIRECT_1, DIRECT_2, both overrides);
- * the part above it waits PENDING for an admin override, as today. Reversals
+ * No per-shop cap (owner, 5 Nov 2026): a fee the shop owner paid earns its full
+ * commission at every level. Reversals
  * (refund, waiver, fraud, duplicate) take back every level for the shop —
  * reverseShopCommission in commission.ts, with negative carry-forward.
  *
@@ -38,7 +43,7 @@
  * in routes); a main dealer may add members to his own network. Everything is
  * audited with the old value, the new value and the reason.
  */
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 
 import { checkAccountNumber, checkIfsc } from "@/lib/bank-accounts";
 import { createHash } from "node:crypto";
@@ -82,7 +87,7 @@ import { registrationFeeGstRateBp } from "@/server/services/registration-fee-cou
 import { grantRole } from "@/server/services/roles";
 import { addMonths } from "@/server/services/shop-membership";
 import { getRule } from "@/server/services/settings";
-import { DOCUMENTS_HOLD_NOTE, feeBasePaise, getCommissionSettings, ratingAdjustmentBp } from "./commission";
+import { DOCUMENTS_HOLD_NOTE, feeBasePaise, ratingAdjustmentBp } from "./commission";
 
 interface Actor {
   id: string;
@@ -97,11 +102,6 @@ export const AGENT_AGREEMENT_SHA256 = createHash("sha256").update(AGENT_AGREEMEN
 
 /** Note on an entry waiting for its payee to accept the agent agreement; acceptance releases it. */
 export const AGREEMENT_HOLD_NOTE = "held: the agent agreement is not accepted yet — released when it is";
-/** The registration-commission entry types the per-shop cap covers. */
-export const CAPPED_TYPES: CommissionEntryType[] = ["DIRECT_1", "DIRECT_2", "OVERRIDE_LEAD", "OVERRIDE_MAIN"];
-/** The cap also counts what the shop earned on the standard model (BASE), so nothing is paid twice. */
-const CAP_COUNTED_TYPES: CommissionEntryType[] = ["BASE", ...CAPPED_TYPES];
-
 /**
  * True when the shop already earned commission on the standard model (a BASE accrual, paid or not).
  * Such a shop stays on the standard model when its dealer moves to TIERED (grandfathered): it never
@@ -336,9 +336,6 @@ interface EntryInput {
   bonusBp?: number;
   bonusPaise?: number;
   amountPaise: number;
-  /** Counted against the per-shop cap. */
-  capped: boolean;
-  capPaise: number;
   holdForDocuments?: boolean;
   note?: string | null;
   createdAt?: Date;
@@ -346,7 +343,7 @@ interface EntryInput {
 }
 
 /**
- * Writes one TIERED accrual (and its above-cap part), once per accrual key.
+ * Writes one TIERED accrual, once per accrual key.
  * Held ON_HOLD while the dealer is not approved, for the shop's documents, or
  * until the payee accepts the agent agreement. Call under the dealer lock.
  */
@@ -356,20 +353,11 @@ async function writeEntry(tx: DbClient, input: EntryInput): Promise<DealerCommis
     .from(dealerCommissionLedger)
     .where(and(eq(dealerCommissionLedger.accrualKey, input.accrualKey), eq(dealerCommissionLedger.kind, "ACCRUAL")));
   if (already) return [];
-  let within = input.amountPaise;
-  if (input.capped && input.shopId) {
-    const [{ net }] = await tx
-      .select({ net: sql<number>`coalesce(sum(${dealerCommissionLedger.amountPaise}) filter (where ${dealerCommissionLedger.status} <> 'REVERSED' and not ${dealerCommissionLedger.aboveCap}), 0)::int` })
-      .from(dealerCommissionLedger)
-      .where(and(eq(dealerCommissionLedger.shopId, input.shopId), inArray(dealerCommissionLedger.entryType, CAP_COUNTED_TYPES)));
-    within = Math.min(input.amountPaise, Math.max(0, input.capPaise - net));
-  }
-  const above = input.amountPaise - within;
   const notes: string[] = [];
   if (input.holdForDocuments) notes.push(DOCUMENTS_HOLD_NOTE);
   if (!agreementAccepted(input.payee, input.dealer)) notes.push(AGREEMENT_HOLD_NOTE);
   const held = input.dealer.status !== "APPROVED" || notes.length > 0;
-  const common = {
+  const row = {
     dealerId: input.dealer.id,
     salespersonId: input.salespersonId,
     shopId: input.shopId,
@@ -386,29 +374,13 @@ async function writeEntry(tx: DbClient, input: EntryInput): Promise<DealerCommis
     bonusPaise: input.bonusPaise ?? 0,
     createdBy: input.actor?.id ?? null,
     ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+    amountPaise: input.amountPaise,
+    aboveCap: false,
+    status: (held ? "ON_HOLD" : "EARNED") as CommissionStatus,
+    heldFromStatus: (held ? "EARNED" : null) as CommissionStatus | null,
+    note: [...notes, input.note].filter(Boolean).join("; ") || null,
   };
-  const rows = [];
-  if (within > 0 || above === 0) {
-    rows.push({
-      ...common,
-      amountPaise: within,
-      aboveCap: false,
-      status: (held ? "ON_HOLD" : "EARNED") as CommissionStatus,
-      heldFromStatus: (held ? "EARNED" : null) as CommissionStatus | null,
-      note: [...notes, input.note].filter(Boolean).join("; ") || null,
-    });
-  }
-  if (above > 0) {
-    rows.push({
-      ...common,
-      amountPaise: above,
-      aboveCap: true,
-      status: (held ? "ON_HOLD" : "PENDING") as CommissionStatus,
-      heldFromStatus: (held ? "PENDING" : null) as CommissionStatus | null,
-      note: [...notes, input.note, `above the per-shop cap of ${rupees(input.capPaise)} — needs an admin override`].filter(Boolean).join("; "),
-    });
-  }
-  return tx.insert(dealerCommissionLedger).values(rows).returning();
+  return tx.insert(dealerCommissionLedger).values(row).returning();
 }
 
 /** Tells each payee what they earned, after the commit (push too). */
@@ -468,7 +440,7 @@ export async function accrueTieredActivation(
   const rule = await tierRule();
   const bonusOn = flagCoversDistrict(await getFeatureFlag("dealer_rating_bonus_enabled"), district);
   const result = await db.transaction(async (tx) => {
-    // The dealer row is the gate (the cap sums this shop's other entries).
+    // The dealer row is the gate: one plan and one accrual per shop.
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
     if (!dealer || dealer.isInternal) return null;
     const [attribution] = await tx.select().from(shopAttributions).where(eq(shopAttributions.shopId, shop.id));
@@ -510,7 +482,8 @@ export async function accrueTieredActivation(
           developmentBp: place.development?.bp ?? 0,
           tradingOrders: rule.tradingOrders,
           activatedAt: now,
-          tradingDeadline: new Date(now.getTime() + rule.tradingDays * DAY),
+          // No trading condition: due at once (and the daily job settles one this run missed).
+          tradingDeadline: rule.tradingOrders === 0 ? now : new Date(now.getTime() + rule.tradingDays * DAY),
         })
         .returning();
       await recordAudit(
@@ -541,8 +514,6 @@ export async function accrueTieredActivation(
       bonusBp: plan.ratingAdjustmentBp,
       bonusPaise: amounts.direct1Paise - Math.round((plan.feePaise * plan.directBp * plan.firstPartBp) / 100_000_000),
       amountPaise: amounts.direct1Paise,
-      capped: true,
-      capPaise: settings.capPaise,
       holdForDocuments: options.holdForDocuments,
       actor,
     });
@@ -559,10 +530,12 @@ export async function accrueTieredActivation(
         tx,
       );
     }
-    return { dealer, rows };
+    return { dealer, rows, plan };
   });
   if (!result) return [];
   await tellPayees(result.dealer, result.rows, shop.name);
+  // No trading condition (owner, 5 Nov 2026): the overrides are earned now too, with the direct part.
+  if (result.plan.tradingOrders === 0 && result.plan.status === "PENDING") await checkTradingMilestone(shop.id, new Date(), actor);
   return result.rows;
 }
 
@@ -650,7 +623,6 @@ export async function checkTradingOnDelivery(orderId: string, tx: DbClient): Pro
 }
 
 async function settleTrading(plan: DealerTierShopPlan, outcome: "TRADING" | "LAPSED", delivered: number, actor: Actor | null, client: DbClient = db): Promise<void> {
-  const settings = await getCommissionSettings(client);
   const amounts = planAmounts(plan);
   const days = Math.round((plan.tradingDeadline.getTime() - plan.activatedAt.getTime()) / DAY);
   const result = await client.transaction(async (tx) => {
@@ -667,14 +639,12 @@ async function settleTrading(plan: DealerTierShopPlan, outcome: "TRADING" | "LAP
     );
     const member = (id: string | null) => (id ? (members.get(id) ?? null) : null);
     const [attribution] = await tx.select({ salespersonId: shopAttributions.salespersonId }).from(shopAttributions).where(eq(shopAttributions.shopId, plan.shopId));
-    const parts: { entryType: CommissionEntryType; payee: DealerSalesperson | null; amount: number; key: string; capped: boolean }[] = [
-      { entryType: "DIRECT_2", payee: member(plan.directMemberId), amount: amounts.direct2Paise, key: `D2:${plan.shopId}`, capped: true },
-    ];
-    if (plan.leadMemberId) parts.push({ entryType: "OVERRIDE_LEAD", payee: member(plan.leadMemberId), amount: amounts.leadPaise, key: `OL:${plan.shopId}`, capped: true });
-    if (plan.mainOverride) parts.push({ entryType: "OVERRIDE_MAIN", payee: null, amount: amounts.mainPaise, key: `OM:${plan.shopId}`, capped: true });
-    if (plan.developmentMemberId && amounts.developmentPaise > 0) {
-      parts.push({ entryType: "DEVELOPMENT", payee: member(plan.developmentMemberId), amount: amounts.developmentPaise, key: `DV:${plan.shopId}`, capped: false });
-    }
+    // The development bonus is settled per month, when the month closes (accrueDevelopmentBonuses).
+    const parts: { entryType: CommissionEntryType; payee: DealerSalesperson | null; amount: number; key: string }[] = [];
+    // With no trading condition the whole direct part was DIRECT_1, so there is no part 2 (and nothing to lapse).
+    if (amounts.direct2Paise > 0) parts.push({ entryType: "DIRECT_2", payee: member(plan.directMemberId), amount: amounts.direct2Paise, key: `D2:${plan.shopId}` });
+    if (plan.leadMemberId) parts.push({ entryType: "OVERRIDE_LEAD", payee: member(plan.leadMemberId), amount: amounts.leadPaise, key: `OL:${plan.shopId}` });
+    if (plan.mainOverride) parts.push({ entryType: "OVERRIDE_MAIN", payee: null, amount: amounts.mainPaise, key: `OM:${plan.shopId}` });
     const written: DealerCommissionEntry[] = [];
     for (const part of parts) {
       if (outcome === "TRADING") {
@@ -691,8 +661,6 @@ async function settleTrading(plan: DealerTierShopPlan, outcome: "TRADING" | "LAP
             feePaise: plan.feePaise,
             basePaise: part.amount,
             amountPaise: part.amount,
-            capped: part.capped,
-            capPaise: settings.capPaise,
             actor,
           })),
         );
@@ -791,7 +759,6 @@ export async function accrueRenewalCommission(paymentId: string, actor: Actor | 
   const base = renewalBasePaise(Number(payment.amountPaise), await registrationFeeGstRateBp(payment.paidAt));
   const amount = Math.round((base * rule.renewalBp) / 10_000);
   if (amount <= 0) return [];
-  const settings = await getCommissionSettings();
   const result = await db.transaction(async (tx) => {
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, plan.dealerId)).for("update");
     if (!dealer || dealer.isInternal || dealer.commissionModel !== "TIERED") return null;
@@ -807,8 +774,6 @@ export async function accrueRenewalCommission(paymentId: string, actor: Actor | 
       feePaise: base,
       basePaise: amount,
       amountPaise: amount,
-      capped: false,
-      capPaise: settings.capPaise,
       note: `renewal ${payment.reference}`,
       actor,
     });
@@ -857,7 +822,6 @@ export async function accrueTargetBonuses(tx: DbClient, month: string, start: Da
     .from(dealerTierShopPlans)
     .where(and(gte(dealerTierShopPlans.activatedAt, start), lt(dealerTierShopPlans.activatedAt, end), ne(dealerTierShopPlans.status, "REVERSED")));
   if (plans.length === 0) return [];
-  const settings = await getCommissionSettings(tx);
   const bestTarget = (role: NetworkRole, n: number) =>
     rule.targets
       .filter((t) => t.role === role && n >= t.minShops)
@@ -888,13 +852,91 @@ export async function accrueTargetBonuses(tx: DbClient, month: string, start: Da
           feePaise: 0,
           basePaise: target.bonusPaise,
           amountPaise: target.bonusPaise,
-          capped: false,
-          capPaise: settings.capPaise,
           note: `${month}: ${n} shops activated — target ${target.minShops} reached`,
           createdAt: new Date(end.getTime() - 1),
           actor,
         })),
       );
+    }
+  }
+  return out;
+}
+
+/**
+ * The development bonus for `month`, when the month closes (owner, 5 Nov 2026).
+ * Per promoted lead's development window: the shops his team (he and his agents)
+ * activated in the month. At least developmentMinShopsPerMonth of them → the
+ * former lead earns the plan's developmentBp on each; fewer → nothing for that
+ * month, with a zero entry per shop saying so. A refunded shop neither counts
+ * nor pays. Dated inside the month, before anything is approved; once per shop.
+ */
+export async function accrueDevelopmentBonuses(tx: DbClient, month: string, start: Date, end: Date, actor: Actor | null): Promise<DealerCommissionEntry[]> {
+  const rule = await tierRule();
+  if (!rule.enabled) return [];
+  const plans = await tx
+    .select()
+    .from(dealerTierShopPlans)
+    .where(and(isNotNull(dealerTierShopPlans.developmentId), gte(dealerTierShopPlans.activatedAt, start), lt(dealerTierShopPlans.activatedAt, end)));
+  const out: DealerCommissionEntry[] = [];
+  for (const developmentId of [...new Set(plans.map((p) => p.developmentId!))].sort()) {
+    const [dev] = await tx.select().from(dealerTeamDevelopments).where(eq(dealerTeamDevelopments.id, developmentId));
+    if (!dev) continue;
+    const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dev.dealerId)).for("update");
+    if (!dealer || dealer.isInternal || dealer.commissionModel !== "TIERED") continue;
+    const [payee] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, dev.beneficiaryMemberId));
+    const counted = plans.filter((p) => p.developmentId === developmentId && p.status !== "REVERSED");
+    const reached = counted.length >= rule.developmentMinShopsPerMonth;
+    const why = `${month}: the team activated ${counted.length} shop${counted.length === 1 ? "" : "s"} — monthly minimum ${rule.developmentMinShopsPerMonth}`;
+    for (const plan of counted) {
+      if (plan.status === "LAPSED" || plan.developmentMemberId !== dev.beneficiaryMemberId) continue;
+      const amount = planAmounts(plan).developmentPaise;
+      if (amount <= 0) continue;
+      const accrualKey = `DV:${plan.shopId}`;
+      if (reached) {
+        out.push(
+          ...(await writeEntry(tx, {
+            dealer,
+            payee: payee ?? null,
+            shopId: plan.shopId,
+            salespersonId: plan.directMemberId,
+            milestone: "MONTHLY",
+            entryType: "DEVELOPMENT",
+            accrualKey,
+            feePaise: plan.feePaise,
+            basePaise: amount,
+            amountPaise: amount,
+            note: `${why} reached`,
+            createdAt: new Date(end.getTime() - 1),
+            actor,
+          })),
+        );
+        continue;
+      }
+      // Below the minimum: a zero entry that says so (and stops any later accrual for this shop).
+      const [already] = await tx.select({ id: dealerCommissionLedger.id }).from(dealerCommissionLedger).where(and(eq(dealerCommissionLedger.accrualKey, accrualKey), eq(dealerCommissionLedger.kind, "ACCRUAL")));
+      if (already) continue;
+      const [row] = await tx
+        .insert(dealerCommissionLedger)
+        .values({
+          dealerId: dealer.id,
+          salespersonId: plan.directMemberId,
+          shopId: plan.shopId,
+          milestone: "MONTHLY",
+          kind: "ACCRUAL",
+          entryType: "DEVELOPMENT",
+          payeeMemberId: dev.beneficiaryMemberId,
+          level: levelOf(payee ?? null),
+          accrualKey,
+          feePaise: plan.feePaise,
+          basePaise: 0,
+          amountPaise: 0,
+          status: "REVERSED",
+          note: `${why} not reached — ${rupees(amount)} not earned`,
+          createdBy: actor?.id ?? null,
+          createdAt: new Date(end.getTime() - 1),
+        })
+        .returning();
+      out.push(row);
     }
   }
   return out;

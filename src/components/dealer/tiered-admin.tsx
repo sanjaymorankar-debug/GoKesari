@@ -21,6 +21,7 @@ interface Rule {
   promotionMinShops: number;
   developmentBp: number;
   developmentMonths: number;
+  developmentMinShopsPerMonth: number;
   targetBonusesEnabled: boolean;
   targets: { role: "MAIN_DEALER" | "TEAM_LEAD" | "AGENT"; minShops: number; bonusPaise: number }[];
 }
@@ -166,15 +167,19 @@ export function TieredAdmin({
         </div>
         <ul className="list-disc space-y-1 pl-5 text-sm text-ink-700">
           <li>
-            Direct {formatBp(rule.directBp)} ({formatBp(rule.firstPartBp)} of it at activation, the rest at TRADING) · team-lead override {formatBp(rule.leadOverrideBp)} · main-dealer override{" "}
+            Direct {formatBp(rule.directBp)}
+            {rule.tradingOrders === 0 ? " (all of it when the shop pays and is approved)" : ` (${formatBp(rule.firstPartBp)} of it at activation, the rest at TRADING)`} · team-lead override {formatBp(rule.leadOverrideBp)} · main-dealer override{" "}
             {formatBp(rule.mainOverrideBp)} — at most {formatBp(rule.directBp + rule.leadOverrideBp + rule.mainOverrideBp)} of the fee per shop.
           </li>
           <li>
-            TRADING: {rule.tradingOrders} delivered orders within {rule.tradingDays} days of activation, otherwise part 2 and the overrides lapse.
+            {rule.tradingOrders === 0
+              ? "No trading condition: everything is earned at activation and paid on the payout day of the next month. No per-shop cap."
+              : `TRADING: ${rule.tradingOrders} delivered orders within ${rule.tradingDays} days of activation, otherwise part 2 and the overrides lapse.`}
           </li>
           <li>Renewal commission: {rule.renewalEnabled ? formatBp(rule.renewalBp) : "off"}.</li>
           <li>
-            Promotion at {rule.promotionMinShops} activated shops; the former lead earns {formatBp(rule.developmentBp)} on the new team for {rule.developmentMonths} months.
+            Promotion at {rule.promotionMinShops} activated shops; the former lead earns {formatBp(rule.developmentBp)} on the new team for {rule.developmentMonths} months
+            {rule.developmentMinShopsPerMonth > 0 ? `, for each month the new team registers at least ${rule.developmentMinShopsPerMonth} shops` : ""}.
           </li>
           <li data-testid="target-bonuses">
             Monthly target bonuses: {rule.targetBonusesEnabled ? "on" : "off"} —{" "}

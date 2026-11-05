@@ -1009,6 +1009,13 @@
       "when": 1793176160000,
       "tag": "0143_counter_bill_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1793176170000,
+      "tag": "0144_dealer_commission_no_cap",
+      "breakpoints": true
     }
   ]
 }

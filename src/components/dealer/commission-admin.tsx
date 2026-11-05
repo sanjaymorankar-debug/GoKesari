@@ -122,7 +122,6 @@ export function CommissionAdmin({
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState({ ruleKey: "", shopScope: "STANDARD", districtCode: "", milestone: "REGISTERED", fixed: "", percent: "", from: new Date().toISOString().slice(0, 10), to: "" });
   const [s, setS] = useState({
-    cap: String(settings.capPaise / 100),
     base: settings.fixedBonusBase,
     catalogue: String(settings.catalogueMinProducts),
     branch: settings.branchEligible,
@@ -343,14 +342,12 @@ export function CommissionAdmin({
               <p>Rating 5.0: {pct(example.percentModel.base.bp)} = {rs(example.percentModel.base.paise)}</p>
               <p>Rating 6.0: {pct(example.percentModel.up.bp)} = {rs(example.percentModel.up.paise)}</p>
               <p>Rating 4.0: {pct(example.percentModel.down.bp)} = {rs(example.percentModel.down.paise)}</p>
-              <p>The rating adjustment applies where the flag dealer_rating_bonus_enabled is on. The cap per shop still applies.</p>
+              <p>The rating adjustment applies where the flag dealer_rating_bonus_enabled is on.</p>
             </div>
           ) : null}
-          <h2 className="pt-2 text-base font-bold">Cap, bonus and catalogue</h2>
+          <h2 className="pt-2 text-base font-bold">Bonus and catalogue</h2>
+          <p className="text-sm text-ink-700">There is no per-shop cap: a registration fee the shop owner paid earns its full commission.</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Most commission per shop, bonus included (₹)" hint="Above it needs an admin override. Keep it below the registration fee.">
-              <input className={inputClass} inputMode="decimal" value={s.cap} onChange={(e) => setS((v) => ({ ...v, cap: e.target.value }))} disabled={!isAdmin} />
-            </Field>
             <Field label="Products needed for 'verified + catalogue'">
               <input className={inputClass} inputMode="numeric" value={s.catalogue} onChange={(e) => setS((v) => ({ ...v, catalogue: e.target.value }))} disabled={!isAdmin} />
             </Field>
@@ -377,7 +374,7 @@ export function CommissionAdmin({
             <p>
               Fixed rule ₹150: ₹150 + {rs(example.fixedBonus)} bonus ({s.base === "FEE" ? "1% of the ₹1,000 fee" : "1% of ₹150"}) = {rs(15_000 + example.fixedBonus)}.
             </p>
-            <p>Every 0.5 of rating above 5.0 adds 0.5%. It applies to commission earned after the change, and the cap still applies.</p>
+            <p>Every 0.5 of rating above 5.0 adds 0.5%. It applies to commission earned after the change.</p>
           </div>
           {isAdmin ? (
             <Button
@@ -387,7 +384,6 @@ export function CommissionAdmin({
                   {
                     action: "settings",
                     patch: {
-                      capPaise: Math.round(Number(s.cap) * 100),
                       fixedBonusBase: s.base,
                       catalogueMinProducts: Number(s.catalogue),
                       branchEligible: s.branch,
@@ -459,9 +455,6 @@ export function CommissionAdmin({
             <div className="flex flex-wrap gap-2">
               <Button disabled={busy} onClick={() => post({ action: "approve", ids: selected }, `${selected.length} approved.`, false)}>
                 Approve selected
-              </Button>
-              <Button variant="secondary" disabled={busy} onClick={() => post({ action: "approve", ids: selected, capOverride: true }, "Approved above the cap (override logged).")}>
-                Approve above cap (override)
               </Button>
             </div>
           ) : null}

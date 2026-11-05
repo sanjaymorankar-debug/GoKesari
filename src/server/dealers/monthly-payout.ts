@@ -5,14 +5,15 @@
  * 5th, in the app's time zone) the previous calendar month is closed — once:
  *
  *   1. with auto_approve_at_month_end on (the default, owner 29 Oct 2026), the
- *      month's EARNED accruals (not above the cap, not held) are approved first;
+ *      month's EARNED accruals (not held) are approved first — after the month's
+ *      TIERED target and development bonuses are settled;
  *      switched off, only what an admin approved goes in;
  *   2. per dealer, a DRAFT payout of every APPROVED entry up to the month's end
  *      (earlier months' leftovers included), netted with reversals not yet
  *      settled — as createPayoutBatch() does by hand. A net of zero or less is
  *      carried to the next month;
  *   3. each dealer with anything that month is sent their statement: the shops
- *      they registered, the milestones earned, held / above-cap / reversed
+ *      they registered, the milestones earned, held / reversed
  *      entries, the payout and what is carried forward (in the app and by email,
  *      after the commit).
  *
@@ -51,7 +52,7 @@ import { getRule } from "@/server/services/settings";
 import { COMMISSION_ENTRY_TYPE_LABELS, STATEMENT_LINES, type CommissionEntryType } from "@/lib/dealer-tiers";
 import { getCommissionSettings, payeeStatus, payoutTds, tdsColumns } from "./commission";
 import { financialYear } from "@/server/tax/commission-tds";
-import { accrueTargetBonuses } from "./tiered";
+import { accrueDevelopmentBonuses, accrueTargetBonuses } from "./tiered";
 
 interface Actor {
   id: string;
@@ -121,6 +122,8 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
 
     // 0. TIERED (0136): the month's target bonuses, dated inside the month, before anything is approved.
     const bonuses = await accrueTargetBonuses(tx, month, start, end, actor);
+    // ...and the former leads' development bonus, for the teams that reached the monthly minimum (owner, 5 Nov 2026).
+    const development = await accrueDevelopmentBonuses(tx, month, start, end, actor);
 
     // 1. The month's earned accruals, approved first when the setting says so.
     let autoApproved: string[] = [];
@@ -132,7 +135,6 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
           and(
             eq(dealerCommissionLedger.status, "EARNED"),
             eq(dealerCommissionLedger.kind, "ACCRUAL"),
-            eq(dealerCommissionLedger.aboveCap, false),
             isNull(dealerCommissionLedger.payoutBatchId),
             lt(dealerCommissionLedger.createdAt, end),
           ),
@@ -227,7 +229,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
     const totalPaise = payouts.reduce((s, p) => s + p.totalPaise, 0);
     await tx
       .update(dealerCommissionMonths)
-      .set({ autoApproved: autoApproved.length, payouts: payouts.length, totalPaise, summary: { payouts, carried, autoApproved, bonuses: bonuses.map((b) => b.id) } })
+      .set({ autoApproved: autoApproved.length, payouts: payouts.length, totalPaise, summary: { payouts, carried, autoApproved, bonuses: bonuses.map((b) => b.id), development: development.map((d) => d.id) } })
       .where(eq(dealerCommissionMonths.periodMonth, month));
     await recordAudit(
       {
@@ -236,7 +238,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
         action: AUDIT_ACTIONS.DEALER_COMMISSION_MONTH_CLOSED,
         entityType: "dealer_commission_month",
         entityId: month,
-        newValue: { month, payouts: payouts.length, totalPaise, carried, autoApproved: autoApproved.length, targetBonuses: bonuses.length },
+        newValue: { month, payouts: payouts.length, totalPaise, carried, autoApproved: autoApproved.length, targetBonuses: bonuses.length, developmentBonuses: development.filter((d) => d.amountPaise > 0).length },
       },
       tx,
     );
@@ -512,7 +514,8 @@ export async function dealerMonthStatement(dealerId: string, month: string, memb
     amountPaise: e.amountPaise,
     note: e.note,
   });
-  const earning = (e: StatementEntry & { aboveCap: boolean }) => e.kind === "ACCRUAL" && !e.aboveCap && e.status !== "REVERSED";
+  // No per-shop cap since 5 Nov 2026: an old above-cap part counts once it is released (no longer PENDING).
+  const earning = (e: StatementEntry & { aboveCap: boolean }) => e.kind === "ACCRUAL" && !(e.aboveCap && e.status === "PENDING") && e.status !== "REVERSED";
   const lines = STATEMENT_LINES.map((l) => ({ key: l.key, label: l.label, amountPaise: sum((e) => earning(e) && l.types.includes(e.entryType)) })).filter(
     (l) => l.amountPaise !== 0 || l.key !== "standard" || entries.length === 0,
   );
@@ -544,7 +547,7 @@ export async function dealerMonthStatement(dealerId: string, month: string, memb
       heldPaise: sum((e) => e.status === "ON_HOLD"),
       aboveCapPaise: sum((e) => e.aboveCap && e.status === "PENDING"),
       reversedPaise: -sum((e) => e.kind === "REVERSAL") + sum((e) => e.kind === "ACCRUAL" && e.status === "REVERSED"),
-      awaitingApprovalPaise: sum((e) => e.kind === "ACCRUAL" && e.status === "EARNED" && !e.aboveCap),
+      awaitingApprovalPaise: sum((e) => e.kind === "ACCRUAL" && e.status === "EARNED"),
       carriedForwardPaise: carried ? -carried.netPaise : 0,
     },
   };

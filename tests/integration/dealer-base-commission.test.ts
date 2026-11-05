@@ -64,7 +64,7 @@ beforeEach(async () => {
   admin = { id: a.id, email: a.email, name: a.name, role: "ADMIN" };
   // The migration's defaults: base 40%, 1 percentage point per rating point.
   await setCommissionSettings(
-    { capPaise: 99_900, catalogueMinProducts: 1, branchEligible: false, commissionModel: "BASE_PERCENT", basePercentBp: 4000, ratingStepBp: 100 },
+    { catalogueMinProducts: 1, branchEligible: false, commissionModel: "BASE_PERCENT", basePercentBp: 4000, ratingStepBp: 100 },
     "test defaults",
     admin,
   );
@@ -157,13 +157,13 @@ describe("base % of the fee, earned when the shop is approved", () => {
     expect((await bringLive(shop.id)).after).toHaveLength(0);
   });
 
-  it("the per-shop cap still applies: above it waits for an admin override", async () => {
+  it("no per-shop cap (owner, 5 Nov 2026): the whole commission is earned, nothing waits for an override", async () => {
     await setCommissionSettings({ basePercentBp: 10_000 }, "100% for the test", admin);
     const dealer = await newDealer();
     const shop = await attributedShop(dealer.id);
     const rows = (await bringLive(shop.id)).after;
-    expect(rows.find((e) => !e.aboveCap)).toMatchObject({ amountPaise: 99_900, status: "EARNED" });
-    expect(rows.find((e) => e.aboveCap)).toMatchObject({ amountPaise: 100, status: "PENDING" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ amountPaise: 100_000, aboveCap: false, status: "EARNED" });
   });
 });
 

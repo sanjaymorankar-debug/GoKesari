@@ -38,35 +38,44 @@ after any coupon):
 
 | Who | Default | When |
 |---|---|---|
-| Whoever signed the shop (agent, lead or main dealer) — "direct" | 20% | 60% of it when the shop is approved (ACTIVATED); 40% when the shop is TRADING |
-| The agent's team lead — "lead override" | 5% | at TRADING |
-| The main dealer, on every shop his team signs — "main override" | 3% | at TRADING |
+| Whoever signed the shop (agent, lead or main dealer) — "direct" | 20% | when the shop pays its fee and is approved |
+| The agent's team lead — "lead override" | 4% | at the same time |
+| The main dealer, on every shop his team signs (leads' and agents') — "main override" | 2% | at the same time |
 
-* **TRADING** = the shop delivers 10 orders within 90 days of approval. If it does not, the
-  TRADING part **lapses** (the ledger shows a note "lapsed: 4 of 10 orders delivered within 90 days —
-  ₹… not earned").
+*Owner's structure, 5 Nov 2026 (decisions DT-13 to DT-16).* Everything is earned when the shop pays
+and is registered; there is no wait for orders, and **no per-shop cap** — the fee the shop owner paid
+earns its full commission at every level. All of a month's commission (shops registered up to the
+last day of the month) is paid on the **5th of the next month**.
+
 * A missing level is not paid: an agent who reports straight to the main dealer has no lead
-  override; a shop the main dealer signs himself earns only the direct 20%. Nobody is paid twice
-  on one shop. The most a shop can cost is 28%.
+  override; a shop the main dealer signs himself earns only the direct 20%; a team lead's own shop
+  earns him the direct 20% (not the 4% as well). Nobody is paid twice on one shop. The most a shop
+  can cost is 26% (27% with a development bonus).
 * The dealer's rating still moves the **direct** part only, as today.
-* The existing **per-shop cap** still applies, now to every level together (see DT-03 — the
-  default ₹999 cap is lower than 28% of the ₹4,999 and ₹9,999 slabs; raise it for TIERED dealers).
+* A TRADING condition (part of the direct share and the overrides only after N delivered orders
+  within D days) still exists in the rule (`tradingOrders` above 0) but is **off**: `tradingOrders` 0.
 
-Worked examples (fee before GST, agent under a team lead, every default):
+Worked examples (fee before GST):
 
-| Fee slab | Direct (20%) | at approval | at TRADING | Lead (5%) | Main (3%) | Total (28%) |
-|---|---|---|---|---|---|---|
-| ₹999 | ₹199.80 | ₹119.88 | ₹79.92 | ₹49.95 | ₹29.97 | ₹279.72 |
-| ₹4,999 | ₹999.80 | ₹599.88 | ₹399.92 | ₹249.95 | ₹149.97 | ₹1,399.72 |
-| ₹9,999 | ₹1,999.80 | ₹1,199.88 | ₹799.92 | ₹499.95 | ₹299.97 | ₹2,799.72 |
+| Shop signed by | ₹4,999 shop | ₹9,999 shop |
+|---|---|---|
+| An agent under a team lead | agent ₹999.80 · lead ₹199.96 · main dealer ₹99.98 (26%) | agent ₹1,999.80 · lead ₹399.96 · main dealer ₹199.98 |
+| A team lead himself | lead ₹999.80 · main dealer ₹99.98 (22%) | lead ₹1,999.80 · main dealer ₹199.98 |
+| The main dealer himself | main dealer ₹999.80 (20%) | main dealer ₹1,999.80 |
 
 **Renewals.** When a shop that is still active pays its membership renewal, whoever signed it
 earns 10% of the renewal (before GST). Can be switched off.
 
 **Promotion.** An admin can promote an agent to team lead once he has 10 activated shops (or
 earlier, with an override and a reason). He then reports to the main dealer and takes the agents
-he brought in with him. His former lead earns a **1% development bonus** on that team's shops for
-6 months, then it stops.
+he brought in with him. His former lead earns a **1% development bonus** on that team's shops (the
+new lead's own and his agents') for 6 months — but **only for a calendar month in which the new team
+registers at least 100 shops**. A month below 100 pays no development bonus (the ledger says so:
+"the team activated 80 shops — monthly minimum 100 not reached"); the next month is checked afresh.
+It is settled when the month closes and paid on the 5th with everything else.
+
+Example (₹4,999 shops): month 1 the new team registers 120 shops → the former lead gets 120 × ₹49.99;
+month 2, 80 shops → nothing; month 3, 100 shops → 100 × ₹49.99. After 6 months it stops.
 
 **Sub-agents.** Agents cannot appoint anyone. They ask from their dealer page; an admin approves.
 
@@ -115,12 +124,12 @@ See "Open items for the owner" at the end of this file.
 ### Switching TIERED on (test.gokesari.com first)
 
 1. Admin → Settings → `dealerTieredCommission`: set `enabled` to true; check the values
-   (directBp 2000 = 20%, leadOverrideBp 500, mainOverrideBp 300, firstPartBp 6000 = 60% at
-   activation, tradingOrders 10, tradingDays 90, renewalEnabled / renewalBp 1000, promotionMinShops 10,
-   developmentBp 100 / developmentMonths 6, targetBonusesEnabled + targets). A reason is asked and logged.
-2. Admin → Dealers → Commission → Settings: raise the **per-shop cap** if TIERED dealers sell the
-   ₹4,999 / ₹9,999 slabs (DT-03).
-3. Admin → Dealers → Commission → **TIERED model** (`/admin/dealers/commission/tiered`): choose the
+   (directBp 2000 = 20%, leadOverrideBp 400 = 4%, mainOverrideBp 200 = 2%, firstPartBp 10000 = all at
+   activation, tradingOrders 0 = no trading condition, renewalEnabled / renewalBp 1000,
+   promotionMinShops 10, developmentBp 100 / developmentMonths 6 / developmentMinShopsPerMonth 100,
+   targetBonusesEnabled + targets). A reason is asked and logged. If the rule was saved before
+   5 Nov 2026, the saved values win over the new defaults: set them to these.
+2. Admin → Dealers → Commission → **TIERED model** (`/admin/dealers/commission/tiered`): choose the
    dealer → **Move this dealer to TIERED** (reason). Optionally set the dealer's own %s.
 4. Build the team: **Add a member** (role, and who they report to), or let the main dealer add them
    from his dealer page. For each member: **Link account** (the email of their GoKesari account, so
@@ -181,10 +190,11 @@ payments; export them first).
 | # | Item | Default chosen | Status |
 |---|---|---|---|
 | O-1 | Team members are paid **directly by GoKesari** (own PAN, bank, agreement), not through the main dealer (DT-01) | direct | Needs your confirmation |
-| O-2 | Per-shop cap ₹999 is below 28% of the ₹4,999 / ₹9,999 slabs (DT-03) | cap unchanged, above-cap waits for admin | Needs your number for TIERED |
+| O-2 | Per-shop cap (DT-03) | **removed** (owner, 5 Nov 2026; DT-15) | Done |
 | O-3 | TDS section, rate (2%) and ₹20,000 threshold (DT-09) | off | **Blocked on CA** |
 | O-4 | GST invoices / self-invoicing for commission paid to dealers and members (RCM if unregistered) | not built | **Blocked on CA** |
-| O-5 | If the TIERED rule is switched off, TIERED dealers earn the standard model for new shops (DT-02) | standard | Needs your confirmation |
+| O-5 | If the TIERED rule is switched off, TIERED dealers earn the standard model for new shops (DT-02) | standard | Per-dealer model: assumed confirmed with the 5 Nov structure (DT-13) |
 | O-6 | Development bonus when the promoted agent reported straight to the main dealer: nobody (DT-05) | nobody | Needs your confirmation |
+| O-9 | The 100-shop monthly minimum counts shops the new team **registered (paid and approved) in that calendar month** (DT-16) | registered in the month | Assumed from your message of 5 Nov 2026 |
 | O-7 | Target bonus amounts (examples only) | off | Needs your amounts |
 | O-8 | Agent agreement text (src/lib/dealer-tiers.ts) — legal review | draft | Needs legal review |

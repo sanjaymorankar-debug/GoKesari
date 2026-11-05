@@ -715,7 +715,7 @@ export const RULES = {
   },
   dealerTieredCommission: {
     description:
-      "TIERED dealer commission (docs/dealer-programme/TIERED_COMMISSION.md), for dealers an admin moved to TIERED (Admin → Dealers → Commission). A network has at most 3 levels: main dealer → team lead → agent. On every paid shop registration (% of the fee actually paid, before GST, after coupons): directBp to whoever signed the shop (moved by the dealer's rating, as today), leadOverrideBp to the agent's team lead, mainOverrideBp to the main dealer — a missing level is not paid and nobody earns twice on a shop. firstPartBp of the direct part is earned at ACTIVATED; the rest of it, and the overrides, at TRADING: tradingOrders delivered orders within tradingDays of activation, or it lapses. Renewal: renewalBp of a paid renewal fee (before GST) to the direct earner while the shop is active (renewalEnabled). Promotion: an agent with promotionMinShops activated shops can be made a team lead (an admin may override with a reason); his former lead earns developmentBp on the new team for developmentMonths. Monthly target bonuses (targetBonusesEnabled): targets lists { role, minShops, bonusPaise } — the highest target reached in a month is paid. Everyone accepts the agent agreement before earning; no joining fees and no payment for recruiting. Off: no dealer can be moved to TIERED, and TIERED dealers earn under the standard model. Defaults per dealer can be set on the dealer.",
+      "TIERED dealer commission (docs/dealer-programme/TIERED_COMMISSION.md), for dealers an admin moved to TIERED (Admin → Dealers → Commission). A network has at most 3 levels: main dealer → team lead → agent. On every paid shop registration (% of the fee actually paid, before GST, after coupons): directBp to whoever signed the shop (moved by the dealer's rating, as today), leadOverrideBp to the agent's team lead, mainOverrideBp to the main dealer — a missing level is not paid and nobody earns twice on a shop. With tradingOrders 0 (owner, 5 Nov 2026) everything — the whole direct part and every override — is earned when the shop pays and is activated, and paid with that month's payout. With tradingOrders above 0, firstPartBp of the direct part is earned at ACTIVATED; the rest of it, and the overrides, at TRADING: tradingOrders delivered orders within tradingDays of activation, or it lapses. Renewal: renewalBp of a paid renewal fee (before GST) to the direct earner while the shop is active (renewalEnabled). Promotion: an agent with promotionMinShops activated shops can be made a team lead (an admin may override with a reason); his former lead earns developmentBp on the new team's shops for developmentMonths — for each calendar month in which the new team (the lead and his agents) activates at least developmentMinShopsPerMonth shops (0 = no minimum); a month below it pays no development bonus. Monthly target bonuses (targetBonusesEnabled): targets lists { role, minShops, bonusPaise } — the highest target reached in a month is paid. Everyone accepts the agent agreement before earning; no joining fees and no payment for recruiting. Off: no dealer can be moved to TIERED, and TIERED dealers earn under the standard model. Defaults per dealer can be set on the dealer.",
     schema: z
       .object({
         enabled: z.boolean(),
@@ -723,34 +723,37 @@ export const RULES = {
         leadOverrideBp: int(0, 10_000),
         mainOverrideBp: int(0, 10_000),
         firstPartBp: int(0, 10_000),
-        tradingOrders: int(1, 10_000),
+        tradingOrders: int(0, 10_000),
         tradingDays: int(1, 730),
         renewalEnabled: z.boolean(),
         renewalBp: int(0, 10_000),
         promotionMinShops: int(0, 10_000),
         developmentBp: int(0, 10_000),
         developmentMonths: int(1, 60),
+        developmentMinShopsPerMonth: int(0, 100_000),
         targetBonusesEnabled: z.boolean(),
         targets: z
           .array(z.object({ role: z.enum(["MAIN_DEALER", "TEAM_LEAD", "AGENT"]), minShops: int(1, 100_000), bonusPaise: int(0, 100_000_000) }))
           .max(30),
       })
       .refine((v) => v.directBp + v.leadOverrideBp + v.mainOverrideBp <= 10_000, { message: "Direct and overrides together cannot pass 100% of the fee.", path: ["directBp"] }),
-    // Owner brief, 2 Nov 2026: 20% / 5% / 3% (at most 28% a shop), 60% of the direct part at activation,
-    // TRADING = 10 delivered orders within 90 days, renewal 10%, promotion at 10 shops, 1% for 6 months.
+    // Owner, 5 Nov 2026: 20% / 4% / 2% (at most 26% a shop, 27% with a development bonus), all of it earned
+    // when the shop pays and is activated (no TRADING wait) and paid on the 5th of the next month; the former
+    // lead's 1% for 6 months only in a month the new team activates 100 shops. Renewal 10%, promotion at 10 shops.
     defaults: {
       enabled: false,
       directBp: 2000,
-      leadOverrideBp: 500,
-      mainOverrideBp: 300,
-      firstPartBp: 6000,
-      tradingOrders: 10,
+      leadOverrideBp: 400,
+      mainOverrideBp: 200,
+      firstPartBp: 10_000,
+      tradingOrders: 0,
       tradingDays: 90,
       renewalEnabled: true,
       renewalBp: 1000,
       promotionMinShops: 10,
       developmentBp: 100,
       developmentMonths: 6,
+      developmentMinShopsPerMonth: 100,
       targetBonusesEnabled: false,
       targets: [
         { role: "AGENT", minShops: 10, bonusPaise: 100_000 },
