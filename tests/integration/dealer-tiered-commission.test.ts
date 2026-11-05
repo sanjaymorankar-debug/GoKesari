@@ -59,9 +59,31 @@ import { createOrder, createShop, createUser, resetDatabase } from "../helpers/f
 
 let admin: { id: string; role: "ADMIN" };
 
+/**
+ * Most tests below run the rule with a trading condition (20 / 5 / 3, 60% at activation, the rest at
+ * 2 delivered orders, no monthly minimum for the development bonus), which stays configurable. The
+ * owner's structure of 5 Nov 2026 — the rule's defaults — is tested in its own block (`ownerStructure`).
+ */
 async function tiered(over: Partial<RuleValue<"dealerTieredCommission">> = {}) {
-  await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, tradingOrders: 2, ...over }, admin);
+  await setRule(
+    "dealerTieredCommission",
+    { ...RULES.dealerTieredCommission.defaults, enabled: true, leadOverrideBp: 500, mainOverrideBp: 300, firstPartBp: 6000, tradingOrders: 2, developmentMinShopsPerMonth: 0, ...over },
+    admin,
+  );
   clearRuleCache();
+}
+
+/** The rule's defaults: the owner's structure of 5 Nov 2026. */
+async function ownerStructure(over: Partial<RuleValue<"dealerTieredCommission">> = {}) {
+  await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, ...over }, admin);
+  clearRuleCache();
+}
+
+/** Closes the current month (as on the 2nd of the next one). */
+async function closeThisMonth() {
+  const month = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 7);
+  const after = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 2));
+  return closeCommissionMonth(month, admin, after);
 }
 
 beforeEach(async () => {
@@ -70,9 +92,8 @@ beforeEach(async () => {
   await db.delete(dealerCommissionMonths);
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, role: "ADMIN" };
-  // A cap high enough not to bite (one test sets it low on purpose).
   await setCommissionSettings(
-    { capPaise: 10_000_000, catalogueMinProducts: 1, branchEligible: false, commissionModel: "BASE_PERCENT", basePercentBp: 4000, ratingStepBp: 100, autoApproveAtMonthEnd: true, payoutDayOfMonth: 5 },
+    { catalogueMinProducts: 1, branchEligible: false, commissionModel: "BASE_PERCENT", basePercentBp: 4000, ratingStepBp: 100, autoApproveAtMonthEnd: true, payoutDayOfMonth: 5 },
     "test defaults",
     admin,
   );
@@ -223,18 +244,15 @@ describe("commission per shop on the three fee slabs", () => {
     expect((await ledger(shop.id)).map((r) => r.entryType).sort()).toEqual(["DIRECT_1", "DIRECT_2", "OVERRIDE_MAIN"]);
   });
 
-  it("keeps the per-shop cap across every level: the part above it waits PENDING for an admin", async () => {
-    await setCommissionSettings({ capPaise: 20_000 }, "low cap (test)", admin);
+  it("no per-shop cap (owner, 5 Nov 2026): every level is earned in full, nothing waits for an admin", async () => {
     const dealer = await newDealer();
     const l = await member(dealer.id, "Lead", "TEAM_LEAD");
     const a = await member(dealer.id, "Agent", "AGENT", l.id);
-    const shop = await signedShop(dealer.id, a.id, 99_900);
+    const shop = await signedShop(dealer.id, a.id, 999_900);
     await deliverOrders(shop.id, 2);
     const rows = await ledger(shop.id);
-    const within = rows.filter((r) => !r.aboveCap).reduce((s, r) => s + r.amountPaise, 0);
-    expect(within).toBe(20_000);
-    expect(rows.filter((r) => r.aboveCap).every((r) => r.status === "PENDING")).toBe(true);
-    expect(rows.reduce((s, r) => s + r.amountPaise, 0)).toBe(27_972);
+    expect(rows.every((r) => !r.aboveCap && r.status === "EARNED")).toBe(true);
+    expect(rows.reduce((s, r) => s + r.amountPaise, 0)).toBe(279_972);
   });
 });
 
@@ -380,12 +398,13 @@ describe("promotion and the development bonus", () => {
     expect(dev).toMatchObject({ beneficiaryMemberId: oldLead.id, bp: 100 });
     expect(Math.round((dev.endsAt.getTime() - dev.startsAt.getTime()) / 86_400_000)).toBeGreaterThanOrEqual(181);
 
-    // The recruit signs a ₹9,999 shop: lead override to the new lead, 1% development to the old one.
+    // The recruit signs a ₹9,999 shop: lead override to the new lead; 1% development to the old one when the month closes.
     const shop = await signedShop(dealer.id, recruit.id, 999_900);
     await deliverOrders(shop.id, 2);
-    const rows = await ledger(shop.id);
-    expect(byType(rows, "OVERRIDE_LEAD")[0]).toMatchObject({ payeeMemberId: star.id, amountPaise: 49_995 });
-    expect(byType(rows, "DEVELOPMENT")[0]).toMatchObject({ payeeMemberId: oldLead.id, amountPaise: 9_999 });
+    expect(byType(await ledger(shop.id), "OVERRIDE_LEAD")[0]).toMatchObject({ payeeMemberId: star.id, amountPaise: 49_995 });
+    expect(byType(await ledger(shop.id), "DEVELOPMENT")).toHaveLength(0);
+    await closeThisMonth();
+    expect(byType(await ledger(shop.id), "DEVELOPMENT")[0]).toMatchObject({ payeeMemberId: oldLead.id, amountPaise: 9_999, milestone: "MONTHLY" });
   });
 
   it("the development bonus stops after its months", async () => {
@@ -397,7 +416,69 @@ describe("promotion and the development bonus", () => {
     const agent = await member(dealer.id, "New", "AGENT", star.id);
     const shop = await signedShop(dealer.id, agent.id, 99_900);
     await deliverOrders(shop.id, 2);
+    await closeThisMonth();
     expect(byType(await ledger(shop.id), "DEVELOPMENT")).toHaveLength(0);
+  });
+});
+
+describe("the owner's structure (5 Nov 2026): 20% / 4% / 2%, all earned at registration, no cap", () => {
+  it("an agent's shop: 20% to the agent, 4% to his lead, 2% to the main dealer — all at once, nothing waits for orders", async () => {
+    await ownerStructure();
+    const dealer = await newDealer();
+    const l = await member(dealer.id, "Ramesh", "TEAM_LEAD");
+    const a = await member(dealer.id, "Agent", "AGENT", l.id);
+    const shop = await signedShop(dealer.id, a.id, 499_900);
+    const rows = await ledger(shop.id);
+    expect(rows.map((r) => [r.entryType, r.payeeMemberId, r.amountPaise, r.status])).toEqual([
+      ["DIRECT_1", a.id, 99_980, "EARNED"],
+      ["OVERRIDE_LEAD", l.id, 19_996, "EARNED"],
+      ["OVERRIDE_MAIN", null, 9_998, "EARNED"],
+    ]);
+    const [plan] = await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shop.id));
+    expect(plan).toMatchObject({ status: "TRADING", tradingOrders: 0, firstPartBp: 10_000 });
+  });
+
+  it("a team lead's own shop: 20% to him and 2% to the main dealer (no 4% to himself); the main dealer's own shop: 20% only", async () => {
+    await ownerStructure();
+    const dealer = await newDealer();
+    const l = await member(dealer.id, "Ramesh", "TEAM_LEAD");
+    const leadShop = await signedShop(dealer.id, l.id, 499_900);
+    expect((await ledger(leadShop.id)).map((r) => [r.entryType, r.payeeMemberId, r.amountPaise])).toEqual([
+      ["DIRECT_1", l.id, 99_980],
+      ["OVERRIDE_MAIN", null, 9_998],
+    ]);
+    const ownShop = await signedShop(dealer.id, null, 499_900);
+    expect((await ledger(ownShop.id)).map((r) => [r.entryType, r.payeeMemberId, r.amountPaise])).toEqual([["DIRECT_1", null, 99_980]]);
+  });
+
+  it("the former lead's 1% is paid only for a month the new team reaches the minimum (his own shops count)", async () => {
+    await ownerStructure({ developmentMinShopsPerMonth: 2 });
+    // Ramesh's team: Suresh is promoted, then Suresh and his agent sign 2 shops this month → minimum reached.
+    const dealer = await newDealer();
+    const ramesh = await member(dealer.id, "Ramesh", "TEAM_LEAD");
+    const suresh = await member(dealer.id, "Suresh", "AGENT", ramesh.id);
+    await promoteToTeamLead(suresh.id, { reason: "promotion (test)", override: true }, admin);
+    const agent = await member(dealer.id, "Suresh agent", "AGENT", suresh.id);
+    const own = await signedShop(dealer.id, suresh.id, 499_900);
+    const viaAgent = await signedShop(dealer.id, agent.id, 499_900);
+    // Another network: the promoted lead's team signs only 1 shop → nothing for the month.
+    const other = await newDealer();
+    const oldLead = await member(other.id, "Old lead", "TEAM_LEAD");
+    const newLead = await member(other.id, "New lead", "AGENT", oldLead.id);
+    await promoteToTeamLead(newLead.id, { reason: "promotion (test)", override: true }, admin);
+    const lone = await signedShop(other.id, newLead.id, 499_900);
+    expect(byType(await ledger(own.id), "DEVELOPMENT")).toHaveLength(0);
+
+    await closeThisMonth();
+    for (const shop of [own, viaAgent]) {
+      expect(byType(await ledger(shop.id), "DEVELOPMENT")[0]).toMatchObject({ payeeMemberId: ramesh.id, amountPaise: 4_999, status: "APPROVED", milestone: "MONTHLY" });
+    }
+    expect(byType(await ledger(viaAgent.id), "OVERRIDE_LEAD")[0]).toMatchObject({ payeeMemberId: suresh.id, amountPaise: 19_996 });
+    const [missed] = byType(await ledger(lone.id), "DEVELOPMENT");
+    expect(missed).toMatchObject({ payeeMemberId: oldLead.id, amountPaise: 0, status: "REVERSED" });
+    expect(missed.note).toMatch(/activated 1 shop — monthly minimum 2 not reached/);
+    // Two paid, one recorded as not reached.
+    expect((await db.select().from(dealerCommissionLedger).where(eq(dealerCommissionLedger.entryType, "DEVELOPMENT"))).length).toBe(3);
   });
 });
 

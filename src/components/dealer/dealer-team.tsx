@@ -133,9 +133,12 @@ export function DealerTeam({
       ) : null}
 
       <p className="text-sm text-ink-700" data-testid="tier-rates">
-        On every paid shop registration (fee before GST, after any coupon): {formatBp(rates.directBp)} to whoever signed it — {formatBp(rates.firstPartBp)} of that when the shop is
-        approved, the rest when it delivers {rates.tradingOrders} orders within {rates.tradingDays} days — plus {formatBp(rates.leadOverrideBp)} to the agent&apos;s team lead and{" "}
-        {formatBp(rates.mainOverrideBp)} to the main dealer at the same point.{rates.renewalBp ? ` Renewals: ${formatBp(rates.renewalBp)} to the direct earner.` : ""} No joining fees, and
+        On every paid shop registration (fee before GST, after any coupon): {formatBp(rates.directBp)} to whoever signed it
+        {rates.tradingOrders === 0
+          ? ", "
+          : ` — ${formatBp(rates.firstPartBp)} of that when the shop is approved, the rest when it delivers ${rates.tradingOrders} orders within ${rates.tradingDays} days — `}
+        plus {formatBp(rates.leadOverrideBp)} to the agent&apos;s team lead and {formatBp(rates.mainOverrideBp)} to the main dealer
+        {rates.tradingOrders === 0 ? ", all earned when the shop pays and is approved and paid on the 5th of the next month." : " at the same point."}{rates.renewalBp ? ` Renewals: ${formatBp(rates.renewalBp)} to the direct earner.` : ""} No joining fees, and
         nothing is ever paid for recruiting.
       </p>
 
