@@ -2,7 +2,8 @@
  * TIERED dealer commission administration (docs/dealer-programme/TIERED_COMMISSION.md).
  *
  * GET ?dealerId=&view=mapping[&format=csv&role=&leadId=&status=] → the team mapping table (CSV: masked mobiles);
- *     ?dealerId=&view=history[&memberId=] → the mapping history; ?dealerId=&view=shops&memberId=<id|main> → one person's shops.
+ *     ?dealerId=&view=history[&memberId=] → the mapping history; ?dealerId=&view=shops&memberId=<id|main> → one person's shops;
+ *     ?dealerId=&view=performance[&period=DAY|WEEK|MONTH][&format=csv] → shops and commission per person (MONTH: so far, live).
  * GET ?dealerId= → the rule (dealerTieredCommission, dealerPayoutTds), the dealer's team tree,
  *     earnings by type and level, TRADING progress, and the open sub-agent requests. Admin and operator (read only).
  * POST { action, … } → ADMIN only (the services check the role again):
@@ -20,6 +21,7 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { requireRole } from "@/server/authz/guards";
 import { requireDealerProgramme } from "@/server/dealers/http";
 import { addSalesperson } from "@/server/dealers/service";
+import { reportPeriod, teamReport, teamReportCsv } from "@/server/dealers/team-report";
 import {
   decideTeamRequest,
   earningsByType,
@@ -79,6 +81,16 @@ export const GET = route(async (request: NextRequest) => {
   const dealerId = z.string().uuid().safeParse(params.get("dealerId")).data;
   // Gap report A9: the team mapping table (CSV with format=csv), the mapping history, one person's shops.
   const view = params.get("view");
+  if (dealerId && view === "performance") {
+    const kind = z.enum(["DAY", "WEEK", "MONTH"]).catch("MONTH").parse(params.get("period"));
+    const report = await teamReport(dealerId, reportPeriod(kind));
+    if (params.get("format") === "csv") {
+      return new NextResponse(teamReportCsv(report), {
+        headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="team-performance-${dealerId.slice(0, 8)}-${report.period.fromDate}.csv"`, "cache-control": "private, no-store" },
+      });
+    }
+    return ok({ report });
+  }
   if (dealerId && view === "mapping") {
     const rows = await teamMapping(dealerId, {
       role: z.enum(["MAIN_DEALER", "TEAM_LEAD", "AGENT"]).safeParse(params.get("role")).data,

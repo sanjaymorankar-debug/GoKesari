@@ -3,7 +3,9 @@
  * main dealer and for a team lead or agent signed in with their own account.
  *
  * GET ?view=mapping[&format=csv] / ?view=history → the main dealer's team mapping table and history;
- *     ?view=shops → my own shops (drill-down).
+ *     ?view=shops → my own shops (drill-down);
+ *     ?view=performance[&period=DAY|WEEK|MONTH][&format=csv] → shops and commission per person
+ *     (the main dealer: everyone; a lead: his team; an agent: himself), MONTH = this month so far, live.
  * GET → who I am in the network, the team tree (main dealer and leads), my earnings by type
  *     and level, and the TRADING progress of my shops.
  * POST { action, … }:
@@ -21,6 +23,7 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { requireUser } from "@/server/authz/guards";
 import { requireDealerProgramme } from "@/server/dealers/http";
 import { addSalesperson, getDealerForUser } from "@/server/dealers/service";
+import { reportPeriod, teamReport, teamReportCsv } from "@/server/dealers/team-report";
 import {
   acceptAgentAgreement,
   earningsByType,
@@ -71,6 +74,16 @@ export const GET = route(async (request: NextRequest) => {
     return ok({ history: await mappingHistory(dealer.id) });
   }
   if (params.get("view") === "shops") return ok({ shops: await memberShops(dealer.id, member ? member.id : null) });
+  if (params.get("view") === "performance") {
+    const kind = z.enum(["DAY", "WEEK", "MONTH"]).catch("MONTH").parse(params.get("period"));
+    const report = await teamReport(dealer.id, reportPeriod(kind), member);
+    if (params.get("format") === "csv") {
+      return new NextResponse(teamReportCsv(report), {
+        headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="team-performance-${report.period.fromDate}.csv"`, "cache-control": "private, no-store" },
+      });
+    }
+    return ok({ report });
+  }
   const [tree, earnings, trading] = await Promise.all([
     !member || member.teamRole === "TEAM_LEAD" ? teamTree(dealer.id) : null,
     earningsByType(dealer.id, member ? member.id : null),

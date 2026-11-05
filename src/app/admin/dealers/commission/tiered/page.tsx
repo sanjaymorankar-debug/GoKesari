@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 
+import { TeamPerformance } from "@/components/dealer/team-performance";
 import { TieredAdmin } from "@/components/dealer/tiered-admin";
 import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -60,6 +61,11 @@ export default async function TieredCommissionPage({ searchParams }: { searchPar
         mapping={plain(mapping)}
         history={plain(history)}
       />
+      {selected ? (
+        <div className="mt-4">
+          <TeamPerformance endpoint={`/api/admin/dealer-tiers?dealerId=${selected.id}&view=performance`} mine={false} />
+        </div>
+      ) : null}
     </div>
   );
 }
