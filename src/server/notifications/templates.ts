@@ -235,7 +235,7 @@ export const TEMPLATES: Record<string, Template> = {
   ),
   [T.SUPPORT_SHOP_AUTO_APPROVED]: t(
     "Shop approved automatically",
-    "{{shopName}} was approved automatically: every mandatory document is verified and nothing else was outstanding.",
+    "{{shopName}} was approved automatically: its registration fee is paid and every check needed to go live passed.",
     false,
   ),
   [T.SUPPORT_DISPUTE_OPENED]: t(
@@ -347,6 +347,10 @@ export const TEMPLATES: Record<string, Template> = {
     "The registration fee for {{shopName}} was not paid ({{reason}}). The shop now waits for an administrator's approval.",
     false,
   ),
+  [T.SUPPORT_SHOP_PAID_PENDING]: t(
+    "Paid shop waiting for approval",
+    "{{shopName}} paid its registration fee but was not approved automatically. Please review it today — the owner has been told it is with our team.",
+  ),
   [T.SUPPORT_SHOP_FEE_FAILED]: t(
     "Shop waiting for approval — fee not paid",
     "{{shopName}} was onboarded by {{operatorName}} but its registration fee was not paid ({{reason}}). It is pending administrator approval.",
@@ -416,10 +420,16 @@ export const TEMPLATES: Record<string, Template> = {
   [T.DEALER_PAYOUT_FAILED]: t("Commission transfer did not go through", "The bank transfer of {{amount}} failed ({{reason}}). {{next}}"),
   [T.SHOP_REFERRAL_REWARDED]: t("Referral reward: {{reward}}", "{{shopName}}, which joined GoKesari with your shop's referral code, is live and has delivered its first order. {{reward}} — {{detail}}"),
   [T.SHOP_REFERRAL_REVERSED]: t("Referral reward reversed", "A shop referral reward was reversed after a review. {{detail}}"),
+  [T.SHOP_FIRST_PRODUCTS_LIVE]: t(
+    "{{count}} products are live in {{shopName}}",
+    "Customers near you can now order from {{shopName}}. Check stock and prices any time in Products, and share your shop link to get your first order.",
+    false,
+  ),
+  [T.DEALER_SHOP_FIRST_PRODUCTS]: t("{{shopName}} has listed its first products", "{{shopName}}, counted for you, now has {{count}} products live and can take orders.", false),
   [T.DEALER_SHOP_APPROVED]: t("Shop approved: {{shopName}}", "{{shopName}}, counted for you, is approved and can now add products and take orders."),
   [T.SHOP_READY_FOR_PRODUCT_UPLOAD]: t(
     "Registration successful — {{shopName}} is ready for product upload",
-    "Your GST/PAN was verified with the government records and your registration fee is received, so {{shopName}} (shop ID {{shopId}}) is approved. Add your products now: {{addProductsUrl}} — or upload many at once from Excel: {{bulkUploadUrl}}",
+    "{{checkedLine}} so {{shopName}} (shop ID {{shopId}}) is approved. Add your products now: {{addProductsUrl}} — or upload many at once from Excel: {{bulkUploadUrl}}{{payoutLine}}",
   ),
   [T.DEALER_DOCUMENT_REJECTED]: t(
     "Dealer document needs another upload",

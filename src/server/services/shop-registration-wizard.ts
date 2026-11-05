@@ -57,6 +57,7 @@ import { isFoodBusinessShopType } from "@/lib/shop-types";
 import { db, type DbClient } from "@/server/db";
 import {
   shopCategoryMapping,
+  shopOnboardingSteps,
   shopProducts,
   shopRegistrationDraftChecks,
   shopRegistrationDrafts,
@@ -194,6 +195,8 @@ export interface WizardView extends ShopRegistrationDraftView {
   } | null;
   /** The admin's fee-by-turnover slab table (Admin → Registration fees): the details step offers its slabs. */
   feeRule: TurnoverFeeRule;
+  /** The fee covers this many months, then renews (rule shopMembership; owner 05-Nov-2026: yearly). */
+  membershipMonths: number;
   /** After approval: what the owner has set up on the shop (map pin, categories, products). */
   setup: { location: boolean; categories: boolean; products: boolean } | null;
   /** Where the wizard resumes. */
@@ -293,9 +296,19 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
 
   // 0120: a draft started before the new first steps (it already has a GSTIN / PAN or details) skips them.
   const started = draft.route !== null || detailsOf(draft) !== null;
-  const documentsLater = draft.documentsLater ?? (started ? false : null);
+  // Onboarding Phase B (G3): no separate "documents now?" screen — the document window opens
+  // straight away and has its own "Add documents later" button.
+  const documentsLater = draft.documentsLater ?? false;
   const referral = { answered: draft.referralAnsweredAt !== null || started, code: draft.referralCode, required: await isReferralRequired("shop") };
-  const email = { account: await accountEmail(draft.ownerId), shop: draft.shopEmail, confirmed: draft.shopEmailConfirmedAt !== null || started };
+  // Owner, 05-Nov-2026 (D3): the shop email stays required but is one pre-filled line — the
+  // account's email (already proven by the sign-in) unless the owner changes it. Only a
+  // mobile-only account, with no email, gets the email screen.
+  const account = await accountEmail(draft.ownerId);
+  const email = {
+    account,
+    shop: draft.shopEmail ?? account,
+    confirmed: draft.shopEmailConfirmedAt !== null || started || account !== null,
+  };
 
   let nextStep: WizardStep;
   if (shop?.status === "APPROVED" && setup) {
@@ -304,7 +317,6 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   else if (draft.status === "SUBMITTED") nextStep = shop && shop.feeDuePaise > 0 ? "PAYMENT" : "WAITING";
   else if (!referral.answered) nextStep = "REFERRAL";
   else if (!email.confirmed) nextStep = "EMAIL";
-  else if (documentsLater === null) nextStep = "DOCS_READY";
   // "Upload later": shop details, FSSAI for a food shop (the law), then the fee.
   else if (documentsLater) nextStep = !details ? "DETAILS" : foodShop && !fssai.done ? "FSSAI" : "REVIEW";
   else if (!base.canContinue) nextStep = "IDENTITY";
@@ -316,8 +328,11 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   // asked once the shop is live (LOCATION above). A pin placed before this change is still kept.
   else nextStep = "REVIEW";
 
+  // The onboarding funnel (Phase B, B3): when this registration first reached its current step.
+  await recordStepReached(draft.id, nextStep);
   const documents = await draftDocuments(draft, checks, details, foodShop);
   const feeRule = await getRule("registrationFeeByTurnover");
+  const membershipMonths = (await getRule("shopMembership")).periodMonths;
   return {
     ...base,
     status: draft.status,
@@ -333,9 +348,19 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     documents,
     shop,
     feeRule,
+    membershipMonths,
     setup,
     nextStep,
   };
+}
+
+/** Best-effort: the funnel never stops a registration. One row per (registration, step). */
+async function recordStepReached(draftId: string, step: WizardStep): Promise<void> {
+  try {
+    await db.insert(shopOnboardingSteps).values({ draftId, step }).onConflictDoNothing();
+  } catch (error) {
+    console.error("[onboarding-funnel] could not record a step", draftId, step, error instanceof Error ? error.message : error);
+  }
 }
 
 /** The account's own email (core database), unless it is a placeholder for a mobile-only account. */
@@ -411,6 +436,23 @@ export async function getWizardDraft(actor: Pick<Actor, "id">): Promise<WizardVi
     .orderBy(desc(shopRegistrationDrafts.updatedAt))
     .limit(1);
   return latest ? toWizardView(latest) : null;
+}
+
+/**
+ * Back from the gateway (onboarding Phase B, G13): a shop registered through the wizard
+ * continues in the wizard — waiting for approval, or the pin, categories and products —
+ * instead of stopping on the fee page. Null when the shop has no wizard draft or its
+ * set-up is complete.
+ */
+export async function wizardContinuePath(ownerId: string, shopId: string): Promise<string | null> {
+  const [draft] = await db
+    .select()
+    .from(shopRegistrationDrafts)
+    .where(and(eq(shopRegistrationDrafts.ownerId, ownerId), eq(shopRegistrationDrafts.shopId, shopId)))
+    .limit(1);
+  if (!draft) return null;
+  const view = await toWizardView(draft);
+  return view.nextStep === "DONE" || view.nextStep === "PAYMENT" ? null : "/shop/register";
 }
 
 /* --------------------------------------------------------------- guards */
@@ -529,7 +571,7 @@ export async function saveDraftDetails(input: { actor: Actor; details: DraftShop
   // 0120: the referral code and email come from their own steps when the form leaves them out.
   const open = await findOpenDraft(actor.id);
   details.referralCode = details.referralCode ?? open?.referralCode ?? null;
-  details.email = details.email ?? open?.shopEmail ?? null;
+  details.email = details.email ?? open?.shopEmail ?? (await accountEmail(actor.id));
   // A referral code the platform requires (or one that is not valid) is caught here, not at payment.
   await assertRegistrationReferralCode(details.referralCode);
   const foodShop = await isFoodShopType(details.shopType);

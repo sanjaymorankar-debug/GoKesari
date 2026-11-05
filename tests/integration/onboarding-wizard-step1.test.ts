@@ -105,6 +105,9 @@ describe("GSTIN first: the PAN is checked silently and the shop is filled from t
       constitution: "Private Limited Company",
       address: "12 FC Road, Shivajinagar, Pune, Maharashtra, 411005",
       stateCode: "27",
+      // Onboarding Phase B (G5): the state's name and the city, read from the GST record.
+      state: "Maharashtra",
+      city: "Pune",
       pincode: "411005",
     });
     expect(view.canContinue).toBe(true);

@@ -13,6 +13,7 @@ import { GST_DECLARATION_TEXT, SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/ky
 import { SELLER_DOC_LABELS, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { formatRupeesIndian, turnoverSlab, turnoverSlabLabel, type TurnoverFeeRule } from "@/lib/registration-fee";
 import { DocumentScan, type ScannedNumber } from "./document-scan";
+import { StarterShelf } from "./starter-shelf";
 
 /**
  * Shop onboarding wizard (docs/shop-onboarding-wizard-2026-10, BRIEF_REDESIGN.md,
@@ -78,6 +79,8 @@ export interface WizardState {
     constitution: string | null;
     address: string | null;
     stateCode: string | null;
+    state: string | null;
+    city: string | null;
     pincode: string | null;
   };
   canContinue: boolean;
@@ -101,6 +104,8 @@ export interface WizardState {
   };
   shop: { id: string; name: string; registrationNumber: string | null; status: string; feeDuePaise: number; feePaymentStatus: string } | null;
   feeRule: TurnoverFeeRule;
+  /** The fee covers this many months and then renews (rule shopMembership). */
+  membershipMonths: number;
   setup: { location: boolean; categories: boolean; products: boolean } | null;
   nextStep: Step;
 }
@@ -111,46 +116,43 @@ export interface WizardState {
  * address and map pin).
  */
 const TILES = [
-  { n: 1, label: "Referral", icon: "🎟️" },
-  { n: 2, label: "Email", icon: "✉️" },
-  { n: 3, label: "Documents", icon: "📂" },
-  { n: 4, label: "Validate", icon: "🛡️" },
-  { n: 5, label: "Confirm details", icon: "🏪" },
-  { n: 6, label: "Payment", icon: "💳" },
-  { n: 7, label: "Live", icon: "🚀" },
-  { n: 8, label: "Address & location", icon: "📍" },
-  { n: 9, label: "Category", icon: "🗂️" },
-  { n: 10, label: "Products", icon: "📦" },
+  { n: 1, label: "Referral", icon: "🎟️", minutes: 5 },
+  { n: 2, label: "GST / PAN", icon: "🛡️", minutes: 4 },
+  { n: 3, label: "Confirm details", icon: "🏪", minutes: 2 },
+  { n: 4, label: "Pay", icon: "💳", minutes: 1 },
+  { n: 5, label: "Live", icon: "🚀", minutes: 3 },
+  { n: 6, label: "Map pin", icon: "📍", minutes: 3 },
+  { n: 7, label: "Category", icon: "🗂️", minutes: 2 },
+  { n: 8, label: "Products", icon: "📦", minutes: 1 },
 ] as const;
 
 /** The tile a wizard step belongs to. */
 function tileOf(step: Step): number {
   switch (step) {
     case "REFERRAL":
-      return 1;
+    // Only a mobile-only account (no email) or an owner changing it sees the email screen.
     case "EMAIL":
-      return 2;
+      return 1;
     case "DOCS_READY":
-      return 3;
     case "IDENTITY":
     case "UDYAM":
     case "FSSAI":
-      return 4;
+      return 2;
     case "DETAILS":
-      return 5;
+      return 3;
     case "REVIEW":
     case "PAYMENT":
-      return 6;
+      return 4;
     case "WAITING":
-      return 7;
+      return 5;
     case "LOCATION":
-      return 8;
+      return 6;
     case "CATEGORY":
-      return 9;
+      return 7;
     case "PRODUCTS":
-      return 10;
+      return 8;
     case "DONE":
-      return 11;
+      return 9;
   }
 }
 
@@ -160,13 +162,11 @@ function stepForTile(n: number, state: WizardState): Step | null {
   const approved = state.shop?.status === "APPROVED";
   const pastDocs = state.documentsLater === true || state.canContinue;
   if (open && n === 1) return "REFERRAL";
-  if (open && n === 2 && state.referral.answered) return "EMAIL";
-  if (open && n === 3 && state.email.confirmed) return "DOCS_READY";
-  if (open && n === 4 && state.documentsLater === false) return "IDENTITY";
-  if (open && n === 5 && pastDocs) return "DETAILS";
-  if (approved && n === 8) return "LOCATION";
-  if (approved && n === 9) return "CATEGORY";
-  if (approved && n === 10) return "PRODUCTS";
+  if (open && n === 2 && state.referral.answered && state.email.confirmed) return "IDENTITY";
+  if (open && n === 3 && pastDocs) return "DETAILS";
+  if (approved && n === 6) return "LOCATION";
+  if (approved && n === 7) return "CATEGORY";
+  if (approved && n === 8) return "PRODUCTS";
   return null;
 }
 
@@ -247,10 +247,24 @@ function StepCard({ title, intro, children }: { title: string; intro?: ReactNode
 function TileSteps({ step, state, onOpen }: { step: Step; state: WizardState | null; onOpen: (s: Step) => void }) {
   // "Upload later": the verify tile is skipped (a food shop's FSSAI is still asked, on that tile).
   const later = state?.documentsLater === true;
-  const at = later && step === "FSSAI" ? 4 : tileOf(step);
-  const skipped = (n: number) => n === 4 && later && step !== "FSSAI";
+  const at = tileOf(step);
+  const skipped = (n: number) => n === 2 && later && step !== "FSSAI";
+  // "About N min left" (onboarding Phase B, G21): the rough minutes of the tiles still ahead —
+  // to go live before payment, to the first products after it.
+  const ahead = TILES.filter((t) => t.n >= at && (at <= 4 ? t.n <= 4 : t.n > 4) && !skipped(t.n));
+  const minutes = ahead.reduce((sum, t) => sum + t.minutes, 0);
+  const shown = Math.min(at, TILES.length);
   return (
-    <ol className="grid grid-cols-5 gap-1.5 sm:gap-2" aria-label="Registration steps" data-testid="registration-tiles">
+    <div className="space-y-1.5">
+    {at <= TILES.length ? (
+      <p className="text-sm text-ink-600" data-testid="registration-progress">
+        <strong className="text-ink-900">
+          Step {shown} of {TILES.length}
+        </strong>
+        {minutes > 0 ? ` · about ${minutes} min ${at <= 4 ? "to go live" : "to your first products"}` : null}
+      </p>
+    ) : null}
+    <ol className="grid grid-cols-4 gap-1.5 sm:grid-cols-8 sm:gap-2" aria-label="Registration steps" data-testid="registration-tiles">
       {TILES.map((t) => {
         const done = t.n < at && !skipped(t.n);
         const current = t.n === at;
@@ -267,10 +281,10 @@ function TileSteps({ step, state, onOpen }: { step: Step; state: WizardState | n
             <span className="text-base leading-none sm:text-lg" aria-hidden>
               {done ? "✓" : t.icon}
             </span>
-            <span className="mt-0.5 block text-[0.6875rem] font-semibold leading-tight sm:text-xs">
+            <span className="mt-0.5 block text-xs font-semibold leading-tight">
               {t.n}. {t.label}
             </span>
-            {skipped(t.n) ? <span className="block text-[0.625rem] leading-tight">after go-live</span> : null}
+            {skipped(t.n) ? <span className="block text-[0.6875rem] leading-tight">after go-live</span> : null}
           </>
         );
         return (
@@ -285,10 +299,8 @@ function TileSteps({ step, state, onOpen }: { step: Step; state: WizardState | n
           </li>
         );
       })}
-      <li className="sr-only">
-        Step {Math.min(at, TILES.length)} of {TILES.length}: {TILES[Math.min(at, TILES.length) - 1].label}
-      </li>
     </ol>
+    </div>
   );
 }
 
@@ -360,6 +372,18 @@ export function OnboardingWizard({
     return true;
   }
 
+  /** Reads the wizard again after a change made outside its own routes (the starter shelf). */
+  async function refresh() {
+    const response = await fetch("/api/shops/registration-draft").catch(() => null);
+    const next = response?.ok ? ((await response.json().catch(() => null)) as WizardState | null) : null;
+    if (next) {
+      setState(next);
+      latest.current = next;
+      setViewing(null);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
   const back = (to: Step) => (
     <Button type="button" variant="ghost" onClick={() => setViewing(to)} disabled={busy}>
       Back
@@ -382,8 +406,9 @@ export function OnboardingWizard({
           send={send}
         />
       ) : null}
-      {step === "EMAIL" && state ? <EmailStep state={state} busy={busy} fields={fields} send={send} back={back("REFERRAL")} /> : null}
-      {step === "DOCS_READY" && state ? <DocumentsReadyStep busy={busy} send={send} back={back("EMAIL")} /> : null}
+      {step === "EMAIL" && state ? (
+        <EmailStep state={state} busy={busy} fields={fields} send={send} back={back(state.status === "OPEN" && state.details ? "DETAILS" : "REFERRAL")} />
+      ) : null}
       {/* "Yes, I have them": every number on one window, each with its own Validate button. */}
       {inDocumentWindow ? (
         <IdentityStep
@@ -393,14 +418,14 @@ export function OnboardingWizard({
           send={send}
           stay={() => setViewing("IDENTITY")}
           done={() => setViewing(null)}
-          back={back("DOCS_READY")}
+          back={back("REFERRAL")}
           onScan={checkScanned}
         />
       ) : null}
       {step === "FSSAI" && state?.documentsLater ? (
         <OptionalDocStep
           docType="FSSAI"
-          title="4. FSSAI licence"
+          title="2. FSSAI licence"
           question="Do you have an FSSAI licence or registration? It is required for shops that sell food (dairy, bakery, sweets, grocery, restaurants)."
           placeholder="14-digit FSSAI number"
           required={state.fssai.required}
@@ -413,11 +438,19 @@ export function OnboardingWizard({
         />
       ) : null}
       {step === "DETAILS" && state ? (
-        <DetailsStep state={state} busy={busy} fields={fields} send={send} dealerProgramme={dealerProgramme} back={back(state.documentsLater ? "DOCS_READY" : "FSSAI")} />
+        <DetailsStep
+          state={state}
+          busy={busy}
+          fields={fields}
+          send={send}
+          dealerProgramme={dealerProgramme}
+          changeEmail={() => setViewing("EMAIL")}
+          back={back("IDENTITY")}
+        />
       ) : null}
       {step === "REVIEW" && state ? <ReviewStep state={state} busy={busy} send={send} goTo={setViewing} /> : null}
       {step === "PAYMENT" && state?.shop ? (
-        <StepCard title="6. Pay the registration fee" intro="Pay by UPI or card. Your shop goes live as soon as the payment is confirmed. Next you give your shop's address and map location.">
+        <StepCard title="4. Pay the registration fee" intro="Pay by UPI or card. Your shop goes live as soon as the payment is confirmed. Next you place your shop on the map and add your first products.">
           <p className="text-sm text-ink-700">
             <strong>{state.shop.name}</strong>
             {state.shop.registrationNumber ? <> · Shop ID {state.shop.registrationNumber}</> : null}
@@ -434,7 +467,7 @@ export function OnboardingWizard({
         </StepCard>
       ) : null}
       {step === "WAITING" && state?.shop ? (
-        <StepCard title="7. Payment received — pending admin approval">
+        <StepCard title="5. Payment received — pending admin approval">
           <Alert tone="warning">
             {state.documents.missing.length > 0
               ? `${state.shop.name} is pending admin approval: ${state.documents.missing
@@ -454,7 +487,7 @@ export function OnboardingWizard({
         </StepCard>
       ) : null}
       {(step === "LOCATION" || step === "CATEGORY" || step === "PRODUCTS" || step === "DONE") && state?.shop ? (
-        <Alert tone="success" title={`7. ${state.shop.name} is live`}>
+        <Alert tone="success" title={`5. ${state.shop.name} is live`}>
           We&apos;ve emailed you that your registration succeeded{state.shop.registrationNumber ? ` (shop ID ${state.shop.registrationNumber})` : ""} and your shop is ready
           for product upload.{" "}
           {state.documentsLater ? (
@@ -469,7 +502,7 @@ export function OnboardingWizard({
       ) : null}
       {step === "LOCATION" && state?.shop ? (
         <ShopLocationStep
-          title="8. Your shop's address and location"
+          title="6. Your shop's address and map pin"
           initial={state.location}
           address={state.details}
           busy={busy}
@@ -483,7 +516,11 @@ export function OnboardingWizard({
         <ShopCategoryStep shopId={state.shop.id} busy={busy} fields={fields} send={send} initialCategories={initialCategories} initial={state.details?.categoryIds ?? []} />
       ) : null}
       {step === "PRODUCTS" && state?.shop ? (
-        <StepCard title="10. Upload your product list" intro="Upload your price list (Excel / CSV) or pick products from GoKesari's catalogue. Customers can order once products are listed.">
+        <StepCard
+          title="8. Your first products"
+          intro="We've picked the products shops like yours sell most, priced at MRP. Check them and publish — customers can order as soon as they are listed."
+        >
+          <StarterShelf shopId={state.shop.id} onDone={refresh} />
           <div className="grid gap-2 sm:grid-cols-2">
             <Link href="/shop/product-import" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-kesari-600 px-4 text-sm font-medium text-white">
               Upload product list
@@ -497,9 +534,14 @@ export function OnboardingWizard({
       {step === "DONE" && state?.shop ? (
         <StepCard title="Registration successful 🎉">
           <p className="text-sm text-ink-700">Your shop is set up: location, categories and products are in place.</p>
-          <Link href="/shop" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-kesari-600 px-4 text-sm font-medium text-white">
-            Go to my shop
-          </Link>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Link href="/shop" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-kesari-600 px-4 text-sm font-medium text-white">
+              Go to my shop
+            </Link>
+            <a href="/shop/register?new=1" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-cream-200 px-4 text-sm font-medium text-ink-700">
+              Register another shop
+            </a>
+          </div>
         </StepCard>
       ) : null}
     </div>
@@ -568,6 +610,11 @@ function IdentityStep({
 
   async function validate(doc: WindowDoc) {
     setChecking(doc);
+    // Back from "add documents later": checking a number now means the documents are here.
+    if (state?.documentsLater && !(await send("/api/shops/registration-draft/documents-ready", { later: false }))) {
+      setChecking(null);
+      return;
+    }
     const number = numbers[doc].trim();
     const ok =
       doc === "GSTIN"
@@ -622,7 +669,7 @@ function IdentityStep({
 
   return (
     <StepCard
-      title={mode === "scan" ? "4. Scan or upload your documents" : "4. Enter and validate your documents"}
+      title={mode === "scan" ? "2. Scan or upload your GST or PAN" : "2. Verify your business — GST or PAN"}
       intro={
         mode === "scan"
           ? "We read the numbers from your photos on your phone, you check them, then we verify them with the government records and fill in your details."
@@ -735,9 +782,21 @@ function IdentityStep({
         </Button>
       </div>
       {!state?.canContinue ? (
-        <p className="text-xs text-ink-600">
-          No GST number or PAN at hand? Go back and choose <strong>No</strong> — you can register now and add your documents after your shop is live.
-        </p>
+        <div className="rounded-xl border border-dashed border-[var(--gk-line)] p-3 text-sm text-ink-700" data-testid="documents-later">
+          <p>
+            <strong>No GST number or PAN at hand?</strong> Register now and sell straight away — add your GST or PAN before your first payout. We remind you on
+            the 1st and 15th of the month.
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-2 w-full sm:w-auto"
+            disabled={busy}
+            onClick={() => void send("/api/shops/registration-draft/documents-ready", { later: true })}
+          >
+            Add documents later
+          </Button>
+        </div>
       ) : null}
     </StepCard>
   );
@@ -780,6 +839,7 @@ function DetailsStep({
   fields,
   send,
   dealerProgramme,
+  changeEmail,
   back,
 }: {
   state: WizardState;
@@ -787,6 +847,8 @@ function DetailsStep({
   fields: Record<string, string>;
   send: Send;
   dealerProgramme: boolean;
+  /** Opens the email screen to use another address (confirmed with an emailed code). */
+  changeEmail: () => void;
   back: ReactNode;
 }) {
   const shopTypes = useShopTypes();
@@ -801,8 +863,8 @@ function DetailsStep({
     addressLine1: d?.addressLine1 ?? p.address ?? "",
     addressLine2: d?.addressLine2 ?? "",
     area: d?.area ?? "",
-    city: d?.city ?? "",
-    state: d?.state ?? "",
+    city: d?.city ?? p.city ?? "",
+    state: d?.state ?? p.state ?? "",
     pincode: d?.pincode ?? p.pincode ?? "",
     landmark: d?.landmark ?? "",
     couponCode: d?.couponCode ?? "",
@@ -840,7 +902,7 @@ function DetailsStep({
 
   return (
     <StepCard
-      title="5. Confirm your shop details"
+      title="3. Confirm your shop details"
       intro={
         state.documentsLater
           ? "Tell us about your shop. You'll add your documents after your shop is live."
@@ -851,9 +913,14 @@ function DetailsStep({
     >
       {state.documentsLater ? null : <PrefillSummary state={state} />}
       {state.email.shop ? (
-        <p className="text-sm text-ink-600">
-          Shop email: <strong className="text-ink-900">{state.email.shop}</strong>
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--gk-line)] bg-white px-3 py-2 text-sm" data-testid="shop-email-line">
+          <p className="min-w-0 text-ink-600">
+            Shop email (orders, payouts, notices): <strong className="break-all text-ink-900">{state.email.shop}</strong>
+          </p>
+          <button type="button" className="min-h-11 text-sm font-medium text-kesari-700 underline" onClick={changeEmail}>
+            Change
+          </button>
+        </div>
       ) : null}
       <form onSubmit={submit} className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -887,6 +954,9 @@ function DetailsStep({
               <input className={inputClass} value={form.pincode} onChange={set("pincode")} required inputMode="numeric" maxLength={6} pattern="[1-9][0-9]{5}" autoComplete="postal-code" />
             </Field>
           </div>
+          <Field label="State" error={fields.state} hint={p.state && form.state === p.state ? "From your GST record." : undefined}>
+            <input className={inputClass} value={form.state} onChange={set("state")} maxLength={60} autoComplete="address-level1" />
+          </Field>
         </div>
         <details className="text-sm text-ink-700">
           <summary className="cursor-pointer font-medium">More (address line 2, area, landmark)</summary>
@@ -904,7 +974,7 @@ function DetailsStep({
         </details>
         {rule.enabled ? (
           <fieldset>
-            <legend className="mb-1 text-sm font-medium text-ink-700">Annual turnover slab — sets your one-time registration fee</legend>
+            <legend className="mb-1 text-sm font-medium text-ink-700">Annual turnover slab — sets your yearly registration fee</legend>
             {fields.annualTurnover ? <p className="mb-1 text-sm text-red-700">{fields.annualTurnover}</p> : null}
             <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" data-testid="turnover-slabs">
               {rule.slabs.map((s, i) => {
@@ -1160,7 +1230,7 @@ function ShopCategoryStep({
 }) {
   const [categoryIds, setCategoryIds] = useState<string[]>(initial);
   return (
-    <StepCard title="9. What does your shop sell?" intro="Pick your shop's categories — customers find you under them.">
+    <StepCard title="7. What does your shop sell?" intro="Pick your shop's categories — customers find you under them.">
       <ShopCategoryPicker value={categoryIds} onChange={setCategoryIds} error={fields.categoryIds ?? null} initialCategories={initialCategories} />
       <Button type="button" size="lg" className="w-full" disabled={busy || categoryIds.length === 0} onClick={() => void send(`/api/shops/${shopId}/categories`, { categoryIds }, "PUT")}>
         {busy ? "Saving…" : "Save categories"}
@@ -1190,13 +1260,13 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
   );
   const doc = (check: CheckView | null, fallback: string) => (check ? <StatusLine check={{ ...check, message: null }} /> : fallback);
   return (
-    <StepCard title="6. Check your fee and pay" intro="Your shop is created when you continue; then you pay the one-time registration fee by UPI or card. After payment you confirm the address and place your shop on the map.">
+    <StepCard title="4. Check what you pay, then pay" intro="Your shop is created when you continue; then you pay the registration fee by UPI or card. After payment you place your shop on the map and add your first products.">
       <div>
         {row("Referral code", state.referral.code ?? "None", "REFERRAL")}
         {row("Shop email", state.email.shop ?? "—", "EMAIL")}
         {state.documentsLater ? (
           <>
-            {row("Documents", "You'll upload them after your shop is live", "DOCS_READY")}
+            {row("Documents", "You'll add them after your shop is live", "IDENTITY")}
             {state.foodShop ? row("FSSAI", doc(state.fssai.check, "—"), "FSSAI") : null}
           </>
         ) : (
@@ -1212,18 +1282,19 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
       </div>
       {!docs.canSubmit ? (
         <Alert tone="warning" title="Your GST or PAN is not verified">
-          Go back to step 4 and validate your {state.route === "PAN_ONLY" ? "PAN" : "GSTIN"} again, or choose to upload your documents later on step 3.
+          Go back to step 2 and validate your {state.route === "PAN_ONLY" ? "PAN" : "GSTIN"} again, or choose &quot;Add documents later&quot; there.
         </Alert>
       ) : docs.needsTeamApproval ? (
         <Alert tone="info">{`After payment your shop waits for admin approval: ${names(docs.missing)} is not verified yet.`}</Alert>
       ) : state.documentsLater ? (
         <Alert tone="info" title="Your shop goes live as soon as the payment is confirmed">
-          Payouts to your bank start once your GST or PAN is verified. Upload your documents on Documents after go-live — we remind you on the 1st and 15th, and a
+          Payouts to your bank start once your GST or PAN is verified. Add your documents on Documents after go-live — we remind you on the 1st and 15th, and a
           shop without them is paused after the third reminder.
         </Alert>
       ) : (
         <Alert tone="success">Your documents are verified: your shop goes live as soon as the payment is confirmed.</Alert>
       )}
+      <WhatYouPay state={state} slab={slab} />
       <Button type="button" size="lg" className="w-full" disabled={busy || !docs.canSubmit} onClick={() => void send("/api/shops/registration-draft/submit")}>
         {busy ? "Creating your shop…" : "Create my shop and pay"}
       </Button>
@@ -1445,30 +1516,26 @@ function EmailStep({ state, busy, fields, send, back }: { state: WizardState; bu
 /* -------------------------------------------- 3. documents handy? (0120) */
 
 /**
- * Step 3: the Yes / No question. Yes → the document window (step 4); No → "upload later": shop
- * details, the fee, and the documents after go-live.
+ * "What you pay" before payment (onboarding Phase B, G11; owner 05-Nov-2026: the fee is yearly):
+ * the fee and GST, that it renews, and what happens to payouts — no surprise after paying.
  */
-function DocumentsReadyStep({ busy, send, back }: { busy: boolean; send: Send; back: ReactNode }) {
+function WhatYouPay({ state, slab }: { state: WizardState; slab: number | null }) {
+  const rule = state.feeRule;
+  const feePaise = slab ? rule.slabs[slab - 1]?.feePaise : null;
   return (
-    <StepCard title="3. Do you have your documents now?" intro="Your GST number or PAN, and the Shop Act, FSSAI and Udyam numbers if you have them — typed, or read from photos.">
-      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Do you have your documents now?" data-testid="documents-yes-no">
-        <Button type="button" size="lg" disabled={busy} onClick={() => void send("/api/shops/registration-draft/documents-ready", { later: false })}>
-          Yes
-        </Button>
-        <Button type="button" size="lg" variant="secondary" disabled={busy} onClick={() => void send("/api/shops/registration-draft/documents-ready", { later: true })}>
-          No
-        </Button>
-      </div>
-      <ul className="space-y-1 text-xs text-ink-600">
+    <div className="rounded-xl border border-kesari-100 bg-kesari-50 p-3 text-sm text-ink-700" data-testid="what-you-pay">
+      <p className="font-semibold text-ink-900">What you pay</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5">
         <li>
-          <strong>Yes:</strong> enter each number and validate it with the government record; your shop and owner name are filled in for you.
+          Registration fee{feePaise != null ? <> {formatRupeesIndian(Math.round(feePaise / 100))} + GST</> : null} — covers {state.membershipMonths} months, then
+          renews every year. You see the exact total, with any coupon, on the payment page.
         </li>
-        <li>
-          <strong>No — add them later:</strong> give your shop details, pay the fee, and your shop goes live. Payouts start once your GST or PAN is verified; we remind you
-          on the 1st and 15th, and a shop without documents is paused after the third reminder.
-        </li>
+        <li>Commission on orders as in the Seller Terms — nothing is charged until you get orders.</li>
+        <li>Payouts go to your bank account once it is added and verified (you add it after your shop is live).</li>
       </ul>
-      <div className="flex items-center justify-between gap-2">{back}</div>
-    </StepCard>
+      <Link href="/legal/seller-terms" className="mt-1 inline-block font-medium text-kesari-800 underline">
+        Seller Terms
+      </Link>
+    </div>
   );
 }

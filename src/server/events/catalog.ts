@@ -1410,6 +1410,8 @@ export const EVENTS = {
     return [
       { to: p.ownerId, type: N.SHOP_REGISTRATION_FEE_PAID, vars, actionUrl: "/shop", includeActor: true },
       { to: p.operatorId, type: N.SHOP_REGISTRATION_FEE_PAID, vars, actionUrl: "/operator/payments" },
+      // Onboarding Phase B (G14): paid but not approved automatically — an admin must look, never a silent wait.
+      ...(p.approved ? [] : [{ to: "SUPPORT_LEAD" as const, type: N.SUPPORT_SHOP_PAID_PENDING, vars: { shopName: p.shopName }, actionUrl: "/admin/shops" }]),
     ];
   }),
   /** The fee failed or its link expired: the shop stays PENDING_APPROVAL for an administrator. */

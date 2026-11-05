@@ -13,6 +13,7 @@ import { db } from "@/server/db";
 import { dealers, shopAttributions, type Shop } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { notify } from "./notifications";
+import { isDocumentsLaterShop } from "./shop-onboarding";
 
 function siteUrl(path: string): string {
   const base = (getEnv().AUTH_URL ?? "https://gokesari.com").replace(/\/$/, "");
@@ -21,6 +22,8 @@ function siteUrl(path: string): string {
 
 export async function sendReadyForProductUpload(shop: Shop): Promise<void> {
   try {
+    // A shop registered with "add documents later" had no GST / PAN check (onboarding Phase B, G10).
+    const later = await isDocumentsLaterShop(shop.id);
     await notify({
       userId: shop.ownerId,
       type: NOTIFICATION_TYPES.SHOP_READY_FOR_PRODUCT_UPLOAD,
@@ -29,6 +32,10 @@ export async function sendReadyForProductUpload(shop: Shop): Promise<void> {
         shopId: shop.registrationNumber ?? shop.id,
         addProductsUrl: siteUrl("/shop/manage/products"),
         bulkUploadUrl: siteUrl("/shop/product-import"),
+        checkedLine: later
+          ? "Your registration fee is received,"
+          : "Your GST/PAN was verified with the government records and your registration fee is received,",
+        payoutLine: later ? ". Add your GST number or PAN on Documents before your first payout — payouts start once it is verified." : "",
       },
       actionUrl: "/shop/manage/products",
       dedupeKey: `shop-ready:${shop.id}`,
