@@ -25,6 +25,10 @@ export default async function OnboardingPage() {
   const step = nextOnboardingStep(profile);
   const returnTo = safeReturnPath((await cookies()).get(RETURN_TO_COOKIE)?.value) ?? "/";
   if (step === "DONE") redirect(returnTo);
+  // Onboarding Phase B (G2): someone registering a shop goes straight back to it. The shop
+  // registration asks for what it needs (name, mobile); the customer profile and the customer
+  // referral code can wait — they must not send a new seller away from their registration.
+  if (returnTo.startsWith("/shop/register")) redirect(returnTo);
 
   if (step === "MOBILE") {
     return (

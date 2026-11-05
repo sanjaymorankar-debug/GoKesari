@@ -69,7 +69,7 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   paid_support_services_enabled:
     "The Support Services page for shop owners: general support, product upload and price update, with the charges set by an admin.",
   shop_onboarding_wizard_enabled:
-    "Add my shop opens the step-by-step wizard (GSTIN → details → Udyam → FSSAI → Shop Act → map → payment). The fee is paid once a document is verified (any missing one is promised within 30 days); a shop with every document verified goes live right after payment, a promised one waits for an admin or operator. Off: the long form for everyone, and the wizard's steps are refused; only an admin can open the wizard, at /shop/register?wizard=1, for testing.",
+    "Add my shop opens the step-by-step wizard (referral → GST or PAN, or \"add documents later\" → confirm details → pay → live → map pin → categories → products). A shop whose GSTIN or PAN is verified goes live right after payment in every district; otherwise it waits for an admin. \"Add documents later\" shops go live on payment and their payouts wait for a verified GSTIN or PAN. Off: the long form for everyone, and the wizard's steps are refused; only an admin can open the wizard, at /shop/register?wizard=1, for testing.",
   rider_bank_account_enabled:
     "Delivery partners add and verify their bank account under My wallet (the same personal account customers use for refunds). Changing or removing a verified account needs an emailed code.",
   rider_withdrawal_enabled:

@@ -27,6 +27,7 @@ import { and, eq, isNull, ne, sql } from "drizzle-orm";
 
 import { GST_DECLARATION_VERSION, SELLER_VERIFICATION_CONSENT_VERSION } from "@/lib/kyc/consent";
 import { parseSellerDocNumber, PAN_HOLDER_TYPES, type ParsedDocNumber, type PanHolderType } from "@/lib/kyc/doc-formats";
+import { gstState } from "@/lib/gst-states";
 import { bestNameMatch } from "@/lib/kyc/name-match";
 import { AppError, conflict, notFound, validationFailed } from "@/lib/errors";
 import { docBlindIndex, encryptSecret } from "@/lib/pan-crypto";
@@ -99,6 +100,9 @@ export interface ShopRegistrationDraftView {
     constitution: string | null;
     address: string | null;
     stateCode: string | null;
+    /** Onboarding Phase B (G5): the state's name and the city, read from the GST record. */
+    state: string | null;
+    city: string | null;
     pincode: string | null;
   };
   /** True when the owner may go on to the shop details step. */
@@ -110,6 +114,22 @@ export function message(status: DraftCheckStatus, errorCode: string | null): str
   if (status === "PENDING") return PENDING_MESSAGE;
   const known = errorCode ? MESSAGES[errorCode] : undefined;
   return known ?? (status === "MANUAL_REVIEW" ? REVIEW_MESSAGE : "We couldn't verify this number. Please check it and try again.");
+}
+
+/**
+ * The city in a GST principal-place address ("12, MG Road, Shivaji Nagar, Pune, Maharashtra, 411001"):
+ * the last part before the state name and PIN. Null when it cannot be told apart.
+ */
+export function cityFromAddress(address: string | null, stateCode: string | null, pincode: string | null): string | null {
+  if (!address) return null;
+  const state = gstState(stateCode)?.name.toUpperCase() ?? null;
+  const parts = address
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .filter((p) => !/^\d{6}$/.test(p) && p !== pincode && p.toUpperCase() !== state && !/^\d+$/.test(p));
+  const last = parts.length > 1 ? parts[parts.length - 1] : null;
+  return last && /^[A-Za-z][A-Za-z .'-]{1,59}$/.test(last) ? last : null;
 }
 
 export function str(value: unknown): string | null {
@@ -165,6 +185,8 @@ export function toDraftView(draft: ShopRegistrationDraft): ShopRegistrationDraft
       constitution: gstVerified ? str(gst.constitution) : null,
       address: gstVerified ? str(gst.address) : null,
       stateCode: gstVerified ? str(gst.stateCode) : null,
+      state: gstVerified ? (gstState(str(gst.stateCode))?.name ?? null) : null,
+      city: gstVerified ? cityFromAddress(str(gst.address), str(gst.stateCode), str(gst.pincode)) : null,
       pincode: gstVerified ? str(gst.pincode) : null,
     },
     canContinue,

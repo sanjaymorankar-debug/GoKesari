@@ -1016,6 +1016,13 @@
       "when": 1793176170000,
       "tag": "0144_dealer_commission_no_cap",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1793176230000,
+      "tag": "0145_shop_onboarding_steps",
+      "breakpoints": true
     }
   ]
 }

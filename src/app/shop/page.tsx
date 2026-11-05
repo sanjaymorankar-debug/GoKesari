@@ -4,6 +4,7 @@ import { HashRedirect } from "@/components/board/hash-redirect";
 import { ShopBoard } from "@/components/board/shop-board";
 import { RegisterOptions } from "@/components/seller/register-options";
 import { SellerHome, type ShopAlert } from "@/components/seller/seller-home";
+import { SetupChecklist } from "@/components/seller/setup-checklist";
 import { tr, UI, type Lang } from "@/lib/board/i18n";
 import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
 import { groupSellerMenus } from "@/lib/seller/nav";
@@ -20,6 +21,7 @@ import { getShopLegalStatus, type ShopLegalStatus } from "@/server/services/lega
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { isReferralRequired } from "@/server/services/referral-settings";
 import { getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
+import { getShopSetupChecklist } from "@/server/services/shop-setup-checklist";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -70,7 +72,7 @@ export default async function ShopDashboardPage() {
 
   const shop = await activeShop(shops);
   const window = defaultWindow(30);
-  const [lang, header, board, suspension, onboarding, wallet, legalStatus, bankPrompt, kpis] = await Promise.all([
+  const [lang, header, board, suspension, onboarding, wallet, legalStatus, bankPrompt, kpis, setup] = await Promise.all([
     getBoardLang(),
     getBoardHeaderData(user),
     loadShopBoard(shop.id, user),
@@ -81,6 +83,8 @@ export default async function ShopDashboardPage() {
     shopBankPrompt(shop.id),
     // The shop's last 30 days for the performance card; best-effort, and only for owners who may see reports.
     can(user.role, PERMISSIONS.REPORT_VIEW_SHOP) ? getMarketplaceKpis({ ...window, shopId: shop.id }).catch(() => null) : Promise.resolve(null),
+    // Best-effort: the home page never fails because the checklist could not be read.
+    getShopSetupChecklist(shop).catch(() => null),
   ]);
 
   const alerts = shopAlerts(lang, {
@@ -92,6 +96,24 @@ export default async function ShopDashboardPage() {
     legalStatus,
     bankPrompt,
   });
+  // "Finish set-up" (onboarding Phase B, G20): one line on the touch-screen board, which must fit one
+  // screen; the whole checklist on wide screens and on its own page.
+  const boardAlerts: ShopAlert[] =
+    setup && !setup.complete
+      ? [
+          ...alerts.filter((a) => a.tone === "danger"),
+          {
+            key: "setup",
+            tone: "warning",
+            icon: "clipboard-check",
+            title: tr(UI.setupTitle, lang),
+            detail: `${setup.done} / ${setup.total} ${tr(UI.setupDone, lang)}`,
+            action: tr(UI.next, lang),
+            href: "/shop/setup",
+          },
+          ...alerts.filter((a) => a.tone !== "danger"),
+        ]
+      : alerts;
   const docs = legalStatus.enabled ? legalStatus.documents : [];
   // "Share" and "Public page" link to /shops/<slug>, which serves approved shops only; without a slug they are hidden.
   const publicSlug = shop.status === "APPROVED" ? shop.slug : "";
@@ -101,10 +123,11 @@ export default async function ShopDashboardPage() {
       <HashRedirect map={OLD_SECTIONS} />
       {/* Touch screens: the approved Tile Board, every menu on one screen. */}
       <div className="lg:hidden">
-        <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: publicSlug }} data={board} alerts={alerts} />
+        <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: publicSlug }} data={board} alerts={boardAlerts} />
       </div>
       {/* Wide screens: the Seller Central home. */}
       <div className="hidden lg:block">
+        {setup ? <SetupChecklist lang={lang} checklist={setup} shareHref={publicSlug ? `/shops/${publicSlug}` : null} /> : null}
         <SellerHome
           lang={lang}
           userName={user.name}
@@ -173,7 +196,16 @@ function shopAlerts(
     out.push({ key: "legalSoon", tone: "warning", icon: "file-check", title: tr(UI.legalDocsDue, lang), detail: pending.map((d) => d.label).join(", "), action: tr(UI.upload, lang), href: "/shop/legal-documents" });
   }
   if (s.bankPrompt && s.bankPrompt !== "VERIFIED") {
-    out.push({ key: "bank", tone: "warning", icon: "landmark", title: tr(UI.addPayoutBank, lang), action: tr(UI.fixNow, lang), href: "/shop/bank-account" });
+    // Owner, 05-Nov-2026 (D4): on every sign-in until verified — payouts wait for it.
+    out.push({
+      key: "bank",
+      tone: s.bankPrompt === "PENDING" ? "warning" : "danger",
+      icon: "landmark",
+      title: tr(UI.bankNotSet, lang),
+      detail: tr(s.bankPrompt === "PENDING" ? UI.bankPendingDetail : UI.bankNotSetDetail, lang),
+      action: tr(UI.fixNow, lang),
+      href: "/shop/bank-account",
+    });
   }
   return out;
 }

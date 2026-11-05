@@ -847,6 +847,13 @@ export const RULES = {
       .refine((w) => w.activatedShops + w.registrationQuality + w.activity30 + w.costPerActivatedShop + w.coverage === 100, { message: "The weights must add up to 100." }),
     defaults: { activatedShops: 35, registrationQuality: 20, activity30: 20, costPerActivatedShop: 15, coverage: 10 },
   },
+  starterShelf: {
+    description:
+      "Starter shelf for a new shop (onboarding Phase B): after it chooses its categories, the registration offers up to size products from those categories — the ones most other shops stock — already ticked, priced at their MRP and with defaultStock units, for the owner to adjust and publish in one go. Off: the products step only links to Excel upload and adding one by one.",
+    schema: z.object({ enabled: z.boolean(), size: int(1, 200), defaultStock: int(0, 100000) }),
+    // Owner, 05-Nov-2026 (D2): 100 products, shown with stock 100; the owner edits his own quantity.
+    defaults: { enabled: true, size: 100, defaultStock: 100 },
+  },
   registrationFeeByTurnover: {
     description:
       "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in slabs (src/lib/registration-fee.ts): slabs is a list of { upToRupees, feePaise } — turnover up to a slab's upToRupees pays its feePaise; the last slab has upToRupees null and covers everything above. An admin adds or removes slabs (up to 20) in Admin → Registration fees → Fee by turnover. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it. A value saved in the older three-slab form (slab1UpToRupees … slab3FeePaise) is read as the same three slabs.",
@@ -1117,10 +1124,11 @@ export const RULES = {
       nameMatchThreshold: int(50, 100),
       maxAttemptsPerDay: int(1, 20),
     }),
+    // Owner, 05-Nov-2026 (onboarding Phase B, D4): a shop is paid out only to a verified bank account.
     defaults: {
-      enabled: false,
+      enabled: true,
       verificationAmountPaise: 100,
-      requireVerifiedForShopPayouts: false,
+      requireVerifiedForShopPayouts: true,
       requireVerifiedForBankRefunds: true,
       nameMatchThreshold: 80,
       maxAttemptsPerDay: 5,

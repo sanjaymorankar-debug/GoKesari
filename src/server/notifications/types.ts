@@ -293,6 +293,8 @@ export const NOTIFICATION_TYPES = {
   SHOP_REGISTRATION_FEE_FAILED: "shop.registration_fee_failed",
   /** To administrators: an operator-onboarded shop's fee failed or expired; it is pending their approval. */
   SUPPORT_SHOP_FEE_FAILED: "support.shop_registration_fee_failed",
+  /** To administrators (onboarding Phase B, G14): a shop paid its fee but was not approved automatically — review it. */
+  SUPPORT_SHOP_PAID_PENDING: "support.shop_paid_pending_review",
   /** To whoever started it: a product-master import finished (counts, error file). */
   PMD_IMPORT_FINISHED: "product.master_import_finished",
   /* <<< end WS-D */
@@ -343,6 +345,9 @@ export const NOTIFICATION_TYPES = {
   DEALER_ASSISTED_SHOP_REGISTERED: "dealer.assisted_shop_registered",
   /** To the dealer: a shop counted for them was approved. */
   DEALER_SHOP_APPROVED: "dealer.shop_approved",
+  /** Onboarding Phase B (B2): the shop's first products are live — to the owner and the dealer it is counted for. */
+  SHOP_FIRST_PRODUCTS_LIVE: "shop.first_products_live",
+  DEALER_SHOP_FIRST_PRODUCTS: "dealer.shop_first_products",
   /** To the dealer: a payout was made, with the bank reference. */
   DEALER_PAYOUT_PAID: "dealer.payout_paid",
   /** docs/dealer-programme: the month closed — registrations, commission earned, the payout drafted. */
