@@ -207,6 +207,7 @@ export const HOME = {
   footerLegal: L("Legal", "कानूनी", "कायदेशीर"),
   aboutUs: L("About Us", "हमारे बारे में", "आमच्याबद्दल"),
   contactUs: L("Contact Us", "संपर्क करें", "संपर्क करा"),
+  socialWelfarePolicy: L("Social Welfare Policy (Draft)", "सामाजिक कल्याण नीति (मसौदा)", "सामाजिक कल्याण धोरण (मसुदा)"),
   sellOnGoKesari: L("Sell on GoKesari", "GoKesari पर बेचें", "GoKesari वर विका"),
   becomeDeliveryPartner: L("Become a Delivery Partner", "डिलीवरी पार्टनर बनें", "डिलिव्हरी पार्टनर व्हा"),
   sellerTerms: L("Seller Terms", "विक्रेता शर्तें", "विक्रेता अटी"),

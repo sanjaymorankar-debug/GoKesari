@@ -48,4 +48,5 @@ export const LEGAL_DOCS: readonly LegalDocMeta[] = [
   { slug: "voucher-terms", title: "Voucher Terms", shortLabel: "Voucher Terms" },
   { slug: "seller-terms", title: "Marketplace Seller Terms", shortLabel: "Seller Terms" },
   { slug: "grievance-redressal", title: "Grievance Redressal", shortLabel: "Grievance Redressal" },
+  { slug: "social-welfare-policy", title: "Profit Allocation & Social Welfare Policy (Draft)", shortLabel: "Social Welfare Policy (Draft)" },
 ] as const;
