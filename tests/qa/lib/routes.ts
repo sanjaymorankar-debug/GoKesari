@@ -112,6 +112,8 @@ export const PUBLIC_PAGES = new Set([
   "/legal/refund-policy",
   "/legal/seller-terms",
   "/legal/shipping-policy",
+  // Published 06-Nov-2026 (PR 354): a public legal page like the others.
+  "/legal/social-welfare-policy",
   "/legal/subscription-terms",
   "/legal/terms",
   "/legal/voucher-terms",

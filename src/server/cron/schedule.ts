@@ -150,7 +150,14 @@ interface Job {
 /** The order is the order of urgency: customer-facing timeouts first, long imports last. */
 export const EVERY_MINUTE: readonly Job[] = [
   { name: "timeout-sweep", run: timeoutSweep },
-  { name: "notification-retry", run: async () => (await import("@/server/services/notifications")).deliverPending() },
+  {
+    name: "notification-retry",
+    run: async () => ({
+      ...(await (await import("@/server/services/notifications")).deliverPending()),
+      // Onboarding Phase 2 (WP4): notices that came due (e.g. registration reminders, set by the owner's own steps).
+      scheduled: await (await import("@/server/services/scheduled-notices")).deliverDueScheduledNotices(),
+    }),
+  },
   { name: "broadcast-dispatch", run: async () => (await import("@/server/services/broadcasts")).dispatchBroadcasts() },
   { name: "integration-sync", run: integrationSync },
   { name: "payments-reconcile", everyMinutes: 5, run: paymentsReconcile },

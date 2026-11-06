@@ -1023,6 +1023,20 @@
       "when": 1793176230000,
       "tag": "0145_shop_onboarding_steps",
       "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1793264400000,
+      "tag": "0146_shop_delivery_choice",
+      "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1793264500000,
+      "tag": "0147_scheduled_notices",
+      "breakpoints": true
     }
   ]
 }

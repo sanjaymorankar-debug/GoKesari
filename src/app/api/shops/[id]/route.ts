@@ -16,6 +16,7 @@ import {
   requiredText,
   shopImageUrlSchema,
 } from "@/lib/shop-settings";
+import { SHOP_DELIVERY_CHOICES } from "@/lib/shop-delivery-choice";
 import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { getShopAccess, requireShopAccess } from "@/server/authz/guards";
@@ -72,6 +73,8 @@ const schema = z
     // "Shop time" — opening hours per weekday (§9): HH:MM, open ≠ close, each day once (TC-FLD-052).
     openingHours: openingHoursSchema.optional(),
     deliveryAvailable: z.boolean().optional(),
+    /** Onboarding Phase 2 "How you deliver" (lib/shop-delivery-choice.ts). */
+    deliveryChoice: z.enum(SHOP_DELIVERY_CHOICES).optional(),
     // Bounded amounts (TC-FLD-051, TC-FLD-053): ₹5,000 fee, ₹1 lakh minimum order / free-delivery threshold.
     deliveryFeePaise: deliveryFeePaiseSchema.optional(),
     freeDeliveryAbovePaise: freeDeliveryAbovePaiseSchema.nullish(),

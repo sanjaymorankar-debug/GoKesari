@@ -85,6 +85,7 @@ import {
   stateCodeForPincode,
   type RegistrationCheck,
 } from "./seller-verification";
+import { syncRegistrationReminder } from "./scheduled-notices";
 import { getRule } from "./settings";
 import {
   assertOwnerExists,
@@ -330,6 +331,8 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
 
   // The onboarding funnel (Phase B, B3): when this registration first reached its current step.
   await recordStepReached(draft.id, nextStep);
+  // Phase 2 (WP4): a registration before go-live is reminded 24 h after its last step; else cancelled.
+  await syncRegistrationReminder(draft, nextStep);
   const documents = await draftDocuments(draft, checks, details, foodShop);
   const feeRule = await getRule("registrationFeeByTurnover");
   const membershipMonths = (await getRule("shopMembership")).periodMonths;

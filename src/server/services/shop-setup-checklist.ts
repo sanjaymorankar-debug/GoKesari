@@ -34,7 +34,7 @@ export interface ShopSetupChecklist {
 }
 
 export async function getShopSetupChecklist(
-  shop: Pick<Shop, "id" | "status" | "latitude" | "longitude" | "deliveryAvailable">,
+  shop: Pick<Shop, "id" | "status" | "latitude" | "longitude" | "deliveryAvailable" | "deliveryChoice">,
 ): Promise<ShopSetupChecklist | null> {
   // A shop that is not live yet has its own next step (the approval alert); a rejected or
   // suspended one has bigger problems than its set-up.
@@ -57,7 +57,8 @@ export async function getShopSetupChecklist(
     },
     // null: bank verification is switched off on this site — nothing to ask for.
     ...(bank === null ? [] : [{ key: "bank" as const, done: bank === "VERIFIED", href: "/shop/bank-account" }]),
-    { key: "delivery", done: shop.deliveryAvailable, href: "/shop/manage/location" },
+    // Phase 2 (WP3): answered "How you deliver" — pickup only counts as done too.
+    { key: "delivery", done: shop.deliveryChoice != null || shop.deliveryAvailable, href: "/shop/setup/delivery" },
     { key: "documents", done: hold === null, href: "/shop/documents" },
   ];
   const done = items.filter((i) => i.done).length;

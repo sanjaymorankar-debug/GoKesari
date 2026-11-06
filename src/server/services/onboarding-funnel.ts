@@ -110,3 +110,50 @@ export async function getOnboardingFunnel(days = 30): Promise<OnboardingFunnel> 
     abandonedAt: stopped.map((r) => ({ step: String(r.step), count: n(r.count) })),
   };
 }
+
+export interface IdleRegistration {
+  draftId: string;
+  ownerName: string | null;
+  ownerEmail: string;
+  ownerPhone: string | null;
+  /** The step the registration is waiting on (its latest step reached). */
+  step: string | null;
+  referralCode: string | null;
+  idleHours: number;
+  /** Reminders already sent (onboarding Phase 2, WP4): 0, 1 or 2. */
+  remindersSent: number;
+}
+
+/**
+ * Onboarding Phase 2 (WP4): registrations not finished and untouched for `minIdleHours` or more,
+ * longest idle first — the list an operator calls from. OPEN drafts and submitted ones with the
+ * fee still due; the owner's contact, step, code and how many reminders went out.
+ */
+export async function listIdleRegistrations(minIdleHours = 24, limit = 200): Promise<IdleRegistration[]> {
+  const rows = (await db.execute(sql`
+    select d.id as draft_id, u.name as owner_name, u.email as owner_email, u.phone_e164 as owner_phone,
+           d.referral_code,
+           (select s.step from shop_onboarding_steps s where s.draft_id = d.id order by s.reached_at desc limit 1) as step,
+           floor(extract(epoch from (now() - d.updated_at)) / 3600)::int as idle_hours,
+           coalesce((select case when n.sent_at is not null then n.stage else n.stage - 1 end
+                     from scheduled_notices n where n.key = 'registration-idle:' || d.id::text and n.cancelled_at is null), 0) as reminders_sent
+    from shop_registration_drafts d
+    join users u on u.id = d.owner_id
+    left join shops sh on sh.id = d.shop_id
+    where d.updated_at < now() - make_interval(hours => ${minIdleHours})
+      and (d.status = 'OPEN'
+           or (d.status = 'SUBMITTED' and sh.id is not null and sh.fee_payment_status in ('PENDING', 'PARTIALLY_PAID') and coalesce(sh.registration_fee_paise, 0) > coalesce(sh.amount_paid_paise, 0)))
+    order by d.updated_at asc
+    limit ${limit}
+  `)) as unknown as Raw[];
+  return rows.map((r) => ({
+    draftId: String(r.draft_id),
+    ownerName: (r.owner_name as string | null) ?? null,
+    ownerEmail: String(r.owner_email),
+    ownerPhone: (r.owner_phone as string | null) ?? null,
+    step: (r.step as string | null) ?? null,
+    referralCode: (r.referral_code as string | null) ?? null,
+    idleHours: n(r.idle_hours),
+    remindersSent: n(r.reminders_sent),
+  }));
+}

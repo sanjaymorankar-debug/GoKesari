@@ -348,6 +348,12 @@ export const NOTIFICATION_TYPES = {
   /** Onboarding Phase B (B2): the shop's first products are live — to the owner and the dealer it is counted for. */
   SHOP_FIRST_PRODUCTS_LIVE: "shop.first_products_live",
   DEALER_SHOP_FIRST_PRODUCTS: "dealer.shop_first_products",
+  /**
+   * Onboarding Phase 2 (WP4): a shop registration has had no step for 24 h (stage 1) or 72 h
+   * (stage 2) — to the owner with a resume link; at stage 2 also to the dealer whose code it used.
+   */
+  SHOP_REGISTRATION_IDLE: "shop.registration_idle",
+  DEALER_REGISTRATION_IDLE: "dealer.registration_idle",
   /** To the dealer: a payout was made, with the bank reference. */
   DEALER_PAYOUT_PAID: "dealer.payout_paid",
   /** docs/dealer-programme: the month closed — registrations, commission earned, the payout drafted. */

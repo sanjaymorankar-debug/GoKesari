@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { FUNNEL_STAGES, getOnboardingFunnel, type FunnelStage } from "@/server/services/onboarding-funnel";
+import { FUNNEL_STAGES, getOnboardingFunnel, listIdleRegistrations, type FunnelStage } from "@/server/services/onboarding-funnel";
 
 export const metadata = { title: "Shop onboarding funnel" };
 export const dynamic = "force-dynamic";
@@ -42,7 +42,7 @@ export default async function OnboardingFunnelPage({ searchParams }: { searchPar
   if (!user) redirect("/signin");
   if (!can(user.role, PERMISSIONS.SHOP_REGISTRATION_MANAGE)) redirect("/");
   const days = [7, 30, 90].includes(Number((await searchParams).days)) ? Number((await searchParams).days) : 30;
-  const funnel = await getOnboardingFunnel(days);
+  const [funnel, idle] = await Promise.all([getOnboardingFunnel(days), listIdleRegistrations()]);
   const all = funnel.rows.find((r) => r.source === "ALL");
   const pct = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : "—");
 
@@ -134,6 +134,49 @@ export default async function OnboardingFunnelPage({ searchParams }: { searchPar
               </li>
             ))}
           </ul>
+        )}
+      </Card>
+
+      <Card className="mt-4 overflow-x-auto p-0" data-testid="idle-registrations">
+        <div className="p-4 pb-2">
+          <h2 className="text-base font-semibold text-ink-900">Unfinished registrations to call</h2>
+          <p className="text-sm text-ink-500">
+            Not finished and untouched for a day or more, longest first. The owner is reminded at 24 h and 72 h; at 72 h the dealer whose code they used is told too.
+          </p>
+        </div>
+        {idle.length === 0 ? (
+          <p className="px-4 pb-4 text-sm text-ink-600">None.</p>
+        ) : (
+          <table className="w-full min-w-[44rem] text-sm">
+            <caption className="sr-only">Unfinished registrations</caption>
+            <thead className="bg-cream-50 text-left text-ink-600">
+              <tr>
+                <th scope="col" className="p-3">Owner</th>
+                <th scope="col" className="p-3">Contact</th>
+                <th scope="col" className="p-3">Stopped at</th>
+                <th scope="col" className="p-3">Code</th>
+                <th scope="col" className="p-3 text-right">Idle</th>
+                <th scope="col" className="p-3 text-right">Reminders</th>
+              </tr>
+            </thead>
+            <tbody>
+              {idle.map((r) => (
+                <tr key={r.draftId} className="border-t border-cream-100">
+                  <th scope="row" className="p-3 text-left font-medium">{r.ownerName ?? "—"}</th>
+                  <td className="p-3">
+                    {r.ownerPhone ? (
+                      <a href={`tel:${r.ownerPhone}`} className="block text-kesari-800 underline">{r.ownerPhone}</a>
+                    ) : null}
+                    <a href={`mailto:${r.ownerEmail}`} className="block text-ink-600 underline">{r.ownerEmail}</a>
+                  </td>
+                  <td className="p-3">{r.step ? (STEP_LABEL[r.step] ?? r.step) : "—"}</td>
+                  <td className="p-3 font-mono">{r.referralCode ?? "—"}</td>
+                  <td className="p-3 text-right tabular-nums">{r.idleHours >= 48 ? `${Math.floor(r.idleHours / 24)} d` : `${r.idleHours} h`}</td>
+                  <td className="p-3 text-right tabular-nums">{r.remindersSent}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </Card>
     </div>
