@@ -180,7 +180,7 @@ describe("WP2 barcode", () => {
     expect(found?.match).toMatchObject({ productId: p.id, mrpPaise: 3_000, approved: true, listed: false });
     await createShopProduct(shop.id, p.id);
     expect((await findProductByBarcode(shop.id, "8901234567897"))?.match?.listed).toBe(true);
-    expect((await findProductByBarcode(shop.id, "1234567")).match).toBeNull();
+    expect((await findProductByBarcode(shop.id, "1234567"))?.match).toBeNull();
     expect(await findProductByBarcode(shop.id, "12")).toBeNull();
   });
 
