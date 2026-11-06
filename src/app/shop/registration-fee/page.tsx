@@ -15,12 +15,13 @@ import {
 import { getRule } from "@/server/services/settings";
 import { shopDocumentGate } from "@/server/services/shop-document-gate";
 import { listShopsForOwner } from "@/server/services/shops";
+import { wizardContinuePath } from "@/server/services/shop-registration-wizard";
 
 export const metadata = { title: "Registration fee" };
 export const dynamic = "force-dynamic";
 
 /**
- * Add my shop → the one-time registration fee, paid online. Reached straight
+ * Add my shop → the registration fee (yearly: it starts a 12-month membership), paid online. Reached straight
  * after Submit, from the "pay the fee" link while the registration waits, and
  * back from the gateway (`?intent=`), when the payment is checked. Owner
  * decision 29 Oct 2026: the documents come first — the fee is paid once they
@@ -46,6 +47,11 @@ export default async function RegistrationFeePage({
   const shop = await checkRegistrationFeePayment(shopId, params.intent ?? null, user.id).catch(() => null);
   if (!shop) redirect("/shop");
   const due = registrationFeeDue(shop);
+  // Paid (or nothing due) on a wizard registration: carry on in the wizard (Phase B, G13).
+  if (due === 0) {
+    const next = await wizardContinuePath(user.id, shop.id);
+    if (next) redirect(next);
+  }
   const fee = shop.registrationFeePaise ?? 0;
   // An admin waiver sets the fee to 0 but keeps the quote's base / GST snapshot: show the waiver as a line (D-107).
   const quoted =
@@ -56,14 +62,14 @@ export default async function RegistrationFeePage({
   const attempt = due > 0 ? await latestRegistrationFeeAttempt(shop.id, user.id) : null;
   const returned = typeof params.intent === "string";
   const documentsHref = `/shop/documents?shop=${shop.id}`;
-  const [gate, followUp] = await Promise.all([shopDocumentGate(shop), getRule("shopDocumentFollowUp")]);
+  const [gate, followUp, membership] = await Promise.all([shopDocumentGate(shop), getRule("shopDocumentFollowUp"), getRule("shopMembership")]);
   const dateIn = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
 
   return (
     <div className="mx-auto max-w-xl">
       <PageHeader
         title="Registration fee"
-        description="A one-time fee to register on GoKesari. Your documents are checked first; then pay it online and the review of your shop goes ahead."
+        description={`A yearly fee to sell on GoKesari: it covers ${membership.periodMonths} months and renews after that. Pay it online and your shop goes live as soon as its checks pass.`}
       />
 
       <ol className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-sm" aria-label="Registration steps">
@@ -119,7 +125,7 @@ export default async function RegistrationFeePage({
               ) : null}
             </>
           ) : null}
-          <dt className="text-ink-500">One-time registration fee{shop.registrationFeeGstRateBp !== null ? " (total)" : ""}</dt>
+          <dt className="text-ink-500">Registration fee, {membership.periodMonths} months{shop.registrationFeeGstRateBp !== null ? " (total)" : ""}</dt>
           <dd className="text-right font-medium text-ink-900">
             <Money paise={fee} />
           </dd>

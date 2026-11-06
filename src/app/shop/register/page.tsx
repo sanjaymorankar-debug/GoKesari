@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export default async function RegisterShopPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string | string[]; code?: string | string[]; wizard?: string | string[]; form?: string | string[] }>;
+  searchParams: Promise<{ ref?: string | string[]; code?: string | string[]; wizard?: string | string[]; form?: string | string[]; new?: string | string[] }>;
 }) {
   const params = await searchParams;
   // docs/dealer-programme: a dealer's share link (/shop/register?ref=CODE) fills in the referral code;
@@ -62,7 +62,10 @@ export default async function RegisterShopPage({
   // docs/shop-onboarding-wizard-2026-10: the step-by-step wizard when its flag is on; while it is off only
   // an admin gets it, with ?wizard=1 (testing on staging). ?form=1 keeps the long form reachable for operators.
   if (await showsWizard(user, params)) {
-    const draft = await getWizardDraft(user);
+    const current = await getWizardDraft(user);
+    // Onboarding Phase B (G24): "Register another shop" — an owner whose last registration is
+    // submitted starts a new one (a registration still open is always resumed instead).
+    const draft = params.new === "1" && current && current.status !== "OPEN" ? null : current;
     return (
       <div className="mx-auto max-w-2xl">
         <PageHeader title="Register your shop" description="A few quick steps. We check your documents with the government records as you go — or you add them after your shop is live." />

@@ -10870,6 +10870,22 @@ export const shopRegistrationDrafts = pgTable(
     check("shop_registration_drafts_route", sql`${t.route} IS NULL OR ${t.route} in ('GSTIN', 'PAN_ONLY')`),
   ],
 );
+
+/**
+ * Onboarding Phase B (B3, drizzle/0145): when each shop registration first reached each wizard step —
+ * the onboarding funnel's time-per-step and drop-off. Written once per (draft, step).
+ */
+export const shopOnboardingSteps = pgTable(
+  "shop_onboarding_steps",
+  {
+    draftId: uuid("draft_id")
+      .notNull()
+      .references(() => shopRegistrationDrafts.id, { onDelete: "cascade" }),
+    step: text("step").notNull(),
+    reachedAt: timestamp("reached_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: "shop_onboarding_steps_pk", columns: [t.draftId, t.step] }), index("shop_onboarding_steps_reached_idx").on(t.reachedAt)],
+);
 export type ShopRegistrationDraft = typeof shopRegistrationDrafts.$inferSelect;
 
 export const DRAFT_CHECK_DOC_TYPES = ["UDYAM", "FSSAI", "SHOP_ACT"] as const;

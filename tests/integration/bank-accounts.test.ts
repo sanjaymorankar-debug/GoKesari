@@ -393,7 +393,9 @@ describe("shop payout account", () => {
     expect((await call(adminListRoute, "/api/admin/bank-accounts")).status).toBe(403);
   });
 
-  it("with the payout rule off (default), payouts go ahead as before", async () => {
+  it("with the payout rule switched off, payouts go ahead as before", async () => {
+    // Owner, 05-Nov-2026 (onboarding Phase B, D4): the rule is on by default now; an admin can switch it off.
+    await setRule("bankAccounts", { enabled: true, requireVerifiedForShopPayouts: false }, admin);
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id);
     const [settlement] = await db

@@ -345,7 +345,8 @@ export function Alert({
     success: "border-leaf-300 bg-leaf-50 text-leaf-700",
   } as const;
   return (
-    <div className={clsx("rounded-lg border p-3 text-sm", tones[tone])}>
+    // Announced to screen readers when it appears (onboarding Phase B, G29): errors at once, the rest politely.
+    <div className={clsx("rounded-lg border p-3 text-sm", tones[tone])} role={tone === "danger" ? "alert" : "status"}>
       {title ? <p className="font-semibold">{title}</p> : null}
       <div className={title ? "mt-0.5" : undefined}>{children}</div>
     </div>

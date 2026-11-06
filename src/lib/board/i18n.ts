@@ -157,6 +157,28 @@ export const UI = {
   rechargeWallet: L("Shop wallet is low — recharge", "दुकान वॉलेट कम है — रिचार्ज करें", "दुकान वॉलेट कमी आहे — रिचार्ज करा"),
   legalDocsDue: L("Legal documents needed", "कानूनी दस्तावेज़ ज़रूरी", "कायदेशीर कागदपत्रे आवश्यक"),
   addPayoutBank: L("Add a verified payout bank account", "सत्यापित पेआउट बैंक खाता जोड़ें", "पडताळलेले पेआउट बँक खाते जोडा"),
+  // Owner, 05-Nov-2026 (D4): shown on every sign-in until the bank account is verified.
+  bankNotSet: L("Bank account not set — payouts are on hold", "बैंक खाता नहीं जुड़ा — पेआउट रुके हैं", "बँक खाते जोडलेले नाही — पेआउट थांबले आहेत"),
+  bankNotSetDetail: L(
+    "Add and verify your bank account. Payouts will not be processed until it is verified.",
+    "अपना बैंक खाता जोड़ें और सत्यापित करें। सत्यापन तक पेआउट नहीं होंगे।",
+    "तुमचे बँक खाते जोडा आणि पडताळा. पडताळणी होईपर्यंत पेआउट होणार नाहीत.",
+  ),
+  bankPendingDetail: L(
+    "Your bank account is being verified. Payouts start once it is verified.",
+    "आपका बैंक खाता सत्यापित हो रहा है। सत्यापन के बाद पेआउट शुरू होंगे।",
+    "तुमचे बँक खाते पडताळले जात आहे. पडताळणीनंतर पेआउट सुरू होतील.",
+  ),
+  // "Finish set-up" checklist (onboarding Phase B, G20)
+  setupTitle: L("Finish setting up your shop", "अपनी दुकान की सेटिंग पूरी करें", "तुमच्या दुकानाची मांडणी पूर्ण करा"),
+  setupDone: L("done", "पूरे", "पूर्ण"),
+  setupPin: L("Place your shop on the map", "नक्शे पर दुकान लगाएँ", "नकाशावर दुकान दाखवा"),
+  setupCategories: L("Choose what your shop sells", "दुकान क्या बेचती है चुनें", "दुकान काय विकते ते निवडा"),
+  setupProducts: L("List your first 10 products", "पहले 10 उत्पाद जोड़ें", "पहिली 10 उत्पादने जोडा"),
+  setupBank: L("Add and verify your bank account", "बैंक खाता जोड़ें और सत्यापित करें", "बँक खाते जोडा आणि पडताळा"),
+  setupDelivery: L("Set your delivery area", "डिलीवरी क्षेत्र तय करें", "डिलिव्हरी क्षेत्र ठरवा"),
+  setupDocuments: L("Add your GST or PAN to get paid", "भुगतान के लिए GST या PAN जोड़ें", "पेमेंटसाठी GST किंवा PAN जोडा"),
+  setupShare: L("Share your shop", "अपनी दुकान शेयर करें", "तुमचे दुकान शेअर करा"),
   upload: L("Upload", "अपलोड", "अपलोड"),
   recharge: L("Recharge", "रिचार्ज", "रिचार्ज"),
   // Lists, pages and states

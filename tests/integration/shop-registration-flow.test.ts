@@ -151,11 +151,15 @@ async function start(later: boolean) {
 }
 
 describe("the new first steps: referral code, shop email, documents handy?", () => {
-  it("a new registration starts at the referral code, then the email, then the documents question", async () => {
+  it("a new registration starts at the referral code, then goes straight to the documents with the account's email (Phase B)", async () => {
+    // Owner, 05-Nov-2026 (D3): the account's email is the shop's unless changed — no email screen,
+    // and no "documents now?" screen: the document window has its own "Add documents later".
     let view = await answerDraftReferral({ actor: owner, referralCode: null });
-    expect(view).toMatchObject({ nextStep: "EMAIL", referral: { answered: true, code: null, required: false }, email: { account: owner.email, confirmed: false } });
+    expect(view).toMatchObject({ nextStep: "IDENTITY", referral: { answered: true, code: null, required: false }, email: { account: owner.email, shop: owner.email, confirmed: true }, documentsLater: false });
     view = await chooseAccountEmailForShop({ actor: owner });
-    expect(view).toMatchObject({ nextStep: "DOCS_READY", email: { shop: owner.email, confirmed: true }, documentsLater: null });
+    expect(view).toMatchObject({ nextStep: "IDENTITY", email: { shop: owner.email, confirmed: true } });
+    view = await answerDocumentsReady({ actor: owner, later: true });
+    expect(view).toMatchObject({ nextStep: "DETAILS", documentsLater: true });
     view = await answerDocumentsReady({ actor: owner, later: false });
     expect(view).toMatchObject({ nextStep: "IDENTITY", documentsLater: false });
     // Resumed on another device at the same place.
@@ -171,7 +175,7 @@ describe("the new first steps: referral code, shop email, documents handy?", () 
     await expect(answerDraftReferral({ actor: owner, referralCode: "NOSUCH99" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     expect(await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id))).toHaveLength(0);
     await setReferralSetting("referral_required_shop", "OPTIONAL", admin);
-    expect((await answerDraftReferral({ actor: owner, referralCode: "" })).nextStep).toBe("EMAIL");
+    expect((await answerDraftReferral({ actor: owner, referralCode: "" })).nextStep).toBe("IDENTITY");
   });
 
   it("a different shop email is confirmed with an emailed code, bound to the owner", async () => {
@@ -187,7 +191,7 @@ describe("the new first steps: referral code, shop email, documents handy?", () 
       code: "VALIDATION_FAILED",
     });
     const view = await confirmDraftEmailCode({ actor: owner, email: "shop.owner@example.com", code });
-    expect(view).toMatchObject({ nextStep: "DOCS_READY", email: { shop: "shop.owner@example.com", confirmed: true } });
+    expect(view).toMatchObject({ nextStep: "IDENTITY", email: { shop: "shop.owner@example.com", confirmed: true } });
     // The code works once.
     await expect(confirmDraftEmailCode({ actor: owner, email: "shop.owner@example.com", code })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
@@ -289,17 +293,17 @@ describe("documents handy: No, upload later", () => {
 });
 
 describe("HTTP routes", () => {
-  it("referral → email (account) → documents-ready, each answering with the next step", async () => {
+  it("referral → email (changed) → documents-ready (later), each answering with the next step", async () => {
     await setFeatureFlag("shop_onboarding_wizard_enabled", { enabled: true, districtCodes: null }, "wizard flag (test)", admin);
     state.session = { user: { id: owner.id, email: owner.email, name: owner.name, image: null, role: "CUSTOMER", status: "ACTIVE" } };
     const referral = await call(referralRoute, "/api/shops/registration-draft/referral", { method: "POST", body: { referralCode: "" } });
     expect(referral.status).toBe(200);
-    expect(referral.body.nextStep).toBe("EMAIL");
+    expect(referral.body.nextStep).toBe("IDENTITY");
     const sent = await call(emailRoute, "/api/shops/registration-draft/email", { method: "POST", body: { email: "route@shop.example" } });
     expect(sent.status).toBe(200);
     expect(sent.body.codeSent.maskedEmail).toBeTruthy();
     const confirmed = await call(emailRoute, "/api/shops/registration-draft/email", { method: "POST", body: { email: "route@shop.example", code: lastCodeTo("route@shop.example") } });
-    expect(confirmed.body).toMatchObject({ nextStep: "DOCS_READY", email: { shop: "route@shop.example" } });
+    expect(confirmed.body).toMatchObject({ nextStep: "IDENTITY", email: { shop: "route@shop.example" } });
     const ready = await call(documentsReadyRoute, "/api/shops/registration-draft/documents-ready", { method: "POST", body: { later: true } });
     expect(ready.body).toMatchObject({ nextStep: "DETAILS", documentsLater: true });
 

@@ -116,6 +116,8 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
+    // docs/onboarding-benchmark (0145): shop_onboarding_steps points at shop_registration_drafts (0111).
+    await sql.unsafe(readFileSync("scripts/rollback-0145.sql", "utf8"));
     // docs/referrals-dealer-2026-11 (0136–0142): their tables point at dealers / dealer_salespeople (0104) and shops, newest first.
     for (const n of ["0142", "0141", "0140", "0139", "0138", "0137", "0136"]) await sql.unsafe(readFileSync(`scripts/rollback-${n}.sql`, "utf8"));
     // docs/gig-bank-payouts-2026-10 (0124): rider_bank_transfers points at bank_accounts (0063) and rider_payouts.
