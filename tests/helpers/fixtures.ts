@@ -61,6 +61,8 @@ function pgErrorCode(error: unknown): string | undefined {
 const RESET_TABLES = [
   // docs/billing: GoKesari's delivery-invoice series has no foreign key for the cascade to follow.
   "platform_delivery_invoice_counters",
+  // Onboarding Phase 2 (0147): scheduled notices have no foreign keys.
+  "scheduled_notices",
   "statutory_filings",
   "gsp_call_log",
   "credit_note_einvoices",

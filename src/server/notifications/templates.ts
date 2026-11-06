@@ -425,6 +425,15 @@ export const TEMPLATES: Record<string, Template> = {
     "Customers near you can now order from {{shopName}}. Check stock and prices any time in Products, and share your shop link to get your first order.",
     false,
   ),
+  [T.SHOP_REGISTRATION_IDLE]: t(
+    "Your shop is {{stepsLeft}} from going live",
+    "You stopped at \"{{stepLabel}}\". Everything you entered is saved — continue where you left off: {{resumeUrl}}",
+  ),
+  [T.DEALER_REGISTRATION_IDLE]: t(
+    "A shop with your code has not finished registering",
+    "{{ownerName}} started registering a shop with your code {{code}} 3 days ago and stopped at \"{{stepLabel}}\". A call may help them finish.",
+    false,
+  ),
   [T.DEALER_SHOP_FIRST_PRODUCTS]: t("{{shopName}} has listed its first products", "{{shopName}}, counted for you, now has {{count}} products live and can take orders.", false),
   [T.DEALER_SHOP_APPROVED]: t("Shop approved: {{shopName}}", "{{shopName}}, counted for you, is approved and can now add products and take orders."),
   [T.SHOP_READY_FOR_PRODUCT_UPLOAD]: t(

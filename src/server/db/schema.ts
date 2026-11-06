@@ -818,6 +818,12 @@ export const shops = pgTable(
      */
     serviceRadiusKm: integer("service_radius_km").notNull().default(5),
     /**
+     * Onboarding Phase 2 (WP3, migration 0146): the owner's answer to "How you deliver" —
+     * OWN_STAFF, GOKESARI_PARTNER or PICKUP_ONLY (lib/shop-delivery-choice.ts). Null until asked;
+     * the set-up checklist's delivery line is done once it is set.
+     */
+    deliveryChoice: text("delivery_choice", { enum: ["OWN_STAFF", "GOKESARI_PARTNER", "PICKUP_ONLY"] }),
+    /**
      * Extra delivery zones: PIN codes the shop delivers to in addition to its
      * radius (e.g. a neighbouring locality just outside it).
      */
@@ -10887,6 +10893,32 @@ export const shopOnboardingSteps = pgTable(
   (t) => [primaryKey({ name: "shop_onboarding_steps_pk", columns: [t.draftId, t.step] }), index("shop_onboarding_steps_reached_idx").on(t.reachedAt)],
 );
 export type ShopRegistrationDraft = typeof shopRegistrationDrafts.$inferSelect;
+
+/**
+ * Onboarding Phase 2 (WP4, migration 0147): notices due later — written and moved on by the user's
+ * own actions (a saved registration step sets its reminder 24 h ahead), sent by the every-minute
+ * notification job when due (services/scheduled-notices.ts). `key` makes one row per subject.
+ */
+export const scheduledNotices = pgTable(
+  "scheduled_notices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    key: text("key").notNull(),
+    stage: integer("stage").notNull().default(1),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    payload: jsonb("payload").$type<Record<string, string | null>>().notNull().default({}),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("scheduled_notices_key_unique").on(t.key),
+    index("scheduled_notices_due_idx").on(t.dueAt).where(sql`${t.sentAt} IS NULL AND ${t.cancelledAt} IS NULL`),
+  ],
+);
+export type ScheduledNotice = typeof scheduledNotices.$inferSelect;
 
 export const DRAFT_CHECK_DOC_TYPES = ["UDYAM", "FSSAI", "SHOP_ACT"] as const;
 export type DraftCheckDocType = (typeof DRAFT_CHECK_DOC_TYPES)[number];

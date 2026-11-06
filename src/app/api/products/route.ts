@@ -63,6 +63,8 @@ const schema = z
     offlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
     isAvailable: z.boolean().default(true),
     confirmDuplicate: z.boolean().default(false),
+    /** Onboarding Phase 2 (WP2): a scanned barcode that is not in the catalogue yet. */
+    barcode: z.string().trim().regex(/^[0-9A-Za-z]{6,32}$/, "Barcode: 6–32 digits or letters").nullish(),
   })
   .refine((v) => !v.onlineSaleEnabled || v.onlinePricePaise != null, {
     message: "An online price is required when online selling is enabled",

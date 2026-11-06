@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { BarcodeScanner } from "@/components/barcode-scanner";
 import { Alert, Button, inputClass } from "@/components/ui";
+import { PRODUCT_UNITS } from "@/lib/product-units";
 
 /**
  * Step 8 of the registration — the starter shelf (onboarding Phase B, services/starter-shelf.ts):
  * the products other shops in the chosen categories stock most, already ticked, priced at their
  * MRP and with the default stock (owner, 05-Nov-2026: 100 products × stock 100). The owner
  * unticks what they don't sell, changes a price or a quantity, and publishes them in one go.
+ * Phase 2 (WP2): "Scan a barcode" adds a pack from the catalogue to the list, ticked; a code the
+ * catalogue does not know becomes a new product for our team to approve (owner, Q9).
  */
 
 interface Item {
@@ -38,6 +42,10 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<{ productId: string; reason: string }[]>([]);
   const [discount, setDiscount] = useState("0");
+  const [defaultStock, setDefaultStock] = useState("100");
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState<{ tone: "info" | "success" | "warning" | "danger"; text: string } | null>(null);
+  const [unknown, setUnknown] = useState<{ code: string; name: string; unit: string; price: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +59,7 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
       }
       const list: Item[] = payload.enabled ? payload.items : [];
       setItems(list);
+      setDefaultStock(String(payload.defaultStock));
       setRows(
         Object.fromEntries(
           list.map((i) => [
@@ -107,12 +116,107 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
     if ((payload.added ?? 0) > 0) await onDone();
   }
 
+  /** A scanned or typed barcode: the catalogue product goes to the top of the list, ticked. */
+  const onCode = useCallback(
+    async (code: string) => {
+      setScanning(false);
+      setScanNote(null);
+      setUnknown(null);
+      const response = await fetch(`/api/shops/${shopId}/barcode-lookup?code=${encodeURIComponent(code)}`).catch(() => null);
+      const payload = await response?.json().catch(() => null);
+      if (!response?.ok || !payload) return setScanNote({ tone: "danger", text: payload?.error?.message ?? "Could not look up the barcode. Please try again." });
+      const match = payload.match as (Item & { approved: boolean; listed: boolean }) | null;
+      if (!match) return setUnknown({ code: payload.code, name: "", unit: "piece", price: "" });
+      if (match.listed) return setScanNote({ tone: "info", text: `${match.name} is already in your shop.` });
+      if (!match.approved) return setScanNote({ tone: "warning", text: `${match.name} is waiting for our team's approval — it can be listed once approved.` });
+      setItems((list) => [match, ...(list ?? []).filter((i) => i.productId !== match.productId)]);
+      setRows((r) => ({
+        ...r,
+        [match.productId]: { ticked: match.mrpPaise != null, price: match.mrpPaise != null ? rupees(match.mrpPaise) : "", stock: defaultStock },
+      }));
+      setScanNote({ tone: "success", text: `Added ${match.name}${match.mrpPaise != null ? ` at MRP ₹${rupees(match.mrpPaise)}` : " — set your price"}.` });
+    },
+    [shopId, defaultStock],
+  );
+
+  /** A barcode the catalogue does not know: a new product, on sale once our team approves it. */
+  async function addUnknown() {
+    if (!unknown) return;
+    const price = Math.round(Number(unknown.price) * 100);
+    if (unknown.name.trim().length < 2) return setScanNote({ tone: "danger", text: "Enter the product's name as printed on the pack." });
+    if (!Number.isFinite(price) || price < 1) return setScanNote({ tone: "danger", text: "Enter your selling price." });
+    const response = await fetch("/api/products", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        shopId,
+        name: unknown.name.trim(),
+        unit: unknown.unit,
+        barcode: unknown.code,
+        onlinePricePaise: price,
+        offlinePricePaise: price,
+        onlineSaleEnabled: true,
+        offlineSaleEnabled: true,
+        confirmDuplicate: true,
+      }),
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    if (!response?.ok) return setScanNote({ tone: "danger", text: payload?.error?.message ?? "Could not add the product. Please try again." });
+    setUnknown(null);
+    setScanNote({ tone: "success", text: "Sent to our team — it goes on sale in your shop once approved. We'll let you know." });
+  }
+
   if (loadError) return <Alert tone="danger">{loadError}</Alert>;
   if (!items) return <p className="text-sm text-ink-600">Finding products for your shop…</p>;
-  if (items.length === 0) return null;
+
+  const scan = (
+    <div className="space-y-2">
+      {scanning ? (
+        <BarcodeScanner onCode={(code) => void onCode(code)} onClose={() => setScanning(false)} />
+      ) : (
+        <Button type="button" variant="secondary" className="w-full" onClick={() => setScanning(true)} data-testid="shelf-scan">
+          📷 Scan a barcode
+        </Button>
+      )}
+      {scanNote ? (
+        <div role={scanNote.tone === "danger" ? "alert" : "status"}>
+          <Alert tone={scanNote.tone}>{scanNote.text}</Alert>
+        </div>
+      ) : null}
+      {unknown ? (
+        <div className="space-y-2 rounded-xl border border-[var(--gk-line)] bg-cream-50 p-3" data-testid="shelf-new-product">
+          <p className="text-sm text-ink-700">
+            <strong>{unknown.code}</strong> is not in our catalogue yet. Add it — it goes on sale once our team approves it.
+          </p>
+          <input className={inputClass} placeholder="Name as printed on the pack" value={unknown.name} onChange={(e) => setUnknown({ ...unknown, name: e.target.value })} aria-label="Product name" />
+          <div className="grid grid-cols-2 gap-2">
+            <select className={inputClass} value={unknown.unit} onChange={(e) => setUnknown({ ...unknown, unit: e.target.value })} aria-label="Unit">
+              {PRODUCT_UNITS.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+            <input className={inputClass} inputMode="decimal" placeholder="Your price ₹" value={unknown.price} onChange={(e) => setUnknown({ ...unknown, price: e.target.value })} aria-label="Selling price" />
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" onClick={() => void addUnknown()}>
+              Add product
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setUnknown(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (items.length === 0) return scan;
 
   return (
     <div className="space-y-3" data-testid="starter-shelf">
+      {scan}
       <p className="text-sm text-ink-700">
         <strong>{ticked.length}</strong> of {items.length} products ticked. Untick what you don&apos;t sell, and change the price or quantity where yours differs.
       </p>

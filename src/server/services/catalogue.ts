@@ -302,6 +302,8 @@ export interface CreateProductForShopInput {
   isAvailable?: boolean;
   /** Proceed even though a similar product was found (from a prior preview call). */
   confirmDuplicate?: boolean;
+  /** Onboarding Phase 2 (WP2): the code the owner scanned, kept on the new product for our team's review. */
+  barcode?: string | null;
 }
 
 /**
@@ -434,6 +436,8 @@ export async function createProductForShop(
         unit: input.unit.trim(),
         unitSizeMilli: input.unitSizeMilli ?? 1000,
         subscribable: input.subscribable ?? false,
+        // A scanned code goes to the shop-local barcode column (not unique); our team may make it the GTIN on review.
+        barcode: input.barcode ?? null,
         // A SHOP_OWNER's product must not be discoverable by other shops until
         // an admin publishes it; OPERATOR/ADMIN already hold that trust.
         approvalStatus: actor.role === "SHOP_OWNER" ? "PENDING_APPROVAL" : "APPROVED",

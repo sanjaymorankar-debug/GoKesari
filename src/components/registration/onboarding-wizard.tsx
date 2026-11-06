@@ -115,14 +115,17 @@ export interface WizardState {
  * checklist on the screen (owner brief 30 Oct 2026, FLOW_2026-10-30-b.md: the fee before the
  * address and map pin).
  */
+// Minutes per tile (Phase 2, F4): what a GST-registered owner with a code needs on each — the
+// five before payment add up to the 5-minute target to go live, the three after it to the
+// 3-minute target for the first products. Checked against the admin onboarding funnel's medians.
 const TILES = [
-  { n: 1, label: "Referral", icon: "🎟️", minutes: 5 },
-  { n: 2, label: "GST / PAN", icon: "🛡️", minutes: 4 },
-  { n: 3, label: "Confirm details", icon: "🏪", minutes: 2 },
+  { n: 1, label: "Referral", icon: "🎟️", minutes: 1 },
+  { n: 2, label: "GST / PAN", icon: "🛡️", minutes: 2 },
+  { n: 3, label: "Confirm details", icon: "🏪", minutes: 1 },
   { n: 4, label: "Pay", icon: "💳", minutes: 1 },
-  { n: 5, label: "Live", icon: "🚀", minutes: 3 },
-  { n: 6, label: "Map pin", icon: "📍", minutes: 3 },
-  { n: 7, label: "Category", icon: "🗂️", minutes: 2 },
+  { n: 5, label: "Live", icon: "🚀", minutes: 0 },
+  { n: 6, label: "Map pin", icon: "📍", minutes: 1 },
+  { n: 7, label: "Category", icon: "🗂️", minutes: 1 },
   { n: 8, label: "Products", icon: "📦", minutes: 1 },
 ] as const;
 
@@ -534,6 +537,23 @@ export function OnboardingWizard({
       {step === "DONE" && state?.shop ? (
         <StepCard title="Registration successful 🎉">
           <p className="text-sm text-ink-700">Your shop is set up: location, categories and products are in place.</p>
+          {/* Onboarding Phase 2 (WP3): the two set-up steps left after going live, each one tap away. */}
+          <div className="grid gap-2 sm:grid-cols-2" data-testid="done-next-steps">
+            <Link href="/shop/bank-account" className="flex min-h-14 items-center gap-3 rounded-xl border border-[var(--gk-line)] bg-white px-3 py-2 text-sm">
+              <span aria-hidden className="text-xl">🏦</span>
+              <span>
+                <strong className="block text-ink-900">Get paid</strong>
+                <span className="text-ink-600">Add your bank account — payouts need a verified account.</span>
+              </span>
+            </Link>
+            <Link href="/shop/setup/delivery" className="flex min-h-14 items-center gap-3 rounded-xl border border-[var(--gk-line)] bg-white px-3 py-2 text-sm">
+              <span aria-hidden className="text-xl">🛵</span>
+              <span>
+                <strong className="block text-ink-900">How you deliver</strong>
+                <span className="text-ink-600">Own staff, GoKesari riders or pickup only.</span>
+              </span>
+            </Link>
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <Link href="/shop" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-kesari-600 px-4 text-sm font-medium text-white">
               Go to my shop
