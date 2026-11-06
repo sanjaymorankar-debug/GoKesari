@@ -19,6 +19,7 @@ export function SiteFooter({ lang = "en" }: { lang?: Lang }) {
       links: [
         { href: "/about", label: tr(HOME.aboutUs, lang) },
         { href: "/contact", label: tr(HOME.contactUs, lang) },
+        { href: "/legal/social-welfare-policy", label: tr(HOME.socialWelfarePolicy, lang) },
       ],
     },
     {
