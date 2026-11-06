@@ -314,6 +314,8 @@ export const AUDIT_ACTIONS = {
   PRODUCT_CATEGORY_REMOVED: "product_category.removed",
   SHOP_PRODUCT_CATEGORY_ADDED: "shop.product_category_added",
   SHOP_PRODUCT_CATEGORY_REMOVED: "shop.product_category_removed",
+  /** A new shop listed its starter shelf in one go (product ids and count in newValue). */
+  STARTER_SHELF_PUBLISHED: "shop.starter_shelf_published",
   /** A product moved between categories (edit form or the one-time categorisation). */
   PRODUCT_CATEGORY_CHANGED: "product.category_changed",
   RETURN_REQUESTED: "return.requested",

@@ -43,6 +43,7 @@
     "@next/env": "16.3.6",
     "@tailwindcss/postcss": "^4",
     "@tesseract.js-data/eng": "^1.0.0",
+    "@zxing/browser": "0.2.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "drizzle-orm": "^0.45.2",

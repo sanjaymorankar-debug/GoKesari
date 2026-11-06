@@ -24,6 +24,7 @@ import {
   MIN_PREPARATION_MINUTES,
 } from "@/lib/shop-settings";
 import type { ShopTypeKey } from "@/lib/shop-types";
+import { deliversFor, type ShopDeliveryChoice } from "@/lib/shop-delivery-choice";
 import { runOrDefer, type Defer } from "@/server/api/defer";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -1245,6 +1246,8 @@ export interface UpdateShopInput {
   photos?: string[];
   openingHours?: { day: number; open: string; close: string; closed?: boolean }[];
   deliveryAvailable?: boolean;
+  /** Onboarding Phase 2 "How you deliver": sets delivery on (own staff / partners) or off (pickup only). */
+  deliveryChoice?: ShopDeliveryChoice;
   deliveryFeePaise?: number;
   freeDeliveryAbovePaise?: number | null;
   /** GS-010 delivery zone, km from the shop pin (1-50). */
@@ -1340,6 +1343,9 @@ export async function updateShop(
       )
     : null;
 
+  // "How you deliver" decides whether the shop delivers at all; it wins over a separate toggle.
+  if (input.deliveryChoice !== undefined) input = { ...input, deliveryAvailable: deliversFor(input.deliveryChoice) };
+
   const [updated] = await db
     .update(shops)
     .set({
@@ -1383,6 +1389,9 @@ export async function updateShop(
       codEnabled: updated.codEnabled,
       ...(input.contactPhone !== undefined ? { contactPhone: updated.contactPhone } : {}),
       ...(input.whatsappNumber !== undefined ? { whatsappNumber: updated.whatsappNumber } : {}),
+      ...(input.deliveryChoice !== undefined
+        ? { deliveryChoice: updated.deliveryChoice, deliveryAvailable: updated.deliveryAvailable, previousDeliveryChoice: current.deliveryChoice }
+        : {}),
       ...(coordinatesChanged
         ? { latitude: updated.latitude, longitude: updated.longitude, locationVerified: updated.locationVerified }
         : {}),

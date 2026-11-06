@@ -5,16 +5,33 @@
  * default stock; the owner only changes what differs and publishes them in one go.
  *
  * Owner, 05-Nov-2026 (D2): 100 products, each shown with stock 100, the owner updates his own
- * quantity (rule starterShelf).
+ * quantity (rule starterShelf). Owner, 05-Nov-2026 (Phase 2, Q1): "top" = ordered most on
+ * GoKesari in the last 90 days, then stocked by most shops, then with a photo, then by name.
  */
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { conflict, validationFailed } from "@/lib/errors";
+import { roundStock, stockQuantityProblem } from "@/lib/stock-quantity";
+import { checkCommissionMilestonesSafely } from "@/server/dealers/commission";
 import { db } from "@/server/db";
-import { productCategories, products, shopCategories, shopCategoryMapping, shopProductCategories, shopProducts, shops } from "@/server/db/schema";
-import { createShopProduct } from "./catalogue";
+import {
+  inventoryMovements,
+  productCategories,
+  products,
+  shopCategories,
+  shopCategoryMapping,
+  shopProductCategories,
+  shopProducts,
+  shops,
+} from "@/server/db/schema";
+import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { addCategoryToShop } from "./product-categories";
 import { getRule } from "./settings";
+
+/** The window that decides what sells (owner's Q1). */
+const ORDER_WINDOW_DAYS = 90;
+/** Orders that were really bought (as on the home page's "popular" lists). */
+const PURCHASED_STATUSES = ["CONFIRMED", "ACCEPTED", "PREPARING", "READY", "ASSIGNED", "PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED"];
 
 export interface StarterShelfItem {
   productId: string;
@@ -67,7 +84,7 @@ async function shelfCategoryIds(shopId: string): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
-/** The products offered to a shop: in its categories, not listed yet, most-stocked by other shops first. */
+/** The products offered to a shop: in its categories, not listed yet, most-ordered (90 days) and most-stocked first. */
 export async function getStarterShelf(shopId: string): Promise<StarterShelf> {
   const rule = await getRule("starterShelf");
   const [listedRow] = await db
@@ -79,7 +96,14 @@ export async function getStarterShelf(shopId: string): Promise<StarterShelf> {
   const categoryIds = await shelfCategoryIds(shopId);
   if (categoryIds.length === 0) return { enabled: true, defaultStock: rule.defaultStock, items: [], listed };
 
-  // How many shops list each product: a fair "what sells here" without order data for a new shop.
+  // Orders of the product at any shop in the window (what sells), then how many shops list it
+  // (what shops expect to sell) — a new shop has no orders of its own to go by.
+  const since = new Date(Date.now() - ORDER_WINDOW_DAYS * 86_400_000);
+  const ordered = sql<number>`(select count(distinct oi.order_id)::int from order_items oi
+    join shop_products osp on osp.id = oi.shop_product_id
+    join orders o on o.id = oi.order_id
+    where osp.product_id = ${products.id} and o.created_at >= ${since.toISOString()}::timestamptz
+      and o.status::text in (${sql.join(PURCHASED_STATUSES.map((s) => sql`${s}`), sql`, `)}))`;
   const stockedBy = sql<number>`(select count(*)::int from ${shopProducts} sp where sp.product_id = ${products.id} and sp.deleted_at is null)`;
   const rows = await db
     .select({
@@ -102,7 +126,7 @@ export async function getStarterShelf(shopId: string): Promise<StarterShelf> {
         sql`not exists (select 1 from ${shopProducts} mine where mine.shop_id = ${shopId} and mine.product_id = ${products.id} and mine.deleted_at is null)`,
       ),
     )
-    .orderBy(desc(stockedBy), sql`${products.imageUrl} is null`, products.name, products.id)
+    .orderBy(desc(ordered), desc(stockedBy), sql`${products.imageUrl} is null`, products.name, products.id)
     .limit(rule.size);
   return { enabled: true, defaultStock: rule.defaultStock, items: rows, listed };
 }
@@ -115,8 +139,11 @@ export interface StarterShelfPick {
 
 /**
  * Lists the products the owner kept ticked, each on sale online and in the shop at the price
- * given, with that stock. One product that cannot be listed (a price above its MRP, a category
- * removed meanwhile) does not stop the others: it comes back with its reason.
+ * given, with that stock (online, as an Excel upload does), in **one transaction**: the
+ * categories are linked, every listing is written in one insert, and the opening stock goes to
+ * the stock ledger. A product that cannot be listed (a price above its MRP, a stock figure its
+ * kind does not allow, already listed, no longer available) is checked first and does not
+ * stop the others: it comes back with its reason.
  */
 export async function publishStarterShelf(
   shopId: string,
@@ -127,51 +154,125 @@ export async function publishStarterShelf(
   if (!rule.enabled) throw conflict("The starter shelf is switched off.");
   if (picks.length === 0) throw validationFailed("Tick at least one product.");
   if (picks.length > rule.size) throw validationFailed(`At most ${rule.size} products at a time.`);
-  const [before] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(shopProducts)
-    .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
+  // The same product ticked twice counts once (the last row wins).
+  const byProduct = new Map(picks.map((p) => [p.productId, p]));
 
-  // Selling above the printed MRP is not allowed (Legal Metrology), whether or not the platform's
-  // MRP rule is enforced for other listings.
+  // Any approved product in a live category: the shelf's own, or one the owner scanned (Phase 2,
+  // WP2) — its category is linked to the shop below, as adding one product does.
   const picked = await db
-    .select({ id: products.id, mrpPaise: products.mrpPaise, categoryId: products.categoryId })
+    .select({ id: products.id, mrpPaise: products.mrpPaise, categoryId: products.categoryId, kind: products.kind })
     .from(products)
-    .where(inArray(products.id, picks.map((p) => p.productId)));
-  const mrps = new Map(picked.map((r) => [r.id, r.mrpPaise]));
-  // A shop lists only products in categories it carries: link the shelf's categories first,
-  // without the category's own auto-fill — only the ticked products are listed.
-  const allowed = new Set(await shelfCategoryIds(shopId));
-  for (const categoryId of new Set(picked.map((r) => r.categoryId))) {
-    if (allowed.has(categoryId)) await addCategoryToShop(shopId, categoryId, actor, { fillInventory: false, reason: "starter shelf" });
-  }
+    .innerJoin(productCategories, eq(productCategories.id, products.categoryId))
+    .where(
+      and(
+        inArray(products.id, [...byProduct.keys()]),
+        eq(products.isActive, true),
+        isNull(products.deletedAt),
+        eq(products.approvalStatus, "APPROVED"),
+        eq(productCategories.isActive, true),
+        isNull(productCategories.deletedAt),
+      ),
+    );
+  const found = new Map(picked.map((r) => [r.id, r]));
+  const existing = await db
+    .select({ id: shopProducts.id, productId: shopProducts.productId, deletedAt: shopProducts.deletedAt })
+    .from(shopProducts)
+    .where(and(eq(shopProducts.shopId, shopId), inArray(shopProducts.productId, [...byProduct.keys()])));
+  const existingBy = new Map(existing.map((r) => [r.productId, r]));
 
-  let added = 0;
   const failed: { productId: string; reason: string }[] = [];
-  for (const pick of picks) {
-    const mrp = mrps.get(pick.productId);
-    if (mrp != null && pick.pricePaise > mrp) {
-      failed.push({ productId: pick.productId, reason: `The price is above the MRP (₹${(mrp / 100).toFixed(2)}).` });
+  const valid: { pick: StarterShelfPick; categoryId: string; stock: number; removedRowId: string | null }[] = [];
+  for (const pick of byProduct.values()) {
+    const product = found.get(pick.productId);
+    const listed = existingBy.get(pick.productId);
+    // Selling above the printed MRP is not allowed (Legal Metrology), whether or not the
+    // platform's MRP rule is enforced for other listings.
+    const reason = !product
+      ? "This product is no longer available."
+      : listed && !listed.deletedAt
+          ? "Already in your shop."
+          : product.mrpPaise != null && pick.pricePaise > product.mrpPaise
+            ? `The price is above the MRP (₹${(product.mrpPaise / 100).toFixed(2)}).`
+            : stockQuantityProblem(pick.stock, product.kind, "Stock");
+    if (reason || !product) {
+      failed.push({ productId: pick.productId, reason: reason ?? "Could not be listed." });
       continue;
     }
-    try {
-      await createShopProduct(
-        {
-          shopId,
-          productId: pick.productId,
-          onlinePricePaise: pick.pricePaise,
-          offlinePricePaise: pick.pricePaise,
-          onlineSaleEnabled: true,
-          offlineSaleEnabled: true,
-          onlineStock: pick.stock,
-          offlineStock: 0,
-        },
-        actor,
-      );
-      added += 1;
-    } catch (error) {
-      failed.push({ productId: pick.productId, reason: error instanceof Error ? error.message : "Could not be listed." });
-    }
+    valid.push({ pick, categoryId: product.categoryId, stock: roundStock(pick.stock), removedRowId: listed?.id ?? null });
   }
-  return { added, failed, firstProducts: Number(before?.n ?? 0) === 0 && added > 0 };
+  if (valid.length === 0) return { added: 0, failed, firstProducts: false };
+
+  const { added, before } = await db.transaction(async (tx) => {
+    const [count] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(shopProducts)
+      .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
+    // A shop lists only products in categories it carries: link the shelf's categories first,
+    // without the category's own auto-fill — only the ticked products are listed.
+    for (const categoryId of new Set(valid.map((v) => v.categoryId))) {
+      await addCategoryToShop(shopId, categoryId, actor, { fillInventory: false, reason: "starter shelf" }, tx);
+    }
+    const listing = (v: (typeof valid)[number]) => ({
+      onlinePricePaise: v.pick.pricePaise,
+      offlinePricePaise: v.pick.pricePaise,
+      onlineSaleEnabled: true,
+      offlineSaleEnabled: true,
+      trackInventory: true,
+      onlineStock: v.stock,
+      offlineStock: 0,
+      isActive: true,
+      isAvailable: true,
+    });
+    const rows: { id: string; productId: string; stock: number }[] = [];
+    // A listing the shop removed earlier is brought back (past orders still point at its row).
+    for (const v of valid.filter((x) => x.removedRowId)) {
+      const [revived] = await tx
+        .update(shopProducts)
+        .set({ ...listing(v), deletedAt: null, updatedAt: new Date() })
+        .where(and(eq(shopProducts.id, v.removedRowId!), sql`${shopProducts.deletedAt} IS NOT NULL`))
+        .returning({ id: shopProducts.id, productId: shopProducts.productId });
+      if (revived) rows.push({ ...revived, stock: v.stock });
+    }
+    const fresh = valid.filter((x) => !x.removedRowId);
+    if (fresh.length) {
+      const inserted = await tx
+        .insert(shopProducts)
+        .values(fresh.map((v) => ({ shopId, productId: v.pick.productId, ...listing(v) })))
+        .onConflictDoNothing()
+        .returning({ id: shopProducts.id, productId: shopProducts.productId });
+      const stockOf = new Map(fresh.map((v) => [v.pick.productId, v.stock]));
+      rows.push(...inserted.map((r) => ({ ...r, stock: stockOf.get(r.productId) ?? 0 })));
+    }
+    // The opening stock, so stock reports and the ledger agree (as the Excel upload does).
+    const opening = rows.filter((r) => r.stock > 0);
+    if (opening.length) {
+      await tx.insert(inventoryMovements).values(
+        opening.map((r) => ({
+          shopProductId: r.id,
+          channel: "ONLINE" as const,
+          deltaUnits: r.stock,
+          previousUnits: 0,
+          newUnits: r.stock,
+          reason: "Starter shelf (opening stock)",
+          source: "starter_shelf",
+          createdBy: actor.id,
+        })),
+      );
+    }
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.STARTER_SHELF_PUBLISHED,
+        entityType: "shop",
+        entityId: shopId,
+        newValue: { listed: rows.length, productIds: rows.map((r) => r.productId) },
+      },
+      tx,
+    );
+    return { added: rows.length, before: Number(count?.n ?? 0) };
+  });
+  // docs/dealer-programme: a growing catalogue may complete the dealer's "verified + catalogue" milestone.
+  if (added > 0) await checkCommissionMilestonesSafely(shopId);
+  return { added, failed, firstProducts: before === 0 && added > 0 };
 }
