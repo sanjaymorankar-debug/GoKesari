@@ -20,6 +20,7 @@ const FOOTER_LINKS = [
   "/support",
   "/about",
   "/contact",
+  "/legal/social-welfare-policy",
   "/sell",
   "/delivery-partner/apply",
   "/legal/seller-terms",

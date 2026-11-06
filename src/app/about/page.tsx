@@ -32,11 +32,6 @@ export default function AboutPage() {
               Provide a platform wallet for fast repeat purchases and daily
               subscriptions (milk, bread, and other everyday essentials).
             </li>
-            <li>
-              Classify shops as <strong>Kesari</strong> or{" "}
-              <strong>Green</strong> so customers can shop according to their
-              own dietary preference at a glance.
-            </li>
           </ul>
 
           <h2>What we are not</h2>
