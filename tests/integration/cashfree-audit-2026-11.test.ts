@@ -189,6 +189,27 @@ describe("a top-up marked FAILED that Cashfree later reports paid", () => {
   });
 });
 
+describe("a webhook's cf_payment_id above 2^53 is stored exactly", () => {
+  it("credits with Cashfree's own payment id, not the rounded number", async () => {
+    const { user } = await createUserWithWallet({ balancePaise: 0 });
+    const intent = await cashfreeTopUp(user.id, 10_000);
+    // Built by hand: a JS object would already round the number.
+    const raw = `{"type":"PAYMENT_SUCCESS_WEBHOOK","data":{"order":{"order_id":"${intent.gatewayOrderId}","order_amount":100,"order_currency":"INR"},"payment":{"cf_payment_id":1472617385555189760,"payment_status":"SUCCESS","payment_amount":100,"payment_currency":"INR"}}}`;
+    const timestamp = String(Date.now());
+    const signature = createHmac("sha256", process.env.CASHFREE_SECRET_KEY!).update(timestamp + raw).digest("base64");
+    const res = await webhookRoute(
+      new NextRequest("http://localhost/api/webhooks/cashfree", {
+        method: "POST",
+        body: raw,
+        headers: { "content-type": "application/json", "x-webhook-signature": signature, "x-webhook-timestamp": timestamp },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect((await paymentRow(intent.gatewayOrderId)).gatewayPaymentId).toBe("1472617385555189760");
+    expect(await balanceOf(user.id)).toBe(10_000);
+  });
+});
+
 describe("amount and currency are checked against Cashfree's record", () => {
   it("credits nothing when Cashfree reports less money than the top-up", async () => {
     const { user } = await createUserWithWallet({ balancePaise: 0 });

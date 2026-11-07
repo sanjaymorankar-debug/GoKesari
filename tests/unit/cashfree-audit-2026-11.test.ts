@@ -165,3 +165,29 @@ describe("order expiry", () => {
     expect(new Date(cashfreeOrderExpiry(1, now)).getTime() - now.getTime()).toBe(16 * 60_000);
   });
 });
+
+describe("Cashfree ids above 2^53 stay exact", () => {
+  it("reads the digits from the raw body instead of the rounded number", async () => {
+    const { exactJsonId } = await import("@/server/payments/gateway/common");
+    // Seen on test.gokesari.com, 7 Nov 2026: Ref Id 1472617385555189760 was stored as …189800.
+    const raw = '{"data":{"payment":{"cf_payment_id":1472617385555189760,"payment_status":"SUCCESS"}}}';
+    const parsed = (JSON.parse(raw) as { data: { payment: { cf_payment_id: number } } }).data.payment.cf_payment_id;
+    expect(String(parsed)).toBe("1472617385555189800");
+    expect(exactJsonId(raw, "cf_payment_id", parsed)).toBe("1472617385555189760");
+    // Strings, small numbers and nothing are taken as they are.
+    expect(exactJsonId('{"cf_payment_id":"1472617385555189760"}', "cf_payment_id", "1472617385555189760")).toBe("1472617385555189760");
+    expect(exactJsonId('{"cf_refund_id":1319966828}', "cf_refund_id", 1319966828)).toBe("1319966828");
+    expect(exactJsonId("{}", "cf_payment_id", undefined)).toBeNull();
+    // Another id in the same body is never picked up: only digits equal to the parsed number count.
+    const two = '{"refund":{"cf_payment_id":1472617376889757696},"payment":{"cf_payment_id":1472617408803090944}}';
+    const second = (JSON.parse(two) as { payment: { cf_payment_id: number } }).payment.cf_payment_id;
+    expect(exactJsonId(two, "cf_payment_id", second)).toBe("1472617408803090944");
+  });
+
+  it("the order-gateway adapter's webhook event carries the exact payment id", () => {
+    const raw = '{"type":"PAYMENT_SUCCESS_WEBHOOK","event_time":"2026-11-07T21:05:51+05:30","data":{"order":{"order_id":"gk_1","order_amount":100},"payment":{"cf_payment_id":1472617385555189760,"payment_status":"SUCCESS","payment_amount":100}}}';
+    const event = new CashfreeGateway().parseWebhook(raw, new Headers());
+    expect(event.gatewayPaymentId).toBe("1472617385555189760");
+    expect(event.eventId).toContain("1472617385555189760");
+  });
+});

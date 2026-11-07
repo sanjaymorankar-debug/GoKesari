@@ -27,7 +27,7 @@
  * existing top-up code already relies on.
  */
 import { cashfreeApiBase, cashfreeEnvProblem, cashfreeRefundSpeed, getEnv } from "@/lib/env";
-import { hmacBase64, isFresh, methodKind, paise, readJson, rupees, safeEqual, sha256Hex } from "./common";
+import { exactJsonId, hmacBase64, isFresh, methodKind, paise, readJson, rupees, safeEqual, sha256Hex } from "./common";
 import {
   GatewayNotConfiguredError,
   type CreateGatewayOrderInput,
@@ -284,8 +284,9 @@ export class CashfreeGateway implements PaymentGateway {
     else if (type === "REFUND_STATUS_WEBHOOK") kind = data.refund?.refund_status === "SUCCESS" ? "REFUND_SUCCESS" : data.refund?.refund_status === "CANCELLED" ? "REFUND_FAILED" : "UNKNOWN";
     else if (type === "PAYMENT_LINK_EVENT") kind = data.link_status === "PAID" ? "LINK_PAID" : "UNKNOWN";
 
-    const paymentId = data.payment?.cf_payment_id != null ? String(data.payment.cf_payment_id) : null;
-    const refundId = data.refund?.cf_refund_id != null ? String(data.refund.cf_refund_id) : null;
+    // Exact digits from the raw body: JSON.parse rounds Cashfree's ids above 2^53.
+    const paymentId = exactJsonId(rawBody, "cf_payment_id", data.payment?.cf_payment_id);
+    const refundId = exactJsonId(rawBody, "cf_refund_id", data.refund?.cf_refund_id);
     const eventId =
       headers.get("x-idempotency-key") ??
       `${type}:${refundId ?? paymentId ?? data.link_id ?? data.order?.order_id ?? "?"}:${data.refund?.refund_status ?? data.payment?.payment_status ?? data.link_status ?? ""}:${sha256Hex(rawBody).slice(0, 12)}`;
