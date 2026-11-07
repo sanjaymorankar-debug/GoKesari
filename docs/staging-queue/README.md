@@ -38,9 +38,9 @@ Oldest PR first (lowest number; `staging-fix` PRs go before everything):
 | Step | What has to hold |
 |---|---|
 | 1. Checks | the PR's CI (GitHub Actions) is green. If the branch is behind `staging`, the queue updates it and waits for CI again, so what was tested is what lands. |
-| 2. Staging idle | no other workflow is still running on `staging`. |
+| 2. Staging idle | no other push-triggered workflow is still running on `staging`. |
 | 3. Merge | merge commit into `staging`; the PR gets `staging-testing`. |
-| 4. Staging runs | every workflow the merge starts (CI on staging, "Test database" migration, app builds) passes. |
+| 4. Staging runs | every **push run of the merge commit** (CI on staging, "Test database" migration, app builds) passes. Runs on the same commit that the push did not start — the CI of an open `staging` → `main` release PR, or a hand-run tool such as "Sandbox payment" — are not counted, so an open release PR no longer holds the queue (it did on 7 Nov 2026, #363). |
 | 5. Deploy | test.gokesari.com serves a build made after the merge (the build version in `/sw.js` changes). |
 | 6. Site answers | `scripts/release/post-deploy-check.sh` — 3 healthy rounds, 45 s apart. |
 | 7. Guest QA | `tests/qa/guest` (production-safe tier) against test.gokesari.com, one retry per check. Results: the run's `staging-queue-qa-*` artifact. |
@@ -109,7 +109,9 @@ access …": renew the token with the permissions above and update the secret.
 ## Tests
 
 `scripts/release/staging-queue.test.sh` runs the queue script against a fake
-`gh` (403 / 422 answers, dry runs; nothing goes to GitHub). CI runs it in the
+`gh` (403 / 422 answers, dry runs, and the 7 Nov 2026 runs of `f971899` with
+the release PR's CI still running — `scripts/release/fixtures/`; nothing goes
+to GitHub). CI runs it in the
 `scope` job; locally it needs bash 4+ and jq (macOS: `brew install bash jq`).
 
 ## Triggers
