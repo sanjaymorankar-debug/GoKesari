@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cashfreeEnvProblem, cashfreeKeyKind, deployedSiteKind, getEnv, type ServerEnv } from "@/lib/env";
 import { assertCashfreeEnvSafe, cashfreeOrderExpiry } from "@/server/payments/cashfree-env";
-import { CashfreeGateway } from "@/server/payments/gateway/cashfree";
+import { CashfreeGateway, cashfreeOrderExpiryTime } from "@/server/payments/gateway/cashfree";
 import { methodKind } from "@/server/payments/gateway/common";
 import { cashfreePayoutProvider, cashfreeTransferId } from "@/server/payouts/providers/cashfree";
 
@@ -163,6 +163,42 @@ describe("order expiry", () => {
     const now = new Date("2026-11-07T10:00:00.000Z");
     expect(cashfreeOrderExpiry(60, now)).toBe("2026-11-07T11:00:00.000Z");
     expect(new Date(cashfreeOrderExpiry(1, now)).getTime() - now.getTime()).toBe(16 * 60_000);
+  });
+
+  it("F17: an online order's Cashfree order gets at least 16 minutes, so the default 15-minute attempt is not refused", async () => {
+    const now = new Date("2026-11-07T10:00:00.000Z");
+    expect(cashfreeOrderExpiryTime(new Date(now.getTime() + 15 * 60_000), now).toISOString()).toBe("2026-11-07T10:16:00.000Z");
+    expect(cashfreeOrderExpiryTime(new Date(now.getTime() + 60 * 60_000), now).toISOString()).toBe("2026-11-07T11:00:00.000Z");
+
+    const calls: { body: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        calls.push({ body: JSON.parse(String(init.body)) });
+        return new Response(JSON.stringify({ order_id: "gk_17", order_status: "ACTIVE", order_amount: 85, payment_session_id: "sess_17" }));
+      }),
+    );
+    const env = getEnv() as { CASHFREE_APP_ID?: string };
+    const before = env.CASHFREE_APP_ID;
+    env.CASHFREE_APP_ID = "test-app";
+    try {
+      // What createPaymentIntent does with the default rule: expiry = 15 minutes from a moment ago.
+      const intentExpiry = new Date(Date.now() - 500 + 15 * 60_000);
+      await new CashfreeGateway().createOrder({
+        merchantOrderId: "gk_17",
+        amountPaise: 8500,
+        customer: { id: "u1", email: null, phone: null },
+        returnUrl: "https://test.gokesari.com/r",
+        notifyUrl: "https://test.gokesari.com/n",
+        methods: ["UPI"],
+        expiresAt: intentExpiry,
+        description: "order",
+      });
+      const sent = new Date(String(calls[0].body.order_expiry_time)).getTime();
+      expect(sent - Date.now()).toBeGreaterThan(15 * 60_000);
+    } finally {
+      env.CASHFREE_APP_ID = before;
+    }
   });
 });
 

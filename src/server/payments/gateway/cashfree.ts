@@ -84,6 +84,20 @@ interface CfLink {
   link_expiry_time?: string;
 }
 
+/**
+ * docs/payments-cashfree-audit-2026-11 F17: Cashfree refuses an order whose order_expiry_time is
+ * less than 15 minutes ahead. The intent's expiry is the onlinePayments rule's minutes (15 by
+ * default) counted from before this call, so it always arrived just under 15 minutes and every
+ * order was refused. The order now gets at least 16 minutes; the intent stores the expiry
+ * Cashfree returns.
+ */
+export const CASHFREE_MIN_ORDER_EXPIRY_MINUTES = 16;
+
+export function cashfreeOrderExpiryTime(expiresAt: Date, now: Date = new Date()): Date {
+  const floor = now.getTime() + CASHFREE_MIN_ORDER_EXPIRY_MINUTES * 60_000;
+  return expiresAt.getTime() >= floor ? expiresAt : new Date(floor);
+}
+
 function refundStatus(raw: string): GatewayRefundStatus {
   if (raw === "SUCCESS") return "SUCCESS";
   if (raw === "CANCELLED") return "FAILED";
@@ -159,7 +173,7 @@ export class CashfreeGateway implements PaymentGateway {
         notify_url: input.notifyUrl,
         ...(input.methods?.length ? { payment_methods: input.methods.map((m) => METHOD_CODES[m]).join(",") } : {}),
       },
-      ...(input.expiresAt ? { order_expiry_time: input.expiresAt.toISOString() } : {}),
+      ...(input.expiresAt ? { order_expiry_time: cashfreeOrderExpiryTime(input.expiresAt).toISOString() } : {}),
       order_note: input.description.slice(0, 200),
       ...(input.metadata ? { order_tags: input.metadata } : {}),
     });
