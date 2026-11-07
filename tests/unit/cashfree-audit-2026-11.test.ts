@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cashfreeEnvProblem, cashfreeKeyKind, deployedSiteKind, getEnv, type ServerEnv } from "@/lib/env";
 import { assertCashfreeEnvSafe, cashfreeOrderExpiry } from "@/server/payments/cashfree-env";
-import { CashfreeGateway } from "@/server/payments/gateway/cashfree";
+import { CashfreeGateway, cashfreeOrderExpiryTime } from "@/server/payments/gateway/cashfree";
 import { methodKind } from "@/server/payments/gateway/common";
 import { cashfreePayoutProvider, cashfreeTransferId } from "@/server/payouts/providers/cashfree";
 
@@ -163,5 +163,67 @@ describe("order expiry", () => {
     const now = new Date("2026-11-07T10:00:00.000Z");
     expect(cashfreeOrderExpiry(60, now)).toBe("2026-11-07T11:00:00.000Z");
     expect(new Date(cashfreeOrderExpiry(1, now)).getTime() - now.getTime()).toBe(16 * 60_000);
+  });
+
+  it("F17: an online order's Cashfree order gets at least 16 minutes, so the default 15-minute attempt is not refused", async () => {
+    const now = new Date("2026-11-07T10:00:00.000Z");
+    expect(cashfreeOrderExpiryTime(new Date(now.getTime() + 15 * 60_000), now).toISOString()).toBe("2026-11-07T10:16:00.000Z");
+    expect(cashfreeOrderExpiryTime(new Date(now.getTime() + 60 * 60_000), now).toISOString()).toBe("2026-11-07T11:00:00.000Z");
+
+    const calls: { body: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        calls.push({ body: JSON.parse(String(init.body)) });
+        return new Response(JSON.stringify({ order_id: "gk_17", order_status: "ACTIVE", order_amount: 85, payment_session_id: "sess_17" }));
+      }),
+    );
+    const env = getEnv() as { CASHFREE_APP_ID?: string };
+    const before = env.CASHFREE_APP_ID;
+    env.CASHFREE_APP_ID = "test-app";
+    try {
+      // What createPaymentIntent does with the default rule: expiry = 15 minutes from a moment ago.
+      const intentExpiry = new Date(Date.now() - 500 + 15 * 60_000);
+      await new CashfreeGateway().createOrder({
+        merchantOrderId: "gk_17",
+        amountPaise: 8500,
+        customer: { id: "u1", email: null, phone: null },
+        returnUrl: "https://test.gokesari.com/r",
+        notifyUrl: "https://test.gokesari.com/n",
+        methods: ["UPI"],
+        expiresAt: intentExpiry,
+        description: "order",
+      });
+      const sent = new Date(String(calls[0].body.order_expiry_time)).getTime();
+      expect(sent - Date.now()).toBeGreaterThan(15 * 60_000);
+    } finally {
+      env.CASHFREE_APP_ID = before;
+    }
+  });
+});
+
+describe("Cashfree ids above 2^53 stay exact", () => {
+  it("reads the digits from the raw body instead of the rounded number", async () => {
+    const { exactJsonId } = await import("@/server/payments/gateway/common");
+    // Seen on test.gokesari.com, 7 Nov 2026: Ref Id 1472617385555189760 was stored as …189800.
+    const raw = '{"data":{"payment":{"cf_payment_id":1472617385555189760,"payment_status":"SUCCESS"}}}';
+    const parsed = (JSON.parse(raw) as { data: { payment: { cf_payment_id: number } } }).data.payment.cf_payment_id;
+    expect(String(parsed)).toBe("1472617385555189800");
+    expect(exactJsonId(raw, "cf_payment_id", parsed)).toBe("1472617385555189760");
+    // Strings, small numbers and nothing are taken as they are.
+    expect(exactJsonId('{"cf_payment_id":"1472617385555189760"}', "cf_payment_id", "1472617385555189760")).toBe("1472617385555189760");
+    expect(exactJsonId('{"cf_refund_id":1319966828}', "cf_refund_id", 1319966828)).toBe("1319966828");
+    expect(exactJsonId("{}", "cf_payment_id", undefined)).toBeNull();
+    // Another id in the same body is never picked up: only digits equal to the parsed number count.
+    const two = '{"refund":{"cf_payment_id":1472617376889757696},"payment":{"cf_payment_id":1472617408803090944}}';
+    const second = (JSON.parse(two) as { payment: { cf_payment_id: number } }).payment.cf_payment_id;
+    expect(exactJsonId(two, "cf_payment_id", second)).toBe("1472617408803090944");
+  });
+
+  it("the order-gateway adapter's webhook event carries the exact payment id", () => {
+    const raw = '{"type":"PAYMENT_SUCCESS_WEBHOOK","event_time":"2026-11-07T21:05:51+05:30","data":{"order":{"order_id":"gk_1","order_amount":100},"payment":{"cf_payment_id":1472617385555189760,"payment_status":"SUCCESS","payment_amount":100}}}';
+    const event = new CashfreeGateway().parseWebhook(raw, new Headers());
+    expect(event.gatewayPaymentId).toBe("1472617385555189760");
+    expect(event.eventId).toContain("1472617385555189760");
   });
 });
