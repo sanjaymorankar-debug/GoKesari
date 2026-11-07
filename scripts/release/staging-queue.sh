@@ -177,10 +177,18 @@ mergeable() { # $1 = PR → true | false | null (GitHub still working it out aft
   echo "$m"
 }
 
-# Workflow runs on staging other than this queue (push or by hand).
+# Only runs started by a push to staging count, here and in wait_merge_runs.
+# A staging → main release PR runs its CI on staging's head commit (same
+# head_sha, head_branch staging, event pull_request), and hand-dispatched
+# tools (Sandbox payment…) run on ref staging too; neither is the merge's own
+# test. On 7 Nov 2026 the release PR's newer, still-running CI hid the
+# finished push CI of the merge and the queue timed out (issue #363).
+PUSH_RUN='select(.event == "push")'
+
+# Push runs on staging other than this queue.
 busy_runs() {
   api "repos/$REPO/actions/runs?branch=$BASE&per_page=30" --jq "
-    [ .workflow_runs[] | select(.status != \"completed\") | select(.name != \"$SELF_WORKFLOW\") | .name ] | unique | join(\", \")"
+    [ .workflow_runs[] | $PUSH_RUN | select(.status != \"completed\") | select(.name != \"$SELF_WORKFLOW\") | .name ] | unique | join(\", \")"
 }
 wait_staging_idle() {
   local start=$SECONDS busy
@@ -193,12 +201,13 @@ wait_staging_idle() {
 }
 
 # Every run started by the push of the merge commit (CI, Test database,
-# app builds…). Prints success | failure:<names>
+# app builds…), not release-PR or hand-dispatched runs on the same sha.
+# Prints success | failure:<names>
 wait_merge_runs() {
   local sha="$1" start=$SECONDS out
   while :; do
     out="$(api "repos/$REPO/actions/runs?head_sha=$sha&per_page=50" --jq "
-      [ .workflow_runs[] | select(.name != \"$SELF_WORKFLOW\") ] | group_by(.name) | map(max_by(.id))
+      [ .workflow_runs[] | $PUSH_RUN | select(.name != \"$SELF_WORKFLOW\") ] | group_by(.name) | map(max_by(.id))
       | if length == 0 then \"none\"
         elif any(.[]; .status != \"completed\") then \"pending\"
         elif any(.[]; (.conclusion | IN(\"success\",\"skipped\",\"neutral\")) | not)
