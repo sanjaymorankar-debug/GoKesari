@@ -26,7 +26,7 @@
  *   redemption per shop, event idempotency key.
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseIndianMobile } from "@/lib/contact";
@@ -54,6 +54,7 @@ import {
   type ShopRegistration,
 } from "@/server/db/schema";
 import { emitEvent } from "@/server/events/emit";
+import { assertCashfreeEnvSafe } from "@/server/payments/cashfree-env";
 import { isTextChannelAvailable, sendText } from "@/server/messaging/sms-whatsapp";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { uniqueSlug } from "@/server/services/catalogue";
@@ -343,6 +344,8 @@ export async function startRegistrationPayment(token: string): Promise<StartedPa
     await db.insert(registrationPayments).values({ shopRegistrationId: reg.id, gateway: "MOCK", gatewayOrderId: orderId, amountPaise: reg.feePaise });
     return { gateway: "MOCK", orderId, paymentSessionId: null, amountPaise: reg.feePaise, cashfreeMode: getEnv().CASHFREE_ENV };
   }
+  // docs/payments-cashfree-audit-2026-11: never the sandbox on gokesari.com, never production on the test site.
+  assertCashfreeEnvSafe("pg");
   const orderId = `reg_${Date.now()}_${randomBytes(4).toString("hex")}`;
   const env = getEnv();
   const response = await fetch(`${cashfreeApiBase()}/orders`, {
@@ -448,6 +451,92 @@ export async function processRegistrationPaymentEvent(event: RegistrationPayment
   // docs/dealer-programme: which dealer brought the shop — after the commit, never blocking the approval.
   if (outcome.outcome === "APPROVED") await recordShopAttributionSafely(outcome.shopId, { id: outcome.ownerId, role: "SHOP_OWNER" });
   return outcome;
+}
+
+/* ------------------------------------------- docs/payments-cashfree-audit-2026-11 */
+
+/**
+ * The fee approves only on a verified webhook today; when that webhook never
+ * arrives (site down through Cashfree's retries, webhook not set in the
+ * dashboard) the applicant paid and stays waiting. This asks Cashfree itself
+ * (Get Order + its payments, server to server) and, when a payment SUCCEEDED,
+ * runs the very same processRegistrationPaymentEvent with Cashfree's own
+ * amounts — so the same fee / currency checks and the same one-time approval
+ * apply. Nothing changes for a payment that is not paid.
+ */
+export async function reconcileRegistrationPayment(payment: RegistrationPayment): Promise<PaymentOutcome | null> {
+  if (payment.gateway !== "CASHFREE" || payment.status !== "CREATED" || !isPaymentGatewayLive()) return null;
+  assertCashfreeEnvSafe("pg");
+  const env = getEnv();
+  const headers = {
+    "x-api-version": "2023-08-01",
+    "x-client-id": env.CASHFREE_APP_ID!,
+    "x-client-secret": env.CASHFREE_SECRET_KEY!,
+  };
+  const id = encodeURIComponent(payment.gatewayOrderId);
+  const get = async <T>(path: string): Promise<T> => {
+    const response = await fetch(`${cashfreeApiBase()}${path}`, { headers, signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) throw new Error(`Cashfree answered ${response.status} for ${payment.gatewayOrderId}`);
+    return (await response.json()) as T;
+  };
+  const order = await get<{ order_id: string; order_amount?: number; order_currency?: string; order_status?: string }>(`/orders/${id}`);
+  const attempts = await get<{ cf_payment_id: string | number; payment_status: string; payment_amount?: number; payment_currency?: string }[]>(`/orders/${id}/payments`);
+  const paid = (Array.isArray(attempts) ? attempts : []).find((a) => a.payment_status === "SUCCESS");
+  if (!paid) return null;
+  return processRegistrationPaymentEvent({
+    orderId: payment.gatewayOrderId,
+    paymentId: String(paid.cf_payment_id),
+    paymentStatus: "SUCCESS",
+    orderAmount: order.order_amount ?? null,
+    paymentAmount: paid.payment_amount ?? null,
+    currency: paid.payment_currency ?? order.order_currency ?? null,
+    raw: { source: "RECONCILE", order_status: order.order_status ?? null, cf_payment_id: String(paid.cf_payment_id) },
+  });
+}
+
+/** The applicant's page, after Cashfree's checkout closes: is the latest fee payment paid? Approves when it is. */
+export async function checkRegistrationPayment(token: string): Promise<{ status: string; outcome: PaymentOutcome["outcome"] | null }> {
+  const reg = await registrationByToken(token);
+  if (reg.status !== "PENDING_PAYMENT") return { status: reg.status, outcome: null };
+  const [latest] = await db
+    .select()
+    .from(registrationPayments)
+    .where(eq(registrationPayments.shopRegistrationId, reg.id))
+    .orderBy(desc(registrationPayments.createdAt))
+    .limit(1);
+  if (!latest) return { status: reg.status, outcome: null };
+  const outcome = await reconcileRegistrationPayment(latest);
+  const [now] = await db.select({ status: shopRegistrations.status }).from(shopRegistrations).where(eq(shopRegistrations.id, reg.id));
+  return { status: now?.status ?? reg.status, outcome: outcome?.outcome ?? null };
+}
+
+/** Cron payments-reconcile: Cashfree fee payments still open 10 minutes after they started (up to 3 days old). */
+export async function reconcileRegistrationPayments(now: Date = new Date()): Promise<{ checked: number; approved: number; errors: string[] }> {
+  const result = { checked: 0, approved: 0, errors: [] as string[] };
+  if (!isPaymentGatewayLive()) return result;
+  const open = await db
+    .select()
+    .from(registrationPayments)
+    .where(
+      and(
+        eq(registrationPayments.gateway, "CASHFREE"),
+        eq(registrationPayments.status, "CREATED"),
+        lt(registrationPayments.createdAt, new Date(now.getTime() - 10 * 60_000)),
+        gt(registrationPayments.createdAt, new Date(now.getTime() - 72 * 3600_000)),
+      ),
+    )
+    .orderBy(desc(registrationPayments.createdAt))
+    .limit(30);
+  for (const payment of open) {
+    result.checked += 1;
+    try {
+      const outcome = await reconcileRegistrationPayment(payment);
+      if (outcome?.outcome === "APPROVED") result.approved += 1;
+    } catch (error) {
+      result.errors.push(`registration payment ${payment.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return result;
 }
 
 function commissionAmount(type: "FLAT" | "PERCENT", value: number, basePaise: number): number {

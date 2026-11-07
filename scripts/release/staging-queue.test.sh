@@ -209,5 +209,29 @@ check "writes nothing" not_called "$WRITES"
 check "reports the merge" said "DRY RUN: would merge #7 at aaaa111"
 end_case
 
+# 7 Nov 2026 (#363): the merge's push CI had passed, but the release PR
+# (staging → main) ran its CI on the same sha and was still running. Only push
+# runs count, in "staging busy" and in the merge's runs: the queue goes on to
+# the deploy step instead of timing out on step 4.
+RUNS_F971899="$(jq -c . "$(dirname "$QUEUE")/fixtures/actions-runs-f971899.json")"
+MERGED_F971899='PUT repos/acme/shop/pulls/7/merge 200 {"sha":"f971899b7d74979fbe58d6d14b6ad5b2bdfb583c","merged":true}'
+run_case release-pr-ci-running "$UP_TO_DATE
+$MERGED_F971899
+GET repos/acme/shop/actions/runs?branch=staging* 200 $RUNS_F971899
+GET repos/acme/shop/actions/runs?head_sha=f971899b7d74979fbe58d6d14b6ad5b2bdfb583c* 200 $RUNS_F971899"
+check "staging not busy with release-PR CI" eval '! said "staging busy"'
+check "passes the merge's push runs" said "staging runs passed: CI, Sandbox payment"
+check "does not wait on the release PR" eval '! said "staging runs still running"'
+check "goes on to the deploy step" said "did not show a new build"
+end_case
+
+# A push run of the merge still running is still waited for.
+PUSH_CI_RUNNING="$(jq -c '.workflow_runs |= map(if .event == "push" and .name == "CI" then .status = "in_progress" | .conclusion = null else . end)' <<<"$RUNS_F971899")"
+run_case push-ci-running "$UP_TO_DATE
+$MERGED_F971899
+GET repos/acme/shop/actions/runs?head_sha=f971899b7d74979fbe58d6d14b6ad5b2bdfb583c* 200 $PUSH_CI_RUNNING"
+check "times out on step 4" said "staging runs: staging runs still running after"
+end_case
+
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]

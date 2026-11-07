@@ -50,6 +50,24 @@ export function isFresh(timestamp: string | null, now: number = Date.now()): boo
   return Math.abs(now - ms) <= WEBHOOK_FRESHNESS_MS;
 }
 
+/**
+ * An id from a gateway's JSON body, exactly as sent (docs/payments-cashfree-audit-2026-11).
+ * Cashfree sends some ids (cf_payment_id in payment webhooks) as JSON numbers above
+ * 2^53, which JSON.parse rounds: 1472617385555189760 became "1472617385555189800" on
+ * test.gokesari.com. The digits are read from the raw body instead, and kept only when
+ * they are the same number JSON.parse saw (so a different field can never be picked up).
+ */
+export function exactJsonId(rawBody: string, field: string, parsed: unknown): string | null {
+  if (parsed == null || parsed === "") return null;
+  if (typeof parsed === "string") return parsed;
+  if (typeof parsed !== "number" || Number.isSafeInteger(parsed)) return String(parsed);
+  const name = field.replace(/[^A-Za-z0-9_]/g, "");
+  for (const match of rawBody.matchAll(new RegExp(`"${name}"\\s*:\\s*"?(\\d{1,30})"?`, "g"))) {
+    if (Number(match[1]) === parsed) return match[1];
+  }
+  return String(parsed);
+}
+
 export function rupees(paise: number): number {
   return Math.round(paise) / 100;
 }
@@ -67,6 +85,7 @@ export function methodKind(raw: string | null | undefined): PaymentMethodKind | 
   if (value.includes("upi")) return "UPI";
   if (value.includes("card") || value === "cc" || value === "dc") return "CARD";
   if (value.includes("net") || value === "nb") return "NETBANKING";
+  if (value.includes("wallet") || value === "app") return "WALLET";
   return null;
 }
 

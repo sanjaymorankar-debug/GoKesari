@@ -26,8 +26,8 @@
  * Everything else follows Cashfree's published PG reference and the fields the
  * existing top-up code already relies on.
  */
-import { cashfreeApiBase, getEnv } from "@/lib/env";
-import { hmacBase64, isFresh, methodKind, paise, readJson, rupees, safeEqual, sha256Hex } from "./common";
+import { cashfreeApiBase, cashfreeEnvProblem, cashfreeRefundSpeed, getEnv } from "@/lib/env";
+import { exactJsonId, hmacBase64, isFresh, methodKind, paise, readJson, rupees, safeEqual, sha256Hex } from "./common";
 import {
   GatewayNotConfiguredError,
   type CreateGatewayOrderInput,
@@ -48,7 +48,8 @@ import {
 const API_VERSION = "2023-08-01";
 const LINK_PREFIX = "link:";
 
-const METHOD_CODES: Record<PaymentMethodKind, string> = { UPI: "upi", CARD: "cc,dc", NETBANKING: "nb" };
+// WALLET → Cashfree "app" (Paytm, PhonePe, Amazon Pay, … — whichever wallets Cashfree has switched on for the account).
+const METHOD_CODES: Record<PaymentMethodKind, string> = { UPI: "upi", CARD: "cc,dc", NETBANKING: "nb", WALLET: "app" };
 
 interface CfOrder {
   cf_order_id?: string | number;
@@ -81,6 +82,20 @@ interface CfLink {
   link_amount_paid?: number;
   link_url: string;
   link_expiry_time?: string;
+}
+
+/**
+ * docs/payments-cashfree-audit-2026-11 F17: Cashfree refuses an order whose order_expiry_time is
+ * less than 15 minutes ahead. The intent's expiry is the onlinePayments rule's minutes (15 by
+ * default) counted from before this call, so it always arrived just under 15 minutes and every
+ * order was refused. The order now gets at least 16 minutes; the intent stores the expiry
+ * Cashfree returns.
+ */
+export const CASHFREE_MIN_ORDER_EXPIRY_MINUTES = 16;
+
+export function cashfreeOrderExpiryTime(expiresAt: Date, now: Date = new Date()): Date {
+  const floor = now.getTime() + CASHFREE_MIN_ORDER_EXPIRY_MINUTES * 60_000;
+  return expiresAt.getTime() >= floor ? expiresAt : new Date(floor);
 }
 
 function refundStatus(raw: string): GatewayRefundStatus {
@@ -116,7 +131,9 @@ export class CashfreeGateway implements PaymentGateway {
 
   isConfigured(): boolean {
     const env = getEnv();
-    return Boolean(env.CASHFREE_APP_ID && env.CASHFREE_SECRET_KEY);
+    // docs/payments-cashfree-audit-2026-11: the sandbox on gokesari.com (or production on the
+    // test site) counts as not configured, so no order is ever taken with the wrong money.
+    return Boolean(env.CASHFREE_APP_ID && env.CASHFREE_SECRET_KEY) && !cashfreeEnvProblem("pg", env);
   }
 
   private headers(): Record<string, string> {
@@ -156,7 +173,7 @@ export class CashfreeGateway implements PaymentGateway {
         notify_url: input.notifyUrl,
         ...(input.methods?.length ? { payment_methods: input.methods.map((m) => METHOD_CODES[m]).join(",") } : {}),
       },
-      ...(input.expiresAt ? { order_expiry_time: input.expiresAt.toISOString() } : {}),
+      ...(input.expiresAt ? { order_expiry_time: cashfreeOrderExpiryTime(input.expiresAt).toISOString() } : {}),
       order_note: input.description.slice(0, 200),
       ...(input.metadata ? { order_tags: input.metadata } : {}),
     });
@@ -231,6 +248,8 @@ export class CashfreeGateway implements PaymentGateway {
       refund_amount: rupees(input.amountPaise),
       refund_id: input.merchantRefundId,
       refund_note: input.reason.slice(0, 100),
+      // CASHFREE_REFUND_SPEED (optional): INSTANT only once Cashfree has switched it on; unset = STANDARD.
+      ...(cashfreeRefundSpeed() ? { refund_speed: cashfreeRefundSpeed() } : {}),
     });
     return { gatewayRefundId: String(refund.cf_refund_id ?? refund.refund_id), status: refundStatus(refund.refund_status) };
   }
@@ -279,8 +298,9 @@ export class CashfreeGateway implements PaymentGateway {
     else if (type === "REFUND_STATUS_WEBHOOK") kind = data.refund?.refund_status === "SUCCESS" ? "REFUND_SUCCESS" : data.refund?.refund_status === "CANCELLED" ? "REFUND_FAILED" : "UNKNOWN";
     else if (type === "PAYMENT_LINK_EVENT") kind = data.link_status === "PAID" ? "LINK_PAID" : "UNKNOWN";
 
-    const paymentId = data.payment?.cf_payment_id != null ? String(data.payment.cf_payment_id) : null;
-    const refundId = data.refund?.cf_refund_id != null ? String(data.refund.cf_refund_id) : null;
+    // Exact digits from the raw body: JSON.parse rounds Cashfree's ids above 2^53.
+    const paymentId = exactJsonId(rawBody, "cf_payment_id", data.payment?.cf_payment_id);
+    const refundId = exactJsonId(rawBody, "cf_refund_id", data.refund?.cf_refund_id);
     const eventId =
       headers.get("x-idempotency-key") ??
       `${type}:${refundId ?? paymentId ?? data.link_id ?? data.order?.order_id ?? "?"}:${data.refund?.refund_status ?? data.payment?.payment_status ?? data.link_status ?? ""}:${sha256Hex(rawBody).slice(0, 12)}`;

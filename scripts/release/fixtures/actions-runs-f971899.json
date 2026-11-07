@@ -1,0 +1,111 @@
+{
+  "_note": "actions/runs?head_sha=f971899 (merge of #360 into staging) as it stood at 21:40 IST on 7 Nov 2026, fields trimmed: the push CI had passed at 21:39 IST, the release PR #362's CI (pull_request, same sha, newer id) was still running. Run ids, names, events and conclusions are the real ones; the Sandbox payment dispatches are 2 of the 21 on this sha. The queue's own run is shown in progress, as it was while it waited.",
+  "total_count": 7,
+  "workflow_runs": [
+    {
+      "id": 42389287739,
+      "name": "CI",
+      "event": "pull_request",
+      "status": "in_progress",
+      "conclusion": null,
+      "head_branch": "staging",
+      "head_sha": "f971899b7d74979fbe58d6d14b6ad5b2bdfb583c",
+      "pull_requests": [
+        {
+          "number": 362
+        }
+      ],
+      "created_at": "2026-11-07T16:02:42Z"
+    },
+    {
+      "id": 42389287591,
+      "name": "Android APK",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "head_branch": "staging",
+      "head_sha": "f971899b7d74979fbe58d6d14b6ad5b2bdfb583c",
+      "pull_requests": [
+        {
+          "number": 362
+        }
+      ],
+      "created_at": "2026-11-07T16:02:42Z"
+    },
+    {
+      "id": 42387094261,
+      "name": "Sandbox payment",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "head_branch": "staging",
+      "head_sha": "f971899b7d74979fbe58d6d14b6ad5b2bdfb583c",
+      "pull_requests": [
+        {
+          "number": 362
+        }
+      ],
+      "created_at": "2026-11-07T15:35:08Z"
+    },
+    {
+      "id": 42386722015,
+      "name": "Sandbox payment",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "head_branch": "staging",
+      "head_sha": "f971899b7d74979fbe58d6d14b6ad5b2bdfb583c",
+      "pull_requests": [
+        {
+          "number": 362
+        }
+      ],
+      "created_at": "2026-11-07T15:30:41Z"
+    },
+    {
+      "id": 42386199947,
+      "name": "Staging queue",
+      "event": "push",
+      "status": "in_progress",
+      "conclusion": null,
+      "head_branch": "staging",
+      "head_sha": "f971899b7d74979fbe58d6d14b6ad5b2bdfb583c",
+      "pull_requests": [
+        {
+          "number": 362
+        }
+      ],
+      "created_at": "2026-11-07T15:24:05Z"
+    },
+    {
+      "id": 42386199941,
+      "name": "Sandbox payment",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "skipped",
+      "head_branch": "staging",
+      "head_sha": "f971899b7d74979fbe58d6d14b6ad5b2bdfb583c",
+      "pull_requests": [
+        {
+          "number": 362
+        }
+      ],
+      "created_at": "2026-11-07T15:24:05Z"
+    },
+    {
+      "id": 42386199939,
+      "name": "CI",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "head_branch": "staging",
+      "head_sha": "f971899b7d74979fbe58d6d14b6ad5b2bdfb583c",
+      "pull_requests": [
+        {
+          "number": 362
+        }
+      ],
+      "created_at": "2026-11-07T15:24:05Z"
+    }
+  ]
+}

@@ -26,7 +26,7 @@
  */
 import crypto from "node:crypto";
 
-import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import {
   checkAccountNumber,
@@ -38,7 +38,7 @@ import {
   type BankMethod,
   type VerificationMethod,
 } from "@/lib/bank-accounts";
-import { cashfreeApiBase, getEnv, isPaymentGatewayLive } from "@/lib/env";
+import { cashfreeApiBase, cashfreeEnvProblem, getEnv, isPaymentGatewayLive } from "@/lib/env";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { nameMatchScore } from "@/lib/kyc/name-match";
 import { decryptSecret, encryptSecret } from "@/lib/pan-crypto";
@@ -56,6 +56,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { emitEvent } from "@/server/events/emit";
+import { assertCashfreeEnvSafe } from "@/server/payments/cashfree-env";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
 import { assertNoFailedBankCheck, latestBankCheck, runBankAccountCheckOnSave, type BankCheckView } from "./bank-account-check";
@@ -329,6 +330,8 @@ export async function startBankVerification(accountId: string, actor: Actor): Pr
   const gatewayOrderId = `bankverify_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
   let paymentSessionId: string | null = null;
   if (mode === "CASHFREE") {
+    // docs/payments-cashfree-audit-2026-11: never the sandbox on gokesari.com, never production on the test site.
+    assertCashfreeEnvSafe("pg");
     const [user] = await db.select().from(users).where(eq(users.id, actor.id));
     const response = await fetch(`${cashfreeApiBase()}/orders`, {
       method: "POST",
@@ -663,6 +666,106 @@ export async function confirmBankVerification(gatewayOrderId: string, actor: Act
   };
   // A failed attempt's id is not unique proof of anything; keep only successful payment ids.
   return settleAttempt(attempt, account, success ? payment : { ...payment, paymentId: null }, actor, () => refundCashfree(attempt));
+}
+
+/* ------------------------------------------- docs/payments-cashfree-audit-2026-11 */
+
+export interface BankVerificationSweepResult {
+  checked: number;
+  settled: number;
+  refundsRefreshed: number;
+  refundsRetried: number;
+  errors: string[];
+}
+
+/**
+ * A FAILED ₹1 refund, retried safely: Cashfree is first asked whether the
+ * refund already exists (a timeout can hide one that went through) and only
+ * when it does not is it sent again, with the same refund id. A refund
+ * Cashfree cancelled cannot reuse its id and stays FAILED for finance.
+ */
+async function retryCashfreeRefund(attempt: BankVerificationAttempt): Promise<{ status: "PENDING" | "REFUNDED" | "FAILED"; reference: string | null }> {
+  const response = await fetch(`${cashfreeApiBase()}/orders/${encodeURIComponent(attempt.gatewayOrderId)}/refunds/${refundIdFor(attempt)}`, {
+    method: "GET",
+    headers: cashfreeHeaders(),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (response.status === 404) return refundCashfree(attempt);
+  const body = (await response.json().catch(() => null)) as { refund_status?: string; cf_refund_id?: string | number } | null;
+  if (!response.ok || !body) throw new Error(`Cashfree answered ${response.status} for refund ${refundIdFor(attempt)}`);
+  const reference = body.cf_refund_id != null ? String(body.cf_refund_id) : attempt.refundReference;
+  if (body.refund_status === "SUCCESS") return { status: "REFUNDED", reference };
+  if (body.refund_status === "CANCELLED") return { status: "FAILED", reference };
+  return { status: "PENDING", reference };
+}
+
+/**
+ * Cron payments-reconcile: the ₹1 checks the browser never confirmed (closed
+ * after paying) are settled from Cashfree's own record — the same matching,
+ * the same refund — so no one's ₹1 is kept and a paid check is not lost.
+ * Refunds still pending are refreshed; failed ones are retried (hourly at most).
+ * Unpaid attempts are left alone (closing the checkout is not a failed check).
+ */
+export async function sweepBankVerifications(now: Date = new Date()): Promise<BankVerificationSweepResult> {
+  const result: BankVerificationSweepResult = { checked: 0, settled: 0, refundsRefreshed: 0, refundsRetried: 0, errors: [] };
+  if (!isPaymentGatewayLive() || cashfreeEnvProblem("pg")) return result;
+
+  const stranded = await db
+    .select()
+    .from(bankVerificationAttempts)
+    .where(
+      and(
+        eq(bankVerificationAttempts.gateway, "CASHFREE"),
+        eq(bankVerificationAttempts.status, "CREATED"),
+        lt(bankVerificationAttempts.createdAt, new Date(now.getTime() - 30 * 60_000)),
+        gt(bankVerificationAttempts.createdAt, new Date(now.getTime() - 6 * 3600_000)),
+      ),
+    )
+    .limit(30);
+  for (const attempt of stranded) {
+    result.checked += 1;
+    try {
+      const payments = await fetchCashfreePayments(attempt.gatewayOrderId);
+      const success = payments.find((p) => p.status === "SUCCESS");
+      if (!success) continue;
+      const [account] = await db.select().from(bankAccounts).where(eq(bankAccounts.id, attempt.bankAccountId));
+      const [owner] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, attempt.userId));
+      if (!account || !owner) continue;
+      await settleAttempt(attempt, account, success, { id: owner.id, role: owner.role }, () => refundCashfree(attempt));
+      result.settled += 1;
+    } catch (error) {
+      result.errors.push(`bank check ${attempt.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const refunds = await db
+    .select()
+    .from(bankVerificationAttempts)
+    .where(
+      and(
+        eq(bankVerificationAttempts.gateway, "CASHFREE"),
+        inArray(bankVerificationAttempts.refundStatus, ["PENDING", "FAILED"]),
+        lt(bankVerificationAttempts.updatedAt, new Date(now.getTime() - 60 * 60_000)),
+        gt(bankVerificationAttempts.createdAt, new Date(now.getTime() - 7 * 86_400_000)),
+      ),
+    )
+    .limit(30);
+  for (const attempt of refunds) {
+    try {
+      // GET first for both: a PENDING one may never have reached Cashfree (the process stopped
+      // between recording and sending), a FAILED one may have gone through behind a timeout.
+      const retried = await retryCashfreeRefund(attempt);
+      if (attempt.refundStatus === "PENDING") result.refundsRefreshed += 1;
+      await db
+        .update(bankVerificationAttempts)
+        .set({ refundStatus: retried.status, refundReference: retried.reference, refundedAt: retried.status === "REFUNDED" ? new Date() : null, updatedAt: new Date() })
+        .where(eq(bankVerificationAttempts.id, attempt.id));
+      if (attempt.refundStatus === "FAILED") result.refundsRetried += 1;
+    } catch (error) {
+      result.errors.push(`bank check refund ${attempt.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return result;
 }
 
 /**

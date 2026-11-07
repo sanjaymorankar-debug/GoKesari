@@ -58,7 +58,10 @@ export function JoinStatusView({ token, initial, returnedFromGateway }: { token:
       const intent = await res.json().catch(() => null);
       if (!res.ok) throw new Error(intent?.error?.message ?? "Could not start the payment.");
       if (intent.gateway === "CASHFREE") {
-        await openCashfreeCheckout({ paymentSessionId: intent.paymentSessionId }, intent.cashfreeMode);
+        await openCashfreeCheckout({ paymentSessionId: intent.paymentSessionId, orderId: intent.orderId }, intent.cashfreeMode);
+        // The server asks Cashfree itself (never this page's word) and approves a paid fee at once,
+        // even if Cashfree's webhook is late or lost (docs/payments-cashfree-audit-2026-11).
+        await fetch(`/api/shop-registrations/${token}/check-payment`, { method: "POST" }).catch(() => undefined);
       } else {
         // Test mode (no gateway keys): settle through the same webhook code path.
         const settled = await fetch("/api/dev/settle-registration", {

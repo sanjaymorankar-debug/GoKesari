@@ -71,7 +71,18 @@ export async function pmdIngest() {
 export async function paymentsReconcile() {
   const payments = await (await import("@/server/payments/processing")).runPaymentReconciliation();
   const orderRefunds = await (await import("@/server/aftercare/refunds")).runRefundSweep();
-  return { ...payments, orderRefunds };
+  // docs/payments-cashfree-audit-2026-11: Cashfree wallet / shop-wallet top-ups and registration fees
+  // whose webhook never came are checked with Cashfree itself. A failure here never stops the rest.
+  const cashfreeTopUps = await (await import("@/server/services/payments"))
+    .reconcileCashfreeTopUps()
+    .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  const registrationFees = await (await import("@/server/registration/service"))
+    .reconcileRegistrationPayments()
+    .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  const bankChecks = await (await import("@/server/services/bank-accounts"))
+    .sweepBankVerifications()
+    .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  return { ...payments, orderRefunds, cashfreeTopUps, registrationFees, bankChecks };
 }
 
 /** Help-desk deadlines (acknowledge / resolve, auto-close) and refund retries. */

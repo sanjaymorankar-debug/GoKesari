@@ -1195,8 +1195,8 @@ export const RULES = {
       "(see docs/payments-gateway-2026-10.md). On staging it runs against the sandbox gateway. Off: checkout offers wallet and cash on delivery exactly as before.",
     schema: z.object({
       enabled: z.boolean(),
-      /** Methods offered on the gateway page. */
-      methods: z.array(z.enum(["UPI", "CARD", "NETBANKING"])).min(1).max(3),
+      /** Methods offered on the gateway page. WALLET = Paytm / PhonePe / Amazon Pay … (docs/payments-cashfree-audit-2026-11). */
+      methods: z.array(z.enum(["UPI", "CARD", "NETBANKING", "WALLET"])).min(1).max(4),
       /** How long the customer has to pay before the attempt expires (and the order's stock is released). */
       intentExpiryMinutes: int(5, 1440),
       /** An attempt still CREATED / PENDING this long after it started is checked with the gateway by the reconciliation job. */
@@ -1208,7 +1208,7 @@ export const RULES = {
     }),
     defaults: {
       enabled: false,
-      methods: ["UPI", "CARD", "NETBANKING"],
+      methods: ["UPI", "CARD", "NETBANKING", "WALLET"],
       intentExpiryMinutes: 15,
       reconcileAfterMinutes: 10,
       maxReconcileAttempts: 48,

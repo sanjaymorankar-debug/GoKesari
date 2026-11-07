@@ -440,3 +440,76 @@ describe("prompts and access", () => {
     expect((await saveMine()).status).toBe(401);
   });
 });
+
+/* ---------------------------------- docs/payments-cashfree-audit-2026-11 */
+
+describe("payments-reconcile: ₹1 checks the browser never confirmed", () => {
+  function mockCashfreeSweep(payments: unknown[], refundLookup: { status: number; body?: unknown }) {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (url.endsWith("/orders") && init?.method === "POST") return new Response(JSON.stringify({ payment_session_id: "session_123" }), { status: 200 });
+      if (url.includes("/payments")) return new Response(JSON.stringify(payments), { status: 200 });
+      if (url.endsWith("/refunds")) return new Response(JSON.stringify({ cf_refund_id: "rf_9", refund_status: "PENDING" }), { status: 200 });
+      if (url.includes("/refunds/")) return new Response(JSON.stringify(refundLookup.body ?? {}), { status: refundLookup.status });
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch;
+    return calls;
+  }
+
+  it("settles a paid ₹1 from Cashfree's record, refunds it, and then refreshes the refund", async () => {
+    const { sweepBankVerifications } = await import("@/server/services/bank-accounts");
+    state.live = true;
+    const calls = mockCashfreeSweep([{ cf_payment_id: 5511, payment_status: "SUCCESS", payment_group: "upi", payment_method: { upi: { upi_id: "ravi@okhdfc" } } }], { status: 404 });
+    const customer = await createUser({ name: "Ravi Kumar" });
+    signIn(customer, "CUSTOMER");
+    const saved = await saveMine();
+    const started = await start(saved.body.id);
+    // The customer paid, then closed the app before the page could confirm.
+    await db.update(bankVerificationAttempts).set({ createdAt: new Date(Date.now() - 40 * 60_000) }).where(eq(bankVerificationAttempts.gatewayOrderId, started.body.gatewayOrderId));
+
+    const first = await sweepBankVerifications();
+    expect(first).toMatchObject({ checked: 1, settled: 1, errors: [] });
+    const [attempt] = await db.select().from(bankVerificationAttempts).where(eq(bankVerificationAttempts.gatewayOrderId, started.body.gatewayOrderId));
+    expect(attempt).toMatchObject({ status: "SUCCESS", gatewayPaymentId: "5511", refundStatus: "PENDING", refundReference: "rf_9" });
+    const [account] = await db.select().from(bankAccounts).where(eq(bankAccounts.id, saved.body.id));
+    expect(account.status).toBe("VERIFIED");
+    expect(calls.filter((c) => c.url.endsWith("/refunds") && c.method === "POST")).toHaveLength(1);
+
+    // An hour later Cashfree has settled the refund: the sweep records it (asked by our refund id, never sent twice).
+    await db.update(bankVerificationAttempts).set({ updatedAt: new Date(Date.now() - 2 * 3600_000) }).where(eq(bankVerificationAttempts.id, attempt.id));
+    mockCashfreeSweep([], { status: 200, body: { cf_refund_id: "rf_9", refund_status: "SUCCESS" } });
+    const second = await sweepBankVerifications();
+    expect(second.refundsRefreshed).toBe(1);
+    const [after] = await db.select().from(bankVerificationAttempts).where(eq(bankVerificationAttempts.id, attempt.id));
+    expect(after).toMatchObject({ refundStatus: "REFUNDED" });
+  });
+
+  it("leaves an unpaid attempt alone and resends a failed refund only when Cashfree has none", async () => {
+    const { sweepBankVerifications } = await import("@/server/services/bank-accounts");
+    state.live = true;
+    mockCashfreeSweep([], { status: 404 });
+    const customer = await createUser({ name: "Ravi Kumar" });
+    signIn(customer, "CUSTOMER");
+    const saved = await saveMine();
+    const started = await start(saved.body.id);
+    await db.update(bankVerificationAttempts).set({ createdAt: new Date(Date.now() - 40 * 60_000) }).where(eq(bankVerificationAttempts.gatewayOrderId, started.body.gatewayOrderId));
+    expect(await sweepBankVerifications()).toMatchObject({ checked: 1, settled: 0 });
+    const [open] = await db.select().from(bankVerificationAttempts).where(eq(bankVerificationAttempts.gatewayOrderId, started.body.gatewayOrderId));
+    expect(open.status).toBe("CREATED");
+
+    // A refund recorded FAILED (e.g. a timeout): Cashfree has no such refund → sent again with the same refund id.
+    await db
+      .update(bankVerificationAttempts)
+      .set({ status: "SUCCESS", refundStatus: "FAILED", updatedAt: new Date(Date.now() - 2 * 3600_000) })
+      .where(eq(bankVerificationAttempts.id, open.id));
+    const calls = mockCashfreeSweep([], { status: 404 });
+    expect((await sweepBankVerifications()).refundsRetried).toBe(1);
+    const sent = calls.filter((c) => c.url.endsWith("/refunds") && c.method === "POST");
+    expect(sent).toHaveLength(1);
+    expect((sent[0].body as { refund_id: string }).refund_id).toMatch(/^bvr_/);
+    const [retried] = await db.select().from(bankVerificationAttempts).where(eq(bankVerificationAttempts.id, open.id));
+    expect(retried.refundStatus).toBe("PENDING");
+  });
+});

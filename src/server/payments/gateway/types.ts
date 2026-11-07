@@ -12,7 +12,8 @@
 
 export type GatewayName = "SANDBOX" | "CASHFREE" | "RAZORPAY" | "PHONEPE" | "HDFC";
 
-export type PaymentMethodKind = "UPI" | "CARD" | "NETBANKING";
+/** WALLET: Paytm, PhonePe, Amazon Pay and other wallets (Cashfree "app"); docs/payments-cashfree-audit-2026-11. */
+export type PaymentMethodKind = "UPI" | "CARD" | "NETBANKING" | "WALLET";
 
 /** The gateway's view of one order (a payment attempt). */
 export type GatewayOrderStatus = "CREATED" | "PENDING" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "EXPIRED";

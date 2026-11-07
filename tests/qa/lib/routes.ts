@@ -150,6 +150,7 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/shop-registrations/referral-check": "checks a referral code on the registration form",
   "/api/shop-registrations/[token]": "a self-registration by its unguessable token",
   "/api/shop-registrations/[token]/pay": "pays a self-registration by its unguessable token",
+  "/api/shop-registrations/[token]/check-payment": "asks Cashfree whether a self-registration's fee was paid, by its unguessable token",
   "/api/referral-requests": "the public 'refer a shop' form",
   "/api/delivery-link/[token]": "a delivery action by unguessable token",
   "/api/webhooks/cashfree": "payment gateway webhook: signature checked",

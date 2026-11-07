@@ -1,5 +1,39 @@
 # GoKesari app — release notes
 
+## 1.8.0 (Android versionCode 9, iPhone build 9) — 7 Nov 2026
+
+Payments through Cashfree's own mobile SDK (docs/payments-cashfree-audit-2026-11
+at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Faster, more reliable payments: pay by card, by any UPI app on your phone
+> (Google Pay, PhonePe, Paytm, BHIM …) or by wallet in Cashfree's secure
+> checkout, and come straight back to GoKesari.
+
+Changes in the app itself:
+- `react-native-cashfree-pg-sdk` 3.0.0 (Android `com.cashfree.pg:api` 2.6.0,
+  iOS `CashfreePG` 2.5.2) and `cashfree-pg-api-contract` 2.2.0. The website asks
+  the app (`__gokesariApp.cashfreeCheckout`, capability
+  `cashfree-native-checkout`) to take a payment it has already created on its
+  server; the app opens Cashfree's checkout (cards, UPI, wallets, net banking)
+  or its UPI-intent checkout (the phone's UPI apps) and tells the page when the
+  flow ends. The page then asks its server, which asks Cashfree — the phone's
+  answer is never taken as proof of payment. The app holds no Cashfree key.
+- The production app takes only production payments and the test app only
+  sandbox ones (a mismatched request is refused).
+- Android: `<queries>` for the `upi:` intent (Android 11+ package visibility),
+  so Cashfree can list the installed UPI apps. iOS:
+  `LSApplicationQueriesSchemes` for upi, phonepe, tez, gpay, paytmmp, paytm,
+  bhim, credpay, amazonpay, mobikwik, myairtel, navipay, kiwi, popclubapp,
+  super, simplypayupi and whatsapp.
+- Older builds keep Cashfree's web checkout inside the WebView, unchanged.
+- Version 1.7.0 → 1.8.0, versionCode / build 8 → 9. No new permissions.
+- **Production payments from the app need the store build** (Play Store /
+  TestFlight): Cashfree's integrity check refuses production payments from a
+  sideloaded APK. Whitelist `com.gokesari.app` in Cashfree (Developers →
+  Whitelisting → App) before release.
+
 ## 1.7.0 (Android versionCode 8, iPhone build 8) — 2 Nov 2026
 
 Dealer network (TIERED commission) and shop-refers-shop

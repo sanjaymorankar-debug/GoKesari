@@ -26,6 +26,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { getEnv } from "@/lib/env";
+import { exactJsonId } from "@/server/payments/gateway/common";
 import { isRegistrationOrder, processRegistrationPaymentEvent } from "@/server/registration/service";
 import { creditFromWebhook, verifyWebhookSignature } from "@/server/services/payments";
 
@@ -75,7 +76,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
       const outcome = await processRegistrationPaymentEvent({
         orderId: registrationOrderId,
-        paymentId: event.data?.payment?.cf_payment_id != null ? String(event.data.payment.cf_payment_id) : null,
+        // Exact digits from the raw body: JSON.parse rounds Cashfree's ids above 2^53.
+        paymentId: exactJsonId(rawBody, "cf_payment_id", event.data?.payment?.cf_payment_id),
         paymentStatus: event.data?.payment?.payment_status ?? (event.type === "PAYMENT_SUCCESS_WEBHOOK" ? "SUCCESS" : event.type),
         orderAmount: event.data?.order?.order_amount ?? null,
         paymentAmount: event.data?.payment?.payment_amount ?? null,
@@ -99,13 +101,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const gatewayOrderId = event.data?.order?.order_id;
-  const gatewayPaymentId = event.data?.payment?.cf_payment_id;
+  // docs/payments-cashfree-audit-2026-11: exact digits, not the float JSON.parse makes of a big id.
+  const gatewayPaymentId = exactJsonId(rawBody, "cf_payment_id", event.data?.payment?.cf_payment_id);
   if (!gatewayOrderId || !gatewayPaymentId) {
     return NextResponse.json({ error: "Missing payment identifiers" }, { status: 400 });
   }
 
   try {
-    await creditFromWebhook(gatewayOrderId, String(gatewayPaymentId));
+    // docs/payments-cashfree-audit-2026-11: the signed amount and currency are checked too.
+    await creditFromWebhook(gatewayOrderId, String(gatewayPaymentId), {
+      paymentAmount: event.data?.payment?.payment_amount ?? null,
+      currency: event.data?.payment?.payment_currency ?? event.data?.order?.order_currency ?? null,
+    });
   } catch (error) {
     // A genuine processing failure (DB unavailable, etc.) — return non-2xx so
     // Cashfree retries per its documented backoff, rather than silently

@@ -7,11 +7,18 @@
  * hard-coded, so a production session id simply fails. No credentials: a
  * payment session id is all Cashfree's Order Pay API needs.
  *
- *   node scripts/test-site/sandbox-pay.mjs <payment_session_id> <instrument> [card_number]
+ *   node scripts/test-site/sandbox-pay.mjs <payment_session_id> <instrument> [card_number | wallet_provider]
  *   instrument: upi-success | upi-failure | card-success | card-failure |
  *               debit-card-success | credit-card-success (the card must be of that type:
  *               otherwise the attempt is dropped, nothing is paid, and the run fails) |
  *               netbanking-success | netbanking-failure
+ *   docs/payments-cashfree-audit-2026-11 adds:
+ *               wallet-success | wallet-failure (third argument: the wallet, default phonepe;
+ *               paytm, amazon, mobikwik, freecharge, airtel, jio, ola …) |
+ *               card-pending | wallet-pending (the simulator leaves the payment PENDING) |
+ *               card-dropped | wallet-dropped (the customer cancels: USER_DROPPED) |
+ *               upi-intent | upi-qr (prints what Cashfree returns for an intent / QR payment;
+ *               the sandbox cannot open a UPI app, so nothing is paid)
  */
 const SANDBOX = "https://sandbox.cashfree.com/pg";
 const [session, instrument, cardNumber] = process.argv.slice(2);
@@ -20,8 +27,16 @@ if (!session || !instrument) {
   process.exit(2);
 }
 const outcome = instrument.endsWith("-failure") ? "failure" : "success";
+// The simulator's choice: SUCCESS / FAILED, or PENDING / USER_DROPPED for the new instruments.
+const simulatorStatus = instrument.endsWith("-pending") ? "PENDING" : instrument.endsWith("-dropped") ? "USER_DROPPED" : outcome === "success" ? "SUCCESS" : "FAILED";
 
 function paymentMethod() {
+  if (instrument === "upi-intent") return { upi: { channel: "link" } };
+  if (instrument === "upi-qr") return { upi: { channel: "qrcode" } };
+  if (instrument.startsWith("wallet-")) {
+    // Cashfree "app" payments (wallets); the sandbox shows the same simulator page as cards.
+    return { app: { channel: "link", provider: cardNumber || "phonepe", phone: "8714268343" } };
+  }
   if (instrument.startsWith("upi-")) {
     // Cashfree's sandbox VPAs: the collect request succeeds / fails by itself.
     return { upi: { channel: "collect", upi_id: outcome === "success" ? "testsuccess@gocash" : "testfailure@gocash" } };
@@ -54,6 +69,14 @@ console.log(JSON.stringify({ action: body?.action, channel: body?.channel, payme
 if (!res.ok) process.exit(1);
 
 const url = body?.data?.url;
+if (instrument === "upi-intent" || instrument === "upi-qr") {
+  // An intent / QR payment hands back a upi:// link or a QR image for a phone; only its shape is shown.
+  const payload = body?.data?.payload ?? {};
+  console.log(`UPI ${instrument === "upi-qr" ? "QR" : "intent"}: payload keys ${JSON.stringify(Object.keys(payload))}, url ${url ? "(present)" : "none"}`);
+  const sample = typeof payload.default === "string" ? payload.default : typeof payload.qrcode === "string" ? payload.qrcode : "";
+  console.log(`  starts with: ${sample.slice(0, 18)}…`);
+  process.exit(0);
+}
 if (!url) {
   console.log("No authentication page (UPI collect): the sandbox settles it by itself in a few seconds.");
   process.exit(0);
@@ -80,14 +103,26 @@ const wantType = instrument.startsWith("debit-card") ? "Debit Card" : instrument
 const pageText = await page.locator("body").innerText().catch(() => "");
 const wrongType = wantType && !pageText.includes(wantType);
 if (wrongType) console.log(`This card is not a ${wantType} here — dropping the attempt (nothing is paid).`);
-const status = wrongType ? "USER_DROPPED" : outcome === "success" ? "SUCCESS" : "FAILED";
+const status = wrongType ? "USER_DROPPED" : simulatorStatus;
 const radio = page.getByLabel(status, { exact: true });
 if (await radio.count()) await radio.first().check({ force: true });
 else await page.getByText(status, { exact: true }).first().click().catch(() => {});
 const failureType = page.locator("select").first();
-if (outcome !== "success" && (await failureType.count())) {
+if (status === "FAILED" && (await failureType.count())) {
   const options = await failureType.locator("option").allInnerTexts();
   if (options.length > 1) await failureType.selectOption({ index: 1 });
+}
+// Cashfree's simulator (Nov 2026) has a "Select failure type" dropdown button, not a <select>:
+// Submit stays disabled until a failure type is chosen.
+const picker = page.getByRole("button", { name: /select failure type/i }).first();
+if (status === "FAILED" && (await picker.count())) {
+  await picker.click().catch(() => {});
+  await page.waitForTimeout(400);
+  const option = page.locator(".dropdown-menu .dropdown-item, .dropdown-menu a, .dropdown-menu li, [role=option], [role=menuitem]").first();
+  if (await option.count()) {
+    console.log(`failure type: ${(await option.innerText().catch(() => "")).trim()}`);
+    await option.click().catch(() => {});
+  }
 }
 await page.waitForTimeout(500);
 const submit = page.getByRole("button", { name: /submit|pay|confirm/i }).first();

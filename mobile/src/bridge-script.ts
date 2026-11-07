@@ -16,6 +16,11 @@
  *   __gokesariApp.getPushToken() → this phone's Expo push token (asks for
  *                            notification permission once); the website
  *                            registers it (src/lib/mobile-bridge-push.ts)
+ *   __gokesariApp.cashfreeCheckout({ paymentSessionId, orderId, mode, flow })
+ *                          → 1.8.0: the payment in Cashfree's mobile SDK (cards,
+ *                            UPI apps, wallets); resolves { status: "verify" }
+ *                            when the flow ends — the page then asks its server
+ *                            (src/lib/cashfree-checkout.ts at the repository root)
  *
  * It installs only on the website's own origin, and every message carries a
  * per-launch secret: an iframe on the page (a payment widget, a map) can reach
@@ -259,6 +264,17 @@ export function buildBridgeScript({ siteOrigin, token, platform, version, scheme
     signInWithGoogle: function () { return request("signInWithGoogle", {}); },
     openDigiLocker: function (url) { return request("digilocker.open", { url: String(url) }); },
     getPushToken: function () { return request("push.getToken", {}); },
+    // 1.8.0: what this build can do, so the website uses a feature only when the app has it.
+    capabilities: ["cashfree-native-checkout"],
+    cashfreeCheckout: function (options) {
+      options = options || {};
+      return request("cashfree.checkout", {
+        paymentSessionId: text(options.paymentSessionId),
+        orderId: text(options.orderId),
+        mode: text(options.mode),
+        flow: options.flow === "upi" ? "upi" : "web"
+      });
+    },
     receive: receive
   };
   Object.defineProperty(window, "__gokesariApp", { value: app });
