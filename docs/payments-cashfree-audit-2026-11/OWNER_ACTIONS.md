@@ -62,7 +62,7 @@ and only once `payouts.provider` is switched to CASHFREE.
 |---|---|---|
 | ₹1 bank check by **credit card** | Counts as verified (`PAYMENT_ONLY`) — proves a card, not the bank account that will receive payouts | (a) keep; (b) allow only UPI / debit card / net banking for the ₹1 (`payment_methods: upi,dc,nb`); (c) switch on Secure ID bank verification (rule `bankAccountCheck`, keys `CASHFREE_VERIFICATION_*`) — a real bank-name match, no ₹1 |
 | Instant refunds | STANDARD (Cashfree default) | Ask Cashfree to enable INSTANT, then set `CASHFREE_REFUND_SPEED=INSTANT` in Hostinger (costs a fee per refund) |
-| Order checkout by Cashfree | `PAYMENT_GATEWAY=SANDBOX`, rule `onlinePayments` off on both sites | Set `PAYMENT_GATEWAY=CASHFREE` on test.gokesari.com first to test order payments + order refunds against the Cashfree sandbox, then on gokesari.com |
+| Order checkout by Cashfree | test.gokesari.com: `PAYMENT_GATEWAY=CASHFREE` from 21:51 IST, 7 Nov; tested end to end (TEST_RESULTS §7). gokesari.com: `SANDBOX` / rule off | On gokesari.com only **after F17 is released** (without it every Cashfree order checkout fails). Set the variable through hPanel → Deployments → Redeploy → **"Settings and redeploy"**: a plain Node.js restart does not apply it. Then switch on rule `onlinePayments` and pay one ₹1 order yourself |
 | Order checkout: a failed first attempt ends the attempt (D-A09) | A retry inside the same Cashfree page becomes "late capture" (support alerted) | keep, or let a failed attempt stay open until the Cashfree order expires |
 | Cashfree PG API version | 2023-08-01 | Plan the move to 2025-01-01 / 2026-01-01 as its own change |
 

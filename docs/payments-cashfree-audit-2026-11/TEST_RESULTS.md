@@ -132,3 +132,48 @@ No production money was moved by this work.
 - Mobile: 13 advisories (3 high, 9 moderate, 1 low), all in Expo's build tooling (`@expo/cli`,
   `@expo/config*`, `glob`, `minimatch`, `node-forge`, `uuid`, `zod` via `@expo/cli`) — none in the
   Cashfree SDK or any package on the payment path; not actioned here (Expo SDK upgrade).
+
+---
+
+## 7. Order payments through Cashfree (test.gokesari.com, `PAYMENT_GATEWAY=CASHFREE`)
+
+The owner set `PAYMENT_GATEWAY=CASHFREE` on test.gokesari.com; the site reported it from
+**21:51:41 IST** (`/admin/payments/cashfree` → "Order payments gateway"). A Node.js restart alone
+did not apply it (still `SANDBOX` at 21:46:49 and 21:48:30). On Hostinger a changed variable
+needs **Deployments → Redeploy → "Settings and redeploy"** (`docs/seller-verification/DEPLOY.md`).
+Before this, "Pay online" on staging went to the built-in test page (`/orders/pay/sandbox/…`),
+which completes without card or UPI details.
+
+Customer `gk-lc14`, shop A "E2E Four Features Bakery" (shop owner `gk-shop`). Sandbox payments
+went through runs #52–#61 of the "Sandbox payment" workflow (Cashfree sandbox test data).
+Order ids at Cashfree are `gk_<intent id>`.
+
+| # | Time (IST) | Flow / mode | Order | Amount | cf_payment_id / cf_refund_id | Run | Result | Status |
+|---|---|---|---|---|---|---|---|---|
+| O0 | 21:52:12 | Checkout "Pay online", rule `onlinePayments.intentExpiryMinutes` = 15 (default) | — | ₹85 | — | — | **409 "We could not start the payment just now"**. Cashfree refused the order: `order_expiry_time` was the intent expiry, 15 minutes counted from just before the call, which is under Cashfree's 15-minute minimum. At 21:53:24 the staging rule was raised to 30 (admin setting, audited), and the same checkout opened at once | **FAIL → FIXED (F17)** |
+| O1 | 21:53:53 → 21:56:58 | **Credit card** (Visa 4111…, OTP 111000) | DB-20261107-4LA98K | ₹85 (items ₹60 + delivery ₹25) | 1472630252845195264 | [#52](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42391272943) | captured **by Cashfree's webhook** (`/api/webhooks/payments/cashfree`, the order's notify_url); method CARD; order CONFIRMED | **PASS** |
+| O2 | 21:54:49 → 21:56:58 | **Debit card** 4706 1312 1121 2123 | DB-20261107-O7E1LU | ₹85 | 1472630248478924800 | [#53](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42391276440) | webhook capture, CARD, order CONFIRMED | **PASS** |
+| O3 | 21:54:59 → 21:57:17 | **UPI collect** testsuccess@gocash | DB-20261107-FDHY1C | ₹85 | 1472630230681367040 | [#54](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42391279391) | webhook capture, UPI, order CONFIRMED | **PASS** |
+| O4 | 21:55:09 → 21:56:58 | **Wallet** PhonePe (Cashfree `app`) | DB-20261107-TKQIDC | ₹85 | 1472630245538717696 | [#55](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42391282535) | webhook capture, method **WALLET**, order CONFIRMED | **PASS** |
+| O5 | 21:55:35 → 21:57:05 | **Net banking** (bank 3003) | DB-20261107-YMJ85G | ₹85 | 1472630277688057856 | [#56](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42391285861) | webhook capture, NETBANKING, order CONFIRMED | **PASS** |
+| O6 | 21:55:44 | Card **FAILED** ("cardholder could not complete OTP") | DB-20261107-MX2MC5 | ₹85 | 1472630311422844928 | [#57](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42391289477) | intent FAILED (read from Cashfree by the reconcile job), order PAYMENT_FAILED, "Retry payment" offered; nothing charged | **PASS** |
+| O6r | 21:58:00 → 21:58:54 | **Retry payment** on O6 → a new attempt, card success | DB-20261107-MX2MC5 (gk_58fd05aa…) | ₹85 | 1472630737168740864 | [#59](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42391435880) | webhook capture; the same order CONFIRMED | **PASS** |
+| O6x | 21:57:53 | "Retry payment" on an order that is already paid (O5) | DB-20261107-YMJ85G | — | — | — | `alreadyPaid: true`; no second payment opened | **PASS** |
+| O7 | 21:55:53 | Wallet **PENDING** (simulator) | DB-20261107-ZV46LF | ₹85 | 1472630258499117056 | [#58](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42391292030) | intent stays PENDING, order not confirmed, nothing failed early. 22:09:15: customer cancel **refused** (409 "A payment for this order is in progress…"), so the order can't be cancelled while money may still arrive | **PASS** |
+| O9 | 21:59:50 → 22:00:22 | Customer cancels paid O1 **before packing** → **full refund incl. delivery fee**, to the original card | DB-20261107-4LA98K | ₹85 | refund **1319966846** | — | quote: items ₹60 + delivery ₹25, no deduction, stage BEFORE_PACKING. REQUESTED 21:59:51, PROCESSING 21:59:55, SUCCESS 22:00:22 (Cashfree). Intent and order REFUNDED | **PASS** |
+| O8 | 21:59:04 → 22:00:22 | Two items (Butter Cookies ₹60 + Bread ₹40) + delivery ₹25, UPI collect | DB-20261107-A0TEBL | ₹125 | 1472631006188331008 | [#60](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42391517317) | webhook capture, order CONFIRMED | **PASS** |
+| O8r | 22:01:16 / 22:01:56 → 22:05:24 | Shop accepts, then **removes Bread (unavailable)** → **partial refund** to UPI | DB-20261107-A0TEBL | ₹40 | refund **1319966847** | — | REQUESTED 22:01:57, PROCESSING 22:02:02, SUCCESS 22:05:24 (settled by the 5-minute `payments-reconcile` job). Intent PARTIALLY_REFUNDED (₹40 of ₹125); the order goes on (PREPARING) with ₹85 kept | **PASS** |
+| O10 | 22:08:22 → 22:09:48 | Card, customer **cancels** on Cashfree's page (USER_DROPPED) | DB-20261107-BN7WM7 | ₹85 | 1472633390566268928 | [#61](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42392318968) | intent FAILED, order PAYMENT_FAILED, "Retry payment" offered; nothing charged | **PASS** |
+
+- **Webhooks:** all eight captures (O1–O5, O6r, O8) were confirmed by Cashfree's webhook on the
+  order's own `notify_url`, 1–3 minutes after the order was created. The intent events read
+  `API:CREATED → API:PENDING → WEBHOOK:CAPTURED`. The failures were settled by the reconcile job
+  (`RECONCILE:FAILED`). Payment ids were stored exactly as Cashfree sent them (compare F16).
+- **Two-shop order:** not run. Shop B ("Asmy test2") answered "not taking new orders right now".
+  The partial refund was tested instead by removing one line from a paid order (O8r), which goes
+  through the same `refundPaymentIntent` path.
+- **Retry / duplicate webhook:** covered by the automated tests (§1). Each delivery is recorded
+  once (`payment_webhook_events`), and a capture moves an intent only once.
+- **To undo after F17 is on staging:** set `onlinePayments.intentExpiryMinutes` back to 15
+  (raised to 30 at 21:53:24 for these tests). Then re-run one order at 15 minutes to confirm the
+  fix (§8 once done).
