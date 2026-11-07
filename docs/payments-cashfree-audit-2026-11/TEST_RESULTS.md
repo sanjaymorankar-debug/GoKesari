@@ -23,7 +23,8 @@ test.gokesari.com through the staging queue).
 | Existing payment suites: `cashfree-order-confirmation`, `payments`, `wallet-route`, `bank-account-check`, `shop-self-registration`, `qa-2026-10-24-money-fixes`, `batch-a-gateways`, `webhook-signature`, `batch-e-units`, `batch-e-payouts` | **all PASS** (125 + 31) | 7 Nov, 19:23–19:30 |
 | Mobile `npm test` (incl. new `cashfree.test.ts`: build ↔ environment check, request validation, cancel vs failure, bridge API, UPI schemes) | **59 / 59 PASS** | 7 Nov, 19:20 |
 | Typecheck + lint (web and mobile); Expo config introspection (Android `<queries>` has `upi`, iOS `LSApplicationQueriesSchemes`, version 1.8.0 / build 9) | **PASS** | 7 Nov |
-| Full web suite, Android APK build (gradle, with the Cashfree SDK) | in CI on the PR | — |
+| Full web suite, locally against PostgreSQL 16 (all 272 files) | **3,380 / 3,380 PASS** (75 min) | 7 Nov, 19:30–20:45 |
+| Android APK builds with the Cashfree SDK compiled in (gradle, preview + production) | **PASS** on the PR (19:50–19:57) | 7 Nov |
 
 Webhook **retry** and **duplicate** are covered here, not on staging (Cashfree cannot be made to
 resend on demand): a repeated signed webhook changes nothing (`… is credited once by the signed
