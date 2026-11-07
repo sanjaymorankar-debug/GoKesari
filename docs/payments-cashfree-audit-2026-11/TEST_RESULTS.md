@@ -48,6 +48,11 @@ webhook alone, before anyone called verify (about two minutes after paying).
 | B6 | 19:35:56 | Card attempt not finished (simulator left open) | topup_1794060276671_ef39ef71 | ₹14 | 1472594700379861504 | [#34](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42379894446) | — | 19:37:15 refused **and marked FAILED** | **FAIL → F1** |
 | B7 | 19:39:32 | **Shop wallet** top-up, UPI collect testsuccess@gocash (shop "E2E Four Features Bakery") | shoptopup_1794060518837_bbd7650e | ₹100 | (run #35) | [#35](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42380202577) | no | 19:39:44 (12 s after paying, UPI still settling) refused and marked FAILED; 19:39:59 409 "can no longer be completed"; shop wallet stays ₹854.90 | **FAIL → F1, F2** (paid, never credited) |
 
+| B8 | 19:43:54 | **Wallet — PhonePe** (Order Pay `app`, new tool instrument) | topup_1794060773833_01c27f5b | ₹15 | 1472596749674852864 | [#37](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42380551937) | — | 19:44:15 credited → ₹7,254 | PASS |
+| B9 | 19:43:38 | **Wallet — Paytm** | topup_1794060775171_2126ce42 | ₹16 | — | [#38](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42380556240) | — | Cashfree: "mode not enabled for merchant: paymentCode 11194433:4007" (`payment_method_unsupported`) | Paytm wallet **not enabled** on the sandbox account (OWNER) |
+| B10 | 19:45:18 | **Wallet — Amazon Pay** (same order as B9; left **unverified on purpose**) | topup_1794060775171_2126ce42 | ₹16 | 1472597101681816064 | [#39](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42380661902) | no | not called — for the reconcile job after deploy (§3 A2) | PASS (payment) |
+| B11 | 19:45:50 | **₹1 bank check**, debit card 4706 1312 1121 2123 (customer bank account, was PENDING) | bankverify_1794060899160_aca1485f | ₹1 | 1472597236595798528 | [#40](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/42380709607) | — | 19:46:08 account **VERIFIED** (match `PAYMENT_ONLY` — the sandbox gives no payer name), ₹1 **refund SUCCESS** (refund id `bvr_…`, Cashfree sandbox) | PASS (full refund) |
+
 Findings from this run:
 
 - **No webhook reached the site for any top-up** (B1–B3, B5, B7). Top-up orders carried no
@@ -82,6 +87,7 @@ the new instruments):
 | A9 | ₹1 test (card) and ₹2 partial-refund test | refund ids, partial then full |
 | A10 | Shop wallet top-up by UPI, card, wallet, net banking | credited each |
 | A11 | Guard: none expected on staging (sandbox env) | "No set-up problems" |
+| A12 | Browser checkout (cashfree.js modal for a top-up, `_self` for an order) on a desktop and a phone browser | no CSP errors in the console; the checkout opens and returns (needs a person with a browser: **OWNER**) |
 
 ---
 
@@ -89,6 +95,8 @@ the new instruments):
 
 | Check | How | Result |
 |---|---|---|
+| Webhook secret configured (`CASHFREE_SECRET_KEY` set) | 19:47:53 `POST https://gokesari.com/api/webhooks/cashfree` with no signature → **400 "Missing signature"** (not 503 "not configured"); nothing written. Same on test.gokesari.com 19:47:55 | **PASS** |
+| HTTPS + CSP allows Cashfree | `script-src https://sdk.cashfree.com`, `connect-src https://*.cashfree.com`, `frame-src https://*.cashfree.com` on both sites; `form-action 'self'` / no `sdk.cashfree.com` in img/style — widened for Cashfree by F15 | PASS / fixed |
 | Live keys set, `CASHFREE_ENV=production` | owner confirmation 14 Oct (decision log D-R02) | as recorded; to re-confirm on `/admin/payments/cashfree` after release (**OWNER**) |
 | No sandbox keys / env on production | the new guard refuses them; the admin page lists the problem | **AFTER DEPLOY** to production |
 | Webhook URLs, domain + app whitelisting, eligible methods | Cashfree dashboard / admin page | **OWNER** (OWNER_ACTIONS §1–3) |

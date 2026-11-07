@@ -103,6 +103,12 @@ this change); the staging result is in TEST_RESULTS, production is OWNER_ACTIONS
 The shop-owner prepaid wallet top-up sends no method filter, so it offers every mode the
 account has switched on (card, UPI, wallets, net banking).
 
+**Observed on the test site's Cashfree sandbox account (7 Nov 2026, TEST_RESULTS §2):** credit
+card, debit card, UPI collect (success and failure), net banking (3003) and the **PhonePe** and
+**Amazon Pay** wallets all took payments; the **Paytm** wallet answered "mode not enabled for
+merchant" (`payment_method_unsupported`) — ask Cashfree to enable it if Paytm should be offered.
+The production account's list comes from "Ask Cashfree" on gokesari.com (OWNER_ACTIONS §2).
+
 ---
 
 ## 4. Send money — refunds, payouts, ₹1 verification
@@ -133,6 +139,7 @@ account has switched on (card, UPI, wallets, net banking).
 | F11 | ₹1 checks paid but never confirmed (app closed) kept the ₹1; failed refunds were never retried | Cron settles them from Cashfree's record (same matching, refund); pending / failed refunds are re-checked and resent only when Cashfree has none | `bank-accounts.ts sweepBankVerifications, retryCashfreeRefund` | `tests/integration/bank-accounts.test.ts` |
 | F12 | No way to see a site's Cashfree set-up, the eligible methods, or run a controlled live test | `/admin/payments/cashfree`: set-up + problems, "Ask Cashfree" (keys + eligible methods), ₹1 test and ₹2 partial-refund test with immediate refund, history in IST | `payments/cashfree-health.ts`, `components/cashfree-admin-panel.tsx`, `api/admin/payments/cashfree/*` | integration |
 | F13 | Mobile apps used Cashfree's web checkout in a WebView: the UPI app chosen in `intent://` was dropped, bank pages in a new window went to the browser | App 1.8.0: Cashfree React Native SDK (`react-native-cashfree-pg-sdk` 3.0.0) — web checkout and UPI-intent checkout; Android `<queries>` for `upi:`; iOS UPI schemes; the build refuses the wrong environment; the website still confirms every payment with its server | `mobile/src/cashfree.ts, cashfree-request.ts, App.tsx, bridge-script.ts, app.config.ts`; `src/lib/cashfree-checkout.ts` | `mobile/src/__tests__/cashfree.test.ts` |
+| F15 | Site CSP narrower than Cashfree's documented one: `form-action 'self'` can block the `_self` hosted checkout (order payments) if Cashfree opens it by form post; no `sdk.cashfree.com` in `img-src` / `style-src` | Added `https://*.cashfree.com` to `form-action` and `https://sdk.cashfree.com` to `img-src` / `style-src` (Cashfree's web-SDK guidance); nothing else widened | `next.config.ts` | browser checkout on staging (TEST_RESULTS §3 A12) |
 | F14 | Sandbox test tool could not test wallets, pending, user-cancel or UPI intent | New instruments `wallet-*`, `*-pending`, `*-dropped`, `upi-intent`, `upi-qr` | `scripts/test-site/sandbox-pay.mjs`, `.github/workflows/sandbox-pay.yml` | staging runs |
 
 ---
@@ -173,3 +180,24 @@ in server logs).
 
 **None found committed.** No Cashfree App ID / secret, payout secret, Secure ID secret or
 webhook secret appears anywhere in the git history (all 1,150 commits on every branch).
+
+---
+
+## 7. Cashfree go-live checklist (gokesari.com) — status on 7 Nov 2026
+
+The integration code looks correct for production, but these items must be done (or confirmed)
+before it can be called live-ready:
+
+| Item | Status |
+|---|---|
+| KYC completed, production keys generated | Done per owner (14 Oct, D-R02) — re-confirm on `/admin/payments/cashfree` ("keys accepted") |
+| Domain whitelisted (gokesari.com, www) / app whitelisted (com.gokesari.app) | **Owner** (OWNER_ACTIONS §3) |
+| Webhooks configured in production (both URLs, HTTPS) | **Owner** (OWNER_ACTIONS §1) — orders now also send their own notify_url |
+| Payment methods enabled (card, UPI, net banking, wallets) | **Owner** — "Ask Cashfree" on gokesari.com (OWNER_ACTIONS §2) |
+| API alerts configured in the dashboard | **Owner** |
+| Base URL `api.cashfree.com/pg`, production keys, SDK environment PRODUCTION | Enforced by the new guard (site refuses otherwise); app builds pick the environment from the site |
+| No test data / sandbox URLs in return_url / notify_url | Done — built from `PAYMENT_PUBLIC_BASE_URL` / `AUTH_URL`; sandbox test data only in docs and the test-site tool |
+| Signature verification with the production secret | Done (`CASHFREE_SECRET_KEY` of the environment) |
+| Security review: no unresolved Critical / High in the payment flow | Done — all Critical / High fixed (§6); Medium / Low reported |
+| Small real payment (₹1), seen in the dashboard, webhook received, PAID read, refund processed | **Owner** — admin ₹1 test (OWNER_ACTIONS §4) |
+| Mobile app tested via Play Store internal testing / TestFlight | **Owner** (OWNER_ACTIONS §6) |

@@ -43,14 +43,18 @@ const cspDirectives = [
   // browser (docs/document-upload-2026-10, "Reading in the browser"). It allows
   // WebAssembly only — JavaScript eval() stays blocked.
   `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://sdk.cashfree.com https://maps.googleapis.com${isDev ? " 'unsafe-eval'" : ""}`,
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' blob: data: https://maps.googleapis.com https://maps.gstatic.com",
+  // Cashfree checkout (cashfree.js v3) may load its own styles and images from sdk.cashfree.com
+  // (Cashfree's documented CSP; docs/payments-cashfree-audit-2026-11).
+  "style-src 'self' 'unsafe-inline' https://sdk.cashfree.com",
+  "img-src 'self' blob: data: https://maps.googleapis.com https://maps.gstatic.com https://sdk.cashfree.com",
   "font-src 'self'",
   "connect-src 'self' https://maps.googleapis.com https://*.cashfree.com",
   "frame-src https://*.cashfree.com",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  // Cashfree's hosted checkout ("_self", used for order payments) may be opened by a form post to a
+  // cashfree.com page, which form-action 'self' alone would block. Only Cashfree is added.
+  "form-action 'self' https://*.cashfree.com",
   "frame-ancestors 'none'",
   "upgrade-insecure-requests",
 ];
