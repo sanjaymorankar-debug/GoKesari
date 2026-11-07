@@ -105,7 +105,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    await creditFromWebhook(gatewayOrderId, String(gatewayPaymentId));
+    // docs/payments-cashfree-audit-2026-11: the signed amount and currency are checked too.
+    await creditFromWebhook(gatewayOrderId, String(gatewayPaymentId), {
+      paymentAmount: event.data?.payment?.payment_amount ?? null,
+      currency: event.data?.payment?.payment_currency ?? event.data?.order?.order_currency ?? null,
+    });
   } catch (error) {
     // A genuine processing failure (DB unavailable, etc.) — return non-2xx so
     // Cashfree retries per its documented backoff, rather than silently

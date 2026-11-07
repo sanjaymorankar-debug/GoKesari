@@ -57,6 +57,8 @@ const serverEnvSchema = z.object({
   CASHFREE_APP_ID: z.string().optional(),
   CASHFREE_SECRET_KEY: z.string().optional(),
   CASHFREE_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+  /** Cashfree PG refund_speed for refunds GoKesari sends (docs/payments-cashfree-audit-2026-11). Unset = Cashfree's default (STANDARD). */
+  CASHFREE_REFUND_SPEED: z.enum(["STANDARD", "INSTANT"]).optional(),
   /**
    * Cashfree Verification Suite (Secure ID) — bank account check (docs/four-features-2026-10, O-7).
    * Its own client id / secret, not the payment keys. The *_APP_ID / *_SECRET_KEY spellings are
@@ -334,6 +336,51 @@ export function cashfreeApiBase(): string {
   return getEnv().CASHFREE_ENV === "production"
     ? "https://api.cashfree.com/pg"
     : "https://sandbox.cashfree.com/pg";
+}
+
+/**
+ * Which kind of site this server is (docs/payments-cashfree-audit-2026-11):
+ * "production" = gokesari.com, "test" = any other deployed production build
+ * (test.gokesari.com), "local" = development and the test suite.
+ */
+export function deployedSiteKind(env: ServerEnv = getEnv()): "production" | "test" | "local" {
+  if (isProductionSite(env)) return "production";
+  return env.NODE_ENV === "production" ? "test" : "local";
+}
+
+/** What Cashfree PG keys look like: sandbox app ids start with TEST, secrets carry _test_ / _prod_. */
+export function cashfreeKeyKind(appId: string | undefined, secret: string | undefined): "sandbox" | "production" | "unknown" {
+  if (/^TEST/i.test(appId ?? "") || /^cfsk_ma_test_/i.test(secret ?? "")) return "sandbox";
+  if (/^cfsk_ma_prod_/i.test(secret ?? "")) return "production";
+  return "unknown";
+}
+
+/**
+ * A Cashfree set-up that would move pretend money on gokesari.com, or real
+ * money on test.gokesari.com: the sandbox (environment or keys) on the
+ * production site, or production on the test site. Null when it is safe.
+ * Local development and the test suite are never refused.
+ */
+export function cashfreeEnvProblem(product: "pg" | "payouts" | "verification", env: ServerEnv = getEnv()): string | null {
+  const site = deployedSiteKind(env);
+  if (site === "local") return null;
+  const mode =
+    product === "pg" ? env.CASHFREE_ENV : product === "payouts" ? env.CASHFREE_PAYOUT_ENV : (env.CASHFREE_VERIFICATION_ENV ?? env.CASHFREE_ENV);
+  const label = product === "pg" ? "CASHFREE_ENV" : product === "payouts" ? "CASHFREE_PAYOUT_ENV" : "CASHFREE_VERIFICATION_ENV";
+  const keys = product === "pg" ? cashfreeKeyKind(env.CASHFREE_APP_ID, env.CASHFREE_SECRET_KEY) : "unknown";
+  if (site === "production") {
+    if (mode !== "production") return `${label} is "${mode}" on the production site; it must be "production".`;
+    if (keys === "sandbox") return "Sandbox (TEST) Cashfree keys are set on the production site.";
+    return null;
+  }
+  if (mode === "production") return `${label} is "production" on the test site; it must be "sandbox" so no real money moves.`;
+  if (keys === "production") return "Production Cashfree keys are set on the test site.";
+  return null;
+}
+
+/** Optional refund speed sent with Cashfree PG refunds (INSTANT must be switched on by Cashfree first). Unset: Cashfree's default, STANDARD. */
+export function cashfreeRefundSpeed(): "STANDARD" | "INSTANT" | null {
+  return getEnv().CASHFREE_REFUND_SPEED ?? null;
 }
 
 /** True when the server-side Geocoding key is configured. */

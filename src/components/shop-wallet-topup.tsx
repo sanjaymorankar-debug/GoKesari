@@ -51,7 +51,7 @@ export function ShopWalletTopUp({
       if (intent.mock) {
         await post("/api/dev/settle-topup", { gatewayOrderId: intent.gatewayOrderId });
       } else {
-        await openCashfreeCheckout({ paymentSessionId: intent.paymentSessionId }, intent.cashfreeMode);
+        await openCashfreeCheckout({ paymentSessionId: intent.paymentSessionId, orderId: intent.gatewayOrderId }, intent.cashfreeMode);
         await post(`/api/shops/${shopId}/wallet/verify`, { gatewayOrderId: intent.gatewayOrderId });
       }
       setNotice(`${formatPaiseCompact(amountPaise)} added to your shop wallet.`);

@@ -9,7 +9,7 @@ inside a phone app.
 | Feature | In the app |
 |---|---|
 | Browse, cart, checkout, orders, returns, grievances, referrals, societies | The website's own pages |
-| Wallet top-up (Cashfree) | Card, net-banking and 3-D Secure stay in the app. UPI app links open the UPI app (Android shows its app chooser) |
+| Payments (Cashfree) | 1.8.0+: Cashfree's mobile SDK takes card, UPI (the phone's UPI apps) and wallet payments that the website started; the website confirms each one with its server (`src/cashfree.ts`). Older builds: card, net-banking and 3-D Secure stay in the WebView; UPI app links open the UPI app (Android shows its app chooser) |
 | Sign in with an emailed code | Works in the app |
 | Continue with Google | Opens Google in the system browser (Google blocks sign-in inside apps), then returns to the app signed in |
 | Sign-in link by email | Hidden in the app: the link would sign in the phone's browser, not the app |

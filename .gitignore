@@ -57,3 +57,25 @@ tests/test-results/
 
 # homepage-uiux e2e screenshots (evidence; a curated set is in docs/homepage-uiux-2026-10/screenshots)
 /e2e-evidence/
+
+# Cashfree agent skills (installed locally with `npx @cashfreepayments/agent-skills add skills`; not committed)
+/.claude/skills/auto-collect/
+/.claude/skills/bbps-cou/
+/.claude/skills/changelog/
+/.claude/skills/common-mistakes/
+/.claude/skills/cross-border/
+/.claude/skills/eligible-payment-modes/
+/.claude/skills/getting-started/
+/.claude/skills/migrate-from-juspay/
+/.claude/skills/migrate-from-payu/
+/.claude/skills/migrate-from-razorpay/
+/.claude/skills/payouts/
+/.claude/skills/pg/
+/.claude/skills/progress-and-skill-feedback/
+/.claude/skills/secure-id/
+/.claude/skills/security-review/
+/.claude/skills/settlements-and-reconciliation/
+/.claude/skills/subscriptions/
+/.claude/skills/upgrade-advisor/
+/.claude/skills/validation-and-testing/
+/.claude/cashfree-skills*.json

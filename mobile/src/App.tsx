@@ -40,7 +40,9 @@ import {
 } from "./bridge";
 import { watchForUpdates } from "./app-update";
 import { buildBridgeScript } from "./bridge-script";
-import { APP_SCHEME, APP_VERSION, COLORS, SITE_URL, UA_TOKEN } from "./config";
+import { runCashfreeCheckout } from "./cashfree";
+import { parseCashfreeCheckoutRequest } from "./cashfree-request";
+import { APP_SCHEME, APP_VARIANT, APP_VERSION, COLORS, SITE_URL, UA_TOKEN } from "./config";
 import { digilockerCallbackUrl, digilockerResult, isDigilockerUrl } from "./digilocker";
 import { notificationTarget, sitePageUrl as siteLink } from "./deep-links";
 import { signInWithGoogle } from "./google-sign-in";
@@ -309,6 +311,12 @@ function Shell() {
             return;
           case PUSH_TOKEN_MESSAGE:
             return reply(await getPushRegistration());
+          case "cashfree.checkout": {
+            // 1.8.0: Cashfree's mobile SDK takes the payment; the page confirms it with its server after.
+            const parsed = parseCashfreeCheckoutRequest(message, APP_VARIANT);
+            if (!parsed.ok) return reply(undefined, { name: "PaymentError", message: parsed.error });
+            return reply(await runCashfreeCheckout(parsed.request));
+          }
           default:
             return;
         }

@@ -35,6 +35,7 @@ export default async function GatewaySessionPage({ params }: { params: Promise<{
           sessionToken={intent.checkoutToken}
           mode={getEnv().CASHFREE_ENV}
           returnPath={returnPath}
+          orderId={intent.gateway === "CASHFREE" ? intent.gatewayOrderId : null}
         />
       </Card>
     </div>

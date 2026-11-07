@@ -1,4 +1,5 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
+import { withAndroidManifest, type ConfigPlugin } from "expo/config-plugins";
 
 /**
  * Two builds from one codebase, chosen by APP_VARIANT (set per profile in
@@ -100,7 +101,48 @@ const INTENT_PATH_PREFIXES = [...new Set([...APP_LINK_PATH_PREFIXES, ...DEEP_LIN
  */
 const GOOGLE_SERVICES_JSON: string | undefined = process.env.GOOGLE_SERVICES_JSON;
 
-export default ({ config }: ConfigContext): ExpoConfig => ({
+/**
+ * 1.8.0 (Cashfree mobile SDK, src/cashfree.ts): UPI apps the app may open. iOS only lets an app
+ * ask for these schemes when they are listed; Android 11+ only shows the app the UPI apps when
+ * the manifest declares it queries the upi: intent (Cashfree's SDK lists the installed ones).
+ * Same list as UPI_APP_SCHEMES in src/cashfree-request.ts.
+ */
+const UPI_APP_SCHEMES = [
+  "upi",
+  "phonepe",
+  "tez",
+  "gpay",
+  "paytmmp",
+  "paytm",
+  "bhim",
+  "credpay",
+  "amazonpay",
+  "mobikwik",
+  "myairtel",
+  "navipay",
+  "kiwi",
+  "popclubapp",
+  "super",
+  "simplypayupi",
+  "whatsapp",
+];
+
+/** Android: <queries><intent><action VIEW/><data scheme="upi"/></intent></queries> (package visibility for UPI apps). */
+const withUpiQueries: ConfigPlugin = (expoConfig) =>
+  withAndroidManifest(expoConfig, (mod) => {
+    const manifest = mod.modResults.manifest as unknown as {
+      queries?: { intent?: { action?: { $: Record<string, string> }[]; data?: { $: Record<string, string> }[] }[] }[];
+    };
+    const queries = manifest.queries ?? [];
+    const already = queries.some((q) => q.intent?.some((i) => i.data?.some((d) => d.$["android:scheme"] === "upi")));
+    if (!already) {
+      queries.push({ intent: [{ action: [{ $: { "android:name": "android.intent.action.VIEW" } }], data: [{ $: { "android:scheme": "upi" } }] }] });
+    }
+    manifest.queries = queries;
+    return mod;
+  });
+
+const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: variant.name,
   slug: "gokesari",
@@ -125,7 +167,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // 1.6.0: Aadhaar by DigiLocker (Sandbox.co.in stopped the Aadhaar OTP check) — the KYC page asks the
   // app to open DigiLocker in the in-app browser (ASWebAuthenticationSession / Custom Tab) and the
   // website's return link hands back to `<scheme>://digilocker-return` (src/digilocker.ts).
-  version: "1.7.0",
+  // 1.8.0: card, UPI (the phone's UPI apps) and wallet payments through Cashfree's own mobile SDK
+  // (react-native-cashfree-pg-sdk) when the website asks for it (src/cashfree.ts); the website
+  // still confirms every payment with its server. Older builds keep Cashfree's web checkout.
+  version: "1.8.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -134,7 +179,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "8",
+    buildNumber: "9",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -147,11 +192,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       // 1.3.0: voice search in the header search (the page's Web Speech API, in English, Hindi or Marathi).
       NSMicrophoneUsageDescription: "GoKesari listens only while you tap the microphone in search, to search by voice.",
       NSSpeechRecognitionUsageDescription: "GoKesari turns what you say into a search when you tap the microphone in search.",
+      // 1.8.0: the UPI apps Cashfree's checkout may open (pay by PhonePe, Google Pay, Paytm, BHIM …).
+      LSApplicationQueriesSchemes: UPI_APP_SCHEMES,
     },
   },
   android: {
     package: variant.appId,
-    versionCode: 8,
+    versionCode: 9,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",
@@ -228,3 +275,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...(EAS_PROJECT_ID ? { eas: { projectId: EAS_PROJECT_ID } } : {}),
   },
 });
+
+// 1.8.0: let Cashfree's SDK see the phone's UPI apps (Android 11+ package visibility).
+export default (context: ConfigContext): ExpoConfig => withUpiQueries(baseConfig(context));

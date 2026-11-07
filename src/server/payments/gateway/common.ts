@@ -67,6 +67,7 @@ export function methodKind(raw: string | null | undefined): PaymentMethodKind | 
   if (value.includes("upi")) return "UPI";
   if (value.includes("card") || value === "cc" || value === "dc") return "CARD";
   if (value.includes("net") || value === "nb") return "NETBANKING";
+  if (value.includes("wallet") || value === "app") return "WALLET";
   return null;
 }
 

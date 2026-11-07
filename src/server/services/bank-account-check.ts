@@ -25,7 +25,7 @@ import crypto from "node:crypto";
 import { and, desc, eq, gte, ne } from "drizzle-orm";
 
 import { maskAccountNumber } from "@/lib/bank-accounts";
-import { findCashfreeVerificationKeys, getEnv, type ServerEnv } from "@/lib/env";
+import { cashfreeEnvProblem, findCashfreeVerificationKeys, getEnv, type ServerEnv } from "@/lib/env";
 import { AppError, conflict, forbidden, notFound } from "@/lib/errors";
 import { nameMatchScore } from "@/lib/kyc/name-match";
 import { decryptSecret } from "@/lib/pan-crypto";
@@ -152,6 +152,10 @@ function errorOutcome(httpStatus: number | null, message: string): BavOutcome {
 
 /** Bank Account Verification (sync, v2): POST {base}/bank-account/sync. Never throws. */
 export async function callCashfreeBav(config: BankCheckConfig, input: { accountNumber: string; ifsc: string; name: string }): Promise<BavOutcome> {
+  // docs/payments-cashfree-audit-2026-11: a sandbox answer must never verify a real account on
+  // gokesari.com (nor the test site call production): an error, so the ₹1 check is used instead.
+  const envProblem = cashfreeEnvProblem("verification");
+  if (envProblem) return errorOutcome(null, envProblem);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-client-id": config.clientId,

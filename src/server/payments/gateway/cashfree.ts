@@ -26,7 +26,7 @@
  * Everything else follows Cashfree's published PG reference and the fields the
  * existing top-up code already relies on.
  */
-import { cashfreeApiBase, getEnv } from "@/lib/env";
+import { cashfreeApiBase, cashfreeEnvProblem, cashfreeRefundSpeed, getEnv } from "@/lib/env";
 import { hmacBase64, isFresh, methodKind, paise, readJson, rupees, safeEqual, sha256Hex } from "./common";
 import {
   GatewayNotConfiguredError,
@@ -48,7 +48,8 @@ import {
 const API_VERSION = "2023-08-01";
 const LINK_PREFIX = "link:";
 
-const METHOD_CODES: Record<PaymentMethodKind, string> = { UPI: "upi", CARD: "cc,dc", NETBANKING: "nb" };
+// WALLET → Cashfree "app" (Paytm, PhonePe, Amazon Pay, … — whichever wallets Cashfree has switched on for the account).
+const METHOD_CODES: Record<PaymentMethodKind, string> = { UPI: "upi", CARD: "cc,dc", NETBANKING: "nb", WALLET: "app" };
 
 interface CfOrder {
   cf_order_id?: string | number;
@@ -116,7 +117,9 @@ export class CashfreeGateway implements PaymentGateway {
 
   isConfigured(): boolean {
     const env = getEnv();
-    return Boolean(env.CASHFREE_APP_ID && env.CASHFREE_SECRET_KEY);
+    // docs/payments-cashfree-audit-2026-11: the sandbox on gokesari.com (or production on the
+    // test site) counts as not configured, so no order is ever taken with the wrong money.
+    return Boolean(env.CASHFREE_APP_ID && env.CASHFREE_SECRET_KEY) && !cashfreeEnvProblem("pg", env);
   }
 
   private headers(): Record<string, string> {
@@ -231,6 +234,8 @@ export class CashfreeGateway implements PaymentGateway {
       refund_amount: rupees(input.amountPaise),
       refund_id: input.merchantRefundId,
       refund_note: input.reason.slice(0, 100),
+      // CASHFREE_REFUND_SPEED (optional): INSTANT only once Cashfree has switched it on; unset = STANDARD.
+      ...(cashfreeRefundSpeed() ? { refund_speed: cashfreeRefundSpeed() } : {}),
     });
     return { gatewayRefundId: String(refund.cf_refund_id ?? refund.refund_id), status: refundStatus(refund.refund_status) };
   }

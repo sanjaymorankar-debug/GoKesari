@@ -139,7 +139,7 @@ export function WalletView({
       // close (payment completed or cancelled), then ask the server to
       // independently confirm with Cashfree whether it was actually paid.
       await openCashfreeCheckout(
-        { paymentSessionId: intent.paymentSessionId },
+        { paymentSessionId: intent.paymentSessionId, orderId: intent.gatewayOrderId },
         intent.cashfreeMode,
       );
       const verifyResponse = await fetch("/api/wallet/verify", {

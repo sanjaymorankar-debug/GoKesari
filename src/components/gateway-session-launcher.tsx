@@ -17,11 +17,14 @@ export function GatewaySessionLauncher({
   sessionToken,
   mode,
   returnPath,
+  orderId,
 }: {
   gateway: string;
   sessionToken: string;
   mode: "sandbox" | "production";
   returnPath: string;
+  /** Cashfree's order id: inside the app (1.8.0+) the payment opens in Cashfree's mobile SDK. */
+  orderId?: string | null;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -32,13 +35,16 @@ export function GatewaySessionLauncher({
     setBusy(true);
     try {
       if (gateway !== "CASHFREE") throw new Error("This payment gateway's checkout is not available in the app yet.");
-      await openCashfreeCheckout({ paymentSessionId: sessionToken, redirectTarget: "_self" }, mode);
+      const outcome = await openCashfreeCheckout({ paymentSessionId: sessionToken, redirectTarget: "_self", orderId: orderId ?? undefined }, mode);
+      // The app's SDK hands back here (the web checkout returns through Cashfree's return_url):
+      // the return page asks the server, which asks Cashfree.
+      if (outcome.via === "app") window.location.assign(returnPath);
     } catch (e) {
       setError(e instanceof Error ? e.message : "The payment page could not be opened.");
     } finally {
       setBusy(false);
     }
-  }, [gateway, sessionToken, mode]);
+  }, [gateway, sessionToken, mode, orderId, returnPath]);
 
   useEffect(() => {
     if (started.current) return;
