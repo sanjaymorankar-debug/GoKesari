@@ -23,9 +23,9 @@
  */
 import crypto from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 
-import { cashfreeApiBase, getEnv, isPaymentGatewayLive } from "@/lib/env";
+import { cashfreeApiBase, cashfreeEnvProblem, getEnv, isPaymentGatewayLive } from "@/lib/env";
 import {
   conflict,
   notFound,
@@ -34,6 +34,7 @@ import {
 } from "@/lib/errors";
 import { db } from "@/server/db";
 import { payments, users, type Payment } from "@/server/db/schema";
+import { assertCashfreeEnvSafe, cashfreeNotifyUrl, cashfreeOrderExpiry } from "@/server/payments/cashfree-env";
 import { checkRiskForUser } from "./risk";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
@@ -266,10 +267,23 @@ export async function verifyAndCreditTopUp(input: {
   userId: string;
   gatewayOrderId: string;
 }): Promise<VerifyTopUpResult> {
-  const { payment, alreadySettled } = await loadVerifiablePayment(
-    input.userId,
-    input.gatewayOrderId,
-  );
+  let loaded: Awaited<ReturnType<typeof loadVerifiablePayment>>;
+  try {
+    loaded = await loadVerifiablePayment(input.userId, input.gatewayOrderId);
+  } catch (error) {
+    // docs/payments-cashfree-audit-2026-11: the customer's own top-up, marked
+    // FAILED earlier, that Cashfree now reports paid — credited, not refused.
+    const failed = await db.query.payments.findFirst({ where: eq(payments.gatewayOrderId, input.gatewayOrderId) });
+    if (failed && failed.userId === input.userId && failed.status === "FAILED" && failed.gateway === "CASHFREE") {
+      const recovered = await recoverLateTopUp(failed).catch((cause: unknown) => {
+        console.error("[cashfree] late top-up check failed", input.gatewayOrderId, cause);
+        return null;
+      });
+      if (recovered) return recovered;
+    }
+    throw error;
+  }
+  const { payment, alreadySettled } = loaded;
   if (alreadySettled) return alreadySettled;
 
   // TC-PAY-004: a MOCK top-up (or any, while no Cashfree keys are set) has no
@@ -279,9 +293,9 @@ export async function verifyAndCreditTopUp(input: {
     throw paymentVerificationFailed("This payment has not been completed, so nothing was added to your wallet.");
   }
 
-  let confirmed: { cfPaymentId: string } | null;
+  let state: CashfreeTopUpState;
   try {
-    confirmed = await confirmCashfreeOrderPaid(input.gatewayOrderId);
+    state = await cashfreeTopUpState(input.gatewayOrderId, payment.amountPaise);
   } catch (error) {
     // Cashfree could not be reached (network, DNS, its own 5xx): the payment's
     // state is unknown, so it is not marked FAILED — the customer (or the
@@ -289,6 +303,19 @@ export async function verifyAndCreditTopUp(input: {
     console.error("[cashfree] payment status check unreachable", input.gatewayOrderId, error);
     throw paymentVerificationFailed("We could not reach the payment provider to confirm this payment. Please try again in a minute.");
   }
+  // docs/payments-cashfree-audit-2026-11: a UPI / bank payment still PENDING at
+  // Cashfree (or not attempted yet) is left open, not FAILED — the webhook or
+  // the payments-reconcile job credits it once the bank confirms.
+  if (state.kind === "PENDING") {
+    throw paymentVerificationFailed(
+      "Your bank has not confirmed this payment yet. If money was taken, your wallet is credited automatically as soon as it confirms — please do not pay again.",
+    );
+  }
+  if (state.kind === "MISMATCH") {
+    await markTopUpAmountMismatch(payment, state);
+    throw paymentVerificationFailed();
+  }
+  const confirmed = state.kind === "PAID" ? { cfPaymentId: state.cfPaymentId } : null;
   if (!confirmed) {
     await db
       .update(payments)
@@ -505,6 +532,8 @@ async function finalizeVerifiedPayment(
 export async function creditFromWebhook(
   gatewayOrderId: string,
   gatewayPaymentId: string,
+  /** What the signed webhook says was paid (rupees, as Cashfree sends it); checked when given. */
+  observed?: { paymentAmount?: number | null; currency?: string | null },
 ): Promise<VerifyTopUpResult | null> {
   const payment = await db.query.payments.findFirst({
     where: eq(payments.gatewayOrderId, gatewayOrderId),
@@ -519,7 +548,21 @@ export async function creditFromWebhook(
       voucherBonusPaise: 0,
     };
   }
-  if (payment.status === "REFUNDED" || payment.status === "FAILED") return null;
+  if (payment.status === "REFUNDED") return null;
+
+  // docs/payments-cashfree-audit-2026-11: never credit more than Cashfree says was paid.
+  const mismatch = amountMismatch(payment.amountPaise, observed?.paymentAmount ?? null, observed?.currency ?? null);
+  if (mismatch) {
+    await markTopUpAmountMismatch(payment, { kind: "MISMATCH", cfPaymentId: gatewayPaymentId, paidPaise: mismatch.paidPaise, currency: mismatch.currency });
+    return null;
+  }
+
+  if (payment.status === "FAILED") {
+    // A payment we had given up on (the customer's check came back before the
+    // bank confirmed) that Cashfree now reports paid: the customer's money
+    // arrived, so it is credited — after Cashfree's own API confirms it.
+    return recoverLateTopUp(payment);
+  }
 
   return finalizeVerifiedPayment(payment, {
     gatewayPaymentId,
@@ -527,9 +570,199 @@ export async function creditFromWebhook(
   });
 }
 
+/* ------------------------------------------- docs/payments-cashfree-audit-2026-11 */
+
+/** Cashfree's answer about one top-up order, from its Get Payments API. */
+type CashfreeTopUpState =
+  | { kind: "PAID"; cfPaymentId: string }
+  /** attempted: a payment attempt exists and is pending at the bank (false: nobody has paid yet). */
+  | { kind: "PENDING"; attempted: boolean }
+  | { kind: "FAILED" }
+  | { kind: "MISMATCH"; cfPaymentId: string; paidPaise: number | null; currency: string | null };
+
+const PENDING_ATTEMPT_STATUSES = new Set(["PENDING", "NOT_ATTEMPTED", "FLAGGED"]);
+
+/**
+ * Less money than the top-up (or a currency other than INR) → the mismatch;
+ * null when it is fine. More than the top-up (a convenience fee the customer
+ * paid on top) is fine: the wallet gets the top-up amount.
+ */
+function amountMismatch(expectedPaise: number, paidRupees: number | string | null, currency: string | null): { paidPaise: number | null; currency: string | null } | null {
+  const currencyBad = currency != null && currency !== "" && currency.toUpperCase() !== "INR";
+  const paidPaise = paidRupees == null || paidRupees === "" ? null : Math.round(Number(paidRupees) * 100);
+  const amountBad = paidPaise != null && (!Number.isFinite(paidPaise) || paidPaise < expectedPaise);
+  return currencyBad || amountBad ? { paidPaise: Number.isFinite(paidPaise) ? paidPaise : null, currency } : null;
+}
+
+/**
+ * Asks Cashfree (server to server) for an order's payment attempts and sorts
+ * them into paid / still pending / failed. Throws when Cashfree cannot be
+ * reached or answers 5xx (the state is then unknown).
+ */
+async function cashfreeTopUpState(gatewayOrderId: string, expectedPaise: number): Promise<CashfreeTopUpState> {
+  const response = await fetch(`${cashfreeApiBase()}/orders/${encodeURIComponent(gatewayOrderId)}/payments`, {
+    method: "GET",
+    headers: cashfreeHeaders(),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (response.status >= 500) {
+    throw new Error(`Cashfree answered ${response.status} for order ${gatewayOrderId}`);
+  }
+  if (!response.ok) {
+    console.error("[cashfree] payment status check failed", gatewayOrderId, response.status, await response.text());
+    return { kind: "FAILED" };
+  }
+  const attempts = (await response.json()) as Array<{
+    cf_payment_id: string | number;
+    payment_status: string;
+    payment_amount?: number | string | null;
+    payment_currency?: string | null;
+  }>;
+  const list = Array.isArray(attempts) ? attempts : [];
+  const successful = list.find((a) => a.payment_status === "SUCCESS");
+  if (successful) {
+    const mismatch = amountMismatch(expectedPaise, successful.payment_amount ?? null, successful.payment_currency ?? null);
+    if (mismatch) return { kind: "MISMATCH", cfPaymentId: String(successful.cf_payment_id), ...mismatch };
+    return { kind: "PAID", cfPaymentId: String(successful.cf_payment_id) };
+  }
+  if (list.some((a) => PENDING_ATTEMPT_STATUSES.has(a.payment_status) && a.payment_status !== "NOT_ATTEMPTED")) return { kind: "PENDING", attempted: true };
+  if (list.length === 0 || list.every((a) => a.payment_status === "NOT_ATTEMPTED")) return { kind: "PENDING", attempted: false };
+  return { kind: "FAILED" };
+}
+
+async function markTopUpAmountMismatch(payment: Payment, state: Extract<CashfreeTopUpState, { kind: "MISMATCH" }>): Promise<void> {
+  const reason = `Cashfree reported ${state.paidPaise ?? "?"} paise ${state.currency ?? ""} for a ${payment.amountPaise} paise top-up; nothing was credited`.replace(/\s+/g, " ");
+  const [flagged] = await db
+    .update(payments)
+    .set({ status: "FAILED", failureReason: reason, updatedAt: new Date() })
+    .where(and(eq(payments.id, payment.id), inArray(payments.status, ["CREATED", "FAILED"])))
+    .returning();
+  if (!flagged) return;
+  console.error("[cashfree] top-up amount mismatch", payment.gatewayOrderId, reason);
+  await recordAudit({
+    actorId: payment.userId,
+    action: AUDIT_ACTIONS.WALLET_TOPUP_AMOUNT_MISMATCH,
+    entityType: "payment",
+    entityId: payment.id,
+    newValue: { gatewayOrderId: payment.gatewayOrderId, cfPaymentId: state.cfPaymentId, paidPaise: state.paidPaise, currency: state.currency, amountPaise: payment.amountPaise },
+  });
+}
+
+/**
+ * A FAILED (or long-open) Cashfree top-up that Cashfree's own API now reports
+ * paid: reopened and credited through the one finalize path. Null when
+ * Cashfree does not confirm it (nothing changes).
+ */
+async function recoverLateTopUp(payment: Payment): Promise<VerifyTopUpResult | null> {
+  if (payment.gateway !== "CASHFREE" || !isPaymentGatewayLive()) return null;
+  const state = await cashfreeTopUpState(payment.gatewayOrderId, payment.amountPaise);
+  if (state.kind === "MISMATCH") {
+    await markTopUpAmountMismatch(payment, state);
+    return null;
+  }
+  if (state.kind !== "PAID") return null;
+  let open = payment;
+  if (payment.status === "FAILED") {
+    const [reopened] = await db
+      .update(payments)
+      .set({ status: "CREATED", failureReason: null, updatedAt: new Date() })
+      .where(and(eq(payments.id, payment.id), eq(payments.status, "FAILED")))
+      .returning();
+    if (!reopened) {
+      const now = await db.query.payments.findFirst({ where: eq(payments.id, payment.id) });
+      if (!now || now.status !== "CREATED") return null;
+      open = now;
+    } else {
+      open = reopened;
+    }
+  }
+  const result = await finalizeVerifiedPayment(open, { gatewayPaymentId: state.cfPaymentId, gatewaySignature: null });
+  if (!result.alreadyProcessed) {
+    await recordAudit({
+      actorId: payment.userId,
+      action: AUDIT_ACTIONS.WALLET_TOPUP_LATE_SUCCESS,
+      entityType: "payment",
+      entityId: payment.id,
+      newValue: { gatewayOrderId: payment.gatewayOrderId, cfPaymentId: state.cfPaymentId, previousStatus: payment.status, amountPaise: payment.amountPaise },
+    });
+  }
+  return result;
+}
+
+export interface TopUpReconcileResult {
+  checked: number;
+  credited: number;
+  failed: number;
+  stillPending: number;
+  errors: string[];
+}
+
+/**
+ * Cron payments-reconcile: Cashfree top-ups (customer and shop wallet) still
+ * open 10 minutes after they started, up to 3 days old, are checked with
+ * Cashfree — the safety net for a webhook that never arrived and a customer
+ * who closed the app before the check. Paid → credited (once, as always);
+ * no payment and over an hour old → FAILED; pending → left for the next run.
+ */
+export async function reconcileCashfreeTopUps(now: Date = new Date()): Promise<TopUpReconcileResult> {
+  const result: TopUpReconcileResult = { checked: 0, credited: 0, failed: 0, stillPending: 0, errors: [] };
+  if (!isPaymentGatewayLive() || cashfreeEnvProblem("pg")) return result;
+  const open = await db
+    .select()
+    .from(payments)
+    .where(
+      and(
+        eq(payments.gateway, "CASHFREE"),
+        eq(payments.status, "CREATED"),
+        lt(payments.createdAt, new Date(now.getTime() - 10 * 60_000)),
+        gt(payments.createdAt, new Date(now.getTime() - 72 * 3600_000)),
+      ),
+    )
+    .orderBy(desc(payments.createdAt))
+    .limit(50);
+  for (const payment of open) {
+    result.checked += 1;
+    try {
+      const state = await cashfreeTopUpState(payment.gatewayOrderId, payment.amountPaise);
+      if (state.kind === "PAID") {
+        const settled = await finalizeVerifiedPayment(payment, { gatewayPaymentId: state.cfPaymentId, gatewaySignature: null });
+        if (!settled.alreadyProcessed) {
+          result.credited += 1;
+          await recordAudit({
+            actorId: payment.userId,
+            action: AUDIT_ACTIONS.WALLET_TOPUP_LATE_SUCCESS,
+            entityType: "payment",
+            entityId: payment.id,
+            newValue: { gatewayOrderId: payment.gatewayOrderId, cfPaymentId: state.cfPaymentId, previousStatus: "CREATED", source: "RECONCILE" },
+          });
+        }
+      } else if (state.kind === "MISMATCH") {
+        await markTopUpAmountMismatch(payment, state);
+        result.failed += 1;
+      } else if (state.kind === "FAILED" || payment.createdAt.getTime() < now.getTime() - 60 * 60_000) {
+        if (state.kind === "PENDING" && state.attempted && payment.createdAt.getTime() > now.getTime() - 24 * 3600_000) {
+          // A bank can take hours on a pending UPI payment: keep asking for a day.
+          result.stillPending += 1;
+          continue;
+        }
+        await db
+          .update(payments)
+          .set({ status: "FAILED", failureReason: "Cashfree reported no completed payment for this order", updatedAt: new Date() })
+          .where(and(eq(payments.id, payment.id), eq(payments.status, "CREATED")));
+        result.failed += 1;
+      } else {
+        result.stillPending += 1;
+      }
+    } catch (error) {
+      result.errors.push(`payment ${payment.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return result;
+}
+
 /**
  * HMAC-SHA256 over `order_id|payment_id`, keyed on the mock secret. This is
- * NOT how Cashfree does live verification (see `confirmCashfreeOrderPaid`) —
+ * NOT how Cashfree does live verification (see `cashfreeTopUpState`) —
  * it exists purely so MOCK-mode payments (no real gateway to ask) still go
  * through genuine signature verification rather than an unconditional credit.
  * Compared in constant time to avoid leaking the expected digest by timing.
@@ -611,10 +844,14 @@ async function createCashfreeOrder(
   userId: string,
   prefix: "topup" | "shoptopup" = "topup",
 ): Promise<{ gatewayOrderId: string; paymentSessionId: string }> {
+  // docs/payments-cashfree-audit-2026-11: never the sandbox on gokesari.com, never production on the test site.
+  assertCashfreeEnvSafe("pg");
   const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
   if (!user) throw notFound("User");
 
   const orderId = `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+  // The webhook reaches this site even when no webhook is set in the Cashfree dashboard.
+  const notifyUrl = cashfreeNotifyUrl("/api/webhooks/cashfree");
   const response = await fetch(`${cashfreeApiBase()}/orders`, {
     method: "POST",
     headers: cashfreeHeaders(),
@@ -631,7 +868,11 @@ async function createCashfreeOrder(
         // not depend on it being real, unlike SMS-based UPI collect flows).
         customer_phone: user.phone ?? "9999999999",
       },
+      ...(notifyUrl ? { order_meta: { notify_url: notifyUrl } } : {}),
+      // An abandoned checkout stops being payable; payments-reconcile then closes it.
+      order_expiry_time: cashfreeOrderExpiry(60),
     }),
+    signal: AbortSignal.timeout(20_000),
   });
 
   if (!response.ok) {
@@ -644,42 +885,6 @@ async function createCashfreeOrder(
     payment_session_id: string;
   };
   return { gatewayOrderId: order.order_id, paymentSessionId: order.payment_session_id };
-}
-
-/**
- * Server-to-server proof of payment for the client-invoked verify path
- * (`verifyAndCreditTopUp`). Calls Cashfree's "Get Payments for an Order" API
- * and looks for an attempt with `payment_status === "SUCCESS"` — this is the
- * one thing in the whole flow that is never taken on the client's word.
- */
-async function confirmCashfreeOrderPaid(
-  gatewayOrderId: string,
-): Promise<{ cfPaymentId: string } | null> {
-  // A rejected fetch (unreachable) propagates; the caller answers 400 without failing the payment.
-  const response = await fetch(`${cashfreeApiBase()}/orders/${gatewayOrderId}/payments`, {
-    method: "GET",
-    headers: cashfreeHeaders(),
-  });
-
-  if (response.status >= 500) {
-    throw new Error(`Cashfree answered ${response.status} for order ${gatewayOrderId}`);
-  }
-  if (!response.ok) {
-    console.error(
-      "[cashfree] payment status check failed",
-      gatewayOrderId,
-      response.status,
-      await response.text(),
-    );
-    return null;
-  }
-
-  const attempts = (await response.json()) as Array<{
-    cf_payment_id: string;
-    payment_status: string;
-  }>;
-  const successful = attempts.find((a) => a.payment_status === "SUCCESS");
-  return successful ? { cfPaymentId: String(successful.cf_payment_id) } : null;
 }
 
 export async function listPayments(userId: string): Promise<Payment[]> {

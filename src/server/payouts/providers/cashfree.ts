@@ -21,13 +21,27 @@
  *     (x-webhook-timestamp + raw body) with the client secret — the same
  *     scheme as Cashfree PG webhooks (implemented and unit-tested here).
  */
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
-import { getEnv } from "@/lib/env";
+import { cashfreeEnvProblem, getEnv } from "@/lib/env";
 import { PayoutProviderError, type PayoutProvider, type PayoutWebhookEvent, type TransferRequest, type TransferResult } from "../types";
 
 function base(): string {
   return getEnv().CASHFREE_PAYOUT_ENV === "production" ? "https://api.cashfree.com" : "https://sandbox.cashfree.com";
+}
+
+/**
+ * Cashfree's transfer_id: letters, digits and _ only, at most 40 characters,
+ * and unique per transfer (it is Cashfree's idempotency key). A key that fits
+ * is sent as it is; a longer one becomes "gk" + 38 hex characters of its
+ * SHA-256 — still one id per key, never the same for two keys
+ * (docs/payments-cashfree-audit-2026-11: cutting "payout-item:<cycle>:<shop>:<n>"
+ * to 40 characters gave every shop in a cycle the same transfer_id).
+ */
+export function cashfreeTransferId(idempotencyKey: string): string {
+  const plain = idempotencyKey.replace(/[^A-Za-z0-9_]/g, "_");
+  if (plain.length <= 40) return plain;
+  return `gk${createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 38)}`;
 }
 
 export function cashfreePayoutSignature(timestamp: string, rawBody: string, secret: string): string {
@@ -38,7 +52,9 @@ export const cashfreePayoutProvider: PayoutProvider = {
   name: "CASHFREE",
   isConfigured() {
     const env = getEnv();
-    return Boolean(env.CASHFREE_PAYOUT_CLIENT_ID && env.CASHFREE_PAYOUT_CLIENT_SECRET);
+    // docs/payments-cashfree-audit-2026-11: sandbox payouts on gokesari.com would mark shops and
+    // riders paid with no money sent (and production on the test site would send real money).
+    return Boolean(env.CASHFREE_PAYOUT_CLIENT_ID && env.CASHFREE_PAYOUT_CLIENT_SECRET) && !cashfreeEnvProblem("payouts", env);
   },
   async createTransfer(request: TransferRequest): Promise<TransferResult> {
     const env = getEnv();
@@ -58,7 +74,7 @@ export const cashfreePayoutProvider: PayoutProvider = {
       },
       body: JSON.stringify({
         // Cashfree's transfer_id is its idempotency key: alphanumeric and _ only.
-        transfer_id: request.idempotencyKey.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 40),
+        transfer_id: cashfreeTransferId(request.idempotencyKey),
         transfer_amount: request.amountPaise / 100,
         transfer_currency: "INR",
         transfer_mode: request.mode === "UPI" ? "upi" : request.mode.toLowerCase(),

@@ -221,6 +221,21 @@ async function sendItem(itemId: string, provider: PayoutProvider, actor: SystemO
     if (result.status === "FAILED") return applyItemOutcome(item.id, { status: "FAILED", reason: result.failureReason ?? "Rejected by the provider.", source: provider.name }, actor);
   } catch (error) {
     const reason = error instanceof PayoutProviderError || error instanceof Error ? error.message : "The provider could not be reached.";
+    // docs/payments-cashfree-audit-2026-11: a timeout or a provider 5xx does not say whether the
+    // transfer was made. Marking it FAILED would let the retry send a second transfer (a new
+    // attempt, a new transfer id) — paying the shop twice. It stays PROCESSING: the provider's
+    // webhook settles it, or finance checks the provider before acting.
+    if (error instanceof PayoutProviderError && error.retryable) {
+      await db
+        .update(payoutItems)
+        .set({ failureReason: `Outcome unknown (${reason}). Check the provider before retrying.`.slice(0, 500), updatedAt: new Date() })
+        .where(and(eq(payoutItems.id, item.id), eq(payoutItems.status, "PROCESSING")));
+      await db.transaction((tx) =>
+        logEvent(tx, { batchId: item.batchId, itemId: item.id, source: provider.name, type: "TRANSFER_OUTCOME_UNKNOWN", payload: { reason, attempt: item.attempts }, actorId: actor.id }),
+      );
+      const [unknown] = await db.select().from(payoutItems).where(eq(payoutItems.id, item.id));
+      return unknown;
+    }
     return applyItemOutcome(item.id, { status: "FAILED", reason, source: provider.name }, actor);
   }
   const [after] = await db.select().from(payoutItems).where(eq(payoutItems.id, item.id));

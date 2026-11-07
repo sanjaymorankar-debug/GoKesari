@@ -1,8 +1,9 @@
 {
   "name": "gokesari-mobile",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "main": "index.ts",
   "dependencies": {
+    "cashfree-pg-api-contract": "2.2.0",
     "expo": "~57.0.27",
     "expo-constants": "~57.0.21",
     "expo-crypto": "~57.0.3",
@@ -19,6 +20,7 @@
     "expo-web-browser": "~57.0.3",
     "react": "19.2.3",
     "react-native": "0.86.3",
+    "react-native-cashfree-pg-sdk": "3.0.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-webview": "13.16.1"
   },

@@ -12,6 +12,38 @@ export interface CashfreeCheckoutOptions {
   paymentSessionId: string;
   /** "_modal" keeps the customer on this page; "_self" navigates away. */
   redirectTarget?: "_modal" | "_self";
+  /**
+   * Cashfree's order id. With it, inside the GoKesari app (1.8.0+) the payment
+   * is taken by Cashfree's own mobile SDK — cards, the phone's UPI apps,
+   * wallets — instead of the web checkout (docs/payments-cashfree-audit-2026-11).
+   */
+  orderId?: string;
+  /** In the app: "upi" opens the phone's UPI apps straight away; "web" (default) is the full checkout. */
+  flow?: "web" | "upi";
+}
+
+/** How the checkout ran: in the app's native Cashfree SDK, or Cashfree's web checkout. */
+export interface CashfreeCheckoutOutcome {
+  via: "app" | "web";
+}
+
+interface AppCashfreeBridge {
+  capabilities?: unknown;
+  cashfreeCheckout?: (options: { paymentSessionId: string; orderId: string; mode: string; flow: "web" | "upi" }) => Promise<unknown>;
+}
+
+/** The app's native checkout (mobile/src/cashfree.ts), when this page runs inside an app build that has it. */
+function appCheckout(): AppCashfreeBridge["cashfreeCheckout"] | null {
+  if (typeof window === "undefined") return null;
+  const app = (window as unknown as { __gokesariApp?: AppCashfreeBridge }).__gokesariApp;
+  if (!app || typeof app.cashfreeCheckout !== "function") return null;
+  if (!Array.isArray(app.capabilities) || !app.capabilities.includes("cashfree-native-checkout")) return null;
+  return app.cashfreeCheckout.bind(app);
+}
+
+/** True inside an app build that takes Cashfree payments with Cashfree's mobile SDK. */
+export function isAppCashfreeCheckoutAvailable(): boolean {
+  return appCheckout() != null;
 }
 
 interface CashfreeInstance {
@@ -65,7 +97,21 @@ function loadCashfreeScript(): Promise<void> {
 export async function openCashfreeCheckout(
   options: CashfreeCheckoutOptions,
   mode: "sandbox" | "production",
-): Promise<void> {
+): Promise<CashfreeCheckoutOutcome> {
+  // In the app: Cashfree's mobile SDK. It resolves when the payment flow ends
+  // ("verify" — not proof of payment) and rejects when it failed or was closed;
+  // either way the caller confirms with the server exactly as after the web checkout.
+  const native = options.orderId ? appCheckout() : null;
+  if (native) {
+    try {
+      await native({ paymentSessionId: options.paymentSessionId, orderId: options.orderId!, mode, flow: options.flow ?? "web" });
+    } catch (error) {
+      const message = error && typeof error === "object" && "message" in error ? String((error as { message: unknown }).message) : "";
+      throw new Error(message || "Payment was cancelled.");
+    }
+    return { via: "app" };
+  }
+
   await loadCashfreeScript();
   if (!window.Cashfree) {
     throw new Error("Cashfree checkout could not be loaded.");
@@ -79,4 +125,5 @@ export async function openCashfreeCheckout(
   if (result.error) {
     throw new Error(result.error.message ?? "Payment was cancelled.");
   }
+  return { via: "web" };
 }

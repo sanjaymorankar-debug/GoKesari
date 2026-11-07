@@ -134,7 +134,7 @@ export function BankAccountManager({
         setSimulator({ gatewayOrderId: intent.gatewayOrderId, amountPaise: intent.amountPaise });
         return;
       }
-      await openCashfreeCheckout({ paymentSessionId: intent.paymentSessionId }, intent.cashfreeMode).catch(() => undefined);
+      await openCashfreeCheckout({ paymentSessionId: intent.paymentSessionId, orderId: intent.gatewayOrderId }, intent.cashfreeMode).catch(() => undefined);
       const result = await request("/api/bank-account/verification/confirm", "POST", { gatewayOrderId: intent.gatewayOrderId });
       setNotice(result.status === "VERIFIED" ? "Verified. The ₹1 is on its way back to you." : `Not verified: ${result.failureReason ?? "the payment did not go through"}. You can try again.`);
       router.refresh();

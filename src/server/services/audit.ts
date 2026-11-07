@@ -496,6 +496,14 @@ export const AUDIT_ACTIONS = {
   RIDER_WITHDRAWAL_REQUESTED: "rider_bank.withdrawal_requested",
   RIDER_TRANSFER_STATUS_CHANGED: "rider_bank.transfer_status_changed",
   RIDER_MONTHLY_RUN: "rider_bank.monthly_run",
+  /* ---------------------- Cashfree audit fixes (docs/payments-cashfree-audit-2026-11) */
+  /** A top-up marked failed (or never confirmed) that Cashfree later reported paid: credited on the gateway's word. */
+  WALLET_TOPUP_LATE_SUCCESS: "wallet.topup_late_success",
+  /** Cashfree reported less money (or another currency) than the top-up: nothing credited, support to look. */
+  WALLET_TOPUP_AMOUNT_MISMATCH: "wallet.topup_amount_mismatch",
+  /** Admin → Payments → Cashfree: a ₹1 live/sandbox test order was opened, then checked and refunded. */
+  CASHFREE_LIVE_TEST_STARTED: "cashfree.live_test_started",
+  CASHFREE_LIVE_TEST_FINISHED: "cashfree.live_test_finished",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

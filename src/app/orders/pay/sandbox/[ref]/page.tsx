@@ -22,6 +22,7 @@ const METHODS: { value: PaymentMethodKind; label: string }[] = [
   { value: "UPI", label: "UPI" },
   { value: "CARD", label: "Card" },
   { value: "NETBANKING", label: "Netbanking" },
+  { value: "WALLET", label: "Wallet (Paytm / PhonePe / Amazon Pay)" },
 ];
 
 export default async function SandboxPaymentPage({ params }: { params: Promise<{ ref: string }> }) {

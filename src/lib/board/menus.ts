@@ -460,6 +460,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "payIssues", label: L("Pay issues", "भुगतान समस्याएँ", "पेमेंट अडचणी"), icon: "triangle-alert", href: "/admin/finance/exceptions", permission: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.FINANCE_EXCEPTIONS_VIEW] },
       { key: "bankAccounts", label: L("Bank accounts", "बैंक खाते", "बँक खाती"), icon: "landmark", href: "/admin/bank-accounts", permission: PERMISSIONS.FINANCE_VIEW },
+      { key: "cashfree", label: L("Cashfree set-up & tests", "Cashfree सेटअप और टेस्ट", "Cashfree सेटअप आणि चाचण्या"), icon: "landmark", href: "/admin/payments/cashfree", permission: PERMISSIONS.FINANCE_VIEW }, // docs/payments-cashfree-audit-2026-11
       { key: "subscriptions", label: L("Subscriptions", "सब्सक्रिप्शन", "सदस्यता"), short: { en: "Subscription" }, icon: "calendar-clock", href: "/admin/subscriptions", permission: PERMISSIONS.SUBSCRIPTION_MANAGE_ANY },
       { key: "commissions", label: L("Referral commissions", "रेफ़रल कमीशन", "रेफरल कमिशन"), icon: "receipt", href: "/admin/referral-commissions", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "payouts", label: L("Payouts", "भुगतान", "पेमेंट"), icon: "landmark", href: "/admin/payouts", permission: PERMISSIONS.PAYOUT_VIEW }, // batch-2026-10 WS-E

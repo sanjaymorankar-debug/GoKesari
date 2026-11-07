@@ -8590,7 +8590,7 @@ export const paymentIntents = pgTable(
     /** SDK session token (Cashfree payment_session_id, Razorpay order id). Never card data. */
     checkoutToken: text("checkout_token"),
     linkUrl: text("link_url"),
-    method: text("method", { enum: ["UPI", "CARD", "NETBANKING"] }),
+    method: text("method", { enum: ["UPI", "CARD", "NETBANKING", "WALLET"] }),
     description: text("description").notNull(),
     returnPath: text("return_path"),
     failureReason: text("failure_reason"),

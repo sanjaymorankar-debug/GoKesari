@@ -428,6 +428,25 @@ With no Cashfree credentials the app runs in **mock payment mode**, which is
 correct for local development but must never reach production — confirm
 `CASHFREE_APP_ID` is set before going live.
 
+Since the Cashfree audit of Nov 2026
+([docs/payments-cashfree-audit-2026-11/](docs/payments-cashfree-audit-2026-11/README.md)):
+
+- **The site refuses the wrong Cashfree environment.** gokesari.com takes no
+  payment (top-up, registration fee, ₹1 check, order checkout), payout or
+  Secure ID call while `CASHFREE_ENV` / `CASHFREE_PAYOUT_ENV` /
+  `CASHFREE_VERIFICATION_ENV` is `sandbox` or the keys are sandbox (`TEST…`)
+  keys; test.gokesari.com refuses `production`. Customers see "Online payment
+  is switched off on this site…"; the reason is in the server log.
+- Also register `https://your-domain.com/api/webhooks/payments/cashfree`
+  (order payments, payment + refund events). Top-up and registration-fee
+  orders now carry their own `notify_url`.
+- **Admin → Finance → Cashfree set-up & tests** (`/admin/payments/cashfree`)
+  shows this site's set-up, asks Cashfree which payment methods are switched
+  on, and runs a ₹1 test payment (refunded at once) — use it after every
+  change of keys.
+- Optional `CASHFREE_REFUND_SPEED=INSTANT` once Cashfree has enabled instant
+  refunds (unset = STANDARD).
+
 ## 7. Backups
 
 Wallet balances are money. Treat the database accordingly.
