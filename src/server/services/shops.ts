@@ -957,7 +957,7 @@ async function autoApproveShopIfReadyInner(shopId: string): Promise<boolean> {
 async function approveOnGovVerification(shopId: string): Promise<boolean> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop || shop.status !== "PENDING_APPROVAL" || shop.deletedAt) return false;
-  if (!(await govAutoApprovalApplies(shop))) return false;
+  if (!(await govAutoApprovalApplies())) return false;
   const decision = await decideGovAutoApproval(shop);
   if (!decision.approve) {
     await logGovDecision(shopId, "PENDING", decision.reasons, decision.evidence);

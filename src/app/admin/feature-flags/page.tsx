@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { FeatureFlagsPanel, type FeatureFlagChangeRow } from "@/components/feature-flags-panel";
 import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
-import { FEATURE_FLAG_HINTS, FEATURE_FLAG_LABELS, getFeatureFlags, listFeatureFlagChanges } from "@/server/services/feature-flags";
+import { FEATURE_FLAG_HINTS, FEATURE_FLAG_LABELS, RETIRED_FEATURE_FLAGS, getFeatureFlags, listFeatureFlagChanges } from "@/server/services/feature-flags";
 import { listDistricts, listStates } from "@/server/services/geo-areas";
 
 export const metadata = { title: "Feature flags" };
@@ -19,7 +19,7 @@ export default async function FeatureFlagsPage() {
   if (!user) redirect("/signin");
   if (user.role !== "ADMIN") redirect("/");
   const [flags, changes, states, districts] = await Promise.all([getFeatureFlags(), listFeatureFlagChanges({ limit: 30 }), listStates(), listDistricts()]);
-  const rows = Object.values(flags).map((f) => ({
+  const rows = Object.values(flags).filter((f) => !RETIRED_FEATURE_FLAGS.includes(f.key)).map((f) => ({
     key: f.key,
     label: FEATURE_FLAG_LABELS[f.key],
     hint: FEATURE_FLAG_HINTS[f.key],

@@ -487,58 +487,34 @@ qa("SD-07", "shop owner's view: the dashboard shows the shop's state (live once 
 
 /* ------------------------------------------------------------------ SD-06 */
 
-/** The routes PR #274 gated (details, documents, location, submit). */
-const WIZARD_ROUTES = ["details", "location", "documents", "submit"];
-/** Wizard step 1 (GSTIN-first, or PAN with the no-GST declaration): not gated — D-106. */
-const WIZARD_STEP1_ROUTES = ["gstin", "pan"];
+/** The wizard's step routes: open to every owner since the one-flow brief (08-Nov-2026). */
+const WIZARD_ROUTES = ["gstin", "pan", "details", "location", "documents", "submit"];
 
-qa("SD-06", "wizard gate with the flag off: a non-admin gets the long form at ?wizard=1 and 404 FEATURE_NOT_AVAILABLE from the wizard step routes; an admin gets the wizard", async ({ browser }) => {
+qa("SD-06", "one registration flow: a shop owner gets the step-by-step wizard at /shop/register (no long form, also with ?form=1)", async ({ browser }) => {
   const shots: string[] = [];
-  const answers: string[] = [];
-  for (const step of WIZARD_ROUTES) {
-    const res = await api("shop", "POST", `/api/shops/registration-draft/${step}`, {});
-    expect(res.status, `POST registration-draft/${step}: ${why(res)}`).toBe(404);
-    // featureNotAvailable(): code NOT_FOUND, details.reason FEATURE_NOT_AVAILABLE (services/feature-flags.ts).
-    expect(res.body?.error?.details?.reason, `registration-draft/${step} reason`).toBe("FEATURE_NOT_AVAILABLE");
-    expect(res.body?.error?.details?.feature, `registration-draft/${step} flag`).toBe("shop_onboarding_wizard_enabled");
-    answers.push(`${step} ${res.status} ${res.body.error.code}/${res.body.error.details.reason}`);
-  }
-  {
-    const { context, page } = await pageAs(browser, "shop", { viewport: { width: 390, height: 844 } });
-    try {
-      await page.goto("/shop/register?wizard=1");
-      await expect(page.getByText("Tell us about your shop, clinic or office.", { exact: false })).toBeVisible();
-      await expect(page.getByLabel(/Shop name/).first()).toBeVisible();
-      await expect(page.getByText("A few quick steps", { exact: false })).toHaveCount(0);
-      shots.push(await shot(page, "sd06-wizard-1-shop-owner-long-form-390.png"));
-    } finally {
-      await context.close();
-    }
-  }
-  {
-    const { context, page } = await pageAs(browser, "admin", { viewport: { width: 390, height: 844 } });
-    try {
-      await page.goto("/shop/register?wizard=1");
-      await expect(page.getByText("A few quick steps", { exact: false })).toBeVisible();
+  const { context, page } = await pageAs(browser, "shop", { viewport: { width: 390, height: 844 } });
+  try {
+    for (const url of ["/shop/register", "/shop/register?form=1"]) {
+      await page.goto(url);
+      await expect(page.getByTestId("registration-tiles")).toBeVisible();
       await expect(page.getByText("Tell us about your shop, clinic or office.", { exact: false })).toHaveCount(0);
-      shots.push(await shot(page, "sd06-wizard-1-admin-wizard-390.png"));
-    } finally {
-      await context.close();
     }
+    shots.push(await shot(page, "sd06-one-flow-shop-owner-wizard-390.png"));
+  } finally {
+    await context.close();
   }
-  return `shop owner: ?wizard=1 → long form; ${answers.join(", ")}; admin: ?wizard=1 → wizard ("A few quick steps"); the review step was not reached (would create an admin-owned draft/shop) (${shots.join(", ")})`;
-}, { ...signed, partial: "the wizard's review step (review-documents, promise box, 'Create my shop and pay' disabled) was not reached on staging" });
+  return `shop owner: /shop/register and ?form=1 → wizard, no long form (${shots.join(", ")})`;
+}, signed);
 
-qa("SD-06b", "wizard gate with the flag off: the wizard's step-1 routes (registration-draft/gstin, /pan) also answer a non-admin 404 FEATURE_NOT_AVAILABLE", async () => {
-  // An empty body only: if the gate is missing the route stops at validation (422) and nothing is
-  // saved or checked; a valid body would open a draft and run a KYC vendor check.
+qa("SD-06b", "one registration flow: the wizard's step routes are open to an owner (an empty body is refused by validation, never 404 FEATURE_NOT_AVAILABLE)", async () => {
+  // An empty body only: the route stops at validation (422) and nothing is saved or checked.
   const seen: string[] = [];
   const failures: string[] = [];
-  for (const step of WIZARD_STEP1_ROUTES) {
+  for (const step of WIZARD_ROUTES) {
     const res = await api("shop", "POST", `/api/shops/registration-draft/${step}`, {});
-    seen.push(`${step} ${res.status} ${res.body?.error?.code ?? ""} "${res.body?.error?.message ?? ""}" ${JSON.stringify(res.body?.error?.details ?? {})}`);
-    if (res.status !== 404 || res.body?.error?.details?.reason !== "FEATURE_NOT_AVAILABLE") failures.push(step);
+    seen.push(`${step} ${res.status} ${res.body?.error?.code ?? ""}`);
+    if (res.body?.error?.details?.reason === "FEATURE_NOT_AVAILABLE") failures.push(step);
   }
-  expect(failures, `not gated by shop_onboarding_wizard_enabled: ${seen.join(" | ")}`).toEqual([]);
+  expect(failures, `still gated: ${seen.join(" | ")}`).toEqual([]);
   return seen.join(" | ");
 }, signed);

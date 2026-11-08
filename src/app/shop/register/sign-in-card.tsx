@@ -64,7 +64,9 @@ export function ShopSignInCard() {
           <li aria-hidden>→</li>
           <li>Referral code</li>
           <li aria-hidden>→</li>
-          <li>Documents</li>
+          <li>GST / PAN</li>
+          <li aria-hidden>→</li>
+          <li>Address</li>
           <li aria-hidden>→</li>
           <li>Pay &amp; go live</li>
         </ol>

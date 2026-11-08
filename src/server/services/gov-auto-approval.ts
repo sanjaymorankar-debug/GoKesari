@@ -1,7 +1,8 @@
 /**
  * Instant approval on government GST/PAN verification + online payment
- * (docs/dealer-programme, GKS-SH-004), behind the flag
- * gov_verification_auto_approval_enabled (per district, from the shop's PIN).
+ * (docs/dealer-programme, GKS-SH-004). Always on since the owner brief of
+ * 08-Nov-2026 (one registration flow); the flag gov_verification_auto_approval_enabled
+ * that used to switch it per district is retired.
  *
  * A pending shop is approved with no admin step when ALL hold:
  *   - its GSTIN was verified with the government source (status active), or,
@@ -38,8 +39,6 @@ import { SELLER_DOC_LABELS } from "@/lib/kyc/doc-formats";
 import { db } from "@/server/db";
 import { sellerVerifications, shopAutoApprovalLog, shopPayments, shops, type Shop } from "@/server/db/schema";
 import { findLikelyDuplicate } from "@/server/dealers/attribution";
-import { flagCoversDistrict, getFeatureFlag } from "./feature-flags";
-import { districtCodeForPincode } from "./geo-areas";
 import { getRule } from "./settings";
 import { deferredReviewDocTypes, isDocumentsLaterShop, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
 
@@ -53,15 +52,12 @@ export interface GovDecision {
 }
 
 /**
- * Is the instant-approval rule on for this shop? Its district's flag decides — except for a
- * shop registered through the onboarding wizard, which is approved this way in every district
- * (owner decision B, 28 Oct 2026; docs/shop-onboarding-wizard-2026-10).
+ * Is the instant-approval rule on for this shop? Yes, for every shop in every district (owner
+ * decision B, 28 Oct 2026, and the one-flow brief of 08-Nov-2026). Kept as a function so the
+ * callers read the same as before.
  */
-export async function govAutoApprovalApplies(shop: Pick<Shop, "id" | "pincode">): Promise<boolean> {
-  if (await isWizardShop(shop.id)) return true;
-  const flag = await getFeatureFlag("gov_verification_auto_approval_enabled");
-  if (!flag.enabled) return false;
-  return flagCoversDistrict(flag, await districtCodeForPincode(shop.pincode));
+export async function govAutoApprovalApplies(): Promise<boolean> {
+  return true;
 }
 
 /** The shop was created from an onboarding-wizard draft. */

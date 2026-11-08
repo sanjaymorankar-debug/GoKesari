@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 
 import { Badge, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listGovDecisions } from "@/server/services/gov-auto-approval";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Instant approvals" };
 export const dynamic = "force-dynamic";
@@ -36,7 +35,6 @@ function check(label: string, v: Evidence["gstin"]) {
  * approved here can be suspended from Suspensions like any other.
  */
 export default async function InstantApprovalsPage({ searchParams }: { searchParams: Promise<{ outcome?: string }> }) {
-  if (!(await isFeatureEnabled("gov_verification_auto_approval_enabled"))) notFound();
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   if (!can(user.role, PERMISSIONS.SHOP_REGISTRATION_MANAGE)) redirect("/");
