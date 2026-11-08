@@ -133,6 +133,8 @@ export const TEMPLATES: Record<string, Template> = {
     "Upload your documents to go live",
     "{{shopName}} is waiting for your documents: {{documents}}. Upload them so we can verify them and approve your shop.",
   ),
+  [T.SHOP_LICENCE_GRACE_NOTICE]: t("Upload your licence within {{graceDays}} days — {{shopName}}", "{{message}} Please upload it on GoKesari by {{dueDate}}. We will remind you every 15 days until then."),
+  [T.SUPPORT_SHOP_SUSPENDED_DOCUMENTS]: t("Shop suspended for missing documents: {{shopName}}", "{{shopName}} was suspended automatically because these documents were not uploaded in time: {{documents}}."),
   [T.SHOP_DOCUMENTS_FOLLOW_UP]: t(
     "Submit your shop documents — reminder {{reminderNo}}{{maxReminders}}",
     "{{shopName}} is live, but these documents are still missing: {{documents}}. {{deadline}} Upload them on GoKesari so we can verify them. {{warning}}",

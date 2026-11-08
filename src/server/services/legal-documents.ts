@@ -64,6 +64,8 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { detectDocumentFile, shopSellsFood } from "./seller-verification";
 import { getRule } from "./settings";
 import { upsertRow } from "@/server/db/upsert";
+import { mandatoryLicenceFor } from "@/lib/shop-licences";
+import { isWizardRegisteredShop } from "./shop-onboarding";
 
 interface Actor {
   id: string;
@@ -152,7 +154,10 @@ async function ensureRows(shop: Shop, required: LegalDocType[], client: DbClient
   for (const docType of required) {
     if (have.has(docType)) continue;
     const live = shop.status === "APPROVED";
-    const graceUntil = live ? new Date(Date.now() + rule.graceDays * DAY_MS) : null;
+    // A wizard shop goes live without its licence and has the owner's 90-day grace period to upload it.
+    const wizard = await isWizardRegisteredShop(shop.id, client);
+    const graceDays = wizard ? (await getRule("shopDocumentFollowUp")).graceDays : rule.graceDays;
+    const graceUntil = live || wizard ? new Date(Date.now() + graceDays * DAY_MS) : null;
     const [row] = await client
       .insert(shopLegalDocuments)
       .values({ shopId: shop.id, docType, graceUntil })
@@ -257,16 +262,20 @@ export async function getShopLegalStatus(shopId: string): Promise<ShopLegalStatu
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
   const rule = await getRule("legalDocuments");
-  if (!rule.enabled) return { enabled: false, shopId, shopName: shop.name, documents: [], additional: [], restricted: false, graceUntil: null };
+  // A wizard shop's licence is uploaded here even with the rule off (FSSAI goes through Verification).
+  const licence = (await isWizardRegisteredShop(shop.id)) ? mandatoryLicenceFor(shop.shopType) : null;
+  const ownLicence = licence && licence.docType !== "FSSAI" ? licence : null;
+  if (!rule.enabled && !ownLicence) return { enabled: false, shopId, shopName: shop.name, documents: [], additional: [], restricted: false, graceUntil: null };
 
-  const required = await requiredLegalDocTypes(shop);
+  const required = rule.enabled ? await requiredLegalDocTypes(shop) : [ownLicence!.docType];
   const all = await ensureRows(shop, required);
   const rows = all.filter((r) => required.includes(r.docType));
   const optional = all.filter((r) => !required.includes(r.docType) && r.status !== "NOT_SUBMITTED");
   const files = await filesFor([...rows, ...optional].map((r) => r.id));
   const documents = rows
     .sort((a, b) => required.indexOf(a.docType) - required.indexOf(b.docType))
-    .map((row) => toView(row, evaluateLegalDoc(row, rule), files.get(row.id) ?? []));
+    .map((row) => toView(row, evaluateLegalDoc(row, rule), files.get(row.id) ?? []))
+    .map((view) => (view.docType === ownLicence?.docType ? { ...view, label: ownLicence.label.en } : view));
   // Not required, so never blocking and never a deadline, whatever its state.
   const additional = optional.map((row) => ({
     ...toView(row, evaluateLegalDoc(row, rule), files.get(row.id) ?? []),
@@ -339,6 +348,8 @@ export async function assertLegalDocsAllowOrders(shopId: string): Promise<void> 
 export async function assertLegalDocsAllowApproval(shop: Shop, client: DbClient = db): Promise<void> {
   const rule = await getRule("legalDocuments");
   if (!rule.enabled) return;
+  // Owner, 08-Nov-2026: a licence never stops a wizard shop going live; the grace period follows.
+  if (await isWizardRegisteredShop(shop.id, client)) return;
   const required = await requiredLegalDocTypes(shop, client);
   if (required.length === 0) return;
   const rows = await ensureRows(shop, required, client);

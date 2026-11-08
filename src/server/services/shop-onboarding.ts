@@ -133,13 +133,13 @@ export async function missingMandatoryDocuments(
     .select({ docType: sellerVerifications.docType, status: sellerVerifications.status })
     .from(sellerVerifications)
     .where(eq(sellerVerifications.shopId, shop.id));
-  // The approval gates of a wizard shop (owner decision 29 Oct 2026, 0118): the GSTIN — or the PAN
-  // without one — and FSSAI for a food shop. The rest is chased after go-live.
+  // The approval gate of a wizard shop: the GSTIN, or the PAN without one. Licences (FSSAI included,
+  // owner 08-Nov-2026) and the rest are chased after go-live.
   if (options.countDeferred && (await isWizardRegisteredShop(shop.id, client))) {
     const verified = new Set(rows.filter((v) => v.status === "VERIFIED").map((v) => v.docType));
-    // 0120: registered with "upload documents later" — FSSAI for a food shop only; the rest after go-live.
+    // 0120: registered with "upload documents later" — everything after go-live.
     const later = await isDocumentsLaterShop(shop.id, client);
-    const needed: SellerDocType[] = [...(later ? [] : [row?.gstin ? ("GSTIN" as const) : ("PAN" as const)]), ...(row?.sellsFood ? (["FSSAI"] as const) : [])];
+    const needed: SellerDocType[] = later ? [] : [row?.gstin ? ("GSTIN" as const) : ("PAN" as const)];
     return needed.filter((d) => !verified.has(d));
   }
   const deferred = options.countDeferred ? await deferredReviewDocTypes(shop.id, client) : new Set<string>();
