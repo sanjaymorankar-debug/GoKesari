@@ -47,7 +47,7 @@ import { notifications, shopCategories, shopRegistrationDrafts, shops } from "@/
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
-import { setFeatureFlag } from "@/server/services/feature-flags";
+import { findLikelyDuplicate } from "@/server/dealers/attribution";
 import { finishFeeCapture } from "@/server/services/operator-limited";
 import { startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
 import { setRegistrationFee } from "@/server/services/registration-fees";
@@ -381,6 +381,21 @@ describe("Flow 2: an existing customer clicks Sell", () => {
     const view = await answerDraftReferral({ actor: owner, referralCode: null });
     expect(view).toMatchObject({ nextStep: "IDENTITY", route: null, gstin: null, ownerName: null });
     expect(view.id).not.toBe(old.id);
+  });
+
+  it("verified and paid goes live even when another account has a shop of the same name and PIN (DI-13)", async () => {
+    const other = await createUser({ role: "SHOP_OWNER" });
+    const fields = shopFields();
+    const twin = await createShop(other.id, { name: fields.name, status: "APPROVED" });
+    await db.update(shops).set({ pincode: ADDRESS.pincode, latitude: null, longitude: null }).where(eq(shops.id, twin.id));
+    await verifyGstin(gstinFor("ABCPK5678L"));
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    await saveDraftDetails({ actor: owner, details: fields });
+    const submitted = await submitDraftForPayment({ actor: owner });
+    expect(await findLikelyDuplicate(submitted.shop!.id)).toMatchObject({ kind: "DUPLICATE", reasons: expect.arrayContaining(["NAME_SAME_PIN"]) });
+    await payInSandbox(submitted.shop!.id);
+    expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
   });
 
   it("within the week the same registration resumes where it was", async () => {

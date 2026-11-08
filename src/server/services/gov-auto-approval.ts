@@ -16,8 +16,8 @@
  *     payment gateway with a signature-checked webhook (ONLINE / CASHFREE /
  *     RAZORPAY payments). A fee recorded by staff by hand, or a "success" seen
  *     only in the browser, does not count;
- *   - no other owner's shop already has this GSTIN, PAN or mobile (a likely
- *     duplicate waits for an admin);
+ *   - no other shop already has this GSTIN or PAN (a shop not registered through the
+ *     wizard is also held for the same mobile or a similar name nearby);
  *   - every document the approval needs is in place. A shop registered through the
  *     onboarding wizard (owner decision 29 Oct 2026, "follow the brief"; 0118) needs only
  *     the GSTIN (or PAN) above and FSSAI for a food shop — the Shop Act and the rest are
@@ -153,7 +153,11 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
   // Another owner's shop with the same GSTIN, PAN or mobile.
   const duplicate = await findLikelyDuplicate(shop.id);
   evidence.duplicate = duplicate;
-  if (duplicate.kind === "DUPLICATE") reasons.push(`likely duplicate of another shop (${duplicate.reasons.join(", ").toLowerCase()})`);
+  // Owner, 08-Nov-2026: verified and paid means live. A registration through the wizard is held only when
+  // another shop has the same GSTIN or PAN; a similar name nearby or a shared mobile is recorded, not held.
+  const heldOnlyForIdentity = await isWizardShop(shop.id);
+  const holds = duplicate.kind === "DUPLICATE" && (!heldOnlyForIdentity || duplicate.reasons.some((r) => r === "GSTIN" || r === "PAN"));
+  if (holds) reasons.push(`likely duplicate of another shop (${duplicate.reasons.join(", ").toLowerCase()})`);
 
   return { approve: reasons.length === 0, reasons, evidence };
 }

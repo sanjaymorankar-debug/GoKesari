@@ -1053,7 +1053,12 @@ function ShopStep({
 /* ---------------------------------------------------------- 6. live */
 
 /** Owner brief 08-Nov-2026: the words after a successful payment, and Add Products right below them. */
+/** A file download, so a plain link. */
+const PRODUCT_TEMPLATE_URL = "/api/v1/product-imports/template";
+
 function LiveStep({ state, addProducts, lang }: { state: WizardState; addProducts: () => void; lang: Lang }) {
+  const [template, setTemplate] = useState(false);
+  const choice = "inline-flex min-h-11 items-center justify-center rounded-lg px-4 text-sm font-medium";
   return (
     <StepCard title={`🎉 ${state.shop!.name} is live`}>
       <Alert tone="success">
@@ -1061,11 +1066,29 @@ function LiveStep({ state, addProducts, lang }: { state: WizardState; addProduct
         {state.shop?.registrationNumber ? <span className="block text-sm">Shop ID {state.shop.registrationNumber} — we&apos;ve emailed you the same.</span> : null}
       </Alert>
       <p className="text-sm text-ink-900" data-testid="add-products-prompt">
-        {tr({ en: "Add your products so customers can select them and place orders with you.", hi: "अपने उत्पाद जोड़ें ताकि ग्राहक उन्हें चुनकर आपको ऑर्डर दे सकें।", mr: "तुमची उत्पादने जोडा, म्हणजे ग्राहक ती निवडून तुमच्याकडे ऑर्डर देऊ शकतील." }, lang)}
+        {tr({ en: "Add your products so customers can select them and place orders with you. How would you like to add them?", hi: "अपने उत्पाद जोड़ें ताकि ग्राहक उन्हें चुनकर आपको ऑर्डर दे सकें। आप उन्हें कैसे जोड़ना चाहेंगे?", mr: "तुमची उत्पादने जोडा, म्हणजे ग्राहक ती निवडून तुमच्याकडे ऑर्डर देऊ शकतील. ती कशी जोडायची आहेत?" }, lang)}
       </p>
-      <Button type="button" size="lg" className="w-full" onClick={addProducts} data-testid="add-products">
-        {tr({ en: "Add products", hi: "उत्पाद जोड़ें", mr: "उत्पादने जोडा" }, lang)}
-      </Button>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button type="button" size="lg" onClick={addProducts} data-testid="add-products">
+          {tr({ en: "Add products manually", hi: "उत्पाद स्वयं जोड़ें", mr: "उत्पादने स्वतः जोडा" }, lang)}
+        </Button>
+        <Button type="button" size="lg" variant="secondary" aria-expanded={template} onClick={() => setTemplate(true)} data-testid="add-products-template">
+          {tr({ en: "Upload using template", hi: "टेम्पलेट से अपलोड करें", mr: "टेम्पलेट वापरून अपलोड करा" }, lang)}
+        </Button>
+      </div>
+      {template ? (
+        <div className="space-y-2 rounded-xl border border-[var(--gk-line)] p-3" data-testid="template-choice">
+          <p className="text-sm text-ink-700">{tr({ en: "Download the template, fill in your products, then upload the file.", hi: "टेम्पलेट डाउनलोड करें, अपने उत्पाद भरें, फिर फ़ाइल अपलोड करें।", mr: "टेम्पलेट डाउनलोड करा, तुमची उत्पादने भरा, मग फाइल अपलोड करा." }, lang)}</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <a href={PRODUCT_TEMPLATE_URL} className={`${choice} bg-kesari-600 text-white`} data-testid="download-product-template">
+              {tr({ en: "Download product template", hi: "उत्पाद टेम्पलेट डाउनलोड करें", mr: "उत्पादन टेम्पलेट डाउनलोड करा" }, lang)}
+            </a>
+            <Link href="/shop/product-import" className={`${choice} border border-cream-200 text-ink-700`} data-testid="upload-product-file">
+              {tr({ en: "Upload filled file", hi: "भरी हुई फ़ाइल अपलोड करें", mr: "भरलेली फाइल अपलोड करा" }, lang)}
+            </Link>
+          </div>
+        </div>
+      ) : null}
       <p className="text-xs text-ink-600">
         Upload the Shop Act and other licences on{" "}
         <Link href="/shop/documents" className="underline">
