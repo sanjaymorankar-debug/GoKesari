@@ -1,0 +1,122 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "08 Nov 2026, 15:20:57 IST",
+  "results": [
+    {
+      "id": "ON-01",
+      "title": "Verify screen first: referral + 'Do you have a GST number?'",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 15:17:56 IST",
+      "note": "Verify your business shown first; referral code field and GST yes/no on the same screen",
+      "shots": [
+        "on01-verify-desktop.png"
+      ]
+    },
+    {
+      "id": "ON-02",
+      "title": "Invalid GSTIN → clear error, stays on the screen; retry",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 15:17:58 IST",
+      "note": "12-character GSTIN refused on the screen ('Enter the 15-character GSTIN …'), no check sent; stays on Verify",
+      "shots": [
+        "on02-invalid-gstin.png"
+      ]
+    },
+    {
+      "id": "ON-03",
+      "title": "Valid company GSTIN → PAN taken from it; owner name not returned → only owner name asked",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 15:18:02 IST",
+      "note": "GSTIN 27XXXXXXXXXX1ZP verified; Owner name screen with one field",
+      "shots": [
+        "on03-owner-name.png"
+      ]
+    },
+    {
+      "id": "ON-04",
+      "title": "Address pre-filled 'Verified from GST' → map pin → shop name pre-filled → review",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 15:18:23 IST",
+      "note": "locator.waitFor: Timeout 20000ms exceeded.",
+      "shots": [
+        "on04-address.png"
+      ]
+    },
+    {
+      "id": "ON-05",
+      "title": "Payment fails → shop pending, not live",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 15:18:53 IST",
+      "note": "locator.waitFor: Timeout 30000ms exceeded.",
+      "shots": []
+    },
+    {
+      "id": "ON-06",
+      "title": "Payment succeeds → 'Your onboarding is complete…' + Add Products",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 15:19:13 IST",
+      "note": "locator.click: Timeout 20000ms exceeded.",
+      "shots": []
+    },
+    {
+      "id": "ON-07",
+      "title": "Existing account opens Register a shop → starts at the GST / PAN screen",
+      "platform": "Android (Chrome, Pixel 7 size)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 15:19:16 IST",
+      "note": "Verify screen after Sell; Verify button bottom 968px of 839",
+      "shots": [
+        "on07-sell-verify-android.png"
+      ]
+    },
+    {
+      "id": "ON-08",
+      "title": "GST with owner name returned (proprietor) → no owner screen → address → pin → shop → pay → live",
+      "platform": "Android (Chrome, Pixel 7 size)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 15:19:57 IST",
+      "note": "locator.waitFor: Timeout 30000ms exceeded.",
+      "shots": [
+        "on08-address.png",
+        "on08-map.png",
+        "on08-shop.png",
+        "on08-review.png"
+      ]
+    },
+    {
+      "id": "ON-09",
+      "title": "Invalid PAN → error, retry",
+      "platform": "iOS (iPhone 14 size, Chromium emulation)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 15:20:01 IST",
+      "note": "8-character PAN refused on the screen ('Enter the 10-character PAN …'); stays on Verify",
+      "shots": [
+        "on09-invalid-pan-ios.png"
+      ]
+    },
+    {
+      "id": "ON-10",
+      "title": "PAN only, address not returned → owner name filled, address typed → pin → shop → review",
+      "platform": "iOS (iPhone 14 size, Chromium emulation)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 15:20:31 IST",
+      "note": "locator.waitFor: Timeout 30000ms exceeded.",
+      "shots": []
+    },
+    {
+      "id": "ON-11",
+      "title": "Duplicate GSTIN → refused with the existing shop's status",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 15:20:57 IST",
+      "note": "locator.waitFor: Timeout 20000ms exceeded.",
+      "shots": []
+    }
+  ]
+}

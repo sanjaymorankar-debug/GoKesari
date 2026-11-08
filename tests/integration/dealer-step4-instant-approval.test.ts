@@ -100,7 +100,7 @@ describe("approved with no admin step (scenarios 20, 21)", () => {
     expect(JSON.stringify(log.evidence)).not.toContain("AAPFU0939F\"");
 
     const [ready] = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, "shop.ready_for_product_upload")));
-    expect(ready.title).toBe("Registration successful — Ganesh Traders is ready for product upload");
+    expect(ready.title).toBe("Your onboarding is complete — Ganesh Traders is now live");
     expect(ready.body).toContain("/shop/manage/products");
     expect(ready.body).toContain("/shop/product-import");
     expect(ready.actionUrl).toBe("/shop/manage/products");

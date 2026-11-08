@@ -328,3 +328,18 @@ Gap report: [docs/referrals-dealer-2026-11/GAP_REPORT.md](referrals-dealer-2026-
 - **PU-03 — An Action = Delete row needs only its SKU** (Claude's call, reported to the owner): it only hides a product.
 - **PU-04 — Amazon files keep their category fallback**: a row whose category comes only from Amazon's browse nodes / product type, with no Category column, still goes to "General" when nothing matches; only a Category cell that names no GoKesari category is an error.
 - **PU-05 — A file never renames an SKU** (unchanged): a row matched by the hidden GoKesari Product ID with a new SKU keeps the saved SKU and says so.
+
+## Shop onboarding: identity first (08-Nov-2026)
+
+Owner brief 08-Nov-2026, "Shop (Seller) Onboarding Workflow Correction" — [docs/shop-onboarding-identity-first-2026-11/BRIEF.md](shop-onboarding-identity-first-2026-11/BRIEF.md).
+
+- **DI-01 — Order:** sign-in → "Verify your business" (referral code + "Do you have a GST number?") → owner name only when the record has none → "Confirm your shop address" → "Mark your shop location on the map" → shop name → (FSSAI for a food shop) → pay → live with "Add Products". The referral code is on the first screen with the GST / PAN number (owner, 08-Nov-2026).
+- **DI-02 — Nothing goes on until the GSTIN, or the PAN without one, is VERIFIED.** A vendor outage or a review keeps the owner on the screen to try again. Reverses "upload later" (FLOW_2026-10-30.md) and "may continue while PENDING". The GSTIN's own PAN is checked in the background; only a refused (inactive) PAN stops the owner.
+- **DI-03 — The map pin is placed before payment.** Reverses "pin after pay" (FLOW_2026-10-30-b.md, 30 Oct).
+- **DI-04 — Udyam and the Shop Act are not wizard steps**; they are added on Documents after go-live. FSSAI stays mandatory for food shops, asked after the shop step.
+- **DI-05 — A GSTIN or PAN held by another account's live shop is refused before any paid check, with that shop's status.** The same owner may still open another branch.
+- **DI-06 — Flow 2: a registration with no step for 7 days is discarded (ABANDONED)** and the owner starts again at the GST / PAN screen. Seven days, not less, so the 24 h and 72 h reminders still bring the owner back to the same registration. *Claude's default — owner may change it.*
+- **DI-07 — Fee:** the current yearly turnover slabs (₹999 / ₹4,999 / ₹9,999 + GST, owner 06-Nov-2026), read as the brief's "existing fee rules"; the brief's ₹1,000 / ₹2,500 is not used. *Claude's default — owner did not pick.*
+- **DI-08 — Shop email** is one pre-filled line on the shop-name screen (the sign-in email); the email screen appears only for an account with no email. *Claude's default.*
+- **DI-09 — Android and iOS:** the apps show the website's /shop/register in their WebView, so the same screens and wording reach them with the web release; no store build is needed.
+- **DI-10 — gokesari.com had `shop_onboarding_wizard_enabled` off on 08-Nov-2026**, so sellers there got the old one-page form (shop name → address → map → PAN / GST last) — the order the brief complains about. Switching it on is part of the production release, with the owner's approval.

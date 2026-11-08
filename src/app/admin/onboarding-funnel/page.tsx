@@ -21,15 +21,21 @@ const STAGE_LABEL: Record<FunnelStage, string> = {
 const SOURCE_LABEL = { ALL: "All registrations", SELF: "Self sign-up", DEALER: "Dealer / referral code", OPERATOR: "Operator on behalf" } as const;
 
 const STEP_LABEL: Record<string, string> = {
-  REFERRAL: "1. Referral code",
-  EMAIL: "Shop email",
+  // Owner brief 08-Nov-2026: verify (with the referral code) → address → map pin → shop name → pay.
+  IDENTITY: "1. Verify (GST / PAN)",
+  EMAIL: "1. Shop email",
+  OWNER: "1. Owner name",
+  ADDRESS: "2. Address",
+  PIN: "3. Map pin",
+  SHOP: "4. Shop name",
+  FSSAI: "4. FSSAI",
+  REVIEW: "5. Review and pay",
+  PAYMENT: "5. Payment",
+  // Registrations that stopped before 08-Nov-2026.
+  REFERRAL: "Referral code (old)",
   DOCS_READY: "Documents question (old)",
-  IDENTITY: "2. GST / PAN",
-  UDYAM: "2. Udyam",
-  FSSAI: "2. FSSAI",
-  DETAILS: "3. Confirm details",
-  REVIEW: "4. Review and pay",
-  PAYMENT: "4. Payment",
+  UDYAM: "Udyam (old)",
+  DETAILS: "Confirm details (old)",
 };
 
 /**
