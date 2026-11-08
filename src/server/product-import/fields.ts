@@ -24,11 +24,14 @@ const REPEATED = new Set([
 
 type Rule = { field: string; keys?: RegExp[]; labels?: RegExp[] };
 
+/** Cells whose unreadable value rejects the row (owner, 08 Nov 2026), not only warns. */
+const CHECKED_VALUES = new Set(["mrp", "price", "salePrice", "gstPercent"]);
+
 const ALL = "\\[audience=all\\]";
 
 const RULES: Rule[] = [
   { field: "sku", keys: [/^contribution_sku\.value$/, /^item_sku$/, /^sku$/], labels: [/^(seller |item )?sku$/] },
-  { field: "productCode", labels: [/^(gokesari )?product code$/, /^gokesari code$/] },
+  { field: "productCode", labels: [/^(gokesari )?product code$/, /^gokesari code$/, /^gokesari product id$/] },
   { field: "productType", keys: [/^product_type\.value$/, /^feed_product_type$/], labels: [/^product type$/] },
   { field: "action", keys: [/^::record_action$/, /^update_delete$/], labels: [/^(listing )?action$/, /^update delete$/] },
   { field: "parentage", keys: [/^parentage_level\.value$/, /^parent_child$/], labels: [/^parentage( level)?$/] },
@@ -55,6 +58,7 @@ const RULES: Rule[] = [
   { field: "asin", keys: [/^merchant_suggested_asin\.value$/], labels: [/^(merchant suggested )?asin$/] },
   { field: "browseNodes", keys: [/^recommended_browse_nodes\.value$/, /^recommended_browse_nodes\d*$/], labels: [/^recommended browse nodes?( \d+)?$/] },
   { field: "category", labels: [/^(product )?category$/, /^category name$/] },
+  { field: "subcategory", labels: [/^sub[- ]?category( name)?$/] },
   { field: "description", keys: [/^product_description\.value$/, /^product_description$/], labels: [/^(product )?description$/] },
   { field: "bullets", keys: [/^bullet_point\.value$/, /^bullet_point\d*$/], labels: [/^bullet point( \d+)?$/, /^highlight \d+$/, /^key product features?( \d+)?$/] },
   { field: "keywords", keys: [/^generic_keyword\.value$/, /^generic_keywords\d*$/], labels: [/^generic keywords?$/, /^(search )?keywords$/] },
@@ -81,7 +85,7 @@ const RULES: Rule[] = [
   { field: "unitCount", keys: [/^unit_count\.value$/], labels: [/^unit count$/] },
   { field: "unitCountType", keys: [/^unit_count\.type\.value$/, /^unit_count\.type$/], labels: [/^unit count type$/] },
   { field: "unit", labels: [/^unit$/, /^uom$/] },
-  { field: "goodsKind", labels: [/^goods type$/, /^loose or packaged$/] },
+  { field: "goodsKind", labels: [/^goods type$/, /^loose or packaged$/, /^loose( item)?( \(y\/n\))?$/] },
   { field: "packSize", labels: [/^pack size$/] },
   { field: "itemWeight", keys: [/^item_weight\.value$/], labels: [/^item weight$/, /^weight$/] },
   { field: "itemWeightUnit", keys: [/^item_weight\.unit$/], labels: [/^item weight unit$/] },
@@ -230,6 +234,7 @@ export interface ImportFields {
   /** Text after the last ">" of each browse node, then the Category column: candidates for a GoKesari category. */
   categoryHints?: string[];
   category?: string;
+  subcategory?: string;
   description?: string;
   bullets?: string[];
   keywords?: string;
@@ -272,6 +277,8 @@ export interface ImportFields {
   quantity?: number;
   /** The cell had something that is not a usable quantity (stock is then left alone). */
   quantityInvalid?: string;
+  /** Amount and rate cells that could not be read (field → the cell as written): MRP, price, sale price, GST %. */
+  invalidValues?: Record<string, string>;
   handlingDays?: number;
   restockDate?: string;
   alwaysAvailable?: boolean;
@@ -360,12 +367,14 @@ export function extractRow(cells: CellValue[], map: FieldMap, columns: ColumnDef
     const r = fn(v);
     if (!r) return;
     if (r.ok) (fields as Record<string, unknown>)[target] = r.value;
+    // A checked value is reported once, as the row's error (preview-checks rowErrors), not also as a warning.
+    else if (CHECKED_VALUES.has(field)) (fields.invalidValues ??= {})[field] = r.raw;
     else warnBad(field, r.raw, what);
   };
 
   for (const f of [
     "sku", "productCode", "productType", "parentage", "parentSku", "variationTheme", "name", "highlight", "brand", "subBrand",
-    "manufacturer", "modelNumber", "modelName", "partNumber", "asin", "category", "description", "keywords", "mainImage",
+    "manufacturer", "modelNumber", "modelName", "partNumber", "asin", "category", "subcategory", "description", "keywords", "mainImage",
     "swatchImage", "color", "size", "style", "shape", "targetGender", "ageRange", "unitCountType", "unit", "packSize",
     "taxCode", "condition", "conditionNote", "countryOfOrigin", "manufacturerContact", "packerContact", "importerContact",
     "fulfillmentChannel",
@@ -425,9 +434,10 @@ export function extractRow(cells: CellValue[], map: FieldMap, columns: ColumnDef
   const goodsKind = first("goodsKind");
   if (goodsKind != null) {
     const t = String(goodsKind).trim().toLowerCase();
-    if (/^loose/.test(t)) fields.goodsKind = "LOOSE";
-    else if (/^pack/.test(t)) fields.goodsKind = "PACKAGED";
-    else warnBad("goodsKind", String(goodsKind), "Packaged or Loose");
+    // "Goods Type" says Packaged / Loose; a "Loose Item (Y/N)" column says Y / N.
+    if (/^(loose|y|yes)$|^loose/.test(t)) fields.goodsKind = "LOOSE";
+    else if (/^(pack|n$|no$)/.test(t)) fields.goodsKind = "PACKAGED";
+    else warnBad("goodsKind", String(goodsKind), "Packaged or Loose (Y or N)");
   }
   // Loose goods are not pre-packaged, so they carry no MRP (Legal Metrology): the cell is not used.
   if (fields.goodsKind === "LOOSE" && fields.mrpPaise != null) {

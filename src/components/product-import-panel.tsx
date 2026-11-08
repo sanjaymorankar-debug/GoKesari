@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Alert, Badge, Button, Card } from "@/components/ui";
 import { formatPaiseCompact } from "@/lib/money";
-import { IMPORT_ACCEPT, plannedStock, type ImportCounts, type ImportRowPlan, type InventoryMode } from "@/lib/product-import";
+import { IMPORT_ACCEPT, plannedStock, ROW_ERROR_PREFIX, type ImportCounts, type ImportRowPlan, type InventoryMode } from "@/lib/product-import";
 
 interface JobView {
   id: string;
@@ -278,7 +278,10 @@ export function ProductImportPanel({
             <div>
               <h2 className="font-semibold text-ink-900">Upload a product file for {shopName}</h2>
               <p className="text-xs text-ink-500">
-                Excel (.xlsx, .xlsm) or CSV, up to {limits.maxMb} MB and {limits.maxRows.toLocaleString("en-IN")} rows. Every column is optional.
+                Excel (.xlsx, .xlsm) or CSV, up to {limits.maxMb} MB and {limits.maxRows.toLocaleString("en-IN")} rows.
+              </p>
+              <p className="text-xs font-medium text-amber-800" data-testid="mandatory-columns">
+                Mandatory on every row: Product Name, Category, MRP (not for loose items) and Stock Qty. A row without them is not imported.
               </p>
             </div>
             <div className="flex flex-wrap gap-2" data-testid="template-downloads">
@@ -289,9 +292,9 @@ export function ProductImportPanel({
                 CSV
               </a>
               <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`/api/v1/shops/${shopId}/catalogue-export`} data-testid="download-catalogue" title="Your products with SKU, MRP, price, stock, HSN and GST — edit and upload again">
-                Download my catalogue
+                Download my current products
               </a>
-              <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`/api/v1/shops/${shopId}/catalogue-export?format=csv`} data-testid="download-catalogue-csv" aria-label="Download my catalogue as CSV">
+              <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`/api/v1/shops/${shopId}/catalogue-export?format=csv`} data-testid="download-catalogue-csv" aria-label="Download my current products as CSV">
                 CSV
               </a>
             </div>
@@ -339,7 +342,8 @@ export function ProductImportPanel({
               <li>
                 <strong>Amazon Seller Central inventory files are supported directly</strong> — upload the .xlsm or .xlsx as it is. Macros in the file are never run.
               </li>
-              <li>Or use the GoKesari template. All columns are optional; a blank cell never deletes what is saved.</li>
+              <li>Or use the GoKesari template (its Instructions sheet explains every column). Every row needs Product Name, Category, MRP (not for loose items) and Stock Qty; a blank optional cell never deletes what is saved.</li>
+              <li>Rows with an error (a mandatory column missing, Selling Price above MRP, a wrong number or category) are listed with the reason and not imported; the other rows still are. Download them with an Error column, fix and upload again.</li>
               <li>A row finds its product by your SKU, then the barcode, then name + brand. Nothing matched? A new product is added for you to sell straight away (it waits for catalogue approval).</li>
               <li>Quantity is your stock: set to the file&apos;s number, or added to current stock — you choose before importing.</li>
               <li>Nothing in your shop changes until you check the preview and press Import.</li>
@@ -390,7 +394,7 @@ export function ProductImportPanel({
           ) : null}
 
           {preview || job.status === "importing" || done ? (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
               {done ? (
                 <>
                   <Stat label="Created" value={counts!.created} tone="success" />
@@ -407,6 +411,7 @@ export function ProductImportPanel({
                   <Stat label="Updates" value={counts!.updates} tone="success" />
                   <Stat label="Deactivations" value={counts!.deactivations} tone="warning" />
                   <Stat label="Skipped" value={counts!.skipped} />
+                  <Stat label="Errors" value={counts!.errors ?? 0} tone={counts!.errors ? "danger" : "neutral"} />
                   <Stat label="With warnings" value={counts!.withWarnings} tone={counts!.withWarnings ? "warning" : "neutral"} />
                 </>
               )}
@@ -440,9 +445,17 @@ export function ProductImportPanel({
                   <input type="radio" name="inventoryMode" checked={mode === "ADD"} onChange={() => setMode("ADD")} /> Add file quantity to current stock
                 </label>
               </fieldset>
+              {counts!.errors ? (
+                <Alert tone="danger" title={`${counts!.errors.toLocaleString("en-IN")} row${counts!.errors > 1 ? "s have" : " has"} errors and will not be imported`}>
+                  <span className="block">The other rows can be imported now. Download the rows with errors, fix what its Error column says, and upload that file again.</span>
+                  <a className="mt-2 inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`${API}/${job.id}/report?format=xlsx&rows=problems`} data-testid="error-report">
+                    Download rows with errors (Excel)
+                  </a>
+                </Alert>
+              ) : null}
               <div className="flex flex-wrap gap-2">
-                <Button size="lg" onClick={commit} disabled={busy} data-testid="commit-button">
-                  {busy ? "Starting…" : duplicateOf ? "Import again" : `Import ${counts!.newProducts + counts!.updates + counts!.deactivations} rows`}
+                <Button size="lg" onClick={commit} disabled={busy || counts!.newProducts + counts!.updates + counts!.deactivations === 0} data-testid="commit-button">
+                  {busy ? "Starting…" : duplicateOf ? "Import again" : `Import ${counts!.newProducts + counts!.updates + counts!.deactivations} row${counts!.newProducts + counts!.updates + counts!.deactivations === 1 ? "" : "s"}`}
                 </Button>
                 <Button variant="secondary" size="lg" onClick={cancel} disabled={busy}>
                   Cancel
@@ -489,6 +502,20 @@ export function ProductImportPanel({
                   />
                   Only rows with warnings
                 </label>
+                {!done && counts?.errors ? (
+                  <label className="flex min-h-11 items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={filter === "failed"}
+                      onChange={(e) => {
+                        setFilter(e.target.checked ? "failed" : "all");
+                        setPage(1);
+                      }}
+                      data-testid="errors-only"
+                    />
+                    Only rows with errors
+                  </label>
+                ) : null}
                 {done ? (
                   <select
                     className="min-h-11 rounded-lg border border-cream-200 bg-white px-2 text-sm"
@@ -539,11 +566,11 @@ export function ProductImportPanel({
                           <td className="px-2 py-2 text-right tabular-nums">{money(r.plan?.mrpPaise)}</td>
                           <td className="px-2 py-2 text-right tabular-nums">{money(r.plan?.pricePaise)}</td>
                           <td className="px-2 py-2 tabular-nums">
-                            {r.plan ? `${r.plan.currentQty ?? "new"} → ${next ?? "unchanged"}` : "—"}
+                            {r.plan && r.status !== "failed" ? `${r.plan.currentQty ?? "new"} → ${next ?? "unchanged"}` : "—"}
                           </td>
                           <td className="px-2 py-2">
-                            {done || r.status === "skipped" ? (
-                              <Badge tone={ROW_TONE[r.status]}>{r.status}</Badge>
+                            {done || r.status === "skipped" || r.status === "failed" ? (
+                              <Badge tone={ROW_TONE[r.status]}>{!done && r.status === "failed" ? "error" : r.status}</Badge>
                             ) : (
                               <Badge tone="info">{OUTCOME_LABEL[r.plan?.outcome ?? "skip"]}</Badge>
                             )}
@@ -553,7 +580,7 @@ export function ProductImportPanel({
                             {r.messages.length ? (
                               <ul className="list-disc space-y-0.5 pl-4">
                                 {r.messages.map((m) => (
-                                  <li key={m}>{m}</li>
+                                  <li key={m} className={m.startsWith(ROW_ERROR_PREFIX) ? "font-medium text-red-700" : undefined}>{m}</li>
                                 ))}
                               </ul>
                             ) : (
@@ -582,22 +609,23 @@ export function ProductImportPanel({
                             {r.plan?.brand ? ` · ${r.plan.brand}` : ""}
                           </p>
                         </div>
-                        {done || r.status === "skipped" ? (
-                          <Badge tone={ROW_TONE[r.status]}>{r.status}</Badge>
+                        {done || r.status === "skipped" || r.status === "failed" ? (
+                          <Badge tone={ROW_TONE[r.status]}>{!done && r.status === "failed" ? "error" : r.status}</Badge>
                         ) : (
                           <Badge tone="info">{OUTCOME_LABEL[r.plan?.outcome ?? "skip"]}</Badge>
                         )}
                       </div>
                       {r.plan ? (
                         <p className="mt-1 text-xs text-ink-700">
-                          MRP {money(r.plan.mrpPaise)} · Price {money(r.plan.pricePaise)} · Qty {r.plan.currentQty ?? "new"} → {next ?? "unchanged"}
+                          MRP {money(r.plan.mrpPaise)} · Price {money(r.plan.pricePaise)}
+                          {r.status === "failed" ? "" : ` · Qty ${r.plan.currentQty ?? "new"} → ${next ?? "unchanged"}`}
                           {r.plan.category ? ` · ${r.plan.category}` : ""}
                         </p>
                       ) : null}
                       {r.messages.length ? (
                         <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-amber-800">
                           {r.messages.map((m) => (
-                            <li key={m}>{m}</li>
+                            <li key={m} className={m.startsWith(ROW_ERROR_PREFIX) ? "font-medium text-red-700" : undefined}>{m}</li>
                           ))}
                         </ul>
                       ) : null}

@@ -36,12 +36,12 @@ qa("TC-OPG-001", "the upload template comes as CSV with the Excel template's col
   expect(res.headers["content-type"]).toMatch(/text\/csv/);
   expect(res.headers["content-disposition"]).toMatch(/GoKesari_Product_Upload_Template\.csv/);
   const header = csvHeader(res.bytes);
-  for (const column of ["Product Name", "HSN Code", "GST %", "MRP", "Selling Price", "Goods Type"]) expect(header).toContain(column);
+  for (const column of ["Product Name", "Category", "Sub-category", "HSN Code", "GST %", "MRP", "Selling Price", "Stock Qty", "Loose Item (Y/N)"]) expect(header).toContain(column);
   expect(res.bytes.toString("utf8")).toContain("EXAMPLE");
   return `${header.length} columns: ${header.join(", ")}`;
 }, signed);
 
-qa("TC-OPG-002", "the Excel template offers GST % and Goods Type as drop-downs", async () => {
+qa("TC-OPG-002", "the Excel template offers GST %, Loose Item (Y/N) and Category as drop-downs", async () => {
   const res = await download("/api/v1/product-imports/template");
   expect(res.status).toBe(200);
   const wb = new ExcelJS.Workbook();
@@ -53,8 +53,9 @@ qa("TC-OPG-002", "the Excel template offers GST % and Goods Type as drop-downs",
   expect(cell("GST %").dataValidation).toMatchObject({ type: "list" });
   expect(gst).toContain("18");
   expect(gst).toContain("40");
-  expect(cell("Goods Type").dataValidation?.formulae?.[0]).toBe('"Packaged,Loose"');
-  return `GST % list ${gst}; Goods Type list Packaged, Loose`;
+  expect(cell("Loose Item (Y/N)").dataValidation?.formulae?.[0]).toBe('"N,Y"');
+  expect(String(cell("Category").dataValidation?.formulae?.[0] ?? "")).toMatch(/^Lists!\$A\$2:\$A\$\d+$/);
+  return `GST % list ${gst}; Loose Item list N, Y; Category list ${cell("Category").dataValidation?.formulae?.[0]}`;
 }, signed);
 
 qa("TC-OPG-003", "the shop owner downloads their catalogue as Excel and CSV in the upload layout", async () => {
@@ -65,7 +66,7 @@ qa("TC-OPG-003", "the shop owner downloads their catalogue as Excel and CSV in t
   await wb.xlsx.load(xlsx.bytes as unknown as ArrayBuffer);
   const ws = wb.worksheets[0];
   const header = (ws.getRow(1).values as unknown[]).slice(1).map((v) => String(v ?? ""));
-  for (const column of ["SKU", "Product Name", "HSN Code", "GST %", "MRP", "Selling Price", "Quantity", "Goods Type"]) expect(header).toContain(column);
+  for (const column of ["SKU", "Product Name", "Category", "HSN Code", "GST %", "MRP", "Selling Price", "Stock Qty", "Loose Item (Y/N)", "GoKesari Product ID"]) expect(header).toContain(column);
   const rows = ws.actualRowCount - 1;
   expect(rows, "one row per listing").toBeGreaterThan(0);
 
@@ -86,14 +87,14 @@ qa("TC-OPG-004", "a customer and a signed-out caller cannot download a shop's ca
   return `customer ${customer.status}, signed out ${guest.status}`;
 }, signed);
 
-qa("TC-OPG-005", "the upload preview flags a price above MRP, a non-slab GST rate and a loose good without a weight unit", async () => {
+qa("TC-OPG-005", "the upload preview rejects a price above MRP and a non-slab GST rate, and flags a loose good without a weight unit", async () => {
   const shop = await shopOf("A");
   const owner = await as("shop");
   const csv = [
-    "Product Name,HSN Code,GST %,MRP,Selling Price,Quantity,Unit,Goods Type,Action",
-    `QA price above MRP ${RUN},21069099,18,34,35,1,pcs,Packaged,Upsert`,
-    `QA odd GST ${RUN},21069099,7,50,45,1,pcs,Packaged,Upsert`,
-    `QA loose in pieces ${RUN},07136000,0,,140,1,pcs,Loose,Upsert`,
+    "Product Name,Category,HSN Code,GST %,MRP,Selling Price,Stock Qty,Unit,Loose Item (Y/N),Action",
+    `QA price above MRP ${RUN},General,21069099,18,34,35,1,pcs,N,Upsert`,
+    `QA odd GST ${RUN},General,21069099,7,50,45,1,pcs,N,Upsert`,
+    `QA loose in pieces ${RUN},General,07136000,0,,140,1,pcs,Y,Upsert`,
   ].join("\r\n");
   const upload = await call(owner, "POST", `/api/v1/shops/${shop.id}/product-imports`, undefined, {
     multipart: { file: filePart(`qa-preview-${RUN}.csv`, Buffer.from(csv), "text/csv") },
@@ -111,8 +112,8 @@ qa("TC-OPG-005", "the upload preview flags a price above MRP, a non-slab GST rat
   const rows = await call(owner, "GET", `/api/v1/product-imports/${jobId}/rows?status=all&page=1`);
   expect(rows.status, why(rows)).toBe(200);
   const messages = (rows.body.rows as { messages: string[] }[]).map((r) => r.messages.join(" "));
-  expect(messages.join(" | ")).toMatch(/above the MRP/);
-  expect(messages.join(" | ")).toMatch(/GST 7% is not a GST rate/);
+  expect(messages.join(" | ")).toMatch(/Error: Row 2: Selling Price ₹35\.00 > MRP ₹34\.00/);
+  expect(messages.join(" | ")).toMatch(/Error: Row 3: GST 7% is not a GST rate/);
   expect(messages.join(" | ")).toMatch(/kg, g, l or ml/);
   return messages.join(" | ").slice(0, 400);
 }, signed);
@@ -124,7 +125,7 @@ qa("TC-OPG-006", "the result report can hold only the rows to fix", async () => 
     const res = await download(`/api/v1/product-imports/${jobId}/report?format=csv&rows=problems`);
     expect(res.status).toBe(200);
     const lines = res.bytes.toString("utf8").replace(/^﻿/, "").split(/\r?\n/).filter(Boolean);
-    expect(lines.length - 1, "the three flagged rows").toBe(3);
+    expect(lines.length - 1, "the two rejected rows (the loose good only has a warning)").toBe(2);
     return `${lines.length - 1} rows to fix; header ${lines[0].slice(0, 120)}`;
   } finally {
     await call(owner, "POST", `/api/v1/product-imports/${jobId}/cancel`);

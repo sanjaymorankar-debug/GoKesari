@@ -184,15 +184,16 @@ describe("CSV and the GoKesari simple template", () => {
     expect(parsed.rows[0].fields).toMatchObject({ sku: "C-1", name: "Bread", pricePaise: 4500, quantity: 12 });
   });
 
-  it("the template has every column, the Instructions sheet, three dropdowns, and its example row is never imported", async () => {
+  it("the template has every column, the Instructions sheet, the dropdowns, and its example rows are never imported", async () => {
     const bytes = await buildSimpleTemplate();
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(bytes as unknown as ExcelJS.Buffer);
     const products = wb.getWorksheet("Products")!;
     expect((products.getRow(1).values as unknown[]).slice(1)).toEqual([...SIMPLE_TEMPLATE_COLUMNS]);
-    expect(String(products.getRow(2).getCell(1).value)).toMatch(/^EXAMPLE – delete this row$/);
+    const skuCol = SIMPLE_TEMPLATE_COLUMNS.indexOf("SKU") + 1;
+    for (const r of [2, 3, 4]) expect(String(products.getRow(r).getCell(skuCol).value)).toMatch(/^EXAMPLE – delete this row$/);
     const instructions = wb.getWorksheet("Instructions")!;
-    expect(String(instructions.getRow(3).getCell(1).value)).toMatch(/ALL COLUMNS ARE OPTIONAL/);
+    expect(String(instructions.getRow(3).getCell(1).value)).toMatch(/^MANDATORY on every row: Product Name, Category, MRP .* and Stock Qty/);
     const validations = (products as unknown as { dataValidations: { model: Record<string, { formulae: string[] }> } }).dataValidations.model;
     const lists = Object.values(validations).map((v) => v.formulae[0]);
     expect(lists).toEqual(expect.arrayContaining([expect.stringContaining("GTIN Exempt"), expect.stringContaining("pcs,kg,g,l,ml,pack"), expect.stringContaining("Upsert,Edit,Delete")]));
@@ -200,7 +201,7 @@ describe("CSV and the GoKesari simple template", () => {
     const parsed = await parseImportFile(bytes, "GoKesari_Product_Upload_Template.xlsx", { maxRows: 10 });
     expect(parsed.format).toBe("GOKESARI_TEMPLATE");
     expect(parsed.rows).toHaveLength(0);
-    expect(parsed.skippedTemplateRows).toEqual([2]);
+    expect(parsed.skippedTemplateRows).toEqual([2, 3, 4]);
   });
 
   it("the report defangs formula injection", () => {
