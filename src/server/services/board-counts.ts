@@ -332,6 +332,24 @@ export async function shopCounts(shopId: string): Promise<Counts> {
     shopOpenDisputes: () =>
       one(db.select({ n: count() }).from(orderDisputes).where(and(eq(orderDisputes.shopId, shopId), notInArray(orderDisputes.status, [...DISPUTE_TERMINAL])))),
     shopLowStock: () => one(db.select({ n: count() }).from(stockAlerts).where(and(eq(stockAlerts.shopId, shopId), eq(stockAlerts.status, "OPEN")))),
+    shopNeedsStock: () =>
+      one(
+        db
+          .select({ n: count() })
+          .from(shopProducts)
+          .where(
+            and(
+              eq(shopProducts.shopId, shopId),
+              isNull(shopProducts.deletedAt),
+              eq(shopProducts.isActive, true),
+              eq(shopProducts.ownerPaused, false),
+              eq(shopProducts.stockPending, true),
+              eq(shopProducts.trackInventory, true),
+              lte(shopProducts.onlineStock, 0),
+              lte(shopProducts.offlineStock, 0),
+            ),
+          ),
+      ),
     shopPendingPhotos: () =>
       one(
         db

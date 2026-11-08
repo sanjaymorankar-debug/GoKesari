@@ -140,7 +140,7 @@ async function createListingForLine(shopId: string, line: z.infer<typeof purchas
     if (master) {
       const [already] = await client.select({ id: shopProducts.id }).from(shopProducts).where(and(eq(shopProducts.shopId, shopId), eq(shopProducts.productId, master.id)));
       if (already) return already.id;
-      await addCategoryToShop(shopId, master.categoryId, actor, { reason: "purchase_bill", fillInventory: false }, client);
+      await addCategoryToShop(shopId, master.categoryId, actor, { reason: "purchase_bill" }, client);
       const sp = await createShopProduct({ shopId, productId: master.id, onlineSaleEnabled: false, offlineSaleEnabled: false }, actor as { id: string; role: "SHOP_OWNER" }, client);
       return sp.id;
     }

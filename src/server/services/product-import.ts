@@ -782,7 +782,7 @@ interface RowOutcome {
 
 async function ensureCarried(tx: DbClient, ctx: CommitContext, categoryId: string): Promise<void> {
   if (ctx.carried.has(categoryId)) return;
-  await addCategoryToShop(ctx.shop.id, categoryId, ctx.actor, { reason: "bulk_upload", fillInventory: false }, tx);
+  await addCategoryToShop(ctx.shop.id, categoryId, ctx.actor, { reason: "bulk_upload" }, tx);
   ctx.carried.add(categoryId);
 }
 

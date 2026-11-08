@@ -913,11 +913,6 @@ export const RULES = {
       csvMaxRows: 5000,
     },
   },
-  catalogue: {
-    description: "Shop catalogue: stock given to each product when a shop adds a whole category and its inventory is filled in.",
-    schema: z.object({ categoryFillStock: int(0, 100_000) }),
-    defaults: { categoryFillStock: 100 },
-  },
   uploads: {
     description:
       "File upload limits: spreadsheet size and rows (product, price and voucher sheets) and seller document size, in bytes.",
