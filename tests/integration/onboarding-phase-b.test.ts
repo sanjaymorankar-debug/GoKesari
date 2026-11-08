@@ -39,10 +39,10 @@ import { clearRuleCache, getRule } from "@/server/services/settings";
 import { notifyFirstProducts } from "@/server/services/shop-onboarding-events";
 import { submitDraftGstin } from "@/server/services/shop-registration-draft";
 import {
-  answerDocumentsReady,
   answerDraftReferral,
   getWizardDraft,
   saveDraftDetails,
+  saveDraftLocation,
   submitDraftForPayment,
   wizardContinuePath,
   type DraftShopDetails,
@@ -107,11 +107,15 @@ async function payInSandbox(shopId: string) {
   await finishFeeCapture(shopId, checkout.intentId);
 }
 
-/** Referral → "add documents later" → details → shop created (fee due). */
+/**
+ * Owner brief 08-Nov-2026 (no "upload later"): referral + a proprietor's GSTIN → address → map pin
+ * → shop → shop created (fee due).
+ */
 async function registerLater() {
   await answerDraftReferral({ actor: owner, referralCode: null });
-  await answerDocumentsReady({ actor: owner, later: true });
+  await submitDraftGstin({ gstin: gstinFor("ABCPK5678L"), consentGiven: true, actor: owner });
   await saveDraftDetails({ actor: owner, details: details() });
+  await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
   const submitted = await submitDraftForPayment({ actor: owner });
   return submitted.shop!.id;
 }
@@ -134,7 +138,7 @@ describe("the onboarding funnel (B3)", () => {
     await getWizardDraft(owner); // read again: no second row for the same step
     const steps = await db.select({ step: shopOnboardingSteps.step }).from(shopOnboardingSteps);
     const names = steps.map((s) => s.step);
-    expect(names).toEqual(expect.arrayContaining(["DETAILS", "REVIEW", "PAYMENT", "LOCATION"]));
+    expect(names).toEqual(expect.arrayContaining(["IDENTITY", "PIN", "REVIEW", "PAYMENT", "LIVE"]));
     expect(new Set(names).size).toBe(names.length);
 
     const funnel = await getOnboardingFunnel(30);
@@ -223,14 +227,15 @@ describe("notices (G14, B2, G10)", () => {
     expect(notice.title).toBe(`12 products are live in ${shop.name}`);
   });
 
-  it("the ready email of an 'add documents later' shop asks for GST / PAN before the first payout instead of claiming a check", async () => {
+  it("the ready email says the GST / PAN was verified and asks for products (owner brief 08-Nov-2026)", async () => {
     const shopId = await registerLater();
     await payInSandbox(shopId);
     const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
     expect(shop.status).toBe("APPROVED");
     const [ready] = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, NOTIFICATION_TYPES.SHOP_READY_FOR_PRODUCT_UPLOAD)));
-    expect(ready.body).not.toMatch(/GST\/PAN was verified/);
-    expect(ready.body).toMatch(/before your first payout/);
+    expect(ready.body).toMatch(/GST\/PAN was verified/);
+    expect(ready.body).toMatch(/Your onboarding is complete/);
+    expect(ready.body).not.toMatch(/before your first payout/);
   });
 
   it("a GSTIN check goes on from the document window, never to the old documents question", async () => {

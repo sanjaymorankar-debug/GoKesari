@@ -1,5 +1,8 @@
 /**
- * Onboarding wizard step 2, in the brief's order (owner decision 29 Oct 2026, "follow the
+ * Owner brief 08-Nov-2026: after the GSTIN / PAN step — owner name (when the record has none),
+ * address, map pin, shop name, FSSAI for a food shop, payment, then Add Products.
+ *
+ * Earlier: onboarding wizard step 2, in the brief's order (owner decision 29 Oct 2026, "follow the
  * brief"; docs/shop-onboarding-wizard-2026-10/BRIEF_REDESIGN.md): after the GSTIN / PAN
  * step — Udyam, FSSAI, shop details & turnover slab, payment, approval, then the map pin,
  * categories and product list on the live shop.
@@ -40,6 +43,8 @@ import { POST as detailsRoute } from "@/app/api/shops/registration-draft/details
 import { POST as gstinRoute } from "@/app/api/shops/registration-draft/gstin/route";
 import { POST as panRoute } from "@/app/api/shops/registration-draft/pan/route";
 import { POST as documentsRoute } from "@/app/api/shops/registration-draft/documents/route";
+import { POST as ownerRoute } from "@/app/api/shops/registration-draft/owner/route";
+import { POST as addressRoute } from "@/app/api/shops/registration-draft/address/route";
 import { POST as locationRoute } from "@/app/api/shops/registration-draft/location/route";
 import { POST as submitRoute } from "@/app/api/shops/registration-draft/submit/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
@@ -71,6 +76,8 @@ import { submitDraftGstin, submitDraftPan } from "@/server/services/shop-registr
 import {
   answerDraftDocument,
   getWizardDraft,
+  saveDraftAddress,
+  saveDraftOwner,
   requireWizardAvailable,
   saveDraftDetails,
   saveDraftLocation,
@@ -80,7 +87,7 @@ import {
   wizardAvailableFor,
   type DraftShopDetails,
 } from "@/server/services/shop-registration-wizard";
-import { registerShop, updateShop } from "@/server/services/shops";
+import { registerShop } from "@/server/services/shops";
 import { createUser, resetDatabase } from "../helpers/fixtures";
 import { call } from "../helpers/http";
 
@@ -176,32 +183,34 @@ const lastDecision = async (shopId: string) =>
   (await db.select().from(shopAutoApprovalLog).where(eq(shopAutoApprovalLog.shopId, shopId))).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
 
 describe("each step in the brief's order, resumed where the owner left off", () => {
-  it("walks GSTIN → Udyam → FSSAI → details & turnover → review, and every answer says where to resume", async () => {
+  it("walks verify → owner name → address → map pin → shop → review, and every answer says where to resume", async () => {
     expect(await getWizardDraft(owner)).toBeNull();
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
     let view = (await getWizardDraft(owner))!;
-    expect(view.nextStep).toBe("UDYAM");
-    // The GST record filled in the shop name and address (edited later on the details step).
+    // A company's GST record names no owner: only that one field is asked.
+    expect(view).toMatchObject({ nextStep: "OWNER", ownerName: null });
+    // The GST record filled in the shop name and address.
     expect(view.prefill.shopName).toBeTruthy();
     expect(view.prefill.address).toContain("Pune");
-    // The admin's slab table is what the details step offers.
+    expect(view.address).toMatchObject({ pincode: "411001" });
+    // The admin's slab table is what the shop step offers.
     expect(view.feeRule.slabs.length).toBeGreaterThan(0);
 
-    view = await doc("UDYAM", UDYAM);
-    expect(view.udyam).toMatchObject({ has: true, done: true, check: { status: "VERIFIED", message: null } });
-    expect(view.udyam.check!.numberMasked).not.toBe(UDYAM);
-    expect(view.nextStep).toBe("FSSAI");
-
-    view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    expect(view.fssai).toMatchObject({ has: false, done: true, required: false });
-    expect(view.nextStep).toBe("DETAILS");
-
+    view = await saveDraftOwner({ actor: owner, ownerName: "Test Seller" });
+    expect(view).toMatchObject({ nextStep: "ADDRESS", ownerName: "Test Seller" });
     // A new session (another device) resumes at the same place.
-    expect((await getWizardDraft({ id: owner.id }))!.nextStep).toBe("DETAILS");
+    expect((await getWizardDraft({ id: owner.id }))!.nextStep).toBe("ADDRESS");
 
-    view = await saveDraftDetails({ actor: owner, details: details({ categoryIds: [] }) });
-    // Owner brief 30 Oct 2026: straight to the fee; the map pin comes after payment.
-    expect(view).toMatchObject({ nextStep: "REVIEW", foodShop: false, details: { shopType: "GENERAL_TRADING", pincode: "411001" } });
+    const d = details();
+    const address = { addressLine1: d.addressLine1, addressLine2: d.addressLine2, area: d.area, city: d.city, state: d.state, pincode: d.pincode, landmark: d.landmark };
+    view = await saveDraftAddress({ actor: owner, address });
+    expect(view).toMatchObject({ nextStep: "PIN", address: { addressLine1: "Shop No 4, Main Market", pincode: "411001" } });
+
+    view = await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
+    expect(view.nextStep).toBe("SHOP");
+
+    view = await saveDraftDetails({ actor: owner, details: { ...details({ categoryIds: [] }), ownerName: null, addressLine1: null, city: null, pincode: null } });
+    expect(view).toMatchObject({ nextStep: "REVIEW", foodShop: false, details: { shopType: "GENERAL_TRADING", pincode: "411001", ownerName: "Test Seller" } });
     expect(view.documents).toMatchObject({ missing: [], canSubmit: true, needsTeamApproval: false, promised: false });
   });
 
@@ -213,8 +222,7 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     await expect(doc("UDYAM", UDYAM)).rejects.toMatchObject({ code: "CONFLICT" });
 
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    await doc("UDYAM", UDYAM);
-    await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "STEP_OPEN", nextStep: "FSSAI" } });
+    await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "STEP_OPEN", nextStep: "OWNER" } });
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
   });
 
@@ -231,9 +239,9 @@ describe("Udyam and FSSAI checks", () => {
 
   it("not found at the source → FAILED with a message; the owner must correct it", async () => {
     const view = await doc("UDYAM", "UDYAM-MH-26-0010000");
-    expect(view.udyam).toMatchObject({ done: false, check: { status: "FAILED", errorCode: "not_found_at_source" } });
+    // Udyam is not a wizard step since 08-Nov-2026: a failed check is shown but holds nothing up.
+    expect(view.udyam).toMatchObject({ check: { status: "FAILED", errorCode: "not_found_at_source" } });
     expect(view.udyam.check!.message).toMatch(/not found/);
-    expect(view.nextStep).toBe("UDYAM");
   });
 
   it("an expired FSSAI licence → EXPIRED, cannot continue", async () => {
@@ -241,14 +249,12 @@ describe("Udyam and FSSAI checks", () => {
     const view = await doc("FSSAI", "11521998008888");
     expect(view.fssai.check).toMatchObject({ status: "EXPIRED" });
     expect(view.fssai.check!.message).toMatch(/expired/);
-    expect(view.nextStep).toBe("FSSAI");
   });
 
   it("government source down → PENDING, the owner may continue; a repeat within 30 s pays nothing", async () => {
     const view = await doc("UDYAM", "UDYAM-MH-26-0019999");
     expect(view.udyam).toMatchObject({ done: true, check: { status: "PENDING" } });
     expect(view.udyam.check!.message).toMatch(/keep checking/);
-    expect(view.nextStep).toBe("FSSAI");
     const before = (await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id)))[0].checksInWindow;
     await doc("UDYAM", "UDYAM-MH-26-0019999");
     const after = (await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id)))[0].checksInWindow;
@@ -285,6 +291,7 @@ describe("a food shop must give its FSSAI, and goes live only once it is verifie
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
     await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
     await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
+    await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
     let view = await saveDraftDetails({ actor: owner, details: details({ shopType: "DAIRY" }) });
     expect(view).toMatchObject({ foodShop: true, fssai: { required: true, done: false }, nextStep: "FSSAI" });
     // "No" again does not get a food shop past the step.
@@ -352,17 +359,17 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
     const [draft] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.shopId, shopId));
     expect(draft.status).toBe("COMPLETED");
     const [ready] = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, "shop.ready_for_product_upload")));
-    expect(ready.title).toMatch(/Registration successful/);
+    // Owner brief 08-Nov-2026: the same words by email as on the screen.
+    expect(ready.title).toMatch(/Your onboarding is complete/);
+    expect(ready.body).toMatch(/Your shop is now live and accepting orders\./);
+    expect(ready.body).toMatch(/Add your products now so customers can find them and place orders with you/);
 
-    // After approval: the map pin (placed before payment, 0120) is on the shop; then categories and the product list.
+    // After approval: the map pin (placed before payment) is on the shop; "live" with Add Products until products are in.
     let view = (await getWizardDraft(owner))!;
-    expect(view).toMatchObject({ nextStep: "CATEGORY", setup: { location: true, categories: false, products: false } });
-    await updateShop(shopId, { latitude: "18.5309", longitude: "73.8476" }, owner);
-    view = (await getWizardDraft(owner))!;
-    expect(view.nextStep).toBe("CATEGORY");
+    expect(view).toMatchObject({ nextStep: "LIVE", setup: { location: true, categories: false, products: false } });
     await setShopCategories(shopId, [categoryId], owner);
     view = (await getWizardDraft(owner))!;
-    expect(view).toMatchObject({ nextStep: "PRODUCTS", setup: { location: true, categories: true, products: false } });
+    expect(view).toMatchObject({ nextStep: "LIVE", setup: { location: true, categories: true, products: false } });
   });
 
   it("the no-GSTIN route: PAN verified + declaration + payment → live automatically", async () => {
@@ -405,14 +412,13 @@ describe("pending admin approval", () => {
     expect((await shopRow(shop!.id)).status).toBe("APPROVED");
   });
 
-  it("GSTIN check still pending (government source down): may pay, then waits for an admin", async () => {
-    const view = await walkToReview({ gstin: gstinFor("AABCG9999K") });
-    expect(view.documents).toMatchObject({ canSubmit: true, missing: ["GSTIN"], needsTeamApproval: true });
-    const { shop } = await submitDraftForPayment({ actor: owner });
-    await payInSandbox(shop!.id);
-    expect((await shopRow(shop!.id)).status).toBe("PENDING_APPROVAL");
-    expect((await getWizardDraft(owner))!.nextStep).toBe("WAITING");
-    expect((await lastDecision(shop!.id)).reasons.join(" ")).toMatch(/GSTIN/);
+  it("GSTIN check still pending (government source down): the owner stays on the verify step — no shop, no payment", async () => {
+    // Owner brief 08-Nov-2026: nothing goes on until the GSTIN or PAN is verified.
+    await expect(walkToReview({ gstin: gstinFor("AABCG9999K") })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "IDENTITY_STEP_OPEN" } });
+    const view = (await getWizardDraft(owner))!;
+    expect(view).toMatchObject({ nextStep: "IDENTITY", canContinue: false, gstin: { status: "PENDING" } });
+    expect(view.gstin!.message).toMatch(/try again/);
+    expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
   });
 
   it("a PAN name that does not match on the no-GSTIN route goes to review: may pay, then waits for an admin", async () => {
@@ -433,6 +439,7 @@ describe("referral code toggle (Admin → Referral settings, default optional)",
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
     await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
     await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
+    await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
     expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("REVIEW");
 
     await setReferralSetting("referral_required_shop", "MANDATORY", adminActor);
@@ -499,7 +506,7 @@ describe("HTTP routes", () => {
 
     const no = await call(documentsRoute, "/api/shops/registration-draft/documents", { method: "POST", body: { docType: "UDYAM", has: false } });
     expect(no.status).toBe(200);
-    expect(no.body.nextStep).toBe("FSSAI");
+    expect(no.body.nextStep).toBe("OWNER");
     const noConsent = await call(documentsRoute, "/api/shops/registration-draft/documents", { method: "POST", body: { docType: "FSSAI", number: FSSAI } });
     expect(noConsent.status).toBe(422);
     const fssai = await call(documentsRoute, "/api/shops/registration-draft/documents", { method: "POST", body: { docType: "FSSAI", number: FSSAI, consent: true } });
@@ -509,13 +516,21 @@ describe("HTTP routes", () => {
     const early = await call(submitRoute, "/api/shops/registration-draft/submit", { method: "POST" });
     expect(early.status).toBe(409);
     const resumed = await call(draftRoute, "/api/shops/registration-draft");
-    expect(resumed.body.nextStep).toBe("DETAILS");
-    const saved = await call(detailsRoute, "/api/shops/registration-draft/details", { method: "POST", body: { ...details(), categoryIds: undefined } });
+    expect(resumed.body.nextStep).toBe("OWNER");
+    const named = await call(ownerRoute, "/api/shops/registration-draft/owner", { method: "POST", body: { ownerName: "Test Seller" } });
+    expect(named.body.nextStep).toBe("ADDRESS");
+    const placed = await call(addressRoute, "/api/shops/registration-draft/address", {
+      method: "POST",
+      body: { addressLine1: "Shop No 4, Main Market", city: "Pune", state: "Maharashtra", pincode: "411001" },
+    });
+    expect(placed.body.nextStep).toBe("PIN");
+    const pinned = await call(locationRoute, "/api/shops/registration-draft/location", { method: "POST", body: { latitude: 18.5308, longitude: 73.8475 } });
+    expect(pinned.body.nextStep).toBe("SHOP");
+    const shop = { ...details(), ownerName: null, addressLine1: null, addressLine2: null, area: null, city: null, state: null, pincode: null, landmark: null };
+    const saved = await call(detailsRoute, "/api/shops/registration-draft/details", { method: "POST", body: { ...shop, categoryIds: undefined } });
     expect(saved.status).toBe(200);
     expect(saved.body.nextStep).toBe("REVIEW");
-    // A pin may still be saved on the draft (a draft from before 30 Oct 2026); it does not change the step.
-    const pinned = await call(locationRoute, "/api/shops/registration-draft/location", { method: "POST", body: { latitude: 18.5308, longitude: 73.8475 } });
-    expect(pinned.body.nextStep).toBe("REVIEW");
+    expect(saved.body.details).toMatchObject({ ownerName: "Test Seller", city: "Pune" });
   });
 });
 
@@ -586,10 +601,10 @@ describe("who may use the wizard (shop_onboarding_wizard_enabled)", () => {
     as(admin, "ADMIN");
     const saved = await routes[0]();
     expect(saved.status).toBe(200);
-    expect(saved.body.nextStep).toBe("UDYAM");
+    expect(saved.body.nextStep).toBe("PIN");
     const udyam = await routes[1]();
     expect(udyam.status).toBe(200);
-    expect(udyam.body.nextStep).toBe("FSSAI");
+    expect(udyam.body.nextStep).toBe("PIN");
   });
 
   it("flag on: everyone gets the wizard (?form=1 still the long form) and the steps work", async () => {
@@ -603,6 +618,6 @@ describe("who may use the wizard (shop_onboarding_wizard_enabled)", () => {
     as(owner, "CUSTOMER");
     const saved = await routes[0]();
     expect(saved.status).toBe(200);
-    expect(saved.body.nextStep).toBe("UDYAM");
+    expect(saved.body.nextStep).toBe("PIN");
   });
 });

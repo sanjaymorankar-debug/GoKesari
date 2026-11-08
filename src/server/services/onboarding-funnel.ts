@@ -78,7 +78,7 @@ export async function getOnboardingFunnel(days = 30): Promise<OnboardingFunnel> 
     with t as (
       select st.draft_id,
              min(st.reached_at) as first_at,
-             min(st.reached_at) filter (where st.step in ('LOCATION','CATEGORY','PRODUCTS','DONE')) as live_at,
+             min(st.reached_at) filter (where st.step in ('LIVE','LOCATION','CATEGORY','PRODUCTS','DONE')) as live_at,
              min(sp.created_at) as product_at
       from shop_onboarding_steps st
       join shop_registration_drafts dr on dr.id = st.draft_id
