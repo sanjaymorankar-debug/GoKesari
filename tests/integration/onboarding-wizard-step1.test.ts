@@ -177,13 +177,15 @@ describe("GSTIN problems", () => {
     expect(view.canContinue).toBe(false);
   });
 
-  it("the record links the GSTIN to another PAN → review; no PAN check, nothing filled in, the owner may go on", async () => {
+  it("the record links the GSTIN to another PAN → not verified; no PAN check, nothing filled in, the owner may not go on", async () => {
     companySource({ gst: { linkedPan: "ZZZCZ9999Z" } });
     const view = await submitGstin(gstinFor(COMPANY_PAN));
     expect(calls.map((c) => c.docType)).toEqual(["GSTIN"]);
     expect(view.gstin).toMatchObject({ status: "MANUAL_REVIEW", errorCode: "gstin_pan_mismatch" });
     expect(view.prefill.shopName).toBeNull();
-    expect(view.canContinue).toBe(true);
+    // Owner brief 08-Nov-2026: only a verified GSTIN or PAN lets the owner on.
+    expect(view.canContinue).toBe(false);
+    expect(view.gstin!.message).toMatch(/enter your PAN instead/);
   });
 
   it("a malformed GSTIN or missing consent costs no paid call", async () => {
@@ -236,15 +238,15 @@ describe("PAN problems after a verified GSTIN", () => {
 });
 
 describe("vendor outages and repeat submissions", () => {
-  it("GST source down → PENDING, the owner may go on; an immediate repeat joins it; a later one calls again", async () => {
+  it("GST source down → PENDING, the owner waits and tries again; an immediate repeat joins it; a later one calls again", async () => {
     scripted(() => {
       throw new KycUnavailableError("timeout", "down");
     });
     const gstin = gstinFor(COMPANY_PAN);
     const first = await submitGstin(gstin);
     expect(first.gstin).toMatchObject({ status: "PENDING", errorCode: "vendor_timeout" });
-    expect(first.gstin!.message).toMatch(/carry on/);
-    expect(first.canContinue).toBe(true);
+    expect(first.gstin!.message).toMatch(/try again in a few minutes/);
+    expect(first.canContinue).toBe(false);
 
     await submitGstin(gstin); // within 30 s: rides on the first
     expect(calls).toHaveLength(1);

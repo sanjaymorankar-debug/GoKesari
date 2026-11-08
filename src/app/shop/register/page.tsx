@@ -33,7 +33,7 @@ export default async function RegisterShopPage({
     if (await isFeatureEnabled("shop_onboarding_wizard_enabled")) {
       return (
         <div className="mx-auto max-w-2xl">
-          <PageHeader title="Register your shop" description="Sign in, enter your referral code, verify your documents (or add them later), pay the fee and your shop goes live." />
+          <PageHeader title="Register your shop" description="Sign in with your email, verify your GST or PAN — it fills in your details — confirm your address and map pin, pay the fee and your shop goes live." />
           <ShopSignInCard />
         </div>
       );
