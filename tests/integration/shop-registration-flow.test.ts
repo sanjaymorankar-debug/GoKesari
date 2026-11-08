@@ -392,7 +392,6 @@ describe("Flow 2: an existing customer clicks Sell", () => {
 
 describe("HTTP routes", () => {
   it("referral → email (changed) answer with the next step; 'upload later' is refused", async () => {
-    await setFeatureFlag("shop_onboarding_wizard_enabled", { enabled: true, districtCodes: null }, "wizard flag (test)", admin);
     state.session = { user: { id: owner.id, email: owner.email, name: owner.name, image: null, role: "CUSTOMER", status: "ACTIVE" } };
     const referral = await call(referralRoute, "/api/shops/registration-draft/referral", { method: "POST", body: { referralCode: "" } });
     expect(referral.status).toBe(200);

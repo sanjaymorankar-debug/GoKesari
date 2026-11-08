@@ -62,9 +62,9 @@ export function ShopSignInCard() {
         <ol className="mb-4 flex items-center gap-2 text-xs font-semibold text-ink-500" aria-label="Before you start">
           <li className="rounded-full bg-kesari-600 px-2.5 py-1 text-white">Sign in</li>
           <li aria-hidden>→</li>
-          <li>Referral code</li>
+          <li>Referral + GST / PAN</li>
           <li aria-hidden>→</li>
-          <li>Documents</li>
+          <li>Address</li>
           <li aria-hidden>→</li>
           <li>Pay &amp; go live</li>
         </ol>

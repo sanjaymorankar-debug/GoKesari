@@ -19,7 +19,6 @@ import { db } from "@/server/db";
 import { auditLogs, dealers, notifications, paymentIntents, sellerVerifications, shopAttributions, shopAutoApprovalLog, shops } from "@/server/db/schema";
 import { KycUnavailableError, setKycAdapterForTests, type KycAdapter, type ProviderOutcome, type SourceRecord, type VerifyRequest } from "@/server/kyc";
 import { applyGatewayState } from "@/server/payments/processing";
-import { setFeatureFlag } from "@/server/services/feature-flags";
 import { listGovDecisions } from "@/server/services/gov-auto-approval";
 import { approveShop } from "@/server/services/shops";
 import { adminDecideVerification, declareNoGstin, recheckVerification, stateCodeForPincode, submitSellerDocument } from "@/server/services/seller-verification";
@@ -34,7 +33,6 @@ beforeEach(async () => {
   await resetDatabase();
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, role: "ADMIN" };
-  await setFeatureFlag("gov_verification_auto_approval_enabled", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", admin);
 });
 afterEach(() => setKycAdapterForTests(null));
 
@@ -221,24 +219,14 @@ describe("provider down, then back (scenario 27)", () => {
   });
 });
 
-describe("flag off, or another district (scenario 30)", () => {
-  it("off: today's behaviour — the shop waits for an admin, nothing is logged", async () => {
-    await setFeatureFlag("gov_verification_auto_approval_enabled", { enabled: false, districtCodes: null }, "off (test)", admin);
-    goodSource();
-    const { shop, actor } = await pendingShop();
-    await verify(shop.id, actor, "PAN", "AAPFU0939F");
-    await payOnline(shop.id);
-    expect(await statusOf(shop.id)).toBe("PENDING_APPROVAL");
-    expect(await db.select().from(shopAutoApprovalLog)).toHaveLength(0);
-  });
-
-  it("on for Pune only: a Mumbai shop waits for an admin", async () => {
+describe("always on, every district (owner brief 08-Nov-2026: one registration flow)", () => {
+  it("no flag row at all: a Mumbai shop verified and paid online is approved", async () => {
     goodSource();
     const { shop, actor } = await pendingShop({ pincode: "400001" });
     await verify(shop.id, actor, "PAN", "AAPFU0939F");
+    await otherDocuments(shop.id, actor, { noGst: true });
     await payOnline(shop.id);
-    expect(await statusOf(shop.id)).toBe("PENDING_APPROVAL");
-    expect(await db.select().from(shopAutoApprovalLog)).toHaveLength(0);
+    expect(await statusOf(shop.id)).toBe("APPROVED");
   });
 });
 

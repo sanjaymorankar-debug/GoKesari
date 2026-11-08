@@ -14,7 +14,6 @@ import { PERMISSIONS } from "@/server/authz/permissions";
 import {
   confirmDraftEmailCode,
   requestDraftEmailCode,
-  requireWizardAvailable,
   chooseAccountEmailForShop,
 } from "@/server/services/shop-registration-wizard";
 
@@ -29,7 +28,6 @@ const schema = z.union([
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
   // Only while the wizard flag is on (an admin may use it while it is off): the screen is not the only gate.
-  await requireWizardAvailable(user);
   enforceRateLimit(`registration-draft:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
