@@ -8,12 +8,16 @@
  */
 import { eq } from "drizzle-orm";
 
+import { addDays, formatDisplayDate, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
+import { licenceGraceMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
 import { db } from "@/server/db";
 import { dealers, shopAttributions, type Shop } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { notify } from "./notifications";
+import { getRule } from "./settings";
 import { isDocumentsLaterShop } from "./shop-onboarding";
+import { loadShopTypeRegistry } from "./shop-types";
 
 function siteUrl(path: string): string {
   const base = (getEnv().AUTH_URL ?? "https://gokesari.com").replace(/\/$/, "");
@@ -40,6 +44,25 @@ export async function sendReadyForProductUpload(shop: Shop): Promise<void> {
       actionUrl: "/shop/manage/products",
       dedupeKey: `shop-ready:${shop.id}`,
     });
+    await loadShopTypeRegistry();
+    const licence = mandatoryLicenceFor(shop.shopType);
+    if (licence) {
+      const { graceDays } = await getRule("shopDocumentFollowUp");
+      const zone = getEnv().APP_TIMEZONE;
+      await notify({
+        userId: shop.ownerId,
+        type: NOTIFICATION_TYPES.SHOP_LICENCE_GRACE_NOTICE,
+        vars: {
+          shopName: shop.name,
+          graceDays,
+          message: licenceGraceMessage(licence.label.en, graceDays).en,
+          dueDate: formatDisplayDate(addDays(todayIn(zone), graceDays)),
+        },
+        actionUrl: licence.docType === "FSSAI" ? `/shop/verification?shop=${shop.id}` : "/shop/legal-documents",
+        dedupeKey: `shop-licence-grace:${shop.id}`,
+        mandatory: true,
+      });
+    }
     const [attributed] = await db
       .select({ userId: dealers.userId, isInternal: dealers.isInternal })
       .from(shopAttributions)

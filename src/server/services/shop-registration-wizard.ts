@@ -186,7 +186,6 @@ export const WIZARD_STEPS = [
   "ADDRESS",
   "PIN",
   "SHOP",
-  "FSSAI",
   "REVIEW",
   "PAYMENT",
   "WAITING",
@@ -244,6 +243,8 @@ export interface WizardView extends ShopRegistrationDraftView {
   /** After approval: what the owner has set up on the shop (map pin, categories, products). */
   setup: { location: boolean; categories: boolean; products: boolean } | null;
   /** Where the wizard resumes. */
+  /** Days a licence may follow after going live (rule shopDocumentFollowUp). */
+  licenceGraceDays: number;
   nextStep: WizardStep;
 }
 
@@ -387,15 +388,13 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   else if (!addressConfirmed) nextStep = "ADDRESS";
   else if (!location) nextStep = "PIN";
   else if (!details) nextStep = "SHOP";
-  // A food shop type chosen on the shop step: FSSAI is mandatory for it.
-  else if (!fssai.done) nextStep = "FSSAI";
   else nextStep = "REVIEW";
 
   // The onboarding funnel (Phase B, B3): when this registration first reached its current step.
   await recordStepReached(draft.id, nextStep);
   // Phase 2 (WP4): a registration before go-live is reminded 24 h after its last step; else cancelled.
   await syncRegistrationReminder(draft, nextStep);
-  const documents = await draftDocuments(draft, checks, details, foodShop);
+  const documents = await draftDocuments(draft, checks, details);
   const feeRule = await getRule("registrationFeeByTurnover");
   const membershipMonths = (await getRule("shopMembership")).periodMonths;
   return {
@@ -416,6 +415,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     shop,
     feeRule,
     membershipMonths,
+    licenceGraceDays: (await getRule("shopDocumentFollowUp")).graceDays,
     setup,
     nextStep,
   };
@@ -461,7 +461,6 @@ async function draftDocuments(
   draft: ShopRegistrationDraft,
   checks: ShopRegistrationDraftCheck[],
   details: DraftShopDetails | null,
-  foodShop: boolean,
 ): Promise<WizardDocuments> {
   // Exactly what the shop will receive (registrationChecks): a PAN whose name does not match on
   // the no-GSTIN route goes to review, and a number answered "I don't have it now" is dropped.
@@ -474,7 +473,7 @@ async function draftDocuments(
   // 0120: "upload later" — only FSSAI for a food shop before go-live; the GSTIN / PAN after it.
   // "Upload later" is gone (owner brief 08-Nov-2026): a draft that chose it verifies its GSTIN / PAN like any other.
   const later = false;
-  const required: SellerDocType[] = [...(later ? [] : [identity]), ...(foodShop ? (["FSSAI"] as const) : [])];
+  const required: SellerDocType[] = later ? [] : [identity];
   const missing = required.filter((d) => !verified.includes(d));
   const { promiseDays } = await getRule("shopDocumentFollowUp");
   return {

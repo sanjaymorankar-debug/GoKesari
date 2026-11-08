@@ -10,6 +10,7 @@ import { ShopCategoryPicker, type PickerCategory } from "@/components/shop-categ
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
 import { useShopTypes } from "@/components/use-shop-types";
 import { tr, type Lang } from "@/lib/board/i18n";
+import { licenceGraceMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
 import { GST_DECLARATION_TEXT, SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
 import { SELLER_DOC_LABELS, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { formatRupeesIndian, turnoverSlab, turnoverSlabLabel, type TurnoverFeeRule } from "@/lib/registration-fee";
@@ -23,7 +24,7 @@ import { StarterShelf } from "./starter-shelf";
  *   1 Sign in  (the page's sign-in card; a signed-in customer starts at 2)
  *   2 Verify   only the referral code and the GSTIN — or "I don't have GST, use PAN". Nothing else
  *              is asked until they are verified; the owner name only when the record gave none
- *   3 Address  address, map pin, then contact number, shop name, type and turnover (FSSAI for food)
+ *   3 Address  address, map pin, then contact number, shop name, type and turnover
  *   4 Pay      the registration fee
  *   5 Live     the completion message and Add products
  *   7 Products categories, then products
@@ -42,7 +43,6 @@ type Step =
   | "ADDRESS"
   | "PIN"
   | "SHOP"
-  | "FSSAI"
   | "REVIEW"
   | "PAYMENT"
   | "WAITING"
@@ -133,6 +133,7 @@ export interface WizardState {
   /** The fee covers this many months and then renews (rule shopMembership). */
   membershipMonths: number;
   setup: { location: boolean; categories: boolean; products: boolean } | null;
+  licenceGraceDays: number;
   nextStep: Step;
 }
 
@@ -159,7 +160,6 @@ function tileOf(step: Step): number {
     case "ADDRESS":
     case "PIN":
     case "SHOP":
-    case "FSSAI":
       return 3;
     case "REVIEW":
     case "PAYMENT":
@@ -432,21 +432,7 @@ export function OnboardingWizard({
       {step === "ADDRESS" && state ? <AddressStep state={state} busy={busy} fields={fields} send={send} back={back(state.prefill.ownerName ? "IDENTITY" : "OWNER")} /> : null}
       {step === "PIN" && state ? <PinStep state={state} busy={busy} fields={fields} send={send} back={back("ADDRESS")} /> : null}
       {step === "SHOP" && state ? (
-        <ShopStep state={state} busy={busy} fields={fields} send={send} changeEmail={() => setViewing("EMAIL")} back={back("PIN")} />
-      ) : null}
-      {step === "FSSAI" && state ? (
-        <OptionalDocStep
-          docType="FSSAI"
-          title="FSSAI licence"
-          question="Do you have an FSSAI licence or registration? It is required for shops that sell food (dairy, bakery, sweets, grocery, restaurants)."
-          placeholder="14-digit FSSAI number"
-          required={state.fssai.required}
-          doc={state.fssai}
-          busy={busy}
-          fields={fields}
-          send={send}
-          back={back("SHOP")}
-        />
+        <ShopStep state={state} busy={busy} fields={fields} send={send} changeEmail={() => setViewing("EMAIL")} back={back("PIN")} lang={lang} />
       ) : null}
       {step === "REVIEW" && state ? <ReviewStep state={state} busy={busy} send={send} goTo={setViewing} /> : null}
       {step === "PAYMENT" && state?.shop ? (
@@ -934,6 +920,7 @@ function ShopStep({
   send,
   changeEmail,
   back,
+  lang,
 }: {
   state: WizardState;
   busy: boolean;
@@ -942,6 +929,7 @@ function ShopStep({
   /** Opens the email screen to use another address (confirmed with an emailed code). */
   changeEmail: () => void;
   back: ReactNode;
+  lang: Lang;
 }) {
   const shopTypes = useShopTypes();
   const d = state.details;
@@ -958,6 +946,8 @@ function ShopStep({
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
   const turnoverFor = (n: number) => rule.slabs[n - 1]?.upToRupees ?? (n > 1 ? (rule.slabs[n - 2]?.upToRupees ?? 0) + 1 : 0);
   const blank = (v: string) => (v.trim() ? v.trim() : null);
+
+  const licence = form.shopType ? mandatoryLicenceFor(form.shopType) : null;
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -986,7 +976,7 @@ function ShopStep({
           <Field label="10-digit contact number" error={fields.phone}>
             <input className={inputClass} value={form.phone} onChange={set("phone")} required inputMode="numeric" autoComplete="tel-national" maxLength={10} pattern="[6-9][0-9]{9}" data-testid="shop-phone" />
           </Field>
-          <Field label="Shop type" error={fields.shopType} hint="Food shops need an FSSAI licence — we'll ask for it next.">
+          <Field label="Shop type" error={fields.shopType}>
             <select className={inputClass} value={form.shopType} onChange={set("shopType")} required data-testid="shop-type">
               <option value="">Choose…</option>
               {shopTypes.map((t) => (
@@ -997,6 +987,11 @@ function ShopStep({
             </select>
           </Field>
         </div>
+        {licence ? (
+          <div data-testid="licence-grace-notice">
+            <Alert tone="warning">{tr(licenceGraceMessage(tr(licence.label, lang), state.licenceGraceDays), lang)}</Alert>
+          </div>
+        ) : null}
         {state.email.shop ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--gk-line)] bg-white px-3 py-1.5 text-sm" data-testid="shop-email-line">
             <p className="min-w-0 text-ink-600">
@@ -1096,89 +1091,6 @@ function LiveStep({ state, addProducts, lang }: { state: WizardState; addProduct
         </Link>{" "}
         whenever you are ready.
       </p>
-    </StepCard>
-  );
-}
-
-/* --------------------------------------------------------- Udyam / FSSAI */
-
-function OptionalDocStep({
-  docType,
-  title,
-  question,
-  placeholder,
-  required = false,
-  doc,
-  busy,
-  fields,
-  send,
-  back,
-  scanned,
-}: {
-  docType: "UDYAM" | "FSSAI";
-  title: string;
-  question: string;
-  placeholder: string;
-  required?: boolean;
-  doc: DocView;
-  busy: boolean;
-  fields: Record<string, string>;
-  send: Send;
-  back: ReactNode;
-  /** The number read from the owner's photo, to check or correct. */
-  scanned?: string;
-}) {
-  const [has, setHas] = useState<boolean | null>(doc.has ?? (required || scanned ? true : null));
-  const [number, setNumber] = useState(scanned ?? "");
-  const [consent, setConsent] = useState(false);
-  const canGoOn = doc.done && doc.check && (doc.check.status === "VERIFIED" || doc.check.status === "PENDING" || doc.check.status === "MANUAL_REVIEW");
-
-  return (
-    <StepCard
-      title={title}
-      intro={required ? "Your shop type sells food, so an FSSAI licence or registration is required. Your shop goes live once it is verified." : question}
-    >
-      <div className={`grid gap-2 ${required ? "grid-cols-1" : "grid-cols-2"}`} role="radiogroup" aria-label={question}>
-        <Button type="button" variant={has === true ? "primary" : "secondary"} onClick={() => setHas(true)} aria-pressed={has === true}>
-          Yes
-        </Button>
-        {required ? null : (
-          <Button
-            type="button"
-            variant={has === false ? "primary" : "secondary"}
-            disabled={busy}
-            aria-pressed={has === false}
-            onClick={() => {
-              setHas(false);
-              void send("/api/shops/registration-draft/documents", { docType, has: false });
-            }}
-          >
-            No
-          </Button>
-        )}
-      </div>
-      <StatusLine check={doc.check} />
-      {has ? (
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send("/api/shops/registration-draft/documents", { docType, number, consent });
-          }}
-        >
-          <Field label={`${docType === "UDYAM" ? "Udyam" : "FSSAI"} number`} error={fields.number}>
-            <input className={`${inputClass} font-mono uppercase`} value={number} onChange={(e) => setNumber(e.target.value)} placeholder={placeholder} autoComplete="off" required />
-          </Field>
-          <Consent checked={consent} onChange={setConsent} />
-          <Button type="submit" size="lg" className="w-full" disabled={busy || !consent || !number.trim()}>
-            {busy ? "Checking…" : "Check and continue"}
-          </Button>
-        </form>
-      ) : null}
-      <div className="flex items-center justify-between gap-2">
-        {back}
-        {canGoOn ? <span className="text-sm text-ink-500">Checked — you can continue from the next step.</span> : null}
-      </div>
     </StepCard>
   );
 }
@@ -1360,7 +1272,6 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
         {row("Shop address", `${d.addressLine1}, ${d.city} ${d.pincode}`, "ADDRESS")}
         {row("Map pin", state.location ? "Placed" : "—", "PIN")}
         {row("Shop", `${d.name} · ${state.email.shop ?? ""}`, "SHOP")}
-        {state.foodShop ? row("FSSAI", state.fssai.check ? <StatusLine check={{ ...state.fssai.check, message: null }} /> : "—", "FSSAI") : null}
         {slab ? row("Turnover", `${turnoverSlabLabel(slab, rule)} — fee ${formatRupeesIndian(Math.round(rule.slabs[slab - 1].feePaise / 100))} + GST`, "SHOP") : null}
       </div>
       {!docs.canSubmit ? (

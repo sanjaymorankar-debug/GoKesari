@@ -1531,6 +1531,16 @@ export async function getPublicShopBySlug(
   });
 }
 
+/** A suspended shop's name for its public page, which says so instead of "not found". */
+export async function getSuspendedShopNameBySlug(slug: string): Promise<string | null> {
+  const [row] = await db
+    .select({ name: shops.name })
+    .from(shops)
+    .where(and(eq(shops.slug, slug), eq(shops.status, "SUSPENDED"), isNull(shops.deletedAt)))
+    .limit(1);
+  return row?.name ?? null;
+}
+
 async function listShopsForOwnerUncached(ownerId: string): Promise<Shop[]> {
   return db
     .select()
