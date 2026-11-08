@@ -664,23 +664,26 @@ function VerifyStep({
           error={fields.referralCode}
           hint={applied ? `✓ ${tr({ en: "Applied", hi: "लागू हुआ", mr: "लागू झाला" }, lang)}` : undefined}
         >
-          <div className="flex gap-2">
-            <input
-              className={`${inputClass} font-mono uppercase tracking-widest`}
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              autoCapitalize="characters"
-              autoComplete="off"
-              placeholder="AB12CD34"
-              maxLength={32}
-              required={referralRequired}
-              data-testid="wizard-referral-code"
-            />
-            <button type="button" className="min-h-11 shrink-0 text-sm font-medium text-kesari-700 underline" onClick={() => setRequesting(true)} data-testid="request-referral-code">
-              {tr({ en: "Request a code", hi: "कोड का अनुरोध करें", mr: "कोडची विनंती करा" }, lang)}
-            </button>
-          </div>
+          <input
+            className={`${inputClass} font-mono uppercase tracking-widest`}
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            autoCapitalize="characters"
+            autoComplete="off"
+            placeholder="AB12CD34"
+            maxLength={32}
+            required={referralRequired}
+            data-testid="wizard-referral-code"
+          />
         </Field>
+        {!code.trim() || fields.referralCode ? (
+          <p className="flex flex-wrap items-center gap-x-2 text-sm text-ink-700" data-testid="no-referral-code">
+            {tr({ en: "Don't have a referral code?", hi: "रेफ़रल कोड नहीं है?", mr: "रेफरल कोड नाही?" }, lang)}
+            <button type="button" className="min-h-11 font-semibold text-kesari-700 underline" onClick={() => setRequesting(true)} data-testid="request-referral-code">
+              {tr({ en: "Request a referral code", hi: "रेफ़रल कोड का अनुरोध करें", mr: "रेफरल कोडची विनंती करा" }, lang)}
+            </button>
+          </p>
+        ) : null}
         {dealerProgramme ? (
           <details className="text-sm text-ink-700" open={Boolean(employeeId)}>
             <summary className="cursor-pointer">{tr({ en: "Employee ID or name (optional)", hi: "कर्मचारी आईडी या नाम (वैकल्पिक)", mr: "कर्मचारी आयडी किंवा नाव (पर्यायी)" }, lang)}</summary>

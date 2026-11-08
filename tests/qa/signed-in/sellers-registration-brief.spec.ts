@@ -50,6 +50,8 @@ qa("RB-02", "after sign-in only the referral code and GST / PAN are asked; shop 
     if (await tile.isVisible().catch(() => false)) await tile.click();
     await expect(page.getByTestId("wizard-referral-code")).toBeVisible();
     await expect(page.getByTestId("gstin-input")).toBeVisible();
+    await page.getByTestId("wizard-referral-code").fill("");
+    await expect(page.getByTestId("request-referral-code")).toBeVisible();
     await expect(page.getByTestId("shop-name")).toHaveCount(0);
     await expect(page.getByTestId("address-line1")).toHaveCount(0);
     return "first screen: referral code + GST number only";
