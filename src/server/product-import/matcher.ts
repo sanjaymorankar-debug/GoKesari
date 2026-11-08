@@ -4,7 +4,7 @@
  *   1. the shop's own SKU (shop_listing_details.seller_sku), or the GoKesari
  *      product code (P00012) of one of the shop's listings;
  *   2. the barcode, against the master catalogue (GTIN, then plain barcode);
- *   3. Name + Brand (+ Size / Color) — an exact normalised match in the master
+ *   3. Name + Brand (+ Size or Pack Size / Color) — an exact normalised match in the master
  *      catalogue (Pending products included, Rejected ones not);
  *   4. nothing — a new product.
  *
@@ -109,7 +109,7 @@ export class CatalogueMatcher {
         gtins.add(r.gtin14);
       }
       if (r.barcode) barcodes.add(r.barcode.trim());
-      if (r.name) names.add(r.name.trim().toLowerCase());
+      if (r.name) names.add(r.name.normalize("NFC").trim().toLowerCase());
     }
     const conditions = [];
     if (gtins.size) conditions.push(inArray(products.gtin, [...gtins]));
@@ -186,9 +186,9 @@ export class CatalogueMatcher {
   }
 
   private byNameAndBrand(f: ImportFields): ProductRef | null {
-    if (!f.name) return null;
+    if (!matchKey(f.name)) return null;
     const candidates = this.byName.get(nameKey(f.name, f.brand)) ?? [];
-    const wanted = [f.size, f.color].filter((v): v is string => Boolean(v)).map(matchKey);
+    const wanted = [f.size ?? f.packSize, f.color].filter((v): v is string => Boolean(v)).map(matchKey);
     const fits = candidates.filter((p) => {
       if (wanted.length === 0) return true;
       const variant = matchKey(p.variant);

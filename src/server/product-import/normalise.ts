@@ -266,7 +266,10 @@ export const gstRateBp = (raw: unknown): Parsed<number> => {
   return v == null ? bad(t) : ok(v);
 };
 
-/** Free text compared for matching: lower case, letters and digits only. */
+/**
+ * Free text compared for matching: lower case, letters (any script, with their
+ * vowel signs — Hindi / Marathi names keep their own key) and digits only.
+ */
 export function matchKey(raw: string | null | undefined): string {
-  return (raw ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return (raw ?? "").normalize("NFC").toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, " ").trim();
 }

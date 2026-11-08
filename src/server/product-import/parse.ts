@@ -100,7 +100,7 @@ export async function parseImportFile(
     ? "AMAZON_TEMPLATE"
     : grid.kind === "csv"
       ? "CSV"
-      : labels.has("product name") && labels.has("selling price") && labels.has("quantity")
+      : labels.has("product name") && labels.has("selling price") && (labels.has("stock qty") || labels.has("quantity"))
         ? "GOKESARI_TEMPLATE"
         : "SPREADSHEET";
   if (format === "AMAZON_TEMPLATE") messages.push(`Amazon Seller Central template: ${layout.columns.length} columns.`);
@@ -110,7 +110,11 @@ export async function parseImportFile(
   let pendingEmpty = 0;
   let emptyRows = 0;
   let truncated = grid.truncated;
+  let previous: number | null = null;
   for (const row of grid.rows.slice(layout.dataStart)) {
+    // A spreadsheet stores no row at all for a blank one: the gap in row numbers counts as blank rows.
+    if (previous != null && row.rowNumber > previous + 1) pendingEmpty += row.rowNumber - previous - 1;
+    previous = row.rowNumber;
     if (filled(row.cells).length === 0) {
       pendingEmpty += 1;
       continue;

@@ -1,5 +1,9 @@
 # Bulk product upload (Excel / CSV) — with shop inventory update
 
+> **08 Nov 2026:** mandatory columns, row errors, master-data dropdowns and a
+> new template layout — see [§10](#10-08-nov-2026-mandatory-columns-row-errors-and-the-new-template).
+> Where §1–§9 say "every field is optional" or "never an error", §10 replaces it.
+
 Status, 15 Oct 2026: **live on gokesari.com** since 15:58 UTC (release
 PR #179; migrations 0076–0078 applied by the build). Signed-out production checks
 pass, and on 18 Oct 2026 the **signed-in production smoke with a test shop passed
@@ -326,3 +330,75 @@ evidence in [prod-smoke-2026-10-18/](prod-smoke-2026-10-18/).
   parse/preview ~2 s). On the hosted database each query costs more; the work
   runs after the response so the screen never times out, but expect several
   minutes for a full 5,000-row file of new products.
+
+## 10. 08 Nov 2026: mandatory columns, row errors and the new template
+
+Owner brief of 08 Nov 2026 (11.11 IST); decisions PU-01 to PU-05 in
+[docs/decision-log.md](../decision-log.md). Branch
+`feat/product-upload-template-2026-11`.
+
+**Rules (replace "all columns optional")**
+
+| Check | Result |
+|---|---|
+| Product Name, Category, MRP (not for a loose item), Stock Qty missing | row rejected: `Row 14: MRP missing` |
+| Selling Price or Sale Price above MRP; Selling Price 0 | rejected: `Row 22: Selling Price ₹550.00 > MRP ₹500.00` |
+| MRP / price / GST % / Stock Qty not a number, or negative | rejected: `Row 9: MRP "abc" is not a valid amount (a number, 0 or more)` |
+| GST % not a slab (0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28, 40) | rejected |
+| Category cell naming no GoKesari category | rejected: `Row 30: Invalid category "Toys" — choose one from the Category list` |
+| Sub-category not under the row's category | warning; left empty |
+| Action = Delete | only the SKU is needed |
+| Amazon file with no Category column, browse nodes match nothing | unchanged: "General" + warning |
+
+A rejected row has status `failed` before the import, its messages start with
+`Error: ` (`ROW_ERROR_PREFIX`), and it is never written. The other rows import
+as before (batches of 200, each row in a savepoint). The preview shows an
+**Errors** count, an "Only rows with errors" filter, the error rows in red, and
+**Download rows with errors (Excel)** — `report?rows=problems`, which before the
+import holds only the rejected and skipped rows. Every report now has an
+**Error** column (the reasons) before `status` and `messages`; it uploads again
+as it is once fixed.
+
+**Template** (`GET /api/v1/product-imports/template`)
+
+- Columns: the four mandatory ones first, with dark-orange headings and a
+  "Mandatory" note — Product Name, Category, Sub-category, Brand, MRP, Selling
+  Price, Stock Qty, Unit, Pack Size, Loose Item (Y/N), SKU, Barcode Type,
+  Barcode, HSN Code, GST %, Description, Main Image URL, … , Action, and a
+  hidden, locked **GoKesari Product ID** (the sheet is protected without a
+  password; every other cell stays editable, rows and columns can be added).
+- Dropdowns: Category and Sub-category from the live category master (a
+  hidden `Lists` sheet, so the 255-character limit of an inline list does not
+  apply), GST %, Loose Item (N, Y), Unit, Barcode Type, Action.
+- Three sample rows (packaged milk, loose साखर, biscuits), each marked
+  "EXAMPLE – delete this row" in its SKU cell — never imported.
+- The Instructions sheet has one line per column: mandatory or not, what to
+  enter, an example.
+- Older templates (Quantity, Goods Type) still upload: the parser reads Stock
+  Qty / Quantity and Loose Item (Y/N) / Goods Type alike.
+
+**"Download my current products"** (was "Download my catalogue") fills the same
+layout, now with Sub-category, Loose Item and the GoKesari Product ID, and the
+same dropdowns.
+
+**Fixes found while checking**
+
+- *Hindi / Marathi names matched the wrong product.* The match key kept only
+  `a-z0-9`, so every Devanagari name became an empty key: two different
+  products of the same brand looked identical and a row could update the
+  wrong one. The key now keeps letters of every script with their vowel signs
+  (`matchKey`), and the brand lookup compares Devanagari brand names as written.
+- *Name + Pack Size* is now part of the name match (when there is no Size), and
+  a new product's variant takes the Pack Size, so a re-upload finds it.
+- *Blank rows in an .xlsx* were not counted as skipped (a spreadsheet stores no
+  row for them); the gap in row numbers now counts.
+- A product created with a valid Sub-category now has it (`products.subcategory_id`).
+
+**Files**: `src/server/product-import/{fields,matcher,normalise,parse,preview-checks,workbooks}.ts`,
+`src/server/services/product-import.ts`, `src/lib/product-import.ts`,
+`src/components/product-import-panel.tsx`; tests
+`tests/unit/product-upload-template-2026-11.test.ts` (new),
+`tests/unit/product-import-parser.test.ts`, `tests/unit/product-upload-roundtrip.test.ts`,
+`tests/integration/product-import.test.ts`, `tests/qa/signed-in/sellers-product-upload.spec.ts`,
+`tests/qa/catalog/cases.json`. No migration: the error count lives in the
+job's `counts` JSON and rejected rows use the existing `failed` status.

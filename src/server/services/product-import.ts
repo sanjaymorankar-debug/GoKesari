@@ -19,7 +19,10 @@
  *                        notified, and product images are downloaded.
  *
  * Rules (all from the brief):
- *  - every field is optional; problems are warnings on the row;
+ *  - every row needs Product Name, Category, MRP (not loose goods) and Stock
+ *    Qty, and a readable, sensible MRP / price / GST %; a row that fails is
+ *    rejected with its errors and the rest still import (owner, 08 Nov 2026).
+ *    Other problems are warnings on the row;
  *  - a blank cell never wipes saved data;
  *  - prices and MRP from the file go on the shop's listing only — never on
  *    the master catalogue; a price above the MRP is not applied;
@@ -40,6 +43,7 @@ import { roundStock } from "@/lib/stock-quantity";
 import {
   EMPTY_COUNTS,
   plannedStock,
+  ROW_ERROR_PREFIX,
   type ImportCounts,
   type ImportRowAction,
   type ImportRowPlan,
@@ -56,6 +60,7 @@ import {
   productImportJobs,
   productImportRows,
   products,
+  productSubcategories,
   shopListingDetails,
   shopProducts,
   shops,
@@ -71,7 +76,7 @@ import { fetchImage, ImageFetchError, type ImageFetcher } from "@/server/product
 import { CatalogueMatcher, type ListingRef, type ProductRef } from "@/server/product-import/matcher";
 import { gtinDigits, matchKey } from "@/server/product-import/normalise";
 import { parseImportFile, type ParsedRow } from "@/server/product-import/parse";
-import { LOOSE_UNITS, previewChecks, unitFor } from "@/server/product-import/preview-checks";
+import { LOOSE_UNITS, previewChecks, rowErrors, unitFor } from "@/server/product-import/preview-checks";
 import {
   buildCatalogueWorkbook,
   buildSimpleTemplate,
@@ -81,6 +86,7 @@ import {
   reportXlsx,
   TEMPLATE_CSV_FILE_NAME,
   TEMPLATE_FILE_NAME,
+  type TemplateLists,
   type TemplateRow,
 } from "@/server/product-import/workbooks";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
@@ -262,17 +268,34 @@ function mergeDuplicateSkus(rows: ParsedRow[]): { row: ParsedRow; mergedInto: nu
 interface PlanContext {
   matcher: CatalogueMatcher;
   categories: Map<string, { id: string; name: string }>;
+  /** category id → its sub-categories by match key. */
+  subcategories: Map<string, Map<string, { id: string; name: string }>>;
   general: { id: string; name: string };
   productNames: Map<string, string>;
 }
 
+const categoryByName = (categories: PlanContext["categories"], hint: string) =>
+  categories.get(matchKey(hint)) ?? categories.get(matchKey(hint.replace(/s$/i, "")));
+
+/** Whether the row's own Category cell names a GoKesari category (undefined when it has none). */
+function categoryCellKnown(f: ImportFields, categories: PlanContext["categories"]): boolean | undefined {
+  if (!f.category) return undefined;
+  return f.category.split(">").map((s) => s.trim()).filter(Boolean).some((h) => categoryByName(categories, h) != null);
+}
+
+/** The row's Sub-category under the category the product goes in; null when none is given or it does not belong there. */
+function resolveSubcategory(f: ImportFields, categoryId: string, subcategories: PlanContext["subcategories"]): { id: string; name: string } | null {
+  if (!f.subcategory) return null;
+  return subcategories.get(categoryId)?.get(matchKey(f.subcategory)) ?? null;
+}
+
 function resolveCategory(f: ImportFields, ctx: Pick<PlanContext, "categories" | "general">): { id: string; name: string; matched: boolean } {
   for (const hint of f.categoryHints ?? []) {
-    const found = ctx.categories.get(matchKey(hint)) ?? ctx.categories.get(matchKey(hint.replace(/s$/i, "")));
+    const found = categoryByName(ctx.categories, hint);
     if (found) return { ...found, matched: true };
   }
   if (f.productType) {
-    const found = ctx.categories.get(matchKey(f.productType)) ?? ctx.categories.get(matchKey(f.productType.replace(/s$/i, "")));
+    const found = categoryByName(ctx.categories, f.productType);
     if (found) return { ...found, matched: true };
   }
   return { ...ctx.general, matched: false };
@@ -289,7 +312,17 @@ async function loadCategories(client: DbClient) {
     categories.set(matchKey(r.name), r);
     categories.set(matchKey(r.name.replace(/s$/i, "")), r);
   }
-  return { categories, general: { id: general.id, name: general.name } };
+  const subRows = await client
+    .select({ id: productSubcategories.id, name: productSubcategories.name, categoryId: productSubcategories.categoryId })
+    .from(productSubcategories)
+    .where(and(isNull(productSubcategories.deletedAt), eq(productSubcategories.isActive, true)));
+  const subcategories = new Map<string, Map<string, { id: string; name: string }>>();
+  for (const r of subRows) {
+    const bag = subcategories.get(r.categoryId) ?? new Map<string, { id: string; name: string }>();
+    bag.set(matchKey(r.name), { id: r.id, name: r.name });
+    subcategories.set(r.categoryId, bag);
+  }
+  return { categories, subcategories, general: { id: general.id, name: general.name } };
 }
 
 function quantities(staged: { fields: ImportFields; merged: ImportFields[] }): { last: number | null; sum: number | null } {
@@ -354,6 +387,9 @@ function planRow(f: ImportFields, mergedFields: ImportFields[], ctx: PlanContext
       messages.push(`${hint ? `No GoKesari category matches "${hint}"` : "No category given"}; the product goes in "${ctx.general.name}" (uncategorised).`);
     }
     if (!f.name) messages.push("No product name: a placeholder name will be used — edit it later.");
+    if (f.subcategory && !resolveSubcategory(f, categoryForNew.id, ctx.subcategories)) {
+      messages.push(`Sub-category "${f.subcategory}" is not under "${categoryForNew.name}"; it is left empty.`);
+    }
   } else if (listing?.deleted) {
     messages.push("This product was removed from your shop earlier; it will be listed again.");
   }
@@ -376,7 +412,7 @@ export async function runParse(jobId: string): Promise<void> {
     const parsed = await parseImportFile(claimed.fileData, claimed.fileName, { maxRows: limits.maxRows });
     const grouped = mergeDuplicateSkus(parsed.rows);
 
-    const { categories, general } = await loadCategories(db);
+    const { categories, subcategories, general } = await loadCategories(db);
     const matcher = await CatalogueMatcher.load(claimed.shopId, parsed.rows.map((r) => r.fields));
     const productNames = new Map(
       (
@@ -387,7 +423,7 @@ export async function runParse(jobId: string): Promise<void> {
           .where(eq(shopProducts.shopId, claimed.shopId))
       ).map((r) => [r.id, r.name]),
     );
-    const ctx: PlanContext = { matcher, categories, general, productNames };
+    const ctx: PlanContext = { matcher, categories, subcategories, general, productNames };
 
     const staged: StagedRow[] = [];
     for (const g of grouped) {
@@ -422,12 +458,29 @@ export async function runParse(jobId: string): Promise<void> {
         );
       }
       const mergedFields = g.merged.map((m) => m.fields);
+      const errors = rowErrors(fields, { categoryKnown: categoryCellKnown(fields, categories) });
+      if (errors.length) {
+        // Rejected (owner, 08 Nov 2026): shown with its errors and never imported; the other rows still go in.
+        const planned = planRow(fields, mergedFields, ctx);
+        staged.push({
+          ...planned,
+          rowNumber: g.row.rowNumber,
+          rawJson,
+          parsedJson: { fields, attributes },
+          // As written in the file: the fallback category and stock plan do not apply to a row that is not imported.
+          plan: planned.plan ? { ...planned.plan, outcome: "skip", category: fields.category ?? null } : null,
+          status: "failed",
+          messages: [...errors.map((e) => `${ROW_ERROR_PREFIX}Row ${g.row.rowNumber}: ${e}`), ...warnings, ...previewChecks(fields)],
+          mergedRows: g.merged.map((m) => m.rowNumber),
+        });
+        continue;
+      }
       const planned = planRow(fields, mergedFields, ctx);
       // Register what this row will create, so later rows of the file find it.
       if (planned.plan?.outcome === "create") {
         const virtualProduct: ProductRef = planned.productId
           ? { id: planned.productId, code: "", name: fields.name ?? "", categoryId: "", brand: fields.brand ?? null, variant: null, approvalStatus: "APPROVED" }
-          : { id: `new:${g.row.rowNumber}`, code: "", name: fields.name ?? "", categoryId: "", brand: fields.brand ?? null, variant: [fields.size, fields.color, fields.style].filter(Boolean).join(" / ") || null, approvalStatus: "PENDING_APPROVAL", virtual: true };
+          : { id: `new:${g.row.rowNumber}`, code: "", name: fields.name ?? "", categoryId: "", brand: fields.brand ?? null, variant: [fields.size ?? fields.packSize, fields.color, fields.style].filter(Boolean).join(" / ") || null, approvalStatus: "PENDING_APPROVAL", virtual: true };
         if (!planned.productId) matcher.addProduct(virtualProduct, { gtin: fields.gtin14 ? gtinDigits(fields.gtin14) : null, barcode: fields.gtin14 ? null : (fields.barcode ?? null) });
         matcher.addListing({
           id: `new:${g.row.rowNumber}`,
@@ -468,7 +521,9 @@ export async function runParse(jobId: string): Promise<void> {
       updates: staged.filter((r) => r.plan?.outcome === "update").length,
       deactivations: staged.filter((r) => r.plan?.outcome === "deactivate").length,
       skipped: staged.filter((r) => r.status === "skipped").length + parsed.emptyRows,
-      withWarnings: staged.filter((r) => r.messages.length > 0).length,
+      errors: staged.filter((r) => r.status === "failed").length,
+      failed: staged.filter((r) => r.status === "failed").length,
+      withWarnings: staged.filter((r) => r.status !== "failed" && r.messages.length > 0).length,
     };
     await db
       .update(productImportJobs)
@@ -710,6 +765,7 @@ interface CommitContext {
   applyPrices: boolean;
   matcher: CatalogueMatcher;
   categories: Map<string, { id: string; name: string }>;
+  subcategories: PlanContext["subcategories"];
   general: { id: string; name: string };
   carried: Set<string>;
   priceProposals: ProposedChange[];
@@ -912,10 +968,18 @@ async function brandIdFor(tx: DbClient, ctx: CommitContext, name: string | undef
   if (!name) return null;
   const key = matchKey(name);
   if (ctx.brandIds.has(key)) return ctx.brandIds.get(key) || null;
+  // The same name in any case first (works for every script), then the Latin letters-and-digits key.
   const [found] = await tx
     .select({ id: brands.id })
     .from(brands)
-    .where(and(sql`lower(regexp_replace(${brands.name}, '[^a-zA-Z0-9]+', ' ', 'g')) = ${key}`, isNull(brands.deletedAt)))
+    .where(
+      and(
+        /^[a-z0-9 ]+$/.test(key)
+          ? or(sql`lower(btrim(${brands.name})) = ${name.trim().toLowerCase()}`, sql`lower(regexp_replace(${brands.name}, '[^a-zA-Z0-9]+', ' ', 'g')) = ${key}`)
+          : sql`lower(btrim(${brands.name})) = ${name.normalize("NFC").trim().toLowerCase()}`,
+        isNull(brands.deletedAt),
+      ),
+    )
     .limit(1);
   ctx.brandIds.set(key, found?.id ?? "");
   return found?.id ?? null;
@@ -925,12 +989,13 @@ async function createProduct(tx: DbClient, ctx: CommitContext, f: ImportFields, 
   const category = resolveCategory(f, ctx);
   const name = f.name ?? `Unnamed product ${f.sku ?? f.barcode ?? ""}`.trim();
   const brandId = await brandIdFor(tx, ctx, f.brand);
-  const variant = [f.size, f.color, f.style].filter(Boolean).join(" / ") || null;
+  const variant = [f.size ?? f.packSize, f.color, f.style].filter(Boolean).join(" / ") || null;
   const gtin = f.gtin14 ? gtinDigits(f.gtin14) : null;
   const [product] = await tx
     .insert(products)
     .values({
       categoryId: category.id,
+      subcategoryId: resolveSubcategory(f, category.id, ctx.subcategories)?.id ?? null,
       name,
       slug: uniqueSlug(name),
       description: f.description ?? f.highlight ?? null,
@@ -1206,7 +1271,7 @@ export async function runCommit(jobId: string, actor: ImportActor, options: Comm
   if (job.status !== "importing") throw conflict("This upload is not being imported.");
   const access = await assertImportAccess(job.shopId, actor);
   const limits = await getImportLimits();
-  const { categories, general } = await loadCategories(db);
+  const { categories, subcategories, general } = await loadCategories(db);
   const carriedRows = await db.execute<{ category_id: string }>(sql`select category_id from shop_product_categories where shop_id = ${job.shopId}`);
   const ctxBase = {
     job,
@@ -1215,6 +1280,7 @@ export async function runCommit(jobId: string, actor: ImportActor, options: Comm
     mode: job.inventoryMode,
     applyPrices: appliesImmediately(actor, access.ownerId),
     categories,
+    subcategories,
     general,
     carried: new Set(carriedRows.map((r) => r.category_id)),
     priceProposals: [] as ProposedChange[],
@@ -1499,7 +1565,9 @@ export async function buildReport(
     .where(eq(productImportRows.jobId, jobId))
     .orderBy(asc(productImportRows.rowNumber));
   const columns = (job.columns as { label: string; key: string | null; id?: string }[]).map((c) => ({ label: c.label, id: c.id ?? c.key ?? c.label }));
-  const picked = options.problemsOnly ? rows.filter((r) => PROBLEM_STATUSES.has(r.status)) : rows;
+  // Before the import, "ready" rows are fine: only the rejected and skipped ones need fixing.
+  const problems = job.status === "completed" ? PROBLEM_STATUSES : new Set(["failed", "skipped"]);
+  const picked = options.problemsOnly ? rows.filter((r) => problems.has(r.status)) : rows;
   const input = { columns, rows: picked.map((r) => ({ ...r, raw: r.raw as Record<string, unknown> })) };
   const base = (job.fileName.replace(/\.[^.]+$/, "").replace(/[^\w.-]+/g, "_").slice(0, 80) || "upload") + (options.problemsOnly ? "_problems" : "");
   await recordAudit({
@@ -1518,9 +1586,28 @@ export async function buildReport(
   };
 }
 
+/** The live category master, for the template's Category and Sub-category dropdowns. */
+export async function templateLists(client: DbClient = db): Promise<TemplateLists> {
+  const cats = await client
+    .select({ id: productCategories.id, name: productCategories.name })
+    .from(productCategories)
+    .where(and(isNull(productCategories.deletedAt), eq(productCategories.isActive, true)))
+    .orderBy(asc(productCategories.name));
+  const subs = await client
+    .select({ name: productSubcategories.name, categoryId: productSubcategories.categoryId })
+    .from(productSubcategories)
+    .where(and(isNull(productSubcategories.deletedAt), eq(productSubcategories.isActive, true)))
+    .orderBy(asc(productSubcategories.name));
+  const nameOf = new Map(cats.map((c) => [c.id, c.name]));
+  return {
+    categories: cats.map((c) => c.name),
+    subcategories: subs.filter((s) => nameOf.has(s.categoryId)).map((s) => ({ category: nameOf.get(s.categoryId)!, name: s.name })),
+  };
+}
+
 export async function simpleTemplate(format: "xlsx" | "csv" = "xlsx"): Promise<{ fileName: string; bytes: Buffer }> {
   if (format === "csv") return { fileName: TEMPLATE_CSV_FILE_NAME, bytes: buildSimpleTemplateCsv() };
-  return { fileName: TEMPLATE_FILE_NAME, bytes: await buildSimpleTemplate() };
+  return { fileName: TEMPLATE_FILE_NAME, bytes: await buildSimpleTemplate(await templateLists()) };
 }
 
 const rupees = (paise: number | null | undefined) => (paise == null ? null : paise / 100);
@@ -1551,6 +1638,7 @@ export async function exportShopCatalogue(
       description: products.description,
       brand: brands.name,
       category: productCategories.name,
+      subcategory: productSubcategories.name,
       hsn: shopProducts.hsnCode,
       rate: shopProducts.gstRateBp,
       price: shopProducts.onlinePricePaise,
@@ -1563,6 +1651,7 @@ export async function exportShopCatalogue(
     .innerJoin(products, eq(products.id, shopProducts.productId))
     .leftJoin(brands, eq(brands.id, products.brandId))
     .leftJoin(productCategories, eq(productCategories.id, products.categoryId))
+    .leftJoin(productSubcategories, eq(productSubcategories.id, products.subcategoryId))
     .leftJoin(shopListingDetails, eq(shopListingDetails.shopProductId, shopProducts.id))
     .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)))
     .orderBy(asc(products.name));
@@ -1573,6 +1662,7 @@ export async function exportShopCatalogue(
       "Product Name": l.name,
       Brand: l.brand,
       Category: l.category,
+      "Sub-category": l.subcategory,
       "Barcode Type": l.gtin || l.barcode ? "EAN" : null,
       Barcode: l.gtin ?? l.barcode,
       "HSN Code": l.hsn ?? l.masterHsn,
@@ -1580,12 +1670,13 @@ export async function exportShopCatalogue(
       // Loose goods carry no MRP.
       MRP: l.kind === "LOOSE" ? null : rupees(l.shopMrp ?? l.masterMrp),
       "Selling Price": rupees(l.price),
-      Quantity: l.stock,
+      "Stock Qty": l.stock,
       Unit: l.unit,
-      "Goods Type": l.kind === "LOOSE" ? "Loose" : "Packaged",
+      "Loose Item (Y/N)": l.kind === "LOOSE" ? "Y" : "N",
       Description: l.description,
       "Max Order Qty": l.maxQty,
       Action: "Upsert",
+      "GoKesari Product ID": l.code,
     };
   });
   await recordAudit({
@@ -1602,7 +1693,7 @@ export async function exportShopCatalogue(
     : {
         fileName: `${base}.xlsx`,
         contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        bytes: await buildCatalogueWorkbook(rows, "xlsx"),
+        bytes: await buildCatalogueWorkbook(rows, "xlsx", await templateLists()),
         rows: rows.length,
       };
 }
