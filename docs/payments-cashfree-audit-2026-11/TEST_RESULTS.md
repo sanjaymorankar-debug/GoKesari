@@ -174,6 +174,37 @@ Order ids at Cashfree are `gk_<intent id>`.
   through the same `refundPaymentIntent` path.
 - **Retry / duplicate webhook:** covered by the automated tests (§1). Each delivery is recorded
   once (`payment_webhook_events`), and a capture moves an intent only once.
-- **To undo after F17 is on staging:** set `onlinePayments.intentExpiryMinutes` back to 15
-  (raised to 30 at 21:53:24 for these tests). Then re-run one order at 15 minutes to confirm the
-  fix (§8 once done).
+- **After F17 reached staging:** `onlinePayments.intentExpiryMinutes` was set back to 15 and
+  one order was paid at 15 minutes (§8).
+
+---
+
+## 8. F17 confirmed on staging, and the release on gokesari.com (8 Nov 2026)
+
+**Staging.** The queue merged #361 at 01:48 IST (`8857b54`) and marked it `staging-verified` at
+03:02. Before that, the staging queue paused twice, at 21:54 (#360) and 00:30 (#364). Each time it
+had waited on the release PR's own CI for the same commit, and neither change caused it. #364 fixes
+the queue so this can't recur. Details are on #360, #364 and the pause issues #363 and #365.
+
+| # | Time (IST) | Check | Order / build | Amount | cf_payment_id | Result | Status |
+|---|---|---|---|---|---|---|---|
+| F17-1 | 01:48:35 | #361 live on test.gokesari.com | `/sw.js` build `2026-11-07T20:18:35Z` | — | — | built after the merge | **PASS** |
+| F17-2 | 01:54:22 | Rule `onlinePayments.intentExpiryMinutes` back from 30 to **15** (the default) | — | — | — | admin setting, audited; set-up: gateway CASHFREE, no problems | done |
+| F17-3 | 01:54:57 | Checkout "Pay online" at 15 minutes | DB-20261107-B039LD / gk_df460a3cd0294824914020e5e54a2a21 | ₹85 | — | **201, Cashfree session opened** (409 before the fix); intent window **16.01 min** (the floor) | **PASS** |
+| F17-4 | 01:55:57 | Pay: credit card (Visa 4111…, OTP 111000) | same | ₹85 | 1472690390158258688 | captured **by Cashfree's webhook**, payment id stored exactly, order CONFIRMED | **PASS** |
+
+**gokesari.com (production).** The release PR #362 (`staging` → `main`, carrying #360, #361 and
+#364) was merged on the owner's instruction at **05:13 IST** (`c5a2c98`). No migration.
+
+| Check | Time (IST) | Result | Status |
+|---|---|---|---|
+| CI on `main` (`c5a2c98`) | 05:14 | passed | **PASS** |
+| "Post-deploy check" workflow | 05:13–05:20 | passed | **PASS** |
+| `scripts/release/post-deploy-check.sh https://gokesari.com` (5 rounds, 60 s apart) | 05:17:58–05:22:11 | 5/5 healthy rounds (`/`, `/shops`, `/robots.txt` all 200, at most 3 s) | **PASS** |
+| New build served | 05:26 | `/sw.js` build `2026-11-07T23:44:07Z` (after the merge) | **PASS** |
+| `/admin/payments/cashfree` present | 05:26 | 307 to sign-in for a guest | **PASS** |
+| Cashfree webhook still guarded | 05:26 | `POST /api/webhooks/cashfree` without a signature → **400 "Missing signature"** | **PASS** |
+
+gokesari.com still takes order payments with `PAYMENT_GATEWAY=SANDBOX` and rule `onlinePayments`
+off. No production money was moved. Switching it to Cashfree, and the live ₹1 tests per mode, are
+the owner's steps in [OWNER_ACTIONS.md](OWNER_ACTIONS.md) §1–§5.
