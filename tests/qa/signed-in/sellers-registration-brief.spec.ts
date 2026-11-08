@@ -14,9 +14,9 @@ import { expect, qa } from "../lib/record";
 const signed = { tier: "signed" as const, timeout: 180_000 };
 
 // Owner brief 08-Nov-2026: verify → address → map pin → shop name → pay → live → products.
-const TILES = ["Sign in", "Referral", "GST / PAN", "Address", "Pay", "Live"];
+const TILES = ["Sign in", "Verify", "Address", "Pay", "Live"];
 
-qa("RB-01", "wizard: the six steps are shown at the top in the brief's order, on one screen at 390 × 844 and 1280 × 800", async ({ browser }) => {
+qa("RB-01", "wizard: the five steps are shown at the top in the brief's order, on one screen at 390 × 844 and 1280 × 800", async ({ browser }) => {
   const notes: string[] = [];
   for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
     const { context, page } = await pageAs(browser, "admin", { viewport });
@@ -34,7 +34,7 @@ qa("RB-01", "wizard: the six steps are shown at the top in the brief's order, on
         return el.scrollWidth - el.clientWidth;
       });
       expect(scroll, "horizontal scroll").toBeLessThanOrEqual(1);
-      notes.push(`${viewport.width}px: 6 tiles, board bottom ${Math.round((box?.y ?? 0) + (box?.height ?? 0))}px`);
+      notes.push(`${viewport.width}px: 5 tiles, board bottom ${Math.round((box?.y ?? 0) + (box?.height ?? 0))}px`);
     } finally {
       await context.close();
     }
@@ -42,15 +42,17 @@ qa("RB-01", "wizard: the six steps are shown at the top in the brief's order, on
   return notes.join("; ");
 }, signed);
 
-qa("RB-02", "after sign-in the referral screen comes first; Request a code stays on it", async ({ browser }) => {
+qa("RB-02", "after sign-in only the referral code and GST / PAN are asked; shop name and address are not", async ({ browser }) => {
   const { context, page } = await pageAs(browser, "admin", { viewport: { width: 390, height: 844 } });
   try {
     await page.goto("/shop/register");
-    const tile = page.getByTestId("registration-tiles").getByRole("button", { name: /2\. Referral/ });
+    const tile = page.getByTestId("registration-tiles").getByRole("button", { name: /2\. Verify/ });
     if (await tile.isVisible().catch(() => false)) await tile.click();
     await expect(page.getByTestId("wizard-referral-code")).toBeVisible();
-    await expect(page.getByTestId("request-referral-code")).toBeVisible();
-    return "referral screen with Request a referral code";
+    await expect(page.getByTestId("gstin-input")).toBeVisible();
+    await expect(page.getByTestId("shop-name")).toHaveCount(0);
+    await expect(page.getByTestId("address-line1")).toHaveCount(0);
+    return "first screen: referral code + GST number only";
   } finally {
     await context.close();
   }

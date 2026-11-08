@@ -11,8 +11,7 @@ import { Icon } from "@/components/board/icons";
 export function RegisterOptions({ referralRequired, signedIn }: { referralRequired: boolean; signedIn: boolean }) {
   const steps = [
     ...(signedIn ? [] : ["Sign in — we email you a one-time code"]),
-    referralRequired ? "Your referral code" : "Your referral code, if you have one",
-    "Verify your GST or PAN",
+    referralRequired ? "Your referral code and GST or PAN" : "Your GST or PAN (and referral code, if you have one)",
     "Confirm your address and mark your shop on the map",
     "Pay the registration fee online — your shop goes live",
   ];

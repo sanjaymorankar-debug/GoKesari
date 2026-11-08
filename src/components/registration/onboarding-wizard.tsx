@@ -20,13 +20,12 @@ import { StarterShelf } from "./starter-shelf";
  * Shop onboarding wizard — owner brief 08-Nov-2026 (docs/shop-onboarding-identity-first-2026-11):
  * identity first, and what the government record says fills the rest.
  *
- *   1 Sign in   (the page's sign-in card; a signed-in customer starts at 2)
- *   2 Referral  the code, taken from a referral link automatically; request a code; Employee ID
- *   3 GST / PAN the GSTIN (its PAN is derived) or "I don't have GST, use PAN"; the owner name
- *               only when the record gave none
- *   4 Address   address, map pin, then contact number, shop name, type and turnover (FSSAI for food)
- *   5 Pay       the registration fee
- *   6 Live    "Your onboarding is complete…" and Add Products
+ *   1 Sign in  (the page's sign-in card; a signed-in customer starts at 2)
+ *   2 Verify   only the referral code and the GSTIN — or "I don't have GST, use PAN". Nothing else
+ *              is asked until they are verified; the owner name only when the record gave none
+ *   3 Address  address, map pin, then contact number, shop name, type and turnover (FSSAI for food)
+ *   4 Pay      the registration fee
+ *   5 Live     the completion message and Add products
  *   7 Products categories, then products
  *
  * Every answer from the server is the whole wizard (services/shop-registration-wizard.ts), so the
@@ -37,7 +36,6 @@ import { StarterShelf } from "./starter-shelf";
 
 type CheckStatus = "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "FAILED" | "EXPIRED" | "MANUAL_REVIEW";
 type Step =
-  | "REFERRAL"
   | "IDENTITY"
   | "EMAIL"
   | "OWNER"
@@ -144,40 +142,37 @@ export interface WizardState {
  */
 const TILES = [
   { n: 1, label: { en: "Sign in", hi: "साइन इन", mr: "साइन इन" }, icon: "🔐" },
-  { n: 2, label: { en: "Referral", hi: "रेफ़रल", mr: "रेफरल" }, icon: "🎟️" },
-  { n: 3, label: { en: "GST / PAN", hi: "GST / PAN", mr: "GST / PAN" }, icon: "🛡️" },
-  { n: 4, label: { en: "Address", hi: "पता", mr: "पत्ता" }, icon: "📍" },
-  { n: 5, label: { en: "Pay", hi: "भुगतान", mr: "पेमेंट" }, icon: "💳" },
-  { n: 6, label: { en: "Live", hi: "लाइव", mr: "लाइव्ह" }, icon: "🚀" },
+  { n: 2, label: { en: "Verify", hi: "सत्यापन", mr: "पडताळणी" }, icon: "🛡️" },
+  { n: 3, label: { en: "Address", hi: "पता", mr: "पत्ता" }, icon: "📍" },
+  { n: 4, label: { en: "Pay", hi: "भुगतान", mr: "पेमेंट" }, icon: "💳" },
+  { n: 5, label: { en: "Live", hi: "लाइव", mr: "लाइव्ह" }, icon: "🚀" },
 ] as const;
 
 /** The tile a wizard step belongs to. */
 function tileOf(step: Step): number {
   switch (step) {
-    case "REFERRAL":
-      return 2;
     case "IDENTITY":
     // Only a mobile-only account (no email) or an owner changing it sees the email screen.
     case "EMAIL":
     case "OWNER":
-      return 3;
+      return 2;
     case "ADDRESS":
     case "PIN":
     case "SHOP":
     case "FSSAI":
-      return 4;
+      return 3;
     case "REVIEW":
     case "PAYMENT":
-      return 5;
+      return 4;
     case "WAITING":
     case "LIVE":
     case "LOCATION":
-      return 6;
+      return 5;
     case "CATEGORY":
     case "PRODUCTS":
-      return 7;
+      return 6;
     case "DONE":
-      return 8;
+      return 7;
   }
 }
 
@@ -186,10 +181,9 @@ function stepForTile(n: number, state: WizardState): Step | null {
   const open = state.status === "OPEN";
   const approved = state.shop?.status === "APPROVED";
   const verified = state.canContinue && state.referral.answered;
-  if (open && n === 2) return "REFERRAL";
-  if (open && n === 3 && state.referral.answered) return "IDENTITY";
-  if (open && n === 4 && verified && state.ownerName) return "ADDRESS";
-  if (approved && n === 6) return "LIVE";
+  if (open && n === 2) return "IDENTITY";
+  if (open && n === 3 && verified && state.ownerName) return "ADDRESS";
+  if (approved && n === 5) return "LIVE";
   return null;
 }
 
@@ -306,7 +300,7 @@ function TileSteps({ step, state, onOpen, lang }: { step: Step; state: WizardSta
           </strong>
         </p>
       ) : null}
-      <ol className="grid grid-cols-3 gap-1.5 sm:grid-cols-6 sm:gap-2" aria-label="Registration steps" data-testid="registration-tiles">
+      <ol className="grid grid-cols-5 gap-1.5 sm:gap-2" aria-label="Registration steps" data-testid="registration-tiles">
         {TILES.map((t) => {
           const done = t.n < at;
           const current = t.n === at;
@@ -370,7 +364,7 @@ export function OnboardingWizard({
   const [notice, setNotice] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
 
-  const step: Step = viewing ?? state?.nextStep ?? "REFERRAL";
+  const step: Step = viewing ?? state?.nextStep ?? "IDENTITY";
   // The payment opens by itself only right after "Create my shop and pay", never on a return or retry.
   const [openPayment, setOpenPayment] = useState(false);
 
@@ -418,10 +412,10 @@ export function OnboardingWizard({
     <div className="space-y-3" data-registration-board>
       <TileSteps step={step} state={state} onOpen={setViewing} lang={lang} />
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      {notice && !error && step !== "IDENTITY" && step !== "REFERRAL" ? <Alert tone="warning">{notice}</Alert> : null}
+      {notice && !error && step !== "IDENTITY" ? <Alert tone="warning">{notice}</Alert> : null}
 
-      {step === "REFERRAL" ? (
-        <ReferralStep
+      {step === "IDENTITY" ? (
+        <VerifyStep
           state={state}
           initialReferralCode={initialReferralCode}
           referralRequired={state?.referral.required ?? referralRequired}
@@ -429,10 +423,10 @@ export function OnboardingWizard({
           busy={busy}
           fields={fields}
           send={send}
+          next={() => setViewing(null)}
           lang={lang}
         />
       ) : null}
-      {step === "IDENTITY" && state ? <VerifyStep state={state} busy={busy} fields={fields} send={send} next={() => setViewing(null)} back={back("REFERRAL")} lang={lang} /> : null}
       {step === "EMAIL" && state ? <EmailStep state={state} busy={busy} fields={fields} send={send} back={back(state.status === "OPEN" && state.details ? "SHOP" : "IDENTITY")} /> : null}
       {step === "OWNER" && state ? <OwnerStep state={state} busy={busy} fields={fields} send={send} back={back("IDENTITY")} /> : null}
       {step === "ADDRESS" && state ? <AddressStep state={state} busy={busy} fields={fields} send={send} back={back(state.prefill.ownerName ? "IDENTITY" : "OWNER")} /> : null}
@@ -586,8 +580,11 @@ function noticeFor(path: string, next: WizardState): string | null {
  * whose PAN is taken from it; No: the PAN and the "not GST-registered" declaration. The owner
  * goes on only once the number is verified; a failure says why and the owner tries again.
  */
-/** Step 2. A code from a referral link is validated by itself; a bad one (or none) is typed here. */
-function ReferralStep({
+/**
+ * Step 2, the first screen after sign-in: only the referral code and the GST number (or PAN).
+ * A code from a referral link is checked by itself and shown as applied; a bad one is typed here.
+ */
+function VerifyStep({
   state,
   initialReferralCode,
   referralRequired,
@@ -595,6 +592,7 @@ function ReferralStep({
   busy,
   fields,
   send,
+  next,
   lang,
 }: {
   state: WizardState | null;
@@ -604,11 +602,19 @@ function ReferralStep({
   busy: boolean;
   fields: Record<string, string>;
   send: Send;
+  /** Leaves the screen for the step the server says is next (when the owner came back to look). */
+  next: () => void;
   lang: Lang;
 }) {
   const [code, setCode] = useState(state?.referral.code ?? initialReferralCode ?? "");
   const [employeeId, setEmployeeId] = useState(state?.referral.employeeId ?? "");
   const [requesting, setRequesting] = useState(false);
+  const [hasGst, setHasGst] = useState(state?.route !== "PAN_ONLY");
+  const [number, setNumber] = useState("");
+  const [declaration, setDeclaration] = useState(state?.noGstDeclared ?? false);
+  const [consent, setConsent] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
   const triedLink = useRef(false);
 
   useEffect(() => {
@@ -619,88 +625,11 @@ function ReferralStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const submit = (referralCode: string | null) => send("/api/shops/registration-draft/referral", { referralCode, employeeId: employeeId.trim() || null });
-
-  return (
-    <StepCard
-      title={tr({ en: "Referral code", hi: "रेफ़रल कोड", mr: "रेफरल कोड" }, lang)}
-      intro={tr({ en: "Enter the code you were given by your dealer or a GoKesari shop.", hi: "अपने डीलर या GoKesari दुकान से मिला कोड दर्ज करें।", mr: "तुमच्या डीलर किंवा GoKesari दुकानाकडून मिळालेला कोड टाका." }, lang)}
-    >
-      {requesting ? <ReferralRequestDialog prefill={{}} onClose={() => setRequesting(false)} /> : null}
-      <form
-        className="space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit(code.trim() || null);
-        }}
-      >
-        <Field label={tr({ en: "Referral code", hi: "रेफ़रल कोड", mr: "रेफरल कोड" }, lang)} error={fields.referralCode}>
-          <input
-            className={`${inputClass} font-mono uppercase tracking-widest`}
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            autoCapitalize="characters"
-            autoComplete="off"
-            placeholder="AB12CD34"
-            maxLength={32}
-            data-testid="wizard-referral-code"
-          />
-        </Field>
-        <button type="button" className="min-h-11 text-sm font-medium text-kesari-700 underline" onClick={() => setRequesting(true)} data-testid="request-referral-code">
-          {tr({ en: "Request a referral code", hi: "रेफ़रल कोड का अनुरोध करें", mr: "रेफरल कोडची विनंती करा" }, lang)}
-        </button>
-        {dealerProgramme ? (
-          <Field label={tr({ en: "Employee ID or name (optional)", hi: "कर्मचारी आईडी या नाम (वैकल्पिक)", mr: "कर्मचारी आयडी किंवा नाव (पर्यायी)" }, lang)} error={fields.employeeId}>
-            <input className={inputClass} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} maxLength={120} data-testid="wizard-employee-id" />
-          </Field>
-        ) : null}
-        <div className="flex items-center justify-between gap-2">
-          {referralRequired ? (
-            <span />
-          ) : (
-            <Button type="button" variant="ghost" disabled={busy} onClick={() => void submit(null)} data-testid="referral-skip">
-              {tr({ en: "Skip", hi: "छोड़ें", mr: "वगळा" }, lang)}
-            </Button>
-          )}
-          <Button type="submit" size="lg" disabled={busy || code.trim().length < 3} data-testid="referral-continue">
-            {busy ? tr({ en: "Checking…", hi: "जाँच हो रही है…", mr: "तपासत आहे…" }, lang) : tr({ en: "Continue", hi: "आगे बढ़ें", mr: "पुढे जा" }, lang)}
-          </Button>
-        </div>
-      </form>
-    </StepCard>
-  );
-}
-
-/** Step 3. The GSTIN (its PAN is derived, never typed) or, with no GST, the PAN. Nothing goes on until it is verified. */
-function VerifyStep({
-  state,
-  busy,
-  fields,
-  send,
-  next,
-  back,
-  lang,
-}: {
-  state: WizardState;
-  busy: boolean;
-  fields: Record<string, string>;
-  send: Send;
-  /** Leaves the screen for the step the server says is next (when the owner came back to look). */
-  next: () => void;
-  back: ReactNode;
-  lang: Lang;
-}) {
-  const [hasGst, setHasGst] = useState(state.route !== "PAN_ONLY");
-  const [number, setNumber] = useState("");
-  const [declaration, setDeclaration] = useState(state.noGstDeclared ?? false);
-  const [consent, setConsent] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
-
-  const check = !hasGst ? (state.route === "PAN_ONLY" ? state.pan : null) : state.route === "GSTIN" ? state.gstin : null;
-  const verified = Boolean(state.canContinue && state.referral.answered);
+  const check = !hasGst ? (state?.route === "PAN_ONLY" ? state.pan : null) : state?.route === "GSTIN" ? state.gstin : null;
+  const verified = Boolean(state?.canContinue && state.referral.answered);
   const typed = number.trim().toUpperCase().replace(/\s+/g, "");
   const derivedPan = hasGst && GSTIN_PATTERN.test(typed) ? typed.slice(2, 12) : null;
+  const applied = Boolean(state?.referral.answered && state.referral.code && state.referral.code === code.trim());
 
   function switchRoute(gst: boolean) {
     setHasGst(gst);
@@ -716,21 +645,48 @@ function VerifyStep({
       return;
     }
     setProblem(null);
+    // The code first (a required or unknown code is refused before any paid check), then the number.
+    const codeNow = code.trim() || null;
+    const employeeNow = employeeId.trim() || null;
+    if (!state?.referral.answered || (state.referral.code ?? null) !== codeNow || (state.referral.employeeId ?? null) !== employeeNow) {
+      if (!(await send("/api/shops/registration-draft/referral", { referralCode: codeNow, employeeId: employeeNow }))) return;
+    }
     if (hasGst) await send("/api/shops/registration-draft/gstin", { gstin: typed, consent });
     else await send("/api/shops/registration-draft/pan", { pan: typed, declaration, consent });
   }
 
   return (
-    <StepCard
-      title={hasGst ? tr({ en: "Your GST number", hi: "आपका GST नंबर", mr: "तुमचा GST क्रमांक" }, lang) : tr({ en: "Your PAN", hi: "आपका PAN", mr: "तुमचा PAN" }, lang)}
-      intro={tr({ en: "We check it with the government records and fill in your shop's details from them.", hi: "हम इसे सरकारी रिकॉर्ड से जाँचते हैं और उनसे आपकी दुकान का विवरण भरते हैं।", mr: "आम्ही ते सरकारी नोंदींशी तपासतो आणि त्यातून तुमच्या दुकानाचा तपशील भरतो." }, lang)}
-    >
-      {state.referral.code ? (
-        <p className="text-sm text-leaf-700" data-testid="referral-applied">
-          ✓ {tr({ en: "Referral code applied", hi: "रेफ़रल कोड लागू हुआ", mr: "रेफरल कोड लागू झाला" }, lang)}: <span className="font-mono font-semibold">{state.referral.code}</span>
-        </p>
-      ) : null}
+    <StepCard title={tr({ en: "Verify your business", hi: "अपने व्यवसाय का सत्यापन करें", mr: "तुमच्या व्यवसायाची पडताळणी करा" }, lang)}>
+      {requesting ? <ReferralRequestDialog prefill={{}} onClose={() => setRequesting(false)} /> : null}
       <form onSubmit={verify} className="space-y-3">
+        <Field
+          label={referralRequired ? tr({ en: "Referral code", hi: "रेफ़रल कोड", mr: "रेफरल कोड" }, lang) : tr({ en: "Referral code (optional)", hi: "रेफ़रल कोड (वैकल्पिक)", mr: "रेफरल कोड (पर्यायी)" }, lang)}
+          error={fields.referralCode}
+          hint={applied ? `✓ ${tr({ en: "Applied", hi: "लागू हुआ", mr: "लागू झाला" }, lang)}` : undefined}
+        >
+          <div className="flex gap-2">
+            <input
+              className={`${inputClass} font-mono uppercase tracking-widest`}
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              autoCapitalize="characters"
+              autoComplete="off"
+              placeholder="AB12CD34"
+              maxLength={32}
+              required={referralRequired}
+              data-testid="wizard-referral-code"
+            />
+            <button type="button" className="min-h-11 shrink-0 text-sm font-medium text-kesari-700 underline" onClick={() => setRequesting(true)} data-testid="request-referral-code">
+              {tr({ en: "Request a code", hi: "कोड का अनुरोध करें", mr: "कोडची विनंती करा" }, lang)}
+            </button>
+          </div>
+        </Field>
+        {dealerProgramme ? (
+          <details className="text-sm text-ink-700" open={Boolean(employeeId)}>
+            <summary className="cursor-pointer">{tr({ en: "Employee ID or name (optional)", hi: "कर्मचारी आईडी या नाम (वैकल्पिक)", mr: "कर्मचारी आयडी किंवा नाव (पर्यायी)" }, lang)}</summary>
+            <input className={`${inputClass} mt-2`} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} maxLength={120} aria-label="Employee ID or name" data-testid="wizard-employee-id" />
+          </details>
+        ) : null}
         <Field
           label={hasGst ? tr({ en: "GST number (15 characters)", hi: "GST नंबर (15 अक्षर)", mr: "GST क्रमांक (15 अक्षरे)" }, lang) : tr({ en: "PAN (10 characters)", hi: "PAN (10 अक्षर)", mr: "PAN (10 अक्षरे)" }, lang)}
           error={problem ?? (hasGst ? fields.gstin : fields.pan)}
@@ -756,7 +712,7 @@ function VerifyStep({
         </button>
         {!hasGst ? <Consent checked={declaration} onChange={setDeclaration} text={GST_DECLARATION_TEXT} short="My shop is not registered under GST." /> : null}
         <Consent checked={consent} onChange={setConsent} short="I agree that GoKesari checks this number with the government record." />
-        <Button type="submit" size="lg" className="w-full" disabled={busy || !consent || !typed || (!hasGst && !declaration)} data-testid="verify-identity">
+        <Button type="submit" size="lg" className="w-full" disabled={busy || !consent || !typed || (!hasGst && !declaration) || (referralRequired && code.trim().length < 3)} data-testid="verify-identity">
           {busy ? tr({ en: "Verifying…", hi: "जाँच हो रही है…", mr: "तपासत आहे…" }, lang) : hasGst ? "Verify GSTIN" : "Verify PAN"}
         </Button>
         <details open={scanning} onToggle={(e) => setScanning((e.target as HTMLDetailsElement).open)} className="text-sm text-ink-700">
@@ -777,14 +733,13 @@ function VerifyStep({
       </form>
 
       <StatusLine check={check} />
-      <div className="flex items-center justify-between gap-2">
-        {back}
-        {verified ? (
+      {verified ? (
+        <div className="flex justify-end">
           <Button type="button" size="lg" onClick={next} disabled={busy}>
             {tr({ en: "Continue", hi: "आगे बढ़ें", mr: "पुढे जा" }, lang)}
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </StepCard>
   );
 }
@@ -1374,7 +1329,7 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
     <StepCard title="Payment" intro="Check your details, then continue to pay the registration fee by UPI or card.">
       <div>
         {row(state.route === "PAN_ONLY" ? "PAN (no GST)" : "GSTIN", identity ? <StatusLine check={{ ...identity, message: null }} /> : "—", "IDENTITY")}
-        {row("Referral code", state.referral.code ?? "None", "REFERRAL")}
+        {row("Referral code", state.referral.code ?? "None", "IDENTITY")}
         {row("Owner", d.ownerName, state.prefill.ownerName ? "IDENTITY" : "OWNER")}
         {row("Shop address", `${d.addressLine1}, ${d.city} ${d.pincode}`, "ADDRESS")}
         {row("Map pin", state.location ? "Placed" : "—", "PIN")}

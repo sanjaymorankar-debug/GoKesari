@@ -31,7 +31,7 @@ export default async function RegisterShopPage({
     // 0120 (FLOW_2026-10-30.md): the owner signs in here — the code comes by email.
     return (
       <div className="mx-auto max-w-2xl">
-        <PageHeader title="Register your shop" description="Step 1 of 6: sign in with your email. Then your referral code, GST or PAN, address and map pin, and the fee — and your shop goes live." />
+        <PageHeader title="Register your shop" description="Step 1 of 5: sign in with your email. Then your referral code and GST or PAN, your address and map pin, and the fee — and your shop goes live." />
         <ShopSignInCard />
       </div>
     );

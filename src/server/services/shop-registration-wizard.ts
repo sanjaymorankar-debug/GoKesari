@@ -180,7 +180,6 @@ function addressOf(p: PartialDetails): DraftAddress | null {
 }
 
 export const WIZARD_STEPS = [
-  "REFERRAL",
   "IDENTITY",
   "EMAIL",
   "OWNER",
@@ -382,8 +381,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     nextStep = !setup.location ? "LOCATION" : !setup.products ? "LIVE" : "DONE";
   } else if (draft.status === "COMPLETED") nextStep = "DONE";
   else if (draft.status === "SUBMITTED") nextStep = shop && shop.feeDuePaise > 0 ? "PAYMENT" : "WAITING";
-  else if (!referral.answered) nextStep = "REFERRAL";
-  else if (!base.canContinue) nextStep = "IDENTITY";
+  else if (!referral.answered || !base.canContinue) nextStep = "IDENTITY";
   else if (!email.confirmed) nextStep = "EMAIL";
   else if (!ownerName) nextStep = "OWNER";
   else if (!addressConfirmed) nextStep = "ADDRESS";
