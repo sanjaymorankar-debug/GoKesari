@@ -18,11 +18,15 @@ export type ImportJobStatus = (typeof IMPORT_JOB_STATUSES)[number];
 
 /**
  * A row's state. Before the commit: ready (will be written), skipped (empty
- * row, or an Edit/Delete with nothing to change). After: created / updated /
+ * row, or an Edit/Delete with nothing to change), failed (rejected by the
+ * checks — messages start with ROW_ERROR_PREFIX). After: created / updated /
  * deactivated, or failed with its reason.
  */
 export const IMPORT_ROW_STATUSES = ["ready", "skipped", "created", "updated", "deactivated", "failed"] as const;
 export type ImportRowStatus = (typeof IMPORT_ROW_STATUSES)[number];
+
+/** Starts every message that rejects a row (status "failed" before the import), e.g. "Error: Row 14: MRP missing". */
+export const ROW_ERROR_PREFIX = "Error: ";
 
 /** What a row asks for (column "Listing Action" / "Action"). Blank = UPSERT. */
 export const IMPORT_ROW_ACTIONS = ["UPSERT", "EDIT", "DELETE"] as const;
@@ -53,6 +57,8 @@ export interface ImportCounts {
   updates: number;
   deactivations: number;
   skipped: number;
+  /** Rows the preview rejected (mandatory field missing, bad value) — never imported. */
+  errors?: number;
   withWarnings: number;
   created: number;
   updated: number;

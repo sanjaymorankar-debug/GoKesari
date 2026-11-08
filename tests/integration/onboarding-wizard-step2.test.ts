@@ -41,11 +41,11 @@ import { gstinCheckChar } from "@/lib/kyc/doc-formats";
 import { GET as draftRoute } from "@/app/api/shops/registration-draft/route";
 import { POST as detailsRoute } from "@/app/api/shops/registration-draft/details/route";
 import { POST as gstinRoute } from "@/app/api/shops/registration-draft/gstin/route";
-import { POST as panRoute } from "@/app/api/shops/registration-draft/pan/route";
 import { POST as documentsRoute } from "@/app/api/shops/registration-draft/documents/route";
 import { POST as ownerRoute } from "@/app/api/shops/registration-draft/owner/route";
 import { POST as addressRoute } from "@/app/api/shops/registration-draft/address/route";
 import { POST as locationRoute } from "@/app/api/shops/registration-draft/location/route";
+import { POST as referralRoute } from "@/app/api/shops/registration-draft/referral/route";
 import { POST as submitRoute } from "@/app/api/shops/registration-draft/submit/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
@@ -78,13 +78,10 @@ import {
   getWizardDraft,
   saveDraftAddress,
   saveDraftOwner,
-  requireWizardAvailable,
   saveDraftDetails,
   saveDraftLocation,
-  showsWizard,
   submitDraftDocument,
   submitDraftForPayment,
-  wizardAvailableFor,
   type DraftShopDetails,
 } from "@/server/services/shop-registration-wizard";
 import { registerShop } from "@/server/services/shops";
@@ -287,20 +284,6 @@ describe("Udyam and FSSAI checks", () => {
 });
 
 describe("a food shop must give its FSSAI, and goes live only once it is verified", () => {
-  it("FSSAI answered 'no', then a dairy chosen on the details step: sent back to FSSAI, no payment", async () => {
-    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
-    await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
-    let view = await saveDraftDetails({ actor: owner, details: details({ shopType: "DAIRY" }) });
-    expect(view).toMatchObject({ foodShop: true, fssai: { required: true, done: false }, nextStep: "FSSAI" });
-    // "No" again does not get a food shop past the step.
-    view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    expect(view.nextStep).toBe("FSSAI");
-    await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "STEP_OPEN", nextStep: "FSSAI" } });
-    expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
-  });
-
   it("a dairy with GSTIN and FSSAI verified goes live after payment", async () => {
     await walkToReview({ shopType: "DAIRY", udyam: false });
     const view = await submitDraftForPayment({ actor: owner });
@@ -308,14 +291,12 @@ describe("a food shop must give its FSSAI, and goes live only once it is verifie
     expect(await shopRow(view.shop!.id)).toMatchObject({ status: "APPROVED", fssaiLicenseNumber: FSSAI, shopActNumber: null });
   });
 
-  it("a dairy whose FSSAI check is still pending pays and waits for an admin — not live", async () => {
+  it("a dairy whose FSSAI check is still pending goes live after payment (DI-14)", async () => {
     await walkToReview({ shopType: "DAIRY", udyam: false, fssai: "11521998009999" });
     const view = await submitDraftForPayment({ actor: owner });
-    expect(view.documents).toMatchObject({ missing: ["FSSAI"], needsTeamApproval: true });
+    expect(view.documents).toMatchObject({ missing: [], needsTeamApproval: false });
     await payInSandbox(view.shop!.id);
-    expect((await shopRow(view.shop!.id)).status).toBe("PENDING_APPROVAL");
-    expect((await getWizardDraft(owner))!.nextStep).toBe("WAITING");
-    expect((await lastDecision(view.shop!.id)).reasons.join(" ")).toMatch(/FSSAI/);
+    expect((await shopRow(view.shop!.id)).status).toBe("APPROVED");
   });
 });
 
@@ -486,19 +467,12 @@ describe("a shop outside the wizard: the fee waits for a verified document too",
   });
 });
 
-/** Switches the wizard flag, as an admin does on Admin → Feature flags. */
-async function setWizardFlag(enabled: boolean) {
-  const a = await createUser({ role: "ADMIN" });
-  await setFeatureFlag("shop_onboarding_wizard_enabled", { enabled, districtCodes: null }, "wizard flag (test)", { id: a.id, email: a.email, role: "ADMIN" });
-}
-
 describe("HTTP routes", () => {
   const signIn = () => {
     state.session = { user: { id: owner.id, email: owner.email, name: owner.name, image: null, role: "CUSTOMER", status: "ACTIVE" } };
   };
 
   it("GET resumes the wizard; documents and submit answer with the next step; signed-out is refused", async () => {
-    await setWizardFlag(true);
     expect((await call(draftRoute, "/api/shops/registration-draft")).status).toBe(401);
     signIn();
     expect((await call(draftRoute, "/api/shops/registration-draft")).body).toBeNull();
@@ -534,90 +508,33 @@ describe("HTTP routes", () => {
   });
 });
 
-describe("who may use the wizard (shop_onboarding_wizard_enabled)", () => {
+describe("one registration flow (owner brief 08-Nov-2026)", () => {
   const as = (user: { id: string; email: string; name: string | null }, role: UserRole) => {
     state.session = { user: { id: user.id, email: user.email, name: user.name, image: null, role, status: "ACTIVE" } };
   };
-  const routes = [
-    () => call(detailsRoute, "/api/shops/registration-draft/details", { method: "POST", body: details() }),
-    () => call(documentsRoute, "/api/shops/registration-draft/documents", { method: "POST", body: { docType: "UDYAM", has: false } }),
-    () => call(locationRoute, "/api/shops/registration-draft/location", { method: "POST", body: { latitude: 18.53, longitude: 73.85 } }),
-    () => call(submitRoute, "/api/shops/registration-draft/submit", { method: "POST" }),
-  ];
 
-  it("flag off, not an admin: ?wizard=1 shows the long form and every wizard step is refused (404), nothing saved", async () => {
-    await setWizardFlag(false);
-    expect(await showsWizard(owner, { wizard: "1" })).toBe(false);
-    expect(await showsWizard(owner, {})).toBe(false);
-    expect(await showsWizard({ role: "OPERATOR" }, { wizard: "1" })).toBe(false);
-    expect(await wizardAvailableFor(owner)).toBe(false);
-    await expect(requireWizardAvailable(owner)).rejects.toMatchObject({ code: "NOT_FOUND" });
-
-    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    as(owner, "CUSTOMER");
-    for (const r of routes) {
-      const res = await r();
-      expect(res.status).toBe(404);
-      expect(res.body.error.details.reason).toBe("FEATURE_NOT_AVAILABLE");
-    }
-    const [draft] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id));
-    expect(draft.details).not.toHaveProperty("name");
-    expect(draft.status).toBe("OPEN");
-    expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
-  });
-
-  it("flag off, not an admin: the step-1 GSTIN and PAN checks are refused too, before any government call (D-106)", async () => {
-    await setWizardFlag(false);
-    let sourceCalls = 0;
-    const mock = createMockAdapter();
-    setKycAdapterForTests({ ...mock, verify: async (req) => ((sourceCalls += 1), mock.verify(req)) });
+  it("every owner gets the wizard with no flag row at all: verify, owner, address, pin, details", async () => {
     as(owner, "CUSTOMER");
     const gst = await call(gstinRoute, "/api/shops/registration-draft/gstin", { method: "POST", body: { gstin: gstinFor(COMPANY_PAN), consent: true } });
-    const pan = await call(panRoute, "/api/shops/registration-draft/pan", { method: "POST", body: { pan: PROPRIETOR_PAN, declaration: true, consent: true } });
-    for (const res of [gst, pan]) {
-      expect(res.status).toBe(404);
-      expect(res.body.error.details.reason).toBe("FEATURE_NOT_AVAILABLE");
-    }
-    expect(sourceCalls).toBe(0);
-    expect(await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id))).toHaveLength(0);
-
-    // An admin may still use them while the flag is off.
-    const a = await createUser({ role: "ADMIN" });
-    as({ id: a.id, email: a.email, name: a.name ?? null }, "ADMIN");
-    const allowed = await call(gstinRoute, "/api/shops/registration-draft/gstin", { method: "POST", body: { gstin: gstinFor(COMPANY_PAN), consent: true } });
-    expect(allowed.status).toBe(200);
-    expect(sourceCalls).toBeGreaterThan(0);
-  });
-
-  it("flag off, an admin: ?wizard=1 opens the wizard (without it, the long form) and the steps work", async () => {
-    await setWizardFlag(false);
-    const a = await createUser({ role: "ADMIN" });
-    const admin = { id: a.id, email: a.email, name: a.name ?? null, role: "ADMIN" as const };
-    expect(await showsWizard(admin, { wizard: "1" })).toBe(true);
-    expect(await showsWizard(admin, {})).toBe(false);
-    expect(await showsWizard(admin, { wizard: "1", form: "1" })).toBe(false);
-
-    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: admin });
-    as(admin, "ADMIN");
-    const saved = await routes[0]();
+    expect(gst.status).toBe(200);
+    const saved = await call(detailsRoute, "/api/shops/registration-draft/details", { method: "POST", body: details() });
     expect(saved.status).toBe(200);
     expect(saved.body.nextStep).toBe("PIN");
-    const udyam = await routes[1]();
-    expect(udyam.status).toBe(200);
-    expect(udyam.body.nextStep).toBe("PIN");
   });
 
-  it("flag on: everyone gets the wizard (?form=1 still the long form) and the steps work", async () => {
-    await setWizardFlag(true);
-    expect(await showsWizard(owner, {})).toBe(true);
-    expect(await showsWizard(owner, { wizard: "1" })).toBe(true);
-    expect(await showsWizard(owner, { form: "1" })).toBe(false);
-    expect(await wizardAvailableFor(owner)).toBe(true);
-
-    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
+  it("the referral screen comes first and keeps the Employee ID for the shop step", async () => {
     as(owner, "CUSTOMER");
-    const saved = await routes[0]();
-    expect(saved.status).toBe(200);
-    expect(saved.body.nextStep).toBe("PIN");
+    const answered = await call(referralRoute, "/api/shops/registration-draft/referral", { method: "POST", body: { referralCode: "", employeeId: "EMP-7" } });
+    expect(answered.status).toBe(200);
+    expect(answered.body.nextStep).toBe("IDENTITY");
+    expect(answered.body.referral.employeeId).toBe("EMP-7");
+  });
+
+  it("the retired flags cannot be switched any more", async () => {
+    const a = await createUser({ role: "ADMIN" });
+    const admin = { id: a.id, email: a.email, role: "ADMIN" as const };
+    for (const key of ["shop_onboarding_wizard_enabled", "gov_verification_auto_approval_enabled"] as const) {
+      await expect(setFeatureFlag(key, { enabled: false, districtCodes: null }, "retired (test)", admin)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    }
   });
 });

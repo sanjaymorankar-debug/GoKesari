@@ -13,6 +13,10 @@ so sellers there used the old one-page form, where PAN / GST really is last. tes
 the wizard, which checked GST / PAN before the details but behind three screens (referral, shop
 email, "documents handy?" with "upload later"), with the map pin after payment.
 
+**08-Nov-2026 17.50 IST — one flow (DI-11):** the old one-page form and the two switches
+(`shop_onboarding_wizard_enabled`, `gov_verification_auto_approval_enabled`) are retired; the wizard
+below is the only registration flow, always on.
+
 ## The new order
 
 | # | Screen (wording from the brief) | What fills it | Server step |

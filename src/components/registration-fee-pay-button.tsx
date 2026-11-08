@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Alert, Button } from "@/components/ui";
 import { formatPaiseCompact } from "@/lib/money";
@@ -11,7 +11,7 @@ import { formatPaiseCompact } from "@/lib/money";
  * Busy from the first tap until the page navigates away, so a double tap
  * starts one payment (the server reuses an open one as well).
  */
-export function RegistrationFeePayButton({ shopId, amountPaise }: { shopId: string; amountPaise: number }) {
+export function RegistrationFeePayButton({ shopId, amountPaise, autoStart = false }: { shopId: string; amountPaise: number; /** Opens the payment at once (right after the wizard creates the shop, never on a retry). */ autoStart?: boolean }) {
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +35,13 @@ export function RegistrationFeePayButton({ shopId, amountPaise }: { shopId: stri
     busyRef.current = false;
     setBusy(false);
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (autoStart) void pay();
+    // Once, when the wizard has just created the shop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="space-y-3">

@@ -47,7 +47,7 @@ import { notifications, shopCategories, shopRegistrationDrafts, shops } from "@/
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
-import { setFeatureFlag } from "@/server/services/feature-flags";
+import { findLikelyDuplicate } from "@/server/dealers/attribution";
 import { finishFeeCapture } from "@/server/services/operator-limited";
 import { startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
 import { setRegistrationFee } from "@/server/services/registration-fees";
@@ -56,7 +56,6 @@ import { clearRuleCache } from "@/server/services/settings";
 import { ABANDONED_AFTER_MS, submitDraftGstin, submitDraftPan } from "@/server/services/shop-registration-draft";
 import {
   answerDocumentsReady,
-  answerDraftDocument,
   answerDraftReferral,
   confirmDraftEmailCode,
   getWizardDraft,
@@ -65,7 +64,6 @@ import {
   saveDraftDetails,
   saveDraftLocation,
   saveDraftOwner,
-  submitDraftDocument,
   submitDraftForPayment,
   type DraftShopDetails,
 } from "@/server/services/shop-registration-wizard";
@@ -77,7 +75,6 @@ const gstinFor = (pan: string) => {
   const first14 = `27${pan}1Z`;
   return first14 + gstinCheckChar(first14);
 };
-const FSSAI = "11521998000123";
 
 let owner: { id: string; role: "CUSTOMER"; email: string; name: string | null };
 let admin: { id: string; role: "ADMIN"; email: string };
@@ -294,19 +291,19 @@ describe("Flow 1 with a GSTIN", () => {
     expect(await shopRow(view.shop!.id)).toMatchObject({ email: "orders@kirana.example" });
   });
 
-  it("a food shop is asked for its FSSAI after the shop step, and goes live once it is verified", async () => {
+  it("a food shop goes live without its FSSAI and is told it has 90 days (DI-14)", async () => {
     await verifyGstin(gstinFor("ABCPK5678L"));
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
-    let view = await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
-    expect(view).toMatchObject({ foodShop: true, nextStep: "FSSAI" });
-    view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    expect(view.nextStep).toBe("FSSAI");
-    view = await submitDraftDocument({ actor: owner, docType: "FSSAI", number: FSSAI, consentGiven: true });
-    expect(view).toMatchObject({ nextStep: "REVIEW", fssai: { check: { status: "VERIFIED" } } });
+    const view = await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
+    expect(view).toMatchObject({ foodShop: true, nextStep: "REVIEW", licenceGraceDays: 90 });
     const submitted = await submitDraftForPayment({ actor: owner });
     await payInSandbox(submitted.shop!.id);
-    expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", fssaiLicenseNumber: FSSAI });
+    expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
+    const [notice] = await db.select().from(notifications).where(eq(notifications.type, "shop.licence_grace_notice"));
+    expect(notice.body).toContain("FSSAI licence is mandatory for this type of shop");
+    expect(notice.body).toContain("grace period of 90 days");
+    expect(notice.body).toContain("Otherwise, your shop will be suspended.");
   });
 });
 
@@ -383,6 +380,21 @@ describe("Flow 2: an existing customer clicks Sell", () => {
     expect(view.id).not.toBe(old.id);
   });
 
+  it("verified and paid goes live even when another account has a shop of the same name and PIN (DI-13)", async () => {
+    const other = await createUser({ role: "SHOP_OWNER" });
+    const fields = shopFields();
+    const twin = await createShop(other.id, { name: fields.name, status: "APPROVED" });
+    await db.update(shops).set({ pincode: ADDRESS.pincode, latitude: null, longitude: null }).where(eq(shops.id, twin.id));
+    await verifyGstin(gstinFor("ABCPK5678L"));
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    await saveDraftDetails({ actor: owner, details: fields });
+    const submitted = await submitDraftForPayment({ actor: owner });
+    expect(await findLikelyDuplicate(submitted.shop!.id)).toMatchObject({ kind: "DUPLICATE", reasons: expect.arrayContaining(["NAME_SAME_PIN"]) });
+    await payInSandbox(submitted.shop!.id);
+    expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
+  });
+
   it("within the week the same registration resumes where it was", async () => {
     await verifyGstin();
     await saveDraftOwner({ actor: owner, ownerName: "Ganesh Patil" });
@@ -392,7 +404,6 @@ describe("Flow 2: an existing customer clicks Sell", () => {
 
 describe("HTTP routes", () => {
   it("referral → email (changed) answer with the next step; 'upload later' is refused", async () => {
-    await setFeatureFlag("shop_onboarding_wizard_enabled", { enabled: true, districtCodes: null }, "wizard flag (test)", admin);
     state.session = { user: { id: owner.id, email: owner.email, name: owner.name, image: null, role: "CUSTOMER", status: "ACTIVE" } };
     const referral = await call(referralRoute, "/api/shops/registration-draft/referral", { method: "POST", body: { referralCode: "" } });
     expect(referral.status).toBe(200);

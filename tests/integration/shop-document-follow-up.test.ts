@@ -23,6 +23,7 @@ import {
   sellerVerifications,
   shopDocumentReminders,
   shopDocumentWaivers,
+  shopRegistrationDrafts,
   shops,
 } from "@/server/db/schema";
 import { clearRuleCache, setRule } from "@/server/services/settings";
@@ -182,6 +183,27 @@ describe("the 1st / 15th follow-up", () => {
     expect((await shopRow(shop.id)).status).toBe("SUSPENDED");
     const [suspended] = await noticesOf(owner.id, "shop.suspended");
     expect(suspended.body).toMatch(/Shop documents not submitted within 90 days of approval without them: GST number \(GSTIN\), Shop Act/);
+  });
+
+  it("a pharmacy from the wizard has 90 days from going live for its drug licence, then is suspended; owner and staff are told (DI-14)", async () => {
+    const { owner, shop } = await liveShopMissingDocuments();
+    await verifySellerDocuments(shop.id, ["GSTIN", "SHOP_ACT"]);
+    await db.update(shops).set({ shopType: "PHARMACY", approvedAt: new Date("2026-11-01T00:00:00Z") }).where(eq(shops.id, shop.id));
+    await db.insert(shopRegistrationDrafts).values({ ownerId: owner.id, shopId: shop.id, status: "COMPLETED" });
+    for (const day of ["2026-11-15", "2026-12-01", "2026-12-15", "2027-01-01", "2027-01-15"]) {
+      expect(await runShopDocumentFollowUp(day, new Date(`${day}T00:30:00Z`))).toMatchObject({ reminded: 1, suspended: 0 });
+    }
+    expect((await shopRow(shop.id)).status).toBe("APPROVED");
+    const [first] = await noticesOf(owner.id, "shop.documents_follow_up");
+    expect(first.body).toContain("Drug licence");
+    expect(await runShopDocumentFollowUp("2027-02-01", new Date("2027-02-01T00:30:00Z"))).toMatchObject({ suspended: 1, reminded: 0 });
+    expect((await shopRow(shop.id)).status).toBe("SUSPENDED");
+    expect(await noticesOf(owner.id, "shop.suspended")).toHaveLength(1);
+    for (const person of [admin, operator]) {
+      const [notice] = await noticesOf(person.id, "support.shop_suspended_documents");
+      expect(notice.body).toContain("Drug licence");
+      expect(await emailsOf(person.id, "support.shop_suspended_documents")).toHaveLength(1);
+    }
   });
 
   it("a shop approved with a waiver has 3 months from its latest waiver; a new waiver gives 3 more", async () => {

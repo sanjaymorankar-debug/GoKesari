@@ -15,7 +15,7 @@ vi.mock("@/server/auth", () => ({ auth: async () => null, handlers: {}, signIn: 
 import { db } from "@/server/db";
 import { inventoryMovements } from "@/server/db/schema";
 import { createImportJob, getJobView, runCommit, runParse, startCommit } from "@/server/services/product-import";
-import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
+import { createCategory, createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 const ROWS = 5_000;
 
@@ -28,6 +28,8 @@ describe("load", () => {
   it(`imports ${ROWS} rows within the time budget`, { timeout: 15 * 60_000 }, async () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id);
+    // Category is mandatory and must be in the category master (owner, 08 Nov 2026).
+    await createCategory({ name: "Snacks" });
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Products");
     ws.addRow(["SKU", "Product Name", "Brand", "MRP", "Selling Price", "Quantity", "Category"]);

@@ -1037,6 +1037,13 @@
       "when": 1793264500000,
       "tag": "0147_scheduled_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1793264600000,
+      "tag": "0148_wizard_licence_grace",
+      "breakpoints": true
     }
   ]
 }

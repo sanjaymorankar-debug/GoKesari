@@ -957,7 +957,7 @@ async function autoApproveShopIfReadyInner(shopId: string): Promise<boolean> {
 async function approveOnGovVerification(shopId: string): Promise<boolean> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop || shop.status !== "PENDING_APPROVAL" || shop.deletedAt) return false;
-  if (!(await govAutoApprovalApplies(shop))) return false;
+  if (!(await govAutoApprovalApplies())) return false;
   const decision = await decideGovAutoApproval(shop);
   if (!decision.approve) {
     await logGovDecision(shopId, "PENDING", decision.reasons, decision.evidence);
@@ -1529,6 +1529,16 @@ export async function getPublicShopBySlug(
       isNull(shops.deletedAt),
     ),
   });
+}
+
+/** A suspended shop's name for its public page, which says so instead of "not found". */
+export async function getSuspendedShopNameBySlug(slug: string): Promise<string | null> {
+  const [row] = await db
+    .select({ name: shops.name })
+    .from(shops)
+    .where(and(eq(shops.slug, slug), eq(shops.status, "SUSPENDED"), isNull(shops.deletedAt)))
+    .limit(1);
+  return row?.name ?? null;
 }
 
 async function listShopsForOwnerUncached(ownerId: string): Promise<Shop[]> {

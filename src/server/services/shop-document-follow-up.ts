@@ -25,9 +25,10 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { addDays, formatDisplayDate, todayIn, type IsoDate } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { SELLER_DOC_LABELS, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
+import { mandatoryLicenceFor } from "@/lib/shop-licences";
 import type { RuleValue } from "@/server/config/rules";
 import { db } from "@/server/db";
-import { sellerVerifications, shopDocumentReminders, shopDocumentWaivers, shops, type Shop } from "@/server/db/schema";
+import { sellerVerifications, shopDocumentReminders, shopDocumentWaivers, shopLegalDocuments, shopRegistrationDrafts, shops, users, type Shop } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { notify } from "./notifications";
@@ -55,9 +56,13 @@ export interface ShopDocumentFollowUpResult {
 }
 
 export interface ShopMissingDocuments {
-  shop: Pick<Shop, "id" | "name" | "registrationNumber" | "ownerId" | "ownerName" | "phone" | "city" | "status" | "approvedAt" | "documentsPromisedAt" | "documentsDueAt">;
+  shop: Pick<Shop, "id" | "name" | "registrationNumber" | "ownerId" | "ownerName" | "phone" | "city" | "status" | "approvedAt" | "documentsPromisedAt" | "documentsDueAt" | "shopType">;
   /** Documents the owner has to provide. */
   missing: SellerDocType[];
+  /** A wizard shop's drug licence or professional registration, not uploaded yet (labels). */
+  missingLicences: string[];
+  /** Registered through the wizard: graceDays from going live, however many reminders that is. */
+  wizardRegistered: boolean;
   /** Documents waiting for GoKesari's check. */
   withTeam: SellerDocType[];
   remindersSent: number;
@@ -86,6 +91,7 @@ export async function shopsMissingDocuments(
         approvedAt: shops.approvedAt,
         documentsPromisedAt: shops.documentsPromisedAt,
         documentsDueAt: shops.documentsDueAt,
+        shopType: shops.shopType,
       },
       sellsFood: sql<boolean>`shop_sells_food(${shops.id}, ${shops.shopType}::text)`,
     })
@@ -97,7 +103,7 @@ export async function shopsMissingDocuments(
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
     const ids = chunk.map((r) => r.shop.id);
-    const [documents, reminders] = await Promise.all([
+    const [documents, reminders, licences, drafts] = await Promise.all([
       db
         .select({ shopId: sellerVerifications.shopId, docType: sellerVerifications.docType, status: sellerVerifications.status })
         .from(sellerVerifications)
@@ -106,18 +112,34 @@ export async function shopsMissingDocuments(
         .select({ shopId: shopDocumentReminders.shopId, sentOn: shopDocumentReminders.sentOn })
         .from(shopDocumentReminders)
         .where(inArray(shopDocumentReminders.shopId, ids)),
+      db
+        .select({ shopId: shopLegalDocuments.shopId, docType: shopLegalDocuments.docType, status: shopLegalDocuments.status })
+        .from(shopLegalDocuments)
+        .where(inArray(shopLegalDocuments.shopId, ids)),
+      db
+        .select({ shopId: shopRegistrationDrafts.shopId })
+        .from(shopRegistrationDrafts)
+        .where(and(inArray(shopRegistrationDrafts.shopId, ids), inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"]))),
     ]);
+    const wizardShops = new Set(drafts.map((d) => d.shopId));
     for (const row of chunk) {
       const status = new Map(documents.filter((d) => d.shopId === row.shop.id).map((d) => [d.docType, d.status as string]));
       const notVerified = SELLER_DOC_TYPES.filter(
         (d) => isMandatory(d, { isFoodBusiness: row.sellsFood }) && status.get(d) !== "VERIFIED",
       );
-      if (notVerified.length === 0) continue;
+      const wizardRegistered = wizardShops.has(row.shop.id);
+      const licence = wizardRegistered ? mandatoryLicenceFor(row.shop.shopType) : null;
+      // FSSAI is a seller document, counted above.
+      const licenceMissing =
+        licence && licence.docType !== "FSSAI" && !licences.some((l) => l.shopId === row.shop.id && l.docType === licence.docType && (l.status === "SUBMITTED" || l.status === "APPROVED"));
+      if (notVerified.length === 0 && !licenceMissing) continue;
       const sent = reminders.filter((r) => r.shopId === row.shop.id).map((r) => String(r.sentOn)).sort();
       out.push({
         shop: row.shop,
         missing: notVerified.filter((d) => !WITH_THE_TEAM.has(status.get(d) ?? "")),
         withTeam: notVerified.filter((d) => WITH_THE_TEAM.has(status.get(d) ?? "")),
+        missingLicences: licenceMissing ? [licence.label.en] : [],
+        wizardRegistered,
         remindersSent: sent.length,
         lastReminderOn: sent.at(-1) ?? null,
         overdue: row.shop.documentsDueAt !== null && row.shop.documentsDueAt.getTime() < now,
@@ -146,7 +168,8 @@ export async function runShopDocumentFollowUp(
   result.acting = true;
 
   const candidates = await shopsMissingDocuments();
-  const chased = new Set(candidates.filter((c) => c.missing.length > 0).map((c) => c.shop.id));
+  const isChased = (c: ShopMissingDocuments) => c.missing.length > 0 || c.missingLicences.length > 0;
+  const chased = new Set(candidates.filter(isChased).map((c) => c.shop.id));
   // Documents complete (or only with the team), or the shop no longer live: the count starts again.
   const counted = await db.selectDistinct({ shopId: shopDocumentReminders.shopId }).from(shopDocumentReminders);
   const done = counted.map((r) => r.shopId).filter((id) => !chased.has(id));
@@ -155,12 +178,12 @@ export async function runShopDocumentFollowUp(
   }
   result.cleared = done.length;
 
-  const lastWaiver = await latestWaivers(candidates.filter((c) => c.missing.length > 0).map((c) => c.shop.id));
+  const lastWaiver = await latestWaivers(candidates.filter(isChased).map((c) => c.shop.id));
   for (const c of candidates) {
-    if (c.missing.length === 0) continue;
+    if (!isChased(c)) continue;
     result.checked += 1;
     try {
-      const outcome = await followUpShop(c, today, now, rule, graceUntil(c.shop, lastWaiver.get(c.shop.id) ?? null, rule.graceDays));
+      const outcome = await followUpShop(c, today, now, rule, graceUntil(c.shop, lastWaiver.get(c.shop.id) ?? null, rule.graceDays, c.wizardRegistered));
       if (outcome === "REMINDED") result.reminded += 1;
       else if (outcome === "SUSPENDED") result.suspended += 1;
       else if (outcome === "WAITING") result.waiting += 1;
@@ -196,9 +219,12 @@ export function graceUntil(
   shop: Pick<Shop, "approvedAt" | "documentsPromisedAt" | "documentsDueAt">,
   lastWaiverAt: Date | null,
   graceDays: number,
+  /** Registered through the wizard (owner, 08-Nov-2026): graceDays from going live. */
+  wizardRegistered = false,
 ): Date | null {
   const ends: number[] = [];
   const day = 24 * 60 * 60 * 1000;
+  if (wizardRegistered && shop.approvedAt) ends.push(shop.approvedAt.getTime() + graceDays * day);
   if (lastWaiverAt) ends.push(lastWaiverAt.getTime() + graceDays * day);
   if (shop.documentsPromisedAt) {
     const from = shop.approvedAt ?? shop.documentsPromisedAt;
@@ -206,6 +232,25 @@ export function graceUntil(
     if (shop.documentsDueAt) ends.push(shop.documentsDueAt.getTime());
   }
   return ends.length > 0 ? new Date(Math.max(...ends)) : null;
+}
+
+/** Admins and operators hear of an automatic suspension too (owner, 08-Nov-2026); it never stops the run. */
+async function tellStaffOfSuspension(shop: ShopMissingDocuments["shop"], documents: string, today: IsoDate): Promise<void> {
+  try {
+    const staff = await db.select({ id: users.id }).from(users).where(and(inArray(users.role, ["ADMIN", "OPERATOR"]), eq(users.status, "ACTIVE")));
+    for (const person of staff) {
+      await notify({
+        userId: person.id,
+        type: NOTIFICATION_TYPES.SUPPORT_SHOP_SUSPENDED_DOCUMENTS,
+        vars: { shopName: shop.name, documents },
+        actionUrl: `/admin/shops/${shop.id}`,
+        dedupeKey: `shop-documents-suspended:${shop.id}:${today}:${person.id}`,
+        mandatory: true,
+      });
+    }
+  } catch (error) {
+    console.error("[shop-document-follow-up] staff notice failed", shop.id, error);
+  }
 }
 
 async function followUpShop(
@@ -217,7 +262,7 @@ async function followUpShop(
 ): Promise<"REMINDED" | "SUSPENDED" | "WAITING" | "DONE_TODAY"> {
   const { shop } = c;
   if (c.lastReminderOn === today) return "DONE_TODAY";
-  const labels = c.missing.map((d) => SELLER_DOC_LABELS[d]).join(", ");
+  const labels = [...c.missing.map((d) => SELLER_DOC_LABELS[d]), ...c.missingLicences].join(", ");
   const max = rule.remindersBeforeSuspension;
   const graceOver = grace !== null && grace.getTime() <= now.getTime();
 
@@ -238,6 +283,7 @@ async function followUpShop(
     );
     // A reinstated shop starts a fresh count.
     await db.delete(shopDocumentReminders).where(eq(shopDocumentReminders.shopId, shop.id));
+    await tellStaffOfSuspension(shop, labels, today);
     await recordAudit({
       action: AUDIT_ACTIONS.SHOP_DOCUMENTS_FOLLOW_UP,
       entityType: "shop",
@@ -251,7 +297,7 @@ async function followUpShop(
   // The row first (committed), then the e-mail: a re-run the same day finds the row and sends nothing.
   const [row] = await db
     .insert(shopDocumentReminders)
-    .values({ shopId: shop.id, sentOn: today, reminderNo, missingDocTypes: c.missing })
+    .values({ shopId: shop.id, sentOn: today, reminderNo, missingDocTypes: [...c.missing, ...c.missingLicences] })
     .onConflictDoNothing()
     .returning({ id: shopDocumentReminders.id });
   if (!row) return "DONE_TODAY";
@@ -268,7 +314,7 @@ async function followUpShop(
       maxReminders: grace ? "" : ` of ${max}`,
       documents: labels,
       deadline: grace
-        ? `Your shop was approved before its documents; they are due by ${graceLabel}.`
+        ? `Your shop went live before its documents; they are due by ${graceLabel}.`
         : shop.documentsDueAt
           ? `You promised to provide them by ${documentsDueLabel(shop.documentsDueAt)}.`
           : "",
@@ -278,7 +324,7 @@ async function followUpShop(
           ? `This is the last reminder: if they are still missing on ${next}, your shop will be suspended automatically.`
           : `If they are still missing after reminder ${max}, your shop will be suspended automatically.`,
     },
-    actionUrl: `/shop/verification?shop=${shop.id}`,
+    actionUrl: c.missing.length === 0 ? "/shop/legal-documents" : `/shop/verification?shop=${shop.id}`,
     dedupeKey: `shop-documents-follow-up:${shop.id}:${today}`,
     mandatory: true,
   });

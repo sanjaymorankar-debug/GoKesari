@@ -11756,21 +11756,21 @@
   "method": "API",
   "preconditions": "Signed in as a shop owner",
   "steps": "1. GET /api/v1/product-imports/template?format=csv",
-  "expected": "200 text/csv named GoKesari_Product_Upload_Template.csv; the header is the Excel template's columns, including GST % and Goods Type, followed by the example row.",
+  "expected": "200 text/csv named GoKesari_Product_Upload_Template.csv; the header is the Excel template's columns (Product Name, Category, Sub-category, MRP, Selling Price, Stock Qty, Loose Item (Y/N), GST %...), followed by the three example rows.",
   "source": "docs/audit/order-payment-gst-audit.md (Phase 1, 31 Oct 2026, PR #313)"
  },
  {
   "id": "TC-OPG-002",
   "module": "Order, payment & GST",
   "features": "OPG-P1-05",
-  "title": "Excel template offers GST % and Goods Type as drop-downs",
+  "title": "Excel template offers GST %, Loose Item (Y/N) and Category as drop-downs",
   "type": "Positive",
   "priority": "P1",
   "role": "Shop Owner",
   "method": "API",
   "preconditions": "Signed in as a shop owner",
   "steps": "1. GET /api/v1/product-imports/template\n2. Open the Products sheet",
-  "expected": "The GST % column is a list holding the GST slabs (0 ... 40); Goods Type is a list of Packaged, Loose.",
+  "expected": "The GST % column is a list holding the GST slabs (0 ... 40); Loose Item (Y/N) is a list of N, Y; Category is a list from the category master (hidden Lists sheet).",
   "source": "docs/audit/order-payment-gst-audit.md (Phase 1, 31 Oct 2026, PR #313)"
  },
  {
@@ -11784,7 +11784,7 @@
   "method": "API",
   "preconditions": "Shop with listings",
   "steps": "1. GET /api/v1/shops/{shopId}/catalogue-export?format=xlsx\n2. Same with format=csv",
-  "expected": "200 for each; the file has the upload template's columns (SKU, Product Name, HSN Code, GST %, MRP, Selling Price, Quantity, Goods Type...) and one row per listing of the shop.",
+  "expected": "200 for each; the file has the upload template's columns (SKU, Product Name, Category, HSN Code, GST %, MRP, Selling Price, Stock Qty, Loose Item (Y/N), hidden GoKesari Product ID...) and one row per listing of the shop.",
   "source": "docs/audit/order-payment-gst-audit.md (Phase 1, 31 Oct 2026, PR #313)"
  },
  {
@@ -11805,14 +11805,14 @@
   "id": "TC-OPG-005",
   "module": "Order, payment & GST",
   "features": "OPG-P1-07",
-  "title": "Upload preview flags price above MRP, a non-slab GST rate and a loose good without a weight unit",
+  "title": "Upload preview rejects a price above MRP and a non-slab GST rate, and flags a loose good without a weight unit",
   "type": "Negative",
   "priority": "P0",
   "role": "Shop Owner",
   "method": "API",
   "preconditions": "Signed in as a shop owner",
-  "steps": "1. Upload a CSV with: price above MRP; GST 7%; Goods Type Loose with unit pcs\n2. Read the preview rows",
-  "expected": "Each row carries its warning (above the MRP; GST 7% is not a GST rate; kg, g, l or ml). Nothing in the shop changes until commit.",
+  "steps": "1. Upload a CSV (Category General) with: price above MRP; GST 7%; Loose Item Y with unit pcs\n2. Read the preview rows",
+  "expected": "Rows 2 and 3 are rejected (Error: Row 2: Selling Price \u20b935.00 > MRP \u20b934.00; Error: Row 3: GST 7% is not a GST rate); row 4 is ready with the warning kg, g, l or ml. Nothing in the shop changes until commit.",
   "source": "docs/audit/order-payment-gst-audit.md (Phase 1, 31 Oct 2026, PR #313)"
  },
  {
@@ -11826,7 +11826,7 @@
   "method": "API",
   "preconditions": "An import job (TC-OPG-005)",
   "steps": "1. GET /api/v1/product-imports/{jobId}/report?format=csv&rows=problems",
-  "expected": "200 CSV holding the rows with warnings or errors only, each with its message.",
+  "expected": "200 CSV holding only the 2 rejected rows, each with its reason in the Error column.",
   "source": "docs/audit/order-payment-gst-audit.md (Phase 1, 31 Oct 2026, PR #313)"
  },
  {

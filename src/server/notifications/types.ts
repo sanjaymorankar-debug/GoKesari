@@ -214,6 +214,10 @@ export const NOTIFICATION_TYPES = {
   SHOP_LEGAL_DOCUMENT_DECIDED: "shop.legal_document_decided",
   SHOP_LEGAL_DOCUMENT_EXPIRING: "shop.legal_document_expiring",
   SUPPORT_LEGAL_DOCUMENT_SUBMITTED: "support.legal_document_submitted",
+  /** To the owner when a shop of a licensed type goes live: the licence is due within the grace period. */
+  SHOP_LICENCE_GRACE_NOTICE: "shop.licence_grace_notice",
+  /** To admins and operators: a shop was suspended automatically for missing documents. */
+  SUPPORT_SHOP_SUSPENDED_DOCUMENTS: "support.shop_suspended_documents",
   /** To the account holder: the ₹1 verification of a bank account succeeded / failed. */
   BANK_ACCOUNT_VERIFIED: "wallet.bank_account_verified",
   BANK_ACCOUNT_VERIFICATION_FAILED: "wallet.bank_account_verification_failed",

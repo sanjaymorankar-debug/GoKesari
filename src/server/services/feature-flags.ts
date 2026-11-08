@@ -37,6 +37,13 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { districtCodeForPincode, listDistricts, listStates } from "./geo-areas";
 
+/**
+ * Flags no longer switched from Admin → Feature flags (owner brief 08-Nov-2026: one shop
+ * registration flow). The wizard is the only way to register a shop and instant approval
+ * always applies; the keys stay in the schema so old rows and the change log still read.
+ */
+export const RETIRED_FEATURE_FLAGS: readonly FeatureFlagKey[] = ["shop_onboarding_wizard_enabled", "gov_verification_auto_approval_enabled"];
+
 export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   dealer_programme_enabled: "Dealer programme",
   gov_verification_auto_approval_enabled: "Instant approval on GST/PAN verification + payment",
@@ -217,6 +224,7 @@ export async function setFeatureFlag(
 ): Promise<{ flag: FeatureFlagView; changed: boolean }> {
   if (actor.role !== "ADMIN") throw forbidden("Only an admin can change feature flags.");
   if (!(FEATURE_FLAG_KEYS as readonly string[]).includes(key)) throw validationFailed("Unknown feature flag.");
+  if (RETIRED_FEATURE_FLAGS.includes(key)) throw validationFailed("This flag is retired: shop registration has one flow, always on.");
   const why = reason.trim();
   if (why.length < 5) throw validationFailed("Say why you are changing this flag.", { fields: { reason: "Give a reason (at least 5 characters)." } });
 

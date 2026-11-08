@@ -1,7 +1,8 @@
 /**
  * Instant approval on government GST/PAN verification + online payment
- * (docs/dealer-programme, GKS-SH-004), behind the flag
- * gov_verification_auto_approval_enabled (per district, from the shop's PIN).
+ * (docs/dealer-programme, GKS-SH-004). Always on since the owner brief of
+ * 08-Nov-2026 (one registration flow); the flag gov_verification_auto_approval_enabled
+ * that used to switch it per district is retired.
  *
  * A pending shop is approved with no admin step when ALL hold:
  *   - its GSTIN was verified with the government source (status active), or,
@@ -15,8 +16,8 @@
  *     payment gateway with a signature-checked webhook (ONLINE / CASHFREE /
  *     RAZORPAY payments). A fee recorded by staff by hand, or a "success" seen
  *     only in the browser, does not count;
- *   - no other owner's shop already has this GSTIN, PAN or mobile (a likely
- *     duplicate waits for an admin);
+ *   - no other shop already has this GSTIN or PAN (a shop not registered through the
+ *     wizard is also held for the same mobile or a similar name nearby);
  *   - every document the approval needs is in place. A shop registered through the
  *     onboarding wizard (owner decision 29 Oct 2026, "follow the brief"; 0118) needs only
  *     the GSTIN (or PAN) above and FSSAI for a food shop — the Shop Act and the rest are
@@ -38,8 +39,6 @@ import { SELLER_DOC_LABELS } from "@/lib/kyc/doc-formats";
 import { db } from "@/server/db";
 import { sellerVerifications, shopAutoApprovalLog, shopPayments, shops, type Shop } from "@/server/db/schema";
 import { findLikelyDuplicate } from "@/server/dealers/attribution";
-import { flagCoversDistrict, getFeatureFlag } from "./feature-flags";
-import { districtCodeForPincode } from "./geo-areas";
 import { getRule } from "./settings";
 import { deferredReviewDocTypes, isDocumentsLaterShop, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
 
@@ -53,15 +52,12 @@ export interface GovDecision {
 }
 
 /**
- * Is the instant-approval rule on for this shop? Its district's flag decides — except for a
- * shop registered through the onboarding wizard, which is approved this way in every district
- * (owner decision B, 28 Oct 2026; docs/shop-onboarding-wizard-2026-10).
+ * Is the instant-approval rule on for this shop? Yes, for every shop in every district (owner
+ * decision B, 28 Oct 2026, and the one-flow brief of 08-Nov-2026). Kept as a function so the
+ * callers read the same as before.
  */
-export async function govAutoApprovalApplies(shop: Pick<Shop, "id" | "pincode">): Promise<boolean> {
-  if (await isWizardShop(shop.id)) return true;
-  const flag = await getFeatureFlag("gov_verification_auto_approval_enabled");
-  if (!flag.enabled) return false;
-  return flagCoversDistrict(flag, await districtCodeForPincode(shop.pincode));
+export async function govAutoApprovalApplies(): Promise<boolean> {
+  return true;
 }
 
 /** The shop was created from an onboarding-wizard draft. */
@@ -157,7 +153,11 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
   // Another owner's shop with the same GSTIN, PAN or mobile.
   const duplicate = await findLikelyDuplicate(shop.id);
   evidence.duplicate = duplicate;
-  if (duplicate.kind === "DUPLICATE") reasons.push(`likely duplicate of another shop (${duplicate.reasons.join(", ").toLowerCase()})`);
+  // Owner, 08-Nov-2026: verified and paid means live. A registration through the wizard is held only when
+  // another shop has the same GSTIN or PAN; a similar name nearby or a shared mobile is recorded, not held.
+  const heldOnlyForIdentity = await isWizardShop(shop.id);
+  const holds = duplicate.kind === "DUPLICATE" && (!heldOnlyForIdentity || duplicate.reasons.some((r) => r === "GSTIN" || r === "PAN"));
+  if (holds) reasons.push(`likely duplicate of another shop (${duplicate.reasons.join(", ").toLowerCase()})`);
 
   return { approve: reasons.length === 0, reasons, evidence };
 }

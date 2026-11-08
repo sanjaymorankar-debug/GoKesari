@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 import { ReferralRequestDialog } from "@/components/referral-request-dialog";
@@ -9,6 +9,8 @@ import { RegistrationFeePayButton } from "@/components/registration-fee-pay-butt
 import { ShopCategoryPicker, type PickerCategory } from "@/components/shop-category-picker";
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
 import { useShopTypes } from "@/components/use-shop-types";
+import { tr, type Lang } from "@/lib/board/i18n";
+import { licenceGraceMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
 import { GST_DECLARATION_TEXT, SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
 import { SELLER_DOC_LABELS, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { formatRupeesIndian, turnoverSlab, turnoverSlabLabel, type TurnoverFeeRule } from "@/lib/registration-fee";
@@ -19,15 +21,12 @@ import { StarterShelf } from "./starter-shelf";
  * Shop onboarding wizard — owner brief 08-Nov-2026 (docs/shop-onboarding-identity-first-2026-11):
  * identity first, and what the government record says fills the rest.
  *
- *   1 Verify  "Verify your business": the referral code and "Do you have a GST number?" — the
- *             GSTIN (its PAN is taken from it) or, without one, the PAN. Nothing goes on until it
- *             is verified. The owner name is asked only when the record gave none.
- *   2 Address "Confirm your shop address", pre-filled from the record
- *   3 Map pin "Mark your shop location on the map"
- *   4 Shop    the shop name (pre-filled from the GST trade / legal name), type, phone, turnover
- *             (FSSAI here for a food shop)
- *   5 Pay     the registration fee
- *   6 Live    "Your onboarding is complete…" and Add Products
+ *   1 Sign in  (the page's sign-in card; a signed-in customer starts at 2)
+ *   2 Verify   only the referral code and the GSTIN — or "I don't have GST, use PAN". Nothing else
+ *              is asked until they are verified; the owner name only when the record gave none
+ *   3 Address  address, map pin, then contact number, shop name, type and turnover
+ *   4 Pay      the registration fee
+ *   5 Live     the completion message and Add products
  *   7 Products categories, then products
  *
  * Every answer from the server is the whole wizard (services/shop-registration-wizard.ts), so the
@@ -44,7 +43,6 @@ type Step =
   | "ADDRESS"
   | "PIN"
   | "SHOP"
-  | "FSSAI"
   | "REVIEW"
   | "PAYMENT"
   | "WAITING"
@@ -118,7 +116,7 @@ export interface WizardState {
   fssai: DocView & { required: boolean };
   shopAct: DocView;
   location: { latitude: string; longitude: string; address: string | null } | null;
-  referral: { answered: boolean; code: string | null; required: boolean };
+  referral: { answered: boolean; code: string | null; required: boolean; employeeId: string | null };
   email: { account: string | null; shop: string | null; confirmed: boolean };
   documentsLater: boolean | null;
   documents: {
@@ -135,25 +133,21 @@ export interface WizardState {
   /** The fee covers this many months and then renews (rule shopMembership). */
   membershipMonths: number;
   setup: { location: boolean; categories: boolean; products: boolean } | null;
+  licenceGraceDays: number;
   nextStep: Step;
 }
 
 /**
  * The registration's steps, always shown at the top of the page (Theme 1 Tile Board) — the one
- * checklist on the screen. Minutes per tile (Phase 2, F4): the five before payment add up to the
- * 5-minute target to go live.
+ * checklist on the screen.
  */
 const TILES = [
-  { n: 1, label: "Verify", icon: "🛡️", minutes: 1 },
-  { n: 2, label: "Address", icon: "🏠", minutes: 1 },
-  { n: 3, label: "Map pin", icon: "📍", minutes: 1 },
-  { n: 4, label: "Shop name", icon: "🏪", minutes: 1 },
-  { n: 5, label: "Pay", icon: "💳", minutes: 1 },
-  { n: 6, label: "Live", icon: "🚀", minutes: 0 },
-  { n: 7, label: "Products", icon: "📦", minutes: 2 },
+  { n: 1, label: { en: "Sign in", hi: "साइन इन", mr: "साइन इन" }, icon: "🔐" },
+  { n: 2, label: { en: "Verify", hi: "सत्यापन", mr: "पडताळणी" }, icon: "🛡️" },
+  { n: 3, label: { en: "Address", hi: "पता", mr: "पत्ता" }, icon: "📍" },
+  { n: 4, label: { en: "Pay", hi: "भुगतान", mr: "पेमेंट" }, icon: "💳" },
+  { n: 5, label: { en: "Live", hi: "लाइव", mr: "लाइव्ह" }, icon: "🚀" },
 ] as const;
-/** The last tile before the shop goes live. */
-const PAY_TILE = 5;
 
 /** The tile a wizard step belongs to. */
 function tileOf(step: Step): number {
@@ -162,26 +156,23 @@ function tileOf(step: Step): number {
     // Only a mobile-only account (no email) or an owner changing it sees the email screen.
     case "EMAIL":
     case "OWNER":
-      return 1;
-    case "ADDRESS":
       return 2;
+    case "ADDRESS":
     case "PIN":
-      return 3;
     case "SHOP":
-    case "FSSAI":
-      return 4;
+      return 3;
     case "REVIEW":
     case "PAYMENT":
-      return 5;
+      return 4;
     case "WAITING":
     case "LIVE":
     case "LOCATION":
-      return 6;
+      return 5;
     case "CATEGORY":
     case "PRODUCTS":
-      return 7;
+      return 6;
     case "DONE":
-      return 8;
+      return 7;
   }
 }
 
@@ -190,12 +181,9 @@ function stepForTile(n: number, state: WizardState): Step | null {
   const open = state.status === "OPEN";
   const approved = state.shop?.status === "APPROVED";
   const verified = state.canContinue && state.referral.answered;
-  if (open && n === 1) return "IDENTITY";
-  if (open && n === 2 && verified && state.ownerName) return "ADDRESS";
-  if (open && n === 3 && verified && state.address && tileOf(state.nextStep) > 2) return "PIN";
-  if (open && n === 4 && verified && state.location) return "SHOP";
-  if (approved && n === 6) return "LIVE";
-  if (approved && n === 7) return state.setup?.categories ? "PRODUCTS" : "CATEGORY";
+  if (open && n === 2) return "IDENTITY";
+  if (open && n === 3 && verified && state.ownerName) return "ADDRESS";
+  if (approved && n === 5) return "LIVE";
   return null;
 }
 
@@ -300,24 +288,19 @@ function StepCard({ title, intro, children }: { title: string; intro?: ReactNode
   );
 }
 
-function TileSteps({ step, state, onOpen }: { step: Step; state: WizardState | null; onOpen: (s: Step) => void }) {
+function TileSteps({ step, state, onOpen, lang }: { step: Step; state: WizardState | null; onOpen: (s: Step) => void; lang: Lang }) {
   const at = tileOf(step);
-  // "About N min left" (onboarding Phase B, G21): the rough minutes of the tiles still ahead —
-  // to go live before payment, to the first products after it.
-  const ahead = TILES.filter((t) => t.n >= at && (at <= PAY_TILE ? t.n <= PAY_TILE : t.n > PAY_TILE));
-  const minutes = ahead.reduce((sum, t) => sum + t.minutes, 0);
   const shown = Math.min(at, TILES.length);
   return (
     <div className="space-y-1.5">
       {at <= TILES.length ? (
         <p className="text-sm text-ink-600" data-testid="registration-progress">
           <strong className="text-ink-900">
-            Step {shown} of {TILES.length}
+            {tr({ en: "Step", hi: "चरण", mr: "टप्पा" }, lang)} {shown} {lang === "en" ? "of" : "/"} {TILES.length}
           </strong>
-          {minutes > 0 ? ` · about ${minutes} min ${at <= PAY_TILE ? "to go live" : "to your first products"}` : null}
         </p>
       ) : null}
-      <ol className="grid grid-cols-4 gap-1.5 sm:grid-cols-7 sm:gap-2" aria-label="Registration steps" data-testid="registration-tiles">
+      <ol className="grid grid-cols-5 gap-1.5 sm:gap-2" aria-label="Registration steps" data-testid="registration-tiles">
         {TILES.map((t) => {
           const done = t.n < at;
           const current = t.n === at;
@@ -333,7 +316,7 @@ function TileSteps({ step, state, onOpen }: { step: Step; state: WizardState | n
                 {done ? "✓" : t.icon}
               </span>
               <span className="mt-0.5 block text-xs font-semibold leading-tight">
-                {t.n}. {t.label}
+                {t.n}. {tr(t.label, lang)}
               </span>
             </>
           );
@@ -360,6 +343,7 @@ export function OnboardingWizard({
   dealerProgramme,
   initialReferralCode = null,
   referralRequired = false,
+  lang = "en",
 }: {
   initial: WizardState | null;
   initialCategories?: PickerCategory[];
@@ -368,6 +352,7 @@ export function OnboardingWizard({
   initialReferralCode?: string | null;
   /** Before the draft exists: the admin's setting referral_required_shop. */
   referralRequired?: boolean;
+  lang?: Lang;
 }) {
   const [state, setState] = useState<WizardState | null>(initial);
   // The owner may look back at a finished step; null = the step the server says is next.
@@ -380,6 +365,8 @@ export function OnboardingWizard({
   const [fields, setFields] = useState<Record<string, string>>({});
 
   const step: Step = viewing ?? state?.nextStep ?? "IDENTITY";
+  // The payment opens by itself only right after "Create my shop and pay", never on a return or retry.
+  const [openPayment, setOpenPayment] = useState(false);
 
   async function send(path: string, body?: unknown, method: "POST" | "PUT" | "PATCH" = "POST"): Promise<boolean> {
     if (busyRef.current) return false;
@@ -398,6 +385,7 @@ export function OnboardingWizard({
     setState(result.data);
     setViewing(null);
     setNotice(noticeFor(path, result.data));
+    if (path.endsWith("/submit") && result.data.nextStep === "PAYMENT") setOpenPayment(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
     return true;
   }
@@ -422,7 +410,7 @@ export function OnboardingWizard({
 
   return (
     <div className="space-y-3" data-registration-board>
-      <TileSteps step={step} state={state} onOpen={setViewing} />
+      <TileSteps step={step} state={state} onOpen={setViewing} lang={lang} />
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {notice && !error && step !== "IDENTITY" ? <Alert tone="warning">{notice}</Alert> : null}
 
@@ -431,10 +419,12 @@ export function OnboardingWizard({
           state={state}
           initialReferralCode={initialReferralCode}
           referralRequired={state?.referral.required ?? referralRequired}
+          dealerProgramme={dealerProgramme}
           busy={busy}
           fields={fields}
           send={send}
           next={() => setViewing(null)}
+          lang={lang}
         />
       ) : null}
       {step === "EMAIL" && state ? <EmailStep state={state} busy={busy} fields={fields} send={send} back={back(state.status === "OPEN" && state.details ? "SHOP" : "IDENTITY")} /> : null}
@@ -442,30 +432,16 @@ export function OnboardingWizard({
       {step === "ADDRESS" && state ? <AddressStep state={state} busy={busy} fields={fields} send={send} back={back(state.prefill.ownerName ? "IDENTITY" : "OWNER")} /> : null}
       {step === "PIN" && state ? <PinStep state={state} busy={busy} fields={fields} send={send} back={back("ADDRESS")} /> : null}
       {step === "SHOP" && state ? (
-        <ShopStep state={state} busy={busy} fields={fields} send={send} dealerProgramme={dealerProgramme} changeEmail={() => setViewing("EMAIL")} back={back("PIN")} />
-      ) : null}
-      {step === "FSSAI" && state ? (
-        <OptionalDocStep
-          docType="FSSAI"
-          title="4. FSSAI licence"
-          question="Do you have an FSSAI licence or registration? It is required for shops that sell food (dairy, bakery, sweets, grocery, restaurants)."
-          placeholder="14-digit FSSAI number"
-          required={state.fssai.required}
-          doc={state.fssai}
-          busy={busy}
-          fields={fields}
-          send={send}
-          back={back("SHOP")}
-        />
+        <ShopStep state={state} busy={busy} fields={fields} send={send} changeEmail={() => setViewing("EMAIL")} back={back("PIN")} lang={lang} />
       ) : null}
       {step === "REVIEW" && state ? <ReviewStep state={state} busy={busy} send={send} goTo={setViewing} /> : null}
       {step === "PAYMENT" && state?.shop ? (
-        <StepCard title="5. Pay the registration fee" intro="Pay by UPI or card. Your shop goes live as soon as the payment is confirmed.">
+        <StepCard title="Pay the registration fee" intro="Pay by UPI or card. Your shop goes live as soon as the payment is confirmed.">
           <p className="text-sm text-ink-700">
             <strong>{state.shop.name}</strong>
             {state.shop.registrationNumber ? <> · Shop ID {state.shop.registrationNumber}</> : null}
           </p>
-          <RegistrationFeePayButton shopId={state.shop.id} amountPaise={state.shop.feeDuePaise} />
+          <RegistrationFeePayButton shopId={state.shop.id} amountPaise={state.shop.feeDuePaise} autoStart={openPayment} />
           <Alert tone="warning" title="Pending until the fee is paid">
             {state.shop.feePaymentStatus === "FAILED" ? "Your last payment did not go through. " : ""}
             Your shop is not live and receives no orders until the payment clears. You can still shop on GoKesari as a customer. A failed payment can be
@@ -477,7 +453,7 @@ export function OnboardingWizard({
         </StepCard>
       ) : null}
       {step === "WAITING" && state?.shop ? (
-        <StepCard title="6. Payment received — pending admin approval">
+        <StepCard title="Payment received — pending admin approval">
           <Alert tone="warning">
             {state.documents.missing.length > 0
               ? `${state.shop.name} is pending admin approval: ${state.documents.missing
@@ -497,7 +473,7 @@ export function OnboardingWizard({
         </StepCard>
       ) : null}
       {step === "LIVE" && state?.shop ? (
-        <LiveStep state={state} addProducts={() => setViewing(state.setup?.categories ? "PRODUCTS" : "CATEGORY")} />
+        <LiveStep state={state} lang={lang} addProducts={() => setViewing(state.setup?.categories ? "PRODUCTS" : "CATEGORY")} />
       ) : null}
       {step === "LOCATION" && state?.shop ? (
         <ShopLocationStep
@@ -590,36 +566,62 @@ function noticeFor(path: string, next: WizardState): string | null {
  * whose PAN is taken from it; No: the PAN and the "not GST-registered" declaration. The owner
  * goes on only once the number is verified; a failure says why and the owner tries again.
  */
+/**
+ * Step 2, the first screen after sign-in: only the referral code and the GST number (or PAN).
+ * A code from a referral link is checked by itself and shown as applied; a bad one is typed here.
+ */
 function VerifyStep({
   state,
   initialReferralCode,
   referralRequired,
+  dealerProgramme,
   busy,
   fields,
   send,
   next,
+  lang,
 }: {
   state: WizardState | null;
   initialReferralCode: string | null;
   referralRequired: boolean;
+  dealerProgramme: boolean;
   busy: boolean;
   fields: Record<string, string>;
   send: Send;
   /** Leaves the screen for the step the server says is next (when the owner came back to look). */
   next: () => void;
+  lang: Lang;
 }) {
   const [code, setCode] = useState(state?.referral.code ?? initialReferralCode ?? "");
+  const [employeeId, setEmployeeId] = useState(state?.referral.employeeId ?? "");
   const [requesting, setRequesting] = useState(false);
-  const [hasGst, setHasGst] = useState<boolean | null>(state?.route === "PAN_ONLY" ? false : state?.route === "GSTIN" ? true : null);
+  const [hasGst, setHasGst] = useState(state?.route !== "PAN_ONLY");
   const [number, setNumber] = useState("");
   const [declaration, setDeclaration] = useState(state?.noGstDeclared ?? false);
   const [consent, setConsent] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const triedLink = useRef(false);
 
-  const check = hasGst === false ? (state?.route === "PAN_ONLY" ? state.pan : null) : state?.route === "GSTIN" ? state.gstin : null;
+  useEffect(() => {
+    if (triedLink.current || !initialReferralCode || state?.referral.answered) return;
+    triedLink.current = true;
+    void send("/api/shops/registration-draft/referral", { referralCode: initialReferralCode });
+    // Once, on arrival from the link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const check = !hasGst ? (state?.route === "PAN_ONLY" ? state.pan : null) : state?.route === "GSTIN" ? state.gstin : null;
   const verified = Boolean(state?.canContinue && state.referral.answered);
   const typed = number.trim().toUpperCase().replace(/\s+/g, "");
+  const derivedPan = hasGst && GSTIN_PATTERN.test(typed) ? typed.slice(2, 12) : null;
+  const applied = Boolean(state?.referral.answered && state.referral.code && state.referral.code === code.trim());
+
+  function switchRoute(gst: boolean) {
+    setHasGst(gst);
+    setNumber("");
+    setProblem(null);
+  }
 
   async function verify(event: FormEvent) {
     event.preventDefault();
@@ -631,123 +633,99 @@ function VerifyStep({
     setProblem(null);
     // The code first (a required or unknown code is refused before any paid check), then the number.
     const codeNow = code.trim() || null;
-    if (!state?.referral.answered || (state.referral.code ?? null) !== codeNow) {
-      if (!(await send("/api/shops/registration-draft/referral", { referralCode: codeNow }))) return;
+    const employeeNow = employeeId.trim() || null;
+    if (!state?.referral.answered || (state.referral.code ?? null) !== codeNow || (state.referral.employeeId ?? null) !== employeeNow) {
+      if (!(await send("/api/shops/registration-draft/referral", { referralCode: codeNow, employeeId: employeeNow }))) return;
     }
     if (hasGst) await send("/api/shops/registration-draft/gstin", { gstin: typed, consent });
     else await send("/api/shops/registration-draft/pan", { pan: typed, declaration, consent });
   }
 
   return (
-    <StepCard title="Verify your business" intro="We check your GST or PAN with the government records and fill in your shop's details from them.">
+    <StepCard title={tr({ en: "Verify your business", hi: "अपने व्यवसाय का सत्यापन करें", mr: "तुमच्या व्यवसायाची पडताळणी करा" }, lang)}>
       {requesting ? <ReferralRequestDialog prefill={{}} onClose={() => setRequesting(false)} /> : null}
       <form onSubmit={verify} className="space-y-3">
-        <Field label={referralRequired ? "Referral code" : "Referral code (optional)"} error={fields.referralCode}>
-          <div className="flex gap-2">
-            <input
-              className={`${inputClass} font-mono uppercase tracking-widest`}
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              autoCapitalize="characters"
-              autoComplete="off"
-              placeholder="AB12CD34"
-              maxLength={32}
-              required={referralRequired}
-              data-testid="wizard-referral-code"
-            />
-            <button type="button" className="min-h-11 shrink-0 text-sm font-medium text-kesari-700 underline" onClick={() => setRequesting(true)}>
-              Request a code
-            </button>
-          </div>
+        <Field
+          label={referralRequired ? tr({ en: "Referral code", hi: "रेफ़रल कोड", mr: "रेफरल कोड" }, lang) : tr({ en: "Referral code (optional)", hi: "रेफ़रल कोड (वैकल्पिक)", mr: "रेफरल कोड (पर्यायी)" }, lang)}
+          error={fields.referralCode}
+          hint={applied ? `✓ ${tr({ en: "Applied", hi: "लागू हुआ", mr: "लागू झाला" }, lang)}` : undefined}
+        >
+          <input
+            className={`${inputClass} font-mono uppercase tracking-widest`}
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            autoCapitalize="characters"
+            autoComplete="off"
+            placeholder="AB12CD34"
+            maxLength={32}
+            required={referralRequired}
+            data-testid="wizard-referral-code"
+          />
         </Field>
-
-        <fieldset>
-          <legend className="mb-1 text-sm font-semibold text-ink-900">Do you have a GST number?</legend>
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Do you have a GST number?">
-            <Button
-              type="button"
-              variant={hasGst === true ? "primary" : "secondary"}
-              aria-pressed={hasGst === true}
-              onClick={() => {
-                setHasGst(true);
-                setNumber("");
-                setProblem(null);
-              }}
-              data-testid="has-gst-yes"
-            >
-              Yes
-            </Button>
-            <Button
-              type="button"
-              variant={hasGst === false ? "primary" : "secondary"}
-              aria-pressed={hasGst === false}
-              onClick={() => {
-                setHasGst(false);
-                setNumber("");
-                setProblem(null);
-              }}
-              data-testid="has-gst-no"
-            >
-              No
-            </Button>
-          </div>
-        </fieldset>
-
-        {hasGst !== null ? (
-          <>
-            <Field
-              label={hasGst ? "Enter your 15-digit GSTIN" : "Enter your 10-character PAN"}
-              error={problem ?? (hasGst ? fields.gstin : fields.pan)}
-              hint={hasGst ? "Your PAN, business name and address are taken from it." : "Your name is taken from the Income Tax record."}
-            >
-              <input
-                className={`${inputClass} font-mono uppercase`}
-                value={number}
-                onChange={(e) => setNumber(e.target.value.toUpperCase())}
-                autoCapitalize="characters"
-                autoComplete="off"
-                placeholder={check?.numberMasked && check.status === "VERIFIED" ? `${check.numberMasked} — verified` : hasGst ? "27ABCDE1234F1Z5" : "ABCDE1234F"}
-                maxLength={hasGst ? 15 : 10}
-                data-testid={hasGst ? "gstin-input" : "pan-input"}
-              />
-            </Field>
-            {hasGst === false ? (
-              <Consent checked={declaration} onChange={setDeclaration} text={GST_DECLARATION_TEXT} short="My shop is not registered under GST." />
-            ) : null}
-            <Consent checked={consent} onChange={setConsent} short="I agree that GoKesari checks this number with the government record." />
-            <Button
-              type="submit"
-              size="lg"
-              className="w-full"
-              disabled={busy || !consent || !typed || (hasGst === false && !declaration) || (referralRequired && code.trim().length < 3)}
-              data-testid="verify-identity"
-            >
-              {busy ? "Verifying…" : hasGst ? "Verify GSTIN" : "Verify PAN"}
-            </Button>
-            <details open={scanning} onToggle={(e) => setScanning((e.target as HTMLDetailsElement).open)} className="text-sm text-ink-700">
-              <summary className="cursor-pointer">📷 Read it from a photo of your {hasGst ? "GST certificate" : "PAN card"}</summary>
-              {scanning ? (
-                <div className="mt-2">
-                  <DocumentScan
-                    busy={busy}
-                    onConfirm={(found) => {
-                      const hit = found.find((f) => f.docType === (hasGst ? "GSTIN" : "PAN"));
-                      if (hit) setNumber(hit.number.toUpperCase());
-                      setScanning(false);
-                    }}
-                  />
-                </div>
-              ) : null}
-            </details>
-          </>
+        {!code.trim() || fields.referralCode ? (
+          <p className="flex flex-wrap items-center gap-x-2 text-sm text-ink-700" data-testid="no-referral-code">
+            {tr({ en: "Don't have a referral code?", hi: "रेफ़रल कोड नहीं है?", mr: "रेफरल कोड नाही?" }, lang)}
+            <button type="button" className="min-h-11 font-semibold text-kesari-700 underline" onClick={() => setRequesting(true)} data-testid="request-referral-code">
+              {tr({ en: "Request a referral code", hi: "रेफ़रल कोड का अनुरोध करें", mr: "रेफरल कोडची विनंती करा" }, lang)}
+            </button>
+          </p>
         ) : null}
+        {dealerProgramme ? (
+          <details className="text-sm text-ink-700" open={Boolean(employeeId)}>
+            <summary className="cursor-pointer">{tr({ en: "Employee ID or name (optional)", hi: "कर्मचारी आईडी या नाम (वैकल्पिक)", mr: "कर्मचारी आयडी किंवा नाव (पर्यायी)" }, lang)}</summary>
+            <input className={`${inputClass} mt-2`} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} maxLength={120} aria-label="Employee ID or name" data-testid="wizard-employee-id" />
+          </details>
+        ) : null}
+        <Field
+          label={hasGst ? tr({ en: "GST number (15 characters)", hi: "GST नंबर (15 अक्षर)", mr: "GST क्रमांक (15 अक्षरे)" }, lang) : tr({ en: "PAN (10 characters)", hi: "PAN (10 अक्षर)", mr: "PAN (10 अक्षरे)" }, lang)}
+          error={problem ?? (hasGst ? fields.gstin : fields.pan)}
+        >
+          <input
+            className={`${inputClass} font-mono uppercase`}
+            value={number}
+            onChange={(e) => setNumber(e.target.value.toUpperCase())}
+            autoCapitalize="characters"
+            autoComplete="off"
+            placeholder={check?.numberMasked && check.status === "VERIFIED" ? `${check.numberMasked} — verified` : hasGst ? "27ABCDE1234F1Z5" : "ABCDE1234F"}
+            maxLength={hasGst ? 15 : 10}
+            data-testid={hasGst ? "gstin-input" : "pan-input"}
+          />
+        </Field>
+        {derivedPan ? (
+          <Field label={tr({ en: "PAN (taken from your GST number)", hi: "PAN (आपके GST नंबर से)", mr: "PAN (तुमच्या GST क्रमांकावरून)" }, lang)}>
+            <input className={`${inputClass} bg-slate-50 font-mono`} value={derivedPan} readOnly aria-readonly data-testid="derived-pan" />
+          </Field>
+        ) : null}
+        <button type="button" className="min-h-11 text-sm font-medium text-kesari-700 underline" onClick={() => switchRoute(!hasGst)} data-testid={hasGst ? "use-pan" : "use-gst"}>
+          {hasGst ? tr({ en: "I don't have GST, use PAN", hi: "मेरे पास GST नहीं है, PAN का उपयोग करें", mr: "माझ्याकडे GST नाही, PAN वापरा" }, lang) : tr({ en: "I have a GST number", hi: "मेरे पास GST नंबर है", mr: "माझ्याकडे GST क्रमांक आहे" }, lang)}
+        </button>
+        {!hasGst ? <Consent checked={declaration} onChange={setDeclaration} text={GST_DECLARATION_TEXT} short="My shop is not registered under GST." /> : null}
+        <Consent checked={consent} onChange={setConsent} short="I agree that GoKesari checks this number with the government record." />
+        <Button type="submit" size="lg" className="w-full" disabled={busy || !consent || !typed || (!hasGst && !declaration) || (referralRequired && code.trim().length < 3)} data-testid="verify-identity">
+          {busy ? tr({ en: "Verifying…", hi: "जाँच हो रही है…", mr: "तपासत आहे…" }, lang) : hasGst ? "Verify GSTIN" : "Verify PAN"}
+        </Button>
+        <details open={scanning} onToggle={(e) => setScanning((e.target as HTMLDetailsElement).open)} className="text-sm text-ink-700">
+          <summary className="cursor-pointer">📷 Read it from a photo of your {hasGst ? "GST certificate" : "PAN card"}</summary>
+          {scanning ? (
+            <div className="mt-2">
+              <DocumentScan
+                busy={busy}
+                onConfirm={(found) => {
+                  const hit = found.find((f) => f.docType === (hasGst ? "GSTIN" : "PAN"));
+                  if (hit) setNumber(hit.number.toUpperCase());
+                  setScanning(false);
+                }}
+              />
+            </div>
+          ) : null}
+        </details>
       </form>
 
       <StatusLine check={check} />
       {verified ? (
         <div className="flex justify-end">
           <Button type="button" size="lg" onClick={next} disabled={busy}>
-            Continue
+            {tr({ en: "Continue", hi: "आगे बढ़ें", mr: "पुढे जा" }, lang)}
           </Button>
         </div>
       ) : null}
@@ -940,18 +918,18 @@ function ShopStep({
   busy,
   fields,
   send,
-  dealerProgramme,
   changeEmail,
   back,
+  lang,
 }: {
   state: WizardState;
   busy: boolean;
   fields: Record<string, string>;
   send: Send;
-  dealerProgramme: boolean;
   /** Opens the email screen to use another address (confirmed with an emailed code). */
   changeEmail: () => void;
   back: ReactNode;
+  lang: Lang;
 }) {
   const shopTypes = useShopTypes();
   const d = state.details;
@@ -962,13 +940,14 @@ function ShopStep({
     phone: d?.phone ?? "",
     shopType: d?.shopType ?? "",
     couponCode: d?.couponCode ?? "",
-    employeeId: d?.employeeId ?? "",
   });
   // The slab the owner picks; its turnover is sent as the slab's own limit (the last slab: just above the one before).
   const [slab, setSlab] = useState<number | null>(d?.annualTurnoverRupees != null && rule.enabled ? turnoverSlab(d.annualTurnoverRupees, rule) : null);
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
   const turnoverFor = (n: number) => rule.slabs[n - 1]?.upToRupees ?? (n > 1 ? (rule.slabs[n - 2]?.upToRupees ?? 0) + 1 : 0);
   const blank = (v: string) => (v.trim() ? v.trim() : null);
+
+  const licence = form.shopType ? mandatoryLicenceFor(form.shopType) : null;
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -983,21 +962,21 @@ function ShopStep({
       annualTurnoverRupees: rule.enabled && slab ? turnoverFor(slab) : null,
       couponCode: blank(form.couponCode),
       referralCode: null,
-      employeeId: blank(form.employeeId),
+      employeeId: null,
     });
   }
 
   return (
-    <StepCard title="Your shop name" intro={p.shopName ? "Taken from your GST record — the name customers will see. You can change it." : "The name customers will see."}>
+    <StepCard title="Contact and shop details" intro={p.shopName ? "Your shop name is taken from your GST record — you can change it." : "The name customers will see, and how we reach you."}>
       <form onSubmit={submit} className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={<>Shop name{p.shopName && form.name === p.shopName ? <VerifiedFrom state={state} /> : null}</>} error={fields.name}>
             <input className={inputClass} value={form.name} onChange={set("name")} required minLength={2} maxLength={120} data-testid="shop-name" />
           </Field>
-          <Field label="Shop mobile number" error={fields.phone}>
+          <Field label="10-digit contact number" error={fields.phone}>
             <input className={inputClass} value={form.phone} onChange={set("phone")} required inputMode="numeric" autoComplete="tel-national" maxLength={10} pattern="[6-9][0-9]{9}" data-testid="shop-phone" />
           </Field>
-          <Field label="Shop type" error={fields.shopType} hint="Food shops need an FSSAI licence — we'll ask for it next.">
+          <Field label="Shop type" error={fields.shopType}>
             <select className={inputClass} value={form.shopType} onChange={set("shopType")} required data-testid="shop-type">
               <option value="">Choose…</option>
               {shopTypes.map((t) => (
@@ -1008,6 +987,11 @@ function ShopStep({
             </select>
           </Field>
         </div>
+        {licence ? (
+          <div data-testid="licence-grace-notice">
+            <Alert tone="warning">{tr(licenceGraceMessage(tr(licence.label, lang), state.licenceGraceDays), lang)}</Alert>
+          </div>
+        ) : null}
         {state.email.shop ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--gk-line)] bg-white px-3 py-1.5 text-sm" data-testid="shop-email-line">
             <p className="min-w-0 text-ink-600">
@@ -1043,16 +1027,11 @@ function ShopStep({
           </fieldset>
         ) : null}
         <details className="text-sm text-ink-700">
-          <summary className="cursor-pointer font-medium">Coupon code{dealerProgramme ? " or GoKesari employee" : ""} (optional)</summary>
+          <summary className="cursor-pointer font-medium">Coupon code (optional)</summary>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             <Field label="Coupon code (optional)" error={fields.couponCode}>
               <input className={`${inputClass} uppercase`} value={form.couponCode} onChange={set("couponCode")} maxLength={40} />
             </Field>
-            {dealerProgramme ? (
-              <Field label="GoKesari employee who helped you (optional)">
-                <input className={inputClass} value={form.employeeId} onChange={set("employeeId")} maxLength={120} />
-              </Field>
-            ) : null}
           </div>
         </details>
         <div className="flex items-center justify-between gap-2">
@@ -1069,19 +1048,42 @@ function ShopStep({
 /* ---------------------------------------------------------- 6. live */
 
 /** Owner brief 08-Nov-2026: the words after a successful payment, and Add Products right below them. */
-function LiveStep({ state, addProducts }: { state: WizardState; addProducts: () => void }) {
+/** A file download, so a plain link. */
+const PRODUCT_TEMPLATE_URL = "/api/v1/product-imports/template";
+
+function LiveStep({ state, addProducts, lang }: { state: WizardState; addProducts: () => void; lang: Lang }) {
+  const [template, setTemplate] = useState(false);
+  const choice = "inline-flex min-h-11 items-center justify-center rounded-lg px-4 text-sm font-medium";
   return (
     <StepCard title={`🎉 ${state.shop!.name} is live`}>
       <Alert tone="success">
-        <strong data-testid="onboarding-complete">Your onboarding is complete. Your shop is now live and accepting orders.</strong>
+        <strong data-testid="onboarding-complete">{tr({ en: "Your onboarding is complete and your shop is live for accepting orders.", hi: "आपकी ऑनबोर्डिंग पूरी हो गई है और आपकी दुकान ऑर्डर लेने के लिए लाइव है।", mr: "तुमचे ऑनबोर्डिंग पूर्ण झाले आहे आणि तुमचे दुकान ऑर्डर घेण्यासाठी लाइव्ह आहे." }, lang)}</strong>
         {state.shop?.registrationNumber ? <span className="block text-sm">Shop ID {state.shop.registrationNumber} — we&apos;ve emailed you the same.</span> : null}
       </Alert>
       <p className="text-sm text-ink-900" data-testid="add-products-prompt">
-        Add your products now so customers can find them and place orders with you.
+        {tr({ en: "Add your products so customers can select them and place orders with you. How would you like to add them?", hi: "अपने उत्पाद जोड़ें ताकि ग्राहक उन्हें चुनकर आपको ऑर्डर दे सकें। आप उन्हें कैसे जोड़ना चाहेंगे?", mr: "तुमची उत्पादने जोडा, म्हणजे ग्राहक ती निवडून तुमच्याकडे ऑर्डर देऊ शकतील. ती कशी जोडायची आहेत?" }, lang)}
       </p>
-      <Button type="button" size="lg" className="w-full" onClick={addProducts} data-testid="add-products">
-        Add Products
-      </Button>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button type="button" size="lg" onClick={addProducts} data-testid="add-products">
+          {tr({ en: "Add products manually", hi: "उत्पाद स्वयं जोड़ें", mr: "उत्पादने स्वतः जोडा" }, lang)}
+        </Button>
+        <Button type="button" size="lg" variant="secondary" aria-expanded={template} onClick={() => setTemplate(true)} data-testid="add-products-template">
+          {tr({ en: "Upload using template", hi: "टेम्पलेट से अपलोड करें", mr: "टेम्पलेट वापरून अपलोड करा" }, lang)}
+        </Button>
+      </div>
+      {template ? (
+        <div className="space-y-2 rounded-xl border border-[var(--gk-line)] p-3" data-testid="template-choice">
+          <p className="text-sm text-ink-700">{tr({ en: "Download the template, fill in your products, then upload the file.", hi: "टेम्पलेट डाउनलोड करें, अपने उत्पाद भरें, फिर फ़ाइल अपलोड करें।", mr: "टेम्पलेट डाउनलोड करा, तुमची उत्पादने भरा, मग फाइल अपलोड करा." }, lang)}</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <a href={PRODUCT_TEMPLATE_URL} className={`${choice} bg-kesari-600 text-white`} data-testid="download-product-template">
+              {tr({ en: "Download product template", hi: "उत्पाद टेम्पलेट डाउनलोड करें", mr: "उत्पादन टेम्पलेट डाउनलोड करा" }, lang)}
+            </a>
+            <Link href="/shop/product-import" className={`${choice} border border-cream-200 text-ink-700`} data-testid="upload-product-file">
+              {tr({ en: "Upload filled file", hi: "भरी हुई फ़ाइल अपलोड करें", mr: "भरलेली फाइल अपलोड करा" }, lang)}
+            </Link>
+          </div>
+        </div>
+      ) : null}
       <p className="text-xs text-ink-600">
         Upload the Shop Act and other licences on{" "}
         <Link href="/shop/documents" className="underline">
@@ -1089,89 +1091,6 @@ function LiveStep({ state, addProducts }: { state: WizardState; addProducts: () 
         </Link>{" "}
         whenever you are ready.
       </p>
-    </StepCard>
-  );
-}
-
-/* --------------------------------------------------------- Udyam / FSSAI */
-
-function OptionalDocStep({
-  docType,
-  title,
-  question,
-  placeholder,
-  required = false,
-  doc,
-  busy,
-  fields,
-  send,
-  back,
-  scanned,
-}: {
-  docType: "UDYAM" | "FSSAI";
-  title: string;
-  question: string;
-  placeholder: string;
-  required?: boolean;
-  doc: DocView;
-  busy: boolean;
-  fields: Record<string, string>;
-  send: Send;
-  back: ReactNode;
-  /** The number read from the owner's photo, to check or correct. */
-  scanned?: string;
-}) {
-  const [has, setHas] = useState<boolean | null>(doc.has ?? (required || scanned ? true : null));
-  const [number, setNumber] = useState(scanned ?? "");
-  const [consent, setConsent] = useState(false);
-  const canGoOn = doc.done && doc.check && (doc.check.status === "VERIFIED" || doc.check.status === "PENDING" || doc.check.status === "MANUAL_REVIEW");
-
-  return (
-    <StepCard
-      title={title}
-      intro={required ? "Your shop type sells food, so an FSSAI licence or registration is required. Your shop goes live once it is verified." : question}
-    >
-      <div className={`grid gap-2 ${required ? "grid-cols-1" : "grid-cols-2"}`} role="radiogroup" aria-label={question}>
-        <Button type="button" variant={has === true ? "primary" : "secondary"} onClick={() => setHas(true)} aria-pressed={has === true}>
-          Yes
-        </Button>
-        {required ? null : (
-          <Button
-            type="button"
-            variant={has === false ? "primary" : "secondary"}
-            disabled={busy}
-            aria-pressed={has === false}
-            onClick={() => {
-              setHas(false);
-              void send("/api/shops/registration-draft/documents", { docType, has: false });
-            }}
-          >
-            No
-          </Button>
-        )}
-      </div>
-      <StatusLine check={doc.check} />
-      {has ? (
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send("/api/shops/registration-draft/documents", { docType, number, consent });
-          }}
-        >
-          <Field label={`${docType === "UDYAM" ? "Udyam" : "FSSAI"} number`} error={fields.number}>
-            <input className={`${inputClass} font-mono uppercase`} value={number} onChange={(e) => setNumber(e.target.value)} placeholder={placeholder} autoComplete="off" required />
-          </Field>
-          <Consent checked={consent} onChange={setConsent} />
-          <Button type="submit" size="lg" className="w-full" disabled={busy || !consent || !number.trim()}>
-            {busy ? "Checking…" : "Check and continue"}
-          </Button>
-        </form>
-      ) : null}
-      <div className="flex items-center justify-between gap-2">
-        {back}
-        {canGoOn ? <span className="text-sm text-ink-500">Checked — you can continue from the next step.</span> : null}
-      </div>
     </StepCard>
   );
 }
@@ -1345,7 +1264,7 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
   );
   const identity = state.route === "PAN_ONLY" ? state.pan : state.gstin;
   return (
-    <StepCard title="5. Check and pay" intro="Your shop is created when you continue; then you pay the registration fee by UPI or card.">
+    <StepCard title="Payment" intro="Check your details, then continue to pay the registration fee by UPI or card.">
       <div>
         {row(state.route === "PAN_ONLY" ? "PAN (no GST)" : "GSTIN", identity ? <StatusLine check={{ ...identity, message: null }} /> : "—", "IDENTITY")}
         {row("Referral code", state.referral.code ?? "None", "IDENTITY")}
@@ -1353,12 +1272,11 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
         {row("Shop address", `${d.addressLine1}, ${d.city} ${d.pincode}`, "ADDRESS")}
         {row("Map pin", state.location ? "Placed" : "—", "PIN")}
         {row("Shop", `${d.name} · ${state.email.shop ?? ""}`, "SHOP")}
-        {state.foodShop ? row("FSSAI", state.fssai.check ? <StatusLine check={{ ...state.fssai.check, message: null }} /> : "—", "FSSAI") : null}
         {slab ? row("Turnover", `${turnoverSlabLabel(slab, rule)} — fee ${formatRupeesIndian(Math.round(rule.slabs[slab - 1].feePaise / 100))} + GST`, "SHOP") : null}
       </div>
       {!docs.canSubmit ? (
         <Alert tone="warning" title="Your GST or PAN is not verified">
-          Go back to step 1 and verify your {state.route === "PAN_ONLY" ? "PAN" : "GSTIN"} again.
+          Go back to the GST / PAN step and verify your {state.route === "PAN_ONLY" ? "PAN" : "GSTIN"} again.
         </Alert>
       ) : docs.needsTeamApproval ? (
         <Alert tone="info">{`After payment your shop waits for admin approval: ${names(docs.missing)} is not verified yet.`}</Alert>

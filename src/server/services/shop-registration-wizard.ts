@@ -86,14 +86,12 @@ import {
   type Shop,
   type ShopRegistrationDraft,
   type ShopRegistrationDraftCheck,
-  type UserRole,
   users,
 } from "@/server/db/schema";
 import { recordShopAttributionSafely } from "@/server/dealers/attribution";
 import { verifyDocument } from "@/server/kyc";
 import { requestShopEmailOtp, verifyShopEmailOtp } from "@/server/otp/service";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { featureNotAvailable, isFeatureEnabled } from "./feature-flags";
 import { assertRegistrationReferralCode, attributeRegistrationReferral } from "./referral-requests";
 import { isReferralRequired } from "./referral-settings";
 import { looksLikeShopCode, shopReferralRule } from "./shop-referrals";
@@ -128,33 +126,6 @@ import { autoApproveShopIfReady, registerShop } from "./shops";
 /* ---------------------------------------------------------------- types */
 
 /** The shop details step. Name and address arrive pre-filled from the GST record; the owner may edit them. */
-
-/* ================================================================ who may use it */
-
-/**
- * The wizard is open to everyone only while shop_onboarding_wizard_enabled is
- * on. While it is off only an admin may use it (testing on staging): a link such
- * as /shop/register?wizard=1 must not open a registration route the owner has
- * not switched on.
- */
-export async function wizardAvailableFor(user: { role: UserRole }): Promise<boolean> {
-  return user.role === "ADMIN" || (await isFeatureEnabled("shop_onboarding_wizard_enabled"));
-}
-
-/** Throws "not available" (404) unless the wizard is open to this user — for the wizard's routes. */
-export async function requireWizardAvailable(user: { role: UserRole }): Promise<void> {
-  if (!(await wizardAvailableFor(user))) throw featureNotAvailable("shop_onboarding_wizard_enabled");
-}
-
-/**
- * Add my shop: the wizard or the long form. ?form=1 always shows the long form;
- * with the flag on everyone gets the wizard; with it off an admin gets it with ?wizard=1.
- */
-export async function showsWizard(user: { role: UserRole }, params: { wizard?: string | string[]; form?: string | string[] }): Promise<boolean> {
-  if (params.form === "1") return false;
-  if (await isFeatureEnabled("shop_onboarding_wizard_enabled")) return true;
-  return params.wizard === "1" && user.role === "ADMIN";
-}
 
 export interface DraftShopDetails {
   name: string;
@@ -215,7 +186,6 @@ export const WIZARD_STEPS = [
   "ADDRESS",
   "PIN",
   "SHOP",
-  "FSSAI",
   "REVIEW",
   "PAYMENT",
   "WAITING",
@@ -273,6 +243,8 @@ export interface WizardView extends ShopRegistrationDraftView {
   /** After approval: what the owner has set up on the shop (map pin, categories, products). */
   setup: { location: boolean; categories: boolean; products: boolean } | null;
   /** Where the wizard resumes. */
+  /** Days a licence may follow after going live (rule shopDocumentFollowUp). */
+  licenceGraceDays: number;
   nextStep: WizardStep;
 }
 
@@ -381,7 +353,12 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   const started = draft.route !== null || detailsOf(draft) !== null;
   // Owner brief 08-Nov-2026: no "upload later" — every registration verifies its GSTIN or PAN first.
   const documentsLater = false;
-  const referral = { answered: draft.referralAnsweredAt !== null || started, code: draft.referralCode, required: await isReferralRequired("shop") };
+  const referral = {
+    answered: draft.referralAnsweredAt !== null || started,
+    code: draft.referralCode,
+    required: await isReferralRequired("shop"),
+    employeeId: str(partialOf(draft).employeeId),
+  };
   // Owner, 05-Nov-2026 (D3): the shop email stays required but is one pre-filled line — the
   // account's email (already proven by the sign-in) unless the owner changes it. Only a
   // mobile-only account, with no email, gets the email screen.
@@ -411,15 +388,13 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   else if (!addressConfirmed) nextStep = "ADDRESS";
   else if (!location) nextStep = "PIN";
   else if (!details) nextStep = "SHOP";
-  // A food shop type chosen on the shop step: FSSAI is mandatory for it.
-  else if (!fssai.done) nextStep = "FSSAI";
   else nextStep = "REVIEW";
 
   // The onboarding funnel (Phase B, B3): when this registration first reached its current step.
   await recordStepReached(draft.id, nextStep);
   // Phase 2 (WP4): a registration before go-live is reminded 24 h after its last step; else cancelled.
   await syncRegistrationReminder(draft, nextStep);
-  const documents = await draftDocuments(draft, checks, details, foodShop);
+  const documents = await draftDocuments(draft, checks, details);
   const feeRule = await getRule("registrationFeeByTurnover");
   const membershipMonths = (await getRule("shopMembership")).periodMonths;
   return {
@@ -440,6 +415,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     shop,
     feeRule,
     membershipMonths,
+    licenceGraceDays: (await getRule("shopDocumentFollowUp")).graceDays,
     setup,
     nextStep,
   };
@@ -485,7 +461,6 @@ async function draftDocuments(
   draft: ShopRegistrationDraft,
   checks: ShopRegistrationDraftCheck[],
   details: DraftShopDetails | null,
-  foodShop: boolean,
 ): Promise<WizardDocuments> {
   // Exactly what the shop will receive (registrationChecks): a PAN whose name does not match on
   // the no-GSTIN route goes to review, and a number answered "I don't have it now" is dropped.
@@ -498,7 +473,7 @@ async function draftDocuments(
   // 0120: "upload later" — only FSSAI for a food shop before go-live; the GSTIN / PAN after it.
   // "Upload later" is gone (owner brief 08-Nov-2026): a draft that chose it verifies its GSTIN / PAN like any other.
   const later = false;
-  const required: SellerDocType[] = [...(later ? [] : [identity]), ...(foodShop ? (["FSSAI"] as const) : [])];
+  const required: SellerDocType[] = later ? [] : [identity];
   const missing = required.filter((d) => !verified.includes(d));
   const { promiseDays } = await getRule("shopDocumentFollowUp");
   return {
@@ -566,7 +541,7 @@ async function lockReadyDraft(tx: DbClient, ownerId: string): Promise<ShopRegist
 /* ------------------------------------------- 0120: referral, email, documents */
 
 /** Step "Referral code": checked now (a code the platform requires, or one that is not valid, is refused here). */
-export async function answerDraftReferral(input: { actor: Actor; referralCode: string | null }): Promise<WizardView> {
+export async function answerDraftReferral(input: { actor: Actor; referralCode: string | null; employeeId?: string | null }): Promise<WizardView> {
   const code = await assertRegistrationReferralCode(input.referralCode);
   await assertOwnerExists(input.actor.id);
   // Shop-refers-shop (rule shopReferrals on): one code — the first one entered is kept.
@@ -581,7 +556,13 @@ export async function answerDraftReferral(input: { actor: Actor; referralCode: s
     }
     const [updated] = await tx
       .update(shopRegistrationDrafts)
-      .set({ referralCode: code, referralAnsweredAt: new Date(), updatedAt: new Date() })
+      .set({
+        referralCode: code,
+        referralAnsweredAt: new Date(),
+        updatedAt: new Date(),
+        // The optional Employee ID / name is asked on this screen; the shop step picks it up.
+        ...(input.employeeId !== undefined ? { details: { ...partialOf(locked), employeeId: input.employeeId } } : {}),
+      })
       .where(eq(shopRegistrationDrafts.id, locked.id))
       .returning();
     return updated;
@@ -707,6 +688,7 @@ export async function saveDraftDetails(input: { actor: Actor; details: DraftShop
     ...address,
     ownerName,
     referralCode: given.referralCode ?? open?.referralCode ?? null,
+    employeeId: given.employeeId ?? str(saved.employeeId),
     email: given.email ?? open?.shopEmail ?? (await accountEmail(actor.id)),
   };
   // A referral code the platform requires (or one that is not valid) is caught here, not at payment.

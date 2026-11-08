@@ -14,7 +14,7 @@ import {
   buildSimpleTemplateCsv,
   SIMPLE_TEMPLATE_COLUMNS,
 } from "@/server/product-import/workbooks";
-import { previewChecks } from "@/server/product-import/preview-checks";
+import { previewChecks, rowErrors } from "@/server/product-import/preview-checks";
 
 describe("templates", () => {
   it("TC-PU-001 the CSV template has the Excel template's header and the example row", async () => {
@@ -27,7 +27,7 @@ describe("templates", () => {
     expect(parsed.rows).toHaveLength(0);
   });
 
-  it("TC-PU-002 the Excel template offers GST % and Goods Type as dropdowns", async () => {
+  it("TC-PU-002 the Excel template offers GST % and Loose Item (Y/N) as dropdowns", async () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load((await buildSimpleTemplate()) as unknown as ArrayBuffer);
     const ws = wb.getWorksheet("Products")!;
@@ -35,16 +35,17 @@ describe("templates", () => {
     expect(cell("GST %").dataValidation).toMatchObject({ type: "list" });
     expect(String(cell("GST %").dataValidation.formulae?.[0])).toContain("18");
     expect(String(cell("GST %").dataValidation.formulae?.[0])).toContain("40");
-    expect(cell("Goods Type").dataValidation.formulae?.[0]).toBe('"Packaged,Loose"');
+    expect(cell("Loose Item (Y/N)").dataValidation.formulae?.[0]).toBe('"N,Y"');
   });
 });
 
 describe("preview checks", () => {
-  it("TC-PU-003 flags a selling price above the MRP, a zero price and a GST rate that is not a slab", () => {
-    expect(previewChecks({ pricePaise: 3_500, mrpPaise: 3_400 })[0]).toMatch(/above the MRP ₹34\.00/);
-    expect(previewChecks({ pricePaise: 0 })[0]).toMatch(/more than 0/);
-    expect(previewChecks({ gstRateBp: 700 })[0]).toMatch(/GST 7% is not a GST rate/);
-    expect(previewChecks({ pricePaise: 3_300, mrpPaise: 3_400, gstRateBp: 500 })).toEqual([]);
+  const good = { name: "Milk", category: "Milk", mrpPaise: 3_400, quantity: 5 };
+  it("TC-PU-003 rejects a selling price above the MRP, a zero price and a GST rate that is not a slab", () => {
+    expect(rowErrors({ ...good, pricePaise: 3_500 })).toEqual(["Selling Price ₹35.00 > MRP ₹34.00"]);
+    expect(rowErrors({ ...good, pricePaise: 0 })).toEqual(["Selling Price must be more than 0"]);
+    expect(rowErrors({ ...good, gstRateBp: 700 })[0]).toMatch(/GST 7% is not a GST rate/);
+    expect(rowErrors({ ...good, pricePaise: 3_300, gstRateBp: 500 })).toEqual([]);
   });
 
   it("TC-PU-004 a loose good needs a weight or volume unit", () => {
@@ -64,9 +65,9 @@ describe("download my catalogue → upload again", () => {
       "GST %": 5,
       MRP: 899,
       "Selling Price": 849,
-      Quantity: 12,
+      "Stock Qty": 12,
       Unit: "pack",
-      "Goods Type": "Packaged",
+      "Loose Item (Y/N)": "N",
       Action: "Upsert",
     },
     {
@@ -76,9 +77,9 @@ describe("download my catalogue → upload again", () => {
       "GST %": 0,
       MRP: null,
       "Selling Price": 140,
-      Quantity: 7.5,
+      "Stock Qty": 7.5,
       Unit: "kg",
-      "Goods Type": "Loose",
+      "Loose Item (Y/N)": "Y",
       Action: "Upsert",
     },
   ];
@@ -105,7 +106,7 @@ describe("download my catalogue → upload again", () => {
   }
 
   it("TC-PU-006 an MRP typed on a loose good is not used", async () => {
-    const bytes = await buildCatalogueWorkbook([{ SKU: "SUGAR", "Product Name": "Sugar", MRP: 50, "Selling Price": 45, Unit: "kg", "Goods Type": "Loose" }], "csv");
+    const bytes = await buildCatalogueWorkbook([{ SKU: "SUGAR", "Product Name": "Sugar", MRP: 50, "Selling Price": 45, Unit: "kg", "Loose Item (Y/N)": "Y" }], "csv");
     const parsed = await parseImportFile(bytes, "c.csv", { maxRows: 5000 });
     expect(parsed.rows[0].fields.mrpPaise).toBeUndefined();
     expect(parsed.rows[0].warnings.join(" ")).toMatch(/loose goods carry no MRP/);

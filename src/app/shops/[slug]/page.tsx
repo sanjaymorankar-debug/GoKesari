@@ -4,7 +4,8 @@ import Link from "next/link";
 import { ListTabs, Pager } from "@/components/board/list-tabs";
 import { ProductGrid } from "@/components/product-grid";
 import { RatingBadge } from "@/components/rating-badge";
-import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
+import { Alert, Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
+import { tr } from "@/lib/board/i18n";
 import { listShopReviews } from "@/server/services/ratings";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -12,7 +13,7 @@ import { getBoardLang } from "@/server/board-lang";
 import { getCartLineQuantities } from "@/server/services/cart";
 import { listStorefrontCategories, listStorefrontProducts } from "@/server/services/catalogue";
 import { getLiveOffers, listLiveOffersForShop, priceWithOffers } from "@/server/services/shop-offers";
-import { getPublicShopBySlug, isShopOpenNow } from "@/server/services/shops";
+import { getPublicShopBySlug, getSuspendedShopNameBySlug, isShopOpenNow } from "@/server/services/shops";
 import { getCustomerLocation } from "@/server/location";
 import { nearbyOfferCounts } from "@/server/services/home-discovery";
 import { serviceableShopIds, withWalletGate } from "@/server/services/serviceability";
@@ -43,7 +44,17 @@ export default async function ShopPage({
 }) {
   const [{ slug }, query, lang] = await Promise.all([params, searchParams, getBoardLang()]);
   const shop = await getPublicShopBySlug(slug);
-  if (!shop) notFound();
+  if (!shop) {
+    const suspended = await getSuspendedShopNameBySlug(slug);
+    if (!suspended) notFound();
+    return (
+      <div className="mx-auto max-w-xl px-4 py-12" data-testid="shop-suspended">
+        <Alert tone="danger" title={suspended}>
+          {tr({ en: "This shop is suspended and is not taking orders.", hi: "यह दुकान निलंबित है और ऑर्डर नहीं ले रही है।", mr: "हे दुकान निलंबित आहे आणि ऑर्डर घेत नाही." }, lang)}
+        </Alert>
+      </div>
+    );
+  }
   // Paused by the owner, below its wallet minimum or missing a legal document: still shown, with a notice.
   const [{ ordersPaused: paused }] = await withWalletGate([shop]);
 
