@@ -1,14 +1,13 @@
 /**
- * Shop registration flow (owner brief, 30 Oct 2026; docs/shop-onboarding-wizard-2026-10/FLOW_2026-10-30.md,
- * migration 0120). Runs on both database layouts.
+ * Shop registration flow — owner brief 08-Nov-2026 (docs/shop-onboarding-identity-first-2026-11):
  *
- *   - a new registration opens with the referral code (mandatory / optional by the admin's
- *     setting), then the shop's email (the account's, or another one confirmed with an emailed
- *     code), then "Do you have your documents handy?"
- *   - Yes → the GSTIN / PAN checks as before, then shop details → map pin → payment
- *   - No, "upload later" → shop details → (FSSAI for a food shop) → map pin → payment → live, with
- *     no GSTIN / PAN; payouts held until the GSTIN or PAN is verified
- *   - a draft started before 0120 skips the new first steps
+ *   Flow 1  sign-in → "Verify your business" (referral code + GSTIN, or PAN without one) →
+ *           owner name only if the record has none → confirm address → map pin → shop name →
+ *           pay → live with "Add Products"
+ *   Flow 2  an existing customer who clicks Sell starts at the same screen; a registration
+ *           abandoned for a week is discarded, never resumed
+ *   - no "upload later": nothing goes on until the GSTIN or PAN is verified
+ *   - a GSTIN or PAN already registered is refused with that shop's status, before any paid call
  */
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
@@ -44,20 +43,17 @@ import { POST as emailRoute } from "@/app/api/shops/registration-draft/email/rou
 import { POST as referralRoute } from "@/app/api/shops/registration-draft/referral/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
-import { sellerVerifications, shopAutoApprovalLog, shopCategories, shopRegistrationDrafts, shopSettlements, shops } from "@/server/db/schema";
+import { notifications, shopCategories, shopRegistrationDrafts, shops } from "@/server/db/schema";
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
 import { setFeatureFlag } from "@/server/services/feature-flags";
-import { decideShopSettlement } from "@/server/services/finance";
 import { finishFeeCapture } from "@/server/services/operator-limited";
 import { startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
 import { setRegistrationFee } from "@/server/services/registration-fees";
 import { setReferralSetting } from "@/server/services/referral-settings";
-import { submitSellerDocument } from "@/server/services/seller-verification";
 import { clearRuleCache } from "@/server/services/settings";
-import { payoutHoldReason } from "@/server/services/shop-onboarding";
-import { submitDraftGstin } from "@/server/services/shop-registration-draft";
+import { ABANDONED_AFTER_MS, submitDraftGstin, submitDraftPan } from "@/server/services/shop-registration-draft";
 import {
   answerDocumentsReady,
   answerDraftDocument,
@@ -65,14 +61,16 @@ import {
   confirmDraftEmailCode,
   getWizardDraft,
   requestDraftEmailCode,
+  saveDraftAddress,
   saveDraftDetails,
   saveDraftLocation,
+  saveDraftOwner,
   submitDraftDocument,
   submitDraftForPayment,
-  chooseAccountEmailForShop,
   type DraftShopDetails,
 } from "@/server/services/shop-registration-wizard";
-import { createUser, resetDatabase } from "../helpers/fixtures";
+import type { KycAdapter } from "@/server/kyc/types";
+import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
 import { call } from "../helpers/http";
 
 const gstinFor = (pan: string) => {
@@ -143,27 +141,32 @@ async function payInSandbox(shopId: string) {
 
 const shopRow = async (id: string) => (await db.select().from(shops).where(eq(shops.id, id)))[0];
 
-/** Referral (none) → the account's email → the documents answer. */
-async function start(later: boolean) {
+const ADDRESS = { addressLine1: "Shop No 7, Station Road", addressLine2: null, area: "Shivajinagar", city: "Pune", state: "Maharashtra", pincode: "411001", landmark: null };
+const PIN = { latitude: 18.5308, longitude: 73.8475 };
+/** The shop step's own fields: the owner name and address come from their steps. */
+const shopFields = (overrides: Partial<DraftShopDetails> = {}) => ({ ...details(overrides), ownerName: null, addressLine1: null, city: null, pincode: null });
+
+/** The first screen: the referral code (none) sent before the GSTIN, as the screen sends them. */
+async function verifyGstin(gstin = gstinFor("AABCG1234K")) {
   await answerDraftReferral({ actor: owner, referralCode: null });
-  await chooseAccountEmailForShop({ actor: owner });
-  return answerDocumentsReady({ actor: owner, later });
+  await submitDraftGstin({ gstin, consentGiven: true, actor: owner });
+  return (await getWizardDraft(owner))!;
+}
+async function verifyPan(pan: string) {
+  await answerDraftReferral({ actor: owner, referralCode: null });
+  await submitDraftPan({ pan, declarationAccepted: true, consentGiven: true, actor: owner });
+  return (await getWizardDraft(owner))!;
 }
 
-describe("the new first steps: referral code, shop email, documents handy?", () => {
-  it("a new registration starts at the referral code, then goes straight to the documents with the account's email (Phase B)", async () => {
-    // Owner, 05-Nov-2026 (D3): the account's email is the shop's unless changed — no email screen,
-    // and no "documents now?" screen: the document window has its own "Add documents later".
+describe("Flow 1, the first screen: referral code with the GSTIN or PAN", () => {
+  it("starts at 'Verify your business' with the account's email; there is no 'upload later'", async () => {
     let view = await answerDraftReferral({ actor: owner, referralCode: null });
-    expect(view).toMatchObject({ nextStep: "IDENTITY", referral: { answered: true, code: null, required: false }, email: { account: owner.email, shop: owner.email, confirmed: true }, documentsLater: false });
-    view = await chooseAccountEmailForShop({ actor: owner });
-    expect(view).toMatchObject({ nextStep: "IDENTITY", email: { shop: owner.email, confirmed: true } });
-    view = await answerDocumentsReady({ actor: owner, later: true });
-    expect(view).toMatchObject({ nextStep: "DETAILS", documentsLater: true });
-    view = await answerDocumentsReady({ actor: owner, later: false });
-    expect(view).toMatchObject({ nextStep: "IDENTITY", documentsLater: false });
-    // Resumed on another device at the same place.
-    expect((await getWizardDraft({ id: owner.id }))!.nextStep).toBe("IDENTITY");
+    expect(view).toMatchObject({ nextStep: "IDENTITY", referral: { answered: true, code: null, required: false }, email: { account: owner.email, shop: owner.email, confirmed: true } });
+    await expect(answerDocumentsReady({ actor: owner, later: true })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "IDENTITY_STEP_OPEN" } });
+    // Saving shop details before the number is verified is refused.
+    await expect(saveDraftDetails({ actor: owner, details: details() })).rejects.toMatchObject({ code: "CONFLICT" });
+    view = (await getWizardDraft({ id: owner.id }))!;
+    expect(view.nextStep).toBe("IDENTITY");
   });
 
   it("a mandatory referral code: empty or unknown is refused; optional again: empty is fine", async () => {
@@ -196,80 +199,107 @@ describe("the new first steps: referral code, shop email, documents handy?", () 
     await expect(confirmDraftEmailCode({ actor: owner, email: "shop.owner@example.com", code })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 
+  it("an invalid GSTIN: refused with a message, the owner stays on the screen, and a retry with the right one goes on", async () => {
+    // Mock vendor: digits 0000 → not found at the source.
+    let view = await verifyGstin(gstinFor("AABCG0000K"));
+    expect(view).toMatchObject({ nextStep: "IDENTITY", canContinue: false, gstin: { status: "FAILED", errorCode: "not_found_at_source" } });
+    expect(view.gstin!.message).toMatch(/not found/);
+    await submitDraftGstin({ gstin: gstinFor("AABCG1234K"), consentGiven: true, actor: owner });
+    view = (await getWizardDraft(owner))!;
+    expect(view).toMatchObject({ canContinue: true, gstin: { status: "VERIFIED" } });
+    expect(view.nextStep).not.toBe("IDENTITY");
+  });
+
+  it("an invalid PAN: refused, then retried", async () => {
+    // Mock vendor: digits 8888 → inactive.
+    let view = await verifyPan("ABCPE8888F");
+    expect(view).toMatchObject({ nextStep: "IDENTITY", canContinue: false, pan: { status: "FAILED" } });
+    await submitDraftPan({ pan: "ABCPE1234F", declarationAccepted: true, consentGiven: true, actor: owner });
+    view = (await getWizardDraft(owner))!;
+    expect(view).toMatchObject({ canContinue: true, pan: { status: "VERIFIED" } });
+  });
+});
+
+describe("Flow 1 with a GSTIN", () => {
+  it("owner name not in the record (a company): asked alone → address pre-filled → pin → shop name pre-filled → review", async () => {
+    let view = await verifyGstin();
+    // The PAN is taken from the GSTIN and checked — never typed.
+    expect(view.pan).toMatchObject({ status: "VERIFIED" });
+    expect(view.pan!.numberMasked).toMatch(/234K$/);
+    expect(view).toMatchObject({ nextStep: "OWNER", ownerName: null });
+    expect(view.prefill.shopName).toBeTruthy();
+    expect(view.address!.addressLine1).toContain("Pune");
+
+    view = await saveDraftOwner({ actor: owner, ownerName: "Ganesh Patil" });
+    expect(view).toMatchObject({ nextStep: "ADDRESS", ownerName: "Ganesh Patil" });
+    // The shop is elsewhere than the registered address: the owner changes it.
+    view = await saveDraftAddress({ actor: owner, address: ADDRESS });
+    expect(view).toMatchObject({ nextStep: "PIN", address: { addressLine1: "Shop No 7, Station Road" } });
+    view = await saveDraftLocation({ actor: owner, ...PIN });
+    expect(view.nextStep).toBe("SHOP");
+    view = await saveDraftDetails({ actor: owner, details: shopFields({ name: view.prefill.shopName! }) });
+    expect(view).toMatchObject({ nextStep: "REVIEW", details: { ownerName: "Ganesh Patil", addressLine1: "Shop No 7, Station Road" }, documents: { canSubmit: true, missing: [] } });
+  });
+
+  it("owner name in the record (a proprietor): no owner screen — straight to the address", async () => {
+    const view = await verifyGstin(gstinFor("ABCPK5678L"));
+    expect(view.ownerName).toBeTruthy();
+    expect(view.nextStep).toBe("ADDRESS");
+  });
+
+  it("back keeps what was verified and typed: an earlier step saved again moves on from where it was", async () => {
+    await verifyGstin();
+    await saveDraftOwner({ actor: owner, ownerName: "Ganesh Patil" });
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    // Back to the address (a correction): the pin and owner stay.
+    const view = await saveDraftAddress({ actor: owner, address: { ...ADDRESS, landmark: "Near the station" } });
+    expect(view).toMatchObject({ nextStep: "SHOP", ownerName: "Ganesh Patil", gstin: { status: "VERIFIED" }, address: { landmark: "Near the station" } });
+    expect(view.location).not.toBeNull();
+  });
+
+  it("payment succeeds → live, with Add Products, and the same words by email; payment fails → pending", async () => {
+    await verifyGstin(gstinFor("ABCPK5678L"));
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    await saveDraftDetails({ actor: owner, details: shopFields() });
+    const submitted = await submitDraftForPayment({ actor: owner });
+    const shopId = submitted.shop!.id;
+    expect(submitted.nextStep).toBe("PAYMENT");
+    // The pin placed before payment is on the shop.
+    expect(await shopRow(shopId)).toMatchObject({ status: "PENDING_APPROVAL", latitude: expect.stringMatching(/^18\.53/) });
+
+    const checkout = await startRegistrationFeeCheckout(shopId, owner);
+    await simulateSandboxCheckout({ ref: checkout.intentId, viewerId: owner.id, outcome: "FAILURE" });
+    expect((await shopRow(shopId)).status).toBe("PENDING_APPROVAL");
+    expect((await getWizardDraft(owner))!.nextStep).toBe("PAYMENT");
+
+    await payInSandbox(shopId);
+    expect(await shopRow(shopId)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
+    expect((await getWizardDraft(owner))!.nextStep).toBe("LIVE");
+    const [ready] = await db.select().from(notifications).where(eq(notifications.type, "shop.ready_for_product_upload"));
+    expect(ready.body).toContain("Your onboarding is complete. Your shop is now live and accepting orders.");
+    expect(ready.body).toContain("Add your products now so customers can find them and place orders with you");
+  });
+
   it("the shop email goes to the shop when it is created", async () => {
     await answerDraftReferral({ actor: owner, referralCode: null });
     await requestDraftEmailCode({ actor: owner, email: "orders@kirana.example" });
     await confirmDraftEmailCode({ actor: owner, email: "orders@kirana.example", code: lastCodeTo("orders@kirana.example") });
-    await answerDocumentsReady({ actor: owner, later: true });
-    await saveDraftDetails({ actor: owner, details: details() });
-    await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
+    await submitDraftGstin({ gstin: gstinFor("ABCPK5678L"), consentGiven: true, actor: owner });
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    await saveDraftDetails({ actor: owner, details: shopFields() });
     const view = await submitDraftForPayment({ actor: owner });
     expect(await shopRow(view.shop!.id)).toMatchObject({ email: "orders@kirana.example" });
   });
 
-  it("a draft started before these steps (GSTIN already checked) carries on where it was", async () => {
-    await submitDraftGstin({ gstin: gstinFor("AABCG1234K"), consentGiven: true, actor: owner });
-    const view = (await getWizardDraft(owner))!;
-    expect(view).toMatchObject({ nextStep: "UDYAM", referral: { answered: true }, email: { confirmed: true }, documentsLater: false });
-  });
-});
-
-describe("documents handy: Yes", () => {
-  it("document window: GSTIN fills the names, Shop Act validated, FSSAI / Udyam not now → confirm details → review (no map pin before payment)", async () => {
-    await start(false);
-    const checked = await submitDraftGstin({ gstin: gstinFor("AABCG1234K"), consentGiven: true, actor: owner });
-    // The retrieved shop and owner name, shown on the confirm step.
-    expect(checked.prefill.shopName ?? checked.prefill.legalName).toBeTruthy();
-    let view = await submitDraftDocument({ actor: owner, docType: "SHOP_ACT", number: "PMC-SA-2026-1234", consentGiven: true });
-    expect(view.shopAct.check).not.toBeNull();
-    await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
-    view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    expect(view.nextStep).toBe("DETAILS");
-    view = await saveDraftDetails({ actor: owner, details: details() });
-    expect(view).toMatchObject({ nextStep: "REVIEW", location: null, documents: { canSubmit: true, missing: [] } });
-  });
-});
-
-describe("documents handy: No, upload later", () => {
-  it("shop details → pay → live with no GSTIN or PAN → address and map pin; payouts held until the PAN is verified", async () => {
-    let view = await start(true);
-    expect(view).toMatchObject({ nextStep: "DETAILS", documentsLater: true });
-    view = await saveDraftDetails({ actor: owner, details: details() });
-    expect(view).toMatchObject({ nextStep: "REVIEW", documents: { canSubmit: true, missing: [], needsTeamApproval: false } });
-
-    const submitted = await submitDraftForPayment({ actor: owner });
-    const shopId = submitted.shop!.id;
-    expect(submitted.nextStep).toBe("PAYMENT");
-    expect(await shopRow(shopId)).toMatchObject({ gstin: null, status: "PENDING_APPROVAL", latitude: null });
-    expect(await db.select().from(sellerVerifications).where(eq(sellerVerifications.shopId, shopId))).toHaveLength(0);
-
-    await payInSandbox(shopId);
-    expect(await shopRow(shopId)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
-    const [decision] = await db.select().from(shopAutoApprovalLog).where(eq(shopAutoApprovalLog.shopId, shopId));
-    expect(decision).toMatchObject({ outcome: "APPROVED" });
-    expect(decision.evidence).toMatchObject({ documentsLater: true, documentsMissing: [] });
-    // Owner brief 30 Oct 2026: after payment, the shop's address and map pin.
-    expect((await getWizardDraft(owner))!.nextStep).toBe("LOCATION");
-
-    // Payouts wait for a verified GSTIN or PAN.
-    expect(await payoutHoldReason(shopId)).toMatch(/held until/);
-    const [settlement] = await db
-      .insert(shopSettlements)
-      .values({ shopId, periodStart: "2026-10-19", periodEnd: "2026-10-25", orderCount: 1, goodsPaise: 10_000, commissionPaise: 1_000, refundsPaise: 0, adjustmentsPaise: 0, netPayablePaise: 9_000 })
-      .returning();
-    await expect(decideShopSettlement(settlement.id, "approve", admin)).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "PAYOUT_HELD" } });
-
-    const pan = await submitSellerDocument({ shopId, docType: "PAN", number: "ABCPE1234F", consentGiven: true, actor: owner });
-    expect(pan.status).toBe("VERIFIED");
-    expect(await payoutHoldReason(shopId)).toBeNull();
-    expect((await decideShopSettlement(settlement.id, "approve", admin)).status).toBe("ELIGIBLE");
-  });
-
-  it("a food shop is still asked for its FSSAI, and goes live once it is verified", async () => {
-    await start(true);
-    let view = await saveDraftDetails({ actor: owner, details: details({ shopType: "DAIRY" }) });
+  it("a food shop is asked for its FSSAI after the shop step, and goes live once it is verified", async () => {
+    await verifyGstin(gstinFor("ABCPK5678L"));
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    let view = await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
     expect(view).toMatchObject({ foodShop: true, nextStep: "FSSAI" });
-    // "No" does not get a food shop past it.
     view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
     expect(view.nextStep).toBe("FSSAI");
     view = await submitDraftDocument({ actor: owner, docType: "FSSAI", number: FSSAI, consentGiven: true });
@@ -278,22 +308,90 @@ describe("documents handy: No, upload later", () => {
     await payInSandbox(submitted.shop!.id);
     expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", fssaiLicenseNumber: FSSAI });
   });
+});
 
-  it("a GSTIN tried and refused before switching to 'later' is not carried to the shop", async () => {
-    await start(false);
-    await submitDraftGstin({ gstin: gstinFor("AABCG0000K"), consentGiven: true, actor: owner });
-    await answerDocumentsReady({ actor: owner, later: true });
-    await saveDraftDetails({ actor: owner, details: details() });
-    const view = await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
+describe("Flow 1 with a PAN only (no GST)", () => {
+  it("address not returned by the PAN source: the owner name is filled, the address typed → pin → shop name typed → live", async () => {
+    let view = await verifyPan("ABCPE1234F");
+    expect(view).toMatchObject({ route: "PAN_ONLY", noGstDeclared: true, pan: { status: "VERIFIED" } });
+    expect(view.ownerName).toBeTruthy();
+    expect(view).toMatchObject({ nextStep: "ADDRESS", address: null, prefill: { shopName: null } });
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    view = await saveDraftDetails({ actor: owner, details: shopFields({ name: "Ekta Kirana" }) });
     expect(view.nextStep).toBe("REVIEW");
     const submitted = await submitDraftForPayment({ actor: owner });
-    expect(await shopRow(submitted.shop!.id)).toMatchObject({ gstin: null });
-    expect(await db.select().from(sellerVerifications).where(eq(sellerVerifications.shopId, submitted.shop!.id))).toHaveLength(0);
+    await payInSandbox(submitted.shop!.id);
+    expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", gstin: null, gstStatus: "NOT_REGISTERED" });
+  });
+
+  it("address returned by the PAN source: it fills the address step", async () => {
+    const adapter: KycAdapter = {
+      id: "mock",
+      verify: async () => ({
+        kind: "found",
+        providerRef: "pan-ref",
+        record: { docStatus: "active", name: "EKTA SHARMA", address: "22, Laxmi Road, Pune, 411030", pincode: "411030" },
+      }),
+    };
+    setKycAdapterForTests(adapter);
+    const view = await verifyPan("ABCPE1234F");
+    expect(view).toMatchObject({ nextStep: "ADDRESS", ownerName: "EKTA SHARMA", address: { addressLine1: "22, Laxmi Road, Pune, 411030", pincode: "411030", city: "Pune" } });
+  });
+});
+
+describe("duplicates", () => {
+  it("a GSTIN already registered by another account is refused with that shop's status, before any paid call", async () => {
+    const other = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(other.id, { status: "APPROVED" });
+    const gstin = gstinFor("AABCG1234K");
+    await db.update(shops).set({ gstin }).where(eq(shops.id, shop.id));
+    await expect(verifyGstin(gstin)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/live on GoKesari/), details: { reason: "DUPLICATE_SHOP", shopStatus: "APPROVED" } });
+  });
+
+  it("a PAN already registered is refused with that shop's status, before any paid call", async () => {
+    await verifyPan("ABCPE1234F");
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    await saveDraftDetails({ actor: owner, details: shopFields() });
+    await submitDraftForPayment({ actor: owner });
+    // Another account tries the same PAN.
+    const u = await createUser({ role: "CUSTOMER" });
+    const second = { id: u.id, role: "CUSTOMER" as const };
+    await expect(submitDraftPan({ pan: "ABCPE1234F", declarationAccepted: true, consentGiven: true, actor: second })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringMatching(/waiting for its registration fee or admin approval/),
+      details: { reason: "DUPLICATE_SHOP", shopStatus: "PENDING_APPROVAL" },
+    });
+  });
+});
+
+describe("Flow 2: an existing customer clicks Sell", () => {
+  it("starts at the GST / PAN screen (already signed in); a registration left for a week is discarded and starts afresh", async () => {
+    // The customer started once and walked away.
+    await verifyGstin();
+    await saveDraftOwner({ actor: owner, ownerName: "Old Name" });
+    const [old] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id));
+    await db.update(shopRegistrationDrafts).set({ updatedAt: new Date(Date.now() - ABANDONED_AFTER_MS - 60_000) }).where(eq(shopRegistrationDrafts.id, old.id));
+
+    // Back on Sell: nothing of the old attempt is reused.
+    expect(await getWizardDraft(owner)).toBeNull();
+    const [abandoned] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.id, old.id));
+    expect(abandoned.status).toBe("ABANDONED");
+    const view = await answerDraftReferral({ actor: owner, referralCode: null });
+    expect(view).toMatchObject({ nextStep: "IDENTITY", route: null, gstin: null, ownerName: null });
+    expect(view.id).not.toBe(old.id);
+  });
+
+  it("within the week the same registration resumes where it was", async () => {
+    await verifyGstin();
+    await saveDraftOwner({ actor: owner, ownerName: "Ganesh Patil" });
+    expect((await getWizardDraft(owner))!).toMatchObject({ nextStep: "ADDRESS", ownerName: "Ganesh Patil" });
   });
 });
 
 describe("HTTP routes", () => {
-  it("referral → email (changed) → documents-ready (later), each answering with the next step", async () => {
+  it("referral → email (changed) answer with the next step; 'upload later' is refused", async () => {
     await setFeatureFlag("shop_onboarding_wizard_enabled", { enabled: true, districtCodes: null }, "wizard flag (test)", admin);
     state.session = { user: { id: owner.id, email: owner.email, name: owner.name, image: null, role: "CUSTOMER", status: "ACTIVE" } };
     const referral = await call(referralRoute, "/api/shops/registration-draft/referral", { method: "POST", body: { referralCode: "" } });
@@ -305,7 +403,7 @@ describe("HTTP routes", () => {
     const confirmed = await call(emailRoute, "/api/shops/registration-draft/email", { method: "POST", body: { email: "route@shop.example", code: lastCodeTo("route@shop.example") } });
     expect(confirmed.body).toMatchObject({ nextStep: "IDENTITY", email: { shop: "route@shop.example" } });
     const ready = await call(documentsReadyRoute, "/api/shops/registration-draft/documents-ready", { method: "POST", body: { later: true } });
-    expect(ready.body).toMatchObject({ nextStep: "DETAILS", documentsLater: true });
+    expect(ready.status).toBe(409);
 
     state.session = null;
     expect((await call(referralRoute, "/api/shops/registration-draft/referral", { method: "POST", body: { referralCode: "" } })).status).toBe(401);

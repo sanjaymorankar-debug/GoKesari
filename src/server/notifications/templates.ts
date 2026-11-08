@@ -437,8 +437,9 @@ export const TEMPLATES: Record<string, Template> = {
   [T.DEALER_SHOP_FIRST_PRODUCTS]: t("{{shopName}} has listed its first products", "{{shopName}}, counted for you, now has {{count}} products live and can take orders.", false),
   [T.DEALER_SHOP_APPROVED]: t("Shop approved: {{shopName}}", "{{shopName}}, counted for you, is approved and can now add products and take orders."),
   [T.SHOP_READY_FOR_PRODUCT_UPLOAD]: t(
-    "Registration successful — {{shopName}} is ready for product upload",
-    "{{checkedLine}} so {{shopName}} (shop ID {{shopId}}) is approved. Add your products now: {{addProductsUrl}} — or upload many at once from Excel: {{bulkUploadUrl}}{{payoutLine}}",
+    "Your onboarding is complete — {{shopName}} is now live",
+    // Owner brief 08-Nov-2026: the same words as the wizard's last screen.
+    "Your onboarding is complete. Your shop is now live and accepting orders. {{checkedLine}} so {{shopName}} (shop ID {{shopId}}) is approved. Add your products now so customers can find them and place orders with you: {{addProductsUrl}} — or upload many at once from Excel: {{bulkUploadUrl}}{{payoutLine}}",
   ),
   [T.DEALER_DOCUMENT_REJECTED]: t(
     "Dealer document needs another upload",

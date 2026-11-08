@@ -17,20 +17,22 @@
  * verified number served from the stored result and an identical check in
  * flight joined; a per-draft hourly limit; vendor calls outside every
  * transaction, with a result written only if no newer check claimed the row.
- * A vendor outage leaves the check PENDING and the owner may continue — the
- * shop cannot be approved until it is verified.
+ * Owner brief 08-Nov-2026 (docs/shop-onboarding-identity-first-2026-11): the
+ * owner goes on only once the GSTIN — or, without one, the PAN — is VERIFIED;
+ * an outage or a review keeps them on this step to try again. A PAN on the
+ * GSTIN route (checked in the background) never holds them up.
  *
  * Full numbers exist only in memory and as ciphertext; views carry the masked
  * form only.
  */
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, ne, sql } from "drizzle-orm";
 
 import { GST_DECLARATION_VERSION, SELLER_VERIFICATION_CONSENT_VERSION } from "@/lib/kyc/consent";
 import { parseSellerDocNumber, PAN_HOLDER_TYPES, type ParsedDocNumber, type PanHolderType } from "@/lib/kyc/doc-formats";
 import { gstState } from "@/lib/gst-states";
 import { bestNameMatch } from "@/lib/kyc/name-match";
 import { AppError, conflict, notFound, validationFailed } from "@/lib/errors";
-import { docBlindIndex, encryptSecret } from "@/lib/pan-crypto";
+import { docBlindIndex, encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
 import { db, type DbClient } from "@/server/db";
 import { isUniqueViolation } from "@/server/db/upsert";
 import {
@@ -74,6 +76,20 @@ const MESSAGES: Record<string, string> = {
 };
 const PENDING_MESSAGE = "The government service is not answering right now. You can carry on — we'll keep checking.";
 const REVIEW_MESSAGE = "We couldn't confirm this automatically. You can carry on — our team will check it.";
+/** The GSTIN, or the PAN without one, must be verified before the owner goes on (owner brief 08-Nov-2026). */
+const IDENTITY_MESSAGES: Record<string, string> = {
+  gstin_pan_mismatch: "The government record links this GSTIN to a different PAN. Please check the number, or enter your PAN instead.",
+  name_not_returned: "The government record gave no name for this number, so we can't verify it. Please check the number and try again.",
+};
+const IDENTITY_PENDING = "The government service is not answering right now. Please try again in a few minutes.";
+const IDENTITY_REVIEW = "We couldn't verify this number automatically. Please check it and try again.";
+
+/** The message for the GSTIN, or the PAN on the no-GSTIN route: nothing but VERIFIED lets the owner on. */
+function identityMessage(status: DraftCheckStatus, errorCode: string | null): string | null {
+  if (status === "PENDING") return IDENTITY_PENDING;
+  if (status === "MANUAL_REVIEW") return (errorCode ? IDENTITY_MESSAGES[errorCode] : undefined) ?? IDENTITY_REVIEW;
+  return message(status, errorCode);
+}
 
 /* ------------------------------------------------------------------ views */
 
@@ -145,29 +161,30 @@ export function toDraftView(draft: ShopRegistrationDraft): ShopRegistrationDraft
   const panName = draft.panStatus === "VERIFIED" || draft.panStatus === "MANUAL_REVIEW" ? str(pan.name) : null;
   const holderLetter = str(pan.holderType);
 
+  const panOnly = draft.route === "PAN_ONLY";
   const gstinView = draft.gstinMasked
-    ? { numberMasked: draft.gstinMasked, status: draft.gstStatus, errorCode: draft.gstErrorCode, message: message(draft.gstStatus, draft.gstErrorCode) }
+    ? { numberMasked: draft.gstinMasked, status: draft.gstStatus, errorCode: draft.gstErrorCode, message: identityMessage(draft.gstStatus, draft.gstErrorCode) }
     : null;
   const panView = draft.panMasked
     ? {
         numberMasked: draft.panMasked,
         status: draft.panStatus,
         errorCode: draft.panErrorCode,
-        message: message(draft.panStatus, draft.panErrorCode),
+        message: panOnly ? identityMessage(draft.panStatus, draft.panErrorCode) : message(draft.panStatus, draft.panErrorCode),
         holderType: holderLetter && holderLetter in PAN_HOLDER_TYPES ? PAN_HOLDER_TYPES[holderLetter as PanHolderType] : null,
         nameMatchScore: draft.panNameMatchScore,
       }
     : null;
 
+  // Owner brief 08-Nov-2026: verified, nothing less. The GSTIN's own PAN is checked in the background
+  // and never holds the owner up.
   let canContinue = false;
-  if (draft.route === "GSTIN") {
-    // The PAN is checked only after a verified GSTIN; an outage or a review leaves it for later.
-    canContinue =
-      CAN_CONTINUE.includes(draft.gstStatus) &&
-      (draft.panStatus === "NOT_SUBMITTED" ? draft.gstStatus !== "VERIFIED" : CAN_CONTINUE.includes(draft.panStatus));
-  } else if (draft.route === "PAN_ONLY") {
-    canContinue = CAN_CONTINUE.includes(draft.panStatus) && draft.noGstDeclaredAt !== null;
-  }
+  // A PAN the government refused (inactive) still stops the owner, as before.
+  if (draft.route === "GSTIN") canContinue = gstVerified && draft.panStatus !== "FAILED" && draft.panStatus !== "EXPIRED";
+  else if (panOnly) canContinue = draft.panStatus === "VERIFIED" && draft.noGstDeclaredAt !== null;
+  // No GSTIN: the PAN record's own name and address, where the source gives them.
+  const panAddress = panOnly && draft.panStatus === "VERIFIED" ? str(pan.address) : null;
+  const panPincode = panOnly && draft.panStatus === "VERIFIED" ? str(pan.pincode) : null;
 
   return {
     id: draft.id,
@@ -183,11 +200,11 @@ export function toDraftView(draft: ShopRegistrationDraft): ShopRegistrationDraft
       // A proprietor's PAN is the person's; a firm's or company's is the business's.
       ownerName: holderLetter === "P" ? panName : null,
       constitution: gstVerified ? str(gst.constitution) : null,
-      address: gstVerified ? str(gst.address) : null,
+      address: gstVerified ? str(gst.address) : panAddress,
       stateCode: gstVerified ? str(gst.stateCode) : null,
       state: gstVerified ? (gstState(str(gst.stateCode))?.name ?? null) : null,
-      city: gstVerified ? cityFromAddress(str(gst.address), str(gst.stateCode), str(gst.pincode)) : null,
-      pincode: gstVerified ? str(gst.pincode) : null,
+      city: gstVerified ? cityFromAddress(str(gst.address), str(gst.stateCode), str(gst.pincode)) : cityFromAddress(panAddress, null, panPincode),
+      pincode: gstVerified ? str(gst.pincode) : panPincode,
     },
     canContinue,
   };
@@ -195,7 +212,29 @@ export function toDraftView(draft: ShopRegistrationDraft): ShopRegistrationDraft
 
 /* --------------------------------------------------------------- reading */
 
+/**
+ * Owner brief 08-Nov-2026 (Flow 2): an abandoned registration is not resumed — the owner starts
+ * again at the GST / PAN screen. Abandoned = no step for this long: past both reminders (24 h and
+ * 72 h, scheduled-notices.ts), which still invite the owner back to the same registration.
+ */
+export const ABANDONED_AFTER_MS = 7 * 24 * HOUR_MS;
+
+/** Marks the owner's OPEN registration ABANDONED when it has been left for ABANDONED_AFTER_MS. */
+export async function discardAbandonedDraft(ownerId: string, client: DbClient = db, now: Date = new Date()): Promise<void> {
+  await client
+    .update(shopRegistrationDrafts)
+    .set({ status: "ABANDONED", updatedAt: now })
+    .where(
+      and(
+        eq(shopRegistrationDrafts.ownerId, ownerId),
+        eq(shopRegistrationDrafts.status, "OPEN"),
+        lt(shopRegistrationDrafts.updatedAt, new Date(now.getTime() - ABANDONED_AFTER_MS)),
+      ),
+    );
+}
+
 export async function findOpenDraft(ownerId: string): Promise<ShopRegistrationDraft | undefined> {
+  await discardAbandonedDraft(ownerId);
   const [draft] = await db
     .select()
     .from(shopRegistrationDrafts)
@@ -218,13 +257,43 @@ export async function assertOwnerExists(ownerId: string): Promise<void> {
   if (!owner) throw notFound("User");
 }
 
-/** A live shop already holds this GSTIN: the owner is told before any paid call. */
+/** What the owner is told about the shop already registered with this number (owner brief 08-Nov-2026). */
+const HELD_STATUS: Record<string, string> = {
+  APPROVED: "It is live on GoKesari.",
+  PENDING_APPROVAL: "It is waiting for its registration fee or admin approval.",
+  SUSPENDED: "It is registered but not active at the moment.",
+  INACTIVE: "It is registered but not active at the moment.",
+};
+
+/** A live shop already holds this GSTIN: the owner is told, with that shop's status, before any paid call. */
 async function assertGstinFree(gstin: string, ownerId: string): Promise<void> {
   // Owner decision, 29 Oct 2026: the same owner may open another branch on its GSTIN; another account may not.
-  if (await gstinHeldByOtherOwner(gstin, ownerId)) {
-    throw conflict("A shop with this GSTIN is already registered on GoKesari by another account. If it is yours, sign in with the account that registered it, or contact support.", {
-      reason: "DUPLICATE_SHOP",
-    });
+  const held = await gstinHeldByOtherOwner(gstin, ownerId);
+  if (held) {
+    const [shop] = await db.select({ status: shops.status }).from(shops).where(eq(shops.id, held.shopId));
+    const status = shop ? (HELD_STATUS[shop.status] ?? "") : "";
+    throw conflict(
+      `A shop with this GSTIN is already registered on GoKesari by another account. ${status} If it is yours, sign in with the account that registered it, or contact support.`.replace(/\s+/g, " "),
+      { reason: "DUPLICATE_SHOP", shopStatus: shop?.status ?? null, fields: { gstin: "This GSTIN is already registered." } },
+    );
+  }
+}
+
+/**
+ * No GSTIN: another account's live shop with this PAN is reported with its status before any
+ * paid call — the same rule as the GSTIN (the same owner may open another branch).
+ */
+async function assertPanFree(pan: string, actor: Actor): Promise<void> {
+  const [held] = await db
+    .select({ status: shops.status })
+    .from(shops)
+    .where(and(eq(shops.panHash, panBlindIndex(pan)), isNull(shops.deletedAt), ne(shops.status, "REJECTED"), ne(shops.ownerId, actor.id)))
+    .limit(1);
+  if (held) {
+    throw conflict(
+      `A shop with this PAN is already registered on GoKesari by another account. ${HELD_STATUS[held.status] ?? ""} If it is yours, sign in with the account that registered it, or contact support.`.replace(/\s+/g, " "),
+      { reason: "DUPLICATE_SHOP", shopStatus: held.status, fields: { pan: "This PAN is already registered." } },
+    );
   }
 }
 
@@ -234,6 +303,7 @@ async function assertGstinFree(gstin: string, ownerId: string): Promise<void> {
  */
 export async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<ShopRegistrationDraft> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`shop-registration-draft:${ownerId}`}, 0))`);
+  await discardAbandonedDraft(ownerId, tx);
   const lockOpen = () =>
     tx
       .select()
@@ -346,7 +416,14 @@ async function runPanCheck(
       panStatus: judged.status,
       panErrorCode: judged.errorCode,
       panRecord: result.record
-        ? { docStatus: result.record.docStatus, name: result.record.name ?? null, holderType: doc.panHolderType ?? null }
+        ? {
+            docStatus: result.record.docStatus,
+            name: result.record.name ?? null,
+            holderType: doc.panHolderType ?? null,
+            // Owner brief 08-Nov-2026: where the PAN source gives an address, it fills the no-GSTIN route's address.
+            address: result.record.address ?? null,
+            pincode: result.record.pincode ?? null,
+          }
         : { holderType: doc.panHolderType ?? null },
       panNameMatchScore: judged.score,
       panProviderId: result.providerId,
@@ -505,6 +582,7 @@ export async function submitDraftPan(input: SubmitDraftPanInput): Promise<ShopRe
   const doc = parsed.value;
   const { actor } = input;
   await assertOwnerExists(actor.id);
+  await assertPanFree(doc.normalized, actor);
 
   const panHash = docBlindIndex("PAN", doc.normalized);
   const now = new Date();

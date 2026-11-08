@@ -1,4 +1,6 @@
 /**
+ * Owner brief 08-Nov-2026: the SHOP step — shop name, type, phone and turnover; the owner name and
+ * address come from their own steps (they may still be sent here). Earlier:
  * Onboarding wizard step 2: POST the shop details — shop type, phone, turnover
  * (it sets the fee from the admin's slab table), and the name and address the GST
  * record pre-filled. Categories are optional here (chosen after approval). Validated like Add my shop; saved on the draft, nothing created yet.
@@ -21,7 +23,7 @@ const nullable = <T extends z.ZodType>(schema: T) => schema.nullish().transform(
 
 const schema = z.object({
   name: z.string().trim().min(2, "Shop name is required.").max(120),
-  ownerName: z.string().trim().min(2, "Shop owner name is required.").max(120),
+  ownerName: nullable(z.string().trim().min(2, "Shop owner name is required.").max(120)),
   phone: z.string().trim().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number"),
   email: nullable(z.string().trim().email()),
   shopType: z.string().regex(SHOP_TYPE_KEY_PATTERN),
@@ -31,12 +33,12 @@ const schema = z.object({
   couponCode: nullable(z.string().trim().max(40)),
   referralCode: nullable(z.string().trim().max(32)),
   employeeId: nullable(z.string().trim().max(120)),
-  addressLine1: requiredText(3, 200),
+  addressLine1: nullable(requiredText(3, 200)),
   addressLine2: nullable(optionalText(200)),
   area: nullable(optionalText(120)),
-  city: requiredText(2, 120),
+  city: nullable(requiredText(2, 120)),
   state: nullable(optionalText(120)),
-  pincode: z.string().trim().regex(/^[1-9]\d{5}$/, "PIN code must be 6 digits and not start with 0."),
+  pincode: nullable(z.string().trim().regex(/^[1-9]\d{5}$/, "PIN code must be 6 digits and not start with 0.")),
   landmark: nullable(optionalText(200)),
 });
 
