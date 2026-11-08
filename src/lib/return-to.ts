@@ -2,15 +2,19 @@
  * D-23 (owner, 25 Oct 2026): after signing in again, go back to the page the
  * person was on, when that was within the last 24 hours.
  *
- * src/proxy.ts records every page navigation in a cookie (24 h); every
- * sign-in lands on /onboarding, which sends a complete profile there instead
- * of the home page. Only a same-site path is ever used.
+ * A cookie (24 h) holds the last page opened: src/proxy.ts writes it on a full
+ * page load, RememberReturnTo on a tap inside the app. Every sign-in lands on
+ * /onboarding, which sends a complete profile there instead of the home page
+ * (nearby shops and offers). Only a same-site path is ever used.
  */
 export const RETURN_TO_COOKIE = "gk_return_to";
 export const RETURN_TO_MAX_AGE_S = 24 * 60 * 60;
 
-/** Pages that are never a place to come back to. */
-const NOT_A_RETURN_PATH = ["/signin", "/onboarding", "/api", "/_next", "/mobile-auth", "/r"];
+/**
+ * Pages that are never a place to come back to. Help, complaint and policy
+ * pages are one-off visits: signing in goes to the home page instead.
+ */
+const NOT_A_RETURN_PATH = ["/signin", "/onboarding", "/api", "/_next", "/mobile-auth", "/r", "/support", "/grievance", "/legal", "/contact", "/about"];
 
 /** The path (with its query) to come back to, or null when `raw` is not a safe same-site page. */
 export function safeReturnPath(raw: string | null | undefined): string | null {
