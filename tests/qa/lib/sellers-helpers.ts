@@ -22,6 +22,7 @@ import sharp from "sharp";
 
 import { as } from "./actors";
 import { db, verifySellerDocument } from "./db";
+import { stockWholeCategory } from "./category-stock";
 import { call, expectStatus, RUN, type Answer } from "./http";
 import { blocked, expect, need } from "./record";
 import { assertWritable, BASE_URL, HOST, IS_LOCAL } from "./target";
@@ -460,6 +461,7 @@ export async function sellingShop(label: string) {
   const category = need((world() as unknown as { category?: { id: string } }).category, "the world's QA category");
   const added = await call(made.ctx, "POST", `/api/shops/${made.shop.id}/product-categories`, { categoryId: category.id });
   expectStatus(added, [200, 201], "the owner adds the QA category");
+  await stockWholeCategory(made.ctx, made.shop.id, category.id);
   const listings = (await ownerListings(made.ctx, made.shop.id)).filter((l) => l.onlineSaleEnabled && (l.onlinePricePaise ?? 0) > 0);
   listings.sort((a, b) => (a.onlinePricePaise ?? 0) - (b.onlinePricePaise ?? 0));
   const cheapest = need(listings[0], "a priced listing in the new shop");

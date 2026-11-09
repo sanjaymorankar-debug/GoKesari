@@ -41,6 +41,7 @@ import {
   type Listing,
   type PlacedOrder,
 } from "./flows";
+import { stockWholeCategory } from "./category-stock";
 import { call, expectStatus, poll, RUN, why, type Answer, type Method } from "./http";
 import { messagesTo, waitForCode } from "./mail";
 import { blocked, need } from "./record";
@@ -1095,6 +1096,7 @@ export async function sellingShop(label: string) {
   const { owner, shopId: id } = await approvedShop(label);
   const category = need((world() as unknown as { category?: { id: string } }).category?.id, "the world's QA category");
   expectStatus(await call(owner.ctx, "POST", `/api/shops/${id}/product-categories`, { categoryId: category }), [200, 201], "the owner adds the QA category");
+  await stockWholeCategory(owner.ctx, id, category);
   const own = await call(owner.ctx, "GET", `/api/shops/${id}/products`);
   expectStatus(own, 200, "the owner's listings");
   const rows = ((Array.isArray(own.body) ? own.body : own.body.products) as { id: string; productId: string; onlinePricePaise: number | null; onlineSaleEnabled: boolean; product: { name: string; kind: string } }[])

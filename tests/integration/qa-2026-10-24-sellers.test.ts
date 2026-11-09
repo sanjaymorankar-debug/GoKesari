@@ -573,7 +573,7 @@ describe("N7 (TC-SPI-022): a stale stock save is refused, not written over an or
 });
 
 describe("N8 (TC-SPI-027) / N12 (TC-SPI-023): the public storefront API", () => {
-  it("customers get inStock, never the count; buyable rows come before out-of-stock ones; staff still get counts", async () => {
+  it("customers get inStock, never the count; only Live rows are shown, so a sold-out one is left out; staff still get counts", async () => {
     const { owner, shop, category } = await ownerWithListing();
     const oos = await createShopProduct(shop.id, (await createProduct(category.id, { name: "AAA Oos Cereal" })).id, { onlinePricePaise: 9_900, onlineStock: 0 });
     const fine = await createShopProduct(shop.id, (await createProduct(category.id, { name: "ZZZ Fine Cereal" })).id, { onlinePricePaise: 9_900, onlineStock: 10 });
@@ -583,10 +583,9 @@ describe("N8 (TC-SPI-027) / N12 (TC-SPI-023): the public storefront API", () => 
     expect(res.status).toBe(200);
     const rows = res.body as { shopProductId: string; onlineStock?: number; inStock: boolean }[];
     expect(rows.every((r) => r.onlineStock === undefined && !("offlineStock" in r))).toBe(true);
-    expect(rows.find((r) => r.shopProductId === oos.id)?.inStock).toBe(false);
+    // docs/shop-product-setup-2026-11: customers see only Live listings.
+    expect(rows.find((r) => r.shopProductId === oos.id)).toBeUndefined();
     expect(rows.find((r) => r.shopProductId === fine.id)?.inStock).toBe(true);
-    const ids = rows.map((r) => r.shopProductId);
-    expect(ids.indexOf(oos.id)).toBeGreaterThan(ids.indexOf(fine.id));
 
     signIn(owner, "SHOP_OWNER");
     const own = await call(shopProductsGet, `/api/shops/${shop.id}/products`, { params: { id: shop.id } });

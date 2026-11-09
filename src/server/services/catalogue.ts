@@ -28,6 +28,7 @@ import {
   productCategories,
   productPriceHistory,
   products,
+  shopListingDetails,
   shopProducts,
   shops,
   type Department,
@@ -365,7 +366,7 @@ export async function createProductForShop(
       categoryId,
       actor,
       // This flow lists the one product itself, below.
-      { reason: "product_created", fillInventory: false },
+      { reason: "product_created" },
       c,
     );
 
@@ -1197,6 +1198,14 @@ const storefrontBuyable = sql<boolean>`(${shopProducts.onlineSaleEnabled}
   AND ${shopProducts.isAvailable}
   AND (NOT ${shopProducts.trackInventory} OR ${shopProducts.onlineStock} > 0))`;
 
+/** Customers see only Live listings: the customer-side form of listingStatus (src/lib/listing-status.ts). */
+export const storefrontLive = sql<boolean>`(NOT ${shopProducts.ownerPaused}
+  AND (NOT ${shopProducts.onlineSaleEnabled} OR ${shopProducts.isAvailable})
+  AND (${shopProducts.onlinePricePaise} IS NOT NULL OR ${shopProducts.offlinePricePaise} IS NOT NULL)
+  AND (${shopProducts.onlineSaleEnabled} OR ${shopProducts.offlineSaleEnabled})
+  AND (NOT ${shopProducts.trackInventory}
+       OR CASE WHEN ${shopProducts.onlineSaleEnabled} THEN ${shopProducts.onlineStock} > 0 ELSE ${shopProducts.offlineStock} > 0 END))`;
+
 /** What makes a listing visible to customers, plus the caller's filters. */
 function storefrontConditions(options: StorefrontFilters) {
   const conditions = [
@@ -1207,6 +1216,7 @@ function storefrontConditions(options: StorefrontFilters) {
     eq(products.isActive, true),
     // A listing is on sale only while its shop carries the product's category.
     shopCarriesProductCategory(shopProducts.shopId, products.categoryId),
+    storefrontLive,
   ];
 
   if (options.department) {
@@ -1286,11 +1296,13 @@ export async function listStorefrontProducts(
       product: products,
       category: productCategories,
       shop: shops,
+      shopMrpPaise: shopListingDetails.mrpPaise,
     })
     .from(shopProducts)
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
+    .leftJoin(shopListingDetails, eq(shopListingDetails.shopProductId, shopProducts.id))
     .where(and(...conditions))
     // Buyable listings first, then the catalogue order (TC-SPI-023: an
     // out-of-stock row came before buyable ones); the listing id breaks ties
@@ -1329,7 +1341,8 @@ export async function listStorefrontProducts(
     shopSlug: r.shop.slug,
     shopClassification: r.shop.classification,
     shortDescription: effectiveDescriptions(r.sp, r.product.description).shortDescription,
-    mrpPaise: r.product.mrpPaise,
+    // A shop's own MRP applies to that shop only.
+    mrpPaise: r.shopMrpPaise ?? r.product.mrpPaise,
   }));
 }
 
