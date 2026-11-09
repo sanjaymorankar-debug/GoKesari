@@ -8,7 +8,7 @@
  * The approval path itself (GST / PAN verified + payment → approved; failures → pending) is
  * proven by tests/integration/onboarding-wizard-step2.test.ts on both database layouts.
  */
-import { pageAs } from "../lib/actors";
+import { pageAs, shopFreeCustomer } from "../lib/actors";
 import { expect, qa } from "../lib/record";
 
 const signed = { tier: "signed" as const, timeout: 180_000 };
@@ -43,7 +43,7 @@ qa("RB-01", "wizard: the five steps are shown at the top in the brief's order, o
 }, signed);
 
 qa("RB-02", "after sign-in only the referral code and GST / PAN are asked; shop name and address are not", async ({ browser }) => {
-  const { context, page } = await pageAs(browser, "admin", { viewport: { width: 390, height: 844 } });
+  const { context, page } = await pageAs(browser, await shopFreeCustomer(), { viewport: { width: 390, height: 844 } });
   try {
     await page.goto("/shop/register");
     const tile = page.getByTestId("registration-tiles").getByRole("button", { name: /2\. Verify/ });

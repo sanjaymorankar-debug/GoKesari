@@ -36,7 +36,8 @@ qa("TC-SUB-001", "subscribe to milk from the shop page: 2 L/day previews ₹140 
   const { context, page } = await pageAs(browser, "customer");
   let id = "";
   try {
-    await page.goto(`/shops/${shop.slug}`);
+    // The shop page shows one category at a time, six products a page: the milk is under Dairy.
+    await page.goto(`/shops/${shop.slug}?cat=Dairy`);
     const card = page.getByRole("article").filter({ hasText: milk.name }).first();
     const fallback = page.locator("div").filter({ hasText: milk.name }).filter({ has: page.getByRole("button", { name: "Subscribe" }) }).last();
     const target = (await card.count()) ? card : fallback;

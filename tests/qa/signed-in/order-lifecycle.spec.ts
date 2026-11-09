@@ -28,6 +28,7 @@ import {
   type PlacedOrder,
 } from "../lib/flows";
 import { call, expectStatus, RUN, stash, unstash } from "../lib/http";
+import { ruleOn } from "../lib/orders-helpers";
 import { blocked, expect, qa } from "../lib/record";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
@@ -148,6 +149,13 @@ qa(["TC-FUL-002", "TC-FUL-006"], "the shop marks the order READY and a rider is 
 qa("TC-ORD-007", "the customer cannot cancel at READY", async () => {
   const order = current();
   expect(await statusOf(order.id)).toBe("READY");
+  if (await ruleOn("afterPackingCancellation")) {
+    // This site lets the customer cancel a packed order for a fee: the quote says so; the order stays for the rider checks.
+    const quote = await call(await as("customer"), "GET", `/api/orders/${order.id}/cancellation-quote`);
+    expectStatus(quote, 200, "cancellation quote");
+    expect(quote.body.allowed, "the quote allows a cancel for a fee (rule afterPackingCancellation on)").toBe(true);
+    return `rule afterPackingCancellation is on here: READY can be cancelled for a fee (refund ₹${(quote.body.breakdown?.refundPaise ?? 0) / 100} quoted); not cancelled`;
+  }
   const res = await call(await as("customer"), "PATCH", `/api/orders/${order.id}/status`, { status: "CANCELLED" });
   expect(res.status).toBe(409);
   return `cancel at READY → ${res.status}`;
@@ -165,6 +173,7 @@ qa(["TC-DEL-001", "TC-DEL-010"], "the rider accepts the offer: ASSIGNED; the rid
     expect(text, "no delivery code").not.toMatch(/"(deliveryOtp|deliveryOtpHash|handoverCode)"\s*:\s*"/);
   }
   expect(view.text).toMatch(/needsPickupCode|needsDeliveryOtp/);
+  if (await ruleOn("afterPackingCancellation")) return "ASSIGNED; rider JSON has only needs* flags; customer cancel at ASSIGNED not tried (rule afterPackingCancellation is on here)";
   const cancel = await call(await as("customer"), "PATCH", `/api/orders/${order.id}/status`, { status: "CANCELLED" });
   expect(cancel.status, "customer cannot cancel at ASSIGNED (TC-ORD-007)").toBe(409);
   return "ASSIGNED; rider JSON has only needs* flags; customer cancel at ASSIGNED refused";

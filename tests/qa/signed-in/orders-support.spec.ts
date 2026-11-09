@@ -26,6 +26,7 @@ import {
   statusOf,
   TEXT,
   withShopSettings,
+  withRuleOff,
 } from "../lib/orders-helpers";
 import { blocked, expect, need, qa } from "../lib/record";
 import { world } from "../lib/world";
@@ -249,10 +250,12 @@ qa("TC-SUP-008", "rating the rider: saved, the rider sees the average on the das
   try {
     await driveTo(self.id, "PREPARING");
     const restore = await withShopSettings({ deliveryAvailable: false });
+    const restoreRule = await withRuleOff("fulfilmentOptions");
     try {
       await driveTo(self.id, "READY", { from: "PREPARING" });
       expectStatus(await setStatus(self.id, "DELIVERED"), 200, "handed to the customer by the shop");
     } finally {
+      await restoreRule();
       await restore();
     }
     expect(await statusOf(self.id)).toBe("DELIVERED");

@@ -13,7 +13,7 @@
  * and as() refuses there again.
  */
 import { request as playwrightRequest, type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { encode } from "next-auth/jwt";
@@ -24,6 +24,8 @@ import { BASE_URL, HOST, IS_PROD, IS_REMOTE, TARGET } from "./target";
 import { ROLE_NAMES, world, type Role } from "./world";
 
 const AUTH_DIR = process.env.E2E_AUTH_DIR ?? ".e2e-auth";
+/** Seller Central's shop switcher (ACTIVE_SHOP_COOKIE in src/lib/seller/active-shop.ts). */
+const ACTIVE_SHOP_COOKIE = "gk_shop";
 const SECURE = BASE_URL.startsWith("https");
 const COOKIE = SECURE ? "__Secure-authjs.session-token" : "authjs.session-token";
 
@@ -50,7 +52,18 @@ export async function storageFor(role: Role): Promise<StorageState> {
   }
   const file = sessionFile(role);
   if (!existsSync(file)) blocked(`no saved ${ROLE_NAMES[role]} session for ${TARGET} (${file}); run scripts/qa/signin-staging.ts`);
-  return file;
+  const shopKey = world().users[role]?.activeShop;
+  const shopId = shopKey ? world().shops[shopKey]?.id : undefined;
+  if (!shopId) return file;
+  // An owner's pages open their newest shop unless the switcher chose another; this account owns several.
+  const state = JSON.parse(readFileSync(file, "utf8")) as Exclude<StorageState, string | undefined>;
+  return {
+    ...state,
+    cookies: [
+      ...state.cookies.filter((c) => c.name !== ACTIVE_SHOP_COOKIE),
+      { name: ACTIVE_SHOP_COOKIE, value: shopId, domain: new URL(BASE_URL).hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" },
+    ],
+  };
 }
 
 const apis = new Map<Role, APIRequestContext>();
@@ -100,6 +113,38 @@ export async function me(role: Role): Promise<SessionUser> {
   const row = { id: String(user.id), email: String(user.email ?? ""), role: String(user.role ?? ""), name: user.name ?? null };
   known.set(role, row);
   return row;
+}
+
+/**
+ * An account that still holds only the CUSTOMER role. Registering a test shop turns an account into
+ * a shop owner, so checks about what a plain customer may not do look it up; none left blocks them.
+ */
+export async function plainCustomer(): Promise<"customer" | "customer2"> {
+  const seen: string[] = [];
+  for (const role of ["customer2", "customer"] as const) {
+    if (!world().users[role]) continue;
+    const user = await me(role);
+    if (user.role === "CUSTOMER") return role;
+    seen.push(`${role} is ${user.role}`);
+  }
+  blocked(`no test account is still a plain customer (${seen.join(", ")})`);
+}
+
+/** Whether `role`'s account owns no shop: its Seller Central home is the registration start. The CUSTOMER role does not say so. */
+export async function ownsNoShop(role: Role): Promise<boolean> {
+  const res = await call(await as(role), "GET", "/shop", undefined, { maxRedirects: 3 });
+  return res.status === 200 && /seller-welcome|Welcome to Seller Central/.test(res.text);
+}
+
+/** A plain customer who also owns no shop, for checks about the seller portal. None left blocks them. */
+export async function shopFreeCustomer(): Promise<"customer" | "customer2"> {
+  const seen: string[] = [];
+  for (const role of ["customer2", "customer"] as const) {
+    if (!world().users[role]) continue;
+    if ((await me(role)).role === "CUSTOMER" && (await ownsNoShop(role))) return role;
+    seen.push(role);
+  }
+  blocked(`no test account is a customer without a shop (${seen.join(", ")} each own one)`);
 }
 
 export async function disposeActors() {

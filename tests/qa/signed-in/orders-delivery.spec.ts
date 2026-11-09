@@ -40,6 +40,7 @@ import {
   upload,
   withShopSettings,
   PDF_BYTES,
+  withRuleOff,
 } from "../lib/orders-helpers";
 import { db } from "../lib/db";
 import { expect, need, qa } from "../lib/record";
@@ -207,6 +208,14 @@ qa(["TC-DEL-004", "TC-FLD-085"], "pickup code: blank, 5 and 7 digits, letters an
   return notes.join("; ");
 }, { ...signed, mobile: true, partial: "wrong pickup codes are not counted at all — there is no attempt limit on the pickup code (only the delivery code locks)" });
 
+/** The street line of the customer's default address (the seeded one locally, whatever it is on the sites). */
+async function customerStreet(): Promise<RegExp> {
+  if (IS_LOCAL) return /QA Flat 1, Karve Road/;
+  const res = await call(await as("customer"), "GET", "/api/addresses");
+  const list = (res.body?.addresses ?? res.body) as { isDefault: boolean; line1: string }[];
+  return new RegExp((list.find((a) => a.isDefault) ?? list[0]).line1.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+}
+
 qa(["TC-DEL-005", "TC-DEL-006"], "Start delivery: OUT_FOR_DELIVERY, full address, notes and Navigate to the customer appear; the customer's order shows the delivery code panel; arriving tells the customer", async ({ browser }) => {
   await ready();
   const addressId = world().addresses?.customer;
@@ -220,21 +229,22 @@ qa(["TC-DEL-005", "TC-DEL-006"], "Start delivery: OUT_FOR_DELIVERY, full address
   }
   const placed = await placeSimple().finally(restoreNotes);
   const notes: string[] = [];
+  const street = await customerStreet();
   const { context, page } = await riderPage(browser);
   try {
     const driven = await driveTo(placed.id, "ASSIGNED");
     await page.goto("/delivery-partner");
     await expect(page.getByText("The full address and navigation appear once you pick up the order.")).toBeVisible();
-    await expect(page.getByText(/QA Flat 1, Karve Road/), "area only before pickup").toHaveCount(0);
+    await expect(page.getByText(street), "area only before pickup").toHaveCount(0);
     const code = need(await pickupCode(placed.id), "pickup code");
     expectStatus(await riderAction(driven.deliveryOrderId!, "pickup", { pickupCode: ` ${code} ` }), 200, "pickup with the code padded by spaces (API trims it)");
     await page.goto("/delivery-partner");
     // The full address appears from pickup (delivery-assignment.ts getMyActiveDeliveryDetail), before the drop starts.
-    await expect(page.getByText(/QA Flat 1, Karve Road/).first(), "full address once picked up").toBeVisible();
+    await expect(page.getByText(street).first(), "full address once picked up").toBeVisible();
     await page.getByRole("button", { name: "Start delivery" }).click();
     await expect.poll(() => statusOf(placed.id), { timeout: 15_000 }).toBe("OUT_FOR_DELIVERY");
     await page.reload();
-    await expect(page.getByText(/QA Flat 1, Karve Road/).first(), "full address").toBeVisible();
+    await expect(page.getByText(street).first(), "full address").toBeVisible();
     await expect(page.getByTestId("navigate-drop")).toHaveText("Navigate to the customer");
     if (IS_LOCAL) await expect(page.getByText(/Opposite QA Garden · Ring twice/), "landmark and instructions").toBeVisible();
     notes.push("drop details shown after Start delivery");
@@ -525,6 +535,8 @@ qa("TC-DEL-020", "a shop without platform delivery moves READY → Out for deliv
   await ready();
   const placed = await placeSimple();
   const restore = { fn: async () => {} };
+  // With rule fulfilmentOptions on, own delivery goes through a delivery person's link; this case is the flow without it.
+  const restoreRule = await withRuleOff("fulfilmentOptions");
   try {
     await driveTo(placed.id, "PREPARING");
     restore.fn = await withShopSettings({ deliveryAvailable: false });
@@ -543,6 +555,7 @@ qa("TC-DEL-020", "a shop without platform delivery moves READY → Out for deliv
     }
   } finally {
     await restore.fn();
+    await restoreRule();
   }
   const second = await placeSimple();
   try {

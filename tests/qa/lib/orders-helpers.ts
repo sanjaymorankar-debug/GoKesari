@@ -59,7 +59,13 @@ type ListingKey = keyof NonNullable<ReturnType<typeof world>["listings"]>;
 /** A named listing of the world with its shop (blocks where this site's world has none). */
 export async function listingOf(key: ListingKey): Promise<Listing> {
   const preset = world().listings[key] as WorldListing | undefined;
-  if (key === "packaged" && !IS_LOCAL) return sellable("A");
+  if (key === "packaged" && !IS_LOCAL) {
+    // The named listing while it is on sale: the shop's cheapest can be the "sharedA" product, and two lines of one product merge in the cart.
+    const shop = await shopOf("A");
+    const live = preset && (await shopListings(shop.id, true)).find((r) => r.shopProductId === preset.shopProductId);
+    if (!live || !live.onlineSaleEnabled || !live.isAvailable || (live.trackInventory && live.onlineStock < 3)) return sellable("A");
+    return { ...preset!, pricePaise: live.onlinePricePaise, shopId: shop.id, shopName: shop.name };
+  }
   const row = need(preset, `the "${key}" listing in this site's test data`);
   const shopKey = key === "sharedB" || key === "offlineOnly" ? "B" : "A";
   const shop = await shopOf(shopKey);
@@ -540,6 +546,25 @@ export async function withRule(key: string, value: Record<string, unknown>): Pro
     if (rule!.overridden) await call(admin, "PUT", "/api/admin/settings", { key, value: rule!.value });
     else await call(admin, "DELETE", `/api/admin/settings?key=${encodeURIComponent(key)}`);
   };
+}
+
+/** A business rule as the site has it now. */
+async function ruleValue(key: string): Promise<Record<string, unknown>> {
+  const settings = await call(await as("admin"), "GET", "/api/admin/settings");
+  expectStatus(settings, 200, "GET /api/admin/settings");
+  const rule = (settings.body?.rules ?? []).find((r: { key: string }) => r.key === key) as { value: Record<string, unknown> } | undefined;
+  expect(rule, `rule ${key} exists`).toBeTruthy();
+  return rule!.value;
+}
+
+/** Whether a business rule is switched on on this site. */
+export async function ruleOn(key: string): Promise<boolean> {
+  return (await ruleValue(key)).enabled === true;
+}
+
+/** Switches a business rule off for one check; the returned function puts it back. */
+export async function withRuleOff(key: string): Promise<() => Promise<void>> {
+  return withRule(key, { ...(await ruleValue(key)), enabled: false });
 }
 
 /** The shop owner changes shop A's settings; the returned function puts the old values back. */

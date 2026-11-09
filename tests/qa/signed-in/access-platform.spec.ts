@@ -14,7 +14,7 @@ import type { Page } from "@playwright/test";
 
 import { as, me, pageAs } from "../lib/actors";
 import { addToCart, deliver, emptyCart, onlyRiderOnline, packOrder, placeOrder, sellable, shopOf } from "../lib/flows";
-import { anonymous, call, expectStatus, RUN, why } from "../lib/http";
+import { anonymous, call, expectStatus, isInPageSignInRedirect, RUN, why } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
 import { BASE_URL, IS_LOCAL } from "../lib/target";
 import { world } from "../lib/world";
@@ -159,7 +159,9 @@ qa("TC-SEC-009", "unknown ids in signed-in pages show the branded 404 with navig
     try {
       const res = await page.goto(path, { waitUntil: "domcontentloaded" });
       const status = res?.status() ?? 0;
-      expect([404], `${role} ${path} → ${status}`).toContain(status);
+      // Under a streamed layout the 404 comes inside a 200 page (noindex), as /shop's sign-in redirect does.
+      const inPage404 = status === 200 && path.startsWith("/shop") && (await page.getByRole("heading", { name: /does not exist|not found/i }).first().isVisible({ timeout: 15_000 }).catch(() => false));
+      expect(inPage404 ? [200] : [404], `${role} ${path} → ${status}`).toContain(status);
       await expect(page.getByRole("link", { name: /GoKesari.*Home|Home|Go to|Back/i }).first(), `${path} offers a way back`).toBeVisible();
       await expect(page.locator("body")).not.toContainText(/at .*\.js:\d+|node_modules|\/home\/|stack/i);
       out.push(`${role} ${path} 404`);
@@ -624,13 +626,19 @@ qa(["TC-RBAC-002", "TC-SEC-001"], "a forged session cookie (claiming ADMIN, sign
   const ctx = await forgedContext();
   const bad: string[] = [];
   const out: string[] = [];
+  const inPage: string[] = [];
+  const shopNames = Object.values(world().shops).map((s) => s.name);
   try {
     for (const path of ["/wallet", "/orders", "/cart", "/profile", "/subscriptions", "/shop", "/delivery-partner", "/society", "/admin", "/admin/settings"]) {
       const res = await call(ctx, "GET", path);
       const to = res.location ? new URL(res.location, BASE_URL).pathname : "";
+      if (isInPageSignInRedirect(path, res, shopNames)) {
+        inPage.push(path);
+        continue;
+      }
       if (!(res.status === 401 || res.status === 403 || ([302, 303, 307, 308].includes(res.status) && /\/signin/.test(to)))) bad.push(`${path} → ${res.status} ${to}`);
     }
-    out.push("10 portal pages → sign-in");
+    out.push(`10 portal pages → sign-in${inPage.length ? ` (${inPage.join(", ")} by a redirect in a 200 page, no shop data in it)` : ""}`);
     for (const path of ["/api/wallet", "/api/orders", "/api/cart", "/api/notifications", "/api/auth/session"]) {
       const res = await call(ctx, "GET", path);
       if (path === "/api/auth/session") {

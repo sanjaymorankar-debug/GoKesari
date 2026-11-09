@@ -23,13 +23,45 @@ export interface Answer {
 /** Remote sites answer slowly (checkout took 30–38 s on test, D-27). */
 export const SLOW_MS = /^https:/.test(BASE_URL) ? 120_000 : 60_000;
 
-export async function call(
-  ctx: APIRequestContext,
-  method: Method,
-  path: string,
-  data?: unknown,
-  options: { headers?: Record<string, string>; form?: Record<string, string>; multipart?: Parameters<APIRequestContext["fetch"]>[1] extends infer O ? O extends { multipart?: infer M } ? M : never : never; maxRedirects?: number } = {},
-): Promise<Answer> {
+/**
+ * The sites' proxy allows API_RATE_LIMIT_PER_MIN (default 240) calls to /api/* a minute per IP, and
+ * the browser's own calls count too. A run keeps its API calls under this many a minute.
+ */
+const API_CALLS_PER_MINUTE = 150;
+const apiCalls: number[] = [];
+
+async function paceApiCall(path: string) {
+  if (!IS_REMOTE || !new URL(path, BASE_URL).pathname.startsWith("/api/")) return;
+  for (;;) {
+    const now = Date.now();
+    while (apiCalls.length && now - apiCalls[0] >= 60_000) apiCalls.shift();
+    if (apiCalls.length < API_CALLS_PER_MINUTE) {
+      apiCalls.push(now);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 60_000 - (now - apiCalls[0]) + 50));
+  }
+}
+
+/** The proxy's own 429 (a plain message, no error code): the app's per-action limits answer with a code and are left to the checks. */
+function proxyRefused(res: Answer) {
+  return res.status === 429 && res.body?.error === "Too many requests";
+}
+
+type CallOptions = { headers?: Record<string, string>; form?: Record<string, string>; multipart?: Parameters<APIRequestContext["fetch"]>[1] extends infer O ? O extends { multipart?: infer M } ? M : never : never; maxRedirects?: number };
+
+export async function call(ctx: APIRequestContext, method: Method, path: string, data?: unknown, options: CallOptions = {}): Promise<Answer> {
+  await paceApiCall(path);
+  let answer = await send(ctx, method, path, data, options);
+  // The proxy refuses before the route runs, so even a write can be sent again once its window has passed.
+  for (let i = 0; i < 3 && IS_REMOTE && proxyRefused(answer); i++) {
+    await new Promise((r) => setTimeout(r, (Number(answer.headers["retry-after"]) || 60) * 1000 + 2_000));
+    answer = await send(ctx, method, path, data, options);
+  }
+  return answer;
+}
+
+async function send(ctx: APIRequestContext, method: Method, path: string, data: unknown, options: CallOptions): Promise<Answer> {
   const res = await ctx.fetch(new URL(path, BASE_URL).toString(), {
     method,
     ...(options.multipart ? { multipart: options.multipart } : options.form ? { form: options.form } : data === undefined ? {} : { data: JSON.stringify(data) }),
@@ -131,6 +163,21 @@ export function isSignInShell(path: string, res: Answer) {
     /Sign in/.test(res.text) &&
     /Loading…/.test(res.text) &&
     !res.text.includes("₹")
+  );
+}
+
+/**
+ * Seller Central streams its pages, so a caller without a session can get 200 with the redirect to
+ * /signin inside the page (a meta refresh) in place of a 307 header. It is the same refusal as long
+ * as the page carries nothing of a shop: no rupee amount, and none of `shopData` (shop names).
+ */
+export function isInPageSignInRedirect(path: string, res: Answer, shopData: string[] = []) {
+  return (
+    path.startsWith("/shop") &&
+    res.status === 200 &&
+    /http-equiv="refresh" content="\d+;url=\/signin/.test(res.text) &&
+    !res.text.includes("₹") &&
+    !shopData.some((text) => res.text.includes(text))
   );
 }
 

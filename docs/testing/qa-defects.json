@@ -1949,6 +1949,22 @@
       "actual": "shops.area of E2E Four Features Bakery changed Kothrud -> Deccan at 03-Nov 02.18-02.19 UTC (audit shop.updated by gk-shop, six saves during the suite; pincode 411005). GET /api/shops?q=Kothrud then lists 1 shop, not shop A.",
       "expected": "Shop A keeps area Kothrud through the run, or the search check uses the area the shop has.",
       "fix": "Test data / test order: restore area Kothrud after the settings checks, or have TC-DISC-004 read shop A's area first.",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": "09-Nov-2026 staging: TC-DISC-004/005 now read shop A's own area and type and pass (area Deccan)."
+    },
+    {
+      "id": "D-147",
+      "title": "Shop order card: 'Packed — mark ready' stays active while the customer is deciding on a substitute",
+      "cases": [
+        "TC-FUL-007",
+        "TC-FUL-008"
+      ],
+      "severity": "Low",
+      "found": "2026-11-09 staging run regression-world-repair",
+      "actual": "With rule fulfilmentOptions on, the button comes from the fulfilment planner (src/components/fulfilment-planner.tsx:351, disabled only for busy / no slot / no staff) and is enabled while a line shows '(waiting for customer)'. The old button (shop-order-manager.tsx:369) was disabled by waitingOnCustomer.",
+      "expected": "The button is disabled until the customer accepts or refuses the substitute.",
+      "fix": "Pass the waiting state to the planner and disable the submit while it is set. The server already refuses: POST ready while the customer decides answers 409 and the order stays PREPARING (re-test 09-Nov 22.08 IST).",
       "status": "Open",
       "fixedIn": null,
       "retest": null

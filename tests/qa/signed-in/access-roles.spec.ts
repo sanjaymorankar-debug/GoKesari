@@ -9,7 +9,7 @@
  * Signed-in tier: the test accounts on their own test data (local server and
  * test.gokesari.com). The guest halves are in tests/qa/guest/access.spec.ts.
  */
-import { as, me, pageAs } from "../lib/actors";
+import { as, me, ownsNoShop, pageAs, plainCustomer, shopFreeCustomer } from "../lib/actors";
 import {
   addToCart,
   cartLines,
@@ -25,6 +25,7 @@ import {
   shopOf,
   walletBalance,
   type PlacedOrder,
+  blockIfNotTakingOrders,
 } from "../lib/flows";
 import { db } from "../lib/db";
 import { call, expectStatus, RUN, stash, unstash, why, type Answer } from "../lib/http";
@@ -133,35 +134,43 @@ qa("TC-PRE-007", "every test account is signed in with its own role and its port
   return out.join(", ");
 }, { ...signed, partial: "sessions are the target's own (minted locally, saved sign-ins on the test site); a real emailed-code sign-in is TC-PRE-005/TC-PRE-007 in tests/qa/local/access-platform.spec.ts" });
 
-qa("TC-RBAC-003", "a customer is kept out of the admin, operator, shop, rider and society portals", async () => {
+qa("TC-RBAC-003", "a customer is kept out of the admin, operator, rider and society portals", async () => {
+  const customer = await plainCustomer();
   const soc = societyId();
   const paths = [
     "/admin",
     ...PREFLIGHT_ADMIN_PAGES,
     "/operator",
-    "/shop/orders",
-    "/shop/finance",
-    "/shop/marketing",
-    "/shop/analytics",
     "/delivery-partner",
     "/gig/orders",
     ...(soc ? [`/society/${soc}`] : []),
   ];
-  // /gig/orders answers with "become a delivery partner" for an account without a rider profile.
-  const { bad, seen } = await closedPages("customer", paths, { "/gig/orders": /not a delivery partner yet/i });
+  // /gig/orders answers with "become a delivery partner" for an account without a rider profile,
+  // and /delivery-partner with the account's own application once it has applied.
+  const application = /My Delivery Partner Application/;
+  const { bad, seen } = await closedPages(customer, paths, { "/gig/orders": /not a delivery partner yet/i, "/delivery-partner": application });
   expect(bad, `pages a customer could open:\n${bad.join("\n")}`).toEqual([]);
-  // Where they go: home, or the shop-registration / rider-application start.
-  const shopOrders = await getAs("customer", "/shop/orders");
-  const seller = await getAs("customer", "/shop");
+  const riderHome = await getAs(customer, "/delivery-partner");
+  expect(redirectPath(riderHome) === "/delivery-partner/apply" || application.test(riderHome.text), "/delivery-partner is the rider application").toBe(true);
+  return `${paths.length} pages closed (${seen.slice(0, 6).join("; ")} …)`;
+}, { ...signed, partial: "pages only; the seller portal is the next check, the write APIs of each area the one after" });
+
+qa("TC-RBAC-003", "a customer without a shop is kept out of the seller portal: the registration start instead", async () => {
+  const customer = await shopFreeCustomer();
+  const { bad, seen } = await closedPages(customer, ["/shop/orders", "/shop/finance", "/shop/marketing", "/shop/analytics"]);
+  expect(bad, `pages a customer could open:\n${bad.join("\n")}`).toEqual([]);
+  const shopOrders = await getAs(customer, "/shop/orders");
+  const seller = await getAs(customer, "/shop");
   expect(seller.text, "/shop for a customer is the registration start").toMatch(/seller-welcome|Welcome to Seller Central/);
-  expect(redirectPath(await getAs("customer", "/delivery-partner")), "/delivery-partner").toBe("/delivery-partner/apply");
-  return `${paths.length} pages closed (${seen.slice(0, 6).join("; ")} …); /shop/orders ${brief(shopOrders)} = registration start`;
+  return `4 seller pages closed (${seen.join("; ")}); /shop/orders ${brief(shopOrders)} = registration start`;
 }, { ...signed, partial: "pages only; the write APIs of each area are the next check" });
 
 qa("TC-RBAC-003", "a customer's call to a write API of each area is refused 403 FORBIDDEN", async () => {
   const shopA = await shopOf("A");
   const pending = world().shops.pending;
-  const victim = need(world().users.customer2?.id ?? (await me("customer2")).id, "customer 2's id");
+  const customer = await plainCustomer();
+  const other = customer === "customer2" ? "customer" : "customer2";
+  const victim = need(world().users[other]?.id ?? (await me(other)).id, "the other customer's id");
   const soc = societyId();
   const calls: [string, "POST" | "PUT" | "PATCH", string, unknown][] = [
     ["admin: business rules", "PUT", "/api/admin/settings", { key: "otp", value: { length: 6 } }],
@@ -179,7 +188,7 @@ qa("TC-RBAC-003", "a customer's call to a write API of each area is refused 403 
   const bad: string[] = [];
   const out: string[] = [];
   for (const [what, method, path, body] of calls) {
-    const res = await call(await as("customer"), method, path, body);
+    const res = await call(await as(customer), method, path, body);
     out.push(`${what} ${res.status}`);
     if (res.status !== 403 || errorCode(res) !== "FORBIDDEN") bad.push(`${what} (${method} ${path}) → ${why(res)}`);
   }
@@ -195,8 +204,11 @@ function staffWrites() {
 }
 
 qa("TC-RBAC-003", "every admin and staff write API refuses a signed-in customer with 403 before reading the request", async () => {
-  const targets = [...routesUnder("/api/admin"), ...staffWrites()];
-  const byStatus = await sweep(await as("customer"), targets);
+  const customer = await plainCustomer();
+  // Anyone owning a shop may reach price proposals (then its own shop is checked): 403 only proves itself on an account with none.
+  const shopFree = await ownsNoShop(customer);
+  const targets = [...routesUnder("/api/admin"), ...staffWrites()].filter((t) => shopFree || `${t.method} ${t.path}` !== "POST /api/price-requests");
+  const byStatus = await sweep(await as(customer), targets);
   const bad = [...byStatus.entries()].filter(([s]) => s !== 403).flatMap(([s, lines]) => lines.map((l) => `${s} ${l}`));
   expect(bad, `staff API calls a customer did not get 403 for: ${bad.join("; ")}`).toEqual([]);
   return `${targets.length} admin/staff API calls: ${summarizeSweep(byStatus)}`;
@@ -282,6 +294,12 @@ qa("TC-RBAC-004", "every shop-scoped API refuses owner A on shop B (403/404), al
   const category = worldCategory()?.id ?? NO_SUCH_ID;
   const valid: Record<string, unknown> = {
     "PUT /api/shops/[id]/cancellation-fee": { enabled: false, feeType: "FLAT", feePaise: 0 },
+    "POST /api/shops/[id]/documents-promise": { promise: true },
+    "PUT /api/shops/[id]/product-setup/categories": { categoryIds: [category] },
+    "GET /api/shops/[id]/product-setup/download": { __query: "?kind=mine" },
+    "PATCH /api/shops/[id]/product-setup/listings": { shopProductId: NO_SUCH_ID, paused: true },
+    "POST /api/shops/[id]/product-setup/listings": { action: "skip", rows: [{ shopProductId: NO_SUCH_ID }] },
+    "POST /api/shops/[id]/product-setup/products": { productIds: [NO_SUCH_ID] },
     "POST /api/shops/[id]/marketing/segments": { name: `QA ${RUN}`, rules: { minOrders: 1 } },
     "POST /api/shops/[id]/product-categories": { categoryId: category },
     "PATCH /api/shops/[id]/profile-setup": { ownerName: "QA Intruder", addressLine1: "1 QA Road", city: "Pune", pincode: "411038", shopType: "GROCERY_KIRANA" },
@@ -297,7 +315,8 @@ qa("TC-RBAC-004", "every shop-scoped API refuses owner A on shop B (403/404), al
       bad.push(`${line}: 422 with an empty body (no valid body known to retry)`);
       continue;
     }
-    const res = await call(await as("shop"), method as "POST", fillRoute(path, B.id), body);
+    const { __query: query = "", ...payload } = body as Record<string, unknown> & { __query?: string };
+    const res = await call(await as("shop"), method as "POST", fillRoute(path, B.id) + query, method === "GET" ? undefined : payload);
     retried.push(`${method} ${path} ${res.status}`);
     if (res.status !== 403 && res.status !== 404) bad.push(`${method} ${path} with a valid body → ${why(res)}`);
   }
@@ -355,16 +374,21 @@ qa("TC-RBAC-012", "a customer cannot switch to a role they do not hold", async (
   const before = (await call(await as("customer"), "GET", "/api/me/roles")).body;
   const out: string[] = [];
   for (const role of ["ADMIN", "OPERATOR", "SHOP_OWNER", "NOT_A_ROLE"]) {
+    // Trying a role the account does hold would really switch it (and leave it switched for the rest of the run).
+    if (before?.roles?.includes(role)) {
+      out.push(`${role} held by this account, not tried`);
+      continue;
+    }
     const res = await call(await as("customer"), "PUT", "/api/me/roles", { role });
     expect([403, 422], `switch to ${role} — ${why(res)}`).toContain(res.status);
     out.push(`${role} ${res.status}`);
   }
   const after = await call(await as("customer"), "GET", "/api/me/roles");
-  expect(after.body?.active, "active role unchanged").toBe("CUSTOMER");
+  expect(after.body?.active, "active role unchanged").toBe(before?.active);
   expect(after.body?.roles).toEqual(before?.roles);
   const session = await call(await as("customer"), "GET", "/api/auth/session");
-  expect(session.body?.user?.role, "session role").toBe("CUSTOMER");
-  return `${out.join(", ")}; still CUSTOMER (${JSON.stringify(after.body?.roles)})`;
+  expect(session.body?.user?.role, "session role").toBe(before?.active);
+  return `${out.join(", ")}; still ${before?.active} (${JSON.stringify(after.body?.roles)})`;
 }, signed);
 
 /* ======================================================== operator */
@@ -455,6 +479,7 @@ qa("TC-RBAC-017", "a shop owner places a B2B order for their own approved shop; 
     paymentMethod: "WALLET",
     acknowledgeClosedShopIds: [listing.shopId],
   });
+  blockIfNotTakingOrders(res);
   expectStatus(res, 201, "B2B checkout");
   const order = res.body.orders[0];
   expect(order.orderType, "order type").toBe("B2B");
@@ -740,9 +765,15 @@ qa("TC-KPI-002", "shop analytics: owner A sees own shop; another shop's KPIs and
     const res = await call(await as("customer"), "GET", path);
     expect(res.status, `customer ${path} — ${why(res)}`).toBe(403);
   }
-  const customerPage = await getAs("customer", "/shop/analytics");
-  expect(refused(customerPage, "/shop/analytics"), `/shop/analytics for a customer — ${brief(customerPage)}`).toBe(true);
-  return `own KPIs 200 (${Object.keys(own.body ?? {}).slice(0, 5).join(", ")}…); shop B 403; marketplace 403; customer 403 and page ${brief(customerPage)}`;
+  // The page half needs an account with no shop of its own (a customer who owns one rightly opens it).
+  const noShop = (await ownsNoShop("customer")) ? "customer" : (await ownsNoShop("customer2")) ? "customer2" : null;
+  let pageNote = "page not checked (every test customer owns a shop)";
+  if (noShop) {
+    const customerPage = await getAs(noShop, "/shop/analytics");
+    expect(refused(customerPage, "/shop/analytics"), `/shop/analytics for a customer — ${brief(customerPage)}`).toBe(true);
+    pageNote = `page ${brief(customerPage)}`;
+  }
+  return `own KPIs 200 (${Object.keys(own.body ?? {}).slice(0, 5).join(", ")}…); shop B 403; marketplace 403; customer 403 and ${pageNote}`;
 }, signed);
 
 /* ======================================================== security */
@@ -793,6 +824,7 @@ qa("TC-SEC-002", "signed-in id routes: 'abc', an over-long id and SQL-like text 
 
 qa("TC-SEC-004", "server-assigned fields are ignored: a checkout total and prices, a profile role", async () => {
   const listing = await sellable("A");
+  const roleBefore = (await call(await as("customer"), "GET", "/api/auth/session")).body?.user?.role;
   await emptyCart();
   expectStatus(await addToCart("customer", listing.shopProductId, 1), [200, 201], "add to cart");
   const address = await defaultAddress();
@@ -821,7 +853,7 @@ qa("TC-SEC-004", "server-assigned fields are ignored: a checkout total and price
   const profile = await call(await as("customer"), "PATCH", "/api/profile", { role: "ADMIN", status: "ACTIVE", email: "evil@test.local", name: "QA Customer One" });
   expect(profile.status, `PATCH /api/profile with role — ${why(profile)}`).toBeLessThan(500);
   const session = await call(await as("customer"), "GET", "/api/auth/session");
-  expect(session.body?.user?.role, "role unchanged").toBe("CUSTOMER");
+  expect(session.body?.user?.role, "role unchanged").toBe(roleBefore);
   expect(session.body?.user?.email, "email unchanged").toBe((await me("customer")).email);
   return `checkout with totalPaise=1 → ${order.orderNumber} ₹${order.totalPaise / 100} at the server price; profile role/email → ${profile.status}, still CUSTOMER`;
 }, { ...signed, partial: "POST /api/shops with status/classification/ownerId registers a shop (role change): tests/qa/local/access-roles.spec.ts" });
@@ -855,7 +887,8 @@ qa("TC-SEC-005", "shop, rider, order and user APIs carry no PAN, bank numbers, i
     ["full PAN", /"[^"]*pan[^"]*"\s*:\s*"[A-Z]{5}\d{4}[A-Z]"/i],
     ["bank account number", /"(accountNumber|bankAccountNumber|account_number)"\s*:\s*"\d{9,18}"/i],
     ["Aadhaar", /"[^"]*aadhaar[^"]*"\s*:\s*"\d{12}"/i],
-    ["code / OTP value", /"(otp|otpHash|code|codeHash|pickupCode|deliveryOtp|deliveryOtpHash|handoverCode|pin)"\s*:\s*"[^"]+"/i],
+    // An upper-case word is a status code (e.g. a document's "NOT_READ"), not a secret.
+    ["code / OTP value", /"(otp|otpHash|code|codeHash|pickupCode|deliveryOtp|deliveryOtpHash|handoverCode|pin)"\s*:\s*"(?![A-Z_]+")[^"]+"/],
     ["secret / password / token", /"[^"]*(password|secret|apiKey|api_key|accessToken|refreshToken|clientSecret)[^"]*"\s*:\s*"[^"]+"/i],
     ["hash", /"[^"]*(Hash|_hash)"\s*:\s*"[^"]{20,}"/],
   ];
