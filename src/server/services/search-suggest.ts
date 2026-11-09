@@ -16,6 +16,7 @@ import { likePattern } from "@/lib/like-pattern";
 import { SHOP_TYPES } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import { productCategories, products, searchQueries, shopProducts, shops } from "@/server/db/schema";
+import { storefrontLive } from "./catalogue";
 import { shopCarriesProductCategory } from "./product-categories";
 
 export const SUGGEST_MIN_CHARS = 2;
@@ -119,6 +120,7 @@ export async function suggest(rawQuery: string, options: { lang: Lang; nearby?: 
           isNull(shopProducts.deletedAt),
           eq(products.isActive, true),
           shopCarriesProductCategory(shopProducts.shopId, products.categoryId),
+          storefrontLive,
         ),
       )
       .groupBy(products.id, products.name, products.unit, products.unitSizeMilli)

@@ -43,7 +43,7 @@ export const COUNT_KEYS = [
   "activeSubscriptions", "shopCategories", "unread",
   // shop owner
   "shopActiveOrders", "shopNew", "shopPacking", "shopReady", "shopOut", "shopOpenReturns",
-  "shopReturnRequests", "shopReturnPickups", "shopOpenDisputes", "shopLowStock", "shopPendingPhotos",
+  "shopReturnRequests", "shopReturnPickups", "shopOpenDisputes", "shopLowStock", "shopNeedsStock", "shopPendingPhotos",
   "shopPriceRequests", "shopActiveOffers", "shopRiders",
   // admin & operator
   "pendingShops", "allShops", "sellerReviews", "activeSuspensions", "users", "customers", "owners",
@@ -219,6 +219,7 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "stock", label: L("Stock", "स्टॉक", "साठा"), icon: "boxes", href: "/shop/inventory" },
       { key: "low", label: L("Low", "कम", "कमी"), icon: "triangle-alert", href: "/shop/inventory#alerts", count: "shopLowStock" },
+      { key: "needsStock", label: L("Needs stock", "स्टॉक भरना है", "साठा भरायचा"), icon: "triangle-alert", href: "/shop/my-products?status=NEEDS_STOCK", count: "shopNeedsStock" },
       { key: "onOff", label: L("On/off", "चालू/बंद", "चालू/बंद"), icon: "toggle-right", href: "/shop/manage/products" },
       // docs/inventory-accounting-2026-10: supplier bills, stock ledger, books and GST.
       { key: "accounts", label: L("Bills & GST", "बिल और GST", "बिले आणि GST"), icon: "receipt", href: "/shop/accounts" },

@@ -213,7 +213,7 @@ describe("menu definitions", () => {
     // Shop +2: Inventory → "Bills & GST" (docs/inventory-accounting-2026-10) and Bulk upload (Excel/CSV)
     // (docs/product-import-2026-10); operator +1: Catalogue → Bulk upload (the admin's is under Product master → more).
     // Gig worker flow (docs/gig-worker-2026-10): shop +1, Delivery → "Delivery partners" (feature 7).
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(42);
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(43);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
     expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(38);
     expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(26);

@@ -80,6 +80,7 @@ export const SELLER_TEXT = {
   attention: L("Needs a look", "ध्यान दें", "लक्ष द्या"),
   walletBalance: L("Shop wallet", "दुकान वॉलेट", "दुकान वॉलेट"),
   lowStock: L("Low stock", "कम स्टॉक", "कमी साठा"),
+  needsStock: L("Needs stock", "स्टॉक भरना है", "साठा भरायचा आहे"),
   returnRequests: L("Return requests", "वापसी अनुरोध", "परतावा विनंत्या"),
   openDisputes: L("Open disputes", "खुले विवाद", "उघडे वाद"),
   priceRequests: L("Price requests", "दाम अनुरोध", "दर विनंत्या"),

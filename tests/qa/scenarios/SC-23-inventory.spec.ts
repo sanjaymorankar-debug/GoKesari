@@ -1,7 +1,7 @@
 /**
  * Stock journeys.
  *   SC-23 — a new shop stocks up by category and makes its first sales: the
- *           category puts every product in the inventory once at stock 100;
+ *           the owner lists every product of a category once at stock 100;
  *           the unpriced ones (incl. a loose one) are not buyable until the
  *           owner prices them; two counts corrected; a customer buys one
  *           packaged item and 500 g loose; delivered; stock, movements and
@@ -45,6 +45,7 @@ import {
 } from "../lib/finance-helpers";
 import { pageAs } from "../lib/actors";
 import { db } from "../lib/db";
+import { stockWholeCategory } from "../lib/category-stock";
 import { call, expectStatus, RUN } from "../lib/http";
 import { expect, need, qa } from "../lib/record";
 import { world } from "../lib/world";
@@ -73,6 +74,7 @@ qa("SC-23", "a new shop stocks up by category and makes its first sales: every p
     // 1. The owner adds the QA category.
     const added = await call(shop.owner.ctx, "POST", `/api/shops/${shop.shopId}/product-categories`, { categoryId: category });
     expectStatus(added, [200, 201], "add the category");
+    await stockWholeCategory(shop.owner.ctx, shop.shopId, category);
     // 2. The inventory: every product of the category, once, at 100.
     const inv = await call(shop.owner.ctx, "GET", `/api/shops/${shop.shopId}/inventory`);
     expectStatus(inv, 200, "the inventory");

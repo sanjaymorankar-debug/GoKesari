@@ -30,7 +30,6 @@ const KEYS = [
   "returnPickup",
   "grievances",
   "discovery",
-  "catalogue",
   "uploads",
   "opsExceptions",
   "riskRules",

@@ -1726,6 +1726,10 @@ export const shopProducts = pgTable(
     /** Sellable units; three decimals for loose goods (D-95). */
     onlineStock: stockUnits("online_stock").notNull().default(0),
     offlineStock: stockUnits("offline_stock").notNull().default(0),
+    /** Added without a quantity: shows as Needs Stock until a quantity (even a typed 0) is saved. */
+    stockPending: boolean("stock_pending").notNull().default(false),
+    /** The owner paused this listing. Restocking does not end it, unlike `isAvailable`, which follows the stock. */
+    ownerPaused: boolean("owner_paused").notNull().default(false),
 
     /* ------------------------------------------ per-shop stock thresholds
      * (Product Master / Inventory brief §15–§18). Deliberately per-shop,
@@ -8532,6 +8536,58 @@ export const shopListingDetails = pgTable(
   ],
 );
 export type ShopListingDetails = typeof shopListingDetails.$inferSelect;
+
+/** Where an owner is in "Set up your shop's products", so they can leave and resume. */
+export const shopProductSetup = pgTable(
+  "shop_product_setup",
+  {
+    shopId: uuid("shop_id")
+      .primaryKey()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    step: smallint("step").notNull().default(1),
+    /** Products added to the master after this are shown as "New products available". */
+    newProductsSeenAt: timestamp("new_products_seen_at", { withTimezone: true }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("shop_product_setup_step_range", sql`${t.step} BETWEEN 1 AND 3`)],
+);
+
+/** One Excel / CSV upload of the setup flow: checked first, applied only after the owner confirms. */
+export const shopBulkUploads = pgTable(
+  "shop_bulk_uploads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    fileName: text("file_name").notNull(),
+    fileSha256: text("file_sha256").notNull(),
+    /** Kept only until the file has been read. */
+    fileData: bytea("file_data"),
+    status: text("status").$type<"CHECKING" | "READY" | "REJECTED" | "APPLYING" | "DONE" | "CANCELLED" | "FAILED">().notNull().default("CHECKING"),
+    counts: jsonb("counts").$type<Record<string, number>>().notNull().default(sql`'{}'::jsonb`),
+    /** The rows to apply; cleared once applied. */
+    plan: jsonb("plan").$type<unknown[]>(),
+    errors: jsonb("errors").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    headers: jsonb("headers").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    failure: text("failure"),
+    pauseConfirmed: boolean("pause_confirmed").notNull().default(false),
+    totalRows: integer("total_rows").notNull().default(0),
+    appliedRows: integer("applied_rows").notNull().default(0),
+    result: jsonb("result").$type<Record<string, number>>(),
+    lastProgressAt: timestamp("last_progress_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("shop_bulk_uploads_shop_idx").on(t.shopId, t.createdAt.desc()),
+    index("shop_bulk_uploads_hash_idx").on(t.shopId, t.fileSha256),
+    check("shop_bulk_uploads_status_known", sql`${t.status} IN ('CHECKING', 'READY', 'REJECTED', 'APPLYING', 'DONE', 'CANCELLED', 'FAILED')`),
+  ],
+);
+export type ShopBulkUpload = typeof shopBulkUploads.$inferSelect;
 
 /**
  * Lossless product attributes from a bulk upload, one row per master product:
