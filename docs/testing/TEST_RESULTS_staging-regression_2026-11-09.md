@@ -83,4 +83,4 @@ No security failure and no money failure remains that is a product fault. The on
 
 Shop settings and business rules were checked after the run and are as before.
 
-`#377` was merged into staging at 19.04 IST, just before the run. The staging queue is also paused on `#371`.
+`#377` was merged into staging at 19.04 IST, just before the run, and then failed on the site, which paused the staging queue (issue `#379`; fix `#380` is in the queue). This PR waits behind it.
