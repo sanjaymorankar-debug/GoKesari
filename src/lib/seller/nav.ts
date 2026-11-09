@@ -64,6 +64,7 @@ export const SELLER_TEXT = {
   // Shop status pill
   live: L("Live", "चालू", "चालू"),
   pending: L("Pending approval", "मंज़ूरी बाकी", "मंजुरी बाकी"),
+  paymentDue: L("Payment pending", "भुगतान बाकी", "पेमेंट बाकी"),
   suspended: L("Suspended", "निलंबित", "निलंबित"),
   rejected: L("Rejected", "अस्वीकृत", "नाकारले"),
   inactive: L("Inactive", "निष्क्रिय", "निष्क्रिय"),
@@ -101,13 +102,13 @@ export const SELLER_TEXT = {
   allTools: L("All seller tools", "सभी सेलर टूल", "सर्व सेलर साधने"),
 } as const satisfies Record<string, Text>;
 
-/** Status pill text and colours for the shop's current status. */
-export function shopStatusPill(status: string): { label: Text; className: string } {
+/** Status pill text and colours for the shop's current status; `feeDue`: its registration fee is still unpaid. */
+export function shopStatusPill(status: string, feeDue = false): { label: Text; className: string } {
   switch (status) {
     case "APPROVED":
       return { label: SELLER_TEXT.live, className: "bg-leaf-100 text-leaf-700" };
     case "PENDING_APPROVAL":
-      return { label: SELLER_TEXT.pending, className: "bg-amber-100 text-amber-800" };
+      return { label: feeDue ? SELLER_TEXT.paymentDue : SELLER_TEXT.pending, className: "bg-amber-100 text-amber-800" };
     case "SUSPENDED":
       return { label: SELLER_TEXT.suspended, className: "bg-red-100 text-red-800" };
     case "REJECTED":

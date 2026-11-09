@@ -24,7 +24,7 @@ export interface ShopAlert {
 interface Props {
   lang: Lang;
   userName: string | null;
-  shop: { name: string; slug: string; status: string };
+  shop: { name: string; slug: string; status: string; feeDue: boolean };
   /** Most serious first. */
   alerts: ShopAlert[];
   counts: Counts;
@@ -46,7 +46,7 @@ const pct = (value: number | null) => (value == null ? "—" : `${Math.round(val
  * where it is worked on; a figure that could not be read is left out.
  */
 export function SellerHome({ lang, userName, shop, alerts, counts, facts, kpis, legal, groups }: Props) {
-  const pill = shopStatusPill(shop.status);
+  const pill = shopStatusPill(shop.status, shop.feeDue);
   const firstName = userName?.trim().split(/\s+/)[0] ?? null;
 
   return (
