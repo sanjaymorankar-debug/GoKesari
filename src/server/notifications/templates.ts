@@ -157,6 +157,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{shopName}}: {{applied}} applied, {{failed}} could not be applied. Open the upload for details.",
     false,
   ),
+  [T.SHOP_BULK_UPLOAD_FINISHED]: t(
+    "Your product upload is finished",
+    "{{shopName}}: {{fileName}} — {{live}} live, {{needs}} need stock or price, {{errors}} skipped.",
+    false,
+  ),
   [T.SHOP_PRODUCT_IMPORT_FINISHED]: t(
     "Bulk product upload finished",
     "{{shopName}}: {{fileName}} — {{created}} created, {{updated}} updated, {{deactivated}} deactivated, {{failed}} failed. Open the upload for the full report.",

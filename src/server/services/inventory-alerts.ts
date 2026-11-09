@@ -190,7 +190,7 @@ export async function evaluateStockAlerts(
 
   // §17: zero stock makes the line unorderable, but the inventory record and
   // all its settings stay — restocking flips it back with nothing to re-enter.
-  const shouldBeAvailable = sp.onlineStock > 0;
+  const shouldBeAvailable = sp.onlineStock > 0 && !sp.ownerPaused;
   if (sp.isAvailable !== shouldBeAvailable) {
     await client
       .update(shopProducts)

@@ -1,12 +1,7 @@
 /**
- * Adding a product category fills the shop's inventory, loose goods stay
- * unpriced, and an owner's prices are their shop's alone:
- *   - every live product of the category is listed with stock 100 on both channels;
- *   - a packaged product with an MRP starts at that MRP and on sale;
- *   - a loose product, or one without an MRP, starts with no price and off sale;
- *   - a product the shop already has keeps its own stock and price;
- *   - the owner's prices change only their shop's listings — never the master
- *     MRP or another shop's price — and must be greater than 0.
+ * Adding a product category lists nothing by itself, and an owner's prices are
+ * their shop's alone: they change only their shop's listings — never the
+ * master MRP or another shop's price — and must be greater than 0.
  */
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,8 +25,8 @@ import { PATCH as pricesPatch } from "@/app/api/shops/[id]/prices/route";
 import { POST as shopCategoryPost } from "@/app/api/shops/[id]/product-categories/route";
 import { db } from "@/server/db";
 import { products, shopProductCategories, shopProducts } from "@/server/db/schema";
-import { listStorefrontProducts, loadPurchasableShopProduct } from "@/server/services/catalogue";
 import { changeMasterMrp } from "@/server/services/mrp-governance";
+import { addPickedProducts } from "@/server/services/shop-product-setup";
 import { call } from "../helpers/http";
 import { createCategory, createProduct, createShop, createShopProduct, createUser, resetDatabase } from "../helpers/fixtures";
 
@@ -64,11 +59,11 @@ beforeEach(async () => {
   state.session = null;
 });
 
-describe("adding a category fills the shop's inventory", () => {
-  it("lists every live product with stock 100, MRP as the price, loose goods unpriced", async () => {
+describe("adding a category creates no stock", () => {
+  it("lists nothing, however many products the category has", async () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id);
-    const { category, biscuits, noMrp, rice } = await grocerySetup();
+    const { category } = await grocerySetup();
     signIn(owner);
 
     const res = await call(shopCategoryPost, `/api/shops/${shop.id}/product-categories`, {
@@ -77,89 +72,25 @@ describe("adding a category fills the shop's inventory", () => {
       params: { id: shop.id },
     });
     expect(res.status).toBe(201);
-    expect(res.body.addedProducts).toBe(3);
-    expect(res.body.needsPrice.map((p: { productName: string }) => p.productName).sort()).toEqual(["Local Namkeen", "Loose Rice"]);
-
-    expect(await listing(shop.id, biscuits.id)).toMatchObject({
-      onlineStock: 100,
-      offlineStock: 100,
-      onlinePricePaise: 3000,
-      offlinePricePaise: 3000,
-      onlineSaleEnabled: true,
-      offlineSaleEnabled: true,
-    });
-    for (const unpriced of [noMrp, rice]) {
-      expect(await listing(shop.id, unpriced.id)).toMatchObject({
-        onlineStock: 100,
-        offlineStock: 100,
-        onlinePricePaise: null,
-        offlinePricePaise: null,
-        onlineSaleEnabled: false,
-        offlineSaleEnabled: false,
-      });
-    }
-    expect(await db.select().from(shopProducts).where(eq(shopProducts.shopId, shop.id))).toHaveLength(3);
+    expect(res.body.added).toBe(true);
+    expect(await db.select().from(shopProducts).where(eq(shopProducts.shopId, shop.id))).toHaveLength(0);
   });
 
-  it("keeps the stock and price of a product the shop already has, and adds no duplicate", async () => {
+  it("leaves the stock and price of a product the shop already has", async () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id);
     const { category, biscuits } = await grocerySetup();
     await createShopProduct(shop.id, biscuits.id, { onlinePricePaise: 2500, offlinePricePaise: 2400, onlineStock: 7 });
-    // The fixture links the category; start from a shop that does not carry it yet.
     await db.delete(shopProductCategories).where(eq(shopProductCategories.shopId, shop.id));
     signIn(owner);
 
-    const res = await call(shopCategoryPost, `/api/shops/${shop.id}/product-categories`, {
-      method: "POST",
-      body: { categoryId: category.id },
-      params: { id: shop.id },
-    });
-    expect(res.body.addedProducts).toBe(2);
-    expect(await listing(shop.id, biscuits.id)).toMatchObject({ onlinePricePaise: 2500, offlinePricePaise: 2400, onlineStock: 7 });
-    expect(await db.select().from(shopProducts).where(eq(shopProducts.productId, biscuits.id))).toHaveLength(1);
-  });
-
-  it("fills a category larger than one insert batch", async () => {
-    const owner = await createUser({ role: "SHOP_OWNER" });
-    const shop = await createShop(owner.id);
-    const category = await createCategory({ name: "Big Grocery" });
-    await db.insert(products).values(
-      Array.from({ length: 1201 }, (_, i) => ({
-        categoryId: category.id,
-        name: `Item ${i}`,
-        slug: `big-item-${i}`,
-        unit: "pack",
-        mrpPaise: 1000 + i,
-      })),
-    );
-    signIn(owner);
-
-    const res = await call(shopCategoryPost, `/api/shops/${shop.id}/product-categories`, {
-      method: "POST",
-      body: { categoryId: category.id },
-      params: { id: shop.id },
-    });
-    expect(res.status).toBe(201);
-    expect(res.body.addedProducts).toBe(1201);
-    expect(await db.select().from(shopProducts).where(eq(shopProducts.shopId, shop.id))).toHaveLength(1201);
-  });
-
-  it("shows an unpriced product to buyers without a price, and it cannot be bought", async () => {
-    const owner = await createUser({ role: "SHOP_OWNER" });
-    const shop = await createShop(owner.id, { status: "APPROVED" });
-    const { category, rice } = await grocerySetup();
-    signIn(owner);
     await call(shopCategoryPost, `/api/shops/${shop.id}/product-categories`, {
       method: "POST",
       body: { categoryId: category.id },
       params: { id: shop.id },
     });
-
-    const offers = await listStorefrontProducts({ shopId: shop.id, productId: rice.id });
-    expect(offers).toHaveLength(1);
-    expect(offers[0]).toMatchObject({ onlinePricePaise: null, offlinePricePaise: null, onlineSaleEnabled: false });
-    await expect(loadPurchasableShopProduct(offers[0].shopProductId, 1)).rejects.toThrow();
+    expect(await listing(shop.id, biscuits.id)).toMatchObject({ onlinePricePaise: 2500, offlinePricePaise: 2400, onlineStock: 7 });
+    expect(await db.select().from(shopProducts).where(eq(shopProducts.shopId, shop.id))).toHaveLength(1);
   });
 });
 
@@ -177,6 +108,7 @@ describe("an owner's prices are their shop's own", () => {
         body: { categoryId: category.id },
         params: { id: shop.id },
       });
+      await addPickedProducts(shop.id, [biscuits.id, rice.id], owner);
     }
     return { ownerA, ownerB, shopA, shopB, biscuits, rice };
   }
