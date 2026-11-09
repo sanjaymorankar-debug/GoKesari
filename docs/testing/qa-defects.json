@@ -1952,6 +1952,22 @@
       "status": "Open",
       "fixedIn": null,
       "retest": null
+    },
+    {
+      "id": "D-147",
+      "title": "Shop order card: 'Packed — mark ready' stays active while the customer is deciding on a substitute",
+      "cases": [
+        "TC-FUL-007",
+        "TC-FUL-008"
+      ],
+      "severity": "Low",
+      "found": "2026-11-09 staging run regression-world-repair",
+      "actual": "With rule fulfilmentOptions on, the button comes from the fulfilment planner (src/components/fulfilment-planner.tsx:351, disabled only for busy / no slot / no staff) and is enabled while a line shows '(waiting for customer)'. The old button (shop-order-manager.tsx:369) was disabled by waitingOnCustomer.",
+      "expected": "The button is disabled until the customer accepts or refuses the substitute.",
+      "fix": "The order card passes waitingOnCustomer to FulfilmentPlanner, which disables the mark-ready submit while it is set; changing a saved plan is not affected. Unit test tests/unit/fulfilment-planner-waiting-on-customer.test.ts. The server already refused: POST ready while the customer decides answers 409 and the order stays PREPARING (re-test 09-Nov 22.08 IST).",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "PR #383 (fix/d-147-planner-mark-ready-waiting → staging)",
+      "retest": null
     }
   ]
 }
