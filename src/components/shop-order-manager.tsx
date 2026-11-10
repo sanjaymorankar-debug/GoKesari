@@ -409,6 +409,7 @@ function OrderRow({
           shopDelivers={deliveryAvailable}
           cashOnDelivery={order.paymentMethod === "COD" && !order.cashCollected}
           pickupRefundPaise={fulfilment.refundDeliveryFeeOnPickup ? (order.deliveryFeePaise ?? 0) : 0}
+          waitingOnCustomer={waitingOnCustomer}
           onChanged={onChanged}
         />
       ) : null}
