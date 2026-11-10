@@ -101,15 +101,18 @@ export function proxy(request: NextRequest) {
 
 function rememberReturnTo(request: NextRequest, response: NextResponse): void {
   if (request.nextUrl.pathname.startsWith("/api/")) return;
-  // Page navigations only: not form posts or server actions, and not links the router prefetches.
-  if (request.method !== "GET" || request.headers.has("next-router-prefetch") || /prefetch/i.test(request.headers.get("sec-purpose") ?? request.headers.get("purpose") ?? "")) {
+  // Full page loads only. Next removes its router headers before this runs, so a prefetched
+  // footer link looks like a visit unless the browser says it is loading a document.
+  // Taps inside the app are recorded by RememberReturnTo.
+  if (request.method !== "GET" || request.headers.get("sec-fetch-dest") !== "document" || /prefetch/i.test(request.headers.get("sec-purpose") ?? request.headers.get("purpose") ?? "")) {
     return;
   }
   const path = safeReturnPath(request.nextUrl.pathname + request.nextUrl.search);
   if (!path || request.cookies.get(RETURN_TO_COOKIE)?.value === path) return;
   response.cookies.set(RETURN_TO_COOKIE, path, {
     maxAge: RETURN_TO_MAX_AGE_S,
-    httpOnly: true,
+    // Not httpOnly: RememberReturnTo updates it too. It holds only a path, checked when read.
+    httpOnly: false,
     sameSite: "lax",
     secure: request.nextUrl.protocol === "https:",
     path: "/",
