@@ -291,7 +291,7 @@ qa("TC-SPI-008", "the sale in the shop's order list: lines, quantities, amounts,
       if (phone) expect(text, "no customer phone").not.toContain(phone);
       const missing: string[] = [];
       if (!paiseIn(text).includes(listing.pricePaise ?? -1)) missing.push(`unit price at sale (₹${(listing.pricePaise ?? 0) / 100})`);
-      if (!/MRP/i.test(text)) missing.push("MRP at sale");
+      if (listing.mrpPaise != null && !/MRP/i.test(text)) missing.push("MRP at sale");
       if (!/wallet|paid online|prepaid|cash on delivery/i.test(text)) missing.push("payment method (wallet)");
       expect(missing, `shop order card lacks: ${missing.join(", ")} — card reads "${text.replace(/\s+/g, " ").slice(0, 200)}"`).toEqual([]);
       return text.replace(/\s+/g, " ").slice(0, 160);
@@ -322,7 +322,7 @@ qa("TC-SPI-006", "purchase history: shop, lines with quantities and units, price
       expect(paiseIn(main), "order total shown").toContain(order.totalPaise);
       const missing: string[] = [];
       if (!paiseIn(main).includes(detail.items[0].unitPricePaise)) missing.push(`unit price at purchase (₹${detail.items[0].unitPricePaise / 100})`);
-      if (!/MRP/i.test(main)) missing.push("MRP at purchase");
+      if (listing.mrpPaise != null && !/MRP/i.test(main)) missing.push("MRP at purchase");
       if (!/wallet/i.test(main)) missing.push("payment method (wallet)");
       expect(missing, `order page lacks: ${missing.join(", ")}`).toEqual([]);
       return main.replace(/\s+/g, " ").slice(0, 160);

@@ -104,6 +104,7 @@ qa("SD-01", "no verified document: fee page shows 'Documents first' and no Pay b
       openingHours: [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, open: "09:00", close: "21:00" })),
     };
     const reg = await api("shop", "POST", "/api/shops", body);
+    if (reg.status === 409 && /already waiting for approval/.test(why(reg))) blocked(`an earlier QA shop is still waiting for approval, so the account cannot register another — ${why(reg)}`);
     expectStatus(reg, 201, "register the QA shop (long form's POST /api/shops)");
     shop = stash<DocsShop>("sd-shop", { id: reg.body.id as string, name: reg.body.name as string });
     expect(reg.body.status, "a new registration waits").toBe("PENDING_APPROVAL");

@@ -15,6 +15,7 @@
  */
 import { as, pageAs } from "../lib/actors";
 import { emptyCart, fulfil, sellable } from "../lib/flows";
+import { chooseDeliveryTime } from "../lib/shopping-helpers";
 import { call, expectStatus, RUN, stash, unstash, why } from "../lib/http";
 import {
   checkoutNow,
@@ -81,6 +82,7 @@ qa("TC-PAY-007", "checkout offers Wallet, Cash on delivery (with the reason when
     if (codDisabled) await expect(pay).toContainText(/cash on delivery|wallet|address/i);
     await online.getByRole("radio").check();
     await expect(online.getByRole("radio")).toBeChecked();
+    await chooseDeliveryTime(page);
     const button = page.getByRole("button", { name: /^(Pay|Place order)/ }).first();
     await expect(button).toBeEnabled();
     const label = (await button.textContent())?.trim() ?? "";
@@ -105,6 +107,7 @@ qa("TC-PAY-017", "pay an order by UPI on the gateway page: CONFIRMED + ONLINE, w
     const online = page.getByTestId("pay-online-option");
     if (!(await online.count())) blocked("'Pay online' is not offered on this site (rule onlinePayments off)");
     await online.getByRole("radio").check();
+    await chooseDeliveryTime(page);
     const checkoutRes = page.waitForResponse((r) => r.url().endsWith("/api/checkout") && r.request().method() === "POST");
     await page.getByRole("button", { name: /^(Pay|Place order)/ }).first().click();
     // The open-order and closed-shop questions come before the payment.

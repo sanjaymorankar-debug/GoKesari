@@ -28,6 +28,7 @@ import {
   open,
   ordersOf,
   patchShop,
+  chooseDeliveryTime,
   payOnCartPage,
   pointNorth,
   shopAsOwner,
@@ -55,7 +56,9 @@ async function locationForm(page: Page) {
     minOrder: page.getByTestId("min-order"),
     pause: page.getByLabel(/Pause new orders/),
     save: async () => {
+      const answered = page.waitForResponse((r) => /\/api\/shops\/[^/]+$/.test(r.url()) && r.request().method() === "PATCH");
       await page.getByRole("button", { name: "Save location" }).click();
+      await answered; // a banner already on the page would otherwise pass for the answer
       await expect(page.getByText("Saved.").or(page.getByRole("alert")).first()).toBeVisible();
     },
   };
@@ -205,6 +208,7 @@ qa("TC-LOC-022", "minimum order ₹200: below it the cart says 'add ₹X more' w
       await fillCart("customer", [{ item: bread, quantity: exact }]);
       await open(page, "/cart");
       await expect(cartGroup(page, shopName("A")).getByTestId("delivery-warning")).toHaveCount(0);
+      await chooseDeliveryTime(page);
       await expect(page.getByRole("button", { name: /Pay from wallet/ })).toBeEnabled();
       const res = await checkoutAs("customer", { addressId: await homeAddressId(), paymentMethod: "WALLET" });
       expectStatus(res, 201, `exactly ₹${min / 100}`);
