@@ -23,7 +23,7 @@ import { expect, request as playwrightRequest, type APIRequestContext, type Page
 
 import { as, me } from "./actors";
 import { db } from "./db";
-import { addToCart, defaultAddress, emptyCart, shopListings, type Listing } from "./flows";
+import { blockIfNotTakingOrders, addToCart, defaultAddress, emptyCart, shopListings, type Listing } from "./flows";
 import { call, expectStatus, RUN, SLOW_MS, why, type Answer } from "./http";
 import { blocked, need } from "./record";
 import { assertWritable, BASE_URL, IS_LOCAL } from "./target";
@@ -166,6 +166,7 @@ export async function onlineCheckout(role: Role, lines: { listing: Listing; quan
   await fillCart(role, lines);
   const { res, requestId } = await checkoutNow(role, "ONLINE", [...new Set(lines.map((l) => l.listing.shopId))], extra);
   if (res.status === 409 && ONLINE_OFF.test(why(res))) blocked("online payment is off on this site (rule onlinePayments) — " + why(res));
+  blockIfNotTakingOrders(res);
   expectStatus(res, 201, "online checkout");
   const payment = res.body?.payment as OnlinePayment | undefined;
   expect(payment?.intentId, `a payment intent in ${JSON.stringify(res.body).slice(0, 300)}`).toBeTruthy();

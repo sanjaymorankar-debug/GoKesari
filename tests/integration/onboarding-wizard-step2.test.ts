@@ -64,7 +64,7 @@ import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
 import { finishFeeCapture } from "@/server/services/operator-limited";
-import { startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
+import { refreshLatestRegistrationFeeAttempt, startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
 import { setRegistrationFee } from "@/server/services/registration-fees";
 import { submitSellerDocument } from "@/server/services/seller-verification";
 import { setFeatureFlag } from "@/server/services/feature-flags";
@@ -75,6 +75,7 @@ import { promiseShopDocuments, shopDocumentGate } from "@/server/services/shop-d
 import { submitDraftGstin, submitDraftPan } from "@/server/services/shop-registration-draft";
 import {
   answerDraftDocument,
+  answerDraftReferral,
   getWizardDraft,
   saveDraftAddress,
   saveDraftOwner,
@@ -386,11 +387,25 @@ describe("pending admin approval", () => {
   it("a failed payment leaves the shop pending at the payment step; a retry that succeeds makes it live", async () => {
     await walkToReview();
     const { shop } = await submitDraftForPayment({ actor: owner });
+    expect((await getWizardDraft(owner))!.shop!.lastPaymentFailed).toBe(false);
     await payInSandbox(shop!.id, "FAILURE");
     expect((await shopRow(shop!.id)).status).toBe("PENDING_APPROVAL");
-    expect((await getWizardDraft(owner))!.nextStep).toBe("PAYMENT");
+    const failed = (await getWizardDraft(owner))!;
+    expect(failed.nextStep).toBe("PAYMENT");
+    expect(failed.shop!.lastPaymentFailed).toBe(true);
     await payInSandbox(shop!.id);
     expect((await shopRow(shop!.id)).status).toBe("APPROVED");
+    expect((await getWizardDraft(owner))!.shop!.lastPaymentFailed).toBe(false);
+  });
+
+  it("the payment step asks the gateway only about an attempt still open", async () => {
+    await walkToReview();
+    const { shop } = await submitDraftForPayment({ actor: owner });
+    expect(await refreshLatestRegistrationFeeAttempt(shop!.id, owner.id)).toBe(false);
+    await startRegistrationFeeCheckout(shop!.id, owner);
+    expect(await refreshLatestRegistrationFeeAttempt(shop!.id, owner.id)).toBe(true);
+    await payInSandbox(shop!.id, "FAILURE");
+    expect(await refreshLatestRegistrationFeeAttempt(shop!.id, owner.id)).toBe(false);
   });
 
   it("GSTIN check still pending (government source down): the owner stays on the verify step — no shop, no payment", async () => {
@@ -410,6 +425,40 @@ describe("pending admin approval", () => {
     await payInSandbox(shop!.id);
     expect((await shopRow(shop!.id)).status).toBe("PENDING_APPROVAL");
     expect((await getWizardDraft(owner))!.nextStep).toBe("WAITING");
+  });
+});
+
+describe("a refusal comes before the screens are filled in, not at the last step", () => {
+  const otherGstin = () => gstinFor("AABCH5678M");
+
+  it("a shop still waiting: the referral, GSTIN and PAN steps refuse at once and name what to do", async () => {
+    await walkToReview();
+    const { shop } = await submitDraftForPayment({ actor: owner });
+    const refused = { code: "CONFLICT", message: expect.stringContaining("still has its registration fee to pay"), details: { reason: "REGISTRATION_PENDING", shopId: shop!.id } };
+    await expect(answerDraftReferral({ actor: owner, referralCode: null })).rejects.toMatchObject(refused);
+    await expect(submitDraftGstin({ gstin: otherGstin(), consentGiven: true, actor: owner })).rejects.toMatchObject(refused);
+    await expect(submitDraftPan({ pan: PROPRIETOR_PAN, declarationAccepted: true, consentGiven: true, actor: owner })).rejects.toMatchObject(refused);
+    // Paid and still with the team: the other message.
+    await db.update(shops).set({ feePaymentStatus: "PAID" }).where(eq(shops.id, shop!.id));
+    await expect(submitDraftGstin({ gstin: otherGstin(), consentGiven: true, actor: owner })).rejects.toMatchObject({
+      message: expect.stringContaining("already waiting for approval"),
+      details: { reason: "REGISTRATION_PENDING" },
+    });
+  });
+
+  it("the same name at the same PIN is refused on the shop step; another name goes on", async () => {
+    await walkToReview();
+    const { shop } = await submitDraftForPayment({ actor: owner });
+    await payInSandbox(shop!.id);
+    expect((await shopRow(shop!.id)).status).toBe("APPROVED");
+
+    await submitDraftGstin({ gstin: otherGstin(), consentGiven: true, actor: owner });
+    await expect(saveDraftDetails({ actor: owner, details: details({ categoryIds: [] }) })).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: "DUPLICATE_SHOP", matchedOn: "NAME_AND_PIN", fields: { name: expect.any(String) } },
+    });
+    const next = await saveDraftDetails({ actor: owner, details: details({ categoryIds: [], name: "Second Branch Mart" }) });
+    expect(next.details?.name).toBe("Second Branch Mart");
   });
 });
 

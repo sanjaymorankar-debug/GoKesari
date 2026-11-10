@@ -47,6 +47,8 @@ export const ROLE_NAMES: Record<Role, string> = {
 export interface WorldUser {
   email: string;
   id?: string;
+  /** The shop of the world this owner's Seller Central pages work on, when the account owns several. */
+  activeShop?: "A" | "B" | "C";
 }
 
 export interface WorldShop {

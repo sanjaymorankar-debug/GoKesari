@@ -176,7 +176,7 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
     // page is driven here; on Sandbox test keys the link is checked to open DigiLocker, then an admin decides.
     const dl = await call(rider, "POST", "/api/delivery-partner/me/kyc/aadhaar/digilocker", { consent: true });
     const dlUrl: string | null = dl.body?.url ?? null;
-    check(2, "DigiLocker link issued for the Aadhaar (Pending, nothing stored yet)", dl.status === 200 && Boolean(dlUrl) && dl.body?.check?.status === "PENDING", {
+    check(2, "DigiLocker link issued for the Aadhaar (Pending, nothing stored yet)", dl.status === 200 && (dl.body?.check?.status === "VERIFIED" /* a re-run: already verified */ || (Boolean(dlUrl) && dl.body?.check?.status === "PENDING")), {
       status: dl.body?.check?.status,
       method: dl.body?.check?.method,
       reason: dl.body?.check?.reason,

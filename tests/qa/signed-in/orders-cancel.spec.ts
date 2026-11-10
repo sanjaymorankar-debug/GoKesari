@@ -32,6 +32,7 @@ import {
   stockOf,
   walletOf,
   withShopSettings,
+  ruleOn,
 } from "../lib/orders-helpers";
 import { db } from "../lib/db";
 import { blocked, expect, qa } from "../lib/record";
@@ -247,11 +248,21 @@ qa("TC-ORD-007", "the customer cannot cancel at ACCEPTED, PREPARING, READY or AS
   const start = await walletOf();
   const placed = await placeSimple();
   const notes: string[] = [];
+  // Rule afterPackingCancellation (on at the test site) opens READY and ASSIGNED to a cancel for a fee.
+  const packedCancelOpen = await ruleOn("afterPackingCancellation");
   const { context, page } = await pageAs(browser, "customer");
   try {
     const attempt = async (stage: string) => {
       const card = await customerCard(page, placed.orderNumber);
       await expect(card.getByText(label(stage), { exact: true }).first()).toBeVisible();
+      if (packedCancelOpen && (stage === "READY" || stage === "ASSIGNED")) {
+        await expect(card.getByRole("button", { name: "Cancel order" }), `Cancel offered at ${stage} (rule on)`).toBeVisible();
+        const open = await call(await as("customer"), "GET", `/api/orders/${placed.id}/cancellation-quote`);
+        expectStatus(open, 200, "quote");
+        expect(open.body.allowed, `quote at ${stage}`).toBe(true);
+        notes.push(`${stage} open for a fee (rule on)`);
+        return;
+      }
       await expect(card.getByRole("button", { name: "Cancel order" }), `no Cancel button at ${stage}`).toHaveCount(0);
       const quote = await call(await as("customer"), "GET", `/api/orders/${placed.id}/cancellation-quote`);
       expectStatus(quote, 200, "quote");
@@ -392,6 +403,8 @@ qa("TC-ORD-012", "stock returns to the pre-order figure after a cancel, on /shop
   let shown = "";
   try {
     await page.goto("/shop/inventory");
+    // A big catalogue: the row may not be on the first page of the table.
+    await page.getByLabel("Search products", { exact: true }).fill(listing.name);
     const row = page.getByTestId("inventory-table").getByRole("row").filter({ hasText: listing.name }).first();
     await expect(row).toBeVisible();
     shown = (await row.getByRole("cell").nth(2).innerText()).trim();

@@ -168,6 +168,8 @@ export function qa(ids: string | string[], title: string, body: QaBody, options:
       return;
     }
     try {
+      // Imported here: rider-ready's helpers import this module.
+      if (tier === "signed") await (await import("./rider-ready")).keepRiderReady();
       const detail = (await body({ page, context, request, browser })) ?? "";
       qaRecorder.pending.outcome = { status: "pass", detail };
     } catch (error) {

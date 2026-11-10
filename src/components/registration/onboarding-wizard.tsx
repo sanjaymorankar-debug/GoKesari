@@ -116,7 +116,7 @@ export interface WizardState {
   fssai: DocView & { required: boolean };
   shopAct: DocView;
   location: { latitude: string; longitude: string; address: string | null } | null;
-  referral: { answered: boolean; code: string | null; required: boolean; employeeId: string | null };
+  referral: { answered: boolean; code: string | null; required: boolean; locked: boolean; employeeId: string | null };
   email: { account: string | null; shop: string | null; confirmed: boolean };
   documentsLater: boolean | null;
   documents: {
@@ -128,7 +128,7 @@ export interface WizardState {
     canSubmit: boolean;
     needsTeamApproval: boolean;
   };
-  shop: { id: string; name: string; registrationNumber: string | null; status: string; feeDuePaise: number; feePaymentStatus: string } | null;
+  shop: { id: string; name: string; registrationNumber: string | null; status: string; feeDuePaise: number; lastPaymentFailed: boolean } | null;
   feeRule: TurnoverFeeRule;
   /** The fee covers this many months and then renews (rule shopMembership). */
   membershipMonths: number;
@@ -441,9 +441,15 @@ export function OnboardingWizard({
             <strong>{state.shop.name}</strong>
             {state.shop.registrationNumber ? <> · Shop ID {state.shop.registrationNumber}</> : null}
           </p>
+          {state.shop.lastPaymentFailed ? (
+            <div data-testid="fee-payment-failed">
+              <Alert tone="danger" title="Your last payment did not go through">
+                No money was taken for it. You can try again below.
+              </Alert>
+            </div>
+          ) : null}
           <RegistrationFeePayButton shopId={state.shop.id} amountPaise={state.shop.feeDuePaise} autoStart={openPayment} />
           <Alert tone="warning" title="Pending until the fee is paid">
-            {state.shop.feePaymentStatus === "FAILED" ? "Your last payment did not go through. " : ""}
             Your shop is not live and receives no orders until the payment clears. You can still shop on GoKesari as a customer. A failed payment can be
             tried again — you are charged once.
           </Alert>
@@ -648,12 +654,17 @@ function VerifyStep({
         <Field
           label={referralRequired ? tr({ en: "Referral code", hi: "रेफ़रल कोड", mr: "रेफरल कोड" }, lang) : tr({ en: "Referral code (optional)", hi: "रेफ़रल कोड (वैकल्पिक)", mr: "रेफरल कोड (पर्यायी)" }, lang)}
           error={fields.referralCode}
-          hint={applied ? `✓ ${tr({ en: "Applied", hi: "लागू हुआ", mr: "लागू झाला" }, lang)}` : undefined}
+          hint={
+            applied
+              ? `✓ ${tr({ en: "Applied", hi: "लागू हुआ", mr: "लागू झाला" }, lang)}${state?.referral.locked ? `. ${tr({ en: "Only one code can be used, so it cannot be changed.", hi: "केवल एक कोड इस्तेमाल हो सकता है, इसलिए इसे बदला नहीं जा सकता।", mr: "फक्त एकच कोड वापरता येतो, त्यामुळे तो बदलता येणार नाही." }, lang)}` : ""}`
+              : undefined
+          }
         >
           <input
             className={`${inputClass} font-mono uppercase tracking-widest`}
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
+            readOnly={Boolean(state?.referral.locked)}
             autoCapitalize="characters"
             autoComplete="off"
             placeholder="AB12CD34"

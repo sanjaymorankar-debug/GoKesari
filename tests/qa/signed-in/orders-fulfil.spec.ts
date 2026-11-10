@@ -187,6 +187,7 @@ qa(["TC-FUL-007", "TC-FUL-008"], "the shop offers a cheaper substitute; the cust
   const breadStock = await stockOf(bread);
   const placed = await checkoutLines([{ listing: packaged }]);
   const notes: string[] = [];
+  let readyOffered = false;
   try {
     expectStatus(await fulfil(placed.id, "accept"), 200, "accept");
     expectStatus(await fulfil(placed.id, "start"), 200, "start");
@@ -199,7 +200,7 @@ qa(["TC-FUL-007", "TC-FUL-008"], "the shop offers a cheaper substitute; the cust
       await card.getByRole("button", { name: "Send to customer" }).click();
       const fresh = shop.page.getByTestId("shop-order").filter({ hasText: placed.orderNumber }).first();
       await expect(fresh.getByText("(waiting for customer)")).toBeVisible({ timeout: 15_000 });
-      await expect(fresh.getByRole("button", { name: "Packed — mark ready" }), "ready disabled while the customer decides").toBeDisabled();
+      readyOffered = await fresh.getByRole("button", { name: "Packed — mark ready" }).isEnabled();
     } finally {
       await shop.context.close();
     }
@@ -228,6 +229,8 @@ qa(["TC-FUL-007", "TC-FUL-008"], "the shop offers a cheaper substitute; the cust
     } finally {
       await customer.context.close();
     }
+    // Last, so one button does not hide the money checks above.
+    expect(readyOffered, "'Packed — mark ready' is disabled while the customer decides on the substitute").toBe(false);
   } finally {
     await abandon(placed.id);
   }

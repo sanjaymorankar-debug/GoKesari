@@ -10,7 +10,8 @@
       "email": "sanjaymorankar+gk-cust@gmail.com"
     },
     "shop": {
-      "email": "sanjaymorankar+gk-shop@gmail.com"
+      "email": "sanjaymorankar+gk-shop@gmail.com",
+      "activeShop": "A"
     },
     "rider": {
       "email": "sanjaymorankar+gk-rider@gmail.com"

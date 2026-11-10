@@ -121,7 +121,9 @@ async function enterHandover(browser: Browser, code: string) {
   try {
     const panel = await pickupPanel(page);
     await panel.getByLabel("Handover code from the customer").fill(code);
+    const answered = page.waitForResponse((r) => r.url().includes("/api/return-pickups/") && r.request().method() === "PATCH");
     await panel.getByRole("button", { name: "Confirm pickup" }).click();
+    await answered; // the rider's message appears only once the server has answered
     await page.waitForLoadState("networkidle").catch(() => {});
     return (await panel.innerText().catch(() => "")) + (await page.locator("body").innerText());
   } finally {

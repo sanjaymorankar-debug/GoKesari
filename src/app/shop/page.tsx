@@ -7,7 +7,7 @@ import { SellerHome, type ShopAlert } from "@/components/seller/seller-home";
 import { SetupChecklist } from "@/components/seller/setup-checklist";
 import { tr, UI, type Lang } from "@/lib/board/i18n";
 import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
-import { groupSellerMenus } from "@/lib/seller/nav";
+import { groupSellerMenus, SELLER_TEXT } from "@/lib/seller/nav";
 import { ONBOARDING_STAGE_LABELS, ownerNextAction } from "@/lib/shop-onboarding";
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -23,6 +23,7 @@ import { getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-o
 import { getShopSetupChecklist } from "@/server/services/shop-setup-checklist";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
+import { registrationFeeDue } from "@/server/services/registration-fee-payment";
 import { listShopsForOwner } from "@/server/services/shops";
 
 export const metadata = { title: { absolute: "Seller Central · GoKesari" } };
@@ -85,6 +86,7 @@ export default async function ShopDashboardPage() {
 
   const alerts = shopAlerts(lang, {
     status: shop.status,
+    feeDue: registrationFeeDue(shop) > 0,
     suspensionReason: suspension?.reason ?? null,
     rejectionReason: shop.rejectionReason,
     onboarding,
@@ -127,7 +129,7 @@ export default async function ShopDashboardPage() {
         <SellerHome
           lang={lang}
           userName={user.name}
-          shop={{ name: shop.name, slug: shop.slug, status: shop.status }}
+          shop={{ name: shop.name, slug: shop.slug, status: shop.status, feeDue: registrationFeeDue(shop) > 0 }}
           alerts={alerts}
           counts={board.counts}
           facts={board.facts}
@@ -148,6 +150,7 @@ function shopAlerts(
   lang: Lang,
   s: {
     status: string;
+    feeDue: boolean;
     suspensionReason: string | null;
     rejectionReason: string | null;
     onboarding: ShopOnboarding | undefined;
@@ -178,7 +181,7 @@ function shopAlerts(
       key: "approval",
       tone: "warning",
       icon: "clock",
-      title: `${tr(UI.awaitingApproval, lang)}${s.onboarding ? ` — ${ONBOARDING_STAGE_LABELS[s.onboarding.stage].toLowerCase()}` : ""}`,
+      title: s.feeDue ? tr(SELLER_TEXT.paymentDue, lang) : `${tr(UI.awaitingApproval, lang)}${s.onboarding ? ` — ${ONBOARDING_STAGE_LABELS[s.onboarding.stage].toLowerCase()}` : ""}`,
       detail: next?.text ?? null,
       action: next ? tr(UI.next, lang) : tr(UI.details, lang),
       href: next?.href ?? today,

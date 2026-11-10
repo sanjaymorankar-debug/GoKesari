@@ -518,11 +518,27 @@ export async function open(page: Page, path: string) {
 }
 
 /**
+ * With only "Scheduled" on offer (no Ready rider near the shop) the cart keeps Pay disabled until a
+ * delivery time is chosen. Picks the first one; with Express or Standard on offer there is nothing to do.
+ * Returns whether a time was chosen.
+ */
+export async function chooseDeliveryTime(page: Page): Promise<boolean> {
+  const label = page.getByText("Delivery time", { exact: true }).first();
+  if (!(await label.isVisible({ timeout: 15_000 }).catch(() => false))) return false;
+  if ((await page.getByRole("button", { name: /^(Express|Standard) \(/ }).count()) > 0) return false;
+  const slot = page.getByTestId("slot-picker").locator('button[data-testid^="slot-"]:not([data-testid="slot-picker"])').first();
+  if (!(await slot.isVisible({ timeout: 15_000 }).catch(() => false))) return false;
+  await slot.click();
+  return true;
+}
+
+/**
  * Presses the cart's pay button and answers the prompts in front of it: the
  * open-order notice ("Ignore and continue") and, when `closed` says so, the
  * closed-shop question. Returns the page's error text or null.
  */
 export async function payOnCartPage(page: Page, closed: "yes" | "no" | "none" = "none") {
+  await chooseDeliveryTime(page);
   await page.getByRole("button", { name: /Pay from wallet|Place order/ }).click();
   const ignore = page.getByRole("button", { name: "Ignore and continue" });
   const closedYes = page.getByRole("button", { name: "Yes, continue" });

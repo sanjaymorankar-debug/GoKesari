@@ -9,6 +9,7 @@
  * this run's test orders only.
  */
 import { as, pageAs } from "../lib/actors";
+import { chooseDeliveryTime } from "../lib/shopping-helpers";
 import { deliveryCode, emptyCart, offerFor, onlyRiderOnline, packOrder, pickupCode, riderAction, sellable, shopOf } from "../lib/flows";
 import { call, expectStatus, RUN, stash, unstash, why } from "../lib/http";
 import { cancelAsCustomer, checkoutNow, fillCart, onlineStock, orderOf, ordersOf, placeVia, runKey, walletOf } from "../lib/money-helpers";
@@ -54,6 +55,7 @@ test.afterAll(async () => {
 });
 
 qa("TC-COD-001", "the shop opts in to cash on delivery on /shop/marketing; COD becomes available to its customers", async ({ browser }) => {
+  await closeOpenCod();
   const shop = await shopOf("A");
   const codBefore = await codSetting(shop.id);
   stash(KEY, { shopId: shop.id, codBefore } satisfies CodState);
@@ -101,6 +103,7 @@ qa("TC-COD-002", "a COD order is placed and confirmed unpaid: CONFIRMED + COD, w
   try {
     await page.goto("/cart");
     await page.getByTestId("payment-method").getByRole("radio", { name: "Cash on delivery", exact: true }).check();
+    await chooseDeliveryTime(page);
     const placed = page.waitForResponse((r) => r.url().endsWith("/api/checkout") && r.request().method() === "POST");
     await page.getByRole("button", { name: "Place order — pay cash on delivery" }).click();
     for (const name of [/Ignore and continue/, /Yes, continue/]) {

@@ -14,6 +14,7 @@ import { as, me } from "./actors";
 import { db } from "./db";
 import { call, expectStatus, poll, RUN, why, type Answer } from "./http";
 import { blocked, need } from "./record";
+import { png } from "./orders-helpers";
 import { assertWritable, IS_LOCAL } from "./target";
 import { world, type Role, type WorldListing } from "./world";
 
@@ -67,6 +68,11 @@ export async function shopListings(shopId: string, onlineOnly = false): Promise<
     productName: r.product?.name ?? "",
     mrpPaise: r.product?.mrpPaise ?? null,
   }));
+}
+
+/** Blocks a check when checkout says the other shop is not taking orders (test data on this site: its shop wallet is below the minimum). */
+export function blockIfNotTakingOrders(res: Answer) {
+  if (res.status === 409 && /not taking new orders/i.test(why(res))) blocked(`checkout refused — ${why(res)} (test data)`);
 }
 
 /**
@@ -212,7 +218,12 @@ export async function readyWithPartner(orderId: string, role: Role = "shop") {
   expectStatus(options, 200, "delivery plan options");
   const slotKey = (options.body?.days as { slots: { key: string }[] }[] | undefined)?.[0]?.slots[0]?.key;
   if (!slotKey) throw new Error(`no delivery slot can be chosen now for order ${orderId} (${JSON.stringify(options.body).slice(0, 200)})`);
-  return call(ctx, "POST", `/api/orders/${orderId}/fulfilment-plan`, { option: "GOKESARI_PARTNER", slotKey, markReady: true });
+  const planned = await call(ctx, "POST", `/api/orders/${orderId}/fulfilment-plan`, { option: "GOKESARI_PARTNER", slotKey, markReady: true });
+  // A shop with delivery switched off, or an order without an address, cannot use a partner: it is collected from the shop.
+  if (planned.status === 422 && /delivery switched on|choose pickup/.test(why(planned))) {
+    return call(ctx, "POST", `/api/orders/${orderId}/fulfilment-plan`, { option: "PICKUP", slotKey, markReady: true });
+  }
+  return planned;
 }
 
 /** accept → start → ready, each expected to succeed. */
@@ -249,7 +260,16 @@ export async function offerFor(orderId: string, rider: Role = "rider", waitMs = 
 
 export async function riderAction(deliveryOrderId: string, action: string, extra: Record<string, unknown> = {}, rider: Role = "rider") {
   assertWritable("act on a delivery");
-  return call(await as(rider), "PATCH", `/api/delivery-orders/${deliveryOrderId}`, { action, ...extra });
+  const ctx = await as(rider);
+  const path = `/api/delivery-orders/${deliveryOrderId}`;
+  const res = await call(ctx, "PATCH", path, { action, ...extra });
+  // Rule deliveryProof: with the photo required the rider takes one at the door first (the code is not used up by this refusal).
+  if (action === "deliver" && res.status === 409 && /Take a photo/.test(why(res))) {
+    const photo = await call(ctx, "POST", `${path}/proof`, undefined, { multipart: { file: { name: "door.png", mimeType: "image/png", buffer: png() } } as never });
+    expectStatus(photo, 201, "rider uploads the delivery photo");
+    return call(ctx, "PATCH", path, { action, ...extra });
+  }
+  return res;
 }
 
 /** The 4-digit pickup code, as the shop reads it off the packing slip. */

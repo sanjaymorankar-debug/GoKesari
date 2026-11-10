@@ -43,12 +43,13 @@ async function comparisonRows(page: Page) {
 /** Shop cards in page order: name and the fulfilment line. */
 async function shopCards(page: Page, scope = page.locator("main")) {
   const cards = scope.getByTestId("shop-card");
-  const out: { name: string; text: string; km: number | null; delivers: boolean; paused: boolean }[] = [];
+  const out: { name: string; href: string | null; text: string; km: number | null; delivers: boolean; paused: boolean }[] = [];
   for (let i = 0; i < (await cards.count()); i++) {
     const text = (await cards.nth(i).innerText()).replace(/\s+/g, " ");
     const name = (await cards.nth(i).getByRole("heading").first().innerText()).trim();
     const km = text.match(/· ([\d.]+) km/)?.[1];
-    out.push({ name, text, km: km ? Number(km) : null, delivers: /Delivers to you/.test(text), paused: /Not taking orders online right now/.test(text) });
+    const href = await cards.nth(i).evaluate((el) => (el.closest("a") ?? el.querySelector("a"))?.getAttribute("href") ?? null);
+    out.push({ name, href, text, km: km ? Number(km) : null, delivers: /Delivers to you/.test(text), paused: /Not taking orders online right now/.test(text) });
   }
   return out;
 }
@@ -67,7 +68,8 @@ qa("TC-DISC-001", "home with a location: deliver-to bar, search first, 'Shops ne
     await expect(page.getByTestId("home-set-location")).toHaveCount(0);
     const cards = await shopCards(page, shops);
     expect(cards.length, "shops near the default address").toBeGreaterThan(0);
-    const names = cards.map((c) => c.name.toLowerCase());
+    // By link, not by name: two shops may share a name.
+    const names = cards.map((c) => c.href ?? c.name.toLowerCase());
     expect(new Set(names).size, `duplicate shop cards: ${names.join(", ")}`).toBe(names.length);
     expect(cards.some((c) => sameName(c.name, shopName("A"))), "shop A is near the customer").toBe(true);
     await expect(page.getByTestId("popular-in-area").or(page.getByTestId("buy-again")).first()).toBeVisible();
@@ -119,33 +121,38 @@ qa("TC-DISC-003", "'Show all shops' (?all=1) keeps the type filter", async ({ br
 qa(["TC-DISC-004", "TC-DISC-005"], "shop search by area and type, filters by type, classification and delivery (alone and combined), and a helpful empty state", async ({ browser }) => {
   const api = await anonymous();
   const seen: string[] = [];
+  let areaOfA = "Kothrud";
   try {
     const list = async (query: string) => {
       const res = await call(api, "GET", `/api/shops?${query}&limit=100`);
       expectStatus(res, 200, `/api/shops?${query}`);
       return (Array.isArray(res.body) ? res.body : (res.body?.shops ?? [])) as { name: string; shopType: string; classification: string | null; deliveryAvailable: boolean; area: string | null }[];
     };
-    const byArea = await list("q=Kothrud");
-    expect(byArea.some((s) => sameName(s.name, shopName("A"))), "area 'Kothrud' finds shop A").toBe(true);
-    seen.push(`area Kothrud: ${byArea.length}`);
-    const dairy = await list("type=DAIRY");
+    const area = (await list(`q=${encodeURIComponent(shopName("A"))}`)).find((s) => sameName(s.name, shopName("A")))?.area ?? "Kothrud";
+    const byArea = await list(`q=${encodeURIComponent(area)}`);
+    expect(byArea.some((s) => sameName(s.name, shopName("A"))), `area '${area}' finds shop A`).toBe(true);
+    seen.push(`area ${area}: ${byArea.length}`);
+    areaOfA = area;
+    // Shop A's own type (a dairy locally, a bakery on the test site).
+    const typeOfA = (await list(`q=${encodeURIComponent(shopName("A"))}`)).find((s) => sameName(s.name, shopName("A")))?.shopType ?? "DAIRY";
+    const dairy = await list(`type=${typeOfA}`);
     expect(dairy.length).toBeGreaterThan(0);
-    expect(dairy.every((s) => s.shopType === "DAIRY"), "type filter").toBe(true);
+    expect(dairy.every((s) => s.shopType === typeOfA), "type filter").toBe(true);
     expect(dairy.some((s) => sameName(s.name, shopName("A")))).toBe(true);
     const kesari = await list("classification=KESARI");
     expect(kesari.every((s) => s.classification === "KESARI"), "classification filter").toBe(true);
     const delivering = await list("delivery=true");
     expect(delivering.every((s) => s.deliveryAvailable), "delivery filter").toBe(true);
-    const combined = await list("type=DAIRY&classification=KESARI&delivery=true");
-    expect(combined.every((s) => s.shopType === "DAIRY" && s.classification === "KESARI" && s.deliveryAvailable), "combined filters").toBe(true);
+    const combined = await list(`type=${typeOfA}&classification=KESARI&delivery=true`);
+    expect(combined.every((s) => s.shopType === typeOfA && s.classification === "KESARI" && s.deliveryAvailable), "combined filters").toBe(true);
     expect(combined.length).toBeLessThanOrEqual(Math.min(dairy.length, kesari.length, delivering.length));
-    seen.push(`DAIRY ${dairy.length}, KESARI ${kesari.length}, delivery ${delivering.length}, all three ${combined.length}`);
+    seen.push(`${typeOfA} ${dairy.length}, KESARI ${kesari.length}, delivery ${delivering.length}, all three ${combined.length}`);
   } finally {
     await api.dispose();
   }
   const { context, page } = await signedPage(browser, "customer");
   try {
-    await open(page, "/shops?all=1&q=Kothrud");
+    await open(page, `/shops?all=1&q=${encodeURIComponent(areaOfA)}`);
     expect((await shopCards(page)).some((c) => sameName(c.name, shopName("A")))).toBe(true);
     await open(page, "/shops?all=1&q=zzqqxxnoshop");
     await expect(page.getByText("No shops match these filters.")).toBeVisible();
@@ -196,9 +203,15 @@ qa(["TC-DISC-007", "TC-FLD-022"], "search box signed in: blank and no-match give
     // "%" and "_" are characters to look for, not wildcards: nothing is named with them.
     const counts: string[] = [];
     let matched = 0;
+    const api = await anonymous();
+    const everyShop = (await call(api, "GET", "/api/shops?limit=100")).body as unknown[];
+    await api.dispose();
     for (const q of ["%", "_", "%%_"]) {
       await open(page, `/search?q=${encodeURIComponent(q)}`);
-      const found = (await page.getByTestId("product-card").count()) + (await page.getByTestId("shop-card").count());
+      // A name that really holds the symbol ("Modern 100% Whole Wheat Bread") is a true match, and so is the shop selling it; a wildcard would list everything.
+      const found = (await page.getByTestId("product-card").allInnerTexts()).filter((text) => !text.includes(q)).length;
+      const shops = await page.getByTestId("shop-card").count();
+      expect(shops, `"${q}" lists fewer shops than exist`).toBeLessThan(Math.max(everyShop.length, 2));
       matched += found;
       counts.push(`"${q}" → ${found} results${found ? "" : " (no-results message)"}`);
     }
@@ -223,6 +236,7 @@ qa(["TC-DISC-008", "TC-DISC-009"], "product page lists every shop selling it wit
     const rowB = rows.find((r) => r.shop === shopName("B"));
     expect(rowA, "shop A listed").toBeTruthy();
     expect(rowB, "shop B listed").toBeTruthy();
+    if (/Does not deliver/i.test(rowB!.text)) blocked(`shop B does not deliver here on this site (test data): "${rowB!.text}"`);
     for (const [row, item] of [[rowA!, a], [rowB!, b]] as const) {
       expect(row.text).toMatch(/[\d.]+ km away · Delivers to you/);
       expect(row.text).toContain(`₹${item.pricePaise! / 100}`);
@@ -302,7 +316,7 @@ qa("TC-DISC-013", "shop page: profile, catalogue, opening hours with the closed-
       await page.getByText("Shop info, opening hours and reviews").click();
       const info = page.getByTestId("shop-info");
       await expect(info).toContainText("Owner / Proprietor");
-      await expect(info).toContainText(/Mon: 06:00–22:00/);
+      await expect(info).toContainText(/(Mon|Tue): 06:00–22:00/); // today is the closed day: one of the two is open
       await expect(info).toContainText(/: Closed/);
       shown.push("Closed badge, Delivery ₹20, free above ₹300, products, owner, hours");
     } finally {

@@ -11,7 +11,7 @@
 import type { Page } from "@playwright/test";
 
 import { as } from "../lib/actors";
-import { deliveryCode, offerFor, onlyRiderOnline, pickupCode, riderAction } from "../lib/flows";
+import { deliveryCode, fulfil, offerFor, onlyRiderOnline, pickupCode, riderAction } from "../lib/flows";
 import { call, expectStatus, RUN, stash, unstash, why } from "../lib/http";
 import { blocked, expect, qa } from "../lib/record";
 import {
@@ -100,8 +100,8 @@ qa(["TC-FLD-028", "TC-CART-017"], "order notes: blank is fine, over 500 characte
 
 qa(["TC-CART-017", "TC-FLD-029"], "before pickup the rider sees only the area: no street line, landmark or delivery instructions", async ({ browser }) => {
   const leg = current();
-  for (const action of ["accept", "start", "ready"]) {
-    expectStatus(await call(await as("shop"), "POST", `/api/orders/${leg.orderId}/fulfilment`, { action }), 200, `shop ${action}`);
+  for (const action of ["accept", "start", "ready"] as const) {
+    expectStatus(await fulfil(leg.orderId, action), 200, `shop ${action}`);
   }
   const offer = await offerFor(leg.orderId, "rider");
   if (offer.status === "OFFERED") expectStatus(await riderAction(offer.deliveryOrderId, "accept"), 200, "rider accepts");
