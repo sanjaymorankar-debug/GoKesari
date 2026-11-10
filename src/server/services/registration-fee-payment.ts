@@ -108,6 +108,22 @@ export async function checkRegistrationFeePayment(shopId: string, intentId: stri
   return ownShopForFee(shopId, ownerId);
 }
 
+/**
+ * The wizard's payment step, opened without `?intent=`: asks the gateway about the owner's latest
+ * attempt while it is still open, so a payment that failed (or went through) shows without waiting
+ * for the webhook. True when it asked.
+ */
+export async function refreshLatestRegistrationFeeAttempt(shopId: string, ownerId: string): Promise<boolean> {
+  const latest = await latestRegistrationFeeAttempt(shopId, ownerId);
+  if (!latest?.live) return false;
+  try {
+    await reconcileIntent(latest.id);
+  } catch (error) {
+    console.error("[registration-fee] could not check the payment with the gateway", latest.id, error);
+  }
+  return true;
+}
+
 /** The latest attempt's state, for the page: "PAID", "FAILED", "EXPIRED", "PENDING" … or null. */
 export async function latestRegistrationFeeAttempt(shopId: string, ownerId: string) {
   const [latest] = (await listIntentsFor("SHOP_REGISTRATION_FEE", shopId)).filter((row) => row.userId === ownerId);

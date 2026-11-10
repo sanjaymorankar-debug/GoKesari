@@ -25,7 +25,7 @@ interface Props {
   roles: UserRole[];
   unreadCount: number;
   /** The owner's shop on show; null for a visitor or someone still registering (no sidebar then). */
-  shop: { id: string; name: string; slug: string; status: string } | null;
+  shop: { id: string; name: string; slug: string; status: string; feeDue: boolean } | null;
   /** All of the owner's shops; with more than one, the shop name becomes a switcher. */
   shops: { id: string; name: string }[];
   groups: ResolvedSellerGroup[];
@@ -121,7 +121,7 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, shops, group
   }, [drawerOpen]);
 
   const withNav = shop !== null && groups.length > 0;
-  const pill = shop ? shopStatusPill(shop.status) : null;
+  const pill = shop ? shopStatusPill(shop.status, shop.feeDue) : null;
   const storeHref = shop?.status === "APPROVED" ? `/shops/${shop.slug}` : null;
 
   return (

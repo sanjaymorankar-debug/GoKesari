@@ -95,7 +95,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { assertRegistrationReferralCode, attributeRegistrationReferral } from "./referral-requests";
 import { isReferralRequired } from "./referral-settings";
 import { looksLikeShopCode, shopReferralRule } from "./shop-referrals";
-import { registrationFeeDue } from "./registration-fee-payment";
+import { latestRegistrationFeeAttempt, registrationFeeDue } from "./registration-fee-payment";
 import { applyDocumentChecks, type ShopFacts } from "./seller-verification-checks";
 import {
   importRegistrationCheck,
@@ -106,6 +106,7 @@ import {
 import { syncRegistrationReminder } from "./scheduled-notices";
 import { getRule } from "./settings";
 import {
+  assertNoWaitingRegistration,
   assertOwnerExists,
   CAN_CONTINUE,
   countCheck,
@@ -119,6 +120,7 @@ import {
   type DraftCheckView,
   type ShopRegistrationDraftView,
 } from "./shop-registration-draft";
+import { checkRegistrationDuplicate } from "./shop-duplicates";
 import { assertShopType, loadShopTypeRegistry } from "./shop-types";
 
 import { autoApproveShopIfReady, registerShop } from "./shops";
@@ -216,7 +218,7 @@ export interface WizardView extends ShopRegistrationDraftView {
   shopAct: WizardDocView;
   location: { latitude: string; longitude: string; address: string | null } | null;
   /** 0120: the referral step — the code given (null: none) and whether the admin makes it mandatory. */
-  referral: { answered: boolean; code: string | null; required: boolean };
+  referral: { answered: boolean; code: string | null; required: boolean; locked: boolean };
   /** 0120: the shop's email — the account's (the default) and the one confirmed for the shop. */
   email: { account: string | null; shop: string | null; confirmed: boolean };
   /** Always false since 08-Nov-2026 ("upload later" is gone); kept for the screen's shape. */
@@ -235,6 +237,8 @@ export interface WizardView extends ShopRegistrationDraftView {
     status: Shop["status"];
     feeDuePaise: number;
     feePaymentStatus: Shop["feePaymentStatus"];
+    /** The owner's latest payment attempt failed or expired and the fee is still due. */
+    lastPaymentFailed: boolean;
   } | null;
   /** The admin's fee-by-turnover slab table (Admin → Registration fees): the details step offers its slabs. */
   feeRule: TurnoverFeeRule;
@@ -336,6 +340,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   if (draft.shopId) {
     const [s] = await db.select().from(shops).where(eq(shops.id, draft.shopId));
     if (s) {
+      const attempt = registrationFeeDue(s) > 0 ? await latestRegistrationFeeAttempt(s.id, draft.ownerId) : null;
       shop = {
         id: s.id,
         name: s.name,
@@ -343,6 +348,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
         status: s.status,
         feeDuePaise: registrationFeeDue(s),
         feePaymentStatus: s.feePaymentStatus,
+        lastPaymentFailed: attempt?.status === "FAILED" || attempt?.status === "EXPIRED",
       };
       if (s.status === "APPROVED") setup = await shopSetup(s);
     }
@@ -357,6 +363,8 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     answered: draft.referralAnsweredAt !== null || started,
     code: draft.referralCode,
     required: await isReferralRequired("shop"),
+    // Shop-refers-shop on (DT-13): the first code entered is kept, so the screen must not offer to change it.
+    locked: draft.referralCode !== null && (await shopReferralRule()).enabled,
     employeeId: str(partialOf(draft).employeeId),
   };
   // Owner, 05-Nov-2026 (D3): the shop email stays required but is one pre-filled line — the
@@ -544,6 +552,7 @@ async function lockReadyDraft(tx: DbClient, ownerId: string): Promise<ShopRegist
 export async function answerDraftReferral(input: { actor: Actor; referralCode: string | null; employeeId?: string | null }): Promise<WizardView> {
   const code = await assertRegistrationReferralCode(input.referralCode);
   await assertOwnerExists(input.actor.id);
+  await assertNoWaitingRegistration(input.actor.id);
   // Shop-refers-shop (rule shopReferrals on): one code — the first one entered is kept.
   const oneCode = (await shopReferralRule()).enabled;
   const draft = await db.transaction(async (tx) => {
@@ -693,6 +702,19 @@ export async function saveDraftDetails(input: { actor: Actor; details: DraftShop
   };
   // A referral code the platform requires (or one that is not valid) is caught here, not at payment.
   await assertRegistrationReferralCode(details.referralCode);
+  // The name and PIN are both known now: the same rules as registerShop(), told here and not at "Create my shop and pay".
+  const duplicate = await checkRegistrationDuplicate(
+    { panNumber: open?.panEncrypted ? decryptSecret(open.panEncrypted) : null, name: details.name, addressLine1: details.addressLine1, pincode: details.pincode },
+    actor,
+  );
+  if (duplicate.status === "DUPLICATE") {
+    throw conflict(duplicate.message, {
+      reason: "DUPLICATE_SHOP",
+      matchedOn: duplicate.matchedOn,
+      shopStatus: duplicate.shopStatus,
+      fields: { [duplicate.field]: duplicate.fieldMessage },
+    });
+  }
   const foodShop = await isFoodShopType(details.shopType);
   // A food shop type answers the FSSAI question by itself.
   return mergeDraftDetails(actor.id, { ...details, addressConfirmed: true }, foodShop ? { hasFssai: true } : {});

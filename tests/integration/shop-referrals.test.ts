@@ -146,7 +146,7 @@ describe("registration with a shop code", () => {
     const other = await referrer();
     const owner = await createUser({ role: "CUSTOMER" });
     const actor = { id: owner.id, role: "CUSTOMER" as const };
-    expect((await answerDraftReferral({ actor, referralCode: r.code })).referral.code).toBe(r.code);
+    expect((await answerDraftReferral({ actor, referralCode: r.code })).referral).toMatchObject({ code: r.code, locked: true });
     await expect(answerDraftReferral({ actor, referralCode: other.code })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "REFERRAL_CODE_LOCKED" } });
     expect((await answerDraftReferral({ actor, referralCode: r.code })).referral.code).toBe(r.code);
   });

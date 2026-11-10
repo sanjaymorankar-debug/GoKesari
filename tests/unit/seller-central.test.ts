@@ -42,6 +42,8 @@ describe("Seller Central navigation", () => {
   it("names the shop's status on the top bar", () => {
     expect(shopStatusPill("APPROVED").label.en).toBe("Live");
     expect(shopStatusPill("PENDING_APPROVAL").label.en).toBe("Pending approval");
+    expect(shopStatusPill("PENDING_APPROVAL", true).label.en).toBe("Payment pending");
+    expect(shopStatusPill("APPROVED", true).label.en).toBe("Live");
     expect(shopStatusPill("SUSPENDED").label.en).toBe("Suspended");
     expect(shopStatusPill("SOMETHING_ELSE").label.en).toBe("Inactive");
   });

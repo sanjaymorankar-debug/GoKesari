@@ -46,6 +46,7 @@ import {
 import { verifyDocument, type SourceRecord, type VerifyDocumentResult } from "@/server/kyc";
 import { gstinHeldByOtherOwner } from "./shop-duplicates";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { registrationFeeDue } from "./registration-fee-payment";
 import { getRule } from "./settings";
 
 export interface Actor {
@@ -297,6 +298,29 @@ async function assertPanFree(pan: string, actor: Actor): Promise<void> {
   }
 }
 
+/** The owner's shop still waiting for its fee or for approval, if any: one registration at a time (owner request, 26 Oct 2026). */
+export async function waitingRegistration(ownerId: string): Promise<{ id: string; name: string; feeDuePaise: number } | null> {
+  const [shop] = await db
+    .select()
+    .from(shops)
+    .where(and(eq(shops.ownerId, ownerId), eq(shops.status, "PENDING_APPROVAL"), isNull(shops.deletedAt)))
+    .limit(1);
+  return shop ? { id: shop.id, name: shop.name, feeDuePaise: registrationFeeDue(shop) } : null;
+}
+
+/** What the owner is told about that shop; the same words before the first screen and on any later step. */
+export function waitingRegistrationMessage(shop: { name: string; feeDuePaise: number }): string {
+  return shop.feeDuePaise > 0
+    ? `${shop.name} still has its registration fee to pay. Please pay it first — you can add another shop after that.`
+    : `${shop.name} is already waiting for approval. You'll be notified once it's reviewed — you can add another shop after that.`;
+}
+
+/** registerShop() refuses a second registration at the very end; this stops it before any screen is filled in or any paid check is made. */
+export async function assertNoWaitingRegistration(ownerId: string): Promise<void> {
+  const waiting = await waitingRegistration(ownerId);
+  if (waiting) throw conflict(waitingRegistrationMessage(waiting), { reason: "REGISTRATION_PENDING", shopId: waiting.id });
+}
+
 /**
  * The owner's OPEN draft, created if missing, locked for this transaction.
  * The advisory lock serialises two tabs of one owner creating it at once.
@@ -457,6 +481,7 @@ export async function submitDraftGstin(input: SubmitDraftGstinInput): Promise<Sh
   const doc = parsed.value;
   const { actor } = input;
   await assertOwnerExists(actor.id);
+  await assertNoWaitingRegistration(actor.id);
   await assertGstinFree(doc.normalized, actor.id);
 
   const gstinHash = docBlindIndex("GSTIN", doc.normalized);
@@ -582,6 +607,7 @@ export async function submitDraftPan(input: SubmitDraftPanInput): Promise<ShopRe
   const doc = parsed.value;
   const { actor } = input;
   await assertOwnerExists(actor.id);
+  await assertNoWaitingRegistration(actor.id);
   await assertPanFree(doc.normalized, actor);
 
   const panHash = docBlindIndex("PAN", doc.normalized);
