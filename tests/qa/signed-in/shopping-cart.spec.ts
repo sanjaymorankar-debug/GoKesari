@@ -11,6 +11,7 @@
  * every listing or shop setting changed is put back.
  */
 import { as } from "../lib/actors";
+import { blockIfNotTakingOrders, fulfil } from "../lib/flows";
 import { call, expectStatus, poll, why } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
 import { world } from "../lib/world";
@@ -30,6 +31,7 @@ import {
   orderOf,
   ordersOf,
   OWNER,
+  chooseDeliveryTime,
   payOnCartPage,
   rupees,
   shopId,
@@ -98,15 +100,16 @@ qa("TC-CART-002", "/cart: + and − recompute the totals, − on the last unit r
   const { context, page } = await signedPage(browser, "customer");
   try {
     await open(page, "/cart");
+    const fee = (await cartOf()).deliveryFeePaise;
     const total = page.getByText("Grand total").locator("..");
-    await expect(total).toContainText(rupees(butter.pricePaise! + bread.pricePaise!));
+    await expect(total).toContainText(rupees(butter.pricePaise! + bread.pricePaise! + fee));
     await page.getByRole("button", { name: `Increase ${butter.name}` }).click();
-    await expect(total).toContainText(rupees(2 * butter.pricePaise! + bread.pricePaise!));
+    await expect(total).toContainText(rupees(2 * butter.pricePaise! + bread.pricePaise! + fee));
     await page.getByRole("button", { name: `Decrease ${butter.name}` }).click();
-    await expect(total).toContainText(rupees(butter.pricePaise! + bread.pricePaise!));
+    await expect(total).toContainText(rupees(butter.pricePaise! + bread.pricePaise! + fee));
     await page.getByRole("button", { name: `Decrease ${bread.name}` }).click();
     await expect(cartLine(page, bread.name)).toHaveCount(0);
-    await expect(total).toContainText(rupees(butter.pricePaise!));
+    await expect(total).toContainText(rupees(butter.pricePaise! + fee));
     await page.getByRole("button", { name: `Decrease ${butter.name}` }).click();
     await expect(page.getByTestId("cart-empty")).toBeVisible();
     await expect(page.getByTestId("cart-empty")).toContainText("Your cart is empty");
@@ -222,13 +225,14 @@ qa("TC-CART-006", "the cart shows the shop's new price, and checkout charges the
   return withListing(OWNER.A, "A", item, { onlinePricePaise: newPrice }, { onlinePricePaise: item.pricePaise }, async () => {
     const line = (await cartOf()).groups.flatMap((g) => g.lines).find((l) => l.shopProductId === item.shopProductId)!;
     expect(line.unitPricePaise, "cart shows the new price").toBe(newPrice);
+    const fee = (await cartOf()).deliveryFeePaise;
     const start = await walletOf();
     const res = await checkoutCart();
     expectStatus(res, 201, "checkout");
     const order = res.body.orders[0];
     try {
-      expect(order.totalPaise, "charged at the new price").toBe(newPrice);
-      expect(await walletOf()).toBe(start - newPrice);
+      expect(order.totalPaise, "charged at the new price").toBe(newPrice + fee);
+      expect(await walletOf()).toBe(start - order.totalPaise);
     } finally {
       await cancelOwn("customer", order.id);
     }
@@ -347,6 +351,7 @@ qa("TC-CART-009", "paying from the cart page: one CONFIRMED order, wallet debite
   let orderId: string | null = null;
   try {
     await open(page, "/cart");
+    const fee = (await cartOf()).deliveryFeePaise;
     await payOnCartPage(page);
     await page.waitForURL(/\/orders\?placed=1/, { timeout: 30_000 });
     const created = (await ordersOf()).filter((o) => !before.has(o.id));
@@ -355,7 +360,7 @@ qa("TC-CART-009", "paying from the cart page: one CONFIRMED order, wallet debite
     orderId = order.id;
     expect(order.status).toBe("CONFIRMED");
     expect(await walletOf(), "debited by exactly the total").toBe(start - order.totalPaise);
-    expect(order.totalPaise).toBe(2 * item.pricePaise!);
+    expect(order.totalPaise).toBe(2 * item.pricePaise! + fee);
     if (stock !== undefined) expect((await storefrontRow("A", item.shopProductId))?.onlineStock, "stock reduced by 2").toBe(stock - 2);
     await expect(page.getByTestId("order-card").filter({ hasText: order.orderNumber }).first()).toBeVisible();
     expect((await cartOf()).groups, "cart emptied").toEqual([]);
@@ -374,7 +379,7 @@ qa("TC-CART-011", "the cart page shows the shortfall and a top-up link instead o
   const quantity = Math.floor(balance / item.pricePaise!) + 1;
   if (quantity > (item.stock ?? 30)) blocked(`a basket above the wallet needs ${quantity} units; stock is ${item.stock}`);
   await fillCart("customer", [{ item, quantity }]);
-  const total = quantity * item.pricePaise!;
+  const total = quantity * item.pricePaise! + (await cartOf()).deliveryFeePaise;
   const { context, page } = await signedPage(browser, "customer");
   try {
     await open(page, "/cart");
@@ -393,12 +398,14 @@ qa("TC-CART-011", "the cart page shows the shortfall and a top-up link instead o
 qa("TC-CART-012", "double-clicking pay on the cart page places one order and debits the wallet once", async ({ browser }) => {
   const item = listing("packaged");
   await fillCart("customer", [{ item, quantity: 1 }]);
+  const fee = (await cartOf()).deliveryFeePaise;
   const start = await walletOf();
   const before = new Set((await ordersOf()).map((o) => o.id));
   const { context, page } = await signedPage(browser, "customer");
   let created: string[] = [];
   try {
     await open(page, "/cart");
+    await chooseDeliveryTime(page);
     const pay = page.getByRole("button", { name: /Pay from wallet/ });
     await pay.click();
     const ignore = page.getByRole("button", { name: "Ignore and continue" });
@@ -407,8 +414,8 @@ qa("TC-CART-012", "double-clicking pay on the cart page places one order and deb
     await page.waitForURL(/\/orders/, { timeout: 30_000 });
     created = (await ordersOf()).filter((o) => !before.has(o.id)).map((o) => o.id);
     expect(created, "exactly one new order").toHaveLength(1);
-    expect(await walletOf(), "one debit").toBe(start - item.pricePaise!);
-    return `one order, wallet −${rupees(item.pricePaise!)} after a double-click`;
+    expect(await walletOf(), "one debit").toBe(start - item.pricePaise! - fee);
+    return `one order, wallet −${rupees(item.pricePaise! + fee)} after a double-click`;
   } finally {
     await context.close();
     for (const id of created) await cancelOwn("customer", id);
@@ -439,6 +446,8 @@ qa("TC-CART-018", "/orders card shows the order's items and its actions: cancel 
 
 qa("TC-CART-015", "no mobile: the cart shows a prompt instead of pay and checkout is refused; no address: refused for a delivering shop", async ({ browser }) => {
   need(world().users.customer2, "customer 2 (no mobile)");
+  const mobile = (await call(await as("customer2"), "GET", "/api/profile")).body;
+  if (mobile?.phoneE164 ?? mobile?.user?.phoneE164) blocked("customer 2 must have no mobile (test data)");
   const item = listing("packaged");
   await fillCart("customer2", [{ item, quantity: 1 }]);
   const { context, page } = await signedPage(browser, "customer2");
@@ -463,7 +472,7 @@ qa("TC-CART-015", "no mobile: the cart shows a prompt instead of pay and checkou
   return `customer2: 'Add your mobile number…' instead of pay, API 422 missing=mobile; customer without addressId: 422 missing=address`;
 }, { ...SIGNED, partial: "the no-address prompt on the page, pickup-only and B2B without an address: next checks (TC-CART-015/016)" });
 
-qa(["TC-CART-016", "TC-CART-015", "TC-LOC-022"], "pickup order from a shop that does not deliver: placed without an address, no delivery fee, no minimum, no rider at READY, the shop completes it", async () => {
+qa(["TC-CART-016", "TC-CART-015", "TC-LOC-022"], "pickup order from a shop that does not deliver: placed without an address, no delivery fee, no minimum, no rider at READY, the shop completes it", async ({ browser }) => {
   const item = listing("packaged");
   return withShop("A", { deliveryAvailable: false, deliveryFeePaise: 2000, minOrderPaise: 20000 }, async () => {
     await fillCart("customer", [{ item, quantity: 1 }]);
@@ -473,8 +482,8 @@ qa(["TC-CART-016", "TC-CART-015", "TC-LOC-022"], "pickup order from a shop that 
     let done = false;
     try {
       expect(order.totalPaise, "no delivery fee, below the ₹200 minimum").toBe(item.pricePaise);
-      for (const action of ["accept", "start", "ready"]) {
-        expectStatus(await call(await as("shop"), "POST", `/api/orders/${order.id}/fulfilment`, { action }), 200, `shop ${action}`);
+      for (const action of ["accept", "start", "ready"] as const) {
+        expectStatus(await fulfil(order.id, action), 200, `shop ${action}`);
       }
       const offered = await poll(
         async () => (await call(await as("rider"), "GET", "/api/delivery-partner/deliveries")).body?.active?.orderId === order.id,
@@ -482,8 +491,19 @@ qa(["TC-CART-016", "TC-CART-015", "TC-LOC-022"], "pickup order from a shop that 
         8_000,
       );
       expect(offered, "no rider dispatch for a pickup order").toBe(false);
-      const delivered = await call(await as("shop"), "PATCH", `/api/orders/${order.id}/status`, { status: "DELIVERED", note: "Collected at the shop" });
-      expectStatus(delivered, 200, "shop completes READY → DELIVERED");
+      // A pickup is completed with the code the customer shows at the counter (on their order card).
+      const { context, page } = await signedPage(browser, "customer");
+      let code = "";
+      try {
+        await open(page, "/orders");
+        const shown = page.getByTestId("order-card").filter({ hasText: order.orderNumber }).first().getByTestId("pickup-code-customer");
+        code = (await shown.innerText()).match(/\d{4,8}/)?.[0] ?? "";
+      } finally {
+        await context.close();
+      }
+      expect(code, "the customer's pickup code on the order card").not.toBe("");
+      const delivered = await call(await as("shop"), "POST", `/api/orders/${order.id}/fulfilment-plan/handover`, { action: "pickup", code });
+      expectStatus(delivered, 200, "shop completes READY → DELIVERED with the customer's code");
       done = true;
       expect((await orderOf("customer", order.id))?.status).toBe("DELIVERED");
       return `${order.orderNumber}: ${rupees(order.totalPaise)} (no fee, minimum ₹200 not applied), READY with no rider offer, shop marked DELIVERED`;
@@ -499,6 +519,7 @@ qa("TC-CART-015", "a business (B2B) order needs no delivery address", async () =
   await fillCart("shop", [{ item, quantity: 1 }]);
   const res = await checkoutAs("shop", { paymentMethod: "WALLET", orderType: "B2B", buyerShopId: shopId("A") });
   try {
+    blockIfNotTakingOrders(res);
     expectStatus(res, 201, "B2B without an address");
     expect(res.body.orders[0].orderType).toBe("B2B");
     return `shop A buys from shop B (B2B) with no address: ${res.body.orders[0].orderNumber}`;

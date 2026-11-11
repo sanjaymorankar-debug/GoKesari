@@ -24,7 +24,7 @@ export interface ShopAlert {
 interface Props {
   lang: Lang;
   userName: string | null;
-  shop: { name: string; slug: string; status: string };
+  shop: { name: string; slug: string; status: string; feeDue: boolean };
   /** Most serious first. */
   alerts: ShopAlert[];
   counts: Counts;
@@ -46,7 +46,7 @@ const pct = (value: number | null) => (value == null ? "—" : `${Math.round(val
  * where it is worked on; a figure that could not be read is left out.
  */
 export function SellerHome({ lang, userName, shop, alerts, counts, facts, kpis, legal, groups }: Props) {
-  const pill = shopStatusPill(shop.status);
+  const pill = shopStatusPill(shop.status, shop.feeDue);
   const firstName = userName?.trim().split(/\s+/)[0] ?? null;
 
   return (
@@ -152,6 +152,7 @@ export function SellerHome({ lang, userName, shop, alerts, counts, facts, kpis, 
 
           <Panel title={tr(SELLER_TEXT.attention, lang)} icon="zap" testId="seller-attention">
             <ul className="-my-1 divide-y divide-slate-100">
+              <Row href="/shop/my-products?status=NEEDS_STOCK" icon="boxes" label={SELLER_TEXT.needsStock} lang={lang} count="shopNeedsStock" counts={counts} />
               <Row href="/shop/inventory" icon="boxes" label={SELLER_TEXT.lowStock} lang={lang} count="shopLowStock" counts={counts} />
               <Row href="/shop/returns?tab=requests" icon="undo-2" label={SELLER_TEXT.returnRequests} lang={lang} count="shopReturnRequests" counts={counts} />
               <Row href="/shop/disputes?tab=open" icon="scale" label={SELLER_TEXT.openDisputes} lang={lang} count="shopOpenDisputes" counts={counts} urgent />

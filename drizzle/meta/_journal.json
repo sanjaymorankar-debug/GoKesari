@@ -1044,6 +1044,13 @@
       "when": 1793264600000,
       "tag": "0148_wizard_licence_grace",
       "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1793264700000,
+      "tag": "0149_shop_product_setup",
+      "breakpoints": true
     }
   ]
 }

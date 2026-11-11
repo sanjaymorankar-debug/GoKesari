@@ -7,6 +7,7 @@ import { AppUpdatePrompt } from "@/components/app-install/update-prompt";
 import { NavigationFeedback } from "@/components/board/navigation-feedback";
 import { OfflineBanner } from "@/components/board/offline-banner";
 import { MobileShopNav } from "@/components/home/mobile-shop-nav";
+import { RememberReturnTo } from "@/components/remember-return-to";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { parseStoreLink } from "@/lib/app-install";
@@ -121,6 +122,7 @@ export default async function RootLayout({
         {/* useSearchParams needs a boundary; it renders nothing until a link is tapped. */}
         <Suspense fallback={null}>
           <NavigationFeedback lang={lang} />
+          <RememberReturnTo />
         </Suspense>
         <SiteHeader
           lang={lang}

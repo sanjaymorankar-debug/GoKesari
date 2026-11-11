@@ -168,6 +168,13 @@ export function qa(ids: string | string[], title: string, body: QaBody, options:
       return;
     }
     try {
+      // Imported here: rider-ready's helpers import this module. Like keepRiderReady itself, a failed
+      // import (CI's "module not been linked" for @auth/core/jwt, #383) never fails the check.
+      if (tier === "signed") {
+        await import("./rider-ready")
+          .then((m) => m.keepRiderReady())
+          .catch((error) => console.error(`[rider-ready] ${error instanceof Error ? error.message : String(error)}`));
+      }
       const detail = (await body({ page, context, request, browser })) ?? "";
       qaRecorder.pending.outcome = { status: "pass", detail };
     } catch (error) {

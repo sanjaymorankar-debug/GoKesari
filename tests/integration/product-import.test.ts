@@ -691,9 +691,9 @@ describe("regression: existing product flows are unchanged", () => {
     void p;
     const added = await addCategoryToShop(shop.id, other.id, actorOf(owner));
     expect(added.added).toBe(true);
-    expect(added.addedProducts).toBe(1);
+    // Adding a category lists nothing by itself (docs/shop-product-setup-2026-11).
     const sp = await db.select().from(shopProducts).where(eq(shopProducts.shopId, shop.id));
-    expect(sp).toHaveLength(2);
+    expect(sp).toHaveLength(1);
     void createShopProduct;
     void linkShopCategory;
   });

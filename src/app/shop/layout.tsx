@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { loadShopCounts } from "@/server/board-data";
 import { getBoardLang } from "@/server/board-lang";
 import type { UserRole } from "@/server/db/schema";
+import { registrationFeeDue } from "@/server/services/registration-fee-payment";
 import { unreadCount } from "@/server/services/notifications";
 import { listUserRoles } from "@/server/services/roles";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -42,7 +43,7 @@ export default async function SellerCentralLayout({ children }: { children: Reac
       user={user ? { name: user.name, email: user.email, role: user.role } : null}
       roles={roles}
       unreadCount={unread}
-      shop={shop ? { id: shop.id, name: shop.name, slug: shop.slug, status: shop.status } : null}
+      shop={shop ? { id: shop.id, name: shop.name, slug: shop.slug, status: shop.status, feeDue: registrationFeeDue(shop) > 0 } : null}
       shops={shops.map((s) => ({ id: s.id, name: s.name }))}
       groups={groups}
       counts={counts}

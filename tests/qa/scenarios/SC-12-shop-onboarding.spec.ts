@@ -34,6 +34,7 @@ import {
   type Person,
 } from "../lib/finance-helpers";
 import { db } from "../lib/db";
+import { stockWholeCategory } from "../lib/category-stock";
 import { call, expectStatus, RUN, why } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
 import { world } from "../lib/world";
@@ -124,6 +125,7 @@ qa("SC-12", "shop onboarding to first sale: pending → KYC verified → fee rec
       );
       const category = need((world() as unknown as { category?: { id: string } }).category?.id, "the world's QA category");
       expectStatus(await call(owner.ctx, "POST", `/api/shops/${shopId}/product-categories`, { categoryId: category }), [200, 201], "add the QA category");
+      await stockWholeCategory(owner.ctx, shopId, category);
       const own = await call(owner.ctx, "GET", `/api/shops/${shopId}/products`);
       expectStatus(own, 200, "the owner's listings");
       const listings = (Array.isArray(own.body) ? own.body : own.body.products) as { id: string; productId: string; onlineSaleEnabled: boolean; product: { name: string; kind: string; mrpPaise: number | null } }[];

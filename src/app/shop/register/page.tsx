@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 
 import { OnboardingWizard, type WizardState } from "@/components/registration/onboarding-wizard";
-import { PageHeader } from "@/components/ui";
+import { Alert, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { isReferralRequired } from "@/server/services/referral-settings";
 import { listShopCategories } from "@/server/services/shop-categories";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { refreshLatestRegistrationFeeAttempt } from "@/server/services/registration-fee-payment";
+import { waitingRegistration, waitingRegistrationMessage } from "@/server/services/shop-registration-draft";
 import { getWizardDraft } from "@/server/services/shop-registration-wizard";
 import { getBoardLang } from "@/server/board-lang";
 import { isPlaceholderEmail } from "@/lib/placeholder-email";
@@ -38,7 +40,7 @@ export default async function RegisterShopPage({
   }
 
   // Every read at once: each one is a round trip to the database.
-  const [current, referralRequired, categories, dealerProgramme, lang] = await Promise.all([
+  const [firstRead, referralRequired, categories, dealerProgramme, lang] = await Promise.all([
     getWizardDraft(user),
     // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
     isReferralRequired("shop"),
@@ -52,7 +54,12 @@ export default async function RegisterShopPage({
   // form and its flag shop_onboarding_wizard_enabled are retired).
   // Onboarding Phase B (G24): "Register another shop" — an owner whose last registration is
   // submitted starts a new one (a registration still open is always resumed instead).
+  // On the payment step: a try that failed or went through shows now, without waiting for the webhook.
+  const current =
+    firstRead?.nextStep === "PAYMENT" && firstRead.shop && (await refreshLatestRegistrationFeeAttempt(firstRead.shop.id, user.id)) ? await getWizardDraft(user) : firstRead;
   const draft = params.new === "1" && current && current.status !== "OPEN" ? null : current;
+  // One registration at a time: said before any screen is filled in, not at "Create my shop and pay".
+  const waiting = draft === null || draft.status === "OPEN" ? await waitingRegistration(user.id) : null;
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title="Register your shop" description="A few quick steps. Your GST or PAN fills in your details." />
@@ -61,14 +68,23 @@ export default async function RegisterShopPage({
           ✓ Signed in{user.email && !isPlaceholderEmail(user.email) ? ` as ${user.email}` : ""} — your shop is added to this account.
         </p>
       ) : null}
-      <OnboardingWizard
-        initialReferralCode={ref}
-        referralRequired={referralRequired}
-        initial={draft ? (JSON.parse(JSON.stringify(draft)) as WizardState) : null}
-        initialCategories={categories?.map((c) => ({ id: c.id, name: c.name, status: c.status, groupName: c.groupName }))}
-        dealerProgramme={dealerProgramme}
-        lang={lang}
-      />
+      {waiting ? (
+        <div className="space-y-3" data-testid="registration-waiting">
+          <Alert tone="warning">{waitingRegistrationMessage(waiting)}</Alert>
+          <LinkButton href={waiting.feeDuePaise > 0 ? `/shop/registration-fee?shop=${waiting.id}` : "/shop"} className="w-full">
+            {waiting.feeDuePaise > 0 ? "Pay the registration fee" : "Go to my shop"}
+          </LinkButton>
+        </div>
+      ) : (
+        <OnboardingWizard
+          initialReferralCode={ref}
+          referralRequired={referralRequired}
+          initial={draft ? (JSON.parse(JSON.stringify(draft)) as WizardState) : null}
+          initialCategories={categories?.map((c) => ({ id: c.id, name: c.name, status: c.status, groupName: c.groupName }))}
+          dealerProgramme={dealerProgramme}
+          lang={lang}
+        />
+      )}
     </div>
   );
 }

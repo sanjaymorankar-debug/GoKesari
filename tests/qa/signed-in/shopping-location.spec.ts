@@ -8,7 +8,7 @@
  * location cookie, puts back the addresses it adds and the default flag, and
  * restores any shop setting it changes.
  */
-import type { BrowserContext, Page } from "@playwright/test";
+import type { BrowserContext, Locator, Page } from "@playwright/test";
 
 import { as } from "../lib/actors";
 import { call, expectStatus, RUN, why } from "../lib/http";
@@ -22,6 +22,7 @@ import {
   clearCart,
   createAddress,
   fillCart,
+  chooseDeliveryTime,
   home,
   homeAddressId,
   listAddresses,
@@ -48,6 +49,18 @@ const FAR = { pincode: "411057", latitude: 18.5913, longitude: 73.7389 }; // Hin
 /** The "Deliver to" label of whichever header the page has. */
 function deliverToLabel(page: Page) {
   return page.locator('[data-testid="deliver-to-label"]:visible, [data-testid="location-label"]:visible').first();
+}
+
+/** "Use my current location" on the address form; with a working map the pin is then confirmed. */
+async function useDeviceLocation(form: Locator) {
+  await form.getByRole("button", { name: "Use my current location" }).click();
+  const confirm = form.getByRole("button", { name: "Confirm location" });
+  if (await confirm.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) {
+    await expect(confirm).toBeEnabled({ timeout: 15_000 });
+    const verified = form.page().waitForResponse((r) => r.url().includes("/api/geo/verify-location"));
+    await confirm.click();
+    expect((await verified).status(), "the map pin is confirmed").toBeLessThan(400);
+  }
 }
 
 /** The location cookie as the browser holds it. */
@@ -198,7 +211,7 @@ qa("TC-LOC-004", "a saved address picked in the location chooser changes the sho
 
       await open(page, "/");
       sheet = await openSheet(page);
-      await sheet.getByRole("button", { name: new RegExp(`^${home().pincode}$`) }).first().click();
+      await sheet.getByRole("button", { name: new RegExp(`— ${home().pincode}$`) }).first().click();
       await expect(deliverToLabel(page)).toContainText(home().pincode, { timeout: 30_000 });
       await expect(homeShops(page).filter({ hasText: shopName("A") }).first()).toBeVisible();
       await open(page, "/cart");
@@ -235,14 +248,16 @@ qa(["TC-LOC-005", "TC-LOC-007"], "signed in with no location cookie, discovery u
   } finally {
     await context.close();
   }
-  // customer2's default address is ~12 km away: shop A is not near it.
-  const { context: c2, page: p2 } = await signedPage(browser, "customer2");
-  try {
-    await open(p2, "/shops");
-    await expect(p2.getByTestId("shop-card").filter({ hasText: shopName("A") })).toHaveCount(0);
-  } finally {
-    await c2.close();
-  }
+  // A default address ~12 km away: shop A is not near it.
+  await withAddresses("customer2", [{ ...FAR, label: `QA far ${RUN}`, line1: `QA far ${RUN}`, area: "Hinjewadi", isDefault: true }], async () => {
+    const { context: c2, page: p2 } = await signedPage(browser, "customer2");
+    try {
+      await open(p2, "/shops");
+      await expect(p2.getByTestId("shop-card").filter({ hasText: shopName("A") })).toHaveCount(0);
+    } finally {
+      await c2.close();
+    }
+  });
   return `customer: /shops near the default address (${home().pincode}), ${shopName("A")} delivers; PIN ${FAR.pincode} then DELETE → back to the default address; customer2 (12 km): shop A not listed`;
 }, { ...SIGNED, mobile: true, partial: "TC-LOC-007's guest half (all shops / a prompt) is guest/storefront.spec.ts" });
 
@@ -286,7 +301,7 @@ qa("TC-LOC-008", "address book: add (type, recipient, landmark, PIN, map pin), e
     await form.getByLabel("PIN code").fill(home().pincode);
     await form.getByLabel("Landmark (optional)").fill("Near the temple");
     await form.getByLabel("Delivery instructions (optional)").fill("Ring twice");
-    await form.getByRole("button", { name: "Use my current location" }).click();
+    await useDeviceLocation(form);
     await expect(form.getByTestId("address-geotag")).toContainText(`${pin.latitude.toFixed(5)}`);
     await form.getByRole("button", { name: "Save address" }).click();
     const card = page.locator("div").filter({ hasText: line1 }).filter({ has: page.getByRole("button", { name: "Edit" }) }).last();
@@ -413,9 +428,11 @@ qa(["TC-LOC-010", "TC-FLD-017"], "re-pin an address with the device position: ne
       const card = page.locator("div").filter({ hasText: `QA repin ${RUN}` }).filter({ has: page.getByRole("button", { name: "Edit" }) }).last();
       await card.getByRole("button", { name: "Edit" }).click();
       const form = page.locator("form").filter({ has: page.getByRole("button", { name: "Save address" }) });
-      await form.getByRole("button", { name: "Use my current location" }).click();
+      await useDeviceLocation(form);
       await expect(form.getByTestId("address-geotag")).toContainText(moved.latitude.toFixed(5));
+      const answered = page.waitForResponse((r) => r.url().includes(`/api/addresses/${a.id}`) && r.request().method() === "PATCH");
       await form.getByRole("button", { name: "Save address" }).click();
+      expect((await answered).status(), "the new pin is saved").toBe(200);
       await expect(form).toHaveCount(0);
       await page.reload();
       const saved = (await listAddresses("customer")).find((x) => x.id === a.id)!;
@@ -465,6 +482,7 @@ qa(["TC-LOC-018", "TC-LOC-020"], "cart: switching to an address the shop does no
     try {
       await open(page, "/cart");
       const group = cartGroup(page, shopName("A"));
+      await chooseDeliveryTime(page);
       const pay = page.getByRole("button", { name: /Pay from wallet/ });
       await expect(pay).toBeEnabled();
       await page.evaluate(() => ((window as unknown as { __qaNoReload: boolean }).__qaNoReload = true));

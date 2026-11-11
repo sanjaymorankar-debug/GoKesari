@@ -12,7 +12,7 @@
  */
 import type { APIRequestContext } from "@playwright/test";
 
-import { as, pageAs } from "../lib/actors";
+import { as, me, pageAs, plainCustomer } from "../lib/actors";
 import { defaultAddress, placeOrder, shopOf } from "../lib/flows";
 import { call, expectStatus, RUN } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
@@ -253,13 +253,15 @@ qa("TC-MKT-013", "another shop's owner and a customer get 403 from a shop's segm
     call(ctx, "GET", `/api/shops/${shop.id}/marketing/campaigns`),
     call(ctx, "POST", `/api/shops/${shop.id}/marketing/campaigns`, { segmentId: "00000000-0000-4000-8000-000000000000", title: "QA intruder", message: "Should never be saved.", maxRecipients: 1 }),
   ];
-  const customer = await Promise.all(calls(await as("customer")));
+  const customer = await Promise.all(calls(await as(await plainCustomer())));
   expect(customer.map((r) => r.status), "customer").toEqual([403, 403, 403, 403, 403]);
   out.push("customer: 5 × 403");
-  if (world().users.shopB) {
-    const other = await Promise.all(calls(await as("shopB")));
-    expect(other.map((r) => r.status), "shop B's owner").toEqual([403, 403, 403, 403, 403]);
-    out.push("shop B's owner: 5 × 403");
+  // On staging the shop B owner has no saved session; the customer account that registered its own shop is another owner.
+  const otherOwner = (await me("customer")).role === "SHOP_OWNER" ? "customer" : world().users.shopB ? "shopB" : null;
+  if (otherOwner) {
+    const other = await Promise.all(calls(await as(otherOwner)));
+    expect(other.map((r) => r.status), "another shop's owner").toEqual([403, 403, 403, 403, 403]);
+    out.push(`another shop's owner (${otherOwner}): 5 × 403`);
   } else out.push("no second shop owner on this site");
   return out.join("; ");
 }, { ...signed, partial: "the signed-out half is in tests/qa/guest/access.spec.ts" });

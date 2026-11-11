@@ -50,6 +50,7 @@ export function FulfilmentPlanner({
   shopDelivers,
   cashOnDelivery,
   pickupRefundPaise = 0,
+  waitingOnCustomer = false,
   onChanged,
 }: {
   orderId: string;
@@ -62,6 +63,8 @@ export function FulfilmentPlanner({
   cashOnDelivery: boolean;
   /** Choosing pickup gives the customer this delivery fee back (0: nothing to give back). */
   pickupRefundPaise?: number;
+  /** A line waits for the customer's answer on a substitute: the order cannot be marked ready yet (the server refuses too). */
+  waitingOnCustomer?: boolean;
   onChanged: () => void;
 }) {
   const choosing = status === "PREPARING" && !plan;
@@ -145,6 +148,7 @@ export function FulfilmentPlanner({
           shopDelivers={shopDelivers}
           pickupRefundPaise={plan?.deliveryFeeRefundedPaise ? 0 : pickupRefundPaise}
           busy={busy}
+          submitBlocked={choosing && waitingOnCustomer}
           submitLabel={choosing ? "Packed — mark ready" : "Save the new plan"}
           onCancel={editing ? () => setEditing(false) : undefined}
           onSubmit={(input) =>
@@ -221,6 +225,7 @@ function PlanForm({
   shopDelivers,
   pickupRefundPaise,
   busy,
+  submitBlocked,
   submitLabel,
   onCancel,
   onSubmit,
@@ -232,6 +237,7 @@ function PlanForm({
   shopDelivers: boolean;
   pickupRefundPaise: number;
   busy: boolean;
+  submitBlocked: boolean;
   submitLabel: string;
   onCancel?: () => void;
   onSubmit: (input: { option: FulfilmentOptionKey; slotKey: string; staffId: string | null }) => void;
@@ -348,7 +354,7 @@ function PlanForm({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" type="submit" disabled={busy || !slotKey || (option === "SHOP_DELIVERY" && !staffId)}>
+        <Button size="sm" type="submit" disabled={busy || submitBlocked || !slotKey || (option === "SHOP_DELIVERY" && !staffId)}>
           {busy ? "Saving…" : submitLabel}
         </Button>
         {onCancel ? (

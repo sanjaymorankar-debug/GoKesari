@@ -50,6 +50,7 @@ import { getMaskedPan } from "@/server/services/gst-pan-verification";
 import { getShopLegalStatus } from "@/server/services/legal-documents";
 import { listOrdersForShop } from "@/server/services/orders";
 import { getReferralCodeById } from "@/server/services/referrals";
+import { registrationFeeDue } from "@/server/services/registration-fee-payment";
 import { getRule } from "@/server/services/settings";
 import { missedAcceptances30d } from "@/server/services/shop-acceptance";
 import { getShopCategories } from "@/server/services/shop-categories";
@@ -154,7 +155,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
             <div className="mb-6" data-testid="onboarding-stage">
               <Alert
                 tone={onboarding?.stage === "VERIFIED" ? "success" : "warning"}
-                title={onboarding ? `Awaiting approval — ${ONBOARDING_STAGE_LABELS[onboarding.stage].toLowerCase()}` : "Awaiting approval"}
+                title={registrationFeeDue(shop) > 0 ? "Payment pending" : onboarding ? `Awaiting approval — ${ONBOARDING_STAGE_LABELS[onboarding.stage].toLowerCase()}` : "Awaiting approval"}
               >
                 <OnboardingSteps current={onboarding?.stage ?? "KYC_PENDING"} />
                 {nextStep ? (

@@ -210,7 +210,7 @@ export async function publishStarterShelf(
     // A shop lists only products in categories it carries: link the shelf's categories first,
     // without the category's own auto-fill — only the ticked products are listed.
     for (const categoryId of new Set(valid.map((v) => v.categoryId))) {
-      await addCategoryToShop(shopId, categoryId, actor, { fillInventory: false, reason: "starter shelf" }, tx);
+      await addCategoryToShop(shopId, categoryId, actor, { reason: "starter shelf" }, tx);
     }
     const listing = (v: (typeof valid)[number]) => ({
       onlinePricePaise: v.pick.pricePaise,
