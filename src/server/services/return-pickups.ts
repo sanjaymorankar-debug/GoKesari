@@ -88,7 +88,13 @@ export async function offerPickup(pickupId: string): Promise<ReturnPickup | null
   const [shop] = await db.select().from(shops).where(eq(shops.id, ret.shopId));
   // Without a pinned customer location, search around the shop instead.
   const origin = coords ?? parseCoordinates(shop?.latitude ?? null, shop?.longitude ?? null);
-  if (!origin || !order) return null;
+  if (!order) return null;
+  if (!origin) {
+    // Nowhere to search from: counted like a try that found nobody, so it ends with the shop told.
+    await countNoRiderTry(db, pickup);
+    await noteNoRider(pickupId, ret, shop?.ownerId ?? null, dispatch.maxAttempts);
+    return null;
+  }
 
   const offered = await db.transaction(async (tx) => {
     const [fresh] = await tx.select().from(returnPickups).where(eq(returnPickups.id, pickupId)).for("update");
@@ -154,11 +160,26 @@ export async function offerPickup(pickupId: string): Promise<ReturnPickup | null
       );
       return updated;
     }
+    await countNoRiderTry(tx, fresh);
     return null;
   });
 
   if (!offered) await noteNoRider(pickupId, ret, shop?.ownerId ?? null, dispatch.maxAttempts);
   return offered;
+}
+
+/**
+ * A try that found no rider counts as an attempt and restarts the retry
+ * interval, as a delivery's rider search does: runReturnPickupSweep waits
+ * `retryIntervalSeconds` before the next try and stops after `maxAttempts`,
+ * when noteNoRider tells the shop. Left untouched, the pickup was picked up
+ * again by every sweep, every minute, for as long as no rider was near.
+ */
+async function countNoRiderTry(client: DbClient, pickup: ReturnPickup): Promise<void> {
+  await client
+    .update(returnPickups)
+    .set({ attempts: pickup.attempts + 1, updatedAt: new Date() })
+    .where(and(eq(returnPickups.id, pickup.id), eq(returnPickups.status, "PENDING"), eq(returnPickups.attempts, pickup.attempts)));
 }
 
 /** Tells the shop once the pickup has been tried `maxAttempts` times without a taker. */
