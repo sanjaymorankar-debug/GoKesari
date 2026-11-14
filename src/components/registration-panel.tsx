@@ -19,6 +19,8 @@ export interface RegistrationDetails {
   shopType: string;
   classification: "KESARI" | "GREEN" | null;
   status: string;
+  /** The registration fee is still unpaid: a pending shop then shows "payment pending" (P2-D5). */
+  feeDue?: boolean;
   referralCode: string | null;
   registrationFeePaise: number | null;
   amountPaidPaise: number;
@@ -97,7 +99,11 @@ export function RegistrationPanel({
             <div>
               <dt className="text-xs text-ink-500">Shop status</dt>
               <dd className="mt-1">
-                <StatusBadge status={details.status} />
+                {details.status === "PENDING_APPROVAL" && details.feeDue ? (
+                  <Badge tone="warning">payment pending</Badge>
+                ) : (
+                  <StatusBadge status={details.status} />
+                )}
               </dd>
             </div>
             <div>

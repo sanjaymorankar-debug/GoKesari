@@ -1,0 +1,118 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "14 Nov 2026, 23:56 IST",
+  "results": [
+    {
+      "id": "R-D4",
+      "title": "P2-D4: after the code is saved, Back to Verify shows it read-only with the reason",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:44 IST",
+      "note": "E2ETEST1 saved; field read-only, typing does nothing; '✓ Applied. Only one code can be used, so it cannot be changed.'",
+      "shots": [
+        "d4-referral-locked-1280.png"
+      ]
+    },
+    {
+      "id": "R-D4-phone",
+      "title": "P2-D4 at phone width",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:44 IST",
+      "note": "read-only with the reason; sideways scroll 0px",
+      "shots": [
+        "d4-referral-locked-390.png"
+      ]
+    },
+    {
+      "id": "R-D3-name",
+      "title": "P2-D3: the same shop name at the same PIN is refused on the shop step",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:52 IST",
+      "note": "stays on the shop step: 'Live You have already registered a shop with this name at this PIN code.'",
+      "shots": [
+        "d3-same-name-refused-1280.png"
+      ]
+    },
+    {
+      "id": "R-D2",
+      "title": "P2-D2: a failed payment shows 'Your last payment did not go through' with Pay",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "14 Nov 2026, 23:53 IST",
+      "note": "locator.waitFor: Timeout 30000ms exceeded.",
+      "shots": [
+        "r-d2-fail.png"
+      ]
+    },
+    {
+      "id": "R-D2-phone",
+      "title": "P2-D2 at phone width",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:53 IST",
+      "note": "note shown above the Pay button",
+      "shots": [
+        "d2-failed-note-390.png"
+      ]
+    },
+    {
+      "id": "R-D1-1280",
+      "title": "P2-D1: unpaid shop says 'Payment pending' in Seller Central (1280)",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "14 Nov 2026, 23:54 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "d1-seller-central-1280.png",
+        "r-d1-1280-fail.png"
+      ]
+    },
+    {
+      "id": "R-D1-390",
+      "title": "P2-D1: unpaid shop says 'Payment pending' in Seller Central (390)",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "FAIL",
+      "at": "14 Nov 2026, 23:54 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "d1-seller-central-390.png",
+        "r-d1-390-fail.png"
+      ]
+    },
+    {
+      "id": "R-D3-waiting-1280",
+      "title": "P2-D3: starting another registration while this one waits is stopped on arrival (1280)",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "14 Nov 2026, 23:55 IST",
+      "note": "link goes to /shop/registration-fee?shop=816ed004-c386-45e0-96dc-a81414b2c97d",
+      "shots": [
+        "r-d3-waiting-1280-fail.png"
+      ]
+    },
+    {
+      "id": "R-D3-waiting-390",
+      "title": "P2-D3: starting another registration while this one waits is stopped on arrival (390)",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "FAIL",
+      "at": "14 Nov 2026, 23:55 IST",
+      "note": "link goes to /shop/registration-fee?shop=816ed004-c386-45e0-96dc-a81414b2c97d",
+      "shots": [
+        "r-d3-waiting-390-fail.png"
+      ]
+    },
+    {
+      "id": "R-pay",
+      "title": "Pay succeeds after the failure: shop goes live, 'Payment pending' gone",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "14 Nov 2026, 23:56 IST",
+      "note": "locator.waitFor: Timeout 40000ms exceeded.",
+      "shots": [
+        "r-pay-fail.png"
+      ]
+    }
+  ]
+}

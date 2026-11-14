@@ -1,0 +1,129 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "15 Nov 2026, 00:00 IST",
+  "results": [
+    {
+      "id": "R-D4",
+      "title": "P2-D4: after the code is saved, Back to Verify shows it read-only with the reason",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:57 IST",
+      "note": "E2ETEST1 saved; field read-only, typing does nothing; '✓ Applied. Only one code can be used, so it cannot be changed.'",
+      "shots": [
+        "d4-referral-locked-1280.png"
+      ]
+    },
+    {
+      "id": "R-D4-phone",
+      "title": "P2-D4 at phone width",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:57 IST",
+      "note": "read-only with the reason; sideways scroll 0px",
+      "shots": [
+        "d4-referral-locked-390.png"
+      ]
+    },
+    {
+      "id": "R-flow",
+      "title": "Owner, address (PIN 411030), map pin, up to the shop step",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:57 IST",
+      "note": "reached the shop step",
+      "shots": []
+    },
+    {
+      "id": "R-D3-name",
+      "title": "P2-D3: the same shop name at the same PIN is refused on the shop step",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:57 IST",
+      "note": "stays on the shop step: 'Live You have already registered a shop with this name at this PIN code.'",
+      "shots": [
+        "d3-same-name-refused-1280.png"
+      ]
+    },
+    {
+      "id": "R-D2",
+      "title": "P2-D2: a failed payment shows 'Your last payment did not go through' with Pay",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:58 IST",
+      "note": "paid through Cashfree sandbox, test UPI testfailure@gocash, failed; note shown on the reload 31s after the attempt; 'Your last payment did not go through No money was taken for it. You can try again below.'; Pay button below; shop BKS-000051 PENDING_APPROVAL, fee due ₹1178.82, lastPaymentFailed=true",
+      "shots": [
+        "d2-failed-note-1280.png"
+      ]
+    },
+    {
+      "id": "R-D2-phone",
+      "title": "P2-D2 at phone width",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:58 IST",
+      "note": "note shown above the Pay button",
+      "shots": [
+        "d2-failed-note-390.png"
+      ]
+    },
+    {
+      "id": "R-D1-1280",
+      "title": "P2-D1: unpaid shop says 'Payment pending' in Seller Central (1280)",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:58 IST",
+      "note": "header pill 'Payment pending' (3), home text has it: true, no 'Pending approval'; Today's work alert 'Payment pending ✓ Documents verified (KY'; Registration and fee page shows status 'pending approval / Pending'",
+      "shots": [
+        "d1-seller-central-1280.png",
+        "d1-registration-page-1280.png",
+        "d1-manage-today-1280.png"
+      ]
+    },
+    {
+      "id": "R-D1-390",
+      "title": "P2-D1: unpaid shop says 'Payment pending' in Seller Central (390)",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:59 IST",
+      "note": "header pill 'Payment pending' (3), home text has it: true, no 'Pending approval'; Today's work alert 'Payment pending ✓ Documents verified (KY'; Registration and fee page shows status 'pending approval / Pending'",
+      "shots": [
+        "d1-seller-central-390.png",
+        "d1-registration-page-390.png",
+        "d1-manage-today-390.png"
+      ]
+    },
+    {
+      "id": "R-D3-waiting-1280",
+      "title": "P2-D3: starting another registration while this one waits is stopped on arrival (1280)",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:59 IST",
+      "note": "'QA P2 Retest 33251 still has its registration fee to pay. Please pay it first — you can add another shop after that. Pay the registration fe'; link to the fee page; no wizard",
+      "shots": [
+        "d3-waiting-notice-1280.png"
+      ]
+    },
+    {
+      "id": "R-D3-waiting-390",
+      "title": "P2-D3: starting another registration while this one waits is stopped on arrival (390)",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "14 Nov 2026, 23:59 IST",
+      "note": "'QA P2 Retest 33251 still has its registration fee to pay. Please pay it first — you can add another shop after that. Pay the registration fe'; link to the fee page; no wizard",
+      "shots": [
+        "d3-waiting-notice-390.png"
+      ]
+    },
+    {
+      "id": "R-pay",
+      "title": "Pay succeeds after the failure: shop goes live, 'Payment pending' gone",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "15 Nov 2026, 00:00 IST",
+      "note": "paid through Cashfree sandbox, test UPI testsuccess@gocash; completion screen on the reload 31s after paying; shop BKS-000051 APPROVED; pill no longer 'Payment pending'",
+      "shots": [
+        "r-pay-live-1280.png"
+      ]
+    }
+  ]
+}

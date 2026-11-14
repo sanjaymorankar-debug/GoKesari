@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { FOOD_SHOP_TYPE_KEYS, isFoodBusinessShopType, SHOP_TYPES } from "@/lib/shop-types";
 import { adminNextAction, ownerNextAction } from "@/lib/shop-onboarding";
 import { db } from "@/server/db";
-import { platformSettings, sellerVerifications, shops, statusChanges } from "@/server/db/schema";
+import { platformSettings, sellerVerifications, shopRegistrationDrafts, shops, statusChanges } from "@/server/db/schema";
 import { recordPayment } from "@/server/services/shop-payments";
 import { countShopsByLifecycle, getShopOnboarding } from "@/server/services/shop-onboarding";
 import { clearRuleCache } from "@/server/services/settings";
@@ -247,6 +247,37 @@ describe("screens", () => {
     expect(ownerNextAction({ stage: "KYC_PENDING", missingDocuments: ["PAN"], verifiedDocuments: 0, feeOutstandingPaise: 117_882 }).text).toContain(
       "Once one is verified you can pay the registration fee",
     );
+  });
+});
+
+describe("P2-D5: a shop registered through the wizard goes live on payment", () => {
+  it("marks only a shop with a submitted or completed wizard draft", async () => {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const wizard = await createShop(owner.id, { status: "PENDING_APPROVAL", shopType: "HARDWARE_STORE", name: "Wizard", registrationFeePaise: 117_882 });
+    const open = await createShop(owner.id, { status: "PENDING_APPROVAL", shopType: "HARDWARE_STORE", name: "Open draft", registrationFeePaise: 117_882 });
+    const form = await createShop(owner.id, { status: "PENDING_APPROVAL", shopType: "HARDWARE_STORE", name: "Old form", registrationFeePaise: 117_882 });
+    await db.insert(shopRegistrationDrafts).values([
+      { ownerId: owner.id, shopId: wizard.id, status: "COMPLETED" },
+      { ownerId: owner.id, shopId: open.id, status: "OPEN" },
+    ]);
+
+    const facts = await getShopOnboarding([wizard.id, open.id, form.id]);
+    expect(facts.get(wizard.id)?.liveOnPayment).toBe(true);
+    expect(facts.get(open.id)?.liveOnPayment).toBe(false);
+    expect(facts.get(form.id)?.liveOnPayment).toBe(false);
+  });
+
+  it("tells the owner to pay and go live, never about an approval", () => {
+    for (const stage of ["KYC_PENDING", "PAYMENT_PENDING"] as const) {
+      const next = ownerNextAction({ stage, missingDocuments: ["Shop Act licence"], feeOutstandingPaise: 117_882, liveOnPayment: true });
+      expect(next).toMatchObject({ href: "/shop/registration-fee", linkLabel: "Pay the registration fee" });
+      expect(next.text).toBe("Pay the registration fee of ₹1,178.82 online. Your shop goes live as soon as the payment is confirmed.");
+      expect(next.text).not.toMatch(/approv/i);
+    }
+    // Paid but still pending (held for a check): the existing "a person approves it" wording stands.
+    expect(ownerNextAction({ stage: "VERIFIED", missingDocuments: [], feeOutstandingPaise: 0, liveOnPayment: true }).text).toContain("no action needed");
+    // A shop from the old form keeps the approval wording.
+    expect(ownerNextAction({ stage: "PAYMENT_PENDING", missingDocuments: [], feeOutstandingPaise: 117_882 }).text).toContain("final approval");
   });
 });
 
