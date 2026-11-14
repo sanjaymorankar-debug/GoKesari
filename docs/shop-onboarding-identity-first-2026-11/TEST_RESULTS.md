@@ -209,16 +209,20 @@ The apps are WebViews of the site with the `/shop/register` deep link, location 
 
 | ID | Severity | Status | Defect | Evidence |
 |---|---|---|---|---|
-| P2-D1 | Minor | Fixed in code 09-Nov-2026, not deployed | Seller Central header badge says "Pending approval" for a registration that has not been paid yet, although the normal flow no longer has an approval step. | p2-04-*.png |
-| P2-D2 | Minor | Fixed in code 09-Nov-2026, not deployed | The note "Your last payment did not go through" never appears in the wizard: nothing sets the fee status to FAILED. The shop correctly stays not live, Pay is offered and retry works. The fee page's own note also did not appear within about 4 minutes. | p2-14-*.png; `onboarding-wizard.tsx:446` |
-| P2-D3 | Minor | Fixed in code 09-Nov-2026, not deployed (two of the three; see below) | Three refusals arrive only at the last step ("Create my shop and pay"): account with a shop awaiting approval, same shop name at the PIN, inactive PAN. The owner fills every screen first. | Seen in staging runs; no separate screenshot |
-| P2-D4 | Low | Fixed in code 09-Nov-2026, not deployed (see below) | Once a referral code is saved it cannot be changed or cleared ("the first one is kept"), yet the field stays editable. | Seen in staging runs; no separate screenshot |
+| P2-D1 | Minor | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there | Seller Central header badge says "Pending approval" for a registration that has not been paid yet, although the normal flow no longer has an approval step. | p2-04-*.png |
+| P2-D2 | Minor | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there | The note "Your last payment did not go through" never appears in the wizard: nothing sets the fee status to FAILED. The shop correctly stays not live, Pay is offered and retry works. The fee page's own note also did not appear within about 4 minutes. | p2-14-*.png; `onboarding-wizard.tsx:446` |
+| P2-D3 | Minor | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there (two of the three; see below) | Three refusals arrive only at the last step ("Create my shop and pay"): account with a shop awaiting approval, same shop name at the PIN, inactive PAN. The owner fills every screen first. | Seen in staging runs; no separate screenshot |
+| P2-D4 | Low | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there (see below) | Once a referral code is saved it cannot be changed or cleared ("the first one is kept"), yet the field stays editable. | Seen in staging runs; no separate screenshot |
+| P2-D5 | Low | Found 15-Nov-2026 in the staging re-test. **Fixed on branch `fix/onboarding-p2-d5`, checked locally 15-Nov-2026 02.14 IST; sent through the staging queue.** Not yet on Test or Production | Two Seller Central pages still use approval wording for an unpaid shop: "Registration and fee" shows "Shop status: pending approval", and the "Today's work" alert says the shop "moves to final approval" after paying, with a step "3. Approved by GoKesari". A shop with a verified GSTIN or PAN goes live as soon as the fee is paid. | p2-defects-staging-2026-11-14/d1-registration-page-*.png, d1-manage-today-*.png |
+| P2-D6 | Low | Open, found 15-Nov-2026 02.14 IST on a local server; not fixed | A shop registered between 00.00 and 05.29 IST gets the previous day as its registration date: the date is taken in UTC (`src/server/services/shops.ts:476`, `new Date().toISOString()`). A shop created on 15-Nov at 02.14 IST shows "Registration date 14/11/2026". Applies to every new shop, on Test and Production. | p2-d5-local-2026-11-15/d5-wizard-registration-390.png |
 
 Notes, not defects: later wizard screens are still mostly English; held GST / PAN duplicates still see "Payment received — pending admin approval" (intended, they need a review); `/shop/register` needs a reload after a sandbox payment.
 
 ## Defect fixes P2-D1 to P2-D4 (09-Nov-2026, IST)
 
-Fixed on branch `fix/onboarding-p2-defects` (from `main` 76d34de6). **Not committed and not on test.gokesari.com or gokesari.com yet**, so nothing below has been seen on either server.
+**Status at 15-Nov-2026 00.00 IST:** all four fixes verified on test.gokesari.com (see "Staging re-test of P2-D1 to P2-D4" below). PR #381 passed the staging queue on 10-Nov-2026 at 07.45 IST and went to gokesari.com in release #386 on 11-Nov-2026 at 07.12 IST; the post-deploy check passed. Not re-tested on gokesari.com (no sign-in there).
+
+Fixed on branch `fix/onboarding-p2-defects` (from `main` 76d34de6). Committed and sent through the staging queue as PR #381 (status above). The screen checks in this section were run on a local server; the staging re-test is in the next section.
 
 | ID | What changed | How it was checked |
 |---|---|---|
@@ -233,9 +237,49 @@ Fixed on branch `fix/onboarding-p2-defects` (from `main` 76d34de6). **Not commit
 
 **Still to do:** see these on test.gokesari.com after the release goes through the staging queue, then on gokesari.com.
 
+## Staging re-test of P2-D1 to P2-D4 (14-Nov-2026 23.43 to 15-Nov-2026 00.00 IST)
+
+**Result: 11 of 11 checks pass on test.gokesari.com.** Staging admin account (`gk-admin`), Chromium at 1280 × 800 and at 390 × 844 (iPhone 14 size). Fee payments through the Cashfree sandbox with test UPI only: testfailure@gocash, then testsuccess@gocash. Run on a fresh test shop, BKS-000051 "QA P2 Retest 33251". Script: `test-results/qa/p2-retest/run.ts` (git-ignored). Evidence: `p2-defects-staging-2026-11-14/` next to this report.
+
+| Check | Defect | What was checked | Width | Result | Time (IST) | Evidence |
+|---|---|---|---|---|---|---|
+| R-D4 | P2-D4 | After the code is saved, Back to Verify shows it read-only; typing does nothing; "✓ Applied. Only one code can be used, so it cannot be changed." | 1280 | **PASS** | 23.57 | d4-referral-locked-1280.png |
+| R-D4-phone | P2-D4 | Same at phone width; no sideways scroll | 390 | **PASS** | 23.57 | d4-referral-locked-390.png |
+| R-flow | — | Owner name, address (Laxmi Road, Pune 411030), map pin, up to the shop step | 1280 | **PASS** | 23.57 | — |
+| R-D3-name | P2-D3 | A shop name this account already has at PIN 411030 ("QA Phase2 Live 94542") is refused on the shop step: "You have already registered a shop with this name at this PIN code." | 1280 | **PASS** | 23.57 | d3-same-name-refused-1280.png |
+| R-D2 | P2-D2 | Payment fails: "Your last payment did not go through / No money was taken for it. You can try again below." above "Pay ₹1,178.82 now"; shop not live | 1280 | **PASS** | 23.58 | d2-failed-note-1280.png |
+| R-D2-phone | P2-D2 | Same note at phone width | 390 | **PASS** | 23.58 | d2-failed-note-390.png |
+| R-D1-1280 | P2-D1 | Unpaid shop: header badge "Payment pending" on Seller Central, home and "Today's work" alert titled "Payment pending"; no "Pending approval" | 1280 | **PASS** | 23.58 | d1-seller-central-1280.png, d1-manage-today-1280.png, d1-registration-page-1280.png |
+| R-D1-390 | P2-D1 | Same at phone width | 390 | **PASS** | 23.59 | d1-seller-central-390.png, d1-manage-today-390.png, d1-registration-page-390.png |
+| R-D3-waiting-1280 | P2-D3 | Starting another registration while this one waits (`/shop/register?new=1`): "QA P2 Retest 33251 still has its registration fee to pay. Please pay it first — you can add another shop after that." with "Pay the registration fee" linking to this shop's fee page; no wizard | 1280 | **PASS** | 23.59 | d3-waiting-notice-1280.png |
+| R-D3-waiting-390 | P2-D3 | Same at phone width | 390 | **PASS** | 23.59 | d3-waiting-notice-390.png |
+| R-pay | — | Pay again, succeeds: completion screen, shop APPROVED (live), "Payment pending" badge gone | 1280 | **PASS** | 00.00 | r-pay-live-1280.png |
+
+Notes:
+- The failed-payment note appears on the first page load after the gateway has settled (31 seconds after the failed attempt in this run). A page that is already open does not update by itself. After the successful payment, the completion screen showed on the reload 31 seconds later.
+- Two earlier attempts in the same window (23.43 and 23.48 IST) stopped on problems in the test script, not the site. The shop step no longer has the heading "Your shop name" (it is now "Contact and shop details"), and a fixed 40-second wait was shorter than the sandbox took to settle. The first attempt's shop, BKS-000050, still showed the "Payment pending" badge, the waiting notice at both widths and the switch to live after paying. `results-pass1.json` keeps the second attempt's rows.
+- Staging's GST test record now returns a business name ("LINKEDIN SINGAPORE PTE. LTD.") for any GSTIN, so the shop name is pre-filled from it.
+- New defect **P2-D5** (Low, not fixed): two pages still use approval wording for an unpaid shop. "Registration and fee" shows "Shop status: pending approval". The "Today's work" alert says "Pay the registration fee … and your shop moves to final approval", lists "3. Approved by GoKesari", and says products "go live as soon as the shop is approved". A shop with a verified GSTIN or PAN goes live as soon as the fee is paid.
+- Not covered: gokesari.com (no sign-in on production), Hindi and Marathi on these screens, a real Android or iPhone device.
+
+## Defect fix P2-D5 (15-Nov-2026, IST)
+
+Fixed on branch `fix/onboarding-p2-d5` (from `staging` 61670b93) and sent through the staging queue.
+
+| What changed | How it was checked |
+|---|---|
+| The onboarding facts now say whether a shop was registered through the onboarding wizard, the same test the instant approval uses. For such a shop with the fee unpaid, "Today's work" and the seller home say "Pay the registration fee of ₹… online. Your shop goes live as soon as the payment is confirmed." (the wizard's own words). The three steps read "✓ Shop registered · 2. Registration fee paid · 3. Shop live", and products are seen "as soon as your shop is live". | Integration tests; screen check 1280 and 390 px |
+| "Registration and fee" shows "Shop status: payment pending" while the fee is unpaid, matching the header badge (P2-D1). | Unit test; screen check 1280 and 390 px |
+| Unchanged on purpose: a shop from the old form keeps "moves to final approval" and "3. Approved by GoKesari", because it still needs a person to approve it. A wizard shop that has paid but is held for a check (for example the same GSTIN as another shop) keeps "An operator will approve your shop shortly". | Integration test; screen check of an old-form shop at 1280 and 390 px |
+
+**Results, 15-Nov-2026:** focused tests 02.09–02.10 IST: 63 of 63 pass in 5 files (onboarding states, approval documents, wizard step 2, Seller Central, registration panel). Type-check and lint clean. The whole suite runs in the pull request's CI. Screen check on a local server with a throwaway database, 02.14 IST: 16 of 16 pass (an unpaid wizard shop on Today's work, Registration and fee and the seller home; an unpaid old-form shop on Today's work and Registration and fee; each at 1280 and 390 px). Evidence: `p2-d5-local-2026-11-15/`.
+
+**Still to do:** see it on test.gokesari.com once the staging queue has deployed it, then on gokesari.com after the next release.
+
 ## Test data left on staging
 
 - Shops: BKS-000047 "QA Phase2 Live 94542" (admin), BKS-000048 "QA Phase2 Phone 41132" (customer), BKS-000049 "QA Phase2 Retry 42462" (ops). Open drafts on the shop and rider accounts.
+- Re-test 14/15-Nov-2026: BKS-000050 "QA P2 Retest 48387" and BKS-000051 "QA P2 Retest 33251" (admin account, Laxmi Road, Pune 411030), both paid with sandbox UPI and live. Referral code E2ETEST1 counted two more shops. The admin account's registration is completed again, as before the re-test.
 - BKS-000046 "QA Licence Pharmacy PR374" (suspended) belongs to another session's test.
 - Referral code E2ETEST1 counted one more shop. QA bakery hours are back to 06:00–22:00 (restored 02.21 IST).
 
