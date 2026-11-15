@@ -33,12 +33,26 @@ Staging (test.gokesari.com) and production results are added below as they happe
 
 ## 2. Staging (test.gokesari.com)
 
-Pending — through the staging queue (CI, migrations 0146–0147, deploy, post-deploy check, guest QA), then
-a browser check of the shelf scanner, `/shop/setup/delivery` and the admin funnel at 375 px and desktop.
+| Run | Time (IST) | Result |
+|---|---|---|
+| Staging queue, PR 356: CI | 17.14 | Blocked: typecheck error in the new test file (null-check) — fixed, re-queued |
+| Staging queue, PR 356: CI, migrations 0146–0147, deploy, health | 18.02–19.11 | Pass (merged 18.02) |
+| Staging queue, PR 356: guest QA tier | 19.11 | **1 failed**: `/legal/social-welfare-policy` open to a guest — not from Wave 1 (page published as public in PR 354; QA list out of date). Fixed by PR 358 (`staging-fix`) |
+| Staging queue, PR 358: CI, deploy, health, guest QA | 20.06–21.20 | **Pass — staging-verified** |
+| Browser, signed-in shop owner, 375 × 812: `/shop/setup/delivery` | 19.20 | Pass: three choices, "Own staff" shows the radius slider (5 km) and "Add delivery staff"; no console errors. Not saved (test shop unchanged) |
+| Guest: `/shop/setup/delivery` → page, barcode API → 401 | 21.55 | Pass |
 
 ## 3. Production (gokesari.com)
 
-Pending — one release in an owner-approved window, then the post-deploy check and guest checks.
+| Run | Time (IST) | Result |
+|---|---|---|
+| Production database workflow (`migrate`, source staging; backup first) | 21.46 | Pass: 2 new migrations (0146, 0147); 148 recorded |
+| Release PR 359 (staging → main) | 21.47 | Merged (only PRs 356 and 358; no other release in flight) |
+| Post-deploy check workflow | 21.54 | Pass — but on the previous build: the new build went live at 21.56 |
+| Post-deploy check script, re-run on the new build | 21.56–22.01 | **Pass: 5 / 5 healthy rounds** |
+| Guest checks: `/`, `/shops`, `/legal/social-welfare-policy` 200; `/admin/onboarding-funnel` → sign-in; `/shop/register` 200; barcode API 401 | 22.01 | Pass |
+
+Signed-in production checks were not run (no owner go-ahead for a signed-in session on gokesari.com).
 
 ## 4. Not tested yet
 

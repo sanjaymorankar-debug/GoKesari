@@ -1,0 +1,181 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "08 Nov 2026, 23:00 IST",
+  "results": [
+    {
+      "id": "P2-40",
+      "title": "Signed out: /shop/register is the sign-in step, no old form",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:57 IST",
+      "note": "Step 1 of 5, sign in with email; no 'Add my shop'",
+      "shots": [
+        "p2-40-signed-out.png"
+      ]
+    },
+    {
+      "id": "P2-41",
+      "title": "Old URLs redirect, referral code kept",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:57 IST",
+      "note": "/shop/register?form → /shop/register; /shop/register?wizard → /shop/register; /shop/register?form&ref=E2ETEST1 → /shop/register?ref=E2ETEST1",
+      "shots": []
+    },
+    {
+      "id": "P2-42",
+      "title": "Suspended shop page tells the visitor it is suspended",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:57 IST",
+      "note": "QA Licence Pharmacy PR374 This shop is suspended and is not taking orders.",
+      "shots": [
+        "p2-42-suspended-shop.png"
+      ]
+    },
+    {
+      "id": "P2-20",
+      "title": "Existing account without a shop, via Sell, reaches the first screen",
+      "platform": "iPhone 14 size (Chromium emulation)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:57 IST",
+      "note": "Sell → /shop/register; only referral code and GST / PAN; no review wording",
+      "shots": [
+        "p2-20-sell.png",
+        "p2-20-first-screen.png"
+      ]
+    },
+    {
+      "id": "P2-21",
+      "title": "Typed referral code, invalid: refused before any check",
+      "platform": "iPhone 14 size (Chromium emulation)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:57 IST",
+      "note": "'Referral code WRONG123 does not exist'; request option shown",
+      "shots": [
+        "p2-21-typed-invalid.png"
+      ]
+    },
+    {
+      "id": "P2-23",
+      "title": "Referral toggle OPTIONAL: label says optional, empty code goes on",
+      "platform": "iPhone 14 size (Chromium emulation)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:57 IST",
+      "note": "label '(optional)'; empty code verified and moved on; no referral code on the draft",
+      "shots": [
+        "p2-23-optional.png"
+      ]
+    },
+    {
+      "id": "P2-24",
+      "title": "Referral toggle MANDATORY: empty code cannot verify, request offered",
+      "platform": "Android size (Chrome, Pixel 7)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:57 IST",
+      "note": "setting MANDATORY; Verify disabled with empty code; request offered",
+      "shots": [
+        "p2-24-mandatory.png"
+      ]
+    },
+    {
+      "id": "P2-22",
+      "title": "Typed valid code accepted; PAN failure blocks, no Continue",
+      "platform": "Android size (Chrome, Pixel 7)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:57 IST",
+      "note": "E2ETEST1 typed and saved; Read in full Verify PAN 📷 Read it from a photo of your PAN card XXXXXX793E Not verified W; no Continue",
+      "shots": [
+        "p2-22-pan-failed.png"
+      ]
+    },
+    {
+      "id": "P2-11",
+      "title": "Geotagging: pin outside India refused; pin saved",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:58 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-11-fail.png"
+      ]
+    },
+    {
+      "id": "P2-12",
+      "title": "Shop details: name pre-filled, 10-digit phone enforced, email prefilled, licence notice by type",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:58 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-12-fail.png"
+      ]
+    },
+    {
+      "id": "P2-13",
+      "title": "Resume: a new browser session returns to the same step with the data",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:59 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-13-fail.png"
+      ]
+    },
+    {
+      "id": "P2-14",
+      "title": "Payment fails: shop not live, retry offered",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:59 IST",
+      "note": "no Cashfree payment session seen (url https://test.gokesari.com/shop/register)",
+      "shots": [
+        "p2-14-fail.png"
+      ]
+    },
+    {
+      "id": "P2-15",
+      "title": "Payment succeeds: live at once, exact completion text, no approval wording",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:59 IST",
+      "note": "locator.click: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-15-fail.png"
+      ]
+    },
+    {
+      "id": "P2-16",
+      "title": "Referral attribution kept after go-live",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:59 IST",
+      "note": "shops 14 → 14",
+      "shots": [
+        "p2-16-fail.png"
+      ]
+    },
+    {
+      "id": "P2-17",
+      "title": "Add products: manual button; template shows download and upload",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:00 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-17-fail.png"
+      ]
+    },
+    {
+      "id": "P2-30",
+      "title": "Phone: resume at Check and pay, pay, live, Add products",
+      "platform": "Android size (Chrome, Pixel 7)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:00 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-30-fail.png"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,278 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "08 Nov 2026, 22:51 IST",
+  "results": [
+    {
+      "id": "P2-01",
+      "title": "Referral link, invalid code: refused on the screen, request option shown",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "'Referral code NOSUCH99 does not exist'; Request a referral code shown",
+      "shots": [
+        "p2-01-link-invalid.png"
+      ]
+    },
+    {
+      "id": "P2-02",
+      "title": "Referral link, expired code: refused on the screen",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "'TQGC5XFX expired on 2026-10-31'",
+      "shots": [
+        "p2-02-link-expired.png"
+      ]
+    },
+    {
+      "id": "P2-03",
+      "title": "Referral link, valid code: auto-captured and validated",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "E2ETEST1 filled from the link, '✓ Applied'",
+      "shots": [
+        "p2-03-link-valid.png"
+      ]
+    },
+    {
+      "id": "P2-04",
+      "title": "First screen shows only referral code and GST / PAN",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "review wording on screen: GoKesari",
+      "shots": [
+        "p2-04-fail.png"
+      ]
+    },
+    {
+      "id": "P2-05",
+      "title": "PAN derived from GSTIN characters 3–12, read-only",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "derived PAN equals GSTIN characters 3–12; field read-only",
+      "shots": [
+        "p2-05-derived-pan.png"
+      ]
+    },
+    {
+      "id": "P2-06",
+      "title": "GST failure, wrong format: blocks, stays on Verify",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "12-character GSTIN refused; stays on Verify",
+      "shots": [
+        "p2-06-gst-format.png"
+      ]
+    },
+    {
+      "id": "P2-07",
+      "title": "GST failure, wrong check character: blocks, stays on Verify",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "stays on Verify; Live Please check the highlighted fields.",
+      "shots": [
+        "p2-07-gst-checkchar.png"
+      ]
+    },
+    {
+      "id": "P2-08",
+      "title": "Connection down during the check: shows an error, retry works, nothing faked",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "check blocked: stayed on Verify, draft canContinue=false; retry verified and moved on",
+      "shots": [
+        "p2-08-connection-down.png",
+        "p2-08-retry-ok.png"
+      ]
+    },
+    {
+      "id": "P2-09",
+      "title": "Owner name not returned: only that field asked; Back keeps it",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "owner name asked once, Back returned it unchanged",
+      "shots": [
+        "p2-09-owner.png"
+      ]
+    },
+    {
+      "id": "P2-10",
+      "title": "Address not returned: typed; Back keeps it",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "address typed (staging's record has none); Back returned it unchanged",
+      "shots": [
+        "p2-10-address.png"
+      ]
+    },
+    {
+      "id": "P2-11",
+      "title": "Geotagging: pin outside India refused; pin saved; 'use my location' offered",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:45 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-11-map.png",
+        "p2-11-outside-india.png",
+        "p2-11-fail.png"
+      ]
+    },
+    {
+      "id": "P2-12",
+      "title": "Shop details: name pre-filled, 10-digit phone enforced, email prefilled, licence notice by type",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:46 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-12-licence-pharmacy.png",
+        "p2-12-phone-refused.png",
+        "p2-12-fail.png"
+      ]
+    },
+    {
+      "id": "P2-13",
+      "title": "Resume: a new browser session returns to the same step with the data",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:46 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-13-fail.png"
+      ]
+    },
+    {
+      "id": "P2-14",
+      "title": "Payment fails: shop not live, retry offered",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:47 IST",
+      "note": "no Cashfree payment session seen (url https://test.gokesari.com/shop/register?ref=E2ETEST1)",
+      "shots": [
+        "p2-14-fail.png"
+      ]
+    },
+    {
+      "id": "P2-15",
+      "title": "Payment succeeds: live at once, exact completion text, no approval wording",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:47 IST",
+      "note": "locator.click: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-15-fail.png"
+      ]
+    },
+    {
+      "id": "P2-16",
+      "title": "Referral attribution kept after go-live",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:47 IST",
+      "note": "unchanged: {\"id\":\"fab09b2a-4ed2-420a-bdee-367f0dfebb20\",\"code\":\"E2ETEST1\",\"label\":\"E2E four features\",\"referrerName\":\"E2E Admin\",\"status\":\"ACTIVE\",\"shopCount\":14,\"feesAttributedPaise\":1218820}",
+      "shots": [
+        "p2-16-fail.png"
+      ]
+    },
+    {
+      "id": "P2-17",
+      "title": "Add products: manual button; template shows download and upload",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:48 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-17-fail.png"
+      ]
+    },
+    {
+      "id": "P2-20",
+      "title": "Existing customer via Sell reaches the wizard",
+      "platform": "iPhone 14 size (Chromium emulation)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:48 IST",
+      "note": "locator.click: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-20-sell.png",
+        "p2-20-fail.png"
+      ]
+    },
+    {
+      "id": "P2-21",
+      "title": "Typed referral code, invalid: refused before any check",
+      "platform": "iPhone 14 size (Chromium emulation)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:49 IST",
+      "note": "locator.fill: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-21-fail.png"
+      ]
+    },
+    {
+      "id": "P2-22",
+      "title": "PAN failure: not verified, cannot continue",
+      "platform": "iPhone 14 size (Chromium emulation)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:49 IST",
+      "note": "locator.fill: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-22-fail.png"
+      ]
+    },
+    {
+      "id": "P2-23",
+      "title": "Referral toggle OPTIONAL: label says optional, empty code goes on",
+      "platform": "iPhone 14 size (Chromium emulation)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:50 IST",
+      "note": "locator.waitFor: Timeout 40000ms exceeded.",
+      "shots": [
+        "p2-23-optional.png",
+        "p2-23-fail.png"
+      ]
+    },
+    {
+      "id": "P2-24",
+      "title": "Referral toggle MANDATORY: restored; empty code cannot verify, request offered",
+      "platform": "iPhone 14 size (Chromium emulation)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:50 IST",
+      "note": "locator.fill: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-24-fail.png"
+      ]
+    },
+    {
+      "id": "P2-25",
+      "title": "Existing languages: Hindi and Marathi on the first screen",
+      "platform": "iPhone 14 size (Chromium emulation)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 22:50 IST",
+      "note": "first screen title in Hindi and Marathi",
+      "shots": [
+        "p2-25-hi.png",
+        "p2-25-mr.png"
+      ]
+    },
+    {
+      "id": "P2-30",
+      "title": "Phone: resume at Check and pay, pay, live, Add products",
+      "platform": "Android size (Chrome, Pixel 7)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 22:51 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-30-fail.png"
+      ]
+    }
+  ]
+}

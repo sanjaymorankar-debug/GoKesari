@@ -1,0 +1,51 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "08 Nov 2026, 23:15 IST",
+  "results": [
+    {
+      "id": "P2-15",
+      "title": "After payment: live, exact completion text, no approval wording",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:12 IST",
+      "note": "text: Step 5 of 5 ✓ 1. Sign in ✓ 2. Verify ✓ 3. Address ✓ 4. Pay 🚀 5. Live",
+      "shots": [
+        "p2-15-fail.png"
+      ]
+    },
+    {
+      "id": "P2-17",
+      "title": "Add products: manual button; template shows download and upload",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 23:12 IST",
+      "note": "template 200, filename=\"GoKesari_Product_Upload_Template.xlsx\", 14865 bytes; upload link /shop/product-import; manual opened /shop/register",
+      "shots": [
+        "p2-17-template.png",
+        "p2-17-manual.png"
+      ]
+    },
+    {
+      "id": "P2-30",
+      "title": "Phone: whole flow reached live; completion and Add products at phone width",
+      "platform": "Android size (Chrome, Pixel 7)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:12 IST",
+      "note": "text: Step 5 of 5 ✓ 1. Sign in ✓ 2. Verify ✓ 3. Address ✓ 4. Pay 🚀 5. Live",
+      "shots": [
+        "p2-30-fail.png"
+      ]
+    },
+    {
+      "id": "P2-14",
+      "title": "Payment fails: shop not live, retry offered; retry succeeds and goes live",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:15 IST",
+      "note": "never showed: failed-payment note",
+      "shots": [
+        "p2-14-fail.png"
+      ]
+    }
+  ]
+}
