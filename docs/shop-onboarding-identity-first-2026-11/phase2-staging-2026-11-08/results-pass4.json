@@ -1,0 +1,86 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "08 Nov 2026, 23:07 IST",
+  "results": [
+    {
+      "id": "P2-12",
+      "title": "Shop details: name pre-filled, 10-digit phone enforced, email prefilled, licence notice by type",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 23:05 IST",
+      "note": "name 'QA Phase2 75689'; Shop email: sanjaymorankar+gk-shop@gmail.com Change; 5-digit phone refused; DAIRY:notice, PHARMACY:notice, DOCTOR_CLINIC:notice, PROFESSIONAL_OFFICE:notice, GENERAL_TRADING:none",
+      "shots": [
+        "p2-12-licence-pharmacy.png",
+        "p2-12-phone-refused.png",
+        "p2-12-review.png"
+      ]
+    },
+    {
+      "id": "P2-13",
+      "title": "Resume: a new browser session returns to the same step with the data",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 23:05 IST",
+      "note": "fresh session opened at Check and pay with the shop name",
+      "shots": [
+        "p2-13-resume.png"
+      ]
+    },
+    {
+      "id": "P2-14",
+      "title": "Payment fails: shop not live, retry offered",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:05 IST",
+      "note": "no Cashfree payment session seen (url https://test.gokesari.com/shop/register): QA Docs 2026-10-29 mw273ehr is already waiting for approval. You'll be notified once it's reviewed — you can add another shop after that. || ",
+      "shots": [
+        "p2-14-fail.png"
+      ]
+    },
+    {
+      "id": "P2-15",
+      "title": "Payment succeeds: live at once, exact completion text, no approval wording",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:06 IST",
+      "note": "locator.click: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-15-fail.png"
+      ]
+    },
+    {
+      "id": "P2-16",
+      "title": "Referral attribution kept after go-live",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:06 IST",
+      "note": "shops 14 → 14",
+      "shots": [
+        "p2-16-fail.png"
+      ]
+    },
+    {
+      "id": "P2-17",
+      "title": "Add products: manual button; template shows download and upload",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:06 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-17-fail.png"
+      ]
+    },
+    {
+      "id": "P2-30",
+      "title": "Phone: resume at Check and pay, pay, live, Add products",
+      "platform": "Android size (Chrome, Pixel 7)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:07 IST",
+      "note": "no Cashfree payment session seen (url https://test.gokesari.com/shop/register): You have already registered a shop with this name at this PIN code. This shop is already registered and live on GoKesari. If you're the owner and need to update details, log in to your account or contact support. || ",
+      "shots": [
+        "p2-30-resume-android.png",
+        "p2-30-fail.png"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+bin/
+.npm-cache/
+reports/raw/
+# Lighthouse runs of signed-in pages carry the session cookie in their settings
+reports/*/lighthouse/

@@ -1954,20 +1954,319 @@
       "retest": "09-Nov-2026 staging: TC-DISC-004/005 now read shop A's own area and type and pass (area Deccan)."
     },
     {
-      "id": "D-147",
-      "title": "Shop order card: 'Packed — mark ready' stays active while the customer is deciding on a substitute",
+      "id": "D-145",
+      "title": "On a phone, the app-install card takes taps meant for an open dialog's buttons",
       "cases": [
-        "TC-FUL-007",
-        "TC-FUL-008"
+        "TC-LIST-013",
+        "TC-LIST-016",
+        "TC-LIST-027"
+      ],
+      "severity": "High",
+      "found": "2026-11-04 UX/QA audit (Staging + Production, Mobile web, Android / iOS app (WebView))",
+      "actual": "Phone, fresh visit (install card showing): My lists → a list → Confirm order. Tap Cancel or Confirm in the dialog — the tap lands on the card's 'Not now' button instead; the order cannot be confirmed until the card is dismissed.",
+      "expected": "Dialogs sit above the install card and get every tap.",
+      "fix": "Install card z-50 → z-[45] (above the bottom menu z-40, under dialogs z-50 / z-[60]). PR #346.",
+      "status": "Fixed - retest passed",
+      "fixedIn": "#346",
+      "retest": "Re-test 04-Nov-2026 22.55–22.56 IST on staging after PR #346 (deployed 22.54 IST): TC-LIST-013 / 016 / 027 pass on phone (Pixel 7) and desktop; dialog buttons take the tap with the install card showing."
+    },
+    {
+      "id": "D-130",
+      "title": "Seller pages are gated two different ways: by shop ownership (orders) and by role (finance, marketing)",
+      "cases": [
+        "TC-RBAC-003"
+      ],
+      "severity": "Medium",
+      "found": "2026-11-04 UX/QA audit (Staging, All)",
+      "actual": "1. Sign in on test.gokesari.com as the QA customer (role CUSTOMER only, but owner of the shop 'QA Staging Full Run 298'). 2. Open /shop/orders → Seller Central with that shop's orders. 3. Open /shop/finance or /shop/marketing → silently sent to the home page.",
+      "expected": "One rule for every seller page: an owner of an approved shop holds SHOP_OWNER and sees all of Seller Central, or none of it, with a message saying why.",
+      "fix": "",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-131",
+      "title": "Signed-out requests to /shop answer 200 with a loading skeleton, then redirect in the browser; an unknown packing slip shows 'page does not exist' with status 200",
+      "cases": [
+        "TC-RBAC-002",
+        "TC-SEC-001",
+        "TC-SEC-009"
       ],
       "severity": "Low",
-      "found": "2026-11-09 staging run regression-world-repair",
-      "actual": "With rule fulfilmentOptions on, the button comes from the fulfilment planner (src/components/fulfilment-planner.tsx:351, disabled only for busy / no slot / no staff) and is enabled while a line shows '(waiting for customer)'. The old button (shop-order-manager.tsx:369) was disabled by waitingOnCustomer.",
-      "expected": "The button is disabled until the customer accepts or refuses the substitute.",
-      "fix": "Pass the waiting state to the planner and disable the submit while it is set. The server already refuses: POST ready while the customer decides answers 409 and the order stays PREPARING (re-test 09-Nov 22.08 IST).",
+      "found": "2026-11-04 UX/QA audit (Staging + Production, All)",
+      "actual": "curl -I https://gokesari.com/shop → 200 (compare /wallet → 307 to /signin). Open /shop/orders/00000000-0000-4000-8000-000000000000/packing-slip as the shop owner → 200.",
+      "expected": "307 to /signin for a signed-out request; 404 for an unknown id. No data is exposed — the page streams only the skeleton.",
+      "fix": "",
       "status": "Open",
-      "fixedIn": null,
-      "retest": null
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-132",
+      "title": "POST /api/price-requests checks the body (422) before the caller's role (403)",
+      "cases": [
+        "TC-RBAC-003"
+      ],
+      "severity": "Low",
+      "found": "2026-11-04 UX/QA audit (Staging, API)",
+      "actual": "As a signed-in customer, POST /api/price-requests with an empty body → 422 VALIDATION_FAILED.",
+      "expected": "403 for a caller without the shop role, before the body is read.",
+      "fix": "",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-133",
+      "title": "Grey and orange text on Seller Central fails 4.5:1 contrast",
+      "cases": [],
+      "severity": "Medium",
+      "found": "2026-11-04 UX/QA audit (Staging + Production, All)",
+      "actual": "Open /shop/orders, /shop/prices, /shop/inventory, /shop/register; run axe. Grey #64748b on #f1f5f9 = 4.34:1; orange link #c9450c on #f1f5f9 = 4.42:1.",
+      "expected": "≥ 4.5:1 for body text.",
+      "fix": "Seller Central background slate-100 → slate-50 (#f8fafc): grey 4.55:1, orange 4.62:1. PR #346.",
+      "status": "Fixed - retest passed",
+      "fixedIn": "#346",
+      "retest": "Re-test 04-Nov-2026 22.56 IST on staging: axe (WCAG 2.2 AA) finds no color-contrast issue on /shop, /shop/orders, /shop/prices, /shop/inventory, /shop/register."
+    },
+    {
+      "id": "D-134",
+      "title": "Form controls with no accessible name: admin order filters, admin shop status, Excel price upload",
+      "cases": [],
+      "severity": "Medium",
+      "found": "2026-11-04 UX/QA audit (Staging + Production, All)",
+      "actual": "Run axe on /admin/orders (2 selects + 2 date fields), /admin/shops (status select), /shop/prices (2 file inputs).",
+      "expected": "Every control announces its name to a screen reader.",
+      "fix": "aria-label added (Status, Shop, From date, To date, Shop status, Upload price list). PR #346.",
+      "status": "Fixed - retest passed",
+      "fixedIn": "#346",
+      "retest": "Re-test 04-Nov-2026 22.56 IST on staging: axe finds no label / select-name issue on /admin/orders, /admin/shops, /shop/prices."
+    },
+    {
+      "id": "D-135",
+      "title": "The 'Get the GoKesari app' card covers ~20% of a phone screen, including the bottom menu, on every page and every role",
+      "cases": [],
+      "severity": "Medium",
+      "found": "2026-11-04 UX/QA audit (Staging + Production, Mobile web)",
+      "actual": "Open any page on a phone in a fresh browser (e.g. the admin board, Seller Central, sign-in). The card sits over the bottom navigation and the last row of tiles until 'Not now' is tapped.",
+      "expected": "Spec: prompt on every visit until installed — keep that, but as a slim bar above the bottom menu (≤ 64 px), never over the sign-in form or the tiles.",
+      "fix": "",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-136",
+      "title": "A guest's 'Add to cart' goes to sign-in and the item is not in the cart afterwards",
+      "cases": [
+        "TC-RBAC-001"
+      ],
+      "severity": "Medium",
+      "found": "2026-11-04 UX/QA audit (Staging + Production, All)",
+      "actual": "As a guest on gokesari.com: search 'milk' → Add to cart → sign-in page. After signing in the person is returned to the page (D-23 return cookie) but the cart is empty.",
+      "expected": "Blinkit / Zepto / Instamart keep a guest cart and ask for sign-in at checkout. At minimum, remember the pending item and add it after sign-in.",
+      "fix": "",
+      "status": "Open (design decision)",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-137",
+      "title": "Nearby shops page shifts its layout on a phone (CLS 0.33; good is ≤ 0.1)",
+      "cases": [],
+      "severity": "Low",
+      "found": "2026-11-04 UX/QA audit (Staging, Mobile web)",
+      "actual": "Pixel 7, 4G profile, location allowed: open https://test.gokesari.com/shops/nearby.",
+      "expected": "Reserve the list's space while the location resolves. Production measured 0.00 (location not resolved there), so check again after the next release.",
+      "fix": "",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-138",
+      "title": "Home pages paint slowly on a mid-range Android on 4G: customer home LCP 5.1 s (staging), rider home 4.3 s, guest home 2.7–2.8 s",
+      "cases": [],
+      "severity": "Medium",
+      "found": "2026-11-04 UX/QA audit (Staging + Production, Mobile web)",
+      "actual": "Pixel 7 emulation, 9 Mbps / 150 ms RTT, CPU ×4. Signed-in customer: https://test.gokesari.com/.",
+      "expected": "LCP ≤ 2.5 s (Google 'good'). Benchmarks (Blinkit, Zepto) paint the first shelf in about 1.5–2 s.",
+      "fix": "",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-139",
+      "title": "Shop board shows 'Payout bank • Verified' under the tile while the banner above says 'Add a verified payout bank account'",
+      "cases": [],
+      "severity": "Low",
+      "found": "2026-11-04 UX/QA audit (Staging, All)",
+      "actual": "Sign in as the staging shop owner; open /shop.",
+      "expected": "Sub-links that read as a status should show the real status (e.g. 'Not added').",
+      "fix": "",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-140",
+      "title": "Rider page says 'approved' while PAN, Aadhaar, police and character checks are 'Not started' and 'Needed to go Active'",
+      "cases": [],
+      "severity": "Low",
+      "found": "2026-11-04 UX/QA audit (Staging, All)",
+      "actual": "Sign in as the staging rider; open /delivery-partner.",
+      "expected": "One clear status with the next step first (e.g. 'Approved — finish 4 checks to start delivering').",
+      "fix": "",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-141",
+      "title": "Long admin lists are not paged on a phone: Orders 11,800 px tall, Societies 9,500 px with 218 targets under 44 px",
+      "cases": [],
+      "severity": "Medium",
+      "found": "2026-11-04 UX/QA audit (Staging, Mobile web)",
+      "actual": "Admin on a phone: /admin/orders, /admin/societies.",
+      "expected": "Paged or filtered lists with 44 px rows (one-screen rule).",
+      "fix": "",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-142",
+      "title": "A full OPERATOR who opens an /operator/... link is sent to the customer home page with no message",
+      "cases": [],
+      "severity": "Low",
+      "found": "2026-11-04 UX/QA audit (Staging, All)",
+      "actual": "Sign in as the staging operator; open /operator/shops.",
+      "expected": "Send them to the matching admin page, or say 'This page is for limited operators — open the Admin board'.",
+      "fix": "",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-143",
+      "title": "Production search shows listings under a person's name as the shop name ('Sonali Morankar', area 'Agtci')",
+      "cases": [],
+      "severity": "Info",
+      "found": "2026-11-04 UX/QA audit (Production, All)",
+      "actual": "https://gokesari.com/search?q=milk.",
+      "expected": "Confirm these are intended live listings; otherwise hide them. A shop name that is a person's name lowers trust for new customers.",
+      "fix": "",
+      "status": "Open (owner to confirm)",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-144",
+      "title": "A shop owner cannot upload a logo file — the logo is a free-text URL field",
+      "cases": [
+        "TC-FLD-056"
+      ],
+      "severity": "Low",
+      "found": "2026-11-04 UX/QA audit (Staging, All)",
+      "actual": "Sign in as a shop owner; look for a logo upload on the shop settings screens.",
+      "expected": "A logo upload with type/size checks, like the product photo upload.",
+      "fix": "",
+      "status": "Open (not built)",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "E-20",
+      "title": "SC-GW precondition",
+      "cases": [],
+      "severity": "Info",
+      "found": "2026-11-04 UX/QA audit",
+      "actual": "The staging rider's Aadhaar is already VERIFIED from an earlier run, so the 'DigiLocker link issued (Pending)' step cannot happen. Test data, not an app defect.",
+      "expected": "",
+      "fix": "",
+      "status": "Not a defect",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "E-21",
+      "title": "Safari / WebKit could not run",
+      "cases": [],
+      "severity": "Info",
+      "found": "2026-11-04 UX/QA audit",
+      "actual": "Playwright's WebKit build does not load on this Mac's macOS 14.6 (missing _WKBrowserInspector). Safari and the iOS app need a manual pass on a real device.",
+      "expected": "",
+      "fix": "",
+      "status": "Not a defect",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "E-22",
+      "title": "Staging shop owner's active shop",
+      "cases": [],
+      "severity": "Info",
+      "found": "2026-11-04 UX/QA audit",
+      "actual": "The staging shop owner also owns 'QA Docs 2026-10-29 …' shops registered by earlier QA runs; Seller Central opens the newest one, so finance / inventory / order-list checks written for 'E2E Four Features Bakery' (TC-FIN-010, TC-SPI-008, TC-ORD-012, TC-DEL-020) read the wrong shop. Re-run with the shop chosen (gk_shop cookie) — see Re-test.",
+      "expected": "",
+      "fix": "",
+      "status": "Not a defect",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "E-23",
+      "title": "Staging rule afterPackingCancellation is on",
+      "cases": [],
+      "severity": "Info",
+      "found": "2026-11-04 UX/QA audit",
+      "actual": "With the rule on, a customer may cancel a packed (READY / ASSIGNED) order for a fee — by design (batch 2026-10 WS-C). TC-ORD-007 assumes the default (off). Not a defect; the check should read the rule.",
+      "expected": "",
+      "fix": "",
+      "status": "Not a defect",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "E-24",
+      "title": "Scheduled-delivery slot on the test shop",
+      "cases": [],
+      "severity": "Info",
+      "found": "2026-11-04 UX/QA audit",
+      "actual": "Checkout's Place order stays disabled until a delivery time is chosen for the test shop's scheduled delivery; TC-COD-002 / TC-PAY-007 do not pick a slot. Test update needed, app behaves as designed (the button says why).",
+      "expected": "",
+      "fix": "",
+      "status": "Not a defect",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "E-25",
+      "title": "Unreleased features in the test list",
+      "cases": [],
+      "severity": "Info",
+      "found": "2026-11-04 UX/QA audit",
+      "actual": "TC-SREF-006 (admin Shop referrals page) covers work that exists only in the local working tree, not on staging.",
+      "expected": "",
+      "fix": "",
+      "status": "Not a defect",
+      "fixedIn": "",
+      "retest": ""
+    },
+    {
+      "id": "D-146",
+      "title": "Inventory table's sideways-scroll area can't be reached with the keyboard",
+      "cases": [],
+      "severity": "Low",
+      "found": "2026-11-04 UX/QA audit (Staging + Production, All)",
+      "actual": "Open /shop/inventory on a phone; run axe. The table wrapper (overflow-x-auto) scrolls sideways but holds nothing focusable, so a keyboard user cannot scroll it.",
+      "expected": "A scrollable region can take keyboard focus (tabIndex=0 with a label) or holds focusable content.",
+      "fix": "Add tabIndex={0}, role=\"region\" and an aria-label to the table wrapper. Not yet made.",
+      "status": "Open",
+      "fixedIn": "",
+      "retest": ""
     },
     {
       "id": "D-147",
@@ -1982,7 +2281,7 @@
       "expected": "The button is disabled until the customer accepts or refuses the substitute.",
       "fix": "The order card passes waitingOnCustomer to FulfilmentPlanner, which disables the mark-ready submit while it is set; changing a saved plan is not affected. Unit test tests/unit/fulfilment-planner-waiting-on-customer.test.ts. The server already refused: POST ready while the customer decides answers 409 and the order stays PREPARING (re-test 09-Nov 22.08 IST).",
       "status": "Fixed (re-test pending)",
-      "fixedIn": "PR #383 (fix/d-147-planner-mark-ready-waiting → staging)",
+      "fixedIn": "PR #383, on production 11-Nov-2026 (release #386)",
       "retest": null
     }
   ]

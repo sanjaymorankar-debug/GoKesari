@@ -1,0 +1,71 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "08 Nov 2026, 23:11 IST",
+  "results": [
+    {
+      "id": "P2-13b",
+      "title": "Change on the Payment screen opens the step and returns",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 23:08 IST",
+      "note": "Shop row's Change opened the step; saved; back on Payment",
+      "shots": [
+        "p2-13b-review.png"
+      ]
+    },
+    {
+      "id": "P2-14",
+      "title": "Payment fails: shop not live, retry offered",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:08 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-14-fail.png"
+      ]
+    },
+    {
+      "id": "P2-15",
+      "title": "Payment succeeds: live at once, exact completion text, no approval wording",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:09 IST",
+      "note": "locator.waitFor: Timeout 40000ms exceeded.",
+      "shots": [
+        "p2-15-fail.png"
+      ]
+    },
+    {
+      "id": "P2-16",
+      "title": "Referral attribution kept after go-live",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 23:09 IST",
+      "note": "E2ETEST1 shops 14 → 15; fees attributed ₹12188.2 → ₹13367.02",
+      "shots": []
+    },
+    {
+      "id": "P2-17",
+      "title": "Add products: manual button; template shows download and upload",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:10 IST",
+      "note": "locator.waitFor: Timeout 25000ms exceeded.",
+      "shots": [
+        "p2-17-fail.png"
+      ]
+    },
+    {
+      "id": "P2-30",
+      "title": "Phone: GST verify → owner → address → pin → shop → pay → live → Add products",
+      "platform": "Android size (Chrome, Pixel 7)",
+      "result": "FAIL",
+      "at": "08 Nov 2026, 23:11 IST",
+      "note": "locator.waitFor: Timeout 40000ms exceeded.",
+      "shots": [
+        "p2-30-payment-android.png",
+        "p2-30-fail.png"
+      ]
+    }
+  ]
+}
