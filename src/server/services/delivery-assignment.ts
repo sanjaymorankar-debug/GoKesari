@@ -18,7 +18,7 @@
  */
 import { randomInt } from "node:crypto";
 
-import { and, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { parseCoordinates } from "@/lib/geo/haversine";
@@ -1806,11 +1806,23 @@ export async function runDispatchSweep(): Promise<{ expired: number; attempted: 
     });
   }
 
+  // A search that has finished (STOPPED, ASSIGNED) restarts only on the shop's
+  // "Find rider now", so the sweep would just reload the order and return —
+  // every minute, for as long as the order stays READY, and taking places in
+  // the 200 from orders still searching. Only orders with no search yet or a
+  // running one are retried.
   const waiting = await db
     .select({ id: orders.id })
     .from(orders)
     .innerJoin(shops, eq(orders.shopId, shops.id))
-    .where(and(eq(orders.status, "READY"), eq(shops.deliveryAvailable, true)))
+    .leftJoin(riderSearches, eq(riderSearches.orderId, orders.id))
+    .where(
+      and(
+        eq(orders.status, "READY"),
+        eq(shops.deliveryAvailable, true),
+        or(isNull(riderSearches.id), eq(riderSearches.status, "SEARCHING")),
+      ),
+    )
     .limit(200);
 
   let offered = 0;

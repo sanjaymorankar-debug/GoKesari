@@ -47,6 +47,11 @@ export interface OnboardingFacts {
   verifiedDocuments?: number;
   /** "28 Nov 2026": the owner promised the missing documents by this date; null when not promised. */
   documentsPromisedBy?: string | null;
+  /**
+   * Registered through the onboarding wizard: verified GST / PAN plus the fee paid online means live,
+   * with no approval step (services/gov-auto-approval.ts). Absent when not known.
+   */
+  liveOnPayment?: boolean;
 }
 
 export interface NextAction {
@@ -62,6 +67,14 @@ function list(items: string[]): string {
 
 /** The one thing the shop owner should do now. */
 export function ownerNextAction(facts: OnboardingFacts): NextAction {
+  // P2-D5: a wizard shop has no approval step to promise; once paid and still pending, a person is checking it.
+  if (facts.liveOnPayment && facts.feeOutstandingPaise > 0) {
+    return {
+      text: `Pay the registration fee of ${formatPaiseCompact(facts.feeOutstandingPaise)} online. Your shop goes live as soon as the payment is confirmed.`,
+      href: "/shop/registration-fee",
+      linkLabel: "Pay the registration fee",
+    };
+  }
   switch (facts.stage) {
     case "KYC_PENDING": {
       const verification = { href: "/shop/verification", linkLabel: "Go to document verification" };

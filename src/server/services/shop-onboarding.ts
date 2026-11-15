@@ -51,6 +51,14 @@ export async function getShopOnboarding(
     .select({ shopId: sellerVerifications.shopId, docType: sellerVerifications.docType, status: sellerVerifications.status })
     .from(sellerVerifications)
     .where(inArray(sellerVerifications.shopId, shopIds));
+  const wizardShops = new Set(
+    (
+      await client
+        .select({ shopId: shopRegistrationDrafts.shopId })
+        .from(shopRegistrationDrafts)
+        .where(and(inArray(shopRegistrationDrafts.shopId, shopIds), inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"])))
+    ).map((d) => d.shopId),
+  );
 
   for (const row of rows) {
     if (!isOnboardingStage(row.lifecycleStatus)) continue;
@@ -75,6 +83,8 @@ export async function getShopOnboarding(
       verifiedDocuments: [...status.values()].filter((s) => s === "VERIFIED").length,
       // docs/shop-documents-2026-10: "I will provide all relevant documents within 30 days".
       documentsPromisedBy: row.documentsDueAt ? formatDisplayDate(todayIn("Asia/Kolkata", row.documentsDueAt)) : null,
+      // Same test as isWizardRegisteredShop below.
+      liveOnPayment: wizardShops.has(row.id),
     });
   }
   return result;

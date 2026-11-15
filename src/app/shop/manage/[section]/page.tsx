@@ -157,7 +157,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
                 tone={onboarding?.stage === "VERIFIED" ? "success" : "warning"}
                 title={registrationFeeDue(shop) > 0 ? "Payment pending" : onboarding ? `Awaiting approval — ${ONBOARDING_STAGE_LABELS[onboarding.stage].toLowerCase()}` : "Awaiting approval"}
               >
-                <OnboardingSteps current={onboarding?.stage ?? "KYC_PENDING"} />
+                <OnboardingSteps current={onboarding?.stage ?? "KYC_PENDING"} liveOnPayment={onboarding?.liveOnPayment ?? false} />
                 {nextStep ? (
                   <span className="mt-2 block">
                     <span className="font-medium">Next: </span>
@@ -167,7 +167,11 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
                     </Link>
                   </span>
                 ) : null}
-                <span className="mt-2 block">You can add products now — they go live as soon as the shop is approved.</span>
+                <span className="mt-2 block">
+                  {onboarding?.liveOnPayment
+                    ? "You can add products now — customers see them as soon as your shop is live."
+                    : "You can add products now — they go live as soon as the shop is approved."}
+                </span>
               </Alert>
             </div>
           ) : null}
@@ -492,6 +496,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
                 shopType: shop.shopType,
                 classification: shop.classification,
                 status: shop.status,
+                feeDue: registrationFeeDue(shop) > 0,
                 referralCode: referral?.code ?? null,
                 registrationFeePaise: shop.registrationFeePaise,
                 amountPaidPaise: shop.amountPaidPaise,
@@ -528,10 +533,15 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
   }
 }
 
-/** SM-002: the three onboarding steps, the current one highlighted, earlier ones ticked. */
-function OnboardingSteps({ current }: { current: ShopOnboardingStage }) {
-  const at = SHOP_ONBOARDING_STAGES.indexOf(current);
-  const steps = ["Documents verified (KYC)", "Registration fee paid", "Approved by GoKesari"];
+/**
+ * SM-002: the three onboarding steps, the current one highlighted, earlier ones ticked. A wizard shop
+ * (P2-D5) is already registered, and goes live on payment instead of waiting for an approval.
+ */
+function OnboardingSteps({ current, liveOnPayment }: { current: ShopOnboardingStage; liveOnPayment: boolean }) {
+  const at = liveOnPayment ? 1 : SHOP_ONBOARDING_STAGES.indexOf(current);
+  const steps = liveOnPayment
+    ? ["Shop registered", "Registration fee paid", "Shop live"]
+    : ["Documents verified (KYC)", "Registration fee paid", "Approved by GoKesari"];
   return (
     <ol className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
       {steps.map((label, i) => (
