@@ -514,7 +514,7 @@ The section 7A changes go into `staging` through the queue. Then:
 - set the new GitHub secrets for WireGuard and the snapshot keys;
 - run "Test database → verify" while still on Neon. The new steps must not break anything.
 
-**Status (17-Nov-2026, 03.40 IST):**
+**Status (17-Nov-2026, 03.33 IST):**
 - **PR #400** (A1, A2, A3, A4, A7) was merged into `staging` at 00.50 IST.
   - Hostinger did not start the staging build, so the queue paused. The session started the build by hand at 03.09 IST.
   - test.gokesari.com has run it since 03.16, and the post-deploy check passed 3/3.
