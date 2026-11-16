@@ -514,10 +514,17 @@ The section 7A changes go into `staging` through the queue. Then:
 - set the new GitHub secrets for WireGuard and the snapshot keys;
 - run "Test database → verify" while still on Neon. The new steps must not break anything.
 
-**Status (17-Nov-2026, 00.24 IST):** A1, A2, A3, A4 and A7 are in PR #400, labelled `ready-for-staging`. The WireGuard and snapshot keys were set during G2. Found while building it, to settle before S6:
+**Status (17-Nov-2026, 03.40 IST):**
+- **PR #400** (A1, A2, A3, A4, A7) was merged into `staging` at 00.50 IST.
+  - Hostinger did not start the staging build, so the queue paused. The session started the build by hand at 03.09 IST.
+  - test.gokesari.com has run it since 03.16, and the post-deploy check passed 3/3.
+  - The push run of "Test database" passed on Neon: Neon backup, migrate and verify. The VPS steps were skipped. This is the "verify while still on Neon" check above.
+- **PR #402** (B1 `prod-db.yml`, B2 `copy-shops.yml` + `scripts/copy-shops/guard.sh`, two composite actions) is in the queue.
+- The WireGuard and snapshot keys were set during G2.
+
+Found while building them, to settle before S6:
 - `TEST_DATABASE_HOST` must carry the port (`db-test.gokesari.com:5433`), or the guard refuses the run. `PROD_DATABASE_HOST` stays `db.gokesari.com` (5432).
-- `prod-db.yml` (preflight, `tested-on-test.sh`) and `copy-shops.yml` ("export") read the test database from GitHub's runners. After S6 they cannot reach it until B1 and B2 add their WireGuard steps. So either B1 and B2 land before S6, or those two workflows are not run between S6 and the production move.
-- `scripts/copy-shops/guard.sh` still compares the host only. B2 adds the port check.
+- `prod-db.yml` (preflight, `tested-on-test.sh`) and `copy-shops.yml` ("export") read the test database from GitHub's runners. B1 and B2 (PR #402) add their WireGuard steps. These workflows run from `main` only, so after S6 a prod-db `migrate` or a copy-shops export waits until #402 is released to `main`.
 - Workflow URLs keep `sslmode=require`, because WireGuard already proves the server.
 - The app's `DATABASE_URL` uses `sslmode=verify-full` with no `sslrootcert`. postgres.js would send `sslrootcert` to the server as a setting, and the server refuses it.
 - `copy.sh` needs `ALLOW_RENAME=yes` (`neondb` → `gokesari_test`).
@@ -535,7 +542,7 @@ Booked window: 60 minutes.
 | S3 | Copy, running on the VPS (Singapore → Mumbai): `REQUIRE_FROZEN=yes scripts/db-region-move/copy.sh`. About 2–3 min for 18 MB. | session |
 | S4 | `compare.sh` (row counts, sequences, objects, extensions) plus checksums: **must be identical** | session |
 | S5 | Freeze the VPS copy too (read-only) until the checks below pass | session |
-| S6 | GitHub `test` environment: the new `TEST_DATABASE_URL` (`sslmode=require`), `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`, `TEST_DATABASE_NAME` = `gokesari_test`. Production environment: `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`. | owner, or session with OK |
+| S6 | GitHub `test` environment: the new `TEST_DATABASE_URL` (`sslmode=require`), `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`, `TEST_DATABASE_NAME` = `gokesari_test`. Production environment, both together (or `tested-on-test.sh` refuses): `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`, and `TEST_DATABASE_URL` for the read-only role `gokesari_test_ro` (the server lets the prod-db job into 5433 only as that role). | owner, or session with OK |
 | S7 | hPanel → test.gokesari.com: `DATABASE_URL` → `db-test.gokesari.com:5433`; redeploy | owner, or session with OK |
 | S8 | `scripts/release/post-deploy-check.sh https://test.gokesari.com`. On the VPS: app connections come from the Hostinger IP. On Neon: none. | session |
 | S9 | **Open writes** on the VPS and end the app's connections, so its pool reconnects writable | session |
