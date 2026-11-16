@@ -15,11 +15,13 @@ import { GET, POST } from "@/app/api/shops/[id]/accounts/[...path]/route";
 import { db } from "@/server/db";
 import { accSalesInvoices, featureFlags, shopProducts } from "@/server/db/schema";
 import { posItems, syncPosBills, type PosBill } from "@/server/accounts/pos";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { gstShop, resetBatchE } from "../helpers/batch-e";
 import { createUser, resetDatabase } from "../helpers/fixtures";
 
 async function flag(enabled: boolean) {
   await db.insert(featureFlags).values({ key: "billing_v2", enabled }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled } });
+  clearFeatureFlagCache();
 }
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
