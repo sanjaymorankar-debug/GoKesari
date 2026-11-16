@@ -14,7 +14,7 @@ Times are IST. Never paste a password or key into a chat or a commit. Public key
 |---|---|---|
 | 1 | Hostinger VPS, Mumbai, 24 months | **Bought: KVM 4**, 16-Nov-2026 21.16 IST (decided as KVM 2; the owner chose the larger plan). Moved from Kuala Lumpur to Mumbai at 21.44 IST; IPv4 189.72.155.162 |
 | 2 | Staging on the same server | Built as recommended |
-| 3 | Cloudflare R2 for off-site backups | **Decided**, 16-Nov-2026 21.55 IST ("Keep R2") |
+| 3 | Cloudflare R2 for off-site backups | **Decided**, 16-Nov-2026 21.53 IST ("Keep R2") |
 | 4 | WireGuard | Built as recommended |
 | 5 | Where alerts go | **OPEN.** `ALERT_DESTINATION` placeholder in `config.env`; step 17 waits for it |
 | 6 | Names `gokesari` / `gokesari_test` | Built as recommended |
