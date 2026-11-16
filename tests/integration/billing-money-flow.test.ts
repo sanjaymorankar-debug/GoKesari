@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
 import { deliveryPartners, featureFlags, orderFulfilmentArrangements, orderMoneyFlows, orders, shops, type FeatureFlagKey } from "@/server/db/schema";
-import { setFeatureFlag } from "@/server/services/feature-flags";
+import { clearFeatureFlagCache, setFeatureFlag } from "@/server/services/feature-flags";
 import { recordOrderMoneyFlow } from "@/server/tax/money-flow";
 import { getShopRegistration, setShopRegistration } from "@/server/tax/registration";
 import { deliveredOrder, gstShop, resetBatchE, rules } from "../helpers/batch-e";
@@ -18,6 +18,7 @@ import { createDeliveryPartner, createUser, resetDatabase } from "../helpers/fix
 
 async function flag(key: FeatureFlagKey, enabled: boolean) {
   await db.insert(featureFlags).values({ key, enabled }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled } });
+  clearFeatureFlagCache();
 }
 
 async function rerecord(orderId: string, at?: Date) {
@@ -32,6 +33,7 @@ describe("billing v2 money flow", () => {
     await resetDatabase();
     await resetBatchE();
     await db.execute(sql`DELETE FROM feature_flags WHERE key IN ('billing_v2', 'delivery_9_5')`);
+    clearFeatureFlagCache();
     const a = await createUser({ role: "ADMIN" });
     admin = { id: a.id, role: "ADMIN" };
   });

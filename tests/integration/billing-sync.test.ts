@@ -14,6 +14,7 @@ import { db } from "@/server/db";
 import { accParties, accSalesInvoices, featureFlags, products, shopProducts, syncConflicts, syncRecords } from "@/server/db/schema";
 import { createParty, updateParty } from "@/server/accounts/parties";
 import { createSalesInvoice } from "@/server/accounts/sales";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { ExportBlocked, exportForTool, importForTool, resolveConflict, setUnitUqc, templatePack } from "@/server/sync/engine";
 import { LAYOUTS, toToolSheets } from "@/server/sync/formats";
 import { buildCanonicalBooks, validateBooks, voucherFingerprint } from "@/server/sync/model";
@@ -45,6 +46,7 @@ beforeEach(async () => {
   await resetDatabase();
   await resetBatchE();
   await db.insert(featureFlags).values({ key: "billing_v2", enabled: true }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled: true } });
+  clearFeatureFlagCache();
   await createUser({ role: "ADMIN" });
 });
 

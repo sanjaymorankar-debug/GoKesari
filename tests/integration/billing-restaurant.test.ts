@@ -16,6 +16,7 @@ import { postGokesariActivity } from "@/server/accounts/platform-posting";
 import { buildGstr1 } from "@/server/gst/gstr1";
 import { approvePayoutBatch, markPayoutItemPaid } from "@/server/payouts/batches";
 import { closePayoutCycle } from "@/server/payouts/cycle";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { setCommissionRate } from "@/server/services/finance";
 import { statutoryRateOn, updateStatutoryRate } from "@/server/statutory/rates";
 import { buildGokesariGstr1, buildGokesariGstr3b } from "@/server/tax/compliance";
@@ -31,6 +32,7 @@ let checker = { id: "", role: "ADMIN" as const };
 
 async function billingV2(enabled: boolean) {
   await db.insert(featureFlags).values({ key: "billing_v2", enabled }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled } });
+  clearFeatureFlagCache();
 }
 
 async function restaurant() {
@@ -53,6 +55,7 @@ beforeEach(async () => {
   await resetDatabase();
   await resetBatchE();
   await db.execute(sql`DELETE FROM feature_flags WHERE key IN ('billing_v2', 'tcs_engine', 'tds_engine', 'delivery_9_5')`);
+  clearFeatureFlagCache();
   admin = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
   checker = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
   await setCommissionRate({ scope: "DEFAULT", rateBp: 1000 }, admin);

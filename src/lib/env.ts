@@ -29,8 +29,11 @@ const serverEnvSchema = z.object({
    * against ~0.5 s warm. Raising it keeps connections ready between visits,
    * at the cost of holding them open — check the provider's connection limit
    * and whether open connections stop the database scaling to zero.
+   * Default 60 s (Neon report 14-Nov-2026, item 7): at 20 s connections churned
+   * and every new one repeats postgres.js's array-type lookup; 60 s is still
+   * well inside Neon's 5-minute scale-to-zero wait.
    */
-  DATABASE_IDLE_TIMEOUT_SECONDS: z.coerce.number().int().min(0).max(3600).default(20),
+  DATABASE_IDLE_TIMEOUT_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
 
   /**
    * Prepared statements for Drizzle's queries. Drizzle sends every query
