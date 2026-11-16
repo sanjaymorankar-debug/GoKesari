@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# certbot deploy hook (40-tls.sh): gives both PostgreSQL instances the new
+# certificate and reloads them. PostgreSQL picks up TLS files on reload.
+. "${GK_KIT:-/opt/gokesari-db}/lib.sh"
+need_root
+
+lineage=${RENEWED_LINEAGE:-/etc/letsencrypt/live/gokesari-db}
+[ -s "$lineage/fullchain.pem" ] || die "No certificate at $lineage."
+status=0
+for env in prod staging; do
+  use_env "$env"
+  [ -d "$PGCONF/tls" ] || continue
+  install -o postgres -g postgres -m 0644 "$lineage/fullchain.pem" "$PGCONF/tls/server.crt"
+  install -o postgres -g postgres -m 0600 "$lineage/privkey.pem" "$PGCONF/tls/server.key"
+  if pg_ctlcluster "$PG_MAJOR" "$CLUSTER" reload; then
+    log "Certificate installed on $GK_ENV ($PG_MAJOR/$CLUSTER)."
+  else
+    log "WARNING: certificate copied, but $PG_MAJOR/$CLUSTER did not reload."; status=1
+  fi
+done
+exit "$status"

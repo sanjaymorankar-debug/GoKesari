@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Restore drill (plan §5.3). Run as root; monthly, first Monday 11.00 IST, by a
+# session that then records the result line in
+# Doc_GoKesari/Test_Cases_Tracking/GOKESARI_DB_RESTORE_DRILLS.xlsx.
+#
+#   gk-db-restore-drill <prod|staging> [--repo 1|2] [--minutes-ago N | --latest]
+#
+# Defaults: repo 2 (R2), 60 minutes ago. --latest replays all the WAL there is
+# (use it while backups are younger than the target, e.g. the first drill).
+#
+# 1. Restores the backup into a scratch instance on port 5499 (socket only).
+# 2. pg_amcheck on every table and index, and the wallet-ledger checks (DEPLOYMENT.md §7).
+# 3. Counts every table's rows, beside the live database's counts.
+# 4. Restores the newest nightly dump into a scratch database there.
+# 5. Prints one result line, appends it to drills.csv, pings "gk-drill"; removes the scratch copy.
+. "${GK_KIT:-/opt/gokesari-db}/lib.sh"
+need_root
+use_env "${1:-}"; shift || true
+
+repo=2; target="--minutes-ago"; minutes=60
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo) repo=$2; shift 2 ;;
+    --minutes-ago) minutes=$2; shift 2 ;;
+    --latest) target=--latest; shift ;;
+    *) die "Unknown option '$1'." ;;
+  esac
+done
+case "$repo" in 1|2) ;; *) die "--repo must be 1 or 2." ;; esac
+[[ "$minutes" =~ ^[0-9]+$ ]] || die "--minutes-ago must be a number."
+
+work=$GK_STATE/drill/$GK_ENV
+sock=$work/sock
+dport=5499
+spg() { runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -h "$sock" -p "$dport" "$@"; }
+stop_scratch() {
+  if [ -f "$work/data/postmaster.pid" ]; then runuser -u postgres -- "$PG_BIN/pg_ctl" -D "$work/data" -m fast -w stop >/dev/null 2>&1 || true; fi
+  rm -rf "$work"
+}
+trap stop_scratch EXIT
+stop_scratch
+install -d -m 700 -o postgres -g postgres "$work" "$work/data" "$sock"
+
+if [ "$target" = --latest ]; then
+  target_desc="latest"
+  restore_args=(--type=default)
+else
+  target_ts=$(date -d "-$minutes minutes" '+%Y-%m-%d %H:%M:%S%:z')
+  target_desc="$target_ts ($minutes min ago)"
+  restore_args=(--type=time "--target=$target_ts" --target-action=promote)
+fi
+
+log "Drill: $GK_ENV from repo$repo to $target_desc"
+t0=$(date +%s)
+runuser -u postgres -- pgbackrest --stanza="$STANZA" --repo="$repo" --pg1-path="$work/data" \
+  --archive-mode=off "${restore_args[@]}" restore
+# Debian keeps the configuration in /etc, so the restored directory has none: give it a minimal one.
+cat > "$work/data/postgresql.conf" <<EOF
+listen_addresses = ''
+port = $dport
+unix_socket_directories = '$sock'
+max_connections = 20
+shared_buffers = 256MB
+shared_preload_libraries = 'pg_stat_statements'
+timezone = 'GMT'
+archive_mode = off
+ssl = off
+EOF
+printf 'local all postgres peer\n' > "$work/data/pg_hba.conf"
+: > "$work/data/pg_ident.conf"
+chown postgres:postgres "$work/data/postgresql.conf" "$work/data/pg_hba.conf" "$work/data/pg_ident.conf"
+runuser -u postgres -- "$PG_BIN/pg_ctl" -D "$work/data" -l "$work/postgres.log" -w -t 600 start >/dev/null
+for _ in $(seq 1 600); do
+  [ "$(spg -d postgres -tAc 'select pg_is_in_recovery()' 2>/dev/null)" = f ] && break
+  sleep 1
+done
+[ "$(spg -d postgres -tAc 'select pg_is_in_recovery()')" = f ] || die "The scratch copy is still recovering after 10 minutes; see $work/postgres.log."
+restore_s=$(( $(date +%s) - t0 ))
+restored_to=$(spg -d postgres -tAc "select coalesce(to_char(pg_last_xact_replay_timestamp() at time zone 'Asia/Kolkata', 'DD-Mon-YYYY HH24.MI.SS') || ' IST', 'no transactions replayed')")
+log "Restored in ${restore_s}s; last transaction replayed: $restored_to"
+
+result=PASS
+spg -d "$DB" -c 'create extension if not exists amcheck' >/dev/null
+if runuser -u postgres -- "$PG_BIN/pg_amcheck" -h "$sock" -p "$dport" -d "$DB" --heapallindexed >"$work/amcheck.txt" 2>&1; then
+  amcheck=ok
+else
+  amcheck=FAILED; result=FAIL; sed 's/^/  /' "$work/amcheck.txt" | head -20
+fi
+
+if [ "$(spg -d "$DB" -tAc "select to_regclass('public.wallets') is not null and to_regclass('public.wallet_transactions') is not null")" = t ]; then
+  bad=$(spg -d "$DB" -tA <<'SQL'
+select count(*) from (
+  select id from wallet_transactions where new_balance_paise <> previous_balance_paise + amount_paise
+  union all
+  select w.id from wallets w left join wallet_transactions t on t.wallet_id = w.id
+   group by w.id, w.balance_paise having w.balance_paise <> coalesce(sum(t.amount_paise), 0)
+) x;
+SQL
+)
+  if [ "$bad" = 0 ]; then ledger=ok; else ledger="FAILED ($bad rows)"; result=FAIL; fi
+else
+  ledger="skipped (no wallet tables yet)"
+fi
+
+counts_sql="select table_schema || '.' || table_name, (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text
+  from information_schema.tables where table_type = 'BASE TABLE' and table_schema not in ('pg_catalog', 'information_schema') order by 1"
+spg -d "$DB" -tA -F' ' -c "$counts_sql" > "$work/counts.restored"
+pg "$PORT" -d "$DB" -tA -F' ' -c "$counts_sql" > "$work/counts.live"
+tables=$(wc -l < "$work/counts.restored")
+rows_r=$(awk '{s += $2} END {print s + 0}' "$work/counts.restored")
+rows_l=$(awk '{s += $2} END {print s + 0}' "$work/counts.live")
+log "Tables: $tables; rows restored $rows_r, live now $rows_l. Biggest differences:"
+LC_ALL=C join <(LC_ALL=C sort "$work/counts.restored") <(LC_ALL=C sort "$work/counts.live") | awk '{d = $3 - $2; if (d < 0) d = -d; print d, $1, $2, $3}' | sort -rn | head -5 \
+  | awk '{printf "  %-50s restored %s, live %s\n", $2, $3, $4}'
+
+dump=$(ls -1t "$GK_STATE/dumps/$GK_ENV/"*.dump 2>/dev/null | head -1 || true)
+if [ -n "$dump" ]; then
+  spg -d postgres -c 'create database drill_dump' >/dev/null
+  if runuser -u postgres -- "$PG_BIN/pg_restore" -h "$sock" -p "$dport" -d drill_dump --no-owner --no-privileges --exit-on-error < "$dump" >"$work/dump.txt" 2>&1; then
+    dump_result="ok ($(basename "$dump"), $(spg -d drill_dump -tAc "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema')") tables)"
+  else
+    dump_result="FAILED ($(basename "$dump"))"; result=FAIL; head -20 "$work/dump.txt" | sed 's/^/  /'
+  fi
+else
+  dump_result="skipped (no nightly dump yet)"
+fi
+
+line="$(ist),$GK_ENV,repo$repo,$target_desc,${restore_s}s,$restored_to,tables $tables,amcheck $amcheck,ledger $ledger,dump $dump_result,$result"
+install -d -m 700 "$GK_STATE/drill"
+echo "$line" >> "$GK_STATE/drill/drills.csv"
+log "RESULT: $line"
+if [ "$result" = PASS ]; then hc_ping gk-drill ok "$line"; else hc_ping gk-drill fail "$line"; exit 1; fi

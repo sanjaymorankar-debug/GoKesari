@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Before-migration snapshot for the database workflows (plan §5.1, layer 3).
+# It replaces Neon's auto-backup-* branches; no data leaves the server.
+#
+# Runs as user gksnap. Each workflow's SSH key may run only this, for its own
+# database, from its own WireGuard address (authorized_keys, written by gk-peer):
+#   command="/usr/local/sbin/gk-db-snapshot staging",from="10.66.0.21",restrict ssh-ed25519 …
+#
+# From the workflow, over WireGuard:
+#   ssh gksnap@10.66.0.1 <run-name>   dump the database here, keep the newest 5,
+#                                     and set a restore point named <run-name>
+#   ssh gksnap@10.66.0.1 list         the kept dumps
+. "${GK_KIT:-/opt/gokesari-db}/lib.sh"
+[ "$(id -un)" = gksnap ] || die "Run as gksnap (through its SSH key)."
+use_env "${1:-}"
+
+# The workflow's words arrive in SSH_ORIGINAL_COMMAND; accept "<name>" or "gk-db-snapshot <env> <name>".
+req=${SSH_ORIGINAL_COMMAND:-${2:-}}
+name=${req##* }
+dir=$GK_STATE/snapshots/$GK_ENV
+
+if [ "$name" = list ]; then
+  ls -lh "$dir" | sed 1d
+  exit 0
+fi
+[[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$ ]] || die "Snapshot name must be 1–63 letters, digits, '.', '_' or '-' (got '$name')."
+
+db_bytes=$(psql -X -h "$PG_SOCKET" -p "$PORT" -d "$DB" -tAc "select pg_database_size(current_database())")
+free_bytes=$(df -B1 --output=avail "$dir" | tail -1 | tr -dc '0-9')
+[ "$free_bytes" -gt $(( db_bytes * 2 + 2 * 1024 * 1024 * 1024 )) ] || die "Not enough free disk for a snapshot ($free_bytes bytes free)."
+
+file="$dir/$(date -u +%Y%m%dT%H%M%SZ)-$name.dump"
+"$PG_BIN/pg_dump" -h "$PG_SOCKET" -p "$PORT" -Fc --compress=zstd:6 -f "$file.part" "$DB"
+mv "$file.part" "$file"
+lsn=$(psql -X -h "$PG_SOCKET" -p "$PORT" -d "$DB" -v ON_ERROR_STOP=1 -v rp="$name" -tA <<'SQL'
+select pg_create_restore_point(:'rp');
+SQL
+)
+# Keep the newest 5, as the Neon branches did.
+ls -1t "$dir"/*.dump | tail -n +6 | xargs -r rm -f
+
+echo "snapshot=$(basename "$file")"
+echo "size=$(du -h "$file" | cut -f1)"
+echo "restore_point=$name"
+echo "lsn=$lsn"
+echo "at=$(ist)"
