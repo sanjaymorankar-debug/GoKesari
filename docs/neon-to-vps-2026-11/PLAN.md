@@ -658,6 +658,7 @@ Cashfree webhooks that arrive during the read-only window fail and are retried b
      - R2 can be added later without a rebuild (runbook "Adding R2 later").
 4. **Access for GitHub and the Mac:** **WireGuard** (recommended; free, no third party) or Tailscale (easier setup, third-party service).
 5. **Alerts go to:** which email address and/or Telegram.
+   - **DECIDED** 16-Nov-2026, 23.08 IST: **e-mail only**. healthchecks.io e-mails its account address.
 6. **Database names:** `gokesari` / `gokesari_test` (recommended), or keep `neondb`.
 7. **Staging cron:** put staging's every-minute line back to every minute once staging is on the VPS? *Recommended: yes* (no compute bill any more).
 8. **Production cut-over window:** a date and IST time, and OK for about 20–30 minutes read-only.

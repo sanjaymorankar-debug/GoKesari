@@ -16,7 +16,7 @@ Times are IST. Never paste a password or key into a chat or a commit. Public key
 | 2 | Staging on the same server | Built as recommended |
 | 3 | Off-site backups | **Changed**, 16-Nov-2026 about 22.00 IST: **VPS only for now**, no R2 ("Keep R2" at 21.53, then "keep the database on local VPS server only"). Leave `R2_ACCOUNT_ID` empty; add R2 later with "Adding R2 later" (Part 2) |
 | 4 | WireGuard | Built as recommended |
-| 5 | Where alerts go | **OPEN.** `ALERT_DESTINATION` placeholder in `config.env`; step 17 waits for it |
+| 5 | Where alerts go | **Decided**, 16-Nov-2026 23.08 IST: **e-mail only** (no Telegram). healthchecks.io sends to its account e-mail. `ALERT_DESTINATION` set on the server; step 17 waits for the owner's healthchecks.io account |
 | 6 | Names `gokesari` / `gokesari_test` | Built as recommended |
 | 7 | Staging cron back to every minute | As recommended, applied at the staging cut-over (Part 3) |
 | 8 | Production cut-over window | **OPEN.** Placeholder in Part 3 |
@@ -134,7 +134,7 @@ Then the session:
 
 **16. Schedules:** `sudo /opt/gokesari-db/70-schedules.sh`. It lists the six timers.
 
-**17. Alerts: waits for decision 5.** Until then the checks only write to the server's journal: **nobody is alerted**, so the staging cut-over (G3) must wait for this step. When decided:
+**17. Alerts** (decision 5: e-mail only). Until then the checks only write to the server's journal: **nobody is alerted**, so the staging cut-over (G3) must wait for this step. When decided:
 1. The owner creates a free healthchecks.io account, with a project "GoKesari DB".
 2. The owner adds the integration (e-mail and/or Telegram) and copies the project's **ping key** (Settings → API Access → Ping key).
 3. The owner, in their own Terminal:
