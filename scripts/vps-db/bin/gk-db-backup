@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# pgBackRest backup of one instance into each repository in use (plan §5.1,
+# layer 1): repo1 on this disk, and repo2 in R2 once R2_ACCOUNT_ID is set.
+# Run as root; the timers run it nightly (70-schedules.sh).
+#
+#   gk-db-backup <prod|staging> [auto|full|diff]   auto = full on Sunday, otherwise diff
+#   gk-db-backup check                              archiving reaches every repository
+. "${GK_KIT:-/opt/gokesari-db}/lib.sh"
+need_root
+
+br() { runuser -u postgres -- pgbackrest "$@"; }
+
+if [ "${1:-}" = check ]; then
+  for s in prod staging; do br --stanza="$s" check && log "$s: WAL reaches $(pgbr_where)."; done
+  exit 0
+fi
+
+use_env "${1:-}"
+type=${2:-auto}
+if [ "$type" = auto ]; then
+  if [ "$(date +%u)" = 7 ]; then type=full; else type=diff; fi
+fi
+case "$type" in full|diff) ;; *) die "Type must be auto, full or diff." ;; esac
+
+slug=gk-backup-$GK_ENV
+hc_ping "$slug" start
+trap 'hc_ping "$slug" fail "$type backup of $GK_ENV failed at $(ist). journalctl -u gk-db-backup-$GK_ENV; /var/log/pgbackrest"' ERR
+
+for repo in $(pgbr_repos); do
+  log "$GK_ENV: $type backup to repo$repo"
+  # A diff with no full before it becomes a full by itself.
+  br --stanza="$STANZA" --repo="$repo" --type="$type" backup
+done
+
+summary=$(br --stanza="$STANZA" info | grep -E 'full backup|diff backup|wal archive min/max' | tail -6)
+log "$GK_ENV backups:"; printf '%s\n' "$summary"
+trap - ERR
+hc_ping "$slug" ok "$type backup of $GK_ENV done at $(ist)
+$summary"

@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# WireGuard peers and the workflows' snapshot SSH keys (plan §4.6, §5.1).
+# The peers, their addresses and ports are fixed in lib.sh; this only records
+# their PUBLIC keys. Run as root.
+#
+#   gk-peer list                         peers, keys set, last handshake
+#   gk-peer set-wg <peer> <wg-pubkey>    record a peer's WireGuard public key
+#   gk-peer set-ssh <peer> <ssh-pubkey>  record a workflow's snapshot SSH key
+#   gk-peer remove <peer>                forget both keys (tunnel and snapshot)
+#   gk-peer client-config <peer>         the peer's WireGuard config, without its private key
+#   gk-peer apply                        rewrite wg0.conf and gksnap's keys from the records
+. "${GK_KIT:-/opt/gokesari-db}/lib.sh"
+need_root
+
+wg_conf=/etc/wireguard/wg0.conf
+snap_keys=/var/lib/gokesari-db/gksnap/.ssh/authorized_keys
+
+valid_peer() { is_peer "$1" || die "Unknown peer '$1'. Peers: $(peer_names | tr '\n' ' ')"; }
+
+write_wg_conf() {
+  local name pub tmp
+  [ -s /etc/wireguard/server.key ] || die "No server key yet: run 20-wireguard.sh."
+  tmp=$(mktemp /etc/wireguard/.wg0.XXXXXX)
+  {
+    echo "# Written by gk-peer from $GK_PEERS_DIR. Edits here are overwritten."
+    echo "[Interface]"
+    echo "Address = $WG_SERVER_IP/24"
+    echo "ListenPort = $WG_PORT"
+    echo "PrivateKey = $(cat /etc/wireguard/server.key)"
+    for name in $(peer_names); do
+      [ -s "$GK_PEERS_DIR/$name.wg.pub" ] || continue
+      pub=$(cat "$GK_PEERS_DIR/$name.wg.pub")
+      printf '\n# %s (TCP %s)\n[Peer]\nPublicKey = %s\nAllowedIPs = %s/32\n' \
+        "$name" "$(peer_field "$name" 2)" "$pub" "$(peer_field "$name" 1)"
+    done
+  } > "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$wg_conf"
+  if ip link show wg0 >/dev/null 2>&1; then
+    wg syncconf wg0 <(wg-quick strip wg0)
+  fi
+}
+
+write_snap_keys() {
+  local name env tmp
+  id gksnap >/dev/null 2>&1 || { log "No gksnap user yet (50-roles.sh makes it); snapshot keys are applied then."; return 0; }
+  install -d -m 755 -o root -g root "$(dirname "$snap_keys")"
+  tmp=$(mktemp)
+  echo "# Written by gk-peer. Each key may run one command, for one database, from its own tunnel address." > "$tmp"
+  for name in $(peer_names); do
+    [ -s "$GK_PEERS_DIR/$name.ssh.pub" ] || continue
+    if peer_has_port "$name" 5432; then env=prod; else env=staging; fi
+    printf 'command="/usr/local/sbin/gk-db-snapshot %s",from="%s",restrict %s\n' \
+      "$env" "$(peer_field "$name" 1)" "$(cat "$GK_PEERS_DIR/$name.ssh.pub")" >> "$tmp"
+  done
+  install -m 644 -o root -g root "$tmp" "$snap_keys"
+  rm -f "$tmp"
+}
+
+cmd=${1:-list}
+case "$cmd" in
+  list)
+    printf '%-22s %-12s %-14s %-4s %-4s %s\n' PEER ADDRESS "TCP PORTS" WG SSH "LAST HANDSHAKE"
+    for name in $(peer_names); do
+      wgk=no; sshk=-; hs=-
+      if [ -s "$GK_PEERS_DIR/$name.wg.pub" ]; then
+        wgk=yes
+        t=$(wg show wg0 latest-handshakes 2>/dev/null | awk -v k="$(cat "$GK_PEERS_DIR/$name.wg.pub")" '$1==k {print $2}')
+        if [ -n "${t:-}" ] && [ "$t" != 0 ]; then hs="$(( ($(date +%s) - t) / 60 )) min ago"; else hs=never; fi
+      fi
+      if [ "$name" != owner-mac ] && peer_has_port "$name" 22; then
+        if [ -s "$GK_PEERS_DIR/$name.ssh.pub" ]; then sshk=yes; else sshk=no; fi
+      fi
+      printf '%-22s %-12s %-14s %-4s %-4s %s\n' "$name" "$(peer_field "$name" 1)" "$(peer_field "$name" 2)" "$wgk" "$sshk" "$hs"
+    done ;;
+  set-wg)
+    name=${2:-}; key=${3:-}
+    valid_peer "$name"
+    [[ "$key" =~ ^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw480]=$ ]] || die "That is not a WireGuard public key (44 characters ending in '=')."
+    [ "$key" != "$(cat /etc/wireguard/server.pub 2>/dev/null)" ] || die "That is the server's own key."
+    printf '%s\n' "$key" > "$GK_PEERS_DIR/$name.wg.pub"
+    write_wg_conf
+    log "WireGuard key recorded for $name ($(peer_field "$name" 1), TCP $(peer_field "$name" 2))." ;;
+  set-ssh)
+    name=${2:-}; shift 2 || true; key="$*"
+    valid_peer "$name"
+    [ "$name" != owner-mac ] && peer_has_port "$name" 22 || die "$name does not use the snapshot command."
+    printf '%s\n' "$key" | ssh-keygen -l -f /dev/stdin >/dev/null 2>&1 || die "That is not an SSH public key."
+    case "$key" in *$'\n'*|*'"'*) die "One key, on one line." ;; esac
+    printf '%s\n' "$key" > "$GK_PEERS_DIR/$name.ssh.pub"
+    write_snap_keys
+    log "Snapshot SSH key recorded for $name." ;;
+  remove)
+    name=${2:-}
+    valid_peer "$name"
+    rm -f "$GK_PEERS_DIR/$name.wg.pub" "$GK_PEERS_DIR/$name.ssh.pub"
+    write_wg_conf
+    write_snap_keys
+    log "Removed $name's keys. Its tunnel and snapshot login stop working now." ;;
+  client-config)
+    name=${2:-}
+    valid_peer "$name"
+    need_config VPS_PUBLIC_IP
+    cat <<EOF
+# WireGuard config for $name. Put the peer's OWN private key in place of the
+# placeholder; it never comes from the server.
+[Interface]
+Address = $(peer_field "$name" 1)/32
+PrivateKey = <this peer's private key>
+
+[Peer]
+PublicKey = $(cat /etc/wireguard/server.pub)
+Endpoint = $VPS_PUBLIC_IP:$WG_PORT
+AllowedIPs = $WG_SERVER_IP/32
+PersistentKeepalive = 25
+EOF
+    ;;
+  apply)
+    write_wg_conf
+    write_snap_keys ;;
+  *) die "Unknown command '$cmd'. See the top of $0." ;;
+esac

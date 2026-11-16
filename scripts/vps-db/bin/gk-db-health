@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Health check (plan §6.1). Run as root; the timers run it (70-schedules.sh).
+#
+#   gk-db-health          every 5 minutes. Problems that need action now go to
+#                         healthchecks.io check "gk-health", early warnings to "gk-warn".
+#   gk-db-health --cert   daily: the TLS certificate has 14+ days left ("gk-cert").
+#
+# What each message means and what to do: RUNBOOK.md Part 2.
+. "${GK_KIT:-/opt/gokesari-db}/lib.sh"
+need_root
+
+state=$GK_STATE/health
+install -d -m 700 "$state"
+crit=(); warn=()
+
+if [ "${1:-}" = --cert ]; then
+  cert=/etc/letsencrypt/live/gokesari-db/cert.pem
+  if [ ! -s "$cert" ]; then
+    hc_ping gk-cert fail "No certificate at $cert"; exit 1
+  elif openssl x509 -checkend $((14 * 86400)) -noout -in "$cert" >/dev/null; then
+    hc_ping gk-cert ok "Certificate valid until $(openssl x509 -enddate -noout -in "$cert" | cut -d= -f2)"
+  else
+    hc_ping gk-cert fail "Certificate expires $(openssl x509 -enddate -noout -in "$cert" | cut -d= -f2), under 14 days. certbot renew --cert-name gokesari-db"; exit 1
+  fi
+  exit 0
+fi
+
+mon() { local port=$1; shift; psql -X -h "$PG_SOCKET" -p "$port" -U monitor -d postgres -v ON_ERROR_STOP=1 -tA "$@"; }
+
+for env in prod staging; do
+  use_env "$env"
+  if ! "$PG_BIN/pg_isready" -q -h "$PG_SOCKET" -p "$PORT" -U monitor -d postgres || ! mon "$PORT" -c 'select 1' >/dev/null 2>&1; then
+    crit+=("$GK_ENV ($PORT) is DOWN or not answering")
+    continue
+  fi
+
+  # WAL archiving: a WAL file waiting over 15 minutes, or a failure newer than the last success.
+  stuck=$(find "$PGDATA/pg_wal/archive_status" -name '*.ready' -mmin +15 2>/dev/null | wc -l)
+  [ "$stuck" -eq 0 ] || crit+=("$GK_ENV: WAL archiving stuck ($stuck files waiting over 15 min). Point-in-time restore has a gap until fixed")
+  IFS='|' read -r failed last_fail_newer <<< "$(mon "$PORT" -c "select failed_count, coalesce(last_failed_time > coalesce(last_archived_time, 'epoch'), false) from pg_stat_archiver")"
+  [ "$last_fail_newer" != t ] || warn+=("$GK_ENV: the last WAL archive attempt failed ($failed failures since start); see /var/log/pgbackrest")
+
+  IFS='|' read -r used max <<< "$(mon "$PORT" -c "select count(*), current_setting('max_connections') from pg_stat_activity where backend_type = 'client backend'")"
+  [ $(( used * 100 )) -le $(( max * 70 )) ] || warn+=("$GK_ENV: $used of $max connections in use")
+
+  # Failed logins since the last run. Only allow-listed addresses can even try (access.sh).
+  logf=/var/log/postgresql/postgresql-$PG_MAJOR-$CLUSTER.log
+  if [ -r "$logf" ]; then
+    size=$(stat -c %s "$logf"); prev=$(cat "$state/log-$GK_ENV.offset" 2>/dev/null || echo 0)
+    [ "$size" -ge "$prev" ] || prev=0
+    fails=$(tail -c +"$((prev + 1))" "$logf" | grep -E 'password authentication failed|no pg_hba.conf entry' || true)
+    echo "$size" > "$state/log-$GK_ENV.offset"
+    if [ -n "$fails" ]; then
+      warn+=("$GK_ENV: $(printf '%s\n' "$fails" | wc -l) failed login(s): $(printf '%s\n' "$fails" | tail -3 | cut -c1-200 | tr '\n' ' ')")
+    fi
+  fi
+
+  # After the cut-over: no app connection for 3 runs in a row (15 min) usually means
+  # the Hostinger address changed and the firewall now drops it (RUNBOOK Part 2).
+  if [ "$APP_LIVE" = yes ] && [ -n "$APP_IPS" ]; then
+    ips="{$(printf '%s' "$APP_IPS" | tr ' ' ',')}"
+    n=$(mon "$PORT" -c "select count(*) from pg_stat_activity where client_addr = any('$ips'::inet[])")
+    misses=$(cat "$state/app-$GK_ENV.misses" 2>/dev/null || echo 0)
+    if [ "$n" -gt 0 ]; then misses=0; else misses=$((misses + 1)); fi
+    echo "$misses" > "$state/app-$GK_ENV.misses"
+    [ "$misses" -lt 3 ] || crit+=("$GK_ENV: no app connection from $APP_IPS for $((misses * 5)) min. Is the site up? Did Hostinger's outgoing IP change?")
+  fi
+done
+
+disk=$(df --output=pcent /var/lib/postgresql | tail -1 | tr -dc '0-9')
+if [ "$disk" -gt 85 ]; then crit+=("Disk $disk% full (over 85%). RUNBOOK Part 2, 'Disk filling'")
+elif [ "$disk" -gt 70 ]; then warn+=("Disk $disk% full (over 70%)"); fi
+[ -f /var/lib/postgresql/ballast ] || warn+=("The 2 GB spare file /var/lib/postgresql/ballast is gone (used in an emergency?). Recreate it once space is back")
+
+mem_free=$(awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "%d", a * 100 / t}' /proc/meminfo)
+[ "$mem_free" -ge 10 ] || warn+=("Memory: only $mem_free% available")
+load15=$(awk '{print $3}' /proc/loadavg)
+awk -v l="$load15" -v c="$(nproc)" 'BEGIN {exit !(l > 0.9 * c)}' && warn+=("CPU: 15-minute load $load15 on $(nproc) vCPU")
+
+summary="$(hostname) at $(ist)"
+if [ "${#crit[@]}" -gt 0 ]; then
+  log "CRITICAL:"; printf '  %s\n' "${crit[@]}"
+  hc_ping gk-health fail "$summary
+$(printf '%s\n' "${crit[@]}")"
+else
+  hc_ping gk-health ok "$summary: both instances up, archiving OK, disk $disk%"
+fi
+if [ "${#warn[@]}" -gt 0 ]; then
+  log "WARNING:"; printf '  %s\n' "${warn[@]}"
+  hc_ping gk-warn fail "$summary
+$(printf '%s\n' "${warn[@]}")"
+else
+  hc_ping gk-warn ok "$summary: no warnings"
+fi
+[ "${#crit[@]}" -eq 0 ]
