@@ -2280,9 +2280,104 @@
       "actual": "With rule fulfilmentOptions on, the button comes from the fulfilment planner (src/components/fulfilment-planner.tsx:351, disabled only for busy / no slot / no staff) and is enabled while a line shows '(waiting for customer)'. The old button (shop-order-manager.tsx:369) was disabled by waitingOnCustomer.",
       "expected": "The button is disabled until the customer accepts or refuses the substitute.",
       "fix": "The order card passes waitingOnCustomer to FulfilmentPlanner, which disables the mark-ready submit while it is set; changing a saved plan is not affected. Unit test tests/unit/fulfilment-planner-waiting-on-customer.test.ts. The server already refused: POST ready while the customer decides answers 409 and the order stays PREPARING (re-test 09-Nov 22.08 IST).",
-      "status": "Fixed (re-test pending)",
+      "status": "Fixed - retest passed",
       "fixedIn": "PR #383, on production 11-Nov-2026 (release #386)",
+      "retest": "16-Nov-2026 staging (staging-regression-neon-2026-11-16): TC-FUL-007/008 pass on desktop (11.42 IST) and phone (12.37 IST) — 'Packed — mark ready' is disabled while the customer decides; READY while pending → 409; approving refunds ₹20 at once."
+    },
+    {
+      "id": "D-148",
+      "title": "Phone: a saved address cannot be deleted — the 'Yes, delete' confirmation runs off the right edge of the address card",
+      "cases": [
+        "TC-LOC-008"
+      ],
+      "severity": "Medium",
+      "found": "2026-11-16 staging run staging-regression-neon-2026-11-16 (phone, Pixel 7, 12.53 IST). The same check failed on the phone on 09-Nov too, when it was filed as a test problem.",
+      "actual": "On /addresses at 412 px, Delete opens the inline confirmation 'Delete this address? / Yes, delete / Cancel' inside the card's action group (src/components/address-manager.tsx:140, 'flex shrink-0 gap-2'; src/components/confirm-button.tsx:38). The group cannot shrink, so the question and 'Yes, delete' sit past the card's right edge, and the page clips sideways overflow (src/app/globals.css:59 and :68, overflow-x hidden / clip), so they cannot be scrolled into view. Playwright: getByRole('button', { name: 'Yes, delete' }) — 'element is outside of the viewport' for 30 s. Screenshot: test-results/qa/artifacts/test.gokesari.com/signed-in-shopping-locatio-a6f23-d-one-is-gone-from-the-cart-mobile/test-failed-2.png (card 'Office mwix81hy': 'Delete this addres' cut at the screen edge). The same check passes on desktop.",
+      "expected": "On a phone the customer can confirm and delete a saved address (TC-LOC-008: add, edit, set default, delete).",
+      "fix": "Let the card's action row wrap under the address on narrow screens (flex-wrap; actions full width below sm), or show the confirmation on its own line or in a dialog. Not fixed in this run (product code out of scope).",
+      "status": "Open",
+      "fixedIn": null,
       "retest": null
+    },
+    {
+      "id": "D-149",
+      "title": "Phone (Android): the 'Get the GoKesari app' sheet covers the bottom of the page until 'Not now', hiding the last button (the shop's 'Packed — mark ready')",
+      "cases": [
+        "TC-FUL-005",
+        "TC-FUL-006"
+      ],
+      "severity": "Low",
+      "found": "2026-11-16 staging run staging-regression-neon-2026-11-16 (phone, Pixel 7 Android, 12.37 IST). TC-FUL-005/006 also failed on the phone on 09-Nov (cause not traced then).",
+      "actual": "The install sheet (src/components/app-install/install-prompt.tsx:246, 'fixed inset-x-0 bottom-0 z-[45]', data-method android-menu) shows on every page load until the app is installed (rule of 31-Oct, docs/app-install-2026-10) and the page keeps no room under it. On /shop/orders the order card's 'Packed — mark ready' is the last element of the page and stays under the sheet even when scrolled to the end: Playwright found the button visible and enabled, but the sheet's Install button / card took the click for 30 s. Screenshot: test-results/qa/artifacts/test.gokesari.com/signed-in-orders-fulfil-TC-49423-EADY-and-a-rider-is-offered-mobile/test-failed-2.png. A person can tap 'Not now' and go on; the sheet returns on the next page load. Desktop passes.",
+      "expected": "A shop owner can reach every action on a phone without first dismissing a prompt, or the page leaves room under the sheet.",
+      "fix": "Keep the sheet's height free at the bottom of the page while it shows (padding under the main content), or show it less often inside Seller Central. The phone checks should also tap 'Not now'. Needs the owner's view: 'every visit until installed' is an owner rule.",
+      "status": "Open (owner decision)",
+      "fixedIn": null,
+      "retest": null
+    },
+    {
+      "id": "E-26",
+      "title": "A return pickup of the 09-Nov run (RT-82EEF80E) was left 'on the way to the customer' on the staging rider: a second 'Confirm pickup' and the customer's full address on the rider screen",
+      "cases": [
+        "TC-DEL-004",
+        "TC-FLD-085",
+        "TC-DEL-005",
+        "TC-DEL-006"
+      ],
+      "severity": "Info",
+      "found": "2026-11-16 staging run staging-regression-neon-2026-11-16",
+      "actual": "Return pickup 229cba9a-39c2-469e-a4f4-03ec33a3865d (RT-82EEF80E) was offered and accepted 09-Nov 20.30 IST, set EN_ROUTE 20.31 IST and never finished. Its card on /delivery-partner carries its own 'Confirm pickup' and 'Collect from: E2E Lifecycle Test, 12 FC Road'. At 11.32-11.33 IST TC-DEL-004/TC-FLD-085 met two 'Confirm pickup' buttons (strict-mode error; both disabled — the delivery card was right) and TC-DEL-005/006 found the full address before pickup, from the return card. Most likely also the cause of 09-Nov's unexplained phone failure of TC-DEL-004/TC-FLD-085.",
+      "expected": "No live return pickup left on the test rider between runs.",
+      "fix": "Closed with the rider's 'could not collect' (PATCH /api/return-pickups/229cba9a-…, action fail) at 11.35 IST; the return went back to APPROVED. The returns spec should close its pickups when it ends.",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": "16-Nov-2026 staging: TC-DEL-004/TC-FLD-085 and TC-DEL-005/006 pass on the phone (12.3x IST) and on desktop re-run 12.56-12.57 IST."
+    },
+    {
+      "id": "E-27",
+      "title": "SD-06 expects the registration wizard for gk-shop, but since P2-D3 (09-Nov 21.49 IST) an account with a shop waiting for approval is told so instead",
+      "cases": [
+        "SD-06"
+      ],
+      "severity": "Info",
+      "found": "2026-11-16 staging run staging-regression-neon-2026-11-16",
+      "actual": "/shop/register for gk-shop shows 'QA Docs 2026-10-29 mw273ehr is already waiting for approval. You'll be notified once it's reviewed — you can add another shop after that.' with 'Go to my shop' (data-testid registration-waiting) and no registration-tiles. That notice is P2-D3 (commit 9bee75c8). The QA shop has waited since 29-Oct, which also blocks SD-01 to SD-07.",
+      "expected": "SD-06 checks the wizard with an account that has no waiting shop, or accepts the waiting notice for one that has.",
+      "fix": "Update SD-06 (test). Or the owner approves or rejects the 29-Oct QA shop (the QA agent does not approve on staging).",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": null
+    },
+    {
+      "id": "E-28",
+      "title": "TC-RET-010's last screen check looks for the refunded return on page 1 of the shop's 'All' returns tab, which lists open cases first, 5 a page",
+      "cases": [
+        "TC-RET-010",
+        "TC-FLD-098"
+      ],
+      "severity": "Info",
+      "found": "2026-11-16 staging run staging-regression-neon-2026-11-16",
+      "actual": "RT-52509C56: the API half passed (0, negative, text, 3 decimals, huge and over-paid amounts → 422; ₹70.50 stored as 7050 paise; wallet +7050). After the reload, page 1 of /shop/returns?tab=all held 2 'Under review' cases from this run (10.58 and 11.06 IST) and 3 'Approved' cases left from 09-Nov (RT-6FBC0B03, RT-BA836D08, RT-87E48A13), so the completed case was on page 2.",
+      "expected": "The check finds the case wherever it is listed.",
+      "fix": "Test: look for the case across pages or open it by link. Test data: close the three 09-Nov approved returns.",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": null
+    },
+    {
+      "id": "E-29",
+      "title": "The 6-hourly staging cron (11.30 IST) cancelled and refunded another test order while TC-ORD-013 was measuring the wallet",
+      "cases": [
+        "TC-ORD-013"
+      ],
+      "severity": "Info",
+      "found": "2026-11-16 staging run staging-regression-neon-2026-11-16",
+      "actual": "TC-ORD-013 expected 528400 paise and saw 534900 (+6500). The ledger shows its own order DB-20261116-Z7UMTE (₹85) refunded once (11.30.06 IST). The extra ₹65 is order DB-20261116-XVXAPY (Bread ₹40 + ₹25 delivery, placed 10.53 IST, never accepted), cancelled and refunded once by the acceptance timeout at 11.30.02 IST, when the staging cron line (now 0 */6 * * *) ran.",
+      "expected": "Wallet back to the start after two parallel cancels (one refund).",
+      "fix": "None needed. With the cron every 6 hours, unaccepted test orders now wait until 05.30 / 11.30 / 17.30 / 23.30 IST to time out; a check that reads the wallet across those moments can see another order's refund.",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": "16-Nov-2026 12.56 IST staging: TC-ORD-013 passes alone (one refund)."
     }
   ]
 }
