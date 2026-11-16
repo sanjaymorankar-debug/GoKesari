@@ -214,7 +214,7 @@ The apps are WebViews of the site with the `/shop/register` deep link, location 
 | P2-D3 | Minor | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there (two of the three; see below) | Three refusals arrive only at the last step ("Create my shop and pay"): account with a shop awaiting approval, same shop name at the PIN, inactive PAN. The owner fills every screen first. | Seen in staging runs; no separate screenshot |
 | P2-D4 | Low | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there (see below) | Once a referral code is saved it cannot be changed or cleared ("the first one is kept"), yet the field stays editable. | Seen in staging runs; no separate screenshot |
 | P2-D5 | Low | Found 15-Nov-2026 in the staging re-test. **Fixed on branch `fix/onboarding-p2-d5`, checked locally 15-Nov-2026 02.14 IST; sent through the staging queue.** Not yet on Test or Production | Two Seller Central pages still use approval wording for an unpaid shop: "Registration and fee" shows "Shop status: pending approval", and the "Today's work" alert says the shop "moves to final approval" after paying, with a step "3. Approved by GoKesari". A shop with a verified GSTIN or PAN goes live as soon as the fee is paid. | p2-defects-staging-2026-11-14/d1-registration-page-*.png, d1-manage-today-*.png |
-| P2-D6 | Low | Open, found 15-Nov-2026 02.14 IST on a local server; not fixed | A shop registered between 00.00 and 05.29 IST gets the previous day as its registration date: the date is taken in UTC (`src/server/services/shops.ts:476`, `new Date().toISOString()`). A shop created on 15-Nov at 02.14 IST shows "Registration date 14/11/2026". Applies to every new shop, on Test and Production. | p2-d5-local-2026-11-15/d5-wizard-registration-390.png |
+| P2-D6 | Low | Found 15-Nov-2026 02.14 IST on a local server. **Fixed on branch `fix/shop-registration-date-ist` (PR #392), checked locally 16-Nov-2026 06.29 IST; in the staging queue.** Not yet on Test or Production | A shop registered between 00.00 and 05.29 IST gets the previous day as its registration date: the date is taken in UTC (`src/server/services/shops.ts:476`, `new Date().toISOString()`). A shop created on 15-Nov at 02.14 IST shows "Registration date 14/11/2026". Applies to every new shop, on Test and Production. | p2-d5-local-2026-11-15/d5-wizard-registration-390.png |
 
 Notes, not defects: later wizard screens are still mostly English; held GST / PAN duplicates still see "Payment received — pending admin approval" (intended, they need a review); `/shop/register` needs a reload after a sandbox payment.
 
@@ -275,6 +275,19 @@ Fixed on branch `fix/onboarding-p2-d5` (from `staging` 61670b93) and sent throug
 **Results, 15-Nov-2026:** focused tests 02.09–02.10 IST: 63 of 63 pass in 5 files (onboarding states, approval documents, wizard step 2, Seller Central, registration panel). Type-check and lint clean. The whole suite runs in the pull request's CI. Screen check on a local server with a throwaway database, 02.14 IST: 16 of 16 pass (an unpaid wizard shop on Today's work, Registration and fee and the seller home; an unpaid old-form shop on Today's work and Registration and fee; each at 1280 and 390 px). Evidence: `p2-d5-local-2026-11-15/`.
 
 **Still to do:** see it on test.gokesari.com once the staging queue has deployed it, then on gokesari.com after the next release.
+
+## Defect fix P2-D6 (16-Nov-2026, IST)
+
+Fixed on branch `fix/shop-registration-date-ist` (from `staging` 1ddd2926), PR #392, sent through the staging queue.
+
+| What changed | How it was checked |
+|---|---|
+| A new shop's registration date is now the date in IST (`todayIn(APP_TIMEZONE)`), not the UTC date. A shop registered at 02.14 IST on 15-Nov is dated 15-Nov. A date an operator enters is still kept as given. | Integration test: 02.14 IST on 15-Nov gives 2026-11-15 (the old code gave 2026-11-14); 12.00 IST gives the same day |
+| Checked, no change: the single registration flow (`src/server/registration/service.ts`) already dates its shop in IST, and no other code writes a shop's registration date. | Code read |
+
+**Results, 16-Nov-2026 06.29 IST:** 22 of 22 pass in 3 files (registration date, shop location, registration fees) on a local throwaway database. Lint clean on the changed files; type-check clean for this change. Shops registered before the fix keep the date they were given.
+
+**Still to do:** see a shop registered after midnight IST on test.gokesari.com once the staging queue has deployed it, then on gokesari.com after the next release.
 
 ## Test data left on staging
 
