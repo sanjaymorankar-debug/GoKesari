@@ -8,13 +8,35 @@
 #          changed
 #   copy   the same, saved; needs confirm = COPY SHOPS TO PRODUCTION
 #   sql    no production access at all: turns the export into two SQL files
-#          (PREVIEW, then APPLY) to run by hand in the Neon console against
-#          production — same rules, carried out inside the database
+#          (PREVIEW, then APPLY) to run by hand against production — same
+#          rules, carried out inside the database. Production on Neon: Neon
+#          console → SQL Editor. Production on GoKesari's own database server
+#          (VPS): psql from the owner's Mac over WireGuard.
 #
 # Two jobs, so each database's password is given to one job only: "export"
 # runs in the test environment and only reads the test database; "copy" runs
 # in the production environment and only reads the export. The export passes
 # between them as a private artifact kept for one day.
+#
+# Where each database lives is read from its host variable: TEST_DATABASE_HOST
+# (test environment) for "export", PROD_DATABASE_HOST (production environment)
+# for "copy". A .neon.tech host is reached directly, as before. Any other host
+# is GoKesari's own database server (VPS; docs/neon-to-vps-2026-11/): the job
+# first joins the server's WireGuard network with a key of its own, before any
+# step that touches the database, and points that host name at the server.
+#   export  peer gh-copy-shops-export (10.66.0.22): the staging database (5433)
+#           only. Secret VPS_WG_KEY_COPY_SHOPS_EXPORT on `test`.
+#   copy    peer gh-copy-shops (10.66.0.24): production (5432) and the snapshot
+#           command. Secrets VPS_WG_KEY_COPY_SHOPS and VPS_SSH_KEY_COPY_SHOPS on
+#           `production`, and PROD_DATABASE_HOST must be set.
+# Both environments also need the variables VPS_WG_SERVER_PUBLIC_KEY and
+# VPS_WG_ENDPOINT; production needs VPS_SSH_KNOWN_HOSTS. A host whose port is
+# not 5432 is written host:port (TEST_DATABASE_HOST = db-test.gokesari.com:5433).
+#
+# Before a copy is saved, the run records the point an undo would go back to:
+# on Neon the time and WAL position (Neon → Restore to that time); on the VPS a
+# snapshot on the server and a restore point of the same name
+# (docs/neon-to-vps-2026-11/RUNBOOK.md, "Restores").
 #
 # There is no push or schedule trigger: nothing here runs on its own.
 name: Copy shops to production
@@ -23,7 +45,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: plan (nothing saved), copy (saved to PRODUCTION), or sql (SQL files to run in the Neon console)
+        description: plan (nothing saved), copy (saved to PRODUCTION), or sql (SQL files to run by hand — Neon console, or psql over WireGuard)
         type: choice
         default: plan
         options: [plan, copy, sql]
@@ -63,6 +85,37 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Plan — where the test database is
+        env:
+          TEST_HOST: ${{ vars.TEST_DATABASE_HOST }}
+        run: |
+          case "${TEST_HOST%%:*}" in
+            "") provider=unset ;;           # the guard stops the run and says why
+            *.neon.tech) provider=neon ;;   # Neon: reached directly, as before
+            *) provider=vps ;;              # GoKesari's own server: over WireGuard
+          esac
+          hosts=""
+          if [ "$provider" = vps ]; then
+            [[ "$TEST_HOST" =~ ^[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "::error::Variable TEST_DATABASE_HOST must be a host name or host:port (it is '$TEST_HOST'). Stopping before any change."; exit 1; }
+            hosts=$TEST_HOST
+          fi
+          { echo "DB_PROVIDER=$provider"; echo "VPS_HOSTS=$hosts"; } >> "$GITHUB_ENV"
+          echo "Test database: $provider${hosts:+ ($hosts, over WireGuard)}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Connect to the database server (WireGuard)
+        if: env.DB_PROVIDER == 'vps'
+        # Peer gh-copy-shops-export (10.66.0.22): the staging database (5433) only, no SSH.
+        uses: ./.github/actions/vps-db-tunnel
+        with:
+          private-key: ${{ secrets.VPS_WG_KEY_COPY_SHOPS_EXPORT }}
+          private-key-name: VPS_WG_KEY_COPY_SHOPS_EXPORT
+          peer: gh-copy-shops-export
+          address: 10.66.0.22
+          server-public-key: ${{ vars.VPS_WG_SERVER_PUBLIC_KEY }}
+          endpoint: ${{ vars.VPS_WG_ENDPOINT }}
+          hosts: ${{ env.VPS_HOSTS }}
+          environment: test
+
       - name: Guard — test database, read only
         id: guard
         env:
@@ -98,6 +151,11 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Disconnect from the database server
+        if: always() && env.DB_PROVIDER == 'vps'
+        # The key file was removed by the step that wrote it; this closes the tunnel.
+        run: sudo ip link delete dev gkdb 2>/dev/null || true
+
   sql:
     needs: export
     if: github.ref == 'refs/heads/main' && inputs.mode == 'sql'
@@ -130,9 +188,14 @@ jobs:
           npx tsx scripts/copy-shops/to-sql.ts
           {
             echo "### SQL files ready"
-            echo "Download **copy-shops-sql** below (Artifacts). Unzip it, then in the Neon console → the PRODUCTION project → SQL Editor:"
+            echo "Download **copy-shops-sql** below (Artifacts) and unzip it. Run the files against PRODUCTION, the way that fits where it is:"
+            echo "- **On Neon:** Neon console → the PRODUCTION project → SQL Editor → paste the whole file → Run."
+            echo "- **On GoKesari's own database server (VPS):** on the owner's Mac with the WireGuard tunnel on, \`psql \"host=10.66.0.1 port=5432 dbname=gokesari user=gokesari_app sslmode=require\" -X -v ON_ERROR_STOP=1 -f <file>\` (the password is in the password manager)."
+            echo
             echo "1. run \`copy-shops-1-PREVIEW.sql\` — changes nothing, lists what would happen;"
-            echo "2. if that is right, run \`copy-shops-2-APPLY.sql\` — saves the shops."
+            echo "2. if that is right, note the time, then run \`copy-shops-2-APPLY.sql\` — saves the shops."
+            echo
+            echo "To undo an APPLY: on Neon, Neon console → the production project → Restore → to the time you noted; on the VPS, restore to that time (docs/neon-to-vps-2026-11/RUNBOOK.md, \"Restores\": destructive, owner's OK first)."
             echo
             echo "The files hold the shops' owner contact details: kept 3 days, then deleted. docs/copy-shops-2026-10/README.md"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -158,6 +221,37 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Plan — where production is
+        env:
+          PROD_HOST: ${{ vars.PROD_DATABASE_HOST }}
+        run: |
+          case "${PROD_HOST%%:*}" in
+            "") provider=unset ;;           # Neon as before; the guard refuses any other URL host
+            *.neon.tech) provider=neon ;;   # Neon: reached directly, as before
+            *) provider=vps ;;              # GoKesari's own server: over WireGuard
+          esac
+          hosts=""
+          if [ "$provider" = vps ]; then
+            [[ "$PROD_HOST" =~ ^[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "::error::Variable PROD_DATABASE_HOST must be a host name or host:port (it is '$PROD_HOST'). Stopping before any change."; exit 1; }
+            hosts=$PROD_HOST
+          fi
+          { echo "DB_PROVIDER=$provider"; echo "VPS_HOSTS=$hosts"; } >> "$GITHUB_ENV"
+          echo "Production database: $provider${hosts:+ ($hosts, over WireGuard)}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Connect to the database server (WireGuard)
+        if: env.DB_PROVIDER == 'vps'
+        # Peer gh-copy-shops (10.66.0.24): production (5432) and the snapshot command (SSH).
+        uses: ./.github/actions/vps-db-tunnel
+        with:
+          private-key: ${{ secrets.VPS_WG_KEY_COPY_SHOPS }}
+          private-key-name: VPS_WG_KEY_COPY_SHOPS
+          peer: gh-copy-shops
+          address: 10.66.0.24
+          server-public-key: ${{ vars.VPS_WG_SERVER_PUBLIC_KEY }}
+          endpoint: ${{ vars.VPS_WG_ENDPOINT }}
+          hosts: ${{ env.VPS_HOSTS }}
+          environment: production
+
       - name: Guard — production, by hand, confirmed
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
@@ -167,8 +261,8 @@ jobs:
           CONFIRM: ${{ inputs.confirm }}
         run: scripts/copy-shops/guard.sh
 
-      - name: Restore point
-        if: inputs.mode == 'copy'
+      - name: Restore point (Neon)
+        if: inputs.mode == 'copy' && env.DB_PROVIDER != 'vps'
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: |
@@ -180,6 +274,19 @@ jobs:
             echo
             echo "To undo: Neon console → the production project → Restore → to this time (docs/event-driven-2026-10/PROD_DB.md)."
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore point (database server snapshot)
+        if: inputs.mode == 'copy' && env.DB_PROVIDER == 'vps'
+        # A dump on the server plus a restore point named copy-shops-<date>-run<N>;
+        # no rows leave the server. Stops the run before copying if it fails.
+        uses: ./.github/actions/vps-db-snapshot
+        with:
+          ssh-key: ${{ secrets.VPS_SSH_KEY_COPY_SHOPS }}
+          ssh-key-name: VPS_SSH_KEY_COPY_SHOPS
+          known-hosts: ${{ vars.VPS_SSH_KNOWN_HOSTS }}
+          environment: production
+          name-prefix: copy-shops
+          title: Restore point (before copying)
 
       - uses: actions/setup-node@v5
         with:
@@ -202,3 +309,8 @@ jobs:
         run: |
           npx tsx scripts/copy-shops/copy-shops.ts
           cat "$REPORT_FILE" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Disconnect from the database server
+        if: always() && env.DB_PROVIDER == 'vps'
+        # The key files were removed by the steps that wrote them; this closes the tunnel.
+        run: sudo ip link delete dev gkdb 2>/dev/null || true
