@@ -472,9 +472,10 @@ export async function registerShop(
         .insert(shops)
         .values({
           ownerId,
+          // Today in IST, not UTC: a shop registered at 02.14 IST is dated that day (P2-D6).
           registrationDate:
             (privileged ? input.registrationDate : null) ??
-            new Date().toISOString().slice(0, 10),
+            todayIn(getEnv().APP_TIMEZONE),
           registrationFeePaise,
           // Provenance: the schedule row only when the base came from it.
           registrationFeeId: base?.feeId ?? null,
