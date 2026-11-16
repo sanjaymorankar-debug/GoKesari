@@ -253,6 +253,7 @@ The names keep `DATABASE_URL` independent of the server's IP address: moving to 
   - the `test-db` key: port 5433, plus SSH;
   - the `copy-shops` export key: port 5433 only;
   - the `prod-db` and `copy-shops` copy keys: port 5432, plus SSH.
+  - **Gap found 17-Nov-2026:** `prod-db.yml` also reads the test database (its preflight and `tested-on-test.sh` use `TEST_DATABASE_URL`), so the `prod-db` key needs port 5433 too, for that read-only check.
 - The addresses and ports are in [scripts/vps-db/lib.sh](../../scripts/vps-db/lib.sh).
 - The runner adds `/etc/hosts` lines, so the URLs keep their public names (`db.gokesari.com`, `db-test.gokesari.com`). TLS names and the host guards then still match.
 - The owner's Mac gets its own WireGuard key, for `psql`, TablePlus or pgAdmin. These replace Neon's SQL editor.
@@ -466,8 +467,8 @@ These go through the normal staging → main release, one at a time per CLAUDE.m
 
 | Where | Change |
 |---|---|
-| GitHub `test` environment | `TEST_DATABASE_URL` (secret), `TEST_DATABASE_HOST` = `db-test.gokesari.com`, `TEST_DATABASE_NAME`. New: the WireGuard key for `test-db` and the snapshot SSH key. After retirement: remove `TEST_NEON_API_KEY` and `TEST_NEON_PROJECT_ID`. |
-| GitHub `production` environment (and repository level, where set) | `PROD_DATABASE_URL`, `PROD_DATABASE_HOST` = `db.gokesari.com`, `PROD_DATABASE_NAME`, `TEST_DATABASE_HOST`. New: WireGuard keys for `prod-db` and `copy-shops`, the snapshot SSH key. Remove `NEON_API_KEY` and `NEON_PROJECT_ID`, plus the split-era secrets the 16-Nov record already lists. |
+| GitHub `test` environment | `TEST_DATABASE_URL` (secret), `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433` (with the port: the guards compare it, PR #400), `TEST_DATABASE_NAME`. New: the WireGuard key for `test-db` and the snapshot SSH key. After retirement: remove `TEST_NEON_API_KEY` and `TEST_NEON_PROJECT_ID`. |
+| GitHub `production` environment (and repository level, where set) | `PROD_DATABASE_URL`, `PROD_DATABASE_HOST` = `db.gokesari.com`, `PROD_DATABASE_NAME`, `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`. New: WireGuard keys for `prod-db` and `copy-shops`, the snapshot SSH key. Remove `NEON_API_KEY` and `NEON_PROJECT_ID`, plus the split-era secrets the 16-Nov record already lists. |
 | hPanel → each site → environment variables | `DATABASE_URL`. `DATABASE_IDLE_TIMEOUT_SECONDS`: remove or keep (section 4.7). Plus the unused split-era variables already listed on 16-Nov. |
 | hPanel → DNS | A records `db` and `db-test` → the VPS's IP address (TTL 300) |
 | hPanel → cron (test.gokesari.com) | Every-minute line, per decision 7 |
@@ -513,6 +514,15 @@ The section 7A changes go into `staging` through the queue. Then:
 - set the new GitHub secrets for WireGuard and the snapshot keys;
 - run "Test database → verify" while still on Neon. The new steps must not break anything.
 
+**Status (17-Nov-2026, 00.24 IST):** A1, A2, A3, A4 and A7 are in PR #400, labelled `ready-for-staging`. The WireGuard and snapshot keys were set during G2. Found while building it, to settle before S6:
+- `TEST_DATABASE_HOST` must carry the port (`db-test.gokesari.com:5433`), or the guard refuses the run. `PROD_DATABASE_HOST` stays `db.gokesari.com` (5432).
+- `prod-db.yml` (preflight, `tested-on-test.sh`) and `copy-shops.yml` ("export") read the test database from GitHub's runners. After S6 they cannot reach it until B1 and B2 add their WireGuard steps. So either B1 and B2 land before S6, or those two workflows are not run between S6 and the production move.
+- `scripts/copy-shops/guard.sh` still compares the host only. B2 adds the port check.
+- Workflow URLs keep `sslmode=require`, because WireGuard already proves the server.
+- The app's `DATABASE_URL` uses `sslmode=verify-full` with no `sslrootcert`. postgres.js would send `sslrootcert` to the server as a setting, and the server refuses it.
+- `copy.sh` needs `ALLOW_RENAME=yes` (`neondb` → `gokesari_test`).
+- The target needs `postgres_fdw`, or the copy stops at the extensions check (section 4.4).
+
 ### 8.3 Phase 3: staging cut-over
 
 Booked window: 60 minutes.
@@ -525,7 +535,7 @@ Booked window: 60 minutes.
 | S3 | Copy, running on the VPS (Singapore → Mumbai): `REQUIRE_FROZEN=yes scripts/db-region-move/copy.sh`. About 2–3 min for 18 MB. | session |
 | S4 | `compare.sh` (row counts, sequences, objects, extensions) plus checksums: **must be identical** | session |
 | S5 | Freeze the VPS copy too (read-only) until the checks below pass | session |
-| S6 | GitHub `test` environment: the new `TEST_DATABASE_URL`, `TEST_DATABASE_HOST`, `TEST_DATABASE_NAME`. Production environment: `TEST_DATABASE_HOST`. | owner, or session with OK |
+| S6 | GitHub `test` environment: the new `TEST_DATABASE_URL` (`sslmode=require`), `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`, `TEST_DATABASE_NAME` = `gokesari_test`. Production environment: `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`. | owner, or session with OK |
 | S7 | hPanel → test.gokesari.com: `DATABASE_URL` → `db-test.gokesari.com:5433`; redeploy | owner, or session with OK |
 | S8 | `scripts/release/post-deploy-check.sh https://test.gokesari.com`. On the VPS: app connections come from the Hostinger IP. On Neon: none. | session |
 | S9 | **Open writes** on the VPS and end the app's connections, so its pool reconnects writable | session |
@@ -536,7 +546,7 @@ Booked window: 60 minutes.
 **Then 7 days of watching.** The production gate needs all of these:
 - every backup green, 7 out of 7;
 - no WAL archive failures;
-- the restore drill passed from R2;
+- the restore drill passed from the server's own backups (repo1), and the newest dump pulled to the Mac restores on the Mac (no R2, decision 3);
 - no unexpected rejected connections;
 - CPU, memory and disk within limits;
 - the round trip measured;
