@@ -213,8 +213,8 @@ The apps are WebViews of the site with the `/shop/register` deep link, location 
 | P2-D2 | Minor | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there | The note "Your last payment did not go through" never appears in the wizard: nothing sets the fee status to FAILED. The shop correctly stays not live, Pay is offered and retry works. The fee page's own note also did not appear within about 4 minutes. | p2-14-*.png; `onboarding-wizard.tsx:446` |
 | P2-D3 | Minor | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there (two of the three; see below) | Three refusals arrive only at the last step ("Create my shop and pay"): account with a shop awaiting approval, same shop name at the PIN, inactive PAN. The owner fills every screen first. | Seen in staging runs; no separate screenshot |
 | P2-D4 | Low | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there (see below) | Once a referral code is saved it cannot be changed or cleared ("the first one is kept"), yet the field stays editable. | Seen in staging runs; no separate screenshot |
-| P2-D5 | Low | Found 15-Nov-2026 in the staging re-test. **Fixed on branch `fix/onboarding-p2-d5`, checked locally 15-Nov-2026 02.14 IST; sent through the staging queue.** Not yet on Test or Production | Two Seller Central pages still use approval wording for an unpaid shop: "Registration and fee" shows "Shop status: pending approval", and the "Today's work" alert says the shop "moves to final approval" after paying, with a step "3. Approved by GoKesari". A shop with a verified GSTIN or PAN goes live as soon as the fee is paid. | p2-defects-staging-2026-11-14/d1-registration-page-*.png, d1-manage-today-*.png |
-| P2-D6 | Low | Found 15-Nov-2026 02.14 IST on a local server. **Fixed on branch `fix/shop-registration-date-ist` (PR #392), checked locally 16-Nov-2026 06.29 IST; in the staging queue.** Not yet on Test or Production | A shop registered between 00.00 and 05.29 IST gets the previous day as its registration date: the date is taken in UTC (`src/server/services/shops.ts:476`, `new Date().toISOString()`). A shop created on 15-Nov at 02.14 IST shows "Registration date 14/11/2026". Applies to every new shop, on Test and Production. | p2-d5-local-2026-11-15/d5-wizard-registration-390.png |
+| P2-D5 | Low | Found 15-Nov-2026 in the staging re-test. **Fixed (PR #389): verified by the staging queue on test.gokesari.com 15-Nov-2026 04.16 IST, released to gokesari.com in release #388 (15-Nov-2026 11.25 IST). Re-checked signed in on test.gokesari.com 16-Nov-2026 06.40 IST: 8 of 8 PASS.** Closed | Two Seller Central pages still use approval wording for an unpaid shop: "Registration and fee" shows "Shop status: pending approval", and the "Today's work" alert says the shop "moves to final approval" after paying, with a step "3. Approved by GoKesari". A shop with a verified GSTIN or PAN goes live as soon as the fee is paid. | p2-defects-staging-2026-11-14/d1-registration-page-*.png, d1-manage-today-*.png |
+| P2-D6 | Low | Found 15-Nov-2026 02.14 IST on a local server. **Fixed (PR #392), checked locally 16-Nov-2026 06.29 IST. On Test since 16-Nov-2026 08.28 IST (passed the staging queue).** Date itself not yet re-checked on Test; not yet on Production | A shop registered between 00.00 and 05.29 IST gets the previous day as its registration date: the date is taken in UTC (`src/server/services/shops.ts:476`, `new Date().toISOString()`). A shop created on 15-Nov at 02.14 IST shows "Registration date 14/11/2026". Applies to every new shop, on Test and Production. | p2-d5-local-2026-11-15/d5-wizard-registration-390.png |
 
 Notes, not defects: later wizard screens are still mostly English; held GST / PAN duplicates still see "Payment received — pending admin approval" (intended, they need a review); `/shop/register` needs a reload after a sandbox payment.
 
@@ -264,7 +264,7 @@ Notes:
 
 ## Defect fix P2-D5 (15-Nov-2026, IST)
 
-Fixed on branch `fix/onboarding-p2-d5` (from `staging` 61670b93) and sent through the staging queue.
+Fixed on branch `fix/onboarding-p2-d5` (from `staging` 61670b93). Opened as PR #389 into `staging` with the `ready-for-staging` label on 15-Nov-2026 at 02.16 IST.
 
 | What changed | How it was checked |
 |---|---|
@@ -274,7 +274,22 @@ Fixed on branch `fix/onboarding-p2-d5` (from `staging` 61670b93) and sent throug
 
 **Results, 15-Nov-2026:** focused tests 02.09–02.10 IST: 63 of 63 pass in 5 files (onboarding states, approval documents, wizard step 2, Seller Central, registration panel). Type-check and lint clean. The whole suite runs in the pull request's CI. Screen check on a local server with a throwaway database, 02.14 IST: 16 of 16 pass (an unpaid wizard shop on Today's work, Registration and fee and the seller home; an unpaid old-form shop on Today's work and Registration and fee; each at 1280 and 390 px). Evidence: `p2-d5-local-2026-11-15/`.
 
-**Still to do:** see it on test.gokesari.com once the staging queue has deployed it, then on gokesari.com after the next release.
+**Where it is (16-Nov-2026 06.35 IST):** merged into `staging` 15-Nov-2026 03.14 IST and verified by the staging queue at 04.16 IST (CI, migrations, deploy, guest QA). Released to gokesari.com in release #388 (merged 15-Nov-2026 11.25 IST); the post-deploy check passed.
+
+### Staging re-check, signed in (16-Nov-2026, 06.37 to 06.40 IST)
+
+test.gokesari.com, staging admin account (signed in), Chromium at 1280 and at 390 (iPhone 14 emulation). A new wizard shop, BKS-000052 "QA P2D5 Recheck 17097" (GSTIN, referral code E2ETEST1, Shop 12, Laxmi Road, Pune 411030). Its first payment (Cashfree sandbox, testfailure@gocash) failed, so the shop stayed unpaid with ₹1,178.82 due. **Result: 8 of 8 PASS.**
+
+| Check | 1280 | 390 |
+|---|---|---|
+| Today's work: title "Payment pending"; steps "✓ Shop registered · 2. Registration fee paid · 3. Shop live"; "Next: Pay the registration fee of ₹1,178.82 online. Your shop goes live as soon as the payment is confirmed."; "You can add products now — customers see them as soon as your shop is live."; no approval wording anywhere on the page | PASS | PASS |
+| Registration and fee: Shop status "payment pending" (was "pending approval") | PASS | PASS |
+| Seller home: "Payment pending — … Your shop goes live as soon as the payment is confirmed."; no approval wording; no sideways scroll | PASS | PASS |
+| Paid (sandbox UPI testsuccess@gocash): live 37 s later; Shop status "approved"; the payment alert is gone from Today's work | PASS | — |
+
+Evidence: [p2-d5-staging-2026-11-16/](p2-d5-staging-2026-11-16/) (screenshots and results.json). Not checked signed in on gokesari.com: this session does not sign in on production; the code there is the same release.
+
+Seen during the re-check, not part of P2-D5: the new shop, not live yet and with ₹0 in its shop wallet, gets "Shop wallet is low — recharge" first under "Action required" on the seller home (above the registration fee), and a red "Recharge wallet" box on Today's work. Listed under the owner's open questions below.
 
 ## Defect fix P2-D6 (16-Nov-2026, IST)
 
@@ -287,16 +302,20 @@ Fixed on branch `fix/shop-registration-date-ist` (from `staging` 1ddd2926), PR #
 
 **Results, 16-Nov-2026 06.29 IST:** 22 of 22 pass in 3 files (registration date, shop location, registration fees) on a local throwaway database. Lint clean on the changed files; type-check clean for this change. Shops registered before the fix keep the date they were given.
 
-**Still to do:** see a shop registered after midnight IST on test.gokesari.com once the staging queue has deployed it, then on gokesari.com after the next release.
+**Staging queue, 16-Nov-2026:** merged into `staging` as `e3f8460` at 07.14 IST; verified at 08.28 IST (staging CI and migrations passed, the deploy is live, the site kept answering, guest QA passed). The guest QA does not register a shop, so the date itself was not re-checked there.
+
+**Still to do:** register a shop on test.gokesari.com between 00.00 and 05.29 IST and check its date; then on gokesari.com after the next release.
 
 ## Test data left on staging
 
 - Shops: BKS-000047 "QA Phase2 Live 94542" (admin), BKS-000048 "QA Phase2 Phone 41132" (customer), BKS-000049 "QA Phase2 Retry 42462" (ops). Open drafts on the shop and rider accounts.
 - Re-test 14/15-Nov-2026: BKS-000050 "QA P2 Retest 48387" and BKS-000051 "QA P2 Retest 33251" (admin account, Laxmi Road, Pune 411030), both paid with sandbox UPI and live. Referral code E2ETEST1 counted two more shops. The admin account's registration is completed again, as before the re-test.
+- P2-D5 re-check 16-Nov-2026: BKS-000052 "QA P2D5 Recheck 17097" (admin account, Shop 12, Laxmi Road, Pune 411030). One failed payment (sandbox testfailure@gocash), then paid with sandbox UPI testsuccess@gocash and live. Referral code E2ETEST1 counted one more shop. The admin account's registration is completed again.
 - BKS-000046 "QA Licence Pharmacy PR374" (suspended) belongs to another session's test.
 - Referral code E2ETEST1 counted one more shop. QA bakery hours are back to 06:00–22:00 (restored 02.21 IST).
 
 ## Open questions for the owner
 
+- A new shop that is not live yet (₹0 in its shop wallet) sees "Shop wallet is low — recharge" first under "Action required" on the seller home, above the registration fee, and a red "Recharge wallet" box on Today's work (seen 16-Nov-2026 on test.gokesari.com, BKS-000052). Should the wallet warnings wait until the shop is live?
 - Should tax consultants (who share PROFESSIONAL_OFFICE) see the registration message?
 - Which other shop types need a licence (firecracker shops, Consultants)?
