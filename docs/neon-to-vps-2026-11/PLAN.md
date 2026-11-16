@@ -651,6 +651,7 @@ Cashfree webhooks that arrive during the read-only window fail and are retried b
      - ₹26,376, about ₹31,123 with GST; renews at ₹2,399 a month.
 2. **Staging:** a separate instance on the **same VPS** (recommended), a separate VPS, or stay on Neon.
 3. **Off-site backups:** **Cloudflare R2** (free up to 10 GB; recommended) or Backblaze B2. The owner creates the account.
+   - **DECIDED** 16-Nov-2026, 21.55 IST: "Keep R2". A copy only on the VPS was ruled out: it is lost with the server.
 4. **Access for GitHub and the Mac:** **WireGuard** (recommended; free, no third party) or Tailscale (easier setup, third-party service).
 5. **Alerts go to:** which email address and/or Telegram.
 6. **Database names:** `gokesari` / `gokesari_test` (recommended), or keep `neondb`.
