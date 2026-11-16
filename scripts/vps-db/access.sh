@@ -81,6 +81,11 @@ write_hba() {
     for name in $(peer_names); do
       peer_has_port "$name" "$port" || continue
       ip=$(peer_field "$name" 1)
+      # A production job reaching staging (gh-prod-db, tested-on-test.sh) may only read.
+      if [ "$name" != owner-mac ] && [ "$port" = 5433 ] && peer_has_port "$name" 5432; then
+        printf 'hostssl  %-9s %-18s %-18s scram-sha-256   # %s (read-only)\n' "$DB" "$RO_ROLE" "$ip/32" "$name"
+        continue
+      fi
       printf 'hostssl  %-9s %-18s %-18s scram-sha-256   # %s\n' "$DB" "$APP_ROLE" "$ip/32" "$name"
       [ "$name" = owner-mac ] && printf 'hostssl  %-9s %-18s %-18s scram-sha-256   # %s\n' "$DB" "$RO_ROLE" "$ip/32" "$name"
     done

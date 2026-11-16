@@ -57,11 +57,14 @@ if [ -r "$GK_ETC/config.env" ]; then . "$GK_ETC/config.env"; fi
 # One key per workflow job, so two jobs never share a tunnel (plan §4.6).
 # Port 22 is for the restricted snapshot command (gksnap), except on owner-mac,
 # where it is the admin login. 5432 = production, 5433 = staging.
+# A workflow peer with 5432 is a production job; if it also lists 5433, it may
+# only read staging, as the read-only role (access.sh). gh-prod-db does that for
+# tested-on-test.sh, which checks a release's migrations reached staging first.
 GK_PEERS="
 owner-mac             10.66.0.10  22,5432,5433
 gh-test-db            10.66.0.21  22,5433
 gh-copy-shops-export  10.66.0.22  5433
-gh-prod-db            10.66.0.23  22,5432
+gh-prod-db            10.66.0.23  22,5432,5433
 gh-copy-shops         10.66.0.24  22,5432
 "
 

@@ -253,7 +253,7 @@ The names keep `DATABASE_URL` independent of the server's IP address: moving to 
   - the `test-db` key: port 5433, plus SSH;
   - the `copy-shops` export key: port 5433 only;
   - the `prod-db` and `copy-shops` copy keys: port 5432, plus SSH.
-  - **Gap found 17-Nov-2026:** `prod-db.yml` also reads the test database (its preflight and `tested-on-test.sh` use `TEST_DATABASE_URL`), so the `prod-db` key needs port 5433 too, for that read-only check.
+  - the `prod-db` key also reaches port 5433, **as the read-only role `gokesari_test_ro` only**. `prod-db.yml`'s `tested-on-test.sh` reads the test database to check a release's migrations reached staging first. This was added 17-Nov-2026, 03.07 IST. So the production environment's `TEST_DATABASE_URL` becomes a `gokesari_test_ro` URL at S6.
 - The addresses and ports are in [scripts/vps-db/lib.sh](../../scripts/vps-db/lib.sh).
 - The runner adds `/etc/hosts` lines, so the URLs keep their public names (`db.gokesari.com`, `db-test.gokesari.com`). TLS names and the host guards then still match.
 - The owner's Mac gets its own WireGuard key, for `psql`, TablePlus or pgAdmin. These replace Neon's SQL editor.
