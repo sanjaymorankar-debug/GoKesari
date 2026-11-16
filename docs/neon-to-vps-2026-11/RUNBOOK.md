@@ -12,7 +12,7 @@ Times are IST. Never paste a password or key into a chat or a commit. Public key
 
 | # | Decision | Status |
 |---|---|---|
-| 1 | Hostinger VPS, Mumbai, 24 months | **Bought: KVM 4**, 16-Nov-2026 21.16 IST (decided as KVM 2; the owner chose the larger plan). First set up in Kuala Lumpur; must be in Mumbai before step 5 |
+| 1 | Hostinger VPS, Mumbai, 24 months | **Bought: KVM 4**, 16-Nov-2026 21.16 IST (decided as KVM 2; the owner chose the larger plan). Moved from Kuala Lumpur to Mumbai at 21.44 IST; IPv4 189.72.155.162 |
 | 2 | Staging on the same server | Built as recommended |
 | 3 | Cloudflare R2 for off-site backups | Built as recommended |
 | 4 | WireGuard | Built as recommended |

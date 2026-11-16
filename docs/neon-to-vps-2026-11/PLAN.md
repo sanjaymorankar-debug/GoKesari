@@ -24,7 +24,7 @@ Owner's copy: `Doc_GoKesari/Devlopment_Trackers/GOKESARI_NEON_TO_VPS_PLAN_2026-1
   - renews at ₹2,399 a month.
 - **Why:** the GoKesari app can move onto the same server later. Sizing: `Doc_GoKesari/Devlopment_Trackers/GOKESARI_VPS_SIZING_KVM2_vs_KVM4_2026-11-16.md`.
 - **Unchanged:** the kit and the PostgreSQL settings. Sections 1, 3.2, 9 and 11 still show the KVM 2 figures.
-- **Location:** the VPS was set up in **Kuala Lumpur**, not Mumbai. It is moved to Mumbai before the build; it is still empty, so the reinstall loses nothing.
+- **Location:** the VPS was first set up in **Kuala Lumpur**. The owner moved it to **Mumbai** while it was empty; checked at 21.44 IST. New IPv4: 189.72.155.162.
 
 ---
 

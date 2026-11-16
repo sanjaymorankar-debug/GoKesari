@@ -2,11 +2,14 @@
 
 16-Nov-2026. About 20 minutes, phone or Mac. You do these steps yourself; no session buys anything or sees a password.
 
-**Status, 16-Nov-2026 21.30 IST:**
+**Status, 16-Nov-2026 21.45 IST:**
 - **A:** done. Admin key made at 19.55 IST.
-- **B:** VPS bought at 21.16 IST: **KVM 4**, Ubuntu 24.04, with the admin key.
-  - It was set up in **Kuala Lumpur** (Hostinger data centre 21, `kul`), not Mumbai.
-  - It must be moved to Mumbai before the build (step 3a).
+- **B:** done.
+  - VPS bought at 21.16 IST: **KVM 4**, Ubuntu 24.04, with the admin key. Hostinger first set it up in Kuala Lumpur.
+  - Moved to **Mumbai** (data centre 23, `mum2`) by step 3a, checked at 21.44 IST.
+  - Server `srv2167294.hstgr.cloud`, IPv4 **189.72.155.162**.
+  - Admin key sign-in works.
+  - SSH host key: `SHA256:IRkoJFP2HwOhnXOM53dilO/XqkiVtwh3vs6N7WU+3Ck` (ED25519). Compare it on the first connection of the build.
 - **C:** not done yet.
 
 **Never paste a password or key into a chat.** Two things are fine to send:
