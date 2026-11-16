@@ -1,5 +1,6 @@
 # GoKesari — the complete crontab (owner, 19 Oct 2026). Install on BOTH sites:
-# test.gokesari.com first, then gokesari.com. It REPLACES every earlier GoKesari
+# test.gokesari.com first, then gokesari.com — with the staging schedule below
+# for test.gokesari.com (owner, 16 Nov 2026). It REPLACES every earlier GoKesari
 # line (docs/event-driven-2026-10/crontab.test.txt Phase A/B, docs/batch-2026-10/
 # crontab.txt and the bill-captures / gst-reminders lines of
 # docs/inventory-accounting-2026-10). Times are UTC (IST = UTC + 5:30).
@@ -14,12 +15,32 @@
 # (docs/event-driven-2026-10/run.sh.example). Every job is idempotent: a late,
 # overlapping or repeated run is harmless.
 
+# Production — gokesari.com:
 * * * * *    $HOME/gokesari-cron/run.sh every-minute   # timeouts, retries, queued sends (each at its own cadence)
 17 * * * *   $HOME/gokesari-cron/run.sh hourly         # risk scan, dispute + help-desk deadlines, refund / payout retries, expired codes
 30 23 * * *  $HOME/gokesari-cron/run.sh daily          # 05:00 IST: subscription orders, document upkeep, GST reminders, Saturday payout, Monday finance week
 
+# Staging — test.gokesari.com (owner, 16 Nov 2026: cut Neon compute; a call every
+# minute kept the staging database awake around the clock):
+0 */6 * * *  $HOME/gokesari-cron/run.sh every-minute   # 05:30, 11:30, 17:30, 23:30 IST
+17 * * * *   $HOME/gokesari-cron/run.sh hourly
+30 23 * * *  $HOME/gokesari-cron/run.sh daily
+#
+# The staging every-minute line must run at minute 0: dueEveryMinute
+# (src/server/cron/schedule.ts) runs the 5-, 10- and 15-minute jobs (payments
+# reconcile, operator onboarding fees, document e-mails, bill captures, push
+# receipts) only when the UTC minute is a multiple of their interval, so at any
+# other minute they would never run.
+# On test.gokesari.com everything in the every-minute group therefore runs up to
+# 6 hours late: shop-acceptance and other timeouts, notification retries and
+# scheduled notices (registration reminders), rider re-dispatch and return-pickup
+# retries, payment reconcile when a sandbox webhook is missed, document e-mails,
+# bill captures, broadcasts and product-master ingest. A test that needs them
+# sooner needs the every-minute line (* * * * *) restored on staging for the test.
+
 # Without run.sh: the same three lines as plain curl, as pasted into hPanel → Advanced →
-# Cron Jobs → Custom (production: https://gokesari.com; test: https://test.gokesari.com).
+# Cron Jobs → Custom (production: https://gokesari.com; test: https://test.gokesari.com,
+# with its every-minute line at `0 */6 * * *` as above).
 # <site> is prod or test: both sites share one hosting account, so each keeps its own
 # secret and lock files. The secret is read from $HOME/gokesari-cron/<site>/secret (one line, the site's CRON_SECRET,
 # permissions 600, outside public_html), so it is never written in the cron entry.
@@ -34,6 +55,9 @@
 # * * * * *   flock -n $HOME/gokesari-cron/<site>/every-minute.lock curl -fsS --max-time 55 -o /dev/null -X POST https://<host>/api/cron/every-minute -H "Authorization: Bearer $(cat $HOME/gokesari-cron/<site>/secret)"
 # 17 * * * *  flock -n $HOME/gokesari-cron/<site>/hourly.lock curl -fsS --max-time 300 -o /dev/null -X POST https://<host>/api/cron/hourly -H "Authorization: Bearer $(cat $HOME/gokesari-cron/<site>/secret)"
 # 30 23 * * * flock -n $HOME/gokesari-cron/<site>/daily.lock curl -fsS --max-time 300 -o /dev/null -X POST https://<host>/api/cron/daily -H "Authorization: Bearer $(cat $HOME/gokesari-cron/<site>/secret)"
+#
+# Staging's every-minute line, as installed on 16 Nov 2026:
+# 0 */6 * * * flock -n $HOME/gokesari-cron/test/every-minute.lock curl -fsS --max-time 55 -o /dev/null -X POST https://test.gokesari.com/api/cron/every-minute -H "Authorization: Bearer $(cat $HOME/gokesari-cron/test/secret)"
 #
 # Remove the old per-job lines (/api/cron/shop-acceptance, /notifications,
 # /delivery-dispatch, …): they only get 410 now and still start a process each minute.

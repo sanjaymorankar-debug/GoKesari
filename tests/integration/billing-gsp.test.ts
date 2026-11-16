@@ -21,6 +21,7 @@ import { resetMockGsp } from "@/server/gst/gsp/mock";
 import { GspError } from "@/server/gst/gsp/types";
 import { resetMockFiling, setGstFilingProviderForTests, type GstFilingProvider } from "@/server/gsp/filing-provider";
 import { decideIms, fileWithEvc, imsInward, portalLedgers, prepareReturn, requestFilingOtp, saveToPortal, sendGstSessionReminders } from "@/server/gsp/returns";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { deliveredOrder, gstin, GOKESARI_GSTIN, gstShop, IST_TODAY, resetBatchE, rules } from "../helpers/batch-e";
 import { createUser, resetDatabase } from "../helpers/fixtures";
 
@@ -46,6 +47,7 @@ beforeEach(async () => {
   setGstFilingProviderForTests(null);
   await db.execute(sql`DELETE FROM gsp_call_log`);
   for (const key of ["billing_v2", "einvoice", "ewaybill"] as const) await db.insert(featureFlags).values({ key, enabled: true }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled: true } });
+  clearFeatureFlagCache();
   admin = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
   await rules(admin, {
     invoicing: { enabled: true },
@@ -161,6 +163,7 @@ describe("e-invoice and e-way bill (scenario 14)", () => {
     await rule("documentNumbering", { format: "GST16" });
     await declareEinvoice(s.shop.id, { applicable: true, turnoverBand: band }, { id: s.owner.id, role: "SHOP_OWNER" });
     await db.update(featureFlags).set({ enabled: true }).where(eq(featureFlags.key, "billing_v2"));
+    clearFeatureFlagCache();
     const buyer = gstin("27", "AAACH1234K");
     const { checkout, updateOrderStatus } = await import("@/server/services/orders");
     const { addToCart } = await import("@/server/services/cart");
