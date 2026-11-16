@@ -8,6 +8,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import { upsertRow } from "@/server/db/upsert";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import {
   addresses,
@@ -153,6 +154,8 @@ export async function resetDatabase(): Promise<void> {
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       `);
       clearRuleCache();
+      // TRUNCATE users … CASCADE also empties feature_flags (updated_by references users).
+      clearFeatureFlagCache();
       return;
     } catch (error) {
       const code = pgErrorCode(error);

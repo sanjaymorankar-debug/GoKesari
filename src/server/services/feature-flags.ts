@@ -7,10 +7,12 @@
  *   dealer_rating_bonus_enabled             rating-linked commission bonus
  *   paid_support_services_enabled           the paid Support Services page
  *
- * Stored in `feature_flags` (seeded OFF by migration 0102) and read live — no
- * cache — so switching one off takes effect on the very next request. With
- * every flag off the site behaves exactly as before: new routes answer
- * "not available" (`requireFeature`) and no existing path changes.
+ * Stored in `feature_flags` (seeded OFF by migration 0102). Reads are cached
+ * for CACHE_MS per process, like `platform_settings` (settings.ts): a change
+ * made through `setFeatureFlag` clears this process's cache, so it takes effect
+ * on its next request; other processes see it within CACHE_MS. With every
+ * flag off the site behaves exactly as before: new routes answer "not
+ * available" (`requireFeature`) and no existing path changes.
  *
  * A flag can be limited to districts (geo_areas codes): `districtCodes` NULL
  * means every district. `isFeatureEnabled(key, { districtCode })` is true only
@@ -122,9 +124,25 @@ export interface FeatureFlagChangeView {
 
 const OFF = (key: FeatureFlagKey): FeatureFlagView => ({ key, enabled: false, districtCodes: null, updatedAt: null });
 
+type FlagMap = Record<FeatureFlagKey, FeatureFlagView>;
+
+const CACHE_MS = 15_000;
+let cache: { at: number; flags: FlagMap } | null = null;
+/** The one read in progress, shared by everyone who missed the cache. */
+let inflight: Promise<FlagMap> | null = null;
+/** Bumped by every write, so a read that started before it cannot cache the old value. */
+let generation = 0;
+
 /** Every flag. A missing row, or a table that cannot be read, counts as OFF. */
-export async function getFeatureFlags(): Promise<Record<FeatureFlagKey, FeatureFlagView>> {
-  const out = Object.fromEntries(FEATURE_FLAG_KEYS.map((key) => [key, OFF(key)])) as Record<FeatureFlagKey, FeatureFlagView>;
+export async function getFeatureFlags(): Promise<FlagMap> {
+  if (cache && Date.now() - cache.at < CACHE_MS) return { ...cache.flags };
+  if (!inflight) inflight = readFlags().finally(() => (inflight = null));
+  return { ...(await inflight) };
+}
+
+async function readFlags(): Promise<FlagMap> {
+  const startedAt = generation;
+  const out = Object.fromEntries(FEATURE_FLAG_KEYS.map((key) => [key, OFF(key)])) as FlagMap;
   try {
     const rows = await db.select().from(featureFlags);
     for (const row of rows) {
@@ -133,9 +151,19 @@ export async function getFeatureFlags(): Promise<Record<FeatureFlagKey, FeatureF
       }
     }
   } catch (error) {
+    // Not cached: the next request tries the table again.
     console.error("[feature-flags] read failed, treating every flag as off", error);
+    return out;
   }
+  if (generation === startedAt) cache = { at: Date.now(), flags: out };
   return out;
+}
+
+/** Forget cached flags (after a write; tests that write `feature_flags` directly call it too). */
+export function clearFeatureFlagCache(): void {
+  cache = null;
+  inflight = null;
+  generation += 1;
 }
 
 export async function getFeatureFlag(key: FeatureFlagKey): Promise<FeatureFlagView> {
@@ -243,7 +271,7 @@ export async function setFeatureFlag(
   }
   const next = { enabled: value.enabled, districtCodes };
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     // Locked so two admins switching at once log two clean changes.
     await tx.insert(featureFlags).values({ key, enabled: false }).onConflictDoNothing();
     const [current] = await tx.select().from(featureFlags).where(eq(featureFlags.key, key)).for("update");
@@ -280,6 +308,9 @@ export async function setFeatureFlag(
     );
     return { flag: { key, ...next, updatedAt: now }, changed: true };
   });
+  // After the commit, so the next read in this process sees the new value.
+  if (result.changed) clearFeatureFlagCache();
+  return result;
 }
 
 /** The most recent changes, newest first (all flags, or one). */

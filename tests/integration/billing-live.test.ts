@@ -22,6 +22,7 @@ import { createSalesInvoice } from "@/server/accounts/sales";
 import { issueConnectorToken, saveIntegration } from "@/server/integrations/connections";
 import { integrationSyncEnabled } from "@/server/integrations/inventory-sync-flag";
 import { createApiClient, revokeApiClient } from "@/server/public-api/auth";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { addDaysIso, gstin, gstShop, IST_TODAY, resetBatchE } from "../helpers/batch-e";
 import { createUser, resetDatabase } from "../helpers/fixtures";
 
@@ -29,6 +30,7 @@ const today = IST_TODAY();
 
 async function flag(key: FeatureFlagKey, enabled: boolean) {
   await db.insert(featureFlags).values({ key, enabled }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled } });
+  clearFeatureFlagCache();
 }
 
 async function send(handler: (r: NextRequest) => Promise<Response>, url: string, init: { method?: string; token?: string; body?: string; contentType?: string } = {}) {
@@ -56,6 +58,7 @@ beforeEach(async () => {
   await resetDatabase();
   await resetBatchE();
   await db.execute(sql`DELETE FROM feature_flags WHERE key IN ('billing_v2', 'tally_connector', 'zoho_connector', 'odoo_connector')`);
+  clearFeatureFlagCache();
   await flag("billing_v2", true);
   await createUser({ role: "ADMIN" });
 });

@@ -1,0 +1,95 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "16 Nov 2026, 06:40 IST",
+  "results": [
+    {
+      "id": "D5-setup",
+      "title": "New wizard shop (GSTIN + referral, PIN 411030), first payment fails so it stays unpaid",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "16 Nov 2026, 06:39 IST",
+      "note": "shop BKS-000052 \"QA P2D5 Recheck 17097\" PENDING_APPROVAL, fee due ₹1,178.82; payment through Cashfree sandbox, test UPI testfailure@gocash failed, so the shop is unpaid",
+      "shots": [
+        "d5s-unpaid-register-1280.png"
+      ]
+    },
+    {
+      "id": "D5-today-1280",
+      "title": "Today's work: pay and go live, steps Shop registered / fee / Shop live, no approval wording (1280)",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "16 Nov 2026, 06:39 IST",
+      "note": "'Payment pending ✓ Shop registered 2. Registration fee paid 3. Shop live Next: Pay the registration fee of ₹1,178.82 online. Your shop goes live as soon as the payment is confirmed. Pay the registration fee You can add products now — customers see them as soon '",
+      "shots": [
+        "d5s-today-1280.png"
+      ]
+    },
+    {
+      "id": "D5-registration-1280",
+      "title": "Registration and fee: Shop status 'payment pending', not 'pending approval' (1280)",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "16 Nov 2026, 06:39 IST",
+      "note": "'Shop status payment pending'",
+      "shots": [
+        "d5s-registration-1280.png"
+      ]
+    },
+    {
+      "id": "D5-home-1280",
+      "title": "Seller home: goes live on payment, no approval wording (1280)",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "16 Nov 2026, 06:39 IST",
+      "note": "'Your shop goes live as soon as the payment is confirmed.'; sideways scroll 0px",
+      "shots": [
+        "d5s-home-1280.png"
+      ]
+    },
+    {
+      "id": "D5-today-390",
+      "title": "Today's work: pay and go live, steps Shop registered / fee / Shop live, no approval wording (390)",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "16 Nov 2026, 06:39 IST",
+      "note": "'Payment pending ✓ Shop registered 2. Registration fee paid 3. Shop live Next: Pay the registration fee of ₹1,178.82 online. Your shop goes live as soon as the payment is confirmed. Pay the registration fee You can add products now — customers see them as soon '",
+      "shots": [
+        "d5s-today-390.png"
+      ]
+    },
+    {
+      "id": "D5-registration-390",
+      "title": "Registration and fee: Shop status 'payment pending', not 'pending approval' (390)",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "16 Nov 2026, 06:39 IST",
+      "note": "'Shop status payment pending'",
+      "shots": [
+        "d5s-registration-390.png"
+      ]
+    },
+    {
+      "id": "D5-home-390",
+      "title": "Seller home: goes live on payment, no approval wording (390)",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "16 Nov 2026, 06:39 IST",
+      "note": "'Your shop goes live as soon as the payment is confirmed.'; sideways scroll 0px",
+      "shots": [
+        "d5s-home-390.png"
+      ]
+    },
+    {
+      "id": "D5-pay",
+      "title": "Pay succeeds: shop goes live; Today's work and Registration and fee no longer say payment pending",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "16 Nov 2026, 06:40 IST",
+      "note": "paid through Cashfree sandbox, test UPI testsuccess@gocash; live on the reload 37s after paying; shop BKS-000052 APPROVED; status cell 'Shop status approved'; Today's work: (no onboarding alert)",
+      "shots": [
+        "d5s-after-pay-registration-1280.png",
+        "d5s-after-pay-today-1280.png"
+      ]
+    }
+  ]
+}
