@@ -566,7 +566,16 @@ Booked window: 60 minutes.
 - [ ] Section 7B is live on `main`, released the usual way (one release at a time).
 - [ ] [CLAUDE.md "Production releases"](../../CLAUDE.md) check: no open PR into `main` is being merged, and the latest "Post-deploy check" run and the latest Hostinger build for gokesari.com are finished.
 - [ ] Staging queue paused for the window. No merges into `main` or `staging`.
-- [ ] Rehearsal copy of live production into the VPS (not frozen), compared, timed, then dropped. The production drill passed on it.
+- [x] Rehearsal copy of live production into the VPS (not frozen), compared, timed, then dropped. The production drill passed on it. **Done 17-Nov-2026, 04.33–04.35 IST** from the owner's Mac:
+  - Neon production is 56 MB, PostgreSQL 18.7, with the same extensions as staging (`postgres_fdw` created on the target).
+  - copy.sh: dump 50 s (3.4 MiB), restore 28 s, 78 s in all.
+  - compare.sh `CHECKSUM=yes`: **SAME**, 451 tables (2,404 rows), 30 sequences, all checksums.
+  - Drill `--latest`: 5 s, rows restored = live, amcheck ok, **ledger ok**, PASS.
+  - `gokesari` was recreated empty at 04.35.
+- **Owner's decisions, 17-Nov-2026, about 04.30 IST:**
+  - D8: production switch **today, as soon as possible**, right after staging (the 7-day staging watch is skipped by the owner's choice).
+  - D7: yes, staging cron back to every minute.
+  - D9: keep Neon **14 days** after each switch.
 - [ ] The owner has typed the new `DATABASE_URL` into a note, ready to paste into hPanel. The GitHub values are ready.
 - [ ] The window avoids the 05.00 IST daily cron, the :47 IST hourly cron and the 02.15–03.00 IST backups. A quiet weekday afternoon (for example 15.00 IST), with the owner present, is suggested.
 - [ ] Shops told in advance (owner's choice of wording and channel).
