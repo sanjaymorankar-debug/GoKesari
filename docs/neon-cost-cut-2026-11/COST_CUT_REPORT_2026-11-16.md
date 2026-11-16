@@ -1,6 +1,6 @@
 # GoKesari: Neon cost cut, 16-Nov-2026
 
-**Report written:** 16-Nov-2026, 09.00 IST; completed 13.30 IST.
+**Report written:** 16-Nov-2026, 09.00 IST; completed 13.30 IST; production release added 15.15 IST.
 **Scope:** GoKesari only: gokesari.com (production) and test.gokesari.com (staging). The bkesari projects that sit in the same Neon account were not opened, changed or tested; their checks belong in that project's own chat.
 **All times are IST (UTC + 5:30).**
 
@@ -11,6 +11,7 @@
   - Staging's quiet-hour figure comes tonight. Every hour today had testing on it.
 - **Production:** compute floor halved (0.5 → 0.25 CU), ceiling capped at 2 CU, still always on.
 - **Staging:** ceiling capped at 1 CU; it now sleeps between the 6-hourly cron runs.
+- **Code (items 3 and 7):** live on gokesari.com since 15.07 (release #396). The post-deploy check passed on the new build.
 - **Clean-up:** split leftovers dropped on both sites, 6 old databases and 9 old branches deleted, and the 2 idle us-east-2 projects deleted. Every one was backed up first with `pg_dump -Fc` and checked with `pg_restore --list` (55 files, 180 MB).
 - **Nothing broke:**
   - Production QA: 75 passed, 1 failed (already failing on 04-Nov), 54 skipped.
@@ -51,8 +52,9 @@
 | 16-Nov 08.50 | staging | Deleted databases `neondb_test`, `Test_Shop_owners`, `gokesari_customer`, `gokesari_seller` | No sessions; no workflow uses them |
 | 16-Nov 08.51 | staging | Maximum compute 8 → 1 CU, scale to zero 300 s (explicit) | Post-deploy check 5/5 on both sites (08.51-08.55) |
 | 16-Nov 08.55 | us-east-2 | Deleted projects `GoKesari-prod` (`sparkling-scene-39325894`) and `GoKesari-test` (`weathered-cloud-85449869`) | Nothing pointed at them: both sites, `test-db.yml` and `prod-db.yml` all use the Singapore endpoints; both sites 200 at 08.56 |
+| 16-Nov 15.00 | production | Release #396 merged into `main`: items 3 and 7, `docs/crontab.txt`, CLAUDE.md, #392 (shop registration date in IST) and the VPS plan (#398, docs). Before merging: no other PR into `main`, the last build (#391, 06.33) finished, and the site passed 5/5 (14.55-15.00) | Hostinger build finished 15.06. Post-deploy check passed: workflow 15.00-15.07, then 5/5 on the new build (15.08-15.12). Every-minute cron ran each minute with no errors |
 
-**Code (PR #393: verified on staging 10.32; release to gokesari.com in PR #396):**
+**Code (PR #393: verified on staging 10.32; on gokesari.com since 15.07 through release #396):**
 - Item 3: feature flags cached for 15 s, and the cache is cleared when a flag changes.
 - Item 7:
   - The pool's default idle time goes from 20 s to 60 s.
@@ -134,7 +136,11 @@ That saves about **$32-35 a month (≈ ₹2,800-3,100)**, a cut of 55-60 %. Prod
 
 The owner chose to move both GoKesari databases off Neon onto their own PostgreSQL 18 server (a VPS). After that, the two GoKesari Neon projects can be deleted, and GoKesari's Neon charges drop to $0; the VPS becomes the cost.
 
-- A separate session is writing the migration plan: `GOKESARI_NEON_TO_VPS_PLAN_<date>.md` in this folder. It covers VPS size and cost, backups, the cut-over and rollback, and the decisions for the owner.
+- The migration plan is written: `GOKESARI_NEON_TO_VPS_PLAN_2026-11-16.md` in this folder. The repository copy is on `main` (PR #398, in release #396).
+  - Recommendation: one Hostinger KVM 2 VPS in Mumbai, about ₹799 a month on a 24-month term (₹22,628 upfront including GST).
+  - Saving: about ₹1,100-1,450 a month.
+  - Cut-over: staging first; production about 20-30 minutes read-only.
+  - Waiting on the owner's decisions (plan section 11).
 - Nothing is bought, switched or deleted until the owner approves each step.
 - The Neon account and its plan also hold the bkesari projects. Cancelling or downgrading the account is decided in that project's own chat, not here.
 - Neon has no monthly minimum. Until the move, GoKesari pays only for the compute it runs: about $22-26 a month.

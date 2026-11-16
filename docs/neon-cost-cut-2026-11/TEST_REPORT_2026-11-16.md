@@ -1,6 +1,6 @@
 # GoKesari: test report after the Neon cost cut, 16-Nov-2026
 
-**Written:** 16-Nov-2026, 13.27 IST. **Times:** IST (UTC + 5:30).
+**Written:** 16-Nov-2026, 13.27 IST; production release result added 15.15 IST. **Times:** IST (UTC + 5:30).
 **Scope:** gokesari.com (production) and test.gokesari.com (staging). The bkesari sites are not part of this chat and were not tested here.
 **What changed today:** the Neon database settings and clean-up (see `GOKESARI_NEON_COST_CUT_REPORT_2026-11-16.md`), plus PRs #392 (shop registration date in IST) and #393 (15-s feature-flag cache, 60-s pool idle time, staging cron every 6 h).
 
@@ -96,7 +96,9 @@
   - The test expects the first shop to get invoice 000001.
   - The payout cycle takes shops in the order the database returns them, and that order isn't fixed.
   - Today's code doesn't touch invoicing.
-- **Next:** I re-ran the job at 13.25 IST. A permanent fix to the test is a separate small PR.
+- **Re-run:** CI ran again on the final release head (`14d00f15`, which adds the docs-only #398) and passed in full at 14.53 IST, with TC-B26-E-040 included. A permanent fix to that test (sort the shops, or look the invoice up by shop) is still worth a small PR.
+- **Released:** #396 was merged into `main` at 15.00 IST. Hostinger's build finished at 15.06.
+- **Post-deploy check:** passed. The workflow ran 15.00-15.07, then 5/5 on the new build (15.08-15.12). The every-minute cron ran with no errors.
 
 ## Needs the owner (from the staging run)
 
