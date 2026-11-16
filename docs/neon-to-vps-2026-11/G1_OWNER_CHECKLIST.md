@@ -10,7 +10,7 @@
   - Server `srv2167294.hstgr.cloud`, IPv4 **189.72.155.162**.
   - Admin key sign-in works.
   - SSH host key: `SHA256:IRkoJFP2HwOhnXOM53dilO/XqkiVtwh3vs6N7WU+3Ck` (ED25519). Compare it on the first connection of the build.
-- **C:** not done yet.
+- **C:** **skipped for now.** Owner's decision, about 22.00 IST: keep the backups on the VPS only. Do C later to add R2 (runbook "Adding R2 later").
 
 **Never paste a password or key into a chat.** Two things are fine to send:
 - the VPS's IP address;
@@ -55,6 +55,8 @@
 
 ## C. Cloudflare R2: off-site backups (free up to 10 GB)
 
+**Skipped for now** (decision 3, 16-Nov-2026: "VPS only"). The server is built without R2, and these steps can be done any time later.
+
 - [ ] **10.** Create a Cloudflare account (dash.cloudflare.com) with the business e-mail. Turn on **two-factor login**.
 - [ ] **11.** Left menu → **R2** → turn it on. Cloudflare may ask for a card. Our backups stay inside the free 10 GB, so no charge is expected.
 - [ ] **12.** **Create bucket:**
@@ -79,7 +81,7 @@
 
 ## D. Then
 
-- [ ] Reply **"G1 done"** with the VPS IP and the R2 Account ID.
+- [ ] Reply **"G1 done"** with the VPS IP, and the R2 Account ID if you did section C.
 - [ ] Give the **G2 OK** to build the server. The runbook lists exactly what the OK covers.
   - Nothing on gokesari.com, test.gokesari.com or Neon changes in this phase.
 - **Still open, needed before the staging move (not before the build):**

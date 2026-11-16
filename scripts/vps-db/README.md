@@ -33,7 +33,7 @@ Run in this order, as root on the server, from `/opt/gokesari-db`. Each is safe 
 | [40-tls.sh](40-tls.sh) | Let's Encrypt certificate for `db.gokesari.com` and `db-test.gokesari.com`, renewed by certbot's timer |
 | [50-roles.sh](50-roles.sh) | Roles, empty databases `gokesari` and `gokesari_test`, extensions. Passwords are set as SCRAM hashes. |
 | [access.sh](access.sh) | Who may reach what: ufw rules plus each instance's `pg_hba.conf` / `pg_ident.conf`. `--hostinger` prints the rules for hPanel's VPS firewall. |
-| [60-pgbackrest.sh](60-pgbackrest.sh) | pgBackRest with two repositories: repo1 on this disk, repo2 in Cloudflare R2, encrypted. Settings from [templates/pgbackrest.conf.tmpl](templates/pgbackrest.conf.tmpl). Runs the first full backups. |
+| [60-pgbackrest.sh](60-pgbackrest.sh) | pgBackRest: repo1 on this disk; repo2 in Cloudflare R2, encrypted, only once `R2_ACCOUNT_ID` is set (decision 3 is "VPS only" since 16-Nov-2026). Settings from [templates/pgbackrest.conf.tmpl](templates/pgbackrest.conf.tmpl) and [templates/pgbackrest-r2.conf.tmpl](templates/pgbackrest-r2.conf.tmpl). Runs the first full backups. Re-run it to add R2 later. |
 | [70-schedules.sh](70-schedules.sh) | systemd timers: health check every 5 minutes; dumps and backups 02.15–03.00 IST; certificate check 09.00 IST |
 | [90-lockdown.sh](90-lockdown.sh) | Last step: SSH only over WireGuard, no root login |
 
@@ -43,11 +43,11 @@ Commands installed in `/usr/local/sbin` (from [bin/](bin/)):
 |---|---|
 | `gk-db-secret` | Lists, makes or shows the server's secrets; takes the R2 and healthchecks.io keys as hidden input |
 | `gk-peer` | Records the WireGuard and snapshot **public** keys of the peers in `lib.sh`; prints a peer's client config |
-| `gk-db-backup` | pgBackRest backup into both repositories (full on Sunday, otherwise differential), or `check` |
-| `gk-db-dump` | Nightly `pg_dump`, encrypted with `age` for the owner's public key, then uploaded to R2 |
+| `gk-db-backup` | pgBackRest backup into each repository in use (full on Sunday, otherwise differential), or `check` |
+| `gk-db-dump` | Nightly `pg_dump`, encrypted with `age` for the owner's public key; uploaded to R2 when set, otherwise kept on this disk (35 days, plus monthly copies) for the Mac to pull |
 | `gk-db-snapshot` | The restricted SSH command for the workflows: dump, keep the newest 5, set a restore point. Replaces Neon's `auto-backup-*` branches. |
 | `gk-db-health` | Health check: instances, WAL archiving, disk, memory, CPU, connections, failed logins, app connections; `--cert` checks the certificate |
-| `gk-db-restore-drill` | Monthly drill: restore from R2 into a scratch instance, run `pg_amcheck` and the wallet-ledger checks, compare row counts, restore the latest dump |
+| `gk-db-restore-drill` | Monthly drill: restore from R2 (or this disk, without R2) into a scratch instance, run `pg_amcheck` and the wallet-ledger checks, compare row counts, restore the latest dump |
 | `gk-cert-deploy` | certbot hook: copies the new certificate to both instances and reloads them |
 
 Run on the owner's Mac ([mac/](mac/); bash 3.2 is fine):

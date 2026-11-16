@@ -14,7 +14,7 @@ Times are IST. Never paste a password or key into a chat or a commit. Public key
 |---|---|---|
 | 1 | Hostinger VPS, Mumbai, 24 months | **Bought: KVM 4**, 16-Nov-2026 21.16 IST (decided as KVM 2; the owner chose the larger plan). Moved from Kuala Lumpur to Mumbai at 21.44 IST; IPv4 189.72.155.162 |
 | 2 | Staging on the same server | Built as recommended |
-| 3 | Cloudflare R2 for off-site backups | **Decided**, 16-Nov-2026 21.53 IST ("Keep R2") |
+| 3 | Off-site backups | **Changed**, 16-Nov-2026 about 22.00 IST: **VPS only for now**, no R2 ("Keep R2" at 21.53, then "keep the database on local VPS server only"). Leave `R2_ACCOUNT_ID` empty; add R2 later with "Adding R2 later" (Part 2) |
 | 4 | WireGuard | Built as recommended |
 | 5 | Where alerts go | **OPEN.** `ALERT_DESTINATION` placeholder in `config.env`; step 17 waits for it |
 | 6 | Names `gokesari` / `gokesari_test` | Built as recommended |
@@ -28,7 +28,7 @@ Times are IST. Never paste a password or key into a chat or a commit. Public key
 
 ### Gates
 
-- **G1 (owner):** the VPS is bought and the R2 account is set up: [G1_OWNER_CHECKLIST.md](G1_OWNER_CHECKLIST.md).
+- **G1 (owner):** the VPS is bought: [G1_OWNER_CHECKLIST.md](G1_OWNER_CHECKLIST.md). The R2 account is skipped while decision 3 is "VPS only".
 - **G2 (owner's OK, in words, before step 3).** The OK covers:
   - running this kit as root on the new VPS;
   - adding the DNS records `db` and `db-test` (new names; nothing that exists changes);
@@ -65,7 +65,7 @@ ssh -i ~/.ssh/gokesari_db_admin root@<IP> 'chown -R root:root /opt/gokesari-db &
 **4. Fill in `/etc/gokesari-db/config.env`** (session, on the server). Set:
 - `VPS_PUBLIC_IP`;
 - `ADMIN_SSH_PUBKEY` (the `.pub` from G1);
-- `R2_ACCOUNT_ID` (from G1);
+- `R2_ACCOUNT_ID`: **leave empty** while decision 3 is "VPS only"; every backup then stays on this server;
 - `DUMP_AGE_RECIPIENT` (step 2);
 - `LETSENCRYPT_EMAIL`: the owner's choice, or empty.
 
@@ -102,7 +102,7 @@ From here on, use `gkadmin@10.66.0.1`.
 
 **12. Roles and databases:** `sudo /opt/gokesari-db/50-roles.sh`.
 
-**13. R2 key** (the **owner**, in their own Mac Terminal, so no session sees it):
+**13. R2 key.** **Skip this step while `R2_ACCOUNT_ID` is empty** (decision 3, "VPS only"). With R2, the **owner** runs it in their own Mac Terminal, so no session sees it:
 ```bash
 ssh -t -i ~/.ssh/gokesari_db_admin gkadmin@10.66.0.1 sudo gk-db-secret set-r2
 ```
@@ -113,9 +113,9 @@ Then the session:
 2. Runs `scripts/vps-db/mac/copy-secret.sh pgbackrest-cipher-pass`.
 3. The owner pastes it into the password manager as "GoKesari DB pgBackRest passphrase" and says "saved". Without this passphrase the R2 backups can never be read.
 
-**14. Backups:** `sudo /opt/gokesari-db/60-pgbackrest.sh --cipher-saved`. It:
+**14. Backups:** `sudo /opt/gokesari-db/60-pgbackrest.sh` (with R2: add `--cipher-saved`). It:
 - creates both stanzas;
-- runs `check`, which proves the WAL reaches this disk and R2;
+- runs `check`, which proves the WAL reaches this disk (and R2, when set);
 - takes the first full backups of both instances.
 
 **15. Workflow keys and passwords** (session, with the G2 OK):
@@ -148,7 +148,7 @@ Then the session:
 | `gk-health` | 5 min | 10 min | Act now: an instance is down, archiving is stuck, disk is over 85 %, or the app has had no connection for 15 min |
 | `gk-warn` | 5 min | 10 min | Look today: disk over 70 %, memory, CPU, connections over 70 %, failed logins |
 | `gk-backup-prod`, `gk-backup-staging` | 1 day | 2 h | Nightly pgBackRest (alerts if no success by about 04.30 IST) |
-| `gk-dump-prod`, `gk-dump-staging` | 1 day | 2 h | Nightly dump to R2 |
+| `gk-dump-prod`, `gk-dump-staging` | 1 day | 2 h | Nightly dump (to R2 when set, otherwise kept on this disk) |
 | `gk-cert` | 1 day | 6 h | Certificate has 14+ days left |
 | `gk-drill` | 31 days | 7 days | Monthly restore drill done and passed |
 | `gk-setup` | (delete after the first ping) | | Test ping from `set-healthchecks` |
@@ -177,10 +177,10 @@ Also set up a free uptime monitor on https://gokesari.com (healthchecks.io does 
 
 **19. First restore drills.** Backups are only minutes old, so use `--latest`:
 ```bash
-sudo gk-db-restore-drill staging --repo 2 --latest
+sudo gk-db-restore-drill staging --latest
 ```
 ```bash
-sudo gk-db-restore-drill prod --repo 2 --latest
+sudo gk-db-restore-drill prod --latest
 ```
 Both must end `PASS`. Record the result lines in `Doc_GoKesari/Test_Cases_Tracking/GOKESARI_DB_RESTORE_DRILLS.xlsx` (make it on the first drill).
 
@@ -203,7 +203,7 @@ Then tell the owner Phase 1 is done.
 
 **Phase 1 is done when:**
 - [ ] Both instances run PostgreSQL 18 with checksums, TLS (Let's Encrypt) and the plan's settings.
-- [ ] pgBackRest `check` passes for both; the first full backups are in repo1 and R2.
+- [ ] pgBackRest `check` passes for both; the first full backups are in repo1 (and R2, when set).
 - [ ] Both drills `PASS`.
 - [ ] Every peer is in `gk-peer list` with its keys; the GitHub secrets exist.
 - [ ] SSH works only over the tunnel; ufw and hPanel's firewall match `access.sh --hostinger`.
@@ -212,8 +212,7 @@ Then tell the owner Phase 1 is done.
 - [ ] Alerts reach the owner. **Waits for decision 5; needed before G3.**
 - [ ] The owner has these in the password manager:
   - the root password;
-  - both R2 keys;
-  - the pgBackRest passphrase;
+  - with R2 only: both R2 keys and the pgBackRest passphrase;
   - the dump key;
   - the four role passwords.
 
@@ -272,12 +271,18 @@ sudo gk-db-health; pg_lsclusters; sudo -u postgres pgbackrest info; sudo gk-peer
 
   1–2 hours; up to 5 minutes of data lost.
 
+  **Without R2** (decision 3, "VPS only"), step 3 is instead the newer of:
+  - Hostinger's weekly VPS backup, restored in hPanel;
+  - the newest encrypted dump on the Mac (`mac/pull-dumps.sh` folder): `age -d`, then `pg_restore` into the empty database.
+
+  Everything written since that copy is lost: up to 7 days, less if the Mac pulled a dump more recently.
+
 ### Monthly window (first Monday; drill at 11.00 IST)
 
 1. **Restore drill:**
-   - Run `sudo gk-db-restore-drill prod` (R2, 1 hour ago), then `staging`.
+   - Run `sudo gk-db-restore-drill prod` (R2 when set, otherwise this disk; 1 hour ago), then `staging`.
    - Record both lines in `GOKESARI_DB_RESTORE_DRILLS.xlsx`.
-   - Quarterly, also restore from R2 on a machine that is not the VPS, with the **restore-only** key.
+   - Quarterly, also restore from R2 on a machine that is not the VPS, with the **restore-only** key. Without R2: restore the newest Mac dump on the Mac instead.
 2. **Updates:**
    - Run `sudo apt-get update && apt list --upgradable`.
    - **PostgreSQL minor releases:** staging first (`sudo apt-get install --only-upgrade postgresql-18 postgresql-client-18`, then `sudo systemctl restart postgresql@18-staging`); production the next day. About 10 seconds of reconnects each.
@@ -300,6 +305,13 @@ sudo gk-db-health; pg_lsclusters; sudo -u postgres pgbackrest info; sudo gk-peer
   The old password stops working at once, so do it in that order.
 - **Workflow keys:** run `scripts/vps-db/mac/make-github-keys.sh --rotate`, then the printed `gk-peer` lines.
 - **A lost or departed Mac:** run `sudo gk-peer remove owner-mac`, set up a new Mac (Part 1 step 8), and rotate the role passwords it knew.
+- **Adding R2 later** (decision 3 changed back):
+  1. The owner does G1 checklist section C.
+  2. Set `R2_ACCOUNT_ID` in `/etc/gokesari-db/config.env`.
+  3. Part 1 step 13: the R2 write key, then the pgBackRest passphrase.
+  4. `sudo /opt/gokesari-db/60-pgbackrest.sh --cipher-saved`. It adds repo2 and takes a full backup into it.
+  5. `sudo gk-db-backup check`, then `sudo gk-db-restore-drill staging --repo 2 --latest`.
+  6. Optional: copy the existing encrypted dumps to R2 with `rclone`.
 - **R2 key:** make a new token in Cloudflare, `gk-db-secret set-r2`, `sudo gk-db-backup check`, then delete the old token. **Never change the pgBackRest passphrase**: R2 backups made with it would become unreadable.
 
 ### Locked out of SSH

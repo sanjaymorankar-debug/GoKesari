@@ -77,6 +77,13 @@ need_config() {
   done
 }
 
+# Off-site copies in Cloudflare R2 only once R2_ACCOUNT_ID is set (decision 3:
+# "VPS only" from 16-Nov-2026; R2 can be added later by re-running 60-pgbackrest.sh).
+r2_enabled() { [ -n "$R2_ACCOUNT_ID" ]; }
+# pgBackRest repositories in use: 1 = this disk, 2 = Cloudflare R2.
+pgbr_repos() { if r2_enabled; then echo "1 2"; else echo 1; fi; }
+pgbr_where() { if r2_enabled; then echo "this disk and R2"; else echo "this disk (no R2)"; fi; }
+
 # use_env prod|staging: sets the names for one instance.
 use_env() {
   case "$1" in

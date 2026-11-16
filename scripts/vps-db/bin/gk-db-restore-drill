@@ -5,7 +5,8 @@
 #
 #   gk-db-restore-drill <prod|staging> [--repo 1|2] [--minutes-ago N | --latest]
 #
-# Defaults: repo 2 (R2), 60 minutes ago. --latest replays all the WAL there is
+# Defaults: repo 2 (R2) once R2_ACCOUNT_ID is set, otherwise repo 1 (this disk);
+# 60 minutes ago. --latest replays all the WAL there is
 # (use it while backups are younger than the target, e.g. the first drill).
 #
 # 1. Restores the backup into a scratch instance on port 5499 (socket only).
@@ -17,7 +18,7 @@
 need_root
 use_env "${1:-}"; shift || true
 
-repo=2; target="--minutes-ago"; minutes=60
+repo=$(pgbr_repos | awk '{print $NF}'); target="--minutes-ago"; minutes=60
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo=$2; shift 2 ;;
@@ -27,6 +28,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$repo" in 1|2) ;; *) die "--repo must be 1 or 2." ;; esac
+[ "$repo" = 1 ] || r2_enabled || die "There is no repo2: R2_ACCOUNT_ID is empty (decision 3). Use --repo 1."
 [[ "$minutes" =~ ^[0-9]+$ ]] || die "--minutes-ago must be a number."
 
 work=$GK_STATE/drill/$GK_ENV

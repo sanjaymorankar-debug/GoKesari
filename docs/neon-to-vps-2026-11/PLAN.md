@@ -652,6 +652,10 @@ Cashfree webhooks that arrive during the read-only window fail and are retried b
 2. **Staging:** a separate instance on the **same VPS** (recommended), a separate VPS, or stay on Neon.
 3. **Off-site backups:** **Cloudflare R2** (free up to 10 GB; recommended) or Backblaze B2. The owner creates the account.
    - **DECIDED** 16-Nov-2026, 21.53 IST: "Keep R2". A copy only on the VPS was ruled out: it is lost with the server.
+   - **CHANGED** about 22.00 IST: "let us keep the database on local VPS server only". No R2 for now.
+     - Backups: pgBackRest on the VPS disk; nightly encrypted dumps on the VPS, which the Mac pulls; Hostinger's weekly VPS backup.
+     - Accepted risk: if the server is lost, up to 7 days of data can be lost.
+     - R2 can be added later without a rebuild (runbook "Adding R2 later").
 4. **Access for GitHub and the Mac:** **WireGuard** (recommended; free, no third party) or Tailscale (easier setup, third-party service).
 5. **Alerts go to:** which email address and/or Telegram.
 6. **Database names:** `gokesari` / `gokesari_test` (recommended), or keep `neondb`.
