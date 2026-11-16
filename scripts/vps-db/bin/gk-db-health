@@ -29,7 +29,7 @@ mon() { local port=$1; shift; psql -X -h "$PG_SOCKET" -p "$port" -U monitor -d p
 
 for env in prod staging; do
   use_env "$env"
-  if ! "$PG_BIN/pg_isready" -q -h "$PG_SOCKET" -p "$PORT" || ! mon "$PORT" -c 'select 1' >/dev/null 2>&1; then
+  if ! "$PG_BIN/pg_isready" -q -h "$PG_SOCKET" -p "$PORT" -U monitor -d postgres || ! mon "$PORT" -c 'select 1' >/dev/null 2>&1; then
     crit+=("$GK_ENV ($PORT) is DOWN or not answering")
     continue
   fi
