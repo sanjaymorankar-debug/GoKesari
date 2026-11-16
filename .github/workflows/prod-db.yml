@@ -13,9 +13,32 @@
 # schema, and the new code finds its tables when Hostinger deploys it.
 #
 # There is no push or schedule trigger: nothing here runs on its own.
-# Production data never leaves the database — no dump, no artifact. The run
-# records the exact time and position before migrating; Neon can restore the
-# database to that point (PROD_DB.md).
+# Production data never leaves the database server — no dump to GitHub, no
+# artifact. Before migrating, the run records the point an undo would go back
+# to, the way that fits where production is (variable PROD_DATABASE_HOST):
+#   - ends in .neon.tech → Neon: the exact time and WAL position. To undo, Neon
+#     restores the database to that time (PROD_DB.md).
+#   - any other host → GoKesari's own database server (VPS; docs/neon-to-vps-2026-11/):
+#     the server takes a snapshot (a dump kept on the server, the newest 5) and
+#     sets a restore point of the same name. To undo: restore to that point, or
+#     copy back from the snapshot — docs/neon-to-vps-2026-11/RUNBOOK.md, "Restores".
+#
+# Where each database lives is read from its host variable, separately:
+# production from PROD_DATABASE_HOST, the test database (read by "Tested on the
+# test database first") from TEST_DATABASE_HOST. For a while the test database
+# is on the VPS while production is still on Neon. A .neon.tech host is reached
+# directly, as before. When either is on the VPS, the job first joins the
+# server's WireGuard network (peer gh-prod-db, 10.66.0.23), before any step that
+# touches a database, and points only the VPS host names at the server. Needs,
+# on the `production` environment:
+#   - secret VPS_WG_KEY_PROD_DB; secret VPS_SSH_KEY_PROD_DB (the snapshot, for a
+#     migrate with production on the VPS);
+#   - variables VPS_WG_SERVER_PUBLIC_KEY, VPS_WG_ENDPOINT, VPS_SSH_KNOWN_HOSTS;
+#   - a VPS host written host:port when its port is not 5432
+#     (TEST_DATABASE_HOST = db-test.gokesari.com:5433): the guards check the port;
+#   - with the test database on the VPS, TEST_DATABASE_URL for the read-only role
+#     gokesari_test_ro: the server lets this job into the staging database (5433)
+#     only as that role.
 name: Production database
 
 on:
@@ -84,6 +107,36 @@ jobs:
           path: release
           persist-credentials: false
 
+      - name: Plan — where the databases are
+        # Production and the test database are placed separately, each by its host variable.
+        # Only the provider and the VPS host names are recorded; no secret is read here.
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          where() {
+            case "${1%%:*}" in
+              "") echo unset ;;           # the preflight or a guard stops the run and says why
+              *.neon.tech) echo neon ;;   # Neon: reached directly, as before
+              *) echo vps ;;              # GoKesari's own server: over WireGuard
+            esac
+          }
+          host_ok() { [[ "$1" =~ ^[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]]; }
+          prod_at=$(where "$EXPECTED_HOST")
+          test_at=$(where "$TEST_HOST")
+          hosts=""
+          if [ "$prod_at" = vps ]; then
+            host_ok "$EXPECTED_HOST" || fail "Variable PROD_DATABASE_HOST must be a host name or host:port (it is '$EXPECTED_HOST'). Stopping before any change."
+            hosts=$EXPECTED_HOST
+          fi
+          if [ "$test_at" = vps ]; then
+            host_ok "$TEST_HOST" || fail "Variable TEST_DATABASE_HOST must be a host name or host:port (it is '$TEST_HOST'). Stopping before any change."
+            hosts="${hosts:+$hosts }$TEST_HOST"
+          fi
+          tunnel=no
+          [ -z "$hosts" ] || tunnel=yes
+          { echo "PROD_PROVIDER=$prod_at"; echo "TEST_PROVIDER=$test_at"; echo "DB_TUNNEL=$tunnel"; echo "VPS_HOSTS=$hosts"; } >> "$GITHUB_ENV"
+          echo "### Where the databases are" >> "$GITHUB_STEP_SUMMARY"
+          echo "production: $prod_at · test database: $test_at · WireGuard: $tunnel${hosts:+ ($hosts)}" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Preflight — required secrets and variables are visible (values never printed)
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
@@ -91,6 +144,21 @@ jobs:
           TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
           RUN_ENVIRONMENT: production
         run: tools/scripts/prod-db/preflight.sh
+
+      - name: Connect to the database server (WireGuard)
+        if: env.DB_TUNNEL == 'yes'
+        # Peer gh-prod-db (10.66.0.23): production (5432) and the snapshot command (SSH);
+        # the staging database (5433) read-only, as gokesari_test_ro, for the tested-on-test check.
+        uses: ./tools/.github/actions/vps-db-tunnel
+        with:
+          private-key: ${{ secrets.VPS_WG_KEY_PROD_DB }}
+          private-key-name: VPS_WG_KEY_PROD_DB
+          peer: gh-prod-db
+          address: 10.66.0.23
+          server-public-key: ${{ vars.VPS_WG_SERVER_PUBLIC_KEY }}
+          endpoint: ${{ vars.VPS_WG_ENDPOINT }}
+          hosts: ${{ env.VPS_HOSTS }}
+          environment: production
 
       - name: Guard — production, by hand, confirmed
         env:
@@ -109,8 +177,8 @@ jobs:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: tools/scripts/prod-db/state.sh release/drizzle/meta/_journal.json
 
-      - name: Restore point
-        if: inputs.action == 'migrate'
+      - name: Restore point (Neon)
+        if: inputs.action == 'migrate' && env.PROD_PROVIDER != 'vps'
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: |
@@ -122,6 +190,19 @@ jobs:
             echo
             echo "To undo: Neon console → the production project → Restore → to this time (PROD_DB.md)."
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore point (database server snapshot)
+        if: inputs.action == 'migrate' && env.PROD_PROVIDER == 'vps'
+        # A dump on the server plus a restore point named prod-db-migrate-<date>-run<N>;
+        # no rows leave the server. Stops the run before migrating if it fails.
+        uses: ./tools/.github/actions/vps-db-snapshot
+        with:
+          ssh-key: ${{ secrets.VPS_SSH_KEY_PROD_DB }}
+          ssh-key-name: VPS_SSH_KEY_PROD_DB
+          known-hosts: ${{ vars.VPS_SSH_KNOWN_HOSTS }}
+          environment: production
+          name-prefix: prod-db-migrate
+          title: Restore point (before migrating)
 
       - uses: actions/setup-node@v5
         if: inputs.action == 'migrate'
@@ -149,3 +230,8 @@ jobs:
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: tools/scripts/prod-db/state.sh release/drizzle/meta/_journal.json --expect-latest
+
+      - name: Disconnect from the database server
+        if: always() && env.DB_TUNNEL == 'yes'
+        # The key files were removed by the steps that wrote them; this closes the tunnel.
+        run: sudo ip link delete dev gkdb 2>/dev/null || true

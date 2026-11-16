@@ -23,8 +23,20 @@
 #   batch-2026-10-settings |
 #   rollback-0058 (type ROLLBACK 0058 to confirm)
 #
-# Every change is preceded by a backup: a Neon branch auto-backup-<date>-run<N> (no data
-# transfer); the newest 5 are kept. Restore: docs/event-driven-2026-10/DB_AUTOMATION.md.
+# Every change is preceded by a backup named auto-backup-<date>-run<N>, made where the
+# database lives (no rows leave it); the newest 5 are kept. Which way is decided by the
+# variable TEST_DATABASE_HOST:
+#   - ends in .neon.tech → Neon: a branch of the test site's branch, through the Neon API.
+#     Restore: docs/event-driven-2026-10/DB_AUTOMATION.md.
+#   - any other host → GoKesari's own database server (VPS; docs/neon-to-vps-2026-11/).
+#     GitHub's runners cannot be allowed in by address, so the job first joins the
+#     server's WireGuard network (before any step that touches the database), then asks
+#     the server over SSH for a snapshot: a dump kept on the server plus a restore point
+#     of the same name. Restore: docs/neon-to-vps-2026-11/RUNBOOK.md, "Restores".
+#     Needs on the `test` environment: secrets VPS_WG_KEY_TEST_DB, VPS_SSH_KEY_TEST_DB;
+#     variables VPS_WG_SERVER_PUBLIC_KEY, VPS_WG_ENDPOINT, VPS_SSH_KNOWN_HOSTS; and
+#     TEST_DATABASE_HOST written host:port (db-test.gokesari.com:5433), because both of
+#     the server's databases share one machine and the guard checks the port.
 name: Test database
 
 on:
@@ -129,9 +141,63 @@ jobs:
               [ "$settings$wallet$credits$four$modules$batch" != nononononono ] && migrate=yes ;;
           esac
           [ "$migrate$settings$wallet$credits$four$modules$batch$rollback" = nononononononono ] && [ "$EVENT" = push ] && backup=no
-          { echo "DO_BACKUP=$backup"; echo "DO_MIGRATE=$migrate"; echo "DO_SETTINGS=$settings"; echo "DO_WALLET_SETTINGS=$wallet"; echo "DO_WALLET_CREDITS=$credits"; echo "DO_FOUR_FEATURES=$four"; echo "DO_FOUR_REPORT=$report"; echo "DO_MODULES_SETTINGS=$modules"; echo "DO_BATCH_SETTINGS=$batch"; echo "DO_ROLLBACK=$rollback"; } >> "$GITHUB_ENV"
+          # Where the test database lives decides how it is reached and backed up.
+          case "${EXPECTED_HOST%%:*}" in
+            "") provider=unset ;;           # the guard stops the run and says why
+            *.neon.tech) provider=neon ;;   # Neon: reached directly, backed up as a Neon branch
+            *) provider=vps ;;              # GoKesari's own server: WireGuard, then a server snapshot
+          esac
+          { echo "DO_BACKUP=$backup"; echo "DO_MIGRATE=$migrate"; echo "DO_SETTINGS=$settings"; echo "DO_WALLET_SETTINGS=$wallet"; echo "DO_WALLET_CREDITS=$credits"; echo "DO_FOUR_FEATURES=$four"; echo "DO_FOUR_REPORT=$report"; echo "DO_MODULES_SETTINGS=$modules"; echo "DO_BATCH_SETTINGS=$batch"; echo "DO_ROLLBACK=$rollback"; echo "DB_PROVIDER=$provider"; } >> "$GITHUB_ENV"
           echo "### Plan" >> "$GITHUB_STEP_SUMMARY"
-          echo "backup=$backup · migrate=$migrate · settings=$settings · shop-wallet-settings=$wallet · shop-wallet-credits=$credits · four-features-settings=$four · four-features-report=$report · three-modules-settings=$modules · batch-2026-10-settings=$batch · rollback=$rollback ($EVENT)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "backup=$backup · migrate=$migrate · settings=$settings · shop-wallet-settings=$wallet · shop-wallet-credits=$credits · four-features-settings=$four · four-features-report=$report · three-modules-settings=$modules · batch-2026-10-settings=$batch · rollback=$rollback · database=$provider ($EVENT)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Connect to the database server (WireGuard)
+        if: env.DB_PROVIDER == 'vps'
+        # The server's PostgreSQL ports are closed to GitHub's runners. This job comes in over
+        # WireGuard with a key of its own (peer gh-test-db, 10.66.0.21), which the server lets
+        # reach only the staging database (5433) and the snapshot command (SSH). Inside the
+        # tunnel the test host name points at the server's tunnel address, so TEST_DATABASE_URL
+        # is used unchanged and its TLS name still matches.
+        env:
+          WG_PRIVATE_KEY: ${{ secrets.VPS_WG_KEY_TEST_DB }}
+          WG_SERVER_PUBLIC_KEY: ${{ vars.VPS_WG_SERVER_PUBLIC_KEY }}
+          WG_ENDPOINT: ${{ vars.VPS_WG_ENDPOINT }}
+          WG_ADDRESS: 10.66.0.21/32
+          WG_SERVER: 10.66.0.1
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          where="Settings → Environments → test"
+          [ -n "$WG_PRIVATE_KEY" ] || fail "Secret VPS_WG_KEY_TEST_DB is not set ($where → Secrets). Stopping before any change."
+          [ -n "$WG_SERVER_PUBLIC_KEY" ] || fail "Variable VPS_WG_SERVER_PUBLIC_KEY is not set ($where → Variables). Stopping before any change."
+          [ -n "$WG_ENDPOINT" ] || fail "Variable VPS_WG_ENDPOINT is not set ($where → Variables). Stopping before any change."
+          db_host=${EXPECTED_HOST%%:*}
+          [[ "$db_host" =~ ^[A-Za-z0-9.-]+$ ]] || fail "TEST_DATABASE_HOST ('$EXPECTED_HOST') is not a host name or host:port. Stopping before any change."
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wireguard-tools > /dev/null
+
+          # The private key is on disk (mode 600) only until the tunnel is up.
+          dir=$(mktemp -d "$RUNNER_TEMP/wg.XXXXXX")
+          trap 'rm -rf "$dir"' EXIT
+          ( umask 077
+            printf '[Interface]\nPrivateKey = %s\nAddress = %s\n\n[Peer]\nPublicKey = %s\nEndpoint = %s\nAllowedIPs = %s/32\nPersistentKeepalive = 25\n' \
+              "$(printf '%s' "$WG_PRIVATE_KEY" | tr -d '\r\n')" "$WG_ADDRESS" "$WG_SERVER_PUBLIC_KEY" "$WG_ENDPOINT" "$WG_SERVER" > "$dir/gkdb.conf" )
+          sudo wg-quick up "$dir/gkdb.conf"
+          rm -rf "$dir"
+
+          # Wait for the handshake; any packet into the tunnel starts one.
+          hs=0
+          for _ in $(seq 30); do
+            hs=$(sudo wg show gkdb latest-handshakes | awk '{ print $2 }')
+            [ "${hs:-0}" -gt 0 ] && break
+            timeout 2 bash -c ": < /dev/tcp/$WG_SERVER/22" 2>/dev/null || true
+            sleep 1
+          done
+          [ "${hs:-0}" -gt 0 ] || fail "No WireGuard handshake with the database server ($WG_ENDPOINT) in 30 s. Check VPS_WG_KEY_TEST_DB, VPS_WG_SERVER_PUBLIC_KEY and the server's peer gh-test-db (gk-peer list). Stopping before any change."
+
+          echo "$WG_SERVER $db_host" | sudo tee -a /etc/hosts > /dev/null
+          [ "$(getent hosts "$db_host" | awk '{ print $1; exit }')" = "$WG_SERVER" ] || fail "$db_host does not resolve to $WG_SERVER inside the tunnel. Stopping before any change."
+          echo "Database server: $db_host → $WG_SERVER over WireGuard ($WG_ENDPOINT)." | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Guard — test database only
         env:
@@ -149,7 +215,7 @@ jobs:
           echo "/usr/lib/postgresql/$major/bin" >> "$GITHUB_PATH"
 
       - name: Back up (Neon branch)
-        if: env.DO_BACKUP == 'yes'
+        if: env.DO_BACKUP == 'yes' && env.DB_PROVIDER == 'neon'
         # A Neon branch is a copy-on-write copy made inside Neon: no rows leave the
         # database, so a backup costs no data transfer. The pg_dump this replaces
         # pulled ~45 MB of rows to GitHub per run (~1.2 GB a month from the nightly
@@ -204,6 +270,43 @@ jobs:
                 if api DELETE "/branches/$old_id" > /dev/null; then echo "Deleted old backup branch $old_name."
                 else echo "::warning::Could not delete old backup branch $old_name ($old_id)."; fi
               done
+
+      - name: Back up (database server snapshot)
+        if: env.DO_BACKUP == 'yes' && env.DB_PROVIDER == 'vps'
+        # The server dumps the database on its own disk (keeping the newest 5) and sets a
+        # restore point of the same name, so a point-in-time restore can stop just before this
+        # run's changes; no rows leave the server. This job's SSH key may run only that command,
+        # for the staging database, from this job's tunnel address (gk-db-snapshot on the server).
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY_TEST_DB }}
+          SSH_KNOWN_HOSTS: ${{ vars.VPS_SSH_KNOWN_HOSTS }}
+          SNAPSHOT_HOST: 10.66.0.1
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          where="Settings → Environments → test"
+          [ -n "$SSH_KEY" ] || fail "Secret VPS_SSH_KEY_TEST_DB is not set ($where → Secrets) — cannot back up. Stopping before any change."
+          [ -n "$SSH_KNOWN_HOSTS" ] || fail "Variable VPS_SSH_KNOWN_HOSTS is not set ($where → Variables) — cannot check the server's SSH key. Stopping before any change."
+
+          # The key is on disk (mode 600) only for this step.
+          dir=$(mktemp -d "$RUNNER_TEMP/snap.XXXXXX")
+          trap 'rm -rf "$dir"' EXIT
+          ( umask 077
+            printf '%s\n' "$SSH_KEY" | tr -d '\r' > "$dir/key"
+            printf '%s\n' "$SSH_KNOWN_HOSTS" | tr -d '\r' > "$dir/known_hosts" )
+
+          name="auto-backup-$(date -u +%Y-%m-%d-%H%M)-run${GITHUB_RUN_NUMBER}"
+          if ! out=$(ssh -i "$dir/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+                         -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/known_hosts" -o GlobalKnownHostsFile=/dev/null \
+                         -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+                         "gksnap@$SNAPSHOT_HOST" "$name" 2>&1); then
+            echo "$out"
+            fail "The database server could not take snapshot $name (output above). Stopping before any change."
+          fi
+          echo "$out"
+          field() { sed -n "s/^$1=//p" <<<"$out" | head -1; }
+          snapshot=$(field snapshot)
+          [ -n "$snapshot" ] || fail "The database server did not report a snapshot for $name (output above). Stopping before any change."
+          echo "Backup: snapshot \`$snapshot\` ($(field size)) on the database server · restore point \`$(field restore_point)\` at LSN \`$(field lsn)\` · $(field at)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/setup-node@v5
         if: env.DO_MIGRATE == 'yes'
@@ -291,3 +394,8 @@ jobs:
           else
             scripts/test-db/verify.sh
           fi
+
+      - name: Disconnect from the database server
+        if: always() && env.DB_PROVIDER == 'vps'
+        # The key files were removed by the steps that wrote them; this closes the tunnel.
+        run: sudo ip link delete dev gkdb 2>/dev/null || true
