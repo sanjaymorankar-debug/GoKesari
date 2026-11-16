@@ -41,6 +41,8 @@ stop_scratch() {
 }
 trap stop_scratch EXIT
 stop_scratch
+# postgres must be able to pass through drill/ to its own work directory.
+install -d -m 755 "$GK_STATE/drill"
 install -d -m 700 -o postgres -g postgres "$work" "$work/data" "$sock"
 
 if [ "$target" = --latest ]; then
@@ -57,11 +59,14 @@ t0=$(date +%s)
 runuser -u postgres -- pgbackrest --stanza="$STANZA" --repo="$repo" --pg1-path="$work/data" \
   --archive-mode=off "${restore_args[@]}" restore
 # Debian keeps the configuration in /etc, so the restored directory has none: give it a minimal one.
+# Recovery refuses to start with these set lower than on the source, so copy the live instance's.
+hot=$(pg "$PORT" -d postgres -tA -c "select string_agg(name || ' = ' || setting, E'\n' order by name) from pg_settings
+  where name in ('max_connections', 'max_locks_per_transaction', 'max_prepared_transactions', 'max_wal_senders', 'max_worker_processes')")
 cat > "$work/data/postgresql.conf" <<EOF
 listen_addresses = ''
 port = $dport
 unix_socket_directories = '$sock'
-max_connections = 20
+$hot
 shared_buffers = 256MB
 shared_preload_libraries = 'pg_stat_statements'
 timezone = 'GMT'
@@ -71,7 +76,8 @@ EOF
 printf 'local all postgres peer\n' > "$work/data/pg_hba.conf"
 : > "$work/data/pg_ident.conf"
 chown postgres:postgres "$work/data/postgresql.conf" "$work/data/pg_hba.conf" "$work/data/pg_ident.conf"
-runuser -u postgres -- "$PG_BIN/pg_ctl" -D "$work/data" -l "$work/postgres.log" -w -t 600 start >/dev/null
+runuser -u postgres -- "$PG_BIN/pg_ctl" -D "$work/data" -l "$work/postgres.log" -w -t 600 start >/dev/null \
+  || { grep -E 'FATAL|ERROR|DETAIL|HINT' "$work/postgres.log" | tail -8 >&2; die "The scratch copy did not start (its log is above)."; }
 for _ in $(seq 1 600); do
   [ "$(spg -d postgres -tAc 'select pg_is_in_recovery()' 2>/dev/null)" = f ] && break
   sleep 1
@@ -128,7 +134,6 @@ else
 fi
 
 line="$(ist),$GK_ENV,repo$repo,$target_desc,${restore_s}s,$restored_to,tables $tables,amcheck $amcheck,ledger $ledger,dump $dump_result,$result"
-install -d -m 700 "$GK_STATE/drill"
 echo "$line" >> "$GK_STATE/drill/drills.csv"
 log "RESULT: $line"
 if [ "$result" = PASS ]; then hc_ping gk-drill ok "$line"; else hc_ping gk-drill fail "$line"; exit 1; fi
