@@ -13,14 +13,23 @@ const globalForDb = globalThis as unknown as {
 };
 
 /**
- * Managed Postgres providers (Neon, Supabase, RDS) require TLS and advertise it
- * as `?sslmode=require` in the URL. postgres-js needs the flag passed
- * explicitly, so it is read from the URL rather than assumed.
+ * TLS is read from the URL's `sslmode` rather than assumed; postgres-js needs it
+ * passed explicitly.
+ *   - none or `disable`: no TLS (a local database).
+ *   - `verify-full` or `verify-ca`: TLS, and the server's certificate must be
+ *     valid for the URL's host name (GoKesari's own database server,
+ *     db.gokesari.com). postgres-js has no CA-only mode, so `verify-ca` is
+ *     checked as strictly. Node's own CA list is used: the URL needs no
+ *     `sslrootcert`, and must not carry one (postgres-js would send it to the
+ *     server as a setting, which the server refuses).
+ *   - anything else (`require`, as Neon's URLs have): TLS without checking
+ *     the certificate.
  */
-function resolveSsl(url: string): "require" | false {
+export function resolveSsl(url: string): "require" | "verify-full" | false {
   try {
     const sslmode = new URL(url).searchParams.get("sslmode");
     if (!sslmode || sslmode === "disable") return false;
+    if (sslmode === "verify-full" || sslmode === "verify-ca") return "verify-full";
     return "require";
   } catch {
     return false;
@@ -32,9 +41,9 @@ function createClient() {
   const url = env.DATABASE_URL;
 
   return postgres(url, {
-    // Managed providers cap connections far below a self-hosted server — Neon's
-    // free tier allows well under 100 — so the ceiling is configurable rather
-    // than hard-coded.
+    // The database server caps connections (Neon's plans well under 100; on
+    // GoKesari's own server the app's role may hold 60, staging's 40), so the
+    // ceiling is configurable rather than hard-coded.
     max: env.DATABASE_POOL_MAX,
     idle_timeout: env.DATABASE_IDLE_TIMEOUT_SECONDS,
     connect_timeout: 30,
