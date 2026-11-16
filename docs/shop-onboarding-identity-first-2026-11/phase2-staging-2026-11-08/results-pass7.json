@@ -1,0 +1,39 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "08 Nov 2026, 23:17 IST",
+  "results": [
+    {
+      "id": "P2-15",
+      "title": "After payment: live, exact completion text, no approval wording",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 23:16 IST",
+      "note": "completion text exact; shop 'QA Phase2 Live 94542' APPROVED, fee PAID",
+      "shots": [
+        "p2-15-live.png"
+      ]
+    },
+    {
+      "id": "P2-30",
+      "title": "Phone: whole flow reached live; completion and Add products at phone width",
+      "platform": "Android size (Chrome, Pixel 7)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 23:16 IST",
+      "note": "'QA Phase2 Phone 41132' APPROVED; completion text exact; Add products + template; sideways scroll 0px",
+      "shots": [
+        "p2-30-live-android.png"
+      ]
+    },
+    {
+      "id": "P2-14b",
+      "title": "Retry after the failed payment succeeds and the shop goes live",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "08 Nov 2026, 23:17 IST",
+      "note": "before retry PENDING_APPROVAL/PENDING, Pay button present; after APPROVED/PAID, completion shown",
+      "shots": [
+        "p2-14-retry-live.png"
+      ]
+    }
+  ]
+}
