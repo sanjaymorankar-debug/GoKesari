@@ -4,7 +4,8 @@
 # Clear the clipboard afterwards (copy anything else).
 #
 #   scripts/vps-db/mac/copy-secret.sh <name>                     e.g. gokesari_app, pgbackrest-cipher-pass
-#   scripts/vps-db/mac/copy-secret.sh url <prod|staging> [app|ro]  the connection URL with its password
+#   scripts/vps-db/mac/copy-secret.sh url <prod|staging> [app|ro] [require|verify-full]
+#       the connection URL with its password; verify-full for the app's DATABASE_URL in hPanel
 #
 # GK_DB_SSH_HOST: the server (default 10.66.0.1, through the tunnel; before
 # WireGuard is set up, use its public IP address).
@@ -15,8 +16,8 @@ key="$HOME/.ssh/gokesari_db_admin"
 ok() { echo "$1" | grep -Eq '^[a-z0-9_-]{1,64}$' || { echo "Bad argument '$1'." >&2; exit 1; }; }
 
 if [ "${1:-}" = url ]; then
-  ok "${2:-}"; ok "${3:-app}"
-  remote="sudo gk-db-secret url $2 ${3:-app}"
+  ok "${2:-}"; ok "${3:-app}"; ok "${4:-require}"
+  remote="sudo gk-db-secret url $2 ${3:-app} ${4:-require}"
 else
   ok "${1:-}"
   remote="sudo gk-db-secret show $1"
