@@ -52,6 +52,15 @@ else
   target_ts=$(date -d "-$minutes minutes" '+%Y-%m-%d %H:%M:%S%:z')
   target_desc="$target_ts ($minutes min ago)"
   restore_args=(--type=time "--target=$target_ts" --target-action=promote)
+  # Recovery to a time stops at the first commit after it. On an idle database
+  # there may be none yet, and recovery would run out of WAL first ("recovery
+  # ended before configured recovery target was reached"). So commit an empty
+  # transaction now (txid_current: no data changes) and get its WAL archived.
+  pg "$PORT" -d postgres -tAc 'select txid_current()' >/dev/null
+  seg=$(pg "$PORT" -d postgres -tAc 'select pg_walfile_name(pg_switch_wal())')
+  archived() { [ "$(pg "$PORT" -d postgres -tAc "select coalesce(last_archived_wal, '') >= '$seg' from pg_stat_archiver")" = t ]; }
+  for _ in $(seq 1 60); do archived && break; sleep 1; done
+  archived || die "WAL $seg was not archived within 60 s, so the drill cannot reach its target. Check archiving (gk-db-health)."
 fi
 
 log "Drill: $GK_ENV from repo$repo to $target_desc"
@@ -80,6 +89,9 @@ runuser -u postgres -- "$PG_BIN/pg_ctl" -D "$work/data" -l "$work/postgres.log" 
   || { grep -E 'FATAL|ERROR|DETAIL|HINT' "$work/postgres.log" | tail -8 >&2; die "The scratch copy did not start (its log is above)."; }
 for _ in $(seq 1 600); do
   [ "$(spg -d postgres -tAc 'select pg_is_in_recovery()' 2>/dev/null)" = f ] && break
+  # A recovery that fails stops the scratch copy: say so now, not after 10 minutes.
+  runuser -u postgres -- "$PG_BIN/pg_ctl" -D "$work/data" status >/dev/null 2>&1 \
+    || { grep -E 'FATAL|ERROR|DETAIL|HINT' "$work/postgres.log" | tail -8 >&2; die "The scratch copy stopped during recovery (its log is above)."; }
   sleep 1
 done
 [ "$(spg -d postgres -tAc 'select pg_is_in_recovery()')" = f ] || die "The scratch copy is still recovering after 10 minutes; see $work/postgres.log."
