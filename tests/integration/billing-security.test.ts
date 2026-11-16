@@ -19,7 +19,7 @@ import { db } from "@/server/db";
 import { eq } from "drizzle-orm";
 
 import { featureFlags, shops, type UserRole } from "@/server/db/schema";
-import { enabledFeatureKeysForShop, isFeatureEnabledForShop, setFeatureFlag } from "@/server/services/feature-flags";
+import { clearFeatureFlagCache, enabledFeatureKeysForShop, isFeatureEnabledForShop, setFeatureFlag } from "@/server/services/feature-flags";
 import { createParty } from "@/server/accounts/parties";
 import { createApiClient } from "@/server/public-api/auth";
 import { gstin, gstShop, resetBatchE } from "../helpers/batch-e";
@@ -39,6 +39,7 @@ beforeEach(async () => {
   await resetDatabase();
   await resetBatchE();
   await db.insert(featureFlags).values({ key: "billing_v2", enabled: true }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled: true } });
+  clearFeatureFlagCache();
   session.user = null;
 });
 

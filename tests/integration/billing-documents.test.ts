@@ -35,6 +35,7 @@ import { issueCreditNoteForRefund, returnedLineWeights } from "@/server/gst/cred
 import { buildGstr1 } from "@/server/gst/gstr1";
 import { counterBillShareText, invoiceJson, invoiceReceiptLines, invoiceShareText, renderInvoiceReceipt, salesReceiptPdf, upiPaymentUri, whatsappShareUrl } from "@/server/invoicing/outputs";
 import { addToCart } from "@/server/services/cart";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { checkout, updateOrderStatus } from "@/server/services/orders";
 import { invoiceKindsForOrders, invoiceTextLines, orderInvoiceLabel, paidHow, type InvoiceSnapshot } from "@/server/services/invoices";
 import { deliveryInvoiceNumber, platformInvoiceLabel, platformInvoicesForOrders, renderDeliveryFeeInvoicePdf } from "@/server/tax/delivery-invoice";
@@ -56,6 +57,7 @@ async function failure(p: Promise<unknown>): Promise<string> {
 
 async function flag(key: FeatureFlagKey, enabled: boolean) {
   await db.insert(featureFlags).values({ key, enabled }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled } });
+  clearFeatureFlagCache();
 }
 
 let seq = 0;
@@ -77,6 +79,7 @@ describe("billing v2 — documents", () => {
     await resetDatabase();
     await resetBatchE();
     await db.execute(sql`DELETE FROM feature_flags WHERE key IN ('billing_v2', 'delivery_9_5')`);
+    clearFeatureFlagCache();
     const a = await createUser({ role: "ADMIN" });
     admin = { id: a.id, role: "ADMIN" };
     await rules(admin, { invoicing: { enabled: true } });

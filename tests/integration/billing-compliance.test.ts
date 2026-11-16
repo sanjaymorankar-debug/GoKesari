@@ -15,6 +15,7 @@ import { featureFlags, notifications, orderMoneyFlows, orders, payoutCycleLines,
 import { importHsnRates, listHsnRates } from "@/server/gst/config";
 import { hsnFallbackRate } from "@/server/gst/rules";
 import { closePayoutCycle } from "@/server/payouts/cycle";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { setCommissionRate } from "@/server/services/finance";
 import { addStatutoryRate } from "@/server/statutory/rates";
 import {
@@ -43,6 +44,7 @@ let admin = { id: "", role: "ADMIN" as const };
 
 async function flag(key: FeatureFlagKey, enabled: boolean) {
   await db.insert(featureFlags).values({ key, enabled }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled } });
+  clearFeatureFlagCache();
 }
 
 async function sellingShop(options: Parameters<typeof gstShop>[0] = {}, qty = 4) {
@@ -56,6 +58,7 @@ beforeEach(async () => {
   await resetDatabase();
   await resetBatchE();
   await db.execute(sql`DELETE FROM feature_flags WHERE key IN ('billing_v2', 'tcs_engine', 'tds_engine', 'delivery_9_5')`);
+  clearFeatureFlagCache();
   admin = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
   await setCommissionRate({ scope: "DEFAULT", rateBp: 1000 }, admin);
   await rules(admin, {

@@ -16,6 +16,7 @@ import { createSalesInvoice } from "@/server/accounts/sales";
 import { stockSummary } from "@/server/accounts/stock";
 import { issueCreditNoteForRefund } from "@/server/gst/credit-notes";
 import { closePayoutCycle } from "@/server/payouts/cycle";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { setCommissionRate } from "@/server/services/finance";
 import { cancelTaxInvoice } from "@/server/tax/invoice-cancel";
 import { sendMonthlyShopStatements } from "@/server/tax/statements";
@@ -27,6 +28,7 @@ let admin = { id: "", role: "ADMIN" as const };
 
 async function flag(key: FeatureFlagKey, enabled: boolean) {
   await db.insert(featureFlags).values({ key, enabled }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled } });
+  clearFeatureFlagCache();
 }
 
 const balanceOf = async (shopId: string) => {
@@ -48,6 +50,7 @@ beforeEach(async () => {
   await resetDatabase();
   await resetBatchE();
   await db.execute(sql`DELETE FROM feature_flags WHERE key IN ('billing_v2', 'tcs_engine', 'tds_engine')`);
+  clearFeatureFlagCache();
   admin = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
   await setCommissionRate({ scope: "DEFAULT", rateBp: 1000 }, admin);
   await rules(admin, {
