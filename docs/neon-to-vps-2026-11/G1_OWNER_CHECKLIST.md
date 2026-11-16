@@ -2,6 +2,13 @@
 
 16-Nov-2026. About 20 minutes, phone or Mac. You do these steps yourself; no session buys anything or sees a password.
 
+**Status, 16-Nov-2026 21.30 IST:**
+- **A:** done. Admin key made at 19.55 IST.
+- **B:** VPS bought at 21.16 IST: **KVM 4**, Ubuntu 24.04, with the admin key.
+  - It was set up in **Kuala Lumpur** (Hostinger data centre 21, `kul`), not Mumbai.
+  - It must be moved to Mumbai before the build (step 3a).
+- **C:** not done yet.
+
 **Never paste a password or key into a chat.** Two things are fine to send:
 - the VPS's IP address;
 - the Cloudflare account ID.
@@ -14,11 +21,22 @@
 
 ## B. Hostinger: buy the VPS (hPanel)
 
-- [ ] **1.** hPanel → **VPS** → buy a new VPS → **KVM 2** (2 vCPU, 8 GB RAM, 100 GB NVMe).
+- [ ] **1.** hPanel → **VPS** → buy a new VPS → **KVM 4** (4 vCPU, 16 GB RAM, 200 GB NVMe).
+  - The owner chose KVM 4 over KVM 2 on 16-Nov-2026, so the app can move onto it later.
+  - The kit works on KVM 2 or larger.
 - [ ] **2.** Term: **24 months**.
-  - Expected: ₹18,696 + 18 % GST ≈ **₹22,061** in total. That is ₹779 a month; it renews at ₹28,776 per 2 years.
+  - Expected: ₹26,376 + 18 % GST ≈ **₹31,123** in total. That is ₹1,099 a month; it renews at ₹2,399 a month.
   - If the cart shows much more, stop and tell the session.
 - [ ] **3.** Location: **India (Mumbai)**.
+  - Check it after purchase: hPanel → **VPS** → the server → **Overview** must show **Mumbai**.
+  - The session also checks it through the Hostinger API (data centre 23, `mum2`).
+- [ ] **3a.** If it shows another city:
+  1. **VPS** → select the server.
+  2. In **VPS Plan details**, click **Change** next to the location.
+  3. Choose **India (Mumbai)**, then **Next**.
+  4. If asked: **Ubuntu 24.04**, the root password from step 5, and the `gokesari-db-admin` SSH key from step 6.
+
+  This reinstalls the server and wipes it. Do it only while the server is empty, before the build. The IP address may change; send the new one (step 9).
 - [ ] **4.** Operating system: **Plain OS → Ubuntu 24.04**.
   - No control panel, no app template.
   - Skip any extra add-ons.

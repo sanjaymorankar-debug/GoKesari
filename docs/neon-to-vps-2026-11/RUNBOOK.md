@@ -12,7 +12,7 @@ Times are IST. Never paste a password or key into a chat or a commit. Public key
 
 | # | Decision | Status |
 |---|---|---|
-| 1 | Hostinger KVM 2, Mumbai, 24 months | **Decided**, 16-Nov-2026 ("Yes, KVM 2") |
+| 1 | Hostinger VPS, Mumbai, 24 months | **Bought: KVM 4**, 16-Nov-2026 21.16 IST (decided as KVM 2; the owner chose the larger plan). First set up in Kuala Lumpur; must be in Mumbai before step 5 |
 | 2 | Staging on the same server | Built as recommended |
 | 3 | Cloudflare R2 for off-site backups | Built as recommended |
 | 4 | WireGuard | Built as recommended |
@@ -71,7 +71,7 @@ ssh -i ~/.ssh/gokesari_db_admin root@<IP> 'chown -R root:root /opt/gokesari-db &
 
 Leave `APP_IPS_*` empty until step 18. Leave `ALERT_DESTINATION` as the placeholder until decision 5.
 
-**5. Preflight:** `/opt/gokesari-db/00-preflight.sh`. It stops unless this is Ubuntu 24.04 on a KVM 2 with that IP address.
+**5. Preflight:** `/opt/gokesari-db/00-preflight.sh`. It stops unless this is Ubuntu 24.04 on a KVM 2 or larger, with that IP address. Before it, the session checks through the Hostinger API that the VPS is in Mumbai (data centre 23, `mum2`).
 
 **6. Base system:** `/opt/gokesari-db/10-os.sh`.
 
@@ -265,7 +265,7 @@ sudo gk-db-health; pg_lsclusters; sudo -u postgres pgbackrest info; sudo gk-peer
   1. `sudo ls -lt /var/lib/gokesari-db/snapshots/prod`.
   2. Restore it into a new database (`createdb -p 5432 restore_check; pg_restore -p 5432 -d restore_check --no-owner <file>`), compare, and copy back only what is needed.
 - **Server lost:**
-  1. New KVM 2 (owner).
+  1. New KVM 4 in Mumbai (owner).
   2. Part 1 steps 3–12.
   3. Restore from R2: the R2 **restore-only** key goes into `/etc/pgbackrest/conf.d/secrets.conf`, then `pgbackrest --stanza=prod --repo=2 restore` into the stopped, empty cluster.
   4. Point the DNS names at the new IP.

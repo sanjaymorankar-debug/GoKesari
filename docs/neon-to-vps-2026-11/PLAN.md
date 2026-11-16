@@ -17,6 +17,15 @@ Owner's copy: `Doc_GoKesari/Devlopment_Trackers/GOKESARI_NEON_TO_VPS_PLAN_2026-1
   - `copy.sh` refuses to copy into a database with a different name;
   - "Copy shops" needs a fourth WireGuard key.
 
+**Updated 16-Nov-2026, 21.30 IST:**
+- **Decision 1 changed:** the owner bought **KVM 4** instead of KVM 2:
+  - 4 vCPU, 16 GB, 200 GB NVMe;
+  - ₹26,376 for 24 months, about ₹31,123 with GST;
+  - renews at ₹2,399 a month.
+- **Why:** the GoKesari app can move onto the same server later. Sizing: `Doc_GoKesari/Devlopment_Trackers/GOKESARI_VPS_SIZING_KVM2_vs_KVM4_2026-11-16.md`.
+- **Unchanged:** the kit and the PostgreSQL settings. Sections 1, 3.2, 9 and 11 still show the KVM 2 figures.
+- **Location:** the VPS was set up in **Kuala Lumpur**, not Mumbai. It is moved to Mumbai before the build; it is still empty, so the reinstall loses nothing.
+
 ---
 
 ## 1. Summary
@@ -637,6 +646,9 @@ Cashfree webhooks that arrive during the read-only window fail and are retried b
    - Hostinger **KVM 2** in Mumbai on a **24-month term**.
    - ₹18,696 (₹779 a month), about ₹22,061 with GST, paid upfront; renews at ₹28,776 per 2 years.
    - The owner buys it at gate G1: [G1_OWNER_CHECKLIST.md](G1_OWNER_CHECKLIST.md).
+   - **Changed 16-Nov-2026, 21.16 IST:** the owner bought **KVM 4** instead.
+     - Same city and term.
+     - ₹26,376, about ₹31,123 with GST; renews at ₹2,399 a month.
 2. **Staging:** a separate instance on the **same VPS** (recommended), a separate VPS, or stay on Neon.
 3. **Off-site backups:** **Cloudflare R2** (free up to 10 GB; recommended) or Backblaze B2. The owner creates the account.
 4. **Access for GitHub and the Mac:** **WireGuard** (recommended; free, no third party) or Tailscale (easier setup, third-party service).

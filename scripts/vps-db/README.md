@@ -1,6 +1,6 @@
 # GoKesari database server kit (Phase 1)
 
-These scripts build and run GoKesari's own PostgreSQL 18 server: one Hostinger KVM 2 VPS in Mumbai, running Ubuntu 24.04. Production and staging are separate instances on it.
+These scripts build and run GoKesari's own PostgreSQL 18 server: one Hostinger KVM 4 VPS in Mumbai (KVM 2 or larger works), running Ubuntu 24.04. Production and staging are separate instances on it.
 
 - Plan: [docs/neon-to-vps-2026-11/PLAN.md](../../docs/neon-to-vps-2026-11/PLAN.md).
 - Step by step: [RUNBOOK.md](../../docs/neon-to-vps-2026-11/RUNBOOK.md).
@@ -26,7 +26,7 @@ Run in this order, as root on the server, from `/opt/gokesari-db`. Each is safe 
 |---|---|
 | [config.example.env](config.example.env) | Settings, copied to `/etc/gokesari-db/config.env`: IP addresses, host names, database names (decision 6), R2 bucket, and the public keys |
 | [lib.sh](lib.sh) | Shared settings and helpers. **The WireGuard peer table** (who may reach which port) is here. |
-| [00-preflight.sh](00-preflight.sh) | Checks it is the server that was ordered: Ubuntu 24.04, KVM 2, the configured IP address |
+| [00-preflight.sh](00-preflight.sh) | Checks it is the server that was ordered: Ubuntu 24.04, KVM 2 or larger, the configured IP address |
 | [10-os.sh](10-os.sh) | Updates, IST time zone, the admin user (key only), SSH without passwords, automatic security updates (never PostgreSQL, never a reboot), swap, journal cap, fail2ban, firewall in build mode |
 | [20-wireguard.sh](20-wireguard.sh) | WireGuard server `wg0` on 10.66.0.1, UDP 51820 |
 | [30-postgres.sh](30-postgres.sh) | PostgreSQL 18 from apt.postgresql.org (key fingerprint checked). Clusters `18/main` (5432) and `18/staging` (5433, limited to 1 vCPU, 2 GB and a lower disk priority). Settings from [templates/postgresql.conf.tmpl](templates/postgresql.conf.tmpl). 2 GB spare file. |

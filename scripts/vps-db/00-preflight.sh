@@ -13,7 +13,7 @@ mem_gb=$(awk '/MemTotal/ {printf "%d", $2/1024/1024 + 0.5}' /proc/meminfo)
 cpus=$(nproc)
 disk_gb=$(df -BG --output=size / | tail -1 | tr -dc '0-9')
 log "CPU: $cpus, memory: ${mem_gb} GB, disk: ${disk_gb} GB"
-[ "$cpus" -ge 2 ] && [ "$mem_gb" -ge 7 ] && [ "$disk_gb" -ge 90 ] || die "This is not a KVM 2 (2 vCPU, 8 GB, 100 GB)."
+[ "$cpus" -ge 2 ] && [ "$mem_gb" -ge 7 ] && [ "$disk_gb" -ge 90 ] || die "This server is smaller than a KVM 2 (2 vCPU, 8 GB, 100 GB)."
 
 [ "$GK_KIT_DIR" = /opt/gokesari-db ] || log "NOTE: the kit runs from $GK_KIT_DIR, not /opt/gokesari-db. The installed commands expect /opt/gokesari-db."
 [ -r "$GK_ETC/config.env" ] || die "$GK_ETC/config.env is missing. Copy config.example.env there and fill it in (RUNBOOK step 4)."
