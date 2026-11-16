@@ -26,6 +26,13 @@ has one database (`DATABASE_URL`, `neondb`) with every table in it; there is no
 postgres_fdw link, no `SELLER_DATABASE_URL` and no `DB_SPLIT_MODE`. Record:
 [docs/db-fdw-removal-2026-11/](docs/db-fdw-removal-2026-11/).
 
+The split's leftovers were removed on 16-Nov-2026: the `fdw_old_public` /
+`fdw_old_pmd` schemas and the `gk_seller_retired` server are dropped on both
+sites, the old seller / customer databases are deleted, and the us-east-2 Neon
+projects (`GoKesari-prod`, `GoKesari-test`) are gone. Backups (`pg_dump -Fc`) are
+in the owner's `Doc_GoKesari/Devlopment_Trackers/neon_backups/`. Record:
+[docs/neon-cost-cut-2026-11/](docs/neon-cost-cut-2026-11/).
+
 - Write ordinary single-database code; do not reintroduce the split rules
   (`-- split:` migration headers, `upsertRow` instead of `ON CONFLICT`,
   touched gate rows, 40001 re-runs). `upsertRow` (`src/server/db/upsert.ts`)
@@ -36,6 +43,23 @@ postgres_fdw link, no `SELLER_DATABASE_URL` and no `DB_SPLIT_MODE`. Record:
 - Keep external side effects (payment gateway, SMS, e-mail, push, uploads) out
   of `db.transaction` — do them after commit or through an idempotent outbox.
 - Product master: use `await appSql()` (`src/server/pmd/db.ts`).
+
+# Neon compute and cron (cost cut, 16-Nov-2026)
+
+The database bill is compute time, so both computes are kept small:
+
+| Site | Compute | Sleeps | Every-minute cron line |
+|---|---|---|---|
+| gokesari.com | 0.25–2 CU | never (scale to zero off) | every minute |
+| test.gokesari.com | 0.25–1 CU | after 5 min idle | `0 */6 * * *` (every 6 h) |
+
+- On staging, timeouts, notification retries, payment reconcile and the other
+  every-minute jobs run only every 6 hours. A test that needs one sooner calls
+  its cron endpoint itself (`CRON_SECRET`); never assume a 1-minute tick on
+  staging. Schedules: [docs/crontab.txt](docs/crontab.txt).
+- Don't raise these limits, turn scale-to-zero back on for production, or add
+  anything that polls staging's database every few minutes without the
+  owner's OK.
 
 # Production releases: one at a time, checked after every deploy
 
