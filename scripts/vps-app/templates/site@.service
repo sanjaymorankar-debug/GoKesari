@@ -24,6 +24,9 @@ Environment=NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -p ${GK_SLOT_PORT} -H 127.0.0.1
 Restart=on-failure
 RestartSec=5
+# next start answers SIGTERM by exiting with 128 + 15 = 143. Without this, every
+# planned stop (the old colour after a switch) leaves the idle colour "failed".
+SuccessExitStatus=143
 TimeoutStopSec=30
 KillMode=mixed
 TasksMax=512

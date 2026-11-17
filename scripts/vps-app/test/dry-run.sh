@@ -445,6 +445,7 @@ check "NodeSource 24.x pinned" has "$E/apt/sources.list.d/nodesource.list" "node
 check "Caddy repo" has "$E/apt/sources.list.d/caddy-stable.list" "dl.cloudsmith.io/public/caddy/stable"
 check "commands linked in /usr/local/sbin" test -L "$GK_APP_ROOT/usr/local/sbin/gk-deploy"
 check "templates installed" test -f "$U/site@.service"
+check "slot unit: a planned stop (exit 143) is not a failure" has "$U/site@.service" "SuccessExitStatus=143"
 check "acme.caddy kept on re-run" has "$E/caddy/acme.caddy" "respond 404"
 check "timers not enabled by the install" hasnt "$GK_TEST_LOG" "enable --now gk-deploy.timer"
 

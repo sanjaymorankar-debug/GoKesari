@@ -83,6 +83,8 @@ Re-running `add` keeps the key, the env file, the TLS mode and anything not give
   - `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `NoNewPrivileges`;
   - no capabilities.
 - `Restart=on-failure`; `TasksMax=512`; `OOMScoreAdjust=300`, so the database survives memory pressure first.
+- `SuccessExitStatus=143`: `next start` exits with 143 when it is stopped (SIGTERM). Without it, the idle colour shows `failed` after every switch; since 18-Nov-2026 it shows `inactive`.
+- **Changing a template on the server.** Copy the file into `/opt/gokesari-app/templates/`, `install -m 644` it into `/etc/systemd/system/`, then `systemctl daemon-reload`. Running colours keep serving; the change applies at their next start or stop. A colour left `failed` by an earlier stop is cleared with `systemctl reset-failed 'site@*'`.
 
 ### Deploys (`gk-deploy`)
 
