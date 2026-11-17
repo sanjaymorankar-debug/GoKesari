@@ -1,0 +1,102 @@
+# Snapshot of a database on GoKesari's own database server (VPS), taken before a
+# workflow changes it (plan §5.1, layer 3: docs/neon-to-vps-2026-11/PLAN.md). On
+# the server it replaces Neon's restore history and auto-backup branches.
+# Used by prod-db.yml and copy-shops.yml; test-db.yml has the same step inline.
+#
+# The server dumps the database on its own disk (keeping the newest 5) and sets a
+# PostgreSQL restore point of the same name, so a point-in-time restore can stop
+# just before this run's changes. No rows leave the server. The job's SSH key may
+# run only that command (gk-db-snapshot), from the job's own tunnel address, and
+# the server picks the database from the key: production for the keys of peers
+# that reach 5432 (gk-peer). Run it after vps-db-tunnel.
+#
+# The key is on disk (mode 600, in a directory of its own) only for this step, and
+# the server's host key must match VPS_SSH_KNOWN_HOSTS. Nothing secret is printed.
+# Restore: docs/neon-to-vps-2026-11/RUNBOOK.md, "Restores".
+name: Database server snapshot
+description: Ask the database server, over SSH through the WireGuard tunnel, for a snapshot and a restore point.
+
+inputs:
+  ssh-key:
+    description: This job's snapshot SSH private key (a secret).
+    required: true
+  ssh-key-name:
+    description: Name of the secret holding it, for messages (for example VPS_SSH_KEY_PROD_DB).
+    required: true
+  known-hosts:
+    description: The server's SSH host key line(s) (variable VPS_SSH_KNOWN_HOSTS).
+    required: true
+  environment:
+    description: The GitHub environment holding these values, for messages (test or production).
+    required: true
+  name-prefix:
+    description: Start of the snapshot and restore point name; the run adds -<date>-<time>-run<N>.
+    required: true
+  title:
+    description: Heading for the job summary.
+    required: false
+    default: Restore point (database server snapshot)
+  server:
+    description: The server's tunnel address.
+    required: false
+    default: 10.66.0.1
+
+outputs:
+  snapshot:
+    description: The dump's file name on the server.
+    value: ${{ steps.snapshot.outputs.snapshot }}
+  restore-point:
+    description: The restore point's name (also the run name).
+    value: ${{ steps.snapshot.outputs.restore_point }}
+
+runs:
+  using: composite
+  steps:
+    - name: Back up (database server snapshot)
+      id: snapshot
+      shell: bash
+      env:
+        SSH_KEY: ${{ inputs.ssh-key }}
+        SSH_KEY_NAME: ${{ inputs.ssh-key-name }}
+        SSH_KNOWN_HOSTS: ${{ inputs.known-hosts }}
+        GK_ENVIRONMENT: ${{ inputs.environment }}
+        NAME_PREFIX: ${{ inputs.name-prefix }}
+        TITLE: ${{ inputs.title }}
+        SNAPSHOT_HOST: ${{ inputs.server }}
+      run: |
+        fail() { echo "::error::$1"; exit 1; }
+        where="Settings → Environments → $GK_ENVIRONMENT"
+        [ -n "$SSH_KEY" ] || fail "Secret $SSH_KEY_NAME is not set ($where → Secrets) — cannot back up. Stopping before any change."
+        [ -n "$SSH_KNOWN_HOSTS" ] || fail "Variable VPS_SSH_KNOWN_HOSTS is not set ($where → Variables) — cannot check the server's SSH key. Stopping before any change."
+        [[ "$NAME_PREFIX" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,30}$ ]] || fail "The workflow gives no valid snapshot name prefix ('$NAME_PREFIX'). Stopping before any change."
+
+        # The key is on disk (mode 600) only for this step.
+        dir=$(mktemp -d "$RUNNER_TEMP/snap.XXXXXX")
+        trap 'rm -rf "$dir"' EXIT
+        ( umask 077
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > "$dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" | tr -d '\r' > "$dir/known_hosts" )
+
+        name="$NAME_PREFIX-$(date -u +%Y-%m-%d-%H%M)-run${GITHUB_RUN_NUMBER}"
+        if ! out=$(ssh -i "$dir/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+                       -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/known_hosts" -o GlobalKnownHostsFile=/dev/null \
+                       -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+                       "gksnap@$SNAPSHOT_HOST" "$name" 2>&1); then
+          rm -rf "$dir"
+          echo "$out"
+          fail "The database server could not take snapshot $name (output above). Stopping before any change."
+        fi
+        rm -rf "$dir"
+        echo "$out"
+        field() { awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }' <<< "$out"; }
+        snapshot=$(field snapshot)
+        restore_point=$(field restore_point)
+        [ -n "$snapshot" ] || fail "The database server did not report a snapshot for $name (output above). Stopping before any change."
+        [ "$restore_point" = "$name" ] || fail "The database server did not report restore point $name (output above). Stopping before any change."
+        { echo "snapshot=$snapshot"; echo "restore_point=$restore_point"; } >> "$GITHUB_OUTPUT"
+        {
+          echo "### $TITLE"
+          echo "Snapshot \`$snapshot\` ($(field size)) on the database server · restore point \`$restore_point\` at LSN \`$(field lsn)\` · $(field at)"
+          echo
+          echo "To undo: restore to restore point \`$restore_point\` (docs/neon-to-vps-2026-11/RUNBOOK.md, \"Restores\": destructive, owner's OK first), or copy back only what is needed from snapshot \`$snapshot\` (same section, \"From a workflow snapshot\")."
+        } | tee -a "$GITHUB_STEP_SUMMARY"

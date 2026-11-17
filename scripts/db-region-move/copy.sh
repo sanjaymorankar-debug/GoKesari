@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
-# Database region move (docs/db-region-move-2026-10/PLAN.md): copies ONE
-# database into an empty database in the new Neon project.
+# Copies ONE database into an empty database on another server. Written for the
+# region move (Neon → Neon, docs/db-region-move-2026-10/PLAN.md); also used to
+# move to GoKesari's own database server (Neon → VPS, and back for a rollback:
+# docs/neon-to-vps-2026-11/PLAN.md §8).
 #
 #   SRC_URL=<old database> DST_URL=<new, empty database> scripts/db-region-move/copy.sh
 #
 # Optional:
 #   REQUIRE_FROZEN=yes  stop unless the source is read-only (the real move;
 #                       leave unset for a rehearsal copy of a live database)
+#   ALLOW_RENAME=yes    allow a target database with another name (the VPS move
+#                       copies neondb into gokesari / gokesari_test); without it
+#                       the names must match
 #   JOBS=8              parallel restore jobs
 #
 # The source is only read. The target must hold no tables yet (drop and
 # recreate the database to start again). Extensions are not copied: create
-# them in the target first (plan step A3). The neon_auth schema is Neon's own
-# and not used by the app; it is left out. URLs come from the environment so
-# the passwords stay out of the process list; only host and database are printed.
+# them in the target first (region move: plan step A3; VPS move: plan §4.4).
+# The neon_auth schema is Neon's own and not used by the app; it is left out.
+# Database-level settings (ALTER DATABASE … SET, e.g. a source frozen read-only)
+# are not copied. URLs come from the environment so the passwords stay out of the
+# process list; only host and database are printed. Runs with macOS bash 3.2.
 set -euo pipefail
 
 fail() { echo "ERROR: $1" >&2; exit 1; }
@@ -44,7 +51,10 @@ echo "Source: $src_where (PostgreSQL $src_major, read-only: $src_ro)"
 echo "Target: $dst_where (PostgreSQL $dst_major)"
 [ "$src_major" = "$dst_major" ] || fail "Source is PostgreSQL $src_major, target $dst_major. Create the target with the same major version."
 [ "$client_major" -ge "$src_major" ] || fail "pg_dump is version $client_major; it must be at least $src_major."
-[ "$src_db" = "$dst_db" ] || fail "Database names differ ('$src_db' → '$dst_db'). The plan keeps every name; create '$src_db' in the new project."
+if [ "$src_db" != "$dst_db" ]; then
+  [ "${ALLOW_RENAME:-}" = "yes" ] || fail "Database names differ ('$src_db' → '$dst_db'). Create '$src_db' on the target, or set ALLOW_RENAME=yes to copy into '$dst_db' (the VPS move: neondb → gokesari / gokesari_test)."
+  echo "NOTE: copying into a database with another name ('$src_db' → '$dst_db'), as ALLOW_RENAME=yes allows."
+fi
 [ "$dst_ro" = "off" ] || fail "The target is read-only. Lift that before copying into it."
 
 if [ "$src_ro" != "on" ]; then
@@ -87,5 +97,5 @@ echo "  done in $((restored - dumped)) s"
 echo "Analyzing…"
 psql "$DST_URL" -X -v ON_ERROR_STOP=1 -qc "analyze"
 echo "Copied $src_where → $dst_where in $(( $(date +%s) - start )) s."
-echo "Next: relink.sh (core database only), then compare.sh."
+echo "Next: compare.sh, with CHECKSUM=yes for the real move (relink.sh only for the 2026-10 split layout's foreign tables)."
 finished=yes

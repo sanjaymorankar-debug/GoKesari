@@ -21,10 +21,17 @@ export type Queryable = Sql | TransactionSql;
 /** postgres.js widens tagged-template parameters to a union of primitives; JSON goes through sql.json. */
 export type JsonValue = postgres.JSONValue;
 
-function resolveSsl(url: string): "require" | false {
+/**
+ * TLS from the URL's sslmode, as the app's main client (src/server/db/index.ts):
+ * none or disable -> no TLS; verify-full or verify-ca -> the certificate must be
+ * valid for the host name (postgres.js has no CA-only mode); anything else -> TLS
+ * without checking the certificate.
+ */
+function resolveSsl(url: string): "require" | "verify-full" | false {
   try {
     const mode = new URL(url).searchParams.get("sslmode");
-    return !mode || mode === "disable" ? false : "require";
+    if (!mode || mode === "disable") return false;
+    return mode === "verify-full" || mode === "verify-ca" ? "verify-full" : "require";
   } catch {
     return false;
   }

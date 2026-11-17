@@ -1,0 +1,33 @@
+# GoKesari: pgBackRest (plan §5.1, layer 1). Written by scripts/vps-db/60-pgbackrest.sh
+# from templates/pgbackrest.conf.tmpl; edits here are overwritten.
+# repo2's keys and passphrase are in conf.d/secrets.conf (gk-db-secret), never here.
+
+[global]
+# repo1: this server's disk. 2 full backups, about 14 days.
+repo1-path=/var/lib/pgbackrest
+repo1-retention-full=2
+repo1-bundle=y
+
+@PGBR_REPO2@
+
+compress-type=zst
+compress-level=3
+process-max=2
+start-fast=y
+archive-async=y
+spool-path=/var/spool/pgbackrest
+# If archiving fails for long, drop WAL past 4 GB rather than fill the disk (plan §6.3).
+archive-push-queue-max=4GiB
+log-level-console=info
+log-level-file=detail
+log-path=/var/log/pgbackrest
+
+[prod]
+pg1-path=/var/lib/postgresql/@PG_MAJOR@/main
+pg1-port=@PROD_PORT@
+pg1-socket-path=@PG_SOCKET@
+
+[staging]
+pg1-path=/var/lib/postgresql/@PG_MAJOR@/staging
+pg1-port=@TEST_PORT@
+pg1-socket-path=@PG_SOCKET@

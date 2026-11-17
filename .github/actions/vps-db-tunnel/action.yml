@@ -1,0 +1,124 @@
+# Joins the WireGuard network of GoKesari's own database server (VPS), for a job
+# that reaches a database there (plan §4.6: docs/neon-to-vps-2026-11/PLAN.md).
+# Used by prod-db.yml and copy-shops.yml; test-db.yml has the same steps inline.
+#
+# The server's PostgreSQL ports are closed to GitHub's runners (they cannot be let
+# in by address). Each job comes in with a WireGuard key of its own: one peer per
+# job (scripts/vps-db/lib.sh, GK_PEERS), which the server lets reach only that
+# job's ports. Inside the tunnel the given database host names point at the
+# server's tunnel address (/etc/hosts), so the database URLs are used unchanged and
+# their TLS names still match.
+#
+# The private key is on disk (mode 600, in a directory of its own) only until the
+# tunnel is up. Nothing secret is printed. The job closes the tunnel at the end:
+#   - name: Disconnect from the database server
+#     if: always() && <the condition this step ran under>
+#     run: sudo ip link delete dev gkdb 2>/dev/null || true
+name: Connect to the database server (WireGuard)
+description: Join the database server's WireGuard network and point the given database host names at it.
+
+inputs:
+  private-key:
+    description: This job's WireGuard private key (a secret).
+    required: true
+  private-key-name:
+    description: Name of the secret holding it, for messages (for example VPS_WG_KEY_PROD_DB).
+    required: true
+  peer:
+    description: This job's peer on the server, for messages (gk-peer list; for example gh-prod-db).
+    required: true
+  address:
+    description: This job's tunnel address (for example 10.66.0.23), as in GK_PEERS.
+    required: true
+  server-public-key:
+    description: The server's WireGuard public key (variable VPS_WG_SERVER_PUBLIC_KEY).
+    required: true
+  endpoint:
+    description: The server's WireGuard endpoint, host:port (variable VPS_WG_ENDPOINT).
+    required: true
+  hosts:
+    description: Database hosts on the server, "host" or "host:port" (no port means 5432), separated by spaces.
+    required: true
+  environment:
+    description: The GitHub environment holding these values, for messages (test or production).
+    required: true
+  server:
+    description: The server's tunnel address.
+    required: false
+    default: 10.66.0.1
+
+runs:
+  using: composite
+  steps:
+    - name: Connect to the database server (WireGuard)
+      shell: bash
+      env:
+        WG_PRIVATE_KEY: ${{ inputs.private-key }}
+        WG_KEY_NAME: ${{ inputs.private-key-name }}
+        WG_PEER: ${{ inputs.peer }}
+        WG_ADDRESS: ${{ inputs.address }}
+        WG_SERVER_PUBLIC_KEY: ${{ inputs.server-public-key }}
+        WG_ENDPOINT: ${{ inputs.endpoint }}
+        WG_SERVER: ${{ inputs.server }}
+        DB_HOSTS: ${{ inputs.hosts }}
+        GK_ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        fail() { echo "::error::$1"; exit 1; }
+        where="Settings → Environments → $GK_ENVIRONMENT"
+        [ -n "$WG_PRIVATE_KEY" ] || fail "Secret $WG_KEY_NAME is not set ($where → Secrets). Stopping before any change."
+        [ -n "$WG_SERVER_PUBLIC_KEY" ] || fail "Variable VPS_WG_SERVER_PUBLIC_KEY is not set ($where → Variables). Stopping before any change."
+        [ -n "$WG_ENDPOINT" ] || fail "Variable VPS_WG_ENDPOINT is not set ($where → Variables). Stopping before any change."
+        ip4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+        [[ "$WG_ADDRESS" =~ $ip4 ]] && [[ "$WG_SERVER" =~ $ip4 ]] || fail "The workflow gives no valid tunnel address for peer $WG_PEER. Stopping before any change."
+
+        # "host" or "host:port" → the names to point at the server and the ports to check.
+        names=""; ports=""
+        read -r -a hosts <<< "$DB_HOSTS"
+        [ "${#hosts[@]}" -gt 0 ] || fail "The workflow names no database host to reach over WireGuard. Stopping before any change."
+        for h in "${hosts[@]}"; do
+          name=${h%%:*}; port=5432
+          case "$h" in *:*) port=${h##*:} ;; esac
+          [[ "$name" =~ ^[A-Za-z0-9.-]+$ ]] && [[ "$port" =~ ^[0-9]{1,5}$ ]] || fail "'$h' is not a database host name or host:port. Stopping before any change."
+          case " $names " in *" $name "*) ;; *) names="${names:+$names }$name" ;; esac
+          case " $ports " in *" $port "*) ;; *) ports="${ports:+$ports }$port" ;; esac
+        done
+
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq wireguard-tools > /dev/null
+
+        # The private key is on disk (root's, mode 600) only until the tunnel is up. It is
+        # written where wg-quick expects it: run as root, wg-quick could not read a file in
+        # the runner's temp folder ("Permission denied", 17-Nov-2026).
+        conf=/etc/wireguard/gkdb.conf
+        trap 'sudo rm -f "$conf"' EXIT
+        sudo install -d -m 700 /etc/wireguard
+        sudo install -m 600 /dev/null "$conf"
+        printf '[Interface]\nPrivateKey = %s\nAddress = %s/32\n\n[Peer]\nPublicKey = %s\nEndpoint = %s\nAllowedIPs = %s/32\nPersistentKeepalive = 25\n' \
+          "$(printf '%s' "$WG_PRIVATE_KEY" | tr -d '\r\n')" "$WG_ADDRESS" "$WG_SERVER_PUBLIC_KEY" "$WG_ENDPOINT" "$WG_SERVER" | sudo tee "$conf" > /dev/null
+        sudo wg-quick up gkdb
+        sudo rm -f "$conf"
+
+        # Wait for the handshake; any packet into the tunnel starts one.
+        probe=${ports%% *}
+        hs=0
+        for _ in $(seq 30); do
+          hs=$(sudo wg show gkdb latest-handshakes | awk '{ print $2 }')
+          [ "${hs:-0}" -gt 0 ] && break
+          timeout 2 bash -c ": < /dev/tcp/$WG_SERVER/$probe" 2>/dev/null || true
+          sleep 1
+        done
+        [ "${hs:-0}" -gt 0 ] || fail "No WireGuard handshake with the database server ($WG_ENDPOINT) in 30 s. Check $WG_KEY_NAME, VPS_WG_SERVER_PUBLIC_KEY and the server's peer $WG_PEER (gk-peer list). Stopping before any change."
+
+        pinned=""
+        for name in $names; do
+          echo "$WG_SERVER $name" | sudo tee -a /etc/hosts > /dev/null
+          [ "$(getent hosts "$name" | awk '{ print $1; exit }')" = "$WG_SERVER" ] || fail "$name does not resolve to $WG_SERVER inside the tunnel. Stopping before any change."
+          pinned="${pinned:+$pinned, }$name → $WG_SERVER"
+        done
+
+        # The server lets each peer reach only its own ports: say so here, not as a psql timeout.
+        for port in $ports; do
+          timeout 5 bash -c ": < /dev/tcp/$WG_SERVER/$port" 2>/dev/null \
+            || fail "The database server does not answer on port $port over WireGuard for peer $WG_PEER ($WG_ADDRESS). The server lets each peer reach only its own ports (scripts/vps-db/lib.sh GK_PEERS; gk-peer list, access.sh). Stopping before any change."
+        done
+        echo "Database server over WireGuard ($WG_ENDPOINT, peer $WG_PEER): $pinned; port(s) $ports." | tee -a "$GITHUB_STEP_SUMMARY"

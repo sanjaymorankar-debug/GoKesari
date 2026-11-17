@@ -9,6 +9,23 @@ Owner's copy: `Doc_GoKesari/Devlopment_Trackers/GOKESARI_NEON_TO_VPS_PLAN_2026-1
 - touching production;
 - deleting a Neon project.
 
+**Updated 16-Nov-2026, 16.45 IST:**
+- **Decision 1 is made.** The owner said "Yes, KVM 2" at about 15.45 IST.
+- **KVM 2 prices are confirmed** from Hostinger's catalogue (sections 1, 3.2, 9 and 11).
+- **The Phase 1 build kit is written:** `scripts/vps-db/` and [RUNBOOK.md](RUNBOOK.md).
+- **Two findings, added to sections 4.6 and 7 A3:**
+  - `copy.sh` refuses to copy into a database with a different name;
+  - "Copy shops" needs a fourth WireGuard key.
+
+**Updated 16-Nov-2026, 21.30 IST:**
+- **Decision 1 changed:** the owner bought **KVM 4** instead of KVM 2:
+  - 4 vCPU, 16 GB, 200 GB NVMe;
+  - ₹26,376 for 24 months, about ₹31,123 with GST;
+  - renews at ₹2,399 a month.
+- **Why:** the GoKesari app can move onto the same server later. Sizing: `Doc_GoKesari/Devlopment_Trackers/GOKESARI_VPS_SIZING_KVM2_vs_KVM4_2026-11-16.md`.
+- **Unchanged:** the kit and the PostgreSQL settings. Sections 1, 3.2, 9 and 11 still show the KVM 2 figures.
+- **Location:** the VPS was first set up in **Kuala Lumpur**. The owner moved it to **Mumbai** while it was empty; checked at 21.44 IST. New IPv4: 189.72.155.162.
+
 ---
 
 ## 1. Summary
@@ -17,10 +34,11 @@ Owner's copy: `Doc_GoKesari/Devlopment_Trackers/GOKESARI_NEON_TO_VPS_PLAN_2026-1
   - Hardware: 2 vCPU, 8 GB RAM, 100 GB NVMe.
   - Software: Ubuntu 24.04 LTS and **PostgreSQL 18**.
   - Layout: **two separate PostgreSQL instances**, production on port 5432 and staging on port 5433. Each has its own settings, users, backups and limits.
-- **Cost:**
-  - **₹799 a month** on a 24-month term, renewing at about ₹1,199 a month (both + 18 % GST).
+- **Cost** (confirmed 16-Nov-2026, 15.45 IST):
+  - **₹779 a month** on a 24-month term: ₹18,696 for the 24 months, about **₹22,061 with 18 % GST**, paid upfront.
+  - Renewal: ₹28,776 per 2 years, which is ₹1,199 a month, plus GST.
   - Neon costs about **₹1,900–2,250 a month** today.
-  - Saving: **about ₹1,100–1,450 a month** for the first two years, and about ₹700–1,050 a month after renewal.
+  - Saving: **about ₹1,120–1,470 a month** for the first two years, and about ₹700–1,050 a month after renewal.
 - **Side benefits:**
   - The database sits in Mumbai next to the app, not in Singapore. A query round trip should drop from about 55–65 ms to a few ms (to be measured in Phase 1). Pages that run many queries one after another will get faster.
   - The data stays in India.
@@ -86,7 +104,7 @@ The staging query woke staging's compute for its usual 5 minutes, which cost wel
 | Memory | both databases together are about 200 MB | 8 GB: production's whole database stays in memory for years |
 | Disk | about 200 MB of data, plus WAL and local backups | 100 GB NVMe. A generous year-1 estimate is 1–5 GB of data, mostly shop documents and images, which are stored in the database. Local backups and WAL add 5–15 GB. Alert at 70 % full. |
 
-KVM 1 (1 vCPU, 4 GB, 50 GB) would carry today's load. KVM 2 costs ₹200 a month more and gives room for:
+KVM 1 (1 vCPU, 4 GB, 50 GB) would carry today's load. KVM 2 costs about ₹180 a month more and gives room for:
 - staging on the same server;
 - load tests (`tests/Load_Testing`);
 - backups running beside live traffic;
@@ -94,18 +112,30 @@ KVM 1 (1 vCPU, 4 GB, 50 GB) would carry today's load. KVM 2 costs ₹200 a month
 
 ### 3.2 Options and prices
 
-All prices are per month, excluding 18 % GST, at ₹87 to the dollar (the rate the 16-Nov cost-cut report used). Confirm them in the cart before buying.
+All prices are per month, excluding 18 % GST, at ₹87 to the dollar (the rate the 16-Nov cost-cut report used).
+
+**Chosen: KVM 2, 24-month term.** The owner decided on 16-Nov-2026 ("Yes, KVM 2").
+
+KVM 2 prices were confirmed from Hostinger's catalogue on 16-Nov-2026 at 15.45 IST (item `hostingerin-vps-kvm2-inr-2y`; Mumbai is VPS data centre id 23, `mum2`). All exclude 18 % GST:
+
+| Term | First term | Renewal |
+|---|---|---|
+| **24 months (chosen)** | **₹18,696** (₹779 a month); with GST about **₹22,061**, paid upfront | ₹28,776 per 2 years (₹1,199 a month) |
+| 12 months | ₹11,148 (₹929 a month) | ₹16,788 a year (₹1,399 a month) |
+| Monthly | ₹1,299 for the first month | ₹2,099 a month |
+
+The other options below were not re-checked on 16-Nov at 15.45 IST.
 
 | Option | Specs | Where | ₹ a month | Notes |
 |---|---|---|---|---|
-| **Hostinger KVM 2 (recommended)** | 2 vCPU, 8 GB, 100 GB NVMe | Mumbai | **₹799** on a 24-month term; about **₹1,199** on renewal | Same provider and city as the app. Free weekly VPS backup and a snapshot are included. Paid upfront: 24 × ₹799 = ₹19,176 + GST ₹3,452 = **₹22,628**. |
+| **Hostinger KVM 2 (chosen)** | 2 vCPU, 8 GB, 100 GB NVMe | Mumbai | **₹779** on a 24-month term; **₹1,199** on renewal | Same provider and city as the app. Free weekly VPS backup and a snapshot are included. Paid upfront: ₹18,696 + GST ₹3,365 = **₹22,061**. |
 | Hostinger KVM 1 | 1 vCPU, 4 GB, 50 GB | Mumbai | ₹599 → about ₹999 | Enough today, little headroom |
 | Hostinger KVM 4 | 4 vCPU, 16 GB, 200 GB | Mumbai | ₹1,099 → about ₹2,399 | More than needed |
 | AWS Lightsail 2 GB | 2 vCPU burstable (20 % baseline), 2 GB, 60 GB | Mumbai | $12 ≈ ₹1,044 | Hourly billing, no upfront payment |
 | AWS Lightsail 4 GB | 2 vCPU burstable, 4 GB, 80 GB | Mumbai | $24 ≈ ₹2,088 | As much as Neon today |
 | DigitalOcean Basic | 2 vCPU, 4 GB, 80 GB | Bengaluru | $24 + $4.80 weekly backups ≈ ₹2,506 | Not Mumbai (about 15–25 ms away). No saving. |
 
-Hostinger's India prices change often, and different sources quote different renewal figures. The figures above are the most widely quoted (see Sources).
+Hostinger's India prices change often, and different sources quote different renewal figures. The KVM 2 figures come from Hostinger's own catalogue. The others are the most widely quoted figures (see Sources).
 
 ### 3.3 Region
 
@@ -218,10 +248,13 @@ The names keep `DATABASE_URL` independent of the server's IP address: moving to 
 
 **GitHub Actions:**
 - Cannot be allowed by IP address. GitHub-hosted runners use thousands of shared, changing Azure address ranges, and GitHub advises against allow-listing them.
-- Instead, `test-db.yml`, `prod-db.yml` and `copy-shops.yml` each start with a **WireGuard step** using a key of their own, kept as a secret on their GitHub environment (`test` or `production`).
-- On the server, each key may reach only its own instance:
-  - the `test-db` key: port 5433 only;
-  - the `prod-db` and `copy-shops` keys: port 5432 only.
+- Instead, each workflow job that touches a database starts with a **WireGuard step** using a key of its own, kept as a secret on its GitHub environment (`test` or `production`). There are four such jobs, because `copy-shops.yml` has two: "export" reads the test database in the `test` environment, and "copy" writes production in the `production` environment.
+- On the server, each key may reach only its own instance, plus SSH for the restricted snapshot command:
+  - the `test-db` key: port 5433, plus SSH;
+  - the `copy-shops` export key: port 5433 only;
+  - the `prod-db` and `copy-shops` copy keys: port 5432, plus SSH.
+  - the `prod-db` key also reaches port 5433, **as the read-only role `gokesari_test_ro` only**. `prod-db.yml`'s `tested-on-test.sh` reads the test database to check a release's migrations reached staging first. This was added 17-Nov-2026, 03.07 IST. So the production environment's `TEST_DATABASE_URL` becomes a `gokesari_test_ro` URL at S6.
+- The addresses and ports are in [scripts/vps-db/lib.sh](../../scripts/vps-db/lib.sh).
 - The runner adds `/etc/hosts` lines, so the URLs keep their public names (`db.gokesari.com`, `db-test.gokesari.com`). TLS names and the host guards then still match.
 - The owner's Mac gets its own WireGuard key, for `psql`, TablePlus or pgAdmin. These replace Neon's SQL editor.
 
@@ -403,7 +436,7 @@ One PR into `staging` (Phase 2). Each workflow change works **with Neon and with
 |---|---|---|---|
 | A1 | `.github/workflows/test-db.yml` | Lines 26–27 and the step "Back up (Neon branch)" (≈151–206). It creates `auto-backup-<date>-run<N>` branches through the Neon API (secret `TEST_NEON_API_KEY`, variable `TEST_NEON_PROJECT_ID`, default `curly-night-16641982`) and keeps 5. Migrations use `TEST_DATABASE_URL`. | Back up the provider's way: Neon branch while `TEST_DATABASE_HOST` ends in `.neon.tech`; otherwise WireGuard + `gk-db-snapshot test <name>` + `pg_create_restore_point`. Add a WireGuard step before any database step. Update the header comments. **Order matters:** the staging queue needs this workflow to pass (`docs/staging-queue/README.md`, row 4). Without this change, the run fails as soon as `TEST_DATABASE_HOST` points at the VPS, and the queue stops. |
 | A2 | `scripts/test-db/guard.sh`, `scripts/prod-db/guard.sh`, `scripts/prod-db/tested-on-test.sh` | Compare the host name only | Also compare the port. Refuse when production and test have the same host, port and database. Both databases share one IP address. |
-| A3 | `scripts/db-region-move/copy.sh`, `compare.sh` | Written for Neon → Neon (comments; `neon_auth` skipped) | Reused as they are for the copy and the comparison. Add `CHECKSUM=yes` to `compare.sh` (an md5 of every table's rows, in order), or a new `scripts/db-vps-move/checksum.sh`. Update the comments. |
+| A3 | `scripts/db-region-move/copy.sh`, `compare.sh` | Written for Neon → Neon (comments; `neon_auth` skipped). **`copy.sh` stops when the database names differ** ("The plan keeps every name"). | Reused for the copy and the comparison, with these changes:<ul><li>Let `copy.sh` copy `neondb` into `gokesari` / `gokesari_test` (decision 6), for example with `ALLOW_RENAME=yes`. Without it, the copy stops at step S3.</li><li>Add `CHECKSUM=yes` to `compare.sh` (an md5 of every table's rows, in order), or a new `scripts/db-vps-move/checksum.sh`.</li><li>Update the comments.</li></ul> |
 | A4 | `src/server/db/index.ts` (`resolveSsl`, comments lines 16, 35–37), `src/server/pmd/db.ts` (`resolveSsl`) | `sslmode` maps to `"require"` or `false`; the certificate is never checked | Map `sslmode=verify-full` / `verify-ca` to postgres.js `"verify-full"`. Tests in `tests/integration/pmd-db-url.test.ts`, plus one for the main client. Recommended. |
 | A5 | New: `scripts/vps-db/` | — | The server build and operations scripts. No secrets in them. They cover: <ul><li>OS hardening;</li><li>PostgreSQL 18 instances and their `postgresql.conf` / `pg_hba.conf` templates;</li><li>`pgbackrest.conf`;</li><li>WireGuard;</li><li>certificate hook;</li><li>`gk-db-snapshot`;</li><li>nightly dump;</li><li>`healthcheck.sh`;</li><li>`restore-drill.sh`.</li></ul> Plus a runbook, `docs/neon-to-vps-2026-11/RUNBOOK.md`. |
 | A6 | New migration (optional) | `postgres_fdw` installed, unused | `DROP EXTENSION IF EXISTS postgres_fdw;` (section 4.4) |
@@ -434,8 +467,8 @@ These go through the normal staging → main release, one at a time per CLAUDE.m
 
 | Where | Change |
 |---|---|
-| GitHub `test` environment | `TEST_DATABASE_URL` (secret), `TEST_DATABASE_HOST` = `db-test.gokesari.com`, `TEST_DATABASE_NAME`. New: the WireGuard key for `test-db` and the snapshot SSH key. After retirement: remove `TEST_NEON_API_KEY` and `TEST_NEON_PROJECT_ID`. |
-| GitHub `production` environment (and repository level, where set) | `PROD_DATABASE_URL`, `PROD_DATABASE_HOST` = `db.gokesari.com`, `PROD_DATABASE_NAME`, `TEST_DATABASE_HOST`. New: WireGuard keys for `prod-db` and `copy-shops`, the snapshot SSH key. Remove `NEON_API_KEY` and `NEON_PROJECT_ID`, plus the split-era secrets the 16-Nov record already lists. |
+| GitHub `test` environment | `TEST_DATABASE_URL` (secret), `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433` (with the port: the guards compare it, PR #400), `TEST_DATABASE_NAME`. New: the WireGuard key for `test-db` and the snapshot SSH key. After retirement: remove `TEST_NEON_API_KEY` and `TEST_NEON_PROJECT_ID`. |
+| GitHub `production` environment (and repository level, where set) | `PROD_DATABASE_URL`, `PROD_DATABASE_HOST` = `db.gokesari.com`, `PROD_DATABASE_NAME`, `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`. New: WireGuard keys for `prod-db` and `copy-shops`, the snapshot SSH key. Remove `NEON_API_KEY` and `NEON_PROJECT_ID`, plus the split-era secrets the 16-Nov record already lists. |
 | hPanel → each site → environment variables | `DATABASE_URL`. `DATABASE_IDLE_TIMEOUT_SECONDS`: remove or keep (section 4.7). Plus the unused split-era variables already listed on 16-Nov. |
 | hPanel → DNS | A records `db` and `db-test` → the VPS's IP address (TTL 300) |
 | hPanel → cron (test.gokesari.com) | Every-minute line, per decision 7 |
@@ -455,13 +488,15 @@ These are historical records: `docs/db-split-2026-10/`, `docs/db-region-move-202
 
 | Gate | Before |
 |---|---|
-| G1 | Buying the VPS and creating the R2 account (owner does both) |
+| G1 | Buying the VPS and creating the R2 account (owner does both; [G1_OWNER_CHECKLIST.md](G1_OWNER_CHECKLIST.md)) |
 | G2 | Building the server (Phase 1) |
 | G3 | The staging cut-over (date and time) |
 | G4 | The production cut-over (date and time), after 7 good days on staging and a passed drill |
 | G5 | Deleting each Neon project |
 
 ### 8.1 Phase 1: build the server (no site changes)
+
+Step by step, with the commands: [RUNBOOK.md](RUNBOOK.md) Part 1. The scripts are in [scripts/vps-db/](../../scripts/vps-db/).
 
 1. Owner buys the VPS in Mumbai (Ubuntu 24.04) and adds the `db` and `db-test` DNS records. Owner creates the R2 bucket with two keys: one that can write, and one for restores, kept in the password manager.
 2. A session hardens the OS and installs:
@@ -479,6 +514,22 @@ The section 7A changes go into `staging` through the queue. Then:
 - set the new GitHub secrets for WireGuard and the snapshot keys;
 - run "Test database → verify" while still on Neon. The new steps must not break anything.
 
+**Status (17-Nov-2026, 03.33 IST):**
+- **PR #400** (A1, A2, A3, A4, A7) was merged into `staging` at 00.50 IST.
+  - Hostinger did not start the staging build, so the queue paused. The session started the build by hand at 03.09 IST.
+  - test.gokesari.com has run it since 03.16, and the post-deploy check passed 3/3.
+  - The push run of "Test database" passed on Neon: Neon backup, migrate and verify. The VPS steps were skipped. This is the "verify while still on Neon" check above.
+- **PR #402** (B1 `prod-db.yml`, B2 `copy-shops.yml` + `scripts/copy-shops/guard.sh`, two composite actions) is in the queue.
+- The WireGuard and snapshot keys were set during G2.
+
+Found while building them, to settle before S6:
+- `TEST_DATABASE_HOST` must carry the port (`db-test.gokesari.com:5433`), or the guard refuses the run. `PROD_DATABASE_HOST` stays `db.gokesari.com` (5432).
+- `prod-db.yml` (preflight, `tested-on-test.sh`) and `copy-shops.yml` ("export") read the test database from GitHub's runners. B1 and B2 (PR #402) add their WireGuard steps. These workflows run from `main` only, so after S6 a prod-db `migrate` or a copy-shops export waits until #402 is released to `main`.
+- Workflow URLs keep `sslmode=require`, because WireGuard already proves the server.
+- The app's `DATABASE_URL` uses `sslmode=verify-full` with no `sslrootcert`. postgres.js would send `sslrootcert` to the server as a setting, and the server refuses it.
+- `copy.sh` needs `ALLOW_RENAME=yes` (`neondb` → `gokesari_test`).
+- The target needs `postgres_fdw`, or the copy stops at the extensions check (section 4.4).
+
 ### 8.3 Phase 3: staging cut-over
 
 Booked window: 60 minutes.
@@ -486,12 +537,13 @@ Booked window: 60 minutes.
 | Step | What | Who |
 |---|---|---|
 | S0 (day before) | **Rehearsal:** copy live Neon staging to the VPS without freezing it, compare, time each step, then drop and recreate the empty `gokesari_test`. | session |
+| S0 result | **Done 17-Nov-2026, 03.49–03.53 IST, from the owner's Mac** (Neon Singapore → Mac → VPS over WireGuard).<br>**copy.sh** (`ALLOW_RENAME=yes JOBS=4`): dump 66 s (20.3 MiB), restore 50 s, **116 s in all**. The target needed `postgres_fdw` (created by hand).<br>**compare.sh `CHECKSUM=yes`** (7 s): **SAME**, 462 tables (112,363 rows), 29 sequences, every schema's objects and extensions; checksums of all 461 tables with rows match.<br>**Restore drill `--latest`** on the copy: 5 s, 462 tables, rows restored = live (112,363), amcheck ok.<br>**Ledger check failed on 2 wallets**, the same in Neon staging itself: `3ffc7f91…` 90000 vs ledger 100000 (Sep 2026) and `3f18d8a6…` 198000 vs ledger 230000 (Aug 2026). This is old staging test data, not the restore. Until those are fixed, every staging drill reports ledger FAILED.<br>`gokesari_test` was dropped and recreated empty at 03.53 (with `postgres_fdw`, for S3). | session |
 | S1 | Pause the staging queue (no `ready-for-staging` labels in the window). Check that no test.gokesari.com deploy is running. | session |
 | S2 | **Freeze Neon staging:** `alter database neondb set default_transaction_read_only = on;` and end the app's connections. The site turns read-only. | session (Neon, staging only) |
 | S3 | Copy, running on the VPS (Singapore → Mumbai): `REQUIRE_FROZEN=yes scripts/db-region-move/copy.sh`. About 2–3 min for 18 MB. | session |
 | S4 | `compare.sh` (row counts, sequences, objects, extensions) plus checksums: **must be identical** | session |
 | S5 | Freeze the VPS copy too (read-only) until the checks below pass | session |
-| S6 | GitHub `test` environment: the new `TEST_DATABASE_URL`, `TEST_DATABASE_HOST`, `TEST_DATABASE_NAME`. Production environment: `TEST_DATABASE_HOST`. | owner, or session with OK |
+| S6 | GitHub `test` environment: the new `TEST_DATABASE_URL` (`sslmode=require`), `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`, `TEST_DATABASE_NAME` = `gokesari_test`. Production environment, both together (or `tested-on-test.sh` refuses): `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`, and `TEST_DATABASE_URL` for the read-only role `gokesari_test_ro` (the server lets the prod-db job into 5433 only as that role). | owner, or session with OK |
 | S7 | hPanel → test.gokesari.com: `DATABASE_URL` → `db-test.gokesari.com:5433`; redeploy | owner, or session with OK |
 | S8 | `scripts/release/post-deploy-check.sh https://test.gokesari.com`. On the VPS: app connections come from the Hostinger IP. On Neon: none. | session |
 | S9 | **Open writes** on the VPS and end the app's connections, so its pool reconnects writable | session |
@@ -502,7 +554,7 @@ Booked window: 60 minutes.
 **Then 7 days of watching.** The production gate needs all of these:
 - every backup green, 7 out of 7;
 - no WAL archive failures;
-- the restore drill passed from R2;
+- the restore drill passed from the server's own backups (repo1), and the newest dump pulled to the Mac restores on the Mac (no R2, decision 3);
 - no unexpected rejected connections;
 - CPU, memory and disk within limits;
 - the round trip measured;
@@ -514,7 +566,16 @@ Booked window: 60 minutes.
 - [ ] Section 7B is live on `main`, released the usual way (one release at a time).
 - [ ] [CLAUDE.md "Production releases"](../../CLAUDE.md) check: no open PR into `main` is being merged, and the latest "Post-deploy check" run and the latest Hostinger build for gokesari.com are finished.
 - [ ] Staging queue paused for the window. No merges into `main` or `staging`.
-- [ ] Rehearsal copy of live production into the VPS (not frozen), compared, timed, then dropped. The production drill passed on it.
+- [x] Rehearsal copy of live production into the VPS (not frozen), compared, timed, then dropped. The production drill passed on it. **Done 17-Nov-2026, 04.33–04.35 IST** from the owner's Mac:
+  - Neon production is 56 MB, PostgreSQL 18.7, with the same extensions as staging (`postgres_fdw` created on the target).
+  - copy.sh: dump 50 s (3.4 MiB), restore 28 s, 78 s in all.
+  - compare.sh `CHECKSUM=yes`: **SAME**, 451 tables (2,404 rows), 30 sequences, all checksums.
+  - Drill `--latest`: 5 s, rows restored = live, amcheck ok, **ledger ok**, PASS.
+  - `gokesari` was recreated empty at 04.35.
+- **Owner's decisions, 17-Nov-2026, about 04.30 IST:**
+  - D8: production switch **today, as soon as possible**, right after staging (the 7-day staging watch is skipped by the owner's choice).
+  - D7: yes, staging cron back to every minute.
+  - D9: keep Neon **14 days** after each switch.
 - [ ] The owner has typed the new `DATABASE_URL` into a note, ready to paste into hPanel. The GitHub values are ready.
 - [ ] The window avoids the 05.00 IST daily cron, the :47 IST hourly cron and the 02.15–03.00 IST backups. A quiet weekday afternoon (for example 15.00 IST), with the owner present, is suggested.
 - [ ] Shops told in advance (owner's choice of wording and channel).
@@ -572,13 +633,17 @@ Cashfree webhooks that arrive during the read-only window fail and are retried b
 | | ₹ a month, excl. GST | incl. 18 % GST |
 |---|---|---|
 | **Neon today** (GoKesari, after the 16-Nov cost cut) | **₹1,900–2,250** | (as billed) |
-| Hostinger KVM 2, 24-month term, intro price | **₹799** | ₹943 |
-| The same after renewal (from month 25), about | ₹1,199 | ₹1,415 |
+| Hostinger KVM 2, 24-month term (₹18,696 for 24 months) | **₹779** | ₹919 |
+| The same after renewal (from month 25; ₹28,776 per 2 years) | ₹1,199 | ₹1,415 |
 | Off-site backups (Cloudflare R2, free up to 10 GB) | ₹0 | ₹0 |
 | WireGuard, Let's Encrypt, healthchecks.io free plan | ₹0 | ₹0 |
-| **Saving against Neon** | **₹1,100–1,450 a month (≈ ₹13,000–17,000 a year)** for 2 years; ₹700–1,050 a month after | |
+| **Saving against Neon** | **₹1,120–1,470 a month (≈ ₹13,500–17,600 a year)** for 2 years; ₹700–1,050 a month after | |
 
-- **Paid upfront:** ₹22,628 (24 months incl. GST). Monthly-billed alternative: Lightsail 2 GB at about ₹1,044 + GST, cancel any time.
+- **Paid upfront:** ₹22,061 for 24 months, including GST (₹18,696 + ₹3,365). Prices confirmed 16-Nov-2026, 15.45 IST.
+- **Shorter terms on Hostinger:**
+  - 12 months: ₹11,148, then ₹16,788 a year.
+  - Monthly: ₹1,299, then ₹2,099 a month.
+- **Monthly-billed alternative elsewhere:** Lightsail 2 GB at about ₹1,044 + GST, cancel any time.
 - **During the move:** about 3 weeks of paying for both, about ₹600 one-time. After that, frozen Neon storage costs only a few rupees until deletion.
 - **Not in the table:** the owner's time (section 6.5).
 
@@ -596,7 +661,7 @@ Cashfree webhooks that arrive during the read-only window fail and are retried b
 | Backups fail silently | medium | Cannot restore when needed | A healthchecks.io ping per job, monthly drill, quarterly off-site drill |
 | Disk fills | low–medium | Database stops accepting writes | Section 6.3 |
 | **Owner's time and night-time alerts** | high | Slower response than Neon's staff | Sessions do the work from scripts and the runbook. Alerts go to the phone. A paid on-call service later if needed. |
-| Renewal price jump | certain | ₹799 → about ₹1,199+ | Still below Neon. Or move to another VPS at renewal (DNS names make it easy). |
+| Renewal price jump | certain | ₹779 → ₹1,199 a month (₹28,776 per 2 years) | Still below Neon. Or move to another VPS at renewal (DNS names make it easy). |
 | A mistake during the cut-over | low | Data loss or a longer outage | Staging first, rehearsals, freeze, checksums, a written rollback, Neon kept 30 days |
 | Losing Neon's conveniences | certain | Ad-hoc tasks take longer | Section 5.4 replacements, runbook |
 
@@ -604,11 +669,23 @@ Cashfree webhooks that arrive during the read-only window fail and are retried b
 
 ## 11. Decisions for the owner
 
-1. **VPS:** Hostinger **KVM 2** in Mumbai on a **24-month term**, ₹799 a month (₹22,628 upfront incl. GST). Alternatives: KVM 1 (₹599), or Lightsail 2 GB billed monthly (about ₹1,044). *Recommended: KVM 2, 24 months.*
+1. **VPS: DECIDED** by the owner on 16-Nov-2026, about 15.45 IST ("Yes, KVM 2").
+   - Hostinger **KVM 2** in Mumbai on a **24-month term**.
+   - ₹18,696 (₹779 a month), about ₹22,061 with GST, paid upfront; renews at ₹28,776 per 2 years.
+   - The owner buys it at gate G1: [G1_OWNER_CHECKLIST.md](G1_OWNER_CHECKLIST.md).
+   - **Changed 16-Nov-2026, 21.16 IST:** the owner bought **KVM 4** instead.
+     - Same city and term.
+     - ₹26,376, about ₹31,123 with GST; renews at ₹2,399 a month.
 2. **Staging:** a separate instance on the **same VPS** (recommended), a separate VPS, or stay on Neon.
 3. **Off-site backups:** **Cloudflare R2** (free up to 10 GB; recommended) or Backblaze B2. The owner creates the account.
+   - **DECIDED** 16-Nov-2026, 21.53 IST: "Keep R2". A copy only on the VPS was ruled out: it is lost with the server.
+   - **CHANGED** about 22.00 IST: "let us keep the database on local VPS server only". No R2 for now.
+     - Backups: pgBackRest on the VPS disk; nightly encrypted dumps on the VPS, which the Mac pulls; Hostinger's weekly VPS backup.
+     - Accepted risk: if the server is lost, up to 7 days of data can be lost.
+     - R2 can be added later without a rebuild (runbook "Adding R2 later").
 4. **Access for GitHub and the Mac:** **WireGuard** (recommended; free, no third party) or Tailscale (easier setup, third-party service).
 5. **Alerts go to:** which email address and/or Telegram.
+   - **DECIDED** 16-Nov-2026, 23.08 IST: **e-mail only**. healthchecks.io e-mails its account address.
 6. **Database names:** `gokesari` / `gokesari_test` (recommended), or keep `neondb`.
 7. **Staging cron:** put staging's every-minute line back to every minute once staging is on the VPS? *Recommended: yes* (no compute bill any more).
 8. **Production cut-over window:** a date and IST time, and OK for about 20–30 minutes read-only.
@@ -626,7 +703,11 @@ Cashfree webhooks that arrive during the read-only window fail and are retried b
 - ipinfo.io for the four addresses;
 - [docs/db-region-move-2026-10/PLAN.md](../db-region-move-2026-10/PLAN.md).
 
-**Prices** (checked 16-Nov-2026; confirm in the cart):
+**Prices** (checked 16-Nov-2026):
+- **KVM 2: Hostinger's catalogue, through Hostinger's API.**
+  - Checked by the session that started this plan, on 16-Nov-2026 at 15.45 IST.
+  - Item `hostingerin-vps-kvm2-inr-2y`, plus its 12-month and monthly prices.
+  - Mumbai is VPS data centre id 23 (`mum2`). The account had no VPS yet.
 - Hostinger VPS India: [hostinger.com/vps/servers/india](https://www.hostinger.com/vps/servers/india), [Zoutons, Hostinger India VPS deals 2026](https://zoutons.com/news/hostinger-india-vps-hosting-deals-june-2026-plans-from-599mo), [ideepakrajput.in, Hostinger KVM VPS price & specs 2026](https://ideepakrajput.in/blogs/hostinger-vps-hosting-review), [softwarecrafting.in, Hostinger VPS pricing 2026](https://softwarecrafting.in/blog/hostinger-vps-hosting-review), [HostAdvice, Hostinger India pricing](https://hostadvice.com/hosting-company/hostinger-reviews/hostinger-india-pricing/)
 - Hostinger data-centre locations: [Hostinger support, where are the servers](https://support.hostinger.com/en/articles/1583267-where-are-your-servers-located), [Hostinger blog, India data centre](https://www.hostinger.com/blog/hostinger-newly-launched-data-center-location-in-india)
 - AWS Lightsail: [Lightsail bundles](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html), [Lightsail pricing](https://aws.amazon.com/lightsail/pricing/), [Lightsail data transfer (Mumbai gets half the allowance)](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-faq-data-transfer-allowance.html)

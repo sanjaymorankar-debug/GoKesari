@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Nightly pg_dump of one database (plan §5.1, layer 2). Run as root; the
+# timers run it nightly (70-schedules.sh).
+#
+#   gk-db-dump <prod|staging>
+#
+# Keeps the plain dump on this disk 7 days (staging 14). The age-encrypted copy
+# is kept 35 days (staging 14), plus a monthly production copy for 12 months:
+# in R2 (dumps/<env>/daily/, dumps/prod/monthly/) once R2_ACCOUNT_ID is set,
+# otherwise on this disk, where mac/pull-dumps.sh copies it to the Mac.
+# The key that opens the encrypted copies is NOT on this server.
+. "${GK_KIT:-/opt/gokesari-db}/lib.sh"
+need_root
+need_config DUMP_AGE_RECIPIENT
+if r2_enabled; then need_config R2_BUCKET; fi
+use_env "${1:-}"
+
+slug=gk-dump-$GK_ENV
+hc_ping "$slug" start
+trap 'hc_ping "$slug" fail "Dump of $GK_ENV failed at $(ist). journalctl -u gk-db-dump-$GK_ENV"' ERR
+
+dir=$GK_STATE/dumps/$GK_ENV
+install -d -m 700 "$dir"
+name="$GK_ENV-$(date +%F)"
+if [ "$GK_ENV" = prod ]; then keep_plain=7; keep_enc=35; else keep_plain=14; keep_enc=14; fi
+monthly=no
+if [ "$GK_ENV" = prod ] && [ "$(date +%d)" = 01 ]; then monthly=yes; fi
+
+# The dump directory is root's; postgres writes to stdout and root saves it.
+runuser -u postgres -- "$PG_BIN/pg_dump" -h "$PG_SOCKET" -p "$PORT" -Fc --compress=zstd:6 "$DB" > "$dir/.$name.dump.part"
+mv "$dir/.$name.dump.part" "$dir/$name.dump"
+objects=$("$PG_BIN/pg_restore" --list "$dir/$name.dump" | grep -cv '^;')
+age -r "$DUMP_AGE_RECIPIENT" -o "$dir/$name.dump.age" "$dir/$name.dump"
+size=$(du -h "$dir/$name.dump.age" | cut -f1)
+
+if r2_enabled; then
+  # rclone reads the remote from the environment: nothing is written to disk.
+  export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+  export RCLONE_CONFIG_R2_ENDPOINT="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+  RCLONE_CONFIG_R2_ACCESS_KEY_ID=$(read_secret r2-access-key-id); export RCLONE_CONFIG_R2_ACCESS_KEY_ID
+  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY=$(read_secret r2-secret-access-key); export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY
+  base="r2:$R2_BUCKET/dumps/$GK_ENV"
+  rclone copyto "$dir/$name.dump.age" "$base/daily/$name.dump.age"
+  if [ "$monthly" = yes ]; then
+    rclone copyto "$dir/$name.dump.age" "$base/monthly/$name.dump.age"
+    rclone delete --min-age 365d "$base/monthly"
+  fi
+  rclone delete --min-age "${keep_enc}d" "$base/daily"
+  # R2 holds the history; this disk keeps only the recent encrypted copies.
+  find "$dir" -maxdepth 1 -name "$GK_ENV-*.dump.age" -mtime +"$keep_plain" -delete
+  where="uploaded to R2"
+else
+  if [ "$monthly" = yes ]; then
+    install -d -m 700 "$dir/monthly"
+    cp "$dir/$name.dump.age" "$dir/monthly/"
+    find "$dir/monthly" -maxdepth 1 -name "$GK_ENV-*.dump.age" -mtime +365 -delete
+  fi
+  find "$dir" -maxdepth 1 -name "$GK_ENV-*.dump.age" -mtime +"$keep_enc" -delete
+  where="kept on this server (no R2)"
+fi
+find "$dir" -maxdepth 1 -name "$GK_ENV-*.dump" -mtime +"$keep_plain" -delete
+
+trap - ERR
+log "$GK_ENV dump: $name.dump ($objects objects), encrypted copy $size $where."
+hc_ping "$slug" ok "$name: $objects objects, $size encrypted, $where at $(ist)"
