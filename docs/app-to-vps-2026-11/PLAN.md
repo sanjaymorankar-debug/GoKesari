@@ -217,7 +217,7 @@ Section 11 lists them. The main ones: the CDN, the Hostinger plan (because of e-
 | 1 | **No CDN.** |
 | 2 | **Keep the Hostinger web hosting plan** (e-mail stays on it). |
 | 3 | **Builds on the VPS.** |
-| 4 | **Env values typed into hidden prompts on the server** (4a). |
+| 4 | **Env values exported once per site, piped straight from the running Hostinger app into the server's root-only env file** (owner's change at about 06.34 IST; first chosen: hidden prompts, 4a). Values never shown, saved on the Mac or put in chat; only key names are printed. |
 | 5 | Windows: *not yet given*. |
 | 6 | **Outside uptime monitor: yes, as soon as possible** (UptimeRobot free; the owner creates the account). |
 | 7 | **Later sites: yes, each planned in its own project's chat.** |
