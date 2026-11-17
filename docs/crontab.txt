@@ -1,63 +1,60 @@
-# GoKesari — the complete crontab (owner, 19 Oct 2026). Install on BOTH sites:
-# test.gokesari.com first, then gokesari.com — with the staging schedule below
-# for test.gokesari.com (owner, 16 Nov 2026). It REPLACES every earlier GoKesari
-# line (docs/event-driven-2026-10/crontab.test.txt Phase A/B, docs/batch-2026-10/
-# crontab.txt and the bill-captures / gst-reminders lines of
-# docs/inventory-accounting-2026-10). Times are UTC (IST = UTC + 5:30).
+# GoKesari — the complete cron schedule (owner, 19 Oct 2026), the same on BOTH
+# sites. Since 17-Nov-2026 it runs on our own server (gk-db-1) as systemd timers,
+# not in hPanel: hPanel has no GoKesari cron lines any more (test.gokesari.com's
+# were removed 08.21 IST, gokesari.com's 08.36 IST). Kit:
+# scripts/vps-app/README.md, "Cron". Times below are UTC (IST = UTC + 5:30), as
+# the lines were written; the server's timers run the same moments on its IST
+# clock.
 #
 # Everything a customer, shop or rider does is handled by its event at once.
-# These three lines cover only what no event can start: a deadline passing, a
+# These three jobs cover only what no event can start: a deadline passing, a
 # retry after a failed send, a gateway reply that never came, a timed send, the
-# 05:00 subscription orders and the Saturday payout. What each line runs, and
+# 05:00 subscription orders and the Saturday payout. What each job runs, and
 # how often: docs/cron-schedule.md.
 #
-# Each line POSTs https://<host>/api/cron/<job> with the CRON_SECRET bearer token
-# (docs/event-driven-2026-10/run.sh.example). Every job is idempotent: a late,
-# overlapping or repeated run is harmless.
+# Each run POSTs /api/cron/<job> with the CRON_SECRET bearer token. Every job is
+# idempotent: a late, overlapping or repeated run is harmless.
 
-# Production — gokesari.com:
-* * * * *    $HOME/gokesari-cron/run.sh every-minute   # timeouts, retries, queued sends (each at its own cadence)
-17 * * * *   $HOME/gokesari-cron/run.sh hourly         # risk scan, dispute + help-desk deadlines, refund / payout retries, expired codes
-30 23 * * *  $HOME/gokesari-cron/run.sh daily          # 05:00 IST: subscription orders, document upkeep, GST reminders, Saturday payout, Monday finance week
+# Both sites — gokesari.com and test.gokesari.com:
+* * * * *    every-minute   # timeouts, retries, queued sends (each at its own cadence)
+17 * * * *   hourly         # risk scan, dispute + help-desk deadlines, refund / payout retries, expired codes
+30 23 * * *  daily          # 05:00 IST: subscription orders, document upkeep, GST reminders, Saturday payout, Monday finance week
 
-# Staging — test.gokesari.com (owner, 16 Nov 2026: cut Neon compute; a call every
-# minute kept the staging database awake around the clock):
-0 */6 * * *  $HOME/gokesari-cron/run.sh every-minute   # 05:30, 11:30, 17:30, 23:30 IST
-17 * * * *   $HOME/gokesari-cron/run.sh hourly
-30 23 * * *  $HOME/gokesari-cron/run.sh daily
+# On the server (gk-site cron <site> on|off|status):
 #
-# The staging every-minute line must run at minute 0: dueEveryMinute
+# | Job          | Timer (server clock, IST)       | curl --max-time |
+# |--------------|---------------------------------|-----------------|
+# | every-minute | *-*-* *:*:00                    | 55              |
+# | hourly       | *-*-* *:47:00 Asia/Kolkata      | 300             |
+# | daily        | *-*-* 05:00:00 Asia/Kolkata     | 300             |
+#
+# Units: gk-cron@gokesari-prod-<job>.timer and gk-cron@gokesari-staging-<job>.timer.
+# Each run is `gk-cron-call <site> <job> <max-time> <domain>`, as the site's
+# user: systemd loads the site's env file (so CRON_SECRET never appears in a
+# command line), `flock -n` skips a run while the previous one is still going,
+# and curl calls the serving colour on 127.0.0.1 with the site's Host header.
+# The app also runs only one copy of each entry point at a time
+# (src/server/cron/single-run.ts) and answers an overlapping call with
+# {"skipped":true,"reason":"ALREADY_RUNNING"}.
+#
+# The every-minute job must keep running at whole minutes: dueEveryMinute
 # (src/server/cron/schedule.ts) runs the 5-, 10- and 15-minute jobs (payments
 # reconcile, operator onboarding fees, document e-mails, bill captures, push
-# receipts) only when the UTC minute is a multiple of their interval, so at any
-# other minute they would never run.
-# On test.gokesari.com everything in the every-minute group therefore runs up to
-# 6 hours late: shop-acceptance and other timeouts, notification retries and
-# scheduled notices (registration reminders), rider re-dispatch and return-pickup
-# retries, payment reconcile when a sandbox webhook is missed, document e-mails,
-# bill captures, broadcasts and product-master ingest. A test that needs them
-# sooner needs the every-minute line (* * * * *) restored on staging for the test.
-
-# Without run.sh: the same three lines as plain curl, as pasted into hPanel → Advanced →
-# Cron Jobs → Custom (production: https://gokesari.com; test: https://test.gokesari.com,
-# with its every-minute line at `0 */6 * * *` as above).
-# <site> is prod or test: both sites share one hosting account, so each keeps its own
-# secret and lock files. The secret is read from $HOME/gokesari-cron/<site>/secret (one line, the site's CRON_SECRET,
-# permissions 600, outside public_html), so it is never written in the cron entry.
+# receipts) only when the UTC minute is a multiple of their interval. IST's
+# +5:30 offset keeps those multiples.
 #
-# `flock -n` (29 Oct 2026, Hostinger's 120-process limit): while the previous call of a
-# line is still running, the next one is skipped instead of starting a second curl beside
-# it. `--max-time` ends a curl that hangs. The app also runs only one copy of each entry
-# point at a time (src/server/cron/single-run.ts) and answers a call that overlaps with
-# {"skipped":true,"reason":"ALREADY_RUNNING"}.
-# If hPanel's output says "flock: command not found", drop the `flock -n <file>` part.
+# Staging history: from 16-Nov-2026 test.gokesari.com's every-minute line ran
+# only every 6 hours (`0 */6 * * *`) to cut Neon compute. With the database on
+# our own server it runs every minute again (owner, decision D7, 17-Nov-2026).
 #
+# Before 17-Nov-2026 these were hPanel cron lines (Advanced → Cron Jobs →
+# Custom), one set per site, of the form:
 # * * * * *   flock -n $HOME/gokesari-cron/<site>/every-minute.lock curl -fsS --max-time 55 -o /dev/null -X POST https://<host>/api/cron/every-minute -H "Authorization: Bearer $(cat $HOME/gokesari-cron/<site>/secret)"
 # 17 * * * *  flock -n $HOME/gokesari-cron/<site>/hourly.lock curl -fsS --max-time 300 -o /dev/null -X POST https://<host>/api/cron/hourly -H "Authorization: Bearer $(cat $HOME/gokesari-cron/<site>/secret)"
 # 30 23 * * * flock -n $HOME/gokesari-cron/<site>/daily.lock curl -fsS --max-time 300 -o /dev/null -X POST https://<host>/api/cron/daily -H "Authorization: Bearer $(cat $HOME/gokesari-cron/<site>/secret)"
+# Rolling back to Hostinger (until 1-Dec-2026): `gk-site cron <site> off` and
+# re-create that site's three lines in hPanel in the same minute, so each job
+# runs in one place only.
 #
-# Staging's every-minute line, as installed on 16 Nov 2026:
-# 0 */6 * * * flock -n $HOME/gokesari-cron/test/every-minute.lock curl -fsS --max-time 55 -o /dev/null -X POST https://test.gokesari.com/api/cron/every-minute -H "Authorization: Bearer $(cat $HOME/gokesari-cron/test/secret)"
-#
-# Remove the old per-job lines (/api/cron/shop-acceptance, /notifications,
-# /delivery-dispatch, …): they only get 410 now and still start a process each minute.
+# The old per-job endpoints (/api/cron/shop-acceptance, /notifications,
+# /delivery-dispatch, …) only answer 410; don't schedule them.

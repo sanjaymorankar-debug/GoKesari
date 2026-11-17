@@ -1,5 +1,13 @@
 # Neon cost cut, 16-Nov-2026
 
+> **Superseded on 17-Nov-2026 by the move to our own server.** Both sites'
+> databases left Neon that morning (test.gokesari.com 05.52 IST, gokesari.com
+> 06.06 IST) and now run on `gk-db-1`; see
+> [docs/neon-to-vps-2026-11/](../neon-to-vps-2026-11/). The settings below are a
+> historical record. Neon (retired, read-only until 1-Dec-2026) is kept only as
+> a fallback, then deleted with the owner's OK. Staging's cron runs every
+> minute again (owner decision D7).
+
 **Scope:** gokesari.com and test.gokesari.com. **Owner's request:** 16-Nov-2026. **Times:** IST.
 
 Neon bills compute time. Before the cut, production ran at 0.5 CU around the clock, and staging's every-minute cron kept staging awake. Together that came to about $57.50 a month. The owner's full report, with the measured savings, is `GOKESARI_NEON_COST_CUT_REPORT_2026-11-16.md` in `Doc_GoKesari/Devlopment_Trackers/`.
