@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Test stub (test/dry-run.sh): systemctl with unit state kept in $GK_TEST_STATE/units.
+echo "systemctl $*" >> "$GK_TEST_LOG"
+st=$GK_TEST_STATE/units
+mkdir -p "$st"
+quiet=no; now=no; args=()
+for a in "$@"; do
+  case "$a" in
+    --quiet|-q) quiet=yes ;;
+    --now) now=yes ;;
+    --no-pager|--value|--all) ;;
+    -p) args+=("$a") ;;
+    *) args+=("$a") ;;
+  esac
+done
+cmd=${args[0]:-}
+unit_name() { case "$1" in *.service|*.timer) echo "$1" ;; *) echo "$1.service" ;; esac; }
+
+start_unit() {
+  local u
+  u=$(unit_name "$1")
+  case "$u" in
+    caddy.service)
+      [ "${GK_STUB_CADDY_FAIL:-0}" = 1 ] && { echo "caddy: config rejected (stub)" >&2; return 1; }
+      touch "$st/$u.active" ;;
+    site@*.service)
+      local inst=${u#site@}; inst=${inst%.service}
+      [ "${GK_STUB_START_FAIL:-}" = "$inst" ] && return 1
+      local conf=$GK_APP_ROOT/etc/systemd/system/$u.d/10-slot.conf port wd rel
+      port=$(sed -n 's/^Environment=GK_SLOT_PORT=\([0-9]*\).*/\1/p' "$conf")
+      wd=$(sed -n 's/^WorkingDirectory=//p' "$conf")
+      rel=$(basename "$(readlink "$GK_APP_ROOT$wd")")
+      [ -f "$GK_APP_ROOT$wd/.next/BUILD_ID" ] || { echo "stub: no build in $wd" >&2; return 1; }
+      touch "$st/$u.active"
+      printf '%s %s\n' "$u" "$rel" > "$GK_TEST_STATE/port-$port" ;;
+    *) touch "$st/$u.active" ;;
+  esac
+}
+stop_unit() {
+  local u f
+  u=$(unit_name "$1")
+  rm -f "$st/$u.active"
+  for f in "$GK_TEST_STATE"/port-*; do
+    [ -e "$f" ] || continue
+    [ "$(cut -d' ' -f1 < "$f")" = "$u" ] && rm -f "$f"
+  done
+  return 0
+}
+
+case "$cmd" in
+  daemon-reload|list-timers) ;;
+  is-active)
+    u=$(unit_name "${args[1]}")
+    if [ -f "$st/$u.active" ]; then [ "$quiet" = yes ] || echo active; exit 0
+    else [ "$quiet" = yes ] || echo inactive; exit 3; fi ;;
+  is-enabled)
+    u=$(unit_name "${args[1]}")
+    if [ -f "$st/$u.enabled" ]; then echo enabled; else echo disabled; exit 1; fi ;;
+  start|restart|reload)
+    for u in "${args[@]:1}"; do start_unit "$u" || exit 1; done ;;
+  stop)
+    for u in "${args[@]:1}"; do stop_unit "$u"; done ;;
+  enable)
+    for u in "${args[@]:1}"; do touch "$st/$(unit_name "$u").enabled"; [ "$now" = yes ] && start_unit "$u"; done; exit 0 ;;
+  disable)
+    for u in "${args[@]:1}"; do rm -f "$st/$(unit_name "$u").enabled"; [ "$now" = yes ] && stop_unit "$u"; done; exit 0 ;;
+  show)
+    u=$(unit_name "${args[-1]}")
+    if [ -f "$st/$u.active" ]; then echo 314572800; else echo "[not set]"; fi ;;
+  *) echo "systemctl stub: unknown $*" >&2; exit 1 ;;
+esac

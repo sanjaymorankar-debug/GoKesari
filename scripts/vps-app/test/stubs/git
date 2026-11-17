@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Test stub: a GitHub repository whose branch head is $GK_STUB_HEAD.
+echo "git $* | GIT_SSH_COMMAND=${GIT_SSH_COMMAND:-}" >> "$GK_TEST_LOG"
+repo=""
+if [ "${1:-}" = -C ]; then repo=$2; shift 2; fi
+case "${1:-}" in
+  --version) echo "git version 2.43.0 (stub)" ;;
+  ls-remote)
+    [ "${GK_STUB_GIT_FAIL:-0}" = 1 ] && { echo "git@github.com: Permission denied (publickey)." >&2; exit 128; }
+    # A key GitHub does not know yet (the owner has not added it).
+    if [ -n "${GK_STUB_GIT_FAIL_KEY:-}" ] && [[ "${GIT_SSH_COMMAND:-}" == *"$GK_STUB_GIT_FAIL_KEY"* ]]; then
+      echo "ERROR: Repository not found." >&2; exit 128
+    fi
+    printf '%s\t%s\n' "$GK_STUB_HEAD" "$3" ;;
+  init) mkdir -p "${!#}" ;;
+  fetch) [ -d "$repo" ] || exit 128 ;;
+  rev-parse) echo "$GK_STUB_HEAD" ;;
+  gc) ;;
+  archive)
+    sha=${!#}
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/gk-stub-git.XXXXXX")
+    printf '{"name":"stub-site","version":"0.0.0","commit":"%s"}\n' "$sha" > "$tmp/package.json"
+    mkdir -p "$tmp/src" && echo "commit $sha" > "$tmp/src/README"
+    tar -C "$tmp" -cf - . && rm -rf "$tmp" ;;
+  *) echo "git stub: unexpected $*" >&2; exit 1 ;;
+esac

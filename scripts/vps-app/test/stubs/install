@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test stub: the real install without -o / -g (the test does not run as root).
+a=()
+while [ $# -gt 0 ]; do
+  case "$1" in -o|-g) shift 2 ;; *) a+=("$1"); shift ;; esac
+done
+exec /usr/bin/install "${a[@]}"

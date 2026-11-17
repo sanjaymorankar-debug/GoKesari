@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test stub: knows the users useradd (stub) made; anything else goes to the real id.
+if [ "${1:-}" = -u ] && [[ "${2:-}" == gk-* ]]; then
+  [ -f "$GK_TEST_STATE/users/$2" ] && { echo 990; exit 0; }
+  echo "id: $2: no such user" >&2; exit 1
+fi
+exec /usr/bin/id "$@"

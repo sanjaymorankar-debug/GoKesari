@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test stub: a key with a fixed fingerprint.
+echo "gpg $*" >> "$GK_TEST_LOG"
+case " $* " in
+  *" --show-keys "*) echo "fpr:::::::::0123456789ABCDEF0123456789ABCDEF01234567:" ;;
+  *" --dearmor "*) cat ;;
+esac

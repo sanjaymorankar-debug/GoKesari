@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Test stub: records rules.
+echo "ufw $*" >> "$GK_TEST_LOG"

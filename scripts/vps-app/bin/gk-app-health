@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Site health check (docs/app-to-vps-2026-11/PLAN.md section 6). Run as root;
+# gk-app-health.timer runs it every 5 minutes. One healthchecks.io ping per site,
+# gk-app-<site>, ok or fail with the reason.
+#
+# Each site is checked through Caddy on this server, as a visitor would reach it:
+# https://<first domain>/ and /api/shops?limit=1, with curl --resolve <domain>:443:127.0.0.1
+# (-k while the site is on Caddy's internal CA), plus its serving service. A site not
+# deployed yet is skipped. The outside view (the whole server unreachable) is the
+# owner's external uptime monitor (decision 6).
+. "${GK_APP_KIT:-/opt/gokesari-app}/lib.sh"
+need_root
+
+paths=${GK_APP_HEALTH_PATHS:-"/ /api/shops?limit=1"}
+status=0
+for name in $(site_names); do
+  load_site "$name"
+  f=$(site_state "$name")
+  colour=$(json_get "$f" colour)
+  sha=$(json_get "$f" sha)
+  if [ -z "$colour" ]; then
+    log "$name: not deployed yet; not checked."
+    continue
+  fi
+  problems=()
+  unit=$(unit_of "$name" "$colour")
+  systemctl is-active --quiet "$unit" || problems+=("$unit is not running")
+  k=()
+  [ "$SITE_TLS" = internal ] && k=(-k)
+  report=""
+  for path in $paths; do
+    out=$(curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 15 "${k[@]}" \
+      --resolve "$SITE_PRIMARY:443:127.0.0.1" "https://$SITE_PRIMARY$path" 2>/dev/null || true)
+    code=${out%% *}
+    if [ "$code" = 200 ]; then
+      report+="$path 200 in ${out#* }s; "
+    else
+      problems+=("https://$SITE_PRIMARY$path answered ${code:-nothing}")
+    fi
+  done
+  if [ "${#problems[@]}" -eq 0 ]; then
+    hc_ping "gk-app-$name" ok "$name on $(hostname) at $(ist): ${report}${colour} ${sha:0:12}"
+    log "$name: OK (${report}${colour} ${sha:0:12})"
+  else
+    status=1
+    hc_ping "gk-app-$name" fail "$name on $(hostname) at $(ist): $(printf '%s; ' "${problems[@]}")serving $colour ${sha:0:12}"
+    log "$name: PROBLEM: $(printf '%s; ' "${problems[@]}")"
+  fi
+done
+exit "$status"
