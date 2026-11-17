@@ -15,9 +15,10 @@ const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 
   /**
-   * Connection pool ceiling. Managed providers cap concurrent connections
-   * (Neon's free tier notably so), and exceeding it produces confusing
-   * intermittent failures rather than a clean error.
+   * Connection pool ceiling. The database server caps concurrent connections
+   * per role (on our own server, gokesari_app at 60 and gokesari_test_app at
+   * 40), and exceeding it produces confusing intermittent failures rather
+   * than a clean error.
    */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 
@@ -27,11 +28,12 @@ const serverEnvSchema = z.object({
    * emptied and pay for fresh TLS connections before the first query; on
    * test.gokesari.com that put the home page's origin time at 3-5 s cold
    * against ~0.5 s warm. Raising it keeps connections ready between visits,
-   * at the cost of holding them open — check the provider's connection limit
-   * and whether open connections stop the database scaling to zero.
-   * Default 60 s (Neon report 14-Nov-2026, item 7): at 20 s connections churned
-   * and every new one repeats postgres.js's array-type lookup; 60 s is still
-   * well inside Neon's 5-minute scale-to-zero wait.
+   * at the cost of holding them open against the role's connection limit.
+   * Default 60 s (database activity report 14-Nov-2026, item 7): at 20 s
+   * connections churned and every new one repeats postgres.js's array-type
+   * lookup. Since 17-Nov-2026 each site connects to a database on the same
+   * server over the local Unix socket, so a fresh connection is cheap and an
+   * idle one costs nothing; 60 s is fine, and a longer value is optional.
    */
   DATABASE_IDLE_TIMEOUT_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
 
@@ -39,9 +41,10 @@ const serverEnvSchema = z.object({
    * Prepared statements for Drizzle's queries. Drizzle sends every query
    * unprepared, which postgres-js runs as two round trips (describe, then
    * execute); "on" lets each pooled connection prepare a statement once and
-   * run it in one round trip afterwards. With a distant database (Neon
-   * us-east-2) that halves a page's database wait. Keep "off" behind a
-   * pooler that does not support prepared statements in transaction mode.
+   * run it in one round trip afterwards. With a distant database (as before
+   * 17-Nov-2026) that halves a page's database wait; on the local socket the
+   * gain is small. Keep "off" behind a pooler that does not support prepared
+   * statements in transaction mode.
    */
   DATABASE_PREPARED_STATEMENTS: z.enum(["on", "off"]).default("off"),
 

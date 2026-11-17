@@ -41,7 +41,7 @@ Oldest PR first (lowest number; `staging-fix` PRs go before everything):
 | 2. Staging idle | no other push-triggered workflow is still running on `staging`. |
 | 3. Merge | merge commit into `staging`; the PR gets `staging-testing`. |
 | 4. Staging runs | every **push run of the merge commit** (CI on staging, "Test database" migration, app builds) passes. Runs on the same commit that the push did not start — the CI of an open `staging` → `main` release PR, or a hand-run tool such as "Sandbox payment" — are not counted, so an open release PR no longer holds the queue (it did on 7 Nov 2026, #363). |
-| 5. Deploy | test.gokesari.com serves a build made after the merge (the build version in `/sw.js` changes). |
+| 5. Deploy | test.gokesari.com serves a build made after the merge (the build version in `/sw.js` changes). Since 17-Nov-2026 the server's `gk-deploy` agent builds it, about 5 minutes after the merge (Hostinger's auto-deploy before that). If no new build shows within 30 minutes, look at `sudo gk-deploy status` and `journalctl -u gk-deploy` on the server. |
 | 6. Site answers | `scripts/release/post-deploy-check.sh` — 3 healthy rounds, 45 s apart. |
 | 7. Guest QA | `tests/qa/guest` (production-safe tier) against test.gokesari.com, one retry per check. Results: the run's `staging-queue-qa-*` artifact. |
 

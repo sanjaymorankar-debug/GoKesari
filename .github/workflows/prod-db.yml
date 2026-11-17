@@ -10,7 +10,7 @@
 #
 # Run "migrate" from main with source = staging BEFORE merging staging into
 # main: migrations are additive, so the live code keeps working on the new
-# schema, and the new code finds its tables when Hostinger deploys it.
+# schema, and the new code finds its tables when the server deploys it.
 #
 # There is no push or schedule trigger: nothing here runs on its own.
 # Production data never leaves the database server — no dump to GitHub, no
@@ -221,8 +221,8 @@ jobs:
         working-directory: release
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
-        # The deploy build's migrator with its shared lock: safe even if a
-        # Hostinger build migrates at the same moment.
+        # The build's migrator with its shared lock: safe even if another run
+        # migrates at the same moment (builds themselves never migrate).
         run: MIGRATE_ON_BUILD=true DATABASE_URL="$PROD_DATABASE_URL" node scripts/migrate-on-build.mjs | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: State after

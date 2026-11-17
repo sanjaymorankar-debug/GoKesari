@@ -3,7 +3,12 @@
 -- (numbered 0038 on staging before the merge with main's 0037_dispute_cases;
 -- this script and the migration_0038_category_renames table keep that name).
 --
--- Run on the target database inside one transaction (psql or the Neon SQL editor).
+-- Run on the target database inside one transaction, with psql over WireGuard
+-- as the app role (on the owner's Mac with the tunnel on; production:
+-- host=10.66.0.1 port=5432 dbname=gokesari user=gokesari_app sslmode=require;
+-- test.gokesari.com: port=5433 dbname=gokesari_test user=gokesari_test_app).
+-- To undo the whole change, restore as in docs/neon-to-vps-2026-11/RUNBOOK.md,
+-- "Restores" (destructive, owner's OK first).
 -- Take a backup first:
 --     pg_dump "$DATABASE_URL" -Fc -t product_categories -t products \
 --             -t shop_product_categories -f before-rollback-0038.dump

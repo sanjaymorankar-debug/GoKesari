@@ -1,7 +1,8 @@
 /**
  * Turns a shops export (copy-shops.ts MODE=export) into two SQL files the
- * owner runs in the Neon console against the production database, for when
- * the workflow cannot reach production itself (docs/copy-shops-2026-10/README.md):
+ * owner runs with psql from the Mac, over WireGuard, against the production
+ * database (the files' header says how), for when the workflow cannot reach
+ * production itself (docs/copy-shops-2026-10/README.md):
  *
  *   copy-shops-1-PREVIEW.sql  does the whole copy and undoes it, then lists
  *                             what would happen — changes nothing
@@ -43,7 +44,7 @@ const files = [
     name: "copy-shops-2-APPLY.sql",
     apply: true,
     title: "APPLY: saves the shops to production.",
-    note: "This APPLY file SAVES to production. Run copy-shops-1-PREVIEW.sql first. Before running, note the time: Neon can restore the database to it (Restore → point in time).",
+    note: "This APPLY file SAVES to production. Run copy-shops-1-PREVIEW.sql first. Before running, note the time: the server can restore the database to it (docs/neon-to-vps-2026-11/RUNBOOK.md, Restores).",
   },
 ];
 

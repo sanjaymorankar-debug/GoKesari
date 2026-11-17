@@ -4,7 +4,11 @@
 -- once, with their ids, statuses and created dates. Nothing is updated or
 -- deleted: pick the record to keep in each group yourself.
 --
--- Run it in the Neon SQL editor, or from a checkout:
+-- Run it with psql over WireGuard as the read-only role: on the owner's Mac
+-- with the WireGuard tunnel on (password in the password manager), production:
+--   psql "host=10.66.0.1 port=5432 dbname=gokesari user=gokesari_ro sslmode=require" -X -f scripts/shop-duplicate-report.sql
+-- test.gokesari.com: port=5433 dbname=gokesari_test user=gokesari_test_ro.
+-- Or from a checkout:
 --   DATABASE_URL=<target> npx tsx scripts/shop-duplicate-report.ts [--csv]
 --
 -- Groups (one shop can appear in several):
