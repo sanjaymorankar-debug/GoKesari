@@ -1461,7 +1461,8 @@
       "actual": "/search?q=';%20drop%20table%20shops;-- → 403 from the hosting firewall (Hostinger), before the app. During the long access sweeps on test.gokesari.com it also answered a burst itself for a minute or more: /shop/offers → 307 to itself and /search?q=दूध → 403, both fine from curl and on a second run.",
       "expected": "Not an app defect: the case's own inputs (%, _, ', \", <script>, Hindi, long text) all render; the probe was narrowed to them. Recorded so a 403 on such text is not mistaken for an app error. The suite now tells the host's answers from the app's (app pages carry 'Vary: rsc'; lib/http.ts fromApp()): it looks again after a pause and records a host answer as a note or blocked, never as an app failure.",
       "fix": "None in the app (host configuration).",
-      "status": "Not a defect"
+      "status": "Not a defect",
+      "update_2026_11_17": "Since 17-Nov-2026 (08.34 IST gokesari.com, 08.18 test.gokesari.com) both sites are served by GoKesari's own VPS behind Caddy, without Hostinger's firewall or CDN. The production guest run production-app-on-vps-2026-11-17 saw no answer from anything but the app: TC-DISC-004, TC-DISC-007 and TC-FLD-022 now reach the app and pass on its own escaping and validation. E-01 no longer applies to either site."
     },
     {
       "id": "D-103",
@@ -1625,7 +1626,8 @@
       "actual": "/admin/dealers* pages and POST /api/admin/dealer-* answer 404 to a guest: the pages call notFound() while dealer_programme_enabled is off. 7 pages and 25 endpoints.",
       "expected": "Sign-in redirect or 401/403 (the check accepts 404 only for dynamic ids).",
       "fix": "Not a defect: the flag is off on production by decision; a guest sees nothing. The checks are left as they are; they will pass once the flag is on.",
-      "status": "Not a defect"
+      "status": "Not a defect",
+      "update_2026_11_17": "Also POST /api/admin/support-services answers a guest 404 FEATURE_NOT_AVAILABLE while paid_support_services_enabled is off (the route checks the flag before sign-in). Seen on Hostinger 08-Nov and on the VPS 17-Nov (production-app-on-vps-2026-11-17). Same class: no data shown or changed. Either check sign-in before the flag, or accept as Info."
     },
     {
       "id": "E-12",
@@ -2378,6 +2380,147 @@
       "status": "Not a defect",
       "fixedIn": null,
       "retest": "16-Nov-2026 12.56 IST staging: TC-ORD-013 passes alone (one refund)."
+    },
+    {
+      "id": "E-30",
+      "title": "Staging online payments now go through the Cashfree sandbox (PAYMENT_GATEWAY=CASHFREE), not the built-in test page the docs and some checks still describe",
+      "cases": [
+        "SD-03",
+        "TC-PAY-017",
+        "TC-PAY-018",
+        "TC-PAY-019",
+        "TC-PAY-020"
+      ],
+      "severity": "Info",
+      "found": "2026-11-17 staging run staging-vps-switch-2026-11-17 (after the switch to GoKesari's own PostgreSQL server)",
+      "actual": "/admin/payments/cashfree on test.gokesari.com, about 06.06 IST: 'Order payments gateway CASHFREE (PAYMENT_GATEWAY)', keys sandbox. POST /api/shops/{id}/registration-fee answers redirectUrl /orders/pay/session/<intent> (a Cashfree checkout, session in the page), not /orders/pay/sandbox/…. CLAUDE.md ('Shop registration-fee tests … while test.gokesari.com runs PAYMENT_GATEWAY=SANDBOX') and docs/testing/cashfree-sandbox-test-data.md ('The site runs PAYMENT_GATEWAY=SANDBOX') still describe the built-in page; 8 suite rows are blocked with 'online payments on this site open /orders/pay/session/<id> (not the sandbox gateway)' or '/checkout/'. The owner switched staging to CASHFREE on 07-Nov-2026 21.51 IST (docs/payments-cashfree-audit-2026-11/TEST_RESULTS.md §7).",
+      "expected": "The test docs say how a staging payment is made today.",
+      "fix": "For this run the registration fee was paid through the Cashfree sandbox (Sandbox payment workflow, UPI testsuccess@gocash), as the onboarding tests have done since 08-Nov. Owner to choose: keep CASHFREE on staging and update CLAUDE.md and cashfree-sandbox-test-data.md, or set SANDBOX again for fee tests.",
+      "status": "Open (owner decision)",
+      "fixedIn": null,
+      "retest": null
+    },
+    {
+      "id": "E-31",
+      "title": "The QA Mac lost its network twice for a few seconds (07.59.27 and 08.15.46 IST): 29 phone rows failed with ENOTFOUND / ERR_INTERNET_DISCONNECTED",
+      "cases": [
+        "TC-RET-001",
+        "TC-FLD-095",
+        "TC-SUP-001",
+        "TC-SUP-002",
+        "TC-SUP-006",
+        "TC-SUP-008",
+        "TC-SUP-011",
+        "TC-FLD-102",
+        "TC-LIST-003",
+        "TC-LIST-006",
+        "TC-LIST-010",
+        "TC-LIST-013",
+        "TC-LIST-016",
+        "TC-LIST-021",
+        "TC-LIST-026",
+        "TC-LIST-027",
+        "TC-CART-001",
+        "TC-CART-002",
+        "TC-CART-005",
+        "TC-CART-009",
+        "TC-CART-011",
+        "TC-CART-012",
+        "TC-CART-018",
+        "TC-DISC-001",
+        "TC-DISC-002",
+        "TC-PRE-005",
+        "TC-FLD-129",
+        "TC-FLD-126"
+      ],
+      "severity": "Info",
+      "found": "2026-11-17 staging run staging-vps-switch-2026-11-17 (after the switch to GoKesari's own PostgreSQL server)",
+      "actual": "07.59.29-07.59.55 IST: 26 phone rows 'getaddrinfo ENOTFOUND test.gokesari.com' / 'net::ERR_INTERNET_DISCONNECTED'; 08.15.43-08.15.46 IST: 3 more. The once-a-minute site watch from the same Mac failed in 3-4 ms with no connection at exactly 07.59.27 and 08.15.46 and got 200 from the site the minute before and after: the client lost its network, not the site.",
+      "expected": "—",
+      "fix": "Re-run of the affected files 08.22-08.39 IST: all pass or are blocked by the usual test data.",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": "17-Nov-2026 08.22-08.39 IST staging: passed on re-run."
+    },
+    {
+      "id": "E-32",
+      "title": "The 07.59 network drop left test order e1c80a73 out for delivery on gk-rider; the next re-run found the rider busy",
+      "cases": [
+        "TC-DEL-001",
+        "TC-DEL-010",
+        "TC-DEL-012",
+        "TC-DEL-020",
+        "TC-DEL-003",
+        "TC-DEL-004",
+        "TC-FUL-005",
+        "TC-RET-001",
+        "TC-SUP-001"
+      ],
+      "severity": "Info",
+      "found": "2026-11-17 staging run staging-vps-switch-2026-11-17 (after the switch to GoKesari's own PostgreSQL server)",
+      "actual": "TC-RET-001 (phone) stopped at its delivery-code step at 07.59.29 IST, leaving delivery 47cb6720 (order e1c80a73) PICKED_UP on gk-rider. In the 08.06-08.19 IST re-run 32 rows were blocked 'no delivery offer reached the rider … within 30 s' (39 more depend on them), TC-DEL-001/010/012 saw no 'New delivery offer', and TC-DEL-020 ('no rider offered for a self-delivering shop') found that leftover job (acceptedAt 02:28:27Z). Same class as E-26.",
+      "expected": "No live delivery left on the test rider between runs.",
+      "fix": "Closed 08.21.46 IST: customer's delivery code + door photo, the rider delivered (DELIVERED). The 9 READY orders of the spoiled re-run were cancelled by the customer at 08.22 IST (refunded). The order specs could finish or cancel their delivery in a teardown.",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": "17-Nov-2026 08.22-08.33 IST staging: TC-DEL-001/010/012, TC-DEL-020 and the returns chain pass."
+    },
+    {
+      "id": "E-33",
+      "title": "Staging test funds and stock run out between runs: the customer wallet (₹439.50) and the bakery's preset listings (Bread 5, Butter Cookies 30, Buffalo Ghee 19)",
+      "cases": [
+        "TC-CART-009",
+        "TC-CART-012",
+        "TC-ORD-001",
+        "TC-ORD-006",
+        "TC-RBAC-023",
+        "TC-SEC-004",
+        "TC-SEC-005",
+        "TC-PAY-010",
+        "TC-NTF-001",
+        "TC-RET-001",
+        "TC-FLD-083"
+      ],
+      "severity": "Info",
+      "found": "2026-11-17 staging run staging-vps-switch-2026-11-17 (after the switch to GoKesari's own PostgreSQL server)",
+      "actual": "Signed attempt 1 (06.12-06.56 IST): 21 rows failed with 'HTTP 402: Insufficient wallet balance' and 15 more because the pay button stayed hidden or disabled (gk-lc14 started with ₹439.50; each test order costs ₹65-₹85); 109 rows were blocked 'the customer wallet is too low'. In attempt 2 the returns chain was blocked by '\"Bread\" cannot be added to the cart — HTTP 409: This product is currently unavailable online' (Bread online stock 5, world file 87). On staging the suite neither tops up nor restocks (flows.sellable restocks only on the local server).",
+      "expected": "The staging test accounts start a run with enough funds and stock.",
+      "fix": "For this run: Cashfree sandbox top-ups of ₹5,000 at 06.58 and 08.05 IST (Sandbox payment workflow, UPI testsuccess@gocash) and the owner's restock to 100 of Bread, Butter Cookies and Buffalo Ghee on the E2E bakery at 08.04 IST. Suggested: a staging pre-flight that blocks (not fails) below ₹3,000 or 20 units, or a restock step for the E2E shop.",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": "17-Nov-2026 attempt 2 and re-runs: the 402 rows pass."
+    },
+    {
+      "id": "E-34",
+      "title": "Staging e-mail notifications are refused by the mail host during QA runs (451 hostinger_out_ratelimit, 450 too many messages)",
+      "cases": [
+        "TC-NTF-001",
+        "TC-NTF-016"
+      ],
+      "severity": "Low",
+      "found": "2026-11-17 staging run staging-vps-switch-2026-11-17 (after the switch to GoKesari's own PostgreSQL server)",
+      "actual": "/api/admin/notifications at 08.41 IST, last 24 h: 158 SENT, 743 FAILED, 2,017 DEAD, 253 SKIPPED. Errors: 'Message failed: 451 4.7.1 Ratelimit \"hostinger_out_ratelimit\" exceeded' and 'Mail command failed: 450 4.7.1 Error: too many messages'. The outbox retries with back-off (199 deliveries retried by the every-minute cron 06.20-08.41 IST, 6 sent on a retry) and marks DEAD after 4 attempts, as designed. In-app notifications are not affected. Known since the four-features run (docs/four-features-2026-10/TEST_RESULTS.md).",
+      "expected": "Staging e-mails reach the test mailboxes, or are suppressed on purpose.",
+      "fix": "Owner decision: a separate mailbox or a higher cap for test.gokesari.com, or no e-mail for the QA accounts on staging. Not caused by the database move.",
+      "status": "Open (owner decision)",
+      "fixedIn": null,
+      "retest": null
+    },
+    {
+      "id": "E-35",
+      "title": "TC-FUL-005/006: after the shop's 'Packed — mark ready' click no offer reached gk-rider within 20 s, while API-packed orders are offered within 0.2 s",
+      "cases": [
+        "TC-FUL-005",
+        "TC-FUL-006"
+      ],
+      "severity": "Info",
+      "found": "2026-11-17 staging run staging-vps-switch-2026-11-17 (after the switch to GoKesari's own PostgreSQL server)",
+      "actual": "Desktop 08.27 IST and phone 08.40 IST (order DB-20261117-NK5M42: READY 08.40.34, no offer to gk-rider; cancelled by the check). In the same minutes, orders marked ready through flows.fulfil (GoKesari delivery partner, earliest slot) were offered to gk-rider 0.15 s after packing (e.g. DB-20261117-FB07FJ packed 08.37.43.595, offered 08.37.43.749). Desktop was blocked the same way on 16-Nov. The phone row failed on 16-Nov at the click itself (D-149); today the click went through. Cause not traced: the delivery plan the button chooses on staging is the first thing to check.",
+      "expected": "READY and a rider is offered (TC-FUL-005).",
+      "fix": "To investigate (test or product). Not related to the database move: dispatch through the API path answers in 0.15 s.",
+      "status": "Open",
+      "fixedIn": null,
+      "retest": null
     }
   ]
 }
