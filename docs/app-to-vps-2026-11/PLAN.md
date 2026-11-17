@@ -1,6 +1,6 @@
 # Plan: run the GoKesari website code on our own server (VPS)
 
-**Written:** 17-Nov-2026, 06.30 IST. **Times:** IST (UTC + 5:30). **Status:** plan only. Nothing has changed yet.
+**Written:** 17-Nov-2026, 06.18 IST. **Times:** IST (UTC + 5:30). **Status:** plan only. Nothing has changed yet.
 
 **Owner's request (17-Nov-2026, about 06.20 IST):**
 - "write the plan to move code to VPS";
