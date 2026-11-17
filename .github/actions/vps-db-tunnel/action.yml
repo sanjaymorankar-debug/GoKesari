@@ -86,14 +86,17 @@ runs:
         sudo apt-get update -qq
         sudo apt-get install -y -qq wireguard-tools > /dev/null
 
-        # The private key is on disk (mode 600) only until the tunnel is up.
-        dir=$(mktemp -d "$RUNNER_TEMP/wg.XXXXXX")
-        trap 'rm -rf "$dir"' EXIT
-        ( umask 077
-          printf '[Interface]\nPrivateKey = %s\nAddress = %s/32\n\n[Peer]\nPublicKey = %s\nEndpoint = %s\nAllowedIPs = %s/32\nPersistentKeepalive = 25\n' \
-            "$(printf '%s' "$WG_PRIVATE_KEY" | tr -d '\r\n')" "$WG_ADDRESS" "$WG_SERVER_PUBLIC_KEY" "$WG_ENDPOINT" "$WG_SERVER" > "$dir/gkdb.conf" )
-        sudo wg-quick up "$dir/gkdb.conf"
-        rm -rf "$dir"
+        # The private key is on disk (root's, mode 600) only until the tunnel is up. It is
+        # written where wg-quick expects it: run as root, wg-quick could not read a file in
+        # the runner's temp folder ("Permission denied", 17-Nov-2026).
+        conf=/etc/wireguard/gkdb.conf
+        trap 'sudo rm -f "$conf"' EXIT
+        sudo install -d -m 700 /etc/wireguard
+        sudo install -m 600 /dev/null "$conf"
+        printf '[Interface]\nPrivateKey = %s\nAddress = %s/32\n\n[Peer]\nPublicKey = %s\nEndpoint = %s\nAllowedIPs = %s/32\nPersistentKeepalive = 25\n' \
+          "$(printf '%s' "$WG_PRIVATE_KEY" | tr -d '\r\n')" "$WG_ADDRESS" "$WG_SERVER_PUBLIC_KEY" "$WG_ENDPOINT" "$WG_SERVER" | sudo tee "$conf" > /dev/null
+        sudo wg-quick up gkdb
+        sudo rm -f "$conf"
 
         # Wait for the handshake; any packet into the tunnel starts one.
         probe=${ports%% *}
