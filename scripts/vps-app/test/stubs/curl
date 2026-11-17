@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Test stub: answers health checks from the units the systemctl stub marked running,
+# serves the ACME self-test file, and records healthchecks.io pings and cron calls.
+# Arguments go to the log (the test checks that no secret is among them).
+echo "curl $*" >> "$GK_TEST_LOG"
+fmt="" url="" data="" config=no hosthdr="" outfile=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -w) fmt=$2; shift 2 ;;
+    -H) case "$2" in Host:*) hosthdr=${2#Host: } ;; esac; shift 2 ;;
+    --data-raw) data=$2; shift 2 ;;
+    --config) [ "$2" = - ] && config=yes; shift 2 ;;
+    -o) outfile=$2; shift 2 ;;
+    -m|--max-time|--retry|--resolve|-X) shift 2 ;;
+    http://*|https://*) url=$1; shift ;;
+    *) shift ;;
+  esac
+done
+cfg=""
+if [ "$config" = yes ]; then
+  cfg=$(cat)
+  case "$cfg" in 'url = "'*) url=${cfg#url = \"}; url=${url%\"} ;; esac
+fi
+out() { # out <code>
+  case "$fmt" in
+    *time_total*) printf '%s 0.012' "$1" ;;
+    *http_code*) printf '%s' "$1" ;;
+  esac
+  [ "$1" = 200 ]
+}
+case "$url" in
+  https://hc-ping.com/*)
+    rest=${url#https://hc-ping.com/*/}
+    echo "HC ${rest%%\?*} | $data" >> "$GK_TEST_STATE/hc.log"
+    exit 0 ;;
+  http://127.0.0.1:*/api/cron/*)
+    port=${url#http://127.0.0.1:}; port=${port%%/*}
+    if [ "$cfg" = "header = \"Authorization: Bearer ${GK_TEST_CRON_SECRET_ESCAPED:-}\"" ]; then auth=match; else auth=MISMATCH; fi
+    echo "CRON port=$port job=${url##*/} host=$hosthdr auth=$auth" >> "$GK_TEST_STATE/cron.log"
+    [ -f "$GK_TEST_STATE/port-$port" ] ;;
+  http://127.0.0.1/.well-known/acme-challenge/*)
+    f=$GK_APP_ROOT/var/lib/gk-app/acme/.well-known/acme-challenge/${url##*/}
+    [ -f "$f" ] && [ -f "$GK_APP_ROOT/etc/caddy/acme.caddy" ] && grep -q "http://$hosthdr" "$GK_APP_ROOT/etc/caddy/acme.caddy" && cat "$f" ;;
+  http://127.0.0.1:*)
+    port=${url#http://127.0.0.1:}; port=${port%%/*}
+    if [ ! -f "$GK_TEST_STATE/port-$port" ]; then out 000; exit 7; fi
+    if [ "${GK_STUB_HEALTH_FAIL_PORT:-}" = "$port" ]; then out 503; exit 0; fi
+    out 200; exit 0 ;;
+  https://deb.nodesource.com/*|https://dl.cloudsmith.io/*)
+    echo "-----BEGIN PGP PUBLIC KEY BLOCK----- (stub)" > "${outfile:-/dev/stdout}" ;;
+  https://*)
+    host=${url#https://}; host=${host%%/*}
+    site=""
+    for c in "$GK_APP_ROOT"/etc/caddy/sites/*.caddy; do
+      grep -q -E "(^|[ ,])$host(,| \{)" "$c" && site=$c
+    done
+    [ -n "$site" ] && [ -f "$GK_TEST_STATE/units/caddy.service.active" ] || { out 000; exit 7; }
+    port=$(sed -n -E 's/^[[:space:]]*reverse_proxy 127\.0\.0\.1:([0-9]+).*/\1/p' "$site")
+    if [ -f "$GK_TEST_STATE/port-$port" ]; then out 200; else out 502; fi
+    exit 0 ;;
+  *) echo "curl stub: unexpected $url" >&2; exit 6 ;;
+esac

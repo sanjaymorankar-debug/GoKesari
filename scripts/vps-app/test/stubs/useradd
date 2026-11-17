@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Test stub: records the user.
+echo "useradd $*" >> "$GK_TEST_LOG"
+mkdir -p "$GK_TEST_STATE/users" && touch "$GK_TEST_STATE/users/${!#}"

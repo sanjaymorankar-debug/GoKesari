@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Test stub: runuser -u <user> -- <command...> runs the command as the caller.
+echo "runuser $*" >> "$GK_TEST_LOG"
+while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
+shift
+exec "$@"

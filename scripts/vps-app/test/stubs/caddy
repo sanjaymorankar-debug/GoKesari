@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Test stub.
+echo "caddy $*" >> "$GK_TEST_LOG"
+case "${1:-}" in version) echo "v2.10.2 h1:stub" ;; validate) exit 0 ;; esac

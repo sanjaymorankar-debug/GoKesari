@@ -1,0 +1,11 @@
+# Site health check (scripts/vps-app/bin/gk-app-health), every 5 minutes.
+[Unit]
+Description=GoKesari site health check
+After=network-online.target caddy.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gk-app-health
+TimeoutStartSec=4min
+Nice=10
+SyslogIdentifier=gk-app-health

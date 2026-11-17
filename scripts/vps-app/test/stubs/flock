@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Test stub: no locking on macOS; "flock [-n] [-w s] [-E n] <file> <command...>" runs the command.
+echo "flock $*" >> "$GK_TEST_LOG"
+while [ $# -gt 0 ]; do
+  case "$1" in -n|-x) shift ;; -w|-E) shift 2 ;; *) break ;; esac
+done
+[[ "${1:-}" =~ ^[0-9]+$ ]] && exit 0
+shift
+[ $# -gt 0 ] && exec "$@"
+exit 0

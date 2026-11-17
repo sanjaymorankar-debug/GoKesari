@@ -1,0 +1,29 @@
+# One cron job of one site: gk-cron@<site>-<job>.service (scripts/vps-app).
+# Installed by 10-install.sh. The drop-in that gk-site add writes,
+# /etc/systemd/system/gk-cron@<site>-<job>.service.d/10-job.conf, sets User=,
+# EnvironmentFile= (for CRON_SECRET) and ExecStart= (gk-cron-call <site> <job> ...).
+# The timer gk-cron@<site>-<job>.timer starts it; both are made disabled.
+
+[Unit]
+Description=Site cron job %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/false
+TimeoutStartSec=330
+RuntimeDirectory=gk-cron/%i
+SyslogIdentifier=gk-cron-%i
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# One scheduled call of a site's cron endpoint, from its timer (gk-cron@<site>-<job>).
+# Runs as the site's user; systemd loads the site's env file, so CRON_SECRET arrives in
+# the environment and goes to curl on stdin (--config -), never on a command line.
+#
+#   gk-cron-call <site> <job> <max-time seconds> <host name>
+#
+# Calls http://127.0.0.1:<serving port>/api/cron/<job> with Host: <host name>, as the
+# hPanel line did: POST, flock (a run still going makes the next one skip), --max-time.
+. "${GK_APP_KIT:-/opt/gokesari-app}/lib.sh"
+
+site=${1:-}; job=${2:-}; maxt=${3:-}; host=${4:-}
+valid_site "$site"
+[[ "$job" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "Bad job name '$job'."
+[[ "$maxt" =~ ^[0-9]+$ ]] || die "Bad --max-time '$maxt'."
+[ -n "$host" ] || die "No host name."
+[ -n "${CRON_SECRET:-}" ] || die "CRON_SECRET is not in /etc/sites/$site.env (gk-site env set $site CRON_SECRET)."
+
+port=$(json_get "$(site_state "$site")" port)
+[[ "$port" =~ ^[0-9]+$ ]] || die "$site is not deployed yet (no port in deployed.json)."
+
+lock=${RUNTIME_DIRECTORY:-$R/run/lock}/gk-cron-$site-$job.lock
+secret=${CRON_SECRET//\\/\\\\}
+secret=${secret//\"/\\\"}
+# -E 0: a call still running from last time makes this one a quiet no-op, as on hPanel.
+printf 'header = "Authorization: Bearer %s"\n' "$secret" \
+  | flock -n -E 0 "$lock" curl -fsS --max-time "$maxt" -o /dev/null -X POST \
+      -H "Host: $host" --config - "http://127.0.0.1:$port/api/cron/$job"

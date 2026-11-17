@@ -1,0 +1,17 @@
+# Schedule of one site's cron job: gk-cron@<site>-<job>.timer (scripts/vps-app).
+# OnCalendar= is in the drop-in that gk-site add writes,
+# /etc/systemd/system/gk-cron@<site>-<job>.timer.d/10-schedule.conf: the hPanel line
+# (UTC) converted to the server's IST clock. Made disabled; gk-site cron <site> on
+# enables them at that site's cut-over.
+
+[Unit]
+Description=Site cron job %i (schedule)
+
+[Timer]
+AccuracySec=1s
+RandomizedDelaySec=0
+# As cron: a run missed while the server was off is not made up afterwards.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,391 @@
+#!/usr/bin/env bash
+# The deploy agent (docs/app-to-vps-2026-11/PLAN.md section 4). Run as root;
+# gk-deploy.timer runs "gk-deploy run" every minute.
+#
+#   gk-deploy run               every site: deploy its branch head if it is new
+#   gk-deploy now <site>        deploy the branch head now: a fresh build even if it is
+#                               serving already; ignores an earlier failure or a hold
+#   gk-deploy restart <site>    the serving release again on the other colour, no build
+#                               (after gk-site env changes); zero downtime
+#   gk-deploy rollback <site>   back to the previous release (still on the other colour);
+#                               that commit is then held until a newer one arrives
+#   gk-deploy status            per site: serving commit, colour, last attempt
+#
+# One deploy at a time on the whole server (a lock): CLAUDE.md's "one production
+# release at a time" by design. Per site:
+#   1. git ls-remote with the site's read-only deploy key (/etc/sites/<site>.deploykey)
+#   2. fetch that commit, unpack it into /srv/sites/<site>/releases/<sha> as the site's user
+#   3. npm ci + npm run build as the site's user, in a transient systemd unit that loads the
+#      site's env file (so the user never reads it), 4G / 150 % CPU / nice 10, 20 min at most;
+#      log in shared/build-<sha>.log
+#   4. start the idle colour (site@<site>-<colour>), wait for 200 on /, /shops and
+#      /api/shops?limit=1 (60 s), point Caddy at it (graceful reload), stop the old colour 60 s later
+#   5. deployed.json; healthchecks.io gk-deploy-<site>
+# A failed build or health check leaves the old colour serving. A commit that failed is
+# not retried by the timer; the next commit (or gk-deploy now) tries again.
+. "${GK_APP_KIT:-/opt/gokesari-app}/lib.sh"
+need_root
+umask 022
+
+# --- state (/srv/sites/<site>/deployed.json) -----------------------------------
+# sha / colour / port / release / time / result: what is serving and how it got there.
+# previous_*: what served before (the rollback target). last_attempt_*: the latest try.
+# hold_sha: a commit rolled back from; the timer does not deploy it again.
+load_state() {
+  local f k
+  f=$(site_state "$SITE_NAME")
+  for k in sha colour port release time result previous_sha previous_release \
+           last_attempt_sha last_attempt_result last_attempt_reason last_attempt_time hold_sha; do
+    printf -v "S_$k" '%s' "$(json_get "$f" "$k")"
+  done
+}
+
+save_state() {
+  local f tmp k first=yes
+  f=$(site_state "$SITE_NAME")
+  tmp=$(mktemp "$(site_dir "$SITE_NAME")/.deployed.XXXXXX")
+  {
+    echo "{"
+    for k in sha colour port release time result previous_sha previous_release \
+             last_attempt_sha last_attempt_result last_attempt_reason last_attempt_time hold_sha; do
+      local var="S_$k"
+      [ "$first" = yes ] || echo ","
+      first=no
+      if [ "$k" = port ] && [[ "${!var}" =~ ^[0-9]+$ ]]; then
+        printf '  "%s": %s' "$k" "${!var}"
+      else
+        printf '  "%s": %s' "$k" "$(json_str "${!var}")"
+      fi
+    done
+    printf '\n}\n'
+  } > "$tmp"
+  chmod 640 "$tmp"
+  chown "root:$SITE_USER" "$tmp"
+  mv "$tmp" "$f"
+}
+
+attempt() { # attempt <sha> <ok|fail|building> <reason>
+  S_last_attempt_sha=$1; S_last_attempt_result=$2; S_last_attempt_reason=$3; S_last_attempt_time=$(iso_now)
+  save_state
+}
+
+# --- git -------------------------------------------------------------------------
+git_ssh() {
+  local key
+  key=$(site_key "$SITE_NAME")
+  [ -s "$key" ] || { echo "no deploy key at $key"; return 1; }
+  export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS -o ConnectTimeout=20"
+  export GIT_TERMINAL_PROMPT=0
+}
+repo_url() { printf 'git@github.com:%s.git' "$SITE_REPO"; }
+
+remote_head() {
+  local out sha
+  git_ssh || return 1
+  out=$(git ls-remote "$(repo_url)" "refs/heads/$SITE_BRANCH" 2>&1) || { echo "git ls-remote failed: $(printf '%s' "$out" | tail -1)"; return 1; }
+  sha=$(printf '%s\n' "$out" | awk -v r="refs/heads/$SITE_BRANCH" '$2 == r {print $1}')
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "branch $SITE_BRANCH not found in $SITE_REPO"; return 1; }
+  echo "$sha"
+}
+
+# fetch_commit <sha>: into the site's bare mirror (root only). Prints the commit fetched.
+fetch_commit() {
+  local want=$1 repo got
+  repo=$(site_dir "$SITE_NAME")/repo.git
+  git_ssh || return 1
+  if [ ! -d "$repo" ]; then
+    install -d -m 700 "$repo" || return 1
+    git init -q --bare "$repo" || return 1
+  fi
+  git -C "$repo" fetch -q --depth 1 --no-tags "$(repo_url)" "+refs/heads/$SITE_BRANCH:refs/heads/deploy" >/dev/null 2>&1 \
+    || { echo "git fetch failed"; return 1; }
+  got=$(git -C "$repo" rev-parse refs/heads/deploy) || return 1
+  if [ "$got" != "$want" ]; then
+    # The branch moved since ls-remote: take the commit by id if it is still there, else the newer head.
+    if git -C "$repo" fetch -q --depth 1 --no-tags "$(repo_url)" "$want" >/dev/null 2>&1; then got=$want; fi
+  fi
+  git -C "$repo" gc --auto -q >/dev/null 2>&1 || true
+  echo "$got"
+}
+
+# --- build ---------------------------------------------------------------------------
+release_dir() { printf '%s/releases/%s' "$(site_dir "$SITE_NAME")" "$1"; }
+is_built() { [ -f "$(release_dir "$1")/.gk-built" ]; }
+colour_release() { # the release a colour's symlink points at (empty if none)
+  local l
+  l=$(readlink "$(site_dir "$SITE_NAME")/current-$1" 2>/dev/null || true)
+  [ -n "$l" ] && basename "$l"
+  return 0
+}
+release_in_use() { [ "$(colour_release blue)" = "$1" ] || [ "$(colour_release green)" = "$1" ]; }
+
+# build_release <release> <sha>: prints the reason on failure.
+build_release() {
+  local rel=$1 sha=$2 dir site logf rc
+  site=$(site_dir "$SITE_NAME")
+  dir=$(release_dir "$rel")
+  logf=$site/shared/build-$rel.log
+  rm -rf "$dir" || return 1
+  install -d -m 750 "$dir" || return 1
+  chown "$SITE_USER:$SITE_USER" "$dir" || return 1
+  if ! git -C "$site/repo.git" archive --format=tar "$sha" | runuser -u "$SITE_USER" -- tar -x -C "$dir"; then
+    echo "could not unpack $sha"; return 1
+  fi
+  : > "$logf"; chmod 640 "$logf"; chown "root:$SITE_USER" "$logf"
+  info "$SITE_NAME: building ${sha:0:12} (log: $logf, at most $BUILD_TIMEOUT)"
+  # The site's env file is loaded by systemd: NEXT_PUBLIC_* values are fixed into the
+  # bundle at this step, and the build needs DATABASE_URL, AUTH_SECRET and CRON_SECRET.
+  rc=0
+  systemd-run --quiet --wait --pipe --collect \
+    --unit="gk-build-$SITE_NAME-${sha:0:12}-$$" \
+    --description="Build $SITE_NAME ${sha:0:12}" \
+    --uid="$SITE_USER" --gid="$SITE_USER" --nice="$BUILD_NICE" \
+    -p EnvironmentFile="$SITES_ETC_REAL/$SITE_NAME.env" \
+    -p WorkingDirectory="$SITES_SRV_REAL/$SITE_NAME/releases/$rel" \
+    -p MemoryMax="$BUILD_MEM" -p CPUQuota="$BUILD_CPU" -p RuntimeMaxSec="$BUILD_TIMEOUT" \
+    -p ProtectSystem=strict -p ProtectHome=yes -p PrivateTmp=yes -p PrivateDevices=yes -p NoNewPrivileges=yes \
+    -p ReadWritePaths="$SITES_SRV_REAL/$SITE_NAME/releases/$rel $SITES_SRV_REAL/$SITE_NAME/shared/npm-cache $SITES_SRV_REAL/$SITE_NAME/shared/home" \
+    --setenv=HOME="$SITES_SRV_REAL/$SITE_NAME/shared/home" \
+    --setenv=npm_config_cache="$SITES_SRV_REAL/$SITE_NAME/shared/npm-cache" \
+    --setenv=NEXT_TELEMETRY_DISABLED=1 \
+    --setenv=NODE_OPTIONS="$BUILD_NODE_OPTIONS" \
+    --setenv=GK_BUILD_VERSION="${sha:0:12}" \
+    /bin/bash -c "$SITE_BUILD_CMD" </dev/null >> "$logf" 2>&1 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "build failed (exit $rc; a build over $BUILD_TIMEOUT is stopped); log $logf"; return 1
+  fi
+  [ -s "$dir/.next/BUILD_ID" ] || { echo "build finished without .next/BUILD_ID; log $logf"; return 1; }
+  # webpack's build cache is not used again (each release is a new folder): drop it.
+  rm -rf "$dir/.next/cache/webpack"
+  runuser -u "$SITE_USER" -- mkdir -p "$dir/.next/cache" || { echo "could not make .next/cache"; return 1; }
+  iso_now > "$dir/.gk-built"
+  info "$SITE_NAME: build ${sha:0:12} done."
+}
+
+# --- switch ----------------------------------------------------------------------------
+# health <port>: 200 on every health path within HEALTH_WAIT seconds. Prints the reason on failure.
+health() {
+  local port=$1 path code="" tries=$(( (HEALTH_WAIT + 1) / 2 ))
+  for path in $HEALTH_PATHS; do
+    while :; do
+      code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+        -H "Host: $SITE_PRIMARY" -H "X-Forwarded-Proto: https" "http://127.0.0.1:$port$path" 2>/dev/null || true)
+      [ "$code" = 200 ] && break
+      tries=$((tries - 1))
+      [ "$tries" -gt 0 ] || { echo "health check: $path answered ${code:-nothing} (port $port, ${HEALTH_WAIT}s)"; return 1; }
+      sleep 2
+    done
+  done
+}
+
+# switch_to <colour> <release>: start it, check it, point Caddy at it. On failure the
+# old colour keeps serving, and the reason is printed.
+switch_to() {
+  local colour=$1 rel=$2 port unit site f bak reason was
+  port=$(colour_port "$colour")
+  unit=$(unit_of "$SITE_NAME" "$colour")
+  site=$(site_dir "$SITE_NAME")
+  was=$(readlink "$site/current-$colour" 2>/dev/null || true)
+  # On failure the colour goes back to the release it had, so a rollback never lands on a bad build.
+  undo() {
+    systemctl stop "$unit" >/dev/null 2>&1 || true
+    if [ -n "$was" ]; then ln -sfn "$was" "$site/current-$colour"; else rm -f "$site/current-$colour"; fi
+  }
+  ln -sfn "releases/$rel" "$site/current-$colour" || { echo "could not point current-$colour at $rel"; return 1; }
+  systemctl restart "$unit" || { undo; echo "$unit did not start (journalctl -u $unit)"; return 1; }
+  if ! reason=$(health "$port"); then
+    undo
+    echo "$reason; $unit stopped (journalctl -u $unit)"; return 1
+  fi
+  f=$CADDY_SITES/$SITE_NAME.caddy
+  install -d -m 755 "$APP_STATE"
+  if ! bak=$(mktemp "$APP_STATE/.caddy-$SITE_NAME.XXXXXX"); then
+    undo; echo "could not make a temporary file in $APP_STATE"; return 1
+  fi
+  if [ -f "$f" ]; then cp "$f" "$bak"; fi
+  if ! write_caddy_block "$port"; then
+    if [ -s "$bak" ]; then cp "$bak" "$f"; fi
+    rm -f "$bak"; undo; echo "could not write $f"; return 1
+  fi
+  if ! reload_caddy >/dev/null 2>&1; then
+    if [ -s "$bak" ]; then cp "$bak" "$f"; else rm -f "$f"; fi
+    reload_caddy >/dev/null 2>&1 || true
+    rm -f "$bak"
+    undo
+    echo "Caddy refused the switch to port $port; old block restored"; return 1
+  fi
+  rm -f "$bak"
+  systemctl enable "$unit" >/dev/null 2>&1 || true
+  # Through Caddy, as a visitor would (informational: the colour itself passed above).
+  local k=() code
+  [ "$SITE_TLS" = internal ] && k=(-k)
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${k[@]}" \
+    --resolve "$SITE_PRIMARY:443:127.0.0.1" "https://$SITE_PRIMARY/" 2>/dev/null || true)
+  if [ "$code" = 200 ]; then info "$SITE_NAME: https://$SITE_PRIMARY/ through Caddy: 200."
+  else info "WARNING: $SITE_NAME: https://$SITE_PRIMARY/ through Caddy answered ${code:-nothing} (TLS $SITE_TLS). The site itself is up on port $port."; fi
+}
+
+# drain <old colour>: stop it after DRAIN_SECONDS, unless it is serving again.
+drain() {
+  local old=$1 unit
+  [ -n "$old" ] || return 0
+  unit=$(unit_of "$SITE_NAME" "$old")
+  log "$SITE_NAME: $old keeps running ${DRAIN_SECONDS}s for requests in flight."
+  sleep "$DRAIN_SECONDS"
+  load_state
+  if [ "$S_colour" = "$old" ]; then return 0; fi
+  systemctl stop "$unit" >/dev/null 2>&1 || true
+  systemctl disable "$unit" >/dev/null 2>&1 || true
+  log "$SITE_NAME: $old stopped."
+}
+
+housekeeping() {
+  local site rels r n=0 keep
+  site=$(site_dir "$SITE_NAME")
+  # Always kept: both colours' releases and the rollback target.
+  keep=" $(colour_release blue) $(colour_release green) $S_release $S_previous_release "
+  # shellcheck disable=SC2012
+  rels=$(ls -1t "$site/releases" 2>/dev/null || true)
+  for r in $rels; do
+    n=$((n + 1))
+    case "$keep" in *" $r "*) continue ;; esac
+    if [ "$n" -gt "$KEEP_RELEASES" ]; then
+      rm -rf "${site:?}/releases/$r"
+      log "$SITE_NAME: old release $r removed."
+    fi
+  done
+  find "$site/shared" -maxdepth 1 -name 'build-*.log' -mtime +30 -delete 2>/dev/null || true
+}
+
+ping_result() { # ping_result ok|fail <message>
+  hc_ping "gk-deploy-$SITE_NAME" "$1" "$SITE_NAME on $(hostname) at $(ist): $2"
+}
+
+# --- one site ---------------------------------------------------------------------------
+# deploy_site <site> auto|now
+deploy_site() {
+  local mode=$2 head reason rel sha old idle
+  load_site "$1"
+  load_state
+  if ! head=$(remote_head); then
+    if [ "$mode" = now ]; then die "$SITE_NAME: $head"; fi
+    log "$SITE_NAME: $head (checked again next minute)"
+    return 0
+  fi
+  if [ "$mode" = auto ]; then
+    [ "$head" != "$S_sha" ] || return 0
+    if [ "$head" = "$S_hold_sha" ]; then return 0; fi
+    if [ "$head" = "$S_last_attempt_sha" ] && [ "$S_last_attempt_result" = fail ]; then return 0; fi
+  fi
+  log "$SITE_NAME: deploying ${head:0:12} ($SITE_BRANCH; serving ${S_sha:+${S_sha:0:12} on $S_colour}${S_sha:-nothing yet})"
+  hc_ping "gk-deploy-$SITE_NAME" start
+  attempt "$head" building "fetching"
+  if ! sha=$(fetch_commit "$head"); then
+    attempt "$head" fail "$sha"; ping_result fail "${head:0:12}: $sha"; log "$SITE_NAME: FAILED: $sha"; return 1
+  fi
+  [ "$sha" = "$head" ] || log "$SITE_NAME: the branch moved on; deploying ${sha:0:12} instead."
+
+  rel=$sha
+  if [ "$mode" = now ] && [ -e "$(release_dir "$rel")" ]; then
+    if release_in_use "$rel"; then rel="$sha-$(date +%s)"; else rm -rf "$(release_dir "$rel")"; fi
+  fi
+  if is_built "$rel"; then
+    log "$SITE_NAME: ${sha:0:12} is built already ($rel); no new build."
+  else
+    attempt "$sha" building "building"
+    if ! reason=$(build_release "$rel" "$sha"); then
+      attempt "$sha" fail "$reason"; ping_result fail "${sha:0:12}: $reason"; log "$SITE_NAME: FAILED: $reason"; return 1
+    fi
+  fi
+
+  old=$S_colour
+  if [ -n "$old" ]; then idle=$(other_colour "$old"); else idle=blue; fi
+  attempt "$sha" building "switching to $idle"
+  if ! reason=$(switch_to "$idle" "$rel"); then
+    attempt "$sha" fail "$reason"; ping_result fail "${sha:0:12}: $reason"; log "$SITE_NAME: FAILED: $reason"; return 1
+  fi
+  S_previous_sha=$S_sha; S_previous_release=$S_release
+  S_sha=$sha; S_colour=$idle; S_port=$(colour_port "$idle"); S_release=$rel; S_time=$(iso_now); S_result=ok
+  S_hold_sha=""
+  attempt "$sha" ok "serving on $idle"
+  log "$SITE_NAME: ${sha:0:12} is serving on $idle (port $S_port)."
+  ping_result ok "${sha:0:12} serving on $idle (port $S_port)"
+  drain "$old"
+  housekeeping
+}
+
+# switch_back <site> rollback|restart
+switch_back() {
+  local what=$2 old idle rel sha reason
+  load_site "$1"
+  load_state
+  [ -n "$S_colour" ] || die "$SITE_NAME: nothing is deployed yet."
+  old=$S_colour
+  idle=$(other_colour "$old")
+  if [ "$what" = rollback ]; then
+    rel=$S_previous_release
+    [ -n "$rel" ] && [ "$rel" != "$S_release" ] && is_built "$rel" \
+      || die "$SITE_NAME: no previous release to go back to (kept: $(ls -1t "$(site_dir "$SITE_NAME")/releases" 2>/dev/null | tr '\n' ' '))."
+    sha=${S_previous_sha:-${rel%%-*}}
+  else
+    rel=$S_release; sha=$S_sha
+    is_built "$rel" || die "$SITE_NAME: the serving release $rel is not on disk."
+  fi
+  log "$SITE_NAME: $what: ${sha:0:12} ($rel) on $idle; ${S_sha:0:12} on $old now."
+  if ! reason=$(switch_to "$idle" "$rel"); then
+    attempt "$sha" fail "$what: $reason"; ping_result fail "$what to ${sha:0:12}: $reason"; die "$SITE_NAME: $what FAILED: $reason. ${S_sha:0:12} still serving on $old."
+  fi
+  if [ "$what" = rollback ]; then
+    S_hold_sha=$S_sha
+    S_previous_sha=$S_sha; S_previous_release=$S_release
+  fi
+  S_sha=$sha; S_colour=$idle; S_port=$(colour_port "$idle"); S_release=$rel; S_time=$(iso_now); S_result=ok
+  attempt "$sha" ok "$what: serving on $idle"
+  ping_result ok "$what: ${sha:0:12} serving on $idle (port $S_port)"
+  if [ "$what" = rollback ]; then
+    log "$SITE_NAME: rolled back to ${sha:0:12}. ${S_hold_sha:0:12} is held: the timer deploys the next commit after it; gk-deploy now $SITE_NAME redeploys the branch head."
+  fi
+  drain "$old"
+}
+
+cmd_status() {
+  local name f
+  for name in $(site_names); do
+    load_site "$name"
+    load_state
+    if [ -n "$S_sha" ]; then
+      printf '%-22s %s  %-5s :%-5s %s  %s\n' "$name" "${S_sha:0:12}" "$S_colour" "$S_port" "$S_time" "$S_release"
+    else
+      printf '%-22s %s\n' "$name" "nothing deployed yet"
+    fi
+    if [ -n "$S_last_attempt_sha" ] && { [ "$S_last_attempt_sha" != "$S_sha" ] || [ "$S_last_attempt_result" != ok ]; }; then
+      printf '%-22s last attempt %s %s: %s (%s)\n' "" "${S_last_attempt_sha:0:12}" "$S_last_attempt_result" "$S_last_attempt_reason" "$S_last_attempt_time"
+    fi
+    [ -z "$S_hold_sha" ] || printf '%-22s held (rolled back from): %s\n' "" "${S_hold_sha:0:12}"
+  done
+}
+
+cmd=${1:-}
+case "$cmd" in
+  run)
+    with_lock nowait || exit 0     # a deploy is running; the next minute tries again
+    status=0
+    for name in $(site_names); do
+      set +e
+      ( set -e; deploy_site "$name" auto )
+      rc=$?
+      set -e
+      [ "$rc" -eq 0 ] || status=1
+    done
+    exit "$status" ;;
+  now)
+    valid_site "${2:-}"
+    with_lock wait
+    deploy_site "$2" now ;;
+  restart|rollback)
+    valid_site "${2:-}"
+    with_lock wait
+    switch_back "$2" "$cmd" ;;
+  status) cmd_status ;;
+  *) die "Usage: gk-deploy run | now <site> | restart <site> | rollback <site> | status" ;;
+esac

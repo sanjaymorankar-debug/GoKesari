@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Test stub: a dry run passes only if the renewal file says webroot, has no pre/post hooks
+# and maps both host names to the webroot.
+echo "certbot $*" >> "$GK_TEST_LOG"
+f=$GK_APP_ROOT/etc/letsencrypt/renewal/gokesari-db.conf
+grep -q '^authenticator = webroot$' "$f" || exit 1
+grep -Eq '^(pre_hook|post_hook)' "$f" && exit 1
+grep -q '^db.gokesari.com = /var/lib/gk-app/acme$' "$f" && grep -q '^db-test.gokesari.com = /var/lib/gk-app/acme$' "$f" || exit 1
+echo "The dry run was successful."

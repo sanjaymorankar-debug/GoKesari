@@ -1,0 +1,669 @@
+#!/usr/bin/env bash
+# Site slots on this server (docs/app-to-vps-2026-11/PLAN.md section 5). Each
+# site gets one Linux user (gk-<site>), /srv/sites/<site>, an env file, two
+# systemd services (blue and green), a Caddy block, cron timers and two
+# healthchecks.io checks. Run as root.
+#
+#   gk-site add <site> --domain <d> [--domain <d2> ...] --repo <owner/repo> --branch <b>
+#               --port-base <n> [--mem <GiB>] [--cpu <percent>] [--db-socket-port <5432|5433>]
+#               [--cron-preset gokesari] [--cron '<job>=<UTC cron line>' ...]
+#                                   make or update the slot; safe to re-run. Ports: blue = n+1,
+#                                   green = n+2. Cron timers are made disabled.
+#   gk-site env paste <site> [--nul] [--only KEY1,KEY2,...]
+#                                   merge KEY=VALUE lines from stdin into the env file (the
+#                                   paste wins). Typed: hidden, end with a line "." or Ctrl-D.
+#                                   Piped: read to EOF, no prompt. --nul: NUL-separated records,
+#                                   as in /proc/<pid>/environ. Prints key names only.
+#   gk-site env set <site> <KEY>    one value: typed hidden, or one line on stdin
+#   gk-site env unset <site> <KEY>
+#   gk-site env keys <site>         key names only
+#   gk-site env db <site> [socket|tcp]
+#                                   DATABASE_URL for the site's database on this server
+#                                   (--db-socket-port), password from /etc/gokesari-db/secrets
+#   gk-site deploy-key <site>       the read-only deploy key's PUBLIC half, for GitHub
+#   gk-site tls <site> internal|acme [--force]
+#                                   Caddy's own CA (preview) or Let's Encrypt (DNS points here)
+#   gk-site cron <site> on|off|status
+#   gk-site status [site]           deployed commit, colour, ports, services, memory
+#   gk-site list
+#
+# Values are never printed: only key names. Nothing secret goes on a command line.
+. "${GK_APP_KIT:-/opt/gokesari-app}/lib.sh"
+need_root
+umask 077
+
+# --- settings file ---------------------------------------------------------------
+write_conf() {
+  local conf tmp
+  conf=$(site_conf "$SITE_NAME")
+  install -d -m 700 "$SITES_ETC"
+  tmp=$(mktemp "$SITES_ETC/.conf.XXXXXX")
+  {
+    echo "# Written by gk-site on $(ist). Change it with gk-site add / tls (no secrets here)."
+    printf 'SITE_NAME=%q\n' "$SITE_NAME"
+    printf 'SITE_USER=%q\n' "$SITE_USER"
+    printf 'SITE_DOMAINS=%q\n' "$SITE_DOMAINS"
+    printf 'SITE_REPO=%q\n' "$SITE_REPO"
+    printf 'SITE_BRANCH=%q\n' "$SITE_BRANCH"
+    printf 'SITE_PORT_BLUE=%q\n' "$SITE_PORT_BLUE"
+    printf 'SITE_PORT_GREEN=%q\n' "$SITE_PORT_GREEN"
+    printf 'SITE_MEM_GB=%q\n' "$SITE_MEM_GB"
+    printf 'SITE_CPU=%q\n' "$SITE_CPU"
+    printf 'SITE_DB_PORT=%q\n' "$SITE_DB_PORT"
+    printf 'SITE_TLS=%q\n' "$SITE_TLS"
+    printf 'SITE_CRON=%q\n' "$SITE_CRON"
+    printf 'SITE_BUILD_CMD=%q\n' "$SITE_BUILD_CMD"
+  } > "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$conf"
+}
+
+# --- env file --------------------------------------------------------------------
+# The file is read by systemd (EnvironmentFile=), never by the site's user. Each value
+# is written in single quotes (verbatim, may span lines), or in double quotes with
+# \ " ` $ escaped when it contains a single quote.
+declare -A ENV_VALS=()
+ENV_ORDER=()
+
+env_read() {
+  ENV_VALS=(); ENV_ORDER=()
+  local f=$1 rest k v nl=$'\n'
+  [ -s "$f" ] || return 0
+  rest=$(cat "$f"; printf x); rest=${rest%x}
+  local re_skip="^[[:blank:]]*([#;][^${nl}]*)?(${nl}|\$)"
+  local re_sq="^([A-Za-z_][A-Za-z0-9_]*)='([^']*)'[[:blank:]]*(${nl}|\$)"
+  local re_dq='^([A-Za-z_][A-Za-z0-9_]*)="(([^"\\]|\\.)*)"[[:blank:]]*('"${nl}"'|$)'
+  local re_uq="^([A-Za-z_][A-Za-z0-9_]*)=([^${nl}]*)(${nl}|\$)"
+  while [ -n "$rest" ]; do
+    if [[ "$rest" =~ $re_skip ]]; then
+      :
+    elif [[ "$rest" =~ $re_sq ]]; then
+      k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    elif [[ "$rest" =~ $re_dq ]]; then
+      k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+      v=${v//\\\\/$'\001'}; v=${v//\\\"/\"}; v=${v//\\\`/\`}; v=${v//\\\$/\$}; v=${v//$'\001'/\\}
+    elif [[ "$rest" =~ $re_uq ]]; then
+      k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    else
+      die "$f: a line there is not KEY=VALUE. Fix the file by hand (it is root-only), then retry."
+    fi
+    if [ -n "${k:-}" ]; then
+      [ -n "${ENV_VALS[$k]+x}" ] || ENV_ORDER+=("$k")
+      ENV_VALS[$k]=$v
+      k=""
+    fi
+    rest=${rest:${#BASH_REMATCH[0]}}
+  done
+}
+
+env_quote() {
+  local v=$1
+  if [[ "$v" != *"'"* ]]; then
+    printf "'%s'" "$v"
+  else
+    v=${v//\\/\\\\}; v=${v//\"/\\\"}; v=${v//\`/\\\`}; v=${v//\$/\\\$}
+    printf '"%s"' "$v"
+  fi
+}
+
+env_write() {
+  local f=$1 tmp k
+  tmp=$(mktemp "$SITES_ETC/.env.XXXXXX")
+  {
+    echo "# $SITE_NAME settings. Written by gk-site on $(ist); root only, read by systemd."
+    echo "# Change with gk-site env paste|set|unset|db. Never copy this file anywhere."
+    for k in "${ENV_ORDER[@]}"; do
+      [ -n "${ENV_VALS[$k]+x}" ] || continue
+      printf '%s=%s\n' "$k" "$(env_quote "${ENV_VALS[$k]}")"
+    done
+  } > "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$f"
+}
+
+# env_merge <KEY> <VALUE>: into ENV_VALS (not in a subshell), then prints the key name
+# and "set", "replaced" or "unchanged". Never the value.
+env_merge() {
+  local st
+  if [ -z "${ENV_VALS[$1]+x}" ]; then
+    ENV_ORDER+=("$1"); ENV_VALS[$1]=$2; st=set
+  elif [ "${ENV_VALS[$1]}" = "$2" ]; then
+    st=unchanged
+  else
+    ENV_VALS[$1]=$2; st=replaced
+  fi
+  printf '  %-36s %s\n' "$1" "$st"
+}
+
+valid_key() { [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
+in_list() { case " $2 " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+env_noise() {
+  in_list "$1" "$ENV_DROP_NOISE" && return 0
+  case "$1" in
+    NODE_ENV) return 1 ;;
+    NODE_*|npm_*|LC_*|LSNODE_*|LSAPI_*|PASSENGER_*|GK_SLOT_*) return 0 ;;
+  esac
+  return 1
+}
+
+# The database kit's names for the instance on <port>: sets DB, APP_ROLE, PORT.
+use_db_port() {
+  case "$1" in
+    5432) use_env prod ;;
+    5433) use_env staging ;;
+    *) die "No database on port '$1' here: --db-socket-port is 5432 (production) or 5433 (staging). Set DATABASE_URL with gk-site env set instead." ;;
+  esac
+}
+
+# Writes DATABASE_URL (and the PG* settings postgres.js reads with it) into ENV_VALS.
+env_db_values() {
+  local mode=${1:-socket} pw st k
+  [ -n "$SITE_DB_PORT" ] || die "$SITE_NAME has no database here (gk-site add ... --db-socket-port 5432|5433)."
+  use_db_port "$SITE_DB_PORT"
+  pw=$(read_secret "$APP_ROLE")
+  case "$mode" in
+    socket)
+      # postgres.js (the app's driver) takes no socket from the URL's query string: it sends
+      # host= and port= to the server as settings, which the server refuses. With an empty
+      # host in the URL it falls back to PGHOST / PGPORT / PGUSER / PGPASSWORD, and a PGHOST
+      # with a '/' is a socket directory. No sslmode in the URL: resolveSsl() gives false.
+      for k in "DATABASE_URL=postgresql:///$DB" "PGHOST=$PG_SOCKET_DIR" "PGPORT=$PORT" "PGUSER=$APP_ROLE" "PGPASSWORD=$pw"; do
+        env_merge "${k%%=*}" "${k#*=}"
+      done ;;
+    tcp)
+      # Loopback TCP without TLS, password in the URL. Needs a 'host' line for 127.0.0.1 in pg_hba.conf.
+      env_merge DATABASE_URL "postgresql://$APP_ROLE:$(urlencode "$pw")@127.0.0.1:$PORT/$DB"
+      for k in PGHOST PGPORT PGUSER PGPASSWORD; do
+        if [ -n "${ENV_VALS[$k]+x}" ]; then unset "ENV_VALS[$k]"; printf '  %-36s %s\n' "$k" removed; fi
+      done ;;
+    *) die "env db: the form is socket (default) or tcp." ;;
+  esac
+  log "$SITE_NAME → database $DB on port $PORT as $APP_ROLE ($mode; password from the database kit's secrets, not shown)."
+}
+
+urlencode() {
+  local s=$1 out="" c i
+  for ((i = 0; i < ${#s}; i++)); do
+    c=${s:i:1}
+    case "$c" in [A-Za-z0-9._~-]) out+=$c ;; *) out+=$(printf '%%%02X' "'$c") ;; esac
+  done
+  printf '%s' "$out"
+}
+
+cmd_env() {
+  local sub=${1:-} name=${2:-}
+  [ -n "$sub" ] && [ -n "$name" ] || die "Usage: gk-site env paste|set|unset|keys|db <site> ..."
+  load_site "$name"
+  local envf
+  envf=$(site_env "$name")
+  [ -f "$envf" ] || die "No env file $envf (gk-site add $name first)."
+  shift 2
+  case "$sub" in
+    paste) env_paste "$envf" "$@" ;;
+    set)
+      local key=${1:-} v="" st
+      valid_key "$key" || die "Usage: gk-site env set <site> <KEY> (letters, digits, _)."
+      if [ -t 0 ]; then
+        read -rs -p "Value for $key (hidden; one line): " v; echo >&2
+      else
+        IFS= read -r v || [ -n "$v" ] || true
+      fi
+      v=${v%$'\r'}
+      [ -n "$v" ] || die "Nothing given for $key; nothing changed."
+      env_read "$envf"
+      env_merge "$key" "$v"
+      env_write "$envf"
+      log "Saved (value not shown). The site picks it up at its next deploy, or now with: gk-deploy restart $name" ;;
+    unset)
+      local key=${1:-}
+      valid_key "$key" || die "Usage: gk-site env unset <site> <KEY>."
+      env_read "$envf"
+      if [ -n "${ENV_VALS[$key]+x}" ]; then unset "ENV_VALS[$key]"; env_write "$envf"; printf '  %-36s removed\n' "$key"
+      else printf '  %-36s was not set\n' "$key"; fi ;;
+    keys)
+      env_read "$envf"
+      local k n=0
+      for k in "${ENV_ORDER[@]}"; do echo "$k"; n=$((n + 1)); done
+      log "$n keys in $envf (values not shown)." ;;
+    db)
+      env_read "$envf"
+      env_db_values "${1:-socket}"
+      env_write "$envf" ;;
+    *) die "Unknown: gk-site env $sub. Use paste, set, unset, keys or db." ;;
+  esac
+}
+
+env_paste() {
+  local envf=$1; shift
+  local nul=no only="" arg
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --nul) nul=yes; shift ;;
+      --only) only=${2:-}; [ -n "$only" ] || die "--only needs KEY1,KEY2,..."; shift 2 ;;
+      --only=*) only=${1#--only=}; shift ;;
+      *) die "Unknown option '$1' (gk-site env paste <site> [--nul] [--only KEY1,KEY2,...])." ;;
+    esac
+  done
+  local only_list=""
+  if [ -n "$only" ]; then
+    for arg in ${only//,/ }; do valid_key "$arg" || die "--only: '$arg' is not a key name."; only_list+=" $arg"; done
+  fi
+
+  declare -A got=()
+  local got_order=() bad=() retired=() dbkeys=() noise=() n_other=0 n=0 line rec k v
+  take() { # take <where> <record>; the record is KEY=VALUE, value as given
+    local where=$1 r=$2
+    if [[ ! "$r" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then bad+=("$where"); return 0; fi
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    if in_list "$k" "$ENV_DROP_RETIRED"; then retired+=("$k"); return 0; fi
+    if in_list "$k" "$ENV_DROP_DB"; then dbkeys+=("$k"); return 0; fi
+    if env_noise "$k"; then noise+=("$k"); return 0; fi
+    if [ -n "$only_list" ] && ! in_list "$k" "$only_list"; then n_other=$((n_other + 1)); return 0; fi
+    [ -n "${got[$k]+x}" ] || got_order+=("$k")
+    got[$k]=$v
+  }
+
+  if [ "$nul" = yes ]; then
+    while IFS= read -r -d '' rec || [ -n "$rec" ]; do
+      n=$((n + 1))
+      [ -n "$rec" ] || continue
+      take "record $n" "$rec"
+    done
+  else
+    local readflags=(-r)
+    if [ -t 0 ]; then
+      readflags=(-rs)
+      echo "Paste KEY=VALUE lines (not shown). End with a line holding only '.', or Ctrl-D." >&2
+    fi
+    while IFS= read "${readflags[@]}" line || [ -n "$line" ]; do
+      n=$((n + 1))
+      line=${line%$'\r'}
+      [ "$line" = . ] && break
+      line=${line#"${line%%[![:blank:]]*}"}            # leading blanks
+      [ -n "$line" ] || continue
+      [ "${line:0:1}" = "#" ] && continue
+      [ "${line:0:7}" = "export " ] && line=${line:7}
+      if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+        k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+        v=${v%"${v##*[![:blank:]]}"}                   # trailing blanks
+        if [ "${#v}" -ge 2 ] && { { [ "${v:0:1}" = '"' ] && [ "${v: -1}" = '"' ]; } || { [ "${v:0:1}" = "'" ] && [ "${v: -1}" = "'" ]; }; }; then
+          v=${v:1:${#v}-2}
+        fi
+        take "line $n" "$k=$v"
+      else
+        bad+=("line $n")
+      fi
+    done
+    [ -t 0 ] && echo >&2
+  fi
+
+  if [ "${#bad[@]}" -gt 0 ]; then
+    die "Not KEY=VALUE: ${bad[*]} (values not shown). Nothing was saved."
+  fi
+  [ "${#retired[@]}" -eq 0 ] || log "Ignored (retired settings): ${retired[*]}"
+  [ "${#dbkeys[@]}" -eq 0 ] || log "Ignored (written by gk-site env db): ${dbkeys[*]}"
+  [ "${#noise[@]}" -eq 0 ] || log "Ignored (shell and process settings): ${noise[*]}"
+  [ "$n_other" -eq 0 ] || log "Ignored (not in --only): $n_other keys"
+  if [ "${#got_order[@]}" -eq 0 ]; then
+    die "No settings to save in what was received ($n records/lines). Nothing changed."
+  fi
+  if [ -n "$only_list" ]; then
+    for arg in $only_list; do [ -n "${got[$arg]+x}" ] || log "Not in the input: $arg"; done
+  fi
+
+  env_read "$envf"
+  local st
+  echo "Keys from the input:"
+  for k in "${got_order[@]}"; do
+    env_merge "$k" "${got[$k]}"
+  done
+  if [ -n "$SITE_DB_PORT" ]; then
+    echo "Database (gk-site env db):"
+    env_db_values socket
+  else
+    log "No database on this server for $SITE_NAME (--db-socket-port not set): DATABASE_URL left as it was."
+  fi
+  env_write "$envf"
+  log "Saved $envf (values not shown). The site picks them up at its next deploy, or now with: gk-deploy restart $SITE_NAME"
+}
+
+# --- units -------------------------------------------------------------------------
+write_slot_units() {
+  local colour port d mem_high
+  mem_high=$(( SITE_MEM_GB * 1024 * 9 / 10 ))
+  for colour in blue green; do
+    port=$(colour_port "$colour")
+    d=$UNIT_DIR/site@$SITE_NAME-$colour.service.d
+    install -d -m 755 "$d"
+    cat > "$d/10-slot.conf" <<EOF
+# Written by gk-site add (scripts/vps-app). Edits here are overwritten.
+[Unit]
+Description=$SITE_NAME ($colour, 127.0.0.1:$port)
+
+[Service]
+User=$SITE_USER
+Group=$SITE_USER
+EnvironmentFile=$SITES_ETC_REAL/$SITE_NAME.env
+Environment=GK_SLOT_PORT=$port PORT=$port GK_SITE=$SITE_NAME GK_COLOUR=$colour
+WorkingDirectory=$SITES_SRV_REAL/$SITE_NAME/current-$colour
+ReadWritePaths=-$SITES_SRV_REAL/$SITE_NAME/current-$colour/.next/cache
+MemoryHigh=${mem_high}M
+MemoryMax=${SITE_MEM_GB}G
+CPUQuota=${SITE_CPU}%
+EOF
+    chmod 644 "$d/10-slot.conf"
+  done
+}
+
+cron_lines() { printf '%s\n' "$SITE_CRON" | awk -F'|' 'NF == 3'; }
+
+write_cron_units() {
+  local job expr maxt d spec wanted=" "
+  while IFS='|' read -r job expr maxt; do
+    [ -n "$job" ] || continue
+    wanted+="$job "
+    d=$UNIT_DIR/gk-cron@$SITE_NAME-$job.service.d
+    install -d -m 755 "$d"
+    cat > "$d/10-job.conf" <<EOF
+# Written by gk-site add (scripts/vps-app). Edits here are overwritten.
+# hPanel line (UTC): $expr  ->  OnCalendar in the timer's drop-in (IST)
+[Unit]
+Description=$SITE_NAME cron $job
+
+[Service]
+User=$SITE_USER
+Group=$SITE_USER
+EnvironmentFile=$SITES_ETC_REAL/$SITE_NAME.env
+ExecStart=
+ExecStart=/usr/local/sbin/gk-cron-call $SITE_NAME $job $maxt $SITE_PRIMARY
+EOF
+    d=$UNIT_DIR/gk-cron@$SITE_NAME-$job.timer.d
+    install -d -m 755 "$d"
+    {
+      echo "# Written by gk-site add (scripts/vps-app). Edits here are overwritten."
+      echo "# hPanel line (UTC): $expr"
+      echo "[Timer]"
+      echo "OnCalendar="
+      cron_to_oncalendar "$expr" | while IFS= read -r spec; do echo "OnCalendar=$spec"; done
+    } > "$d/10-schedule.conf"
+    chmod 644 "$UNIT_DIR/gk-cron@$SITE_NAME-$job.service.d/10-job.conf" "$d/10-schedule.conf"
+  done < <(cron_lines)
+  # Jobs no longer listed: stop and remove their timers.
+  for d in "$UNIT_DIR"/gk-cron@"$SITE_NAME"-*.service.d; do
+    [ -e "$d/10-job.conf" ] || continue
+    grep -q "gk-cron-call $SITE_NAME " "$d/10-job.conf" || continue
+    job=$(sed -n "s/^ExecStart=.*gk-cron-call $SITE_NAME \([^ ]*\) .*/\1/p" "$d/10-job.conf")
+    in_list "$job" "$wanted" && continue
+    systemctl disable --now "gk-cron@$SITE_NAME-$job.timer" >/dev/null 2>&1 || true
+    rm -rf "$d" "$UNIT_DIR/gk-cron@$SITE_NAME-$job.timer.d"
+    log "Cron job $job removed from $SITE_NAME."
+  done
+}
+
+cron_timers() { local job; while IFS='|' read -r job _ _; do [ -n "$job" ] && echo "gk-cron@$SITE_NAME-$job.timer"; done < <(cron_lines); }
+
+# --- add -----------------------------------------------------------------------------
+cmd_add() {
+  local name=${1:-}; shift || true
+  valid_site "$name"
+  local domains=() repo="" branch="" port_base="" mem="" cpu="" dbport="-" cron="-" job expr maxt d
+  while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || die "Option $1 needs a value."
+    case "$1" in
+      --domain) domains+=("$2") ;;
+      --repo) repo=$2 ;;
+      --branch) branch=$2 ;;
+      --port-base) port_base=$2 ;;
+      --mem) mem=$2 ;;
+      --cpu) cpu=$2 ;;
+      --db-socket-port) dbport=$2 ;;
+      --cron-preset)
+        [ "$2" = gokesari ] || die "Unknown cron preset '$2' (gokesari)."
+        cron=$CRON_PRESET_GOKESARI ;;
+      --cron)
+        job=${2%%=*}; expr=${2#*=}
+        [[ "$job" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] && [ "$job" != "$2" ] || die "--cron '$2': the form is <job>=<UTC cron line>, e.g. 'hourly=17 * * * *'."
+        if [ "$expr" = "* * * * *" ]; then maxt=55; else maxt=300; fi
+        [ "$cron" = "-" ] && cron=""
+        cron+="${cron:+$'\n'}$job|$expr|$maxt" ;;
+      *) die "Unknown option '$1'. See the top of $0." ;;
+    esac
+    shift 2
+  done
+
+  # Re-running add keeps what is not given again (and always keeps TLS mode and build command).
+  local had=no
+  if [ -r "$(site_conf "$name")" ]; then load_site "$name"; had=yes; fi
+  local old_tls=internal old_build="npm ci --no-audit --no-fund && npm run build"
+  if [ "$had" = yes ]; then
+    [ "${#domains[@]}" -gt 0 ] || read -r -a domains <<< "$SITE_DOMAINS"
+    [ -n "$repo" ] || repo=$SITE_REPO
+    [ -n "$branch" ] || branch=$SITE_BRANCH
+    [ -n "$port_base" ] || port_base=$(( SITE_PORT_BLUE - 1 ))
+    [ -n "$mem" ] || mem=$SITE_MEM_GB
+    [ -n "$cpu" ] || cpu=$SITE_CPU
+    [ "$dbport" != "-" ] || dbport=$SITE_DB_PORT
+    [ "$cron" != "-" ] || cron=$SITE_CRON
+    [ -z "$SITE_TLS" ] || old_tls=$SITE_TLS
+    [ -z "$SITE_BUILD_CMD" ] || old_build=$SITE_BUILD_CMD
+  fi
+  [ "${#domains[@]}" -gt 0 ] || die "At least one --domain."
+  [ -n "$mem" ] || mem=2
+  [ -n "$cpu" ] || cpu=100
+  [ "$dbport" != "-" ] || dbport=""
+  [ "$cron" != "-" ] || cron=""
+
+  local dom
+  for dom in "${domains[@]}"; do
+    [[ "$dom" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "Bad domain '$dom' (lower case, no scheme or path)."
+  done
+  [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "--repo is owner/name, e.g. octo/site."
+  [[ "$branch" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$branch" != *..* ]] || die "Bad --branch '$branch'."
+  [[ "$port_base" =~ ^[0-9]+$ ]] && [ "$port_base" -ge 1024 ] && [ "$port_base" -le 64990 ] || die "--port-base is 1024-64990 (blue = n+1, green = n+2)."
+  [[ "$mem" =~ ^[0-9]+$ ]] && [ "$mem" -ge 1 ] && [ "$mem" -le 12 ] || die "--mem is whole GiB, 1-12."
+  [[ "$cpu" =~ ^[0-9]+$ ]] && [ "$cpu" -ge 10 ] && [ "$cpu" -le 400 ] || die "--cpu is a percentage of one vCPU, 10-400."
+  case "$dbport" in ""|5432|5433) ;; *) die "--db-socket-port is 5432 (production) or 5433 (staging)." ;; esac
+  while IFS='|' read -r job expr maxt; do
+    [ -n "$job" ] || continue
+    cron_to_oncalendar "$expr" >/dev/null || die "Cron '$job': '$expr' is not a line this kit can convert (minute hour * * *)."
+  done <<< "$cron"
+
+  # No port or domain shared with another site.
+  local other blue=$((port_base + 1)) green=$((port_base + 2))
+  for other in $(site_names); do
+    [ "$other" = "$name" ] && continue
+    (
+      load_site "$other"
+      for p in "$SITE_PORT_BLUE" "$SITE_PORT_GREEN"; do
+        [ "$p" != "$blue" ] && [ "$p" != "$green" ] || die "Port $p is already $other's."
+      done
+      for dom in "${domains[@]}"; do in_list "$dom" "$SITE_DOMAINS" && die "$dom is already $other's."; done
+      exit 0
+    ) || exit 1
+  done
+
+  SITE_NAME=$name
+  SITE_USER=gk-$name
+  SITE_DOMAINS="${domains[*]}"
+  SITE_PRIMARY=${domains[0]}
+  SITE_REPO=$repo
+  SITE_BRANCH=$branch
+  SITE_PORT_BLUE=$blue
+  SITE_PORT_GREEN=$green
+  SITE_MEM_GB=$mem
+  SITE_CPU=$cpu
+  SITE_DB_PORT=$dbport
+  SITE_CRON=$cron
+  SITE_TLS=$old_tls
+  SITE_BUILD_CMD=$old_build
+
+  with_lock wait
+
+  if ! id -u "$SITE_USER" >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir "$SITES_SRV_REAL/$name" --no-create-home --shell /usr/sbin/nologin "$SITE_USER"
+    log "User $SITE_USER made (no login)."
+  fi
+  d=$(site_dir "$name")
+  install -d -m 755 "$SITES_SRV"
+  install -d -m 750 "$d" "$d/shared"
+  chown "root:$SITE_USER" "$d" "$d/shared"
+  install -d -m 750 "$d/releases"
+  install -d -m 700 "$d/shared/npm-cache" "$d/shared/home"
+  chown "$SITE_USER:$SITE_USER" "$d/releases" "$d/shared/npm-cache" "$d/shared/home"
+
+  write_conf
+  local envf
+  envf=$(site_env "$name")
+  if [ ! -f "$envf" ]; then
+    printf '# %s settings: gk-site env paste|set|db. Root only, read by systemd.\n' "$name" > "$envf"
+    chmod 600 "$envf"
+    log "Env file $envf made (empty)."
+  fi
+  if [ ! -s "$(site_key "$name")" ]; then
+    ssh-keygen -q -t ed25519 -N '' -C "gk-deploy $name ($(hostname -s 2>/dev/null || hostname))" -f "$(site_key "$name")"
+    chmod 600 "$(site_key "$name")"
+    log "Deploy key made: $(site_key "$name") (the private half stays on this server)."
+  fi
+
+  write_slot_units
+  write_cron_units
+  systemctl daemon-reload
+
+  local port
+  port=$(caddy_upstream_port "$name")
+  [ -n "$port" ] || port=$SITE_PORT_BLUE
+  write_caddy_block "$port"
+  reload_caddy || die "Caddy refused the configuration. Check: caddy validate --config /etc/caddy/Caddyfile"
+
+  if [ "$had" = no ]; then
+    hc_log "gk-app-$name" "Slot $name made on $(hostname) at $(ist)"
+    hc_log "gk-deploy-$name" "Slot $name made on $(hostname) at $(ist)"
+  fi
+
+  log "Site $name: ${SITE_DOMAINS// /, } → 127.0.0.1:$SITE_PORT_BLUE (blue) / $SITE_PORT_GREEN (green); ${mem} GiB, ${cpu}% CPU; TLS $SITE_TLS."
+  log "Repository $repo, branch $branch. Database: ${dbport:-none}. Cron jobs (disabled): $(cron_timers | tr '\n' ' ')"
+  log "healthchecks.io checks: gk-app-$name, gk-deploy-$name."
+  echo
+  echo "Deploy key for $repo (GitHub → Settings → Deploy keys → Add; leave 'Allow write access' OFF):"
+  cat "$(site_key "$name").pub"
+}
+
+# --- tls / cron / status --------------------------------------------------------
+cmd_tls() {
+  local name=${1:-} mode=${2:-} force=${3:-}
+  load_site "$name"
+  case "$mode" in internal|acme) ;; *) die "Usage: gk-site tls <site> internal|acme [--force]" ;; esac
+  if [ "$mode" = acme ] && [ "$force" != --force ]; then
+    local dom got bad=()
+    for dom in $SITE_DOMAINS; do
+      got=$(getent ahostsv4 "$dom" 2>/dev/null | awk 'NR==1 {print $1}')
+      [ "$got" = "$VPS_PUBLIC_IP" ] || bad+=("$dom → ${got:-nothing}")
+    done
+    [ "${#bad[@]}" -eq 0 ] || die "DNS does not point at this server (${VPS_PUBLIC_IP:-VPS_PUBLIC_IP unset}) yet: ${bad[*]}. Let's Encrypt would refuse; add --force to switch anyway."
+  fi
+  with_lock wait
+  local f=$CADDY_SITES/$name.caddy bak port
+  install -d -m 755 "$APP_STATE"
+  bak=$(mktemp "$APP_STATE/.caddy-$name.XXXXXX")
+  [ -f "$f" ] && cp "$f" "$bak"
+  port=$(caddy_upstream_port "$name"); [ -n "$port" ] || port=$SITE_PORT_BLUE
+  SITE_TLS=$mode
+  write_caddy_block "$port"
+  if ! reload_caddy; then
+    [ -s "$bak" ] && cp "$bak" "$f"
+    rm -f "$bak"
+    reload_caddy || true
+    die "Caddy refused the $mode block; the old one is back."
+  fi
+  rm -f "$bak"
+  write_conf
+  if [ "$mode" = acme ]; then
+    log "$name now uses Let's Encrypt. Caddy fetches the certificates in the background (journalctl -u caddy)."
+  else
+    log "$name now uses Caddy's internal CA (preview). Browsers warn unless Caddy's root is trusted (README)."
+  fi
+}
+
+cmd_cron() {
+  local name=${1:-} action=${2:-status} t
+  load_site "$name"
+  local timers
+  timers=$(cron_timers)
+  [ -n "$timers" ] || die "$name has no cron jobs (gk-site add $name --cron-preset gokesari)."
+  case "$action" in
+    on)
+      # shellcheck disable=SC2086
+      systemctl enable --now $timers >/dev/null
+      log "Cron ON for $name: $(echo $timers). Turn the matching hPanel lines OFF in the same minute (plan, C3 / D3)." ;;
+    off)
+      # shellcheck disable=SC2086
+      systemctl disable --now $timers >/dev/null
+      log "Cron OFF for $name." ;;
+    status)
+      for t in $timers; do
+        printf '  %-44s %-9s %s\n' "$t" "$(systemctl is-enabled "$t" 2>/dev/null || true)" \
+          "$(sed -n 's/^OnCalendar=\(..*\)/\1/p' "$UNIT_DIR/$t.d/10-schedule.conf" | paste -sd';' -)"
+      done ;;
+    *) die "Usage: gk-site cron <site> on|off|status" ;;
+  esac
+}
+
+mem_of() {
+  local b
+  b=$(systemctl show -p MemoryCurrent --value "$1" 2>/dev/null || true)
+  if [[ "$b" =~ ^[0-9]+$ ]]; then echo "$(( b / 1048576 )) MiB"; else echo "-"; fi
+}
+
+cmd_status() {
+  local names name f
+  if [ -n "${1:-}" ]; then names=$1; else names=$(site_names); fi
+  [ -n "$names" ] || { echo "No sites yet (gk-site add)."; return 0; }
+  for name in $names; do
+    load_site "$name"
+    f=$(site_state "$name")
+    echo "$name  ($SITE_DOMAINS)"
+    printf '  %-13s %s @ %s\n' repository "$SITE_REPO" "$SITE_BRANCH"
+    if [ -s "$f" ]; then
+      printf '  %-13s %s  %s (port %s)  %s  %s\n' deployed "$(json_get "$f" sha | cut -c1-12)" "$(json_get "$f" colour)" \
+        "$(json_get "$f" port)" "$(json_get "$f" time)" "$(json_get "$f" result)"
+      if [ -n "$(json_get "$f" last_attempt_sha)" ]; then
+        printf '  %-13s %s  %s  %s\n' "last attempt" "$(json_get "$f" last_attempt_sha | cut -c1-12)" \
+          "$(json_get "$f" last_attempt_result)" "$(json_get "$f" last_attempt_reason)"
+      fi
+    else
+      printf '  %-13s %s\n' deployed "nothing yet (gk-deploy now $name)"
+    fi
+    local c u
+    for c in blue green; do
+      u=$(unit_of "$name" "$c")
+      printf '  %-13s %-6s :%s  %-9s %s / %s GiB\n' service "$c" "$(colour_port "$c")" \
+        "$(systemctl is-active "$u" 2>/dev/null || true)" "$(mem_of "$u")" "$SITE_MEM_GB"
+    done
+    printf '  %-13s %s\n' TLS "$SITE_TLS"
+    printf '  %-13s %s\n' database "${SITE_DB_PORT:-none}"
+    if [ -n "$(cron_timers)" ]; then
+      local t j s=""
+      for t in $(cron_timers); do j=${t%.timer}; s+="${j#gk-cron@"$name"-}: $(systemctl is-enabled "$t" 2>/dev/null || true)  "; done
+      printf '  %-13s %s\n' cron "$s"
+    fi
+    env_read "$(site_env "$name")"
+    printf '  %-13s %s keys\n' env "${#ENV_ORDER[@]}"
+  done
+}
+
+cmd=${1:-status}
+shift || true
+case "$cmd" in
+  add) cmd_add "$@" ;;
+  env) cmd_env "$@" ;;
+  deploy-key)
+    load_site "${1:-}"
+    [ -s "$(site_key "$1").pub" ] || die "No deploy key yet: gk-site add $1 makes it."
+    cat "$(site_key "$1").pub" ;;
+  tls) cmd_tls "$@" ;;
+  cron) cmd_cron "$@" ;;
+  status) cmd_status "$@" ;;
+  list) site_names ;;
+  -h|--help|help) sed -n '2,32p' "$0" ;;
+  *) die "Unknown command '$cmd'. See the top of $0." ;;
+esac
