@@ -52,7 +52,11 @@ NODE_MAJOR=24
 NODE_BIN=/usr/bin/node
 
 # Builds (plan section 3, "Builds (gk-build)"): one at a time on the server.
-BUILD_MEM=4G
+BUILD_MEM=5G
+# next build needs more than Node's default heap (about 2 GB here): it ran out at 2 GB on
+# 17-Nov-2026. Hostinger's builds had a larger NODE_OPTIONS heap. Builds only; the sites keep
+# the default.
+BUILD_NODE_OPTIONS=--max-old-space-size=3584
 BUILD_CPU=150%
 BUILD_NICE=10
 BUILD_TIMEOUT=${GK_BUILD_TIMEOUT:-20min}

@@ -148,6 +148,7 @@ build_release() {
     --setenv=HOME="$SITES_SRV_REAL/$SITE_NAME/shared/home" \
     --setenv=npm_config_cache="$SITES_SRV_REAL/$SITE_NAME/shared/npm-cache" \
     --setenv=NEXT_TELEMETRY_DISABLED=1 \
+    --setenv=NODE_OPTIONS="$BUILD_NODE_OPTIONS" \
     --setenv=GK_BUILD_VERSION="${sha:0:12}" \
     /bin/bash -c "$SITE_BUILD_CMD" </dev/null >> "$logf" 2>&1 || rc=$?
   if [ "$rc" -ne 0 ]; then
