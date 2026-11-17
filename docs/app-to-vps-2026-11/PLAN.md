@@ -210,6 +210,20 @@ Section 11 lists them. The main ones: the CDN, the Hostinger plan (because of e-
 
 ## 11. Decisions for the owner
 
+**Decided by the owner, 17-Nov-2026, about 06.20 IST:**
+
+| # | Decision |
+|---|---|
+| 1 | **No CDN.** |
+| 2 | **Keep the Hostinger web hosting plan** (e-mail stays on it). |
+| 3 | **Builds on the VPS.** |
+| 4 | **Env values typed into hidden prompts on the server** (4a). |
+| 5 | Windows: *not yet given*. |
+| 6 | **Outside uptime monitor: yes, as soon as possible** (UptimeRobot free; the owner creates the account). |
+| 7 | **Later sites: yes, each planned in its own project's chat.** |
+
+The options as first written:
+
 1. **CDN:** none for now (simplest; users in India, VPS in Mumbai), or **Cloudflare free** in front (DDoS screen, caching; DNS moves to Cloudflare). *Recommended:* none at first, Cloudflare if traffic or attacks call for it.
 2. **Hostinger web hosting plan after the move:** keep it (e-mail stays as is, about the same cost) or switch to e-mail-only. *Recommended:* keep until a separate e-mail decision.
 3. **Builds:** on the VPS (recommended; independent of Hostinger and of GitHub Actions minutes), or in GitHub Actions with the result shipped to the VPS.
