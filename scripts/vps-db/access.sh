@@ -15,12 +15,20 @@ ips_ok() { local ip; for ip in "$@"; do [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}
 # shellcheck disable=SC2086
 ips_ok $APP_IPS_PROD $APP_IPS_STAGING
 case "$SSH_MODE" in public|wg) ;; *) die "SSH_MODE must be public or wg." ;; esac
+# The web layer (scripts/vps-app) is installed: Caddy holds 80/443 for good.
+web_layer() { [ -f /etc/caddy/acme.caddy ]; }
 
 if [ "${1:-}" = --hostinger ]; then
   echo "hPanel → VPS → Security → Firewall: accept these, drop the rest."
   printf '%-7s %-5s %-6s %-18s %s\n' Action Proto Port Source Why
   printf '%-7s %-5s %-6s %-18s %s\n' Accept UDP "$WG_PORT" Any "WireGuard"
-  printf '%-7s %-5s %-6s %-18s %s\n' Accept TCP 80 Any "Let's Encrypt renewals (ufw keeps it shut otherwise)"
+  if web_layer; then
+    printf '%-7s %-5s %-6s %-18s %s\n' Accept TCP 80 Any "HTTP (Caddy): redirects, certificate challenges"
+    printf '%-7s %-5s %-6s %-18s %s\n' Accept TCP 443 Any "HTTPS (Caddy)"
+    printf '%-7s %-5s %-6s %-18s %s\n' Accept UDP 443 Any "HTTP/3 (Caddy)"
+  else
+    printf '%-7s %-5s %-6s %-18s %s\n' Accept TCP 80 Any "Let's Encrypt renewals (ufw keeps it shut otherwise)"
+  fi
   [ "$SSH_MODE" = wg ] || printf '%-7s %-5s %-6s %-18s %s\n' Accept TCP 22 Any "SSH while building (removed at 90-lockdown.sh)"
   for ip in $APP_IPS_PROD; do printf '%-7s %-5s %-6s %-18s %s\n' Accept TCP "$PROD_PORT" "$ip" "gokesari.com → production"; done
   for ip in $APP_IPS_STAGING; do printf '%-7s %-5s %-6s %-18s %s\n' Accept TCP "$TEST_PORT" "$ip" "test.gokesari.com → staging"; done
@@ -37,6 +45,8 @@ for name in $(peer_names); do
 done
 for ip in $APP_IPS_PROD; do want+=("allow from $ip to any port $PROD_PORT proto tcp"); done
 for ip in $APP_IPS_STAGING; do want+=("allow from $ip to any port $TEST_PORT proto tcp"); done
+# Caddy (scripts/vps-app/20-web-firewall.sh): the sites, and the db certificate's renewals.
+web_layer && want+=("allow 80/tcp" "allow 443/tcp" "allow 443/udp")
 
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
@@ -73,6 +83,8 @@ write_hba() {
     echo "local    all       postgres                              peer"
     echo "local    all       monitor                               peer map=gk_monitor"
     printf 'local    %-9s gksnap                                peer\n' "$DB"
+    echo "# The site on this server (scripts/vps-app, gk-site env db): Unix socket, password"
+    printf 'local    %-9s %-18s                    scram-sha-256\n' "$DB" "$APP_ROLE"
     echo "# App server(s) on Hostinger: TLS and password only"
     for ip in $APP_IPS; do
       printf 'hostssl  %-9s %-18s %-18s scram-sha-256\n' "$DB" "$APP_ROLE" "$ip/32"
