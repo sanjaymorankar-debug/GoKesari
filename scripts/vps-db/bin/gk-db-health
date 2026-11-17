@@ -57,13 +57,15 @@ for env in prod staging; do
 
   # After the cut-over: no app connection for 3 runs in a row (15 min) usually means
   # the Hostinger address changed and the firewall now drops it (RUNBOOK Part 2).
-  if [ "$APP_LIVE" = yes ] && [ -n "$APP_IPS" ]; then
-    ips="{$(printf '%s' "$APP_IPS" | tr ' ' ',')}"
-    n=$(mon "$PORT" -c "select count(*) from pg_stat_activity where client_addr = any('$ips'::inet[])")
+  # A site that runs on this server (scripts/vps-app) connects over the Unix socket, with no
+  # client address: its app role's local connections count too.
+  if [ "$APP_LIVE" = yes ]; then
+    ips="{$(printf '%s' "${APP_IPS:-}" | tr ' ' ',')}"
+    n=$(mon "$PORT" -c "select count(*) from pg_stat_activity where client_addr = any('$ips'::inet[]) or (client_addr is null and backend_type = 'client backend' and usename = '$APP_ROLE')")
     misses=$(cat "$state/app-$GK_ENV.misses" 2>/dev/null || echo 0)
     if [ "$n" -gt 0 ]; then misses=0; else misses=$((misses + 1)); fi
     echo "$misses" > "$state/app-$GK_ENV.misses"
-    [ "$misses" -lt 3 ] || crit+=("$GK_ENV: no app connection from $APP_IPS for $((misses * 5)) min. Is the site up? Did Hostinger's outgoing IP change?")
+    [ "$misses" -lt 3 ] || crit+=("$GK_ENV: no app connection (from ${APP_IPS:-nowhere} or this server's socket) for $((misses * 5)) min. Is the site up? Did Hostinger's outgoing IP change?")
   fi
 done
 

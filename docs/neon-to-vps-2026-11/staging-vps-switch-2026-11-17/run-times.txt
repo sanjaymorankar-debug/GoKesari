@@ -1,0 +1,16 @@
+guest start 17-Nov-2026 06.03.54 IST
+guest end 17-Nov-2026 06.11.23 IST exit 0
+signed start 17-Nov-2026 06.12.00 IST
+signed end 17-Nov-2026 06.56.50 IST exit 0
+signed attempt 2 start 17-Nov-2026 06.58.53 IST (after ₹5,000 sandbox top-up)
+signed attempt 2 end 17-Nov-2026 08.02.28 IST exit 0
+re-run start 17-Nov-2026 08.06.00 IST
+re-run desktop end 17-Nov-2026 08.06.01 IST
+re-run mobile end 17-Nov-2026 08.06.01 IST
+re-run (fixed flag) start 17-Nov-2026 08.06.15 IST
+re-run desktop end 17-Nov-2026 08.15.39 IST
+re-run mobile end 17-Nov-2026 08.19.24 IST
+re-run 2 start 17-Nov-2026 08.22.23 IST (leftover delivery closed, 9 leftover READY orders cancelled)
+re-run 2 desktop end 17-Nov-2026 08.33.37 IST
+re-run 2 mobile end 17-Nov-2026 08.39.31 IST
+re-run TC-FUL-005/006 mobile 08.40.25 IST

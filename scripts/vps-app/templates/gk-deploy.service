@@ -1,0 +1,12 @@
+# The deploy agent (scripts/vps-app/bin/gk-deploy). Started every minute by gk-deploy.timer.
+[Unit]
+Description=GoKesari deploy agent (all sites)
+After=network-online.target caddy.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gk-deploy run
+# Builds stop themselves after 20 minutes; this covers a few sites in a row.
+TimeoutStartSec=90min
+SyslogIdentifier=gk-deploy

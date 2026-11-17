@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Test stub.
+echo "apt-get $*" >> "$GK_TEST_LOG"

@@ -1,0 +1,58 @@
+# One colour of one site: site@<site>-<blue|green>.service (scripts/vps-app,
+# docs/app-to-vps-2026-11/PLAN.md section 3). Installed by 10-install.sh.
+#
+# The per-instance values are in the drop-in that gk-site add writes,
+# /etc/systemd/system/site@<site>-<colour>.service.d/10-slot.conf:
+#   User= / Group=            gk-<site>
+#   EnvironmentFile=          /etc/sites/<site>.env (root only; systemd reads it)
+#   Environment=              GK_SLOT_PORT (the colour's port), PORT
+#   WorkingDirectory=         /srv/sites/<site>/current-<colour> -> releases/<commit>
+#   ReadWritePaths=           that release's .next/cache, nothing else
+#   MemoryHigh/MemoryMax/CPUQuota from gk-site add --mem / --cpu
+# The port is passed with -p from GK_SLOT_PORT, so a PORT in the env file cannot move it.
+
+[Unit]
+Description=Site slot %i
+After=network-online.target postgresql.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Environment=NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -p ${GK_SLOT_PORT} -H 127.0.0.1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+TasksMax=512
+# The database comes first if memory runs out.
+OOMScoreAdjust=300
+SyslogIdentifier=site-%i
+UMask=0027
+
+# Sandbox: the code is read-only; only .next/cache (drop-in) and a private /tmp are writable.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+# MemoryDenyWriteExecute stays off: Node's JIT needs writable and executable memory.
+
+[Install]
+WantedBy=multi-user.target

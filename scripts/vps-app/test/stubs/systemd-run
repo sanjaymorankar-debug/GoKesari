@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Test stub: a build in a transient unit. Records the arguments (the test checks that no
+# secret is among them), then "builds" in WorkingDirectory: .next/BUILD_ID and a webpack cache.
+echo "systemd-run $*" >> "$GK_TEST_LOG"
+wd="" envfile="" cmd=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p) case "$2" in WorkingDirectory=*) wd=${2#WorkingDirectory=} ;; EnvironmentFile=*) envfile=${2#EnvironmentFile=} ;; esac; shift 2 ;;
+    --*) shift ;;
+    *) cmd=("$@"); break ;;
+  esac
+done
+[ -n "$wd" ] && [ -n "$envfile" ] || { echo "stub: WorkingDirectory/EnvironmentFile missing" >&2; exit 2; }
+[ -f "$GK_APP_ROOT$envfile" ] || { echo "stub: no env file $envfile" >&2; exit 2; }
+cd "$GK_APP_ROOT$wd" || exit 2
+echo "stub build: ${cmd[*]}"
+[ -f package.json ] || { echo "stub: no package.json (release not unpacked)" >&2; exit 2; }
+if [ "${GK_STUB_BUILD_FAIL:-0}" = 1 ]; then echo "npm ERR! simulated build failure"; exit 1; fi
+mkdir -p .next/cache/webpack
+echo "stub-$(basename "$PWD")" > .next/BUILD_ID
+echo cache > .next/cache/webpack/blob
+echo "stub build: done"

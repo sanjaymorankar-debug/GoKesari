@@ -1,0 +1,11 @@
+# Every minute: deploy any site whose branch has a new commit (gk-deploy run).
+# A run still going makes the next one a no-op.
+[Unit]
+Description=GoKesari deploy agent (every minute)
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
