@@ -214,7 +214,7 @@ The apps are WebViews of the site with the `/shop/register` deep link, location 
 | P2-D3 | Minor | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there (two of the three; see below) | Three refusals arrive only at the last step ("Create my shop and pay"): account with a shop awaiting approval, same shop name at the PIN, inactive PAN. The owner fills every screen first. | Seen in staging runs; no separate screenshot |
 | P2-D4 | Low | Fixed (PR #381). **Verified on Test 15-Nov-2026 00.00 IST.** On Production since 11-Nov-2026 07.12 IST, not re-tested there (see below) | Once a referral code is saved it cannot be changed or cleared ("the first one is kept"), yet the field stays editable. | Seen in staging runs; no separate screenshot |
 | P2-D5 | Low | Found 15-Nov-2026 in the staging re-test. **Fixed (PR #389): verified by the staging queue on test.gokesari.com 15-Nov-2026 04.16 IST, released to gokesari.com in release #388 (15-Nov-2026 11.25 IST). Re-checked signed in on test.gokesari.com 16-Nov-2026 06.40 IST: 8 of 8 PASS.** Closed | Two Seller Central pages still use approval wording for an unpaid shop: "Registration and fee" shows "Shop status: pending approval", and the "Today's work" alert says the shop "moves to final approval" after paying, with a step "3. Approved by GoKesari". A shop with a verified GSTIN or PAN goes live as soon as the fee is paid. | p2-defects-staging-2026-11-14/d1-registration-page-*.png, d1-manage-today-*.png |
-| P2-D6 | Low | Found 15-Nov-2026 02.14 IST on a local server. **Fixed (PR #392), checked locally 16-Nov-2026 06.29 IST. On Test since 16-Nov-2026 08.28 IST (passed the staging queue).** Date itself not yet re-checked on Test; not yet on Production | A shop registered between 00.00 and 05.29 IST gets the previous day as its registration date: the date is taken in UTC (`src/server/services/shops.ts:476`, `new Date().toISOString()`). A shop created on 15-Nov at 02.14 IST shows "Registration date 14/11/2026". Applies to every new shop, on Test and Production. | p2-d5-local-2026-11-15/d5-wizard-registration-390.png |
+| P2-D6 | Low | Found 15-Nov-2026 02.14 IST on a local server. **Fixed (PR #392), checked locally 16-Nov-2026 06.29 IST. On Test since 16-Nov-2026 08.28 IST (passed the staging queue); released to gokesari.com in release #396 (16-Nov-2026 15.00 IST). Re-checked signed in on test.gokesari.com 18-Nov-2026 00.38 IST: a shop registered at 00.37 IST is dated 18/11/2026; 4 of 4 PASS.** Closed | A shop registered between 00.00 and 05.29 IST gets the previous day as its registration date: the date is taken in UTC (`src/server/services/shops.ts:476`, `new Date().toISOString()`). A shop created on 15-Nov at 02.14 IST shows "Registration date 14/11/2026". Applies to every new shop, on Test and Production. | p2-d5-local-2026-11-15/d5-wizard-registration-390.png |
 
 Notes, not defects: later wizard screens are still mostly English; held GST / PAN duplicates still see "Payment received — pending admin approval" (intended, they need a review); `/shop/register` needs a reload after a sandbox payment.
 
@@ -304,13 +304,26 @@ Fixed on branch `fix/shop-registration-date-ist` (from `staging` 1ddd2926), PR #
 
 **Staging queue, 16-Nov-2026:** merged into `staging` as `e3f8460` at 07.14 IST; verified at 08.28 IST (staging CI and migrations passed, the deploy is live, the site kept answering, guest QA passed). The guest QA does not register a shop, so the date itself was not re-checked there.
 
-**Still to do:** register a shop on test.gokesari.com between 00.00 and 05.29 IST and check its date; then on gokesari.com after the next release.
+**Production:** released to gokesari.com in release #396 (merged 16-Nov-2026 15.00 IST).
+
+### Staging re-check, signed in (18-Nov-2026, 00.37 to 00.38 IST)
+
+test.gokesari.com, staging admin account (signed in), Chromium at 1280 and at 390 (iPhone 14 emulation). A new wizard shop, BKS-000054 "QA P2D6 Night 47231" (GSTIN, referral code E2ETEST1, Shop 14, Laxmi Road, Pune 411030), created at **00.37.25 IST on 18-Nov-2026**. In UTC that is still 17-Nov (19.07), so the old code would have dated it 17/11/2026. Paid with Cashfree sandbox UPI (testsuccess@gocash) and live. **Result: 4 of 4 PASS.**
+
+| Check | 1280 | 390 |
+|---|---|---|
+| Wizard shop registered between 00.00 and 05.29 IST, paid, live | PASS | — |
+| Registration and fee: "Registration date 18/11/2026" (the IST day; old code: 17/11/2026) | PASS | PASS |
+| Admin console, Registration fees: BKS-000054 dated 2026-11-18 | PASS | — |
+
+The payment row on the same page is also dated 18/11/2026. Evidence: [p2-d6-staging-2026-11-18/](p2-d6-staging-2026-11-18/) (screenshots and results.json). Not checked on gokesari.com: that would need a real shop registered there between 00.00 and 05.29 IST, and this session does not sign in on production; the code there is the same release. Shops registered before the fix keep the date they were given.
 
 ## Test data left on staging
 
 - Shops: BKS-000047 "QA Phase2 Live 94542" (admin), BKS-000048 "QA Phase2 Phone 41132" (customer), BKS-000049 "QA Phase2 Retry 42462" (ops). Open drafts on the shop and rider accounts.
 - Re-test 14/15-Nov-2026: BKS-000050 "QA P2 Retest 48387" and BKS-000051 "QA P2 Retest 33251" (admin account, Laxmi Road, Pune 411030), both paid with sandbox UPI and live. Referral code E2ETEST1 counted two more shops. The admin account's registration is completed again, as before the re-test.
 - P2-D5 re-check 16-Nov-2026: BKS-000052 "QA P2D5 Recheck 17097" (admin account, Shop 12, Laxmi Road, Pune 411030). One failed payment (sandbox testfailure@gocash), then paid with sandbox UPI testsuccess@gocash and live. Referral code E2ETEST1 counted one more shop. The admin account's registration is completed again.
+- P2-D6 night check 18-Nov-2026: BKS-000054 "QA P2D6 Night 47231" (admin account, Shop 14, Laxmi Road, Pune 411030), registered at 00.37 IST, paid with sandbox UPI testsuccess@gocash and live. Referral code E2ETEST1 counted one more shop. The admin account's registration is completed again.
 - BKS-000046 "QA Licence Pharmacy PR374" (suspended) belongs to another session's test.
 - Referral code E2ETEST1 counted one more shop. QA bakery hours are back to 06:00–22:00 (restored 02.21 IST).
 

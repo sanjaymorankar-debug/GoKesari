@@ -1,10 +1,22 @@
 # Deployment
 
-Targets Hostinger Node.js Web App Hosting (which auto-detects Next.js and runs
-`npm run build` / `npm start`), but nothing here is Hostinger-specific — any
-Node 20+ host with a PostgreSQL database works.
+Since 17-Nov-2026, gokesari.com and test.gokesari.com run on GoKesari's own
+server, `gk-db-1` (Hostinger KVM 4, Mumbai): PostgreSQL 18 and the Next.js app
+on the same machine, with Caddy in front. The server's kits are
+[scripts/vps-db/](scripts/vps-db/) (databases, backups, alerts; runbook:
+[docs/neon-to-vps-2026-11/RUNBOOK.md](docs/neon-to-vps-2026-11/RUNBOOK.md)) and
+[scripts/vps-app/](scripts/vps-app/README.md) (website slots, deploy agent,
+cron timers). Before that, the sites ran on Hostinger Node.js Web App Hosting
+with Neon databases; the sections below still apply to any Node 20+ host with
+PostgreSQL.
 
 ## 1. Provision PostgreSQL
+
+On our server this is done by the kit (`scripts/vps-db/`): one instance per
+site (production on port 5432, database `gokesari`; staging on 5433,
+`gokesari_test`), each with an app role, a read-only role and monitoring roles.
+The app connects over the local Unix socket (`gk-site env db`), so its
+`DATABASE_URL` has no host or TLS part. For any other host:
 
 Create the production database and a dedicated application user. Do **not** use
 a superuser for the app.
@@ -23,7 +35,12 @@ DATABASE_URL=postgresql://dairy_app:<password>@<host>:5432/dairy_bakery?sslmode=
 
 ## 2. Configure environment variables
 
-Set these in the host's environment-variable UI — never commit them.
+Set these in the host's environment — never commit them. On our server each
+site's settings are in `/etc/sites/<site>.env` (root only, mode 600), changed
+with `sudo gk-site env set <site> <KEY>` (hidden prompt) or `sudo gk-site env
+paste <site>`; `gk-site env keys <site>` lists the names only. Then run
+`sudo gk-deploy restart <site>`, or `sudo gk-deploy now <site>` for a
+`NEXT_PUBLIC_*` value, which is fixed at build time.
 
 ```bash
 NODE_ENV=production
@@ -129,15 +146,26 @@ MOBILE_IOS_APP_IDS=<Apple Team ID>.com.gokesari.app
 
 ## 3. Deploy
 
-Connect the GitHub repository in the hosting panel and select the branch. The
-platform detects Next.js and handles the build.
+On our server, the **`gk-deploy` agent** deploys each site from its branch:
 
-Recommended branch mapping:
-
-| Branch | Environment | Domain |
+| Branch | Site | Server slot |
 |---|---|---|
-| `staging` | staging | `test.your-domain.com` |
-| `main` | production | `your-domain.com` |
+| `staging` | test.gokesari.com | `gokesari-staging` |
+| `main` | gokesari.com | `gokesari-prod` |
+
+Every minute it compares the branch head with what the site serves (through a
+read-only deploy key). A new commit is built in its own release folder
+(`npm ci`, `npm run build`, about 5 minutes), started on the idle colour,
+health-checked and switched to in Caddy; the old colour stops a minute later.
+A failed build or health check changes nothing: the old release keeps serving.
+One deploy runs at a time on the whole server. Commands (as root, over
+WireGuard): `gk-deploy status`, `gk-deploy now <site>` (rebuild now),
+`gk-deploy restart <site>` (same release on the other colour, no build),
+`gk-deploy rollback <site>` (previous release, no build). Details:
+[scripts/vps-app/README.md](scripts/vps-app/README.md).
+
+Until 17-Nov-2026 Hostinger built and restarted each site from its branch; its
+Node.js apps stay as idle fallbacks until 1-Dec-2026 and serve no traffic.
 
 Promotion is a merge of `staging` into `main`, which is also the human approval
 gate. Give each environment its **own database** and its own Cashfree keys — use
@@ -152,26 +180,28 @@ needs the `STAGING_QUEUE_TOKEN` secret).
 
 ### One production release at a time
 
-Every push to `main` makes Hostinger build and restart gokesari.com, and it
-does not queue or cancel builds that overlap. On 25 Oct 2026 two releases of the
-same code reached `main` 75 seconds apart (#248, #249). Their deploys
-overlapped, and the site stopped answering for 14 minutes until the app was
-restarted (E-02,
+On 25 Oct 2026 two releases of the same code reached `main` 75 seconds apart
+(#248, #249). Hostinger, which then built the site, did not queue or cancel
+overlapping builds; the deploys overlapped, and the site stopped answering for
+14 minutes until the app was restarted (E-02,
 [incident note](docs/gokesari-audit/INCIDENT_2026-10-25_production_hang.md)).
-So:
+The server's deploy agent runs one deploy at a time, but a release is only done
+once it is checked, so:
 
 1. Before merging into `main`, check that no other release is in flight: no
-   other staging → main PR being merged, and the last Hostinger build for
-   gokesari.com finished (the build list on the site's Node.js page in hPanel).
+   other staging → main PR being merged, and gokesari.com serving `main`'s
+   head with no deploy running (`sudo gk-deploy status`, or `/sw.js`'s
+   `VERSION` against `main`).
 2. Merge **one** release.
 3. Wait for the post-deploy check below to pass before the next merge into
-   `main`, even a docs-only one (it still rebuilds and restarts the site).
+   `main`, even a docs-only one (it still rebuilds the site).
 
 ### After every production deploy
 
 The **Post-deploy check** workflow (`.github/workflows/post-deploy.yml`) runs on
 every push to `main`:
-- it waits about 4 minutes for Hostinger's build and restart;
+- it waits 6 minutes for the server's build and switch (it took 5½ minutes
+  for the first server-built release, 17-Nov-2026);
 - it then needs `/`, `/shops` and `/robots.txt` to answer 200 for four rounds
   in a row, 45 s apart;
 - it fails if that hasn't happened 10 minutes later, and GitHub e-mails the
@@ -186,13 +216,15 @@ scripts/release/post-deploy-check.sh https://gokesari.com
 
 **If it fails:**
 
-1. Restart the Node.js app: hPanel → Websites → gokesari.com → Node.js →
-   **Restart**, or `hosting_nodejs_restart-application` from a Claude session
-   with the Hostinger tools. A restart doesn't rebuild or change data.
+1. Restart the site on the server: `sudo gk-deploy restart gokesari-prod`
+   (the serving release on the other colour, health-checked before the switch).
+   A restart doesn't rebuild or change data.
 2. Run the check again (Actions → Post-deploy check → Run workflow, or the
    script).
 3. If it still fails:
-   - read the build log and the runtime log in hPanel → Node.js;
+   - read the logs: `sudo gk-site status gokesari-prod`,
+     `journalctl -u 'site@gokesari-prod-*'`, the deploy log
+     (`journalctl -u gk-deploy`), and Caddy's (`journalctl -u caddy`);
    - roll back (§9);
    - record what happened, as in the incident note above.
 
@@ -203,7 +235,7 @@ whether the site answers.
 ## 4. Run migrations
 
 Migrations are plain SQL under `drizzle/`. They run **only through two GitHub
-Actions workflows**, never during a Hostinger build:
+Actions workflows**, never during a build (on the server or anywhere else):
 
 | Site | How its databases are migrated |
 |---|---|
@@ -228,23 +260,24 @@ Actions with `MIGRATE_ON_BUILD=true`. In any host's build the log shows
 `[migrate-on-build] skipped` and the build goes on.
 
 Hostinger builds a preview of every pull request with the site's own
-environment variables. While `MIGRATE_ON_BUILD=true` was set in hPanel, the
+environment variables (until its apps are retired, 1-Dec-2026). While `MIGRATE_ON_BUILD=true` was set in hPanel, the
 preview of an unmerged PR migrated the real databases: PRs into `main`
 brought 0089–0094 to production early, and on 29 Oct 2026 a PR into
 `staging` applied 0114/0115 to the test databases, so staging's own 0114 was
-skipped. **Do not set `MIGRATE_ON_BUILD` in hPanel** (remove it where it is
-still set); it has no effect there any more.
+skipped. **Do not set `MIGRATE_ON_BUILD` in hPanel or in a server env file**
+(remove it where it is still set); it has no effect there any more.
 
-**The staging gap.** Hostinger deploys a merge into `staging` while the "Test
-database" workflow is still backing up and migrating, so the new code can be
-live a few minutes before its migration (about 6 minutes on 29 Oct 2026).
+**The staging gap.** The server deploys a merge into `staging` (Hostinger did
+until 17-Nov-2026) while the "Test database" workflow may still be backing up
+and migrating, so the new code can be live a few minutes before its migration
+(about 6 minutes on 29 Oct 2026).
 Pages that use the new tables may fail during that window; everything else
 works. If the workflow fails, run it again by hand (`migrate`) — the site
 keeps failing on those pages until it succeeds. Production has no gap: its
 migration runs before the merge into `main`.
 
 After a migration, check the workflow run's summary (`applied N new
-migration(s)`) rather than the hPanel build log.
+migration(s)`) rather than the deploy log.
 
 Migration policy:
 
@@ -321,7 +354,8 @@ working if it is applied first. Staging first:
    DATABASE_URL=<target> npx tsx scripts/shop-duplicate-report.ts --csv    # for a spreadsheet
    ```
 
-   or paste `scripts/shop-duplicate-report.sql` into the Neon SQL editor.
+   or run `scripts/shop-duplicate-report.sql` with `psql` as the read-only role
+   over WireGuard (`gokesari_ro` / `gokesari_test_ro`; RUNBOOK Part 2).
    Shops registered before this release have no Shop Act or Udyam number, so
    for them only the same-name-and-PIN-code grouping applies.
 
@@ -451,6 +485,24 @@ Since the Cashfree audit of Nov 2026
 
 Wallet balances are money. Treat the database accordingly.
 
+On our server (`scripts/vps-db/`, since 17-Nov-2026):
+
+- **pgBackRest** for both instances: continuous WAL archiving, so a restore can
+  go to any moment, plus nightly backups (02.30 / 02.50 IST).
+- **Nightly `pg_dump`**, encrypted with `age` (02.15 / 02.45 IST); the owner's
+  Mac pulls them. There is no off-site copy (owner decision D3, 16-Nov-2026):
+  losing the server can lose up to 7 days.
+- **A snapshot before every migration or data change** by the GitHub database
+  workflows (`vps-db-snapshot`).
+- **Restore drills** (`gk-db-restore-drill`) into a scratch instance, monthly
+  (first Monday, RUNBOOK Part 2); results in the owner's
+  `Test_Cases_Tracking/GOKESARI_DB_RESTORE_DRILLS.xlsx`.
+- How to restore, and what each alert means:
+  [docs/neon-to-vps-2026-11/RUNBOOK.md](docs/neon-to-vps-2026-11/RUNBOOK.md),
+  Part 2.
+
+On any other host, at least:
+
 ```bash
 # Nightly logical backup, 30-day retention
 0 2 * * * pg_dump "$DATABASE_URL" -Fc \
@@ -507,7 +559,10 @@ is fine. Before scaling out, replace the store in
 
 ## 9. Rollback
 
-The app is stateless; rolling back code is redeploying the previous commit.
+The app is stateless; rolling back code is redeploying the previous commit. On
+our server: `sudo gk-deploy rollback <site>` switches to the previous release
+with no build (run it again to go forward); the commit rolled back from is held
+until a newer one arrives.
 
 **Database rollback is the risk.** Drizzle does not generate down-migrations, so:
 
@@ -519,7 +574,7 @@ The app is stateless; rolling back code is redeploying the previous commit.
 
 Rollback checklist:
 
-1. Redeploy the previous commit.
+1. Redeploy the previous commit (`gk-deploy rollback <site>`).
 2. Confirm `/` and `/api/cron/daily-orders` (GET health) respond.
 3. Run the ledger integrity queries from §7.
 4. Check for `WALLET_INSUFFICIENT` subscription orders created during the
@@ -528,7 +583,8 @@ Rollback checklist:
 ## 10. Pre-launch checklist
 
 - [ ] `AUTH_SECRET` and `CRON_SECRET` are freshly generated, not the dev defaults
-- [ ] `DATABASE_URL` uses a non-superuser and `sslmode=require`
+- [ ] `DATABASE_URL` uses a non-superuser, and `sslmode=require` (or
+      `verify-full`) unless it is the server's local socket
 - [ ] Google OAuth redirect URI matches the deployed domain exactly
 - [ ] `CASHFREE_APP_ID` is set with `CASHFREE_ENV=production` — confirm the app is not in mock payment mode
 - [ ] Migrations applied; `npm run db:seed -- --minimal` run once

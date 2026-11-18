@@ -7,29 +7,49 @@ workflow only ever uses the `TEST_DATABASE_URL` secret, and refuses to run if
 that secret points anywhere but the test database you name below.
 Production has its own by-hand workflow: [PROD_DB.md](PROD_DB.md).
 
-## One-time setup (about 3 minutes, on github.com)
+## One-time setup (on github.com)
 
-The repository is private on GitHub Free, where environments are switched
-off, so the values live at **repository** level: **sanjaymorankar-debug/GoKesari
-→ Settings → Secrets and variables → Actions**.
+Since 17-Nov-2026 (05.52 IST) the test database is on GoKesari's own database
+server, `gk-db-1` ([docs/neon-to-vps-2026-11/](../neon-to-vps-2026-11/)):
+PostgreSQL 18, port **5433**, database **`gokesari_test`**, public name
+`db-test.gokesari.com`. Its PostgreSQL port is closed to GitHub's runners: the
+job first joins the server's WireGuard network with a key of its own (peer
+`gh-test-db`, 10.66.0.21), which lets it reach only the staging database and
+the snapshot command.
 
-1. **Secrets** tab → **New repository secret**
-   - Name: `TEST_DATABASE_URL`
-   - Value: the test database's connection string — the same value as
-     `DATABASE_URL` in hPanel for **test.gokesari.com**.
-   - ⚠ The password shared in chat earlier should be rotated before go-live
-     (Neon → Roles → `neondb_owner` → Reset password); then update it here
-     and in hPanel.
-2. **Variables** tab → **New repository variable** (not secrets — these are
-   the safety check):
-   - `TEST_DATABASE_HOST` = the host part of that URL, e.g.
-     `ep-…-….c-5.us-east-2.aws.neon.tech`
-   - `TEST_DATABASE_NAME` = the database name at the end of the URL, e.g.
-     `neondb`
+The job runs in the **`test`** environment: **sanjaymorankar-debug/GoKesari →
+Settings → Environments → test**. (It also sees repository-level values; an
+environment value overrides one at repository level.)
 
-(The workflow still names an environment, `test`. On GitHub Pro, or with a
-public repository, the same three values can live in that environment instead,
-and it can require an approver.)
+1. **Secrets:**
+   - `TEST_DATABASE_URL`: the test database's connection string for the app
+     role `gokesari_test_app`, host and port `db-test.gokesari.com:5433`,
+     database `gokesari_test`. The password is in the password manager. (Not
+     the site's own `DATABASE_URL`: since 17-Nov-2026 the site runs on the same
+     server and connects over the local Unix socket.)
+   - `VPS_WG_KEY_TEST_DB`: this job's WireGuard private key.
+   - `VPS_SSH_KEY_TEST_DB`: this job's SSH key for the snapshot command.
+
+   `scripts/vps-db/mac/make-github-keys.sh` puts both keys straight into the
+   environment and never shows them
+   ([RUNBOOK.md](../neon-to-vps-2026-11/RUNBOOK.md) Part 1, step 15).
+2. **Variables** (not secrets — the first two are the safety check):
+   - `TEST_DATABASE_HOST` = `db-test.gokesari.com:5433`, **with the port**:
+     both of the server's databases share one machine, so the guard compares
+     the port too;
+   - `TEST_DATABASE_NAME` = `gokesari_test`;
+   - `VPS_WG_SERVER_PUBLIC_KEY`: the server's WireGuard public key;
+   - `VPS_WG_ENDPOINT`: the server's WireGuard endpoint, `<IP>:51820`;
+   - `VPS_SSH_KNOWN_HOSTS`: the server's SSH host key line(s).
+
+The same environment also holds `VPS_WG_KEY_COPY_SHOPS_EXPORT`, for the
+export job of "Copy shops to production" (`.github/workflows/copy-shops.yml`).
+
+**Neon (retired, read-only until 1-Dec-2026).** Until 17-Nov-2026 the test
+database was on Neon. The workflow still has its Neon path, used only while
+`TEST_DATABASE_HOST` ends in `.neon.tech`; it uses the secret
+`TEST_NEON_API_KEY` and the variable `TEST_NEON_PROJECT_ID`. They stay until
+Neon is deleted, with the owner's OK, then are removed.
 
 Never paste the URL into chat, a commit or an issue — only into the secret.
 
@@ -49,8 +69,8 @@ Never paste the URL into chat, a commit or an issue — only into the secret.
 GitHub shows the **Run workflow** button only once the file is on the default
 branch (`main`). Until then the automatic runs above cover everything.
 
-Each run's page has a summary: the target database, the backup file, what was
-migrated, the migration the database is on, the business-rule values and
+Each run's page has a summary: the target database, the backup (snapshot and
+restore point), what was migrated, the migration the database is on, the business-rule values and
 the commission rates in force.
 
 **The merge that added this workflow** changed the workflow file, so it ran
@@ -61,46 +81,73 @@ existed, it stops at the guard and changes nothing: open that run and press
 
 ## Safety rails
 
-- **Right database only.** The URL's host and database name must equal
+- **Right database only.** The URL's host, port and database name must equal
   `TEST_DATABASE_HOST` / `TEST_DATABASE_NAME`, and the live server is asked
   which database it is before anything runs.
+- **Over WireGuard only.** The job joins the server's WireGuard network before
+  any step that touches the database, points only the test host name at the
+  server's tunnel address (10.66.0.1), so `TEST_DATABASE_URL` and its TLS name
+  work unchanged, and closes the tunnel at the end.
 - **Merged code only.** Anything that changes the database runs only from
   `staging`; a read-only run (backup, verify) may start from elsewhere.
-- **Backup first.** Every change is preceded by a Neon branch of the test
-  site's branch, named `auto-backup-<UTC date>-run<N>` (no compute attached).
-  The branch is made inside Neon, so no rows leave the database and the
-  backup costs no data transfer. The newest 5 are kept; older ones are deleted
-  by the next backup. The workflow needs the secret `TEST_NEON_API_KEY` on the
-  `test` environment: a Neon API key scoped to the project `GoKesari-test-sg`.
-  If the branch can't be made (no key, or a key that can't see the project),
-  the run stops before any change. Until 04 Nov 2026 this was
-  a `pg_dump` to a workflow artifact: it moved ~45 MB per run, and the nightly
-  run alone came to ~1.2 GB a month of the test project's data transfer.
+- **Backup first.** Every change is preceded by a snapshot on the database
+  server, named `auto-backup-<UTC date>-run<N>`: the server dumps the test
+  database on its own disk and sets a PostgreSQL restore point of the same
+  name, so a point-in-time restore can stop just before the run's changes.
+  No rows leave the server. The newest 5 snapshots are kept. The job's SSH key
+  may run only that one command (`gk-db-snapshot`), for the staging database,
+  from the job's own tunnel address. If the snapshot can't be made (no key, a
+  host key that does not match `VPS_SSH_KNOWN_HOSTS`, or the server refuses),
+  the run stops before any change. The server also backs the database up on
+  its own (pgBackRest and a nightly dump; below).
+  History: from 04-Nov to 17-Nov-2026 the backup was a Neon branch of the test
+  site's branch (secret `TEST_NEON_API_KEY`); before 04-Nov-2026 it was a
+  `pg_dump` to a workflow artifact, which moved ~45 MB per run (~1.2 GB a
+  month of the test project's data transfer from the nightly run alone).
 - **One at a time.** Runs queue rather than overlap, and the migrator takes a
   Postgres lock, so two runs that start at the same moment are safe: one
   applies the migrations, the other finds nothing left to do.
-- **The only migrator for the test site.** Hostinger's builds no longer
-  migrate (Blocker #71: PR previews migrated the real databases before the PR
-  merged); `MIGRATE_ON_BUILD` in hPanel has no effect. DEPLOYMENT.md §4.
+- **The only migrator for the test site.** Builds never migrate — Hostinger's
+  did until Blocker #71 (PR previews migrated the real databases before the PR
+  merged), and the server's builds since 17-Nov-2026 do not either;
+  `MIGRATE_ON_BUILD` in a site's settings has no effect. DEPLOYMENT.md §4.
 - **Settings are not re-imposed.** The test settings are applied only when
   that file changes (or you run `settings`), so values you change later in
   Admin → Business rules stay as you set them.
 
 ## Restoring a backup
 
-The run's summary names the backup branch. In the Neon console (project
-`GoKesari-test-sg`) → **Branches** → the test site's branch (`main`) →
-**Restore** → *From another branch* → pick `auto-backup-…`. Neon keeps the
-state before the restore as a branch of its own, so a restore can be undone.
+The run's summary names the snapshot and its restore point
+(`auto-backup-…`). Besides these, the server keeps its own backups of the
+test database:
+- **pgBackRest** with continuous WAL archiving: a restore to any moment
+  (point-in-time), or to a named restore point;
+- a **nightly `pg_dump`**, age-encrypted, which the owner's Mac pulls.
 
-To look at the old data without restoring, add a compute to the backup branch
-and connect to it, or compare it with **Schema diff**.
+There is no off-site cloud copy (no Cloudflare R2: owner's decision D3). A
+session restores on the
+server, over WireGuard, following
+[RUNBOOK.md, "Restores"](../neon-to-vps-2026-11/RUNBOOK.md#restores). For the
+test database use `staging` where the runbook says `prod` (stanza `staging`,
+service `postgresql@18-staging`, port 5433, database `gokesari_test`):
+- **Look at the old data without touching anything:** a restore drill,
+  `sudo gk-db-restore-drill staging --minutes-ago <N>`, restores into a
+  scratch instance and removes it at the end.
+- **Put the whole database back** to the run's restore point, or to a time:
+  pgBackRest point-in-time restore. It is destructive and stops
+  test.gokesari.com's database for its duration: ask the owner first.
+- **Take back only what is needed:** restore the run's snapshot into a new
+  database, compare, and copy back.
 
-Backup branches hold whatever is in the test database (test accounts,
+Snapshots and backups hold whatever is in the test database (test accounts,
 addresses), like the test database itself.
+
+Until 17-Nov-2026 a backup was a Neon branch, restored in the Neon console.
+Neon (retired, read-only until 1-Dec-2026) is kept only as a fallback.
 
 ## Still manual
 
-- The crontab on the test host (Phase A → Phase B in `crontab.test.txt`) —
-  the host's cron is not reachable from GitHub.
+- The cron schedule: since 17-Nov-2026 it is systemd timers on the server
+  (`gk-site cron gokesari-staging on|off|status`, [docs/crontab.txt](../crontab.txt)),
+  not reachable from GitHub. `crontab.test.txt` is history.
 - Production. Nothing here touches gokesari.com.

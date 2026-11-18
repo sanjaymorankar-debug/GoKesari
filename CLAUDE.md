@@ -22,9 +22,10 @@ where to take it.
 
 The two-database layout of 19 Oct 2026 was removed in Nov 2026: test.gokesari.com
 moved back on 02-Nov and gokesari.com on 04-Nov-2026 (owner's request). Each site
-has one database (`DATABASE_URL`, `neondb`) with every table in it; there is no
-postgres_fdw link, no `SELLER_DATABASE_URL` and no `DB_SPLIT_MODE`. Record:
-[docs/db-fdw-removal-2026-11/](docs/db-fdw-removal-2026-11/).
+has one database (`DATABASE_URL`) with every table in it: `gokesari` for
+gokesari.com and `gokesari_test` for test.gokesari.com, on our own server (next
+section). There is no postgres_fdw link, no `SELLER_DATABASE_URL` and no
+`DB_SPLIT_MODE`. Record: [docs/db-fdw-removal-2026-11/](docs/db-fdw-removal-2026-11/).
 
 The split's leftovers were removed on 16-Nov-2026: the `fdw_old_public` /
 `fdw_old_pmd` schemas and the `gk_seller_retired` server are dropped on both
@@ -44,52 +45,81 @@ in the owner's `Doc_GoKesari/Devlopment_Trackers/neon_backups/`. Record:
   of `db.transaction` — do them after commit or through an idempotent outbox.
 - Product master: use `await appSql()` (`src/server/pmd/db.ts`).
 
-# Neon compute and cron (cost cut, 16-Nov-2026)
+# Our own server (VPS): databases, website and cron
 
-The database bill is compute time, so both computes are kept small:
+Since 17-Nov-2026 both sites run entirely on GoKesari's own server **`gk-db-1`**
+(Hostinger KVM 4, Mumbai, 189.72.155.162): the databases since 05.52 IST
+(staging) / 06.06 IST (production), the website code since 08.18 / 08.34 IST.
+Neon and Hostinger's Node.js hosting are no longer used. Records:
+[docs/neon-to-vps-2026-11/](docs/neon-to-vps-2026-11/) (databases) and
+[docs/app-to-vps-2026-11/](docs/app-to-vps-2026-11/) (website).
 
-| Site | Compute | Sleeps | Every-minute cron line |
+| Site | Database (PostgreSQL 18) | Website slot | Deploys from |
 |---|---|---|---|
-| gokesari.com | 0.25–2 CU | never (scale to zero off) | every minute |
-| test.gokesari.com | 0.25–1 CU | after 5 min idle | `0 */6 * * *` (every 6 h) |
+| gokesari.com | port 5432, `gokesari` | `gokesari-prod` (4 GiB, 2 vCPU) | `main` |
+| test.gokesari.com | port 5433, `gokesari_test` | `gokesari-staging` (2 GiB, 1 vCPU) | `staging` |
 
-- On staging, timeouts, notification retries, payment reconcile and the other
-  every-minute jobs run only every 6 hours. A test that needs one sooner calls
-  its cron endpoint itself (`CRON_SECRET`); never assume a 1-minute tick on
-  staging. Schedules: [docs/crontab.txt](docs/crontab.txt).
-- Don't raise these limits, turn scale-to-zero back on for production, or add
-  anything that polls staging's database every few minutes without the
-  owner's OK.
+- **Deploys:** the server's `gk-deploy` agent checks each branch every minute,
+  builds a new commit (about 5 minutes) and switches to it blue/green, with no
+  downtime. One deploy at a time on the whole server. There is no Hostinger
+  build any more. Kit and commands: [scripts/vps-app/README.md](scripts/vps-app/README.md).
+- **Access:** SSH and the database ports only through WireGuard
+  (`gkadmin@10.66.0.1`); GitHub's database workflows have their own WireGuard
+  peers. The apps reach their database over the local socket.
+- **Cron:** systemd timers on the server (`gk-cron@<site>-<job>`), every minute
+  on both sites again (owner, 17-Nov-2026); hPanel has no cron lines.
+  Schedule: [docs/crontab.txt](docs/crontab.txt).
+- **Backups and alerts:** pgBackRest (point-in-time) plus nightly encrypted
+  dumps on the server, which the owner's Mac pulls; no off-site copy (owner
+  decision). Alerts by e-mail through healthchecks.io. Restores, alerts and
+  keys: [docs/neon-to-vps-2026-11/RUNBOOK.md](docs/neon-to-vps-2026-11/RUNBOOK.md).
+- **Kept as fallback until 1-Dec-2026:** the frozen, read-only Neon projects
+  and the idle Hostinger Node.js apps (Hostinger may still build `main` /
+  `staging` there, but they serve no traffic). Removing them needs the
+  owner's OK. The Hostinger plan itself stays: it carries the e-mail
+  (support@gokesari.com).
+- Don't change the server's limits, firewall, `pg_hba.conf`, backups or alerts,
+  and don't add another website to it, without the owner's OK. Any other site
+  is planned in its own project's chat (scope rule above).
 
 # Production releases: one at a time, checked after every deploy
 
 On 25 Oct 2026, two sessions merged the same release into `main` 75 s apart.
 The two Hostinger deploys overlapped, and gokesari.com stopped answering for
 14 minutes ([incident note](docs/gokesari-audit/INCIDENT_2026-10-25_production_hang.md)).
-Steps: [DEPLOYMENT.md §3](DEPLOYMENT.md), "One production release at a time"
-and "After every production deploy".
+The server's deploy agent now runs one deploy at a time, but releases still go
+one at a time. Steps: [DEPLOYMENT.md §3](DEPLOYMENT.md), "One production
+release at a time" and "After every production deploy".
 
 - **Before merging anything into `main`** (code or docs), check that no other
   release is in flight:
   - list the open PRs into `main`;
-  - look at the latest "Post-deploy check" run and the latest Hostinger build
-    for gokesari.com.
+  - look at the latest "Post-deploy check" run;
+  - check that gokesari.com serves `main`'s head and no deploy is running:
+    `sudo gk-deploy status` on the server, or `/sw.js`'s `VERSION` against
+    `git rev-parse origin/main`.
   - If one is running, wait. Never open a second staging → main PR for code
     another one already carries.
 - **After the merge:**
+  - the server builds and switches gokesari.com about 5–6 minutes later
+    (`/sw.js` then shows the new commit);
   - wait for the **Post-deploy check** workflow to pass, or run
-    `scripts/release/post-deploy-check.sh https://gokesari.com`;
+    `scripts/release/post-deploy-check.sh https://gokesari.com` once `/sw.js`
+    shows the new commit;
   - only then report the release as done or merge the next one;
-  - if the check fails, restart the Node.js app (hPanel, or
-    `hosting_nodejs_restart-application`), re-run the check, and tell the owner.
+  - if the check fails: `sudo gk-deploy restart gokesari-prod` on the server
+    (the same release on the other colour, no build), re-run the check, and
+    tell the owner. To go back to the previous release:
+    `sudo gk-deploy rollback gokesari-prod`. A failed build changes nothing:
+    the old release keeps serving.
 
 # Staging: finished PRs go through the staging queue
 
 Do **not** merge into `staging` yourself. Open the PR into `staging` and add
 the label **`ready-for-staging`**; the "Staging queue" workflow merges labelled
-PRs one at a time and tests each on test.gokesari.com (CI, migration, deploy,
-post-deploy check, guest QA) before the next. A fix for a paused queue gets
-`staging-fix`. Status: the issue labelled `staging-queue-tracker`. Details:
+PRs one at a time and tests each on test.gokesari.com (CI, migration, the
+server's deploy, post-deploy check, guest QA) before the next. A fix for a
+paused queue gets `staging-fix`. Status: the issue labelled `staging-queue-tracker`. Details:
 [docs/staging-queue/README.md](docs/staging-queue/README.md).
 
 After labelling, **stay subscribed to your PR until it is `staging-verified`**

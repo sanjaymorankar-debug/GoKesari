@@ -1,0 +1,57 @@
+{
+  "base": "https://test.gokesari.com",
+  "finishedAt": "18 Nov 2026, 00:38:07 IST",
+  "facts": {
+    "startedAt": "18 Nov 2026, 00:37:19 IST",
+    "createdAtIst": "18 Nov 2026, 00:37:25 IST",
+    "createdAtUtc": "2026-11-17T19:07:25.850Z",
+    "shop": "BKS-000054 \"QA P2D6 Night 47231\"",
+    "expected": "18/11/2026 (IST date)",
+    "oldCodeWouldGive": "17/11/2026 (UTC date)",
+    "outcome": "PASS"
+  },
+  "results": [
+    {
+      "id": "D6-register",
+      "title": "New wizard shop (GSTIN + referral, PIN 411030), paid with sandbox UPI, between 00.00 and 05.29 IST",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "18 Nov 2026, 00:38:03 IST",
+      "note": "shop BKS-000054 \"QA P2D6 Night 47231\" created 18 Nov 2026, 00:37:25 IST (UTC 2026-11-17T19:07:25.850Z); paid through Cashfree sandbox, test UPI testsuccess@gocash; APPROVED",
+      "shots": [
+        "d6-live-1280.png"
+      ]
+    },
+    {
+      "id": "D6-date-1280",
+      "title": "Registration and fee: registration date is the IST day, 18/11/2026 (1280)",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "18 Nov 2026, 00:38:05 IST",
+      "note": "'Registration date 18/11/2026'; the old code would have shown 17/11/2026",
+      "shots": [
+        "d6-registration-date-1280.png"
+      ]
+    },
+    {
+      "id": "D6-date-390",
+      "title": "Registration and fee: registration date is the IST day, 18/11/2026 (390)",
+      "platform": "Phone size 390 (iPhone 14, Chromium emulation)",
+      "result": "PASS",
+      "at": "18 Nov 2026, 00:38:07 IST",
+      "note": "'Registration date 18/11/2026'; the old code would have shown 17/11/2026",
+      "shots": [
+        "d6-registration-date-390.png"
+      ]
+    },
+    {
+      "id": "D6-admin",
+      "title": "Admin console, Registration fees: BKS-000054 dated 2026-11-18",
+      "platform": "Web (Desktop Chrome 1280)",
+      "result": "PASS",
+      "at": "18 Nov 2026, 00:38:07 IST",
+      "note": "registrationDate 2026-11-18 (UTC date at creation was 2026-11-17)",
+      "shots": []
+    }
+  ]
+}

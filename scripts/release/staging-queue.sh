@@ -11,7 +11,7 @@
 #      (CI then runs again on the new head) and wait again;
 #   3. wait until nothing else is running on staging, then merge it;
 #   4. wait for staging's own runs for that merge (CI, "Test database"
-#      migration), for Hostinger to deploy it to test.gokesari.com (the build
+#      migration), for the server (gk-deploy) to deploy it to test.gokesari.com (the build
 #      version in /sw.js changes), for the site to answer (post-deploy check)
 #      and for the guest QA tier against test.gokesari.com;
 #   5. passed → label staging-verified and go straight to the next PR;
@@ -46,7 +46,7 @@ SELF_JOB="${QUEUE_JOB_NAME:-staging-queue}"
 SELF_WORKFLOW="${QUEUE_WORKFLOW_NAME:-Staging queue}"
 CI_WAIT="${QUEUE_CI_WAIT:-5400}"         # s: PR checks must finish within
 RUNS_WAIT="${QUEUE_RUNS_WAIT:-3600}"     # s: staging's own runs must finish within
-DEPLOY_WAIT="${QUEUE_DEPLOY_WAIT:-1800}" # s: Hostinger must deploy within
+DEPLOY_WAIT="${QUEUE_DEPLOY_WAIT:-1800}" # s: the server must deploy within
 QA_SCRIPT="${QUEUE_QA_SCRIPT:-}"
 RUN_URL="${QUEUE_RUN_URL:-}"
 DRY_RUN="${DRY_RUN:-0}"
@@ -371,7 +371,7 @@ process_pr() {
   runs="$(wait_merge_runs "$merged_sha")"
   [ "$runs" = success ] || fail="staging runs: ${runs#failure:}"
   if [ -z "$fail" ] && ! wait_deploy "$before" "$merged_at"; then
-    fail="$SITE did not show a new build within $((DEPLOY_WAIT / 60)) min (Hostinger deploy)"
+    fail="$SITE did not show a new build within $((DEPLOY_WAIT / 60)) min (server deploy: gk-deploy status on gk-db-1)"
   fi
   if [ -z "$fail" ] && ! bash "$QUEUE_DIR/post-deploy-check.sh" "$SITE" --rounds 3 --every 45 --deadline 600 >&2; then
     fail="$SITE did not keep answering after the deploy (post-deploy check)"

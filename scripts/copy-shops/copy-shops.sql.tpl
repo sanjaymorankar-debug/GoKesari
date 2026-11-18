@@ -2,8 +2,12 @@
 -- __TITLE__
 -- Shops: __SHOPS__ · test export of __EXPORTED__
 --
--- HOW TO RUN: Neon console → the PRODUCTION project (gokesari.com) → SQL
--- Editor → database neondb → paste this whole file → Run.
+-- HOW TO RUN: with psql over WireGuard, against the PRODUCTION database
+-- (gokesari.com): on the owner's Mac with the WireGuard tunnel on,
+--   psql "host=10.66.0.1 port=5432 dbname=gokesari user=gokesari_app sslmode=require" -X -v ON_ERROR_STOP=1 -f <this file>
+-- (the password is in the password manager). Undo, if needed:
+-- docs/neon-to-vps-2026-11/RUNBOOK.md, "Restores" (destructive, owner's OK first).
+-- Until 17-Nov-2026 this ran in the Neon console's SQL Editor.
 -- __MODE_NOTE__
 --
 -- The result lists what happened to each shop. Any error leaves production
@@ -385,7 +389,7 @@ BEGIN
         'id', gen_random_uuid(), 'action', 'shop.copied_from_test', 'entity_type', 'shop', 'entity_id', s->>'id',
         'new_value', jsonb_build_object('from', 'test.gokesari.com', 'testRegistrationNumber', s->>'registration_number',
           'registrationNumber', reg, 'listings', n_list),
-        'user_agent', 'copy-shops SQL (Neon console)', 'created_at', now()));
+        'user_agent', 'copy-shops SQL (psql)', 'created_at', now()));
 
       PERFORM pg_temp.cs_bump('shops');
       PERFORM pg_temp.cs_say(format('  - %s listing(s) with prices and stock (%s on products new to production''s catalogue), %s listing photo(s), %s product categor%s',
