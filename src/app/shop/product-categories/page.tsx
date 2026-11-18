@@ -7,6 +7,7 @@ import { ChooseCategories } from "@/components/shop-setup/choose-categories";
 import { ProductPicker } from "@/components/shop-setup/product-picker";
 import { StockEditor } from "@/components/shop-setup/stock-editor";
 import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import { addProductPath } from "@/lib/shop-setup-links";
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getImportLimits } from "@/server/services/product-import";
@@ -61,6 +62,7 @@ export default async function ShopProductSetupPage({
   };
   const needsHref = "/shop/my-products?status=NEEDS_STOCK";
   const productsHref = "/shop/my-products";
+  const addProductHref = addProductPath(shops.length > 1 ? shop.id : null);
   const hasCategories = overview.carried > 0;
   const asked = params.step === "1" || params.step === "2" || params.step === "3" ? (Number(params.step) as 1 | 2 | 3) : null;
   // Without categories there is nothing further on to resume.
@@ -79,7 +81,8 @@ export default async function ShopProductSetupPage({
         }
       />
       {shops.length > 1 ? (
-        <nav className="flex flex-wrap gap-2 text-sm" aria-label="Your shops">
+        // D-2: phones switch shops in the top bar; a list of many shops here would push the steps off the screen.
+        <nav className="hidden flex-wrap gap-2 text-sm sm:flex" aria-label="Your shops">
           {shops.map((s) => (
             <Link
               key={s.id}
@@ -130,7 +133,7 @@ export default async function ShopProductSetupPage({
               categories={overview.tiles.filter((t) => t.selected)}
               newProducts={overview.newProducts}
               nextHref={href({ step: "3" })}
-              addProductHref="/shop/manage/products#products"
+              addProductHref={addProductHref}
             />
           ) : null}
           {step === 2 && params.mode === "excel" ? (
@@ -143,6 +146,7 @@ export default async function ShopProductSetupPage({
               chooseHref={href({ step: "1" })}
               needsHref={needsHref}
               productsHref={productsHref}
+              addProductHref={addProductHref}
             />
           ) : null}
 

@@ -68,7 +68,8 @@ export default function CookiePolicyPage() {
           <strong>Seller shop cookie</strong> (<code>gk_shop</code>) — for
           sellers only: remembers which of your shops Seller Central shows when
           you have more than one. Set only when you pick a shop in Seller
-          Central&apos;s shop switcher; kept for 1 year or until you pick
+          Central&apos;s shop switcher or open a Seller Central link to one of
+          your shops; kept for 1 year or until you pick
           another shop or clear your cookies. It holds only an internal
           reference to the shop.
         </li>

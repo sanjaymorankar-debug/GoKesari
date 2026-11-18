@@ -5,11 +5,13 @@
  * by My products. Downloads are plain attachment links and the upload is a
  * normal file input, so the phone apps' file picker and share sheet handle them.
  */
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { postJson } from "@/components/save-changes-bar";
 import { Alert, Button, Card } from "@/components/ui";
+import { isUnknownProductError } from "@/lib/shop-setup-links";
 import type { UploadView } from "@/server/services/shop-bulk-upload";
 import { ResultSummary } from "./result-summary";
 
@@ -50,6 +52,7 @@ export function BulkPanel({
   chooseHref,
   needsHref,
   productsHref,
+  addProductHref,
 }: {
   shopId: string;
   kind: "template" | "mine";
@@ -59,6 +62,8 @@ export function BulkPanel({
   chooseHref: string;
   needsHref: string;
   productsHref: string;
+  /** The add-new-product form, linked next to unknown Product IDs (D-1). */
+  addProductHref: string;
 }) {
   const router = useRouter();
   const [format, setFormat] = useState<"xlsx" | "csv">("xlsx");
@@ -247,6 +252,14 @@ export function BulkPanel({
                 {upload.errors.map((e) => (
                   <li key={`${e.row}-${e.message}`} className="text-ink-700">
                     <span className="font-medium">Row {e.row}:</span> {e.message}
+                    {isUnknownProductError(e) ? (
+                      <>
+                        {" "}
+                        <Link href={addProductHref} className="font-medium text-kesari-700 underline" data-testid="add-new-product-link">
+                          Add new product
+                        </Link>
+                      </>
+                    ) : null}
                   </li>
                 ))}
               </ul>

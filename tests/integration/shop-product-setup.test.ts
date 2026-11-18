@@ -420,10 +420,22 @@ describe("Excel and CSV", () => {
     expect(text).toMatch(/Selling Price must be a number/);
     expect(await db.select().from(products).where(eq(products.code, "P99999"))).toEqual([]);
 
-    const errorFile = await buildErrorFile(shop.id, id, owner);
+    expect(view.errors.find((e) => e.message.includes("P99999"))?.code).toBe("UNKNOWN_PRODUCT");
+    expect(view.errors.filter((e) => e.code === "UNKNOWN_PRODUCT")).toHaveLength(1);
+
+    const errorFile = await buildErrorFile(shop.id, id, owner, "https://test.gokesari.com/");
     const book = await readBook(errorFile.bytes);
     const sheet = book.getWorksheet("Products")!;
-    expect((sheet.getRow(1).values as string[]).at(-1)).toBe("Error");
+    // D-1: the unknown ID links to the add-new-product form; the other error rows do not.
+    const header = sheet.getRow(1).values as string[];
+    expect(header.slice(-2)).toEqual(["Error", "Add new product"]);
+    const linkColumn = header.length - 1;
+    expect(sheet.getRow(2).getCell(1).value).toBe("P99999");
+    expect(sheet.getRow(2).getCell(linkColumn).value).toEqual({
+      text: "Add new product",
+      hyperlink: `https://test.gokesari.com/shop/manage/products?shop=${shop.id}#products`,
+    });
+    expect(sheet.getRow(3).getCell(linkColumn).value).toBeNull();
     sheet.getRow(6).getCell(10).value = 28; // biscuits: correct the price
     const corrected = Buffer.from(await book.xlsx.writeBuffer());
     const again = await createUpload(shop.id, { name: "fixed.xlsx", bytes: corrected }, owner);

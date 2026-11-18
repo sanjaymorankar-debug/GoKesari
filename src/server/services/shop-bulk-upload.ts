@@ -12,6 +12,7 @@ import ExcelJS from "exceljs";
 
 import { AppError, conflict, notFound, validationFailed } from "@/lib/errors";
 import { rupeesToPaise } from "@/lib/money";
+import { addProductPath, isUnknownProductError } from "@/lib/shop-setup-links";
 import type { ProductKind } from "@/lib/stock-quantity";
 import { roundStock } from "@/lib/stock-quantity";
 import { db } from "@/server/db";
@@ -66,13 +67,22 @@ export interface BulkDownload {
   contentType: string;
 }
 
-type TemplateRow = (string | number | null)[];
+/** A link GoKesari itself writes (never a value read from a file): a hyperlink in Excel, the address in CSV. */
+interface LinkCell {
+  text: string;
+  hyperlink: string;
+}
+type TemplateRow = (string | number | null | LinkCell)[];
+
+/** D-1: the error file's column linking each unknown Product ID to the add-new-product form. */
+export const ADD_PRODUCT_HEADER = "Add new product";
 
 const rupees = (paise: number | null | undefined) => (paise == null ? null : paise / 100);
 const safeName = (name: string) => name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 40) || "shop";
 
-function csvCell(value: string | number | null): string {
-  const text = value == null ? "" : typeof value === "number" ? String(value) : sanitiseCell(value);
+function csvCell(value: string | number | null | LinkCell): string {
+  const text =
+    value == null ? "" : typeof value === "number" ? String(value) : typeof value === "object" ? sanitiseCell(value.hyperlink) : sanitiseCell(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
@@ -104,7 +114,10 @@ const INSTRUCTIONS: string[] = [
 async function toWorkbook(headers: readonly string[], rows: TemplateRow[]): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(SHEET_NAME, { views: [{ state: "frozen", ySplit: 1 }] });
-  sheet.columns = headers.map((h, i) => ({ header: h, width: i === 2 ? 40 : i === 1 ? 22 : i === headers.length - 1 && h === "Error" ? 50 : 16 }));
+  sheet.columns = headers.map((h, i) => ({
+    header: h,
+    width: i === 2 ? 40 : i === 1 ? 22 : i >= BULK_HEADERS.length && h === "Error" ? 50 : h === ADD_PRODUCT_HEADER ? 20 : 16,
+  }));
   sheet.getColumn(1).numFmt = "@";
   sheet.getRow(1).font = { bold: true };
   for (const row of rows) {
@@ -115,6 +128,9 @@ async function toWorkbook(headers: readonly string[], rows: TemplateRow[]): Prom
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
       } else {
         cell.protection = { locked: false };
+      }
+      if (cell.value && typeof cell.value === "object" && "hyperlink" in cell.value) {
+        cell.font = { color: { argb: "FF1D4ED8" }, underline: true };
       }
     });
     added.getCell(COL.include + 1).dataValidation = { type: "list", allowBlank: true, formulae: ['"Yes,No"'] };
@@ -235,6 +251,8 @@ export interface UploadError {
   row: number;
   message: string;
   cells: CellValue[];
+  /** D-1: the Product ID is not in the product list; the preview and the error file link to the add-new-product form. */
+  code?: "UNKNOWN_PRODUCT";
 }
 
 const EMPTY_COUNTS = { totalRows: 0, goLive: 0, needsStock: 0, needsPrice: 0, update: 0, pause: 0, outOfStock: 0, errors: 0, ignored: 0, unchanged: 0 };
@@ -369,15 +387,15 @@ export async function checkUpload(uploadId: string): Promise<void> {
   const plan: PlanRow[] = [];
 
   for (const { row, cells } of dataRows) {
-    const fail = (message: string) => {
-      errors.push({ row, message, cells });
+    const fail = (message: string, errorCode?: UploadError["code"]) => {
+      errors.push({ row, message, cells, ...(errorCode ? { code: errorCode } : {}) });
       counts.errors += 1;
     };
     const code = idOf(cells);
     if (!code) { fail("Product ID is missing."); continue; }
     if ((seen.get(code) ?? 0) > 1) { fail(`Product ID ${code} appears more than once in this file. Keep one row.`); continue; }
     const master = masters.get(code);
-    if (!master) { fail(`Product ID ${code} is not in the GoKesari product list. Add it as a new product instead.`); continue; }
+    if (!master) { fail(`Product ID ${code} is not in the GoKesari product list. Add it as a new product instead.`, "UNKNOWN_PRODUCT"); continue; }
 
     const include = text(cells[COL.include]).toLowerCase();
     if (include && !["yes", "no", "y", "n"].includes(include)) { fail("Include must be Yes or No."); continue; }
@@ -537,15 +555,25 @@ export async function listUploadHistory(shopId: string, actor: SetupActor) {
   }));
 }
 
-export async function buildErrorFile(shopId: string, uploadId: string, actor: SetupActor): Promise<BulkDownload> {
+/**
+ * The rows that were not imported, each with its Error. When an unknown Product ID is among them, an
+ * "Add new product" column links those rows to the add-new-product form (`origin` is the site's address).
+ */
+export async function buildErrorFile(shopId: string, uploadId: string, actor: SetupActor, origin?: string): Promise<BulkDownload> {
   const upload = await loadUpload(shopId, uploadId, actor);
   const errors = upload.errors as UploadError[];
-  const headers = [...BULK_HEADERS, "Error"];
+  const base = (origin ?? process.env.AUTH_URL ?? "https://gokesari.com").replace(/\/$/, "");
+  const link: LinkCell | null = errors.some(isUnknownProductError) ? { text: ADD_PRODUCT_HEADER, hyperlink: `${base}${addProductPath(shopId)}` } : null;
+  const headers = link ? [...BULK_HEADERS, "Error", ADD_PRODUCT_HEADER] : [...BULK_HEADERS, "Error"];
   return download(
     `errors-${safeName(upload.fileName.replace(/\.[^.]+$/, ""))}`,
     upload.fileName.toLowerCase().endsWith(".csv") ? "csv" : "xlsx",
     headers,
-    errors.map((e) => [...BULK_HEADERS.map((_, i) => (typeof e.cells[i] === "boolean" ? String(e.cells[i]) : (e.cells[i] as string | number | null))), e.message]),
+    errors.map((e) => [
+      ...BULK_HEADERS.map((_, i) => (typeof e.cells[i] === "boolean" ? String(e.cells[i]) : (e.cells[i] as string | number | null))),
+      e.message,
+      ...(link ? [isUnknownProductError(e) ? link : null] : []),
+    ]),
   );
 }
 
