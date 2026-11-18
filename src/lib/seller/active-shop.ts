@@ -19,3 +19,24 @@ export function pickActiveShop<T extends { id: string }>(
     shops[0]
   );
 }
+
+/**
+ * D-3: the Seller Central page in `referer` without its `?shop=`, when that names a shop other than
+ * `shopId` (the one just chosen in the switcher); else null. Only the path and query are kept, so
+ * the result is always a page of this site.
+ */
+export function pageWithoutOtherShop(referer: string | null | undefined, shopId: string): string | null {
+  if (!referer) return null;
+  let url: URL;
+  try {
+    url = new URL(referer);
+  } catch {
+    return null;
+  }
+  const named = url.searchParams.get("shop");
+  if (!named || named === shopId) return null;
+  if (url.pathname !== "/shop" && !url.pathname.startsWith("/shop/")) return null;
+  url.searchParams.delete("shop");
+  const query = url.searchParams.toString();
+  return `${url.pathname}${query ? `?${query}` : ""}`;
+}

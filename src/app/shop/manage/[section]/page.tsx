@@ -90,7 +90,13 @@ export async function generateMetadata({ params }: { params: Promise<{ section: 
   return { title: SECTIONS[section as SectionKey] ?? "My Shop" };
 }
 
-export default async function ShopManagePage({ params }: { params: Promise<{ section: string }> }) {
+export default async function ShopManagePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ section: string }>;
+  searchParams: Promise<{ shop?: string }>;
+}) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   const { section } = await params;
@@ -99,7 +105,8 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = await activeShop(shops);
+  // A link may name one of the owner's shops (?shop=, e.g. "Add new product" from an Excel upload); anything else is ignored.
+  const shop = await activeShop(shops, (await searchParams).shop);
   const header = (
     <PageHeader
       title={SECTIONS[key]}
