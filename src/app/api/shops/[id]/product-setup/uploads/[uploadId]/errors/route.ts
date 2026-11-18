@@ -8,10 +8,12 @@ import { buildErrorFile } from "@/server/services/shop-bulk-upload";
 
 export const dynamic = "force-dynamic";
 
-export const GET = route(async (_request: NextRequest, context: RouteContext<{ id: string; uploadId: string }>) => {
+export const GET = route(async (request: NextRequest, context: RouteContext<{ id: string; uploadId: string }>) => {
   const user = await requireUser();
   const params = await context.params;
-  const file = await buildErrorFile(z.string().uuid().parse(params.id), z.string().uuid().parse(params.uploadId), user);
+  // The "Add new product" links in the file need the site's own address (D-1).
+  const origin = process.env.AUTH_URL ?? request.nextUrl.origin;
+  const file = await buildErrorFile(z.string().uuid().parse(params.id), z.string().uuid().parse(params.uploadId), user, origin);
   return new NextResponse(new Uint8Array(file.bytes), {
     headers: {
       "Content-Type": file.contentType,

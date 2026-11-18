@@ -18,6 +18,11 @@ choose categories → add products (on screen or Excel) → set stock and price.
 
 Upload → background check → preview → the owner confirms → applied in batches of 200, each row in its own savepoint.
 Rows match on Product ID only. Limits come from rule `productImport` (5,000 rows, 10 MB). Confirm is safe to repeat, and the same file is refused for 24 hours after an import.
+An unknown Product ID (error `code: "UNKNOWN_PRODUCT"`) links to the add-new-product form (`addProductPath`, `src/lib/shop-setup-links.ts`): next to the row in the preview, and in an "Add new product" column of the error file.
+
+## Several shops
+
+These pages work on the shop named by `?shop=`, else the one chosen in the top bar's switcher (cookie `gk_shop`). Opening a link to another of the owner's shops also sets the cookie (`ShopUrlSync`), so the top bar follows the page. Choosing a shop in the switcher on such a page reopens it without `?shop=`. On phones the in-page shop list is hidden; the top bar's switcher does that job.
 
 ## Apps
 

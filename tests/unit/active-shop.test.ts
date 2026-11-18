@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ACTIVE_SHOP_COOKIE, pickActiveShop } from "@/lib/seller/active-shop";
+import { ACTIVE_SHOP_COOKIE, pageWithoutOtherShop, pickActiveShop } from "@/lib/seller/active-shop";
 
 // listShopsForOwner returns the newest shop first.
 const shops = [
@@ -38,5 +38,29 @@ describe("pickActiveShop — which of an owner's shops Seller Central shows", ()
 
   it("uses its own cookie name", () => {
     expect(ACTIVE_SHOP_COOKIE).toBe("gk_shop");
+  });
+});
+
+describe("pageWithoutOtherShop — the switcher on a page opened with ?shop= (D-3)", () => {
+  const site = "https://test.gokesari.com";
+
+  it("drops a ?shop= naming another shop and keeps the rest of the query", () => {
+    expect(pageWithoutOtherShop(`${site}/shop/product-categories?shop=bakery&step=2&mode=excel`, "stationery")).toBe(
+      "/shop/product-categories?step=2&mode=excel",
+    );
+    expect(pageWithoutOtherShop(`${site}/shop/my-products?shop=bakery`, "stationery")).toBe("/shop/my-products");
+    expect(pageWithoutOtherShop(`${site}/shop?shop=bakery`, "stationery")).toBe("/shop");
+  });
+
+  it("leaves the page alone when the link already names the chosen shop, or names none", () => {
+    expect(pageWithoutOtherShop(`${site}/shop/my-products?shop=bakery`, "bakery")).toBeNull();
+    expect(pageWithoutOtherShop(`${site}/shop/my-products?status=LIVE`, "bakery")).toBeNull();
+  });
+
+  it("only ever returns a Seller Central path of this site", () => {
+    expect(pageWithoutOtherShop(`${site}/shops/some-store?shop=bakery`, "stationery")).toBeNull();
+    expect(pageWithoutOtherShop("https://evil.example/shop/orders?shop=bakery", "stationery")).toBe("/shop/orders");
+    expect(pageWithoutOtherShop("not a url", "stationery")).toBeNull();
+    expect(pageWithoutOtherShop(null, "stationery")).toBeNull();
   });
 });

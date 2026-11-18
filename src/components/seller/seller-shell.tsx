@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import clsx from "clsx";
 
 import { LanguageSwitch } from "@/components/board/board-header";
@@ -11,6 +11,7 @@ import { CountBadge, TONE_ICON } from "@/components/board/tiles";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { ShopSwitcher } from "@/components/seller/shop-switcher";
+import { ShopUrlSync } from "@/components/seller/shop-url-sync";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
 import { BrandWordmark } from "@/components/brand-wordmark";
 import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
@@ -126,6 +127,11 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, shops, group
 
   return (
     <div data-seller-central lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-slate-50 text-ink-900">
+      {shop && shops.length > 1 ? (
+        <Suspense fallback={null}>
+          <ShopUrlSync currentId={shop.id} shopIds={shops.map((s) => s.id)} />
+        </Suspense>
+      ) : null}
       <header className="sticky top-0 z-40 bg-ink-900 text-white shadow-sm" data-testid="seller-topbar">
         <div className="flex h-14 items-center gap-1.5 px-2 sm:gap-2 sm:px-4 lg:h-16 lg:px-6">
           {withNav ? (

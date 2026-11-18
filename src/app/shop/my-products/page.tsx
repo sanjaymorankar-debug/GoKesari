@@ -6,6 +6,7 @@ import { BulkPanel } from "@/components/shop-setup/bulk-panel";
 import { StockEditor } from "@/components/shop-setup/stock-editor";
 import { EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { LISTING_STATUSES, LISTING_STATUS_LABEL, type ListingStatus } from "@/lib/listing-status";
+import { addProductPath } from "@/lib/shop-setup-links";
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getImportLimits } from "@/server/services/product-import";
@@ -81,6 +82,7 @@ export default async function MyProductsPage({ searchParams }: { searchParams: P
             chooseHref={setupHref}
             needsHref={href("NEEDS_STOCK")}
             productsHref={href(null)}
+            addProductHref={addProductPath(shops.length > 1 ? shop.id : null)}
           />
         </div>
       </details>
