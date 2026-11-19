@@ -723,6 +723,15 @@ export async function freshRider(label: string, options: { approve?: boolean; ex
     latitude: homeSpot().lat,
     longitude: homeSpot().lng,
     operatingRadiusKm: 10,
+    // Every field of the registration brief is required (src/lib/gig/registration.ts).
+    email: user.email,
+    dateOfBirth: "1995-06-15",
+    gender: "PREFER_NOT_TO_SAY",
+    addressLine: "12 QA Lane, Kothrud",
+    addressCity: "Pune",
+    addressPincode: "411038",
+    emergencyContactName: "QA Emergency Contact",
+    emergencyContactMobile: user.mobile.startsWith("9") ? "8888800001" : "9999900001",
     ...options.extra,
   });
   expectStatus(res, 201, "rider application");
