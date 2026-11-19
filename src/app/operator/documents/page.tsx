@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
+import { operatorPortalFallback } from "@/lib/operator-portal";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listDocumentsToVerify } from "@/server/services/operator-limited";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function OperatorDocumentsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_VERIFY_DOCS)) redirect("/");
+  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_VERIFY_DOCS)) redirect(operatorPortalFallback(user.role, "/admin/document-uploads"));
   const docs = await listDocumentsToVerify(user);
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-3 py-4">

@@ -232,7 +232,8 @@ export function NearbyShops() {
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-kesari-100 text-kesari-700">
             <Icon name={fromPlace ? "map-pin" : "navigation"} size={20} />
           </span>
-          <div className="min-w-0 flex-1">
+          {/* D-137: the same height before and after the position is known, so nothing below jumps. */}
+          <div className="min-h-[5.25rem] min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-600">
               {fromPlace ? "Searching near" : "Your location"}
             </p>
@@ -323,122 +324,125 @@ export function NearbyShops() {
         ) : null}
       </section>
 
-      {/* Radius and view */}
-      {origin ? (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div role="group" aria-label="Distance" className="flex flex-wrap gap-1.5" data-testid="nearby-radius">
-            {NEARBY_RADII_KM.map((km) => (
-              <button
-                key={km}
-                type="button"
-                onClick={() => chooseRadius(km)}
-                aria-pressed={radius === km}
-                className={clsx(
-                  "inline-flex min-h-11 items-center gap-1.5 rounded-full border-2 px-3.5 text-sm font-bold",
-                  radius === km ? "border-kesari-700 bg-kesari-700 text-white" : "border-[var(--gk-line)] bg-white text-ink-900 hover:border-kesari-600",
-                )}
-                data-testid={`nearby-radius-${km}`}
-              >
-                {km} km
-                {counts[String(km)] != null ? (
-                  <span
-                    className={clsx(
-                      "inline-grid h-5 min-w-5 place-items-center rounded-full px-1 text-xs tabular-nums",
-                      radius === km ? "bg-white/25 text-white" : "bg-kesari-100 text-ink-900",
-                    )}
-                  >
-                    {counts[String(km)]}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-          <div role="group" aria-label="View" className="flex rounded-full border-2 border-[var(--gk-line)] bg-white p-0.5" data-testid="nearby-view">
-            {(["list", "map"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setView(v)}
-                aria-pressed={view === v}
-                className={clsx(
-                  "inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 text-sm font-bold",
-                  view === v ? "bg-ink-900 text-white" : "text-ink-900",
-                )}
-                data-testid={`nearby-view-${v}`}
-              >
-                <Icon name={v === "list" ? "layout-grid" : "map"} size={16} />
-                {v === "list" ? "List" : "Map view"}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Results */}
-      {origin && phase !== "locating" ? (
-        shops.length === 0 && phase === "ready" ? (
-          <section className="rounded-2xl border-2 border-dashed border-[var(--gk-line)] bg-white p-5 text-center" data-testid="nearby-empty">
-            <p className="text-base font-bold text-ink-900">No shops found within {radius} km</p>
-            {nextWithShops ? (
-              <>
-                <p className="mt-1 text-sm text-ink-700">
-                  {counts[String(nextWithShops)]} shop{counts[String(nextWithShops)] === 1 ? "" : "s"} within {nextWithShops} km.
-                </p>
+      {/* D-137: the results keep their room while the position and the shops load (CLS ≤ 0.1). */}
+      <div className="flex min-h-[60svh] flex-col gap-3">
+        {/* Radius and view */}
+        {origin ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div role="group" aria-label="Distance" className="flex flex-wrap gap-1.5" data-testid="nearby-radius">
+              {NEARBY_RADII_KM.map((km) => (
                 <button
+                  key={km}
                   type="button"
-                  onClick={() => chooseRadius(nextWithShops)}
-                  className="mt-3 inline-flex min-h-11 items-center rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white hover:bg-kesari-800"
-                  data-testid="nearby-widen"
+                  onClick={() => chooseRadius(km)}
+                  aria-pressed={radius === km}
+                  className={clsx(
+                    "inline-flex min-h-11 items-center gap-1.5 rounded-full border-2 px-3.5 text-sm font-bold",
+                    radius === km ? "border-kesari-700 bg-kesari-700 text-white" : "border-[var(--gk-line)] bg-white text-ink-900 hover:border-kesari-600",
+                  )}
+                  data-testid={`nearby-radius-${km}`}
                 >
-                  Widen to {nextWithShops} km
+                  {km} km
+                  {counts[String(km)] != null ? (
+                    <span
+                      className={clsx(
+                        "inline-grid h-5 min-w-5 place-items-center rounded-full px-1 text-xs tabular-nums",
+                        radius === km ? "bg-white/25 text-white" : "bg-kesari-100 text-ink-900",
+                      )}
+                    >
+                      {counts[String(km)]}
+                    </span>
+                  ) : null}
                 </button>
-              </>
-            ) : wider ? (
-              <>
-                <p className="mt-1 text-sm text-ink-700">There are no shops within {NEARBY_RADII_KM[NEARBY_RADII_KM.length - 1]} km either.</p>
-                <div className="mt-3 flex flex-wrap justify-center gap-2">
+              ))}
+            </div>
+            <div role="group" aria-label="View" className="flex rounded-full border-2 border-[var(--gk-line)] bg-white p-0.5" data-testid="nearby-view">
+              {(["list", "map"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  aria-pressed={view === v}
+                  className={clsx(
+                    "inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 text-sm font-bold",
+                    view === v ? "bg-ink-900 text-white" : "text-ink-900",
+                  )}
+                  data-testid={`nearby-view-${v}`}
+                >
+                  <Icon name={v === "list" ? "layout-grid" : "map"} size={16} />
+                  {v === "list" ? "List" : "Map view"}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Results */}
+        {origin && phase !== "locating" ? (
+          shops.length === 0 && phase === "ready" ? (
+            <section className="rounded-2xl border-2 border-dashed border-[var(--gk-line)] bg-white p-5 text-center" data-testid="nearby-empty">
+              <p className="text-base font-bold text-ink-900">No shops found within {radius} km</p>
+              {nextWithShops ? (
+                <>
+                  <p className="mt-1 text-sm text-ink-700">
+                    {counts[String(nextWithShops)]} shop{counts[String(nextWithShops)] === 1 ? "" : "s"} within {nextWithShops} km.
+                  </p>
                   <button
                     type="button"
-                    onClick={() => chooseRadius(NEARBY_RADII_KM[NEARBY_RADII_KM.length - 1])}
-                    className="inline-flex min-h-11 items-center rounded-xl border-2 border-[var(--gk-line)] px-4 text-sm font-bold text-ink-900"
+                    onClick={() => chooseRadius(nextWithShops)}
+                    className="mt-3 inline-flex min-h-11 items-center rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white hover:bg-kesari-800"
                     data-testid="nearby-widen"
                   >
-                    Widen to {NEARBY_RADII_KM[NEARBY_RADII_KM.length - 1]} km
+                    Widen to {nextWithShops} km
+                  </button>
+                </>
+              ) : wider ? (
+                <>
+                  <p className="mt-1 text-sm text-ink-700">There are no shops within {NEARBY_RADII_KM[NEARBY_RADII_KM.length - 1]} km either.</p>
+                  <div className="mt-3 flex flex-wrap justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => chooseRadius(NEARBY_RADII_KM[NEARBY_RADII_KM.length - 1])}
+                      className="inline-flex min-h-11 items-center rounded-xl border-2 border-[var(--gk-line)] px-4 text-sm font-bold text-ink-900"
+                      data-testid="nearby-widen"
+                    >
+                      Widen to {NEARBY_RADII_KM[NEARBY_RADII_KM.length - 1]} km
+                    </button>
+                    <Link href="/shops?all=1" className="inline-flex min-h-11 items-center rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white">
+                      See all shops
+                    </Link>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-3 flex flex-wrap justify-center gap-2">
+                  <button type="button" onClick={() => setManualOpen(true)} className="inline-flex min-h-11 items-center rounded-xl border-2 border-[var(--gk-line)] px-4 text-sm font-bold text-ink-900">
+                    Try another PIN code
                   </button>
                   <Link href="/shops?all=1" className="inline-flex min-h-11 items-center rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white">
                     See all shops
                   </Link>
                 </div>
-              </>
-            ) : (
-              <div className="mt-3 flex flex-wrap justify-center gap-2">
-                <button type="button" onClick={() => setManualOpen(true)} className="inline-flex min-h-11 items-center rounded-xl border-2 border-[var(--gk-line)] px-4 text-sm font-bold text-ink-900">
-                  Try another PIN code
-                </button>
-                <Link href="/shops?all=1" className="inline-flex min-h-11 items-center rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white">
-                  See all shops
-                </Link>
-              </div>
-            )}
-          </section>
-        ) : view === "map" ? (
-          <NearbyMap origin={origin} radiusKm={radius} shops={shops} />
-        ) : (
-          <ul className={clsx("grid gap-2 sm:grid-cols-2 xl:grid-cols-3", phase === "loading" && "opacity-60")} data-testid="nearby-list" aria-busy={phase === "loading"}>
-            {shops.map((shop) => (
-              <li key={shop.id}>
-                <NearbyShopCard shop={shop} />
-              </li>
-            ))}
-          </ul>
-        )
-      ) : null}
+              )}
+            </section>
+          ) : view === "map" ? (
+            <NearbyMap origin={origin} radiusKm={radius} shops={shops} />
+          ) : (
+            <ul className={clsx("grid gap-2 sm:grid-cols-2 xl:grid-cols-3", phase === "loading" && "opacity-60")} data-testid="nearby-list" aria-busy={phase === "loading"}>
+              {shops.map((shop) => (
+                <li key={shop.id}>
+                  <NearbyShopCard shop={shop} />
+                </li>
+              ))}
+            </ul>
+          )
+        ) : null}
 
-      {phase === "locating" ? (
-        <p className="rounded-2xl border-2 border-[var(--gk-line)] bg-white p-4 text-sm text-ink-700">
-          Allow location when your browser or phone asks — it is used only to find shops near you, and kept on this device as your delivery location if you have not chosen one.
-        </p>
-      ) : null}
+        {phase === "locating" ? (
+          <p className="rounded-2xl border-2 border-[var(--gk-line)] bg-white p-4 text-sm text-ink-700">
+            Allow location when your browser or phone asks — it is used only to find shops near you, and kept on this device as your delivery location if you have not chosen one.
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

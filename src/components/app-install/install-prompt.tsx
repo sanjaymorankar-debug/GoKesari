@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import clsx from "clsx";
 
 import {
   decideInstallPrompt,
@@ -14,6 +16,7 @@ import {
 import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
 
 import { Icon, type IconName } from "../board/icons";
+import { showsShoppingNav } from "../home/mobile-shop-nav";
 
 /** Chrome's install event (not in TypeScript's DOM types). */
 interface BeforeInstallPromptEvent extends Event {
@@ -74,8 +77,28 @@ function postEvent(event: InstallEvent, platform: InstallPlatform) {
  * app icon chip, a line of text and two buttons. It never covers the page with
  * a backdrop; "Not now" hides it until the next page load, and it comes back
  * on every visit until the app is installed (src/lib/app-install.ts has the rules).
+ *
+ * D-135 / D-149: on a phone it is one slim row (about 60 px) that sits just
+ * above the shopping pages' bottom menu instead of over it, and it adds the
+ * same height at the end of the page, so the page's last button can always be
+ * scrolled clear of it. Wide screens keep the card in the bottom-right corner.
  */
-export function AppInstallPrompt({ lang, signedIn, stores }: { lang: Lang; signedIn: boolean; stores: StoreLinks }) {
+export function AppInstallPrompt({
+  lang,
+  signedIn,
+  stores,
+  shoppingNav,
+  cartBar,
+}: {
+  lang: Lang;
+  signedIn: boolean;
+  stores: StoreLinks;
+  /** The phone bottom menu is on (rule homeDiscovery); it shows on the shopping pages only. */
+  shoppingNav: boolean;
+  /** The bottom menu's "View cart" bar shows too (signed in, items in the cart). */
+  cartBar: boolean;
+}) {
+  const pathname = usePathname();
   const deferred = useRef<BeforeInstallPromptEvent | null>(null);
   const [ready, setReady] = useState(false);
   const [hasInstallEvent, setHasInstallEvent] = useState(false);
@@ -233,90 +256,100 @@ export function AppInstallPrompt({ lang, signedIn, stores }: { lang: Lang; signe
         ];
   const storeUrl = decision.method === "store" ? (decision.platform === "ios" ? stores.ios : stores.android) : null;
 
+  const navUnder = shoppingNav && showsShoppingNav(pathname);
+  const phoneBottom = !navUnder
+    ? "bottom-0 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
+    : cartBar
+      ? "bottom-[calc(8rem+env(safe-area-inset-bottom))] pb-2"
+      : "bottom-[calc(4rem+env(safe-area-inset-bottom))] pb-2";
+
   // z-[45]: above the phone bottom menu (z-40), below modal dialogs (z-50),
   // which share z-50 and would otherwise lose taps to this card (D-145).
   return (
-    <section
-      lang={LANG_TAG[lang]}
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="gk-install-title"
-      data-testid="app-install-prompt"
-      data-method={decision.method}
-      className="fixed inset-x-0 bottom-0 z-[45] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-96 lg:px-0 lg:pb-0"
-    >
-      <div className="mx-auto max-w-xl rounded-2xl border border-cream-200 border-l-4 border-l-kesari-600 bg-white p-4 shadow-xl shadow-ink-900/15">
-        <div className="flex items-start gap-3">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-kesari-100 text-kesari-700">
-            <Icon name="smartphone" size={26} />
+    <>
+      {/* The bar's height at the end of the page (the bottom menu keeps its own). */}
+      <div aria-hidden className={clsx("lg:hidden", navUnder ? "h-[4.5rem]" : "h-[calc(4.5rem+env(safe-area-inset-bottom))]")} />
+      <section
+        lang={LANG_TAG[lang]}
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="gk-install-title"
+        data-testid="app-install-prompt"
+        data-method={decision.method}
+        className={clsx("fixed inset-x-0 z-[45] px-3", phoneBottom, "lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-96 lg:px-0 lg:pb-0")}
+      >
+        <div className="mx-auto flex max-w-xl flex-wrap items-center gap-2 rounded-2xl border border-cream-200 border-l-4 border-l-kesari-600 bg-white p-2 shadow-xl shadow-ink-900/15 lg:items-start lg:gap-3 lg:p-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-kesari-100 text-kesari-700 lg:h-12 lg:w-12 lg:rounded-xl">
+            <Icon name="smartphone" size={22} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 id="gk-install-title" className="text-base font-bold text-ink-900">
+            <h2 id="gk-install-title" className="line-clamp-2 text-sm font-bold leading-tight text-ink-900 lg:text-base">
               {tr(UI.installTitle, lang)}
             </h2>
-            <p className="mt-0.5 text-sm leading-snug text-ink-700">{tr(UI.installBody, lang)}</p>
+            <p className="mt-0.5 hidden text-sm leading-snug text-ink-700 lg:block">{tr(UI.installBody, lang)}</p>
           </div>
           <button
             type="button"
             onClick={notNow}
             aria-label={tr(UI.installClose, lang)}
-            className="-mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-600 hover:bg-cream-100"
+            className="-mr-1 -mt-1 hidden h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-600 hover:bg-cream-100 lg:flex"
           >
             <Icon name="x" size={20} />
           </button>
-        </div>
 
-        {guideOpen ? (
-          <div data-testid="app-install-guide" className="mt-3">
-            <ol className="grid grid-cols-3 gap-2">
-              {guide.map((step, i) => (
-                <li key={step.text} className="flex flex-col items-center gap-1 rounded-xl bg-cream-100 px-1.5 py-2 text-center">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-kesari-700">
-                    <Icon name={step.icon} size={20} />
-                  </span>
-                  <span className="text-xs font-semibold leading-tight text-ink-900">
-                    {i + 1}. {step.text}
-                  </span>
-                </li>
-              ))}
-            </ol>
-            {decision.method === "ios-guide" ? <p className="mt-2 text-xs text-ink-600">{tr(UI.installIosHint, lang)}</p> : null}
-          </div>
-        ) : null}
+          {guideOpen ? (
+            // On a phone the steps open above the row; on a wide screen, under the title.
+            <div data-testid="app-install-guide" className="order-first basis-full lg:order-none">
+              <ol className="grid grid-cols-3 gap-2">
+                {guide.map((step, i) => (
+                  <li key={step.text} className="flex flex-col items-center gap-1 rounded-xl bg-cream-100 px-1.5 py-2 text-center">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-kesari-700">
+                      <Icon name={step.icon} size={20} />
+                    </span>
+                    <span className="text-xs font-semibold leading-tight text-ink-900">
+                      {i + 1}. {step.text}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              {decision.method === "ios-guide" ? <p className="mt-2 text-xs text-ink-600">{tr(UI.installIosHint, lang)}</p> : null}
+            </div>
+          ) : null}
 
-        <div className="mt-3 flex gap-2">
-          {storeUrl ? (
-            <a
-              href={storeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-testid="app-install-store"
-              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white hover:bg-kesari-800"
-            >
-              <Icon name="download" size={18} />
-              {tr(UI.installStore, lang)}
-            </a>
-          ) : guideOpen ? null : (
+          <div className="flex shrink-0 gap-2 lg:basis-full">
+            {storeUrl ? (
+              <a
+                href={storeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="app-install-store"
+                className="flex h-11 items-center justify-center gap-2 rounded-xl bg-kesari-700 px-3 text-sm font-bold text-white hover:bg-kesari-800 lg:flex-1 lg:px-4"
+              >
+                <Icon name="download" size={18} className="hidden lg:block" />
+                {tr(UI.installStore, lang)}
+              </a>
+            ) : guideOpen ? null : (
+              <button
+                type="button"
+                onClick={() => void install()}
+                data-testid="app-install-button"
+                className="flex h-11 items-center justify-center gap-2 rounded-xl bg-kesari-700 px-3 text-sm font-bold text-white hover:bg-kesari-800 lg:flex-1 lg:px-4"
+              >
+                <Icon name="download" size={18} className="hidden lg:block" />
+                {tr(UI.installButton, lang)}
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => void install()}
-              data-testid="app-install-button"
-              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white hover:bg-kesari-800"
+              onClick={notNow}
+              data-testid="app-install-not-now"
+              className="flex h-11 items-center justify-center rounded-xl border border-cream-200 bg-white px-3 text-sm font-semibold text-ink-700 hover:bg-cream-100 lg:flex-1 lg:px-4"
             >
-              <Icon name="download" size={18} />
-              {tr(UI.installButton, lang)}
+              {tr(UI.installNotNow, lang)}
             </button>
-          )}
-          <button
-            type="button"
-            onClick={notNow}
-            data-testid="app-install-not-now"
-            className="flex h-11 flex-1 items-center justify-center rounded-xl border border-cream-200 bg-white px-4 text-sm font-semibold text-ink-700 hover:bg-cream-100"
-          >
-            {tr(UI.installNotNow, lang)}
-          </button>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }

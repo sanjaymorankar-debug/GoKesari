@@ -1,10 +1,15 @@
+import { headers } from "next/headers";
+import { notFound, redirect } from "next/navigation";
+
 import { SellerShell } from "@/components/seller/seller-shell";
 import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
+import { packingSlipOrderId, REQUEST_PATH_HEADER, shopPageNeedsSignIn } from "@/lib/request-path";
 import { groupSellerMenus } from "@/lib/seller/nav";
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { loadShopCounts } from "@/server/board-data";
 import { getBoardLang } from "@/server/board-lang";
+import { findPackingSlip } from "@/server/packing-slip-page";
 import type { UserRole } from "@/server/db/schema";
 import { registrationFeeDue } from "@/server/services/registration-fee-payment";
 import { unreadCount } from "@/server/services/notifications";
@@ -23,9 +28,17 @@ export const metadata = {
  * Each page still runs its own sign-in and permission checks; this layout
  * only reads what the frame shows, each part best-effort. An owner with
  * several shops picks one in the top bar (src/lib/seller/active-shop.ts).
+ *
+ * D-131 / D-109: the two answers a page cannot give once it streams behind
+ * loading.tsx are given here first — a signed-out visitor gets a real redirect
+ * to sign-in, and a packing slip that does not exist a real 404.
  */
 export default async function SellerCentralLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
+  const path = (await headers()).get(REQUEST_PATH_HEADER) ?? "";
+  if (!user && shopPageNeedsSignIn(path)) redirect("/signin");
+  const slipOrderId = user ? packingSlipOrderId(path) : null;
+  if (slipOrderId && !(await findPackingSlip(slipOrderId))) notFound();
   const [lang, shops, roles, unread] = await Promise.all([
     getBoardLang(),
     user ? listShopsForOwner(user.id).catch(() => []) : Promise.resolve([]),

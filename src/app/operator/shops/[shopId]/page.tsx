@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { DocumentDecision } from "@/components/batch-d/document-decision";
 import { Badge, PageHeader } from "@/components/ui";
 import { AppError } from "@/lib/errors";
+import { operatorPortalFallback } from "@/lib/operator-portal";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getShopDocumentsForOperator } from "@/server/services/operator-limited";
@@ -16,8 +17,8 @@ const DECIDABLE = new Set(["PENDING", "MANUAL_REVIEW"]);
 export default async function OperatorShopPage({ params }: { params: Promise<{ shopId: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_VERIFY_DOCS)) redirect("/");
   const { shopId } = await params;
+  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_VERIFY_DOCS)) redirect(operatorPortalFallback(user.role, `/admin/shops/${encodeURIComponent(shopId)}`));
   let data: Awaited<ReturnType<typeof getShopDocumentsForOperator>>;
   try {
     data = await getShopDocumentsForOperator(shopId, user);
