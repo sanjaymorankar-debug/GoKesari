@@ -1,6 +1,6 @@
 {
  "date": "2026-11-20",
- "note": "Cases written on 20-Nov-2026 for features added to staging after the 08-Nov plan (tests/qa/catalog). Not yet in test-cases.xlsx or the automated suite.",
+ "note": "Cases written on 20-Nov-2026 for features added to staging after the 08-Nov plan, with their wording checked against the code on origin/staging (code-check-2026-11-20.json). Added to test-cases.xlsx / tests/qa/catalog by scripts/qa/plan_workbook.py add-json; the manual builder now reads them from the catalog, so this file is the record of what was added.",
  "features": [
   {
    "id": "DI-11",
@@ -551,8 +551,8 @@
    "method": "UI",
    "title": "Register a shop with a valid GSTIN: the first screen verifies the business before anything else",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A GSTIN that the staging KYC provider verifies (agreed with the owner; never a real person's number). Admin > Referral settings: code optional.",
-   "steps": "1. Open https://test.gokesari.com/shop/register\n2. Read the first screen “Verify your business”\n3. Leave Referral code empty\n4. Enter the GSTIN\n5. Tick “I agree that GoKesari checks this number with the government record.”\n6. Click “Verify GSTIN”",
-   "expected": "First screen shows Referral code (optional), GSTIN, a read-only “PAN (taken from your GST number)” equal to characters 3-12 of the GSTIN, the consent box and “Verify GSTIN”. After the check a “Verified” badge shows and the wizard moves on (Owner step only if the record names no owner, else Address); fields filled from the record carry “✓ Verified from GST/PAN”."
+   "steps": "1. Open https://test.gokesari.com/shop/register\n2. Read the first screen “Verify your business”\n3. Leave Referral code empty\n4. Enter the GSTIN in “GST number (15 characters)”\n5. Tick “I agree that GoKesari checks this number with the government record.”\n6. Click “Verify GSTIN”",
+   "expected": "First screen “Verify your business” shows “Referral code (optional)”, “GST number (15 characters)”, the consent box and “Verify GSTIN” (disabled until the consent box is ticked); once a well-formed GSTIN is typed, a read-only “PAN (taken from your GST number)” shows characters 3-12 of it. After the check the wizard moves straight on — to “Owner name” only if the record names no owner, else to “Confirm your shop address”; the Verify tile shows ✓ and, opened again, the GSTIN with the badge “Verified” (also on the Payment step's GSTIN row). Fields filled from the record carry “✓ Verified from GST” (“✓ Verified from PAN” on the PAN route)."
   },
   {
    "id": "TC-ONB-049",
@@ -565,7 +565,7 @@
    "method": "UI",
    "title": "GSTIN format is checked before any government check is made",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. ",
-   "steps": "1. Open /shop/register\n2. Enter 27ABCDE1234F1Z (14 characters) and click Verify GSTIN\n3. Enter 27ABCDE1234F1X5 (no Z at position 14)\n4. Enter the GSTIN in lower case",
+   "steps": "1. Open /shop/register and tick “I agree that GoKesari checks this number with the government record.” (Verify GSTIN is disabled until it is ticked; with a mandatory referral code also type a 3-character code)\n2. Enter 27ABCDE1234F1Z (14 characters) and click Verify GSTIN\n3. Enter 27ABCDE1234F1X5 (no Z at position 14) and click Verify GSTIN\n4. Type the GSTIN in lower case",
    "expected": "Each wrong value shows “Enter the 15-character GSTIN as on your GST certificate, for example 27ABCDE1234F1Z5.” and no check is counted. Lower case is accepted only if it is upper-cased automatically to a valid GSTIN."
   },
   {
@@ -593,7 +593,7 @@
    "method": "UI",
    "title": "PAN format is checked",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. ",
-   "steps": "1. Use PAN route\n2. Enter ABCDE1234 (9 characters)\n3. Enter ABCD12345F\n4. Enter 1BCDE1234F",
+   "steps": "1. Use the PAN route (“I don't have GST, use PAN”) and tick “My shop is not registered under GST.” and the consent box\n2. Enter ABCDE1234 (9 characters) and click Verify PAN\n3. Enter ABCD12345F and click Verify PAN\n4. Enter 1BCDE1234F and click Verify PAN",
    "expected": "Each shows “Enter the 10-character PAN, for example ABCDE1234F.” and no check is counted."
   },
   {
@@ -606,9 +606,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "A referral code in the link is applied automatically and cannot be changed",
-   "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A valid dealer / shop referral code.",
+   "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A valid dealer / shop referral code. Rule shopReferrals on (Admin › Settings; off by default, on on test.gokesari.com) — with it off the code is applied but the field stays editable.",
    "steps": "1. Open /shop/register?ref=<valid code>\n2. Look at the Referral code field\n3. Try to edit it",
-   "expected": "The code shows “✓ Applied”, the field is read-only and says “Only one code can be used, so it cannot be changed.” (P2-D4)."
+   "expected": "The code is checked as soon as the page opens and the field says “✓ Applied. Only one code can be used, so it cannot be changed.”; the field is read-only and typing changes nothing (P2-D4, while rule shopReferrals is on; with it off only “✓ Applied” shows and the field stays editable)."
   },
   {
    "id": "TC-ONB-053",
@@ -620,9 +620,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "Unknown, expired and missing referral codes are explained, with a way to request one",
-   "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. An expired code. Optionally switch Referral settings to 'code mandatory' (restore after).",
-   "steps": "1. Enter NOSUCH99 and verify\n2. Enter the expired code and verify\n3. With the code mandatory: leave it empty, then type 2 characters\n4. Look for the “Request a referral code” link",
-   "expected": "NOSUCH99: “Referral code NOSUCH99 does not exist” with “Check the code, or request one”. Expired: “… expired on <date>”. Mandatory and empty: “Enter your referral code, or request one.”; Verify stays disabled until the code has at least 3 characters. The “Request a referral code” link shows while the field is empty or in error."
+   "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. An expired code. Admin › Referral settings, shop registration: MANDATORY since migration 0100 (owner request 28-Oct-2026) unless an admin changed it — check under the current setting and switch it for the other wording (restore after).",
+   "steps": "1. Enter NOSUCH99, a well-formed GSTIN, tick the consent box and click Verify GSTIN\n2. Enter the expired code and click Verify GSTIN\n3. With the code mandatory: leave it empty, then type 2 characters\n4. Look for the “Request a referral code” link",
+   "expected": "NOSUCH99: “Referral code NOSUCH99 does not exist. Check the code, or request one.” (code mandatory) or “… Check the code, or leave it empty.” (code optional), with “Referral code NOSUCH99 does not exist.” under the field; the GSTIN is not checked. Expired: “Referral code <code> expired on <YYYY-MM-DD>. Check the code, …”. Mandatory: the field is labelled “Referral code” (no “(optional)”) and Verify GSTIN stays disabled while the code is empty or under 3 characters, so the screen never sends an empty code (the server refuses one with “Enter your referral code, or request one.”). The “Request a referral code” link (after “Don't have a referral code?”) shows while the field is empty or in error."
   },
   {
    "id": "TC-ONB-054",
@@ -649,8 +649,8 @@
    "method": "UI",
    "title": "The number can be read from a photo of the GST certificate or PAN card",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A clear test photo of a GST certificate and a blurred one (test documents only).",
-   "steps": "1. Click “📷 Read it from a photo of your GST certificate / PAN card”\n2. Upload the clear photo\n3. Repeat with the blurred photo",
-   "expected": "The clear photo fills the GSTIN / PAN field, which still has to be verified. The blurred photo leaves the field unchanged with a message to type the number."
+   "steps": "1. Click “📷 Read it from a photo of your GST certificate” (on the PAN route: “📷 Read it from a photo of your PAN card”)\n2. Click “Take a photo or choose files” and choose the clear photo\n3. Check the number found and click “These numbers are right — check them online”\n4. Repeat with the blurred photo",
+   "expected": "The photo is read on the device: the clear photo's row shows “Number found — please check” and, after “These numbers are right — check them online”, the number fills the GST number / PAN field — nothing is checked until “Verify GSTIN” / “Verify PAN”. The blurred photo's row shows “Couldn't read — type it” (and “Choose which document this is.” when the document was not recognised); the GST number / PAN field stays unchanged."
   },
   {
    "id": "TC-ONB-056",
@@ -677,8 +677,8 @@
    "method": "UI",
    "title": "Government service down: the owner is told to try again and is not failed",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A way to make the KYC provider unreachable on staging (ask the developer); otherwise Blocked.",
-   "steps": "1. With the provider unreachable, verify a GSTIN\n2. Check the shop draft status in admin",
-   "expected": "Owner sees “The government service is not answering right now. Please try again in a few minutes.” and cannot continue (DI-02). The check is PENDING with an error code, never FAILED."
+   "steps": "1. With the provider unreachable, verify a GSTIN\n2. Check the registration's stored check (shop_registration_drafts.gst_status / gst_error_code; no admin screen shows a registration's check before the shop exists)",
+   "expected": "Owner sees “The government service is not answering right now. Please try again in a few minutes.” with the badge “Not verified yet”, no Continue button, and stays on “Verify your business” (DI-02). The stored check is PENDING with an error code (e.g. vendor_timeout), never FAILED."
   },
   {
    "id": "TC-ONB-058",
@@ -706,7 +706,7 @@
    "title": "Not-found, cancelled, suspended and inactive GSTINs are refused with their own messages",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. Provider test numbers for each status.",
    "steps": "1. Verify a well-formed GSTIN that does not exist\n2. Verify a cancelled, a suspended and an inactive GSTIN",
-   "expected": "Not found: “This number was not found in the government record…”. Each other status shows its own message and the owner cannot continue with that number."
+   "expected": "Not found: “This number was not found in the government record. Please check it and try again.” Cancelled: “The government record shows this GSTIN as cancelled.” Suspended: “The government record shows this GSTIN as suspended.” Inactive: “The government record shows this number as inactive.” Each with the badge “Not verified”; the owner cannot continue with that number."
   },
   {
    "id": "TC-ONB-060",
@@ -719,8 +719,8 @@
    "method": "UI",
    "title": "GSTIN verified but its PAN not confirmed: the owner can carry on and the team checks it",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. Provider test data where the GSTIN verifies but the derived PAN does not.",
-   "steps": "1. Verify the GSTIN\n2. Continue the wizard\n3. As admin, open the shop in the verification queue",
-   "expected": "Owner sees “We couldn't confirm this automatically. You can carry on — our team will check it.” and can continue; the shop is listed for review in admin."
+   "steps": "1. Verify the GSTIN\n2. Continue the wizard to the Payment step and click “Create my shop and pay”\n3. As admin, open Seller verification review (/admin/seller-verification)",
+   "expected": "The wizard moves on and the next step shows a warning with the PAN's reason: “The name on the PAN does not match the name on the GST record. We'll check it by hand.” (name mismatch), “The government record gave no name. We'll check it by hand.”, “The government service is not answering right now. You can carry on — we'll keep checking.” (PAN service down) or “We couldn't confirm this automatically. You can carry on — our team will check it.” (any other review). The Payment step still says “Your GSTIN is verified: your shop goes live as soon as the payment is confirmed.” Once the shop is created, a PAN under review is listed in Seller verification review with Approve / Ask for more info / Reject (a PAN still waiting for the service is retried automatically and is not listed). A PAN the government refuses (inactive, expired) stops the owner on the identity step instead."
   },
   {
    "id": "TC-ONB-061",
@@ -733,8 +733,8 @@
    "method": "UI",
    "title": "Udyam, FSSAI and Shop Act numbers go to manual review, not failure",
    "preconditions": "Signed in as a shop owner with a registered shop.",
-   "steps": "1. Add a Udyam, an FSSAI and a Shop Act number in the shop documents\n2. As admin, open the documents queue",
-   "expected": "Each shows as under review (manual), never Failed; admin can approve or reject each."
+   "steps": "1. On Shop verification (/shop/verification) enter a Udyam, an FSSAI and a Shop Act number (the Shop Act card also asks for the certificate or Form G receipt), tick the consent and click Verify on each\n2. As admin, open Seller verification review (/admin/seller-verification)",
+   "expected": "Each card on Shop verification shows “Under review” with “This document can't be checked online. Our team will review it.” (Sandbox.co.in checks only PAN and GSTIN), never “Not verified”; Seller verification review lists each with Approve, Ask for more info and Reject (a reason of at least 3 characters to reject or ask); an approved one becomes Verified, a rejected one Not verified."
   },
   {
    "id": "TC-ONB-062",
@@ -748,7 +748,7 @@
    "title": "Owner step appears only when the record names no owner",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A test GSTIN whose record has no owner name, and one that has.",
    "steps": "1. Verify the GSTIN with no owner name\n2. Enter “A” as owner name and continue\n3. Enter a full name\n4. Repeat with the GSTIN that names an owner",
-   "expected": "Without an owner: “Your record names no owner. Who owns or runs the shop?”; “A” gives “Enter the owner's name.”; a full name continues. With an owner on record the step is skipped."
+   "expected": "Without an owner the “Owner name” step says “Your GST record is for <legal name> (<constitution>) and names no owner. Who owns or runs the shop?” (“Your record names no owner. Who owns or runs the shop?” when the record gives no business name); with “A” Continue stays disabled (the server refuses a one-letter name with “Enter the owner's name.”); a full name continues to “Confirm your shop address”. With an owner on record (a proprietor's PAN) the step is skipped."
   },
   {
    "id": "TC-ONB-063",
@@ -759,10 +759,10 @@
    "priority": "P0",
    "role": "Shop Owner",
    "method": "UI",
-   "title": "Address step shows the verified address and only Line 2, Area and Landmark are optional",
+   "title": "Address step shows the verified address; Address, City and PIN code are required, the rest optional",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A GSTIN that the staging KYC provider verifies (agreed with the owner; never a real person's number). ",
-   "steps": "1. Reach “Confirm your shop address”\n2. Clear Line 1 and the PIN and continue\n3. Fill the required fields, leave Line 2, Area and Landmark empty, continue",
-   "expected": "Fields from the record show “✓ Verified from GST/PAN”. Missing required fields are flagged; with only the optional ones empty the wizard continues."
+   "steps": "1. Reach “Confirm your shop address”\n2. Clear Address and PIN code and click “Confirm address”\n3. Fill the required fields, leave State and (under “More”) Address line 2, Area and Landmark empty, click “Confirm address”",
+   "expected": "The Address field (and the Owner line) filled from the record show “✓ Verified from GST” (“✓ Verified from PAN” on the PAN route). An empty Address or PIN code is flagged by the browser and nothing is saved (the server also refuses a PIN starting with 0: “PIN code must be 6 digits and not start with 0.”). With State, Address line 2, Area and Landmark empty, “Confirm address” moves on to “Mark your shop location on the map”."
   },
   {
    "id": "TC-ONB-064",
@@ -775,7 +775,7 @@
    "method": "UI",
    "title": "Shop location is pinned on the map before payment, with a coordinates fallback",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A GSTIN that the staging KYC provider verifies (agreed with the owner; never a real person's number). ",
-   "steps": "1. Reach “Mark your shop location on the map”\n2. Drag the pin to the shop\n3. Click “Map not loading? Enter the coordinates” and enter 18.5204, 73.8567\n4. Enter coordinates outside India (51.5, -0.12)",
+   "steps": "1. Reach “Mark your shop location on the map”\n2. Drag the pin to the shop and click “Confirm location” (without a map: “Use my current location”)\n3. Click “Map not loading? Enter the coordinates”, enter 18.5204, 73.8567 and click “Save location”\n4. Enter coordinates outside India (51.5, -0.12) and click “Save location”",
    "expected": "Pin and coordinates are saved before the payment step. Outside India: “Please place the pin on your shop in India.” and the wizard does not continue."
   },
   {
@@ -803,8 +803,8 @@
    "method": "UI",
    "title": "Registration fee follows the turnover slab, plus GST",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. Default fee rules in /admin/settings.",
-   "steps": "1. Pick turnover up to Rs 2 crore and read the amount\n2. Pick up to Rs 10 crore\n3. Pick above Rs 10 crore",
-   "expected": "Fees: Rs 999, Rs 4,999 and Rs 9,999, each plus GST. The Rs 999 slab shows “Pay ₹1,178.82 now”."
+   "steps": "1. On “Contact and shop details” pick “Up to ₹2 crore” and read its fee\n2. Pick “₹2 crore – ₹10 crore”\n3. Pick “Above ₹10 crore”\n4. With “Up to ₹2 crore”, continue and click “Create my shop and pay”",
+   "expected": "The slabs read “Fee ₹999 + GST”, “Fee ₹4,999 + GST” and “Fee ₹9,999 + GST”; the Payment step repeats the chosen one (“Up to ₹2 crore — fee ₹999 + GST”). After “Create my shop and pay” with the ₹999 slab the payment button reads “Pay ₹1,178.82 now” (₹999 + 18 % GST)."
   },
   {
    "id": "TC-ONB-067",
@@ -818,7 +818,7 @@
    "title": "Contact number and shop name limits are enforced",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. ",
    "steps": "1. Enter 5123456789\n2. Enter 98765 4321 (9 digits)\n3. Enter 98765abcde\n4. Enter a 1-character and a 121-character shop name",
-   "expected": "Each wrong contact number is refused (10 digits starting 6-9). Shop names under 2 or over 120 characters are refused."
+   "expected": "Each wrong contact number is refused by the browser (the field takes 10 characters and must be 10 digits starting 6-9) and nothing is saved; the server refuses them with “Enter a valid 10-digit mobile number”. A 1-character shop name is refused (server: “Shop name is required.”); the field stops at 120 characters, so a 121st is not taken."
   },
   {
    "id": "TC-ONB-068",
@@ -831,8 +831,8 @@
    "method": "UI",
    "title": "Review step shows everything entered and what happens on payment",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A GSTIN that the staging KYC provider verifies (agreed with the owner; never a real person's number). ",
-   "steps": "1. Reach the Review step\n2. Click Back to an earlier step and return\n3. Read the button",
-   "expected": "All entered values are shown and kept after Back. With a verified GSTIN: “Your GSTIN is verified: your shop goes live as soon as the payment is confirmed.” Button: “Create my shop and pay”."
+   "steps": "1. Reach the Payment step (the review before paying)\n2. Click “Change” on a row (e.g. Shop), then continue back to it\n3. Read the button",
+   "expected": "The step titled “Payment” lists GSTIN (masked, “Verified”), Referral code, Owner, Shop address, Map pin (“Placed”), Shop (name · shop email) and Turnover (with the fee), each with “Change”; the values are kept after Change and continuing again. With a verified GSTIN: “Your GSTIN is verified: your shop goes live as soon as the payment is confirmed.” Button: “Create my shop and pay”."
   },
   {
    "id": "TC-ONB-069",
@@ -846,7 +846,7 @@
    "title": "Old registration links lead to the one flow and keep the referral code",
    "preconditions": "Signed in.",
    "steps": "1. Open /shop/register?form&ref=ABC123\n2. Open /shop/register?wizard&ref=ABC123",
-   "expected": "Both redirect to /shop/register?ref=ABC123 and show the identity-first screen with the code."
+   "expected": "Both redirect to /shop/register?ref=ABC123 and show the identity-first screen with ABC123 in Referral code (the wizard checks it at once; as ABC123 is not a real code it then shows “Referral code ABC123 does not exist. Check the code, …”)."
   },
   {
    "id": "TC-ONB-070",
@@ -858,7 +858,7 @@
    "role": "Shop Owner, Customer",
    "method": "UI",
    "title": "Paying the fee takes a verified shop live and e-mails the owner",
-   "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A GSTIN that the staging KYC provider verifies (agreed with the owner; never a real person's number). Pay with Cashfree sandbox test data (UPI testsuccess@gocash) or, when PAYMENT_GATEWAY=SANDBOX, the built-in page “Pay (success)”.",
+   "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. A GSTIN that the staging KYC provider verifies (agreed with the owner; never a real person's number). Pay with Cashfree sandbox test data (UPI testsuccess@gocash) or, when PAYMENT_GATEWAY=SANDBOX, the built-in page “Pay (success)”. A valid referral code (the shop referral code is mandatory: referral_required_shop = MANDATORY since migration 0100; “Verify GSTIN” stays off without one).",
    "steps": "1. Complete the wizard and click “Create my shop and pay”\n2. Pay the fee\n3. Read the next screen\n4. Check the owner's mailbox\n5. As a customer at the shop's PIN, look for the shop",
    "expected": "Screen: “Your onboarding is complete and your shop is live for accepting orders.” E-mail “Your onboarding is complete — <shop> is now live”. Shop status Live in Seller Central. The shop is listed for its PIN (products appear once added)."
   },
@@ -873,7 +873,7 @@
    "method": "UI",
    "title": "A failed fee payment takes no money and can be retried",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. Failure test data: UPI testfailure@gocash, or “Fail” on the built-in sandbox page.",
-   "steps": "1. Pay the fee with the failure data\n2. Read the payment step\n3. Pay again with success data",
+   "steps": "1. Pay the fee with the failure data\n2. Read the Registration fee page you are sent back to, then the payment step on /shop/register\n3. Press “Pay ₹X now” and pay again with success data",
    "expected": "After the failure: “Your last payment did not go through / No money was taken for it. You can try again below.” (P2-D2). The retry succeeds and the shop goes live; only one successful payment is recorded."
   },
   {
@@ -900,8 +900,8 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "Done screen offers bank account, delivery set-up, my shop and another shop",
-   "preconditions": "A shop just made live.",
-   "steps": "1. Finish the wizard to the last screen\n2. Click each tile and button",
+   "preconditions": "A wizard shop made live that has since added its products (the done screen shows once the live shop has its map pin and at least one product; right after payment the live screen of TC-ONB-074 shows instead).",
+   "steps": "1. After go-live, add products (Add products manually → categories → products), then open /shop/register\n2. Click each tile and button",
    "expected": "“Registration successful 🎉” with tiles “Get paid” (/shop/bank-account) and “How you deliver” (/shop/setup/delivery), buttons “Go to my shop” and “Register another shop” (/shop/register?new=1); each opens the right page."
   },
   {
@@ -915,7 +915,7 @@
    "method": "UI",
    "title": "Live screen asks how to add products and links the template",
    "preconditions": "A shop just made live.",
-   "steps": "1. Read the live screen\n2. Click “Upload using template”\n3. Download the template\n4. Click “Upload filled file”",
+   "steps": "1. Read the live screen\n2. Click “Upload using template”\n3. Click “Download product template”\n4. Click “Upload filled file”",
    "expected": "Text: “Add your products so customers can select them and place orders with you. How would you like to add them?” with “Add products manually” and “Upload using template”. Download gives GoKesari_Product_Upload_Template.xlsx; upload opens /shop/product-import."
   },
   {
@@ -929,8 +929,8 @@
    "method": "UI",
    "title": "Registration date is the IST date (P2-D6)",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. Run between 00.00 and 05.30 IST (when the UTC date is still the day before).",
-   "steps": "1. Register and pay a shop in that window\n2. Read the registration date in Seller Central and in admin",
-   "expected": "Both show today's IST date (e.g. a shop created 02.14 IST on 15-Nov shows 15/11/2026), not the UTC date."
+   "steps": "1. Register and pay a shop in that window\n2. Read the registration date in Seller Central (Manage → Registration and fee) and, as admin, in the shop record (GET /api/shops/<id> → registrationDate; no admin screen shows the registration date)",
+   "expected": "Both show today's IST date (e.g. a shop created 02.14 IST on 15-Nov shows 15/11/2026 in Seller Central and 2026-11-15 in the record; a day below 10 has no leading zero, e.g. 5/11/2026), not the UTC date."
   },
   {
    "id": "TC-ONB-076",
@@ -943,8 +943,8 @@
    "method": "UI",
    "title": "Same GSTIN or PAN already registered by another account: the shop is held, not live",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. The GSTIN of an existing staging shop owned by another test account.",
-   "steps": "1. Register with that GSTIN\n2. Pay the fee\n3. As admin, open the approval queue",
-   "expected": "Owner sees “A shop with this GSTIN is already registered on GoKesari by another account.” with the other shop's state (“It is live on GoKesari.” / “It is waiting for its registration fee or admin approval.” / “It is registered but not active at the moment.”) and “If it is yours, sign in with the account that registered it, or contact support.” After payment: “Payment received — pending admin approval”. Admin sees it held."
+   "steps": "1. On “Verify your business” enter that GSTIN (or, with “I don't have GST, use PAN”, its PAN), tick the consent and press “Verify GSTIN”\n2. Race variant: verify a GSTIN no shop has yet, let another test account register and pay a shop with it, then finish your registration (another name / PIN) and pay the fee\n3. As admin, open Shops → Instant approvals (Waiting)",
+   "expected": "Step 1 is refused before any government check: the alert “A shop with this GSTIN is already registered on GoKesari by another account. <state> If it is yours, sign in with the account that registered it, or contact support.”, where <state> is “It is live on GoKesari.” / “It is waiting for its registration fee or admin approval.” / “It is registered but not active at the moment.”, and the GSTIN field “This GSTIN is already registered.” (PAN route: “A shop with this PAN is already registered on GoKesari by another account. …”, field “This PAN is already registered.”). The owner cannot go on, so no shop is created and nothing is paid. Race variant: after payment “Payment received — pending admin approval” — “<shop> is pending admin approval. We'll email you as soon as your shop is live.”; the shop stays PENDING_APPROVAL and Instant approvals lists it “waiting for admin” — “Why waiting: likely duplicate of another shop (gstin, pan)”."
   },
   {
    "id": "TC-ONB-077",
@@ -956,9 +956,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "The same owner cannot register the same shop name twice at one PIN",
-   "preconditions": "Signed in as an owner who already has shop 'X' at PIN 411005.",
+   "preconditions": "Signed in as an owner who already has shop 'X' at PIN 411005, live (a shop still waiting for its fee blocks any new registration — TC-ONB-078). The new registration uses another GSTIN / PAN.",
    "steps": "1. Register a new shop named 'X' at 411005",
-   "expected": "“You have already registered a shop with this name at this PIN code.” (P2-D3)"
+   "expected": "On “Continue to payment” (Contact and shop details) the alert says “You have already registered a shop with this name at this PIN code. This shop is already registered and live on GoKesari. If you're the owner and need to update details, log in to your account or contact support.” (the second sentence follows shop 'X''s status) and the Shop name field “You have already registered a shop with this name at this PIN code” (P2-D3). With the same GSTIN / PAN as 'X' the PAN rule matches first: “PAN number already registered (XXXXXX…). This shop is already registered and live on GoKesari. …”."
   },
   {
    "id": "TC-ONB-078",
@@ -998,9 +998,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "Shop type decides the mandatory licence and the 90-day grace notice",
-   "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. ",
-   "steps": "1. Pick a food shop type\n2. Pick Pharmacy\n3. Pick Doctor clinic\n4. Pick Professional office\n5. Pick General store",
-   "expected": "Food: “FSSAI … is mandatory for this type of shop. Your shop can go live now, and you have a grace period of 90 days to upload it. Otherwise, your shop will be suspended.” Pharmacy: Drug licence. Clinics: Medical registration. Professional office: Bar Council / ICAI / ICSI. General store: no notice. Go-live is never blocked."
+   "preconditions": "Signed in on test.gokesari.com as a new test user with no shop, on “Contact and shop details” (after Verify, the address and the map pin).",
+   "steps": "1. Pick a food shop type (e.g. Bakery, Grocery / Kirana Store)\n2. Pick Pharmacy / Medical Store\n3. Pick Doctor's Clinic (and Super Speciality Clinic)\n4. Pick Professional office — CA, CS, advocate, tax consultant\n5. Pick General Trading Store",
+   "expected": "Food: “FSSAI licence is mandatory for this type of shop. Your shop can go live now, and you have a grace period of 90 days to upload it. Otherwise, your shop will be suspended.” Pharmacy: the same with “Drug licence”. Clinics: “Medical registration”. Professional office: “Professional registration (Bar Council, ICAI or ICSI)”. General Trading Store: no notice. (90 = rule shopDocumentFollowUp.graceDays.) Go-live is never blocked."
   },
   {
    "id": "TC-ONB-081",
@@ -1014,7 +1014,7 @@
    "title": "Grace notice e-mail gives the due date",
    "preconditions": "A food shop made live without an FSSAI licence.",
    "steps": "1. Check the owner's mailbox after go-live",
-   "expected": "E-mail “Upload your licence within 90 days — <shop>” with the due date = live (approval) date + 90 days."
+   "expected": "E-mail (and in-app notice) “Upload your licence within 90 days — <shop>”: “<the shop-type notice of TC-ONB-080> Please upload it on GoKesari by <date>. We will remind you every 15 days until then.”, <date> = the go-live (approval) date in IST + 90 days, e.g. “18 Feb 2027”."
   },
   {
    "id": "TC-ONB-082",
@@ -1026,9 +1026,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "Reminders every 15 days until the licence is uploaded",
-   "preconditions": "A food shop in grace. The follow-up runs at 05.00 IST on the 1st and the 15th (trigger the cron by hand on staging if needed).",
-   "steps": "1. Let a run happen (or trigger it)\n2. Read the reminder\n3. Upload the licence\n4. Trigger the next run",
-   "expected": "Reminder: “If they are still missing on <date>, your shop will be suspended automatically. We will remind you every 15 days until then.” No reminder after the licence is uploaded."
+   "preconditions": "A wizard shop in grace (live, licence not uploaded). The follow-up is part of the 05.00 IST daily cron and acts only on the rule's reminder days (shopDocumentFollowUp.reminderDaysOfMonth: the 1st and the 15th); a hand-triggered POST /api/cron/daily on another day does nothing for it.",
+   "steps": "1. Let a run happen (or trigger it on a reminder day)\n2. Read the reminder\n3. Upload the licence and the Shop Act certificate\n4. Trigger the next run",
+   "expected": "Reminder (e-mail and in-app) “Submit your shop documents — reminder <n>”: “<shop> is live, but these documents are still missing: <list>. Your shop went live before its documents; they are due by <date>. Upload them on GoKesari so we can verify them. If they are still missing on <date>, your shop will be suspended automatically. We will remind you every 15 days until then.” — <list> names every missing document, the Shop Act certificate as well as the licence (e.g. “FSSAI licence / registration, Shop Act (Shops & Establishments) certificate”). No reminder once every listed document is uploaded (a document waiting for GoKesari's check is not chased); with only the licence uploaded the Shop Act is still chased."
   },
   {
    "id": "TC-ONB-083",
@@ -1040,9 +1040,9 @@
    "role": "Shop Owner, Admin, Customer",
    "method": "UI+DB",
    "title": "After the grace period the shop is suspended automatically and customers are told",
-   "preconditions": "A food shop whose grace has ended (set graceDays to 15 and back-date the approval on staging only, with the developer). Restore after.",
+   "preconditions": "A food shop whose grace has ended (set graceDays to 15 and back-date the approval on staging only, with the developer), and the follow-up run on a reminder day (1st / 15th, or reminderDaysOfMonth set to today). Restore after.",
    "steps": "1. Trigger the follow-up run\n2. Open the shop in Seller Central\n3. Check admin / operator notifications\n4. As a customer open the shop page",
-   "expected": "The shop is SUSPENDED by the run. Admins and operators get “Shop suspended for missing documents”. Public page: “This shop is suspended and is not taking orders.”"
+   "expected": "The shop is SUSPENDED by the run. Seller Central: “Your shop is suspended” — “Reason: Shop documents not submitted within <graceDays> days of approval without them: <list>.” and “What to do: Upload <list> on GoKesari (Shop → Verification). Our team reinstates the shop once they are verified.” Admins and operators get “Shop suspended for missing documents: <shop>” — “<shop> was suspended automatically because these documents were not uploaded in time: <list>.” Public page: “This shop is suspended and is not taking orders.”"
   },
   {
    "id": "TC-ONB-084",
@@ -1055,8 +1055,8 @@
    "method": "UI",
    "title": "Grace days setting accepts 15 to 365 only",
    "preconditions": "Signed in as admin on staging.",
-   "steps": "1. Set the licence grace days to 14, then 366, then 15 and 365\n2. Restore 90",
-   "expected": "14 and 366 are refused; 15 and 365 are saved."
+   "steps": "1. Admin → Business rules → shopDocumentFollowUp: set graceDays to 14, then 366, then 15 and 365 in the JSON and press Save each time\n2. Restore 90 (“Restore default”)",
+   "expected": "14 and 366 are refused (“graceDays: …” under the editor; the API answers 422 “That value is not allowed for this setting.”); 15 and 365 are saved (“Saved.”)."
   },
   {
    "id": "TC-ONB-085",
@@ -1070,7 +1070,7 @@
    "title": "Unfinished registration: reminders after 24 h and again 48 h later",
    "preconditions": "Signed in on test.gokesari.com as a new test user with no shop. Stop at the Address step. Time can be shortened only with the developer on staging.",
    "steps": "1. Wait 24 h (or shorten)\n2. Read the e-mail\n3. Wait 48 h more",
-   "expected": "First e-mail: “Your shop is <N steps> from going live” / “You stopped at “<step>”. Everything you entered is saved…”. A second reminder 48 h later (72 h idle)."
+   "expected": "First reminder (e-mail and in-app) 24 h after the last step: “Your shop is <N> steps from going live” — “You stopped at \"<step>\". Everything you entered is saved — continue where you left off: <site>/shop/register” (stopped at the Address step: “Your shop is 4 steps from going live”, “Confirm your shop address”). A second reminder 48 h later (72 h idle), then none."
   },
   {
    "id": "TC-ONB-086",
@@ -1084,7 +1084,7 @@
    "title": "The dealer whose code was used is told after 72 h",
    "preconditions": "A registration started with a dealer's code and left idle 72 h.",
    "steps": "1. Check the dealer's notifications / e-mail",
-   "expected": "Dealer gets “A shop with your code has not finished registering.”"
+   "expected": "With the second (72 h) reminder the dealer gets an in-app notice (not e-mailed by default) “A shop with your code has not finished registering” — “<owner> started registering a shop with your code <CODE> 3 days ago and stopped at \"<step>\". A call may help them finish.” Only for a code of an outside (not internal) dealer."
   },
   {
    "id": "TC-ONB-087",
@@ -1112,7 +1112,7 @@
    "title": "A draft idle for 7 days is abandoned and the owner starts again",
    "preconditions": "A draft last touched more than 7 days ago (back-dated on staging with the developer).",
    "steps": "1. Open /shop/register",
-   "expected": "The draft is ABANDONED; the owner restarts at screen 1 “Verify your business”."
+   "expected": "The draft is ABANDONED; the owner restarts on the first screen after sign-in, “Verify your business” (tile 2. Verify, “Step 2 of 5”), with the referral code and GST / PAN to enter again."
   },
   {
    "id": "TC-CAT-071",
@@ -1167,8 +1167,8 @@
    "method": "UI",
    "title": "Stock and price editor refuses impossible prices",
    "preconditions": "Shop A signed in.",
-   "steps": "1. Set MRP 0\n2. Set price above MRP\n3. Set discount 0% and 100%\n4. Set price 10,00,001",
-   "expected": "“MRP must be more than 0.”, “Price cannot be more than the MRP.”, discount must be 1-99%, “A price can be at most ₹10,00,000.” Nothing is saved for refused values."
+   "steps": "1. In My products, set a listing's MRP to 0\n2. Set its selling price above the MRP\n3. Enter 0, then 100, in “Discount off MRP (%)” and click Apply\n4. Set the MRP and the selling price to 10,00,001 and click “Save changes”",
+   "expected": "“MRP must be more than 0.” and “Price cannot be more than the MRP.” show under the field and “Save changes” stays disabled. Apply shows “Enter a discount from 1 to 99 percent.” for 0% and for 100% and changes no price. After Save, the row shows “A price can be at most ₹10,00,000.” and the page “1 product was not saved. Look for the messages in red.” Nothing is saved for refused values."
   },
   {
    "id": "TC-CAT-075",
@@ -1224,7 +1224,7 @@
    "title": "Selling above MRP, zero, negative and non-numeric amounts are rejected",
    "preconditions": "Template with: Selling 550 / MRP 500, price 0, MRP 'abc', stock -5.",
    "steps": "1. Upload the file",
-   "expected": "“Row 22: Selling Price ₹550.00 > MRP ₹500.00”, zero price rejected, “MRP “abc” is not a valid amount”, negative stock rejected; other rows import."
+   "expected": "“Row 22: Selling Price ₹550.00 > MRP ₹500.00”, “Row N: Selling Price must be more than 0”, “Row N: MRP \"abc\" is not a valid amount (a number, 0 or more)”, “Row N: Stock Qty \"-5\" is not a valid quantity (a number, 0 or more)” (the preview lists each as “Error: Row N: …”); other rows import."
   },
   {
    "id": "TC-CAT-079",
@@ -1236,9 +1236,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "GST rate outside the slabs and unknown categories are rejected",
-   "preconditions": "Template with GST 10 and Category 'Toys'.",
+   "preconditions": "Template with GST 10 and a Category that is not in the GoKesari category list (e.g. 'Toys', if the site has no category of that name).",
    "steps": "1. Upload the file",
-   "expected": "GST 10 rejected (allowed 0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28, 40). “Invalid category “Toys” — choose one from the Category list”."
+   "expected": "“GST 10% is not a GST rate in India (0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28, 40%)”. “Invalid category \"Toys\" — choose one from the Category list”."
   },
   {
    "id": "TC-CAT-080",
@@ -1279,8 +1279,8 @@
    "method": "UI",
    "title": "Update many products with Excel",
    "preconditions": "Shop A with at least 5 listings.",
-   "steps": "1. In My products click “Update many products with Excel” and download\n2. Change price and stock on 3 rows, set Include = No on 1 row\n3. Upload and click “Import valid rows and skip errors”",
-   "expected": "Columns: Product ID, Category, Product Name, Brand, Pack Size, Unit, Master MRP (read-only), Include (Yes/No), Shop MRP, Selling Price, Stock Quantity. The 3 changes apply; the Include = No product is removed / paused."
+   "steps": "1. In My products open “Update many products with Excel” and click “Download my products”\n2. Change price and stock on 3 rows, set Include = No on 1 row (add one row with an unknown Product ID)\n3. Upload it with “Choose your file”, tick “Yes, pause 1 product marked No…” and click “Import valid rows and skip errors” (the button reads “Import” when no row has an error)",
+   "expected": "Columns: Product ID, Category, Product Name, Brand, Pack Size, Unit, Master MRP, Include (Yes/No), Shop MRP, Selling Price, Stock Quantity (Product ID to Master MRP grey and locked), plus an Instructions sheet. The 3 changes apply; the Include = No product is paused, not removed (“Yes, pause 1 product marked No. Customers will stop seeing them; nothing is deleted.” must be ticked, otherwise it is left as it was)."
   },
   {
    "id": "TC-CAT-083",
@@ -1294,7 +1294,7 @@
    "title": "Every rejected setup row says why (D-1 'Add new product')",
    "preconditions": "Setup file with: empty Product ID, duplicate Product ID, unknown Product ID, Include = Maybe, Selling 'ten', Shop MRP 0, a category not in the shop.",
    "steps": "1. Upload the file",
-   "expected": "“Product ID is missing.”, “Product ID X appears more than once…”, “Product ID X is not in the GoKesari product list. Add it as a new product instead.” with an “Add new product” link (D-1), “Include must be Yes or No.”, “Selling Price must be a number.”, “Shop MRP must be more than 0.”, “Add the category “X” to your shop first.”"
+   "expected": "Each rejected row is listed as “Row N: …”: “Product ID is missing.”, “Product ID X appears more than once in this file. Keep one row.” (on every copy), “Product ID X is not in the GoKesari product list. Add it as a new product instead.” with an “Add new product” link (D-1; the error file also gets an “Add new product” column linking to the form), “Include must be Yes or No.”, “Selling Price must be a number.”, “Shop MRP must be more than 0.”, “Add the category \"X\" to your shop first.” (a product the shop does not list yet)."
   },
   {
    "id": "TC-CAT-084",
@@ -1308,7 +1308,7 @@
    "title": "Setup file limits: 5,000 rows and 10 MB",
    "preconditions": "Files with 5,000 rows, 5,001 rows and one over 10 MB.",
    "steps": "1. Upload each",
-   "expected": "5,000 rows accepted; 5,001 rows and the 11 MB file refused with a clear message, nothing applied."
+   "expected": "5,000 rows are accepted for checking; 5,001 rows are refused with “This file has too many rows. The limit is 5,000 products per file.” and the 11 MB file with “The file is too large. The limit is 10 MB.”; nothing is applied (limits from rule productImport, defaults 5,000 rows and 10 MB)."
   },
   {
    "id": "TC-CAT-085",
@@ -1320,7 +1320,7 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "The same file is not applied twice in a day",
-   "preconditions": "A setup file already imported today.",
+   "preconditions": "A setup file already imported (confirmed) in the last 24 hours.",
    "steps": "1. Upload the same file again",
    "expected": "“This exact file was already imported today, so it was not applied again.”"
   },
@@ -1335,8 +1335,8 @@
    "method": "UI",
    "title": "Starter shelf publishes the most-ordered products at MRP",
    "preconditions": "A new live shop with one category.",
-   "steps": "1. Open the starter shelf\n2. Check order, ticks, prices and stock\n3. Click “Publish N products”",
-   "expected": "Up to 100 products, most ordered on GoKesari in the last 90 days first, pre-ticked at MRP with stock 100. After publishing, N listings are Live."
+   "steps": "1. On /shop/register, at “🎉 <shop> is live”, click “Add products” (step 7. Add your products — the starter shelf)\n2. Check order, ticks, prices and stock\n3. Click “Publish N products”",
+   "expected": "Up to 100 products, most ordered on GoKesari in the last 90 days first (then stocked by most shops), pre-ticked at MRP with stock 100; a product with no MRP (loose) starts unticked with no price. After publishing, N listings are Live."
   },
   {
    "id": "TC-CAT-087",
@@ -1350,7 +1350,7 @@
    "title": "Starter shelf asks for at least one product and a price for each",
    "preconditions": "Starter shelf open.",
    "steps": "1. Untick everything and publish\n2. Tick one, clear its price and publish",
-   "expected": "“Tick at least one product.” then “Enter a price for X, or untick it.”"
+   "expected": "With nothing ticked the button reads “Publish 0 products” and is disabled (the API refuses an empty list with “Tick at least one product.”); then “Enter a price for X, or untick it.”"
   },
   {
    "id": "TC-CAT-088",
@@ -1363,8 +1363,8 @@
    "method": "UI",
    "title": "Scanning a known barcode adds the product at MRP",
    "preconditions": "Phone with camera, signed in as Shop A; a packaged product in the master with its barcode.",
-   "steps": "1. Click “📷 Scan a barcode”\n2. Scan the product",
-   "expected": "“Added X at MRP ₹…”; the listing appears in My products."
+   "steps": "1. On the starter shelf (registration step 7) click “📷 Scan a barcode”\n2. Scan the product (or type its number in “Barcode number” and click “Find”)\n3. Click “Publish N products”",
+   "expected": "“Added X at MRP ₹….”; the product goes to the top of the starter shelf, ticked at its MRP; after “Publish N products” the listing is Live in My products."
   },
   {
    "id": "TC-CAT-089",
@@ -1378,7 +1378,7 @@
    "title": "An unknown barcode is sent to the team; short codes are refused",
    "preconditions": "A barcode not in the master; a 5-digit code.",
    "steps": "1. Scan / type the unknown barcode\n2. Enter name, unit and price and send\n3. Type the 5-digit code",
-   "expected": "“<code> is not in our catalogue yet…”, then “Sent to our team — it goes on sale in your shop once approved.” (admin sees the request). The 5-digit code is refused (minimum 6 digits)."
+   "expected": "“<code> is not in our catalogue yet. Add it — it goes on sale once our team approves it.”, then “Sent to our team — it goes on sale in your shop once approved. We'll let you know.” (the admin sees it under Products awaiting publication). The 5-digit code is not looked up: “Find” does nothing below 6 digits, and the look-up API answers 422 “Enter the barcode number (at least 6 digits).”."
   },
   {
    "id": "TC-CAT-090",
@@ -1406,7 +1406,7 @@
    "title": "Radius slider stops at 1 and 10 km; pickup only offers no delivery",
    "preconditions": "Shop A signed in.",
    "steps": "1. Move the radius slider to both ends\n2. Choose “Pickup only” and save\n3. As a customer, open checkout",
-   "expected": "Slider range is 1-10 km. With Pickup only, checkout offers pickup and no delivery."
+   "expected": "Slider range is 1-10 km; choosing Pickup only hides it. With Pickup only saved, the shop page says “Pickup only”, the cart charges no delivery fee and the order is placed without a delivery address (collected with a pickup code); checkout has no separate pickup / delivery choice."
   },
   {
    "id": "TC-DEL-032",
@@ -1419,8 +1419,8 @@
    "method": "UI",
    "title": "Rider verifies Aadhaar through DigiLocker (staging mock)",
    "preconditions": "Signed in as a new delivery-partner applicant at the KYC step. Staging uses the mock at /mobile-auth/digilocker-mock.",
-   "steps": "1. Open /delivery-partner/kyc (“Step 2 of 3”)\n2. Tick consent, enter PAN, click “Verify PAN”\n3. Click “Verify with DigiLocker” and complete the mock\n4. Return to the KYC page",
-   "expected": "Returns to /delivery-partner/kyc?digilocker=verified; the page checks the result (up to 6 × 5 s) and shows Aadhaar as XXXX XXXX 1234. Only the name and last 4 digits are kept."
+   "steps": "1. Open /delivery-partner/kyc (“PAN and Aadhaar verification”, “Step 2 of 3”)\n2. Tick consent, enter PAN, click “Verify PAN”\n3. Click “Verify with DigiLocker”; on the mock page (“DigiLocker — test page”) click “Approve — share my Aadhaar”\n4. DigiLocker's return link brings you back to the KYC page",
+   "expected": "Returns to /delivery-partner/kyc?digilocker=verified with Aadhaar “Verified” as XXXX XXXX 4321 (the mock always shares the last digits 4321) and “KYC complete”. Only when the result is not in yet (?digilocker=pending) does the page ask again, every 5 s up to 6 times. Only the name and last 4 digits are kept (no Aadhaar number, not even encrypted; the mock's “Approve” shares no name)."
   },
   {
    "id": "TC-DEL-033",
@@ -1433,8 +1433,8 @@
    "method": "UI",
    "title": "Declined consent and expired link are explained and can be retried",
    "preconditions": "Applicant at the KYC step.",
-   "steps": "1. Decline consent in the mock\n2. Start again and let the link expire\n3. Click “Continue in DigiLocker”",
-   "expected": "“DigiLocker did not share your Aadhaar (consent was declined…)” and “The DigiLocker link expired…”; the retry works."
+   "steps": "1. Click “Verify with DigiLocker”, then “Deny” on the mock page\n2. Click “Verify with DigiLocker” again, then “Let the link expire”\n3. Click “Verify with DigiLocker” again and approve (“Continue in DigiLocker” is shown only while an unfinished link is still open)",
+   "expected": "Aadhaar “Failed” with “DigiLocker did not share your Aadhaar (consent was declined or not finished). Start again to retry.”, then “Failed” with “The DigiLocker link expired before it was finished. Start again.”; the new attempt ends “Verified”."
   },
   {
    "id": "TC-DEL-034",
@@ -1446,9 +1446,9 @@
    "role": "Rider, Admin",
    "method": "UI",
    "title": "Name mismatch and vendor down leave the check Pending for the team",
-   "preconditions": "Mock options for a different name and for vendor down.",
-   "steps": "1. Complete the mock with a different name\n2. Repeat with vendor down",
-   "expected": "Mismatch: “The name on the record doesn't match … Our team will check it.” Vendor down: “The verification service is not answering right now…”. Both stay Pending (not Failed) and appear in admin."
+   "preconditions": "Applicants at the KYC step; the mock page's buttons “Approve — Aadhaar in another name” and “DigiLocker is down”.",
+   "steps": "1. On the mock page click “Approve — Aadhaar in another name”\n2. As another applicant, click “DigiLocker is down” on the mock page\n3. As admin open Admin → Rider verification (/admin/rider-verification)",
+   "expected": "Mismatch: back on ?digilocker=pending, Aadhaar “Pending” XXXX XXXX 4321 with “The name on the record doesn't match your registered name closely enough. Our team will check it.” Vendor down: “Pending” with “The verification service is not answering right now. We'll check again, or you can retry later.” Both stay Pending (not Failed) and are listed under Admin → Rider verification with the badge “pending” (“Name on record: SOMEONE ELSE ENTIRELY …” / “KYC provider not answering (vendor_source_down)…”) and “Resend DigiLocker link”."
   },
   {
    "id": "TC-DEL-035",
@@ -1460,9 +1460,9 @@
    "role": "Rider",
    "method": "UI",
    "title": "One Aadhaar cannot verify two delivery partners",
-   "preconditions": "An Aadhaar (mock) already verified for Rider 1.",
+   "preconditions": "Rider 1's Aadhaar verified through DigiLocker; the second applicant shares the same DigiLocker account (real DigiLocker: the same Aadhaar holder). The mock signs every session in as a new DigiLocker account, so through the mock alone this cannot be produced (the automated check arranges it).",
    "steps": "1. As another applicant, verify the same Aadhaar",
-   "expected": "“This number is already verified for another delivery partner.”; not verified."
+   "expected": "Aadhaar “Failed”: “This number is already verified for another delivery partner. Contact support if it is yours.”; not verified (Rider 1 stays Verified)."
   },
   {
    "id": "TC-DEL-036",
@@ -1475,8 +1475,8 @@
    "method": "UI",
    "title": "Admin resends the DigiLocker link",
    "preconditions": "An applicant with a Pending DigiLocker check.",
-   "steps": "1. As admin open the applicant\n2. Click “Resend link”",
-   "expected": "A new link is sent to the applicant and the old one no longer works."
+   "steps": "1. As admin open Admin → Rider verification (/admin/rider-verification) and find the applicant's Aadhaar row\n2. Click “Resend DigiLocker link”",
+   "expected": "The applicant gets the notification “Finish your Aadhaar check in DigiLocker” (“Our team sent you a new DigiLocker link. It works for about an hour.”), which opens the new link (/delivery-partner/kyc/digilocker/open); the check stays Pending. The old link no longer works: finishing it returns to ?digilocker=unknown and changes nothing."
   },
   {
    "id": "TC-RPAY-001",
@@ -1488,7 +1488,7 @@
    "role": "Rider",
    "method": "UI",
    "title": "Bank account verified with the bank, without a Rs 1 payment",
-   "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Rule bankAccountCheck enabled on staging. Sandbox bank test data from Cashfree (no real account).",
+   "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Rule bankAccountCheck enabled on staging. Sandbox bank test data from Cashfree (no real account). Cashfree Verification Suite sandbox keys set (Admin → Bank accounts, “Bank check with Cashfree”: keys found, sandbox). Rider 1's current account not already verified — changing a verified rider account first needs the e-mailed code. Sandbox sample: 026291800001191 / YESB0000262 / “John Doe”.",
    "steps": "1. Open the bank account page\n2. Enter “Account holder name” exactly as the bank has it, account number, re-enter it, IFSC\n3. Save",
    "expected": "“Saved and verified with your bank — no ₹1 payment needed.”; account shows Verified."
   },
@@ -1504,7 +1504,7 @@
    "title": "Mismatched number, wrong name, bad IFSC and NRE accounts are refused",
    "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Sandbox test data for each failure.",
    "steps": "1. Re-enter a different account number\n2. Save with a different holder name\n3. Use an IFSC that does not match\n4. Use an NRE account",
-   "expected": "“The two numbers do not match.” Name: “the bank has this account in the name “X”, which does not match “Y”” with banner “Your bank did not confirm these details”. IFSC: “the IFSC is not valid for this account”. “NRE accounts cannot be used”."
+   "expected": "Re-entered number: “The two numbers do not match.” under the field while typing; on Save “The two account numbers do not match.” (nothing saved). Name: banner “Your bank did not confirm these details” with “The bank has this account in the name \"X\", which does not match \"Y\". Change the details to match your bank exactly, then save.” IFSC: “The IFSC is not valid for this account.” NRE: “NRE accounts cannot be used.” (same banner). No “Verify with ₹1” after a bank refusal."
   },
   {
    "id": "TC-RPAY-003",
@@ -1517,8 +1517,8 @@
    "method": "UI",
    "title": "Provider error and the 3-checks-a-day cap fall back to the Rs 1 check",
    "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). A way to make the provider fail on staging (developer).",
-   "steps": "1. Save with the provider failing\n2. Run 3 checks in a day, then a 4th",
-   "expected": "“Saved. We could not reach your bank just now — verify with ₹1 instead…”. 4th: “The bank can be asked 3 times a day. Verify with ₹1 instead, or try tomorrow.”"
+   "steps": "1. Save with the provider failing\n2. Click “Check with my bank again” until 3 checks have been made in 24 hours, then once more",
+   "expected": "“Saved. We could not reach your bank just now — verify with ₹1 instead, or check with your bank again.”; the account shows “We could not reach your bank just now to check this account.” with “Check with my bank again” and “Verify with ₹1”. 4th check: “The bank can be asked 3 times a day. Verify with ₹1 instead, or try tomorrow.” (counted per person over the last 24 hours; a 4th save is not checked and shows “Saved. Now verify it with a ₹1 payment, refunded straight away.”)."
   },
   {
    "id": "TC-RPAY-004",
@@ -1546,7 +1546,7 @@
    "title": "Rider withdraws Rs 100 with the e-mailed code",
    "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Rider 1 has a verified bank account and at least Rs 500 unpaid earnings.",
    "steps": "1. Open /gig/wallet\n2. Withdraw ₹100\n3. Enter the code from the e-mail\n4. Open the payout page",
-   "expected": "Payout created by IMPS with fee ₹0; unpaid balance down by ₹100; /gig/wallet/payouts/<id> shows the amount and status."
+   "expected": "“₹100.00 has been paid to your bank.” (the sandbox answers at once; otherwise “… is on its way to your bank.”). Before the code the check shows Fee “None”, TDS “None”, “You receive ₹100.00”; the transfer is IMPS with fee ₹0; “Unpaid earnings” goes down by ₹100; /gig/wallet/payouts/<id> (“Withdrawal statement”) shows Amount ₹100.00, Fee None, Sent by IMPS and the status (“Paid”)."
   },
   {
    "id": "TC-RPAY-006",
@@ -1559,8 +1559,8 @@
    "method": "UI",
    "title": "Withdrawal amount limits",
    "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Rider 1 with Rs 600 unpaid earnings.",
-   "steps": "1. Withdraw ₹99\n2. Withdraw ₹10,001\n3. Withdraw ₹700\n4. Withdraw ₹100 and ₹600",
-   "expected": "₹99: “The smallest withdrawal is ₹100.” ₹10,001: “The largest withdrawal is ₹10,000.” ₹700: “You can withdraw up to ₹600 — your unpaid earnings.” ₹100 and ₹600 accepted."
+   "steps": "1. Check ₹99\n2. Check ₹10,001\n3. Check ₹700\n4. Check ₹100, then ₹600 (each on its own: after withdrawing ₹100 only ₹500 is left)",
+   "expected": "₹99: “The smallest withdrawal is ₹100.00.” ₹10,001: “The largest withdrawal is ₹10,000.00.” ₹700: “You can withdraw up to ₹600.00 — your unpaid earnings.” ₹100 and ₹600 are each accepted (“Email me a code to confirm” is offered)."
   },
   {
    "id": "TC-RPAY-007",
@@ -1574,7 +1574,7 @@
    "title": "Daily withdrawal limit of Rs 10,000",
    "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Rider with more than Rs 10,100 unpaid earnings (seeded on staging).",
    "steps": "1. Withdraw ₹9,900\n2. Try ₹200\n3. Withdraw ₹100\n4. Try ₹100 again",
-   "expected": "₹200: “You can withdraw ₹100 more today (daily limit ₹10,000).” After ₹100: “You have reached today's withdrawal limit…”."
+   "expected": "₹200: “You can withdraw ₹100.00 more today (daily limit ₹10,000.00).” After ₹100: “You have reached today's withdrawal limit of ₹10,000.00. Try again tomorrow.” (the IST calendar day; a refused withdrawal that went back to the balance does not count)."
   },
   {
    "id": "TC-RPAY-008",
@@ -1615,8 +1615,8 @@
    "method": "UI+API",
    "title": "Payouts switched off or no provider: hidden or explained",
    "preconditions": "Admin can switch rider_withdrawal_enabled off on staging (restore after).",
-   "steps": "1. Switch the flag off and open /gig/wallet withdraw\n2. Switch it on with no payout provider configured",
-   "expected": "Flag off: the routes answer 404 / the option is hidden. No provider: “Withdrawals are not available right now…”."
+   "steps": "1. Switch rider_withdrawal_enabled (and rider_bank_account_enabled) off and open /gig/wallet\n2. Switch them on with rule riderPayouts.provider set to a provider without keys (e.g. RAZORPAYX) — SANDBOX is always available off gokesari.com",
+   "expected": "rider_bank_account_enabled off: /gig/wallet and /api/gig/wallet answer 404 (“This feature is not available.”) and the profile has no “My wallet”. rider_withdrawal_enabled off: no “Withdraw to bank” section; /api/gig/wallet/quote and /api/gig/wallet/withdrawals answer 404. No provider: “Withdrawals are not available right now. Please try again later.” (page, and the API with 409)."
   },
   {
    "id": "TC-RPAY-011",
@@ -1630,7 +1630,7 @@
    "title": "Every withdrawal needs a fresh e-mailed code",
    "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). ",
    "steps": "1. Start a withdrawal and enter a wrong code\n2. Enter an old code from an earlier withdrawal\n3. Call the API without a code",
-   "expected": "All three are refused; no payout is created; the correct fresh code works once."
+   "expected": "Wrong code and an earlier withdrawal's (used) code: “That code is wrong or has expired. Check the latest email or request a new code.” (422). The API without a code is not refused: it only e-mails a new code (which replaces any unused earlier one). No payout is created by any of the three; the correct fresh code works once (used again: refused)."
   },
   {
    "id": "TC-RPAY-012",
@@ -1643,8 +1643,8 @@
    "method": "UI",
    "title": "Changing a verified rider bank account needs the e-mailed code (10 minutes)",
    "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Rider 1 with a verified account.",
-   "steps": "1. Click to change the bank account\n2. Enter the e-mailed code\n3. Wait 11 minutes and try another change",
-   "expected": "“Confirm it's you first…” before the form opens; after the code the change is allowed for 10 minutes, then a new code is asked."
+   "steps": "1. On My wallet → Bank account click “Change details”, enter new details and Save\n2. Click “Email me a code”, enter the e-mailed code, “Confirm”, and Save the change\n3. Get a code again, wait 11 minutes, then try to Save a change",
+   "expected": "The page says “Your account is verified. To change or remove it, first confirm it's you with a code we email you.”; the form opens, but saving without the code is refused: “Confirm it's you first: we'll email you a code before your bank account can be changed.” After the code: “Confirmed. Change your bank details below (or remove the account) before <time>.” — one change or removal within 10 minutes; after 10 minutes (or once used) the same refusal, and a new code is needed."
   },
   {
    "id": "TC-RPAY-013",
@@ -1656,9 +1656,9 @@
    "role": "Rider, Admin",
    "method": "UI",
    "title": "Monthly payout on the 5th by NEFT",
-   "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). rider_monthly_payout_enabled ON; Rider 1 with ≥ Rs 100 and Rider 2 with < Rs 100 unpaid. Use admin “Run now” on staging.",
+   "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). rider_monthly_payout_enabled ON; Rider 1 with ≥ Rs 100 and Rider 2 with < Rs 100 unpaid and a verified bank account. Use admin “Run now” on staging.",
    "steps": "1. Run the monthly payout\n2. Open each rider's wallet",
-   "expected": "Rider 1 gets an NEFT payout of the unpaid amount; Rider 2's amount below ₹100 is carried forward. The schedule shows the 5th from 09.00 IST."
+   "expected": "Rider 1 gets a monthly payout by NEFT of what was unpaid for that month (earned before the month's end): “Monthly payout statement”, Sent by NEFT. Rider 2's amount below ₹100 is carried forward (run page “Carried forward”: “Below the minimum · ₹…”; notification “<Month YYYY> earnings carried forward … it is below the minimum payout.”). The schedule shows the 5th from 09:00 IST (wallet: “On the 5th of every month (from 09:00) …”; admin: “Monthly run on day 5 from 09:00 IST (on)”)."
   },
   {
    "id": "TC-RPAY-014",
@@ -1671,8 +1671,8 @@
    "method": "UI",
    "title": "A refused transfer returns the money and is retried",
    "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Sandbox data for a bank refusal.",
-   "steps": "1. Withdraw to an account the sandbox refuses\n2. Open the payout page\n3. Check the retries",
-   "expected": "“The bank refused the transfer: … The amount is back in your balance.” Failed transfers retry up to 3 times, 60 minutes × attempt apart."
+   "steps": "1. Withdraw an amount ending in 98 paise (e.g. ₹100.98): the SANDBOX payout provider refuses those, whatever the account\n2. Open the payout page\n3. For the retries: a monthly payout of an amount ending in 98 paise (admin “Run now”), then the hourly job",
+   "expected": "Withdrawal: “The bank refused the transfer: Beneficiary bank is offline (sandbox). The amount is back in your balance.”; the payment shows “Failed — back in balance” and is not retried. Monthly payout: a refused transfer (“Failed — retrying”) is retried by the hourly job up to 3 times, 60 minutes × attempt apart (60, 120, 180 min); then it waits under “Needs a decision” for finance and the rider is told (“… Our finance team will retry it or return it to your balance. …”)."
   },
   {
    "id": "TC-RPAY-015",
@@ -1686,7 +1686,7 @@
    "title": "Admin rider-payouts page: FINANCE_VIEW to see, ADMIN to run",
    "preconditions": "Admin, ops (full operator) and oplim accounts.",
    "steps": "1. Open /admin/rider-payouts as each\n2. Click “Run now” as each who sees it",
-   "expected": "Only users with FINANCE_VIEW see the page; only ADMIN can “Run now”; others are refused."
+   "expected": "Admin sees Admin → Rider payouts (while flag rider_bank_account_enabled is on; off: 404) with “Run now”. Operator (ops) and limited operator (oplim) have no FINANCE_VIEW: the page sends them to the home page and /api/admin/rider-payouts/runs answers 403 (GET and POST). Only an ADMIN can “Run now” (the API also needs FINANCE_PREPARE)."
   },
   {
    "id": "TC-RPAY-016",
@@ -1699,8 +1699,8 @@
    "method": "UI+DB",
    "title": "TDS 194C only above the limits: 1% with PAN, 20% without",
    "preconditions": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Riders seeded on staging with: yearly payouts Rs 99,000 (with PAN), a single Rs 31,000 payout (with PAN), and one without PAN above the limit.",
-   "steps": "1. Make a payout for each\n2. Open each payout page and the admin record",
-   "expected": "No TDS while yearly total ≤ ₹1,00,000 and the single payment ≤ ₹30,000. Above either: 1% with PAN, 20% without. TDS amount shown on the payout and in admin."
+   "steps": "1. Make a payout for each (the single ₹31,000 payment is a monthly payout — a withdrawal is at most ₹10,000)\n2. Open each payout page and the admin record",
+   "expected": "No TDS while the year's total (this payment included) is at most ₹1,00,000 and the single payment at most ₹30,000. A single payment above ₹30,000: 1% of it with PAN, 20% without. Once the year's total passes ₹1,00,000: 1% (20% without PAN) of the whole year's payments, less TDS already deducted (e.g. ₹99,000 paid + ₹2,000 → TDS ₹1,010), never more than the payment less ₹1. Shown on the payout statement (“TDS (1%, s.194C) − ₹…”) and in admin (run page “(gross …, TDS …)”, recent withdrawals “(TDS …)”)."
   },
   {
    "id": "TC-BILL-001",
@@ -1712,9 +1712,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "Intra-state B2C invoice has CGST + SGST; inter-state B2B has IGST and the buyer's GSTIN",
-   "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. A regular-GST test shop; a test buyer GSTIN of another state.",
+   "preconditions": "Signed in as the owner of a regular GST shop (GSTIN verified, GST status REGISTERED); a test buyer GSTIN of another state. Sales in Accounts > Sales work with or without billing_v2. Staging's Shop A has no GSTIN (bills of supply only): run where a GST-registered test shop exists (local tier).",
    "steps": "1. Create a sale to a walk-in customer in the same state\n2. Create a B2B sale with the other-state buyer GSTIN\n3. Open both invoices",
-   "expected": "First: CGST + SGST split. Second: IGST with the buyer GSTIN printed. Totals and HSN rates correct."
+   "expected": "First: a “Tax invoice”, “Intra-state (CGST + SGST)”, “Unregistered buyer (B2C)”, CGST and SGST each half of the GST. Second: a “Tax invoice”, “Inter-state (IGST)”, “GSTIN: <buyer GSTIN>”, place of supply the buyer's state, IGST only. Totals and HSN rates correct."
   },
   {
    "id": "TC-BILL-002",
@@ -1727,8 +1727,8 @@
    "method": "UI",
    "title": "Composition shop issues a bill of supply and cannot sell inter-state",
    "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. Shop set as composition dealer.",
-   "steps": "1. Create a sale\n2. Try an inter-state sale",
-   "expected": "A bill of supply without tax; the inter-state sale is blocked with a message."
+   "steps": "1. Create a sale (Accounts > Sales)\n2. As a customer whose delivery address is in another state, order from the shop (checkout)",
+   "expected": "The sale is a bill of supply with no tax (a GST rate entered is charged at 0%). The out-of-state order is refused at checkout: “<shop name>: This shop can deliver only within its own state. Choose a delivery address in the same state, or another shop.” (rule billing.compositionInterStateAllowed off, the default)"
   },
   {
    "id": "TC-BILL-003",
@@ -1742,7 +1742,7 @@
    "title": "A shop outside GST issues a bill of supply",
    "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. A PAN-only shop (no GST).",
    "steps": "1. Create a sale",
-   "expected": "Document is a bill of supply with no GST."
+   "expected": "Document is a “Bill of supply” with no GST: no tax rows or columns; a GST rate entered on a line is charged at 0%."
   },
   {
    "id": "TC-BILL-004",
@@ -1754,9 +1754,9 @@
    "role": "Customer, Shop Owner",
    "method": "UI",
    "title": "GoKesari issues its own s.9(5) delivery-fee invoice",
-   "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. An order with a delivery fee delivered by a GoKesari partner who is not GST-registered.",
-   "steps": "1. Deliver the order\n2. Open the invoices for it",
-   "expected": "A GoKesari delivery invoice in series GKS/2627/… for the delivery fee; none when the rider is GST-registered."
+   "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) and delivery_9_5 ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. GoKesari's GSTIN set (rule platformTaxProfile) and the dated rate GST_S95_LOCAL_DELIVERY enabled (Admin > Statutory: 5% from 1 Nov 2026). Signed in as the order's customer. An order with a delivery fee delivered by a GoKesari partner who is not GST-registered.",
+   "steps": "1. Deliver the order\n2. As the customer, open the order in My Orders",
+   "expected": "The delivered order shows “Delivery fee invoice (GoKesari)”: GoKesari's own tax invoice for the delivery fee, numbered GKS/2627/000001 (rule billing.deliveryInvoicePrefix), at the s.9(5) rate. None when the partner is GST-registered (the partner is liable)."
   },
   {
    "id": "TC-BILL-005",
@@ -1770,7 +1770,7 @@
    "title": "Issued documents are locked",
    "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. An issued invoice.",
    "steps": "1. Try to edit its amount or date in the UI\n2. Try the edit API",
-   "expected": "Edit refused; changes only through a credit / debit note."
+   "expected": "No edit control on the invoice page (Download PDF, 80 mm receipt, JSON, Share on WhatsApp, Cancel only); the API has no edit: PATCH / PUT …/accounts/sales/<id> answer 404 “Endpoint was not found.”. A change goes through a credit / debit note (Notes, vouchers & challans) or a cancellation with a reason."
   },
   {
    "id": "TC-BILL-006",
@@ -1797,8 +1797,8 @@
    "method": "UI",
    "title": "TCS 0.5% on net sales after returns; TDS 0.1% / 5%",
    "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. tcs_engine and tds_engine ON; a GST shop, an Enrolment-ID shop, shops with and without PAN.",
-   "steps": "1. Read the TCS on the payout statement\n2. Read the TDS above Rs 5 lakh with PAN and without PAN",
-   "expected": "TCS 0.5% on net after returns (none for the Enrolment-ID shop). TDS 0.1% with PAN above ₹5 lakh, 5% without PAN."
+   "steps": "1. Read the TCS on the shop's TCS / TDS statement (Accounts > Statements from GoKesari) and the payout statement\n2. Read the TDS above Rs 5 lakh with PAN and without PAN",
+   "expected": "TCS 0.5% of the net taxable value after returns (none for an Enrolment-ID or unregistered shop). TDS 0.1% with PAN — for an individual / HUF owner only once the year's gross sales pass ₹5 lakh — and 5% without PAN."
   },
   {
    "id": "TC-BILL-008",
@@ -1811,8 +1811,8 @@
    "method": "UI",
    "title": "POS sale reduces stock and issues a bill",
    "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. ",
-   "steps": "1. Open /shop/accounts/pos\n2. Sell 2 items\n3. Share / print the bill\n4. Open stock",
-   "expected": "Bill issued with the next number; stock down by the quantities sold."
+   "steps": "1. Open /shop/accounts/pos\n2. Sell 2 items (Make bill)\n3. Open its “80 mm receipt” from Sent bills\n4. Open stock",
+   "expected": "Sent bills lists the bill as “created” with the next number of the shop's counter-bill series (e.g. S2627-00006) and an “80 mm receipt” link; stock down by the quantities sold."
   },
   {
    "id": "TC-BILL-009",
@@ -1839,8 +1839,8 @@
    "method": "UI",
    "title": "GSTR-1, GSTR-3B and 2B / IMS reconciliation",
    "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. A month with sales, returns and purchases (mock GSP on staging).",
-   "steps": "1. Open /shop/accounts/gst\n2. Prepare GSTR-1 and GSTR-3B\n3. Open Reconcile",
-   "expected": "GSTR-1 tables 12, 13, 14 filled and validate; GSTR-3B totals match the books; 2B / IMS lines match or are flagged."
+   "steps": "1. Open /shop/accounts/gst > Returns on the portal\n2. Prepare GSTR-1 and GSTR-3B and Save them\n3. Open Match with GST portal (/shop/accounts/gst/reconcile)",
+   "expected": "GSTR-1 (sales through GoKesari: order tax invoices and their credit notes) has Table 12 (HSN), 13 (documents issued) and 14 (supplies through GoKesari, with GoKesari's GSTIN); after Save the portal's totals match GoKesari's. GSTR-3B outward tax equals the books (GST payable page). 2B / IMS lines are matched or flagged (matched, amount mismatch, missing in books, missing on portal)."
   },
   {
    "id": "TC-BILL-011",
@@ -1852,9 +1852,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "E-invoice IRN and e-way bill generate and cancel",
-   "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. ewaybill ON; mock IRP on staging.",
+   "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / tally_connector as needed), einvoice and ewaybill ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. In GST settings (Admin > GST config) e-invoicing and e-way bills switched on and document numbering GST16 (numbers of at most 16 characters); the shop has declared that e-invoicing applies; a B2B order tax invoice (customer's GSTIN at checkout). Mock GSP (GSP_PROVIDER=mock) on staging.",
    "steps": "1. Generate an IRN for a B2B invoice\n2. Cancel it\n3. Generate and cancel an e-way bill",
-   "expected": "IRN and e-way bill numbers appear and cancel correctly."
+   "expected": "The IRN (with ack no.) and the 12-digit e-way bill number appear; the e-way bill and then the IRN cancel (each within 24 hours of generation)."
   },
   {
    "id": "TC-BILL-012",
@@ -1866,9 +1866,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "Tally export and imports from Busy, Vyapar and myBillBook",
-   "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. tally_connector ON; sample export files from each tool.",
-   "steps": "1. Export to Tally (XML + Excel)\n2. Export again\n3. Import each sample file",
-   "expected": "Export reads back the same; the re-export reports unchanged. Imports create masters, vouchers and stock."
+   "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. File sync works for every shop while billing_v2 is on (tally_connector is only the live Tally Connector app). A GST shop's books with nothing on the export's fix list (HSN, GST rate, UQC); sample export files from each tool.",
+   "steps": "1. Accounts > Sync > TallyPrime: Send to software (ZIP: XML + Excel + mapping)\n2. Send again\n3. Bring in a file on Busy, Vyapar and myBillBook",
+   "expected": "The ZIP holds gokesari-tally.xml, gokesari-tally.xlsx and gokesari-tally-mapping.tsf; reading it back creates nothing; the second send adds no records (every record unchanged in the audit log, the card's record count stays). Each import reports “Imported: N new and M updated parties, K items, V vouchers. … items not on GoKesari …”: parties and vouchers are created, items are matched to the shop's listings (never created)."
   },
   {
    "id": "TC-BILL-013",
@@ -1880,9 +1880,9 @@
    "role": "Shop Owner",
    "method": "UI",
    "title": "GST session expiry and GSP down are handled",
-   "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. Mock GSP with expiry / outage switch.",
+   "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. GSTIN linked to the (mock) GST portal. The mock GSP has no expiry / outage switch: the session ends at the link's expiry time; an outage is simulated with the developer (local: the per-shop GSP call limit).",
    "steps": "1. Let the GST session expire and file\n2. Switch the GSP down and file",
-   "expected": "Expiry: a re-link prompt. GSP down: retry, then a manual fallback; nothing filed twice."
+   "expected": "Expiry: “Your GST portal session has expired. Link again with a new OTP.” GSP down: retried twice, then the return is marked ERROR with “… You can download the return and file it on gst.gov.in.” (its download stays available). A filed return is never filed again: preparing it again is refused “GSTR1 for <period> is already filed (ARN …). Corrections go in the next return.”"
   },
   {
    "id": "TC-BILL-014",
@@ -1896,7 +1896,7 @@
    "title": "Only the shop's owner can see its accounts",
    "preconditions": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. Shop B owner, a dealer, ops, oplim, Customer 1, Rider 1.",
    "steps": "1. As each, open /shop/accounts of Shop A and call its billing APIs",
-   "expected": "All are refused (another owner, dealer, operator, limited operator, customer, rider)."
+   "expected": "All are refused (another owner, dealer, operator, limited operator, customer, rider): the accounts APIs answer 403 “This shop does not belong to you.” (401 signed out), checked before anything else; /shop/accounts?shop=<Shop A> opens the caller's own shop or sends them away, never Shop A's books. (An admin may open any shop's books for support.)"
   },
   {
    "id": "TC-BILL-015",
@@ -1910,7 +1910,7 @@
    "title": "With the flags off, billing pages redirect and APIs answer 404",
    "preconditions": "billing_v2 OFF for the shop's district.",
    "steps": "1. Open /shop/accounts/pos and /shop/accounts/gst\n2. Call a billing API",
-   "expected": "Pages redirect to /shop/accounts; APIs answer 404."
+   "expected": "/shop/accounts/pos (and documents, journals, statements, sync) go back to /shop/accounts; /shop/accounts/gst still opens, without “Returns on the portal →”, and /shop/accounts/gst/returns goes back to /shop/accounts/gst. Billing APIs (pos, documents, gst-registration, portal, sync, statements, the 80 mm receipt) answer 404 “This feature is not available.”"
   },
   {
    "id": "TC-TIER-012",
@@ -1981,7 +1981,7 @@
    "role": "Dealer, Admin",
    "method": "UI",
    "title": "The dealer's rating moves only the direct share",
-   "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. Give the agent a rating that changes his direct rate (Admin > Dealers).",
+   "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. Give the dealer (main dealer) a rating above 5.0 with the flag dealer_rating_bonus_enabled ON: it moves the direct share of every shop in his network (step: the dealer's own, else the commission settings', default 1% per 1.0).",
    "steps": "1. Activate a shop signed by the agent\n2. Read the entries",
    "expected": "Only the agent's direct share follows the rating; the lead 4% and main dealer 3% are unchanged."
   },
@@ -2010,7 +2010,7 @@
    "method": "UI",
    "title": "Monthly target bonus: 50 shops earns 10% of the month's commission",
    "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. Seeded staging data: one agent with 55 and one with 49 ₹4,999 shops this month; a team lead and main dealer above 50 for their team / network.",
-   "steps": "1. Close the month (Run now on staging)\n2. Read each statement\n3. Check the next month's counter",
+   "steps": "1. Close the month (Admin > Dealers > Commission > “Close <Month YYYY> now”)\n2. Read each statement\n3. Check the next month's counter",
    "expected": "Agent with 55: commission ₹54,989, bonus ₹5,498.90. Agent with 49: no bonus. Lead / main dealer: 10% of their direct + override commission (not renewals or other bonuses). Counters restart at 0 next month."
   },
   {
@@ -2108,7 +2108,7 @@
    "method": "UI",
    "title": "Team performance by person with this month / yesterday / last week and download",
    "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. ",
-   "steps": "1. As the main dealer open Team performance\n2. Switch this month / yesterday / last week\n3. Download Excel and CSV\n4. As admin open TIERED > the dealer > Team performance",
+   "steps": "1. As the main dealer open Team performance\n2. Switch This month / Yesterday / Last week\n3. Download (Excel / CSV) — one CSV that opens in Excel\n4. As admin open TIERED > the dealer > Team performance",
    "expected": "Grouped main dealer > team lead > agent: registrations started with their code, shops registered, commission earned, target progress, all-time totals. Downloads match the screen. Admin sees the same per dealer."
   },
   {
@@ -2122,8 +2122,8 @@
    "method": "UI+API",
    "title": "Each person sees only their own team's performance",
    "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. Two team leads under one main dealer.",
-   "steps": "1. As lead A open Team performance\n2. As lead A call the API for lead B's team\n3. As an agent open Team performance",
-   "expected": "Lead A sees only his team; lead B's data is refused. The agent sees only his own figures."
+   "steps": "1. As lead A open Team performance\n2. As lead A call the network-wide API (/api/admin/dealer-tiers?dealerId=…&view=performance) and the team mapping (/api/dealer/team?view=mapping)\n3. As an agent open Team performance",
+   "expected": "Lead A's Team performance lists only him and his agents (lead B's team never appears); the network-wide API answers 403 (admin / operator only) and the team mapping 403 “Only the main dealer sees the whole team mapping.”; the agent sees only his own row."
   },
   {
    "id": "TC-TIER-027",
@@ -2135,7 +2135,7 @@
    "role": "Dealer, Admin",
    "method": "UI",
    "title": "Daily and weekly team reports go out only when something happened",
-   "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. Trigger the cron jobs dealer-team-report-daily and dealer-team-report-weekly by hand on staging.",
+   "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. The reports are jobs inside the 05:00 IST daily cron (/api/cron/daily, gk-cron@<site>-daily; the weekly one only on Mondays), not separate endpoints: run the daily cron by hand only with the developer (it runs every 05:00 job).",
    "steps": "1. Activate a shop, then run the daily job\n2. Run the daily job again on a day with no activity\n3. Run the weekly job (as on a Monday)",
    "expected": "Daily (05.00 IST): yesterday's report by e-mail and in-app to the main dealer (network), each lead (his team) and admins (one summary). Weekly on Mondays: last Monday-Sunday. No report when nothing happened."
   },
@@ -2150,8 +2150,8 @@
    "method": "UI",
    "title": "Month close: one payout per person on the 5th with lines per type and gross / TDS / net",
    "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. A month with direct, override, renewal, development and bonus entries.",
-   "steps": "1. Close the month (Run now)\n2. Open each draft payout and statement",
-   "expected": "One payout per person to their own bank under their own PAN; statement lines per type (direct, overrides, renewal, development, bonus); gross, TDS and net shown (TDS 0 while dealerPayoutTds is off). Shops registered up to the last day of the month are included."
+   "steps": "1. Close the month (“Close <Month YYYY> now”)\n2. Open each draft payout and statement",
+   "expected": "One payout per person (one per PAN when a person is paid in two roles) to their own bank under their own PAN; statement lines per type (direct, overrides, renewal, development, bonus); gross, TDS and net shown (TDS 0 while dealerPayoutTds is off). Shops registered up to the last day of the month are included."
   },
   {
    "id": "TC-TIER-029",
@@ -2164,8 +2164,8 @@
    "method": "UI",
    "title": "Earnings wait until the agreement is accepted; payout waits for PAN and verified bank",
    "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. A new agent who has not accepted the agreement and has no verified bank.",
-   "steps": "1. Activate a shop with his code\n2. Close the month\n3. Mark the payout Paid\n4. Accept the agreement, add PAN and verified bank, close again",
-   "expected": "Earnings are on hold before acceptance and released when he accepts (agreement versioned and time-stamped). Paid is refused without PAN / verified bank (“bank account is not verified”). Then paid."
+   "steps": "1. Activate a shop with his code\n2. Close the month (“Close <Month YYYY> now”)\n3. Draft his payout by hand (Ledger & payouts) and mark it Paid\n4. Accept the agreement, add PAN and verified bank, close again",
+   "expected": "Earnings are on hold before acceptance (“held: the agent agreement is not accepted yet — released when it is”) and released when he accepts (agreement versioned and time-stamped). At the close his payout is not drafted (“held: verified bank account”); Paid is refused without PAN / verified bank (“<name>'s bank account is not verified. A payout is paid only with PAN and a verified bank account on file.”). Then paid."
   },
   {
    "id": "TC-TIER-030",
@@ -2193,7 +2193,7 @@
    "title": "Dealer pages follow the flag; commission screens are admin-only",
    "preconditions": "Admin can toggle dealer_programme_enabled on staging (restore after).",
    "steps": "1. With the flag off open /dealer\n2. As a dealer and a customer open /admin/dealers/commission/tiered",
-   "expected": "/dealer answers 404 when off. Admin commission screens refuse non-admins."
+   "expected": "/dealer answers 404 when off. /admin/dealers/commission/tiered sends a customer or a dealer to the home page; an operator opens it read-only (“Read only: only an admin changes the TIERED model, rates, teams or payouts.”) and its change API answers 403."
   },
   {
    "id": "TC-TIER-032",
@@ -2218,10 +2218,10 @@
    "priority": "P1",
    "role": "Guest",
    "method": "UI+API",
-   "title": "Request a referral code as a guest",
-   "preconditions": "Signed out; a test mobile number.",
-   "steps": "1. On /shop/register click “Request a referral code”\n2. Fill Your name, Mobile number, Type of shop, Area / locality, City, PIN code\n3. Submit",
-   "expected": "“Request received — Thank you! Your request <REF> has reached our referrals team. We will call or message you on <masked mobile> … usually within one working day.” The request is listed in /admin/shop-referrals."
+   "title": "Request a referral code before registering (signed in, no shop yet)",
+   "preconditions": "Signed in with an account that has no shop (registration wizard, step “Verify your business”); a test mobile number. (Signed out, /shop/register shows “Step 1 of 5: sign in with your email.”; POST /api/referral-requests also takes a request without a session.)",
+   "steps": "1. On /shop/register click “Request a referral code” (under “Don't have a referral code?”)\n2. Fill Your name, Mobile number, Type of shop, Area / locality, City, PIN code\n3. Send request",
+   "expected": "“Request received — Thank you! Your request RCR-XXXXXXXX has reached our referrals team. We will call or message you on +91 ******1234 with your referral code, usually within one working day.” The request is listed in Admin > Referral requests (/admin/referral-requests)."
   },
   {
    "id": "TC-SREF-009",
@@ -2235,7 +2235,7 @@
    "title": "Repeat requests and bad PIN codes are refused",
    "preconditions": "A mobile that just made a request.",
    "steps": "1. Submit again with the same mobile\n2. Submit with PIN 41100",
-   "expected": "Same mobile within the window: refused (429) with the earlier reference. PIN must be 6 digits."
+   "expected": "Same mobile within 24 hours (rule shopReferral.duplicateWindowHours): refused (429) “We already have a request from this mobile number (RCR-…, <date, time> IST). Our team will contact you — there is no need to ask again.” PIN 41100: “A PIN code is 6 digits and does not start with 0.” under the PIN field (422 from the API)."
   },
   {
    "id": "TC-SREF-010",
@@ -2249,7 +2249,7 @@
    "title": "A shop referral link opens registration with the code applied",
    "preconditions": "A valid SHOP… referral code; shopReferrals ON.",
    "steps": "1. Open /r/<SHOP code>",
-   "expected": "Redirect (307) to /shop/register?ref=<code>; the code shows “✓ Applied”."
+   "expected": "Redirect (307) to /shop/register?ref=<code>; signed in, the wizard's “Verify your business” step shows the code with “✓ Applied” (a signed-out visitor first gets the sign-in step)."
   },
   {
    "id": "TC-SREF-011",
@@ -2263,7 +2263,7 @@
    "title": "Reward modes: welcome credit instead of discount, membership month instead of credit",
    "preconditions": "shopReferrals ON; admin switches referredMode to WALLET_CREDIT and referrerMode to MEMBERSHIP_EXTENSION on staging (restore after).",
    "steps": "1. Register a shop with a SHOP code\n2. Approve it and deliver its first order\n3. Check both shops",
-   "expected": "New shop gets a ₹100 welcome credit in its shop wallet (no fee discount); the referring shop gets 1 more month of membership instead of ₹200 credit."
+   "expected": "When the new shop's first order is delivered: the new shop gets a ₹100 welcome credit in its shop wallet (no fee discount); the referring shop gets 1 more month of membership instead of ₹200 credit."
   },
   {
    "id": "TC-SREF-012",
@@ -2276,8 +2276,8 @@
    "method": "UI+API",
    "title": "Promotional credit pays GoKesari commission and delivery only, never a bank payout",
    "preconditions": "A shop with ₹200 promotional credit.",
-   "steps": "1. Let a settlement with commission and delivery charges run\n2. Try to withdraw the promotional credit to the bank",
-   "expected": "Commission / delivery charges are paid from the promotional credit first; the withdrawal of promotional credit is refused."
+   "steps": "1. Let a settlement with commission and delivery charges run\n2. As an admin, debit the shop wallet by more than its non-promotional balance (there is no bank withdrawal of a shop wallet)",
+   "expected": "Commission / delivery charges are paid from the promotional credit first; a debit of the promotional credit is refused (402): “The shop wallet holds ₹…, of which ₹… is promotional credit that only pays GoKesari commission and delivery charges.”"
   },
   {
    "id": "TC-MKT-018",
@@ -2289,9 +2289,9 @@
    "role": "Guest, Customer",
    "method": "UI",
    "title": "A customer referral link remembers the code and routes to /refer or sign-in",
-   "preconditions": "Customer 1's referral code.",
+   "preconditions": "Customer 1's referral code; rule customerReferrals on (Admin → Settings; off by default).",
    "steps": "1. Signed out, open /r/<code>\n2. Sign in as a new customer\n3. Open /refer",
-   "expected": "Signed out: redirect to /signin and the code is remembered (30-day cookie); after sign-in /refer shows the friend's code applied. Signed in: redirect straight to /refer."
+   "expected": "Signed out: 307 to /signin and the code is kept in the gk_ref cookie for 30 days (upper-case, letters and digits only). The new customer's first-time setup shows it pre-filled in “Referral code (optional)” (“Referral code” when the admin made it mandatory); after “Save and continue” it is applied and /refer reads “You joined with a friend's code — your reward arrives after your first order is delivered.” (if they clear it there, /refer's “Were you invited by a friend?” box still has it pre-filled in “Friend's referral code”). Signed in: 307 straight to /refer. A code starting SHOP goes to /shop/register?ref=… while rule shopReferrals is on."
   },
   {
    "id": "TC-MKT-019",
@@ -2303,9 +2303,9 @@
    "role": "Customer",
    "method": "UI",
    "title": "/refer shows the customer's own code and share link",
-   "preconditions": "Customer 1 signed in.",
+   "preconditions": "Customer 1 signed in; rule customerReferrals on (off by default).",
    "steps": "1. Open /refer\n2. Copy the link and open it in a private window",
-   "expected": "Own code and link shown; the link opens /r/<code>."
+   "expected": "“Refer a friend” shows the customer's own code and the link https://<site>/r/<code>, with “Copy link” (then “Link copied”) and “Share on WhatsApp”; opened in a private window the link goes to /signin with the code remembered (gk_ref cookie)."
   },
   {
    "id": "TC-UX-007",
@@ -2318,8 +2318,8 @@
    "method": "UI",
    "title": "Seller Central frame on every /shop page",
    "preconditions": "Shop A signed in, desktop.",
-   "steps": "1. Open /shop\n2. Read the top bar\n3. Open each sidebar group\n4. Type a tool name in “Find a tool”\n5. Click “View my store”",
-   "expected": "Top bar: status pill (Live / Pending approval / Payment pending / Suspended / Rejected / Inactive), “View my store”, EN / हिं / मरा, notifications, account menu. Sidebar groups Orders, Catalogue, Payments, Growth, Account. Tool search finds pages. /shop shows the dashboard at 1024 px and wider."
+   "steps": "1. Open /shop (1024 px or wider)\n2. Read the top bar and open the account menu\n3. Open a menu of each sidebar group\n4. Type a tool name in “Find a tool…”\n5. Click “View my store”",
+   "expected": "Top bar: the shop's name with its status pill (Live / Pending approval / Payment pending / Suspended / Rejected / Inactive), “View my store” (only while the shop is Live; opens /shops/<slug>), EN / हिं / मरा, notifications, account menu. Sidebar groups Orders, Catalogue, Payments, Growth, Account; every /shop page keeps the frame. “Find a tool…” finds pages (“No tool matches” otherwise). /shop shows the dashboard at 1024 px and wider."
   },
   {
    "id": "TC-UX-008",
@@ -2332,8 +2332,8 @@
    "method": "UI",
    "title": "Seller Central on a phone",
    "preconditions": "Shop A signed in on a phone (or 390 px window).",
-   "steps": "1. Open /shop\n2. Open the ☰ menu\n3. Go to My products and back",
-   "expected": "Sidebar becomes a ☰ drawer; /shop shows the tile board below 1024 px; nothing overflows sideways."
+   "steps": "1. Open /shop on a phone (the tile board, with its own compact header)\n2. Open /shop/inventory and tap ☰ (“Open menu”)\n3. Pick an entry in the “Seller menu” drawer, then come back with Home",
+   "expected": "Below 1024 px the sidebar becomes a ☰ drawer (“Seller menu”) on Seller Central pages; /shop shows the tile board with its own compact header instead of the Seller Central top bar; nothing overflows sideways."
   },
   {
    "id": "TC-UX-009",
@@ -2375,7 +2375,7 @@
    "title": "Online payment on staging opens the sandbox and each outcome reaches the order",
    "preconditions": "Customer 1 signed in; Cashfree sandbox test data (UPI testsuccess@gocash / testfailure@gocash, card OTP 111000).",
    "steps": "1. Place an order with online payment\n2. Pay with success data\n3. Place another and pay with failure data\n4. If the built-in page /orders/pay/sandbox/… opens, use “Pay (success)”, “Fail” and “Let it expire”",
-   "expected": "Cashfree sandbox opens at /orders/pay/session/<intent> (or the built-in page “Sandbox payment — Test payment page — no money moves” when PAYMENT_GATEWAY=SANDBOX). Success confirms the order; failure leaves it unpaid with a retry; expiry cancels the attempt. No real money."
+   "expected": "Cashfree sandbox opens from “Pay online” at /orders/pay/session/<intent> (or the built-in page “Sandbox payment — Test payment page — no money moves.” when PAYMENT_GATEWAY=SANDBOX). Success: “Payment received — Your order is placed and paid.”, order CONFIRMED. Failure: “Payment failed … You have not been charged for this attempt. Your order is kept — you can pay again.” with “Retry payment”, order PAYMENT_FAILED. Expiry: “Payment not completed in time”, the attempt EXPIRED and the order PAYMENT_FAILED with “Retry payment” and its stock released (the order is not cancelled). No real money. Needs rule onlinePayments on (off by default)."
   },
   {
    "id": "TC-PAY-037",
@@ -2387,9 +2387,9 @@
    "role": "Customer",
    "method": "UI+API",
    "title": "Cashfree payment session never expires in under 15 minutes",
-   "preconditions": "Customer 1; a slot close to its cut-off.",
-   "steps": "1. Start an online payment close to the slot cut-off\n2. Read the session expiry (network response)",
-   "expected": "Expiry is at least 15 minutes from creation (F17)."
+   "preconditions": "Customer 1; rule onlinePayments on with PAYMENT_GATEWAY=CASHFREE (Cashfree sandbox keys); onlinePayments.intentExpiryMinutes at its default 15.",
+   "steps": "1. Start an online payment (“Pay online” at checkout)\n2. Read the Cashfree order's order_expiry_time (Cashfree sandbox merchant dashboard → Orders, or payment_intents.expires_at); the site's own customer answers do not carry it",
+   "expected": "The Cashfree order expires at least 16 minutes after it is created (F17: Cashfree refuses under 15 minutes; the site sends the later of the attempt's expiry and now + 16 minutes and stores what Cashfree returns); a longer expiry is sent unchanged."
   },
   {
    "id": "TC-PAY-038",
@@ -2403,7 +2403,7 @@
    "title": "Production refuses the sandbox payment page (read-only check)",
    "preconditions": "Read-only on gokesari.com; no sign-in, no order.",
    "steps": "1. Open https://gokesari.com/orders/pay/sandbox/test",
-   "expected": "Not found / refused; the sandbox gateway never runs on production."
+   "expected": "The page says “Not available — The sandbox payment page only runs on the test site.” with no payment buttons (HTTP 200, not a 404); the sandbox gateway never runs on production (only with PAYMENT_GATEWAY=SANDBOX and rule onlinePayments.allowSandboxInProduction on, default off). On test.gokesari.com the same made-up reference answers 404."
   },
   {
    "id": "TC-MFR-001",
@@ -2417,7 +2417,7 @@
    "title": "Manufacturer portal needs sign-in and membership",
    "preconditions": "Customer 1 (not a manufacturer member).",
    "steps": "1. Signed out, open /manufacturer\n2. As Customer 1 open /manufacturer/upload and /manufacturer/keys",
-   "expected": "Signed out goes to sign-in; a non-member is refused."
+   "expected": "Signed out: /manufacturer (and /upload, /keys, /jobs) answer 307 to /signin. A signed-in non-member sees “No manufacturer account — Ask GoKesari to link your sign-in to your company's manufacturer account.” on /manufacturer; /manufacturer/upload, /keys and /jobs send them back to /manufacturer; the portal APIs answer 403 “You are not a member of a manufacturer account.”"
   },
   {
    "id": "TC-MFR-002",
@@ -2431,7 +2431,7 @@
    "title": "Manufacturer uploads a catalogue file and follows the job",
    "preconditions": "A manufacturer member test account (ask the owner) and a sample catalogue file.",
    "steps": "1. Open /manufacturer/upload and upload the file\n2. Open /manufacturer/jobs and the job",
-   "expected": "Job listed with status and per-row results."
+   "expected": "After “Upload” the import's page “Import progress” opens: status (QUEUED / RUNNING / SUCCEEDED / PARTIAL / FAILED) with a progress bar, Rows / Staged / Need attention, the validation report by error code (e.g. “GTIN_CHECK_DIGIT: 1”) and “Download error file (CSV)” listing each refused row with its reason. /manufacturer/jobs (“My imports”) lists the file with “<staged>/<rows> staged · <n> need attention” and its status."
   },
   {
    "id": "TC-MFR-003",
@@ -2515,7 +2515,7 @@
    "title": "D-131: signed-out /shop pages redirect to sign-in, except register and join",
    "preconditions": "Signed out.",
    "steps": "1. Open /shop/my-products\n2. Open /shop/register and /shop/join",
-   "expected": "/shop/my-products answers 307 to /signin. /shop/register and /shop/join open without the redirect."
+   "expected": "/shop/my-products answers 307 to /signin. /shop/register opens (200) without the redirect; /shop/join forwards to /shop/register (never to /signin)."
   },
   {
    "id": "TC-RGR-006",
@@ -2540,10 +2540,10 @@
    "priority": "P2",
    "role": "Admin, Operator",
    "method": "UI",
-   "title": "D-142: admin or full operator opening /operator lands on the admin page",
+   "title": "D-142: a full operator opening an /operator page lands on the admin page",
    "preconditions": "Admin and ops accounts.",
    "steps": "1. As each open an /operator/... page",
-   "expected": "Lands on the matching admin page."
+   "expected": "As the full operator (ops): /operator → /admin and each /operator/... page lands on the matching admin page (/operator/shops → /admin/shops, /operator/shops/<id> → /admin/shops/<id>, /operator/documents → /admin/document-uploads, /operator/onboard → /admin/shop-registrations, /operator/payments → /admin/console/registration-fees). As admin: /operator → /admin; the /operator/... pages open themselves (e.g. “My shops” lists every operator-onboarded shop), never the customer home."
   },
   {
    "id": "TC-RGR-008",
@@ -2570,7 +2570,7 @@
    "method": "UI",
    "title": "D-139: an unverified board entry says 'Not verified'",
    "preconditions": "A shop board entry that is not verified.",
-   "steps": "1. Open the board",
+   "steps": "1. Open /shop on a phone (the tile board; below 1024 px) or the menu page /shop/menu/payout (any width)",
    "expected": "It reads “Not verified” (not “Verified”)."
   },
   {
@@ -2583,9 +2583,9 @@
    "role": "Rider",
    "method": "UI",
    "title": "D-140: an approved rider is told how many checks remain",
-   "preconditions": "An approved rider with checks outstanding.",
+   "preconditions": "An approved rider with checks outstanding: KYC (PAN and Aadhaar) and/or police verification not done, no admin override; rule riderVerification.gateAvailability on (default).",
    "steps": "1. Open /delivery-partner",
-   "expected": "“You're approved — finish N more checks below…” with the right N."
+   "expected": "“You're approved — finish N more checks below to start delivering: …” (“1 more check” when one), naming each missing check: “PAN and Aadhaar verified (KYC)” and/or “police verification form and character certificate approved” (“police verification form approved” when no character certificate is required) — so N is 1 or 2."
   },
   {
    "id": "TC-RGR-011",
@@ -2949,8 +2949,8 @@
    "method": "UI+API",
    "title": "Shop logo URL must be https or the site's own image path",
    "preconditions": "Shop A signed in.",
-   "steps": "1. Set the logo URL to javascript:alert(1)\n2. Set it to a data: URL\n3. Set it to http://example.com/logo.png\n4. Set it to an https URL",
-   "expected": "javascript:, data: and http: URLs are refused (422); the https URL is saved and shown."
+   "steps": "1. PATCH /api/shops/<A> with logoUrl \"javascript:alert(1)\"\n2. … with a data: URL\n3. … with http://example.com/logo.png\n4. … with an https URL (or the site's own /api/images/<id>), then open /shops",
+   "expected": "javascript:, data: and http: URLs are refused with 422 (logoUrl: “Use an https:// image address or an uploaded image.”); the https URL (or /api/images/<id>) is saved and shown as the logo on the shop's card (/shops, home rails)."
   },
   {
    "id": "TC-CAT-093",
@@ -3072,7 +3072,7 @@
    "features": "DLR-TIER, SREF-REQ",
    "priority": "P1",
    "preconditions": "Dealer programme and tiered commission ON on staging; agent → lead → main dealer chain.",
-   "journey": "1. Prospect requests a referral code; the agent shares his dealer code\n2. Shop registers with the code applied and pays the ₹4,999 slab\n3. Commission records for agent, lead and main dealer; the agent's dashboard updates live\n4. Payout on the 5th (Run now) with payee checks",
+   "journey": "1. Prospect requests a referral code; the agent shares his dealer code\n2. Shop registers with the code applied and pays the ₹4,999 slab\n3. Commission records for agent, lead and main dealer; the agent's dashboard updates live\n4. Payout on the 5th (“Close <Month YYYY> now”) with payee checks",
    "expected": "₹999.80 / ₹199.96 / ₹149.97 (20 / 4 / 3 %) earned at activation; held where agreement, PAN or bank is missing; paid otherwise."
   },
   {
@@ -3100,7 +3100,7 @@
    "priority": "P1",
    "preconditions": "billing_v2 and related flags ON for the test district (else Not Applicable).",
    "journey": "1. Shop makes POS sales, some offline\n2. Online orders delivered; one partial return\n3. Purchases recorded\n4. Month-end: GSTR-1 / 3B prepared, 2B reconciled, Tally export",
-   "expected": "Bills numbered without gaps; credit note for the return; TCS / TDS correct; returns validate; export round-trips."
+   "expected": "Bills numbered without gaps; credit note for the return; TCS / TDS correct; GSTR-1 / 3B prepared from the books (totals match the portal's after Save); 2B reconciled; the Tally export reads back unchanged."
   },
   {
    "id": "SC-46",
@@ -3160,12 +3160,12 @@
   {
    "id": "TC-TIER-007",
    "note": "Updated 20-Nov-2026 to DT-19 (50 shops, 10% of the month's commission, every role)",
-   "expected": "At 50+ shops in the month: a BONUS of 10% of that month's direct + override commission (not renewals or other bonuses) for each role that reached it; 49 shops: none; counted afresh each month; one draft payout per payee."
+   "expected": "At 50+ shops in the month: a BONUS of 10% of that month's direct + override commission (not renewals or other bonuses) for each role that reached it; 49 shops: none; counted afresh each month; one draft payout per payee (one per PAN when a person is paid in two roles)."
   },
   {
    "id": "TC-TIER-011",
    "note": "Updated 20-Nov-2026 to DT-21 (live dashboard; TRADING is off)",
-   "expected": "Admin sees the TIERED settings, TDS settings, target bonuses, dealer selector, team tree, sub-agent requests and Team performance; the dealer sees this month's earnings (live), all-time earned and paid, target progress and the team card by type and level."
+   "expected": "Admin sees the TIERED settings, TDS settings, target bonuses, dealer selector and sub-agent requests; after choosing a dealer, his team tree and Team performance; the dealer sees this month's earnings (live), all-time earned and paid, target progress and the team card by type and level."
   },
   {
    "id": "TC-SREF-003",

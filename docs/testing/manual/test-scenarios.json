@@ -2471,8 +2471,8 @@
  {
   "id": "TS-DLR-01",
   "module": "Dealer network & shop referrals",
-  "title": "Verify tiered commission pays 20% direct at ACTIVATED and TRADING with 5% / 3% overrides per fee slab",
-  "description": "Admin sees direct 20% (60/40 split) and lead/main overrides on Rs 999, 4,999 and 9,999 fees; STANDARD dealers keep 40%; members are held until the agreement is accepted.",
+  "title": "Verify tiered commission pays 20% direct, 4% lead and 3% main dealer at activation on each fee slab",
+  "description": "Agent 20%, team lead 4% and main dealer 3% of the fee before GST (after coupons), all earned when the shop is activated, on the Rs 999, 4,999 and 9,999 slabs (DT-13 to DT-16, DT-23); STANDARD dealers keep their own rate; members are held until the agreement is accepted.",
   "caseIds": [
    "TC-TIER-002",
    "TC-TIER-010"
@@ -2481,8 +2481,8 @@
  {
   "id": "TS-DLR-02",
   "module": "Dealer network & shop referrals",
-  "title": "Verify dealer promotion with development bonus, 10% renewal commission and the monthly target bonus",
-  "description": "Admin promotion is refused below the shop count unless overridden; former lead earns 1% development; renewal pays 10% before GST; month close drafts target bonuses.",
+  "title": "Verify renewal commission 10 / 2 / 1 %, the monthly target bonus, promotion and the development bonus",
+  "description": "Renewals within 3 years pay 10% / 2% / 1% (DT-18); 50 activated shops in a month earn a bonus of 10% of that month’s commission for every role (DT-19); promotion to team lead at 50 shops and 3 ready agents, with the 1% development bonus for 6 months in months of 100+ team shops (DT-20).",
   "caseIds": [
    "TC-TIER-006",
    "TC-TIER-005",
@@ -2824,6 +2824,547 @@
    "TC-FLD-127",
    "TC-FLD-128",
    "TC-FLD-129"
+  ]
+ },
+ {
+  "id": "TS-ONB-12",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify the identity-first screen: referral code, GSTIN or PAN, declaration, consent and verify",
+  "description": "The first registration screen takes the referral code and a GSTIN (or PAN without GST), validates formats and limits, and verifies with the government record before anything else (shop owner).",
+  "caseIds": [
+   "TC-ONB-048",
+   "TC-ONB-049",
+   "TC-ONB-050",
+   "TC-ONB-051",
+   "TC-ONB-052",
+   "TC-ONB-053",
+   "TC-ONB-054",
+   "TC-ONB-055",
+   "TC-ONB-056"
+  ]
+ },
+ {
+  "id": "TS-ONB-13",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify each government-check outcome is explained and handled (verified, mismatch, not found, service down)",
+  "description": "Sandbox.co.in results map to clear owner messages; an outage never fails the owner, unsupported documents go to manual review (shop owner, admin).",
+  "caseIds": [
+   "TC-ONB-057",
+   "TC-ONB-058",
+   "TC-ONB-059",
+   "TC-ONB-060",
+   "TC-ONB-061"
+  ]
+ },
+ {
+  "id": "TS-ONB-14",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify the wizard collects owner, address, map pin and shop details in the owner's order before payment",
+  "description": "Owner, address, map pin (before pay), shop details, turnover-slab fee and review steps with their validations (shop owner).",
+  "caseIds": [
+   "TC-ONB-062",
+   "TC-ONB-063",
+   "TC-ONB-064",
+   "TC-ONB-065",
+   "TC-ONB-066",
+   "TC-ONB-067",
+   "TC-ONB-068",
+   "TC-ONB-069"
+  ]
+ },
+ {
+  "id": "TS-ONB-15",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify paying the registration fee takes a verified shop live and guides the owner to add products",
+  "description": "Sandbox fee payment, failed-payment retry, unpaid-shop messages, live and done screens, e-mail and the IST registration date (shop owner).",
+  "caseIds": [
+   "TC-ONB-070",
+   "TC-ONB-071",
+   "TC-ONB-072",
+   "TC-ONB-073",
+   "TC-ONB-074",
+   "TC-ONB-075"
+  ]
+ },
+ {
+  "id": "TS-ONB-16",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify duplicate shops are held or refused (same GSTIN / PAN, same name at same PIN, second unpaid shop)",
+  "description": "Guards that stop duplicate or unpaid multiple registrations while letting legitimate shops go live (shop owner, admin).",
+  "caseIds": [
+   "TC-ONB-076",
+   "TC-ONB-077",
+   "TC-ONB-078",
+   "TC-ONB-079"
+  ]
+ },
+ {
+  "id": "TS-ONB-17",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify a missing mandatory licence gives 90 days' grace, reminders, then automatic suspension",
+  "description": "Licence by shop type, grace notice e-mail, 15-day reminders, auto-suspension and its effect on the storefront (shop owner, admin, customer).",
+  "caseIds": [
+   "TC-ONB-080",
+   "TC-ONB-081",
+   "TC-ONB-082",
+   "TC-ONB-083",
+   "TC-ONB-084"
+  ]
+ },
+ {
+  "id": "TS-ONB-18",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify an unfinished registration is reminded, reported to the dealer, and abandoned after 7 days",
+  "description": "Reminder e-mails at 24 h and 72 h, dealer notice, cancellation on payment and the 7-day abandoned draft (shop owner, dealer).",
+  "caseIds": [
+   "TC-ONB-085",
+   "TC-ONB-086",
+   "TC-ONB-087",
+   "TC-ONB-088"
+  ]
+ },
+ {
+  "id": "TS-CAT-13",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify the guided 3-step product setup and that customers see only Live listings",
+  "description": "Choose categories, add products, set stock and price; listing statuses and filters; storefront shows only Live listings (shop owner, customer).",
+  "caseIds": [
+   "TC-CAT-071",
+   "TC-CAT-072",
+   "TC-CAT-073",
+   "TC-CAT-074",
+   "TC-CAT-075"
+  ]
+ },
+ {
+  "id": "TS-CAT-14",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify the product import template enforces mandatory columns and rejects bad rows, importing the rest",
+  "description": "Template download, mandatory Name / Category / MRP / Stock, Selling > MRP, bad numbers, GST slabs, unknown category, error download (shop owner).",
+  "caseIds": [
+   "TC-CAT-076",
+   "TC-CAT-077",
+   "TC-CAT-078",
+   "TC-CAT-079",
+   "TC-CAT-080",
+   "TC-CAT-081"
+  ]
+ },
+ {
+  "id": "TS-CAT-15",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify 'Update many products with Excel' applies valid rows and explains every rejected row",
+  "description": "Setup file columns, row errors (Product ID, Include, prices, category), file limits and duplicate-file guard (shop owner).",
+  "caseIds": [
+   "TC-CAT-082",
+   "TC-CAT-083",
+   "TC-CAT-084",
+   "TC-CAT-085"
+  ]
+ },
+ {
+  "id": "TS-CAT-16",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify the starter shelf and barcode scan let a new shop list products quickly",
+  "description": "Starter shelf ranking, pre-ticked at MRP, publish validations; barcode found / unknown flows (shop owner, admin).",
+  "caseIds": [
+   "TC-CAT-086",
+   "TC-CAT-087",
+   "TC-CAT-088",
+   "TC-CAT-089"
+  ]
+ },
+ {
+  "id": "TS-CAT-17",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify the shop chooses how it delivers and its radius, and customers see it",
+  "description": "Own staff / GoKesari partners / pickup only, radius 1-10 km, saved message and effect on serviceability (shop owner, customer).",
+  "caseIds": [
+   "TC-CAT-090",
+   "TC-CAT-091"
+  ]
+ },
+ {
+  "id": "TS-DEL-09",
+  "module": "Rider delivery & handover",
+  "title": "Verify a delivery partner verifies Aadhaar through DigiLocker and every failure is explained",
+  "description": "DigiLocker consent, mock on staging, masked Aadhaar, declined / expired / mismatch / vendor-down / already-used outcomes, admin resend (rider, admin).",
+  "caseIds": [
+   "TC-DEL-032",
+   "TC-DEL-033",
+   "TC-DEL-034",
+   "TC-DEL-035",
+   "TC-DEL-036"
+  ]
+ },
+ {
+  "id": "TS-RPAY-01",
+  "module": "Bank accounts & rider payouts",
+  "title": "Verify a bank account is checked with the bank (Secure ID) and every failure is explained",
+  "description": "Add account, re-enter match, Secure ID verified / failed / provider error, 3 checks a day, UPI keeps the Rs 1 check (rider, shop owner).",
+  "caseIds": [
+   "TC-RPAY-001",
+   "TC-RPAY-002",
+   "TC-RPAY-003",
+   "TC-RPAY-004"
+  ]
+ },
+ {
+  "id": "TS-RPAY-02",
+  "module": "Bank accounts & rider payouts",
+  "title": "Verify a delivery partner withdraws earnings within the Rs 100 - Rs 10,000 and daily limits",
+  "description": "Withdrawal limits and messages, unpaid-earnings cap, daily limit, partners only, verified bank account required, flags off (rider).",
+  "caseIds": [
+   "TC-RPAY-005",
+   "TC-RPAY-006",
+   "TC-RPAY-007",
+   "TC-RPAY-008",
+   "TC-RPAY-009",
+   "TC-RPAY-010"
+  ]
+ },
+ {
+  "id": "TS-RPAY-03",
+  "module": "Bank accounts & rider payouts",
+  "title": "Verify withdrawals and bank-account changes need the e-mailed code",
+  "description": "E-mailed code on every withdrawal and to change a verified rider bank account (10-minute grant) (rider).",
+  "caseIds": [
+   "TC-RPAY-011",
+   "TC-RPAY-012"
+  ]
+ },
+ {
+  "id": "TS-RPAY-04",
+  "module": "Bank accounts & rider payouts",
+  "title": "Verify the monthly payout, refused transfers and the admin rider-payouts page",
+  "description": "Monthly NEFT on the 5th, refused transfer returns the money, 3 retries, admin page and Run now permissions (rider, admin, operator).",
+  "caseIds": [
+   "TC-RPAY-013",
+   "TC-RPAY-014",
+   "TC-RPAY-015"
+  ]
+ },
+ {
+  "id": "TS-RPAY-05",
+  "module": "Bank accounts & rider payouts",
+  "title": "Verify TDS under section 194C is deducted only above the limits, at 1% with PAN and 20% without",
+  "description": "Rs 30,000 single / Rs 1,00,000 yearly thresholds and rates shown on the payout (rider, admin).",
+  "caseIds": [
+   "TC-RPAY-016"
+  ]
+ },
+ {
+  "id": "TS-BILL-01",
+  "module": "Shop accounts, GST billing & POS (Billing v2)",
+  "title": "Verify sales documents carry the right GST type and are locked once issued",
+  "description": "CGST+SGST / IGST, composition and outside-GST bills of supply, GoKesari s.9(5) delivery invoice, locked documents (shop owner).",
+  "caseIds": [
+   "TC-BILL-001",
+   "TC-BILL-002",
+   "TC-BILL-003",
+   "TC-BILL-004",
+   "TC-BILL-005"
+  ]
+ },
+ {
+  "id": "TS-BILL-02",
+  "module": "Shop accounts, GST billing & POS (Billing v2)",
+  "title": "Verify returns, cancellations, TCS and TDS are accounted correctly",
+  "description": "Credit notes for returned lines, no credit note before packing, TCS 0.5% net of returns, TDS 0.1% / 5% (shop owner, admin).",
+  "caseIds": [
+   "TC-BILL-006",
+   "TC-BILL-007"
+  ]
+ },
+ {
+  "id": "TS-BILL-03",
+  "module": "Shop accounts, GST billing & POS (Billing v2)",
+  "title": "Verify POS billing works online and offline without gaps in bill numbers",
+  "description": "POS sale, stock reduction, offline bills synced with consecutive numbers (shop owner).",
+  "caseIds": [
+   "TC-BILL-008",
+   "TC-BILL-009"
+  ]
+ },
+ {
+  "id": "TS-BILL-04",
+  "module": "Shop accounts, GST billing & POS (Billing v2)",
+  "title": "Verify GST returns, e-invoice / e-way bill and accounting-tool sync",
+  "description": "GSTR-1 / 3B, 2B / IMS reconcile, IRN and e-way bill, Tally / Busy / Vyapar / myBillBook, GSP session and outage handling (shop owner).",
+  "caseIds": [
+   "TC-BILL-010",
+   "TC-BILL-011",
+   "TC-BILL-012",
+   "TC-BILL-013"
+  ]
+ },
+ {
+  "id": "TS-BILL-05",
+  "module": "Shop accounts, GST billing & POS (Billing v2)",
+  "title": "Verify only the shop's own owner can see its accounts",
+  "description": "Another shop, dealer, operators, customer and rider refused; flags off redirect / 404 (all roles).",
+  "caseIds": [
+   "TC-BILL-014",
+   "TC-BILL-015"
+  ]
+ },
+ {
+  "id": "TS-DLR-12",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify the tiered commission split 20 / 4 / 3 % per signer, including the 3% change (DT-23)",
+  "description": "Direct, lead and main-dealer shares on each fee slab and signer type, coupon base, rating effect, shops activated before DT-23 keeping 2%, migration 0150 (dealer, admin).",
+  "caseIds": [
+   "TC-TIER-012",
+   "TC-TIER-013",
+   "TC-TIER-014",
+   "TC-TIER-015",
+   "TC-TIER-016"
+  ]
+ },
+ {
+  "id": "TS-DLR-14",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify renewals, monthly target bonus, promotion and the development bonus",
+  "description": "Renewal 10 / 2 / 1 % within 3 years, 50-shop target bonus per role, promotion at 50 shops + 3 ready agents, 1% development bonus in months of 100+ shops (dealer, admin).",
+  "caseIds": [
+   "TC-TIER-017",
+   "TC-TIER-018",
+   "TC-TIER-019",
+   "TC-TIER-020"
+  ]
+ },
+ {
+  "id": "TS-DLR-15",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify the team is built and managed within the 3-level rule",
+  "description": "Sub-agent requests, moving agents between leads, standard dealers left unchanged until moved to TIERED (dealer, admin).",
+  "caseIds": [
+   "TC-TIER-021",
+   "TC-TIER-022",
+   "TC-TIER-023"
+  ]
+ },
+ {
+  "id": "TS-DLR-16",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify each person sees live earnings and their team's performance, and gets daily / weekly reports",
+  "description": "Earnings dashboard, team performance scoped by role, Excel / CSV download, reports at 05.00 IST and on Mondays (main dealer, team lead, agent, admin).",
+  "caseIds": [
+   "TC-TIER-024",
+   "TC-TIER-025",
+   "TC-TIER-026",
+   "TC-TIER-027"
+  ]
+ },
+ {
+  "id": "TS-DLR-17",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify month close, payouts, agreement holds and reversals",
+  "description": "One payout per person on the 5th with gross / TDS / net, holds until agreement / PAN / bank, every level reversed on refund or fraud, access rules (dealer, admin).",
+  "caseIds": [
+   "TC-TIER-028",
+   "TC-TIER-029",
+   "TC-TIER-030",
+   "TC-TIER-031",
+   "TC-TIER-032"
+  ]
+ },
+ {
+  "id": "TS-DLR-13",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify a prospective shop can request a referral code and use a shop referral link",
+  "description": "Request dialog fields and reference, duplicate-mobile guard, /r/SHOP… link pre-fills the code (guest, shop owner).",
+  "caseIds": [
+   "TC-SREF-008",
+   "TC-SREF-009",
+   "TC-SREF-010",
+   "TC-SREF-011",
+   "TC-SREF-012"
+  ]
+ },
+ {
+  "id": "TS-MKT-07",
+  "module": "Marketing & consent",
+  "title": "Verify customer referral links and the /refer page",
+  "description": "/r/<code> sets the referral and routes to /refer or sign-in; /refer shows the customer's code and link (customer, guest).",
+  "caseIds": [
+   "TC-MKT-018",
+   "TC-MKT-019"
+  ]
+ },
+ {
+  "id": "TS-UX-04",
+  "module": "Navigation, responsive & legal",
+  "title": "Verify the Seller Central frame and short links work on desktop and phone",
+  "description": "Status pill, sidebar groups, tool search, language switch, phone drawer, /bakery and /dairy short links (shop owner, guest).",
+  "caseIds": [
+   "TC-UX-007",
+   "TC-UX-008",
+   "TC-UX-009",
+   "TC-UX-010"
+  ]
+ },
+ {
+  "id": "TS-PAY-10",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify the right payment gateway is used on each site with a safe expiry",
+  "description": "Cashfree sandbox / built-in sandbox page on staging, 15-minute minimum expiry, sandbox refused on production (customer).",
+  "caseIds": [
+   "TC-PAY-036",
+   "TC-PAY-037",
+   "TC-PAY-038"
+  ]
+ },
+ {
+  "id": "TS-MFR-01",
+  "module": "Manufacturer portal",
+  "title": "Verify manufacturers upload their catalogue and manage API keys, and nobody else can",
+  "description": "Access, catalogue upload jobs and API keys (manufacturer member, customer).",
+  "caseIds": [
+   "TC-MFR-001",
+   "TC-MFR-002",
+   "TC-MFR-003"
+  ]
+ },
+ {
+  "id": "TS-ONB-19",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify an owner without a code finds the dealer covering their PIN (planned WP6)",
+  "description": "PIN lookup, dealer cards ordered by area, one-tap code, phone only via Call when signed in, distributor / request fallback (shop owner, dealer).",
+  "caseIds": [
+   "TC-ONB-089",
+   "TC-ONB-090",
+   "TC-ONB-091",
+   "TC-ONB-092"
+  ]
+ },
+ {
+  "id": "TS-ONB-20",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify a dealer or operator registers a shop for an owner with consent, and the owner pays (planned WP7)",
+  "description": "Consent by OTP or link, owner's draft, helper's locked code, owner-only payment, expiry, access and audit (dealer, operator, shop owner).",
+  "caseIds": [
+   "TC-ONB-093",
+   "TC-ONB-094",
+   "TC-ONB-095",
+   "TC-ONB-096",
+   "TC-ONB-097"
+  ]
+ },
+ {
+  "id": "TS-ONB-21",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify the whole onboarding works in Hindi and Marathi (planned WP8)",
+  "description": "Language chips on every screen, remembered choice, English fallback never blank, messages in the owner's language (shop owner).",
+  "caseIds": [
+   "TC-ONB-098",
+   "TC-ONB-099",
+   "TC-ONB-100"
+  ]
+ },
+ {
+  "id": "TS-ONB-22",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify phones scan documents first and PAN-only shops can use DigiLocker (planned WP10)",
+  "description": "Scan tab default on phones, camera permission in the apps, DigiLocker for PAN-only shops, status chips (shop owner).",
+  "caseIds": [
+   "TC-ONB-101",
+   "TC-ONB-102",
+   "TC-ONB-103",
+   "TC-ONB-104"
+  ]
+ },
+ {
+  "id": "TS-AUTH-13",
+  "module": "Login, onboarding & profile",
+  "title": "Verify sign-in by SMS one-time code and its limits (planned WP9)",
+  "description": "6-digit SMS code, DLT sender, wrong / expired / resend / tries limits, e-mail fallback (customer, shop owner).",
+  "caseIds": [
+   "TC-AUTH-055",
+   "TC-AUTH-056",
+   "TC-AUTH-057"
+  ]
+ },
+ {
+  "id": "TS-CAT-18",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify the shop logo is safe and can be uploaded as a file",
+  "description": "Logo URL limited to https / own path (built, D-78) and logo file upload with content checks (planned D-144) (shop owner, customer).",
+  "caseIds": [
+   "TC-CAT-092",
+   "TC-CAT-093"
+  ]
+ },
+ {
+  "id": "TS-UX-05",
+  "module": "Navigation, responsive & legal",
+  "title": "Verify home pages load fast on a mid-range phone (planned R3)",
+  "description": "LCP at most 2.5 s on customer, rider, guest, shop and admin home pages (D-138).",
+  "caseIds": [
+   "TC-UX-011"
+  ]
+ },
+ {
+  "id": "TS-ADM-08",
+  "module": "Admin & operations console",
+  "title": "Verify long admin lists are usable on a phone (planned R3)",
+  "description": "Paged / filtered orders and societies lists with 44 px targets (D-141) (admin).",
+  "caseIds": [
+   "TC-ADM-022"
+  ]
+ },
+ {
+  "id": "TS-RBAC-11",
+  "module": "Roles & access control",
+  "title": "Verify all seller pages follow one access rule (planned R3)",
+  "description": "Owner sees all of Seller Central, staff by access, refusals explained (D-130) (shop owner, staff).",
+  "caseIds": [
+   "TC-RBAC-025"
+  ]
+ },
+ {
+  "id": "TS-CART-10",
+  "module": "Cart & checkout",
+  "title": "Verify a guest's cart item survives sign-in (planned R3, owner choice)",
+  "description": "Guest Add to cart kept after sign-in (D-136) (guest).",
+  "caseIds": [
+   "TC-CART-031"
+  ]
+ },
+ {
+  "id": "TS-RGR-01",
+  "module": "Regression - fixes 09 to 20-Nov-2026",
+  "title": "Verify the phone-layout fixes of 20-Nov (address delete, app prompt, bottom bar, layout shift)",
+  "description": "Retest of D-148, D-135, D-149, D-137 on a phone (customer).",
+  "caseIds": [
+   "TC-RGR-001",
+   "TC-RGR-002",
+   "TC-RGR-003",
+   "TC-RGR-004"
+  ]
+ },
+ {
+  "id": "TS-RGR-02",
+  "module": "Regression - fixes 09 to 20-Nov-2026",
+  "title": "Verify the access and HTTP status fixes (redirects, 404, 401)",
+  "description": "Retest of D-131, D-109, D-142, D-150 (guest, admin, operator).",
+  "caseIds": [
+   "TC-RGR-005",
+   "TC-RGR-006",
+   "TC-RGR-007",
+   "TC-RGR-008"
+  ]
+ },
+ {
+  "id": "TS-RGR-03",
+  "module": "Regression - fixes 09 to 20-Nov-2026",
+  "title": "Verify the wording, accessibility and substitution fixes",
+  "description": "Retest of D-139, D-140, D-146, D-147 (shop owner, rider, customer).",
+  "caseIds": [
+   "TC-RGR-009",
+   "TC-RGR-010",
+   "TC-RGR-011",
+   "TC-RGR-012"
   ]
  }
 ]
