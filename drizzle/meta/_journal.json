@@ -1051,6 +1051,13 @@
       "when": 1793264700000,
       "tag": "0149_shop_product_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1793264800000,
+      "tag": "0150_dealer_main_override_3pct",
+      "breakpoints": true
     }
   ]
 }

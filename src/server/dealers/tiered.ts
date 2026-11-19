@@ -18,8 +18,8 @@
  *                 least developmentMinShopsPerMonth shops (owner, 5 Nov 2026) —
  *                 settled when the month closes (accrueDevelopmentBonuses)
  *
- * A missing level is not paid and nobody earns twice on a shop (20 + 4 + 2 = 26%
- * at most, owner 5 Nov 2026). With tradingOrders 0 (the default since 5 Nov 2026)
+ * A missing level is not paid and nobody earns twice on a shop (20 + 4 + 3 = 27%
+ * at most; owner 5 Nov 2026, main dealer 3% since 20 Nov 2026). With tradingOrders 0 (the default since 5 Nov 2026)
  * everything is earned when the shop pays and is activated: the whole direct part
  * (DIRECT_1, firstPartBp 100%) and every override, straight after. With a trading
  * condition, firstPartBp of the direct part is earned at ACTIVATED; the rest
