@@ -378,6 +378,8 @@ export const NOTIFICATION_TYPES = {
   DEALER_PAYOUT_HELD: "dealer.payout_held",
   /** Gap report C7: to a payee — the bank transfer failed (it is retried, or finance follows up); push too. */
   DEALER_PAYOUT_FAILED: "dealer.payout_failed",
+  /** 0151 territory dealers: to the dealer — a territory given, paid, renewal due, expired, released or cancelled; push too. */
+  DEALER_TERRITORY_CHANGED: "dealer.territory_changed",
   /** Shop-refers-shop (0137): to the shop owner — a referral reward was credited; push too. */
   SHOP_REFERRAL_REWARDED: "shop.referral_rewarded",
   /** Shop-refers-shop (0137): to the shop owner — a referral reward was taken back after a review; push too. */

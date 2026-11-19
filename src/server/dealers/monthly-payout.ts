@@ -6,7 +6,7 @@
  *
  *   1. with auto_approve_at_month_end on (the default, owner 29 Oct 2026), the
  *      month's EARNED accruals (not held) are approved first — after the month's
- *      TIERED target and development bonuses are settled;
+ *      TIERED target and development bonuses and (0151) territory order income are settled;
  *      switched off, only what an admin approved goes in;
  *   2. per dealer, a DRAFT payout of every APPROVED entry up to the month's end
  *      (earlier months' leftovers included), netted with reversals not yet
@@ -52,6 +52,7 @@ import { getRule } from "@/server/services/settings";
 import { COMMISSION_ENTRY_TYPE_LABELS, STATEMENT_LINES, type CommissionEntryType } from "@/lib/dealer-tiers";
 import { getCommissionSettings, payeeStatus, payoutTds, tdsColumns } from "./commission";
 import { financialYear } from "@/server/tax/commission-tds";
+import { accrueTerritoryIncome } from "./territory";
 import { accrueDevelopmentBonuses, accrueTargetBonuses } from "./tiered";
 
 interface Actor {
@@ -124,6 +125,8 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
     const bonuses = await accrueTargetBonuses(tx, month, start, end, actor);
     // ...and the former leads' development bonus, for the teams that reached the monthly minimum (owner, 5 Nov 2026).
     const development = await accrueDevelopmentBonuses(tx, month, start, end, actor);
+    // ...and (0151) each territory dealer's share of GoKesari's commission on the month's orders in his territory.
+    const territory = await accrueTerritoryIncome(tx, month, start, end, actor);
 
     // 1. The month's earned accruals, approved first when the setting says so.
     let autoApproved: string[] = [];
@@ -229,7 +232,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
     const totalPaise = payouts.reduce((s, p) => s + p.totalPaise, 0);
     await tx
       .update(dealerCommissionMonths)
-      .set({ autoApproved: autoApproved.length, payouts: payouts.length, totalPaise, summary: { payouts, carried, autoApproved, bonuses: bonuses.map((b) => b.id), development: development.map((d) => d.id) } })
+      .set({ autoApproved: autoApproved.length, payouts: payouts.length, totalPaise, summary: { payouts, carried, autoApproved, bonuses: bonuses.map((b) => b.id), development: development.map((d) => d.id), territory: territory.map((t) => t.id) } })
       .where(eq(dealerCommissionMonths.periodMonth, month));
     await recordAudit(
       {
@@ -238,7 +241,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
         action: AUDIT_ACTIONS.DEALER_COMMISSION_MONTH_CLOSED,
         entityType: "dealer_commission_month",
         entityId: month,
-        newValue: { month, payouts: payouts.length, totalPaise, carried, autoApproved: autoApproved.length, targetBonuses: bonuses.length, developmentBonuses: development.filter((d) => d.amountPaise > 0).length },
+        newValue: { month, payouts: payouts.length, totalPaise, carried, autoApproved: autoApproved.length, targetBonuses: bonuses.length, developmentBonuses: development.filter((d) => d.amountPaise > 0).length, territoryEntries: territory.length },
       },
       tx,
     );

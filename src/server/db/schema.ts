@@ -43,6 +43,7 @@ import {
 } from "@/lib/accounts/constants";
 import type { ShopTypeKey } from "@/lib/shop-types";
 import { DEALER_BANK_STATUSES, DEALER_CODE_KINDS, DEALER_CODE_STATUSES, DEALER_DOC_TYPES, DEALER_STATUSES, DEALER_TYPES } from "@/lib/dealers";
+import { TERRITORY_FEE_METHODS, TERRITORY_FEE_STATUSES, TERRITORY_STATUSES } from "@/lib/territory-dealers";
 import {
   COMMISSION_ENTRY_TYPES,
   DEALER_COMMISSION_MODELS,
@@ -8620,7 +8621,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE"] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -11237,7 +11238,7 @@ export const dealerCommissionLedger = pgTable(
       .notNull()
       .references(() => dealers.id, { onDelete: "restrict" }),
     salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
-    /** Null only for a monthly target bonus (entry_type BONUS), which belongs to no shop. */
+    /** Null only for a monthly target bonus (BONUS) or territory order income (TERRITORY), which belong to no one shop. */
     shopId: uuid("shop_id").references(() => shops.id, { onDelete: "restrict" }),
     milestone: text("milestone", { enum: LEDGER_MILESTONES }).notNull(),
     kind: text("kind", { enum: ["ACCRUAL", "REVERSAL", "ADJUSTMENT"] }).notNull().default("ACCRUAL"),
@@ -11280,7 +11281,7 @@ export const dealerCommissionLedger = pgTable(
       .on(sql`coalesce(${t.accrualKey}, 'BASE:' || ${t.shopId}::text || ':' || ${t.milestone})`, t.aboveCap)
       .where(sql`${t.kind} = 'ACCRUAL'`),
     index("dealer_commission_ledger_payee_idx").on(t.payeeMemberId).where(sql`${t.payeeMemberId} IS NOT NULL`),
-    check("dealer_commission_ledger_shop", sql`${t.shopId} IS NOT NULL OR ${t.entryType} = 'BONUS'`),
+    check("dealer_commission_ledger_shop", sql`${t.shopId} IS NOT NULL OR ${t.entryType} IN ('BONUS', 'TERRITORY')`),
     index("dealer_commission_ledger_dealer_idx").on(t.dealerId, t.status, t.createdAt),
     index("dealer_commission_ledger_shop_idx").on(t.shopId),
     index("dealer_commission_ledger_batch_idx").on(t.payoutBatchId).where(sql`${t.payoutBatchId} IS NOT NULL`),
@@ -11372,6 +11373,159 @@ export const dealerTeamDevelopments = pgTable(
   ],
 );
 export type DealerTeamDevelopment = typeof dealerTeamDevelopments.$inferSelect;
+
+/**
+ * 0151 (owner, 20-Nov-2026; docs/dealer-programme/TERRITORY_DEALER.md): an
+ * exclusive territory a TIERED dealer holds for a yearly fee. ACTIVE while the
+ * fee is paid (paid_until in the future); EXPIRED once it lapses (the pincodes
+ * stay his for the grace days, then are released); CANCELLED by an admin.
+ */
+export const dealerExclusiveTerritories = pgTable(
+  "dealer_exclusive_territories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    status: text("status", { enum: TERRITORY_STATUSES }).notNull().default("AWAITING_FEE"),
+    /** The yearly fee, GST included. */
+    feePaise: integer("fee_paise").notNull(),
+    /** Paid up to (exclusive); null until the first fee is paid. */
+    paidUntil: timestamp("paid_until", { withTimezone: true }),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endReason: text("end_reason"),
+    /** The latest performance rating and share (daily job), shown on the screens. */
+    rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
+    shareBp: integer("share_bp").notNull().default(2000),
+    ratedAt: timestamp("rated_at", { withTimezone: true }),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_exclusive_territories_dealer_idx").on(t.dealerId),
+    check("dealer_exclusive_territories_status", sql`${t.status} IN ('AWAITING_FEE', 'ACTIVE', 'EXPIRED', 'CANCELLED')`),
+    check("dealer_exclusive_territories_fee", sql`${t.feePaise} > 0`),
+    check("dealer_exclusive_territories_share", sql`${t.shareBp} BETWEEN 0 AND 10000`),
+  ],
+);
+export type DealerExclusiveTerritory = typeof dealerExclusiveTerritories.$inferSelect;
+
+/**
+ * 0151: the pincodes of a territory. A pincode is held by at most one
+ * territory at a time (unique while not released) — the exclusivity.
+ */
+export const dealerTerritoryPincodes = pgTable(
+  "dealer_territory_pincodes",
+  {
+    territoryId: uuid("territory_id")
+      .notNull()
+      .references(() => dealerExclusiveTerritories.id, { onDelete: "restrict" }),
+    pincode: text("pincode").notNull(),
+    heldFrom: timestamp("held_from", { withTimezone: true }).notNull().defaultNow(),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ name: "dealer_territory_pincodes_pk", columns: [t.territoryId, t.pincode, t.heldFrom] }),
+    uniqueIndex("dealer_territory_pincodes_held_unique").on(t.pincode).where(sql`${t.releasedAt} IS NULL`),
+    check("dealer_territory_pincodes_pincode", sql`${t.pincode} ~ '^[1-9][0-9]{5}$'`),
+  ],
+);
+export type DealerTerritoryPincode = typeof dealerTerritoryPincodes.$inferSelect;
+
+/** 0151: each yearly fee of a territory — paid online (payment intent TERRITORY_FEE) or recorded by an admin. */
+export const dealerTerritoryFees = pgTable(
+  "dealer_territory_fees",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    territoryId: uuid("territory_id")
+      .notNull()
+      .references(() => dealerExclusiveTerritories.id, { onDelete: "restrict" }),
+    amountPaise: integer("amount_paise").notNull(),
+    status: text("status", { enum: TERRITORY_FEE_STATUSES }).notNull().default("AWAITING_PAYMENT"),
+    method: text("method", { enum: TERRITORY_FEE_METHODS }),
+    paymentIntentId: uuid("payment_intent_id"),
+    /** OFFLINE: the bank / cheque reference the admin recorded. */
+    reference: text("reference"),
+    periodStart: timestamp("period_start", { withTimezone: true }),
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    recordedBy: uuid("recorded_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_territory_fees_territory_idx").on(t.territoryId, t.createdAt),
+    uniqueIndex("dealer_territory_fees_open_unique").on(t.territoryId).where(sql`${t.status} = 'AWAITING_PAYMENT'`),
+    check("dealer_territory_fees_status", sql`${t.status} IN ('AWAITING_PAYMENT', 'PAID', 'CANCELLED')`),
+    check("dealer_territory_fees_method", sql`${t.method} IS NULL OR ${t.method} IN ('ONLINE', 'OFFLINE')`),
+    check("dealer_territory_fees_amount", sql`${t.amountPaise} > 0`),
+    check("dealer_territory_fees_period", sql`${t.status} <> 'PAID' OR (${t.periodStart} IS NOT NULL AND ${t.periodEnd} > ${t.periodStart})`),
+  ],
+);
+export type DealerTerritoryFee = typeof dealerTerritoryFees.$inferSelect;
+
+/** 0151: the territory's performance rating and share, one row per day (daily job); a day's orders use that day's row. */
+export const dealerTerritoryRatings = pgTable(
+  "dealer_territory_ratings",
+  {
+    territoryId: uuid("territory_id")
+      .notNull()
+      .references(() => dealerExclusiveTerritories.id, { onDelete: "restrict" }),
+    /** The IST date. */
+    day: date("day", { mode: "string" }).notNull(),
+    onboardingRating: numeric("onboarding_rating", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    shopsTotal: integer("shops_total").notNull(),
+    shopsLive: integer("shops_live").notNull(),
+    onboardingPoints: numeric("onboarding_points", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    productPoints: numeric("product_points", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    shareBp: integer("share_bp").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: "dealer_territory_ratings_pk", columns: [t.territoryId, t.day] })],
+);
+export type DealerTerritoryRating = typeof dealerTerritoryRatings.$inferSelect;
+
+/**
+ * 0151: the territory dealer's part of each delivered order, written when the
+ * month closes (one per order). A refund recorded after that is taken back at
+ * a later close (refunded_commission_paise grows, amount_paise shrinks).
+ */
+export const dealerTerritoryOrderShares = pgTable(
+  "dealer_territory_order_shares",
+  {
+    orderId: uuid("order_id")
+      .primaryKey()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    territoryId: uuid("territory_id")
+      .notNull()
+      .references(() => dealerExclusiveTerritories.id, { onDelete: "restrict" }),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    /** YYYY-MM of the delivery (IST). */
+    month: text("month").notNull(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull(),
+    commissionPaise: bigint("commission_paise", { mode: "number" }).notNull(),
+    refundedCommissionPaise: bigint("refunded_commission_paise", { mode: "number" }).notNull().default(0),
+    shareBp: integer("share_bp").notNull(),
+    amountPaise: integer("amount_paise").notNull(),
+    ledgerEntryId: uuid("ledger_entry_id").references(() => dealerCommissionLedger.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_territory_order_shares_territory_idx").on(t.territoryId, t.month),
+    index("dealer_territory_order_shares_dealer_idx").on(t.dealerId, t.month),
+  ],
+);
+export type DealerTerritoryOrderShare = typeof dealerTerritoryOrderShares.$inferSelect;
 
 /**
  * 0138 (gap report A9): every place a team member has held — role, level and

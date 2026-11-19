@@ -323,7 +323,7 @@ export async function mappingHistory(dealerId: string, memberId?: string): Promi
 
 /* ================================================================ ledger */
 
-interface EntryInput {
+export interface EntryInput {
   dealer: Dealer;
   payee: DealerSalesperson | null;
   shopId: string | null;
@@ -347,7 +347,7 @@ interface EntryInput {
  * Held ON_HOLD while the dealer is not approved, for the shop's documents, or
  * until the payee accepts the agent agreement. Call under the dealer lock.
  */
-async function writeEntry(tx: DbClient, input: EntryInput): Promise<DealerCommissionEntry[]> {
+export async function writeEntry(tx: DbClient, input: EntryInput): Promise<DealerCommissionEntry[]> {
   const [already] = await tx
     .select({ id: dealerCommissionLedger.id })
     .from(dealerCommissionLedger)
@@ -419,6 +419,7 @@ const ENTRY_WORDS: Record<CommissionEntryType, string> = {
   RENEWAL: "renewal commission",
   DEVELOPMENT: "development bonus",
   BONUS: "target bonus",
+  TERRITORY: "territory order income",
 };
 
 /* ============================================================= activation */

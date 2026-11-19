@@ -11,6 +11,8 @@ import { DealerWork } from "@/components/dealer/dealer-work";
 import { DealerTeam } from "@/components/dealer/dealer-team";
 import { TeamPerformance } from "@/components/dealer/team-performance";
 import { DealerTdsCard } from "@/components/dealer/dealer-tds-card";
+import { DealerTerritory } from "@/components/dealer/dealer-territory";
+import { territoryRule, territoryViews } from "@/server/dealers/territory";
 import { payeeTdsView } from "@/server/tax/commission-tds";
 import type { Dealer, DealerSalesperson } from "@/server/db/schema";
 import { AGENT_AGREEMENT_VERSION } from "@/lib/dealer-tiers";
@@ -89,6 +91,8 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
   // Monthly statements: this month so far and the closed months (owner, 28 Oct 2026).
   const [months, commissionSettings, tiered] = await Promise.all([statementMonths(), getCommissionSettings(), isTieredDealer(dealer)]);
   const network = tiered ? await networkProps(dealer, null) : null;
+  // 0151 territory dealers: his exclusive territories (shown once he has one).
+  const [territories, territoryRules] = await Promise.all([territoryViews(dealer.id), territoryRule()]);
   const statements = await Promise.all(months.map((m) => dealerMonthStatement(dealer.id, m)));
   // Dates become ISO strings for the client component.
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
@@ -117,6 +121,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
       />
       {network ? <TeamPerformance endpoint="/api/dealer/team?view=performance" /> : null}
       {network ? <DealerTeam {...network} /> : null}
+      {territories.length ? <DealerTerritory territories={iso(territories)} rule={territoryRules} /> : null}
       <DealerTdsCard view={await payeeTdsView({ panHash: dealer.panHash, dealerType: dealer.dealerType, isMember: false })} />
       <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} myRate={myRate} entries={iso(entries)} bonusOn={bonusOn} />
       <DealerStatements statements={iso(statements)} payoutDay={commissionSettings.payoutDayOfMonth} open={openStatement} />
