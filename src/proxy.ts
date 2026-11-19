@@ -11,7 +11,8 @@
  *  2. Test site (TEST_SITE_BASIC_AUTH="user:pass" set): HTTP basic auth on every
  *     page and API call, plus X-Robots-Tag: noindex. Leave unset on production.
  *  3. Pages — D-23: remember the page being opened (24 h cookie) so signing in
- *     again comes back to it (src/lib/return-to.ts).
+ *     again comes back to it (src/lib/return-to.ts); D-109 / D-131: pass the
+ *     page's path to the layouts in REQUEST_PATH_HEADER (src/lib/request-path.ts).
  *  4. /api/* — a light per-IP in-memory rate limit (API_RATE_LIMIT_PER_MIN,
  *     default 240, 0 = off). Webhooks and cron are exempt.
  */
@@ -19,6 +20,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse, type NextRequest } from "next/server";
 
+import { REQUEST_PATH_HEADER } from "@/lib/request-path";
 import { RETURN_TO_COOKIE, RETURN_TO_MAX_AGE_S, safeReturnPath } from "@/lib/return-to";
 
 function safeEqual(a: string, b: string): boolean {
@@ -93,7 +95,14 @@ export function proxy(request: NextRequest) {
     }
   }
 
-  const response = NextResponse.next();
+  let response: NextResponse;
+  if (pathname.startsWith("/api/")) {
+    response = NextResponse.next();
+  } else {
+    const forwarded = new Headers(request.headers);
+    forwarded.set(REQUEST_PATH_HEADER, pathname);
+    response = NextResponse.next({ request: { headers: forwarded } });
+  }
   if (basic) response.headers.set("X-Robots-Tag", "noindex, nofollow");
   rememberReturnTo(request, response);
   return response;

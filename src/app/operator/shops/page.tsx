@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
 import { formatPaise } from "@/lib/money";
+import { operatorPortalFallback } from "@/lib/operator-portal";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listMyOnboardedShops } from "@/server/services/operator-limited";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 export default async function OperatorShopsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_ONBOARD)) redirect("/");
+  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_ONBOARD)) redirect(operatorPortalFallback(user.role, "/admin/shops"));
   const status = (await searchParams).status;
   const all = await listMyOnboardedShops(user);
   const shops = typeof status === "string" ? all.filter((s) => s.status === status) : all;

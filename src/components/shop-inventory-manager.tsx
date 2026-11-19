@@ -319,7 +319,8 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
             <Alert tone={priceMessage.tone}>{priceMessage.text}</Alert>
           </div>
         ) : null}
-        <Card className="overflow-x-auto">
+        {/* D-146: a keyboard user can focus the table and scroll it sideways with the arrow keys. */}
+        <Card className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-kesari-600" tabIndex={0} role="region" aria-label="Inventory table">
           <table className="w-full text-left text-sm" data-testid="inventory-table">
             <thead className="bg-cream-100 text-xs uppercase text-ink-500">
               <tr>

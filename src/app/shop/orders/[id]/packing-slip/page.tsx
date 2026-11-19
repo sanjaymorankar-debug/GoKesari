@@ -3,9 +3,8 @@ import { notFound, redirect } from "next/navigation";
 
 import { PrintButton } from "@/components/print-button";
 import { Card } from "@/components/ui";
-import { AppError } from "@/lib/errors";
 import { getCurrentUser } from "@/server/authz/guards";
-import { getPackingSlip } from "@/server/services/packing-slip";
+import { findPackingSlip } from "@/server/packing-slip-page";
 
 export const metadata = { title: "Packing slip" };
 export const dynamic = "force-dynamic";
@@ -23,11 +22,8 @@ export default async function PackingSlipPage({ params }: { params: Promise<{ id
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   const { id } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const slip = await getPackingSlip(id, user).catch((error) => {
-    if (error instanceof AppError && (error.code === "NOT_FOUND" || error.code === "FORBIDDEN")) return null;
-    throw error;
-  });
+  // Read once per request: the Seller Central layout asked first, to answer 404 before streaming (D-109).
+  const slip = await findPackingSlip(id);
   if (!slip) notFound();
 
   return (

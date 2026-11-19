@@ -115,9 +115,11 @@ function AddressCard({
 
   return (
     <Card className="p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="mb-1 flex items-center gap-2">
+      {/* D-148: on a phone the actions sit under the address, so the delete
+          confirmation has the card's full width instead of running off its edge. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
             <Badge tone="neutral">
               {address.addressType === "HOME" ? "Home" : address.addressType === "WORK" ? "Work" : "Other"}
             </Badge>
@@ -138,7 +140,7 @@ function AddressCard({
             <p className="text-xs text-ink-500">Landmark: {address.landmark}</p>
           ) : null}
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           <Button size="sm" variant="secondary" onClick={onEdit}>
             Edit
           </Button>
