@@ -209,6 +209,9 @@ export const DAILY: readonly Job[] = [
   { name: "finance-weekly", weekday: 1, run: financeWeekly },
   // docs/dealer-programme: dealer commission monthly — on the payout day (default the 5th) the month
   // before is closed once: draft payouts and statements; a no-op on other days.
+  // 0151 territory dealers: lapsed territories expire (released after the grace days), renewals are reminded,
+  // and every active territory gets today's rating — before the month close, which reads it. A no-op while off.
+  { name: "dealer-territory-daily", run: async () => (await import("@/server/dealers/territory")).runTerritoryDaily() },
   { name: "dealer-monthly-payout", run: async () => (await import("@/server/dealers/monthly-payout")).runMonthlyDealerPayout() },
   // TIERED (0136): shops past their TRADING window lapse (part 2 and overrides not earned); a no-op while the rule is off.
   { name: "dealer-tiered-daily", run: async () => (await import("@/server/dealers/tiered")).runTieredDaily() },

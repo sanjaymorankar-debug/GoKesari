@@ -116,6 +116,8 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
+    // docs/dealer-programme/TERRITORY_DEALER.md (0151): the territory tables point at dealers, shops, orders and the ledger.
+    await sql.unsafe(readFileSync("scripts/rollback-0151.sql", "utf8"));
     // docs/onboarding-benchmark (0145): shop_onboarding_steps points at shop_registration_drafts (0111).
     await sql.unsafe(readFileSync("scripts/rollback-0145.sql", "utf8"));
     // docs/referrals-dealer-2026-11 (0136–0142): their tables point at dealers / dealer_salespeople (0104) and shops, newest first.

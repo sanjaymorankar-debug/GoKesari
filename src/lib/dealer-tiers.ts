@@ -35,6 +35,7 @@ export const COMMISSION_ENTRY_TYPES = [
   "RENEWAL",
   "DEVELOPMENT",
   "BONUS",
+  "TERRITORY",
 ] as const;
 export type CommissionEntryType = (typeof COMMISSION_ENTRY_TYPES)[number];
 
@@ -47,6 +48,7 @@ export const COMMISSION_ENTRY_TYPE_LABELS: Record<CommissionEntryType, string> =
   RENEWAL: "Renewal commission",
   DEVELOPMENT: "Development bonus",
   BONUS: "Monthly target bonus",
+  TERRITORY: "Territory order income",
 };
 
 /** Short names for the statement's "line per type" (direct-1, direct-2, override, renewal, development, bonus). */
@@ -58,6 +60,7 @@ export const STATEMENT_LINES: { key: string; label: string; types: CommissionEnt
   { key: "renewal", label: "Renewal", types: ["RENEWAL"] },
   { key: "development", label: "Development bonus", types: ["DEVELOPMENT"] },
   { key: "bonus", label: "Target bonus", types: ["BONUS"] },
+  { key: "territory", label: "Territory order income", types: ["TERRITORY"] },
 ];
 
 export const TIER_PLAN_STATUSES = ["PENDING", "TRADING", "LAPSED", "REVERSED"] as const;

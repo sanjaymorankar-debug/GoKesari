@@ -931,6 +931,15 @@ audited with the old value, the new value and the reason.
 | POST | `/api/admin/shop-referrals` | ADMIN | `{action: "reverse", id, reason}` — takes the reward back |
 | GET | `/r/{code}` | anyone | a shop code (`SHOP…`, rule on) redirects to `/shop/register?ref={code}`; a customer code as before |
 
+Territory dealers (0151, 20-Nov-2026, docs/dealer-programme/TERRITORY_DEALER.md; rule `territoryDealer`, off by default):
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/api/admin/dealer-territories` | ADMIN, OPERATOR | every territory (pincodes, fees, rating and share, this month so far, income worked out), the TIERED dealers that can be given one, the rule |
+| POST | `/api/admin/dealer-territories` | ADMIN | `{action}`: `create {dealerId, name, pincodes[], feePaise}` (409 when a pincode is held by another territory, or the dealer is not TIERED) · `pincodes {territoryId, add[], remove[], reason}` · `fee {territoryId, feePaise, reason}` · `recordPayment {territoryId, reference}` (fee paid offline) · `cancel {territoryId, reason}` · `rate {territoryId}` |
+| GET | `/api/dealer/territory` | approved dealer | my territories with the same detail |
+| POST | `/api/dealer/territory` | approved dealer (own territory) | `{territoryId}` → `{intentId, checkoutUrl}`: pays the open yearly fee online (purpose `TERRITORY_FEE`); paid up only when the gateway's signed webhook confirms it |
+
 Gap report additions (03-Nov-2026, docs/referrals-dealer-2026-11):
 
 | Method | Path | Who | What |

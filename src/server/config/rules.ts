@@ -782,6 +782,25 @@ export const RULES = {
       ],
     },
   },
+  territoryDealer: {
+    description:
+      "Territory dealers (docs/dealer-programme/TERRITORY_DEALER.md; owner, 20 Nov 2026). An admin gives a TIERED dealer an exclusive territory — a set of pincodes no other territory may hold — for a yearly fee (GST included), paid online by the dealer or recorded by an admin; each fee paid extends the territory by termMonths. He keeps his team's TIERED registration commission and also earns a share of GoKesari's commission on every order delivered by a shop in his territory while it is paid up (net of refunds): baseShareBp at a performance rating of 5, + stepBp per rating point, at most maxShareBp. The rating, worked out every day, is 5 plus up to 5 points: (1 − productWeight) of them from shop onboarding (the dealer's own rating above 5) and productWeightBp of them from product-upload support (the share of approved shops in the territory with at least liveMinProducts active products). A day's orders use that day's rating. The share is worked out per order and paid with the month's dealer payout on the payout day; a refund recorded later is taken back at a later close. An unpaid territory keeps its pincodes for graceDays, then releases them. Off: no territory can be given or paid, and no order income is worked out.",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        baseShareBp: int(0, 10_000),
+        stepBp: int(0, 2_000),
+        maxShareBp: int(0, 10_000),
+        productWeightBp: int(0, 10_000),
+        liveMinProducts: int(1, 10_000),
+        termMonths: int(1, 60),
+        graceDays: int(0, 365),
+      })
+      .refine((v) => v.maxShareBp >= v.baseShareBp, { message: "The most a territory dealer can earn must not be below the base share.", path: ["maxShareBp"] }),
+    // Owner, 20 Nov 2026: 20% of GoKesari's 2% order commission, up to 25% by performance (onboarding and
+    // product-upload support); yearly fee; defaults confirmed the same day.
+    defaults: { enabled: false, baseShareBp: 2000, stepBp: 100, maxShareBp: 2500, productWeightBp: 5000, liveMinProducts: 10, termMonths: 12, graceDays: 30 },
+  },
   dealerPayoutTds: {
     description:
       "Income-tax TDS on dealer and team-member commission payouts (every model). Off until the CA confirms. On: each payout is taxed by the dated rows in Admin → TDS on commission (payee type, PAN status, rate, annual threshold, CATCH_UP or EXCESS_ONLY, the section, the CA's confirmation), summed per PAN over the financial year (April–March), with a payee's lower / nil certificate where one applies. A payout taxed under a row the CA has not confirmed is blocked until an admin overrides it with a reason. The statement shows gross, TDS and net; the bank transfer is the net. rateBp and annualThresholdPaise are the starting values the first rows were seeded with (no longer read).",

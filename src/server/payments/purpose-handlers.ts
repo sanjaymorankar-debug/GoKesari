@@ -35,5 +35,7 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   /* >>> dealer programme (docs/dealer-programme, step 7) */
   // A support-service request paid online: marked paid in the capture transaction; its ticket opens after commit.
   SUPPORT_SERVICE: async (intent, client, afterCommit) => (await import("@/server/services/support-services")).onSupportServicePaymentCaptured(intent, client as never, afterCommit),
+  // 0151 territory dealers: a territory's yearly fee paid online — the territory is paid up in the capture transaction.
+  TERRITORY_FEE: async (intent, client, afterCommit) => (await import("@/server/dealers/territory")).onTerritoryFeeCaptured(intent, client, afterCommit),
   /* <<< end dealer programme */
 };

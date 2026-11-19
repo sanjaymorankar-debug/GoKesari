@@ -5,6 +5,8 @@ Decisions: [docs/decision-log.md](../decision-log.md), section "TIERED dealer co
 shop-refers-shop" (DT-01 … DT-17). Everything is **off by default** and changes nothing for existing
 dealers, shops or customers until an admin switches it on.
 
+A TIERED dealer can also hold an exclusive territory and earn on its orders: [TERRITORY_DEALER.md](TERRITORY_DEALER.md) (20-Nov-2026).
+
 | Switch | Where | Default |
 |---|---|---|
 | Rule `dealerTieredCommission` | Admin → Settings | off (`enabled: false`) |
