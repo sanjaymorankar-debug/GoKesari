@@ -1,0 +1,2829 @@
+[
+ {
+  "id": "TS-PRE-01",
+  "module": "Preflight & smoke",
+  "title": "Verify test.gokesari.com is reachable, renders without 500s and runs the build under test",
+  "description": "Guest and admin open the home page and database-backed pages; no 500, hydration error or 404 from an older build or a missing migration.",
+  "caseIds": [
+   "TC-PRE-001",
+   "TC-PRE-002",
+   "TC-PRE-003"
+  ]
+ },
+ {
+  "id": "TS-PRE-02",
+  "module": "Preflight & smoke",
+  "title": "Verify staging is configured for testing: business-rule defaults, SMTP sign-in codes and running crons",
+  "description": "Admin checks the nine rule groups in /admin/settings, the guest sign-in form for SMTP, and the dispatch cron counter before any run starts.",
+  "caseIds": [
+   "TC-PRE-004",
+   "TC-PRE-005",
+   "TC-PRE-006"
+  ]
+ },
+ {
+  "id": "TS-PRE-03",
+  "module": "Preflight & smoke",
+  "title": "Verify every test account signs in to the right portal and the seed data the suite needs is present",
+  "description": "Admin, operator, shop owners, customers, an approved rider and a society admin sign in; missing shops, products or riders are created first.",
+  "caseIds": [
+   "TC-PRE-007",
+   "TC-PRE-008"
+  ]
+ },
+ {
+  "id": "TS-PRE-04",
+  "module": "Preflight & smoke",
+  "title": "Verify the 3-Oct requirements and the open features treated as completed are deployed on test",
+  "description": "Shop owner and admin record whether NEW-008/009/010 and the listed open features are live; missing ones mark their cases Blocked, not Fail.",
+  "caseIds": [
+   "TC-PRE-011",
+   "TC-PRE-012"
+  ]
+ },
+ {
+  "id": "TS-PRE-05",
+  "module": "Preflight & smoke",
+  "title": "Verify gokesari.com is touched only by read-only smoke checks during a test run",
+  "description": "No order, payment, suspension, setting or registration is made on production; guest pages load without errors and no form is submitted.",
+  "caseIds": [
+   "TC-PRE-009",
+   "TC-PRE-010"
+  ]
+ },
+ {
+  "id": "TS-AUTH-01",
+  "module": "Login, onboarding & profile",
+  "title": "Verify a new or returning user can sign in with a one-time code emailed to the account's address",
+  "description": "Guest signs up with an unused mobile or email only, or signs back in with a registered mobile; the code goes to the masked email and home opens.",
+  "caseIds": [
+   "TC-AUTH-001",
+   "TC-AUTH-003",
+   "TC-AUTH-004"
+  ]
+ },
+ {
+  "id": "TS-AUTH-02",
+  "module": "Login, onboarding & profile",
+  "title": "Verify first-time onboarding captures details and a geo-tagged address, and can be skipped until checkout",
+  "description": "Customer fills details and a geo-tagged address or skips; the add-mobile prompt repeats until set, and the cart asks for mobile and address before pay.",
+  "caseIds": [
+   "TC-AUTH-002",
+   "TC-AUTH-005",
+   "TC-AUTH-006",
+   "TC-AUTH-007"
+  ]
+ },
+ {
+  "id": "TS-AUTH-03",
+  "module": "Login, onboarding & profile",
+  "title": "Verify Google sign-in and the email magic link still work and the session persists across pages",
+  "description": "Guest signs in through Google or a single-use magic link; the wallet exists and the customer stays signed in across pages and reloads.",
+  "caseIds": [
+   "TC-AUTH-008",
+   "TC-AUTH-009",
+   "TC-AUTH-031"
+  ]
+ },
+ {
+  "id": "TS-AUTH-04",
+  "module": "Login, onboarding & profile",
+  "title": "Verify the sign-in code can be sent by SMS, with email offered when the SMS cannot be sent",
+  "description": "Guest picks SMS or email on the channel step; new and returning mobiles receive the SMS code; a provider failure is reported and email is offered.",
+  "caseIds": [
+   "TC-AUTH-010",
+   "TC-AUTH-046",
+   "TC-AUTH-047",
+   "TC-AUTH-051"
+  ]
+ },
+ {
+  "id": "TS-AUTH-05",
+  "module": "Login, onboarding & profile",
+  "title": "Verify a customer can edit name and gender and change mobile or email only with a code sent to the new one",
+  "description": "Customer edits My Profile; a mobile change needs an SMS code to the new number and an email change a code to the new address, with security notices.",
+  "caseIds": [
+   "TC-AUTH-023",
+   "TC-AUTH-024",
+   "TC-AUTH-025",
+   "TC-AUTH-053"
+  ]
+ },
+ {
+  "id": "TS-AUTH-06",
+  "module": "Login, onboarding & profile",
+  "title": "Verify sign out ends the session on the server for every role and closes all protected pages",
+  "description": "All roles sign out from the header (also on a phone); old cookies get 401, Back shows no cached data, cross-site log out fails and events are audited.",
+  "caseIds": [
+   "TC-AUTH-030",
+   "TC-AUTH-032",
+   "TC-AUTH-033",
+   "TC-AUTH-034",
+   "TC-AUTH-042",
+   "TC-AUTH-043",
+   "TC-AUTH-045"
+  ]
+ },
+ {
+  "id": "TS-AUTH-07",
+  "module": "Login, onboarding & profile",
+  "title": "Verify log out across tabs, devices, roles and a shared phone never leaks one user's data to the next",
+  "description": "Customer, shop owner and rider log out in other tabs, devices, mid-edit, while online or in a second role; carts stay per user; session lifetime holds.",
+  "caseIds": [
+   "TC-AUTH-035",
+   "TC-AUTH-036",
+   "TC-AUTH-037",
+   "TC-AUTH-038",
+   "TC-AUTH-039",
+   "TC-AUTH-040",
+   "TC-AUTH-041",
+   "TC-AUTH-044"
+  ]
+ },
+ {
+  "id": "TS-AUTH-08",
+  "module": "Login, onboarding & profile",
+  "title": "Verify wrong, expired, superseded and replayed sign-in codes are refused and five failures lock the code",
+  "description": "Guest enters bad email or SMS codes; each gets the generic wrong/expired message, older and used codes fail, and after five tries a new code is needed.",
+  "caseIds": [
+   "TC-AUTH-012",
+   "TC-AUTH-013",
+   "TC-AUTH-014",
+   "TC-AUTH-015",
+   "TC-AUTH-048"
+  ]
+ },
+ {
+  "id": "TS-AUTH-09",
+  "module": "Login, onboarding & profile",
+  "title": "Verify the 60-second resend cooldown and the hourly and per-IP code limits, as set in /admin/settings",
+  "description": "Guest requests email and SMS codes past the cooldown, hourly and IP limits and is refused (429 with retry time); admin changes the OTP limits.",
+  "caseIds": [
+   "TC-AUTH-016",
+   "TC-AUTH-017",
+   "TC-AUTH-018",
+   "TC-AUTH-029",
+   "TC-AUTH-049"
+  ]
+ },
+ {
+  "id": "TS-AUTH-10",
+  "module": "Login, onboarding & profile",
+  "title": "Verify invalid mobiles and emails are rejected and sign-in never reveals whether another person has an account",
+  "description": "Guest enters malformed or non-Indian numbers and bad emails; no code or SMS is sent, and registered vs unregistered identifiers look the same.",
+  "caseIds": [
+   "TC-AUTH-011",
+   "TC-AUTH-019",
+   "TC-AUTH-050"
+  ]
+ },
+ {
+  "id": "TS-AUTH-11",
+  "module": "Login, onboarding & profile",
+  "title": "Verify a mobile number or email can belong to only one account unless an admin releases it",
+  "description": "Customer is refused a mobile or email already on another account or without its SMS code; admin releases a claimed mobile with an audit row.",
+  "caseIds": [
+   "TC-AUTH-020",
+   "TC-AUTH-021",
+   "TC-AUTH-022",
+   "TC-AUTH-026",
+   "TC-AUTH-054"
+  ]
+ },
+ {
+  "id": "TS-AUTH-12",
+  "module": "Login, onboarding & profile",
+  "title": "Verify suspended accounts cannot sign in and sign-in codes are audited but never exposed",
+  "description": "Guest with a suspended account is refused with a grievance link; admin sees masked OTP/SMS audit rows and no code in any response, page or log.",
+  "caseIds": [
+   "TC-AUTH-027",
+   "TC-AUTH-028",
+   "TC-AUTH-052"
+  ]
+ },
+ {
+  "id": "TS-RBAC-01",
+  "module": "Roles & access control",
+  "title": "Verify a guest can browse and search shops but is sent to sign-in for every signed-in page and API",
+  "description": "Guest reads home, shops and products freely; add to cart prompts sign-in and every signed-in page redirects while APIs return 401.",
+  "caseIds": [
+   "TC-RBAC-001",
+   "TC-RBAC-002"
+  ]
+ },
+ {
+  "id": "TS-RBAC-02",
+  "module": "Roles & access control",
+  "title": "Verify a user holding several roles can switch between them but never into a role not held",
+  "description": "Shop owner who is also a customer switches portal and navigation; a customer's switch to an unheld role gets 403/422 and stays unchanged.",
+  "caseIds": [
+   "TC-RBAC-011",
+   "TC-RBAC-012"
+  ]
+ },
+ {
+  "id": "TS-RBAC-03",
+  "module": "Roles & access control",
+  "title": "Verify every role can place a personal order and only shop owners place B2B orders from other shops",
+  "description": "Shop owner places personal and B2B orders; a customer, another owner's shop or own-shop items are refused for B2B with nothing debited.",
+  "caseIds": [
+   "TC-RBAC-016",
+   "TC-RBAC-017",
+   "TC-RBAC-018"
+  ]
+ },
+ {
+  "id": "TS-RBAC-04",
+  "module": "Roles & access control",
+  "title": "Verify admin role changes are confirmed, audited and notified, and staff roles replace rather than stack",
+  "description": "Admin grants roles with Save confirmation and audit; the user is notified; staff roles replace each other; pre-migration users keep their grants.",
+  "caseIds": [
+   "TC-RBAC-009",
+   "TC-RBAC-010",
+   "TC-RBAC-014",
+   "TC-RBAC-015"
+  ]
+ },
+ {
+  "id": "TS-RBAC-05",
+  "module": "Roles & access control",
+  "title": "Verify revoking a user's active role or suspending the user takes effect on the next request",
+  "description": "Admin revokes an operator's role (user falls back to CUSTOMER) or suspends a customer, who is signed out and cannot sign in again.",
+  "caseIds": [
+   "TC-RBAC-013",
+   "TC-RBAC-024"
+  ]
+ },
+ {
+  "id": "TS-RBAC-06",
+  "module": "Roles & access control",
+  "title": "Verify customers and shop owners cannot open shop, rider, society, operator or admin portals they do not hold",
+  "description": "Customer and shop owner are redirected from other roles' pages and get 403 FORBIDDEN from their APIs.",
+  "caseIds": [
+   "TC-RBAC-003",
+   "TC-RBAC-005"
+  ]
+ },
+ {
+  "id": "TS-RBAC-07",
+  "module": "Roles & access control",
+  "title": "Verify an operator can verify shops but is kept out of admin settings, finance approvals and role changes",
+  "description": "Operator verifies a shop; /admin/settings, finance approve/pay, suspensions and role changes are refused; limited shop edits are recorded.",
+  "caseIds": [
+   "TC-RBAC-007",
+   "TC-RBAC-008"
+  ]
+ },
+ {
+  "id": "TS-RBAC-08",
+  "module": "Roles & access control",
+  "title": "Verify shop owners, riders and customers can read or change only their own shop, jobs and records",
+  "description": "Shop owner calls against shop B, rider against other riders' jobs, and customer against customer 2's resources all get 403/404 with no change.",
+  "caseIds": [
+   "TC-RBAC-004",
+   "TC-RBAC-006",
+   "TC-RBAC-023"
+  ]
+ },
+ {
+  "id": "TS-RBAC-09",
+  "module": "Roles & access control",
+  "title": "Verify order and settlement visibility is scoped to each role, with no customer PII shown to societies",
+  "description": "Customer, shop, rider, society, operator and admin each see only their orders and statements; operator sees exceptions only; customer is refused.",
+  "caseIds": [
+   "TC-RBAC-019",
+   "TC-RBAC-020"
+  ]
+ },
+ {
+  "id": "TS-RBAC-10",
+  "module": "Roles & access control",
+  "title": "Verify the audit log is full for admins, limited for operators, closed to others and append-only",
+  "description": "Admin sees actor, role and old/new values; operator a subset; customer and shop are refused; database triggers block edits and deletes.",
+  "caseIds": [
+   "TC-RBAC-021",
+   "TC-RBAC-022"
+  ]
+ },
+ {
+  "id": "TS-LOC-01",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify a customer can set the 'Deliver to' location by PIN, device position or Places search, and clear it",
+  "description": "Guest or customer sets the location by PIN, GPS (allow/deny) or Places; the gk_location cookie persists; an invalid PIN is refused with 422.",
+  "caseIds": [
+   "TC-LOC-001",
+   "TC-LOC-002",
+   "TC-LOC-003",
+   "TC-LOC-006",
+   "TC-LOC-007"
+  ]
+ },
+ {
+  "id": "TS-LOC-02",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify discovery and the cart follow the signed-in customer's default or chosen saved address",
+  "description": "Customer's default address drives discovery; choosing another saved address changes the delivering shops and preselects it in the cart.",
+  "caseIds": [
+   "TC-LOC-004",
+   "TC-LOC-005"
+  ]
+ },
+ {
+  "id": "TS-LOC-03",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify the address book can add, edit, re-pin, set default and delete addresses with a valid recipient mobile",
+  "description": "Customer manages addresses; fields and the geo-tag persist, the default flag moves, deleted addresses leave the cart, and bad mobiles are refused.",
+  "caseIds": [
+   "TC-LOC-008",
+   "TC-LOC-009",
+   "TC-LOC-010"
+  ]
+ },
+ {
+  "id": "TS-LOC-04",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify a customer can link an address only to a society they belong to",
+  "description": "Customer links an address to their society and the order shows on the society dashboard; linking to a society they are not in is refused.",
+  "caseIds": [
+   "TC-LOC-027",
+   "TC-LOC-028"
+  ]
+ },
+ {
+  "id": "TS-LOC-05",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify a shop can set its delivery radius within limits and add extra delivery PIN zones",
+  "description": "Shop owner saves radius values (audited) and out-of-range ones get 422; an extra PIN zone makes the shop deliverable there.",
+  "caseIds": [
+   "TC-LOC-011",
+   "TC-LOC-012",
+   "TC-LOC-015"
+  ]
+ },
+ {
+  "id": "TS-LOC-06",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify only approved, delivering shops within their radius or matching PIN are listed as delivering",
+  "description": "Customer at, inside and outside the radius sees the right shops; PIN-only shops match exactly; off, pending or suspended shops are never listed.",
+  "caseIds": [
+   "TC-LOC-013",
+   "TC-LOC-014",
+   "TC-LOC-016",
+   "TC-LOC-017"
+  ]
+ },
+ {
+  "id": "TS-LOC-07",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify the cart and checkout refuse items from a shop that does not deliver to the chosen address",
+  "description": "Customer's cart flags only the non-delivering shop and re-checks when the address changes; the checkout API refuses with no order or debit.",
+  "caseIds": [
+   "TC-LOC-018",
+   "TC-LOC-019",
+   "TC-LOC-020",
+   "TC-LOC-021"
+  ]
+ },
+ {
+  "id": "TS-LOC-08",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify the shop's minimum order value and a paused shop block checkout until resolved",
+  "description": "Customer below the Rs 200 minimum is asked to add items (pickup exempt); a shop owner's pause hides the shop and checkout refuses until un-paused.",
+  "caseIds": [
+   "TC-LOC-022",
+   "TC-LOC-023"
+  ]
+ },
+ {
+  "id": "TS-LOC-09",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify ordering from a closed shop needs confirmation, alerts are sent once and opening hours use IST",
+  "description": "Customer confirms a closed-shop order (409 without it); shop and customer get one alert each; closed days and midnight are judged in IST.",
+  "caseIds": [
+   "TC-LOC-024",
+   "TC-LOC-025",
+   "TC-LOC-026"
+  ]
+ },
+ {
+  "id": "TS-LOC-10",
+  "module": "Location, addresses & serviceability",
+  "title": "Verify road-distance ETAs and rider navigation, with a straight-line fallback and one serviceability rule",
+  "description": "Customer and rider see the same routed ETA; rider gets in-app route; a routing outage falls back to an approximate estimate; list, cart, checkout agree.",
+  "caseIds": [
+   "TC-LOC-029",
+   "TC-LOC-030",
+   "TC-LOC-031",
+   "TC-LOC-032"
+  ]
+ },
+ {
+  "id": "TS-DISC-01",
+  "module": "Discovery, search & price comparison",
+  "title": "Verify the home page shows the location bar, delivering shops and local price-comparison widgets",
+  "description": "Guest and customer see product-search hero, shop shelves and lowest-price widgets matching product pages, with empty states when nothing applies.",
+  "caseIds": [
+   "TC-DISC-001",
+   "TC-DISC-021",
+   "TC-DISC-022"
+  ]
+ },
+ {
+  "id": "TS-DISC-02",
+  "module": "Discovery, search & price comparison",
+  "title": "Verify the shop list shows only delivering shops nearest first, with search, filters and 'Show all shops'",
+  "description": "Customer and guest search shops by name, category, area and PIN, filter by type, classification and delivery, and toggle all shops keeping filters.",
+  "caseIds": [
+   "TC-DISC-002",
+   "TC-DISC-003",
+   "TC-DISC-004",
+   "TC-DISC-005"
+  ]
+ },
+ {
+  "id": "TS-DISC-03",
+  "module": "Discovery, search & price comparison",
+  "title": "Verify shop pages and category and department pages show the right profile, catalogue, hours and links",
+  "description": "Guest opens a shop page with catalogue, rating, opening hours, closed-now state and delivery options, and browses category and department pages.",
+  "caseIds": [
+   "TC-DISC-013",
+   "TC-DISC-017"
+  ]
+ },
+ {
+  "id": "TS-DISC-04",
+  "module": "Discovery, search & price comparison",
+  "title": "Verify product search lists only serviceable offers nearest first and handles odd input safely",
+  "description": "Customer's product search shows in-zone offers with distance and 'Compare prices'; empty, long or script input shows an escaped empty state.",
+  "caseIds": [
+   "TC-DISC-006",
+   "TC-DISC-007"
+  ]
+ },
+ {
+  "id": "TS-DISC-05",
+  "module": "Discovery, search & price comparison",
+  "title": "Verify the product page compares every local shop's price with lowest-price badge and per-unit prices",
+  "description": "Customer sees all selling shops sorted deliverable+buyable, then price, then distance; per-unit price shown; out-of-stock rows marked, not buyable.",
+  "caseIds": [
+   "TC-DISC-008",
+   "TC-DISC-009",
+   "TC-DISC-010",
+   "TC-DISC-011"
+  ]
+ },
+ {
+  "id": "TS-DISC-06",
+  "module": "Discovery, search & price comparison",
+  "title": "Verify product pages handle a bad id, a missing image and an in-shop-only product without errors",
+  "description": "Guest gets a 404 for a bad product id and a neutral image placeholder; customer sees offline-only products marked 'In-shop only' with no Add to cart.",
+  "caseIds": [
+   "TC-DISC-012",
+   "TC-DISC-014",
+   "TC-DISC-018"
+  ]
+ },
+ {
+  "id": "TS-DISC-07",
+  "module": "Discovery, search & price comparison",
+  "title": "Verify external reference prices are shown apart from MRP and shop price and hidden when off or untrusted",
+  "description": "Customer sees source, price and time of verified references; admin turning the rule off hides them; stale or rejected ones never show or change prices.",
+  "caseIds": [
+   "TC-DISC-015",
+   "TC-DISC-016",
+   "TC-DISC-019",
+   "TC-DISC-020"
+  ]
+ },
+ {
+  "id": "TS-DISC-08",
+  "module": "Discovery, search & price comparison",
+  "title": "Verify a shop page lists only that shop's active offers with terms and expiry",
+  "description": "Customer sees active offers that then apply at checkout; expired, paused and other shops' offers are not shown and no empty box appears.",
+  "caseIds": [
+   "TC-DISC-023",
+   "TC-DISC-024"
+  ]
+ },
+ {
+  "id": "TS-CART-01",
+  "module": "Cart & checkout",
+  "title": "Verify a customer can add, change and remove cart lines grouped per shop with each shop's delivery fee",
+  "description": "Customer adds items from one or two shops; lines group by shop with subtotal and delivery fee; totals recompute; an empty cart shows an empty state.",
+  "caseIds": [
+   "TC-CART-001",
+   "TC-CART-002",
+   "TC-CART-005"
+  ]
+ },
+ {
+  "id": "TS-CART-02",
+  "module": "Cart & checkout",
+  "title": "Verify wallet checkout creates one confirmed order per shop and debits the wallet by exactly the total",
+  "description": "Customer pays a single-shop or multi-shop cart from the wallet; each shop gets a CONFIRMED order and debit, stock falls, the cart empties, shops are told.",
+  "caseIds": [
+   "TC-CART-009",
+   "TC-CART-010"
+  ]
+ },
+ {
+  "id": "TS-CART-03",
+  "module": "Cart & checkout",
+  "title": "Verify order notes, delivery instructions and the order summary are carried through after checkout",
+  "description": "Customer's notes reach the shop and landmark reaches the rider only after pickup; the order card shows number, shop, items, amount, status, actions.",
+  "caseIds": [
+   "TC-CART-017",
+   "TC-CART-018"
+  ]
+ },
+ {
+  "id": "TS-CART-04",
+  "module": "Cart & checkout",
+  "title": "Verify checkout needs a mobile and a delivery address, and a pickup order needs no address or rider",
+  "description": "Customer without mobile or address sees prompts instead of pay and the API refuses; a pickup order has no delivery fee and the shop completes it.",
+  "caseIds": [
+   "TC-CART-015",
+   "TC-CART-016"
+  ]
+ },
+ {
+  "id": "TS-CART-05",
+  "module": "Cart & checkout",
+  "title": "Verify delivery windows and scheduled slots are feasible, limited by capacity and freed on cancellation",
+  "description": "Customer sees only windows the system can meet; picks a real slot that shop and rider see; full or invalid slots are refused; cancelling frees it.",
+  "caseIds": [
+   "TC-CART-008",
+   "TC-CART-020",
+   "TC-CART-021",
+   "TC-CART-022",
+   "TC-CART-023"
+  ]
+ },
+ {
+  "id": "TS-CART-06",
+  "module": "Cart & checkout",
+  "title": "Verify a master order links the per-shop orders, handles one shop failing and is visible only to its shops",
+  "description": "Customer gets one master reference with per-shop status; a failed or rejected shop is refunded alone; shop A sees only its child order.",
+  "caseIds": [
+   "TC-CART-024",
+   "TC-CART-025",
+   "TC-CART-026"
+  ]
+ },
+ {
+  "id": "TS-CART-07",
+  "module": "Cart & checkout",
+  "title": "Verify an order coupon applies before payment, is validated and capped, and refunds stay proportional",
+  "description": "Customer applies one coupon per order; invalid coupons get a reason; total never below zero; cancel restores the use; settlement shows who pays.",
+  "caseIds": [
+   "TC-CART-019",
+   "TC-CART-027",
+   "TC-CART-028",
+   "TC-CART-029",
+   "TC-CART-030"
+  ]
+ },
+ {
+  "id": "TS-CART-08",
+  "module": "Cart & checkout",
+  "title": "Verify the cart enforces stock and valid quantities and shows live prices and lines that became unavailable",
+  "description": "Customer cannot exceed stock or enter bad quantities; a shop's price change shows live and is charged as recomputed; unavailable lines block pay.",
+  "caseIds": [
+   "TC-CART-003",
+   "TC-CART-004",
+   "TC-CART-006",
+   "TC-CART-007"
+  ]
+ },
+ {
+  "id": "TS-CART-09",
+  "module": "Cart & checkout",
+  "title": "Verify checkout never double-charges: short balance, replays, stock races and the rate limit are handled",
+  "description": "Customer with too little balance gets 402 and no order; a replayed or racing checkout yields one order set and debit; the 16th request gets 429.",
+  "caseIds": [
+   "TC-CART-011",
+   "TC-CART-012",
+   "TC-CART-013",
+   "TC-CART-014"
+  ]
+ },
+ {
+  "id": "TS-PAY-01",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify the wallet page and a Cashfree sandbox top-up that credits exactly the amount within Rs 1-1,00,000",
+  "description": "Customer sees balance, forecast and transactions and tops up; out-of-range amounts get 422; failed or abandoned top-ups credit nothing and can retry.",
+  "caseIds": [
+   "TC-PAY-001",
+   "TC-PAY-002",
+   "TC-PAY-003",
+   "TC-PAY-006"
+  ]
+ },
+ {
+  "id": "TS-PAY-02",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify the low-balance threshold, auto-recharge settings and the one-time subscription low-balance warning",
+  "description": "Customer saves a threshold and auto-recharge (both values needed) and gets one low-balance warning with the subscription forecast.",
+  "caseIds": [
+   "TC-PAY-009",
+   "TC-PAY-011"
+  ]
+ },
+ {
+  "id": "TS-PAY-03",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify top-up voucher bonuses, their rules, admin voucher management and promotional balance on refunds",
+  "description": "Customer gets a voucher bonus as promotional balance or a specific refusal; admin creates, pauses and bulk-uploads vouchers; refunds split correctly.",
+  "caseIds": [
+   "TC-PAY-012",
+   "TC-PAY-013",
+   "TC-PAY-014",
+   "TC-PAY-015"
+  ]
+ },
+ {
+  "id": "TS-PAY-04",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify an order can be paid by wallet, COD or online by UPI, card or netbanking, including a multi-shop cart",
+  "description": "Customer sees no dead payment option; online payment confirms the order with method ONLINE; a multi-shop cart is paid once with one order per shop.",
+  "caseIds": [
+   "TC-PAY-007",
+   "TC-PAY-017",
+   "TC-PAY-018",
+   "TC-PAY-025"
+  ]
+ },
+ {
+  "id": "TS-PAY-05",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify full and partial refunds of an online order go back to the original payment method exactly once",
+  "description": "Customer gets refunds to source with reference and timing; operator over-refunds and replays are refused; a gateway failure becomes a finance exception.",
+  "caseIds": [
+   "TC-PAY-028",
+   "TC-PAY-029",
+   "TC-PAY-030"
+  ]
+ },
+ {
+  "id": "TS-PAY-06",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify online payment states, illegal transitions, chargebacks and reconciliation mismatches",
+  "description": "Admin sees CREATED to RECONCILED with time stamps, illegal moves refused, a chargeback holding the shop settlement, and mismatches as exceptions.",
+  "caseIds": [
+   "TC-PAY-026",
+   "TC-PAY-027",
+   "TC-PAY-031",
+   "TC-PAY-032"
+  ]
+ },
+ {
+  "id": "TS-PAY-07",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify declined, abandoned, over-limit or unplaceable online payments never confirm an order or charge",
+  "description": "Customer's declined or abandoned payment releases stock and keeps the cart; over-limit amounts and unplaceable orders stop before the gateway opens.",
+  "caseIds": [
+   "TC-PAY-019",
+   "TC-PAY-020",
+   "TC-PAY-033",
+   "TC-PAY-035"
+  ]
+ },
+ {
+  "id": "TS-PAY-08",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify wallet top-ups cannot be forged, replayed or rate-abused and the balance never goes negative",
+  "description": "Customer's forged or replayed verify credits nothing; a bad webhook signature is rejected; the 11th payment call gets 429; the dev top-up is closed.",
+  "caseIds": [
+   "TC-PAY-004",
+   "TC-PAY-005",
+   "TC-PAY-008",
+   "TC-PAY-010",
+   "TC-PAY-016"
+  ]
+ },
+ {
+  "id": "TS-PAY-09",
+  "module": "Wallet, vouchers & gateway",
+  "title": "Verify an order is confirmed only by a verified gateway payment and no card or UPI details are stored",
+  "description": "Forged or altered payments are refused; webhooks with bad signatures fail and duplicates change nothing; two-tab double pay is blocked or refunded.",
+  "caseIds": [
+   "TC-PAY-021",
+   "TC-PAY-022",
+   "TC-PAY-023",
+   "TC-PAY-024",
+   "TC-PAY-034"
+  ]
+ },
+ {
+  "id": "TS-COD-01",
+  "module": "Cash on delivery",
+  "title": "Verify a shop can opt in to COD and an eligible customer's COD order is confirmed unpaid exactly once",
+  "description": "Shop owner turns COD on; customer's COD order is CONFIRMED with no wallet debit and stock reduced; a replayed checkout returns the same order.",
+  "caseIds": [
+   "TC-COD-001",
+   "TC-COD-002",
+   "TC-COD-012"
+  ]
+ },
+ {
+  "id": "TS-COD-02",
+  "module": "Cash on delivery",
+  "title": "Verify a COD delivery completes only when cash collection is confirmed by the rider, an operator or the shop",
+  "description": "Rider must confirm cash to mark DELIVERED (recorded against the rider); operator override needs cashCollected; shop self-delivery holds cash as SHOP.",
+  "caseIds": [
+   "TC-COD-006",
+   "TC-COD-007",
+   "TC-COD-008"
+  ]
+ },
+ {
+  "id": "TS-COD-03",
+  "module": "Cash on delivery",
+  "title": "Verify cash deposits reduce held COD cash and remaining held cash is netted in the next payout",
+  "description": "Admin records deposits (no over-deposit, no double count on replay); net payout is earnings minus cash held, and negative batches are flagged.",
+  "caseIds": [
+   "TC-COD-009",
+   "TC-COD-010"
+  ]
+ },
+ {
+  "id": "TS-COD-04",
+  "module": "Cash on delivery",
+  "title": "Verify cancelling a COD order refunds nothing and refunding a delivered COD order credits the wallet",
+  "description": "Customer cancels before delivery with stock restored and no refund; operator refunds a delivered COD order as a wallet credit with cash as payment.",
+  "caseIds": [
+   "TC-COD-005",
+   "TC-COD-011"
+  ]
+ },
+ {
+  "id": "TS-COD-05",
+  "module": "Cash on delivery",
+  "title": "Verify COD is refused for ineligible orders and paused after failed COD deliveries or a HIGH risk flag",
+  "description": "Customer's COD for B2B, no address, a shop not opted in, over Rs 2,000 or a 3rd open COD order is refused with the reason; exactly Rs 2,000 is allowed.",
+  "caseIds": [
+   "TC-COD-003",
+   "TC-COD-004"
+  ]
+ },
+ {
+  "id": "TS-ORD-01",
+  "module": "Order state machine & cancellation",
+  "title": "Verify an order moves through every status in order with history, and illegal transitions are refused",
+  "description": "All roles see CONFIRMED to DELIVERED with time stamps, labels, history and audit rows; a shop's skipped or backward move gets 409 and nothing changes.",
+  "caseIds": [
+   "TC-ORD-001",
+   "TC-ORD-002"
+  ]
+ },
+ {
+  "id": "TS-ORD-02",
+  "module": "Order state machine & cancellation",
+  "title": "Verify guarded transitions: no manual confirm of unpaid orders, DISPUTED ops-only, RETURNED only after failure",
+  "description": "Shop cannot confirm an unpaid order or set DISPUTED (operator can; disputed orders skip settlement); RETURNED is allowed only after a failed delivery.",
+  "caseIds": [
+   "TC-ORD-003",
+   "TC-ORD-004",
+   "TC-ORD-005"
+  ]
+ },
+ {
+  "id": "TS-ORD-03",
+  "module": "Order state machine & cancellation",
+  "title": "Verify a customer can cancel a CONFIRMED order for a full refund but not once the shop has started on it",
+  "description": "Customer cancels CONFIRMED for a full wallet refund; ACCEPTED to ASSIGNED is blocked; after pickup only goods are refunded; final states go to support.",
+  "caseIds": [
+   "TC-ORD-006",
+   "TC-ORD-007",
+   "TC-ORD-008",
+   "TC-ORD-009"
+  ]
+ },
+ {
+  "id": "TS-ORD-04",
+  "module": "Order state machine & cancellation",
+  "title": "Verify a shop or operator can cancel at any stage with a full refund of what is still held",
+  "description": "Shop owner and operator cancel at each status; the full remaining amount is refunded once, rider paid only after pickup, removed lines not restocked.",
+  "caseIds": [
+   "TC-ORD-010",
+   "TC-ORD-011"
+  ]
+ },
+ {
+  "id": "TS-ORD-05",
+  "module": "Order state machine & cancellation",
+  "title": "Verify cancellation restores stock, refunds exactly once and keeps the order out of every settlement",
+  "description": "Shop owner sees stock back with an inventory movement; a repeated refund call pays once; admin finds cancelled orders in no settlement batch.",
+  "caseIds": [
+   "TC-ORD-012",
+   "TC-ORD-013",
+   "TC-ORD-014"
+  ]
+ },
+ {
+  "id": "TS-ORD-06",
+  "module": "Order state machine & cancellation",
+  "title": "Verify an order the shop does not accept in time is auto-cancelled once with a refund by payment method",
+  "description": "System cancels at the admin-set timeout (not while closed, timed from opening) with wallet, source or no refund by method; both sides notified once.",
+  "caseIds": [
+   "TC-ORD-015",
+   "TC-ORD-016",
+   "TC-ORD-017",
+   "TC-ORD-018",
+   "TC-ORD-019"
+  ]
+ },
+ {
+  "id": "TS-FUL-01",
+  "module": "Shop fulfilment & substitution",
+  "title": "Verify a shop is alerted to a new order, sees it in the right tab and can accept it or reject it with a reason",
+  "description": "Shop owner gets in-app and email alerts; each order sits in one status tab; accept notifies the customer; reject needs a reason and refunds in full.",
+  "caseIds": [
+   "TC-FUL-001",
+   "TC-FUL-002",
+   "TC-FUL-003",
+   "TC-FUL-004",
+   "TC-FUL-017"
+  ]
+ },
+ {
+  "id": "TS-FUL-02",
+  "module": "Shop fulfilment & substitution",
+  "title": "Verify a shop picks lines and marks the order READY, starting the rider search, and cannot advance held orders",
+  "description": "Shop owner picks lines to PREPARING and READY (rider search starts), sees the pickup code but never the delivery OTP; subscription orders stay one-click.",
+  "caseIds": [
+   "TC-FUL-005",
+   "TC-FUL-006",
+   "TC-FUL-015",
+   "TC-FUL-016",
+   "TC-FUL-018"
+  ]
+ },
+ {
+  "id": "TS-FUL-03",
+  "module": "Shop fulfilment & substitution",
+  "title": "Verify a customer approves or rejects a shop's substitute and never pays more than the original line",
+  "description": "Shop owner proposes a substitute that blocks READY; customer approval refunds any cheaper difference at once; rejection removes and refunds the line.",
+  "caseIds": [
+   "TC-FUL-007",
+   "TC-FUL-008",
+   "TC-FUL-009",
+   "TC-FUL-010"
+  ]
+ },
+ {
+  "id": "TS-FUL-04",
+  "module": "Shop fulfilment & substitution",
+  "title": "Verify removing a line refunds it immediately and removing every line cancels the order",
+  "description": "Shop owner removes a line and the customer is refunded and notified; removing the last line cancels the order and refunds the delivery fee too.",
+  "caseIds": [
+   "TC-FUL-013",
+   "TC-FUL-014"
+  ]
+ },
+ {
+  "id": "TS-FUL-05",
+  "module": "Shop fulfilment & substitution",
+  "title": "Verify invalid substitutes are refused and only the ordering customer can decide a substitution",
+  "description": "Shop owner's invalid substitute proposals are refused; another customer or user deciding the substitution gets 403/404.",
+  "caseIds": [
+   "TC-FUL-011",
+   "TC-FUL-012"
+  ]
+ },
+ {
+  "id": "TS-DSP-01",
+  "module": "Rider dispatch & assignment rules",
+  "title": "Verify marking an order READY automatically offers it to online, approved riders only",
+  "description": "Rider gets an offer within seconds without the shop pressing anything; offline, suspended or unapproved riders are never offered.",
+  "caseIds": [
+   "TC-DSP-001",
+   "TC-DSP-002"
+  ]
+ },
+ {
+  "id": "TS-DSP-02",
+  "module": "Rider dispatch & assignment rules",
+  "title": "Verify rider ranking prefers nearer, free and reliable riders and spreads offers fairly",
+  "description": "Riders are ranked by distance, busy status (lower, not excluded), reliability and today's offer count so the right rider is offered first.",
+  "caseIds": [
+   "TC-DSP-003",
+   "TC-DSP-004",
+   "TC-DSP-020",
+   "TC-DSP-021",
+   "TC-DSP-023"
+  ]
+ },
+ {
+  "id": "TS-DSP-03",
+  "module": "Rider dispatch & assignment rules",
+  "title": "Verify society rider lists: exclusive lists offer only listed riders and non-exclusive lists offer them first",
+  "description": "Society admin's listed and preferred riders are offered in order; exclusive societies never fall back; empty lists never block; revoking applies at once.",
+  "caseIds": [
+   "TC-DSP-016",
+   "TC-DSP-017",
+   "TC-DSP-018",
+   "TC-DSP-019"
+  ]
+ },
+ {
+  "id": "TS-DSP-04",
+  "module": "Rider dispatch & assignment rules",
+  "title": "Verify two nearby orders can be batched to one rider within limits, revealing only the current drop",
+  "description": "Rider gets one trip with separate pickup codes, OTPs and earnings per order; no batch over the limit or far apart; next drop's details stay hidden.",
+  "caseIds": [
+   "TC-DSP-024",
+   "TC-DSP-025",
+   "TC-DSP-026"
+  ]
+ },
+ {
+  "id": "TS-DSP-05",
+  "module": "Rider dispatch & assignment rules",
+  "title": "Verify admin dispatch rule changes apply to new searches and operators can assign or reassign before pickup",
+  "description": "Admin edits dispatch rules for the next search; operator assigns and reassigns riders (ASSIGNED to READY to new offer); reassign after pickup is blocked.",
+  "caseIds": [
+   "TC-DSP-012",
+   "TC-DSP-014"
+  ]
+ },
+ {
+  "id": "TS-DSP-06",
+  "module": "Rider dispatch & assignment rules",
+  "title": "Verify the rider search is bounded and can be restarted, stopped or ended by cancelling the order",
+  "description": "Shop owner sees 'Looking for a rider - attempt N of 10' every 60 s, one notice at the limit, a manual cooldown, restart and stop; cancel ends it.",
+  "caseIds": [
+   "TC-DSP-007",
+   "TC-DSP-008",
+   "TC-DSP-009",
+   "TC-DSP-010",
+   "TC-DSP-011"
+  ]
+ },
+ {
+  "id": "TS-DSP-07",
+  "module": "Rider dispatch & assignment rules",
+  "title": "Verify an offer expires after 2 minutes, a decliner is not re-offered and no rider is double-booked",
+  "description": "Rider offers lapse after about 120 s to the next rider; a rider who declined never sees the order again; concurrent orders never share one rider.",
+  "caseIds": [
+   "TC-DSP-005",
+   "TC-DSP-006",
+   "TC-DSP-013"
+  ]
+ },
+ {
+  "id": "TS-DSP-08",
+  "module": "Rider dispatch & assignment rules",
+  "title": "Verify the assign API and the cron endpoints refuse shops, customers and callers without the cron token",
+  "description": "Shop owner and customer calls to the assign API get 403; guest calls to the dispatch, notification, risk, finance and daily-order crons get 403.",
+  "caseIds": [
+   "TC-DSP-015",
+   "TC-DSP-022"
+  ]
+ },
+ {
+  "id": "TS-DEL-01",
+  "module": "Rider delivery & handover",
+  "title": "Verify a rider applies, passes operations KYC review, and only APPROVED, unblocked partners can go online",
+  "description": "Checks the rider application, operator review (approve, reject, suspend, block) and the partner state rules that decide who may take jobs; roles: rider applicant, operator.",
+  "caseIds": [
+   "TC-DEL-014",
+   "TC-DEL-015",
+   "TC-DEL-025",
+   "TC-DEL-026",
+   "TC-DEL-027"
+  ]
+ },
+ {
+  "id": "TS-DEL-02",
+  "module": "Rider delivery & handover",
+  "title": "Verify an online rider receives offers for READY orders and can accept only within the offer window",
+  "description": "Checks offer acceptance within 2 minutes, refusal of expired or cancelled offers, and that no offers reach a rider who is offline; role: rider.",
+  "caseIds": [
+   "TC-DEL-001",
+   "TC-DEL-002",
+   "TC-DEL-013"
+  ]
+ },
+ {
+  "id": "TS-DEL-03",
+  "module": "Rider delivery & handover",
+  "title": "Verify the rider collects the order with the shop's pickup code and only then sees the customer's drop details",
+  "description": "Checks arrival at the shop, the pickup code check, Start delivery revealing the full address, arrival at the customer and Google Maps links; roles: rider, shop, customer.",
+  "caseIds": [
+   "TC-DEL-003",
+   "TC-DEL-004",
+   "TC-DEL-005",
+   "TC-DEL-006",
+   "TC-DEL-012"
+  ]
+ },
+ {
+  "id": "TS-DEL-04",
+  "module": "Rider delivery & handover",
+  "title": "Verify the rider hands over only after the customer's delivery OTP matches, with a lock after five wrong tries",
+  "description": "Checks OTP delivery (earning, notifications, finance snapshot), the 5-try lock and the operator override that needs a proof note; roles: rider, customer, operator.",
+  "caseIds": [
+   "TC-DEL-007",
+   "TC-DEL-008",
+   "TC-DEL-009"
+  ]
+ },
+ {
+  "id": "TS-DEL-05",
+  "module": "Rider delivery & handover",
+  "title": "Verify photo proof of delivery is saved, validated and visible only to the customer and operations",
+  "description": "Checks the handover photo with its time, refusal of missing, oversized or disguised files, and that other users cannot open the photo; roles: rider, customer, operator.",
+  "caseIds": [
+   "TC-DEL-022",
+   "TC-DEL-023",
+   "TC-DEL-024"
+  ]
+ },
+ {
+  "id": "TS-DEL-06",
+  "module": "Rider delivery & handover",
+  "title": "Verify failed deliveries, shop self-delivery and a suspended rider's active job are closed out correctly",
+  "description": "Checks the 'customer not reachable' failure with return and refund, legacy shop self-delivery while no rider is active, and reassignment of a suspended rider's job; roles: rider, shop, operator.",
+  "caseIds": [
+   "TC-DEL-011",
+   "TC-DEL-020",
+   "TC-DEL-021"
+  ]
+ },
+ {
+  "id": "TS-DEL-07",
+  "module": "Rider delivery & handover",
+  "title": "Verify a rider sees the right gig portal pages and edits vehicle and bank details without touching KYC status",
+  "description": "Checks gig portal views per rider state, hidden identity and bank data, code-confirmed bank changes, field validation and that a rider cannot self-approve or edit another rider.",
+  "caseIds": [
+   "TC-DEL-017",
+   "TC-DEL-016",
+   "TC-DEL-028",
+   "TC-DEL-029",
+   "TC-DEL-030",
+   "TC-DEL-031"
+  ]
+ },
+ {
+  "id": "TS-DEL-08",
+  "module": "Rider delivery & handover",
+  "title": "Verify riders never receive codes or customer identity and order tracking is limited to the order's parties",
+  "description": "Checks that rider pages and APIs carry no pickup code, OTP or customer contact, that tracking is allowed only for customer, shop, assigned rider and operator, and the live map gap.",
+  "caseIds": [
+   "TC-DEL-010",
+   "TC-DEL-018",
+   "TC-DEL-019"
+  ]
+ },
+ {
+  "id": "TS-SOC-01",
+  "module": "Society module",
+  "title": "Verify a resident registers a society that operators can verify, reject, suspend or reinstate",
+  "description": "Checks society registration as APPLIED, refusal of a duplicate name and PIN, the operator status changes with audit, and order dispatch for a suspended society; roles: customer, operator.",
+  "caseIds": [
+   "TC-SOC-001",
+   "TC-SOC-002",
+   "TC-SOC-003",
+   "TC-SOC-017"
+  ]
+ },
+ {
+  "id": "TS-SOC-02",
+  "module": "Society module",
+  "title": "Verify residents join only verified societies and the society admin manages roles, keeping the last admin",
+  "description": "Checks join requests with unit labels, approval or decline, refusal for unverified societies, role changes by ADMIN only, last-admin protection and leaving a society; roles: resident, society admin.",
+  "caseIds": [
+   "TC-SOC-004",
+   "TC-SOC-005",
+   "TC-SOC-006",
+   "TC-SOC-007"
+  ]
+ },
+ {
+  "id": "TS-SOC-03",
+  "module": "Society module",
+  "title": "Verify the society dashboard lists rules, residents, riders and partner shops, and partner shops rank first",
+  "description": "Checks the /society/{id} dashboard sections and that a partner shop added by the society admin appears first and serviceable for residents; roles: society admin, resident.",
+  "caseIds": [
+   "TC-SOC-008",
+   "TC-SOC-015"
+  ]
+ },
+ {
+  "id": "TS-SOC-04",
+  "module": "Society module",
+  "title": "Verify a society order is offered only to its authorised riders, managed by mobile number by the society admin",
+  "description": "Checks adding, preferring and revoking authorised riders with audit, and the end-to-end society order from checkout to OTP delivery; roles: society admin, resident, shop, rider.",
+  "caseIds": [
+   "TC-SOC-011",
+   "TC-SOC-012",
+   "TC-SOC-016"
+  ]
+ },
+ {
+  "id": "TS-SOC-05",
+  "module": "Society module",
+  "title": "Verify the rider sees the society's gate rules and security is notified on acceptance only when opted in",
+  "description": "Checks gate notes, entry mode and the security-desk number shown to the rider on the active job only, and the opt-in security notification; roles: society admin, rider.",
+  "caseIds": [
+   "TC-SOC-013",
+   "TC-SOC-014"
+  ]
+ },
+ {
+  "id": "TS-SOC-06",
+  "module": "Society module",
+  "title": "Verify society staff see no resident personal data and cannot act on other societies",
+  "description": "Checks that the deliveries list and society API carry no resident contact or order contents, and that residents and cross-society staff get 403 while platform operators are allowed.",
+  "caseIds": [
+   "TC-SOC-009",
+   "TC-SOC-010"
+  ]
+ },
+ {
+  "id": "TS-SUB-01",
+  "module": "Subscriptions",
+  "title": "Verify a customer sets up a daily or weekly milk subscription with a correct cost preview",
+  "description": "Checks the 2 L/day preview (Rs 140 per delivery, Rs 980 a week), weekday-only weekly schedules and that a draft creates no order until activated; role: customer.",
+  "caseIds": [
+   "TC-SUB-001",
+   "TC-SUB-003",
+   "TC-SUB-016"
+  ]
+ },
+ {
+  "id": "TS-SUB-02",
+  "module": "Subscriptions",
+  "title": "Verify the daily job creates and charges exactly one order per due day, which is then delivered normally",
+  "description": "Checks one CONFIRMED order and one wallet debit per day on re-runs, fulfilment and rider delivery, the closed-shop exception and ORDER_CREATED / FULFILLED history; roles: system, shop, rider.",
+  "caseIds": [
+   "TC-SUB-002",
+   "TC-SUB-013",
+   "TC-SUB-015",
+   "TC-SUB-018"
+  ]
+ },
+ {
+  "id": "TS-SUB-03",
+  "module": "Subscriptions",
+  "title": "Verify a customer can change tomorrow's quantity, skip a date and pause or resume a subscription",
+  "description": "Checks a one-day quantity override that reverts the next day, a skipped date with no order or charge, and the inclusive pause window with resume; role: customer.",
+  "caseIds": [
+   "TC-SUB-004",
+   "TC-SUB-005",
+   "TC-SUB-006"
+  ]
+ },
+ {
+  "id": "TS-SUB-04",
+  "module": "Subscriptions",
+  "title": "Verify a subscription can be cancelled or renewed at its end date, with every event kept in its history",
+  "description": "Checks cancellation with a reason, RENEWAL_PENDING then ACTIVE or COMPLETED at the end date, and the history rows for each action; role: customer.",
+  "caseIds": [
+   "TC-SUB-007",
+   "TC-SUB-011",
+   "TC-SUB-017"
+  ]
+ },
+ {
+  "id": "TS-SUB-05",
+  "module": "Subscriptions",
+  "title": "Verify a subscription day with low wallet balance or an unavailable shop makes no order and tells the customer",
+  "description": "Checks the failed day for insufficient balance with a single debit on retry after top-up, and the 'unavailable' outcome when the shop cannot deliver; roles: customer, system.",
+  "caseIds": [
+   "TC-SUB-010",
+   "TC-SUB-014"
+  ]
+ },
+ {
+  "id": "TS-SUB-06",
+  "module": "Subscriptions",
+  "title": "Verify final states, past dates and other users' subscriptions cannot be changed",
+  "description": "Checks that cancelled or completed subscriptions, past or processed dates and illegal DRAFT or COMPLETED moves are refused, and that only the owner can open a subscription.",
+  "caseIds": [
+   "TC-SUB-008",
+   "TC-SUB-009",
+   "TC-SUB-019",
+   "TC-SUB-012"
+  ]
+ },
+ {
+  "id": "TS-RET-01",
+  "module": "Returns, refunds & disputes",
+  "title": "Verify a customer raises a return within the window, with photos for damage and no more than was delivered",
+  "description": "Checks the return form, the photo rule for 'Damaged', quantity and duplicate guards and refusal after the return window; role: customer.",
+  "caseIds": [
+   "TC-RET-001",
+   "TC-RET-002",
+   "TC-RET-003",
+   "TC-RET-004"
+  ]
+ },
+ {
+  "id": "TS-RET-02",
+  "module": "Returns, refunds & disputes",
+  "title": "Verify the shop reviews the return evidence and approves or rejects it, with the photos kept private",
+  "description": "Checks shop approval (rider pickup offered), rejection with a reason shown to the customer, the no-delivery shop handover path and evidence photo privacy; roles: shop, customer.",
+  "caseIds": [
+   "TC-RET-005",
+   "TC-RET-006",
+   "TC-RET-012",
+   "TC-RET-015"
+  ]
+ },
+ {
+  "id": "TS-RET-03",
+  "module": "Returns, refunds & disputes",
+  "title": "Verify a rider collects a return only with the customer's handover code and is paid the pickup fee",
+  "description": "Checks pickup acceptance and scheduling, the handover code with its 5-try lock, the flat rider fee and the 'could not collect' path; roles: rider, customer, shop.",
+  "caseIds": [
+   "TC-RET-007",
+   "TC-RET-008",
+   "TC-RET-009"
+  ]
+ },
+ {
+  "id": "TS-RET-04",
+  "module": "Returns, refunds & disputes",
+  "title": "Verify the shop inspects returned goods and the refund reaches the wallet exactly once",
+  "description": "Checks full and partial refunds after inspection with the shop's share in the ledger, rejection at inspection and an exactly-once refund retry; roles: shop, operator.",
+  "caseIds": [
+   "TC-RET-010",
+   "TC-RET-011",
+   "TC-RET-014"
+  ]
+ },
+ {
+  "id": "TS-RET-05",
+  "module": "Returns, refunds & disputes",
+  "title": "Verify a customer follows a return's status and can cancel it only before the rider sets off",
+  "description": "Checks the /returns timeline at each step and cancellation before set-off, with support needed after; role: customer.",
+  "caseIds": [
+   "TC-RET-021",
+   "TC-RET-013"
+  ]
+ },
+ {
+  "id": "TS-RET-06",
+  "module": "Returns, refunds & disputes",
+  "title": "Verify only operations refund a delivered order, in full or part, never beyond what remains",
+  "description": "Checks operator refunds charged to SHOP or PLATFORM with shop-share maths, refusal of over-refunds and replays, and 403 for shop owners and customers.",
+  "caseIds": [
+   "TC-RET-017",
+   "TC-RET-018",
+   "TC-RET-019"
+  ]
+ },
+ {
+  "id": "TS-RET-07",
+  "module": "Returns, refunds & disputes",
+  "title": "Verify operations resolve disputed orders, work the returns queue and change the returns rules",
+  "description": "Checks that a DISPUTED order is held out of settlement until resolved, the admin returns queue actions and new return rules from admin settings; roles: operator, admin.",
+  "caseIds": [
+   "TC-RET-020",
+   "TC-RET-022",
+   "TC-RET-016"
+  ]
+ },
+ {
+  "id": "TS-SUP-01",
+  "module": "Support, grievances & ratings",
+  "title": "Verify a customer reports a problem on their own order or contacts the shop without leaking data",
+  "description": "Checks ticket creation linked to the order, field validation, refusal on another customer's order and the shop contact page; role: customer.",
+  "caseIds": [
+   "TC-SUP-001",
+   "TC-SUP-003",
+   "TC-SUP-011",
+   "TC-SUP-002"
+  ]
+ },
+ {
+  "id": "TS-SUP-02",
+  "module": "Support, grievances & ratings",
+  "title": "Verify a grievance is raised publicly and moved by operations through each status to closure",
+  "description": "Checks the /grievance form and reference lookup, and the OPEN to CLOSED ladder with who and when, SLA counters and customer notices; roles: guest, customer, operator.",
+  "caseIds": [
+   "TC-SUP-004",
+   "TC-SUP-005",
+   "TC-SUP-012"
+  ]
+ },
+ {
+  "id": "TS-SUP-03",
+  "module": "Support, grievances & ratings",
+  "title": "Verify grievances escalate when a resolution is rejected or late, and illegal moves are refused",
+  "description": "Checks ESCALATED tickets reaching the senior queue, refusal of skipped or backward transitions, and 403 when a customer sets a staff-only state; roles: customer, operator.",
+  "caseIds": [
+   "TC-SUP-013",
+   "TC-SUP-014"
+  ]
+ },
+ {
+  "id": "TS-SUP-04",
+  "module": "Support, grievances & ratings",
+  "title": "Verify a customer rates the shop and rider once per delivered order within 30 days",
+  "description": "Checks the public anonymous shop review and average, the private rider rating, no rider rating for shop self-delivery, and refusal of ineligible or out-of-range ratings.",
+  "caseIds": [
+   "TC-SUP-006",
+   "TC-SUP-008",
+   "TC-SUP-007"
+  ]
+ },
+ {
+  "id": "TS-SUP-05",
+  "module": "Support, grievances & ratings",
+  "title": "Verify only moderators can hide and restore ratings, which updates the public list and average",
+  "description": "Checks hiding a rating with a reason and restoring it in /admin/ratings, and 403 when a shop owner tries the same; roles: operator, shop.",
+  "caseIds": [
+   "TC-SUP-009",
+   "TC-SUP-010"
+  ]
+ },
+ {
+  "id": "TS-ONB-01",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify a shop registers once as PENDING_APPROVAL, directly, with a referral code or through an operator",
+  "description": "Checks shop registration with a registration number and SHOP_OWNER role, single submit on double-click, kept form values, referral attribution and operator-on-behalf; roles: customer, operator.",
+  "caseIds": [
+   "TC-ONB-001",
+   "TC-ONB-005",
+   "TC-ONB-006",
+   "TC-ONB-025",
+   "TC-ONB-039"
+  ]
+ },
+ {
+  "id": "TS-ONB-02",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify an operator approves a shop with a classification or rejects it, and a rejected shop can resubmit",
+  "description": "Checks approval with KESARI or GREEN classification, rejection with a reason, resubmission on the same record and that classification changes need a reason and are staff-only.",
+  "caseIds": [
+   "TC-ONB-012",
+   "TC-ONB-013",
+   "TC-ONB-010",
+   "TC-ONB-015"
+  ]
+ },
+ {
+  "id": "TS-ONB-03",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify the registration fee is snapshotted, paid in full before approval and visible only to its own shop",
+  "description": "Checks the fee schedule snapshot, part and full payments with reversal only, approval blocked until the fee is paid, and owners seeing only their own payment history; roles: admin, operator, shop.",
+  "caseIds": [
+   "TC-ONB-021",
+   "TC-ONB-022",
+   "TC-ONB-023",
+   "TC-ONB-024"
+  ]
+ },
+ {
+  "id": "TS-ONB-04",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify GSTIN and PAN are submitted, verified by operations and kept masked except for audited reveal",
+  "description": "Checks GST verify or reject, PAN masking with a permission-gated, audited reveal, and the seller compliance fields (legal name, FSSAI, return policy); roles: shop, operator.",
+  "caseIds": [
+   "TC-ONB-016",
+   "TC-ONB-017",
+   "TC-ONB-019"
+  ]
+ },
+ {
+  "id": "TS-ONB-05",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify the shop's KYC documents are uploaded, validated by content, reviewed and kept private",
+  "description": "Checks GST, PAN, FSSAI and Shop Act uploads with one KYC status, mandatory-document and bad-file refusal, reject and re-upload, and 403/404 for anyone else; roles: shop, operator.",
+  "caseIds": [
+   "TC-ONB-020",
+   "TC-ONB-044",
+   "TC-ONB-045",
+   "TC-ONB-047",
+   "TC-ONB-046"
+  ]
+ },
+ {
+  "id": "TS-ONB-06",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify a shop moves from KYC_PENDING to ACTIVE in order and only an ACTIVE shop can sell",
+  "description": "Checks the KYC, payment, verification and approval states, owner closure of a shop, refusal of illegal state jumps and that non-ACTIVE shops are not listed or orderable.",
+  "caseIds": [
+   "TC-ONB-040",
+   "TC-ONB-042",
+   "TC-ONB-041",
+   "TC-ONB-043"
+  ]
+ },
+ {
+  "id": "TS-ONB-07",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify shop categories and the shop profile are managed by the right roles",
+  "description": "Checks admin category management (General cannot be deleted), operator category assignment, owner and cross-shop category permissions and shop profile settings; roles: admin, operator, shop.",
+  "caseIds": [
+   "TC-ONB-026",
+   "TC-ONB-027",
+   "TC-ONB-029",
+   "TC-ONB-028"
+  ]
+ },
+ {
+  "id": "TS-ONB-08",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify an admin previews and applies a shop suspension, the owner is told, and customers cannot buy",
+  "description": "Checks the impact preview, order handling on suspension (cancel and refund, continue, hold), the owner's banner and email, blocked checkout and concurrent suspend safety.",
+  "caseIds": [
+   "TC-ONB-030",
+   "TC-ONB-031",
+   "TC-ONB-032",
+   "TC-ONB-033",
+   "TC-ONB-038"
+  ]
+ },
+ {
+  "id": "TS-ONB-09",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify held orders are decided, the shop is reinstated, and the suspension policy is applied everywhere",
+  "description": "Checks 'let the shop finish' and 'cancel and refund' on held orders, reinstatement, the configurable suspension policy and suspension from the risk page; roles: admin, operator.",
+  "caseIds": [
+   "TC-ONB-034",
+   "TC-ONB-035",
+   "TC-ONB-036",
+   "TC-ONB-037"
+  ]
+ },
+ {
+  "id": "TS-ONB-10",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify registration needs a category and at least one valid business identifier in the right format",
+  "description": "Checks refusal without Shop Act, PAN (with holder name) or Udyam, format checks with normalisation, the category rule and malformed GSTIN or PAN; roles: customer, shop.",
+  "caseIds": [
+   "TC-ONB-002",
+   "TC-ONB-003",
+   "TC-ONB-004",
+   "TC-ONB-018"
+  ]
+ },
+ {
+  "id": "TS-ONB-11",
+  "module": "Shop onboarding, KYC, fees & suspension",
+  "title": "Verify the same shop cannot be registered twice by Shop Act, PAN or Udyam, while real branches are allowed",
+  "description": "Checks masked duplicate messages, the PAN/Udyam same-place rule, the owner's own pending shop, the rate-limited on-blur pre-check and approval blocked by a licence now held by another.",
+  "caseIds": [
+   "TC-ONB-007",
+   "TC-ONB-008",
+   "TC-ONB-009",
+   "TC-ONB-011",
+   "TC-ONB-014"
+  ]
+ },
+ {
+  "id": "TS-CAT-01",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify products enter the master catalogue, shop-created ones need approval, and shops list them",
+  "description": "Checks master product creation with a system code, shop-created products seen only by their shop until approved, mapping to a shop listing and escaped specifications; roles: operator, shop.",
+  "caseIds": [
+   "TC-CAT-001",
+   "TC-CAT-002",
+   "TC-CAT-003",
+   "TC-CAT-026"
+  ]
+ },
+ {
+  "id": "TS-CAT-02",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify owner price changes apply at once by form or Excel, while operator changes wait for owner approval",
+  "description": "Checks immediate logged owner changes, operator changes pending owner approval, Excel validate-preview-apply, row-level Excel errors, channel price rules and 403 for customers.",
+  "caseIds": [
+   "TC-CAT-005",
+   "TC-CAT-006",
+   "TC-CAT-013",
+   "TC-CAT-015",
+   "TC-CAT-004",
+   "TC-CAT-014",
+   "TC-CAT-016"
+  ]
+ },
+ {
+  "id": "TS-CAT-03",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify a selling price never exceeds the verified MRP and the discount shown is correct",
+  "description": "Checks admin MRP with source and audit, price above MRP refused by form, API and Excel, discount display, lowering MRP below a price, MRP claims and price references; roles: admin, shop, customer.",
+  "caseIds": [
+   "TC-CAT-009",
+   "TC-CAT-007",
+   "TC-CAT-008",
+   "TC-CAT-010",
+   "TC-CAT-011",
+   "TC-CAT-012"
+  ]
+ },
+ {
+  "id": "TS-CAT-04",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify a shop can set its own MRP for a product without changing other shops or the master",
+  "description": "Checks the shop-specific MRP, other shops following the master, per-shop discounts, history, Excel MRP changes, falling back to the master and past orders unchanged; roles: shop, admin, customer.",
+  "caseIds": [
+   "TC-CAT-057",
+   "TC-CAT-058",
+   "TC-CAT-059",
+   "TC-CAT-060",
+   "TC-CAT-064",
+   "TC-CAT-065",
+   "TC-CAT-066",
+   "TC-CAT-067"
+  ]
+ },
+ {
+  "id": "TS-CAT-05",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify a loose product carries no default price until the shop owner sets one",
+  "description": "Checks an empty (null, not 0) price in the master and on the shop listing, owner pricing per kg, field validation, blank loose rows in Excel and existing shop prices kept; roles: operator, shop.",
+  "caseIds": [
+   "TC-CAT-027",
+   "TC-CAT-028",
+   "TC-CAT-031",
+   "TC-CAT-036",
+   "TC-CAT-032",
+   "TC-CAT-033"
+  ]
+ },
+ {
+  "id": "TS-CAT-06",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify customers never see or buy an unpriced loose product at Rs 0",
+  "description": "Checks the 'price not set' label with no Add button, compare-prices ordering, a cart line whose price was cleared, and cart or checkout refusal through the API; role: customer.",
+  "caseIds": [
+   "TC-CAT-029",
+   "TC-CAT-034",
+   "TC-CAT-035",
+   "TC-CAT-030"
+  ]
+ },
+ {
+  "id": "TS-CAT-07",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify shop stock updates, never goes negative and raises one low-stock alert per crossing",
+  "description": "Checks stock edits with inventory movements, reservation on order, the listing-product-shop threshold order, a single alert per crossing and reorder levels; role: shop.",
+  "caseIds": [
+   "TC-CAT-017",
+   "TC-CAT-018",
+   "TC-CAT-019",
+   "TC-CAT-020",
+   "TC-CAT-021"
+  ]
+ },
+ {
+  "id": "TS-CAT-08",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify adding a category lists every active master product at stock 100 with catalogue or empty prices",
+  "description": "Checks one listing per product at on-hand 100, catalogue prices capped at MRP, empty prices for loose or unpriced items, storefront display, no false alerts and stock correction; role: shop.",
+  "caseIds": [
+   "TC-CAT-037",
+   "TC-CAT-038",
+   "TC-CAT-039",
+   "TC-CAT-040",
+   "TC-CAT-041",
+   "TC-CAT-050",
+   "TC-CAT-051",
+   "TC-CAT-052"
+  ]
+ },
+ {
+  "id": "TS-CAT-09",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify the category auto-add rules for operator adds, registration categories, later products and removal",
+  "description": "Records the behaviour still to be confirmed with the owner: operator-added categories, the registration category, later master products and removing a category with stock or open orders.",
+  "caseIds": [
+   "TC-CAT-053",
+   "TC-CAT-054",
+   "TC-CAT-055",
+   "TC-CAT-056"
+  ]
+ },
+ {
+  "id": "TS-CAT-10",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify product photos are managed by the owning shop, validated by content and shown only after moderation",
+  "description": "Checks add, primary, reorder, replace and delete, upload refusal by content, the rate limit, moderation approve or reject, and 403 for other shops and non-moderators; roles: shop, operator.",
+  "caseIds": [
+   "TC-CAT-022",
+   "TC-CAT-068",
+   "TC-CAT-069",
+   "TC-CAT-023",
+   "TC-CAT-025",
+   "TC-CAT-024",
+   "TC-CAT-070"
+  ]
+ },
+ {
+  "id": "TS-CAT-11",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify the shop MRP is validated, caps the same shop's selling price and cannot be changed for other shops",
+  "description": "Checks MRP field validation, the selling price checked against the shop's own MRP, and 403/404 when an owner targets another shop's listing or the admin MRP API; role: shop.",
+  "caseIds": [
+   "TC-CAT-062",
+   "TC-CAT-063",
+   "TC-CAT-061"
+  ]
+ },
+ {
+  "id": "TS-CAT-12",
+  "module": "Catalogue, pricing, MRP, inventory & images",
+  "title": "Verify a category add never duplicates, overwrites or leaks listings, whatever the category size",
+  "description": "Checks existing listings left untouched, no duplicates on double-click or repeat, shared products, inactive products excluded, empty and large categories and other shops unaffected.",
+  "caseIds": [
+   "TC-CAT-042",
+   "TC-CAT-043",
+   "TC-CAT-044",
+   "TC-CAT-045",
+   "TC-CAT-046",
+   "TC-CAT-047",
+   "TC-CAT-048",
+   "TC-CAT-049"
+  ]
+ },
+ {
+  "id": "TS-PMD-01",
+  "module": "Product master data",
+  "title": "Verify staff can browse and search the Product Master while its APIs stay closed to customers and guests",
+  "description": "Checks the dashboard (sources, data quality, review queue), product search with identity fields, offers and price history, and 401/403 for customers and guests; role: admin.",
+  "caseIds": [
+   "TC-PMD-001",
+   "TC-PMD-002",
+   "TC-PMD-006"
+  ]
+ },
+ {
+  "id": "TS-PMD-02",
+  "module": "Product master data",
+  "title": "Verify supplier feeds are validated before import, duplicates are merged, and products are promoted to shops",
+  "description": "Checks validate-then-import with row errors and source recording, merge-or-keep decisions in the duplicate queue and promotion into the catalogue linked to the master; role: admin.",
+  "caseIds": [
+   "TC-PMD-005",
+   "TC-PMD-003",
+   "TC-PMD-004"
+  ]
+ },
+ {
+  "id": "TS-NTF-01",
+  "module": "Notifications",
+  "title": "Verify customers, shops and riders get an in-app notification for each order step",
+  "description": "Checks in-app notices for placed, accepted, rider assigned, picked up, arriving, delivered and cancelled, the shop and rider notices, and the unread count; roles: customer, shop, rider.",
+  "caseIds": [
+   "TC-NTF-001",
+   "TC-NTF-003",
+   "TC-NTF-004"
+  ]
+ },
+ {
+  "id": "TS-NTF-02",
+  "module": "Notifications",
+  "title": "Verify order events also reach the customer by email, SMS, WhatsApp and push",
+  "description": "Checks email for each order step, SMS with the order number, WhatsApp from the approved sender and templates, and a push that opens the right order; role: customer.",
+  "caseIds": [
+   "TC-NTF-002",
+   "TC-NTF-013",
+   "TC-NTF-014",
+   "TC-NTF-015"
+  ]
+ },
+ {
+  "id": "TS-NTF-03",
+  "module": "Notifications",
+  "title": "Verify a customer's per-category, per-channel notification settings are saved and respected",
+  "description": "Checks the email switch per category, SMS, push and WhatsApp choices, nothing sent on a switched-off channel, and denied or expired push permission handled quietly; role: customer.",
+  "caseIds": [
+   "TC-NTF-005",
+   "TC-NTF-007",
+   "TC-NTF-016",
+   "TC-NTF-018"
+  ]
+ },
+ {
+  "id": "TS-NTF-04",
+  "module": "Notifications",
+  "title": "Verify account and security notices always go out and cannot be switched off",
+  "description": "Checks that the security category is locked in the UI and API, and that number links, role changes and suspensions always notify; role: customer.",
+  "caseIds": [
+   "TC-NTF-006",
+   "TC-NTF-008"
+  ]
+ },
+ {
+  "id": "TS-NTF-05",
+  "module": "Notifications",
+  "title": "Verify the same event sends one message per channel and long or Hindi text arrives readable",
+  "description": "Checks de-duplication of repeated events such as low balance, and long shop names and Hindi or Marathi text delivered without cuts or garbling; role: customer.",
+  "caseIds": [
+   "TC-NTF-009",
+   "TC-NTF-020"
+  ]
+ },
+ {
+  "id": "TS-NTF-06",
+  "module": "Notifications",
+  "title": "Verify failed sends are retried, dead-lettered and shown to admins, and never marked sent",
+  "description": "Checks the FAILED, retry and DEAD path with admin requeue, emails SKIPPED when no SMTP is set, and other channels still delivering when a provider fails; role: admin.",
+  "caseIds": [
+   "TC-NTF-010",
+   "TC-NTF-011",
+   "TC-NTF-017"
+  ]
+ },
+ {
+  "id": "TS-NTF-07",
+  "module": "Notifications",
+  "title": "Verify notifications stay private and no promotional SMS or WhatsApp is sent without consent",
+  "description": "Checks 403/404 on another user's notification and that campaigns reach only consenting customers, with STOP withdrawing consent; role: customer.",
+  "caseIds": [
+   "TC-NTF-012",
+   "TC-NTF-019"
+  ]
+ },
+ {
+  "id": "TS-FIN-01",
+  "module": "Finance, settlement & rider earnings",
+  "title": "Verify commission is taken at the shop, shop-type or default rate in force at delivery",
+  "description": "Checks setting commission rates with audit, the shop > shop type > default order, the rate snapshot per order and refusal of invalid values or operator edits; role: admin.",
+  "caseIds": [
+   "TC-FIN-001",
+   "TC-FIN-002",
+   "TC-FIN-003"
+  ]
+ },
+ {
+  "id": "TS-FIN-02",
+  "module": "Finance, settlement & rider earnings",
+  "title": "Verify every delivered order gets exactly one finance snapshot with correct goods, GMV and shop payable",
+  "description": "Checks snapshot maths after removed or substituted lines, one snapshot on each delivery path and the full order money trace; role: admin.",
+  "caseIds": [
+   "TC-FIN-004",
+   "TC-FIN-005",
+   "TC-FIN-025"
+  ]
+ },
+ {
+  "id": "TS-FIN-03",
+  "module": "Finance, settlement & rider earnings",
+  "title": "Verify weekly shop settlements are prepared once, move through approval to payment, and match the shop view",
+  "description": "Checks Monday-only batches with holds and exclusions, no duplicates on re-run, the PENDING to PAID life cycle with UTR, failure, reversal and cancel, and the shop finance page; roles: admin, shop.",
+  "caseIds": [
+   "TC-FIN-006",
+   "TC-FIN-007",
+   "TC-FIN-008",
+   "TC-FIN-010"
+  ]
+ },
+ {
+  "id": "TS-FIN-04",
+  "module": "Finance, settlement & rider earnings",
+  "title": "Verify a rider's earning uses the base and per-km rate of the matching time slot",
+  "description": "Checks the default Rs 20 + Rs 8 per km earning, time-slot rates, overnight and overlapping slot priority, and that switching a slot off leaves past earnings unchanged; roles: rider, admin.",
+  "caseIds": [
+   "TC-FIN-011",
+   "TC-FIN-012",
+   "TC-FIN-013",
+   "TC-FIN-017"
+  ]
+ },
+ {
+  "id": "TS-FIN-05",
+  "module": "Finance, settlement & rider earnings",
+  "title": "Verify rider incentives, the minimum earning top-up and failed or cancelled delivery payouts",
+  "description": "Checks incentives paid once when earned, the Rs 60 minimum top-up and the failed-delivery and cancel-after-pickup payout rules; role: admin.",
+  "caseIds": [
+   "TC-FIN-014",
+   "TC-FIN-015",
+   "TC-FIN-016"
+  ]
+ },
+ {
+  "id": "TS-FIN-06",
+  "module": "Finance, settlement & rider earnings",
+  "title": "Verify riders see their own earnings and are paid weekly net of adjustments and COD cash held",
+  "description": "Checks the rider earnings and payouts view, weekly payout batches (prepare, approve, pay, cancel) and manual SHOP or RIDER adjustments counted once; roles: rider, admin.",
+  "caseIds": [
+   "TC-FIN-018",
+   "TC-FIN-019",
+   "TC-FIN-020"
+  ]
+ },
+ {
+  "id": "TS-FIN-07",
+  "module": "Finance, settlement & rider earnings",
+  "title": "Verify reconciliation matches orders, payments, settlements and payouts and its exceptions are resolved",
+  "description": "Checks MATCHED records and named exceptions, resolution with a note and operator limits, the finance exceptions queue, the period summary in IST and a retried subscription payment.",
+  "caseIds": [
+   "TC-FIN-021",
+   "TC-FIN-022",
+   "TC-FIN-023",
+   "TC-FIN-024",
+   "TC-FIN-026"
+  ]
+ },
+ {
+  "id": "TS-FIN-08",
+  "module": "Finance, settlement & rider earnings",
+  "title": "Verify GST tax invoices, bills of supply and credit notes are issued correctly after delivery",
+  "description": "Checks the shop and platform invoices, a bill of supply for a shop without GSTIN, a credit note after a refund, per-line GST to the paisa and gap-free numbering; role: customer.",
+  "caseIds": [
+   "TC-FIN-028",
+   "TC-FIN-029",
+   "TC-FIN-030",
+   "TC-FIN-032"
+  ]
+ },
+ {
+  "id": "TS-FIN-09",
+  "module": "Finance, settlement & rider earnings",
+  "title": "Verify finance data and invoices are closed to roles that should not see or move money",
+  "description": "Checks 403 for operators approving or paying settlements, for shop, rider and customer on finance APIs, and for other customers or shops opening an invoice.",
+  "caseIds": [
+   "TC-FIN-009",
+   "TC-FIN-027",
+   "TC-FIN-031"
+  ]
+ },
+ {
+  "id": "TS-ADM-01",
+  "module": "Admin & operations console",
+  "title": "Verify the admin control tower and the shop dashboard show live figures that match the order screens",
+  "description": "Checks the /admin/dashboard sections, figures moving exactly with order actions and matching orders and analytics, and the /shop dashboard counts; roles: admin, shop.",
+  "caseIds": [
+   "TC-ADM-001",
+   "TC-ADM-002",
+   "TC-ADM-006"
+  ]
+ },
+ {
+  "id": "TS-ADM-02",
+  "module": "Admin & operations console",
+  "title": "Verify operators can find any order and see stuck orders in the exceptions queue with working actions",
+  "description": "Checks the exceptions categories and per-row actions, order filters by status, shop and date with invalid values ignored, and one row per order; role: operator.",
+  "caseIds": [
+   "TC-ADM-003",
+   "TC-ADM-004",
+   "TC-ADM-005"
+  ]
+ },
+ {
+  "id": "TS-ADM-03",
+  "module": "Admin & operations console",
+  "title": "Verify only admins change business rules, within allowed ranges, with each change audited",
+  "description": "Checks that operators get 403 on /admin/settings, out-of-range values such as OTP length 2 are refused, and save or restore applies quickly with before/after audit; role: admin.",
+  "caseIds": [
+   "TC-ADM-009",
+   "TC-ADM-008",
+   "TC-ADM-007"
+  ]
+ },
+ {
+  "id": "TS-ADM-04",
+  "module": "Admin & operations console",
+  "title": "Verify admins edit and reinstate users but can never suspend an admin account",
+  "description": "Checks profile edits with Save confirmation and audit, reinstatement of a suspended user (409, 404, 403 cases), and 403 for suspending admins or yourself; role: admin.",
+  "caseIds": [
+   "TC-ADM-010",
+   "TC-ADM-018",
+   "TC-ADM-017"
+  ]
+ },
+ {
+  "id": "TS-ADM-05",
+  "module": "Admin & operations console",
+  "title": "Verify risk rules raise one flag per subject and large orders are flagged at the right thresholds",
+  "description": "Checks the /admin/risk queue with combined filters, one refreshed flag on re-run, and the 5x and Rs 10,000 large-order thresholds; roles: operator, admin.",
+  "caseIds": [
+   "TC-ADM-011",
+   "TC-ADM-012",
+   "TC-ADM-013"
+  ]
+ },
+ {
+  "id": "TS-ADM-06",
+  "module": "Admin & operations console",
+  "title": "Verify risk flags are dismissed, actioned or turned into a suspension only with a reason by the right role",
+  "description": "Checks dismiss and action with a required note, suspend-from-flag with a 5-character reason, and operators offered suspend for shops and riders only; roles: operator, admin.",
+  "caseIds": [
+   "TC-ADM-014",
+   "TC-ADM-015",
+   "TC-ADM-016"
+  ]
+ },
+ {
+  "id": "TS-ADM-07",
+  "module": "Admin & operations console",
+  "title": "Verify the operator landing, compliance, Maps usage and consent panels load in the console",
+  "description": "Checks /operator reaches onboarding, product uploads, payments and exceptions, the compliance and Maps usage panels, and records what the consent view shows; roles: operator, admin.",
+  "caseIds": [
+   "TC-ADM-021",
+   "TC-ADM-020",
+   "TC-ADM-019"
+  ]
+ },
+ {
+  "id": "TS-MKT-01",
+  "module": "Marketing & consent",
+  "title": "Verify customers can grant and withdraw marketing consent and T&C consent is recorded at sign-up",
+  "description": "Customer consent changes are saved with history, sign-up records T&C consent, and a withdrawn customer drops out of shop audiences.",
+  "caseIds": [
+   "TC-MKT-001",
+   "TC-MKT-002",
+   "TC-MKT-006"
+  ]
+ },
+ {
+  "id": "TS-MKT-02",
+  "module": "Marketing & consent",
+  "title": "Verify a shop owner sees the marketing page and builds consent-only customer segments",
+  "description": "Shop owner sees customer counts, segments, campaigns and COD setting; segment previews count only consenting customers, never names; conflicting rules rejected.",
+  "caseIds": [
+   "TC-MKT-003",
+   "TC-MKT-004",
+   "TC-MKT-005"
+  ]
+ },
+ {
+  "id": "TS-MKT-03",
+  "module": "Marketing & consent",
+  "title": "Verify a shop campaign moves draft, submit, operator approval and send, with tracking of opens and orders",
+  "description": "Shop campaign cannot send before approval; operator can reject for resubmission; sent count stays within budget; opens, conversions and revenue are tracked.",
+  "caseIds": [
+   "TC-MKT-007",
+   "TC-MKT-008",
+   "TC-MKT-009",
+   "TC-MKT-012"
+  ]
+ },
+ {
+  "id": "TS-MKT-04",
+  "module": "Marketing & consent",
+  "title": "Verify a customer referral rewards both customers once after the first delivery, within the referral cap",
+  "description": "Customer referral reward goes to both wallets once after delivery with a reason; codes are case-insensitive, unknown codes do not block sign-up; rewards stop at the cap.",
+  "caseIds": [
+   "TC-MKT-014",
+   "TC-MKT-016"
+  ]
+ },
+ {
+  "id": "TS-MKT-05",
+  "module": "Marketing & consent",
+  "title": "Verify campaign rate limits, customer frequency caps, budget bounds and shop-scoped marketing APIs",
+  "description": "Shop gets a 3rd submit refused, customers get at most 1 per shop and 3 per 7 days, out-of-range budgets and double sends fail, other shops get 403.",
+  "caseIds": [
+   "TC-MKT-010",
+   "TC-MKT-011",
+   "TC-MKT-013"
+  ]
+ },
+ {
+  "id": "TS-MKT-06",
+  "module": "Marketing & consent",
+  "title": "Verify referral abuse earns no reward and an admin can reverse a fraudulent reward without a negative wallet",
+  "description": "Self or duplicate referrals give no reward and raise a risk flag; admin reversal writes a ledger entry and the customer wallet never goes below zero.",
+  "caseIds": [
+   "TC-MKT-015",
+   "TC-MKT-017"
+  ]
+ },
+ {
+  "id": "TS-KPI-01",
+  "module": "Analytics & KPIs",
+  "title": "Verify the admin analytics page shows KPI cards and a daily GMV trend that matches delivered orders",
+  "description": "Admin analytics KPI cards and GMV trend load, change with the date window, and GMV equals the value of the controlled delivered orders.",
+  "caseIds": [
+   "TC-KPI-001",
+   "TC-KPI-003"
+  ]
+ },
+ {
+  "id": "TS-KPI-02",
+  "module": "Analytics & KPIs",
+  "title": "Verify fulfilment KPIs (fill rate, acceptance, pick-pack, assignment, delivery, on-time) match test orders",
+  "description": "Admin sees order fill rate, shop acceptance and pick-pack time, rider assignment and delivery time and on-time rate matching the controlled orders.",
+  "caseIds": [
+   "TC-KPI-004",
+   "TC-KPI-005",
+   "TC-KPI-006",
+   "TC-KPI-007"
+  ]
+ },
+ {
+  "id": "TS-KPI-03",
+  "module": "Analytics & KPIs",
+  "title": "Verify cancellation, refund, customer repeat, shop retention and subscription retention rates",
+  "description": "Admin KPIs give cancelled/total, refunded value/GMV, repeat customers, retained active shops and retained vs cancelled subscriptions as the data shows.",
+  "caseIds": [
+   "TC-KPI-008",
+   "TC-KPI-009",
+   "TC-KPI-010"
+  ]
+ },
+ {
+  "id": "TS-KPI-04",
+  "module": "Analytics & KPIs",
+  "title": "Verify rider gig acceptance and utilisation and marketing campaign conversion KPIs",
+  "description": "Admin sees gig acceptance (50% for the controlled pair), utilisation from online sessions, and orders attributable to campaign recipients in the window.",
+  "caseIds": [
+   "TC-KPI-011",
+   "TC-KPI-012"
+  ]
+ },
+ {
+  "id": "TS-KPI-05",
+  "module": "Analytics & KPIs",
+  "title": "Verify an empty date window shows zeros not errors and shop analytics stays limited to the own shop",
+  "description": "Admin KPIs show zeros or dashes (no NaN or Infinity) for an empty window; a shop owner sees only own-shop analytics, another shop or customer gets 403.",
+  "caseIds": [
+   "TC-KPI-013",
+   "TC-KPI-002"
+  ]
+ },
+ {
+  "id": "TS-SEC-01",
+  "module": "Security & platform",
+  "title": "Verify test.gokesari.com blocks search engines in robots.txt and shows a branded 404 page",
+  "description": "Guest sees robots.txt disallowing search engines on the test site (testing agent allowed) and a branded 404 with navigation instead of a stack trace.",
+  "caseIds": [
+   "TC-SEC-008",
+   "TC-SEC-009"
+  ]
+ },
+ {
+  "id": "TS-SEC-02",
+  "module": "Security & platform",
+  "title": "Verify GoKesari redirects to HTTPS and sets session and gk_location cookies HttpOnly and Secure",
+  "description": "Guest HTTP requests redirect to https; the customer session and gk_location cookies carry the HttpOnly and Secure flags.",
+  "caseIds": [
+   "TC-SEC-007",
+   "TC-SEC-006"
+  ]
+ },
+ {
+  "id": "TS-SEC-03",
+  "module": "Security & platform",
+  "title": "Verify write APIs refuse unauthenticated calls and ignore server-assigned fields sent in a request",
+  "description": "Every write API answers 401 to a guest; a customer cannot set server-assigned fields (status, prices, owner ids) from the request body.",
+  "caseIds": [
+   "TC-SEC-001",
+   "TC-SEC-004"
+  ]
+ },
+ {
+  "id": "TS-SEC-04",
+  "module": "Security & platform",
+  "title": "Verify malformed ids and server errors return 404/422 or a generic error without stack traces or SQL",
+  "description": "Customer requests with malformed ids get 404/422, not 500; error responses never expose stack traces, SQL or file paths.",
+  "caseIds": [
+   "TC-SEC-002",
+   "TC-SEC-010"
+  ]
+ },
+ {
+  "id": "TS-SEC-05",
+  "module": "Security & platform",
+  "title": "Verify stored script text is shown escaped and no response leaks PAN, bank, OTP or secret values",
+  "description": "Customer-entered script text is displayed escaped everywhere; no role ever receives full PAN, bank details, identity numbers, OTPs, codes or secrets.",
+  "caseIds": [
+   "TC-SEC-003",
+   "TC-SEC-005"
+  ]
+ },
+ {
+  "id": "TS-UX-01",
+  "module": "Navigation, responsive & legal",
+  "title": "Verify the GoKesari header gives every role working links and all legal and policy pages load",
+  "description": "Header links for guest, customer, shop, rider, operator and admin open working pages with no dead links; every legal and policy page has content.",
+  "caseIds": [
+   "TC-UX-001",
+   "TC-UX-004"
+  ]
+ },
+ {
+  "id": "TS-UX-02",
+  "module": "Navigation, responsive & legal",
+  "title": "Verify the main customer pages work on a phone screen and the browser console stays free of errors",
+  "description": "Customer pages have no sideways scroll, reachable menus and tappable buttons on a phone, and no uncaught errors or hydration warnings in the console.",
+  "caseIds": [
+   "TC-UX-002",
+   "TC-UX-003"
+  ]
+ },
+ {
+  "id": "TS-UX-03",
+  "module": "Navigation, responsive & legal",
+  "title": "Verify empty lists show helpful empty states and admin edit screens warn before unsaved changes are lost",
+  "description": "Customer screens with no data show a helpful empty state, not a blank page; admin edit screens warn before leaving with unsaved changes.",
+  "caseIds": [
+   "TC-UX-006",
+   "TC-UX-005"
+  ]
+ },
+ {
+  "id": "TS-QA-01",
+  "module": "QA automation",
+  "title": "Verify every plan case is declared in tests/qa, each check records its result and the register lists all",
+  "description": "Every case ID is automated or declared manual; each check records ID, status, tier, site and spec; the register holds every case and scenario per site.",
+  "caseIds": [
+   "TC-QA-001",
+   "TC-QA-003",
+   "TC-QA-004"
+  ]
+ },
+ {
+  "id": "TS-QA-02",
+  "module": "QA automation",
+  "title": "Verify writing and local QA tiers never run on gokesari.com and the weekly workflow runs only the guest tier",
+  "description": "Signed-in and local checks are skipped on production with write helpers refusing it; the Monday workflow runs tests/qa/guest on both sites without writing.",
+  "caseIds": [
+   "TC-QA-002",
+   "TC-QA-006"
+  ]
+ },
+ {
+  "id": "TS-QA-03",
+  "module": "QA automation",
+  "title": "Verify the Claude QA agent and skills are installed and the local QA environment seeds the plan test data",
+  "description": "The QA agent and its run, sign-in, write-test and report skills are installed; the local environment migrates, seeds and lists every test account.",
+  "caseIds": [
+   "TC-QA-005",
+   "TC-QA-007"
+  ]
+ },
+ {
+  "id": "TS-APP-01",
+  "module": "App install & updates",
+  "title": "Verify a first visit on Android or iPhone shows the right install prompt and it fits the phone screen",
+  "description": "Guest on Android sees the Get the GoKesari app sheet without a backdrop; iPhone Safari gets the three-step Add to Home Screen guide; sheet fits without scroll.",
+  "caseIds": [
+   "TC-APP-001",
+   "TC-APP-007",
+   "TC-APP-013"
+  ]
+ },
+ {
+  "id": "TS-APP-02",
+  "module": "App install & updates",
+  "title": "Verify Not now hides the install prompt only for that page view and declines are counted on the account",
+  "description": "Guest decline closes the sheet but the prompt returns on visits 2 and 3; a signed-in customer has declines and installs saved, signed-out calls get 401.",
+  "caseIds": [
+   "TC-APP-002",
+   "TC-APP-003",
+   "TC-APP-008"
+  ]
+ },
+ {
+  "id": "TS-APP-03",
+  "module": "App install & updates",
+  "title": "Verify installing from Chrome removes the prompt for good and the installed or native app never shows it",
+  "description": "After install via Chrome dialog gk_app_installed stops the sheet; standalone mode, the related app and the native Android/iPhone app show no prompt or update bar.",
+  "caseIds": [
+   "TC-APP-004",
+   "TC-APP-005",
+   "TC-APP-006"
+  ]
+ },
+ {
+  "id": "TS-APP-04",
+  "module": "App install & updates",
+  "title": "Verify the service worker uses a versioned cache and an installed web app picks up a new deploy",
+  "description": "Guest gets sw.js with no-store and a gk-static-<version> cache; after a deploy the update bar reloads to the new version and old caches are deleted.",
+  "caseIds": [
+   "TC-APP-009",
+   "TC-APP-010"
+  ]
+ },
+ {
+  "id": "TS-APP-05",
+  "module": "App install & updates",
+  "title": "Verify the native update check lists latest and minimum versions and the app offers and installs a newer build",
+  "description": "The update endpoint returns android/ios latest, minimum and https links; the native app offers Later/Update (Update only below minimum) and installs over the old build.",
+  "caseIds": [
+   "TC-APP-011",
+   "TC-APP-012"
+  ]
+ },
+ {
+  "id": "TS-OPG-01",
+  "module": "Order, payment & GST",
+  "title": "Verify shop owners download the product upload template as CSV and Excel with GST, loose and category lists",
+  "description": "Shop owner gets GoKesari_Product_Upload_Template.csv with the template columns, and the Excel template offers GST slab, Loose Item (Y/N) and Category drop-downs.",
+  "caseIds": [
+   "TC-OPG-001",
+   "TC-OPG-002"
+  ]
+ },
+ {
+  "id": "TS-OPG-02",
+  "module": "Order, payment & GST",
+  "title": "Verify a shop downloads its own catalogue in the upload layout and no customer or guest can download it",
+  "description": "Shop owner downloads the catalogue with SKU, HSN, GST %, MRP, price, stock and hidden product ID columns; customers get 403 and guests 401.",
+  "caseIds": [
+   "TC-OPG-003",
+   "TC-OPG-004"
+  ]
+ },
+ {
+  "id": "TS-OPG-03",
+  "module": "Order, payment & GST",
+  "title": "Verify tax invoices show cess correctly and a composition dealer issues a bill of supply with its GSTIN",
+  "description": "Customer invoice totals add taxable, CGST/SGST or IGST and cess to the price paid, GSTR-1 shows csamt; a composition shop prints a bill of supply with GSTIN.",
+  "caseIds": [
+   "TC-OPG-007",
+   "TC-OPG-008"
+  ]
+ },
+ {
+  "id": "TS-OPG-04",
+  "module": "Order, payment & GST",
+  "title": "Verify product upload preview rejects price above MRP and non-slab GST and reports only the rows to fix",
+  "description": "Shop owner upload preview rejects Selling > MRP and non-slab GST rows, warns on a loose item without weight unit, and the result CSV lists only rejected rows.",
+  "caseIds": [
+   "TC-OPG-005",
+   "TC-OPG-006"
+  ]
+ },
+ {
+  "id": "TS-OPG-05",
+  "module": "Order, payment & GST",
+  "title": "Verify after a failed delivery only operations can mark the order delivered and a return to shop is notified",
+  "description": "Shop owner gets 409 marking a failed-delivery order delivered, operator/admin can; returned-to-shop notifies buyer and shop and is logged in order events.",
+  "caseIds": [
+   "TC-OPG-009",
+   "TC-OPG-010"
+  ]
+ },
+ {
+  "id": "TS-SPI-01",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify a customer purchase of packaged, loose and multi-line items charges exactly and moves stock to match",
+  "description": "Customer wallet is debited once for goods plus delivery fee at the current price and MRP; loose goods priced to the paisa; stock movements link to the order.",
+  "caseIds": [
+   "TC-SPI-001",
+   "TC-SPI-002",
+   "TC-SPI-004",
+   "TC-SPI-005"
+  ]
+ },
+ {
+  "id": "TS-SPI-02",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify the sale shows in full on the customer purchase history and the shop order list",
+  "description": "Customer history lists shop, lines, units, price, MRP and payment matching the wallet; shop order list shows the same lines without extra customer details.",
+  "caseIds": [
+   "TC-SPI-006",
+   "TC-SPI-008"
+  ]
+ },
+ {
+  "id": "TS-SPI-03",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify shop sales count delivered orders only and flow into the settlement at the price sold",
+  "description": "Shop revenue rises only for delivered orders, not cancelled ones; admin settlement uses goods value at sale less commission, unaffected by later price changes.",
+  "caseIds": [
+   "TC-SPI-009",
+   "TC-SPI-014"
+  ]
+ },
+ {
+  "id": "TS-SPI-04",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify stock changes outside online orders: B2B purchase, in-shop sale and Excel stock upload",
+  "description": "Shop stock falls for a B2B sale and an in-shop sale with movements and reasons; Excel stock upload applies valid rows and reports bad ones untouched.",
+  "caseIds": [
+   "TC-SPI-007",
+   "TC-SPI-013",
+   "TC-SPI-024"
+  ]
+ },
+ {
+  "id": "TS-SPI-05",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify the shop inventory page shows on-hand, reserved and available with units, search, filter and sort",
+  "description": "Shop inventory rows show product, unit, on-hand = available + reserved, low-stock threshold and price; loose goods take decimal kg/litre; search stays correct.",
+  "caseIds": [
+   "TC-SPI-015",
+   "TC-SPI-025",
+   "TC-SPI-026"
+  ]
+ },
+ {
+  "id": "TS-SPI-06",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify stock received and written off are recorded as movements and the ledger adds up to stock on hand",
+  "description": "Shop restock and damage/expiry write-offs create movements with before/after, reason, user and time; reductions below zero refused; ledger sum equals on-hand.",
+  "caseIds": [
+   "TC-SPI-016",
+   "TC-SPI-017",
+   "TC-SPI-021"
+  ]
+ },
+ {
+  "id": "TS-SPI-07",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify reserved stock follows the order states and cancelled, rejected or failed orders return the stock",
+  "description": "Shop stock is held for a placed order and released on delivery; cancelled, rejected and failed orders put the units back with a return movement.",
+  "caseIds": [
+   "TC-SPI-018",
+   "TC-SPI-019"
+  ]
+ },
+ {
+  "id": "TS-SPI-08",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify substitutions, removed lines and returned goods leave the stock of each product right",
+  "description": "Shop substitution restores the original and reduces the substitute; a removed line is refunded and not resold; resaleable returns go back to stock, damaged do not.",
+  "caseIds": [
+   "TC-SPI-010",
+   "TC-SPI-011",
+   "TC-SPI-020"
+  ]
+ },
+ {
+  "id": "TS-SPI-09",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify GoKesari never oversells: last-unit orders, stock below reserved and concurrent edits are guarded",
+  "description": "Customer second order for sold-out stock fails OUT_OF_STOCK with no debit; shop cannot cut stock below reserved; stale edits are refused; storefront marks out of stock.",
+  "caseIds": [
+   "TC-SPI-003",
+   "TC-SPI-012",
+   "TC-SPI-022",
+   "TC-SPI-023"
+  ]
+ },
+ {
+  "id": "TS-SPI-10",
+  "module": "Sell, purchase & inventory",
+  "title": "Verify shop inventory is private and inconsistent stock figures reach the admin dashboard",
+  "description": "Other shops and customers get 403/401 on stock counts and movements; admin dashboard lists listings with negative or inconsistent availability with a matching count.",
+  "caseIds": [
+   "TC-SPI-027",
+   "TC-SPI-028"
+  ]
+ },
+ {
+  "id": "TS-LIST-01",
+  "module": "Purchase lists",
+  "title": "Verify a customer can create weekly shopping and monthly medicine lists with unique names",
+  "description": "Customer creates a SHOPPING/WEEKLY list with reminder and a MEDICINE/MONTHLY list without; a second list with the same name in any case or spacing is refused (409).",
+  "caseIds": [
+   "TC-LIST-003",
+   "TC-LIST-004",
+   "TC-LIST-005"
+  ]
+ },
+ {
+  "id": "TS-LIST-02",
+  "module": "Purchase lists",
+  "title": "Verify My lists is reachable from every entry point and the lists work on a phone screen",
+  "description": "Customer reaches /lists from each menu and link; on a phone the lists, Check list bar, Confirm order and the Add to list sheet show without sideways scroll.",
+  "caseIds": [
+   "TC-LIST-026",
+   "TC-LIST-027"
+  ]
+ },
+ {
+  "id": "TS-LIST-03",
+  "module": "Purchase lists",
+  "title": "Verify a customer adds products to a list from the product card, including a new list and an existing line",
+  "description": "Customer picks a list in the Add to which list? sheet or creates one with Create & add; a product already on the list keeps its quantity and note.",
+  "caseIds": [
+   "TC-LIST-006",
+   "TC-LIST-007",
+   "TC-LIST-008"
+  ]
+ },
+ {
+  "id": "TS-LIST-04",
+  "module": "Purchase lists",
+  "title": "Verify list quantities (0-99), skip, notes up to 120 characters and removing a product",
+  "description": "Customer sets quantities by stepper or typing, 0 marks Skipped this time, notes save on leaving the field; 100, -1, 1.5 and 121 characters give 422; removal persists.",
+  "caseIds": [
+   "TC-LIST-010",
+   "TC-LIST-011",
+   "TC-LIST-012"
+  ]
+ },
+ {
+  "id": "TS-LIST-05",
+  "module": "Purchase lists",
+  "title": "Verify a customer can edit a list name, type, frequency and reminder, delete it, and get due reminders",
+  "description": "Customer edits and deletes lists (duplicate names refused, deleted list 404); the daily job sends one Time to reorder notice per due date, none when reminder off.",
+  "caseIds": [
+   "TC-LIST-023",
+   "TC-LIST-024",
+   "TC-LIST-028"
+  ]
+ },
+ {
+  "id": "TS-LIST-06",
+  "module": "Purchase lists",
+  "title": "Verify Check list prices the list like the cart and names lines that will be left out",
+  "description": "Customer Confirm your order shows per-shop subtotal, delivery and total equal to the check API; out-of-stock lines are listed with the reason; cart-merge choice offered.",
+  "caseIds": [
+   "TC-LIST-013",
+   "TC-LIST-014",
+   "TC-LIST-015"
+  ]
+ },
+ {
+  "id": "TS-LIST-07",
+  "module": "Purchase lists",
+  "title": "Verify Confirm order moves the list into an empty cart, adds it to a cart with items, or replaces the cart",
+  "description": "Customer confirm puts only non-skipped lines in the cart with matching total, merges with or replaces existing cart lines, and marks the list Last ordered.",
+  "caseIds": [
+   "TC-LIST-016",
+   "TC-LIST-017",
+   "TC-LIST-018"
+  ]
+ },
+ {
+  "id": "TS-LIST-08",
+  "module": "Purchase lists",
+  "title": "Verify the cart can be saved as a new purchase list or into an existing one",
+  "description": "Customer saves the cart as a SHOPPING/WEEKLY list or into an existing list where cart quantities win and other lines stay; saving an empty cart gives 422.",
+  "caseIds": [
+   "TC-LIST-021",
+   "TC-LIST-022"
+  ]
+ },
+ {
+  "id": "TS-LIST-09",
+  "module": "Purchase lists",
+  "title": "Verify a list with nothing to order is refused and a list that cannot go in leaves the cart unchanged",
+  "description": "Customer Check list is disabled when all quantities are 0 (API 422 Nothing to order); when no line fits, the cart stays exactly as it was with reasons shown.",
+  "caseIds": [
+   "TC-LIST-019",
+   "TC-LIST-020"
+  ]
+ },
+ {
+  "id": "TS-LIST-10",
+  "module": "Purchase lists",
+  "title": "Verify purchase lists are private: guests are sent to sign-in and other customers and hidden products give 404",
+  "description": "Guest pages redirect to /signin and APIs answer 401; another customer list answers 404 not 403; unknown, inactive or unapproved-shop products cannot be added.",
+  "caseIds": [
+   "TC-LIST-001",
+   "TC-LIST-002",
+   "TC-LIST-025",
+   "TC-LIST-009"
+  ]
+ },
+ {
+  "id": "TS-DLR-01",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify tiered commission pays 20% direct at ACTIVATED and TRADING with 5% / 3% overrides per fee slab",
+  "description": "Admin sees direct 20% (60/40 split) and lead/main overrides on Rs 999, 4,999 and 9,999 fees; STANDARD dealers keep 40%; members are held until the agreement is accepted.",
+  "caseIds": [
+   "TC-TIER-002",
+   "TC-TIER-010"
+  ]
+ },
+ {
+  "id": "TS-DLR-02",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify dealer promotion with development bonus, 10% renewal commission and the monthly target bonus",
+  "description": "Admin promotion is refused below the shop count unless overridden; former lead earns 1% development; renewal pays 10% before GST; month close drafts target bonuses.",
+  "caseIds": [
+   "TC-TIER-006",
+   "TC-TIER-005",
+   "TC-TIER-007"
+  ]
+ },
+ {
+  "id": "TS-DLR-03",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify an approved shop gets its own SHOP referral code and /r/ link that opens Add my shop with the code",
+  "description": "Shop owner sees a Refer another shop card with code, /r/CODE link and WhatsApp/Share/Copy; guest /r/SHOP... redirects to /shop/register?ref=CODE.",
+  "caseIds": [
+   "TC-SREF-001",
+   "TC-SREF-002"
+  ]
+ },
+ {
+  "id": "TS-DLR-04",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify a referred shop gets 10% off the fee and the referrer earns credit after the first delivered order",
+  "description": "New shop owner can lock one code for 10% off the registration fee; referring shop gets Rs 200 promo credit (or a month) once, after approval and first delivery.",
+  "caseIds": [
+   "TC-SREF-003",
+   "TC-SREF-004"
+  ]
+ },
+ {
+  "id": "TS-DLR-05",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify one dealer payout per PAN per month with maker-checker approval and automatic bank transfer",
+  "description": "Admin drafts one payout per PAN across roles; the drafter cannot approve; transfer marks PAID with UTR, failing banks are retried then flagged; manual pay works.",
+  "caseIds": [
+   "TC-DPAY-001",
+   "TC-DPAY-003"
+  ]
+ },
+ {
+  "id": "TS-DLR-06",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify dealer statement emails and payout reports download in CSV and XLSX with role-based access",
+  "description": "Admin downloads summary, lines, pending and failed reports in CSV/XLSX and the statement email carries a CSV; guests are refused and operators cannot get the bank file.",
+  "caseIds": [
+   "TC-DPAY-004",
+   "TC-DPAY-005"
+  ]
+ },
+ {
+  "id": "TS-DLR-07",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify the admin TIERED and TDS-on-commission screens and the dealer team and TDS cards",
+  "description": "Admin sees TIERED settings, team tree, requests, TDS rows, challans and 26Q/Form 16A; the dealer sees team earnings by type and PAN status, rate and TDS this year.",
+  "caseIds": [
+   "TC-TIER-011",
+   "TC-TDS-003"
+  ]
+ },
+ {
+  "id": "TS-DLR-08",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify the dealer tree stops at 3 levels and missing or self levels are never paid an override",
+  "description": "Admin and the database refuse a 4th level; no lead override without a lead and no override on a dealer or lead own shop, so nobody is paid twice.",
+  "caseIds": [
+   "TC-TIER-001",
+   "TC-TIER-003"
+  ]
+ },
+ {
+  "id": "TS-DLR-09",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify TRADING commission lapses after the order window and a shop fee refund reverses every level",
+  "description": "Admin sees part 2 and overrides as zero lapsed entries after the window; a refund reverses unpaid entries and books negative entries for paid ones into next payout.",
+  "caseIds": [
+   "TC-TIER-004",
+   "TC-TIER-008"
+  ]
+ },
+ {
+  "id": "TS-DLR-10",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify payouts are held without PAN, verified bank, agreement or CA-confirmed TDS, and show gross and net",
+  "description": "Admin payouts are held or refused for missing PAN/bank/agreement or an UNCONFIRMED TDS row; only the CA confirms rates; TDS on shows gross, 2% TDS and net.",
+  "caseIds": [
+   "TC-TIER-009",
+   "TC-DPAY-002",
+   "TC-TDS-001",
+   "TC-TDS-002"
+  ]
+ },
+ {
+  "id": "TS-DLR-11",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify shop referral guards reject same-owner or duplicate shops, cap rewards yearly and allow admin reversal",
+  "description": "Admin sees referrals with same PAN/GSTIN/mobile/bank rejected, no reward past 20 a year, reversal never below zero; on production with rules off nothing changes.",
+  "caseIds": [
+   "TC-SREF-005",
+   "TC-SREF-006",
+   "TC-SREF-007"
+  ]
+ },
+ {
+  "id": "TS-FLD-01",
+  "module": "Field-level validation",
+  "title": "Verify sign-in, sign-up and profile forms validate mobile, email, codes, terms consent and referral code",
+  "description": "Guest and customer forms accept only valid 10-digit mobiles, emails and exact codes; sign-up needs T&C consent; unknown referral codes never block sign-up.",
+  "caseIds": [
+   "TC-FLD-001",
+   "TC-FLD-002",
+   "TC-FLD-003",
+   "TC-FLD-004",
+   "TC-FLD-005",
+   "TC-FLD-006",
+   "TC-FLD-007",
+   "TC-FLD-008",
+   "TC-FLD-009",
+   "TC-FLD-132"
+  ]
+ },
+ {
+  "id": "TS-FLD-02",
+  "module": "Field-level validation",
+  "title": "Verify the delivery-address form, location bar and search boxes validate PIN, phone, house and free text",
+  "description": "Customer address needs name, valid mobile, house, city and a 6-digit PIN not starting with 0, one default and a consistent map pin; search input never gives 500.",
+  "caseIds": [
+   "TC-FLD-010",
+   "TC-FLD-011",
+   "TC-FLD-012",
+   "TC-FLD-013",
+   "TC-FLD-014",
+   "TC-FLD-015",
+   "TC-FLD-016",
+   "TC-FLD-017",
+   "TC-FLD-018",
+   "TC-FLD-019",
+   "TC-FLD-020",
+   "TC-FLD-021",
+   "TC-FLD-022"
+  ]
+ },
+ {
+  "id": "TS-FLD-03",
+  "module": "Field-level validation",
+  "title": "Verify cart, checkout and wallet fields validate quantities, slots, payment method, codes and amounts",
+  "description": "Customer cart quantities and loose weights, delivery window and slot, payment method, notes, coupon/voucher codes and wallet amounts are validated by page and API.",
+  "caseIds": [
+   "TC-FLD-023",
+   "TC-FLD-024",
+   "TC-FLD-025",
+   "TC-FLD-026",
+   "TC-FLD-027",
+   "TC-FLD-028",
+   "TC-FLD-029",
+   "TC-FLD-030",
+   "TC-FLD-031",
+   "TC-FLD-032",
+   "TC-FLD-033",
+   "TC-FLD-130",
+   "TC-FLD-131"
+  ]
+ },
+ {
+  "id": "TS-FLD-04",
+  "module": "Field-level validation",
+  "title": "Verify the shop registration form validates names, phone, address, PIN, categories, PAN, Udyam and delivery",
+  "description": "Customer registering a shop must give names, a valid phone and PIN, categories, at least one of Shop Act/PAN/Udyam in the right pattern and a valid delivery fee.",
+  "caseIds": [
+   "TC-FLD-034",
+   "TC-FLD-035",
+   "TC-FLD-036",
+   "TC-FLD-037",
+   "TC-FLD-038",
+   "TC-FLD-039",
+   "TC-FLD-040",
+   "TC-FLD-041",
+   "TC-FLD-042",
+   "TC-FLD-046",
+   "TC-FLD-048"
+  ]
+ },
+ {
+  "id": "TS-FLD-05",
+  "module": "Field-level validation",
+  "title": "Verify shop settings validate GSTIN, FSSAI, KYC files, delivery radius, PIN zones, fees, hours and switches",
+  "description": "Shop owner settings accept only a valid 15-character GSTIN, 14-digit FSSAI, safe files, 1-50 km radius, valid amounts and hours in IST; switches persist.",
+  "caseIds": [
+   "TC-FLD-043",
+   "TC-FLD-044",
+   "TC-FLD-045",
+   "TC-FLD-047",
+   "TC-FLD-049",
+   "TC-FLD-050",
+   "TC-FLD-051",
+   "TC-FLD-052",
+   "TC-FLD-053",
+   "TC-FLD-054",
+   "TC-FLD-055",
+   "TC-FLD-056",
+   "TC-FLD-057"
+  ]
+ },
+ {
+  "id": "TS-FLD-06",
+  "module": "Field-level validation",
+  "title": "Verify shop listing fields validate prices, MRP, stock, thresholds, photos, new products and Excel upload",
+  "description": "Shop owner listing prices and MRP need positive 2-decimal amounts, stock and thresholds whole in-range numbers; photos and Excel files are type and size checked.",
+  "caseIds": [
+   "TC-FLD-058",
+   "TC-FLD-059",
+   "TC-FLD-060",
+   "TC-FLD-061",
+   "TC-FLD-062",
+   "TC-FLD-063",
+   "TC-FLD-064",
+   "TC-FLD-065",
+   "TC-FLD-066",
+   "TC-FLD-067",
+   "TC-FLD-068",
+   "TC-FLD-069",
+   "TC-FLD-070"
+  ]
+ },
+ {
+  "id": "TS-FLD-07",
+  "module": "Field-level validation",
+  "title": "Verify product master, admin MRP, shop categories and price references validate names, GTIN, HSN and GST",
+  "description": "Operator and admin product master needs a name, listed category and unit, 8/12/13/14-digit GTIN, 4/6/8-digit HSN and a listed GST rate; price references are checked.",
+  "caseIds": [
+   "TC-FLD-071",
+   "TC-FLD-072",
+   "TC-FLD-073",
+   "TC-FLD-074",
+   "TC-FLD-075",
+   "TC-FLD-076",
+   "TC-FLD-077",
+   "TC-FLD-078",
+   "TC-FLD-079",
+   "TC-FLD-080",
+   "TC-FLD-081"
+  ]
+ },
+ {
+  "id": "TS-FLD-08",
+  "module": "Field-level validation",
+  "title": "Verify order-handling fields for shop reasons, rider pickup and delivery codes, failed delivery and COD cash",
+  "description": "Shop reject/remove/substitute need valid choices or reasons; rider pickup code and OTP must be exact; failed delivery needs a reason; ops override needs a proof note.",
+  "caseIds": [
+   "TC-FLD-082",
+   "TC-FLD-083",
+   "TC-FLD-084",
+   "TC-FLD-085",
+   "TC-FLD-086",
+   "TC-FLD-087",
+   "TC-FLD-088",
+   "TC-FLD-089"
+  ]
+ },
+ {
+  "id": "TS-FLD-09",
+  "module": "Field-level validation",
+  "title": "Verify the rider application validates name, mobile, vehicle, KYC document, bank account and IFSC",
+  "description": "Customer applying as rider must give a name, valid mobile and vehicle type, a safe KYC file, a 9-18 digit account number and a correctly patterned IFSC.",
+  "caseIds": [
+   "TC-FLD-090",
+   "TC-FLD-091",
+   "TC-FLD-092",
+   "TC-FLD-093"
+  ]
+ },
+ {
+  "id": "TS-FLD-10",
+  "module": "Field-level validation",
+  "title": "Verify return, refund, issue, grievance, rating and contact-shop forms validate amounts, reasons and text",
+  "description": "Customer return quantities, reasons and photos, shop/operator refund amounts, issue and grievance text, 1-5 star ratings and shop messages are validated.",
+  "caseIds": [
+   "TC-FLD-094",
+   "TC-FLD-095",
+   "TC-FLD-096",
+   "TC-FLD-097",
+   "TC-FLD-098",
+   "TC-FLD-099",
+   "TC-FLD-100",
+   "TC-FLD-101",
+   "TC-FLD-102",
+   "TC-FLD-103"
+  ]
+ },
+ {
+  "id": "TS-FLD-11",
+  "module": "Field-level validation",
+  "title": "Verify society registration, society rules and subscription fields validate PIN, mobiles, quantities and dates",
+  "description": "Customer society sign-up needs name, address and PIN; society rules take optional text and valid rider mobiles; subscriptions check quantity steps and schedule dates.",
+  "caseIds": [
+   "TC-FLD-104",
+   "TC-FLD-105",
+   "TC-FLD-106",
+   "TC-FLD-107",
+   "TC-FLD-108",
+   "TC-FLD-109"
+  ]
+ },
+ {
+  "id": "TS-FLD-12",
+  "module": "Field-level validation",
+  "title": "Verify admin and operator forms validate business rules, commission, fees, vouchers, settlements, user edits",
+  "description": "Admin and operator numeric rules, commission %, fee schedule, payments, vouchers, rider slots, adjustments, deposits, dates and reasons refuse invalid values with 422.",
+  "caseIds": [
+   "TC-FLD-110",
+   "TC-FLD-111",
+   "TC-FLD-112",
+   "TC-FLD-113",
+   "TC-FLD-114",
+   "TC-FLD-115",
+   "TC-FLD-116",
+   "TC-FLD-117",
+   "TC-FLD-118",
+   "TC-FLD-119",
+   "TC-FLD-120",
+   "TC-FLD-121"
+  ]
+ },
+ {
+  "id": "TS-FLD-13",
+  "module": "Field-level validation",
+  "title": "Verify marketing segment and campaign fields and the consent and notification preference switches",
+  "description": "Shop segments need a valid rule and campaigns name, message, budget and future schedule; customer consent switches persist, security notices cannot be switched off.",
+  "caseIds": [
+   "TC-FLD-122",
+   "TC-FLD-123",
+   "TC-FLD-124"
+  ]
+ },
+ {
+  "id": "TS-FLD-14",
+  "module": "Field-level validation",
+  "title": "Verify every GoKesari form marks required fields, supports keyboard use and the server repeats page checks",
+  "description": "All roles see required marks and messages beside fields; tab order and phone keypads work; APIs refuse what pages refuse; odd numbers, emoji and long text never cause 500.",
+  "caseIds": [
+   "TC-FLD-125",
+   "TC-FLD-126",
+   "TC-FLD-127",
+   "TC-FLD-128",
+   "TC-FLD-129"
+  ]
+ }
+]
