@@ -17,6 +17,7 @@ import { db } from "@/server/db";
 import {
   commissionTdsRates,
   dealerAgreementAcceptances,
+  dealerCodes,
   dealerCommissionLedger,
   dealerCommissionMonths,
   dealerPayoutBatches,
@@ -39,6 +40,8 @@ import {
   AGENT_AGREEMENT_SHA256,
   acceptAgentAgreement,
   checkTradingMilestone,
+  dealerPromotesAgent,
+  leadAddsAgent,
   mappingHistory,
   memberShops,
   setMemberPlacement,
@@ -741,5 +744,49 @@ describe("standard dealers are unchanged", () => {
     await deliverOrders(shop.id, 2);
     expect(await ledger(shop.id)).toHaveLength(1);
     expect(await checkTradingMilestone(shop.id)).toBe("NONE");
+  });
+});
+
+describe("owner, 20 Nov 2026: team leads add agents, the main dealer promotes (DT-28, DT-29)", () => {
+  /** Signs the member in with his own account (as an admin's "Link account" does). */
+  async function signIn(m: DealerSalesperson) {
+    const u = await createUser({ role: "DEALER" });
+    await db.update(dealerSalespeople).set({ userId: u.id }).where(eq(dealerSalespeople.id, m.id));
+    return { id: u.id, role: "DEALER" as const };
+  }
+
+  it("a team lead adds an agent under himself at once, with his own code; the main dealer is told; an agent cannot", async () => {
+    const dealer = await newDealer();
+    const lead = await member(dealer.id, "Ramesh", "TEAM_LEAD");
+    const agent = await member(dealer.id, "Suresh", "AGENT", lead.id);
+    const leadUser = await signIn(lead);
+    const added = await leadAddsAgent(leadUser, { employeeId: "R-07", name: "Mahesh", mobile: "9876543210" });
+    const [row] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, added.id));
+    expect(row).toMatchObject({ teamRole: "AGENT", depth: 3, parentId: lead.id, status: "ACTIVE" });
+    expect(await db.select().from(dealerCodes).where(eq(dealerCodes.salespersonId, added.id))).toEqual([expect.objectContaining({ kind: "SALESPERSON", status: "ACTIVE" })]);
+    const told = await db.select().from(notifications).where(and(eq(notifications.userId, dealer.userId!), eq(notifications.type, "dealer.team_changed")));
+    expect(told.some((n) => /Ramesh \(team lead\) added Mahesh \(R-07\)/.test(`${n.title} ${n.body}`))).toBe(true);
+    // An agent still asks; the same employee ID twice is refused.
+    await expect(leadAddsAgent(await signIn(agent), { employeeId: "S-01", name: "Ganesh" })).rejects.toThrow(/Only a team lead/);
+    await expect(leadAddsAgent(leadUser, { employeeId: "r-07", name: "Again" })).rejects.toThrow(/already have an employee/);
+  });
+
+  it("the main dealer promotes an agent who meets the rule; earlier is refused (an admin's override); not another dealer's agent", async () => {
+    await tiered({ promotionMinShops: 1, promotionMinAgents: 0 });
+    const dealer = await newDealer();
+    const lead = await member(dealer.id, "Ramesh", "TEAM_LEAD");
+    const agent = await member(dealer.id, "Suresh", "AGENT", lead.id);
+    const dealerUser = { id: dealer.userId!, role: "DEALER" as const };
+    await expect(dealerPromotesAgent(dealerUser, agent.id, "dealer page")).rejects.toThrow(/Not eligible yet: 0 of 1 activated shops.*GoKesari can promote earlier/);
+    await signedShop(dealer.id, agent.id, 99_900);
+    const other = await newDealer();
+    await expect(dealerPromotesAgent({ id: other.userId!, role: "DEALER" }, agent.id, "dealer page")).rejects.toThrow(/not found/i);
+    const r = await dealerPromotesAgent(dealerUser, agent.id, "promoted by the main dealer on the dealer page");
+    expect(r.member).toMatchObject({ teamRole: "TEAM_LEAD", depth: 2, parentId: null });
+    // His former lead's development bonus window, as for an admin's promotion.
+    expect(await db.select().from(dealerTeamDevelopments).where(eq(dealerTeamDevelopments.teamLeadMemberId, agent.id))).toEqual([expect.objectContaining({ beneficiaryMemberId: lead.id })]);
+    await expect(dealerPromotesAgent(dealerUser, lead.id, "dealer page")).rejects.toThrow(/Only an agent/);
+    // A team member's own account is not the main dealer.
+    await expect(dealerPromotesAgent(await signIn(lead), agent.id, "dealer page")).rejects.toThrow(/Only the main dealer/);
   });
 });

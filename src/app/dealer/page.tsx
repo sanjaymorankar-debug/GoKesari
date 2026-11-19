@@ -152,6 +152,8 @@ async function networkProps(dealer: Dealer, member: DealerSalesperson | null) {
     earnings,
     trading: plain(trading),
     payee: member ? { panLast4: member.panLast4, bankLast4: member.bankAccountLast4, bankStatus: member.bankStatus } : null,
+    // DT-29: the main dealer promotes an agent once he meets the promotion rule.
+    promotion: { minShops: rule.promotionMinShops, minAgents: rule.promotionMinAgents },
   };
 }
 
