@@ -750,7 +750,8 @@ export const RULES = {
       })
       .refine((v) => v.directBp + v.leadOverrideBp + v.mainOverrideBp <= 10_000, { message: "Direct and overrides together cannot pass 100% of the fee.", path: ["directBp"] })
       .refine((v) => v.renewalBp + v.renewalLeadBp + v.renewalMainBp <= 10_000, { message: "The renewal shares together cannot pass 100% of the renewal fee.", path: ["renewalBp"] }),
-    // Owner, 5 Nov 2026: 20% / 4% / 2% (at most 26% a shop, 27% with a development bonus), all of it earned
+    // Owner, 5 Nov 2026: 20% / 4% / 2%; owner, 20 Nov 2026 (DT-23): the main dealer's share is 3% — so
+    // 20% / 4% / 3% (at most 27% a shop, 28% with a development bonus), all of it earned
     // when the shop pays and is activated (no TRADING wait) and paid on the 5th of the next month; the former
     // lead's 1% for 6 months only in a month the new team activates 100 shops.
     // Owner, 5 Nov 2026 (later): renewal 10% / 2% / 1% for 3 years from activation; promotion at 50 shops with
@@ -759,7 +760,7 @@ export const RULES = {
       enabled: false,
       directBp: 2000,
       leadOverrideBp: 400,
-      mainOverrideBp: 200,
+      mainOverrideBp: 300,
       firstPartBp: 10_000,
       tradingOrders: 0,
       tradingDays: 90,
