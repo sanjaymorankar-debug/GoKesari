@@ -2537,6 +2537,47 @@
       "fix": "Both routes check the caller first (requireRole), then the feature. Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
       "status": "Fixed (re-test pending)",
       "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026"
+    },
+    {
+      "id": "D-151",
+      "title": "A food-type shop registered through the wizard and paid without an FSSAI licence is held for approval instead of going live",
+      "cases": [
+        "TC-ONB-080",
+        "TC-ONB-081",
+        "SC-39"
+      ],
+      "severity": "High",
+      "found": "20-Nov-2026 local run of the new onboarding checks (tests/qa/local/sellers-go-live.spec.ts, tests/qa/scenarios/SC-39-licence-grace.spec.ts); found first by reading the code (docs/testing/manual/code-check-2026-11-20.json).",
+      "actual": "After the fee is paid the shop stays PENDING_APPROVAL; the approval log says \"A shop that sells food needs a valid FSSAI licence or registration before registration can be completed.\" The instant approval runs approveShopTransaction → assertFssaiAllowsApproval (src/server/services/shops.ts:1072-1074, src/server/services/document-uploads.ts:677-692) with no wizard exemption, and rule documentUpload.fssaiMandatoryForFood defaults to true (src/server/config/rules.ts:1182). A pharmacy (drug licence) goes live with its 90-day grace as intended.",
+      "expected": "DI-14 (owner, 08-Nov-2026): licences never block go-live, FSSAI included — the shop goes live, gets the 90-day grace notice and is suspended only if the licence is still missing at the end. Note: DI-13 of the same day still says \"FSSAI for a food shop still applies\"; the owner should confirm which holds.",
+      "fix": "Not fixed. If DI-14 holds: exempt wizard go-live from assertFssaiAllowsApproval (the grace follow-up already covers FSSAI). The integration test passes only because tests/helpers/fixtures.ts turns the rule off.",
+      "status": "Open (owner to confirm)"
+    },
+    {
+      "id": "D-152",
+      "title": "Bank-account check on test.gokesari.com never reaches the bank: every save falls back to the ₹1 check",
+      "cases": [
+        "TC-RPAY-001"
+      ],
+      "severity": "Medium",
+      "found": "20-Nov-2026 staging signed run (tests/qa/signed-in/finance-rider-payouts.spec.ts) with Rider 1 and Cashfree's Secure ID sandbox sample account.",
+      "actual": "Admin → bank-account check reports the rule on, keys configured and env sandbox, yet saving the sample account shows \"Saved. We could not reach your bank just now — verify with ₹1 instead, or check with your bank again.\" (the provider-error path). Rider 1's staging account now holds the sample details, unverified.",
+      "expected": "\"Saved and verified with your bank — no ₹1 payment needed.\" and the account Verified (match method BANK_CHECK).",
+      "fix": "Not fixed. Check the server log on gk-db-1 for the Secure ID call (Verification Suite keys, sandbox base URL, outbound access from the VPS).",
+      "status": "Open"
+    },
+    {
+      "id": "D-153",
+      "title": "Rule changes in Admin → Settings are saved without a reason, though the TIERED commission design says one is asked",
+      "cases": [
+        "TC-TIER-032"
+      ],
+      "severity": "Low",
+      "found": "20-Nov-2026 local run (tests/qa/local/dealer-commission-2026-11.spec.ts); found first by reading the code.",
+      "actual": "PUT /api/admin/settings takes {key, value} and saves (200); the change is logged (setting.changed with old and new values) but no reason is asked or stored (src/app/api/admin/settings/route.ts:21-29, src/server/services/settings.ts:95-114).",
+      "expected": "docs/dealer-programme/TIERED_COMMISSION.md Part 2: \"A reason is asked and logged\" when the commission settings change.",
+      "fix": "Not fixed. Ask for a reason in the settings editor and store it with setting.changed — or correct the design note if a reason is not wanted.",
+      "status": "Open (owner to confirm)"
     }
   ]
 }

@@ -28,13 +28,13 @@ Owner's copy: `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking/GOKESARI_
 
 | Source | What |
 |---|---|
-| `tests/qa/catalog/cases.json`, `scenarios.json` | The 875-case plan and 37 journeys (08-Nov-2026, also in `test-cases.xlsx`) |
-| `test-scenarios.json` (here) | Grouping of those 875 cases into 244 test scenarios (TS-PRE-01 …) |
-| `cases-added-2026-11-20.json` (here) | 173 new cases, 46 scenarios, 10 journeys (SC-38 … SC-47) and 6 corrections — see below |
+| `tests/qa/catalog/cases.json`, `scenarios.json` | The plan, exported from `test-cases.xlsx`: 1,048 cases and 47 journeys — the 875 cases and 37 journeys of 08-Nov-2026 plus everything added on 20-Nov-2026 (below) |
+| `test-scenarios.json` (here) | Grouping of the cases into 290 test scenarios (TS-PRE-01 …; TS-…-12 onwards for the 20-Nov cases) |
 | `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx` | Automation status and latest automated staging result (grey reference columns) |
 | `test-cases.xlsx` → Coverage | Feature list for the Traceability sheet |
 
-`cases-added-2026-11-20.json` holds:
+Added on 20-Nov-2026 (record: `cases-added-2026-11-20.json`, 173 cases, 46 scenarios, 10 journeys
+SC-38 … SC-47 and 6 corrections):
 
 - **Features on staging after the 08-Nov plan** (Case origin "New"): identity-first shop
   registration (DI-11 … DI-14, P2-D1 … D6), KYC provider outcomes, licence grace and
@@ -55,9 +55,29 @@ Owner's copy: `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking/GOKESARI_
   feature reaches staging, and check the Expected result against the built screens.
 - **Corrections** (`overrides`) to plan cases written for the earlier dealer structure:
   TC-TIER-002, 005, 006, 007, 011 (now DT-13 … DT-23) and TC-SREF-003 (10% off ₹999 is
-  ₹899.10). Applied in this workbook only; Case origin says what changed.
+  ₹899.10). Case origin says what changed.
 
-None of this is in `test-cases.xlsx` / `tests/qa/catalog` or the automated suite yet.
+Before they went into the plan, every Expected result (and the labels, routes and
+numbers in Steps / Preconditions) was checked against the code on `origin/staging`
+(with PR #417): 173 fields of 106 cases and journeys were reworded to match the code, and 15
+places where the code itself looks wrong were noted — all in
+`code-check-2026-11-20.json` (old / new text, reason, file and line). The plan's
+Change log has one line per corrected case.
+
+How they reached the plan and the suite:
+
+- `python3 scripts/qa/plan_workbook.py add-json docs/testing/manual/cases-added-2026-11-20.json docs/testing/manual/code-check-2026-11-20.json`
+  adds them to `test-cases.xlsx` (Test cases, E2E scenarios with Preconditions / Origin,
+  Coverage, Run summary, Change log) and applies the overrides; `scripts/qa/export-cases.ts`
+  then writes `tests/qa/catalog`.
+- A case's Source in the plan starts "Added 20-Nov-2026" (on staging) or "Planned - …"
+  (not built yet; journeys say the same in Origin). This builder reads that back for
+  Case origin and the Not Applicable start; it no longer reads `cases-added-*.json`, so
+  nothing is counted twice.
+- Every new ID is automated in `tests/qa` or declared `manual()` with its reason;
+  planned ones are declared in `tests/qa/guest/planned-features.spec.ts`
+  ("feature not on staging yet (R4 – WP6)" …) and show as "Planned (not built)" in the
+  master register.
 
 ## Rebuild
 

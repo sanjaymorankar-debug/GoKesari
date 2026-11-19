@@ -1472,6 +1472,12 @@
    "summary": "Low: recording a fee refund larger than the amount paid (POST /api/shop-payments, REFUND) answers 500 \"Something went wrong\" — the update breaks check constraint shops_registration_amounts_non_negative — instead of refusing the amount with a clear message.",
    "evidence": "src/app/api/shop-payments/route.ts; drizzle constraint shops_registration_amounts_non_negative (local run 20-Nov-2026)",
    "group": "lead (local run 20-Nov-2026)"
+  },
+  {
+   "id": "TC-BILL-012",
+   "summary": "Low: two parties of one shop with the same name share one Tally sync key (sync_records external_key = the party name), so every export reports one of them as changed and the re-export is never fully unchanged. Seen on a local database with repeated test runs; a clean database exports unchanged the second time.",
+   "evidence": "sync_records_key_uq (shop_id, system, entity_type, external_key); audit sync.file_exported changed: 1 on back-to-back exports (local run 20-Nov-2026)",
+   "group": "lead (local run 20-Nov-2026)"
   }
  ]
 }

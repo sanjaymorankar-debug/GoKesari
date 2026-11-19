@@ -35,6 +35,8 @@ interface CaseRow {
   steps?: string;
   expected: string;
   journey?: string;
+  /** "Planned - <release>, not built yet (<day>)" for a feature not on staging yet (plan Source / journey Origin). */
+  source?: string;
 }
 
 interface RunFile {
@@ -62,9 +64,11 @@ const read = <T>(file: string) => JSON.parse(readFileSync(file, "utf8")) as T;
 /* ---------------------------------------------------------------- inputs */
 
 const cases = read<CaseRow[]>(join("tests", "qa", "catalog", "cases.json"));
-const scenarios = read<{ id: string; title: string; features: string; priority: string; journey: string; expected: string }[]>(join("tests", "qa", "catalog", "scenarios.json")).map(
-  (s): CaseRow => ({ id: s.id, module: "E2E scenario", features: s.features, title: s.title, priority: s.priority, expected: s.expected, journey: s.journey }),
+const scenarios = read<{ id: string; title: string; features: string; priority: string; journey: string; expected: string; origin?: string }[]>(join("tests", "qa", "catalog", "scenarios.json")).map(
+  (s): CaseRow => ({ id: s.id, module: "E2E scenario", features: s.features, title: s.title, priority: s.priority, expected: s.expected, journey: s.journey, source: s.origin }),
 );
+/** Cases and journeys of features that are planned, not built yet: declared manual until the feature ships. */
+const planned = new Set([...cases, ...scenarios].filter((c) => (c.source ?? "").startsWith("Planned")).map((c) => c.id));
 const defects = existsSync(join("docs", "testing", "qa-defects.json")) ? read<{ defects: Defect[] }>(join("docs", "testing", "qa-defects.json")).defects : [];
 
 const runDir = join("docs", "testing", "qa-runs");
@@ -165,8 +169,8 @@ function defectsFor(id: string) {
 
 function automationOf(id: string) {
   const a = automation.get(id);
-  if (!a) return { kind: "Not automated", specs: "" };
-  const kind = a.automated && a.manual ? "Automated + manual part" : a.automated ? "Automated" : "Manual (declared)";
+  if (!a) return { kind: planned.has(id) ? "Planned (not built)" : "Not automated", specs: "" };
+  const kind = a.automated && a.manual ? "Automated + manual part" : a.automated ? "Automated" : planned.has(id) ? "Planned (not built)" : "Manual (declared)";
   return { kind, specs: [...a.specs].sort().join(", ") };
 }
 
