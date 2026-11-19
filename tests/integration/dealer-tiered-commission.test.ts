@@ -423,8 +423,8 @@ describe("promotion and the development bonus", () => {
   });
 });
 
-describe("the owner's structure (5 Nov 2026): 20% / 4% / 2%, all earned at registration, no cap", () => {
-  it("an agent's shop: 20% to the agent, 4% to his lead, 2% to the main dealer — all at once, nothing waits for orders", async () => {
+describe("the owner's structure (5 Nov 2026; main dealer 3% since 20 Nov 2026): 20% / 4% / 3%, all earned at registration, no cap", () => {
+  it("an agent's shop: 20% to the agent, 4% to his lead, 3% to the main dealer — all at once, nothing waits for orders", async () => {
     await ownerStructure();
     const dealer = await newDealer();
     const l = await member(dealer.id, "Ramesh", "TEAM_LEAD");
@@ -434,20 +434,20 @@ describe("the owner's structure (5 Nov 2026): 20% / 4% / 2%, all earned at regis
     expect(rows.map((r) => [r.entryType, r.payeeMemberId, r.amountPaise, r.status])).toEqual([
       ["DIRECT_1", a.id, 99_980, "EARNED"],
       ["OVERRIDE_LEAD", l.id, 19_996, "EARNED"],
-      ["OVERRIDE_MAIN", null, 9_998, "EARNED"],
+      ["OVERRIDE_MAIN", null, 14_997, "EARNED"],
     ]);
     const [plan] = await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shop.id));
     expect(plan).toMatchObject({ status: "TRADING", tradingOrders: 0, firstPartBp: 10_000 });
   });
 
-  it("a team lead's own shop: 20% to him and 2% to the main dealer (no 4% to himself); the main dealer's own shop: 20% only", async () => {
+  it("a team lead's own shop: 20% to him and 3% to the main dealer (no 4% to himself); the main dealer's own shop: 20% only", async () => {
     await ownerStructure();
     const dealer = await newDealer();
     const l = await member(dealer.id, "Ramesh", "TEAM_LEAD");
     const leadShop = await signedShop(dealer.id, l.id, 499_900);
     expect((await ledger(leadShop.id)).map((r) => [r.entryType, r.payeeMemberId, r.amountPaise])).toEqual([
       ["DIRECT_1", l.id, 99_980],
-      ["OVERRIDE_MAIN", null, 9_998],
+      ["OVERRIDE_MAIN", null, 14_997],
     ]);
     const ownShop = await signedShop(dealer.id, null, 499_900);
     expect((await ledger(ownShop.id)).map((r) => [r.entryType, r.payeeMemberId, r.amountPaise])).toEqual([["DIRECT_1", null, 99_980]]);
@@ -546,7 +546,7 @@ describe("owner, 5 Nov 2026: monthly target of 50 shops pays 10% of the month's 
     expect(row(a.id).target.reached).toMatchObject({ minShops: 3, bonusSoFarPaise: 5_994 });
     expect(row(slow.id).target).toMatchObject({ shops: 1, reached: null, next: { minShops: 3, toGo: 2 } });
     expect(row(lead.id)).toMatchObject({ registered: 0, teamRegistered: 4, commissionPaise: 4 * 3_996 });
-    expect(row(null)).toMatchObject({ teamRegistered: 4, commissionPaise: 4 * 1_998 });
+    expect(row(null)).toMatchObject({ teamRegistered: 4, commissionPaise: 4 * 2_997 });
     expect(live.rows.map((r) => r.name)).toEqual(["Shree Sai Network", "Lead", "Agent", "Slow"]);
     expect(live.totals).toMatchObject({ registered: 4, started: 4 });
 
@@ -556,8 +556,8 @@ describe("owner, 5 Nov 2026: monthly target of 50 shops pays 10% of the month's 
 
     await closeThisMonth();
     const bonuses = await db.select().from(dealerCommissionLedger).where(eq(dealerCommissionLedger.entryType, "BONUS"));
-    // Agent 10% of 3 × ₹199.80; lead 10% of 4 × ₹39.96 overrides; main dealer 10% of 4 × ₹19.98; Slow nothing.
-    expect(bonuses.map((b) => [b.payeeMemberId, b.amountPaise]).sort()).toEqual([[a.id, 5_994], [lead.id, 1_598], [null, 799]].sort());
+    // Agent 10% of 3 × ₹199.80; lead 10% of 4 × ₹39.96 overrides; main dealer 10% of 4 × ₹29.97; Slow nothing.
+    expect(bonuses.map((b) => [b.payeeMemberId, b.amountPaise]).sort()).toEqual([[a.id, 5_994], [lead.id, 1_598], [null, 1_199]].sort());
     expect(bonuses.find((b) => b.payeeMemberId === a.id)).toMatchObject({ basePaise: 59_940, bonusBp: 1000 });
     expect(bonuses.find((b) => b.payeeMemberId === a.id)!.note).toMatch(/3 shops activated — target 3 reached — 10% of ₹599\.40 commission/);
   });

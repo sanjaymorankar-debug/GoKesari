@@ -40,9 +40,9 @@ after any coupon):
 |---|---|---|
 | Whoever signed the shop (agent, lead or main dealer) — "direct" | 20% | when the shop pays its fee and is approved |
 | The agent's team lead — "lead override" | 4% | at the same time |
-| The main dealer, on every shop his team signs (leads' and agents') — "main override" | 2% | at the same time |
+| The main dealer, on every shop his team signs (leads' and agents') — "main override" | 3% | at the same time |
 
-*Owner's structure, 5 Nov 2026 (decisions DT-13 to DT-16).* Everything is earned when the shop pays
+*Owner's structure, 5 Nov 2026 (decisions DT-13 to DT-16); the main dealer's share raised from 2% to 3% on 20 Nov 2026 (DT-23) — shops activated before that keep 2%.* Everything is earned when the shop pays
 and is registered; there is no wait for orders, and **no per-shop cap** — the fee the shop owner paid
 earns its full commission at every level. All of a month's commission (shops registered up to the
 last day of the month) is paid on the **5th of the next month**.
@@ -50,7 +50,7 @@ last day of the month) is paid on the **5th of the next month**.
 * A missing level is not paid: an agent who reports straight to the main dealer has no lead
   override; a shop the main dealer signs himself earns only the direct 20%; a team lead's own shop
   earns him the direct 20% (not the 4% as well). Nobody is paid twice on one shop. The most a shop
-  can cost is 26% (27% with a development bonus).
+  can cost is 27% (28% with a development bonus).
 * The dealer's rating still moves the **direct** part only, as today.
 * A TRADING condition (part of the direct share and the overrides only after N delivered orders
   within D days) still exists in the rule (`tradingOrders` above 0) but is **off**: `tradingOrders` 0.
@@ -59,8 +59,8 @@ Worked examples (fee before GST):
 
 | Shop signed by | ₹4,999 shop | ₹9,999 shop |
 |---|---|---|
-| An agent under a team lead | agent ₹999.80 · lead ₹199.96 · main dealer ₹99.98 (26%) | agent ₹1,999.80 · lead ₹399.96 · main dealer ₹199.98 |
-| A team lead himself | lead ₹999.80 · main dealer ₹99.98 (22%) | lead ₹1,999.80 · main dealer ₹199.98 |
+| An agent under a team lead | agent ₹999.80 · lead ₹199.96 · main dealer ₹149.97 (27%) | agent ₹1,999.80 · lead ₹399.96 · main dealer ₹299.97 |
+| A team lead himself | lead ₹999.80 · main dealer ₹149.97 (23%) | lead ₹1,999.80 · main dealer ₹299.97 |
 | The main dealer himself | main dealer ₹999.80 (20%) | main dealer ₹1,999.80 |
 
 **Renewals** (owner, 5 Nov 2026 — DT-18). When a shop that is still active pays its membership
@@ -95,7 +95,7 @@ zero every month.
 |---|---|---|
 | Agent | shops he signed this month | 10% of his direct commission this month |
 | Team lead | shops his team signed (his own and his agents') | 10% of his direct + 4% override commission this month |
-| Main dealer | shops the whole network signed | 10% of his direct + 2% override commission this month |
+| Main dealer | shops the whole network signed | 10% of his direct + 3% override commission this month |
 
 Example: an agent signs 55 shops of ₹4,999 in November → 55 × ₹999.80 = ₹54,989 commission, bonus
 ₹5,498.90. With 49 shops there is no bonus. Targets and % are in the rule (`targets`: role, minShops,
@@ -154,7 +154,7 @@ See "Open items for the owner" at the end of this file.
 ### Switching TIERED on (test.gokesari.com first)
 
 1. Admin → Settings → `dealerTieredCommission`: set `enabled` to true; check the values
-   (directBp 2000 = 20%, leadOverrideBp 400 = 4%, mainOverrideBp 200 = 2%, firstPartBp 10000 = all at
+   (directBp 2000 = 20%, leadOverrideBp 400 = 4%, mainOverrideBp 300 = 3% (since 20 Nov 2026; migration 0150 moved a saved 200 to 300), firstPartBp 10000 = all at
    activation, tradingOrders 0 = no trading condition, renewalEnabled / renewalBp 1000 /
    renewalLeadBp 200 / renewalMainBp 100 / renewalYears 3, promotionMinShops 50 / promotionMinAgents 3,
    developmentBp 100 / developmentMonths 6 / developmentMinShopsPerMonth 100, targetBonusesEnabled true +
