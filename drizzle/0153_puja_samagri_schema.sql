@@ -2,7 +2,7 @@
 -- Additive only: new tables, and new nullable / defaulted columns on product_subcategories.
 -- Nothing existing is changed except shop_sells_food(), which gains one OR branch that is
 -- false for every shop until it lists a product flagged edible (only the puja catalogue's
--- edible lines are) while the admin's FSSAI toggle is on. Rollback: scripts/rollback-0152.sql.
+-- edible lines are) while the admin's FSSAI toggle is on. Rollback: scripts/rollback-0153.sql.
 
 -- Hindi / Marathi names and search synonyms of a master product (any shop type).
 CREATE TABLE IF NOT EXISTS "product_local_names" (

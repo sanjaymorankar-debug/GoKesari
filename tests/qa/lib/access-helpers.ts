@@ -9,7 +9,7 @@
 import { request as playwrightRequest, type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 
-import { encode } from "next-auth/jwt";
+import { encodeSession } from "./session-jwt";
 
 import { as } from "./actors";
 import { db, verifySellerDocument } from "./db";
@@ -159,7 +159,7 @@ export async function mintedState(userId: string, email: string) {
   if (!IS_LOCAL) throw new Error("minted sessions are for the local server only");
   const secret = process.env.AUTH_SECRET;
   if (!secret) blocked("AUTH_SECRET (the local server's) is not set");
-  const value = await encode({ token: { sub: userId, email, name: "qa" }, secret, salt: COOKIE });
+  const value = await encodeSession({ token: { sub: userId, email, name: "qa" }, secret, salt: COOKIE });
   const url = new URL(BASE_URL);
   return {
     cookies: [{ name: COOKIE, value, domain: url.hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" as const }],

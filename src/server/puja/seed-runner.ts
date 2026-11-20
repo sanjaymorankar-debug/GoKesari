@@ -1,5 +1,5 @@
 /**
- * Runs the Puja Samagri catalogue seed (drizzle/0153_puja_samagri_catalogue.sql) again on a
+ * Runs the Puja Samagri catalogue seed (drizzle/0154_puja_samagri_catalogue.sql) again on a
  * database — for the CLI (scripts/puja/seed-catalogue.ts) and the tests. Idempotent: every
  * insert in the file skips what already exists, so a re-run adds nothing and changes nothing.
  * Not used by the website itself (the migration seeds production and staging). Takes an
@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-export const PUJA_SEED_FILE = "drizzle/0153_puja_samagri_catalogue.sql";
+export const PUJA_SEED_FILE = "drizzle/0154_puja_samagri_catalogue.sql";
 
 export type SqlExec = (text: string) => Promise<readonly Record<string, unknown>[]>;
 

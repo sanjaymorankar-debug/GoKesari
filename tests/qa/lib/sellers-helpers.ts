@@ -15,7 +15,7 @@
  */
 import { request as playwrightRequest, type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import ExcelJS from "exceljs";
-import { encode } from "next-auth/jwt";
+import { encodeSession } from "./session-jwt";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -80,7 +80,7 @@ export async function freshAccount(label: string, role: "CUSTOMER" | "SHOP_OWNER
 async function storageOf(account: { id: string; email: string }) {
   const secret = process.env.AUTH_SECRET;
   if (!secret) blocked("AUTH_SECRET (the local server's) is not set");
-  const value = await encode({ token: { sub: account.id, email: account.email, name: account.email }, secret, salt: COOKIE });
+  const value = await encodeSession({ token: { sub: account.id, email: account.email, name: account.email }, secret, salt: COOKIE });
   const url = new URL(BASE_URL);
   return {
     cookies: [{ name: COOKIE, value, domain: url.hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" as const }],

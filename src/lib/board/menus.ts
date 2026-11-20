@@ -154,6 +154,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "tomorrow", label: L("Tomorrow", "कल", "उद्या"), icon: "sunrise", href: "/subscriptions#tomorrow", auth: true },
       { key: "calendar", label: L("Calendar", "कैलेंडर", "कॅलेंडर"), icon: "calendar-days", href: "/subscriptions/{subscriptionId}", fallbackHref: "/subscriptions", auth: true },
       { key: "pause", label: L("Pause", "रोकें", "थांबवा"), icon: "pause", href: "/subscriptions/{subscriptionId}", fallbackHref: "/subscriptions", auth: true },
+      // docs/newspaper-subscriptions-2026-11: pick papers and magazines, then a vendor near you.
+      { key: "newspapers", label: L("Newspapers", "अख़बार", "वृत्तपत्रे"), icon: "newspaper", href: "/subscriptions/newspapers", auth: true },
     ],
   },
   {
@@ -200,6 +202,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "packing", label: L("Packing", "पैकिंग", "पॅकिंग"), href: "/shop/orders?status=packing", count: "shopPacking" },
       { key: "ready", label: L("Ready", "तैयार", "तयार"), href: "/shop/orders?status=ready", count: "shopReady" },
       { key: "out", label: L("Out", "रास्ते में", "रवाना"), href: "/shop/orders?status=out", count: "shopOut" },
+      // docs/newspaper-subscriptions-2026-11: every running subscriber — newspaper rounds, milk, bread.
+      { key: "subscribers", label: L("Subscribers", "सब्सक्राइबर", "सदस्य"), href: "/shop/manage/subscribers" },
     ],
   },
   {

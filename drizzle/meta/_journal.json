@@ -1070,14 +1070,21 @@
       "idx": 152,
       "version": "7",
       "when": 1793265000000,
-      "tag": "0152_puja_samagri_schema",
+      "tag": "0152_newspaper_subscriptions",
       "breakpoints": true
     },
     {
       "idx": 153,
       "version": "7",
       "when": 1793265100000,
-      "tag": "0153_puja_samagri_catalogue",
+      "tag": "0153_puja_samagri_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1793265200000,
+      "tag": "0154_puja_samagri_catalogue",
       "breakpoints": true
     }
   ]
