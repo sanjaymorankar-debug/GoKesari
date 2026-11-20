@@ -8,8 +8,21 @@ import { anonymous, call, pace } from "../lib/http";
 import { expect, qa } from "../lib/record";
 import { apiRoutes, NO_SUCH_ID } from "../lib/routes";
 
-/** Health APIs a guest may reach: protected by a token / signature, or public search. */
-const PUBLIC_HEALTH_APIS = new Set(["/api/health/share/[token]", "/api/health/telephony/webhook", "/api/health/doctors", "/api/health/care/id/[card]"]);
+/**
+ * Health APIs a guest may reach: protected by a token / signature (share link, telephony webhook), or public
+ * discovery like Find a Consultant — doctors, home-care providers, equipment listings and the provider ID check
+ * (names, qualifications, verification, prices; never patient data).
+ */
+const PUBLIC_HEALTH_APIS = new Set([
+  "/api/health/share/[token]",
+  "/api/health/telephony/webhook",
+  "/api/health/doctors",
+  "/api/health/care/search",
+  "/api/health/care/providers/[slug]",
+  "/api/health/care/id/[card]",
+  "/api/health/equipment/search",
+  "/api/health/equipment/listings/[id]",
+]);
 
 qa("TC-HLT-001", "My Health sends a guest to sign in", async ({ page }) => {
   const res = await page.goto("/health");
@@ -69,4 +82,4 @@ qa("TC-HLT-005", "a guest cannot use any private Health API (401 before the requ
   }
   expect(bad, bad.join("\n")).toEqual([]);
   return `${seen.length + 1} calls, all 401`;
-});
+}, { timeout: 300_000 }); // ~70 routes; a dev server compiles each on first call

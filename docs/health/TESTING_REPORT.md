@@ -36,7 +36,7 @@ Pass rate: **Local 100%** of the Health and consult suites; Test and Prod not ru
 
 | # | Criterion | Local result | Evidence | Test | Prod |
 |---|---|---|---|---|---|
-| 1 | Book a verified doctor (slot and token), pay online / at clinic; doctor sees it in Today within 2 s without refresh | Pass | core: live `appointment.booked` pushed (< 1 s); token test; consult payments suite | Not run | Not run |
+| 1 | Book a verified doctor (slot and token), pay online / at clinic; doctor sees it in Today within 2 s without refresh | Pass — **0.51 s** from the patient's booking request to the doctor's live stream (local dev server, 20-Nov 12.40 IST) | core: live event test; HTTP measurement through `/api/health/bookings` → `/api/health/stream`; token test; consult payments suite | Not run | Not run |
 | 2 | Unverified doctors / providers cannot be booked or prescribe | Pass | core "verification gate"; care search shows verified only; prime "unverified never listed" | Not run | Not run |
 | 3 | After Issue, within 30 s: PDF in timeline / by provider / medicines, e-mailed with PDF, ready to print | Pass | core issue test (asserts < 30 s, e-mail row + attachment render) | Not run | Not run |
 | 4 | Printing matches the letterhead mode; auto-print without a dialog | Pass (digital / standard / pre-printed rendering, calibration sheet); auto-print = Chrome kiosk printing — needs a person and a printer | screenshots 05, 50, 51; DOCTOR_GUIDE §4 | Manual | Manual |
