@@ -8,7 +8,8 @@ ribbon and band) and the translations drawn in Poppins (SIL OFL 1.1; it covers
 Devanagari). The logo, the brand tagline under it and the "GoKesari.com"
 line stay as they are (brand). The tagline is written by set-tagline.ts
 ("Everything for Everyone, Everywhere" since 20-Nov-2026): run that again after
-this script. The shop name and QR code are
+this script, and set-everywhere-label.ts (the third label, owner 21-Nov-2026).
+The shop name and QR code are
 added later, per shop, by render.ts, in the same places as on the English one.
 
 Run once after changing the English template or a translation, then look at
@@ -37,13 +38,13 @@ WHITE = (255, 255, 255)
 TEXTS = {
     "mr": {
         "ribbon": "आमचे दुकान आता ऑनलाइन",
-        "labels": ["विश्वासार्ह व\nसुरक्षित", "काळजीपूर्वक\nडिलिव्हरी", "सर्वांसाठी,\nसर्वत्र"],
+        "labels": ["विश्वासार्ह व\nसुरक्षित", "काळजीपूर्वक\nडिलिव्हरी", "सर्वांसाठी सर्व काही,\nसर्वत्र"],
         "qr": "आमच्या दुकानाचा\nQR कोड स्कॅन करा",
         "bottom": "GoKesari सोबत तुमचा व्यवसाय वाढवा",
     },
     "hi": {
         "ribbon": "हमारी दुकान अब ऑनलाइन",
-        "labels": ["भरोसेमंद और\nसुरक्षित", "सावधानी से\nडिलीवरी", "सबके लिए,\nहर जगह"],
+        "labels": ["भरोसेमंद और\nसुरक्षित", "सावधानी से\nडिलीवरी", "सबके लिए सब कुछ,\nहर जगह"],
         "qr": "हमारी दुकान का\nQR कोड स्कैन करें",
         "bottom": "GoKesari के साथ अपना व्यापार बढ़ाएँ",
     },

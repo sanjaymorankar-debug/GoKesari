@@ -25,6 +25,7 @@
 | Templates: English (owner's design, placeholders cleared), Marathi, Hindi | `src/server/shop-banner/assets/template*.png` |
 | Generator for the Marathi / Hindi templates (re-run after changing the English one) | `scripts/shop-banner/make-local-templates.py` |
 | Brand tagline under the logo on all three templates ("Everything for Everyone, Everywhere", the site's tagline since 20-Nov-2026, PR #430; re-run after the generator) | `scripts/shop-banner/set-tagline.ts` |
+| Third feature label "Everything For Everyone, Everywhere" (Marathi / Hindi as owner-approved, 21-Nov-2026) | `scripts/shop-banner/set-everywhere-label.ts` |
 | Font (Latin + Devanagari), SIL OFL 1.1, and the fontconfig file that makes sharp use it | `src/server/shop-banner/assets/Poppins-Bold.ttf`, `OFL.txt`, `fonts.conf` |
 | One-page PDF holding a JPEG | `src/lib/image-pdf.ts` |
 | Welcome e-mail (text + HTML with both banners inline, 2 PDFs attached) | `src/server/shop-banner/welcome-kit.ts` |
@@ -110,7 +111,7 @@ the e-mail line; send corrections and re-run the generator.
 | Ribbon ("We are available on") | आमचे दुकान आता ऑनलाइन | हमारी दुकान अब ऑनलाइन |
 | Trusted & Secure | विश्वासार्ह व सुरक्षित | भरोसेमंद और सुरक्षित |
 | Delivered with Care | काळजीपूर्वक डिलिव्हरी | सावधानी से डिलीवरी |
-| For Everyone, Everywhere | सर्वांसाठी, सर्वत्र | सबके लिए, हर जगह |
+| Everything For Everyone, Everywhere | सर्वांसाठी सर्व काही, सर्वत्र | सबके लिए सब कुछ, हर जगह |
 | Scan QR Code of Your Shop | आमच्या दुकानाचा QR कोड स्कॅन करा | हमारी दुकान का QR कोड स्कैन करें |
 | Grow Your Business with GoKesari | GoKesari सोबत तुमचा व्यवसाय वाढवा | GoKesari के साथ अपना व्यापार बढ़ाएँ |
 
@@ -157,5 +158,7 @@ to open; set `MOBILE_IOS_APP_IDS` with the Team ID when it is.
 - The tagline under the logo was "Everything for Everyone." in the owner's design; on
   20-Nov-2026 it was changed on all three templates to the site's new tagline
   "Everything for Everyone, Everywhere" (`set-tagline.ts`, same orange, Poppins Bold).
-- The design's own text "For Everyone, At Everywhere" is kept as in the owner's design
-  (suggested wording: "For Everyone, Everywhere").
+- The third feature label (under the people icon) was "For Everyone, At Everywhere" in the
+  owner's design; on 21-Nov-2026 the owner chose "Everything For Everyone, Everywhere"
+  (Marathi "सर्वांसाठी सर्व काही, सर्वत्र", Hindi "सबके लिए सब कुछ, हर जगह"), written on all three
+  templates by `scripts/shop-banner/set-everywhere-label.ts`.
