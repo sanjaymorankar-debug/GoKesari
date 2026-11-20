@@ -196,6 +196,9 @@ export interface AttributionOptions {
  * unchanged.
  */
 export async function recordShopAttribution(shopId: string, actor: Actor, options: AttributionOptions = {}): Promise<ShopAttribution | null> {
+  // 0157 franchise (docs/franchise): a franchise code attributes the shop to the owner's area, never to Model A.
+  const [coded] = await db.select({ referralCodeId: shops.referralCodeId }).from(shops).where(eq(shops.id, shopId));
+  if (coded?.referralCodeId && (await (await import("@/server/franchise/codes")).recordFranchiseAttribution(shopId, coded.referralCodeId, actor))) return null;
   // Programme off: one read of the flag and nothing else.
   const flag = await getFeatureFlag("dealer_programme_enabled");
   if (!flag.enabled) return null;
@@ -219,8 +222,10 @@ export async function recordShopAttribution(shopId: string, actor: Actor, option
     // 1. A code at registration (or the dealer's own, attached by a dealer-assisted registration).
     if (shop.referralCodeId) {
       const [link] = await tx.select().from(dealerCodes).where(eq(dealerCodes.referralCodeId, shop.referralCodeId));
-      dealerId = link?.dealerId ?? (await directDealer(tx)).id;
-      salespersonId = link?.salespersonId ?? null;
+      // 0157: a franchise code used outside the owner's areas with setting treat_as_model_A_direct_20 — the owner as a Model A dealer.
+      const franchise = link ? null : await (await import("@/server/franchise/codes")).franchiseCodeFor(shop.referralCodeId, tx);
+      dealerId = link?.dealerId ?? franchise?.ownerDealerId ?? (await directDealer(tx)).id;
+      salespersonId = link?.salespersonId ?? franchise?.memberId ?? null;
       source = options.assisted ? "DEALER_ASSISTED" : "CODE_AT_REGISTRATION";
     } else if (options.assisted) {
       dealerId = options.assisted.dealerId;
@@ -349,6 +354,8 @@ export async function recordShopAttributionSafely(shopId: string, actor: Actor, 
     const attribution = await recordShopAttribution(shopId, actor, options);
     // A shop attributed after its fee was paid (or approval) has already reached milestones.
     if (attribution) await checkCommissionMilestonesSafely(shopId, actor);
+    // 0157 franchise: setting allow_and_notify_franchise tells the zone's owners about another dealer's shop.
+    if (attribution) await (await import("@/server/franchise/codes")).notifyFranchiseOfOtherDealerShop(shopId).catch(() => {});
     return attribution;
   } catch (error) {
     console.error("[dealers] could not record the shop's dealer attribution", shopId, error instanceof Error ? error.message : error);

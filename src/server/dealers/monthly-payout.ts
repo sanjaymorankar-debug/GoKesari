@@ -116,6 +116,8 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
   const { start, end } = monthBounds(month);
   if (end.getTime() > now.getTime()) throw conflict(`${monthLabel(month)} is not over yet.`);
   const settings = await getCommissionSettings();
+  // 0157 franchise (docs/franchise): the month's franchise ratings and recurring entries, if the 1st's run missed them.
+  await (await import("@/server/franchise/commission")).runFranchiseMonth(month, actor as never).catch((e) => console.error("[franchise] monthly run before the close failed", month, e));
 
   const result = await db.transaction(async (tx) => {
     const [claimed] = await tx.insert(dealerCommissionMonths).values({ periodMonth: month, closedBy: actor?.id ?? null }).onConflictDoNothing().returning();

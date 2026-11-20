@@ -72,6 +72,8 @@ export const POST = route(async (request: NextRequest) => {
     });
   }
   const referralCode = privileged ? null : await assertRegistrationReferralCode(body.referralCode);
+  // 0157 franchise (docs/franchise): a franchise code works only for a shop inside the owner's active areas.
+  if (referralCode) await (await import("@/server/franchise/codes")).assertCodeForLocation(referralCode, body.latitude, body.longitude);
   const { employeeId, ...details } = body;
   const result = await registerShop(details, user, { privileged });
   if (referralCode) await attributeRegistrationReferral(result, referralCode, user);

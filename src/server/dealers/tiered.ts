@@ -50,7 +50,7 @@ import { createHash } from "node:crypto";
 
 import { AGENT_AGREEMENT_TEXT, AGENT_AGREEMENT_VERSION, type CommissionEntryType, type NetworkRole, type TeamRole } from "@/lib/dealer-tiers";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
+import { decryptSecret, encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
 import { db, type DbClient } from "@/server/db";
 import {
   dealerAgreementAcceptances,
@@ -420,6 +420,9 @@ const ENTRY_WORDS: Record<CommissionEntryType, string> = {
   DEVELOPMENT: "development bonus",
   BONUS: "target bonus",
   TERRITORY: "territory order income",
+  ONE_TIME_FRANCHISE: "franchise one-time commission",
+  RECURRING_BASE: "franchise monthly share",
+  RECURRING_BONUS: "franchise performance bonus",
 };
 
 /* ============================================================= activation */
@@ -463,6 +466,9 @@ export async function accrueTieredActivation(
       const place = await placementFor(tx, dealerId, salespersonId, shop.createdAt);
       const rates = tierRatesFor(dealer, rule);
       const adj = bonusOn ? ratingAdjustmentBp(dealer.rating, dealer.ratingStepBp ?? settings.ratingStepBp) : 0;
+      // Franchise brief §2.3: a signer reporting to the main dealer directly (an agent with no active lead, or a
+      // team lead) puts the main dealer one level up — the first override (4%), not the second (3%).
+      const mainOverrideBp = rule.overrideByDistance !== false && place.direct && !place.lead ? rates.leadOverrideBp : rates.mainOverrideBp;
       [plan] = await tx
         .insert(dealerTierShopPlans)
         .values({
@@ -479,7 +485,7 @@ export async function accrueTieredActivation(
           ratingAdjustmentBp: adj,
           firstPartBp: rates.firstPartBp,
           leadOverrideBp: rates.leadOverrideBp,
-          mainOverrideBp: rates.mainOverrideBp,
+          mainOverrideBp,
           developmentBp: place.development?.bp ?? 0,
           tradingOrders: rule.tradingOrders,
           activatedAt: now,
@@ -1628,6 +1634,23 @@ export async function saveMemberPayee(memberId: string, input: { pan?: string | 
     if (!account.ok) throw validationFailed(account.error, { fields: { bankAccount: account.error } });
     if (!ifsc.ok) throw validationFailed(ifsc.error, { fields: { ifsc: ifsc.error } });
     if (!holder) throw validationFailed("Give the account holder's name.", { fields: { bankHolderName: "Required." } });
+    // Franchise brief §2.4: one bank account appears once in a team (the dealer and its members).
+    if (actor.role !== "ADMIN") {
+      const key = `${ifsc.value}:${account.value}`;
+      const team = [
+        ...(await db.select({ enc: dealerSalespeople.bankAccountEnc, ifsc: dealerSalespeople.bankIfsc }).from(dealerSalespeople).where(and(eq(dealerSalespeople.dealerId, member.dealerId), ne(dealerSalespeople.id, memberId)))),
+        ...(await db.select({ enc: dealers.bankAccountEnc, ifsc: dealers.bankIfsc }).from(dealers).where(eq(dealers.id, member.dealerId))),
+      ];
+      const sameAccount = team.some((o) => {
+        if (!o.enc || !o.ifsc) return false;
+        try {
+          return `${o.ifsc.toUpperCase()}:${decryptSecret(o.enc)}` === key;
+        } catch {
+          return false;
+        }
+      });
+      if (sameAccount) throw conflict("This bank account is already on file for someone in your team.", { fields: { bankAccount: "Already in the team." } });
+    }
     Object.assign(patch, {
       bankHolderName: holder,
       bankAccountEnc: encryptSecret(account.value),

@@ -382,6 +382,8 @@ export const NOTIFICATION_TYPES = {
   DEALER_PAYOUT_FAILED: "dealer.payout_failed",
   /** 0151 territory dealers: to the dealer — a territory given, paid, renewal due, expired, released or cancelled; push too. */
   DEALER_TERRITORY_CHANGED: "dealer.territory_changed",
+  /** 0157 franchise (docs/franchise): to the franchise owner — booking, activation, payment failed, renewal, expiry reminders, area expired; push / SMS / WhatsApp on request. */
+  FRANCHISE_NOTICE: "dealer.franchise_notice",
   /** Shop-refers-shop (0137): to the shop owner — a referral reward was credited; push too. */
   SHOP_REFERRAL_REWARDED: "shop.referral_rewarded",
   /** Shop-refers-shop (0137): to the shop owner — a referral reward was taken back after a review; push too. */

@@ -553,6 +553,8 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
 
 /** Never lets commission break the caller (approval, payment, a product upload): logs and returns []. */
 export async function checkCommissionMilestonesSafely(shopId: string, actor: Actor | null = null): Promise<DealerCommissionEntry[]> {
+  // 0157 franchise (docs/franchise): a shop registered with a franchise code earns its owner the one-time 25%.
+  await (await import("@/server/franchise/commission")).accrueFranchiseActivationSafely(shopId, actor);
   try {
     return await checkCommissionMilestones(shopId, actor);
   } catch (error) {
@@ -704,7 +706,17 @@ export async function reverseShopCommission(shopId: string, reason: string, acto
   const why = (reason ?? "").trim().slice(0, 500) || "reversed";
   const result = await db.transaction(async (tx) => {
     const attribution = await lockForReversal(tx, shopId);
-    if (!attribution) return null;
+    if (!attribution) {
+      // 0157 franchise: a franchise shop has no dealer attribution; its franchise entries are reversed the same way.
+      const { franchiseOwnerOf, markFranchiseShopReversed } = await import("@/server/franchise/commission");
+      const ownerId = await franchiseOwnerOf(tx, shopId);
+      if (!ownerId) return null;
+      await tx.select({ id: dealers.id }).from(dealers).where(eq(dealers.id, ownerId)).for("update");
+      const n = await reverseAccruals(tx, shopId, why, actor);
+      await markFranchiseShopReversed(shopId, why, tx);
+      await recordAudit({ actorId: actor?.id ?? null, actorRole: actor?.role ?? null, action: AUDIT_ACTIONS.DEALER_COMMISSION_REVERSED, entityType: "shop", entityId: shopId, newValue: { franchiseOwnerDealerId: ownerId, entries: n, reason: why } }, tx);
+      return { dealerId: ownerId, n };
+    }
     const n = await reverseAccruals(tx, shopId, why, actor);
     // TIERED: every level goes (direct, overrides, development); the plan never reaches TRADING.
     await reversePlan(tx, shopId);
@@ -730,7 +742,8 @@ export async function reverseShopCommission(shopId: string, reason: string, acto
 
 export async function reverseShopCommissionSafely(shopId: string, reason: string, actor: Actor | null): Promise<void> {
   try {
-    if (!(await getFeatureFlag("dealer_programme_enabled")).enabled) return;
+    // 0157 franchise: franchise shops are reversed even while the dealer programme flag is off.
+    if (!(await getFeatureFlag("dealer_programme_enabled")).enabled && !(await (await import("@/server/franchise/commission")).franchiseOwnerOf(db, shopId))) return;
     await reverseShopCommission(shopId, reason, actor);
   } catch (error) {
     console.error("[dealers] commission reversal failed", shopId, error instanceof Error ? error.message : error);

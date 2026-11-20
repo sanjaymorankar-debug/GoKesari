@@ -57,10 +57,12 @@ export const DEALER_AGREEMENT_VERSION = "2026-10-28";
  * (GKS-MH-PUN-7K4Q9X, GKS-FE-8P2M5N) keep working.
  */
 export function dealerCodePattern(): RegExp {
-  return generatedReferralCodePattern();
+  // Franchise brief (21-Nov-2026): new dealer codes are GKD-xxxxxx; 8-character codes issued earlier keep working.
+  return new RegExp(`${generatedReferralCodePattern().source}|^GKD-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$`);
 }
 
 /** An employee's (salesperson's) code: the same 8-character form. */
 export function salespersonCodePattern(): RegExp {
-  return generatedReferralCodePattern();
+  // New team-lead / agent codes are GKT-xxxxxx / GKA-xxxxxx.
+  return new RegExp(`${generatedReferralCodePattern().source}|^GK[TA]-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$`);
 }

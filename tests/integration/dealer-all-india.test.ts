@@ -5,7 +5,7 @@
  * unique 8-character code; flags and commission rules can name
  * whole states; the application offers states and their districts.
  */
-import { generatedReferralCodePattern } from "@/lib/referral-codes";
+import { dealerCodePattern } from "@/lib/dealers";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -30,7 +30,7 @@ import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 type Actor = { id: string; email: string; name: string | null; role: UserRole };
 let admin: Actor;
-const CODE = generatedReferralCodePattern();
+const CODE = dealerCodePattern();
 
 beforeEach(async () => {
   await resetDatabase();

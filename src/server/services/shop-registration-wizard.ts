@@ -702,6 +702,8 @@ export async function saveDraftDetails(input: { actor: Actor; details: DraftShop
   };
   // A referral code the platform requires (or one that is not valid) is caught here, not at payment.
   await assertRegistrationReferralCode(details.referralCode);
+  // 0157 franchise (docs/franchise): a franchise code works only for a shop inside the owner's active areas.
+  await (await import("@/server/franchise/codes")).assertCodeForLocation(details.referralCode, open?.latitude, open?.longitude);
   // The name and PIN are both known now: the same rules as registerShop(), told here and not at "Create my shop and pay".
   const duplicate = await checkRegistrationDuplicate(
     { panNumber: open?.panEncrypted ? decryptSecret(open.panEncrypted) : null, name: details.name, addressLine1: details.addressLine1, pincode: details.pincode },
@@ -1078,6 +1080,8 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
   const checks = await loadChecks(open.id);
   const row = (t: DraftCheckDocType) => checks.find((c) => c.docType === t);
   const referralCode = await assertRegistrationReferralCode(details.referralCode);
+  // 0157 franchise: the main guard — before any shop exists or any fee is paid.
+  await (await import("@/server/franchise/codes")).assertCodeForLocation(referralCode, open.latitude, open.longitude);
   const rule = await getRule("sellerVerification");
   // 0120: on "upload later" a number tried and refused before the owner switched is not carried over.
   const later = false;

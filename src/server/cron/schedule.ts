@@ -178,6 +178,9 @@ export const EVERY_MINUTE: readonly Job[] = [
   { name: "document-emails", everyMinutes: 5, run: async () => (await import("@/server/documents/email")).deliverDocumentEmails() },
   { name: "bill-captures", everyMinutes: 10, run: async () => (await import("@/server/accounts/capture/service")).dispatchCaptures(10) },
   { name: "push-receipts", everyMinutes: 15, run: async () => (await import("@/server/notifications/push/receipts")).checkPushReceipts() },
+  // 0157 franchise (docs/franchise): holds released, areas expired, reminders from 10:00 IST, the 09:00 IST digest,
+  // and the month before calculated on the 1st from 02:00 IST. Each send is logged once, so a late run catches up.
+  { name: "franchise", everyMinutes: 5, run: async () => (await import("@/server/franchise/jobs")).runFranchiseJob() },
   { name: "pmd-ingest", run: pmdIngest },
 ];
 

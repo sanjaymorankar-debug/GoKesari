@@ -8700,7 +8700,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE"] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -11353,6 +11353,11 @@ export const dealerCommissionLedger = pgTable(
     approvedBy: uuid("approved_by"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     note: text("note"),
+    /** 0157 franchise (docs/franchise): the allocation, zone, config version and calculation run behind the entry. */
+    franchiseAllocationId: uuid("franchise_allocation_id"),
+    franchiseZoneId: text("franchise_zone_id"),
+    configVersion: integer("config_version"),
+    calcRunId: text("calc_run_id"),
     createdBy: uuid("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -12555,4 +12560,5 @@ export const consultReceiptCounters = pgTable(
 
 /* >>> GoKesari Health (docs/health/; drizzle/0153_health.sql) */
 export * from "./health-schema";
+export * from "./franchise-schema";
 /* <<< GoKesari Health */

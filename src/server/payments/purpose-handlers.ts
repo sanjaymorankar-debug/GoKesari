@@ -50,4 +50,9 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   HEALTH_RENTAL: async (intent, client, afterCommit) => (await import("@/server/health/rentals")).onRentalPaymentCaptured(intent, client, afterCommit),
   HEALTH_PRIME: async (intent, client, afterCommit) => (await import("@/server/health/prime")).onPrimePaymentCaptured(intent, client, afterCommit),
   /* <<< GoKesari Health */
+  //
+  /* >>> franchise area booking (docs/franchise) */
+  // A franchise booking (new areas or a renewal) paid online: the allocations become ACTIVE in the capture transaction.
+  FRANCHISE_FEE: async (intent, client, afterCommit) => (await import("@/server/franchise/booking")).onFranchiseFeeCaptured(intent, client, afterCommit),
+  /* <<< franchise area booking */
 };
