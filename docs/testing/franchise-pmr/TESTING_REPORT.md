@@ -104,7 +104,7 @@ Each run was against the branch with the franchise changes.
 | Mobile app tests | 59 / 59 passed |
 | TypeScript (`tsc --noEmit`) | clean |
 | ESLint on changed files | clean |
-| Full Vitest suite (all integration + unit) on a fresh migrated database | see §6 |
+| Full Vitest suite (all integration + unit) on a fresh migrated database | 3,775 / 3,779 passed; the 4 failures are environmental (§6) |
 
 ## 5. Defects
 
@@ -118,7 +118,12 @@ Open: none known in the franchise code.
 
 ## 6. Full suite
 
-Filled in below when the run finishes.
+Run on 20/21-Nov-2026, finished about 00.00 IST, against a fresh migrated database: **301 files, 3,779 tests — 3,775 passed, 4 failed**. None of the 4 is caused by this PR; each fails the same way on the Health branch without the franchise code:
+
+| File | Failed | Cause |
+|---|---|---|
+| `health-core.test.ts` | 1 | Booking-slot test near midnight IST ("That time was just taken") |
+| `migrate-on-build.test.ts` | 3 | `CONNECT_TIMEOUT 127.0.0.1:5432` and timeouts creating scratch databases on the busy local Postgres; CI runs these on its own service |
 
 ## 7. Still to do (M3)
 
