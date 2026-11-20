@@ -666,9 +666,9 @@
      "evidence": "full vitest suite on PostgreSQL 18: 287 files, 3,574 tests passed, 0 failed (2,881 s); Puja + tile-board + migration-journal re-run 71/71"
     },
     "test": {
-     "status": "Not run",
-     "at": null,
-     "evidence": ""
+     "status": "Running",
+     "at": "20-Nov-2026 12.46 IST",
+     "evidence": "baseline before Puja (staging f1fb3c7a+#428): 8 signed-in specs — 46 passed, 29 skipped, 7 failed; all 7 = 'HTTP 402 Insufficient wallet balance' (the staging test customer's wallet is empty: environment, not code). Re-run after #427 lands."
     },
     "prod": {
      "status": "Not run",
@@ -789,5 +789,8 @@
    "file": "docs/puja-samagri-2026-11/screenshots/local-operator-360x800.png",
    "note": "review queue: approve / reject / merge with reason"
   }
+ ],
+ "notes": [
+  "Test site: the test customer's wallet is empty (₹10). Wallet-paid checkouts there fail with 402 until it is topped up; the top-up is a Cashfree sandbox payment (Sandbox payment workflow) for the owner to make. Puja's staging order check uses cash on delivery; wallet payment and refund are covered by the local integration test."
  ]
 }
