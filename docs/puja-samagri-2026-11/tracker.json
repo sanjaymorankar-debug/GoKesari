@@ -792,6 +792,11 @@
      "status": "Blocked",
      "at": "20-Nov-2026 18.15 IST",
      "by": "Staging queue: failed on the QA suite's public-page list (/puja), not the app; fix PR #437 (staging-fix) opened 18.19 IST"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 19.40 IST",
+     "by": "Staging queue: fix #437 (staging-fix) verified on test.gokesari.com; Puja clear for the joint release"
     }
    ]
   },

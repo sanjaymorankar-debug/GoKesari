@@ -763,7 +763,7 @@
    "where": "staging queue (#427), test.gokesari.com",
    "summary": "Queue failed #427 on TC-RBAC-002 / TC-AUTH-033: \"/puja → 200\". /puja is public by design, but the QA suite's PUBLIC_PAGES list (tests/qa/lib/routes.ts) did not include it. Test list, not app",
    "fix": "PR #437 (staging-fix): /puja added to PUBLIC_PAGES; the check re-run on test.gokesari.com 18.18 IST: 230 pages, all refused",
-   "status": "Fix in queue (#437)"
+   "status": "Fixed (#437 verified 19.40 IST)"
   },
   {
    "id": "PUJA-D-05",
