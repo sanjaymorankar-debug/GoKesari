@@ -84,7 +84,8 @@ interface Clinic {
 
 async function rules(over: Record<string, unknown> = {}) {
   await setRule("consultBooking", { ...RULES.consultBooking.defaults, enabled: true }, admin);
-  await setRule("health", { ...RULES.health.defaults, enabled: true, ...over } as never, admin);
+  // Paid Prime is tested with the launch mode off; "launch mode" below covers primeForAll (the default).
+  await setRule("health", { ...RULES.health.defaults, enabled: true, primeForAll: false, ...over } as never, admin);
   clearRuleCache();
 }
 
@@ -382,5 +383,28 @@ describe("Find a doctor", () => {
     await expect(bookingContext(unverified.svc, unverified.memberId, customer)).rejects.toThrow(/not found/i);
     const ctx = await bookingContext(clinic.svc, clinic.memberId, customer);
     expect(ctx.doctor.memberId).toBe(clinic.memberId);
+  });
+});
+
+describe("launch mode (rule health.primeForAll, owner decision 20-Nov-2026)", () => {
+  it("gives every verified clinic the Prime features, sells no plan, books instantly and ranks without a paid boost", async () => {
+    await rules({ primeForAll: true, freeListingManualApproval: true });
+    const other = await makeClinic("Rao Clinic");
+    const tier = await primeTierForShop(clinic.shopId);
+    expect(tier).toMatchObject({ tier: "PRIME", included: true, subscriptionId: null });
+    expect(tier.features.instantBooking).toBe(true);
+    // Nothing to buy: quote and purchase are refused, the page says so.
+    await expect(quotePrime(clinic.shopId, { planId: await planId("DOCTOR_PRIME"), term: "MONTHLY" })).rejects.toThrow(/nothing to buy/);
+    await expect(startPrimePurchase(clinic.shopId, { planId: await planId("DOCTOR_PRIME"), term: "MONTHLY" }, clinic.owner)).rejects.toThrow(/nothing to buy/);
+    const view = await primeShopView(clinic.shopId, clinic.owner);
+    expect(view.launchIncluded).toBe(true);
+    expect(view.termsNote).toMatch(/standard registration fee/);
+    // Instant booking for everyone (no "Free listing" approval step).
+    expect(await syncInstantBooking(clinic.shopId)).toBe(false);
+    expect(await manualApproval(clinic.shopId)).toBe(false);
+    // Search: both listed, no Prime label or boost (everyone is equal).
+    const r = await searchDoctors({ specialty: "general-physician", lat: 18.5204, lng: 73.8567 });
+    expect(r.results.map((c) => c.memberId)).toEqual(expect.arrayContaining([clinic.memberId, other.memberId]));
+    expect(r.results.every((c) => !c.boosted && c.primeLabel === null)).toBe(true);
   });
 });

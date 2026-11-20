@@ -431,28 +431,28 @@
   "feature": "Health Prime",
   "sub": "Plans Free / Prime / Prime Plus, admin plan builder (no hard-coded prices), coupons",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Local integration tests pass (20-Nov-2026)"
  },
  {
   "id": "H-20.2",
   "feature": "Health Prime",
   "sub": "Purchase monthly / quarterly / yearly, GST invoice 18%, renewal reminders, grace, downgrade",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Local integration tests pass (20-Nov-2026)"
  },
  {
   "id": "H-20.3",
   "feature": "Health Prime",
   "sub": "Instant booking, labelled priority placement, badge, virtual number + call tracking, analytics",
   "status": "Done",
-  "notes": "Telephony vendor account needed (mock until then); Local integration tests pass (20-Nov-2026)"
+  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Telephony vendor account needed (mock until then); Local integration tests pass (20-Nov-2026)"
  },
  {
   "id": "H-20.4",
   "feature": "Health Prime",
   "sub": "Pay-per-booking option; dealer commission on Prime sales (if enabled)",
   "status": "Done",
-  "notes": "Pay-per-booking done; dealer commission on Prime sales is phase 2 (needs a ledger entry type and an approved rate, H-39)"
+  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Pay-per-booking done; dealer commission on Prime sales is phase 2 (needs a ledger entry type and an approved rate, H-39)"
  },
  {
   "id": "H-20.5",

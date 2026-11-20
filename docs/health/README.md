@@ -97,7 +97,7 @@ Pages: `/rx/verify/<token>` (public QR check), `/health/prescriptions/<id>/print
 - Medicine orders: `HEALTH_RX_ORDER` payments (or cash on handover), 2% commission via `financial_adjustments`.
 - Rentals: `HEALTH_RENTAL` payments (rent + deposit + delivery; extensions), deposit refund minus damages through
   the gateway; 2% on rent + delivery.
-- Prime: `HEALTH_PRIME` payments, GST 18% separately, invoice `PRIME/<FY>/<n>`; optional pay-per-booking fee.
+- Prime: **launch mode (rule `primeForAll`, on)** — every verified provider gets the Prime features free; no plan is sold; providers pay the standard registration fee (₹999 slab) and 2% commission. With launch mode off: `HEALTH_PRIME` payments, GST 18% separately, invoice `PRM/<FY>/<n>`; optional pay-per-booking fee.
 - Doctors are never paid for referrals or suggestions (NMC).
 
 ## Mobile apps

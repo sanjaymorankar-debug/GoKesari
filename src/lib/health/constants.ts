@@ -374,6 +374,10 @@ export const PRIME_FEATURE_LABELS: Record<string, string> = {
 export const PRIME_TERMS_NOTE =
   "Prime improves how your profile is shown (always labelled \"Prime\") and adds booking, calling and analytics tools. It does not guarantee any number of patients, calls or bookings. Free listings are never hidden. GST at 18% is added to the plan price.";
 
+/** Launch mode (rule health.primeForAll), owner decision 20-Nov-2026. */
+export const PRIME_LAUNCH_NOTE =
+  "Launch offer: every Prime feature is included for every verified provider — instant online booking, analytics, booking notices and online payments. There is no plan to buy. You pay only GoKesari's standard registration fee (₹999 for turnover up to ₹2 crore, plus GST) and 2% on order value. Free listings are never hidden and no listing is ranked above another for payment.";
+
 /** NMC Code of Ethics: shown wherever a doctor makes a referral or suggestion. */
 export const NMC_ETHICS_NOTE =
   "GoKesari never pays or credits a doctor for a referral or suggestion (NMC Code of Ethics). You see only whether the patient booked — never prices or commissions.";

@@ -803,7 +803,7 @@ export const RULES = {
   },
   health: {
     description:
-      "GoKesari Health (docs/health/; owner brief 20 Nov 2026). Built on consultant appointments (consultBooking must be on too): patients keep one lifelong health record for themselves and their family; verified doctors issue e-prescriptions (PDF e-mailed, printed on their letterhead); patients forward prescriptions to medical stores for pickup or delivery; home-care providers (nurse, physiotherapist, massage therapist, attendant …) take home visits with OTP check-in / check-out; medical equipment stores rent equipment with a deposit; doctors, providers and stores can buy Prime listing plans (prices in Admin → Health → Prime plans, never in code). storeResponseMinutes: how long a medical store has to reply to a forwarded prescription. rxValidityDays: how long a prescription can be used at a store. rxCommissionBp / rentalCommissionBp: GoKesari's commission on store orders and rentals (default 2%), taken from the store's weekly payout. reminderHours: appointment reminders (the consultant rule's reminders are used). rentalDueReminderDays: reminder before a rental is due back. primeGraceDays: after a Prime plan ends, bookings already made stay valid; the profile drops to Free after the grace days. primeGstBp: GST on Prime plans (18%). payPerBooking: no subscription, a fee per new-patient booking billed to the provider's payout (feePerBookingPaise). videoProvider / telephonyProvider / printProvider: 'jitsi' / 'mock' / 'browser' until accounts are configured. breakGlassEnabled: admins may open a clinical record in an emergency with a reason (logged, patient told). freeListingManualApproval: a doctor on the Free listing gets booking requests the clinic confirms; Prime turns on instant booking. Off: My Health and the health screens say 'coming soon'; prescriptions already issued can still be opened and verified.",
+      "GoKesari Health (docs/health/; owner brief 20 Nov 2026). Built on consultant appointments (consultBooking must be on too): patients keep one lifelong health record for themselves and their family; verified doctors issue e-prescriptions (PDF e-mailed, printed on their letterhead); patients forward prescriptions to medical stores for pickup or delivery; home-care providers (nurse, physiotherapist, massage therapist, attendant …) take home visits with OTP check-in / check-out; medical equipment stores rent equipment with a deposit; doctors, providers and stores can buy Prime listing plans (prices in Admin → Health → Prime plans, never in code). storeResponseMinutes: how long a medical store has to reply to a forwarded prescription. rxValidityDays: how long a prescription can be used at a store. rxCommissionBp / rentalCommissionBp: GoKesari's commission on store orders and rentals (default 2%), taken from the store's weekly payout. reminderHours: appointment reminders (the consultant rule's reminders are used). rentalDueReminderDays: reminder before a rental is due back. primeGraceDays: after a Prime plan ends, bookings already made stay valid; the profile drops to Free after the grace days. primeGstBp: GST on Prime plans (18%). payPerBooking: no subscription, a fee per new-patient booking billed to the provider's payout (feePerBookingPaise). videoProvider / telephonyProvider / printProvider: 'jitsi' / 'mock' / 'browser' until accounts are configured. breakGlassEnabled: admins may open a clinical record in an emergency with a reason (logged, patient told). freeListingManualApproval: a doctor on the Free listing gets booking requests the clinic confirms; Prime turns on instant booking. primeForAll (launch mode, on): every verified clinic, care provider and equipment store gets the Prime plan's features (instant booking, analytics …) without buying a plan; Prime plans are not sold; no Prime boost or label in search (everyone is equal); the standard registration fee and 2% commission apply. Off: My Health and the health screens say 'coming soon'; prescriptions already issued can still be opened and verified.",
     schema: z.object({
       enabled: z.boolean(),
       storeResponseMinutes: int(2, 240),
@@ -824,6 +824,7 @@ export const RULES = {
       printProvider: z.enum(["browser", "printnode", "qz"]),
       breakGlassEnabled: z.boolean(),
       freeListingManualApproval: z.boolean(),
+      primeForAll: z.boolean(),
       careOtpMaxAttempts: int(1, 20),
       familyLinkCodeMinutes: int(2, 60),
     }),
@@ -848,6 +849,9 @@ export const RULES = {
       printProvider: "browser",
       breakGlassEnabled: true,
       freeListingManualApproval: true,
+      // Owner decision 20-Nov-2026 13.20 IST: launch with every Prime feature for every verified provider — no Prime
+      // plan is sold; providers pay GoKesari's standard registration fee (₹999 slab) and 2% on order value.
+      primeForAll: true,
       careOtpMaxAttempts: 5,
       familyLinkCodeMinutes: 10,
     },

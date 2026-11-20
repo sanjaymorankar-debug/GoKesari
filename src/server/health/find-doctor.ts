@@ -214,7 +214,8 @@ export async function searchDoctors(
   let cards = await toCards(rows, { origin, radiusKm, mode: input.mode ?? null, specialties, text: text ?? null, now });
   if (input.available === "today") cards = cards.filter((c) => c.availableToday);
   if (input.available === "week") cards = cards.filter((c) => c.nextSlot && new Date(c.nextSlot).getTime() < now.getTime() + 7 * 86_400_000);
-  if (input.prime) cards = cards.filter((c) => c.tier !== "FREE");
+  // Launch mode (primeForAll): everyone has the Prime features, so the "Prime" filter narrows nothing.
+  if (input.prime && !(await getRule("health")).primeForAll) cards = cards.filter((c) => c.tier !== "FREE");
   if (options.featuredOnly) cards = cards.filter((c) => c.featured);
   cards.sort((a, b) => b.score - a.score || (a.distanceKm ?? 1e9) - (b.distanceKm ?? 1e9) || a.name.localeCompare(b.name));
   cards = cards.slice(0, input.limit);

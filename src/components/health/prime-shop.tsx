@@ -65,7 +65,11 @@ export function PrimeShop({ view }: { view: PrimeShopView }) {
         <p className="text-2xl font-extrabold text-ink-900">
           {t.tier === "FREE" ? "Free listing" : `★ ${t.label}`} {t.inGrace ? <span className="text-base text-amber-800">(grace days)</span> : null}
         </p>
-        {t.tier !== "FREE" ? (
+        {t.included ? (
+          <p className="text-sm text-ink-800" data-testid="health-prime-included">
+            Every Prime feature is included during the launch — nothing to buy. You pay only the standard registration fee and 2% on order value.
+          </p>
+        ) : t.tier !== "FREE" ? (
           <p className="text-sm text-ink-800">
             {t.planName} · until {ist(t.endsAt, false)}
             {t.inGrace && t.graceUntil ? ` · Prime stays on until ${ist(t.graceUntil, false)} — renew to keep it` : ""}
@@ -108,7 +112,7 @@ export function PrimeShop({ view }: { view: PrimeShopView }) {
                   <li key={f}>{f}</li>
                 ))}
               </ul>
-              {p.tier !== "FREE" && owner ? (
+              {p.tier !== "FREE" && owner && !view.launchIncluded ? (
                 <Button
                   variant={p.id === planId ? "primary" : "secondary"}
                   onClick={() => {
@@ -123,7 +127,7 @@ export function PrimeShop({ view }: { view: PrimeShopView }) {
             </div>
           ))}
         </div>
-        {owner && plan ? (
+        {owner && plan && !view.launchIncluded ? (
           <div className="mt-4 flex flex-col gap-3 rounded-2xl border-2 border-kesari-300 bg-white p-3" data-testid="health-prime-buy">
             <p className="font-bold text-ink-900">
               {plan.name}

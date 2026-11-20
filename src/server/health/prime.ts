@@ -26,7 +26,7 @@ import { z } from "zod";
 
 import { addDays, financialYear, istDateKey } from "@/lib/consult/time";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { PRIME_AUDIENCES, PRIME_FEATURE_LABELS, PRIME_TERM_MONTHS, PRIME_TERMS, PRIME_TERMS_NOTE, PRIME_TIER_LABELS, PRIME_TIERS, type PrimeAudience, type PrimeTerm, type PrimeTier } from "@/lib/health/constants";
+import { PRIME_LAUNCH_NOTE, PRIME_AUDIENCES, PRIME_FEATURE_LABELS, PRIME_TERM_MONTHS, PRIME_TERMS, PRIME_TERMS_NOTE, PRIME_TIER_LABELS, PRIME_TIERS, type PrimeAudience, type PrimeTerm, type PrimeTier } from "@/lib/health/constants";
 import { db, type DbClient } from "@/server/db";
 import {
   consultBookings,
@@ -252,6 +252,8 @@ export interface PrimeTierInfo {
   endsAt: Date | null;
   graceUntil: Date | null;
   inGrace: boolean;
+  /** Launch mode (rule health.primeForAll): Prime features included, no plan bought. */
+  included?: boolean;
 }
 
 type SubWithPlan = { s: HealthPrimeSubscription; p: HealthPrimePlan };
@@ -300,6 +302,17 @@ function tierFrom(shopId: string, subs: SubWithPlan[], now: Date): PrimeTierInfo
 export async function primeTierForShop(shopId: string, now: Date = new Date(), client: DbClient = db): Promise<PrimeTierInfo> {
   const info = tierFrom(shopId, await effectiveSubs([shopId], now, client), now);
   if (info.tier !== "FREE") return info;
+  // Launch mode: every provider gets the Prime plan's features for its audience, nothing to buy.
+  if ((await getRule("health")).primeForAll) {
+    try {
+      const scope = await shopScope(shopId, client);
+      const rows = await client.select().from(healthPrimePlans).where(and(eq(healthPrimePlans.status, "ACTIVE"), eq(healthPrimePlans.tier, "PRIME")));
+      const prime = pickEffectivePlans(rows, scope)[0];
+      if (prime) return { ...info, tier: "PRIME", label: "Prime (included at launch)", features: (prime.features ?? {}) as Record<string, boolean>, quotas: (prime.quotas ?? {}) as Record<string, number>, planId: prime.id, planName: prime.name, included: true };
+    } catch {
+      /* a shop that is gone stays Free */
+    }
+  }
   // Free: the Free plan's features for the shop's audience, when the admin built one.
   try {
     const scope = await shopScope(shopId, client);
@@ -382,6 +395,7 @@ async function validCoupon(code: string | null | undefined, now: Date, client: D
 export async function quotePrime(shopId: string, raw: unknown, now: Date = new Date()): Promise<PrimeQuote> {
   const input = purchaseInput.parse(raw);
   const rule = await getRule("health");
+  if (rule.primeForAll) throw conflict("During the launch every Prime feature is included — there is nothing to buy. You pay only GoKesari's standard registration fee and 2% on order value.", { reason: "PRIME_INCLUDED" });
   const scope = await shopScope(shopId);
   if (!scope.audiences.length) throw forbidden("Prime is for doctors' clinics, home-care providers and medical equipment stores.");
   const rows = await db.select().from(healthPrimePlans).where(eq(healthPrimePlans.status, "ACTIVE"));
@@ -843,6 +857,8 @@ export interface PrimeShopView {
   tier: Omit<PrimeTierInfo, "startsAt" | "endsAt" | "graceUntil"> & { startsAt: string | null; endsAt: string | null; graceUntil: string | null };
   plans: PrimePlanView[];
   termsNote: string;
+  /** Launch mode: every Prime feature included, nothing to buy. */
+  launchIncluded: boolean;
   gstBp: number;
   graceDays: number;
   termDiscountBp: { QUARTERLY: number; YEARLY: number };
@@ -874,7 +890,8 @@ export async function primeShopView(shopId: string, actor: HealthActor, now: Dat
     role: access.role,
     tier: { ...tier, startsAt: iso(tier.startsAt), endsAt: iso(tier.endsAt), graceUntil: iso(tier.graceUntil) },
     plans,
-    termsNote: PRIME_TERMS_NOTE,
+    termsNote: rule.primeForAll ? PRIME_LAUNCH_NOTE : PRIME_TERMS_NOTE,
+    launchIncluded: rule.primeForAll,
     gstBp: rule.primeGstBp,
     graceDays: rule.primeGraceDays,
     termDiscountBp: rule.primeTermDiscountBp,
