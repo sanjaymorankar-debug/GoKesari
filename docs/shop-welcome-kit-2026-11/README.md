@@ -26,6 +26,7 @@
 | Generator for the Marathi / Hindi templates (re-run after changing the English one) | `scripts/shop-banner/make-local-templates.py` |
 | Brand tagline under the logo on all three templates ("Everything for Everyone, Everywhere", the site's tagline since 20-Nov-2026, PR #430; re-run after the generator) | `scripts/shop-banner/set-tagline.ts` |
 | Third feature label "Everything For Everyone, Everywhere" (Marathi / Hindi as owner-approved, 21-Nov-2026) | `scripts/shop-banner/set-everywhere-label.ts` |
+| Marathi ribbon line "आपले दुकान आता ऑनलाइन" (owner's correction of "आमचे …", 21-Nov-2026) | `scripts/shop-banner/set-ribbon.ts` |
 | Font (Latin + Devanagari), SIL OFL 1.1, and the fontconfig file that makes sharp use it | `src/server/shop-banner/assets/Poppins-Bold.ttf`, `OFL.txt`, `fonts.conf` |
 | One-page PDF holding a JPEG | `src/lib/image-pdf.ts` |
 | Welcome e-mail (text + HTML with both banners inline, 2 PDFs attached) | `src/server/shop-banner/welcome-kit.ts` |
@@ -108,7 +109,7 @@ the e-mail line; send corrections and re-run the generator.
 
 | | Marathi | Hindi |
 |---|---|---|
-| Ribbon ("We are available on") | आमचे दुकान आता ऑनलाइन | हमारी दुकान अब ऑनलाइन |
+| Ribbon ("We are available on") | आपले दुकान आता ऑनलाइन | हमारी दुकान अब ऑनलाइन |
 | Trusted & Secure | विश्वासार्ह व सुरक्षित | भरोसेमंद और सुरक्षित |
 | Delivered with Care | काळजीपूर्वक डिलिव्हरी | सावधानी से डिलीवरी |
 | Everything For Everyone, Everywhere | सर्वांसाठी सर्व काही, सर्वत्र | सबके लिए सब कुछ, हर जगह |
