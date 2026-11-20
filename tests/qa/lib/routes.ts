@@ -139,6 +139,16 @@ export const PUBLIC_PAGES = new Set([
   "/consult/[slug]",
   // docs/health: the prescription QR check is public (it shows patient details only to authorised viewers).
   "/rx/verify/[token]",
+  // docs/health: Find a doctor, home care and medical equipment are browsed signed out, like /consult ("coming
+  // soon" while rule health is off; detail pages 404 for an unknown id). Booking, ordering and renting need sign-in.
+  "/health/doctors",
+  "/health/doctors/[memberId]",
+  "/health/care",
+  "/health/care/providers/[slug]",
+  "/health/equipment",
+  "/health/equipment/[listingId]",
+  // A householder checks a home-care visitor's ID card number at the door; "Not a GoKesari ID" for an unknown one.
+  "/health/care/id/[card]",
 ]);
 
 /**
@@ -166,6 +176,7 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/dev/settle-registration": "development only: 404 in a production build",
   "/api/dev/settle-topup": "development only: 404 in a production build",
   "/api/kyc-mock/digilocker": "DigiLocker stand-in on test sites (#312): 404 on production (QA E-15)",
+  "/api/health/telephony/webhook": "call-tracking provider webhook (docs/health): HMAC signature checked; mock provider only off production",
 };
 
 /** Route prefixes protected by a secret or key instead of a session. */
