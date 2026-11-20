@@ -15,7 +15,7 @@
 import type { Page } from "@playwright/test";
 
 import { as, pageAs } from "../lib/actors";
-import { addToCart, deliver, emptyCart, orderAs, packOrder, placeOrder, shopOf, type Listing } from "../lib/flows";
+import { addToCart, deliver, emptyCart, orderAs, packOrder, placeOrder, shopOf, walletBalance, type Listing } from "../lib/flows";
 import { call, expectStatus, RUN, stash, unstash, why } from "../lib/http";
 import { blocked, expect, qa } from "../lib/record";
 
@@ -230,30 +230,35 @@ qa("TC-PUJA-015", "price on confirmation: the customer asks the price of a loose
   return `${loose.name}: asked → owner priced ₹60 → customer notified → on sale`;
 });
 
-qa("TC-PUJA-016", "a puja item is ordered through the existing checkout (cash on delivery), packed and delivered with the OTP; a second order is cancelled before packing and its stock comes back", async () => {
+qa("TC-PUJA-016", "a puja item is ordered through the existing checkout (wallet), packed and delivered with the OTP; a second order is cancelled before packing, refunded to the wallet, and its stock comes back", async () => {
   const stashed = unstash<{ shopId: string; kapurCategoryId: string }>(KEY);
   if (!stashed) blocked("TC-PUJA-010 did not list puja products in shop A");
   const pick = (await itemsOf(stashed.shopId, `categoryId=${stashed.kapurCategoryId}&kind=packed`)).find((i) => i.listing?.state === "LISTED" && (i.listing.pricePaise ?? 0) > 0 && i.listing.stock >= 3);
   if (!pick?.listing) blocked("no packed kapur listing with stock in shop A");
   const shop = await shopOf("A");
   const listing: Listing = { shopProductId: pick.listing.id, productId: pick.productId, name: pick.name, pricePaise: pick.listing.pricePaise, shopId: shop.id, shopName: shop.name };
-  // Cash on delivery: no payment step on the test site (wallet-paid orders and their refund are
-  // covered by tests/integration/puja-samagri.test.ts; the test wallet is topped up by the owner).
-  const order = await placeOrder({ listing, method: "COD" });
-  expect(order.status).toMatch(/CONFIRMED|ACCEPTED|PENDING/);
+  // The second test customer: the first one's wallet is empty and it has reached the open-COD limit on the test site.
+  const buyer = "customer2" as const;
+  const startBalance = await walletBalance(buyer);
+  if (startBalance < 50_000) blocked(`${buyer}'s test wallet holds ₹${startBalance / 100} (needs a sandbox top-up)`);
+  const order = await placeOrder({ role: buyer, listing, method: "WALLET" });
+  expect(order.status).toMatch(/CONFIRMED|ACCEPTED/);
+  expect(await walletBalance(buyer), "wallet debited by the order total").toBe(startBalance - order.totalPaise);
   await packOrder(order.id);
-  await deliver(order.id, { cashCollected: true });
-  expect((await orderAs("customer", order.id))?.status).toBe("DELIVERED");
+  await deliver(order.id, { customer: buyer });
+  expect((await orderAs(buyer, order.id))?.status).toBe("DELIVERED");
   const stockBefore = (await itemsOf(stashed.shopId, `categoryId=${stashed.kapurCategoryId}&kind=packed`)).find((i) => i.productId === pick.productId)!.listing!.stock;
-  const second = await placeOrder({ listing, method: "COD" });
-  const cancel = await call(await as("customer"), "PATCH", `/api/orders/${second.id}/status`, { status: "CANCELLED", note: "QA puja cancel before packing" });
+  const beforeSecond = await walletBalance(buyer);
+  const second = await placeOrder({ role: buyer, listing, method: "WALLET" });
+  const cancel = await call(await as(buyer), "PATCH", `/api/orders/${second.id}/status`, { status: "CANCELLED", note: "QA puja cancel before packing" });
   expectStatus(cancel, 200, `cancel before packing (${why(cancel)})`);
-  const after = await orderAs("customer", second.id);
-  expect(after?.status).toMatch(/CANCELLED|REFUNDED|REFUND_PENDING/);
+  const after = await orderAs(buyer, second.id);
+  expect(after?.status).toMatch(/CANCELLED|REFUNDED/);
+  expect(await walletBalance(buyer), "refunded to the wallet in full").toBe(beforeSecond);
   const stockAfter = (await itemsOf(stashed.shopId, `categoryId=${stashed.kapurCategoryId}&kind=packed`)).find((i) => i.productId === pick.productId)!.listing!.stock;
   expect(stockAfter, "the cancelled order's stock is back").toBe(stockBefore);
-  return `${pick.name}: ${order.orderNumber} (COD) delivered with OTP; ${second.orderNumber} cancelled before packing (${after?.status}), stock ${stockBefore} → ${stockAfter}`;
-}, { partial: "wallet-paid order and its refund on cancellation: tests/integration/puja-samagri.test.ts (the test site's wallet top-up is a Cashfree sandbox payment the owner makes)" });
+  return `${pick.name}: ${order.orderNumber} paid from the wallet (₹${order.totalPaise / 100}), delivered with OTP; ${second.orderNumber} cancelled before packing (${after?.status}), wallet back to ₹${beforeSecond / 100}, stock ${stockBefore} → ${stockAfter}`;
+});
 
 qa("TC-PUJA-017", "admin configuration: FSSAI toggle for edible lines and the type switch round-trip; festival collection shows on /puja for its dates", async ({ page }) => {
   const admin = await as("admin");
