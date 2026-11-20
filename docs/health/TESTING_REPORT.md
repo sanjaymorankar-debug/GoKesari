@@ -4,7 +4,7 @@
 |---|---|
 | Build | PR #429, branch `feat/gokesari-health` (on consultant appointments #425; merged with Puja Samagri #427, so the migration is `0156_health`) — merged into `staging` 20-Nov-2026 19.41 IST as `a73d7a0f` |
 | Report date | 20-Nov-2026 (all times IST) |
-| Environments | **Local** (PostgreSQL 18, Next.js dev and production builds): run. **Test** (test.gokesari.com): deployed 20-Nov-2026 19.46 IST, staging-verified 20.40 IST. **Prod** (gokesari.com): joint release as soon as every PR in it is staging-verified (owner, 20-Nov 16.50); Health switched **on** at launch by the migration (owner, H-47). |
+| Environments | **Local** (PostgreSQL 18, Next.js dev and production builds): run. **Test** (test.gokesari.com): deployed 20-Nov-2026 19.46 IST, staging-verified 20.40 IST. **Prod** (gokesari.com): release #440 live 20-Nov-2026 23.32 IST (production database migrated 22.00–22.02); Health switched **on** by the migration (owner, H-47). |
 | Prepared by | Claude (lead engineer session) |
 
 ## 1. Summary
@@ -25,7 +25,9 @@
 | Test — Health guest checks TC-HLT-001…005 (Playwright) | 1 | 10 | 7 | 0 | 3 | 20-Nov-2026 19.50 (3 = phone repeats of API-only checks, skipped by design) |
 | Test — signed-in smoke: customer (notice, record, records / access log / consents APIs, 13 My Health pages at 390 px, live stream, admin refused), guest APIs, shop owner (menu, hub), admin (7 data views, page) | 1 | 36 | 36 | 0 | 0 | 20-Nov-2026 19.50 (the customer's `/admin/health` shows the in-page "Not allowed (403)", counted as refused) |
 | Test — full regression of all modules (consult session) | 1 | 2,358 rows | 656 | 12 (known / test data) | 194 blocked, 697 local-only | 20-Nov-2026 16.03 – 18.09, before Health was merged |
-| Prod (gokesari.com) — post-deploy check + guest smoke TC-HLT-001…005 | — | 5 | — | — | 5 | pending the joint release |
+| Prod (gokesari.com) — release #440 (`cf0069d0`, live 23.32): post-deploy check | 1 | — | Pass | 0 | — | 20-Nov-2026 23.27 – 23.35 |
+| Prod — Health guest smoke (5 sign-in redirects, 3 private APIs 401, 3 public APIs, 8 public pages at 390 px incl. /consult, /puja and the new tagline) | 1 | 19 | 19 | 0 | 0 | 20-Nov-2026 23.36 |
+| Prod — Health guest checks TC-HLT-001…005 (Playwright) | 1 | 10 | 7 | 0 | 3 | 20-Nov-2026 23.36 (3 = phone repeats of API-only checks) |
 
 Pass rate: **Local 100%** (3,646 / 3,646 in the full regression, which includes the 55 Health and 26 consult cases); Test and Prod not run yet (see §6).
 
