@@ -63,8 +63,9 @@ Record: `docs/testing/qa-runs/2026-11-20-staging-rerun-wallet.json` (72 IDs, 128
 19 blocked). Staging column of the register: **Fail 25 → 21, Blocked 86 → 71, Pass 134 → 141, Pass
 (partial) 240 → 252.** No new product defect.
 
-The register now also lists the 28 GoKesari Health cases (PR #429, TC-HLT-…): **1,197** cases and
-journeys, the Health cases *Not run* (they reached staging after this run).
+The register now also lists the 28 GoKesari Health cases (PR #429, TC-HLT-…) and the 13 shop welcome-kit
+cases plus journey SC-WKIT-01 (PR #431): **1,211** cases and journeys; those are *Not run* (they reached
+staging after this run).
 
 | Group | Result |
 |---|---|

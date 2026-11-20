@@ -3640,5 +3640,26 @@
    "TC-HLT-030",
    "TC-HLT-031"
   ]
+ },
+ {
+  "id": "TS-WKIT-01",
+  "module": "Shop welcome kit & QR banner",
+  "title": "A new shop gets its printable QR banners the moment it goes live",
+  "description": "When a shop goes live (paid self-registration, admin / operator approval, automatic or instant GST/PAN approval) the owner is e-mailed once: congratulations, both banners shown and attached as A4 PDFs, and clear print instructions. The owner and operations can download them again from Seller Central; customers who scan the QR land on the shop's own page.",
+  "caseIds": [
+   "TC-WKIT-001",
+   "TC-WKIT-002",
+   "TC-WKIT-003",
+   "TC-WKIT-004",
+   "TC-WKIT-005",
+   "TC-WKIT-006",
+   "TC-WKIT-007",
+   "TC-WKIT-008",
+   "TC-WKIT-009",
+   "TC-WKIT-010",
+   "TC-WKIT-011",
+   "TC-WKIT-012",
+   "TC-WKIT-013"
+  ]
  }
 ]

@@ -40,7 +40,7 @@ export function browserPage(options: {
 </head>
 <body>
 <main>
-<p class="brand"><span class="word"><span class="go"><b>G</b>o</span><span class="kesari"><b>K</b>esari</span></span><span class="tagline">Everything for Everyone</span></p>
+<p class="brand"><span class="word"><span class="go"><b>G</b>o</span><span class="kesari"><b>K</b>esari</span></span><span class="tagline">Everything for Everyone, Everywhere</span></p>
 <h1>${title}</h1>
 <p>${message}</p>
 ${continueUrl ? `<a class="button" href="${continueUrl}">Open the GoKesari app</a>` : ""}

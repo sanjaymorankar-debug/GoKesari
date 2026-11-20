@@ -15,21 +15,21 @@ Owner's copy: `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking/GOKESARI_
 | How to use | — | Legend (amber = fill in), status and severity definitions, evidence rules and naming, worked example rows |
 | Test Plan | Test plan | Scope, approach, environment, test accounts, test data, entry / exit / suspension criteria, risks, roles |
 | Summary | Test status report | Live counts overall, by module, by priority; E2E; defects by severity; exit criteria Met / Not met |
-| Test Scenarios | Test design specification (test conditions) | 312 scenarios (TS-…), each with its TC IDs and a live status |
-| Test Cases | Test case specification + test procedure | 1,146 cases (TC-…): steps, data, expected; amber result and evidence columns |
-| E2E Scenarios | Test procedure (journeys) | 51 end-to-end journeys (SC-01 … SC-51) |
+| Test Scenarios | Test design specification (test conditions) | 313 scenarios (TS-…), each with its TC IDs and a live status |
+| Test Cases | Test case specification + test procedure | 1,159 cases (TC-…): steps, data, expected; amber result and evidence columns |
+| E2E Scenarios | Test procedure (journeys) | 52 end-to-end journeys (SC-01 … SC-51, SC-WKIT-01) |
 | Execution Log | Test execution log | One row per run of a case, re-runs and retests included |
 | Evidence Register | Test execution evidence | One row per evidence file, with a clickable link |
 | Defect Log | Incident report | Severity, steps, expected / actual, evidence, fix reference, retest |
-| Traceability | Requirements traceability | 311 features / decisions → scenarios → cases → live coverage status |
+| Traceability | Requirements traceability | 312 features / decisions → scenarios → cases → live coverage status |
 | Sign-off | Test completion report | Results, risks, Go / No-go recommendation, approvals |
 
 ## Where the content comes from
 
 | Source | What |
 |---|---|
-| `tests/qa/catalog/cases.json`, `scenarios.json` | The plan, exported from `test-cases.xlsx`: 1,146 cases and 51 journeys — the 875 cases and 37 journeys of 08-Nov-2026 plus everything added on 20-Nov-2026 (below) |
-| `test-scenarios.json` (here) | Grouping of the cases into 312 test scenarios (TS-PRE-01 …; TS-…-12 onwards, TS-TERR-01 … 05, TS-SUB-07, TS-CON-01 … 08 and TS-HLT-01 … 07 for the 20-Nov cases) |
+| `tests/qa/catalog/cases.json`, `scenarios.json` | The plan, exported from `test-cases.xlsx`: 1,159 cases and 52 journeys — the 875 cases and 37 journeys of 08-Nov-2026 plus everything added on 20-Nov-2026 (below) |
+| `test-scenarios.json` (here) | Grouping of the cases into 313 test scenarios (TS-PRE-01 …; TS-…-12 onwards, TS-TERR-01 … 05, TS-SUB-07, TS-CON-01 … 08, TS-HLT-01 … 07 and TS-WKIT-01 for the 20-Nov cases) |
 | `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx` | Automation status and latest automated staging result (grey reference columns) |
 | `test-cases.xlsx` → Coverage | Feature list for the Traceability sheet |
 
@@ -104,6 +104,9 @@ Also on staging on 20-Nov-2026, added to the plan by their own PRs:
 - **GoKesari Health** (PR #429, `cases-added-2026-11-20-health.json`): TC-HLT-001 … in
   TS-HLT-01 … 07 (28 cases, 13 features HLT-01 … 13, no journeys); its PR also added its
   scenarios here.
+- **Shop welcome kit and QR banner** (PR #431, `cases-added-2026-11-20-welcome-kit.json`):
+  TC-WKIT-001 … 013 in TS-WKIT-01; journey SC-WKIT-01. Its scenario was copied in here from
+  that file (the PR added the cases to the plan only).
 - Those PRs added the cases to the plan but not their scenarios to `test-scenarios.json`,
   so this builder stopped ("cases without a scenario"); the 9 scenarios were copied in
   from the two files, each with the cases that name it.
