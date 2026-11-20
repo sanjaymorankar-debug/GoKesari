@@ -277,6 +277,8 @@ const serverEnvSchema = z.object({
   // HDFC Bank SmartGateway (src/server/payments/gateway/hdfc.ts). Values from the HDFC dashboard / onboarding kit.
   /** UAT https://smartgateway.hdfcuat.bank.in, or the production URL HDFC gives at go-live. A UAT URL is refused on gokesari.com. */
   HDFC_BASE_URL: z.string().url().optional(),
+  /** GoKesari Health Prime call tracking: HMAC secret of the telephony provider's webhook (docs/health). */
+  HEALTH_TELEPHONY_WEBHOOK_SECRET: z.string().min(16).optional(),
   HDFC_MERCHANT_ID: z.string().optional(),
   HDFC_API_KEY: z.string().optional(),
   /** The payment page client id (kit: PAYMENT_PAGE_CLIENT_ID). */

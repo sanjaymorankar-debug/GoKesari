@@ -63,6 +63,9 @@ Record: `docs/testing/qa-runs/2026-11-20-staging-rerun-wallet.json` (72 IDs, 128
 19 blocked). Staging column of the register: **Fail 25 → 21, Blocked 86 → 71, Pass 134 → 141, Pass
 (partial) 240 → 252.** No new product defect.
 
+The register now also lists the 28 GoKesari Health cases (PR #429, TC-HLT-…): **1,197** cases and
+journeys, the Health cases *Not run* (they reached staging after this run).
+
 | Group | Result |
 |---|---|
 | 13 empty-wallet checks | **10 pass**: TC-CART-009, 012, 018, TC-LOC-018, 020, 024, TC-ORD-001, TC-PRE-008, TC-RBAC-016, 017. TC-RBAC-016 / 017 and the B2B half of TC-CART-015 pay from the **shop owner's** own wallet, which was ₹0 at 16.57; they pass at 17.24. The pickup-order check (TC-CART-015, 016, TC-LOC-022) passed at 16.57 and is refused again at 17.24 (402): customer 1 was back to ₹10 (E-37) |

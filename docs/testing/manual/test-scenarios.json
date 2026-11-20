@@ -3556,5 +3556,89 @@
    "TC-CON-020",
    "TC-CON-026"
   ]
+ },
+ {
+  "id": "TS-HLT-01",
+  "module": "GoKesari Health",
+  "title": "Guest access and public checks",
+  "description": "Private Health pages and APIs refuse a guest; the prescription QR check and share links show nothing private.",
+  "caseIds": [
+   "TC-HLT-001",
+   "TC-HLT-002",
+   "TC-HLT-003",
+   "TC-HLT-004",
+   "TC-HLT-005"
+  ]
+ },
+ {
+  "id": "TS-HLT-02",
+  "module": "GoKesari Health",
+  "title": "Doctor booking, clinic Today and the live queue",
+  "description": "Only verified doctors are bookable; bookings, tokens and queue positions update live.",
+  "caseIds": [
+   "TC-HLT-010",
+   "TC-HLT-011",
+   "TC-HLT-012"
+  ]
+ },
+ {
+  "id": "TS-HLT-03",
+  "module": "GoKesari Health",
+  "title": "E-prescriptions",
+  "description": "Issue, PDF, e-mail, print, QR verification, amend and the telemedicine / allergy safety checks.",
+  "caseIds": [
+   "TC-HLT-013",
+   "TC-HLT-014",
+   "TC-HLT-015",
+   "TC-HLT-016",
+   "TC-HLT-017",
+   "TC-HLT-018"
+  ]
+ },
+ {
+  "id": "TS-HLT-04",
+  "module": "GoKesari Health",
+  "title": "Health record, consent, family and privacy",
+  "description": "One lifelong record per person; doctors see it only with consent; every look is logged; DPDP rights.",
+  "caseIds": [
+   "TC-HLT-019",
+   "TC-HLT-020",
+   "TC-HLT-021",
+   "TC-HLT-032"
+  ]
+ },
+ {
+  "id": "TS-HLT-05",
+  "module": "GoKesari Health",
+  "title": "Prescriptions to medical stores",
+  "description": "Pickup and delivery with OTP, substitutes, dispensed quantity, no-reply fallback.",
+  "caseIds": [
+   "TC-HLT-022",
+   "TC-HLT-023",
+   "TC-HLT-024",
+   "TC-HLT-025"
+  ]
+ },
+ {
+  "id": "TS-HLT-06",
+  "module": "GoKesari Health",
+  "title": "Suggestions, home care and medical equipment",
+  "description": "Book now from a doctor's suggestion; home-care visits with OTP; equipment rental with deposit.",
+  "caseIds": [
+   "TC-HLT-026",
+   "TC-HLT-027",
+   "TC-HLT-028"
+  ]
+ },
+ {
+  "id": "TS-HLT-07",
+  "module": "GoKesari Health",
+  "title": "Listing, referrals and Health admin",
+  "description": "Launch mode (all Prime features free), patient referrals, verification queues, drug master, break-glass.",
+  "caseIds": [
+   "TC-HLT-029",
+   "TC-HLT-030",
+   "TC-HLT-031"
+  ]
  }
 ]
