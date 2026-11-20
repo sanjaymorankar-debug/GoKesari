@@ -29,11 +29,19 @@ qa("TC-TIER-011", "admin: Dealers → Commission → TIERED model shows the sett
     await expect(page.getByTestId("team-requests")).toBeAttached();
     const scroll = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(scroll, "horizontal scroll").toBeLessThanOrEqual(1);
-    return (await page.getByTestId("tiered-rule").innerText()).split("\n").slice(0, 2).join(" ");
+    const rule = (await page.getByTestId("tiered-rule").innerText()).split("\n").slice(0, 2).join(" ");
+    // Override 20-Nov-2026 (DT-21): the team tree and Team performance once a dealer is chosen.
+    const values = await page.getByLabel("Choose a dealer").locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter(Boolean));
+    if (!values.length) return `${rule}; no approved dealer to open on this site`;
+    await page.goto(`/admin/dealers/commission/tiered?dealerId=${values[0]}`);
+    const perf = page.getByTestId("team-performance");
+    await expect(perf.getByRole("heading", { name: "Team performance" })).toBeVisible();
+    await expect(perf.getByRole("group", { name: "Period" })).toBeVisible();
+    return `${rule}; dealer opened: Team performance shown`;
   } finally {
     await context.close();
   }
-}, { ...signed, mobile: true });
+}, { ...signed, mobile: true, partial: "the team tree of a TIERED dealer with members, and the dealer's own live card on /dealer, need a dealer account (none on staging): local tier TC-TIER-024 / 025" });
 
 qa("TC-TIER-001", "a 4th level is refused: no agent can report to an agent, no lead to a lead (API)", async () => {
   const admin = await as("admin");
@@ -98,10 +106,51 @@ qa("TC-SREF-003", "one code: a shop code is accepted by the registration code ch
   const good = await call(owner, "GET", `/api/referral-codes/check?code=${code}`);
   expect(good.body).toMatchObject({ valid: true });
   return `${code} valid; SHOPZZZZZ refused`;
-}, { ...signed, partial: "the wizard's lock on a second code and the 10% fee are proven by tests/integration/shop-referrals.test.ts" });
+}, { ...signed, partial: "the wizard's lock on a second code (REFERRAL_CODE_LOCKED) and the 10% fee (₹999 → ₹899.10 + GST) are proven by tests/integration/shop-referrals.test.ts" });
 
-manual(["TC-TIER-002", "TC-TIER-003", "TC-TIER-004", "TC-TIER-005", "TC-TIER-007", "TC-TIER-008", "TC-TIER-009"], "TIERED amounts, TRADING, renewal, reversal, payouts and TDS", "needs a TIERED dealer network with paid shops and delivered orders on the site; every amount is proven by tests/integration/dealer-tiered-commission.test.ts on both database layouts");
-manual(["TC-TIER-006", "TC-TIER-010"], "promotion with the development bonus; agent agreement and standard dealers", "needs a TIERED network with linked member accounts on the site; proven by tests/integration/dealer-tiered-commission.test.ts");
+manual(["TC-TIER-003", "TC-TIER-004", "TC-TIER-008", "TC-TIER-009"], "TIERED TRADING, reversal, payouts and TDS", "needs a TIERED dealer network with paid shops and delivered orders on the site; every amount is proven by tests/integration/dealer-tiered-commission.test.ts on both database layouts");
+manual("TC-TIER-010", "agent agreement and standard dealers", "needs a TIERED network with linked member accounts on the site; proven by tests/integration/dealer-tiered-commission.test.ts");
+
+/** The TIERED settings card as the admin reads it (whitespace folded). */
+async function tieredRuleText(browser: Parameters<typeof pageAs>[0]): Promise<string> {
+  const { context, page } = await pageAs(browser, "admin");
+  try {
+    const res = await page.goto("/admin/dealers/commission/tiered");
+    if (res?.status() === 404) blocked("dealer_programme_enabled is off on this site");
+    await expect(page.getByTestId("tiered-rule")).toBeVisible();
+    return (await page.getByTestId("tiered-rule").innerText()).replace(/\s+/g, " ");
+  } finally {
+    await context.close();
+  }
+}
+
+// Overrides of 20-Nov-2026 (DT-13 … DT-23): the site's TIERED settings are the owner's structure. The amounts per shop
+// are proven on the local tier (tests/qa/local/dealer-commission-2026-11.spec.ts) and by the integration tests.
+qa("TC-TIER-002", "TIERED settings: direct 20% all at activation (no TRADING wait), lead 4%, main dealer 3% — at most 27% a shop", async ({ browser }) => {
+  const text = await tieredRuleText(browser);
+  expect(text).toContain("Direct 20% (all of it when the shop pays and is approved) · team-lead override 4% · main-dealer override 3% — at most 27% of the fee per shop.");
+  expect(text).toContain("No trading condition: everything is earned at activation and paid on the payout day of the next month. No per-shop cap.");
+  return "20 / 4 / 3 %, all at activation, no cap";
+}, { ...signed, partial: "₹999 → ₹199.80 / ₹39.96 / ₹29.97 and the ₹4,999 / ₹9,999 amounts need a TIERED network with paid shops: local tier TC-TIER-012 and tests/integration/dealer-tiered-commission.test.ts" });
+
+qa("TC-TIER-005", "TIERED settings: renewal 10% to the signer, 2% to the lead, 1% to the main dealer within 3 years", async ({ browser }) => {
+  const text = await tieredRuleText(browser);
+  expect(text).toContain("Renewal commission: 10% to whoever signed the shop, 2% to the team lead, 1% to the main dealer — on renewals paid within 3 years of activation.");
+  return "renewal 10 / 2 / 1 % for 3 years";
+}, { ...signed, partial: "₹99.90 / ₹19.98 / ₹9.99 on a ₹999 renewal, nothing after 3 years or when switched off: local tier TC-TIER-017 (₹4,999) and tests/integration/dealer-tiered-commission.test.ts" });
+
+qa("TC-TIER-006", "TIERED settings: promotion at 50 activated shops and 3 ready agents; the former lead's 1% for 6 months only in months of 100 shops", async ({ browser }) => {
+  const text = await tieredRuleText(browser);
+  expect(text).toContain("Promotion at 50 activated shops and 3 ready agents of his own; the former lead earns 1% on the new team for 6 months, for each month the new team registers at least 100 shops.");
+  return "promotion 50 + 3; development 1% × 6 months at 100 shops";
+}, { ...signed, partial: "'Promote anyway (override)' below the bar and the move with his agents: local tier TC-TIER-019; the 100-shop months: tests/integration/dealer-tiered-commission.test.ts" });
+
+qa("TC-TIER-007", "TIERED settings: monthly target bonus 10% of the month's commission at 50 shops, for agent, team lead and main dealer", async ({ browser }) => {
+  const text = await tieredRuleText(browser);
+  expect(text).toContain("Monthly target bonuses: on");
+  for (const role of ["Agent", "Team lead", "Main dealer"]) expect(text).toContain(`${role} 10% of the month's commission at 50 shops a month`);
+  return "target 50 shops, 10%, every role";
+}, { ...signed, partial: "the BONUS entries at a month close (50+ shops: 10% of direct + override; 49: none) and one draft payout per payee: tests/integration/dealer-tiered-commission.test.ts" });
 manual(["TC-SREF-004", "TC-SREF-005"], "shop-referral reward on the first delivery and its guards", "needs a second shop registered with a code, approved, with a delivered order; proven by tests/integration/shop-referrals.test.ts");
 
 qa("TC-DPAY-004", "admin: the four payout reports download as CSV and XLSX; an operator reads them but not the bank file", async () => {

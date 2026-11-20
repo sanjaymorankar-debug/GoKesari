@@ -5,7 +5,7 @@ import { tr, UI, type Lang } from "@/lib/board/i18n";
 import type { Counts, Resolved, ResolvedMenu, BoardItem, TickKey } from "@/lib/board/menus";
 
 import { Icon } from "./icons";
-import { CountBadge, TONE_CHIP, VerifiedTick } from "./tiles";
+import { boardItemLabel, CountBadge, TONE_CHIP, VerifiedTick } from "./tiles";
 
 /**
  * A tile's menu page (`/shop/menu/{key}`, `/admin/menu/{key}`): every
@@ -84,7 +84,7 @@ function HubGroup({
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--gk-chip)] text-kesari-700">
                 <Icon name={item.icon ?? fallbackIcon ?? "chevron-right"} size={20} />
               </span>
-              <span className="min-w-0 flex-1 text-base font-semibold leading-tight text-ink-900">{tr(item.label, lang)}</span>
+              <span className="min-w-0 flex-1 text-base font-semibold leading-tight text-ink-900">{boardItemLabel(item, lang, ticks)}</span>
               <CountBadge value={item.count ? counts[item.count] : undefined} tone={item.urgent ? "alert" : "soft"} />
               {item.tick ? <VerifiedTick on={ticks?.[item.tick]} lang={lang} /> : null}
             </Link>

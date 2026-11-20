@@ -54,7 +54,8 @@ export async function call(ctx: APIRequestContext, method: Method, path: string,
   await paceApiCall(path);
   let answer = await send(ctx, method, path, data, options);
   // The proxy refuses before the route runs, so even a write can be sent again once its window has passed.
-  for (let i = 0; i < 3 && IS_REMOTE && proxyRefused(answer); i++) {
+  // Locally nothing is paced, so a busy run can hit the same limit: it waits there too.
+  for (let i = 0; i < 3 && proxyRefused(answer); i++) {
     await new Promise((r) => setTimeout(r, (Number(answer.headers["retry-after"]) || 60) * 1000 + 2_000));
     answer = await send(ctx, method, path, data, options);
   }

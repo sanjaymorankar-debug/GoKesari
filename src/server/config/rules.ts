@@ -750,7 +750,8 @@ export const RULES = {
       })
       .refine((v) => v.directBp + v.leadOverrideBp + v.mainOverrideBp <= 10_000, { message: "Direct and overrides together cannot pass 100% of the fee.", path: ["directBp"] })
       .refine((v) => v.renewalBp + v.renewalLeadBp + v.renewalMainBp <= 10_000, { message: "The renewal shares together cannot pass 100% of the renewal fee.", path: ["renewalBp"] }),
-    // Owner, 5 Nov 2026: 20% / 4% / 2% (at most 26% a shop, 27% with a development bonus), all of it earned
+    // Owner, 5 Nov 2026: 20% / 4% / 2%; owner, 20 Nov 2026 (DT-23): the main dealer's share is 3% — so
+    // 20% / 4% / 3% (at most 27% a shop, 28% with a development bonus), all of it earned
     // when the shop pays and is activated (no TRADING wait) and paid on the 5th of the next month; the former
     // lead's 1% for 6 months only in a month the new team activates 100 shops.
     // Owner, 5 Nov 2026 (later): renewal 10% / 2% / 1% for 3 years from activation; promotion at 50 shops with
@@ -759,7 +760,7 @@ export const RULES = {
       enabled: false,
       directBp: 2000,
       leadOverrideBp: 400,
-      mainOverrideBp: 200,
+      mainOverrideBp: 300,
       firstPartBp: 10_000,
       tradingOrders: 0,
       tradingDays: 90,
@@ -779,6 +780,54 @@ export const RULES = {
         { role: "TEAM_LEAD", minShops: 50, bonusPaise: 0, bonusBp: 1000 },
         { role: "MAIN_DEALER", minShops: 50, bonusPaise: 0, bonusBp: 1000 },
       ],
+    },
+  },
+  territoryDealer: {
+    description:
+      "Territory dealers (docs/dealer-programme/TERRITORY_DEALER.md; owner, 20 Nov 2026). An admin gives a TIERED dealer an exclusive territory — a set of pincodes no other territory may hold — for a yearly fee (GST included), paid online by the dealer or recorded by an admin; each fee paid extends the territory by termMonths. He keeps his team's TIERED registration commission and also earns a share of GoKesari's commission on every order delivered by a shop in his territory while it is paid up (net of refunds): baseShareBp at a performance rating of 5, + stepBp per rating point, at most maxShareBp. The rating, worked out every day, is 5 plus up to 5 points: (1 − productWeight) of them from shop onboarding (the dealer's own rating above 5) and productWeightBp of them from product-upload support (the share of approved shops in the territory with at least liveMinProducts active products). A day's orders use that day's rating. The share is worked out per order and paid with the month's dealer payout on the payout day; a refund recorded later is taken back at a later close. An unpaid territory keeps its pincodes for graceDays, then releases them. Off: no territory can be given or paid, and no order income is worked out.",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        baseShareBp: int(0, 10_000),
+        stepBp: int(0, 2_000),
+        maxShareBp: int(0, 10_000),
+        productWeightBp: int(0, 10_000),
+        liveMinProducts: int(1, 10_000),
+        termMonths: int(1, 60),
+        graceDays: int(0, 365),
+      })
+      .refine((v) => v.maxShareBp >= v.baseShareBp, { message: "The most a territory dealer can earn must not be below the base share.", path: ["maxShareBp"] }),
+    // Owner, 20 Nov 2026: 20% of GoKesari's 2% order commission, up to 25% by performance (onboarding and
+    // product-upload support); yearly fee; defaults confirmed the same day.
+    defaults: { enabled: false, baseShareBp: 2000, stepBp: 100, maxShareBp: 2500, productWeightBp: 5000, liveMinProducts: 10, termMonths: 12, graceDays: 30 },
+  },
+  consultBooking: {
+    description:
+      "Consultant appointments (docs/consult-booking-2026-11; owner brief, 20 Nov 2026). Shops that are professional practices or firms (doctors, advocates, CAs, IT consultants, salons, home-service experts …) publish a booking profile with their team, services, weekly hours and cancellation policy; customers find them (\"Find a Consultant\", nearby first) and book a time — one-to-one, a team appointment or a place in a group session — paying online (the fee or an advance), at the visit, or nothing for a free service. A time is held for holdMinutes while the customer pays; a failed or abandoned payment frees it. GoKesari's commission is the category's rate, else defaultCommissionBp (2%), taken from the firm's next payout (online money is paid out with it). Reminders go reminderHours before each appointment. completionOtpModes: the modes whose completion needs the customer's code (as with delivery). Off: no consultant pages, no new bookings; existing bookings can still be viewed, cancelled and refunded.",
+    schema: z.object({
+      enabled: z.boolean(),
+      holdMinutes: int(2, 60),
+      defaultCommissionBp: int(0, 5000),
+      reminderHours: z.array(int(1, 168)).max(4),
+      completionOtpModes: z.array(z.enum(["IN_PERSON", "VIDEO", "PHONE", "HOME_VISIT"])),
+      otpMaxAttempts: int(1, 20),
+      maxFileBytes: int(100_000, 20_000_000),
+      maxFilesPerBooking: int(0, 20),
+      nearbyRadiusKm: int(1, 100),
+      autoVerifyWithoutDocs: z.boolean(),
+    }),
+    // Owner brief 20-Nov-2026: 10-minute hold, flat 2% commission by default, reminders 24 h and 1 h before.
+    defaults: {
+      enabled: false,
+      holdMinutes: 10,
+      defaultCommissionBp: 200,
+      reminderHours: [24, 1],
+      completionOtpModes: ["IN_PERSON", "HOME_VISIT"],
+      otpMaxAttempts: 5,
+      maxFileBytes: 5_000_000,
+      maxFilesPerBooking: 5,
+      nearbyRadiusKm: 25,
+      autoVerifyWithoutDocs: true,
     },
   },
   dealerPayoutTds: {

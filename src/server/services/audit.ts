@@ -421,6 +421,9 @@ export const AUDIT_ACTIONS = {
   DEALER_MEMBER_PAYEE_SAVED: "dealer.member_payee_saved", // TIERED (0136): a member's PAN / bank
   DEALER_AGREEMENT_ACCEPTED: "dealer.agent_agreement_accepted", // TIERED (0136)
   DEALER_TIER_PLAN_CHANGED: "dealer.tier_plan_changed", // TIERED (0136): TRADING reached / lapsed
+  DEALER_TERRITORY_CHANGED: "dealer.territory_changed", // 0151: territory given, pincodes / fee changed, cancelled, expired, released
+  DEALER_TERRITORY_FEE_PAID: "dealer.territory_fee_paid", // 0151: a yearly territory fee paid (online or recorded offline)
+  DEALER_TERRITORY_INCOME: "dealer.territory_income", // 0151: a month's territory order income (or a later refund correction)
   SHOP_REFERRAL_APPLIED: "shop_referral.applied", // shop-refers-shop (0137)
   SHOP_REFERRAL_DECIDED: "shop_referral.decided", // shop-refers-shop (0137)
   SHOP_REFERRAL_REVERSED: "shop_referral.reversed", // shop-refers-shop (0137)
@@ -504,6 +507,18 @@ export const AUDIT_ACTIONS = {
   /** Admin → Payments → Cashfree: a ₹1 live/sandbox test order was opened, then checked and refunded. */
   CASHFREE_LIVE_TEST_STARTED: "cashfree.live_test_started",
   CASHFREE_LIVE_TEST_FINISHED: "cashfree.live_test_finished",
+  /* >>> consultant appointments (docs/consult-booking-2026-11) */
+  CONSULT_CATEGORY_CHANGED: "consult.category_changed",
+  CONSULT_POLICY_TEMPLATE_CHANGED: "consult.policy_template_changed",
+  CONSULT_PROFILE_CHANGED: "consult.profile_changed",
+  CONSULT_PROFILE_VERIFIED: "consult.profile_verified",
+  CONSULT_MEMBER_DOCUMENT: "consult.member_document",
+  CONSULT_BOOKING_CHANGED: "consult.booking_changed",
+  CONSULT_BOOKING_PAYMENT: "consult.booking_payment",
+  CONSULT_BOOKING_REFUND: "consult.booking_refund",
+  CONSULT_BOOKING_SETTLED: "consult.booking_settled",
+  CONSULT_PRIVATE_VIEWED: "consult.private_viewed",
+  /* <<< consultant appointments */
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

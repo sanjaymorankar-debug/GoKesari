@@ -1,0 +1,1483 @@
+{
+ "date": "2026-11-20",
+ "base": "origin/staging 3d6dc0c8 (with PR #417, main dealer 3%)",
+ "note": "Each case of cases-added-2026-11-20.json (and its overrides) was checked against the code before it was added to the plan. wording: every field changed to match the code (old / new, why, where). possibleDefects: places where the code looks wrong against an owner decision; the matching checks stay as written.",
+ "wording": [
+  {
+   "id": "TC-ONB-048",
+   "field": "steps",
+   "old": "1. Open https://test.gokesari.com/shop/register\n2. Read the first screen “Verify your business”\n3. Leave Referral code empty\n4. Enter the GSTIN\n5. Tick “I agree that GoKesari checks this number with the government record.”\n6. Click “Verify GSTIN”",
+   "new": "1. Open https://test.gokesari.com/shop/register\n2. Read the first screen “Verify your business”\n3. Leave Referral code empty\n4. Enter the GSTIN in “GST number (15 characters)”\n5. Tick “I agree that GoKesari checks this number with the government record.”\n6. Click “Verify GSTIN”",
+   "why": "The GSTIN field is labelled “GST number (15 characters)”.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:690-704"
+  },
+  {
+   "id": "TC-ONB-048",
+   "field": "expected",
+   "old": "First screen shows Referral code (optional), GSTIN, a read-only “PAN (taken from your GST number)” equal to characters 3-12 of the GSTIN, the consent box and “Verify GSTIN”. After the check a “Verified” badge shows and the wizard moves on (Owner step only if the record names no owner, else Address); fields filled from the record carry “✓ Verified from GST/PAN”.",
+   "new": "First screen “Verify your business” shows “Referral code (optional)”, “GST number (15 characters)”, the consent box and “Verify GSTIN” (disabled until the consent box is ticked); once a well-formed GSTIN is typed, a read-only “PAN (taken from your GST number)” shows characters 3-12 of it. After the check the wizard moves straight on — to “Owner name” only if the record names no owner, else to “Confirm your shop address”; the Verify tile shows ✓ and, opened again, the GSTIN with the badge “Verified” (also on the Payment step's GSTIN row). Fields filled from the record carry “✓ Verified from GST” (“✓ Verified from PAN” on the PAN route).",
+   "why": "Field label is “GST number (15 characters)”; the PAN field appears only for a well-formed GSTIN; Verify is disabled until consent; on success the screen is left at once, so “Verified” is seen only when tile 2 is opened again or on the Payment step; the tag reads “✓ Verified from GST” or “✓ Verified from PAN”, never “GST/PAN”.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:199-206, 385-387, 690-716, 1280; src/server/services/shop-registration-wizard.ts:393-399"
+  },
+  {
+   "id": "TC-ONB-049",
+   "field": "steps",
+   "old": "1. Open /shop/register\n2. Enter 27ABCDE1234F1Z (14 characters) and click Verify GSTIN\n3. Enter 27ABCDE1234F1X5 (no Z at position 14)\n4. Enter the GSTIN in lower case",
+   "new": "1. Open /shop/register and tick “I agree that GoKesari checks this number with the government record.” (Verify GSTIN is disabled until it is ticked; with a mandatory referral code also type a 3-character code)\n2. Enter 27ABCDE1234F1Z (14 characters) and click Verify GSTIN\n3. Enter 27ABCDE1234F1X5 (no Z at position 14) and click Verify GSTIN\n4. Type the GSTIN in lower case",
+   "why": "Verify GSTIN stays disabled until the consent box is ticked (and, with a mandatory referral code, until the code has 3 characters), so step 2 cannot be done as written.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:715"
+  },
+  {
+   "id": "TC-ONB-051",
+   "field": "steps",
+   "old": "1. Use PAN route\n2. Enter ABCDE1234 (9 characters)\n3. Enter ABCD12345F\n4. Enter 1BCDE1234F",
+   "new": "1. Use the PAN route (“I don't have GST, use PAN”) and tick “My shop is not registered under GST.” and the consent box\n2. Enter ABCDE1234 (9 characters) and click Verify PAN\n3. Enter ABCD12345F and click Verify PAN\n4. Enter 1BCDE1234F and click Verify PAN",
+   "why": "Verify PAN is disabled until both boxes are ticked; the format message shows on Verify, not while typing.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:632-637, 710-716"
+  },
+  {
+   "id": "TC-ONB-052",
+   "field": "preconditions",
+   "old": "Signed in on test.gokesari.com as a new test user with no shop. A valid dealer / shop referral code.",
+   "new": "Signed in on test.gokesari.com as a new test user with no shop. A valid dealer / shop referral code. Rule shopReferrals on (Admin › Settings; off by default, on on test.gokesari.com) — with it off the code is applied but the field stays editable.",
+   "why": "The lock comes from rule shopReferrals (DT-13: the first code is kept while shop referrals are on), default off.",
+   "evidence": "src/server/services/shop-registration-wizard.ts:367; src/server/config/rules.ts:812-826; docs/shop-onboarding-identity-first-2026-11/TEST_RESULTS.md:232"
+  },
+  {
+   "id": "TC-ONB-052",
+   "field": "expected",
+   "old": "The code shows “✓ Applied”, the field is read-only and says “Only one code can be used, so it cannot be changed.” (P2-D4).",
+   "new": "The code is checked as soon as the page opens and the field says “✓ Applied. Only one code can be used, so it cannot be changed.”; the field is read-only and typing changes nothing (P2-D4, while rule shopReferrals is on; with it off only “✓ Applied” shows and the field stays editable).",
+   "why": "One hint line “✓ Applied. Only one code can be used, …”; read-only only while rule shopReferrals is on.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:612-618, 654-673; src/server/services/shop-registration-wizard.ts:367"
+  },
+  {
+   "id": "TC-ONB-053",
+   "field": "preconditions",
+   "old": "Signed in on test.gokesari.com as a new test user with no shop. An expired code. Optionally switch Referral settings to 'code mandatory' (restore after).",
+   "new": "Signed in on test.gokesari.com as a new test user with no shop. An expired code. Admin › Referral settings, shop registration: MANDATORY since migration 0100 (owner request 28-Oct-2026) unless an admin changed it — check under the current setting and switch it for the other wording (restore after).",
+   "why": "Migration 0100 set referral_required_shop to MANDATORY, so “optionally switch to mandatory” is usually already the state.",
+   "evidence": "drizzle/0100_shop_referral_mandatory.sql:9"
+  },
+  {
+   "id": "TC-ONB-053",
+   "field": "steps",
+   "old": "1. Enter NOSUCH99 and verify\n2. Enter the expired code and verify\n3. With the code mandatory: leave it empty, then type 2 characters\n4. Look for the “Request a referral code” link",
+   "new": "1. Enter NOSUCH99, a well-formed GSTIN, tick the consent box and click Verify GSTIN\n2. Enter the expired code and click Verify GSTIN\n3. With the code mandatory: leave it empty, then type 2 characters\n4. Look for the “Request a referral code” link",
+   "why": "The code is sent only by Verify, which needs a well-formed number and the consent tick.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:632-647, 715"
+  },
+  {
+   "id": "TC-ONB-053",
+   "field": "expected",
+   "old": "NOSUCH99: “Referral code NOSUCH99 does not exist” with “Check the code, or request one”. Expired: “… expired on <date>”. Mandatory and empty: “Enter your referral code, or request one.”; Verify stays disabled until the code has at least 3 characters. The “Request a referral code” link shows while the field is empty or in error.",
+   "new": "NOSUCH99: “Referral code NOSUCH99 does not exist. Check the code, or request one.” (code mandatory) or “… Check the code, or leave it empty.” (code optional), with “Referral code NOSUCH99 does not exist.” under the field; the GSTIN is not checked. Expired: “Referral code <code> expired on <YYYY-MM-DD>. Check the code, …”. Mandatory: the field is labelled “Referral code” (no “(optional)”) and Verify GSTIN stays disabled while the code is empty or under 3 characters, so the screen never sends an empty code (the server refuses one with “Enter your referral code, or request one.”). The “Request a referral code” link (after “Don't have a referral code?”) shows while the field is empty or in error.",
+   "why": "The message's tail follows the setting (“request one” only when mandatory); the date is ISO; the empty-code message is the server's and cannot appear on the screen because Verify is disabled.",
+   "evidence": "src/server/services/referral-requests.ts:47-63; src/server/services/referrals.ts:224-229; src/components/registration/onboarding-wizard.tsx:655, 676-683, 715"
+  },
+  {
+   "id": "TC-ONB-055",
+   "field": "steps",
+   "old": "1. Click “📷 Read it from a photo of your GST certificate / PAN card”\n2. Upload the clear photo\n3. Repeat with the blurred photo",
+   "new": "1. Click “📷 Read it from a photo of your GST certificate” (on the PAN route: “📷 Read it from a photo of your PAN card”)\n2. Click “Take a photo or choose files” and choose the clear photo\n3. Check the number found and click “These numbers are right — check them online”\n4. Repeat with the blurred photo",
+   "why": "The opener names one document per route; the number reaches the field only after the owner confirms the row.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:718-731; src/components/registration/document-scan.tsx:100-170"
+  },
+  {
+   "id": "TC-ONB-055",
+   "field": "expected",
+   "old": "The clear photo fills the GSTIN / PAN field, which still has to be verified. The blurred photo leaves the field unchanged with a message to type the number.",
+   "new": "The photo is read on the device: the clear photo's row shows “Number found — please check” and, after “These numbers are right — check them online”, the number fills the GST number / PAN field — nothing is checked until “Verify GSTIN” / “Verify PAN”. The blurred photo's row shows “Couldn't read — type it” (and “Choose which document this is.” when the document was not recognised); the GST number / PAN field stays unchanged.",
+   "why": "Quote the reader's own words; the field is filled only on confirmation.",
+   "evidence": "src/components/registration/document-scan.tsx:126-170; src/components/registration/onboarding-wizard.tsx:722-728"
+  },
+  {
+   "id": "TC-ONB-057",
+   "field": "steps",
+   "old": "1. With the provider unreachable, verify a GSTIN\n2. Check the shop draft status in admin",
+   "new": "1. With the provider unreachable, verify a GSTIN\n2. Check the registration's stored check (shop_registration_drafts.gst_status / gst_error_code; no admin screen shows a registration's check before the shop exists)",
+   "why": "There is no admin view of a registration's check: the onboarding funnel lists only the step of registrations idle for 24 h.",
+   "evidence": "src/server/services/onboarding-funnel.ts:132-158; src/app/admin/onboarding-funnel/page.tsx"
+  },
+  {
+   "id": "TC-ONB-057",
+   "field": "expected",
+   "old": "Owner sees “The government service is not answering right now. Please try again in a few minutes.” and cannot continue (DI-02). The check is PENDING with an error code, never FAILED.",
+   "new": "Owner sees “The government service is not answering right now. Please try again in a few minutes.” with the badge “Not verified yet”, no Continue button, and stays on “Verify your business” (DI-02). The stored check is PENDING with an error code (e.g. vendor_timeout), never FAILED.",
+   "why": "Add the badge and what “cannot continue” looks like; the error code is a vendor_* code.",
+   "evidence": "src/server/services/shop-registration-draft.ts:85-90, 184-186; src/server/kyc/index.ts:165-170; src/components/registration/onboarding-wizard.tsx:190-197, 736-742"
+  },
+  {
+   "id": "TC-ONB-059",
+   "field": "expected",
+   "old": "Not found: “This number was not found in the government record…”. Each other status shows its own message and the owner cannot continue with that number.",
+   "new": "Not found: “This number was not found in the government record. Please check it and try again.” Cancelled: “The government record shows this GSTIN as cancelled.” Suspended: “The government record shows this GSTIN as suspended.” Inactive: “The government record shows this number as inactive.” Each with the badge “Not verified”; the owner cannot continue with that number.",
+   "why": "Quote the real messages and the badge.",
+   "evidence": "src/server/services/shop-registration-draft.ts:64-68; src/components/registration/onboarding-wizard.tsx:190-197"
+  },
+  {
+   "id": "TC-ONB-060",
+   "field": "steps",
+   "old": "1. Verify the GSTIN\n2. Continue the wizard\n3. As admin, open the shop in the verification queue",
+   "new": "1. Verify the GSTIN\n2. Continue the wizard to the Payment step and click “Create my shop and pay”\n3. As admin, open Seller verification review (/admin/seller-verification)",
+   "why": "The PAN reaches the admin queue only once the shop exists; the queue is “Seller verification review”.",
+   "evidence": "src/server/services/shop-registration-wizard.ts:1059-1110; src/app/admin/seller-verification/page.tsx"
+  },
+  {
+   "id": "TC-ONB-060",
+   "field": "expected",
+   "old": "Owner sees “We couldn't confirm this automatically. You can carry on — our team will check it.” and can continue; the shop is listed for review in admin.",
+   "new": "The wizard moves on and the next step shows a warning with the PAN's reason: “The name on the PAN does not match the name on the GST record. We'll check it by hand.” (name mismatch), “The government record gave no name. We'll check it by hand.”, “The government service is not answering right now. You can carry on — we'll keep checking.” (PAN service down) or “We couldn't confirm this automatically. You can carry on — our team will check it.” (any other review). The Payment step still says “Your GSTIN is verified: your shop goes live as soon as the payment is confirmed.” Once the shop is created, a PAN under review is listed in Seller verification review with Approve / Ask for more info / Reject (a PAN still waiting for the service is retried automatically and is not listed). A PAN the government refuses (inactive, expired) stops the owner on the identity step instead.",
+   "why": "The warning depends on why the PAN was not confirmed; the verified GSTIN alone decides go-live; the admin queue lists MANUAL_REVIEW (and config-paused) documents only.",
+   "evidence": "src/server/services/shop-registration-draft.ts:63-79, 184; src/components/registration/onboarding-wizard.tsx:415, 560-565, 1288-1296; src/server/services/shop-registration-wizard.ts:466-497; src/server/services/seller-verification.ts:1099-1113"
+  },
+  {
+   "id": "TC-ONB-061",
+   "field": "steps",
+   "old": "1. Add a Udyam, an FSSAI and a Shop Act number in the shop documents\n2. As admin, open the documents queue",
+   "new": "1. On Shop verification (/shop/verification) enter a Udyam, an FSSAI and a Shop Act number (the Shop Act card also asks for the certificate or Form G receipt), tick the consent and click Verify on each\n2. As admin, open Seller verification review (/admin/seller-verification)",
+   "why": "Numbers are entered on Shop verification (Documents is for files); the admin queue is Seller verification review.",
+   "evidence": "src/components/seller-verification-panel.tsx:183-218; src/app/admin/seller-verification/page.tsx"
+  },
+  {
+   "id": "TC-ONB-061",
+   "field": "expected",
+   "old": "Each shows as under review (manual), never Failed; admin can approve or reject each.",
+   "new": "Each card on Shop verification shows “Under review” with “This document can't be checked online. Our team will review it.” (Sandbox.co.in checks only PAN and GSTIN), never “Not verified”; Seller verification review lists each with Approve, Ask for more info and Reject (a reason of at least 3 characters to reject or ask); an approved one becomes Verified, a rejected one Not verified.",
+   "why": "Quote the badge and reason; name the admin actions.",
+   "evidence": "src/server/kyc/adapters/sandbox-co.ts:20, 525; src/lib/kyc/labels.ts:12, 42; src/components/seller-verification-review-queue.tsx:145-180; src/server/services/seller-verification.ts:1165"
+  },
+  {
+   "id": "TC-ONB-062",
+   "field": "expected",
+   "old": "Without an owner: “Your record names no owner. Who owns or runs the shop?”; “A” gives “Enter the owner's name.”; a full name continues. With an owner on record the step is skipped.",
+   "new": "Without an owner the “Owner name” step says “Your GST record is for <legal name> (<constitution>) and names no owner. Who owns or runs the shop?” (“Your record names no owner. Who owns or runs the shop?” when the record gives no business name); with “A” Continue stays disabled (the server refuses a one-letter name with “Enter the owner's name.”); a full name continues to “Confirm your shop address”. With an owner on record (a proprietor's PAN) the step is skipped.",
+   "why": "The intro names the business when the record has one; a one-letter name only disables Continue on the screen — the message is the server's.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:750-781; src/server/services/shop-registration-wizard.ts:666-668; src/app/api/shops/registration-draft/owner/route.ts:17"
+  },
+  {
+   "id": "TC-ONB-063",
+   "field": "title",
+   "old": "Address step shows the verified address and only Line 2, Area and Landmark are optional",
+   "new": "Address step shows the verified address; Address, City and PIN code are required, the rest optional",
+   "why": "State is optional as well as line 2, Area and Landmark.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:838-863; src/app/api/shops/registration-draft/address/route.ts"
+  },
+  {
+   "id": "TC-ONB-063",
+   "field": "steps",
+   "old": "1. Reach “Confirm your shop address”\n2. Clear Line 1 and the PIN and continue\n3. Fill the required fields, leave Line 2, Area and Landmark empty, continue",
+   "new": "1. Reach “Confirm your shop address”\n2. Clear Address and PIN code and click “Confirm address”\n3. Fill the required fields, leave State and (under “More”) Address line 2, Area and Landmark empty, click “Confirm address”",
+   "why": "Field and button names as on the screen; State is optional too.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:830-870"
+  },
+  {
+   "id": "TC-ONB-063",
+   "field": "expected",
+   "old": "Fields from the record show “✓ Verified from GST/PAN”. Missing required fields are flagged; with only the optional ones empty the wizard continues.",
+   "new": "The Address field (and the Owner line) filled from the record show “✓ Verified from GST” (“✓ Verified from PAN” on the PAN route). An empty Address or PIN code is flagged by the browser and nothing is saved (the server also refuses a PIN starting with 0: “PIN code must be 6 digits and not start with 0.”). With State, Address line 2, Area and Landmark empty, “Confirm address” moves on to “Mark your shop location on the map”.",
+   "why": "Only the Address field and the Owner line carry the tag; required fields are the browser's own check.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:809-847; src/app/api/shops/registration-draft/address/route.ts:25"
+  },
+  {
+   "id": "TC-ONB-064",
+   "field": "steps",
+   "old": "1. Reach “Mark your shop location on the map”\n2. Drag the pin to the shop\n3. Click “Map not loading? Enter the coordinates” and enter 18.5204, 73.8567\n4. Enter coordinates outside India (51.5, -0.12)",
+   "new": "1. Reach “Mark your shop location on the map”\n2. Drag the pin to the shop and click “Confirm location” (without a map: “Use my current location”)\n3. Click “Map not loading? Enter the coordinates”, enter 18.5204, 73.8567 and click “Save location”\n4. Enter coordinates outside India (51.5, -0.12) and click “Save location”",
+   "why": "Name the buttons that save the pin.",
+   "evidence": "src/components/map-picker.tsx:160-215; src/components/registration/onboarding-wizard.tsx:902-917"
+  },
+  {
+   "id": "TC-ONB-066",
+   "field": "steps",
+   "old": "1. Pick turnover up to Rs 2 crore and read the amount\n2. Pick up to Rs 10 crore\n3. Pick above Rs 10 crore",
+   "new": "1. On “Contact and shop details” pick “Up to ₹2 crore” and read its fee\n2. Pick “₹2 crore – ₹10 crore”\n3. Pick “Above ₹10 crore”\n4. With “Up to ₹2 crore”, continue and click “Create my shop and pay”",
+   "why": "Slab labels as on the screen; the amount with GST shows only on the payment step.",
+   "evidence": "src/lib/registration-fee.ts:33-37, 88-94; src/components/registration/onboarding-wizard.tsx:1016-1038"
+  },
+  {
+   "id": "TC-ONB-066",
+   "field": "expected",
+   "old": "Fees: Rs 999, Rs 4,999 and Rs 9,999, each plus GST. The Rs 999 slab shows “Pay ₹1,178.82 now”.",
+   "new": "The slabs read “Fee ₹999 + GST”, “Fee ₹4,999 + GST” and “Fee ₹9,999 + GST”; the Payment step repeats the chosen one (“Up to ₹2 crore — fee ₹999 + GST”). After “Create my shop and pay” with the ₹999 slab the payment button reads “Pay ₹1,178.82 now” (₹999 + 18 % GST).",
+   "why": "“Pay ₹1,178.82 now” is on the payment step after the shop is created, not on the slab.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:1033, 1286, 451; src/components/registration-fee-pay-button.tsx:49"
+  },
+  {
+   "id": "TC-ONB-067",
+   "field": "expected",
+   "old": "Each wrong contact number is refused (10 digits starting 6-9). Shop names under 2 or over 120 characters are refused.",
+   "new": "Each wrong contact number is refused by the browser (the field takes 10 characters and must be 10 digits starting 6-9) and nothing is saved; the server refuses them with “Enter a valid 10-digit mobile number”. A 1-character shop name is refused (server: “Shop name is required.”); the field stops at 120 characters, so a 121st is not taken.",
+   "why": "The screen uses the browser's checks (pattern, minlength, maxlength); a name over 120 cannot be typed.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:984-989; src/app/api/shops/registration-draft/details/route.ts:25-27"
+  },
+  {
+   "id": "TC-ONB-068",
+   "field": "steps",
+   "old": "1. Reach the Review step\n2. Click Back to an earlier step and return\n3. Read the button",
+   "new": "1. Reach the Payment step (the review before paying)\n2. Click “Change” on a row (e.g. Shop), then continue back to it\n3. Read the button",
+   "why": "The review step is titled “Payment” and has “Change” per row, no Back.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:1265-1300"
+  },
+  {
+   "id": "TC-ONB-068",
+   "field": "expected",
+   "old": "All entered values are shown and kept after Back. With a verified GSTIN: “Your GSTIN is verified: your shop goes live as soon as the payment is confirmed.” Button: “Create my shop and pay”.",
+   "new": "The step titled “Payment” lists GSTIN (masked, “Verified”), Referral code, Owner, Shop address, Map pin (“Placed”), Shop (name · shop email) and Turnover (with the fee), each with “Change”; the values are kept after Change and continuing again. With a verified GSTIN: “Your GSTIN is verified: your shop goes live as soon as the payment is confirmed.” Button: “Create my shop and pay”.",
+   "why": "Name the rows and the Change links as on the screen.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:1278-1300"
+  },
+  {
+   "id": "TC-ONB-069",
+   "field": "expected",
+   "old": "Both redirect to /shop/register?ref=ABC123 and show the identity-first screen with the code.",
+   "new": "Both redirect to /shop/register?ref=ABC123 and show the identity-first screen with ABC123 in Referral code (the wizard checks it at once; as ABC123 is not a real code it then shows “Referral code ABC123 does not exist. Check the code, …”).",
+   "why": "The code from the link is sent to the referral check on arrival, so an unknown code shows its refusal.",
+   "evidence": "src/app/shop/register/page.tsx:27-30; src/components/registration/onboarding-wizard.tsx:612-618"
+  },
+  {
+   "id": "TC-ONB-070",
+   "field": "preconditions",
+   "old": "Signed in on test.gokesari.com as a new test user with no shop. A GSTIN that the staging KYC provider verifies (agreed with the owner; never a real person's number). Pay with Cashfree sandbox test data (UPI testsuccess@gocash) or, when PAYMENT_GATEWAY=SANDBOX, the built-in page “Pay (success)”.",
+   "new": "Signed in on test.gokesari.com as a new test user with no shop. A GSTIN that the staging KYC provider verifies (agreed with the owner; never a real person's number). Pay with Cashfree sandbox test data (UPI testsuccess@gocash) or, when PAYMENT_GATEWAY=SANDBOX, the built-in page “Pay (success)”. A valid referral code (the shop referral code is mandatory: referral_required_shop = MANDATORY since migration 0100; “Verify GSTIN” stays off without one).",
+   "why": "The Verify button needs a referral code while the admin setting is MANDATORY (migration 0100); the draft omitted it.",
+   "evidence": "drizzle/0100_shop_referral_mandatory.sql:9; src/components/registration/onboarding-wizard.tsx:715"
+  },
+  {
+   "id": "TC-ONB-071",
+   "field": "steps",
+   "old": "1. Pay the fee with the failure data\n2. Read the payment step\n3. Pay again with success data",
+   "new": "1. Pay the fee with the failure data\n2. Read the Registration fee page you are sent back to, then the payment step on /shop/register\n3. Press “Pay ₹X now” and pay again with success data",
+   "why": "After the gateway the owner lands on /shop/registration-fee?shop=…&intent=… (the intent's return path); both that page and the wizard's payment step show the note.",
+   "evidence": "src/server/services/registration-fee-payment.ts:82; src/app/shop/registration-fee/page.tsx:164; src/components/registration/onboarding-wizard.tsx:446"
+  },
+  {
+   "id": "TC-ONB-073",
+   "field": "preconditions",
+   "old": "A shop just made live.",
+   "new": "A wizard shop made live that has since added its products (the done screen shows once the live shop has its map pin and at least one product; right after payment the live screen of TC-ONB-074 shows instead).",
+   "why": "nextStep is LIVE until the shop has products, DONE only after (setup.products).",
+   "evidence": "src/server/services/shop-registration-wizard.ts:390"
+  },
+  {
+   "id": "TC-ONB-073",
+   "field": "steps",
+   "old": "1. Finish the wizard to the last screen\n2. Click each tile and button",
+   "new": "1. After go-live, add products (Add products manually → categories → products), then open /shop/register\n2. Click each tile and button",
+   "why": "The last screen is reached by adding products, not by finishing the payment.",
+   "evidence": "src/server/services/shop-registration-wizard.ts:390"
+  },
+  {
+   "id": "TC-ONB-074",
+   "field": "steps",
+   "old": "1. Read the live screen\n2. Click “Upload using template”\n3. Download the template\n4. Click “Upload filled file”",
+   "new": "1. Read the live screen\n2. Click “Upload using template”\n3. Click “Download product template”\n4. Click “Upload filled file”",
+   "why": "The download is a button-styled link labelled “Download product template”.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:1089"
+  },
+  {
+   "id": "TC-ONB-075",
+   "field": "steps",
+   "old": "1. Register and pay a shop in that window\n2. Read the registration date in Seller Central and in admin",
+   "new": "1. Register and pay a shop in that window\n2. Read the registration date in Seller Central (Manage → Registration and fee) and, as admin, in the shop record (GET /api/shops/<id> → registrationDate; no admin screen shows the registration date)",
+   "why": "No admin page renders the registration date (ShopFinanceManager receives it but does not show it); the admin's shop record carries it.",
+   "evidence": "src/components/registration-panel.tsx:78; src/components/shop-finance-manager.tsx:16; src/app/api/shops/[id]/route.ts:34"
+  },
+  {
+   "id": "TC-ONB-075",
+   "field": "expected",
+   "old": "Both show today's IST date (e.g. a shop created 02.14 IST on 15-Nov shows 15/11/2026), not the UTC date.",
+   "new": "Both show today's IST date (e.g. a shop created 02.14 IST on 15-Nov shows 15/11/2026 in Seller Central and 2026-11-15 in the record; a day below 10 has no leading zero, e.g. 5/11/2026), not the UTC date.",
+   "why": "Seller Central formats with toLocaleDateString(\"en-IN\") (d/m/yyyy); the record holds the ISO date.",
+   "evidence": "src/components/registration-panel.tsx:78-83; src/server/services/shops.ts:476-478"
+  },
+  {
+   "id": "TC-ONB-076",
+   "field": "steps",
+   "old": "1. Register with that GSTIN\n2. Pay the fee\n3. As admin, open the approval queue",
+   "new": "1. On “Verify your business” enter that GSTIN (or, with “I don't have GST, use PAN”, its PAN), tick the consent and press “Verify GSTIN”\n2. Race variant: verify a GSTIN no shop has yet, let another test account register and pay a shop with it, then finish your registration (another name / PIN) and pay the fee\n3. As admin, open Shops → Instant approvals (Waiting)",
+   "why": "A GSTIN / PAN already on another account's shop is refused at the Verify step, before any paid check, so the owner never reaches payment; the 'held after payment' outcome only happens when the other shop takes the number after this owner verified it.",
+   "evidence": "src/server/services/shop-registration-draft.ts:270-297, 484-485, 610-611; src/server/services/gov-auto-approval.ts:155-160"
+  },
+  {
+   "id": "TC-ONB-076",
+   "field": "expected",
+   "old": "Owner sees “A shop with this GSTIN is already registered on GoKesari by another account.” with the other shop's state (“It is live on GoKesari.” / “It is waiting for its registration fee or admin approval.” / “It is registered but not active at the moment.”) and “If it is yours, sign in with the account that registered it, or contact support.” After payment: “Payment received — pending admin approval”. Admin sees it held.",
+   "new": "Step 1 is refused before any government check: the alert “A shop with this GSTIN is already registered on GoKesari by another account. <state> If it is yours, sign in with the account that registered it, or contact support.”, where <state> is “It is live on GoKesari.” / “It is waiting for its registration fee or admin approval.” / “It is registered but not active at the moment.”, and the GSTIN field “This GSTIN is already registered.” (PAN route: “A shop with this PAN is already registered on GoKesari by another account. …”, field “This PAN is already registered.”). The owner cannot go on, so no shop is created and nothing is paid. Race variant: after payment “Payment received — pending admin approval” — “<shop> is pending admin approval. We'll email you as soon as your shop is live.”; the shop stays PENDING_APPROVAL and Instant approvals lists it “waiting for admin” — “Why waiting: likely duplicate of another shop (gstin, pan)”.",
+   "why": "The refusal now comes at Verify (owner brief 08-Nov-2026); 'Payment received — pending admin approval' is the race variant only. Admin's place is Shops → Instant approvals.",
+   "evidence": "src/server/services/shop-registration-draft.ts:262-297; src/components/registration/onboarding-wizard.tsx:462-469; src/app/admin/shops/instant-approvals/page.tsx:80-83; src/server/services/gov-auto-approval.ts:159-160"
+  },
+  {
+   "id": "TC-ONB-077",
+   "field": "preconditions",
+   "old": "Signed in as an owner who already has shop 'X' at PIN 411005.",
+   "new": "Signed in as an owner who already has shop 'X' at PIN 411005, live (a shop still waiting for its fee blocks any new registration — TC-ONB-078). The new registration uses another GSTIN / PAN.",
+   "why": "A waiting shop stops the new registration before this check; with the same GSTIN/PAN the PAN rule answers first (different message).",
+   "evidence": "src/server/services/shop-registration-draft.ts:302-322; src/server/services/shop-duplicates.ts:254-268"
+  },
+  {
+   "id": "TC-ONB-077",
+   "field": "expected",
+   "old": "“You have already registered a shop with this name at this PIN code.” (P2-D3)",
+   "new": "On “Continue to payment” (Contact and shop details) the alert says “You have already registered a shop with this name at this PIN code. This shop is already registered and live on GoKesari. If you're the owner and need to update details, log in to your account or contact support.” (the second sentence follows shop 'X''s status) and the Shop name field “You have already registered a shop with this name at this PIN code” (P2-D3). With the same GSTIN / PAN as 'X' the PAN rule matches first: “PAN number already registered (XXXXXX…). This shop is already registered and live on GoKesari. …”.",
+   "why": "The message is the field line plus the matched shop's status sentence; it is given on the shop step (saveDraftDetails).",
+   "evidence": "src/server/services/shop-duplicates.ts:300-360; src/server/services/shop-registration-wizard.ts:704-717"
+  },
+  {
+   "id": "TC-ONB-080",
+   "field": "preconditions",
+   "old": "Signed in on test.gokesari.com as a new test user with no shop. ",
+   "new": "Signed in on test.gokesari.com as a new test user with no shop, on “Contact and shop details” (after Verify, the address and the map pin).",
+   "why": "The shop type and the licence notice are on the SHOP step only.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:961, 1001-1004"
+  },
+  {
+   "id": "TC-ONB-080",
+   "field": "steps",
+   "old": "1. Pick a food shop type\n2. Pick Pharmacy\n3. Pick Doctor clinic\n4. Pick Professional office\n5. Pick General store",
+   "new": "1. Pick a food shop type (e.g. Bakery, Grocery / Kirana Store)\n2. Pick Pharmacy / Medical Store\n3. Pick Doctor's Clinic (and Super Speciality Clinic)\n4. Pick Professional office — CA, CS, advocate, tax consultant\n5. Pick General Trading Store",
+   "why": "The type list has no 'General store'; Grocery / Kirana Store is a food type (FSSAI).",
+   "evidence": "src/lib/shop-types.ts:23-24, 63-64, 223-224, 250-251, 275-281, 362-375"
+  },
+  {
+   "id": "TC-ONB-080",
+   "field": "expected",
+   "old": "Food: “FSSAI … is mandatory for this type of shop. Your shop can go live now, and you have a grace period of 90 days to upload it. Otherwise, your shop will be suspended.” Pharmacy: Drug licence. Clinics: Medical registration. Professional office: Bar Council / ICAI / ICSI. General store: no notice. Go-live is never blocked.",
+   "new": "Food: “FSSAI licence is mandatory for this type of shop. Your shop can go live now, and you have a grace period of 90 days to upload it. Otherwise, your shop will be suspended.” Pharmacy: the same with “Drug licence”. Clinics: “Medical registration”. Professional office: “Professional registration (Bar Council, ICAI or ICSI)”. General Trading Store: no notice. (90 = rule shopDocumentFollowUp.graceDays.) Go-live is never blocked.",
+   "why": "Exact licence labels; the day count is the rule's graceDays.",
+   "evidence": "src/lib/shop-licences.ts:14-38; src/server/services/shop-registration-wizard.ts:426"
+  },
+  {
+   "id": "TC-ONB-081",
+   "field": "expected",
+   "old": "E-mail “Upload your licence within 90 days — <shop>” with the due date = live (approval) date + 90 days.",
+   "new": "E-mail (and in-app notice) “Upload your licence within 90 days — <shop>”: “<the shop-type notice of TC-ONB-080> Please upload it on GoKesari by <date>. We will remind you every 15 days until then.”, <date> = the go-live (approval) date in IST + 90 days, e.g. “18 Feb 2027”.",
+   "why": "Adds the body and the date format the template sends.",
+   "evidence": "src/server/notifications/templates.ts:136; src/server/services/shop-ready-email.ts:47-61"
+  },
+  {
+   "id": "TC-ONB-082",
+   "field": "preconditions",
+   "old": "A food shop in grace. The follow-up runs at 05.00 IST on the 1st and the 15th (trigger the cron by hand on staging if needed).",
+   "new": "A wizard shop in grace (live, licence not uploaded). The follow-up is part of the 05.00 IST daily cron and acts only on the rule's reminder days (shopDocumentFollowUp.reminderDaysOfMonth: the 1st and the 15th); a hand-triggered POST /api/cron/daily on another day does nothing for it.",
+   "why": "Triggering the cron by hand on another day is a no-op for the follow-up.",
+   "evidence": "src/server/services/shop-document-follow-up.ts:166-167; src/server/cron/schedule.ts:221"
+  },
+  {
+   "id": "TC-ONB-082",
+   "field": "steps",
+   "old": "1. Let a run happen (or trigger it)\n2. Read the reminder\n3. Upload the licence\n4. Trigger the next run",
+   "new": "1. Let a run happen (or trigger it on a reminder day)\n2. Read the reminder\n3. Upload the licence and the Shop Act certificate\n4. Trigger the next run",
+   "why": "A wizard shop is also chased for its Shop Act certificate; with only the licence uploaded it is still reminded.",
+   "evidence": "src/server/services/shop-document-follow-up.ts:125-140; src/server/services/seller-verification-checks.ts:195-196"
+  },
+  {
+   "id": "TC-ONB-082",
+   "field": "expected",
+   "old": "Reminder: “If they are still missing on <date>, your shop will be suspended automatically. We will remind you every 15 days until then.” No reminder after the licence is uploaded.",
+   "new": "Reminder (e-mail and in-app) “Submit your shop documents — reminder <n>”: “<shop> is live, but these documents are still missing: <list>. Your shop went live before its documents; they are due by <date>. Upload them on GoKesari so we can verify them. If they are still missing on <date>, your shop will be suspended automatically. We will remind you every 15 days until then.” — <list> names every missing document, the Shop Act certificate as well as the licence (e.g. “FSSAI licence / registration, Shop Act (Shops & Establishments) certificate”). No reminder once every listed document is uploaded (a document waiting for GoKesari's check is not chased); with only the licence uploaded the Shop Act is still chased.",
+   "why": "Full reminder wording; what stops it.",
+   "evidence": "src/server/services/shop-document-follow-up.ts:298-335; src/server/notifications/templates.ts:138-141; src/lib/kyc/doc-formats.ts:38-44"
+  },
+  {
+   "id": "TC-ONB-083",
+   "field": "preconditions",
+   "old": "A food shop whose grace has ended (set graceDays to 15 and back-date the approval on staging only, with the developer). Restore after.",
+   "new": "A food shop whose grace has ended (set graceDays to 15 and back-date the approval on staging only, with the developer), and the follow-up run on a reminder day (1st / 15th, or reminderDaysOfMonth set to today). Restore after.",
+   "why": "The run acts only on reminder days.",
+   "evidence": "src/server/services/shop-document-follow-up.ts:166-167"
+  },
+  {
+   "id": "TC-ONB-083",
+   "field": "expected",
+   "old": "The shop is SUSPENDED by the run. Admins and operators get “Shop suspended for missing documents”. Public page: “This shop is suspended and is not taking orders.”",
+   "new": "The shop is SUSPENDED by the run. Seller Central: “Your shop is suspended” — “Reason: Shop documents not submitted within <graceDays> days of approval without them: <list>.” and “What to do: Upload <list> on GoKesari (Shop → Verification). Our team reinstates the shop once they are verified.” Admins and operators get “Shop suspended for missing documents: <shop>” — “<shop> was suspended automatically because these documents were not uploaded in time: <list>.” Public page: “This shop is suspended and is not taking orders.”",
+   "why": "Adds what step 2 (Seller Central) shows and the exact staff notice.",
+   "evidence": "src/server/services/shop-document-follow-up.ts:238-257, 271-296; src/server/notifications/templates.ts:137; src/app/shop/manage/[section]/page.tsx:186-200; src/app/shops/[slug]/page.tsx:48-55"
+  },
+  {
+   "id": "TC-ONB-084",
+   "field": "steps",
+   "old": "1. Set the licence grace days to 14, then 366, then 15 and 365\n2. Restore 90",
+   "new": "1. Admin → Business rules → shopDocumentFollowUp: set graceDays to 14, then 366, then 15 and 365 in the JSON and press Save each time\n2. Restore 90 (“Restore default”)",
+   "why": "The setting is graceDays of rule shopDocumentFollowUp in the JSON rule editor.",
+   "evidence": "src/app/admin/settings/page.tsx:33-41; src/components/platform-settings-editor.tsx:71-93"
+  },
+  {
+   "id": "TC-ONB-084",
+   "field": "expected",
+   "old": "14 and 366 are refused; 15 and 365 are saved.",
+   "new": "14 and 366 are refused (“graceDays: …” under the editor; the API answers 422 “That value is not allowed for this setting.”); 15 and 365 are saved (“Saved.”).",
+   "why": "Exact refusal and confirmation texts.",
+   "evidence": "src/server/config/rules.ts:475; src/server/services/settings.ts:90-94; src/components/platform-settings-editor.tsx:59-66, 84-85"
+  },
+  {
+   "id": "TC-ONB-085",
+   "field": "expected",
+   "old": "First e-mail: “Your shop is <N steps> from going live” / “You stopped at “<step>”. Everything you entered is saved…”. A second reminder 48 h later (72 h idle).",
+   "new": "First reminder (e-mail and in-app) 24 h after the last step: “Your shop is <N> steps from going live” — “You stopped at \"<step>\". Everything you entered is saved — continue where you left off: <site>/shop/register” (stopped at the Address step: “Your shop is 4 steps from going live”, “Confirm your shop address”). A second reminder 48 h later (72 h idle), then none.",
+   "why": "Concrete subject/body for the Address step; reminders stop after the second.",
+   "evidence": "src/server/services/scheduled-notices.ts:22-36, 102-115, 138-170; src/server/notifications/templates.ts:435-438"
+  },
+  {
+   "id": "TC-ONB-086",
+   "field": "expected",
+   "old": "Dealer gets “A shop with your code has not finished registering.”",
+   "new": "With the second (72 h) reminder the dealer gets an in-app notice (not e-mailed by default) “A shop with your code has not finished registering” — “<owner> started registering a shop with your code <CODE> 3 days ago and stopped at \"<step>\". A call may help them finish.” Only for a code of an outside (not internal) dealer.",
+   "why": "Title has no full stop; the template is in-app only by default (emailByDefault false); internal dealers are skipped.",
+   "evidence": "src/server/notifications/templates.ts:439-443; src/server/services/scheduled-notices.ts:90-100, 116-131"
+  },
+  {
+   "id": "TC-ONB-088",
+   "field": "expected",
+   "old": "The draft is ABANDONED; the owner restarts at screen 1 “Verify your business”.",
+   "new": "The draft is ABANDONED; the owner restarts on the first screen after sign-in, “Verify your business” (tile 2. Verify, “Step 2 of 5”), with the referral code and GST / PAN to enter again.",
+   "why": "Tile 1 is 'Sign in'; Verify is step 2 of 5.",
+   "evidence": "src/server/services/shop-registration-draft.ts:206-224; src/components/registration/onboarding-wizard.tsx:144-150, 260-267"
+  },
+  {
+   "id": "TC-CAT-074",
+   "field": "steps",
+   "old": "1. Set MRP 0\n2. Set price above MRP\n3. Set discount 0% and 100%\n4. Set price 10,00,001",
+   "new": "1. In My products, set a listing's MRP to 0\n2. Set its selling price above the MRP\n3. Enter 0, then 100, in “Discount off MRP (%)” and click Apply\n4. Set the MRP and the selling price to 10,00,001 and click “Save changes”",
+   "why": "The ₹10,00,000 cap is checked by the server on Save; with an MRP below 10,00,001 the page shows its own MRP message first, so step 4 must raise the MRP too.",
+   "evidence": "src/components/shop-setup/stock-editor.tsx:38-48; src/server/services/shop-product-setup.ts:405-411"
+  },
+  {
+   "id": "TC-CAT-074",
+   "field": "expected",
+   "old": "“MRP must be more than 0.”, “Price cannot be more than the MRP.”, discount must be 1-99%, “A price can be at most ₹10,00,000.” Nothing is saved for refused values.",
+   "new": "“MRP must be more than 0.” and “Price cannot be more than the MRP.” show under the field and “Save changes” stays disabled. Apply shows “Enter a discount from 1 to 99 percent.” for 0% and for 100% and changes no price. After Save, the row shows “A price can be at most ₹10,00,000.” and the page “1 product was not saved. Look for the messages in red.” Nothing is saved for refused values.",
+   "why": "Exact discount message; the ₹10,00,000 message comes from the server after Save, with the 'not saved' notice.",
+   "evidence": "src/components/shop-setup/stock-editor.tsx:41,46,108,180,340; src/server/services/shop-product-setup.ts:410"
+  },
+  {
+   "id": "TC-CAT-078",
+   "field": "expected",
+   "old": "“Row 22: Selling Price ₹550.00 > MRP ₹500.00”, zero price rejected, “MRP “abc” is not a valid amount”, negative stock rejected; other rows import.",
+   "new": "“Row 22: Selling Price ₹550.00 > MRP ₹500.00”, “Row N: Selling Price must be more than 0”, “Row N: MRP \"abc\" is not a valid amount (a number, 0 or more)”, “Row N: Stock Qty \"-5\" is not a valid quantity (a number, 0 or more)” (the preview lists each as “Error: Row N: …”); other rows import.",
+   "why": "Full messages as the code writes them (the MRP one continues after 'amount'; zero price and negative stock have their own messages).",
+   "evidence": "src/server/product-import/preview-checks.ts:52-60; src/server/services/product-import.ts:473"
+  },
+  {
+   "id": "TC-CAT-079",
+   "field": "preconditions",
+   "old": "Template with GST 10 and Category 'Toys'.",
+   "new": "Template with GST 10 and a Category that is not in the GoKesari category list (e.g. 'Toys', if the site has no category of that name).",
+   "why": "The 'Invalid category' error depends on the category master; a site with a 'Toys' category would accept the row.",
+   "evidence": "src/server/services/product-import.ts:281-284"
+  },
+  {
+   "id": "TC-CAT-079",
+   "field": "expected",
+   "old": "GST 10 rejected (allowed 0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28, 40). “Invalid category “Toys” — choose one from the Category list”.",
+   "new": "“GST 10% is not a GST rate in India (0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28, 40%)”. “Invalid category \"Toys\" — choose one from the Category list”.",
+   "why": "Exact GST message (the allowed list is right).",
+   "evidence": "src/server/product-import/preview-checks.ts:48,64-66; src/server/gst/product-rates.ts:23"
+  },
+  {
+   "id": "TC-CAT-082",
+   "field": "steps",
+   "old": "1. In My products click “Update many products with Excel” and download\n2. Change price and stock on 3 rows, set Include = No on 1 row\n3. Upload and click “Import valid rows and skip errors”",
+   "new": "1. In My products open “Update many products with Excel” and click “Download my products”\n2. Change price and stock on 3 rows, set Include = No on 1 row (add one row with an unknown Product ID)\n3. Upload it with “Choose your file”, tick “Yes, pause 1 product marked No…” and click “Import valid rows and skip errors” (the button reads “Import” when no row has an error)",
+   "why": "Real labels; the 'skip errors' button appears only when a row has an error, and Include = No needs the pause box ticked.",
+   "evidence": "src/components/shop-setup/bulk-panel.tsx:190-196,245-257,281-284; src/app/shop/my-products/page.tsx:72-73"
+  },
+  {
+   "id": "TC-CAT-082",
+   "field": "expected",
+   "old": "Columns: Product ID, Category, Product Name, Brand, Pack Size, Unit, Master MRP (read-only), Include (Yes/No), Shop MRP, Selling Price, Stock Quantity. The 3 changes apply; the Include = No product is removed / paused.",
+   "new": "Columns: Product ID, Category, Product Name, Brand, Pack Size, Unit, Master MRP, Include (Yes/No), Shop MRP, Selling Price, Stock Quantity (Product ID to Master MRP grey and locked), plus an Instructions sheet. The 3 changes apply; the Include = No product is paused, not removed (“Yes, pause 1 product marked No. Customers will stop seeing them; nothing is deleted.” must be ticked, otherwise it is left as it was).",
+   "why": "Include = No pauses (setListingPaused), never deletes, and only with the pause confirmation.",
+   "evidence": "src/server/services/shop-bulk-upload.ts:41-53,114-145,409-413,611-616"
+  },
+  {
+   "id": "TC-CAT-083",
+   "field": "expected",
+   "old": "“Product ID is missing.”, “Product ID X appears more than once…”, “Product ID X is not in the GoKesari product list. Add it as a new product instead.” with an “Add new product” link (D-1), “Include must be Yes or No.”, “Selling Price must be a number.”, “Shop MRP must be more than 0.”, “Add the category “X” to your shop first.”",
+   "new": "Each rejected row is listed as “Row N: …”: “Product ID is missing.”, “Product ID X appears more than once in this file. Keep one row.” (on every copy), “Product ID X is not in the GoKesari product list. Add it as a new product instead.” with an “Add new product” link (D-1; the error file also gets an “Add new product” column linking to the form), “Include must be Yes or No.”, “Selling Price must be a number.”, “Shop MRP must be more than 0.”, “Add the category \"X\" to your shop first.” (a product the shop does not list yet).",
+   "why": "Full duplicate message, the 'Row N:' prefix, the error file's link column, and the category error only applies to a product not already listed.",
+   "evidence": "src/server/services/shop-bulk-upload.ts:395-429,558-577; src/components/shop-setup/bulk-panel.tsx:263-276"
+  },
+  {
+   "id": "TC-CAT-084",
+   "field": "expected",
+   "old": "5,000 rows accepted; 5,001 rows and the 11 MB file refused with a clear message, nothing applied.",
+   "new": "5,000 rows are accepted for checking; 5,001 rows are refused with “This file has too many rows. The limit is 5,000 products per file.” and the 11 MB file with “The file is too large. The limit is 10 MB.”; nothing is applied (limits from rule productImport, defaults 5,000 rows and 10 MB).",
+   "why": "Exact messages and where the limits come from.",
+   "evidence": "src/app/api/shops/[id]/product-setup/uploads/route.ts:29-37; src/server/services/shop-bulk-upload.ts:337-339; src/server/config/rules.ts:939-942"
+  },
+  {
+   "id": "TC-CAT-085",
+   "field": "preconditions",
+   "old": "A setup file already imported today.",
+   "new": "A setup file already imported (confirmed) in the last 24 hours.",
+   "why": "The guard looks back 24 hours at imported (APPLYING / DONE) uploads; a cancelled or never-confirmed file can be uploaded again.",
+   "evidence": "src/server/services/shop-bulk-upload.ts:58-59,276-288"
+  },
+  {
+   "id": "TC-CAT-086",
+   "field": "steps",
+   "old": "1. Open the starter shelf\n2. Check order, ticks, prices and stock\n3. Click “Publish N products”",
+   "new": "1. On /shop/register, at “🎉 <shop> is live”, click “Add products” (step 7. Add your products — the starter shelf)\n2. Check order, ticks, prices and stock\n3. Click “Publish N products”",
+   "why": "The starter shelf is only on step 7 of the registration wizard (no separate page).",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:481-513,1078; src/server/services/shop-registration-wizard.ts:389-390"
+  },
+  {
+   "id": "TC-CAT-086",
+   "field": "expected",
+   "old": "Up to 100 products, most ordered on GoKesari in the last 90 days first, pre-ticked at MRP with stock 100. After publishing, N listings are Live.",
+   "new": "Up to 100 products, most ordered on GoKesari in the last 90 days first (then stocked by most shops), pre-ticked at MRP with stock 100; a product with no MRP (loose) starts unticked with no price. After publishing, N listings are Live.",
+   "why": "Second ranking key, and products without an MRP are not pre-ticked.",
+   "evidence": "src/server/services/starter-shelf.ts:1-10,114-130; src/components/registration/starter-shelf.tsx:62-68"
+  },
+  {
+   "id": "TC-CAT-087",
+   "field": "expected",
+   "old": "“Tick at least one product.” then “Enter a price for X, or untick it.”",
+   "new": "With nothing ticked the button reads “Publish 0 products” and is disabled (the API refuses an empty list with “Tick at least one product.”); then “Enter a price for X, or untick it.”",
+   "why": "The page never shows 'Tick at least one product.': the button is disabled first.",
+   "evidence": "src/components/registration/starter-shelf.tsx:100,105,278-279; src/app/api/shops/[id]/starter-shelf/route.ts:24-35"
+  },
+  {
+   "id": "TC-CAT-088",
+   "field": "steps",
+   "old": "1. Click “📷 Scan a barcode”\n2. Scan the product",
+   "new": "1. On the starter shelf (registration step 7) click “📷 Scan a barcode”\n2. Scan the product (or type its number in “Barcode number” and click “Find”)\n3. Click “Publish N products”",
+   "why": "Scanning only puts the product on the shelf list; publishing lists it. The scanner also takes a typed number.",
+   "evidence": "src/components/registration/starter-shelf.tsx:121-138,175-180; src/components/barcode-scanner.tsx:82-103"
+  },
+  {
+   "id": "TC-CAT-088",
+   "field": "expected",
+   "old": "“Added X at MRP ₹…”; the listing appears in My products.",
+   "new": "“Added X at MRP ₹….”; the product goes to the top of the starter shelf, ticked at its MRP; after “Publish N products” the listing is Live in My products.",
+   "why": "The scan alone does not create the listing.",
+   "evidence": "src/components/registration/starter-shelf.tsx:133-137; src/server/services/starter-shelf.ts:132-190"
+  },
+  {
+   "id": "TC-CAT-089",
+   "field": "expected",
+   "old": "“<code> is not in our catalogue yet…”, then “Sent to our team — it goes on sale in your shop once approved.” (admin sees the request). The 5-digit code is refused (minimum 6 digits).",
+   "new": "“<code> is not in our catalogue yet. Add it — it goes on sale once our team approves it.”, then “Sent to our team — it goes on sale in your shop once approved. We'll let you know.” (the admin sees it under Products awaiting publication). The 5-digit code is not looked up: “Find” does nothing below 6 digits, and the look-up API answers 422 “Enter the barcode number (at least 6 digits).”.",
+   "why": "Full messages; the page gives no message for a short code (see defects).",
+   "evidence": "src/components/registration/starter-shelf.tsx:166,189; src/components/barcode-scanner.tsx:84-91; src/app/api/shops/[id]/barcode-lookup/route.ts:18; src/app/admin/console/[section]/page.tsx:366-370"
+  },
+  {
+   "id": "TC-CAT-091",
+   "field": "expected",
+   "old": "Slider range is 1-10 km. With Pickup only, checkout offers pickup and no delivery.",
+   "new": "Slider range is 1-10 km; choosing Pickup only hides it. With Pickup only saved, the shop page says “Pickup only”, the cart charges no delivery fee and the order is placed without a delivery address (collected with a pickup code); checkout has no separate pickup / delivery choice.",
+   "why": "There is no pickup option at checkout: pickup only turns delivery off for the shop.",
+   "evidence": "src/components/seller/delivery-choice-form.tsx:84-98; src/server/services/shops.ts:1348; src/app/shops/[slug]/page.tsx:122-127; src/server/services/cart.ts:502; src/server/services/orders.ts:408"
+  },
+  {
+   "id": "TC-DEL-032",
+   "field": "steps",
+   "old": "1. Open /delivery-partner/kyc (“Step 2 of 3”)\n2. Tick consent, enter PAN, click “Verify PAN”\n3. Click “Verify with DigiLocker” and complete the mock\n4. Return to the KYC page",
+   "new": "1. Open /delivery-partner/kyc (“PAN and Aadhaar verification”, “Step 2 of 3”)\n2. Tick consent, enter PAN, click “Verify PAN”\n3. Click “Verify with DigiLocker”; on the mock page (“DigiLocker — test page”) click “Approve — share my Aadhaar”\n4. DigiLocker's return link brings you back to the KYC page",
+   "why": "names the mock's real button; the return is automatic (303 from /mobile-auth/digilocker-return)",
+   "evidence": "src/app/mobile-auth/digilocker-mock/buttons.tsx:8; src/app/mobile-auth/digilocker-return/route.ts:22-27"
+  },
+  {
+   "id": "TC-DEL-032",
+   "field": "expected",
+   "old": "Returns to /delivery-partner/kyc?digilocker=verified; the page checks the result (up to 6 × 5 s) and shows Aadhaar as XXXX XXXX 1234. Only the name and last 4 digits are kept.",
+   "new": "Returns to /delivery-partner/kyc?digilocker=verified with Aadhaar “Verified” as XXXX XXXX 4321 (the mock always shares the last digits 4321) and “KYC complete”. Only when the result is not in yet (?digilocker=pending) does the page ask again, every 5 s up to 6 times. Only the name and last 4 digits are kept (no Aadhaar number, not even encrypted; the mock's “Approve” shares no name).",
+   "why": "the mock's last 4 digits are 4321, not 1234; the 6 × 5 s re-check runs only while the result is still Pending, never on ?digilocker=verified",
+   "evidence": "src/server/kyc/adapters/mock.ts:141; src/components/rider-kyc-form.tsx:29-30,136; src/server/services/rider-kyc.ts:666-679"
+  },
+  {
+   "id": "TC-DEL-033",
+   "field": "steps",
+   "old": "1. Decline consent in the mock\n2. Start again and let the link expire\n3. Click “Continue in DigiLocker”",
+   "new": "1. Click “Verify with DigiLocker”, then “Deny” on the mock page\n2. Click “Verify with DigiLocker” again, then “Let the link expire”\n3. Click “Verify with DigiLocker” again and approve (“Continue in DigiLocker” is shown only while an unfinished link is still open)",
+   "why": "after a declined or expired link the check is Failed and the button reads “Verify with DigiLocker”; “Continue in DigiLocker” appears only for an open, unfinished link",
+   "evidence": "src/components/rider-kyc-form.tsx:211; src/server/services/rider-kyc.ts:134-143,596-603"
+  },
+  {
+   "id": "TC-DEL-033",
+   "field": "expected",
+   "old": "“DigiLocker did not share your Aadhaar (consent was declined…)” and “The DigiLocker link expired…”; the retry works.",
+   "new": "Aadhaar “Failed” with “DigiLocker did not share your Aadhaar (consent was declined or not finished). Start again to retry.”, then “Failed” with “The DigiLocker link expired before it was finished. Start again.”; the new attempt ends “Verified”.",
+   "why": "full messages and the Failed status",
+   "evidence": "src/lib/gig/kyc.ts:61-62; src/server/services/rider-kyc.ts:596-603"
+  },
+  {
+   "id": "TC-DEL-034",
+   "field": "preconditions",
+   "old": "Mock options for a different name and for vendor down.",
+   "new": "Applicants at the KYC step; the mock page's buttons “Approve — Aadhaar in another name” and “DigiLocker is down”.",
+   "why": "the real mock button names",
+   "evidence": "src/app/mobile-auth/digilocker-mock/buttons.tsx:9,12"
+  },
+  {
+   "id": "TC-DEL-034",
+   "field": "steps",
+   "old": "1. Complete the mock with a different name\n2. Repeat with vendor down",
+   "new": "1. On the mock page click “Approve — Aadhaar in another name”\n2. As another applicant, click “DigiLocker is down” on the mock page\n3. As admin open Admin → Rider verification (/admin/rider-verification)",
+   "why": "names the buttons and where admin sees the checks",
+   "evidence": "src/app/mobile-auth/digilocker-mock/buttons.tsx:9,12; src/app/admin/rider-verification/page.tsx"
+  },
+  {
+   "id": "TC-DEL-034",
+   "field": "expected",
+   "old": "Mismatch: “The name on the record doesn't match … Our team will check it.” Vendor down: “The verification service is not answering right now…”. Both stay Pending (not Failed) and appear in admin.",
+   "new": "Mismatch: back on ?digilocker=pending, Aadhaar “Pending” XXXX XXXX 4321 with “The name on the record doesn't match your registered name closely enough. Our team will check it.” Vendor down: “Pending” with “The verification service is not answering right now. We'll check again, or you can retry later.” Both stay Pending (not Failed) and are listed under Admin → Rider verification with the badge “pending” (“Name on record: SOMEONE ELSE ENTIRELY …” / “KYC provider not answering (vendor_source_down)…”) and “Resend DigiLocker link”.",
+   "why": "full messages; what admin shows",
+   "evidence": "src/lib/gig/kyc.ts:52,69-73,100; src/components/rider-verification-admin.tsx:110,124,135-144"
+  },
+  {
+   "id": "TC-DEL-035",
+   "field": "preconditions",
+   "old": "An Aadhaar (mock) already verified for Rider 1.",
+   "new": "Rider 1's Aadhaar verified through DigiLocker; the second applicant shares the same DigiLocker account (real DigiLocker: the same Aadhaar holder). The mock signs every session in as a new DigiLocker account, so through the mock alone this cannot be produced (the automated check arranges it).",
+   "why": "the duplicate is detected by a keyed token of the DigiLocker account id, and the mock gives each session its own holder id",
+   "evidence": "src/server/kyc/adapters/mock.ts:191; src/server/services/rider-kyc.ts:665-669"
+  },
+  {
+   "id": "TC-DEL-035",
+   "field": "expected",
+   "old": "“This number is already verified for another delivery partner.”; not verified.",
+   "new": "Aadhaar “Failed”: “This number is already verified for another delivery partner. Contact support if it is yours.”; not verified (Rider 1 stays Verified).",
+   "why": "full message and status",
+   "evidence": "src/lib/gig/kyc.ts:58; src/server/services/rider-kyc.ts:667-669"
+  },
+  {
+   "id": "TC-DEL-036",
+   "field": "steps",
+   "old": "1. As admin open the applicant\n2. Click “Resend link”",
+   "new": "1. As admin open Admin → Rider verification (/admin/rider-verification) and find the applicant's Aadhaar row\n2. Click “Resend DigiLocker link”",
+   "why": "the button is “Resend DigiLocker link” on the rider verification page (there is no applicant page)",
+   "evidence": "src/components/rider-verification-admin.tsx:135-144"
+  },
+  {
+   "id": "TC-DEL-036",
+   "field": "expected",
+   "old": "A new link is sent to the applicant and the old one no longer works.",
+   "new": "The applicant gets the notification “Finish your Aadhaar check in DigiLocker” (“Our team sent you a new DigiLocker link. It works for about an hour.”), which opens the new link (/delivery-partner/kyc/digilocker/open); the check stays Pending. The old link no longer works: finishing it returns to ?digilocker=unknown and changes nothing.",
+   "why": "what “sent” and “no longer works” mean in the code",
+   "evidence": "src/server/services/rider-kyc.ts:723-748,703-709; src/app/delivery-partner/kyc/digilocker/open/route.ts"
+  },
+  {
+   "id": "TC-RPAY-001",
+   "field": "preconditions",
+   "old": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Rule bankAccountCheck enabled on staging. Sandbox bank test data from Cashfree (no real account).",
+   "new": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). Rule bankAccountCheck enabled on staging. Sandbox bank test data from Cashfree (no real account). Cashfree Verification Suite sandbox keys set (Admin → Bank accounts, “Bank check with Cashfree”: keys found, sandbox). Rider 1's current account not already verified — changing a verified rider account first needs the e-mailed code. Sandbox sample: 026291800001191 / YESB0000262 / “John Doe”.",
+   "why": "the check only runs with the rule on AND the keys set; a verified rider account cannot be replaced without the e-mailed code",
+   "evidence": "src/server/services/bank-account-check.ts:436-438; src/server/rider-wallet/withdrawals.ts:82-88,110-127; docs/four-features-2026-10/TEST_CHECKLIST.md O7.3"
+  },
+  {
+   "id": "TC-RPAY-002",
+   "field": "expected",
+   "old": "“The two numbers do not match.” Name: “the bank has this account in the name “X”, which does not match “Y”” with banner “Your bank did not confirm these details”. IFSC: “the IFSC is not valid for this account”. “NRE accounts cannot be used”.",
+   "new": "Re-entered number: “The two numbers do not match.” under the field while typing; on Save “The two account numbers do not match.” (nothing saved). Name: banner “Your bank did not confirm these details” with “The bank has this account in the name \"X\", which does not match \"Y\". Change the details to match your bank exactly, then save.” IFSC: “The IFSC is not valid for this account.” NRE: “NRE accounts cannot be used.” (same banner). No “Verify with ₹1” after a bank refusal.",
+   "why": "server message differs from the inline one; the reasons are shown capitalised with a full stop inside the banner",
+   "evidence": "src/components/bank-account-manager.tsx:212-217,309; src/server/services/bank-accounts.ts:217; src/server/services/bank-account-check.ts:213-218,253"
+  },
+  {
+   "id": "TC-RPAY-003",
+   "field": "steps",
+   "old": "1. Save with the provider failing\n2. Run 3 checks in a day, then a 4th",
+   "new": "1. Save with the provider failing\n2. Click “Check with my bank again” until 3 checks have been made in 24 hours, then once more",
+   "why": "the 3-a-day message comes from “Check with my bank again” (a 4th save is just not checked)",
+   "evidence": "src/server/services/bank-account-check.ts:276-292; src/components/bank-account-manager.tsx:226-230"
+  },
+  {
+   "id": "TC-RPAY-003",
+   "field": "expected",
+   "old": "“Saved. We could not reach your bank just now — verify with ₹1 instead…”. 4th: “The bank can be asked 3 times a day. Verify with ₹1 instead, or try tomorrow.”",
+   "new": "“Saved. We could not reach your bank just now — verify with ₹1 instead, or check with your bank again.”; the account shows “We could not reach your bank just now to check this account.” with “Check with my bank again” and “Verify with ₹1”. 4th check: “The bank can be asked 3 times a day. Verify with ₹1 instead, or try tomorrow.” (counted per person over the last 24 hours; a 4th save is not checked and shows “Saved. Now verify it with a ₹1 payment, refunded straight away.”).",
+   "why": "full messages; where the cap shows",
+   "evidence": "src/components/bank-account-manager.tsx:111-116,220-233; src/server/services/bank-account-check.ts:276-292"
+  },
+  {
+   "id": "TC-RPAY-005",
+   "field": "expected",
+   "old": "Payout created by IMPS with fee ₹0; unpaid balance down by ₹100; /gig/wallet/payouts/<id> shows the amount and status.",
+   "new": "“₹100.00 has been paid to your bank.” (the sandbox answers at once; otherwise “… is on its way to your bank.”). Before the code the check shows Fee “None”, TDS “None”, “You receive ₹100.00”; the transfer is IMPS with fee ₹0; “Unpaid earnings” goes down by ₹100; /gig/wallet/payouts/<id> (“Withdrawal statement”) shows Amount ₹100.00, Fee None, Sent by IMPS and the status (“Paid”).",
+   "why": "on screen the fee reads “None”; the confirmation text",
+   "evidence": "src/components/rider-wallet/withdraw-panel.tsx:78-87,135-146; src/app/gig/wallet/payouts/[id]/page.tsx:24-31"
+  },
+  {
+   "id": "TC-RPAY-006",
+   "field": "steps",
+   "old": "1. Withdraw ₹99\n2. Withdraw ₹10,001\n3. Withdraw ₹700\n4. Withdraw ₹100 and ₹600",
+   "new": "1. Check ₹99\n2. Check ₹10,001\n3. Check ₹700\n4. Check ₹100, then ₹600 (each on its own: after withdrawing ₹100 only ₹500 is left)",
+   "why": "₹100 and ₹600 cannot both be withdrawn from ₹600",
+   "evidence": "src/server/rider-wallet/rules.ts:81-97"
+  },
+  {
+   "id": "TC-RPAY-006",
+   "field": "expected",
+   "old": "₹99: “The smallest withdrawal is ₹100.” ₹10,001: “The largest withdrawal is ₹10,000.” ₹700: “You can withdraw up to ₹600 — your unpaid earnings.” ₹100 and ₹600 accepted.",
+   "new": "₹99: “The smallest withdrawal is ₹100.00.” ₹10,001: “The largest withdrawal is ₹10,000.00.” ₹700: “You can withdraw up to ₹600.00 — your unpaid earnings.” ₹100 and ₹600 are each accepted (“Email me a code to confirm” is offered).",
+   "why": "amounts are formatted with paise (formatPaise)",
+   "evidence": "src/server/rider-wallet/rules.ts:87-89; src/lib/money.ts:30-38"
+  },
+  {
+   "id": "TC-RPAY-007",
+   "field": "expected",
+   "old": "₹200: “You can withdraw ₹100 more today (daily limit ₹10,000).” After ₹100: “You have reached today's withdrawal limit…”.",
+   "new": "₹200: “You can withdraw ₹100.00 more today (daily limit ₹10,000.00).” After ₹100: “You have reached today's withdrawal limit of ₹10,000.00. Try again tomorrow.” (the IST calendar day; a refused withdrawal that went back to the balance does not count).",
+   "why": "full messages with paise",
+   "evidence": "src/server/rider-wallet/rules.ts:90-95; src/server/rider-wallet/withdrawals.ts:173-187"
+  },
+  {
+   "id": "TC-RPAY-010",
+   "field": "steps",
+   "old": "1. Switch the flag off and open /gig/wallet withdraw\n2. Switch it on with no payout provider configured",
+   "new": "1. Switch rider_withdrawal_enabled (and rider_bank_account_enabled) off and open /gig/wallet\n2. Switch them on with rule riderPayouts.provider set to a provider without keys (e.g. RAZORPAYX) — SANDBOX is always available off gokesari.com",
+   "why": "“no provider” means rule riderPayouts.provider names one that cannot send",
+   "evidence": "src/server/rider-wallet/transfers.ts:326-330; src/server/payouts/providers/sandbox.ts:46"
+  },
+  {
+   "id": "TC-RPAY-010",
+   "field": "expected",
+   "old": "Flag off: the routes answer 404 / the option is hidden. No provider: “Withdrawals are not available right now…”.",
+   "new": "rider_bank_account_enabled off: /gig/wallet and /api/gig/wallet answer 404 (“This feature is not available.”) and the profile has no “My wallet”. rider_withdrawal_enabled off: no “Withdraw to bank” section; /api/gig/wallet/quote and /api/gig/wallet/withdrawals answer 404. No provider: “Withdrawals are not available right now. Please try again later.” (page, and the API with 409).",
+   "why": "which flag hides what; full message",
+   "evidence": "src/app/gig/wallet/page.tsx:29,86-99; src/app/gig/profile/page.tsx:57,69-71; src/server/services/feature-flags.ts:231-238; src/server/rider-wallet/withdrawals.ts:201"
+  },
+  {
+   "id": "TC-RPAY-011",
+   "field": "expected",
+   "old": "All three are refused; no payout is created; the correct fresh code works once.",
+   "new": "Wrong code and an earlier withdrawal's (used) code: “That code is wrong or has expired. Check the latest email or request a new code.” (422). The API without a code is not refused: it only e-mails a new code (which replaces any unused earlier one). No payout is created by any of the three; the correct fresh code works once (used again: refused).",
+   "why": "POST without a code is the “send me a code” step, not a refusal",
+   "evidence": "src/app/api/gig/wallet/withdrawals/route.ts:26-27; src/server/otp/service.ts:41,172-183"
+  },
+  {
+   "id": "TC-RPAY-012",
+   "field": "steps",
+   "old": "1. Click to change the bank account\n2. Enter the e-mailed code\n3. Wait 11 minutes and try another change",
+   "new": "1. On My wallet → Bank account click “Change details”, enter new details and Save\n2. Click “Email me a code”, enter the e-mailed code, “Confirm”, and Save the change\n3. Get a code again, wait 11 minutes, then try to Save a change",
+   "why": "the form opens; the save is what is refused",
+   "evidence": "src/components/bank-account-manager.tsx:236-238; src/components/rider-wallet/bank-reauth.tsx:41-67"
+  },
+  {
+   "id": "TC-RPAY-012",
+   "field": "expected",
+   "old": "“Confirm it's you first…” before the form opens; after the code the change is allowed for 10 minutes, then a new code is asked.",
+   "new": "The page says “Your account is verified. To change or remove it, first confirm it's you with a code we email you.”; the form opens, but saving without the code is refused: “Confirm it's you first: we'll email you a code before your bank account can be changed.” After the code: “Confirmed. Change your bank details below (or remove the account) before <time>.” — one change or removal within 10 minutes; after 10 minutes (or once used) the same refusal, and a new code is needed.",
+   "why": "the refusal comes on save, not before the form opens; the grant is single-use",
+   "evidence": "src/server/rider-wallet/withdrawals.ts:39,82-127; src/components/rider-wallet/bank-reauth.tsx:41-48"
+  },
+  {
+   "id": "TC-RPAY-013",
+   "field": "preconditions",
+   "old": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). rider_monthly_payout_enabled ON; Rider 1 with ≥ Rs 100 and Rider 2 with < Rs 100 unpaid. Use admin “Run now” on staging.",
+   "new": "Flags rider_bank_account_enabled and rider_withdrawal_enabled (rider_monthly_payout_enabled for monthly) ON on staging; otherwise mark Not Applicable. Signed in as Rider 1 (approved delivery partner). rider_monthly_payout_enabled ON; Rider 1 with ≥ Rs 100 and Rider 2 with < Rs 100 unpaid and a verified bank account. Use admin “Run now” on staging.",
+   "why": "a rider without a verified account is carried forward as “No verified bank account”, before the minimum is looked at",
+   "evidence": "src/server/rider-wallet/monthly.ts:125-140"
+  },
+  {
+   "id": "TC-RPAY-013",
+   "field": "expected",
+   "old": "Rider 1 gets an NEFT payout of the unpaid amount; Rider 2's amount below ₹100 is carried forward. The schedule shows the 5th from 09.00 IST.",
+   "new": "Rider 1 gets a monthly payout by NEFT of what was unpaid for that month (earned before the month's end): “Monthly payout statement”, Sent by NEFT. Rider 2's amount below ₹100 is carried forward (run page “Carried forward”: “Below the minimum · ₹…”; notification “<Month YYYY> earnings carried forward … it is below the minimum payout.”). The schedule shows the 5th from 09:00 IST (wallet: “On the 5th of every month (from 09:00) …”; admin: “Monthly run on day 5 from 09:00 IST (on)”).",
+   "why": "the on-screen texts and that only the month's earnings are paid",
+   "evidence": "src/server/rider-wallet/monthly.ts:56-61,125-178; src/app/gig/wallet/page.tsx:106-112; src/app/admin/rider-payouts/page.tsx:45"
+  },
+  {
+   "id": "TC-RPAY-014",
+   "field": "steps",
+   "old": "1. Withdraw to an account the sandbox refuses\n2. Open the payout page\n3. Check the retries",
+   "new": "1. Withdraw an amount ending in 98 paise (e.g. ₹100.98): the SANDBOX payout provider refuses those, whatever the account\n2. Open the payout page\n3. For the retries: a monthly payout of an amount ending in 98 paise (admin “Run now”), then the hourly job",
+   "why": "the sandbox decides by the paise of the amount, not by the account; withdrawals are never retried",
+   "evidence": "src/server/payouts/providers/sandbox.ts:26-30; src/server/rider-wallet/transfers.ts:522-552"
+  },
+  {
+   "id": "TC-RPAY-014",
+   "field": "expected",
+   "old": "“The bank refused the transfer: … The amount is back in your balance.” Failed transfers retry up to 3 times, 60 minutes × attempt apart.",
+   "new": "Withdrawal: “The bank refused the transfer: Beneficiary bank is offline (sandbox). The amount is back in your balance.”; the payment shows “Failed — back in balance” and is not retried. Monthly payout: a refused transfer (“Failed — retrying”) is retried by the hourly job up to 3 times, 60 minutes × attempt apart (60, 120, 180 min); then it waits under “Needs a decision” for finance and the rider is told (“… Our finance team will retry it or return it to your balance. …”).",
+   "why": "retries apply to monthly payouts only; a refused withdrawal goes straight back to the balance",
+   "evidence": "src/server/rider-wallet/transfers.ts:522-552; src/components/rider-wallet/withdraw-panel.tsx:83-85; src/components/rider-wallet/labels.ts"
+  },
+  {
+   "id": "TC-RPAY-015",
+   "field": "expected",
+   "old": "Only users with FINANCE_VIEW see the page; only ADMIN can “Run now”; others are refused.",
+   "new": "Admin sees Admin → Rider payouts (while flag rider_bank_account_enabled is on; off: 404) with “Run now”. Operator (ops) and limited operator (oplim) have no FINANCE_VIEW: the page sends them to the home page and /api/admin/rider-payouts/runs answers 403 (GET and POST). Only an ADMIN can “Run now” (the API also needs FINANCE_PREPARE).",
+   "why": "no operator role has FINANCE_VIEW; the page also depends on the flag",
+   "evidence": "src/app/admin/rider-payouts/page.tsx:30-31,75-79; src/app/api/admin/rider-payouts/runs/route.ts:20-29; src/server/authz/permissions.ts:474-477,563-572"
+  },
+  {
+   "id": "TC-RPAY-016",
+   "field": "steps",
+   "old": "1. Make a payout for each\n2. Open each payout page and the admin record",
+   "new": "1. Make a payout for each (the single ₹31,000 payment is a monthly payout — a withdrawal is at most ₹10,000)\n2. Open each payout page and the admin record",
+   "why": "a ₹31,000 single payment cannot be a withdrawal",
+   "evidence": "src/server/rider-wallet/rules.ts:88"
+  },
+  {
+   "id": "TC-RPAY-016",
+   "field": "expected",
+   "old": "No TDS while yearly total ≤ ₹1,00,000 and the single payment ≤ ₹30,000. Above either: 1% with PAN, 20% without. TDS amount shown on the payout and in admin.",
+   "new": "No TDS while the year's total (this payment included) is at most ₹1,00,000 and the single payment at most ₹30,000. A single payment above ₹30,000: 1% of it with PAN, 20% without. Once the year's total passes ₹1,00,000: 1% (20% without PAN) of the whole year's payments, less TDS already deducted (e.g. ₹99,000 paid + ₹2,000 → TDS ₹1,010), never more than the payment less ₹1. Shown on the payout statement (“TDS (1%, s.194C) − ₹…”) and in admin (run page “(gross …, TDS …)”, recent withdrawals “(TDS …)”).",
+   "why": "past the yearly limit TDS is on the year's total (catch-up), not only on the payment",
+   "evidence": "src/server/rider-wallet/rules.ts:42-58; src/server/rider-wallet/transfers.ts:262-300; src/app/gig/wallet/payouts/[id]/page.tsx:28"
+  },
+  {
+   "id": "TC-BILL-001",
+   "field": "preconditions",
+   "old": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. A regular-GST test shop; a test buyer GSTIN of another state.",
+   "new": "Signed in as the owner of a regular GST shop (GSTIN verified, GST status REGISTERED); a test buyer GSTIN of another state. Sales in Accounts > Sales work with or without billing_v2. Staging's Shop A has no GSTIN (bills of supply only): run where a GST-registered test shop exists (local tier).",
+   "why": "counter / B2B sales are not behind billing_v2; a tax invoice needs a GSTIN with REGISTERED status (else bill of supply)",
+   "evidence": "src/app/api/shops/[id]/accounts/[...path]/route.ts:405-425 (sales: no requireFeatureForShop); src/server/accounts/sales.ts:284-287 (counterBillKind); src/server/tax/engine.ts:303-307"
+  },
+  {
+   "id": "TC-BILL-001",
+   "field": "expected",
+   "old": "First: CGST + SGST split. Second: IGST with the buyer GSTIN printed. Totals and HSN rates correct.",
+   "new": "First: a “Tax invoice”, “Intra-state (CGST + SGST)”, “Unregistered buyer (B2C)”, CGST and SGST each half of the GST. Second: a “Tax invoice”, “Inter-state (IGST)”, “GSTIN: <buyer GSTIN>”, place of supply the buyer's state, IGST only. Totals and HSN rates correct.",
+   "why": "exact labels on the invoice page",
+   "evidence": "src/app/shop/accounts/sales/[id]/page.tsx:41,112,136,207-217; src/server/accounts/sales.ts:110-127"
+  },
+  {
+   "id": "TC-BILL-002",
+   "field": "steps",
+   "old": "1. Create a sale\n2. Try an inter-state sale",
+   "new": "1. Create a sale (Accounts > Sales)\n2. As a customer whose delivery address is in another state, order from the shop (checkout)",
+   "why": "the inter-state block is the checkout guard (tax engine supplyBlock); a counter / B2B sale is not checked (see defect)",
+   "evidence": "src/server/tax/checkout.ts:38-55; src/server/tax/engine.ts:111-124; src/server/services/orders.ts:385-397"
+  },
+  {
+   "id": "TC-BILL-002",
+   "field": "expected",
+   "old": "A bill of supply without tax; the inter-state sale is blocked with a message.",
+   "new": "The sale is a bill of supply with no tax (a GST rate entered is charged at 0%). The out-of-state order is refused at checkout: “<shop name>: This shop can deliver only within its own state. Choose a delivery address in the same state, or another shop.” (rule billing.compositionInterStateAllowed off, the default)",
+   "why": "exact refusal; composition bills charge no GST (QA D-120)",
+   "evidence": "src/server/tax/engine.ts:121-123; src/server/accounts/sales.ts:110-115; src/server/config/rules.ts:1731"
+  },
+  {
+   "id": "TC-BILL-003",
+   "field": "expected",
+   "old": "Document is a bill of supply with no GST.",
+   "new": "Document is a “Bill of supply” with no GST: no tax rows or columns; a GST rate entered on a line is charged at 0%.",
+   "why": "precise behaviour (D-119 / D-120)",
+   "evidence": "src/server/accounts/sales.ts:110-115,306-311; src/app/shop/accounts/sales/[id]/page.tsx:41-43"
+  },
+  {
+   "id": "TC-BILL-004",
+   "field": "preconditions",
+   "old": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. An order with a delivery fee delivered by a GoKesari partner who is not GST-registered.",
+   "new": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) and delivery_9_5 ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. GoKesari's GSTIN set (rule platformTaxProfile) and the dated rate GST_S95_LOCAL_DELIVERY enabled (Admin > Statutory: 5% from 1 Nov 2026). Signed in as the order's customer. An order with a delivery fee delivered by a GoKesari partner who is not GST-registered.",
+   "why": "the s.9(5) invoice needs delivery_9_5, GoKesari's GSTIN and the statutory rate; the customer (not the shop owner) sees it",
+   "evidence": "src/server/tax/money-flow.ts:105-111,138-153; src/server/tax/delivery-invoice.ts:135; src/app/orders/[id]/page.tsx:150-160"
+  },
+  {
+   "id": "TC-BILL-004",
+   "field": "steps",
+   "old": "1. Deliver the order\n2. Open the invoices for it",
+   "new": "1. Deliver the order\n2. As the customer, open the order in My Orders",
+   "why": "where the invoice is shown",
+   "evidence": "src/app/orders/[id]/page.tsx:150-160"
+  },
+  {
+   "id": "TC-BILL-004",
+   "field": "expected",
+   "old": "A GoKesari delivery invoice in series GKS/2627/… for the delivery fee; none when the rider is GST-registered.",
+   "new": "The delivered order shows “Delivery fee invoice (GoKesari)”: GoKesari's own tax invoice for the delivery fee, numbered GKS/2627/000001 (rule billing.deliveryInvoicePrefix), at the s.9(5) rate. None when the partner is GST-registered (the partner is liable).",
+   "why": "exact label and number format",
+   "evidence": "src/server/tax/delivery-invoice.ts:78-81,250; src/server/tax/engine.ts:254-255"
+  },
+  {
+   "id": "TC-BILL-005",
+   "field": "expected",
+   "old": "Edit refused; changes only through a credit / debit note.",
+   "new": "No edit control on the invoice page (Download PDF, 80 mm receipt, JSON, Share on WhatsApp, Cancel only); the API has no edit: PATCH / PUT …/accounts/sales/<id> answer 404 “Endpoint was not found.”. A change goes through a credit / debit note (Notes, vouchers & challans) or a cancellation with a reason.",
+   "why": "the API refusal is 404 (no edit endpoint), and a cancellation is also offered",
+   "evidence": "src/app/api/shops/[id]/accounts/[...path]/route.ts:405-425,570-577; src/app/shop/accounts/sales/[id]/page.tsx:54-83"
+  },
+  {
+   "id": "TC-BILL-007",
+   "field": "steps",
+   "old": "1. Read the TCS on the payout statement\n2. Read the TDS above Rs 5 lakh with PAN and without PAN",
+   "new": "1. Read the TCS on the shop's TCS / TDS statement (Accounts > Statements from GoKesari) and the payout statement\n2. Read the TDS above Rs 5 lakh with PAN and without PAN",
+   "why": "where the statement is",
+   "evidence": "src/lib/accounts/menu.ts:42; src/server/tax/statements.ts:1-10"
+  },
+  {
+   "id": "TC-BILL-007",
+   "field": "expected",
+   "old": "TCS 0.5% on net after returns (none for the Enrolment-ID shop). TDS 0.1% with PAN above ₹5 lakh, 5% without PAN.",
+   "new": "TCS 0.5% of the net taxable value after returns (none for an Enrolment-ID or unregistered shop). TDS 0.1% with PAN — for an individual / HUF owner only once the year's gross sales pass ₹5 lakh — and 5% without PAN.",
+   "why": "the ₹5 lakh exemption is for individual / HUF PANs only; TCS also not for unregistered shops",
+   "evidence": "drizzle/0083_batch_e_finance.sql:218-221; src/server/payouts/cycle.ts:371-391; src/server/tax/engine.ts:180-184"
+  },
+  {
+   "id": "TC-BILL-008",
+   "field": "steps",
+   "old": "1. Open /shop/accounts/pos\n2. Sell 2 items\n3. Share / print the bill\n4. Open stock",
+   "new": "1. Open /shop/accounts/pos\n2. Sell 2 items (Make bill)\n3. Open its “80 mm receipt” from Sent bills\n4. Open stock",
+   "why": "the POS's own labels; sharing is on the bill's page",
+   "evidence": "src/components/billing/pos-screen.tsx:254-266,305-307"
+  },
+  {
+   "id": "TC-BILL-008",
+   "field": "expected",
+   "old": "Bill issued with the next number; stock down by the quantities sold.",
+   "new": "Sent bills lists the bill as “created” with the next number of the shop's counter-bill series (e.g. S2627-00006) and an “80 mm receipt” link; stock down by the quantities sold.",
+   "why": "what the screen shows",
+   "evidence": "src/components/billing/pos-screen.tsx:254-266; src/server/accounts/sales.ts:140-142"
+  },
+  {
+   "id": "TC-BILL-010",
+   "field": "steps",
+   "old": "1. Open /shop/accounts/gst\n2. Prepare GSTR-1 and GSTR-3B\n3. Open Reconcile",
+   "new": "1. Open /shop/accounts/gst > Returns on the portal\n2. Prepare GSTR-1 and GSTR-3B and Save them\n3. Open Match with GST portal (/shop/accounts/gst/reconcile)",
+   "why": "returns are prepared on /shop/accounts/gst/returns; reconcile button label",
+   "evidence": "src/app/shop/accounts/gst/page.tsx:118-128; src/app/shop/accounts/gst/returns/page.tsx"
+  },
+  {
+   "id": "TC-BILL-010",
+   "field": "expected",
+   "old": "GSTR-1 tables 12, 13, 14 filled and validate; GSTR-3B totals match the books; 2B / IMS lines match or are flagged.",
+   "new": "GSTR-1 (sales through GoKesari: order tax invoices and their credit notes) has Table 12 (HSN), 13 (documents issued) and 14 (supplies through GoKesari, with GoKesari's GSTIN); after Save the portal's totals match GoKesari's. GSTR-3B outward tax equals the books (GST payable page). 2B / IMS lines are matched or flagged (matched, amount mismatch, missing in books, missing on portal).",
+   "why": "GSTR-1 covers only GoKesari orders; there is no separate 'validate' step (Save compares totals); recon statuses",
+   "evidence": "src/server/gst/gstr1.ts:1-13,146-160,277-288; src/server/gsp/returns.ts:83-101,170-185; src/server/accounts/gst.ts:305-307"
+  },
+  {
+   "id": "TC-BILL-011",
+   "field": "preconditions",
+   "old": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. ewaybill ON; mock IRP on staging.",
+   "new": "Flags billing_v2 (and tcs_engine / tds_engine / tally_connector as needed), einvoice and ewaybill ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. In GST settings (Admin > GST config) e-invoicing and e-way bills switched on and document numbering GST16 (numbers of at most 16 characters); the shop has declared that e-invoicing applies; a B2B order tax invoice (customer's GSTIN at checkout). Mock GSP (GSP_PROVIDER=mock) on staging.",
+   "why": "generation is gated by the GST rules and the shop's declaration; cancel needs the einvoice / ewaybill flags; the mock IRP refuses numbers over 16 characters",
+   "evidence": "src/server/gst/einvoice.ts:41-50,188-212; src/server/gst/gsp/mock.ts:57-59; src/app/api/invoices/[id]/einvoice/cancel/route.ts; src/app/api/invoices/[id]/eway-bill/[action]/route.ts:15-22; drizzle/0070_gst_compliance.sql:164-175"
+  },
+  {
+   "id": "TC-BILL-011",
+   "field": "expected",
+   "old": "IRN and e-way bill numbers appear and cancel correctly.",
+   "new": "The IRN (with ack no.) and the 12-digit e-way bill number appear; the e-way bill and then the IRN cancel (each within 24 hours of generation).",
+   "why": "cancel windows and order",
+   "evidence": "src/server/gst/einvoice-extras.ts:47-49,115"
+  },
+  {
+   "id": "TC-BILL-012",
+   "field": "preconditions",
+   "old": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. tally_connector ON; sample export files from each tool.",
+   "new": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. File sync works for every shop while billing_v2 is on (tally_connector is only the live Tally Connector app). A GST shop's books with nothing on the export's fix list (HSN, GST rate, UQC); sample export files from each tool.",
+   "why": "tally_connector is not needed for files; a GST-ready export is blocked by the fix list",
+   "evidence": "src/app/shop/accounts/sync/page.tsx:26; src/server/services/feature-flags.ts:104; src/server/sync/model.ts:337-352"
+  },
+  {
+   "id": "TC-BILL-012",
+   "field": "steps",
+   "old": "1. Export to Tally (XML + Excel)\n2. Export again\n3. Import each sample file",
+   "new": "1. Accounts > Sync > TallyPrime: Send to software (ZIP: XML + Excel + mapping)\n2. Send again\n3. Bring in a file on Busy, Vyapar and myBillBook",
+   "why": "the screen's labels",
+   "evidence": "src/components/billing/sync-panel.tsx:141-160; src/server/sync/engine.ts:121-125"
+  },
+  {
+   "id": "TC-BILL-012",
+   "field": "expected",
+   "old": "Export reads back the same; the re-export reports unchanged. Imports create masters, vouchers and stock.",
+   "new": "The ZIP holds gokesari-tally.xml, gokesari-tally.xlsx and gokesari-tally-mapping.tsf; reading it back creates nothing; the second send adds no records (every record unchanged in the audit log, the card's record count stays). Each import reports “Imported: N new and M updated parties, K items, V vouchers. … items not on GoKesari …”: parties and vouchers are created, items are matched to the shop's listings (never created).",
+   "why": "re-export counts go to the audit log; imports do not create items",
+   "evidence": "src/server/sync/engine.ts:1-20,114-155,256-320; src/components/billing/sync-panel.tsx:88"
+  },
+  {
+   "id": "TC-BILL-013",
+   "field": "preconditions",
+   "old": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. Mock GSP with expiry / outage switch.",
+   "new": "Flags billing_v2 (and tcs_engine / tds_engine / ewaybill / tally_connector as needed) ON for the test shop's district in Admin > Feature flags; otherwise mark Not Applicable. Signed in as Shop A owner. GSTIN linked to the (mock) GST portal. The mock GSP has no expiry / outage switch: the session ends at the link's expiry time; an outage is simulated with the developer (local: the per-shop GSP call limit).",
+   "why": "no switch exists in the mock",
+   "evidence": "src/server/gsp/filing-provider.ts:12-15,210-229; src/server/gsp/calls.ts:31-36"
+  },
+  {
+   "id": "TC-BILL-013",
+   "field": "expected",
+   "old": "Expiry: a re-link prompt. GSP down: retry, then a manual fallback; nothing filed twice.",
+   "new": "Expiry: “Your GST portal session has expired. Link again with a new OTP.” GSP down: retried twice, then the return is marked ERROR with “… You can download the return and file it on gst.gov.in.” (its download stays available). A filed return is never filed again: preparing it again is refused “GSTR1 for <period> is already filed (ARN …). Corrections go in the next return.”",
+   "why": "exact messages and the fallback",
+   "evidence": "src/server/gsp/returns.ts:66-69,107-109,148-156; src/server/gsp/calls.ts:20,48-53"
+  },
+  {
+   "id": "TC-BILL-014",
+   "field": "expected",
+   "old": "All are refused (another owner, dealer, operator, limited operator, customer, rider).",
+   "new": "All are refused (another owner, dealer, operator, limited operator, customer, rider): the accounts APIs answer 403 “This shop does not belong to you.” (401 signed out), checked before anything else; /shop/accounts?shop=<Shop A> opens the caller's own shop or sends them away, never Shop A's books. (An admin may open any shop's books for support.)",
+   "why": "exact refusal; the page does not 403 but shows the caller's own shop",
+   "evidence": "src/server/authz/guards.ts:87-105; src/server/accounts/access.ts:19-21; src/server/accounts/page.ts:27-46"
+  },
+  {
+   "id": "TC-BILL-015",
+   "field": "expected",
+   "old": "Pages redirect to /shop/accounts; APIs answer 404.",
+   "new": "/shop/accounts/pos (and documents, journals, statements, sync) go back to /shop/accounts; /shop/accounts/gst still opens, without “Returns on the portal →”, and /shop/accounts/gst/returns goes back to /shop/accounts/gst. Billing APIs (pos, documents, gst-registration, portal, sync, statements, the 80 mm receipt) answer 404 “This feature is not available.”",
+   "why": "/shop/accounts/gst is not behind the flag (only its returns page)",
+   "evidence": "src/app/shop/accounts/pos/page.tsx:20; src/app/shop/accounts/gst/page.tsx:88,121-125; src/app/shop/accounts/gst/returns/page.tsx:23; src/server/services/feature-flags.ts:219-222"
+  },
+  {
+   "id": "TC-TIER-016",
+   "field": "preconditions",
+   "old": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. Give the agent a rating that changes his direct rate (Admin > Dealers).",
+   "new": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. Give the dealer (main dealer) a rating above 5.0 with the flag dealer_rating_bonus_enabled ON: it moves the direct share of every shop in his network (step: the dealer's own, else the commission settings', default 1% per 1.0).",
+   "why": "the rating is the dealer's, not an agent's",
+   "evidence": "src/server/dealers/tiered.ts:441,465-466; src/server/dealers/commission.ts:136,380-382"
+  },
+  {
+   "id": "TC-TIER-018",
+   "field": "steps",
+   "old": "1. Close the month (Run now on staging)\n2. Read each statement\n3. Check the next month's counter",
+   "new": "1. Close the month (Admin > Dealers > Commission > “Close <Month YYYY> now”)\n2. Read each statement\n3. Check the next month's counter",
+   "why": "there is no 'Run now' for the dealer month close",
+   "evidence": "src/components/dealer/commission-admin.tsx:533-545"
+  },
+  {
+   "id": "TC-TIER-025",
+   "field": "steps",
+   "old": "1. As the main dealer open Team performance\n2. Switch this month / yesterday / last week\n3. Download Excel and CSV\n4. As admin open TIERED > the dealer > Team performance",
+   "new": "1. As the main dealer open Team performance\n2. Switch This month / Yesterday / Last week\n3. Download (Excel / CSV) — one CSV that opens in Excel\n4. As admin open TIERED > the dealer > Team performance",
+   "why": "one download link, CSV",
+   "evidence": "src/components/dealer/team-performance.tsx:40-44,181-182"
+  },
+  {
+   "id": "TC-TIER-026",
+   "field": "steps",
+   "old": "1. As lead A open Team performance\n2. As lead A call the API for lead B's team\n3. As an agent open Team performance",
+   "new": "1. As lead A open Team performance\n2. As lead A call the network-wide API (/api/admin/dealer-tiers?dealerId=…&view=performance) and the team mapping (/api/dealer/team?view=mapping)\n3. As an agent open Team performance",
+   "why": "a lead's own API is scoped to his team; there is no parameter for another lead",
+   "evidence": "src/app/api/dealer/team/route.ts:62-85; src/server/dealers/team-report.ts:211-215"
+  },
+  {
+   "id": "TC-TIER-026",
+   "field": "expected",
+   "old": "Lead A sees only his team; lead B's data is refused. The agent sees only his own figures.",
+   "new": "Lead A's Team performance lists only him and his agents (lead B's team never appears); the network-wide API answers 403 (admin / operator only) and the team mapping 403 “Only the main dealer sees the whole team mapping.”; the agent sees only his own row.",
+   "why": "scoping, not a refusal, for the lead's own view",
+   "evidence": "src/server/dealers/team-report.ts:211-215; src/app/api/dealer/team/route.ts:64-66; src/app/api/admin/dealer-tiers/route.ts:80-82"
+  },
+  {
+   "id": "TC-TIER-027",
+   "field": "preconditions",
+   "old": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. Trigger the cron jobs dealer-team-report-daily and dealer-team-report-weekly by hand on staging.",
+   "new": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. The reports are jobs inside the 05:00 IST daily cron (/api/cron/daily, gk-cron@<site>-daily; the weekly one only on Mondays), not separate endpoints: run the daily cron by hand only with the developer (it runs every 05:00 job).",
+   "why": "no separate trigger exists",
+   "evidence": "src/server/cron/schedule.ts:202-218"
+  },
+  {
+   "id": "TC-TIER-028",
+   "field": "steps",
+   "old": "1. Close the month (Run now)\n2. Open each draft payout and statement",
+   "new": "1. Close the month (“Close <Month YYYY> now”)\n2. Open each draft payout and statement",
+   "why": "button label",
+   "evidence": "src/components/dealer/commission-admin.tsx:533-545"
+  },
+  {
+   "id": "TC-TIER-028",
+   "field": "expected",
+   "old": "One payout per person to their own bank under their own PAN; statement lines per type (direct, overrides, renewal, development, bonus); gross, TDS and net shown (TDS 0 while dealerPayoutTds is off). Shops registered up to the last day of the month are included.",
+   "new": "One payout per person (one per PAN when a person is paid in two roles) to their own bank under their own PAN; statement lines per type (direct, overrides, renewal, development, bonus); gross, TDS and net shown (TDS 0 while dealerPayoutTds is off). Shops registered up to the last day of the month are included.",
+   "why": "payouts are grouped per PAN",
+   "evidence": "src/server/dealers/monthly-payout.ts:192-225"
+  },
+  {
+   "id": "TC-TIER-029",
+   "field": "steps",
+   "old": "1. Activate a shop with his code\n2. Close the month\n3. Mark the payout Paid\n4. Accept the agreement, add PAN and verified bank, close again",
+   "new": "1. Activate a shop with his code\n2. Close the month (“Close <Month YYYY> now”)\n3. Draft his payout by hand (Ledger & payouts) and mark it Paid\n4. Accept the agreement, add PAN and verified bank, close again",
+   "why": "at the close an unready member gets no draft (carried 'held: …'); Paid is refused on a payout drafted by hand",
+   "evidence": "src/server/dealers/monthly-payout.ts:183-189; src/server/dealers/commission.ts:1006-1021"
+  },
+  {
+   "id": "TC-TIER-029",
+   "field": "expected",
+   "old": "Earnings are on hold before acceptance and released when he accepts (agreement versioned and time-stamped). Paid is refused without PAN / verified bank (“bank account is not verified”). Then paid.",
+   "new": "Earnings are on hold before acceptance (“held: the agent agreement is not accepted yet — released when it is”) and released when he accepts (agreement versioned and time-stamped). At the close his payout is not drafted (“held: verified bank account”); Paid is refused without PAN / verified bank (“<name>'s bank account is not verified. A payout is paid only with PAN and a verified bank account on file.”). Then paid.",
+   "why": "exact hold and refusal texts",
+   "evidence": "src/server/dealers/tiered.ts:104,357-358; src/server/dealers/monthly-payout.ts:187; src/server/dealers/commission.ts:987-999,1020-1021"
+  },
+  {
+   "id": "TC-TIER-031",
+   "field": "expected",
+   "old": "/dealer answers 404 when off. Admin commission screens refuse non-admins.",
+   "new": "/dealer answers 404 when off. /admin/dealers/commission/tiered sends a customer or a dealer to the home page; an operator opens it read-only (“Read only: only an admin changes the TIERED model, rates, teams or payouts.”) and its change API answers 403.",
+   "why": "operators may read the TIERED screen",
+   "evidence": "src/app/admin/dealers/commission/tiered/page.tsx:5-9; src/components/dealer/tiered-admin.tsx:169; src/app/api/admin/dealer-tiers/route.ts:118-121"
+  },
+  {
+   "id": "TC-SREF-008",
+   "field": "title",
+   "old": "Request a referral code as a guest",
+   "new": "Request a referral code before registering (signed in, no shop yet)",
+   "why": "a signed-out visitor on /shop/register sees only the sign-in step",
+   "evidence": "src/app/shop/register/page.tsx:32-41; src/components/registration/onboarding-wizard.tsx:676-682"
+  },
+  {
+   "id": "TC-SREF-008",
+   "field": "preconditions",
+   "old": "Signed out; a test mobile number.",
+   "new": "Signed in with an account that has no shop (registration wizard, step “Verify your business”); a test mobile number. (Signed out, /shop/register shows “Step 1 of 5: sign in with your email.”; POST /api/referral-requests also takes a request without a session.)",
+   "why": "where the dialog is reachable",
+   "evidence": "src/app/shop/register/page.tsx:32-41; src/app/api/referral-requests/route.ts:1-7,30-34"
+  },
+  {
+   "id": "TC-SREF-008",
+   "field": "steps",
+   "old": "1. On /shop/register click “Request a referral code”\n2. Fill Your name, Mobile number, Type of shop, Area / locality, City, PIN code\n3. Submit",
+   "new": "1. On /shop/register click “Request a referral code” (under “Don't have a referral code?”)\n2. Fill Your name, Mobile number, Type of shop, Area / locality, City, PIN code\n3. Send request",
+   "why": "button label",
+   "evidence": "src/components/referral-request-dialog.tsx:157-191; src/components/registration/onboarding-wizard.tsx:677-681"
+  },
+  {
+   "id": "TC-SREF-008",
+   "field": "expected",
+   "old": "“Request received — Thank you! Your request <REF> has reached our referrals team. We will call or message you on <masked mobile> … usually within one working day.” The request is listed in /admin/shop-referrals.",
+   "new": "“Request received — Thank you! Your request RCR-XXXXXXXX has reached our referrals team. We will call or message you on +91 ******1234 with your referral code, usually within one working day.” The request is listed in Admin > Referral requests (/admin/referral-requests).",
+   "why": "exact text; the admin page is /admin/referral-requests (/admin/shop-referrals is the shop-refers-shop rewards page)",
+   "evidence": "src/components/referral-request-dialog.tsx:110-116; src/lib/referral-requests.ts:118-120; src/lib/phone.ts:43-46; src/app/admin/referral-requests/page.tsx"
+  },
+  {
+   "id": "TC-SREF-009",
+   "field": "expected",
+   "old": "Same mobile within the window: refused (429) with the earlier reference. PIN must be 6 digits.",
+   "new": "Same mobile within 24 hours (rule shopReferral.duplicateWindowHours): refused (429) “We already have a request from this mobile number (RCR-…, <date, time> IST). Our team will contact you — there is no need to ask again.” PIN 41100: “A PIN code is 6 digits and does not start with 0.” under the PIN field (422 from the API).",
+   "why": "exact messages and the window",
+   "evidence": "src/server/services/referral-requests.ts:195-215; src/lib/referral-requests.ts:44-45; src/server/config/rules.ts:1152"
+  },
+  {
+   "id": "TC-SREF-010",
+   "field": "expected",
+   "old": "Redirect (307) to /shop/register?ref=<code>; the code shows “✓ Applied”.",
+   "new": "Redirect (307) to /shop/register?ref=<code>; signed in, the wizard's “Verify your business” step shows the code with “✓ Applied” (a signed-out visitor first gets the sign-in step).",
+   "why": "the code is applied in the signed-in wizard",
+   "evidence": "src/app/r/[code]/route.ts:16-19; src/components/registration/onboarding-wizard.tsx:612-617,655-660"
+  },
+  {
+   "id": "TC-SREF-011",
+   "field": "expected",
+   "old": "New shop gets a ₹100 welcome credit in its shop wallet (no fee discount); the referring shop gets 1 more month of membership instead of ₹200 credit.",
+   "new": "When the new shop's first order is delivered: the new shop gets a ₹100 welcome credit in its shop wallet (no fee discount); the referring shop gets 1 more month of membership instead of ₹200 credit.",
+   "why": "both rewards are given at the first delivered order",
+   "evidence": "src/server/services/shop-referrals.ts:150-200"
+  },
+  {
+   "id": "TC-SREF-012",
+   "field": "steps",
+   "old": "1. Let a settlement with commission and delivery charges run\n2. Try to withdraw the promotional credit to the bank",
+   "new": "1. Let a settlement with commission and delivery charges run\n2. As an admin, debit the shop wallet by more than its non-promotional balance (there is no bank withdrawal of a shop wallet)",
+   "why": "no shop-wallet withdrawal exists; the guard is on any non-charge debit",
+   "evidence": "src/server/services/shop-wallet.ts:232-240; src/app/api/shops/[id]/wallet/adjust/route.ts"
+  },
+  {
+   "id": "TC-SREF-012",
+   "field": "expected",
+   "old": "Commission / delivery charges are paid from the promotional credit first; the withdrawal of promotional credit is refused.",
+   "new": "Commission / delivery charges are paid from the promotional credit first; a debit of the promotional credit is refused (402): “The shop wallet holds ₹…, of which ₹… is promotional credit that only pays GoKesari commission and delivery charges.”",
+   "why": "exact refusal",
+   "evidence": "src/server/services/shop-wallet.ts:232-245"
+  },
+  {
+   "id": "TC-MKT-018",
+   "field": "preconditions",
+   "old": "Customer 1's referral code.",
+   "new": "Customer 1's referral code; rule customerReferrals on (Admin → Settings; off by default).",
+   "why": "The /r link only remembers a code; codes are shown and applied only while rule customerReferrals is on, and it defaults to off.",
+   "evidence": "src/server/config/rules.ts:251-268; src/app/refer/page.tsx:18-25"
+  },
+  {
+   "id": "TC-MKT-018",
+   "field": "expected",
+   "old": "Signed out: redirect to /signin and the code is remembered (30-day cookie); after sign-in /refer shows the friend's code applied. Signed in: redirect straight to /refer.",
+   "new": "Signed out: 307 to /signin and the code is kept in the gk_ref cookie for 30 days (upper-case, letters and digits only). The new customer's first-time setup shows it pre-filled in “Referral code (optional)” (“Referral code” when the admin made it mandatory); after “Save and continue” it is applied and /refer reads “You joined with a friend's code — your reward arrives after your first order is delivered.” (if they clear it there, /refer's “Were you invited by a friend?” box still has it pre-filled in “Friend's referral code”). Signed in: 307 straight to /refer. A code starting SHOP goes to /shop/register?ref=… while rule shopReferrals is on.",
+   "why": "/refer does not apply the code by itself: the cookie pre-fills the sign-up referral field (applied on save) and /refer's Apply box; the exact messages are quoted.",
+   "evidence": "src/app/r/[code]/route.ts:16-35; src/app/onboarding/page.tsx:41-44; src/components/profile-setup.tsx:115-147,189-210; src/app/refer/page.tsx:32,57-68; src/server/services/customer-signup-referrals.ts:115-135"
+  },
+  {
+   "id": "TC-MKT-019",
+   "field": "preconditions",
+   "old": "Customer 1 signed in.",
+   "new": "Customer 1 signed in; rule customerReferrals on (off by default).",
+   "why": "With the rule off /refer shows only “Referral rewards aren't available right now.”",
+   "evidence": "src/app/refer/page.tsx:18-25; src/server/config/rules.ts:263-264"
+  },
+  {
+   "id": "TC-MKT-019",
+   "field": "expected",
+   "old": "Own code and link shown; the link opens /r/<code>.",
+   "new": "“Refer a friend” shows the customer's own code and the link https://<site>/r/<code>, with “Copy link” (then “Link copied”) and “Share on WhatsApp”; opened in a private window the link goes to /signin with the code remembered (gk_ref cookie).",
+   "why": "Names the real controls and what the link does when opened signed out (it redirects; /r/<code> is never a page).",
+   "evidence": "src/components/referral-panel.tsx:10-38; src/app/refer/page.tsx:29-38; src/app/r/[code]/route.ts:20-35"
+  },
+  {
+   "id": "TC-UX-007",
+   "field": "steps",
+   "old": "1. Open /shop\n2. Read the top bar\n3. Open each sidebar group\n4. Type a tool name in “Find a tool”\n5. Click “View my store”",
+   "new": "1. Open /shop (1024 px or wider)\n2. Read the top bar and open the account menu\n3. Open a menu of each sidebar group\n4. Type a tool name in “Find a tool…”\n5. Click “View my store”",
+   "why": "Sidebar groups are headings, not collapsible; each holds menus that open their page. The search box's placeholder is “Find a tool…”.",
+   "evidence": "src/components/seller/seller-shell.tsx:369-425; src/lib/seller/nav.ts:52-53"
+  },
+  {
+   "id": "TC-UX-007",
+   "field": "expected",
+   "old": "Top bar: status pill (Live / Pending approval / Payment pending / Suspended / Rejected / Inactive), “View my store”, EN / हिं / मरा, notifications, account menu. Sidebar groups Orders, Catalogue, Payments, Growth, Account. Tool search finds pages. /shop shows the dashboard at 1024 px and wider.",
+   "new": "Top bar: the shop's name with its status pill (Live / Pending approval / Payment pending / Suspended / Rejected / Inactive), “View my store” (only while the shop is Live; opens /shops/<slug>), EN / हिं / मरा, notifications, account menu. Sidebar groups Orders, Catalogue, Payments, Growth, Account; every /shop page keeps the frame. “Find a tool…” finds pages (“No tool matches” otherwise). /shop shows the dashboard at 1024 px and wider.",
+   "why": "“View my store” is shown only for an APPROVED (Live) shop and only at 1024 px and wider; the no-match message is quoted.",
+   "evidence": "src/components/seller/seller-shell.tsx:126,172-183,398-401; src/lib/seller/nav.ts:56,64-71,103-118"
+  },
+  {
+   "id": "TC-UX-008",
+   "field": "steps",
+   "old": "1. Open /shop\n2. Open the ☰ menu\n3. Go to My products and back",
+   "new": "1. Open /shop on a phone (the tile board, with its own compact header)\n2. Open /shop/inventory and tap ☰ (“Open menu”)\n3. Pick an entry in the “Seller menu” drawer, then come back with Home",
+   "why": "On a phone /shop is the tile board, which brings its own compact header: the Seller Central top bar and its ☰ step aside there (globals.css, since 12-Oct). The ☰ drawer is on the other Seller Central pages; “My products” is not a drawer entry.",
+   "evidence": "src/app/globals.css:241-251; src/lib/board/menus.ts:218-228; src/lib/seller/nav.ts:24-30; src/components/seller/seller-shell.tsx:136-149,279-293"
+  },
+  {
+   "id": "TC-UX-008",
+   "field": "expected",
+   "old": "Sidebar becomes a ☰ drawer; /shop shows the tile board below 1024 px; nothing overflows sideways.",
+   "new": "Below 1024 px the sidebar becomes a ☰ drawer (“Seller menu”) on Seller Central pages; /shop shows the tile board with its own compact header instead of the Seller Central top bar; nothing overflows sideways.",
+   "why": "The phone /shop hides the Seller Central top bar while the tile board is shown (by design since 12-Oct).",
+   "evidence": "src/app/globals.css:241-251"
+  },
+  {
+   "id": "TC-PAY-036",
+   "field": "expected",
+   "old": "Cashfree sandbox opens at /orders/pay/session/<intent> (or the built-in page “Sandbox payment — Test payment page — no money moves” when PAYMENT_GATEWAY=SANDBOX). Success confirms the order; failure leaves it unpaid with a retry; expiry cancels the attempt. No real money.",
+   "new": "Cashfree sandbox opens from “Pay online” at /orders/pay/session/<intent> (or the built-in page “Sandbox payment — Test payment page — no money moves.” when PAYMENT_GATEWAY=SANDBOX). Success: “Payment received — Your order is placed and paid.”, order CONFIRMED. Failure: “Payment failed … You have not been charged for this attempt. Your order is kept — you can pay again.” with “Retry payment”, order PAYMENT_FAILED. Expiry: “Payment not completed in time”, the attempt EXPIRED and the order PAYMENT_FAILED with “Retry payment” and its stock released (the order is not cancelled). No real money. Needs rule onlinePayments on (off by default).",
+   "why": "Expiry ends the attempt, not the order: the order becomes PAYMENT_FAILED and can be paid again; exact return-page messages quoted.",
+   "evidence": "src/server/payments/order-payments.ts:419-458,594-611; src/components/payment-return-status.tsx:89-124; src/app/orders/pay/sandbox/[ref]/page.tsx:62-104; src/server/config/rules.ts:1205"
+  },
+  {
+   "id": "TC-PAY-037",
+   "field": "preconditions",
+   "old": "Customer 1; a slot close to its cut-off.",
+   "new": "Customer 1; rule onlinePayments on with PAYMENT_GATEWAY=CASHFREE (Cashfree sandbox keys); onlinePayments.intentExpiryMinutes at its default 15.",
+   "why": "The expiry does not depend on the slot: it is the rule's minutes from the attempt's creation, raised to at least 16 for a Cashfree order.",
+   "evidence": "src/server/payments/intents.ts:164-179; src/server/payments/gateway/cashfree.ts:87-99,176; src/server/config/rules.ts:1196,1207"
+  },
+  {
+   "id": "TC-PAY-037",
+   "field": "steps",
+   "old": "1. Start an online payment close to the slot cut-off\n2. Read the session expiry (network response)",
+   "new": "1. Start an online payment (“Pay online” at checkout)\n2. Read the Cashfree order's order_expiry_time (Cashfree sandbox merchant dashboard → Orders, or payment_intents.expires_at); the site's own customer answers do not carry it",
+   "why": "No customer-facing response (checkout, /api/payments/intents/<id>) includes the expiry.",
+   "evidence": "src/server/payments/order-payments.ts:584-613; tests/qa/lib/money-helpers.ts:105-111"
+  },
+  {
+   "id": "TC-PAY-037",
+   "field": "expected",
+   "old": "Expiry is at least 15 minutes from creation (F17).",
+   "new": "The Cashfree order expires at least 16 minutes after it is created (F17: Cashfree refuses under 15 minutes; the site sends the later of the attempt's expiry and now + 16 minutes and stores what Cashfree returns); a longer expiry is sent unchanged.",
+   "why": "The code's floor is 16 minutes (CASHFREE_MIN_ORDER_EXPIRY_MINUTES), not 15.",
+   "evidence": "src/server/payments/gateway/cashfree.ts:87-99,176,185"
+  },
+  {
+   "id": "TC-PAY-038",
+   "field": "expected",
+   "old": "Not found / refused; the sandbox gateway never runs on production.",
+   "new": "The page says “Not available — The sandbox payment page only runs on the test site.” with no payment buttons (HTTP 200, not a 404); the sandbox gateway never runs on production (only with PAYMENT_GATEWAY=SANDBOX and rule onlinePayments.allowSandboxInProduction on, default off). On test.gokesari.com the same made-up reference answers 404.",
+   "why": "Production renders a refusal message, not a not-found page.",
+   "evidence": "src/app/orders/pay/sandbox/[ref]/page.tsx:28-44; src/server/payments/sandbox-checkout.ts:26-27; src/server/payments/gateway/registry.ts:57-63"
+  },
+  {
+   "id": "TC-MFR-001",
+   "field": "expected",
+   "old": "Signed out goes to sign-in; a non-member is refused.",
+   "new": "Signed out: /manufacturer (and /upload, /keys, /jobs) answer 307 to /signin. A signed-in non-member sees “No manufacturer account — Ask GoKesari to link your sign-in to your company's manufacturer account.” on /manufacturer; /manufacturer/upload, /keys and /jobs send them back to /manufacturer; the portal APIs answer 403 “You are not a member of a manufacturer account.”",
+   "why": "“Refused” made concrete: the pages show a notice / redirect, the APIs answer 403 with that message.",
+   "evidence": "src/app/manufacturer/page.tsx:19-29; src/app/manufacturer/upload/page.tsx:14-18; src/app/manufacturer/keys/page.tsx:12-16; src/server/pmd/manufacturers.ts:128-133"
+  },
+  {
+   "id": "TC-MFR-002",
+   "field": "expected",
+   "old": "Job listed with status and per-row results.",
+   "new": "After “Upload” the import's page “Import progress” opens: status (QUEUED / RUNNING / SUCCEEDED / PARTIAL / FAILED) with a progress bar, Rows / Staged / Need attention, the validation report by error code (e.g. “GTIN_CHECK_DIGIT: 1”) and “Download error file (CSV)” listing each refused row with its reason. /manufacturer/jobs (“My imports”) lists the file with “<staged>/<rows> staged · <n> need attention” and its status.",
+   "why": "There are no per-row results on screen: counts, the report by error code and a CSV of the refused rows.",
+   "evidence": "src/components/batch-d/manufacturer-upload.tsx:15-27; src/components/batch-d/job-progress.tsx:53-92; src/app/manufacturer/jobs/page.tsx:18-36; src/app/api/pmd/jobs/[id]/errors/route.ts"
+  },
+  {
+   "id": "TC-RGR-005",
+   "field": "expected",
+   "old": "/shop/my-products answers 307 to /signin. /shop/register and /shop/join open without the redirect.",
+   "new": "/shop/my-products answers 307 to /signin. /shop/register opens (200) without the redirect; /shop/join forwards to /shop/register (never to /signin).",
+   "why": "/shop/join has no page of its own any more: it forwards to /shop/register (keeping ?code= / ?ref=).",
+   "evidence": "src/lib/request-path.ts:10-17; src/app/shop/layout.tsx:37-40; src/app/shop/join/page.tsx:5-17"
+  },
+  {
+   "id": "TC-RGR-007",
+   "field": "title",
+   "old": "D-142: admin or full operator opening /operator lands on the admin page",
+   "new": "D-142: a full operator opening an /operator page lands on the admin page",
+   "why": "Only a full OPERATOR is redirected; an admin holds the limited operator's permissions and opens the /operator pages themselves.",
+   "evidence": "src/server/authz/permissions.ts:507; src/app/operator/shops/page.tsx:18; src/server/services/operator-limited.ts:72"
+  },
+  {
+   "id": "TC-RGR-007",
+   "field": "expected",
+   "old": "Lands on the matching admin page.",
+   "new": "As the full operator (ops): /operator → /admin and each /operator/... page lands on the matching admin page (/operator/shops → /admin/shops, /operator/shops/<id> → /admin/shops/<id>, /operator/documents → /admin/document-uploads, /operator/onboard → /admin/shop-registrations, /operator/payments → /admin/console/registration-fees). As admin: /operator → /admin; the /operator/... pages open themselves (e.g. “My shops” lists every operator-onboarded shop), never the customer home.",
+   "why": "ADMIN has every permission (ADMIN_PERMISSIONS = all), so operatorPortalFallback is never reached for an admin on /operator/... pages; by design admins work there (WORKS_HERE).",
+   "evidence": "src/lib/operator-portal.ts:9-11; src/app/operator/*/page.tsx (can(...) guards); src/app/operator/page.tsx:27; src/server/authz/permissions.ts:507; src/server/services/operator-limited.ts:72,569"
+  },
+  {
+   "id": "TC-RGR-009",
+   "field": "steps",
+   "old": "1. Open the board",
+   "new": "1. Open /shop on a phone (the tile board; below 1024 px) or the menu page /shop/menu/payout (any width)",
+   "why": "At 1024 px and wider /shop shows the Seller Central dashboard, not the board; the entries are on the phone board and the menu pages.",
+   "evidence": "src/app/shop/page.tsx:121-139; src/app/shop/menu/[key]/page.tsx:22-43; src/components/board/menu-hub.tsx:78-90"
+  },
+  {
+   "id": "TC-RGR-010",
+   "field": "preconditions",
+   "old": "An approved rider with checks outstanding.",
+   "new": "An approved rider with checks outstanding: KYC (PAN and Aadhaar) and/or police verification not done, no admin override; rule riderVerification.gateAvailability on (default).",
+   "why": "The line shows only while the availability gate is enforced and not overridden.",
+   "evidence": "src/server/services/delivery-partners.ts:596-614; src/app/delivery-partner/page.tsx:53-59"
+  },
+  {
+   "id": "TC-RGR-010",
+   "field": "expected",
+   "old": "“You're approved — finish N more checks below…” with the right N.",
+   "new": "“You're approved — finish N more checks below to start delivering: …” (“1 more check” when one), naming each missing check: “PAN and Aadhaar verified (KYC)” and/or “police verification form and character certificate approved” (“police verification form approved” when no character certificate is required) — so N is 1 or 2.",
+   "why": "N counts the gate's two groups, not the four rows of the checklist below (see defects).",
+   "evidence": "src/app/delivery-partner/page.tsx:53-59; src/server/services/delivery-partners.ts:602-606"
+  },
+  {
+   "id": "TC-CAT-092",
+   "field": "steps",
+   "old": "1. Set the logo URL to javascript:alert(1)\n2. Set it to a data: URL\n3. Set it to http://example.com/logo.png\n4. Set it to an https URL",
+   "new": "1. PATCH /api/shops/<A> with logoUrl \"javascript:alert(1)\"\n2. … with a data: URL\n3. … with http://example.com/logo.png\n4. … with an https URL (or the site's own /api/images/<id>), then open /shops",
+   "why": "The owner's settings pages have no logo field; the address is set through the shop API (a file upload is planned, D-144).",
+   "evidence": "src/app/api/shops/[id]/route.ts:70-72; tests/qa/signed-in/sellers-settings.spec.ts:271-283"
+  },
+  {
+   "id": "TC-CAT-092",
+   "field": "expected",
+   "old": "javascript:, data: and http: URLs are refused (422); the https URL is saved and shown.",
+   "new": "javascript:, data: and http: URLs are refused with 422 (logoUrl: “Use an https:// image address or an uploaded image.”); the https URL (or /api/images/<id>) is saved and shown as the logo on the shop's card (/shops, home rails).",
+   "why": "Exact field message; where the logo is shown (the shop page itself does not show it).",
+   "evidence": "src/lib/shop-settings.ts:66-79; src/server/api/handler.ts:51-60; src/components/shop-grid-view.tsx:223-228"
+  },
+  {
+   "id": "SC-41",
+   "field": "journey",
+   "old": "1. Prospect requests a referral code; the agent shares his dealer code\n2. Shop registers with the code applied and pays the ₹4,999 slab\n3. Commission records for agent, lead and main dealer; the agent's dashboard updates live\n4. Payout on the 5th (Run now) with payee checks",
+   "new": "1. Prospect requests a referral code; the agent shares his dealer code\n2. Shop registers with the code applied and pays the ₹4,999 slab\n3. Commission records for agent, lead and main dealer; the agent's dashboard updates live\n4. Payout on the 5th (“Close <Month YYYY> now”) with payee checks",
+   "why": "button label",
+   "evidence": "src/components/dealer/commission-admin.tsx:533-545"
+  },
+  {
+   "id": "SC-43",
+   "field": "expected",
+   "old": "Bills numbered without gaps; credit note for the return; TCS / TDS correct; returns validate; export round-trips.",
+   "new": "Bills numbered without gaps; credit note for the return; TCS / TDS correct; GSTR-1 / 3B prepared from the books (totals match the portal's after Save); 2B reconciled; the Tally export reads back unchanged.",
+   "why": "there is no separate 'validate' step",
+   "evidence": "src/server/gsp/returns.ts:117-140"
+  },
+  {
+   "id": "TC-TIER-007",
+   "field": "expected",
+   "old": "At 50+ shops in the month: a BONUS of 10% of that month's direct + override commission (not renewals or other bonuses) for each role that reached it; 49 shops: none; counted afresh each month; one draft payout per payee.",
+   "new": "At 50+ shops in the month: a BONUS of 10% of that month's direct + override commission (not renewals or other bonuses) for each role that reached it; 49 shops: none; counted afresh each month; one draft payout per payee (one per PAN when a person is paid in two roles).",
+   "why": "payouts are grouped per PAN (override wording)",
+   "evidence": "src/server/dealers/monthly-payout.ts:192-225"
+  },
+  {
+   "id": "TC-TIER-011",
+   "field": "expected",
+   "old": "Admin sees the TIERED settings, TDS settings, target bonuses, dealer selector, team tree, sub-agent requests and Team performance; the dealer sees this month's earnings (live), all-time earned and paid, target progress and the team card by type and level.",
+   "new": "Admin sees the TIERED settings, TDS settings, target bonuses, dealer selector and sub-agent requests; after choosing a dealer, his team tree and Team performance; the dealer sees this month's earnings (live), all-time earned and paid, target progress and the team card by type and level.",
+   "why": "the team tree and Team performance appear once a dealer is chosen (override wording)",
+   "evidence": "src/app/admin/dealers/commission/tiered/page.tsx:27-33,52-56"
+  }
+ ],
+ "possibleDefects": [
+  {
+   "id": "TC-ONB-060",
+   "summary": "GSTIN verified but the PAN inside it refused by the government (FAILED / EXPIRED, e.g. inactive): canContinue is false, so the owner stays on “Verify your business”, which shows the GSTIN with the badge “Verified”, no Continue button and no reason — the PAN's message is only shown as a notice on the next step, which is never reached. Found by reading the code; not reproducible with the local mock (it answers the GSTIN and its PAN by the same digits).",
+   "evidence": "src/server/services/shop-registration-draft.ts:184; src/components/registration/onboarding-wizard.tsx:415, 560-565, 620, 736-742",
+   "group": "A"
+  },
+  {
+   "id": "TC-ONB-049",
+   "summary": "Minor: the identity screen's example numbers are ones the server refuses — “27ABCDE1234F1Z5” (in the format message and placeholder) has the wrong check character (0 is right, as in the server's own “27ABCDE1234F1Z0”) and its PAN part, like the PAN example “ABCDE1234F”, has D as 4th letter, which is not a PAN holder type.",
+   "evidence": "src/components/registration/onboarding-wizard.tsx:636, 700; src/lib/shop-identity.ts:112; src/lib/kyc/doc-formats.ts:51-62, 114-123",
+   "group": "A"
+  },
+  {
+   "id": "TC-ONB-055",
+   "summary": "Minor wording: in the wizard the photo reader's button says “These numbers are right — check them online”, but it only fills the number field; nothing is checked until Verify GSTIN / Verify PAN.",
+   "evidence": "src/components/registration/document-scan.tsx:168; src/components/registration/onboarding-wizard.tsx:722-728",
+   "group": "A"
+  },
+  {
+   "id": "TC-ONB-080",
+   "summary": "A food-type wizard shop paid without an FSSAI licence does not go live (contradicts DI-14 'licences never block go-live, FSSAI included'): the instant approval calls approveShopTransaction, which runs assertFssaiAllowsApproval with no wizard exemption; with rule documentUpload.fssaiMandatoryForFood at its default (true) it throws 'A shop that sells food needs a valid FSSAI licence…', the decision is logged PENDING and the shop stays PENDING_APPROVAL (owner sees 'Payment received — pending admin approval'); the grace e-mail (TC-ONB-081) and SC-39 never happen. Legal documents are exempted for wizard shops (legal-documents.ts:351-352) but FSSAI is not. The integration test 'a food shop goes live without its FSSAI … (DI-14)' passes only because tests/helpers/fixtures.ts switches fssaiMandatoryForFood off for every integration test. Note docs/decision-log.md DI-13 still says 'FSSAI for a food shop still applies' — the two decisions conflict; confirm with the owner, and check whether staging/production override documentUpload.fssaiMandatoryForFood (not queryable from here). Affects TC-ONB-080, TC-ONB-081, TC-ONB-082/083 for food shops, SC-39.",
+   "evidence": "src/server/services/shops.ts:1072-1074; src/server/services/document-uploads.ts:677-692; src/server/config/rules.ts:1182; src/server/services/legal-documents.ts:351-352; src/server/services/shop-onboarding.ts:146-155; tests/helpers/fixtures.ts:150-155; tests/integration/shop-registration-flow.test.ts:294; docs/decision-log.md:347-348",
+   "group": "B"
+  },
+  {
+   "id": "TC-CAT-089",
+   "summary": "Barcode scanner: a typed code of fewer than 6 digits gets no feedback — 'Find' silently does nothing; the API's 'Enter the barcode number (at least 6 digits).' is never shown on the page (low, UX).",
+   "evidence": "src/components/barcode-scanner.tsx:84-91; src/app/api/shops/[id]/barcode-lookup/route.ts:18",
+   "group": "C"
+  },
+  {
+   "id": "TC-CAT-089",
+   "summary": "Unknown barcode: the owner is told 'it goes on sale in your shop once approved', but the listing created with the pending product is not held back by approval — customers' catalogue (storefrontConditions) has no approval check, so once the owner gives it stock (My products) it is Live and orderable before the team approves it. Either the message or the gate is wrong (owner Q9: 'a new product for our team to approve').",
+   "evidence": "src/components/registration/starter-shelf.tsx:142-166; src/server/services/catalogue.ts:444,465-481,1210-1220 (no approval condition in storefrontConditions)",
+   "group": "C"
+  },
+  {
+   "id": "TC-RPAY-013",
+   "summary": "Admin → Rider payouts “Run now”: whenever a run carries any rider forward, the success message shows only that count (e.g. “1”) instead of “N payment(s) created, M carried forward.” — the run result's `skipped` is a number on success, but the button treats any truthy `skipped` as the “not started” reason text.",
+   "evidence": "src/components/rider-wallet/admin-actions.tsx:33; src/server/rider-wallet/monthly.ts:190 (skipped: skipped.length) vs :83,:97 (skipped: string)",
+   "group": "D"
+  },
+  {
+   "id": "TC-RPAY-014",
+   "summary": "The rider's payout statement always shows “Paid to your bank ₹X” — also for a refused withdrawal (“Failed — back in balance”) or a failed/reversed monthly payout, where nothing reached the bank (low; misleading wording).",
+   "evidence": "src/app/gig/wallet/payouts/[id]/page.tsx:30",
+   "group": "D"
+  },
+  {
+   "id": "TC-BILL-002",
+   "summary": "A composition shop (and an Enrolment-ID shop) can issue a counter bill / B2B sales invoice or a POS bill to a buyer in another state: Accounts > Sales and the POS never apply the tax engine's supplyBlock; only marketplace checkout refuses the inter-state supply (rule billing.compositionInterStateAllowed false: 'law: no, for goods'). The bill is issued as a bill of supply.",
+   "evidence": "src/server/accounts/sales.ts:88-115 (issueSalesInvoice: no supplyBlock); src/server/accounts/pos.ts:86-104; compare src/server/tax/checkout.ts:38-55 and src/server/config/rules.ts:1700,1731",
+   "group": "E"
+  },
+  {
+   "id": "TC-TIER-032",
+   "summary": "Rule changes in Admin > Settings (including dealerTieredCommission) ask for no reason: PUT /api/admin/settings takes {key, value} only and saves; the change is logged (setting.changed, old and new values). docs/dealer-programme/TIERED_COMMISSION.md Part 2 step 1 says 'A reason is asked and logged'. The local check asserts the refusal and will fail until a reason is required (or the case is reworded if the owner accepts the current behaviour).",
+   "evidence": "src/app/api/admin/settings/route.ts:21-29; src/server/services/settings.ts:95-114; src/components/platform-settings-editor.tsx (no reason field)",
+   "group": "E"
+  },
+  {
+   "id": "TC-TIER-030",
+   "summary": "'Reverse' on a single ledger entry (Admin > Dealers > Commission > Ledger) reverses only that entry, not every level of the shop; TIERED_COMMISSION.md Part 2 says 'Reversal: a refund recorded on the shop (Finance) or Reverse on an entry. Every level goes.' A recorded fee refund / reversed fee payment / waiver does reverse every level. The automated check uses the refund path only.",
+   "evidence": "src/server/dealers/commission.ts:773-787 (reverseEntry: one entry); src/server/services/shop-payments.ts:236,305 (reverseShopCommissionSafely)",
+   "group": "E"
+  },
+  {
+   "id": "TC-RGR-010",
+   "summary": "Possible (low, UX): D-140's line counts the gate's two groups ('finish 2 more checks below… PAN and Aadhaar verified (KYC); police verification form and character certificate approved') while the Verification card right below lists four rows (PAN, Aadhaar, Police verification form, Character certificate), all 'Not started' / 'Not uploaded' for a new rider. D-140's expected example was 'finish 4 checks'. Not against an owner decision; the lead/owner may accept N = groups.",
+   "evidence": "src/app/delivery-partner/page.tsx:53-59; src/server/services/delivery-partners.ts:602-606; src/components/rider-verification-checklist.tsx:73-76; docs/testing/qa-defects.json D-140",
+   "group": "F"
+  },
+  {
+   "id": "TC-CAT-071",
+   "summary": "Low, UX: after \"Save and go live\" on step 3 the result summary (\"N live, M need stock or price\") is replaced almost at once — router.refresh() re-renders the page, the step has no waiting products left and shows \"No products are waiting for stock or price.\" instead, unmounting the editor that holds the summary.",
+   "evidence": "src/components/shop-setup/stock-editor.tsx:181-193; src/app/shop/product-categories/page.tsx:153-163",
+   "group": "lead (local run 20-Nov-2026)"
+  },
+  {
+   "id": "TC-TIER-030",
+   "summary": "Low: recording a fee refund larger than the amount paid (POST /api/shop-payments, REFUND) answers 500 \"Something went wrong\" — the update breaks check constraint shops_registration_amounts_non_negative — instead of refusing the amount with a clear message.",
+   "evidence": "src/app/api/shop-payments/route.ts; drizzle constraint shops_registration_amounts_non_negative (local run 20-Nov-2026)",
+   "group": "lead (local run 20-Nov-2026)"
+  },
+  {
+   "id": "TC-BILL-012",
+   "summary": "Low: two parties of one shop with the same name share one Tally sync key (sync_records external_key = the party name), so every export reports one of them as changed and the re-export is never fully unchanged. Seen on a local database with repeated test runs; a clean database exports unchanged the second time.",
+   "evidence": "sync_records_key_uq (shop_id, system, entity_type, external_key); audit sync.file_exported changed: 1 on back-to-back exports (local run 20-Nov-2026)",
+   "group": "lead (local run 20-Nov-2026)"
+  }
+ ]
+}

@@ -6,6 +6,9 @@ Keeps the test plan workbook (test-cases.xlsx) in step with the QA suite.
   python3 scripts/qa/plan_workbook.py add-app-cases         # the App install & updates module (31 Oct 2026)
   python3 scripts/qa/plan_workbook.py add-tier-cases        # Dealer network & shop referrals (2 Nov 2026)
   python3 scripts/qa/plan_workbook.py add-opg-cases         # the Order, payment & GST module (31 Oct 2026)
+  python3 scripts/qa/plan_workbook.py sync-catalog "<why>"     # catalog edits made in cases.json alone -> the workbook
+  python3 scripts/qa/plan_workbook.py add-json docs/testing/manual/cases-added-<date>.json [changes.json]
+                                                              # cases, journeys, features and overrides of a cases-added file
   python3 scripts/qa/plan_workbook.py statuses REGISTER.xlsx  # write each case's overall status back
 
 add-qa-cases adds the cases and scenarios of the QA automation features
@@ -649,6 +652,223 @@ TIER_CHANGE = ("TIER 02-Nov", "New module",
                "site checks in tests/qa/signed-in/dealer-tiered.spec.ts and tests/qa/guest/dealer-tiered.spec.ts.")
 
 
+def stretch_run_summary(wb, modules, last):
+    """Run summary: a row for every module (new ones before Total) and every formula over all case rows."""
+    rs = wb["Run summary"]
+    total_row = next(r for r in range(2, rs.max_row + 1) if rs.cell(row=r, column=1).value == "Total")
+    have = [rs.cell(row=r, column=1).value for r in range(2, total_row)]
+    new = []
+    for module in modules:
+        if module in have:
+            continue
+        new.append(module)
+        rs.insert_rows(total_row)
+        for col in range(1, 9):
+            copy_style(rs.cell(row=total_row - 1, column=col), rs.cell(row=total_row, column=col))
+        rs.cell(row=total_row, column=1, value=module)
+        have.append(module)
+        total_row += 1
+    rng = lambda c: f"'Test cases'!${c}$2:${c}${last}"
+    for r in range(2, total_row):
+        rs.cell(row=r, column=2, value=f"=COUNTIF({rng('B')},A{r})")
+        for col, status in zip(range(3, 7), ["Pass", "Fail", "Blocked", "Not run"]):
+            rs.cell(row=r, column=col, value=f'=COUNTIFS({rng("B")},$A{r},{rng("M")},"{status}")')
+        rs.cell(row=r, column=7, value=f'=COUNTIFS({rng("B")},$A{r},{rng("F")},"P0")')
+        rs.cell(row=r, column=8, value=f'=G{r}-COUNTIFS({rng("B")},$A{r},{rng("F")},"P0",{rng("M")},"Pass")')
+    for col in range(2, 9):
+        letter = chr(64 + col)
+        rs.cell(row=total_row, column=col, value=f"=SUM({letter}2:{letter}{total_row - 1})")
+    return new
+
+
+CATALOG_FIELDS = {"module": 2, "features": 3, "title": 4, "type": 5, "priority": 6, "role": 7, "method": 8,
+                  "preconditions": 9, "steps": 10, "expected": 11, "source": 12}
+
+
+def sync_catalog(note):
+    """
+    Writes edits made to tests/qa/catalog/cases.json alone (not through this workbook) back into the
+    Test cases sheet, so the next export-cases.ts run does not undo them. One Change log line per case.
+    """
+    import json
+
+    catalog = {c["id"]: c for c in json.load(open("tests/qa/catalog/cases.json", encoding="utf-8"))}
+    wb = openpyxl.load_workbook(PLAN)
+    tc = wb["Test cases"]
+    log = wb["Change log"]
+    synced = []
+    for r in range(2, tc.max_row + 1):
+        cid = tc.cell(row=r, column=1).value
+        c = catalog.get(cid)
+        if not c:
+            continue
+        changed = []
+        for field, col in CATALOG_FIELDS.items():
+            have = tc.cell(row=r, column=col).value
+            if (have or "") != (c.get(field) or ""):
+                tc.cell(row=r, column=col, value=c.get(field) or None)
+                changed.append(field)
+        if changed:
+            synced.append(cid)
+            append_like(log, [f"{cid} sync", "Synced from catalog", f"{', '.join(changed)} taken from tests/qa/catalog/cases.json: {note}"], log.max_row)
+    if log.auto_filter.ref:
+        log.auto_filter.ref = re.sub(r"\d+$", str(log.max_row), log.auto_filter.ref)
+    wb.save(PLAN)
+    print(f"plan_workbook: {len(synced)} cases synced from the catalog ({', '.join(synced)})")
+
+
+def fmt_day(iso):
+    """2026-11-20 -> 20-Nov-2026 (the owner's date format)."""
+    y, m, d = iso.split("-")
+    return f"{d}-{['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][int(m) - 1]}-{y}"
+
+
+def add_json(path, changes_path=None):
+    """
+    Adds the cases, journeys and features of a cases-added JSON (docs/testing/manual/cases-added-*.json:
+    {date, features, scenarios, cases, e2e, overrides}) once — rows already in the plan are left alone.
+    Cases keep their own module (new modules get a Run summary row). Source says where a case came from:
+    "Added <day> …" for a feature on staging, or the case's own origin ("Planned - R4 / WP6, not built
+    yet (<day>)") for a feature not built yet — scripts/qa/build-manual-workbook.ts reads it back.
+    Journeys fill the Preconditions and Origin columns of the E2E sheet. Features become Coverage rows
+    listing their cases. Overrides rewrite plan cases whose Expected result went out of date (their
+    note is added to Source and the Change log). The optional changes file ({"wording": [{id, field,
+    old, new, why, evidence}]}) adds one Change log line per case whose wording was corrected against
+    the code before it was added.
+    """
+    import json
+
+    data = json.load(open(path, encoding="utf-8"))
+    day = fmt_day(data["date"])
+    wb = openpyxl.load_workbook(PLAN)
+
+    tc = wb["Test cases"]
+    have = ids_in(tc)
+    template = tc.max_row
+    added = []
+    for c in data["cases"]:
+        if c["id"] in have:
+            continue
+        if (c.get("origin") or "").startswith("Planned"):
+            source = f"{c['origin']} (test scenario {c['scenario']}; docs/testing/manual/README.md)"
+        else:
+            source = f"Added {day}: feature on staging after the 08-Nov plan (test scenario {c['scenario']}; docs/testing/manual/README.md)"
+        append_like(tc, [c["id"], c["module"], c["features"], c["title"], c["type"], c["priority"], c["role"], c["method"],
+                         c["preconditions"], c["steps"], c["expected"], source, "Not run", None, None, None], template)
+        added.append(c["id"])
+    last = tc.max_row
+    for dv in tc.data_validations.dataValidation:
+        if "M2:M" in str(dv.sqref):
+            dv.sqref = openpyxl.worksheet.cell_range.MultiCellRange(f"M2:M{last}")
+    stretch_status_colours(tc, "M", last)
+    tc.auto_filter.ref = f"A1:P{last}"
+
+    sc = wb["E2E scenarios"]
+    for col, header in ((9, "Preconditions"), (10, "Origin")):
+        if sc.cell(row=1, column=col).value != header:
+            sc.cell(row=1, column=col, value=header)
+            copy_style(sc.cell(row=1, column=8), sc.cell(row=1, column=col))
+            sc.column_dimensions[chr(64 + col)].width = 40 if col == 9 else 14
+    have = ids_in(sc)
+    template = sc.max_row
+    journeys = []
+    for j in data["e2e"]:
+        if j["id"] in have:
+            continue
+        planned = (j.get("origin") or "").startswith("Planned")
+        origin = j["origin"] if planned else f"Added {day}"
+        note = (j.get("remarks") or j["origin"]) if planned else f"Added {day} (features on staging after the 08-Nov plan)"
+        row = append_like(sc, [j["id"], j["title"], j["features"], j["priority"], j["journey"], j["expected"], "Not run",
+                               note, j.get("preconditions") or None, origin], template)
+        copy_style(sc.cell(row=template, column=8), sc.cell(row=row, column=9))
+        copy_style(sc.cell(row=template, column=8), sc.cell(row=row, column=10))
+        journeys.append(j["id"])
+    for dv in sc.data_validations.dataValidation:
+        if re.match(r"G2:G\d+", str(dv.sqref)):
+            dv.sqref = openpyxl.worksheet.cell_range.MultiCellRange(f"G2:G{sc.max_row}")
+    sc.auto_filter.ref = f"A1:J{sc.max_row}"
+
+    modules = []
+    for c in data["cases"]:
+        if c["module"] not in modules:
+            modules.append(c["module"])
+    new_modules = stretch_run_summary(wb, modules, last)
+
+    cov = wb["Coverage"]
+    have = ids_in(cov)
+    template = cov.max_row
+    for f in data["features"]:
+        if f["id"] in have:
+            continue
+        ids = [c["id"] for c in data["cases"] if f["id"] in [x.strip() for x in c["features"].split(",")]]
+        ids += [j["id"] for j in data["e2e"] if f["id"] in [x.strip() for x in j["features"].split(",")]]
+        append_like(cov, [f["id"], f["module"], f["feature"], f"ON STAGING ({day})", len(ids), ", ".join(ids), ""], template)
+    if cov.auto_filter.ref:
+        cov.auto_filter.ref = re.sub(r"\d+$", str(cov.max_row), cov.auto_filter.ref)
+
+    # Overrides: plan cases whose Expected result went out of date, rewritten once.
+    overridden = []
+    columns = {"title": 4, "preconditions": 9, "steps": 10, "expected": 11}
+    rows = {tc.cell(row=r, column=1).value: r for r in range(2, tc.max_row + 1)}
+    for o in data.get("overrides", []):
+        r = rows.get(o["id"])
+        if r is None:
+            raise SystemExit(f"override for a case that is not in the plan: {o['id']}")
+        source = tc.cell(row=r, column=12).value or ""
+        if o["note"] in source:
+            continue
+        for field, col in columns.items():
+            if o.get(field) is not None:
+                tc.cell(row=r, column=col, value=o[field])
+        tc.cell(row=r, column=12, value=f"{source}; {o['note']}" if source else o["note"])
+        overridden.append(o)
+
+    log = wb["Change log"]
+    logged = {log.cell(row=r, column=1).value for r in range(2, log.max_row + 1)}
+    lines = []
+    for o in overridden:
+        changed = ", ".join(f for f in columns if o.get(f) is not None)
+        lines.append((f"{o['id']} {day}", "Case updated", f"{o['note']} ({changed} rewritten; docs/testing/manual/cases-added-{data['date']}.json, overrides)."))
+    if added or journeys:
+        first, last_id = (added[0], added[-1]) if added else ("", "")
+        lines.append((f"NEW {day}", "New cases",
+                      f"{len(added)} cases ({first} … {last_id}, in their modules"
+                      f"{'; new modules: ' + ', '.join(new_modules) if new_modules else ''}), "
+                      f"{len(journeys)} journeys ({', '.join(journeys)}) and {len(data['features'])} features (Coverage) written on {day} "
+                      f"for features added to staging after the 08-Nov plan (docs/testing/manual/README.md). Each Expected result was "
+                      f"checked against the code on origin/staging before it was added; corrected wording is listed below. "
+                      f"Automated in tests/qa (or declared manual with the reason); status per site in the master register."))
+    if changes_path:
+        # One line per case: which fields were brought in line with the code and why (old / new text and
+        # the code references stay in the changes file).
+        changes = json.load(open(changes_path, encoding="utf-8"))
+        by_case = {}
+        for ch in changes.get("wording", []):
+            by_case.setdefault(ch["id"], []).append(ch)
+        for cid, chs in by_case.items():
+            fields = ", ".join(dict.fromkeys(ch["field"] for ch in chs))
+            why = " ".join(dict.fromkeys(ch["why"].strip().rstrip(".") + "." for ch in chs))
+            lines.append((f"{cid} {day}", "Checked against code",
+                          f"{fields} corrected before adding: {why} ({changes_path})"[:2000]))
+    for line in lines:
+        if line[0] in logged:
+            continue
+        append_like(log, list(line), log.max_row)
+    if log.auto_filter.ref:
+        log.auto_filter.ref = re.sub(r"\d+$", str(log.max_row), log.auto_filter.ref)
+
+    readme = refresh_readme(wb)
+    n_journeys = sc.max_row - 1
+    for r in range(1, readme.max_row + 1):
+        v = readme.cell(row=r, column=2).value
+        if isinstance(v, str) and re.match(r"^\d+ end-to-end journeys", v) and journeys and journeys[0] not in v:
+            v = re.sub(r"^\d+ end-to-end journeys", f"{n_journeys} end-to-end journeys", v).rstrip(".")
+            readme.cell(row=r, column=2, value=f"{v}; {journeys[0]} to {journeys[-1]} ({day}) cover the features added to staging after 08-Nov.")
+    wb.save(PLAN)
+    print(f"plan_workbook: {len(added)} cases and {len(journeys)} journeys added, {len(overridden)} cases updated; "
+          f"Test cases now {last - 1}, journeys {n_journeys}")
+
+
 STATUS_MAP = {"Pass": "Pass", "Pass (partial)": "Pass", "Fail": "Fail", "Blocked": "Blocked", "Manual": "Blocked",
               "Not run (rule)": "Not run", "Not run": "Not run"}
 
@@ -707,6 +927,10 @@ if __name__ == "__main__":
         add_module(OPG_MODULE, OPG_CASES, OPG_SOURCE, (), OPG_COVERAGE, OPG_CHANGE)
     elif len(sys.argv) >= 2 and sys.argv[1] == "add-tier-cases":
         add_module(TIER_MODULE, TIER_CASES, TIER_SOURCE, (), TIER_COVERAGE, TIER_CHANGE)
+    elif len(sys.argv) >= 3 and sys.argv[1] == "sync-catalog":
+        sync_catalog(sys.argv[2])
+    elif len(sys.argv) >= 3 and sys.argv[1] == "add-json":
+        add_json(sys.argv[2], sys.argv[3] if len(sys.argv) >= 4 else None)
     elif len(sys.argv) >= 3 and sys.argv[1] == "statuses":
         statuses(sys.argv[2])
     else:

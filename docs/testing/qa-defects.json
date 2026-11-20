@@ -1685,8 +1685,9 @@
       "found": "2026-10-31 staging run opg-phase1-release (passed on 24 Oct)",
       "actual": "GET /shop/orders/00000000-0000-4000-8000-000000000000/packing-slip as shop A's owner → 200.",
       "expected": "404 page with a way back, no stack trace.",
-      "fix": "To investigate: the page calls notFound() for an unknown slip (src/app/shop/orders/[id]/packing-slip/page.tsx, unchanged since WS-B); likely the status is lost once the page streams. Not caused by #313.",
-      "status": "Open"
+      "fix": "Seller Central pages stream behind loading.tsx, so the page's notFound() came after the 200 was sent (Next 16 'The HTTP contract'). The proxy now passes the page's path to the /shop layout (header x-gk-path, always overwritten), and the layout asks for the packing slip first (findPackingSlip, cached for the render and reused by the page) and answers a real 404. Checked locally on 19-Nov-2026: unknown and malformed ids → 404. Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026"
     },
     {
       "id": "D-110",
@@ -1999,9 +2000,9 @@
       "found": "2026-11-04 UX/QA audit (Staging + Production, All)",
       "actual": "curl -I https://gokesari.com/shop → 200 (compare /wallet → 307 to /signin). Open /shop/orders/00000000-0000-4000-8000-000000000000/packing-slip as the shop owner → 200.",
       "expected": "307 to /signin for a signed-out request; 404 for an unknown id. No data is exposed — the page streams only the skeleton.",
-      "fix": "",
-      "status": "Open",
-      "fixedIn": "",
+      "fix": "Same cause as D-109. The /shop layout now redirects a signed-out visitor to /signin before the page streams (a real 307), except /shop/register and /shop/join (registration, which has its own sign-in step). Checked locally on 19-Nov-2026: /shop, /shop/orders and a packing slip → 307 /signin; /shop/register 200. Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026",
       "retest": ""
     },
     {
@@ -2014,8 +2015,8 @@
       "found": "2026-11-04 UX/QA audit (Staging, API)",
       "actual": "As a signed-in customer, POST /api/price-requests with an empty body → 422 VALIDATION_FAILED.",
       "expected": "403 for a caller without the shop role, before the body is read.",
-      "fix": "",
-      "status": "Open",
+      "fix": "Not a code fault: since 24-Oct-2026 (commit 1fd79c93) the route refuses a caller who owns no shop with 403 before reading the body (integration test tests/integration/qa-2026-10-24-rbac-order.test.ts). An owner acting as a customer still gets the validation by design, and the staging customer test account owns a shop (E-13), so it got 422. Checked 19-Nov-2026.",
+      "status": "Not a defect",
       "fixedIn": "",
       "retest": ""
     },
@@ -2053,9 +2054,9 @@
       "found": "2026-11-04 UX/QA audit (Staging + Production, Mobile web)",
       "actual": "Open any page on a phone in a fresh browser (e.g. the admin board, Seller Central, sign-in). The card sits over the bottom navigation and the last row of tiles until 'Not now' is tapped.",
       "expected": "Spec: prompt on every visit until installed — keep that, but as a slim bar above the bottom menu (≤ 64 px), never over the sign-in form or the tiles.",
-      "fix": "",
-      "status": "Open",
-      "fixedIn": "",
+      "fix": "On a phone the prompt is one slim row (62 px: icon, title, Install, Not now) instead of a card; on the shopping pages it sits just above the bottom menu (and above the 'View cart' bar), never over it. Wide screens keep the corner card. The rule 'every visit until installed' is unchanged (src/components/app-install/install-prompt.tsx, layout passes shoppingNav / cartBar). Checked locally at 375 px on 19-Nov-2026. Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026",
       "retest": ""
     },
     {
@@ -2081,9 +2082,9 @@
       "found": "2026-11-04 UX/QA audit (Staging, Mobile web)",
       "actual": "Pixel 7, 4G profile, location allowed: open https://test.gokesari.com/shops/nearby.",
       "expected": "Reserve the list's space while the location resolves. Production measured 0.00 (location not resolved there), so check again after the next release.",
-      "fix": "",
-      "status": "Open",
-      "fixedIn": "",
+      "fix": "The location card keeps the same height before and after the position is known, and the results area keeps its room (min 60svh) while the position and the shops load. Measured locally on 19-Nov-2026 (Pixel 7 profile, location shared, 4 shops): CLS 0.0088 and 0.00 (was 0.33 on staging). Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026",
       "retest": ""
     },
     {
@@ -2107,9 +2108,9 @@
       "found": "2026-11-04 UX/QA audit (Staging, All)",
       "actual": "Sign in as the staging shop owner; open /shop.",
       "expected": "Sub-links that read as a status should show the real status (e.g. 'Not added').",
-      "fix": "",
-      "status": "Open",
-      "fixedIn": "",
+      "fix": "A board entry that reads as a status ('Verified' under Payout bank and My Shop) now says 'Not verified' when the record is known not to be verified, on the board and on the menu page (boardItemLabel in src/components/board/tiles.tsx). Checked locally on 19-Nov-2026: 'Payout bank • Details • Not verified' under the 'Bank account not set' banner. Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026",
       "retest": ""
     },
     {
@@ -2120,9 +2121,9 @@
       "found": "2026-11-04 UX/QA audit (Staging, All)",
       "actual": "Sign in as the staging rider; open /delivery-partner.",
       "expected": "One clear status with the next step first (e.g. 'Approved — finish 4 checks to start delivering').",
-      "fix": "",
-      "status": "Open",
-      "fixedIn": "",
+      "fix": "An approved partner who still has checks to pass reads 'You're approved — finish N more checks below to start delivering: …' with the missing checks named, instead of only 'You're approved' (src/app/delivery-partner/page.tsx). Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026",
       "retest": ""
     },
     {
@@ -2146,9 +2147,9 @@
       "found": "2026-11-04 UX/QA audit (Staging, All)",
       "actual": "Sign in as the staging operator; open /operator/shops.",
       "expected": "Send them to the matching admin page, or say 'This page is for limited operators — open the Admin board'.",
-      "fix": "",
-      "status": "Open",
-      "fixedIn": "",
+      "fix": "An admin or full operator who opens an /operator/... link goes to the matching admin page (/admin/shops, /admin/shops/<id>, /admin/document-uploads, /admin/shop-registrations, /admin/console/registration-fees); anyone else still goes home (src/lib/operator-portal.ts). Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026",
       "retest": ""
     },
     {
@@ -2265,9 +2266,9 @@
       "found": "2026-11-04 UX/QA audit (Staging + Production, All)",
       "actual": "Open /shop/inventory on a phone; run axe. The table wrapper (overflow-x-auto) scrolls sideways but holds nothing focusable, so a keyboard user cannot scroll it.",
       "expected": "A scrollable region can take keyboard focus (tabIndex=0 with a label) or holds focusable content.",
-      "fix": "Add tabIndex={0}, role=\"region\" and an aria-label to the table wrapper. Not yet made.",
-      "status": "Open",
-      "fixedIn": "",
+      "fix": "The inventory table's scroll wrapper is a focusable region (tabIndex 0, role region, label 'Inventory table', visible focus outline). Checked locally on 19-Nov-2026. Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026",
       "retest": ""
     },
     {
@@ -2296,9 +2297,9 @@
       "found": "2026-11-16 staging run staging-regression-neon-2026-11-16 (phone, Pixel 7, 12.53 IST). The same check failed on the phone on 09-Nov too, when it was filed as a test problem.",
       "actual": "On /addresses at 412 px, Delete opens the inline confirmation 'Delete this address? / Yes, delete / Cancel' inside the card's action group (src/components/address-manager.tsx:140, 'flex shrink-0 gap-2'; src/components/confirm-button.tsx:38). The group cannot shrink, so the question and 'Yes, delete' sit past the card's right edge, and the page clips sideways overflow (src/app/globals.css:59 and :68, overflow-x hidden / clip), so they cannot be scrolled into view. Playwright: getByRole('button', { name: 'Yes, delete' }) — 'element is outside of the viewport' for 30 s. Screenshot: test-results/qa/artifacts/test.gokesari.com/signed-in-shopping-locatio-a6f23-d-one-is-gone-from-the-cart-mobile/test-failed-2.png (card 'Office mwix81hy': 'Delete this addres' cut at the screen edge). The same check passes on desktop.",
       "expected": "On a phone the customer can confirm and delete a saved address (TC-LOC-008: add, edit, set default, delete).",
-      "fix": "Let the card's action row wrap under the address on narrow screens (flex-wrap; actions full width below sm), or show the confirmation on its own line or in a dialog. Not fixed in this run (product code out of scope).",
-      "status": "Open",
-      "fixedIn": null,
+      "fix": "The address card stacks on a phone: the address first, then Edit / Delete in a row that wraps (flex-col below sm, actions flex-wrap), so 'Delete this address? / Yes, delete / Keep' has the card's full width (src/components/address-manager.tsx). Checked locally at 375 px on 19-Nov-2026: the confirmation fits inside the card and 'Yes, delete' removes the address. Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026",
       "retest": null
     },
     {
@@ -2312,9 +2313,9 @@
       "found": "2026-11-16 staging run staging-regression-neon-2026-11-16 (phone, Pixel 7 Android, 12.37 IST). TC-FUL-005/006 also failed on the phone on 09-Nov (cause not traced then).",
       "actual": "The install sheet (src/components/app-install/install-prompt.tsx:246, 'fixed inset-x-0 bottom-0 z-[45]', data-method android-menu) shows on every page load until the app is installed (rule of 31-Oct, docs/app-install-2026-10) and the page keeps no room under it. On /shop/orders the order card's 'Packed — mark ready' is the last element of the page and stays under the sheet even when scrolled to the end: Playwright found the button visible and enabled, but the sheet's Install button / card took the click for 30 s. Screenshot: test-results/qa/artifacts/test.gokesari.com/signed-in-orders-fulfil-TC-49423-EADY-and-a-rider-is-offered-mobile/test-failed-2.png. A person can tap 'Not now' and go on; the sheet returns on the next page load. Desktop passes.",
       "expected": "A shop owner can reach every action on a phone without first dismissing a prompt, or the page leaves room under the sheet.",
-      "fix": "Keep the sheet's height free at the bottom of the page while it shows (padding under the main content), or show it less often inside Seller Central. The phone checks should also tap 'Not now'. Needs the owner's view: 'every visit until installed' is an owner rule.",
-      "status": "Open (owner decision)",
-      "fixedIn": null,
+      "fix": "While the prompt shows, the page gets the bar's height as space at its end, so the last button (the shop's 'Packed — mark ready') can always be scrolled clear of it; the 'every visit until installed' rule is unchanged, so no owner decision was needed. Checked locally on 19-Nov-2026: scrolled to the end of Seller Central, the last control ends 9 px above the bar. The phone checks no longer need to tap 'Not now' first. Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026",
       "retest": null
     },
     {
@@ -2521,6 +2522,62 @@
       "status": "Open",
       "fixedIn": null,
       "retest": null
+    },
+    {
+      "id": "D-150",
+      "title": "Guest calls to /api/admin/support-services (and /api/admin/dealer-analytics) answer 404 instead of 401 while the feature is off",
+      "cases": [
+        "TC-SEC-001",
+        "TC-RBAC-002"
+      ],
+      "severity": "Low",
+      "found": "2026-11-04 production guest regression; again 2026-11-16 (production, 75 pass / 1 fail). Logged 19-Nov-2026.",
+      "actual": "POST /api/admin/support-services as a guest → 404 FEATURE_NOT_AVAILABLE: the route read the feature flag (paid_support_services_enabled) before checking who is calling. /api/admin/dealer-analytics had the same order (dealer_programme_enabled). Nothing leaks and nothing is written.",
+      "expected": "401 for a guest and 403 for a non-staff caller, before the feature setting is read.",
+      "fix": "Both routes check the caller first (requireRole), then the feature. Unit tests tests/unit/r2-quick-defects-2026-11-19.test.ts; integration tests tests/integration/r2-quick-defects-2026-11-19.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "Release R2 (branch fix/r2-quick-defects-2026-11-19), 19-Nov-2026"
+    },
+    {
+      "id": "D-151",
+      "title": "A food-type shop registered through the wizard and paid without an FSSAI licence is held for approval instead of going live",
+      "cases": [
+        "TC-ONB-080",
+        "TC-ONB-081",
+        "SC-39"
+      ],
+      "severity": "High",
+      "found": "20-Nov-2026 local run of the new onboarding checks (tests/qa/local/sellers-go-live.spec.ts, tests/qa/scenarios/SC-39-licence-grace.spec.ts); found first by reading the code (docs/testing/manual/code-check-2026-11-20.json).",
+      "actual": "After the fee is paid the shop stays PENDING_APPROVAL; the approval log says \"A shop that sells food needs a valid FSSAI licence or registration before registration can be completed.\" The instant approval runs approveShopTransaction → assertFssaiAllowsApproval (src/server/services/shops.ts:1072-1074, src/server/services/document-uploads.ts:677-692) with no wizard exemption, and rule documentUpload.fssaiMandatoryForFood defaults to true (src/server/config/rules.ts:1182). A pharmacy (drug licence) goes live with its 90-day grace as intended.",
+      "expected": "DI-14 (owner, 08-Nov-2026): licences never block go-live, FSSAI included — the shop goes live, gets the 90-day grace notice and is suspended only if the licence is still missing at the end. Note: DI-13 of the same day still says \"FSSAI for a food shop still applies\"; the owner should confirm which holds.",
+      "fix": "Not fixed. If DI-14 holds: exempt wizard go-live from assertFssaiAllowsApproval (the grace follow-up already covers FSSAI). The integration test passes only because tests/helpers/fixtures.ts turns the rule off.",
+      "status": "Open (owner to confirm)"
+    },
+    {
+      "id": "D-152",
+      "title": "Bank-account check on test.gokesari.com never reaches the bank: every save falls back to the ₹1 check",
+      "cases": [
+        "TC-RPAY-001"
+      ],
+      "severity": "Medium",
+      "found": "20-Nov-2026 staging signed run (tests/qa/signed-in/finance-rider-payouts.spec.ts) with Rider 1 and Cashfree's Secure ID sandbox sample account.",
+      "actual": "Admin → bank-account check reports the rule on, keys configured and env sandbox, yet saving the sample account shows \"Saved. We could not reach your bank just now — verify with ₹1 instead, or check with your bank again.\" (the provider-error path). Rider 1's staging account now holds the sample details, unverified.",
+      "expected": "\"Saved and verified with your bank — no ₹1 payment needed.\" and the account Verified (match method BANK_CHECK).",
+      "fix": "Not fixed. Check the server log on gk-db-1 for the Secure ID call (Verification Suite keys, sandbox base URL, outbound access from the VPS).",
+      "status": "Open"
+    },
+    {
+      "id": "D-153",
+      "title": "Rule changes in Admin → Settings are saved without a reason, though the TIERED commission design says one is asked",
+      "cases": [
+        "TC-TIER-032"
+      ],
+      "severity": "Low",
+      "found": "20-Nov-2026 local run (tests/qa/local/dealer-commission-2026-11.spec.ts); found first by reading the code.",
+      "actual": "PUT /api/admin/settings takes {key, value} and saves (200); the change is logged (setting.changed with old and new values) but no reason is asked or stored (src/app/api/admin/settings/route.ts:21-29, src/server/services/settings.ts:95-114).",
+      "expected": "docs/dealer-programme/TIERED_COMMISSION.md Part 2: \"A reason is asked and logged\" when the commission settings change.",
+      "fix": "Not fixed. Ask for a reason in the settings editor and store it with setting.changed — or correct the design note if a reason is not wanted.",
+      "status": "Open (owner to confirm)"
     }
   ]
 }

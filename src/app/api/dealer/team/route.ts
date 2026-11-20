@@ -11,7 +11,9 @@
  * POST { action, … }:
  *   acceptAgreement {version} — before any commission is paid (held until then)
  *   requestSubAgent {employeeId, name, mobile?, note?} — a team member asks; an admin decides
- *   addMember {employeeId, name, mobile?, role, parentId?} — the main dealer, in their own network
+ *   addMember {employeeId, name, mobile?, role, parentId?} — the main dealer, in their own network; a team lead,
+ *     an AGENT under himself (DT-28, owner 20 Nov 2026; parentId is ignored)
+ *   promote {memberId} — the main dealer promotes an agent of his network who meets the promotion rule (DT-29)
  *   payee {pan?, bankHolderName?, bankAccount?, ifsc?} — a team member's own payment details
  */
 import { NextResponse, type NextRequest } from "next/server";
@@ -26,8 +28,10 @@ import { addSalesperson, getDealerForUser } from "@/server/dealers/service";
 import { reportPeriod, teamReport, teamReportCsv } from "@/server/dealers/team-report";
 import {
   acceptAgentAgreement,
+  dealerPromotesAgent,
   earningsByType,
   getMemberForUser,
+  leadAddsAgent,
   mappingHistory,
   memberShops,
   requestSubAgent,
@@ -44,6 +48,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("acceptAgreement"), version: z.string().max(20) }),
   z.object({ action: z.literal("requestSubAgent"), employeeId: z.string().max(48), name: z.string().max(120), mobile: z.string().max(20).nullish(), note: z.string().max(500).nullish() }),
   z.object({ action: z.literal("addMember"), employeeId: z.string().max(48), name: z.string().max(120), mobile: z.string().max(20).nullish(), role: z.enum(TEAM_ROLES), parentId: z.string().uuid().nullish() }),
+  z.object({ action: z.literal("promote"), memberId: z.string().uuid() }),
   z.object({ action: z.literal("payee"), pan: z.string().max(10).nullish(), bankHolderName: z.string().max(120).nullish(), bankAccount: z.string().max(24).nullish(), ifsc: z.string().max(11).nullish() }),
 ]);
 
@@ -111,8 +116,17 @@ export const POST = route(async (request: NextRequest) => {
       return ok(await requestSubAgent(actor, body));
     case "addMember": {
       const dealer = await getDealerForUser(user.id);
-      if (!dealer || dealer.status !== "APPROVED") throw forbidden("Only the main dealer adds members; a team member asks for a sub-agent instead.");
-      return ok({ member: await addSalesperson(dealer.id, { employeeId: body.employeeId, name: body.name, mobile: body.mobile, role: body.role, parentId: body.parentId ?? null }, actor) });
+      if (dealer && dealer.status === "APPROVED") {
+        return ok({ member: await addSalesperson(dealer.id, { employeeId: body.employeeId, name: body.name, mobile: body.mobile, role: body.role, parentId: body.parentId ?? null }, actor) });
+      }
+      // DT-28 (owner, 20 Nov 2026): a team lead adds agents under himself; an agent asks for a sub-agent instead.
+      if (body.role !== "AGENT") throw forbidden("A team lead adds agents only; the main dealer adds team leads.");
+      return ok({ member: await leadAddsAgent(actor, { employeeId: body.employeeId, name: body.name, mobile: body.mobile }) });
+    }
+    case "promote": {
+      // DT-29 (owner, 20 Nov 2026): the main dealer promotes an agent who meets the promotion rule.
+      const r = await dealerPromotesAgent(actor, body.memberId, "promoted by the main dealer on the dealer page");
+      return ok({ memberId: r.member.id, role: r.member.teamRole, movedAgents: r.movedAgents });
     }
     case "payee": {
       const mine = await getMemberForUser(user.id);

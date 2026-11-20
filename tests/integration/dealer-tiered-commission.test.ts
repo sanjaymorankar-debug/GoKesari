@@ -17,6 +17,7 @@ import { db } from "@/server/db";
 import {
   commissionTdsRates,
   dealerAgreementAcceptances,
+  dealerCodes,
   dealerCommissionLedger,
   dealerCommissionMonths,
   dealerPayoutBatches,
@@ -39,6 +40,8 @@ import {
   AGENT_AGREEMENT_SHA256,
   acceptAgentAgreement,
   checkTradingMilestone,
+  dealerPromotesAgent,
+  leadAddsAgent,
   mappingHistory,
   memberShops,
   setMemberPlacement,
@@ -423,8 +426,8 @@ describe("promotion and the development bonus", () => {
   });
 });
 
-describe("the owner's structure (5 Nov 2026): 20% / 4% / 2%, all earned at registration, no cap", () => {
-  it("an agent's shop: 20% to the agent, 4% to his lead, 2% to the main dealer — all at once, nothing waits for orders", async () => {
+describe("the owner's structure (5 Nov 2026; main dealer 3% since 20 Nov 2026): 20% / 4% / 3%, all earned at registration, no cap", () => {
+  it("an agent's shop: 20% to the agent, 4% to his lead, 3% to the main dealer — all at once, nothing waits for orders", async () => {
     await ownerStructure();
     const dealer = await newDealer();
     const l = await member(dealer.id, "Ramesh", "TEAM_LEAD");
@@ -434,20 +437,20 @@ describe("the owner's structure (5 Nov 2026): 20% / 4% / 2%, all earned at regis
     expect(rows.map((r) => [r.entryType, r.payeeMemberId, r.amountPaise, r.status])).toEqual([
       ["DIRECT_1", a.id, 99_980, "EARNED"],
       ["OVERRIDE_LEAD", l.id, 19_996, "EARNED"],
-      ["OVERRIDE_MAIN", null, 9_998, "EARNED"],
+      ["OVERRIDE_MAIN", null, 14_997, "EARNED"],
     ]);
     const [plan] = await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shop.id));
     expect(plan).toMatchObject({ status: "TRADING", tradingOrders: 0, firstPartBp: 10_000 });
   });
 
-  it("a team lead's own shop: 20% to him and 2% to the main dealer (no 4% to himself); the main dealer's own shop: 20% only", async () => {
+  it("a team lead's own shop: 20% to him and 3% to the main dealer (no 4% to himself); the main dealer's own shop: 20% only", async () => {
     await ownerStructure();
     const dealer = await newDealer();
     const l = await member(dealer.id, "Ramesh", "TEAM_LEAD");
     const leadShop = await signedShop(dealer.id, l.id, 499_900);
     expect((await ledger(leadShop.id)).map((r) => [r.entryType, r.payeeMemberId, r.amountPaise])).toEqual([
       ["DIRECT_1", l.id, 99_980],
-      ["OVERRIDE_MAIN", null, 9_998],
+      ["OVERRIDE_MAIN", null, 14_997],
     ]);
     const ownShop = await signedShop(dealer.id, null, 499_900);
     expect((await ledger(ownShop.id)).map((r) => [r.entryType, r.payeeMemberId, r.amountPaise])).toEqual([["DIRECT_1", null, 99_980]]);
@@ -546,7 +549,7 @@ describe("owner, 5 Nov 2026: monthly target of 50 shops pays 10% of the month's 
     expect(row(a.id).target.reached).toMatchObject({ minShops: 3, bonusSoFarPaise: 5_994 });
     expect(row(slow.id).target).toMatchObject({ shops: 1, reached: null, next: { minShops: 3, toGo: 2 } });
     expect(row(lead.id)).toMatchObject({ registered: 0, teamRegistered: 4, commissionPaise: 4 * 3_996 });
-    expect(row(null)).toMatchObject({ teamRegistered: 4, commissionPaise: 4 * 1_998 });
+    expect(row(null)).toMatchObject({ teamRegistered: 4, commissionPaise: 4 * 2_997 });
     expect(live.rows.map((r) => r.name)).toEqual(["Shree Sai Network", "Lead", "Agent", "Slow"]);
     expect(live.totals).toMatchObject({ registered: 4, started: 4 });
 
@@ -556,8 +559,8 @@ describe("owner, 5 Nov 2026: monthly target of 50 shops pays 10% of the month's 
 
     await closeThisMonth();
     const bonuses = await db.select().from(dealerCommissionLedger).where(eq(dealerCommissionLedger.entryType, "BONUS"));
-    // Agent 10% of 3 × ₹199.80; lead 10% of 4 × ₹39.96 overrides; main dealer 10% of 4 × ₹19.98; Slow nothing.
-    expect(bonuses.map((b) => [b.payeeMemberId, b.amountPaise]).sort()).toEqual([[a.id, 5_994], [lead.id, 1_598], [null, 799]].sort());
+    // Agent 10% of 3 × ₹199.80; lead 10% of 4 × ₹39.96 overrides; main dealer 10% of 4 × ₹29.97; Slow nothing.
+    expect(bonuses.map((b) => [b.payeeMemberId, b.amountPaise]).sort()).toEqual([[a.id, 5_994], [lead.id, 1_598], [null, 1_199]].sort());
     expect(bonuses.find((b) => b.payeeMemberId === a.id)).toMatchObject({ basePaise: 59_940, bonusBp: 1000 });
     expect(bonuses.find((b) => b.payeeMemberId === a.id)!.note).toMatch(/3 shops activated — target 3 reached — 10% of ₹599\.40 commission/);
   });
@@ -741,5 +744,49 @@ describe("standard dealers are unchanged", () => {
     await deliverOrders(shop.id, 2);
     expect(await ledger(shop.id)).toHaveLength(1);
     expect(await checkTradingMilestone(shop.id)).toBe("NONE");
+  });
+});
+
+describe("owner, 20 Nov 2026: team leads add agents, the main dealer promotes (DT-28, DT-29)", () => {
+  /** Signs the member in with his own account (as an admin's "Link account" does). */
+  async function signIn(m: DealerSalesperson) {
+    const u = await createUser({ role: "DEALER" });
+    await db.update(dealerSalespeople).set({ userId: u.id }).where(eq(dealerSalespeople.id, m.id));
+    return { id: u.id, role: "DEALER" as const };
+  }
+
+  it("a team lead adds an agent under himself at once, with his own code; the main dealer is told; an agent cannot", async () => {
+    const dealer = await newDealer();
+    const lead = await member(dealer.id, "Ramesh", "TEAM_LEAD");
+    const agent = await member(dealer.id, "Suresh", "AGENT", lead.id);
+    const leadUser = await signIn(lead);
+    const added = await leadAddsAgent(leadUser, { employeeId: "R-07", name: "Mahesh", mobile: "9876543210" });
+    const [row] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, added.id));
+    expect(row).toMatchObject({ teamRole: "AGENT", depth: 3, parentId: lead.id, status: "ACTIVE" });
+    expect(await db.select().from(dealerCodes).where(eq(dealerCodes.salespersonId, added.id))).toEqual([expect.objectContaining({ kind: "SALESPERSON", status: "ACTIVE" })]);
+    const told = await db.select().from(notifications).where(and(eq(notifications.userId, dealer.userId!), eq(notifications.type, "dealer.team_changed")));
+    expect(told.some((n) => /Ramesh \(team lead\) added Mahesh \(R-07\)/.test(`${n.title} ${n.body}`))).toBe(true);
+    // An agent still asks; the same employee ID twice is refused.
+    await expect(leadAddsAgent(await signIn(agent), { employeeId: "S-01", name: "Ganesh" })).rejects.toThrow(/Only a team lead/);
+    await expect(leadAddsAgent(leadUser, { employeeId: "r-07", name: "Again" })).rejects.toThrow(/already have an employee/);
+  });
+
+  it("the main dealer promotes an agent who meets the rule; earlier is refused (an admin's override); not another dealer's agent", async () => {
+    await tiered({ promotionMinShops: 1, promotionMinAgents: 0 });
+    const dealer = await newDealer();
+    const lead = await member(dealer.id, "Ramesh", "TEAM_LEAD");
+    const agent = await member(dealer.id, "Suresh", "AGENT", lead.id);
+    const dealerUser = { id: dealer.userId!, role: "DEALER" as const };
+    await expect(dealerPromotesAgent(dealerUser, agent.id, "dealer page")).rejects.toThrow(/Not eligible yet: 0 of 1 activated shops.*GoKesari can promote earlier/);
+    await signedShop(dealer.id, agent.id, 99_900);
+    const other = await newDealer();
+    await expect(dealerPromotesAgent({ id: other.userId!, role: "DEALER" }, agent.id, "dealer page")).rejects.toThrow(/not found/i);
+    const r = await dealerPromotesAgent(dealerUser, agent.id, "promoted by the main dealer on the dealer page");
+    expect(r.member).toMatchObject({ teamRole: "TEAM_LEAD", depth: 2, parentId: null });
+    // His former lead's development bonus window, as for an admin's promotion.
+    expect(await db.select().from(dealerTeamDevelopments).where(eq(dealerTeamDevelopments.teamLeadMemberId, agent.id))).toEqual([expect.objectContaining({ beneficiaryMemberId: lead.id })]);
+    await expect(dealerPromotesAgent(dealerUser, lead.id, "dealer page")).rejects.toThrow(/Only an agent/);
+    // A team member's own account is not the main dealer.
+    await expect(dealerPromotesAgent(await signIn(lead), agent.id, "dealer page")).rejects.toThrow(/Only the main dealer/);
   });
 });

@@ -49,6 +49,7 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
       <PageHeader title="Dealers" description="Applications waiting for approval, and every dealer. Only an admin approves, rejects, suspends or terminates; every decision is logged." />
       <p className="mb-3 text-sm">
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/commission">Commission, rating & payouts</Link> ·{" "}
+        <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/territories">Territory dealers</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/claims">Attribution claims</Link> — dealers who say a shop is theirs. · <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/analytics">Coverage & analytics</Link>
       </p>
       {user.role === "ADMIN" ? <AddDealerForm states={(await listStates()).map((a) => ({ code: a.code, name: a.name }))} /> : null}

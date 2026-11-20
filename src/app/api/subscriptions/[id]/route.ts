@@ -29,8 +29,9 @@ export const GET = route(
 const patchSchema = z.object({
   quantityMilli: z.number().int().positive().max(100_000).optional(),
   shopProductId: z.string().uuid().optional(),
-  frequency: z.enum(["DAILY", "WEEKLY"]).optional(),
+  frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY"]).optional(),
   weekdays: z.array(z.number().int().min(1).max(7)).optional(),
+  monthDays: z.array(z.number().int().min(1).max(28)).max(28).optional(),
   addressId: z.string().uuid().nullish(),
   // TC-FLD-109: real calendar dates only (422 otherwise, never a 500).
   endDate: isoDateSchema.nullish(),

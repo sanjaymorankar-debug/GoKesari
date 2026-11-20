@@ -135,6 +135,12 @@ export const SHOP_TYPES = [
     standardGoods: ["Textbooks", "reference books", "fiction", "non-fiction", "magazines", "newspapers", "educational materials"],
   },
   {
+    // docs/newspaper-subscriptions-2026-11: paper agents and news stalls; their titles are sold by subscription.
+    key: "NEWSPAPER_VENDOR",
+    label: "Newspaper & Magazine Vendor",
+    standardGoods: ["Daily newspapers", "Sunday editions", "weekly magazines", "fortnightly magazines", "monthly magazines", "children's magazines", "competitive-exam periodicals"],
+  },
+  {
     key: "TOY_STORE",
     label: "Toy Store",
     standardGoods: ["Board games", "dolls", "puzzles", "remote-control toys", "educational toys", "outdoor toys", "baby toys"],
@@ -281,6 +287,17 @@ export const SHOP_TYPES = [
     label: "Super Speciality Clinic",
     standardGoods: ["Specialist consultation", "cardiology", "orthopaedics", "neurology", "oncology", "diagnostics and imaging", "day-care procedures", "second opinions"],
   },
+  /*
+   * Consultant appointments (owner brief, 20 Nov 2026; docs/consult-booking-2026-11): a practice or firm that
+   * takes bookings — doctors, advocates, CAs, IT consultants, salons, home-service experts. Registration is
+   * the normal shop flow; the booking profile, team, hours and the registration each speciality needs
+   * (consult_categories.required_doc) are set up under Appointments.
+   */
+  {
+    key: "CONSULTANT_FIRM",
+    label: "Consultant / Professional Firm (appointments)",
+    standardGoods: ["Consultations", "appointments", "video and phone consultations", "home visits", "team appointments", "group sessions and classes"],
+  },
 ] as const satisfies readonly ShopTypeDefinition[];
 
 /** Shape of every shop type key; whether the key exists is checked against the database (`assertShopType`). */
@@ -380,6 +397,7 @@ export const PROFESSIONAL_SHOP_TYPE_KEYS: readonly ShopTypeKey[] = [
   "CONSULTANT",
   "DOCTOR_CLINIC",
   "SUPER_SPECIALITY_CLINIC",
+  "CONSULTANT_FIRM",
 ];
 
 export function isProfessionalShopType(key: string): boolean {

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
 import { formatPaise } from "@/lib/money";
+import { operatorPortalFallback } from "@/lib/operator-portal";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listMyOnboardedShops } from "@/server/services/operator-limited";
@@ -16,7 +17,7 @@ const TONE = { PAID: "success", WAIVED: "success", PENDING: "warning", FAILED: "
 export default async function OperatorPaymentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_ONBOARD)) redirect("/");
+  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_ONBOARD)) redirect(operatorPortalFallback(user.role, "/admin/console/registration-fees"));
   const status = (await searchParams).status;
   const rows = (await listMyOnboardedShops(user)).filter((s) => s.session && s.session.feeStatus !== "NONE");
   const shown = status === "FAILED" ? rows.filter((r) => r.session?.feeStatus === "FAILED" || r.session?.feeStatus === "EXPIRED") : rows;

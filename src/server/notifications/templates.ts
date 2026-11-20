@@ -24,6 +24,7 @@ export const CATEGORIES = {
   ACCOUNT_SECURITY: { label: "Account & security", description: "Sign-ins, number and role changes. Always sent." },
   GENERAL: { label: "Other updates", description: "Everything else." },
   ANNOUNCEMENTS: { label: "Announcements", description: "News and offers GoKesari sends to everyone or to your area." }, // batch-2026-10 WS-F
+  APPOINTMENTS: { label: "Appointments", description: "Consultant bookings: confirmations, changes, reminders, payments and refunds." }, // consultant appointments
 } as const;
 export type CategoryKey = keyof typeof CATEGORIES;
 
@@ -51,6 +52,7 @@ const PREFIX_CATEGORY: [string, CategoryKey][] = [
   ["auth.", "ACCOUNT_SECURITY"],
   // Event layer: support alerts and risk flags are operations news (GENERAL).
   ["broadcast.", "ANNOUNCEMENTS"], // batch-2026-10 WS-F
+  ["consult.", "APPOINTMENTS"], // consultant appointments (docs/consult-booking-2026-11)
 ];
 
 export function categoryOf(type: string): CategoryKey {
@@ -258,6 +260,7 @@ export const TEMPLATES: Record<string, Template> = {
   // Time-critical for the shop (it has acceptMinutes to act) or the seller (they
   // must act on the result): emailed by default as well as in the app.
   [T.SHOP_NEW_ORDER]: t("New order", "Order {{orderNumber}} is waiting for you to accept it."),
+  [T.SHOP_NEW_SUBSCRIPTION]: t("New subscriber", "{{customerName}} subscribed to {{items}}, starting {{startDate}}."),
   [T.SHOP_ACCEPT_REMINDER]: t("Accept the new order", "Order {{orderNumber}} is cancelled automatically unless you accept it in the next {{minutes}} min."),
   [T.SHOP_ORDER_TIMED_OUT]: t("Order cancelled — not accepted in time", "Order {{orderNumber}} was cancelled and the customer refunded because it was not accepted in time."),
   [T.SHOP_DOCUMENT_VERIFIED]: t("{{docLabel}} verified", "{{shopName}}'s {{docLabel}} has been verified."),
@@ -425,6 +428,7 @@ export const TEMPLATES: Record<string, Template> = {
   [T.DEALER_TEAM_REPORT]: t("{{period}} team report: {{registered}} registered, {{commission}} earned", "{{period}} ({{label}}): {{started}} registrations started, {{registered}} shops registered, {{commission}} commission earned. Each person's numbers are on your dealer page."),
   [T.DEALER_PAYOUT_HELD]: t("Commission waiting: add your {{missing}}", "{{amount}} of commission for {{month}} is waiting. It is paid as soon as your {{missing}} is added on your dealer page; it is carried to the next payout until then."),
   [T.DEALER_PAYOUT_FAILED]: t("Commission transfer did not go through", "The bank transfer of {{amount}} failed ({{reason}}). {{next}}"),
+  [T.DEALER_TERRITORY_CHANGED]: t("Your territory {{territory}}: {{headline}}", "{{message}}"),
   [T.SHOP_REFERRAL_REWARDED]: t("Referral reward: {{reward}}", "{{shopName}}, which joined GoKesari with your shop's referral code, is live and has delivered its first order. {{reward}} — {{detail}}"),
   [T.SHOP_REFERRAL_REVERSED]: t("Referral reward reversed", "A shop referral reward was reversed after a review. {{detail}}"),
   [T.SHOP_FIRST_PRODUCTS_LIVE]: t(

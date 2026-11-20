@@ -49,7 +49,8 @@ const cspDirectives = [
   "img-src 'self' blob: data: https://maps.googleapis.com https://maps.gstatic.com https://sdk.cashfree.com",
   "font-src 'self'",
   "connect-src 'self' https://maps.googleapis.com https://*.cashfree.com",
-  "frame-src https://*.cashfree.com",
+  // Consultant appointments (docs/consult-booking-2026-11): a consultant's office pin as a keyless Google Maps embed.
+  "frame-src https://*.cashfree.com https://maps.google.com https://www.google.com",
   "object-src 'none'",
   "base-uri 'self'",
   // Cashfree's hosted checkout ("_self", used for order payments) may be opened by a form post to a

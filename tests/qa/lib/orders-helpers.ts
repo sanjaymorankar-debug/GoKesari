@@ -13,7 +13,7 @@ import { request as playwrightRequest } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { deflateSync } from "node:zlib";
 
-import { encode } from "next-auth/jwt";
+import { encodeSession } from "./session-jwt";
 
 import { as, pageAs } from "./actors";
 import { db } from "./db";
@@ -697,7 +697,7 @@ export async function freshCustomer(label: string): Promise<FreshUser> {
     insert into users (email, name, role, phone, phone_e164, email_verified, phone_verified_at, profile_completed_at)
     values (${email}, ${`QA ${label}`}, 'CUSTOMER', ${mobile}, ${`+91${mobile}`}, now(), now(), now()) returning id`;
   await db()`insert into user_consents (user_id, consent_type, version, granted) values (${row.id}, 'TERMS_AND_PRIVACY', '2026-08-21', true)`;
-  const value = await encode({ token: { sub: row.id, email, name: label }, secret, salt: COOKIE });
+  const value = await encodeSession({ token: { sub: row.id, email, name: label }, secret, salt: COOKIE });
   const url = new URL(BASE_URL);
   const storage = {
     cookies: [{ name: COOKIE, value, domain: url.hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" as const }],
@@ -723,6 +723,15 @@ export async function freshRider(label: string, options: { approve?: boolean; ex
     latitude: homeSpot().lat,
     longitude: homeSpot().lng,
     operatingRadiusKm: 10,
+    // Every field of the registration brief is required (src/lib/gig/registration.ts).
+    email: user.email,
+    dateOfBirth: "1995-06-15",
+    gender: "PREFER_NOT_TO_SAY",
+    addressLine: "12 QA Lane, Kothrud",
+    addressCity: "Pune",
+    addressPincode: "411038",
+    emergencyContactName: "QA Emergency Contact",
+    emergencyContactMobile: user.mobile.startsWith("9") ? "8888800001" : "9999900001",
     ...options.extra,
   });
   expectStatus(res, 201, "rider application");

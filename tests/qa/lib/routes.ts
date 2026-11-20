@@ -133,6 +133,10 @@ export const PUBLIC_PAGES = new Set([
   "/signin",
   "/orders/pay/sandbox/[ref]", // sandbox payment page (test site only; 404 on production)
   "/mobile-auth/digilocker-mock", // DigiLocker's screens stood in for on test sites (#312; 404 on production) — QA E-15
+  // docs/consult-booking-2026-11: Find a Consultant ("coming soon" while rule consultBooking is off) and a
+  // consultant's public page (404 while off or not published). Booking itself needs sign-in.
+  "/consult",
+  "/consult/[slug]",
 ]);
 
 /**

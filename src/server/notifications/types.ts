@@ -12,6 +12,8 @@ export const NOTIFICATION_TYPES = {
   SHOP_DOCUMENTS_FOLLOW_UP: "shop.documents_follow_up",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",
+  /** To the shop: a customer subscribed (one product, or several newspapers together) — docs/newspaper-subscriptions-2026-11. */
+  SHOP_NEW_SUBSCRIPTION: "shop.new_subscription",
   /** To the shop: an order arrived while the shop is closed (customer confirmed they want to wait). */
   SHOP_ORDER_WHILE_CLOSED: "shop.order_while_closed",
   /** To the shop, once: it is open again and these queued orders are waiting for acceptance. */
@@ -378,6 +380,8 @@ export const NOTIFICATION_TYPES = {
   DEALER_PAYOUT_HELD: "dealer.payout_held",
   /** Gap report C7: to a payee — the bank transfer failed (it is retried, or finance follows up); push too. */
   DEALER_PAYOUT_FAILED: "dealer.payout_failed",
+  /** 0151 territory dealers: to the dealer — a territory given, paid, renewal due, expired, released or cancelled; push too. */
+  DEALER_TERRITORY_CHANGED: "dealer.territory_changed",
   /** Shop-refers-shop (0137): to the shop owner — a referral reward was credited; push too. */
   SHOP_REFERRAL_REWARDED: "shop.referral_rewarded",
   /** Shop-refers-shop (0137): to the shop owner — a referral reward was taken back after a review; push too. */
@@ -401,6 +405,19 @@ export const NOTIFICATION_TYPES = {
   /** To the shop owner: the monthly TCS / TDS statement from GoKesari is ready. */
   SHOP_TAX_STATEMENT_READY: "shop.tax_statement_ready",
   /* <<< billing v2 */
+  /* >>> consultant appointments (docs/consult-booking-2026-11) — to the customer and to the consultant / firm */
+  CONSULT_BOOKED: "consult.booked",
+  CONSULT_CONFIRMED: "consult.confirmed",
+  CONSULT_PENDING_APPROVAL: "consult.pending_approval",
+  CONSULT_RESCHEDULED: "consult.rescheduled",
+  CONSULT_CANCELLED: "consult.cancelled",
+  CONSULT_PAYMENT: "consult.payment",
+  CONSULT_REFUND: "consult.refund",
+  CONSULT_REMINDER: "consult.reminder",
+  CONSULT_COMPLETED: "consult.completed",
+  CONSULT_DISPUTE: "consult.dispute",
+  CONSULT_VERIFICATION: "consult.verification",
+  /* <<< consultant appointments */
   //
 } as const;
 
