@@ -13,9 +13,13 @@ that says "full suite" runs every module's tests in one run, not only the new on
 | R2b | 20-Nov-2026 13.05 | Local, PostgreSQL 18.6 — fresh test DB, all 154 migrations | After merging `staging` (newspaper subscriptions #423 took migration 0152, so this module's is now **0153**): migration journal, tile board, mobile app, cron schedule, consultant unit + integration, newspaper unit + integration | **135 / 135 passed**. Typecheck clean apart from `@zxing/browser` (barcode scanner), which the shared local `node_modules` lacks — not this change; CI installs it |
 | R3 | 20-Nov-2026 10.33–10.52 | Local dev server (port 3310), demo data | Browser walkthrough: customer, consultant, admin; phone width | **Pass** — 1 display defect found and fixed (D-CB-01), 1 loading-state defect fixed (D-CB-02) |
 | R4 | 20-Nov-2026 10.49 | Local dev server | QA guest tier `tests/qa/guest/consult.spec.ts` | **4 / 4 passed** |
-| R5 | 20-Nov-2026 13.07 → | GitHub CI on PR #425 (merge commit 76a19dd2) | Lint, typecheck, full unit + integration suite (all modules) | running |
+| R5 | 20-Nov-2026 13.07 → 13.29 | GitHub CI on PR #425 (merge commit 76a19dd2); again on fix PR #433 (34 min) | Lint, typecheck, full unit + integration suite (all modules), mobile app, Android APK (preview + production) | **All passed** |
 | R6 | 20-Nov-2026 13.41 → 14.29 | test.gokesari.com (staging queue) | #425 merged 13.41 IST and deployed (consult pages and APIs answer; rule off); guest QA tier, all modules | **Failed: 1 check, TC-QA-001** — 4 cases (TC-CON-006, 019, 020, 026) and 2 journeys were in the plan but not declared in the suite (D-CB-06). Fix PR "Fix #425" (staging-fix); everything else in the guest tier passed |
-| R7 | — | gokesari.com | Production database workflow (snapshot first), release, post-deploy check, guest QA tier | pending (owner approval) |
+| R6b | 20-Nov-2026 15.11 → 15.55 | test.gokesari.com (staging queue) | Fix PR #433 merged and deployed; CI, migration, deploy, post-deploy check, guest QA tier (all modules, incl. TC-QA-001) | **Passed — staging-verified 15.55 IST**; queue resumed |
+| R7 | 20-Nov-2026 15.58 → 16.02 | test.gokesari.com | Rule `consultBooking` switched on (15.58, Admin settings). Consultant guest + signed-in checks, two runs | Run 1 (15.58): 19 passed, 1 failed (TC-CON-022), 11 blocked — all three causes were the test, not the app (D-CB-07, D-CB-08, CB-24). Run 2 (16.02) after the fix: **22 / 22 automatable checks passed** on desktop + 1 on phone; 4 online-payment checks need the Cashfree sandbox (R8); 4 manual |
+| R8 | 20-Nov-2026 16.02 → 16.15 | test.gokesari.com, Cashfree **sandbox** via the "Sandbox payment" workflow (test UPI only) | TC-CON-015, TC-CON-016, TC-CON-010 (refund), SC-51 | **Passed** — paid → CONFIRMED with receipt; early cancel → full refund settled; failed attempt → time released at the hold's end. 1 defect: D-CB-09 (fixed) |
+| R9 | 20-Nov-2026 16.03 → | test.gokesari.com | **Full suite, all modules** (guest + signed-in tiers; local-only checks skip by rule) | running |
+| R10 | — | gokesari.com | Joint release (newspapers #423, consultants #425/#433, Puja #427, Health #429) run by the Health session: production database snapshot first, release, post-deploy check, guest QA tier incl. TC-CON-001..004 | pending (owner approval, 23.00 IST window) |
 
 ## R1 — what the consultant tests prove
 
@@ -30,6 +34,41 @@ that says "full suite" runs every module's tests in one run, not only the new on
 | Cancel / reschedule | customer early → full refund; late → 50%; consultant → full with a reason; reschedule twice then refused; reassign to another member; manual approval → decline refunds in full; no-show keeps the payment (Standard policy) |
 | Privacy | other customer refused; firm and staff looks logged; team member sees only their own calendar; files stored encrypted, signed link bound to the viewer, other customer refused |
 | Disputes, admin, discovery | ticket category BOOKING linked to the firm, second dispute refused; staff list, report, category with commission and RCI; search near / far, category, language, mode, fee, name, date; rule off refuses bookings |
+
+## R7 — consultant checks on test.gokesari.com (16.02 IST, run 2)
+
+Test consultant: "QA Test Clinic" on shop A (CB-24), two consultants, all-day hours. Desktop project; the phone project repeats the checks marked for phones.
+
+| Case | Result | Seen |
+|---|---|---|
+| TC-CON-001..004 (guest) | Pass | finder shown; 13 booking / firm / admin APIs answer 401 without a session; private file link 401 |
+| TC-CON-005, 021 | Pass | LIVE with 6 services and 2 consultants; found by name; near me 60 m, none from Delhi |
+| TC-CON-007, 024 | Pass | free booking CONFIRMED at once, both sides notified |
+| TC-CON-008 | Pass | two customers, same time, same moment: 201 and 409 |
+| TC-CON-009 | Pass | another customer: 404 / 404; consultant sees the note, not the code |
+| TC-CON-010, 011 | Pass | moved twice, third move refused (409), cancelled, time offered again |
+| TC-CON-012, 014 | Pass | pay at the visit, payment recorded, receipt GKC/2026-27/…; calendar and dashboard list it |
+| TC-CON-013 | Pass | wrong code 422, right code → COMPLETED, rated 5 |
+| TC-CON-017, 018 | Pass | admin: 5 views 200; customer and shop owner 403 on GET and POST |
+| TC-CON-022 | Pass | 3 of 3 places taken; the 4th refused |
+| TC-CON-023 | Pass | team held both; "any available" got the assistant |
+| TC-CON-025 | Pass | ticket TKT-000029; a second dispute 409 |
+| SC-50 | Pass | found → booked (pay at visit) → paid GKC/2026-27/000003 → COMPLETED with the code → rated 5 |
+| TC-CON-015, 016, SC-51 | Blocked in the suite (Cashfree) | done in R8 |
+| TC-CON-006, 019, 020, 026 | Manual | integration / unit tests; app needs a phone |
+
+## R8 — online payment on test.gokesari.com (Cashfree sandbox, test UPI)
+
+The site's checkout opens a Cashfree sandbox session (`/orders/pay/session/…`). The session was paid on a GitHub runner by the "Sandbox payment" workflow (CLAUDE.md: this machine cannot reach Cashfree). Only Cashfree sandbox test instruments were used; no card, UPI or bank details were typed into the site.
+
+| Step (IST) | Booking | Result |
+|---|---|---|
+| 16.02 book online ₹1, 21-Nov 18.05 | CB2611-000029 | PENDING_PAYMENT, time held |
+| 16.03 workflow run 44720170104, `upi-success` | CB2611-000029 | **CONFIRMED, PAID ₹1, receipt GKC/2026-27/000004**; events PAID_ONLINE → CONFIRMED |
+| 16.05 customer cancels (26 h ahead, early) | CB2611-000029 | CANCELLED by customer, refund ₹1 requested; 18.05 offered again |
+| 16.10 Cashfree refund webhook | CB2611-000029 | refund SUCCESS, **REFUNDED ₹1** |
+| 16.03 book online ₹1, 21-Nov 22.05; workflow run 44720205711, `upi-failure` | CB2611-000030 | Cashfree keeps the session open for a retry, so the booking waits |
+| 16.13 hold lapses (10 min); every-minute job | CB2611-000030 | **EXPIRED, 22.05 offered again** — but payment still "PENDING" and no message to the customer → D-CB-09 |
 
 ## R3 — browser walkthrough (local)
 
@@ -54,4 +93,8 @@ Evidence: `Test_Cases_Tracking/Evidence/consult-booking-2026-11-20/local/` (9 sc
 | D-CB-03 | R2, 10.30 | Low (test) | Category test failed on a second run: categories outlive the test reset | Unique category name per run | Fixed |
 | D-CB-04 | Review, 10.45 | Medium | `/operator/consult` and `/shop/consult` answered 404 to a guest while the module was off (guest-access sweep expects sign-in first) | Sign-in check before the module switch | Fixed (71f10461) |
 | D-CB-05 | Review, 10.45 | Low | Firm and booking action routes validated the action before checking access | Access checked first (404 to outsiders) | Fixed (71f10461) |
-| D-CB-06 | R6, 14.29 | Medium (queue paused) | TC-QA-001: TC-CON-006, 019, 020, 026 and the journeys SC-CON-01 / SC-CON-02 were not declared in the QA suite; the check only recognises `SC-<number>` journey IDs | Journeys renamed **SC-50** / **SC-51** (#426 holds SC-48 / 49); SC-50 is a new signed-in check (find → book, pay at the visit → payment recorded → completed with the code → rated); SC-51 joins the online-payment check, which now also checks the time is offered again; TC-CON-006 / 019 / 020 / 026 declared with `manual()` and the reason (proved by the integration and unit tests, or needs a phone). Local: TC-QA-001 and the guest checks 12 / 12 passed (1 skipped) | Fix PR into staging |
+| D-CB-06 | R6, 14.29 | Medium (queue paused) | TC-QA-001: TC-CON-006, 019, 020, 026 and the journeys SC-CON-01 / SC-CON-02 were not declared in the QA suite; the check only recognises `SC-<number>` journey IDs | Journeys renamed **SC-50** / **SC-51** (#426 holds SC-48 / 49); SC-50 is a new signed-in check (find → book, pay at the visit → payment recorded → completed with the code → rated); SC-51 joins the online-payment check, which now also checks the time is offered again; TC-CON-006 / 019 / 020 / 026 declared with `manual()` and the reason (proved by the integration and unit tests, or needs a phone). Local: TC-QA-001 and the guest checks 12 / 12 passed (1 skipped) | Fixed — #433, staging-verified 15.55 |
+| D-CB-07 | R7, 15.58 | Low (test) | TC-CON-013, SC-50, TC-CON-025 blocked "no free time": the test consultant on staging (shop A) kept the shop's own hours (10–13, 17–20 IST, Mon–Sat); the set-up only wrote hours when a member had fewer than 7 rows | Set-up always gives both test consultants all-day hours | Fixed (41fb396a, PR #434) — passed in R7 run 2 |
+| D-CB-08 | R7, 15.58 | Low (test) | TC-CON-022 failed: the 4th person was accepted into a full group session. Correct behaviour: with "any available" the next person goes to a colleague's session at the same time (`pickMembers`), so capacity is per consultant | The check books one consultant's session | Fixed (41fb396a, PR #434) — passed in R7 run 2 |
+| D-CB-09 | R8, 16.15 | Low | After a failed Cashfree attempt the booking expires when its hold lapses (Cashfree keeps the session open for a retry), but its payment stayed "PENDING" and the customer was not told; the gateway's later "expired" found no waiting booking, so nothing corrected it | Hold lapse now sets a PENDING payment to FAILED and sends "Payment for … did not go through — the time was released" (as a refused payment already did). Integration test extended. Local: 45 / 45 consultant tests passed (16.16) | Fixed — PR #434 |
+
