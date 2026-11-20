@@ -128,6 +128,24 @@ sets `MOBILE_ANDROID_CERT_SHA256` and `MOBILE_IOS_APP_IDS` on each server
 in the phone's browser. It still lands on the shop's page; nothing else changes once the
 values are set (no rebuild).
 
+**Android, found 20-Nov-2026:** the APKs built by the "Android APK" workflow
+(`.github/workflows/mobile-apk.yml`: "GoKesari Test" for test.gokesari.com, "GoKesari" for
+gokesari.com) are release builds signed with the debug key of Expo's project template
+(`expo-template-bare-minimum@sdk-57`, `android/app/debug.keystore`, alias `androiddebugkey`),
+whose SHA-256 is
+
+    FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C
+
+Owner action, per server (`gk-site env set`, then `gk-deploy restart`; no rebuild):
+
+| Server | `MOBILE_ANDROID_CERT_SHA256` | Note |
+|---|---|---|
+| test.gokesari.com (`gokesari-staging`) | the value above | the preview APK then opens scanned QR codes |
+| gokesari.com (`gokesari-prod`) | the value above, **owner decision** | that key is public: any sideloaded app named `com.gokesari.app` and signed with it could claim the links. Add the Play Store app-signing SHA-256 (comma-separated) when the app is on Play, and drop this one then |
+
+**iOS:** no iPhone build is distributed yet (TestFlight on hold, PLT-017), so there is nothing
+to open; set `MOBILE_IOS_APP_IDS` with the Team ID when it is.
+
 ## Known limits
 
 - The template is 1536 × 1024 px: sharp up to about A5 / 13–15 cm wide; acceptable on A4.
