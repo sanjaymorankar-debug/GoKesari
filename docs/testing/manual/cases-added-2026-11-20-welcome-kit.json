@@ -1,0 +1,217 @@
+{
+  "date": "2026-11-20",
+  "note": "Shop welcome kit: bilingual printable QR banner + welcome e-mail on go-live (docs/shop-welcome-kit-2026-11, PR #431), written 20-Nov-2026 against the code on feature/shop-welcome-kit-banner. Added to test-cases.xlsx / tests/qa/catalog by scripts/qa/plan_workbook.py add-json.",
+  "features": [
+    {
+      "id": "WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "feature": "Shop welcome kit: every live shop's own QR code (/shops/<slug>), the owner's banner design filled with the shop's name and QR in English + the local language (Marathi for Maharashtra / Goa, Hindi elsewhere), e-mailed once when the shop goes live (all approval paths), downloadable again from Seller Central → Marketing, and an admin-only 'Send welcome kit' for shops live before it (feature flag, off by default)",
+      "status": "PR #431 into staging (20-Nov-2026)"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "title": "A new shop gets its printable QR banners the moment it goes live",
+      "description": "When a shop goes live (paid self-registration, admin / operator approval, automatic or instant GST/PAN approval) the owner is e-mailed once: congratulations, both banners shown and attached as A4 PDFs, and clear print instructions. The owner and operations can download them again from Seller Central; customers who scan the QR land on the shop's own page."
+    }
+  ],
+  "cases": [
+    {
+      "id": "TC-WKIT-001",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Admin / Operator",
+      "method": "API",
+      "title": "Approving a shop queues the welcome e-mail once, and it is sent",
+      "preconditions": "A registered shop with its documents verified and the fee paid; the owner has a real e-mail address; e-mail delivery configured (local: the mail catcher).",
+      "steps": "1. As operations, POST /api/shops/<id>/approve\n2. Read document_emails for doc_type SHOP_WELCOME_KIT and the shop\n3. Wait for the outbox to send it; read the owner's mailbox",
+      "expected": "Exactly one SHOP_WELCOME_KIT row for the shop, addressed to the owner, subject 'Congratulations! <shop> is now live on GoKesari'. It is sent within a minute (status SENT). The approval is never blocked by it."
+    },
+    {
+      "id": "TC-WKIT-002",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Shop owner",
+      "method": "UI",
+      "title": "Self-registration: the welcome e-mail follows the fee payment",
+      "preconditions": "PAYMENT_GATEWAY=SANDBOX (test.gokesari.com / local). A fresh owner with a real e-mail address.",
+      "steps": "1. Register a shop in the wizard (GSTIN or PAN verified, address and map pin, shop details)\n2. Pay the registration fee on /orders/pay/sandbox/… → 'Pay (success)'\n3. Wait for the shop to go live\n4. Read document_emails and the owner's mailbox",
+      "expected": "The shop goes live and exactly one welcome e-mail is queued and sent to the owner, with the English banner and the local-language banner (Marathi for a Pune shop)."
+    },
+    {
+      "id": "TC-WKIT-003",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Negative",
+      "priority": "P1",
+      "role": "Admin",
+      "method": "API",
+      "title": "A shop is welcomed once, ever",
+      "preconditions": "A live shop that already had the welcome e-mail.",
+      "steps": "1. Suspend the shop and approve it again (or hand it to another owner and approve)\n2. Read document_emails for the shop",
+      "expected": "Still exactly one SHOP_WELCOME_KIT row for the shop; no second e-mail."
+    },
+    {
+      "id": "TC-WKIT-004",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Shop owner",
+      "method": "UI",
+      "title": "The welcome e-mail shows both banners, attaches both PDFs and gives the print instructions",
+      "preconditions": "The welcome e-mail of TC-WKIT-001 or TC-WKIT-002.",
+      "steps": "1. Open the e-mail\n2. Look at the images, the attachments and the text",
+      "expected": "Congratulations and welcome to GoKesari; both banners (English + local language) shown in the mail and attached as A4 landscape PDFs (GoKesari-banner-en-<slug>.pdf, GoKesari-banner-<mr|hi>-<slug>.pdf); instructions: print in COLOUR on a colour page (not black and white); A4 landscape 'Fit to page', or a sticker / flex from a print shop; scan the QR with a phone before putting it up; counter or entrance at eye level, laminated; tell customers 'Scan this to order from our shop on GoKesari'; one line in the local language; links to add products, Seller Central → Marketing and Help."
+    },
+    {
+      "id": "TC-WKIT-005",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Shop owner",
+      "method": "UI",
+      "title": "Seller Central → Marketing: download both banners as PDF and PNG (desktop and phone)",
+      "preconditions": "A live (approved) shop's owner signed in.",
+      "steps": "1. Open /shop/marketing on a desktop and on a phone\n2. Find 'Your shop banner with QR code'\n3. Press 'English banner (PDF)', then the local-language PDF and the two PNG buttons",
+      "expected": "The card shows four buttons: English banner (PDF), <Marathi|Hindi> banner (PDF), English (PNG), <Marathi|Hindi> (PNG). Each downloads the file (GoKesari-banner-<lang>-<slug>.pdf / .png). No sideways scroll on the phone. A shop not live yet shows no card."
+    },
+    {
+      "id": "TC-WKIT-006",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Negative",
+      "priority": "P0",
+      "role": "All",
+      "method": "API",
+      "title": "Banner download: owner and operations only (another owner 403, signed out 401)",
+      "preconditions": "A live shop A; another shop owner B; a customer; an operator.",
+      "steps": "1. GET /api/shops/<A>/banner signed out\n2. … as owner B, and as a customer\n3. … as A's owner (?lang=en / local, &format=pdf / png)\n4. … as an operator",
+      "expected": "Signed out 401; another owner 403; a customer 403; A's owner 200 (application/pdf or image/png, attachment GoKesari-banner-<lang>-<slug>.<ext>); operator 200. A shop not live yet answers 409."
+    },
+    {
+      "id": "TC-WKIT-007",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Shop owner",
+      "method": "API",
+      "title": "The banner's QR code opens the shop's own page on this site",
+      "preconditions": "A live shop.",
+      "steps": "1. Download the PNG banner (English and local)\n2. Decode the QR code in the 'Scan QR Code of Your Shop' box\n3. Open the decoded link",
+      "expected": "Both QR codes hold <site>/shops/<slug> (test.gokesari.com on staging, gokesari.com on production) and the page shows the shop."
+    },
+    {
+      "id": "TC-WKIT-008",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Shop owner",
+      "method": "API",
+      "title": "Local language: Marathi in Maharashtra / Goa, Hindi elsewhere",
+      "preconditions": "Live shops in Pune (Maharashtra) and outside Maharashtra (e.g. Madhya Pradesh); one with no state and a PIN 40xxxx–44xxxx.",
+      "steps": "1. Download ?lang=local for each shop\n2. Read the file name and look at the banner",
+      "expected": "Maharashtra / Goa shops (or no state and PIN 40–44): Marathi (GoKesari-banner-mr-…); elsewhere: Hindi (GoKesari-banner-hi-…). The shop name prints as registered, Devanagari names shaped correctly; long names wrap onto two lines inside the box."
+    },
+    {
+      "id": "TC-WKIT-009",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Admin",
+      "method": "API",
+      "title": "Admin 'Send welcome kit' for shops live before it: off by default, admin only, once per shop",
+      "preconditions": "Live shops that never had the welcome kit; feature flag shop_welcome_kit_admin_send_enabled off.",
+      "steps": "1. As admin, POST /api/admin/shops/welcome-kit {shopId} with the flag off\n2. As operator / shop owner, GET and POST the same route\n3. Turn the flag on; as admin send to one shop, then again\n4. Preview a city (GET ?city=…&notWelcomed=1) and run the bulk send\n5. Turn the flag off again",
+      "expected": "Flag off: 'This feature is not available' (404). Operator / owner: 403. Admin: the first send QUEUED and e-mailed, the second ALREADY_SENT (one row). The bulk run queues only live shops of that city that never had it (sent by the outbox sweep) and is audited. Existing live shops are never e-mailed without this action."
+    },
+    {
+      "id": "TC-WKIT-010",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Customer",
+      "method": "Manual",
+      "title": "Scanning the printed QR with a phone opens the shop (browser, and the app when installed)",
+      "preconditions": "A printed or on-screen banner; an Android phone and an iPhone, with and without the GoKesari app.",
+      "steps": "1. Scan the English and the local-language QR with the phone camera\n2. Repeat with the app installed",
+      "expected": "Without the app the shop's page opens in the browser. With the app the shop opens inside the app — once the association files carry the real Apple Team ID and Android signing fingerprint (docs/deep-links-activation.md); until then it opens in the browser."
+    },
+    {
+      "id": "TC-WKIT-011",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P2",
+      "role": "Shop owner",
+      "method": "Manual",
+      "title": "The PDF prints in colour on A4 landscape and stays readable and scannable",
+      "preconditions": "A colour printer.",
+      "steps": "1. Print both PDFs on A4, landscape, 'Fit to page', in colour\n2. Scan the printed QR from 50 cm",
+      "expected": "The whole banner fits the page in the GoKesari colours, the name is sharp, the QR scans."
+    },
+    {
+      "id": "TC-WKIT-012",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Owner (GoKesari)",
+      "method": "Manual",
+      "title": "A native speaker approves the Marathi and Hindi wording",
+      "preconditions": "The templates template-mr.png / template-hi.png and the e-mail's local line.",
+      "steps": "1. A Marathi and a Hindi speaker read the two templates and LOCAL_PRINT_LINE (docs/shop-welcome-kit-2026-11/README.md lists every phrase)",
+      "expected": "Wording approved, or corrections sent and the generator re-run before production."
+    },
+    {
+      "id": "TC-WKIT-013",
+      "scenario": "TS-WKIT-01",
+      "module": "Shop welcome kit & QR banner",
+      "features": "WKIT-01",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Admin",
+      "method": "Manual",
+      "title": "Production: the first real go-live e-mail is SENT",
+      "preconditions": "The release on gokesari.com; the next shop that goes live.",
+      "steps": "1. After a real shop goes live on gokesari.com, read document_emails (doc_type SHOP_WELCOME_KIT) for it",
+      "expected": "One row, status SENT, to the owner's address; no test payment made on production."
+    }
+  ],
+  "e2e": [
+    {
+      "id": "SC-WKIT-01",
+      "title": "New shop → paid → live → welcome kit e-mail → banner downloaded again → QR opens the shop",
+      "features": "WKIT-01",
+      "priority": "P0",
+      "journey": "1. A new owner registers a shop in the wizard and pays the fee (sandbox)\n2. The shop goes live\n3. The welcome e-mail arrives with both banners and print instructions\n4. The owner downloads the banners from Seller Central → Marketing\n5. The QR code on the banner opens the shop's page",
+      "expected": "One welcome e-mail with the English and the local-language banner (PDFs attached); the Marketing downloads match; the QR opens <site>/shops/<slug>.",
+      "preconditions": "PAYMENT_GATEWAY=SANDBOX; e-mail delivery configured.",
+      "origin": "Added"
+    }
+  ],
+  "overrides": []
+}

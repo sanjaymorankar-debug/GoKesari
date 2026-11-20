@@ -17,6 +17,9 @@ export const AUDIT_ACTIONS = {
   /** docs/shop-onboarding-wizard-2026-10 step 2: the shop created from the wizard's draft, its checks copied. Masked numbers only. */
   SHOP_REGISTRATION_DRAFT_SUBMITTED: "shop_registration_draft.submitted",
   SHOP_APPROVED: "shop.approved",
+  /** docs/shop-welcome-kit-2026-11: an admin sent the welcome kit (printable QR banners) to a shop that was already live, or to a city / district. */
+  SHOP_WELCOME_KIT_SENT: "shop.welcome_kit_sent",
+  SHOP_WELCOME_KIT_BULK_SENT: "shop.welcome_kit_bulk_sent",
   SHOP_REJECTED: "shop.rejected",
   SHOP_APPROVED_WITHOUT_DOCUMENTS: "shop.approved_without_documents",
   SHOP_DOCUMENTS_REMINDED: "shop.documents_reminded",

@@ -434,5 +434,15 @@
   "expected": "Hold → CONFIRMED/PAID → CANCELLED with a full refund in progress; the time is free again.",
   "preconditions": "Rule consultBooking switched on (Admin → Settings). Sandbox gateway.",
   "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-WKIT-01",
+  "title": "New shop → paid → live → welcome kit e-mail → banner downloaded again → QR opens the shop",
+  "features": "WKIT-01",
+  "priority": "P0",
+  "journey": "1. A new owner registers a shop in the wizard and pays the fee (sandbox)\n2. The shop goes live\n3. The welcome e-mail arrives with both banners and print instructions\n4. The owner downloads the banners from Seller Central → Marketing\n5. The QR code on the banner opens the shop's page",
+  "expected": "One welcome e-mail with the English and the local-language banner (PDFs attached); the Marketing downloads match; the QR opens <site>/shops/<slug>.",
+  "preconditions": "PAYMENT_GATEWAY=SANDBOX; e-mail delivery configured.",
+  "origin": "Added 20-Nov-2026"
  }
 ]

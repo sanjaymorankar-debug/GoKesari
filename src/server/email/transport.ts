@@ -32,6 +32,8 @@ export interface EmailAttachment {
   filename: string;
   content: Buffer;
   contentType: string;
+  /** Content-ID: an HTML body can show the file inline with <img src="cid:…"> (shop welcome kit banner). */
+  cid?: string;
 }
 
 export type EmailMode = "smtp" | "console" | "disabled";
@@ -108,7 +110,7 @@ export async function sendEmail(original: OutboundEmail): Promise<void> {
     // Every HTML email opens with the GoKesari wordmark.
     html: message.html ? withEmailBrand(message.html) : undefined,
     ...(message.attachments?.length
-      ? { attachments: message.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })) }
+      ? { attachments: message.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType, ...(a.cid ? { cid: a.cid } : {}) })) }
       : {}),
   });
   const failed = [...(result.rejected ?? []), ...(result.pending ?? [])].filter(Boolean);

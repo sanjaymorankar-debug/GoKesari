@@ -10387,6 +10387,8 @@ export const FEATURE_FLAG_KEYS = [
   "zoho_connector",
   "odoo_connector",
   "ondc_mode",
+  // docs/shop-welcome-kit-2026-11: admins send the welcome kit to shops that were live before it (one shop or by city / district). No migration: a missing row is OFF.
+  "shop_welcome_kit_admin_send_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
