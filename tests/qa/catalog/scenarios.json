@@ -394,5 +394,25 @@
   "expected": "Reminders and dealer notice at the right times; restart at screen 1 after 7 days; no reminders once paid.",
   "preconditions": "A registration started with a dealer code; time shortened with the developer on staging.",
   "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-48",
+  "title": "Territory dealer: territory, fee, rating, order income and payout",
+  "features": "DT-24, DT-25, DT-26, DT-27",
+  "priority": "P1",
+  "journey": "1. Admin gives the dealer a territory (exclusive pincodes, yearly fee)\n2. Dealer pays the fee online (sandbox) and the territory becomes Active\n3. Daily rating; customers order from shops in the territory; one goods refund\n4. The dealer's card shows this month's orders and income\n5. Month close: TERRITORY entry, one payout on the 5th with 'Territory order income'\n6. Rule switched off again",
+  "expected": "Pincodes held exclusively; Active only after the webhook; share 20-25% by rating; refunds netted; one payout with the territory line; nothing else changes while the rule is off.",
+  "preconditions": "Rule territoryDealer switched on for the test on staging; a TIERED test dealer; test shops in the test pincodes; sandbox payments; month close with the developer.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-49",
+  "title": "Team lead grows his team; the main dealer promotes an agent",
+  "features": "DT-28, DT-29, DT-20, DT-23",
+  "priority": "P2",
+  "journey": "1. Team lead adds an agent from /dealer; the main dealer is told\n2. The new agent signs shops with his own code (sandbox); commission waits until his account is linked and the agreement accepted\n3. An agent reaches 50 shops and 3 ready agents\n4. The main dealer promotes him from /dealer\n5. Month close with >= 100 shops from the new team",
+  "expected": "Agent added at once under the lead; 20 / 4 / 3 % on his shops; promotion only when eligible, recruits move with him; former lead's 1% development bonus only in months with >= 100 shops.",
+  "preconditions": "A TIERED chain main dealer > team lead > agent with linked accounts; promotion counts arranged with the developer on staging.",
+  "origin": "Added 20-Nov-2026"
  }
 ]
