@@ -149,6 +149,9 @@ export const PUBLIC_PAGES = new Set([
   "/health/equipment/[listingId]",
   // A householder checks a home-care visitor's ID card number at the door; "Not a GoKesari ID" for an unknown one.
   "/health/care/id/[card]",
+  // docs/puja-samagri-2026-11: the Puja Samagri storefront (home tile → /puja) is open to guests like /shops;
+  // the owner's /shop/puja and staff's /admin/puja stay signed-in pages.
+  "/puja",
 ]);
 
 /**
