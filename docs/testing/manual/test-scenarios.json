@@ -3450,5 +3450,216 @@
    "TC-TERR-025",
    "TC-TERR-026"
   ]
+ },
+ {
+  "id": "TS-SUB-07",
+  "module": "Subscriptions",
+  "title": "Subscribe to newspapers and magazines from a vendor near you",
+  "description": "The customer picks one or more titles, chooses an address, is shown nearby vendors who deliver there and carry the titles, and submits once; the vendor is told and sees the subscriber.",
+  "caseIds": [
+   "TC-SUB-020",
+   "TC-SUB-021",
+   "TC-SUB-022",
+   "TC-SUB-023",
+   "TC-SUB-024",
+   "TC-SUB-025",
+   "TC-SUB-026",
+   "TC-SUB-027"
+  ]
+ },
+ {
+  "id": "TS-CON-01",
+  "module": "Consultant appointments",
+  "title": "Find a Consultant and the public APIs",
+  "description": "Guests can search; everything private is refused.",
+  "caseIds": [
+   "TC-CON-001",
+   "TC-CON-002",
+   "TC-CON-003",
+   "TC-CON-004"
+  ]
+ },
+ {
+  "id": "TS-CON-02",
+  "module": "Consultant appointments",
+  "title": "Consultant onboarding and setup",
+  "description": "Profile, team, hours, services, certificates, publish.",
+  "caseIds": [
+   "TC-CON-005",
+   "TC-CON-006"
+  ]
+ },
+ {
+  "id": "TS-CON-03",
+  "module": "Consultant appointments",
+  "title": "Booking: individual, team, group, any member, no double booking",
+  "description": "Customer books; the database refuses a second booking of the same time.",
+  "caseIds": [
+   "TC-CON-007",
+   "TC-CON-008",
+   "TC-CON-009",
+   "TC-CON-021",
+   "TC-CON-022",
+   "TC-CON-023"
+  ]
+ },
+ {
+  "id": "TS-CON-04",
+  "module": "Consultant appointments",
+  "title": "Changes: cancel, reschedule, notices, disputes",
+  "description": "Policy refunds, reminders, help-desk tickets.",
+  "caseIds": [
+   "TC-CON-010",
+   "TC-CON-011",
+   "TC-CON-024",
+   "TC-CON-025"
+  ]
+ },
+ {
+  "id": "TS-CON-05",
+  "module": "Consultant appointments",
+  "title": "Consultant actions: pay at visit, receipts, completion code, calendar",
+  "description": "The consultant's side of a booking.",
+  "caseIds": [
+   "TC-CON-012",
+   "TC-CON-013",
+   "TC-CON-014"
+  ]
+ },
+ {
+  "id": "TS-CON-06",
+  "module": "Consultant appointments",
+  "title": "Online payment: hold, success, failure",
+  "description": "Gateway payment with the 10-minute hold.",
+  "caseIds": [
+   "TC-CON-015",
+   "TC-CON-016"
+  ]
+ },
+ {
+  "id": "TS-CON-07",
+  "module": "Consultant appointments",
+  "title": "Admin and operator",
+  "description": "Categories, commission, verification, bookings, reports, permissions.",
+  "caseIds": [
+   "TC-CON-017",
+   "TC-CON-018",
+   "TC-CON-019"
+  ]
+ },
+ {
+  "id": "TS-CON-08",
+  "module": "Consultant appointments",
+  "title": "Navigation and apps",
+  "description": "Tile Board entries and the mobile apps.",
+  "caseIds": [
+   "TC-CON-020",
+   "TC-CON-026"
+  ]
+ },
+ {
+  "id": "TS-HLT-01",
+  "module": "GoKesari Health",
+  "title": "Guest access and public checks",
+  "description": "Private Health pages and APIs refuse a guest; the prescription QR check and share links show nothing private.",
+  "caseIds": [
+   "TC-HLT-001",
+   "TC-HLT-002",
+   "TC-HLT-003",
+   "TC-HLT-004",
+   "TC-HLT-005"
+  ]
+ },
+ {
+  "id": "TS-HLT-02",
+  "module": "GoKesari Health",
+  "title": "Doctor booking, clinic Today and the live queue",
+  "description": "Only verified doctors are bookable; bookings, tokens and queue positions update live.",
+  "caseIds": [
+   "TC-HLT-010",
+   "TC-HLT-011",
+   "TC-HLT-012"
+  ]
+ },
+ {
+  "id": "TS-HLT-03",
+  "module": "GoKesari Health",
+  "title": "E-prescriptions",
+  "description": "Issue, PDF, e-mail, print, QR verification, amend and the telemedicine / allergy safety checks.",
+  "caseIds": [
+   "TC-HLT-013",
+   "TC-HLT-014",
+   "TC-HLT-015",
+   "TC-HLT-016",
+   "TC-HLT-017",
+   "TC-HLT-018"
+  ]
+ },
+ {
+  "id": "TS-HLT-04",
+  "module": "GoKesari Health",
+  "title": "Health record, consent, family and privacy",
+  "description": "One lifelong record per person; doctors see it only with consent; every look is logged; DPDP rights.",
+  "caseIds": [
+   "TC-HLT-019",
+   "TC-HLT-020",
+   "TC-HLT-021",
+   "TC-HLT-032"
+  ]
+ },
+ {
+  "id": "TS-HLT-05",
+  "module": "GoKesari Health",
+  "title": "Prescriptions to medical stores",
+  "description": "Pickup and delivery with OTP, substitutes, dispensed quantity, no-reply fallback.",
+  "caseIds": [
+   "TC-HLT-022",
+   "TC-HLT-023",
+   "TC-HLT-024",
+   "TC-HLT-025"
+  ]
+ },
+ {
+  "id": "TS-HLT-06",
+  "module": "GoKesari Health",
+  "title": "Suggestions, home care and medical equipment",
+  "description": "Book now from a doctor's suggestion; home-care visits with OTP; equipment rental with deposit.",
+  "caseIds": [
+   "TC-HLT-026",
+   "TC-HLT-027",
+   "TC-HLT-028"
+  ]
+ },
+ {
+  "id": "TS-HLT-07",
+  "module": "GoKesari Health",
+  "title": "Listing, referrals and Health admin",
+  "description": "Launch mode (all Prime features free), patient referrals, verification queues, drug master, break-glass.",
+  "caseIds": [
+   "TC-HLT-029",
+   "TC-HLT-030",
+   "TC-HLT-031"
+  ]
+ },
+ {
+  "id": "TS-WKIT-01",
+  "module": "Shop welcome kit & QR banner",
+  "title": "A new shop gets its printable QR banners the moment it goes live",
+  "description": "When a shop goes live (paid self-registration, admin / operator approval, automatic or instant GST/PAN approval) the owner is e-mailed once: congratulations, both banners shown and attached as A4 PDFs, and clear print instructions. The owner and operations can download them again from Seller Central; customers who scan the QR land on the shop's own page.",
+  "caseIds": [
+   "TC-WKIT-001",
+   "TC-WKIT-002",
+   "TC-WKIT-003",
+   "TC-WKIT-004",
+   "TC-WKIT-005",
+   "TC-WKIT-006",
+   "TC-WKIT-007",
+   "TC-WKIT-008",
+   "TC-WKIT-009",
+   "TC-WKIT-010",
+   "TC-WKIT-011",
+   "TC-WKIT-012",
+   "TC-WKIT-013"
+  ]
  }
 ]

@@ -1,5 +1,5 @@
 /**
- * Database schema — Everything for Everyone.
+ * Database schema — Everything for Everyone, Everywhere.
  *
  * Conventions enforced across every table:
  *  - Money is ALWAYS integer paise (bigint). ₹70.00 → 7000. Never a float.
@@ -8700,7 +8700,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME"] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -10387,6 +10387,8 @@ export const FEATURE_FLAG_KEYS = [
   "zoho_connector",
   "odoo_connector",
   "ondc_mode",
+  // docs/shop-welcome-kit-2026-11: admins send the welcome kit to shops that were live before it (one shop or by city / district). No migration: a missing row is OFF.
+  "shop_welcome_kit_admin_send_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -12550,3 +12552,7 @@ export const consultReceiptCounters = pgTable(
 );
 
 /* <<< consultant appointments */
+
+/* >>> GoKesari Health (docs/health/; drizzle/0153_health.sql) */
+export * from "./health-schema";
+/* <<< GoKesari Health */

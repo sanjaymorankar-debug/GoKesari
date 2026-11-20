@@ -19,6 +19,7 @@ import {
   listShopCampaigns,
 } from "@/server/services/marketing";
 import { listShopsForOwner } from "@/server/services/shops";
+import { localBannerLanguage } from "@/server/shop-banner/render";
 
 export const metadata = { title: "Marketing" };
 export const dynamic = "force-dynamic";
@@ -45,6 +46,8 @@ export default async function ShopMarketingPage() {
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
   const shop = await activeShop(shops);
+  // docs/shop-welcome-kit-2026-11: the banner's second language (Marathi in Maharashtra / Goa, else Hindi).
+  const localLanguage = localBannerLanguage(shop) === "mr" ? "Marathi" : "Hindi";
   // Item B: live limits (rules `marketing` and `cod`).
   const [MARKETING_LIMITS, COD_LIMITS] = await Promise.all([getRule("marketing"), getCodLimits()]);
 
@@ -60,6 +63,31 @@ export default async function ShopMarketingPage() {
         title="Marketing"
         description={`${shop.name} — reach your own customers who agreed to receive offers. Campaigns are checked by our team before they go out.`}
       />
+
+      {/* docs/shop-welcome-kit-2026-11: the printable shop banners (also e-mailed when the shop went live). */}
+      {shop.status === "APPROVED" ? (
+        <Card className="mb-8 p-4" data-testid="shop-banner">
+          <h2 className="text-base font-bold text-ink-900">Your shop banner with QR code</h2>
+          <p className="mt-1 text-sm text-ink-600">
+            Print it in colour on A4 landscape (&ldquo;Fit to page&rdquo;) and put it up at your counter or entrance. Customers scan the QR code and come straight to
+            your shop on GoKesari. Scan it with your phone first to check it opens your shop.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-sm font-medium">
+            <a className="inline-flex min-h-11 items-center rounded-lg bg-kesari-700 px-3 py-2 text-white" href={`/api/shops/${shop.id}/banner?lang=en`} data-testid="banner-en-pdf">
+              English banner (PDF)
+            </a>
+            <a className="inline-flex min-h-11 items-center rounded-lg bg-kesari-700 px-3 py-2 text-white" href={`/api/shops/${shop.id}/banner?lang=local`} data-testid="banner-local-pdf">
+              {localLanguage} banner (PDF)
+            </a>
+            <a className="inline-flex min-h-11 items-center rounded-lg border border-[var(--gk-line)] px-3 py-2 text-ink-900" href={`/api/shops/${shop.id}/banner?lang=en&format=png`} data-testid="banner-en-png">
+              English (PNG)
+            </a>
+            <a className="inline-flex min-h-11 items-center rounded-lg border border-[var(--gk-line)] px-3 py-2 text-ink-900" href={`/api/shops/${shop.id}/banner?lang=local&format=png`} data-testid="banner-local-png">
+              {localLanguage} (PNG)
+            </a>
+          </div>
+        </Card>
+      ) : null}
 
       <section className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="customer-overview">
         <Card className="p-4">

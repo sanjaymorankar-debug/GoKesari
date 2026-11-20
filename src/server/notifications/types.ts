@@ -427,6 +427,34 @@ export const NOTIFICATION_TYPES = {
   CONSULT_VERIFICATION: "consult.verification",
   /* <<< consultant appointments */
   //
+  /* >>> GoKesari Health (docs/health/) — patients, doctors, clinics, medical stores, home care, equipment, Prime */
+  HEALTH_PRESCRIPTION_ISSUED: "health.prescription_issued",
+  HEALTH_PRESCRIPTION_AMENDED: "health.prescription_amended",
+  HEALTH_SUGGESTION: "health.suggestion",
+  HEALTH_REFERRAL_RECEIVED: "health.referral_received",
+  HEALTH_CONSENT: "health.consent",
+  HEALTH_FAMILY_LINK: "health.family_link",
+  HEALTH_RECORD_ADDED: "health.record_added",
+  HEALTH_RX_REQUEST: "health.rx_request",
+  HEALTH_RX_QUOTED: "health.rx_quoted",
+  HEALTH_RX_DECLINED: "health.rx_declined",
+  HEALTH_RX_EXPIRED: "health.rx_expired",
+  HEALTH_RX_APPROVED: "health.rx_approved",
+  HEALTH_RX_READY: "health.rx_ready",
+  HEALTH_RX_OUT_FOR_DELIVERY: "health.rx_out_for_delivery",
+  HEALTH_RX_COMPLETED: "health.rx_completed",
+  HEALTH_CARE_BOOKING: "health.care_booking",
+  HEALTH_CARE_VISIT: "health.care_visit",
+  HEALTH_CARE_SOS: "health.care_sos",
+  HEALTH_RENTAL: "health.rental",
+  HEALTH_RENTAL_DUE: "health.rental_due",
+  HEALTH_PRIME: "health.prime",
+  HEALTH_PRIME_RENEWAL: "health.prime_renewal",
+  HEALTH_CALL_MISSED: "health.call_missed",
+  HEALTH_VERIFICATION: "health.verification",
+  HEALTH_BREAK_GLASS: "health.break_glass",
+  /* <<< GoKesari Health */
+  //
 } as const;
 
 export type NotificationType =

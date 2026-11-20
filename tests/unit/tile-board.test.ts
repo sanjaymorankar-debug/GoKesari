@@ -172,7 +172,8 @@ describe("permission filtering", () => {
     expect(menus.map((m) => m.key)).toEqual(["shops", "orders", "subscriptions", "wallet", "tracking", "profile"]);
     // 20: Orders → "My lists" (docs/purchase-lists-2026-10). 21: Subscriptions → "Newspapers" (docs/newspaper-subscriptions-2026-11).
     // 23: Shops → "Consultants", Orders → "Appointments" (docs/consult-booking-2026-11).
-    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(23);
+    // 25: Shops → "Doctors", Profile → "My Health" (docs/health/; no 7th tile — one screen on a phone).
+    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(25);
   });
 
   it("treats a list of permissions as any-of", () => {
@@ -217,12 +218,13 @@ describe("menu definitions", () => {
     // Newspaper subscriptions (docs/newspaper-subscriptions-2026-11): shop +1, Orders → "Subscribers".
     // Puja Samagri (docs/puja-samagri-2026-11): shop +1, Product categories → "Puja Samagri".
     // Consultant appointments (docs/consult-booking-2026-11): shop +1, Orders → "Appointments"; admin +1 and operator +1, Shops → "Consultants".
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(46);
+    // GoKesari Health (docs/health/): shop +1, Orders → "Health" (hub); admin +1 and operator +1, Shops → "Health".
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(47);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
     // Consultant appointments and Puja Samagri: admin +1 and operator +1 each (Shops → "Consultants";
     // Categories / Catalogue → "Puja Samagri").
-    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(40);
-    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(28);
+    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(41);
+    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(29);
   });
 
   it("keep every group to at most seven entries on the board (Hick's law)", () => {

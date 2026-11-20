@@ -17,6 +17,9 @@ export const AUDIT_ACTIONS = {
   /** docs/shop-onboarding-wizard-2026-10 step 2: the shop created from the wizard's draft, its checks copied. Masked numbers only. */
   SHOP_REGISTRATION_DRAFT_SUBMITTED: "shop_registration_draft.submitted",
   SHOP_APPROVED: "shop.approved",
+  /** docs/shop-welcome-kit-2026-11: an admin sent the welcome kit (printable QR banners) to a shop that was already live, or to a city / district. */
+  SHOP_WELCOME_KIT_SENT: "shop.welcome_kit_sent",
+  SHOP_WELCOME_KIT_BULK_SENT: "shop.welcome_kit_bulk_sent",
   SHOP_REJECTED: "shop.rejected",
   SHOP_APPROVED_WITHOUT_DOCUMENTS: "shop.approved_without_documents",
   SHOP_DOCUMENTS_REMINDED: "shop.documents_reminded",
@@ -539,6 +542,24 @@ export const AUDIT_ACTIONS = {
   CONSULT_BOOKING_SETTLED: "consult.booking_settled",
   CONSULT_PRIVATE_VIEWED: "consult.private_viewed",
   /* <<< consultant appointments */
+  /* >>> GoKesari Health (docs/health/) — metadata only, never clinical text */
+  HEALTH_CONSENT_CHANGED: "health.consent_changed",
+  HEALTH_DOCTOR_PROFILE: "health.doctor_profile",
+  HEALTH_PRESCRIPTION_ISSUED: "health.prescription_issued",
+  HEALTH_PRESCRIPTION_AMENDED: "health.prescription_amended",
+  HEALTH_BREAK_GLASS: "health.break_glass",
+  HEALTH_DRUG_MASTER: "health.drug_master",
+  HEALTH_RX_ORDER: "health.rx_order",
+  HEALTH_RENTAL: "health.rental",
+  HEALTH_PRIME_PLAN: "health.prime_plan",
+  HEALTH_PRIME_SUBSCRIPTION: "health.prime_subscription",
+  HEALTH_DATA_REQUEST: "health.data_request",
+  HEALTH_SETTINGS: "health.settings",
+  HEALTH_PROVIDER_VERIFIED: "health.provider_verified",
+  HEALTH_EQUIPMENT_MASTER: "health.equipment_master",
+  HEALTH_CARE_PROVIDER: "health.care_provider",
+  HEALTH_EQUIPMENT_STORE: "health.equipment_store",
+  /* <<< GoKesari Health */
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
