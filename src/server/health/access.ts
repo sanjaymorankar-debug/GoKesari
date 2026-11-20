@@ -295,3 +295,30 @@ export async function shopsOfUser(userId: string, client: DbClient = db): Promis
   const member = await client.select({ id: consultMembers.shopId }).from(consultMembers).where(and(eq(consultMembers.userId, userId), eq(consultMembers.status, "ACTIVE")));
   return [...new Set([...owned.map((r) => r.id), ...member.map((r) => r.id)])];
 }
+
+/* ------------------------------------------------------------ which shops are in Health */
+
+/** Shop types that are medical by nature (owner, 20-Nov-2026: Health is only for the medical field). */
+export const HEALTH_SHOP_TYPES = ["DOCTOR_CLINIC", "SUPER_SPECIALITY_CLINIC", "PHARMACY", "MEDICAL_EQUIPMENT"] as const;
+
+/** Board flag that shows Seller Central → Orders → Health (src/lib/board/menus.ts). */
+export const HEALTH_BOARD_FLAG = "health_provider";
+
+/**
+ * Is this shop part of GoKesari Health? Its type is medical (clinic, pharmacy, equipment store), or it is a
+ * practice (consultant / firm) with a team member in a doctor or home-care category. A grocery or hardware
+ * shop never is.
+ */
+export async function isHealthShop(shopId: string, client: DbClient = db): Promise<boolean> {
+  const [s] = await client.select({ type: shops.shopType }).from(shops).where(eq(shops.id, shopId));
+  if (!s) return false;
+  if ((HEALTH_SHOP_TYPES as readonly string[]).includes(s.type)) return true;
+  const rows = await client.execute<{ ok: number }>(sql`
+    select 1 as ok from consult_members m
+      join consult_member_categories mc on mc.member_id = m.id
+      join consult_categories c on c.id = mc.category_id
+     where m.shop_id = ${shopId} and m.status = 'ACTIVE'
+       and (c.required_doc = 'MEDICAL_REGISTRATION' or c.group_name = 'Home care' or c.slug = 'physiotherapist')
+     limit 1`);
+  return rows.length > 0;
+}

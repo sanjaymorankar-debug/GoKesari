@@ -295,3 +295,25 @@ describe("token clinics", () => {
     expect(p.relation).toBe("SELF");
   });
 });
+
+describe("Health is only for medical-field shops (owner, 20-Nov-2026)", () => {
+  it("shows Seller Central → Orders → Health to a clinic, a pharmacy and an equipment store, never to a grocery or hardware shop", async () => {
+    const { isHealthShop } = await import("@/server/health/access");
+    const { SHOP_MENUS, visibleMenus } = await import("@/lib/board/menus");
+    const { shopMenuFeatures } = await import("@/server/board-data");
+    const pharmacy = await createShop(owner.id, { name: "Asha Medicals", shopType: "PHARMACY" });
+    const equipment = await createShop(owner.id, { name: "Care Equipment", shopType: "MEDICAL_EQUIPMENT" });
+    const grocery = await createShop(owner.id, { name: "Ram Kirana", shopType: "GROCERY_KIRANA" });
+    const hardware = await createShop(owner.id, { name: "Patil Hardware", shopType: "HARDWARE_STORE" });
+    expect(await isHealthShop(shopId)).toBe(true); // the doctor's clinic
+    expect(await isHealthShop(pharmacy.id)).toBe(true);
+    expect(await isHealthShop(equipment.id)).toBe(true);
+    expect(await isHealthShop(grocery.id)).toBe(false);
+    expect(await isHealthShop(hardware.id)).toBe(false);
+    const healthItem = async (s: { id: string; pincode: string | null; slug: string }) =>
+      visibleMenus(SHOP_MENUS, "SHOP_OWNER", { shopSlug: s.slug, features: await shopMenuFeatures(s) }, "shop").flatMap((m) => m.items).some((i) => i.href === "/shop/health/hub");
+    expect(await healthItem({ ...pharmacy, pincode: pharmacy.pincode ?? null })).toBe(true);
+    expect(await healthItem({ ...grocery, pincode: grocery.pincode ?? null })).toBe(false);
+    expect(await healthItem({ ...hardware, pincode: hardware.pincode ?? null })).toBe(false);
+  });
+});

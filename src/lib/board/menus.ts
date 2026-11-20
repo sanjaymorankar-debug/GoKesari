@@ -213,7 +213,7 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       // docs/consult-booking-2026-11: a consultant's / firm's calendar and bookings (the shop board is at its 16-tile limit).
       { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), href: "/shop/consult" },
       // GoKesari Health (docs/health/): clinic Today, prescription requests, home-care visits, equipment rentals, Prime (the board is at 16 tiles).
-      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), href: "/shop/health/hub" },
+      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), href: "/shop/health/hub", feature: "health_provider" },
     ],
   },
   {
