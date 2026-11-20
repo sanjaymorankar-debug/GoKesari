@@ -28,7 +28,11 @@ and set up their appointments and map pin.
 taken on what the consultant keeps and settled in the weekly shop payout. Refunds return to the original payment
 method.
 
-**Switch.** Rule `consultBooking` (Admin → Settings), off until switched on per site.
+**Unpaid holds (#434, D-CB-09).** When the 10-minute hold on an online booking runs out without payment, the
+booking ends as "payment failed", the time is freed and the customer is told "Payment for … did not go through".
+
+**Switch.** Rule `consultBooking` (Admin → Settings). GoKesari Health's migration 0156 (#429) switches it on: on
+test.gokesari.com when #429 landed, on gokesari.com in the joint release (owner's launch decision, CB-23).
 
 **Apps.** Android and iOS show all of it immediately (website screens); app 1.9.0 adds `/consult` app links.
 
