@@ -17,7 +17,8 @@
 #      migration), for the server (gk-deploy) to deploy it to test.gokesari.com (the build
 #      version in /sw.js changes), for the site to answer (post-deploy check)
 #      and for the guest QA tier against test.gokesari.com;
-#   5. passed → label staging-verified and go straight to the next PR;
+#   5. passed → label staging-verified and go straight to the next PR, unless
+#      the run is past its time budget (4 h): then the next run carries on;
 #      failed → label staging-failed, open a "Staging queue paused" issue and
 #      stop. While paused, only PRs labelled staging-fix are merged; when a fix
 #      verifies, the pause issue is closed and the queue carries on by itself.
@@ -56,6 +57,7 @@ RUN_URL="${QUEUE_RUN_URL:-}"
 DRY_RUN="${DRY_RUN:-0}"
 QUEUE_DIR="${QUEUE_DIR:-$(cd "$(dirname "$0")" && pwd)}" # holds post-deploy-check.sh
 MAX_PRS="${QUEUE_MAX_PRS:-20}"           # per run; the next trigger carries on
+RUN_BUDGET="${QUEUE_RUN_BUDGET:-14400}"  # s: start no new PR after 4 h (the job stops at 350 min)
 SKIP_UPDATE="${QUEUE_SKIP_UPDATE:-1}"    # option A: merge a behind PR as it is when safe
 CI_WORKFLOW="${QUEUE_CI_WORKFLOW:-CI}"   # staging's CI, which option A needs to have passed
 
@@ -481,6 +483,16 @@ while [ "$processed" -lt "$MAX_PRS" ]; do
   done
   if [ -z "$next" ]; then
     [ -n "$paused" ] && update_tracker "⛔ PAUSED — see #$paused (waiting for a PR labelled \`$FIX\`)" || update_tracker "✅ idle — nothing queued"
+    break
+  fi
+  # Start no PR this run may not finish. GitHub stops the job at 350 min
+  # (staging-queue.yml) and one PR takes up to about 90 min. On 20 Nov 2026 a
+  # run was stopped at 06.08 IST during #420's guest QA: #420 stayed merged
+  # and labelled staging-testing, with no verdict. The next run (a push to
+  # staging, a label, or the hourly schedule) carries on with the queue.
+  if [ "$SECONDS" -ge "$RUN_BUDGET" ]; then
+    note "run time budget reached ($((SECONDS / 60)) of $((RUN_BUDGET / 60)) min): #$next waits for the next run"
+    update_tracker "⏭ handing over — #$next is next; the next run (a push to \`$BASE\`, a label, or the hourly check) carries on"
     break
   fi
   seen="${seen:-} $next"

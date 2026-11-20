@@ -47,7 +47,13 @@ Oldest PR first (lowest number; `staging-fix` PRs go before everything):
 
 Then:
 
-- **passed** → `staging-verified`, and the next PR starts at once;
+- **passed** → `staging-verified`, and the next PR starts at once. The
+  exception is a run that has been going for **4 hours**: it starts no new
+  PR and hands over. The next run carries on, started by a push to `staging`,
+  a label, or the hourly schedule. GitHub stops a run at 350 minutes, and one
+  PR can take up to about 90, so the PR in hand always gets its verdict. (On
+  20-Nov-2026 a run was cut off during #420's guest QA.) `QUEUE_RUN_BUDGET`
+  (seconds) changes the 4 hours;
 - **failed** → `staging-failed`, a **"Staging queue paused"** issue is opened
   and nothing else is merged. The comment on the PR tells the owning session
   what failed and how to fix it; the session opens the fix PR labelled
@@ -130,9 +136,13 @@ its roughly 32 minutes.
   **`STAGING_QUEUE_SKIP_UPDATE`** to `0` (Settings → Secrets and variables →
   Actions → Variables). Every behind PR is then updated as before; no code
   change is needed.
-- **Not changed by A:** a queue run still stops at the job's 350-minute limit.
-  On 20-Nov-2026 the run that started at 00.18 IST was cut off at 06.08 IST,
-  during #420's guest QA, so #420 was merged but never got a verdict.
+- **Fixed alongside A (owner, 20-Nov-2026):** the queue job stops at
+  350 minutes. On 20-Nov-2026 the run that started at 00.18 IST was cut off at
+  06.08 IST, during #420's guest QA, so #420 was merged but got no verdict.
+  - A run now starts no new PR after 4 hours (see "Then:" above).
+  - #420 was given its verdict by hand. Its staging CI had passed, the site
+    ran its build, the post-deploy check had passed, and 44 guest checks had
+    passed with none failing. #421 then passed the full guest QA on top of it.
 
 ## What it does not do
 

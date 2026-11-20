@@ -51,6 +51,8 @@ jobs:
         github.event.label.name == 'ready-for-staging' || github.event.label.name == 'staging-fix') &&
       (github.event_name != 'issues' || contains(github.event.issue.labels.*.name, 'staging-queue-paused'))
     runs-on: ubuntu-latest
+    # The script starts no new PR after 4 h (QUEUE_RUN_BUDGET), so the PR in
+    # hand can finish before this limit (20 Nov 2026: #420 was cut off).
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v5
