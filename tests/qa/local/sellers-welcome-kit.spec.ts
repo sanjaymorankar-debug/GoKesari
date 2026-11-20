@@ -28,7 +28,8 @@ qa(["TC-WKIT-001", "TC-WKIT-004"], "Operations approve a shop: one welcome e-mai
   const rows = await kitSettled(shop.id);
   expect(rows, "one SHOP_WELCOME_KIT row for the shop").toHaveLength(1);
   expect(rows[0].user_id, "addressed to the owner").toBe(owner.id);
-  expect(rows[0].subject, "subject").toBe(`Congratulations! ${shop.name} is now live on GoKesari`);
+  // renderEmail adds the site's name to every subject ("… — Gokesari").
+  expect(rows[0].subject, "subject").toMatch(new RegExp(`^Congratulations! ${String(shop.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} is now live on GoKesari`));
   expect(rows[0].status, `sent (last error: ${rows[0].last_error ?? "none"})`).toBe("SENT");
 
   const mail = await mailMatching(owner.email, since, SUBJECT, 30_000);
