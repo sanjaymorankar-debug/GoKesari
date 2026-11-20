@@ -532,6 +532,10 @@ export const AUDIT_ACTIONS = {
   HEALTH_PRIME_SUBSCRIPTION: "health.prime_subscription",
   HEALTH_DATA_REQUEST: "health.data_request",
   HEALTH_SETTINGS: "health.settings",
+  HEALTH_PROVIDER_VERIFIED: "health.provider_verified",
+  HEALTH_EQUIPMENT_MASTER: "health.equipment_master",
+  HEALTH_CARE_PROVIDER: "health.care_provider",
+  HEALTH_EQUIPMENT_STORE: "health.equipment_store",
   /* <<< GoKesari Health */
 } as const;
 

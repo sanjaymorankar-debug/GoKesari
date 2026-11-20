@@ -72,7 +72,7 @@ async function nextToken(memberId: string, start: Date): Promise<number> {
       from health.appointment_links l
       join consult_booking_members bm on bm.booking_id = l.booking_id
       join consult_bookings b on b.id = l.booking_id
-     where bm.member_id = ${memberId} and b.starts_at >= ${istAt(day, 0)} and b.starts_at < ${istAt(addDays(day, 1), 0)}`);
+     where bm.member_id = ${memberId} and b.starts_at >= ${istAt(day, 0).toISOString()}::timestamptz and b.starts_at < ${istAt(addDays(day, 1), 0).toISOString()}::timestamptz`);
   return n + 1;
 }
 

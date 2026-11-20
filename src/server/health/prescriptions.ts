@@ -672,6 +672,24 @@ export async function prescriptionPdf(prescriptionId: string, actor: HealthActor
   return { pdf, filename: `${safeName(rx.rxNumber)}${rx.version > 1 ? `-v${rx.version}` : ""}.pdf` };
 }
 
+/** The HTML print view was printed (clinic copy): count it and log it (reprints are logged too). */
+export async function logPrescriptionPrint(prescriptionId: string, actor: HealthActor, ip?: string | null): Promise<void> {
+  const [rx] = await db.select().from(healthPrescriptions).where(eq(healthPrescriptions.id, prescriptionId));
+  if (!rx) throw notFound("Prescription");
+  const viewer = await prescriptionAccess(rx, actor);
+  await db.update(healthPrescriptions).set({ printCount: sql`${healthPrescriptions.printCount} + 1` }).where(eq(healthPrescriptions.id, rx.id));
+  await logRecordAccess({ patientId: rx.patientId, actor, actorLabel: viewer === "DOCTOR" ? await doctorLabel(rx.memberId) : viewer === "PATIENT" ? "You" : "Medical store you sent it to", actorRole: viewer, action: "PRINT", objectType: "prescription", objectId: rx.id, reason: rx.printCount > 0 ? `Reprint #${rx.printCount}` : null, ipAddress: ip ?? null });
+}
+
+/** A signature image for a printed copy: only to someone who may open that prescription. */
+export async function signatureForPrescription(prescriptionId: string, memberId: string, actor: HealthActor): Promise<Buffer | null> {
+  const [rx] = await db.select().from(healthPrescriptions).where(eq(healthPrescriptions.id, prescriptionId));
+  if (!rx || rx.memberId !== memberId) throw notFound("Prescription");
+  await prescriptionAccess(rx, actor);
+  const [dp] = await db.select().from(healthDoctorProfiles).where(eq(healthDoctorProfiles.memberId, memberId));
+  return dp ? doctorImage(dp, "signature") : null;
+}
+
 /** For the document-email outbox (no actor: the outbox only sends to the patient's own account). */
 export async function prescriptionPdfForEmail(prescriptionId: string): Promise<{ pdf: Buffer; filename: string } | null> {
   const [rx] = await db.select({ pdf: healthPrescriptions.pdf, rxNumber: healthPrescriptions.rxNumber, version: healthPrescriptions.version }).from(healthPrescriptions).where(eq(healthPrescriptions.id, prescriptionId));

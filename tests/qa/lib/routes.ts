@@ -137,6 +137,8 @@ export const PUBLIC_PAGES = new Set([
   // consultant's public page (404 while off or not published). Booking itself needs sign-in.
   "/consult",
   "/consult/[slug]",
+  // docs/health: the prescription QR check is public (it shows patient details only to authorised viewers).
+  "/rx/verify/[token]",
 ]);
 
 /**

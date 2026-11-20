@@ -69,6 +69,8 @@ export async function saveDoctorProfile(memberId: string, raw: unknown, actor: H
     .set({ registrationNumber: values.registrationNumber, registrationBody: input.council, qualifications: input.qualifications, updatedAt: now })
     .where(eq(consultMembers.id, m.id));
   await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.HEALTH_DOCTOR_PROFILE, entityType: "health_doctor_profile", entityId: row.id, newValue: { council: input.council, registrationNumber: values.registrationNumber } });
+  // A Free-listed clinic gets booking requests it confirms; Prime turns instant booking on (rule freeListingManualApproval).
+  await (await import("./prime")).syncInstantBooking(m.shopId).catch(() => null);
   const status = await doctorStatus(m.id);
   if (!status.verified) await publishHealthEvent({ name: "provider.verification_pending", shopId: m.shopId, subjectId: m.id, payload: { kind: "DOCTOR" } });
   return row;

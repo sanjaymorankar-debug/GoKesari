@@ -39,6 +39,7 @@ export const HEALTH_EVENT_NAMES = [
   "rx.expired",
   "rx.approved",
   "rx.cancelled",
+  "order.packed",
   "order.ready_for_pickup",
   "order.out_for_delivery",
   "order.completed",

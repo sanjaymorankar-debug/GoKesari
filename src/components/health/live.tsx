@@ -23,8 +23,10 @@ export function useHealthLive(match: (e: LiveEvent) => boolean, onEvent: (e: Liv
   const [status, setStatus] = useState<Status>("connecting");
   const matchRef = useRef(match);
   const onEventRef = useRef(onEvent);
-  matchRef.current = match;
-  onEventRef.current = onEvent;
+  useEffect(() => {
+    matchRef.current = match;
+    onEventRef.current = onEvent;
+  });
   useEffect(() => {
     if (typeof window === "undefined" || typeof EventSource === "undefined") return;
     let timer: ReturnType<typeof setTimeout> | null = null;

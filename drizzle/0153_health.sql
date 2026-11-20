@@ -870,6 +870,12 @@ BEGIN
 		(SELECT string_agg(quote_literal(v), ', ' ORDER BY v) FROM unnest(vals) v));
 END $$;
 --> statement-breakpoint
+-- Home-care shifts (8 h and 12 h) are consult services: allow services up to 12 hours. A 24-hour shift is a
+-- day and a night 12-hour booking (a slot must fit inside one day's hours).
+ALTER TABLE "consult_services" DROP CONSTRAINT IF EXISTS "consult_services_duration";
+--> statement-breakpoint
+ALTER TABLE "consult_services" ADD CONSTRAINT "consult_services_duration" CHECK ("duration_minutes" BETWEEN 5 AND 720);
+--> statement-breakpoint
 -- Home-care categories in the consultant category list (admin-managed like the others).
 INSERT INTO "consult_categories" ("name", "slug", "group_name", "required_doc", "required_doc_label", "default_modes", "sac_code", "sensitive", "sort_order")
 SELECT v.name, v.slug, 'Home care', v.doc, v.doc_label, v.modes::text[], '999312', true, v.sort

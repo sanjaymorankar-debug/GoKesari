@@ -167,12 +167,13 @@ describe("permission filtering", () => {
     expect(visibleItems(SHOP_DO_NOW, "SHOP_OWNER")).toHaveLength(3);
   });
 
-  it("shows a customer all six tiles and every submenu", () => {
+  it("shows a customer all seven tiles and every submenu", () => {
     const menus = visibleMenus(CUSTOMER_MENUS, "CUSTOMER");
-    expect(menus.map((m) => m.key)).toEqual(["shops", "orders", "subscriptions", "wallet", "tracking", "profile"]);
+    expect(menus.map((m) => m.key)).toEqual(["shops", "orders", "health", "subscriptions", "wallet", "tracking", "profile"]);
     // 20: Orders → "My lists" (docs/purchase-lists-2026-10).
     // 22: Shops → "Consultants", Orders → "Appointments" (docs/consult-booking-2026-11).
-    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(22);
+    // 29: My Health tile with 7 entries (docs/health/).
+    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(29);
   });
 
   it("treats a list of permissions as any-of", () => {
@@ -205,7 +206,7 @@ describe("menu definitions", () => {
   const all = Object.values(MENUS).flatMap((menus) => menus.flatMap((m) => [m, ...m.items, ...(m.more ?? [])]));
 
   it("match the approved menu counts", () => {
-    expect(CUSTOMER_MENUS).toHaveLength(6);
+    expect(CUSTOMER_MENUS).toHaveLength(7);
     expect(CUSTOMER_CATEGORIES).toHaveLength(8);
     expect(SHOP_MENUS).toHaveLength(16);
     expect(ADMIN_MENUS).toHaveLength(9);
@@ -215,10 +216,10 @@ describe("menu definitions", () => {
     // (docs/product-import-2026-10); operator +1: Catalogue → Bulk upload (the admin's is under Product master → more).
     // Gig worker flow (docs/gig-worker-2026-10): shop +1, Delivery → "Delivery partners" (feature 7).
     // Consultant appointments (docs/consult-booking-2026-11): shop +1, Orders → "Appointments"; admin +1 and operator +1, Shops → "Consultants".
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(44);
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(45);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
-    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
-    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(27);
+    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(40);
+    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(28);
   });
 
   it("keep every group to at most seven entries on the board (Hick's law)", () => {

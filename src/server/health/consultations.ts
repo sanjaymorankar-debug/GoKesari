@@ -28,7 +28,6 @@ import {
   type HealthConsultation,
   type HealthPatient,
 } from "@/server/db/schema";
-import { getRule } from "@/server/services/settings";
 import { doctorLabel, firmUserIds, logRecordAccess, patientAudience, recordConsentFor, requireDoctorContext, requireVerifiedDoctor, sameDoctorMemberIds, type HealthActor } from "./access";
 import { publishHealthEvent } from "./events";
 import { addTimeline } from "./timeline";
