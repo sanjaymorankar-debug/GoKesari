@@ -19,7 +19,7 @@ that says "full suite" runs every module's tests in one run, not only the new on
 | R7 | 20-Nov-2026 15.58 → 16.02 | test.gokesari.com | Rule `consultBooking` switched on (15.58, Admin settings). Consultant guest + signed-in checks, two runs | Run 1 (15.58): 19 passed, 1 failed (TC-CON-022), 11 blocked — all three causes were the test, not the app (D-CB-07, D-CB-08, CB-24). Run 2 (16.02) after the fix: **22 / 22 automatable checks passed** on desktop + 1 on phone; 4 online-payment checks need the Cashfree sandbox (R8); 4 manual |
 | R8 | 20-Nov-2026 16.02 → 16.15 | test.gokesari.com, Cashfree **sandbox** via the "Sandbox payment" workflow (test UPI only) | TC-CON-015, TC-CON-016, TC-CON-010 (refund), SC-51 | **Passed** — paid → CONFIRMED with receipt; early cancel → full refund settled; failed attempt → time released at the hold's end. 1 defect: D-CB-09 (fixed) |
 | R9 | 20-Nov-2026 16.03 → 17.20, re-runs 17.28 → 18.09 | test.gokesari.com | **Full suite, all modules** (guest + signed-in; local-only checks not run on staging by rule), then re-runs of the affected files after the test wallets were refilled | **656 passed, 12 failed rows (8 IDs), 194 blocked, 697 not run by rule. No new product defect.** Every consultant check passes. The 12 failed rows: known test data (2 old COD orders, E-16; returns list 13 pages long; one shared order delivered before its phone repeat), known defects D-152 and D-78 / D-144, and SD-06 (check already corrected in #426) — see R9 below |
-| R10 | — | gokesari.com | Joint release (newspapers #423, consultants #425/#433, Puja #427, Health #429) run by the Health session: production database snapshot first, release, post-deploy check, guest QA tier incl. TC-CON-001..004 | pending (owner approval, 23.00 IST window) |
+| R10 | 20-Nov-2026 22.01 → 23.37 | gokesari.com | Release #440 (everything on staging up to `000b73ad`: newspapers #423, consultants #425/#433, Puja #427, Health #429, dealers, tagline #430, welcome kit #431), run by the Health session on the owner's 21.58 IST instruction: database restore point, migrations 0150–0156, release, post-deploy check; then the consultant guest checks TC-CON-001..004 | **Passed** — restore point 22.01, 7 migrations applied, live 23.32, post-deploy check 23.35; TC-CON-001..004 desktop 4/4 + TC-CON-001 phone, 23.37. #434 (D-CB-09) not in this release |
 
 ## R1 — what the consultant tests prove
 
@@ -95,6 +95,23 @@ Fixed during the run (test data, not the site): **customer 1's test wallet** ran
 
 Blocked (194) are preconditions staging does not have: shop B / rider 2 sessions (codes go to a mailbox the QA agent does not read), a verified society, features not on staging yet, the Cashfree checkout (4 consultant checks, done in R8), SMS / WhatsApp providers, and checks that wait on an earlier step.
 
+## R10 — production, gokesari.com (release #440)
+
+| Step | When (IST) | Result |
+|---|---|---|
+| Restore point before migrating ("Production database" run 44774049266, `vps-db-snapshot`) | 22.01 | `prod-db-migrate-2026-11-20-1631-run58` (+ `.dump`) on the database server |
+| Migrations | 22.01 | 7 applied (0150–0156, including **0153_consult_bookings** and 0156_health, which switches `consultBooking` on); 157 recorded |
+| Release #440 merged into `main` (`release/2026-11-20`, pinned to staging `000b73ad`) | 23.26 | Live (`cf0069d0`) at 23.32 |
+| Post-deploy check | 23.35 | Passed |
+| TC-CON-001 `/consult` for a guest | 23.37 | Pass, desktop and phone: 200, "Find a Consultant" finder shown, 0 consultants yet, no sideways scroll |
+| TC-CON-002 public search | 23.37 | Pass: 0 consultants (none registered on production yet); filtered search answers; bad mode → 422 |
+| TC-CON-003 guest refused | 23.37 | Pass: 13 calls (book, my bookings, consultant and admin APIs), all 401 |
+| TC-CON-004 private file link | 23.37 | Pass: 401 without a session |
+
+Only guest checks ran on production: no sign-in on gokesari.com and no real-money bookings (those stay with the owner).
+Screenshots: `Test_Cases_Tracking/Evidence/consult-booking-2026-11-20/prod/R10-TC-CON-001-consult-{desktop,phone}.png`.
+Not in this release: **#434** (D-CB-09 lapsed hold → payment failed + customer told; QA fixes), still in the staging queue; it goes out in a later release.
+
 ## R3 — browser walkthrough (local)
 
 Evidence: `Test_Cases_Tracking/Evidence/consult-booking-2026-11-20/local/` (9 screenshots).
@@ -121,5 +138,5 @@ Evidence: `Test_Cases_Tracking/Evidence/consult-booking-2026-11-20/local/` (9 sc
 | D-CB-06 | R6, 14.29 | Medium (queue paused) | TC-QA-001: TC-CON-006, 019, 020, 026 and the journeys SC-CON-01 / SC-CON-02 were not declared in the QA suite; the check only recognises `SC-<number>` journey IDs | Journeys renamed **SC-50** / **SC-51** (#426 holds SC-48 / 49); SC-50 is a new signed-in check (find → book, pay at the visit → payment recorded → completed with the code → rated); SC-51 joins the online-payment check, which now also checks the time is offered again; TC-CON-006 / 019 / 020 / 026 declared with `manual()` and the reason (proved by the integration and unit tests, or needs a phone). Local: TC-QA-001 and the guest checks 12 / 12 passed (1 skipped) | Fixed — #433, staging-verified 15.55 |
 | D-CB-07 | R7, 15.58 | Low (test) | TC-CON-013, SC-50, TC-CON-025 blocked "no free time": the test consultant on staging (shop A) kept the shop's own hours (10–13, 17–20 IST, Mon–Sat); the set-up only wrote hours when a member had fewer than 7 rows | Set-up always gives both test consultants all-day hours | Fixed (41fb396a, PR #434) — passed in R7 run 2 |
 | D-CB-08 | R7, 15.58 | Low (test) | TC-CON-022 failed: the 4th person was accepted into a full group session. Correct behaviour: with "any available" the next person goes to a colleague's session at the same time (`pickMembers`), so capacity is per consultant | The check books one consultant's session | Fixed (41fb396a, PR #434) — passed in R7 run 2 |
-| D-CB-09 | R8, 16.15 | Low | After a failed Cashfree attempt the booking expires when its hold lapses (Cashfree keeps the session open for a retry), but its payment stayed "PENDING" and the customer was not told; the gateway's later "expired" found no waiting booking, so nothing corrected it | Hold lapse now sets a PENDING payment to FAILED and sends "Payment for … did not go through — the time was released" (as a refused payment already did). Integration test extended. Local: 45 / 45 consultant tests passed (16.16) | Fixed — PR #434 |
+| D-CB-09 | R8, 16.15 | Low | After a failed Cashfree attempt the booking expires when its hold lapses (Cashfree keeps the session open for a retry), but its payment stayed "PENDING" and the customer was not told; the gateway's later "expired" found no waiting booking, so nothing corrected it | Hold lapse now sets a PENDING payment to FAILED and sends "Payment for … did not go through — the time was released" (as a refused payment already did). Integration test extended. Local: 45 / 45 consultant tests passed (16.16) | Fixed — PR #434 (staging queue; not yet on gokesari.com) |
 

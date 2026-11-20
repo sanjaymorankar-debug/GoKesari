@@ -1,5 +1,10 @@
 # Release note — Consultant appointments (20-Nov-2026)
 
+**Released.** On gokesari.com since **20-Nov-2026 23.32 IST** in release #440 (with newspapers, Puja Samagri, GoKesari
+Health, territory dealers, tagline and welcome kit). Restore point `prod-db-migrate-2026-11-20-1631-run58` taken at
+22.01 IST before migration 0153 was applied; post-deploy check passed 23.35 IST; consultant guest checks
+TC-CON-001..004 passed on production 23.37 IST. The unpaid-hold fix below (#434) follows in a later release.
+
 **For customers.** "Find a Consultant" (Shops → Consultants, or `/consult`): doctors, dentists, advocates, CAs,
 tax consultants, IT consultants, architects, interior designers, tutors, trainers, salons and home-service experts
 near you, with distance, map, directions, rating and the next free time. Filter by category, service or name,
@@ -28,7 +33,7 @@ and set up their appointments and map pin.
 taken on what the consultant keeps and settled in the weekly shop payout. Refunds return to the original payment
 method.
 
-**Unpaid holds (#434, D-CB-09).** When the 10-minute hold on an online booking runs out without payment, the
+**Unpaid holds (#434, D-CB-09 — next release).** When the 10-minute hold on an online booking runs out without payment, the
 booking ends as "payment failed", the time is freed and the customer is told "Payment for … did not go through".
 
 **Switch.** Rule `consultBooking` (Admin → Settings). GoKesari Health's migration 0156 (#429) switches it on: on
