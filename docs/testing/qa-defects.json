@@ -2643,6 +2643,45 @@
       "expected": "TC-TERR-010 step 4: paying again with 'Pay (success)' makes the territory Active with one paid fee.",
       "fix": "Not fixed. Start a new attempt when the fee's intent has ended (FAILED / EXPIRED): e.g. key the intent on the fee and an attempt number, or clear fee.paymentIntentId and use a new key, as order payments do with 'Retry payment'.",
       "status": "Open"
+    },
+    {
+      "id": "E-36",
+      "title": "A full staging run drains the E2E test shops' prepaid wallets below the shopWallet minimum, so both shops stop taking orders mid-run",
+      "cases": [
+        "TC-ADM-004",
+        "TC-CART-009",
+        "TC-CART-012",
+        "TC-CART-015",
+        "TC-CART-018",
+        "TC-DISC-008",
+        "TC-DISC-009",
+        "TC-LOC-004",
+        "TC-LOC-005",
+        "TC-LOC-007",
+        "TC-LOC-013",
+        "TC-LOC-018",
+        "TC-LOC-020",
+        "TC-LOC-024",
+        "TC-RET-001",
+        "TC-SUP-001",
+        "TC-SUP-002",
+        "TC-SUP-006",
+        "TC-SUP-008",
+        "TC-RBAC-016",
+        "TC-RBAC-017",
+        "TC-RBAC-019",
+        "TC-FLD-095",
+        "TC-FLD-102",
+        "TC-PAY-025"
+      ],
+      "severity": "Info",
+      "found": "2026-11-20 staging regression (09.48-11.03 IST, site f1fb3c7a, suite 8ea0f6b4)",
+      "actual": "Shop B (Asmy test2) refused orders from 09.59 IST and shop A (E2E Four Features Bakery) from 10.57 IST: 'is not taking new orders right now' (orders.ts, ordersPaused through rule shopWallet). GET /api/shops/{id}/wallet after the run: A ₹196.67, B ₹0, minimum ₹200. 16 rows failed or were blocked with the refusal; the mobile cart / location checks that read 'Delivers to you' failed because serviceability reports the paused shop as not delivering.",
+      "expected": "The staging test shops start and finish a run with their prepaid wallets above the shopWallet minimum.",
+      "fix": "Admin credit of ₹5,000 to each shop wallet (POST /api/shops/{id}/wallet/adjust, reason logged) at 11.09 IST on 20-Nov-2026; the affected checks re-run. Suggested: the staging pre-flight (E-33) also checks the two shop wallets.",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": "20-Nov-2026 re-run of the 27 affected checks (see the run's collected file)."
     }
   ]
 }
