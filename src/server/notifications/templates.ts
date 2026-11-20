@@ -260,6 +260,7 @@ export const TEMPLATES: Record<string, Template> = {
   // Time-critical for the shop (it has acceptMinutes to act) or the seller (they
   // must act on the result): emailed by default as well as in the app.
   [T.SHOP_NEW_ORDER]: t("New order", "Order {{orderNumber}} is waiting for you to accept it."),
+  [T.SHOP_NEW_SUBSCRIPTION]: t("New subscriber", "{{customerName}} subscribed to {{items}}, starting {{startDate}}."),
   [T.SHOP_ACCEPT_REMINDER]: t("Accept the new order", "Order {{orderNumber}} is cancelled automatically unless you accept it in the next {{minutes}} min."),
   [T.SHOP_ORDER_TIMED_OUT]: t("Order cancelled — not accepted in time", "Order {{orderNumber}} was cancelled and the customer refunded because it was not accepted in time."),
   [T.SHOP_DOCUMENT_VERIFIED]: t("{{docLabel}} verified", "{{shopName}}'s {{docLabel}} has been verified."),

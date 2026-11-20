@@ -13,7 +13,7 @@ that says "full suite" runs every module's tests in one run, not only the new on
 | R3 | 20-Nov-2026 10.33–10.52 | Local dev server (port 3310), demo data | Browser walkthrough: customer, consultant, admin; phone width | **Pass** — 1 display defect found and fixed (D-CB-01), 1 loading-state defect fixed (D-CB-02) |
 | R4 | 20-Nov-2026 10.49 | Local dev server | QA guest tier `tests/qa/guest/consult.spec.ts` | **4 / 4 passed** |
 | R5 | — | GitHub CI on PR #425 | Lint, typecheck, full unit + integration suite | pending |
-| R6 | — | test.gokesari.com | Migration 0152 by the Test database workflow; QA suite all tiers (all modules) + TC-CON signed-in checks | pending (staging queue) |
+| R6 | — | test.gokesari.com | Migration 0153 by the Test database workflow; QA suite all tiers (all modules) + TC-CON signed-in checks | pending (staging queue) |
 | R7 | — | gokesari.com | Production database workflow (snapshot first), release, post-deploy check, guest QA tier | pending (owner approval) |
 
 ## R1 — what the consultant tests prove

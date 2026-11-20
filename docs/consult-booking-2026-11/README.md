@@ -26,13 +26,13 @@ auto-approval, seller documents); the new shop type **Consultant / Professional 
 professional types. A profile is listed once the shop is approved and it has a member with hours, a service,
 a map pin, and each required registration certificate uploaded.
 
-## Data model (migration 0152)
+## Data model (migration 0153)
 
 `consult_categories` · `consult_policy_templates` · `consult_profiles` (one per shop) · `consult_members` (+
 `consult_member_categories`, `consult_member_documents`) · `consult_services` · `consult_weekly_hours` ·
 `consult_time_off` · `consult_bookings` · `consult_booking_members` · `consult_booking_events` ·
 `consult_booking_files` · `consult_access_logs` · `consult_receipt_counters`. Times are `timestamptz` (UTC),
-shown in IST. Rollback: `scripts/rollback-0152.sql`.
+shown in IST. Rollback: `scripts/rollback-0153.sql`.
 
 ### No double booking
 

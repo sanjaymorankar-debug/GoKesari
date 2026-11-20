@@ -26,4 +26,4 @@ Times IST.
 | CB-19 | 10.15 | Master switch is rule **`consultBooking.enabled`, off by default**; `/consult` shows "coming soon" while off. | Dark launch; switch on per site from Admin → Settings. |
 | CB-20 | 10.20 | Maps: a keyless Google Maps **embed** for one pin (CSP `frame-src` gains maps.google.com / www.google.com); the existing map picker sets the office pin. | No extra Maps JS loads on listing pages (MAPS_USAGE.md). |
 | CB-21 | 10.20 | Mobile: app 1.9.0 only adds `/consult` to Android App Links; all screens are website pages inside the WebView. | Apps are a WebView shell; nothing native needed. |
-| CB-22 | 10.20 | Migration numbered **0152** on current staging; renumbered to 0153 if newspaper subscriptions (#423, also 0152) merges first. | Journal test requires contiguous numbers. |
+| CB-22 | 10.20 → 11.20 | Migration first numbered 0152; newspaper subscriptions (#423, also 0152) merged into staging first, so it is now **0153** (`drizzle/0153_consult_bookings.sql`, rollback `scripts/rollback-0153.sql`). | Journal test requires contiguous numbers. |

@@ -6,7 +6,7 @@
 -- Double booking is stopped by the database: consult_booking_members carries an exclusion
 -- constraint (same member, overlapping time, different share key) — btree_gist gives the
 -- uuid "=" and text "<>" operators the constraint needs (a trusted extension since PG 13).
--- Rollback: scripts/rollback-0152.sql
+-- Rollback: scripts/rollback-0153.sql
 CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "consult_categories" (

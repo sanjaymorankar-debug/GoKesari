@@ -1,7 +1,7 @@
 /**
  * Consultant appointments (docs/consult-booking-2026-11): the fixed vocabularies.
  * Pure data — safe on client and server. The database checks in
- * drizzle/0152_consult_bookings.sql list the same values.
+ * drizzle/0153_consult_bookings.sql list the same values.
  */
 import { L, type Text } from "@/lib/board/i18n";
 
