@@ -58,6 +58,13 @@ const serverEnvSchema = z.object({
   AUTH_EMAIL_FROM: z.string().optional(),
   /** SMTP connection string, e.g. smtps://user:pass@smtp.host:465. Without it, links go to the console (non-production only). */
   AUTH_EMAIL_SERVER: z.string().optional(),
+  /**
+   * Test site only (owner, 20 Nov 2026): every outgoing e-mail except sign-in
+   * codes goes to this one inbox (testing@gokesari.com on test.gokesari.com),
+   * the intended recipient named in the subject. Ignored on gokesari.com.
+   * Empty = off.
+   */
+  EMAIL_REDIRECT_TO: z.union([z.literal(""), z.string().trim().email()]).optional(),
 
   // Cashfree. Absent in dev/test, in which case payments run in MOCK mode.
   CASHFREE_APP_ID: z.string().optional(),

@@ -115,6 +115,18 @@ malicious role change. Earlier releases hard-coded two personal emails
 here directly in source — that's gone (see the audit's finding SEC-03);
 set this variable yourself on every host where you want the guarantee.
 
+`EMAIL_REDIRECT_TO` is for **test.gokesari.com only** (owner, 20 Nov 2026):
+`EMAIL_REDIRECT_TO=testing@gokesari.com` sends every e-mail the test site
+writes (orders, refunds, tickets, admin alerts, statements) to that one inbox
+instead of the test accounts' addresses. The subject starts with
+`[for <intended recipient>]`. Sign-in codes and sign-in links are **not**
+redirected: they still go to the account's own address, where the staging QA
+sign-in reads them. The app ignores the variable on gokesari.com, so never set
+it on production. On the server: `echo testing@gokesari.com | sudo gk-site env
+set gokesari-staging EMAIL_REDIRECT_TO`; the site picks it up at its next
+deploy, or at once with `sudo gk-deploy restart gokesari-staging`. To stop it:
+`sudo gk-site env unset gokesari-staging EMAIL_REDIRECT_TO`, then restart.
+
 ### Google OAuth
 
 In Google Cloud Console → APIs & Services → Credentials, create an OAuth 2.0
