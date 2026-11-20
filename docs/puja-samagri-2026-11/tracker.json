@@ -660,9 +660,15 @@
   {
    "no": "8.4",
    "feature": "Deployed to Prod (gokesari.com, 23.00 IST window)",
-   "where": null,
+   "where": "Owner 20-Nov-2026 12.35 IST: released together with GoKesari Health, newspapers (#423) and consultants (#425) once Health is staging-verified (23.00 IST window)",
    "owner": "Claude Code",
-   "history": []
+   "history": [
+    {
+     "status": "Not started",
+     "at": "20-Nov-2026 12.35 IST",
+     "by": "Owner: waits for the Health module"
+    }
+   ]
   },
   {
    "no": "8.5",

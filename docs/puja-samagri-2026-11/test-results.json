@@ -580,9 +580,9 @@
    },
    "results": {
     "local": {
-     "status": "Pass (partial)",
-     "at": "20-Nov-2026 11.20 IST",
-     "evidence": "local browser; staging screenshots"
+     "status": "Pass",
+     "at": "20-Nov-2026 12.40 IST",
+     "evidence": "headless Chromium, local server: customer /puja, owner /shop/puja, admin /admin/puja, operator review queue at 360×800 and 1366×768 — tabs above the fold, no sideways scroll; customer board (homeDiscovery off) 9 categories + 6 menu tiles fit 360×800 (Profile ends ~735 px), 390×844, 1366×768"
     },
     "test": {
      "status": "Not run",
@@ -756,6 +756,38 @@
    "summary": "Queue paused: QA harness require() race on next-auth/jwt (not this feature)",
    "fix": "PR #428 (staging-fix): encode via import()",
    "status": "Fix in queue"
+  }
+ ],
+ "screenshots": [
+  {
+   "role": "Customer (board, homeDiscovery off)",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-customer-board-360x800.png",
+   "note": "9 category tiles incl. Puja, 6 menu tiles, one screen"
+  },
+  {
+   "role": "Customer (board, laptop)",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-customer-board-1366x768.png",
+   "note": "9 categories in one row"
+  },
+  {
+   "role": "Customer /puja",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-customer-360x800.png",
+   "note": "festival banner, category chips, filters"
+  },
+  {
+   "role": "Shop owner /shop/puja",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-owner-360x800.png",
+   "note": "Take catalogue: categories with item counts, stock 100"
+  },
+  {
+   "role": "Admin /admin/puja",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-admin-1366x768.png",
+   "note": "catalogue with en/hi/mr names and 'to verify with CA'"
+  },
+  {
+   "role": "Operator /admin/puja review",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-operator-360x800.png",
+   "note": "review queue: approve / reject / merge with reason"
   }
  ]
 }
