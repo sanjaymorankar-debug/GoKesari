@@ -443,14 +443,15 @@ describe("the owner's structure (5 Nov 2026; main dealer 3% since 20 Nov 2026): 
     expect(plan).toMatchObject({ status: "TRADING", tradingOrders: 0, firstPartBp: 10_000 });
   });
 
-  it("a team lead's own shop: 20% to him and 3% to the main dealer (no 4% to himself); the main dealer's own shop: 20% only", async () => {
+  // Franchise brief §2.3 (21 Nov 2026, case 4): the main dealer is one level above a team lead — the first override, 4% (was 3%).
+  it("a team lead's own shop: 20% to him and 4% to the main dealer (no 4% to himself); the main dealer's own shop: 20% only", async () => {
     await ownerStructure();
     const dealer = await newDealer();
     const l = await member(dealer.id, "Ramesh", "TEAM_LEAD");
     const leadShop = await signedShop(dealer.id, l.id, 499_900);
     expect((await ledger(leadShop.id)).map((r) => [r.entryType, r.payeeMemberId, r.amountPaise])).toEqual([
       ["DIRECT_1", l.id, 99_980],
-      ["OVERRIDE_MAIN", null, 14_997],
+      ["OVERRIDE_MAIN", null, 19_996],
     ]);
     const ownShop = await signedShop(dealer.id, null, 499_900);
     expect((await ledger(ownShop.id)).map((r) => [r.entryType, r.payeeMemberId, r.amountPaise])).toEqual([["DIRECT_1", null, 99_980]]);
