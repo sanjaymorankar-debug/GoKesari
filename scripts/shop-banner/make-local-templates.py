@@ -5,8 +5,10 @@ templates from the English one (src/server/shop-banner/assets/template.png).
 
 The English words are removed (white boxes on white, inpainting on the orange
 ribbon and band) and the translations drawn in Poppins (SIL OFL 1.1; it covers
-Devanagari). The logo, the "Everything for Everyone." tagline and the
-"GoKesari.com" line stay as they are (brand). The shop name and QR code are
+Devanagari). The logo, the brand tagline under it and the "GoKesari.com"
+line stay as they are (brand). The tagline is written by set-tagline.ts
+("Everything for Everyone, Everywhere" since 20-Nov-2026): run that again after
+this script. The shop name and QR code are
 added later, per shop, by render.ts, in the same places as on the English one.
 
 Run once after changing the English template or a translation, then look at

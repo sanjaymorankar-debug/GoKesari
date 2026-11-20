@@ -24,6 +24,7 @@
 | Banner renderer (template + shop name + QR of `/shops/<slug>`, PNG / JPEG / A4 PDF) | `src/server/shop-banner/render.ts` |
 | Templates: English (owner's design, placeholders cleared), Marathi, Hindi | `src/server/shop-banner/assets/template*.png` |
 | Generator for the Marathi / Hindi templates (re-run after changing the English one) | `scripts/shop-banner/make-local-templates.py` |
+| Brand tagline under the logo on all three templates ("Everything for Everyone, Everywhere", the site's tagline since 20-Nov-2026, PR #430; re-run after the generator) | `scripts/shop-banner/set-tagline.ts` |
 | Font (Latin + Devanagari), SIL OFL 1.1, and the fontconfig file that makes sharp use it | `src/server/shop-banner/assets/Poppins-Bold.ttf`, `OFL.txt`, `fonts.conf` |
 | One-page PDF holding a JPEG | `src/lib/image-pdf.ts` |
 | Welcome e-mail (text + HTML with both banners inline, 2 PDFs attached) | `src/server/shop-banner/welcome-kit.ts` |
@@ -84,7 +85,8 @@ Each script needs its own template and a font that covers it. For example, Gujar
    every font in that folder.
 2. **Template.** In `scripts/shop-banner/make-local-templates.py` add the language to
    `TEXTS` (ribbon, three labels, QR heading, bottom line — translated and checked by a
-   native speaker) and point it at the new font; run the script; look at
+   native speaker) and point it at the new font; run the script, then
+   `node --import tsx scripts/shop-banner/set-tagline.ts`; look at
    `template-<lang>.png` and commit it. Positions are shared with the English template.
 3. **Code.** In `src/server/shop-banner/render.ts` add the code to `BANNER_LANGUAGES` and
    `BANNER_LANGUAGE_LABEL`, and the state rule to `localBannerLanguage` (e.g. `gujarat` →
@@ -151,6 +153,9 @@ to open; set `MOBILE_IOS_APP_IDS` with the Team ID when it is.
 - The template is 1536 × 1024 px: sharp up to about A5 / 13–15 cm wide; acceptable on A4.
   For large stickers or flex boards, replace `template.png` with a higher-resolution or
   vector export of the same layout (positions are fractions, no code change) and re-run the
-  generator.
+  generator, then `set-tagline.ts`.
+- The tagline under the logo was "Everything for Everyone." in the owner's design; on
+  20-Nov-2026 it was changed on all three templates to the site's new tagline
+  "Everything for Everyone, Everywhere" (`set-tagline.ts`, same orange, Poppins Bold).
 - The design's own text "For Everyone, At Everywhere" is kept as in the owner's design
   (suggested wording: "For Everyone, Everywhere").
