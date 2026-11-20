@@ -10,9 +10,10 @@ that says "full suite" runs every module's tests in one run, not only the new on
 |---|---|---|---|---|
 | R1 | 20-Nov-2026 10.08 | Local, PostgreSQL 18.6 (scratch DB) | Consultant unit (19) + integration (26) | **45 / 45 passed** |
 | R2 | 20-Nov-2026 10.26 → 11.06 | Local, PostgreSQL 18.6 | **Full suite, all modules** (`npx vitest run`, 287 files) | **3,587 / 3,591 passed**. 4 failures, none a product defect: D-CB-03 (consult test data reused between runs; fixed) and 3 `migrate-on-build` timeouts while the dev server and browser ran on the same machine — that file passes **7 / 7** on its own (11.00). Re-run of the consult + touched files at 11.08: **105 / 105** |
+| R2b | 20-Nov-2026 13.05 | Local, PostgreSQL 18.6 — fresh test DB, all 154 migrations | After merging `staging` (newspaper subscriptions #423 took migration 0152, so this module's is now **0153**): migration journal, tile board, mobile app, cron schedule, consultant unit + integration, newspaper unit + integration | **135 / 135 passed**. Typecheck clean apart from `@zxing/browser` (barcode scanner), which the shared local `node_modules` lacks — not this change; CI installs it |
 | R3 | 20-Nov-2026 10.33–10.52 | Local dev server (port 3310), demo data | Browser walkthrough: customer, consultant, admin; phone width | **Pass** — 1 display defect found and fixed (D-CB-01), 1 loading-state defect fixed (D-CB-02) |
 | R4 | 20-Nov-2026 10.49 | Local dev server | QA guest tier `tests/qa/guest/consult.spec.ts` | **4 / 4 passed** |
-| R5 | — | GitHub CI on PR #425 | Lint, typecheck, full unit + integration suite | pending |
+| R5 | 20-Nov-2026 13.07 → | GitHub CI on PR #425 (merge commit 76a19dd2) | Lint, typecheck, full unit + integration suite (all modules) | running |
 | R6 | — | test.gokesari.com | Migration 0153 by the Test database workflow; QA suite all tiers (all modules) + TC-CON signed-in checks | pending (staging queue) |
 | R7 | — | gokesari.com | Production database workflow (snapshot first), release, post-deploy check, guest QA tier | pending (owner approval) |
 
