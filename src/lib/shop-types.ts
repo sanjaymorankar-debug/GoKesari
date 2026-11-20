@@ -135,6 +135,12 @@ export const SHOP_TYPES = [
     standardGoods: ["Textbooks", "reference books", "fiction", "non-fiction", "magazines", "newspapers", "educational materials"],
   },
   {
+    // docs/newspaper-subscriptions-2026-11: paper agents and news stalls; their titles are sold by subscription.
+    key: "NEWSPAPER_VENDOR",
+    label: "Newspaper & Magazine Vendor",
+    standardGoods: ["Daily newspapers", "Sunday editions", "weekly magazines", "fortnightly magazines", "monthly magazines", "children's magazines", "competitive-exam periodicals"],
+  },
+  {
     key: "TOY_STORE",
     label: "Toy Store",
     standardGoods: ["Board games", "dolls", "puzzles", "remote-control toys", "educational toys", "outdoor toys", "baby toys"],
