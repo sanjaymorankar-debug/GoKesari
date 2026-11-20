@@ -22,7 +22,15 @@ import { EmailUnavailableError, emailMode, sendEmail, type EmailAttachment } fro
 import { renderEmail } from "@/server/notifications/templates";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 
-export const DOCUMENT_TYPES = ["TAX_INVOICE", "CREDIT_NOTE", "PAYOUT_STATEMENT", "PLATFORM_INVOICE", "DEALER_STATEMENT"] as const;
+export const DOCUMENT_TYPES = [
+  "TAX_INVOICE",
+  "CREDIT_NOTE",
+  "PAYOUT_STATEMENT",
+  "PLATFORM_INVOICE",
+  "DEALER_STATEMENT",
+  // docs/shop-welcome-kit-2026-11: the welcome e-mail with the shop's printable banner; docId is the shop.
+  "SHOP_WELCOME_KIT",
+] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export interface QueueDocumentEmailInput {
@@ -83,6 +91,8 @@ function scheduleDocumentDelivery(client: DbClient): void {
 
 export interface RenderedDocument {
   attachments: EmailAttachment[];
+  /** Optional HTML body (shop welcome kit: the banner shown in the mail); the queued text stays the plain part. */
+  html?: string;
 }
 
 /** Renders a document's attachments by type. Lazy imports keep this module free of the services' dependency graph. */
@@ -115,6 +125,10 @@ export async function renderDocumentAttachments(docType: string, docId: string):
       const { dealerStatementForBatch } = await import("@/server/dealers/monthly-payout");
       const doc = await dealerStatementForBatch(docId);
       return doc ? { attachments: [{ filename: `${doc.basename}.csv`, content: Buffer.from(doc.csv, "utf8"), contentType: "text/csv" }] } : null;
+    }
+    case "SHOP_WELCOME_KIT": {
+      const { renderShopWelcomeKit } = await import("@/server/shop-banner/welcome-kit");
+      return renderShopWelcomeKit(docId);
     }
     case "PLATFORM_INVOICE": {
       const { renderPlatformInvoiceById } = await import("@/server/platform-invoices/service");
@@ -185,7 +199,7 @@ async function sendDocumentEmail(row: DocumentEmail): Promise<"sent" | "failed" 
       await finish({ status: "SKIPPED", attempts, toAddress: to, lastError: "The document no longer exists." });
       return "skipped";
     }
-    await sendEmail({ to, subject: row.subject, text: row.body, attachments: doc.attachments });
+    await sendEmail({ to, subject: row.subject, text: row.body, html: doc.html, attachments: doc.attachments });
     await finish({ status: "SENT", attempts, toAddress: to, sentAt: new Date(), lastError: null });
     return "sent";
   } catch (error) {
