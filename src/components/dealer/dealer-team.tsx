@@ -62,7 +62,8 @@ const LEVEL = ["", "Level 1 (main dealer)", "Level 2", "Level 3"];
 /**
  * The dealer portal's TIERED network (docs/dealer-programme/TIERED_COMMISSION.md):
  * the team tree, earnings by type and level, each shop's TRADING progress, the
- * agent agreement, and (for members) a sub-agent request and payment details.
+ * agent agreement, adding team members (the main dealer; a team lead adds agents under
+ * himself, DT-28), a sub-agent request (agents) and payment details.
  * Statements with gross, TDS and net are in Monthly statements below.
  */
 export function DealerTeam({
@@ -73,6 +74,7 @@ export function DealerTeam({
   earnings,
   trading,
   payee,
+  promotion,
 }: {
   role: NetworkRole;
   agreementAccepted: boolean;
@@ -82,6 +84,8 @@ export function DealerTeam({
   trading: Trading[];
   /** A team member's payment details (masked); null for the main dealer (on the dealer's application). */
   payee: { panLast4: string | null; bankLast4: string | null; bankStatus: string } | null;
+  /** The promotion rule (DT-20); the main dealer promotes an agent who meets it (DT-29). */
+  promotion?: { minShops: number; minAgents: number };
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -106,6 +110,23 @@ export function DealerTeam({
       setBusy(false);
     }
   }
+
+  /** DT-29: the main dealer's promotion control for one agent — progress, and the button once he qualifies. */
+  const promote = (a: MemberView) => {
+    if (role !== "MAIN_DEALER" || !promotion || a.role !== "AGENT" || a.status !== "ACTIVE") return null;
+    const ready = a.readyAgents ?? 0;
+    const eligible = a.activatedShops >= promotion.minShops && ready >= promotion.minAgents;
+    return (
+      <span className="ml-1 inline-flex flex-wrap items-center gap-2 text-xs text-ink-600" data-testid="promotion-progress">
+        Promotion: {a.activatedShops}/{promotion.minShops} shops · {ready}/{promotion.minAgents} ready agents
+        {eligible ? (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => post({ action: "promote", memberId: a.id }, `${a.name} is now a team lead, with the agents he brought in.`)}>
+            Promote to team lead
+          </Button>
+        ) : null}
+      </span>
+    );
+  };
 
   const total = (pick: (e: Earning) => number) => earnings.reduce((s, e) => s + pick(e), 0);
   const leads = tree?.members.filter((m) => m.role === "TEAM_LEAD") ?? [];
@@ -235,6 +256,7 @@ export function DealerTeam({
                   <span className="font-semibold">{m.name}</span> ({m.employeeId}{m.mobileMasked ? ` · ${m.mobileMasked}` : ""}) · {NETWORK_ROLE_LABELS[m.role]} · {LEVEL[m.level]} · {m.activatedShops} shops
                   {!m.agreementAccepted ? <Badge tone="warning">agreement pending</Badge> : null}
                   {m.status !== "ACTIVE" ? <Badge tone="neutral">inactive</Badge> : null}
+                  {promote(m)}
                 </p>
                 {m.agents.length ? (
                   <ul className="mt-1 space-y-1 border-l-2 border-cream-200 pl-3">
@@ -242,6 +264,7 @@ export function DealerTeam({
                       <li key={a.id}>
                         {a.name} ({a.employeeId}{a.mobileMasked ? ` · ${a.mobileMasked}` : ""}) · {NETWORK_ROLE_LABELS[a.role]} · {LEVEL[a.level]} · {a.activatedShops} shops
                         {!a.agreementAccepted ? <Badge tone="warning">agreement pending</Badge> : null}
+                        {promote(a)}
                       </li>
                     ))}
                   </ul>
@@ -289,6 +312,28 @@ export function DealerTeam({
             onClick={() =>
               post({ action: "addMember", employeeId: agent.employeeId, name: agent.name, mobile: agent.mobile || null, role: agent.role, parentId: agent.parentId || null }, `${agent.name} was added to your team with their own code.`)
             }
+          >
+            Add to my team
+          </Button>
+        </section>
+      ) : role === "TEAM_LEAD" ? (
+        <section aria-label="Add an agent to your team" className="space-y-2">
+          <h3 className="text-sm font-bold text-ink-900">Add an agent to your team</h3>
+          <p className="text-sm text-ink-700">The agent joins your team at once with their own code, and your main dealer is told. You earn nothing for adding someone — you earn {formatBp(rates.leadOverrideBp)} on the shops your agents sign.</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="Their ID">
+              <input className={inputClass} value={agent.employeeId} onChange={(e) => setAgent({ ...agent, employeeId: e.target.value })} />
+            </Field>
+            <Field label="Name">
+              <input className={inputClass} value={agent.name} onChange={(e) => setAgent({ ...agent, name: e.target.value })} />
+            </Field>
+            <Field label="Mobile (optional)">
+              <input className={inputClass} inputMode="numeric" value={agent.mobile} onChange={(e) => setAgent({ ...agent, mobile: e.target.value })} />
+            </Field>
+          </div>
+          <Button
+            disabled={busy || !agent.employeeId.trim() || !agent.name.trim()}
+            onClick={() => post({ action: "addMember", employeeId: agent.employeeId, name: agent.name, mobile: agent.mobile || null, role: "AGENT" }, `${agent.name} joined your team with their own code.`)}
           >
             Add to my team
           </Button>
