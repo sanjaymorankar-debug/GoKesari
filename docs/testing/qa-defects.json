@@ -2489,7 +2489,7 @@
       "fix": "For this run: Cashfree sandbox top-ups of ₹5,000 at 06.58 and 08.05 IST (Sandbox payment workflow, UPI testsuccess@gocash) and the owner's restock to 100 of Bread, Butter Cookies and Buffalo Ghee on the E2E bakery at 08.04 IST. Suggested: a staging pre-flight that blocks (not fails) below ₹3,000 or 20 units, or a restock step for the E2E shop.",
       "status": "Not a defect",
       "fixedIn": null,
-      "retest": "17-Nov-2026 attempt 2 and re-runs: the 402 rows pass."
+      "retest": "17-Nov-2026 attempt 2 and re-runs: the 402 rows pass. 20-Nov-2026: customer 1 (₹2,215.50) topped up ₹5,000 at 16.56 IST (Cashfree sandbox, Sandbox payment workflow, UPI testsuccess@gocash; credited, ₹7,155.50), then the staging re-run 20-Nov-2026 16.57-17.25 IST (docs/testing/qa-runs/2026-11-20-staging-rerun-wallet.json, site 4483e776, suite db8c94d1): of the 13 checks that failed on the empty wallet in the morning, TC-CART-009, 012, 018, TC-LOC-018, 020, 024, TC-ORD-001 and TC-PRE-008 pass; TC-RBAC-016, TC-RBAC-017 and the B2B half of TC-CART-015 were refused because they pay from the shop owner's own wallet (₹0 at 16.57) and pass at 17.24 once it held ₹2,910; the pickup-order check (TC-CART-015, TC-CART-016, TC-LOC-022) passed at 16.57 and is refused again at 17.24 (402) because customer 1 was back to ₹10 by then (E-37). The 10 checks blocked 'wallet too low' and the returns chain ran: on desktop all pass except TC-RET-010 / TC-FLD-098's last step (E-39); on the phone the rider checks fail or block on a rider still holding an earlier offer (E-38)."
     },
     {
       "id": "E-34",
@@ -2682,6 +2682,73 @@
       "status": "Not a defect",
       "fixedIn": null,
       "retest": "20-Nov-2026 re-run of the 27 affected checks (see the run's collected file)."
+    },
+    {
+      "id": "E-37",
+      "title": "The staging test accounts are used by several sessions at once, so a run's wallet and orders are changed under it (customer 1 ₹7,155.50 → ₹10 in 27 minutes)",
+      "cases": [
+        "TC-CART-015",
+        "TC-CART-016",
+        "TC-LOC-022",
+        "TC-RBAC-016",
+        "TC-RBAC-017"
+      ],
+      "severity": "Info",
+      "found": "staging re-run 20-Nov-2026 16.57-17.25 IST (docs/testing/qa-runs/2026-11-20-staging-rerun-wallet.json, site 4483e776, suite db8c94d1)",
+      "actual": "Customer 1's wallet held ₹7,155.50 after the ₹5,000 top-up at 16.57 IST and ₹10 at 17.24 IST; it had also dropped ₹60 between 16.55 and 16.57 with no check of this run going. Order DB-20261120-7LSHBA was placed as customer 1 at 17.23:47 IST, after this run had ended (17.21). The shop owner's own wallet was ₹0 when TC-RBAC-016 / 017 ran at 16.57; another session topped it up ₹3,000 at 17.15 and placed three orders as the shop owner at 17.23. The wallet API lists only the last 25 transactions, so the drain cannot be reconciled in full from the suite.",
+      "expected": "One QA run on staging at a time, or test accounts that belong to a single run, so a check's wallet and orders are its own.",
+      "fix": "Not a product defect. Suggested: before a staging QA run, check that no other session is running one (or give each session its own test customer and shop owner); the staging pre-flight of E-33 then tops up and blocks below ₹3,000.",
+      "status": "Not a defect",
+      "fixedIn": null,
+      "retest": null
+    },
+    {
+      "id": "E-38",
+      "title": "QA suite: the phone pass of the rider and return-pickup checks fails when the single staging rider still holds an earlier offer (Accept click not scoped to the check's order)",
+      "cases": [
+        "TC-DEL-001",
+        "TC-DEL-010",
+        "TC-DEL-012",
+        "TC-DEL-020",
+        "TC-RET-005",
+        "TC-RET-007",
+        "TC-RET-008",
+        "TC-RET-009",
+        "TC-RET-010",
+        "TC-RET-013",
+        "TC-RET-021",
+        "TC-RET-022",
+        "TC-FLD-099",
+        "TC-FLD-102",
+        "TC-SUP-001",
+        "TC-SUP-002",
+        "TC-SUP-006",
+        "TC-SUP-008"
+      ],
+      "severity": "Low",
+      "found": "staging re-run 20-Nov-2026 16.57-17.25 IST (docs/testing/qa-runs/2026-11-20-staging-rerun-wallet.json, site 4483e776, suite db8c94d1)",
+      "actual": "Desktop: all these checks pass (17.00-17.13 IST). Phone (from 17.15): the rider dashboard showed two offers, so getByRole('button', { name: 'Accept', exact: true }) resolved to 2 elements (strict mode) in TC-DEL-001/010/012 (orders-delivery.spec.ts:94); TC-DEL-020 asserts the rider has no active delivery at all and found that check's unaccepted offer (created 17.14:01); the return pickups never reached the rider ('return-pickup-panel' not visible) and the support / returns orders waited longer than 30 s for an offer, because while the rider holds an offer the next one comes only on the minute dispatch tick (offers at 11:50:00.565 and 11:51:00.497 UTC). One QA order was still offered after the run (DB-20261120-KHS786); cancelled as operations with 'QA cleanup' at 17.23 IST.",
+      "expected": "Each check acts on its own order's offer and leaves the rider free: the Accept click inside the offer card that shows the order number, TC-DEL-020 checks this order's delivery only, offer waits allow one dispatch tick (about 75 s), and a failed check cancels its order.",
+      "fix": "Test fix in tests/qa/signed-in/orders-delivery.spec.ts, orders-returns.spec.ts and orders-support.spec.ts (not a product defect); then re-run the phone pass.",
+      "status": "Open (test fix)",
+      "fixedIn": null,
+      "retest": null
+    },
+    {
+      "id": "E-39",
+      "title": "QA suite / test data: TC-RET-010's last step looks for the refunded return on page 1 of the shop's 'All' returns, where 15 open QA returns from earlier runs come first",
+      "cases": [
+        "TC-RET-010",
+        "TC-FLD-098"
+      ],
+      "severity": "Low",
+      "found": "staging re-run 20-Nov-2026 16.57-17.25 IST (docs/testing/qa-runs/2026-11-20-staging-rerun-wallet.json, site 4483e776, suite db8c94d1)",
+      "actual": "Everything the case checks passes on desktop: the bad amounts are refused (422), ₹70.50 is stored as 7050 paise and the wallet is credited +7050; the return reaches REFUND_COMPLETED. The last step reloads /shop/returns?tab=all and waits for RT-C4FEEB05 with '70.50': the card is not on the page, because the list puts unfinished returns first and pages them (src/app/shop/returns/page.tsx) and shop A has 15 open QA returns (Requests 10, Pickups 5, from 17-Nov and 20-Nov runs, e.g. 'QA IDOR check').",
+      "expected": "The check finds the refunded return wherever the list places it (the page that holds it, or the return's own page).",
+      "fix": "Test fix in tests/qa/signed-in/orders-returns.spec.ts (open the page that holds the case); test data: close the stale QA returns on shop A. Not a product defect.",
+      "status": "Open (test fix)",
+      "fixedIn": null,
+      "retest": null
     }
   ]
 }

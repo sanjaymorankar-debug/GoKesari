@@ -3450,5 +3450,111 @@
    "TC-TERR-025",
    "TC-TERR-026"
   ]
+ },
+ {
+  "id": "TS-SUB-07",
+  "module": "Subscriptions",
+  "title": "Subscribe to newspapers and magazines from a vendor near you",
+  "description": "The customer picks one or more titles, chooses an address, is shown nearby vendors who deliver there and carry the titles, and submits once; the vendor is told and sees the subscriber.",
+  "caseIds": [
+   "TC-SUB-020",
+   "TC-SUB-021",
+   "TC-SUB-022",
+   "TC-SUB-023",
+   "TC-SUB-024",
+   "TC-SUB-025",
+   "TC-SUB-026",
+   "TC-SUB-027"
+  ]
+ },
+ {
+  "id": "TS-CON-01",
+  "module": "Consultant appointments",
+  "title": "Find a Consultant and the public APIs",
+  "description": "Guests can search; everything private is refused.",
+  "caseIds": [
+   "TC-CON-001",
+   "TC-CON-002",
+   "TC-CON-003",
+   "TC-CON-004"
+  ]
+ },
+ {
+  "id": "TS-CON-02",
+  "module": "Consultant appointments",
+  "title": "Consultant onboarding and setup",
+  "description": "Profile, team, hours, services, certificates, publish.",
+  "caseIds": [
+   "TC-CON-005",
+   "TC-CON-006"
+  ]
+ },
+ {
+  "id": "TS-CON-03",
+  "module": "Consultant appointments",
+  "title": "Booking: individual, team, group, any member, no double booking",
+  "description": "Customer books; the database refuses a second booking of the same time.",
+  "caseIds": [
+   "TC-CON-007",
+   "TC-CON-008",
+   "TC-CON-009",
+   "TC-CON-021",
+   "TC-CON-022",
+   "TC-CON-023"
+  ]
+ },
+ {
+  "id": "TS-CON-04",
+  "module": "Consultant appointments",
+  "title": "Changes: cancel, reschedule, notices, disputes",
+  "description": "Policy refunds, reminders, help-desk tickets.",
+  "caseIds": [
+   "TC-CON-010",
+   "TC-CON-011",
+   "TC-CON-024",
+   "TC-CON-025"
+  ]
+ },
+ {
+  "id": "TS-CON-05",
+  "module": "Consultant appointments",
+  "title": "Consultant actions: pay at visit, receipts, completion code, calendar",
+  "description": "The consultant's side of a booking.",
+  "caseIds": [
+   "TC-CON-012",
+   "TC-CON-013",
+   "TC-CON-014"
+  ]
+ },
+ {
+  "id": "TS-CON-06",
+  "module": "Consultant appointments",
+  "title": "Online payment: hold, success, failure",
+  "description": "Gateway payment with the 10-minute hold.",
+  "caseIds": [
+   "TC-CON-015",
+   "TC-CON-016"
+  ]
+ },
+ {
+  "id": "TS-CON-07",
+  "module": "Consultant appointments",
+  "title": "Admin and operator",
+  "description": "Categories, commission, verification, bookings, reports, permissions.",
+  "caseIds": [
+   "TC-CON-017",
+   "TC-CON-018",
+   "TC-CON-019"
+  ]
+ },
+ {
+  "id": "TS-CON-08",
+  "module": "Consultant appointments",
+  "title": "Navigation and apps",
+  "description": "Tile Board entries and the mobile apps.",
+  "caseIds": [
+   "TC-CON-020",
+   "TC-CON-026"
+  ]
  }
 ]
