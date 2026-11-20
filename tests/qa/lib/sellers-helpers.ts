@@ -382,9 +382,26 @@ export async function shopCategoryId(name: string): Promise<string> {
   return need(list.find((c) => c.name.toLowerCase() === name.toLowerCase()), `shop category "${name}"`).id;
 }
 
+let registrationCode: string | null = null;
+
+/**
+ * A plain referral code for this run's registrations (local database only): the shop referral code is
+ * MANDATORY since migration 0100 (setting referral_required_shop). Elsewhere a caller passes its own.
+ */
+async function localReferralCode(): Promise<string | null> {
+  if (!IS_LOCAL) return null;
+  if (registrationCode) return registrationCode;
+  const code = `QAREG${RUN.toUpperCase()}`.replace(/[^A-Z0-9]/g, "").slice(0, 32);
+  const [admin] = await db()<{ id: string }[]>`select id from users where role = 'ADMIN' order by created_at limit 1`;
+  await db()`insert into referral_codes (code, label, status, created_by) values (${code}, ${"QA registrations"}, 'ACTIVE', ${need(admin, "an admin account").id}) on conflict (code) do nothing`;
+  registrationCode = code;
+  return code;
+}
+
 /** A valid self-service registration body (a stationery shop: no FSSAI needed) with unique identifiers. */
 export async function registrationBody(overrides: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   return {
+    referralCode: await localReferralCode(),
     name: `QA Sellers Shop ${RUN} ${++idSeq}`,
     ownerName: "QA Seller Owner",
     phone: uniqueMobile(),
@@ -402,6 +419,8 @@ export async function registrationBody(overrides: Record<string, unknown> = {}):
     deliveryAvailable: true,
     deliveryFeePaise: 2000,
     openingHours: [0, 1, 2, 3, 4, 5, 6].map((day) => ({ day, open: "06:00", close: "22:00" })),
+    // Required while rule registrationFeeByTurnover is on (it sets the fee): ₹50 lakh is the ₹999 slab.
+    annualTurnoverRupees: 50_00_000,
     ...overrides,
   };
 }

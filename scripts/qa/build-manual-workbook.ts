@@ -10,16 +10,15 @@
  *   npx tsx scripts/qa/build-manual-workbook.ts [--out <file.xlsx>] [--date 2026-11-20]
  *
  * Inputs
- *   tests/qa/catalog/cases.json, scenarios.json      the 875-case plan + 37 journeys
+ *   tests/qa/catalog/cases.json, scenarios.json      the plan (test-cases.xlsx): every case and journey
  *   docs/testing/manual/test-scenarios.json          scenario → case grouping
- *   docs/testing/manual/cases-added-*.json           cases written after the plan
  *   docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx  automation + latest staging result
  *   test-cases.xlsx (Coverage)                       feature list for the RTM
  *
  * Every count on Summary, Test Scenarios, Traceability and Sign-off is a
  * formula over the Status columns, so the workbook updates as results are typed.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import ExcelJS from "exceljs";
@@ -75,37 +74,42 @@ interface Feature {
   feature: string;
   status: string;
 }
-/** A correction to a plan case whose Expected result went out of date (applied here only). */
-interface Override extends Partial<Pick<Case, "title" | "preconditions" | "steps" | "expected">> {
-  id: string;
-  note: string;
-}
-interface Added {
-  date: string;
-  features: Feature[];
-  scenarios: Scenario[];
-  cases: Case[];
-  e2e: Journey[];
-  overrides?: Override[];
-}
 
 const featureList = (f: string) => f.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
 const readJson = <T>(p: string): T => JSON.parse(readFileSync(p, "utf8")) as T;
 
-const planCases = readJson<Case[]>(join("tests", "qa", "catalog", "cases.json")).map((c) => ({
+/**
+ * Where a case or journey came from, read from the plan (scripts/qa/plan_workbook.py add-json writes it):
+ * a case's Source / a journey's Origin starts "Added <dd-Mmm-yyyy>" (feature on staging after the 08-Nov
+ * plan) or "Planned - <release>, not built yet (<day>)" (starts Not Applicable); a plan case whose Expected
+ * result was brought up to date carries "; Updated <day> …" / "; Corrected <day> …" in its Source.
+ */
+const PLAN_ORIGIN = "Plan (08-Nov-2026)";
+const DAY = String.raw`\d{2}-[A-Z][a-z]{2}-\d{4}`;
+function originOf(text: string | undefined): Pick<Case, "origin" | "status" | "remarks"> {
+  const t = text ?? "";
+  const added = new RegExp(`^Added (${DAY})`).exec(t);
+  if (added) return { origin: `New (${added[1]})` };
+  const planned = new RegExp(`^(Planned - (.+?), not built yet \\(${DAY}\\))`).exec(t);
+  if (planned) {
+    return {
+      origin: planned[1],
+      status: "Not Applicable",
+      remarks: `Planned (${planned[2]}). Set to Not Run when it reaches test.gokesari.com; check the Expected result against the built screens.`,
+    };
+  }
+  const updated = new RegExp(`; ((?:Updated|Corrected) ${DAY}.*)$`).exec(t);
+  return { origin: updated ? `${PLAN_ORIGIN}; ${updated[1]}` : PLAN_ORIGIN };
+}
+const planCases = readJson<(Case & { source?: string })[]>(join("tests", "qa", "catalog", "cases.json")).map((c) => ({
   ...c,
-  origin: "Plan (08-Nov-2026)",
+  ...originOf(c.source),
 }));
 const planJourneys = readJson<Journey[]>(join("tests", "qa", "catalog", "scenarios.json")).map((j) => ({
   ...j,
-  origin: "Plan (08-Nov-2026)",
+  ...originOf(j.origin),
 }));
 const scenarioMap = readJson<Scenario[]>(join(MANUAL_DIR, "test-scenarios.json"));
-
-const addedFiles = readdirSync(MANUAL_DIR)
-  .filter((f) => /^cases-added-.*\.json$/.test(f))
-  .sort();
-const added: Added[] = addedFiles.map((f) => readJson<Added>(join(MANUAL_DIR, f)));
 
 const fmtDate = (iso: string) => {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -115,20 +119,9 @@ const fmtDate = (iso: string) => {
 const cases: Case[] = [...planCases];
 const journeys: Journey[] = [...planJourneys];
 const scenarios: Scenario[] = [...scenarioMap];
-const newFeatures: Feature[] = [];
-for (const a of added) {
-  const origin = `New (${fmtDate(a.date)})`;
-  cases.push(...a.cases.map((c) => ({ ...c, origin: c.origin ?? origin })));
-  journeys.push(...a.e2e.map((j) => ({ ...j, origin: j.origin ?? origin })));
-  scenarios.push(...a.scenarios);
-  newFeatures.push(...a.features);
-  for (const o of a.overrides ?? []) {
-    const c = cases.find((x) => x.id === o.id);
-    if (!c) throw new Error(`override for unknown case ${o.id}`);
-    for (const k of ["title", "preconditions", "steps", "expected"] as const) if (o[k] !== undefined) c[k] = o[k];
-    c.origin = `${c.origin}; ${o.note}`;
-  }
-}
+const isPlan = (o: string | undefined) => (o ?? "").startsWith(PLAN_ORIGIN);
+const newCases = cases.filter((c) => !isPlan(c.origin));
+const newJourneys = journeys.filter((j) => !isPlan(j.origin));
 
 const statusOf = (c: Case) => c.status ?? "Not Run";
 const nBy = (cs: Case[], st: string) => cs.filter((c) => statusOf(c) === st).length;
@@ -436,7 +429,6 @@ async function main() {
     const v = row.values as ExcelJS.CellValue[];
     features.push({ id: cellText(v[1]), module: cellText(v[2]), feature: cellText(v[3]), status: cellText(v[4]) });
   });
-  features.push(...newFeatures);
 
   const nCases = cases.length;
   const lastCase = nCases + 1;
@@ -1145,7 +1137,7 @@ async function main() {
     ["Test cycle", "", true],
     ["Test period (from - to)", "", true],
     ["Standard followed", "ISO/IEC/IEEE 29119-3:2021 test documentation (successor of IEEE 829-2008); defect severity and test status per ISTQB glossary"],
-    ["Source of the test cases", `tests/qa/catalog (the 875-case plan of 08-Nov-2026, also in test-cases.xlsx) plus ${cases.length - planCases.length} cases written on ${fmtDate(DATE)} for features added after 08-Nov-2026 (docs/testing/manual/)`],
+    ["Source of the test cases", `tests/qa/catalog, exported from test-cases.xlsx: ${cases.length - newCases.length} cases and ${journeys.length - newJourneys.length} journeys of the 08-Nov-2026 plan plus ${newCases.length} cases and ${newJourneys.length} journeys added after it (Case origin = New, or Planned for features not built yet)`],
     ["Automated results shown for reference", `GOKESARI_MASTER_TEST_REGISTER.xlsx, as of ${regAsOf} - columns M-N of Test Cases. Manual results go in the amber columns.`],
   ];
   docRows.forEach(([k, v, input], i) => kv(wsCover, 5 + i, k, v, { input: !!input, height: String(v).length > 90 ? 30 : undefined }));
@@ -1466,7 +1458,7 @@ async function main() {
 
   await wb.xlsx.writeFile(OUT);
   console.log(
-    JSON.stringify({ out: OUT, scenarios: scenarios.length, cases: cases.length, newCases: cases.length - planCases.length, e2e: journeys.length, features: rtmRows.length, modules: modules.length }),
+    JSON.stringify({ out: OUT, scenarios: scenarios.length, cases: cases.length, newCases: newCases.length, newJourneys: newJourneys.length, e2e: journeys.length, features: rtmRows.length, modules: modules.length }),
   );
 }
 

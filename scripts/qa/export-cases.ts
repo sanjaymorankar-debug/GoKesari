@@ -61,6 +61,9 @@ async function main() {
     priority: r["Priority"],
     journey: r["Journey"],
     expected: r["Expected outcome"],
+    // Journeys added after the 08-Nov plan carry their preconditions and origin ("Added <day>" / "Planned - …").
+    ...(r["Preconditions"] ? { preconditions: r["Preconditions"] } : {}),
+    ...(r["Origin"] ? { origin: r["Origin"] } : {}),
   }));
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, "cases.json"), JSON.stringify(cases, null, 1) + "\n");
