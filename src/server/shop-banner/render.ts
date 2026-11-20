@@ -28,6 +28,20 @@ const ASSETS = path.join(process.cwd(), "src", "server", "shop-banner", "assets"
 export const BANNER_TEMPLATE_PATH = path.join(ASSETS, "template.png");
 
 /**
+ * The name must be drawn with the bundled Poppins Bold. sharp's own fontconfig
+ * cannot load that file without a config file (none on a bare server; none for
+ * the bundled library on a Mac), and pango on a Mac asks CoreText instead: the
+ * name then fell back to another font — and a Hindi or Marathi name to empty
+ * boxes on a server without Devanagari fonts. assets/fonts.conf adds this
+ * folder (and keeps the system's config when there is one). Set before the
+ * first text is drawn in the process, and only when the process has not chosen
+ * its own.
+ */
+export const BANNER_FONTCONFIG_PATH = path.join(ASSETS, "fonts.conf");
+process.env.FONTCONFIG_FILE ??= BANNER_FONTCONFIG_PATH;
+process.env.PANGOCAIRO_BACKEND ??= "fc";
+
+/**
  * The banner's languages (owner, 20-Nov-2026: every shop gets two banners, English and its local
  * language). en is the owner's design; mr / hi are built from it by
  * scripts/shop-banner/make-local-templates.py with the same layout.

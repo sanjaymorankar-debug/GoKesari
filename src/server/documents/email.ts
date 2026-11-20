@@ -45,6 +45,8 @@ export interface QueueDocumentEmailInput {
   /** Notification category whose email opt-out applies. */
   category: "ORDERS" | "SHOP" | "GENERAL";
   maxAttempts?: number;
+  /** false: leave it to the outbox sweep instead of sending right after commit (bulk runs: shop welcome kit). Default true. */
+  deliverNow?: boolean;
 }
 
 /** Queues the email (once per document and recipient). Returns false when it was not queued (opted out, or already queued). */
@@ -75,7 +77,7 @@ export async function queueDocumentEmail(input: QueueDocumentEmailInput, client:
     .onConflictDoNothing()
     .returning({ id: documentEmails.id });
   if (!row) return false;
-  scheduleDocumentDelivery(client);
+  if (input.deliverNow !== false) scheduleDocumentDelivery(client);
   return true;
 }
 

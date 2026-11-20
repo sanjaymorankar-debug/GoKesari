@@ -5,23 +5,23 @@
  * The moment a shop goes live (approveShopTransaction: admin / operator
  * approval, automatic approval, instant GST/PAN approval; approveRegistration:
  * paid self-registration) the welcome kit is queued in the same transaction,
- * in the document-email outbox (documents/email.ts): one row per shop and
- * owner, ever, so a shop that is suspended and approved again is not welcomed
- * twice. The outbox sends it just after commit and retries a failed send with
+ * in the document-email outbox (documents/email.ts): one row per shop, ever
+ * (whoever owns it), so a shop that is suspended and approved again, or that
+ * changes hands, is not welcomed twice. The outbox sends it just after commit and retries a failed send with
  * backoff (cron every-minute is the safety net); no SMTP or no real e-mail
  * address → SKIPPED, never an error.
  *
  * The banner is drawn at send time (render.ts) from the shop as it is then,
  * so nothing large is stored. The e-mail congratulates and welcomes the owner,
  * shows the banner, attaches it as a print-ready A4 PDF and a full-size PNG,
- * and tells him to print it and put it up at his shop. Queuing never blocks an
+ * and tells the owner to print it and put it up at the shop. Queuing never blocks an
  * approval: it runs in a savepoint and a failure is only logged.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getEnv } from "@/lib/env";
 import { db, type DbClient } from "@/server/db";
-import { shops } from "@/server/db/schema";
+import { documentEmails, shops } from "@/server/db/schema";
 import { queueDocumentEmail, type RenderedDocument } from "@/server/documents/email";
 
 import {
@@ -53,7 +53,7 @@ export const PRINT_STEPS = [
   "Tell your customers: \"Scan this to order from our shop on GoKesari.\"",
 ] as const;
 
-/** One line in the local language, so the owner sees the key instruction in his own language too. */
+/** One line in the local language, so the owner sees the key instruction in their own language too. */
 export const LOCAL_PRINT_LINE: Record<Exclude<BannerLanguage, "en">, string> = {
   mr: "तुमचे GoKesari बॅनर (इंग्रजी आणि मराठी) रंगीत प्रिंट करा आणि दुकानात ग्राहकांना दिसेल अशा ठिकाणी लावा.",
   hi: "अपने GoKesari बैनर (अंग्रेज़ी और हिंदी) रंगीन प्रिंट करें और दुकान में ग्राहकों को दिखे ऐसी जगह लगाएँ।",
@@ -67,7 +67,7 @@ export function welcomeKitText(shopName: string, shopUrl: string, local: Exclude
     `Print them in colour and put them up at your shop:\n${PRINT_STEPS.map((step, i) => `${i + 1}. ${step}`).join("\n")}`,
     LOCAL_PRINT_LINE[local],
     `Next: add your products so customers can order — ${siteBase()}/shop/manage/products`,
-    `You can download the banner again at any time from your shop dashboard. Need help? ${siteBase()}/support`,
+    `You can download both banners again at any time from Seller Central → Marketing: ${siteBase()}/shop/marketing. Need help? ${siteBase()}/support`,
   ].join("\n\n");
 }
 
@@ -94,7 +94,7 @@ export function welcomeKitHtml(shopName: string, shopUrl: string, local: Exclude
     p(`<strong>${escapeHtml(LOCAL_PRINT_LINE[local])}</strong>`) +
     p(`Your shop page: <a href="${escapeHtml(shopUrl)}" style="color:#c2410c">${escapeHtml(shopUrl)}</a>`) +
     `<p style="margin:16px 0"><a href="${base}/shop/manage/products" style="background:#c2410c;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;display:inline-block">Add your products</a></p>` +
-    `<p style="color:#78716c;font-size:12px;line-height:1.5;margin:0">You can download the banner again at any time from your shop dashboard. Need help? <a href="${base}/support" style="color:#78716c">${base}/support</a></p>` +
+    `<p style="color:#78716c;font-size:12px;line-height:1.5;margin:0">You can download both banners again at any time from <a href="${base}/shop/marketing" style="color:#78716c">Seller Central → Marketing</a>. Need help? <a href="${base}/support" style="color:#78716c">${base}/support</a></p>` +
     `</div>`
   );
 }
@@ -107,11 +107,20 @@ export function welcomeKitHtml(shopName: string, shopUrl: string, local: Exclude
 export async function queueShopWelcomeKit(
   shop: { id: string; ownerId: string; name: string; slug: string; state?: string | null; pincode?: string | null },
   client: DbClient = db,
+  options: { deliverNow?: boolean } = {},
 ): Promise<boolean> {
   try {
     // A savepoint: if queuing fails, only it is rolled back — never the approval around it.
-    return await client.transaction((sp) =>
-      queueDocumentEmail(
+    return await client.transaction(async (sp) => {
+      // Once per shop, ever: the outbox's own key is shop + recipient, so a shop that changed hands
+      // would be welcomed again without this check.
+      const [already] = await sp
+        .select({ id: documentEmails.id })
+        .from(documentEmails)
+        .where(and(eq(documentEmails.docType, WELCOME_KIT_DOC_TYPE), eq(documentEmails.docId, shop.id)))
+        .limit(1);
+      if (already) return false;
+      return queueDocumentEmail(
         {
           docType: WELCOME_KIT_DOC_TYPE,
           docId: shop.id,
@@ -119,16 +128,44 @@ export async function queueShopWelcomeKit(
           recipientRole: "SHOP_OWNER",
           title: welcomeKitTitle(shop.name),
           body: welcomeKitText(shop.name, shopPageUrl(shop.slug), localBannerLanguage(shop)),
-          actionUrl: "/shop",
+          actionUrl: "/shop/marketing",
           category: "SHOP",
+          deliverNow: options.deliverNow,
         },
         sp,
-      ),
-    );
+      );
+    });
   } catch (error) {
     console.error("[welcome-kit] could not queue", shop.id, error instanceof Error ? error.message : error);
     return false;
   }
+}
+
+export interface WelcomeKitStatus {
+  status: string;
+  toAddress: string | null;
+  sentAt: Date | null;
+  createdAt: Date;
+  lastError: string | null;
+}
+
+/** The welcome kit's outbox row per shop (none: never queued). */
+export async function welcomeKitStatuses(shopIds: readonly string[]): Promise<Map<string, WelcomeKitStatus>> {
+  const out = new Map<string, WelcomeKitStatus>();
+  if (shopIds.length === 0) return out;
+  const rows = await db
+    .select({
+      docId: documentEmails.docId,
+      status: documentEmails.status,
+      toAddress: documentEmails.toAddress,
+      sentAt: documentEmails.sentAt,
+      createdAt: documentEmails.createdAt,
+      lastError: documentEmails.lastError,
+    })
+    .from(documentEmails)
+    .where(and(eq(documentEmails.docType, WELCOME_KIT_DOC_TYPE), inArray(documentEmails.docId, [...shopIds])));
+  for (const { docId, ...row } of rows) if (!out.has(docId)) out.set(docId, row);
+  return out;
 }
 
 /** The shop's banners — English and its local language (also used by the dashboard download). Null when the shop is gone or not live. */
