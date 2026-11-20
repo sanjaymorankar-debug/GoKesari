@@ -1,0 +1,677 @@
+{
+ "title": "Puja Samagri & Temple Supplies — feature tracker",
+ "brief": "20-Nov-2026 10.20 IST",
+ "pr": 427,
+ "items": [
+  {
+   "no": "1",
+   "feature": "Shop type & master catalogue",
+   "group": true
+  },
+  {
+   "no": "1.1",
+   "feature": "Shop type “Puja Samagri & Temple Supplies” (admin-managed, on/off)",
+   "where": "drizzle/0153 shop_types row; /admin/puja Configuration",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "1.2",
+   "feature": "15 categories and 80 product types (en/hi/mr)",
+   "where": "drizzle/0153",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "1.3",
+   "feature": "499 SKUs: en/hi/mr names, synonyms, variants, unit, MRP, loose/perishable/edible, HSN/GST (to verify with CA), festivals",
+   "where": "src/server/puja/catalogue-data.ts",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "1.4",
+   "feature": "Idempotent seed script + migration; catalogue CSV / Excel in the repo",
+   "where": "scripts/puja/seed-catalogue.ts; docs/puja-samagri-2026-11/puja-samagri-catalogue.*",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "1.5",
+   "feature": "Generic placeholder image per category",
+   "where": "public/images/puja/*.svg",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "2",
+   "feature": "Product rules (§3)",
+   "group": true
+  },
+  {
+   "no": "2.1",
+   "feature": "Taking the type / a category seeds inventory at stock 100",
+   "where": "seedPujaCatalogue",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "2.2",
+   "feature": "Owner sets missing price; loose goods start with an empty price",
+   "where": "seed + Stock, price & MRP screen",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "2.3",
+   "feature": "Shop-only MRP never changes the master or other shops",
+   "where": "shop_listing_details.mrp_paise (existing)",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "2.4",
+   "feature": "Duplicate check on every new product and product type, close matches first",
+   "where": "createProductType / createOwnProducts",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "3",
+   "feature": "Shop owner (§5)",
+   "group": true
+  },
+  {
+   "no": "3a",
+   "feature": "Type at registration and as an added type; untick categories / products before confirming",
+   "where": "registration picker; /shop/puja Take catalogue; wizard step",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "3b",
+   "feature": "Browse master catalogue: category, type, festival, loose/packed; multi-select add",
+   "where": "/shop/puja Browse & add",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "3c",
+   "feature": "Manage inventory: stock, price, shop MRP, discount, photo, description, variant availability, out-of-stock, low-stock alert",
+   "where": "existing My products / Inventory / Offers / Media screens",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "3d",
+   "feature": "Remove (soft) and restore; order history intact",
+   "where": "/shop/puja Removed",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "3e",
+   "feature": "Bulk Excel/CSV download-edit-upload with error report; inline bulk grid",
+   "where": "existing bulk upload + stock grid",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "3f",
+   "feature": "Create own product type (name, parent category, unit, variant attributes, flags)",
+   "where": "/shop/puja New type",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "3g",
+   "feature": "Create own product (local names, variants, MRP, price, stock, photos)",
+   "where": "/shop/puja New product",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "3h",
+   "feature": "Promotion to master via admin review; creating shop's data unchanged",
+   "where": "review queue",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "4",
+   "feature": "Admin and operator (§6)",
+   "group": true
+  },
+  {
+   "no": "4.1",
+   "feature": "Manage puja master: add, edit, retire, merge duplicates, CSV import/export, HSN/GST to-verify, synonyms",
+   "where": "/admin/puja Catalogue",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "4.2",
+   "feature": "Review queue approve / reject / merge with reason; owner notified in real time",
+   "where": "/admin/puja Review queue; in-app + push",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "4.3",
+   "feature": "Shop-type configuration: standard fee, GST/PAN, FSSAI toggle for edible lines, enable/disable",
+   "where": "/admin/puja Configuration; shop_sells_food()",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "4.4",
+   "feature": "Festival collections by IST date range (banner + kits)",
+   "where": "/admin/puja Festivals; home banner",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "5",
+   "feature": "Customer (§7)",
+   "group": true
+  },
+  {
+   "no": "5.1",
+   "feature": "“Puja Samagri” tile on the home screen",
+   "where": "CUSTOMER_CATEGORIES",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "5.2",
+   "feature": "Nearby: puja shops, real location, distance, map directions",
+   "where": "/shops/nearby?type=PUJA_SAMAGRI",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "5.3",
+   "feature": "Search across English, Hindi, Marathi names and synonyms",
+   "where": "/puja, site search, suggestions",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "5.4",
+   "feature": "Filters: category, festival, price, loose/packed, in stock",
+   "where": "/puja",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "5.5",
+   "feature": "Ready kits and festival collections first in festival windows",
+   "where": "listPujaStorefront",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "5.6",
+   "feature": "Loose/perishable without price: “Price on confirmation”; shop confirms the price",
+   "where": "Ask price → shop answer",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "5.7",
+   "feature": "Existing order, payment, cancellation, fulfilment and OTP flows unchanged",
+   "where": "not modified; integration test",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "6",
+   "feature": "UI (§2)",
+   "group": true
+  },
+  {
+   "no": "6.1",
+   "feature": "Theme 1 Tile Board for customer, shop owner, admin, operator; one screen, no scrolling to menus",
+   "where": "tiles in existing hubs; 3×3 category grid",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "7",
+   "feature": "Mobile apps (§8.1)",
+   "group": true
+  },
+  {
+   "no": "7.1",
+   "feature": "Android app 1.9.0 (versionCode 10): parity, /puja app link",
+   "where": "mobile/app.config.ts",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "7.2",
+   "feature": "iOS app 1.9.0 (build 10): parity",
+   "where": "mobile/app.config.ts",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 10.31 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "7.3",
+   "feature": "Auto-update: in-app version check offers 1.9.0",
+   "where": "/api/app/version env after store release",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 11.10 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "8",
+   "feature": "Testing and release (§8.3, §9)",
+   "group": true
+  },
+  {
+   "no": "8.1",
+   "feature": "Unit + integration tests (catalogue, seed idempotency, services)",
+   "where": "tests/unit/puja-catalogue.test.ts; tests/integration/puja-samagri.test.ts",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 11.05 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "8.2",
+   "feature": "Staging queue → test.gokesari.com",
+   "where": "PR #427",
+   "owner": "Claude Code",
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 11.24 IST",
+     "by": "Claude Code"
+    }
+   ]
+  },
+  {
+   "no": "8.3",
+   "feature": "Tested on Test (test.gokesari.com)",
+   "where": null,
+   "owner": "Claude Code",
+   "history": []
+  },
+  {
+   "no": "8.4",
+   "feature": "Deployed to Prod (gokesari.com, 23.00 IST window)",
+   "where": null,
+   "owner": "Claude Code",
+   "history": []
+  },
+  {
+   "no": "8.5",
+   "feature": "Tested on Prod (smoke + end-to-end with test shop/customer, data marked)",
+   "where": null,
+   "owner": "Claude Code",
+   "history": []
+  },
+  {
+   "no": "8.6",
+   "feature": "Testing report",
+   "where": "docs/puja-samagri-2026-11/TEST_REPORT.md",
+   "owner": "Claude Code",
+   "history": []
+  }
+ ]
+}
