@@ -5,6 +5,8 @@ Decisions: [docs/decision-log.md](../decision-log.md), section "TIERED dealer co
 shop-refers-shop" (DT-01 … DT-17). Everything is **off by default** and changes nothing for existing
 dealers, shops or customers until an admin switches it on.
 
+A TIERED dealer can also hold an exclusive territory and earn on its orders: [TERRITORY_DEALER.md](TERRITORY_DEALER.md) (20-Nov-2026).
+
 | Switch | Where | Default |
 |---|---|---|
 | Rule `dealerTieredCommission` | Admin → Settings | off (`enabled: false`) |
@@ -71,7 +73,8 @@ within **3 years** of the shop's approval earn (`renewalYears`, configurable). C
 | ₹4,999 renewal, shop signed by an agent under a lead | agent ₹499.90 · lead ₹99.98 · main dealer ₹49.99 |
 |---|---|
 
-**Promotion** (owner, 5 Nov 2026 — DT-20). An admin can promote an agent to team lead once he has
+**Promotion** (owner, 5 Nov 2026 — DT-20; the main dealer too since 20 Nov 2026 — DT-29). The **main dealer** (on his dealer
+page, *Promote to team lead* next to the agent) or an admin can promote an agent to team lead once he has
 **50 activated shops** of his own **and 3 ready agents** — active agents he brought in (sub-agent
 requests an admin approved) who have accepted the agent agreement. The admin screen shows the
 progress ("Promotion: 42/50 shops · 2/3 ready agents"); earlier promotion needs an override and a reason. He then reports to the main dealer and takes the agents
@@ -84,7 +87,10 @@ It is settled when the month closes and paid on the 5th with everything else.
 Example (₹4,999 shops): month 1 the new team registers 120 shops → the former lead gets 120 × ₹49.99;
 month 2, 80 shops → nothing; month 3, 100 shops → 100 × ₹49.99. After 6 months it stops.
 
-**Sub-agents.** Agents cannot appoint anyone. They ask from their dealer page; an admin approves.
+**Adding people** (owner, 20 Nov 2026 — DT-28). The main dealer adds team leads and agents from his dealer page. A **team
+lead adds agents under himself** from his own dealer page — at once, no approval; each gets his own code and the main dealer
+is told. Agents cannot appoint anyone: they ask from their dealer page and an admin approves. Nobody is paid for adding
+someone.
 
 **Monthly target bonus** (owner, 5 Nov 2026 — DT-19; on). Every calendar month, anyone who reaches
 **50 shops** gets a bonus of **10% of the commission they earned that month** (direct and overrides;
@@ -180,7 +186,7 @@ See "Open items for the owner" at the end of this file.
   yesterday, last week; CSV). Reports by e-mail: cron jobs `dealer-team-report-daily` and
   `dealer-team-report-weekly` (Mondays).
 * **Move an agent** to another lead: *Move to…* (reason). A lead with agents cannot become an agent.
-* **Sub-agent requests**: TIERED screen → *Sub-agent requests* → Approve / Decline.
+* **Sub-agent requests**: TIERED screen → *Sub-agent requests* → Approve / Decline. (Only agents ask now: a team lead adds his agents himself, DT-28.)
 * **Ledger, approvals, payouts**: Admin → Dealers → Commission → Ledger & payouts, as today.
   A payout is per person; **Paid** is refused until the person has a PAN and a verified bank account.
   `createPayout` takes the member when paying a member by hand.

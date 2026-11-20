@@ -425,6 +425,7 @@ export const TEMPLATES: Record<string, Template> = {
   [T.DEALER_TEAM_REPORT]: t("{{period}} team report: {{registered}} registered, {{commission}} earned", "{{period}} ({{label}}): {{started}} registrations started, {{registered}} shops registered, {{commission}} commission earned. Each person's numbers are on your dealer page."),
   [T.DEALER_PAYOUT_HELD]: t("Commission waiting: add your {{missing}}", "{{amount}} of commission for {{month}} is waiting. It is paid as soon as your {{missing}} is added on your dealer page; it is carried to the next payout until then."),
   [T.DEALER_PAYOUT_FAILED]: t("Commission transfer did not go through", "The bank transfer of {{amount}} failed ({{reason}}). {{next}}"),
+  [T.DEALER_TERRITORY_CHANGED]: t("Your territory {{territory}}: {{headline}}", "{{message}}"),
   [T.SHOP_REFERRAL_REWARDED]: t("Referral reward: {{reward}}", "{{shopName}}, which joined GoKesari with your shop's referral code, is live and has delivered its first order. {{reward}} — {{detail}}"),
   [T.SHOP_REFERRAL_REVERSED]: t("Referral reward reversed", "A shop referral reward was reversed after a review. {{detail}}"),
   [T.SHOP_FIRST_PRODUCTS_LIVE]: t(
