@@ -137,6 +137,9 @@ export const PUBLIC_PAGES = new Set([
   // consultant's public page (404 while off or not published). Booking itself needs sign-in.
   "/consult",
   "/consult/[slug]",
+  // docs/puja-samagri-2026-11: the Puja Samagri storefront (home tile → /puja) is open to guests like /shops;
+  // the owner's /shop/puja and staff's /admin/puja stay signed-in pages.
+  "/puja",
 ]);
 
 /**
