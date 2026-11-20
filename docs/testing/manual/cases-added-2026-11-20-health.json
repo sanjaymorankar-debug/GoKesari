@@ -1,0 +1,524 @@
+{
+  "date": "2026-11-20",
+  "note": "GoKesari Health (docs/health/), owner brief 20-Nov-2026 10.51 IST; launch mode (all Prime features free) per owner 20-Nov.",
+  "features": [
+    {
+      "id": "HLT-01",
+      "module": "GoKesari Health",
+      "feature": "Health hub, sign-in and role checks on every Health page and API",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-02",
+      "module": "GoKesari Health",
+      "feature": "Prescription QR verification and expiring share links",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-03",
+      "module": "GoKesari Health",
+      "feature": "Doctor booking, clinic Today, tokens and live queue (verified doctors only)",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-04",
+      "module": "GoKesari Health",
+      "feature": "E-prescriptions: issue, PDF, e-mail, amend with reason, telemedicine lists, allergy warning",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-05",
+      "module": "GoKesari Health",
+      "feature": "Letterhead printing and calibration",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-06",
+      "module": "GoKesari Health",
+      "feature": "Lifelong health record, consent, access log, family, DPDP rights",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-07",
+      "module": "GoKesari Health",
+      "feature": "Prescriptions to medical stores: pickup / delivery OTP, substitutes, dispensed tracking, 2% commission",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-08",
+      "module": "GoKesari Health",
+      "feature": "Doctor suggestions and referrals with Book now (no money to doctors, NMC)",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-09",
+      "module": "GoKesari Health",
+      "feature": "Home care: nurse, physio, massage, attendant; OTP check-in / out; notes",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-10",
+      "module": "GoKesari Health",
+      "feature": "Medical equipment buy / rent: deposit, return, refund",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-11",
+      "module": "GoKesari Health",
+      "feature": "Listing plans: launch mode, all Prime features free for medical shops (admin-priced plans when off)",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-12",
+      "module": "GoKesari Health",
+      "feature": "Patient referrals",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    },
+    {
+      "id": "HLT-13",
+      "module": "GoKesari Health",
+      "feature": "Health admin: verification, drug master, break-glass, logs",
+      "status": "Built 20-Nov-2026 (feat/gokesari-health, PR #429)"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "TS-HLT-01",
+      "module": "GoKesari Health",
+      "title": "Guest access and public checks",
+      "description": "Private Health pages and APIs refuse a guest; the prescription QR check and share links show nothing private."
+    },
+    {
+      "id": "TS-HLT-02",
+      "module": "GoKesari Health",
+      "title": "Doctor booking, clinic Today and the live queue",
+      "description": "Only verified doctors are bookable; bookings, tokens and queue positions update live."
+    },
+    {
+      "id": "TS-HLT-03",
+      "module": "GoKesari Health",
+      "title": "E-prescriptions",
+      "description": "Issue, PDF, e-mail, print, QR verification, amend and the telemedicine / allergy safety checks."
+    },
+    {
+      "id": "TS-HLT-04",
+      "module": "GoKesari Health",
+      "title": "Health record, consent, family and privacy",
+      "description": "One lifelong record per person; doctors see it only with consent; every look is logged; DPDP rights."
+    },
+    {
+      "id": "TS-HLT-05",
+      "module": "GoKesari Health",
+      "title": "Prescriptions to medical stores",
+      "description": "Pickup and delivery with OTP, substitutes, dispensed quantity, no-reply fallback."
+    },
+    {
+      "id": "TS-HLT-06",
+      "module": "GoKesari Health",
+      "title": "Suggestions, home care and medical equipment",
+      "description": "Book now from a doctor's suggestion; home-care visits with OTP; equipment rental with deposit."
+    },
+    {
+      "id": "TS-HLT-07",
+      "module": "GoKesari Health",
+      "title": "Listing, referrals and Health admin",
+      "description": "Launch mode (all Prime features free), patient referrals, verification queues, drug master, break-glass."
+    }
+  ],
+  "cases": [
+    {
+      "id": "TC-HLT-001",
+      "scenario": "TS-HLT-01",
+      "module": "GoKesari Health",
+      "features": "HLT-01",
+      "type": "Negative",
+      "priority": "P1",
+      "role": "Guest",
+      "method": "UI",
+      "title": "My Health sends a guest to sign in",
+      "preconditions": "—",
+      "steps": "1. Open /health signed out",
+      "expected": "Redirected to /signin with callbackUrl=/health; no error page; no sideways scroll on a phone."
+    },
+    {
+      "id": "TC-HLT-002",
+      "scenario": "TS-HLT-01",
+      "module": "GoKesari Health",
+      "features": "HLT-01",
+      "type": "Negative",
+      "priority": "P1",
+      "role": "Guest",
+      "method": "UI",
+      "title": "Clinic Today, Health hub and settings send a guest to sign in",
+      "preconditions": "—",
+      "steps": "1. Open /shop/health, /shop/health/hub, /shop/health/settings signed out",
+      "expected": "Each redirects to /signin."
+    },
+    {
+      "id": "TC-HLT-003",
+      "scenario": "TS-HLT-01",
+      "module": "GoKesari Health",
+      "features": "HLT-02",
+      "type": "Negative",
+      "priority": "P1",
+      "role": "Guest",
+      "method": "UI",
+      "title": "Prescription QR check shows 'not found' for an unknown code",
+      "preconditions": "—",
+      "steps": "1. Open /rx/verify/<random 24 chars>",
+      "expected": "Page 200 with 'Not found'; no patient details; no error page."
+    },
+    {
+      "id": "TC-HLT-004",
+      "scenario": "TS-HLT-01",
+      "module": "GoKesari Health",
+      "features": "HLT-02",
+      "type": "Security",
+      "priority": "P0",
+      "role": "Guest",
+      "method": "API",
+      "title": "An unknown or expired share link returns no file",
+      "preconditions": "—",
+      "steps": "1. GET /api/health/share/<random>",
+      "expected": "404; body is not a PDF."
+    },
+    {
+      "id": "TC-HLT-005",
+      "scenario": "TS-HLT-01",
+      "module": "GoKesari Health",
+      "features": "HLT-01",
+      "type": "Security",
+      "priority": "P0",
+      "role": "Guest",
+      "method": "API",
+      "title": "Every private Health API refuses a guest (401)",
+      "preconditions": "—",
+      "steps": "1. Call every /api/health/* and /api/admin/health* route signed out (public: share link, telephony webhook, doctor search, care ID)",
+      "expected": "Each returns 401 before reading the request; the live stream returns 401."
+    },
+    {
+      "id": "TC-HLT-010",
+      "scenario": "TS-HLT-02",
+      "module": "GoKesari Health",
+      "features": "HLT-03",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Customer, Doctor",
+      "method": "UI",
+      "title": "Book a verified doctor (slot) — appears in Today live within 2 s",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Doctor opens /shop/health\n2. Customer books the doctor for self from /health/doctors\n3. Watch Today",
+      "expected": "The booking appears in Today without refresh within 2 seconds, with a sound; patient name, age/gender, new/follow-up, mode, reason, payment status."
+    },
+    {
+      "id": "TC-HLT-011",
+      "scenario": "TS-HLT-02",
+      "module": "GoKesari Health",
+      "features": "HLT-03",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Customer, Reception",
+      "method": "UI",
+      "title": "Token clinic: tokens in order and live queue position",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice). Clinic settings: token clinic on.",
+      "steps": "1. Two customers book the same day\n2. Reception calls #1",
+      "expected": "Tokens 1 and 2; customer 2 sees token 2, one ahead, then 'now serving 1' live."
+    },
+    {
+      "id": "TC-HLT-012",
+      "scenario": "TS-HLT-02",
+      "module": "GoKesari Health",
+      "features": "HLT-03",
+      "type": "Negative",
+      "priority": "P0",
+      "role": "Customer, Doctor",
+      "method": "API",
+      "title": "Unverified doctor cannot be booked or prescribe",
+      "preconditions": "Doctor with certificate uploaded but practice not verified.",
+      "steps": "1. Book through Health\n2. Start a consultation",
+      "expected": "Both refused with 'not verified'."
+    },
+    {
+      "id": "TC-HLT-013",
+      "scenario": "TS-HLT-03",
+      "module": "GoKesari Health",
+      "features": "HLT-04",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Doctor, Customer",
+      "method": "UI",
+      "title": "Issue a prescription: PDF in record, e-mail with PDF, print, booking completed (≤ 30 s)",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Check the patient in with the QR\n2. Consult, add medicines, Issue",
+      "expected": "Within 30 s: prescription in Timeline, By provider and Medicines; e-mail queued with the PDF attached; print view opens; booking COMPLETED."
+    },
+    {
+      "id": "TC-HLT-014",
+      "scenario": "TS-HLT-03",
+      "module": "GoKesari Health",
+      "features": "HLT-02",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Guest, Customer, Store",
+      "method": "UI",
+      "title": "Prescription QR verification (public vs authorised)",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Scan the QR signed out\n2. Signed in as the patient",
+      "expected": "Signed out: genuine + doctor + registration, no patient details. Patient: medicines and PDF fingerprint."
+    },
+    {
+      "id": "TC-HLT-015",
+      "scenario": "TS-HLT-03",
+      "module": "GoKesari Health",
+      "features": "HLT-04",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Doctor",
+      "method": "UI",
+      "title": "Amend creates a new version with a reason; old QR says replaced",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Open an issued prescription\n2. Amend with a reason",
+      "expected": "Version 2 issued and e-mailed; version 1 kept, its QR shows 'replaced'."
+    },
+    {
+      "id": "TC-HLT-016",
+      "scenario": "TS-HLT-03",
+      "module": "GoKesari Health",
+      "features": "HLT-04",
+      "type": "Negative",
+      "priority": "P0",
+      "role": "Doctor",
+      "method": "UI",
+      "title": "Telemedicine: prohibited medicine blocked, List B only after in-person visit",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice). A video booking.",
+      "steps": "1. Add Alprazolam\n2. Add Metformin (no earlier in-person visit)",
+      "expected": "Both blocked with the guideline reason; issue disabled."
+    },
+    {
+      "id": "TC-HLT-017",
+      "scenario": "TS-HLT-03",
+      "module": "GoKesari Health",
+      "features": "HLT-04",
+      "type": "Negative",
+      "priority": "P1",
+      "role": "Doctor",
+      "method": "UI",
+      "title": "Allergy warning must be acknowledged",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice). Patient allergy recorded.",
+      "steps": "1. Prescribe the allergen",
+      "expected": "Warning shown; issue only after ticking 'reviewed'."
+    },
+    {
+      "id": "TC-HLT-018",
+      "scenario": "TS-HLT-03",
+      "module": "GoKesari Health",
+      "features": "HLT-05",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Doctor",
+      "method": "UI",
+      "title": "Letterhead modes and calibration print",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Pre-printed mode, print calibration sheet at 100%\n2. Set margins\n3. Print a prescription",
+      "expected": "Text lands inside the blank area; digital mode shows header/footer images; e-mailed PDF always complete."
+    },
+    {
+      "id": "TC-HLT-019",
+      "scenario": "TS-HLT-04",
+      "module": "GoKesari Health",
+      "features": "HLT-06",
+      "type": "Security",
+      "priority": "P0",
+      "role": "Customer, Doctor",
+      "method": "UI",
+      "title": "Earlier records visible to a doctor only while consent is active; each look logged",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Doctor opens the pad (no consent)\n2. Patient allows always\n3. Patient withdraws",
+      "expected": "Hidden → visible (access log entry with the doctor's name and IST time) → hidden again."
+    },
+    {
+      "id": "TC-HLT-020",
+      "scenario": "TS-HLT-04",
+      "module": "GoKesari Health",
+      "features": "HLT-06",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Customer",
+      "method": "UI",
+      "title": "Lifelong record: three doctors and a nurse in date order per family member",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Visits with 3 doctors and 1 home nurse for a child\n2. Open the child's Records",
+      "expected": "All visits, diagnoses, prescriptions, medicines, notes and reports in date order from the record start."
+    },
+    {
+      "id": "TC-HLT-021",
+      "scenario": "TS-HLT-04",
+      "module": "GoKesari Health",
+      "features": "HLT-06",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Customer",
+      "method": "UI",
+      "title": "Family: dependent at once, adult only after the one-time code",
+      "preconditions": "Health on.",
+      "steps": "1. Add a child\n2. Add an adult parent with mobile",
+      "expected": "Child active at once; adult waits until the code is entered."
+    },
+    {
+      "id": "TC-HLT-022",
+      "scenario": "TS-HLT-05",
+      "module": "GoKesari Health",
+      "features": "HLT-07",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Customer, Store",
+      "method": "UI",
+      "title": "Prescription to store — pickup with OTP",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice). A verified pharmacy nearby.",
+      "steps": "1. Get medicines → store → pickup\n2. Store quotes\n3. Approve, pay at counter\n4. Ready → pickup code",
+      "expected": "Completed with the code; bill with batch/expiry in the record; dispensed quantities updated."
+    },
+    {
+      "id": "TC-HLT-023",
+      "scenario": "TS-HLT-05",
+      "module": "GoKesari Health",
+      "features": "HLT-07",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Customer, Store",
+      "method": "UI",
+      "title": "Prescription to store — delivery with OTP and substitute approval",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice). A verified pharmacy nearby.",
+      "steps": "1. Delivery\n2. Store quotes one substitute\n3. Patient rejects it, approves the rest, pays online (sandbox)",
+      "expected": "Rejected substitute drops; delivery completes with the code; settlement 2%."
+    },
+    {
+      "id": "TC-HLT-024",
+      "scenario": "TS-HLT-05",
+      "module": "GoKesari Health",
+      "features": "HLT-07",
+      "type": "Negative",
+      "priority": "P0",
+      "role": "Customer, Store",
+      "method": "API",
+      "title": "Dispensed quantity can never exceed prescribed",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Forward the same medicine to two stores and complete both",
+      "expected": "The second completion is refused."
+    },
+    {
+      "id": "TC-HLT-025",
+      "scenario": "TS-HLT-05",
+      "module": "GoKesari Health",
+      "features": "HLT-07",
+      "type": "Negative",
+      "priority": "P1",
+      "role": "Customer",
+      "method": "UI",
+      "title": "Store does not reply in 15 minutes → patient told and offered another store",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Forward\n2. Wait past the timeout",
+      "expected": "Order EXPIRED, notification, 'Send to another store'."
+    },
+    {
+      "id": "TC-HLT-026",
+      "scenario": "TS-HLT-06",
+      "module": "GoKesari Health",
+      "features": "HLT-08",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Customer",
+      "method": "UI",
+      "title": "Suggestions on the prescription: Book now for specialist, care, equipment, lab, follow-up",
+      "preconditions": "Rules consultBooking and health switched on (Admin → Settings); a verified doctor (Health doctor profile + verified certificate and practice).",
+      "steps": "1. Doctor adds all five suggestion types\n2. Patient books each",
+      "expected": "Each booking/order linked to its suggestion; doctor sees 'booked' only; no money to the doctor."
+    },
+    {
+      "id": "TC-HLT-027",
+      "scenario": "TS-HLT-06",
+      "module": "GoKesari Health",
+      "features": "HLT-09",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Customer, Care provider",
+      "method": "UI",
+      "title": "Home care: book → accept → on the way → OTP check-in/out → notes in record → rating",
+      "preconditions": "Health on; verified home nurse.",
+      "steps": "Full visit",
+      "expected": "Visit note PDF and vitals in the record; booking completed; rating saved."
+    },
+    {
+      "id": "TC-HLT-028",
+      "scenario": "TS-HLT-06",
+      "module": "GoKesari Health",
+      "features": "HLT-10",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Customer, Equipment store",
+      "method": "UI",
+      "title": "Equipment rental: deposit, delivery OTP, return, deposit refund minus damages",
+      "preconditions": "Health on; verified equipment store.",
+      "steps": "Full rental with an extension",
+      "expected": "Deposit refunded less damages through the gateway; rental CLOSED; history shows it."
+    },
+    {
+      "id": "TC-HLT-029",
+      "scenario": "TS-HLT-07",
+      "module": "GoKesari Health",
+      "features": "HLT-11",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Doctor, Admin",
+      "method": "UI",
+      "title": "Listing in launch mode: every medical shop gets the Prime features free (instant booking, Prime label, call tracking); no plan to buy",
+      "preconditions": "Health on; launch mode on (rule health.primeForAll, on at launch).",
+      "steps": "1. Doctor opens Seller Central → Orders → Health → Prime\n2. Customer searches Find a doctor\n3. Missed call to the clinic's tracked number (mock)\n4. Admin switches launch mode off and changes a plan price",
+      "expected": "1. The page says every Prime feature is included at launch; no Buy button. 2. The doctor shows with the Prime label and instant booking. 3. The call is logged. 4. With launch mode off: plans show at the admin's new price (no code change); a purchase gives a GST invoice; after expiry and grace the shop is back on Free and its bookings are kept."
+    },
+    {
+      "id": "TC-HLT-030",
+      "scenario": "TS-HLT-07",
+      "module": "GoKesari Health",
+      "features": "HLT-12",
+      "type": "Positive",
+      "priority": "P1",
+      "role": "Customer, Admin",
+      "method": "UI",
+      "title": "Patient referral codes and rewards switchable by admin",
+      "preconditions": "customerReferrals rule.",
+      "steps": "1. Share code\n2. Admin switches rewards off",
+      "expected": "Existing referral flow; no reward when off."
+    },
+    {
+      "id": "TC-HLT-031",
+      "scenario": "TS-HLT-07",
+      "module": "GoKesari Health",
+      "features": "HLT-13",
+      "type": "Security",
+      "priority": "P0",
+      "role": "Admin, Operator",
+      "method": "UI",
+      "title": "Admin: verification queues, drug master CSV, break-glass with reason (logged, patient told)",
+      "preconditions": "Health on.",
+      "steps": "1. Operator verifies a pharmacy\n2. Admin imports drugs CSV\n3. Admin break-glass",
+      "expected": "Operator cannot break glass; break-glass needs a reason, appears in the patient's access log and audit, patient notified."
+    },
+    {
+      "id": "TC-HLT-032",
+      "scenario": "TS-HLT-04",
+      "module": "GoKesari Health",
+      "features": "HLT-06",
+      "type": "Positive",
+      "priority": "P0",
+      "role": "Customer",
+      "method": "UI",
+      "title": "Privacy: withdraw sharing, access log in IST, download data, delete request",
+      "preconditions": "Health on.",
+      "steps": "Privacy tab actions",
+      "expected": "Withdrawal immediate; log shows who/what/when IST; full record PDF downloads; delete hides records (retained)."
+    }
+  ],
+  "e2e": [],
+  "overrides": []
+}

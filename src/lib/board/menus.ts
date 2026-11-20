@@ -138,6 +138,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare" },
       // docs/consult-booking-2026-11: doctors, lawyers, CAs and other professionals near you, with free times.
       { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/consult" },
+      // GoKesari Health (docs/health/): verified doctors near you (the board keeps 6 tiles — one screen on a phone).
+      { key: "doctors", label: L("Doctors", "डॉक्टर", "डॉक्टर"), icon: "search", href: "/health/doctors", auth: true },
     ],
   },
   {
@@ -183,6 +185,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "addresses", label: L("Addresses", "पते", "पत्ते"), icon: "map-pin", href: "/profile/addresses", auth: true },
       { key: "society", label: L("Society", "सोसाइटी", "सोसायटी"), icon: "building-2", href: "/society", auth: true },
       { key: "refer", label: L("Refer & earn", "रेफ़र करें", "रेफर करा"), short: { en: "Refer" }, icon: "gift", href: "/refer", auth: true },
+      // GoKesari Health (docs/health/): the family's health record, prescriptions, medicines, home care, equipment.
+      { key: "health", label: L("My Health", "मेरा स्वास्थ्य", "माझे आरोग्य"), short: { en: "Health" }, icon: "shield-check", href: "/health", auth: true },
       // Mockup: "App theme" — no theme setting exists; nearest real destination.
       { key: "bank", label: L("Bank account", "बैंक खाता", "बँक खाते"), short: { en: "Bank" }, icon: "landmark", href: "/profile/bank-account", auth: true },
       { key: "help", label: L("Help", "मदद", "मदत"), icon: "circle-help", href: "/contact" },
@@ -210,6 +214,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "subscribers", label: L("Subscribers", "सब्सक्राइबर", "सदस्य"), href: "/shop/manage/subscribers" },
       // docs/consult-booking-2026-11: a consultant's / firm's calendar and bookings (the shop board is at its 16-tile limit).
       { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), href: "/shop/consult" },
+      // GoKesari Health (docs/health/): clinic Today, prescription requests, home-care visits, equipment rentals, Prime (the board is at 16 tiles).
+      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), href: "/shop/health/hub", feature: "health_provider" },
     ],
   },
   {
@@ -393,6 +399,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "grade", label: L("Grade", "ग्रेड", "श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
       // docs/consult-booking-2026-11: consultant verification, bookings, categories and commission, policies, reports.
       { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
+      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
+      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
     more: [
       { key: "documents", label: L("Legal documents", "कानूनी दस्तावेज़", "कायदेशीर कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
@@ -564,6 +572,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "grade", label: L("Quality grade", "गुणवत्ता ग्रेड", "गुणवत्ता श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
       // docs/consult-booking-2026-11: operators run consultant onboarding and bookings with admins.
       { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
+      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
+      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
     more: [
       { key: "verification", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },

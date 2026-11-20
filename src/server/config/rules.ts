@@ -801,6 +801,61 @@ export const RULES = {
     // product-upload support); yearly fee; defaults confirmed the same day.
     defaults: { enabled: false, baseShareBp: 2000, stepBp: 100, maxShareBp: 2500, productWeightBp: 5000, liveMinProducts: 10, termMonths: 12, graceDays: 30 },
   },
+  health: {
+    description:
+      "GoKesari Health (docs/health/; owner brief 20 Nov 2026). Built on consultant appointments (consultBooking must be on too): patients keep one lifelong health record for themselves and their family; verified doctors issue e-prescriptions (PDF e-mailed, printed on their letterhead); patients forward prescriptions to medical stores for pickup or delivery; home-care providers (nurse, physiotherapist, massage therapist, attendant …) take home visits with OTP check-in / check-out; medical equipment stores rent equipment with a deposit; doctors, providers and stores can buy Prime listing plans (prices in Admin → Health → Prime plans, never in code). storeResponseMinutes: how long a medical store has to reply to a forwarded prescription. rxValidityDays: how long a prescription can be used at a store. rxCommissionBp / rentalCommissionBp: GoKesari's commission on store orders and rentals (default 2%), taken from the store's weekly payout. reminderHours: appointment reminders (the consultant rule's reminders are used). rentalDueReminderDays: reminder before a rental is due back. primeGraceDays: after a Prime plan ends, bookings already made stay valid; the profile drops to Free after the grace days. primeGstBp: GST on Prime plans (18%). payPerBooking: no subscription, a fee per new-patient booking billed to the provider's payout (feePerBookingPaise). videoProvider / telephonyProvider / printProvider: 'jitsi' / 'mock' / 'browser' until accounts are configured. breakGlassEnabled: admins may open a clinical record in an emergency with a reason (logged, patient told). freeListingManualApproval: a doctor on the Free listing gets booking requests the clinic confirms; Prime turns on instant booking. primeForAll (launch mode, on): every verified clinic, care provider and equipment store gets the Prime plan's features (instant booking, analytics …) without buying a plan; Prime plans are not sold; no Prime boost or label in search (everyone is equal); the standard registration fee and 2% commission apply. Off: My Health and the health screens say 'coming soon'; prescriptions already issued can still be opened and verified.",
+    schema: z.object({
+      enabled: z.boolean(),
+      storeResponseMinutes: int(2, 240),
+      rxValidityDays: int(1, 365),
+      rxCommissionBp: int(0, 5000),
+      rentalCommissionBp: int(0, 5000),
+      careCommissionBp: int(0, 5000),
+      rentalDueReminderDays: int(0, 14),
+      primeGraceDays: int(0, 60),
+      primeGstBp: int(0, 2800),
+      primeTermDiscountBp: z.object({ QUARTERLY: int(0, 5000), YEARLY: int(0, 5000) }),
+      payPerBooking: z.boolean(),
+      feePerBookingPaise: int(0, 100_000_00),
+      maxDocumentBytes: int(100_000, 20_000_000),
+      shareLinkHours: int(1, 720),
+      videoProvider: z.enum(["jitsi", "external"]),
+      telephonyProvider: z.enum(["mock", "exotel", "knowlarity"]),
+      printProvider: z.enum(["browser", "printnode", "qz"]),
+      breakGlassEnabled: z.boolean(),
+      freeListingManualApproval: z.boolean(),
+      primeForAll: z.boolean(),
+      careOtpMaxAttempts: int(1, 20),
+      familyLinkCodeMinutes: int(2, 60),
+    }),
+    // Owner brief 20-Nov-2026: store timeout 15 minutes, 2% commission, Prime GST 18%, everything admin-editable.
+    defaults: {
+      enabled: false,
+      storeResponseMinutes: 15,
+      rxValidityDays: 30,
+      rxCommissionBp: 200,
+      rentalCommissionBp: 200,
+      careCommissionBp: 200,
+      rentalDueReminderDays: 2,
+      primeGraceDays: 7,
+      primeGstBp: 1800,
+      primeTermDiscountBp: { QUARTERLY: 1000, YEARLY: 1700 },
+      payPerBooking: false,
+      feePerBookingPaise: 5000,
+      maxDocumentBytes: 10_000_000,
+      shareLinkHours: 72,
+      videoProvider: "jitsi",
+      telephonyProvider: "mock",
+      printProvider: "browser",
+      breakGlassEnabled: true,
+      freeListingManualApproval: true,
+      // Owner decision 20-Nov-2026 13.20 IST: launch with every Prime feature for every verified provider — no Prime
+      // plan is sold; providers pay GoKesari's standard registration fee (₹999 slab) and 2% on order value.
+      primeForAll: true,
+      careOtpMaxAttempts: 5,
+      familyLinkCodeMinutes: 10,
+    },
+  },
   consultBooking: {
     description:
       "Consultant appointments (docs/consult-booking-2026-11; owner brief, 20 Nov 2026). Shops that are professional practices or firms (doctors, advocates, CAs, IT consultants, salons, home-service experts …) publish a booking profile with their team, services, weekly hours and cancellation policy; customers find them (\"Find a Consultant\", nearby first) and book a time — one-to-one, a team appointment or a place in a group session — paying online (the fee or an advance), at the visit, or nothing for a free service. A time is held for holdMinutes while the customer pays; a failed or abandoned payment frees it. GoKesari's commission is the category's rate, else defaultCommissionBp (2%), taken from the firm's next payout (online money is paid out with it). Reminders go reminderHours before each appointment. completionOtpModes: the modes whose completion needs the customer's code (as with delivery). Off: no consultant pages, no new bookings; existing bookings can still be viewed, cancelled and refunded.",
@@ -1670,7 +1725,7 @@ export const RULES = {
       enabled: z.boolean(),
       provider: z.enum(["mock", "expo"]),
       defaultOnCategories: z.array(
-        z.enum(["ORDERS", "RETURNS", "DELIVERY", "SHOP", "WALLET", "SUBSCRIPTIONS", "COMMUNITY", "ACCOUNT_SECURITY", "GENERAL", "ANNOUNCEMENTS"]),
+        z.enum(["ORDERS", "RETURNS", "DELIVERY", "SHOP", "WALLET", "SUBSCRIPTIONS", "COMMUNITY", "ACCOUNT_SECURITY", "GENERAL", "ANNOUNCEMENTS", "APPOINTMENTS", "HEALTH"]),
       ),
       /** Expo asks to wait ~15 minutes before reading receipts. */
       receiptDelayMinutes: int(1, 1440),
@@ -1682,7 +1737,7 @@ export const RULES = {
     defaults: {
       enabled: false,
       provider: "mock",
-      defaultOnCategories: ["ORDERS", "RETURNS", "DELIVERY", "SHOP", "WALLET", "SUBSCRIPTIONS", "ACCOUNT_SECURITY", "ANNOUNCEMENTS"],
+      defaultOnCategories: ["ORDERS", "RETURNS", "DELIVERY", "SHOP", "WALLET", "SUBSCRIPTIONS", "ACCOUNT_SECURITY", "ANNOUNCEMENTS", "HEALTH"],
       receiptDelayMinutes: 15,
       maxDevicesPerUser: 10,
       androidChannelId: "default",

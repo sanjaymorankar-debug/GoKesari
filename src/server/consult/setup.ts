@@ -110,7 +110,8 @@ export const serviceInput = z
     name: text(120).min(2, "Enter the service name."),
     description: optText(1000),
     categoryId: z.string().uuid().nullish(),
-    durationMinutes: z.number().int().min(5).max(600),
+    // GoKesari Health: home-care shifts of up to 12 hours (0156_health widens the database check to match).
+    durationMinutes: z.number().int().min(5).max(720),
     feeType: z.enum(["FREE", "FIXED", "DEPOSIT"]),
     feeRupees: rupees.default(0),
     depositRupees: rupees.default(0),

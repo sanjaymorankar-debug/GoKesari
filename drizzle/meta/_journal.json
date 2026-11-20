@@ -1093,6 +1093,13 @@
       "when": 1793265300000,
       "tag": "0155_puja_samagri_catalogue",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1793265400000,
+      "tag": "0156_health",
+      "breakpoints": true
     }
   ]
 }
