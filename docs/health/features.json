@@ -4,538 +4,692 @@
   "feature": "Account & consent",
   "sub": "My Health notice (DPDP) with IST time stamp; record start date",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: notice accepted on the QA customer (201), own record started",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-1.2",
   "feature": "Account & consent",
   "sub": "Health profile (DOB, gender, blood group, allergies, conditions, medicines, emergency contact, ABHA)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: profile page loads (phone size, no errors)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-1.3",
   "feature": "Family",
   "sub": "Dependents managed fully; adults linked by one-time code; every feature per family member",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: family page loads",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-2.1",
   "feature": "Find a doctor",
   "sub": "Search by specialty, name, clinic, symptom, area; Nearby with distance and map",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: Find a doctor page + public search API (200)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-2.2",
   "feature": "Find a doctor",
   "sub": "Filters: fee, language, gender, clinic/video, today/this week, Prime/verified",
   "status": "Done",
-  "notes": "Gender filter not available (no gender stored for doctors, H-37); Local integration tests pass (20-Nov-2026)"
+  "notes": "Gender filter not available (no gender stored for doctors, H-37); Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: search page and API answer; no doctors listed yet on staging",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-2.3",
   "feature": "Find a doctor",
   "sub": "Doctor profile: qualifications, council + registration, clinics + map, fees, timings, reviews, badges",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-2.4",
   "feature": "Booking",
   "sub": "Book for self / family; in-clinic or video; slot or token; reason; record-sharing toggle; pay online or at clinic",
   "status": "Done",
-  "notes": "Server + API done; booking screen in the Find-a-doctor build; Local integration tests pass (20-Nov-2026)"
+  "notes": "Server + API done; booking screen in the Find-a-doctor build; Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-2.5",
   "feature": "Booking",
   "sub": "Confirmation: booking ID, IST time, address + directions, check-in QR, add to calendar",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-2.6",
   "feature": "Booking",
   "sub": "Reminders 24 h / 2 h (push, e-mail; SMS / WhatsApp mock until vendor)",
   "status": "Done",
-  "notes": "Consult reminders; set consultBooking.reminderHours = [24, 2]; Local integration tests pass (20-Nov-2026)"
+  "notes": "Consult reminders; set consultBooking.reminderHours = [24, 2]; Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-2.7",
   "feature": "Booking",
   "sub": "Reschedule / cancel by policy, refunds (consult engine)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-2.8",
   "feature": "Booking",
   "sub": "Token clinics: live queue position",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-2.9",
   "feature": "Video consultation",
   "sub": "Join button at slot time (Jitsi room or doctor's link)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-3.1",
   "feature": "Health records",
   "sub": "Timeline (all events, newest first)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: records page + records API (empty record)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-3.2",
   "feature": "Health records",
   "sub": "By provider",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: records page loads",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-3.3",
   "feature": "Health records",
   "sub": "Medicines (current highlighted)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: records page loads",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-3.4",
   "feature": "Health records",
   "sub": "Reports & documents with source tag; patient uploads",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-3.5",
   "feature": "Health records",
   "sub": "Search / filter; download / print / share one item by expiring link; full record PDF",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-4.1",
   "feature": "Prescriptions received",
   "sub": "E-mail with PDF, push / SMS / WhatsApp, instant in all record views",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-4.2",
   "feature": "Prescriptions received",
   "sub": "Doctor's suggestions with Book now (follow-up, specialist, lab, care staff, equipment)",
   "status": "Done",
-  "notes": "Book-now flows land in the doctor / care / equipment builds; Local integration tests pass (20-Nov-2026)"
+  "notes": "Book-now flows land in the doctor / care / equipment builds; Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-5.1",
   "feature": "Prescription to medical store",
   "sub": "Select medicines and quantities (≤ prescribed − dispensed)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-5.2",
   "feature": "Prescription to medical store",
   "sub": "Choose nearby store / favourite; pickup or delivery; real-time request; 15-min timeout",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-5.3",
   "feature": "Prescription to medical store",
   "sub": "Quote with availability, price, discount, substitutes (patient approves each), delivery charge",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-5.4",
   "feature": "Prescription to medical store",
   "sub": "Approve and pay (online / cash on handover); pickup OTP; delivery OTP",
   "status": "Done",
-  "notes": "Store's own delivery person with delivery code; GoKesari rider + live map for medicine orders is phase 2 (H-13); Local integration tests pass (20-Nov-2026)"
+  "notes": "Store's own delivery person with delivery code; GoKesari rider + live map for medicine orders is phase 2 (H-13); Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-5.5",
   "feature": "Prescription to medical store",
   "sub": "Bill with batch and expiry in history; dispensed quantity tracked; 2% commission",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-6.1",
   "feature": "Home care",
   "sub": "Categories (nurse, physio, massage, attendant, baby care, sample collection) admin-managed",
   "status": "Done",
-  "notes": "Seeded in consult categories; Local integration tests pass (20-Nov-2026)"
+  "notes": "Seeded in consult categories; Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: home-care page loads",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-6.2",
   "feature": "Home care",
   "sub": "Search providers (category, gender, language, rating, experience, price); verified only",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: home-care search API (200)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-6.3",
   "feature": "Home care",
   "sub": "Booking types: single, hourly, shift, packages; address + pin; consent to share",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-6.4",
   "feature": "Home care",
   "sub": "On the way tracking; OTP check-in / check-out; notes and vitals into the record; rating; complaint",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-6.5",
   "feature": "Home care",
   "sub": "Safety: provider photo + ID card before the visit; SOS",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-7.1",
   "feature": "Medical equipment",
   "sub": "Browse / search nearby equipment; buy (normal order)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: equipment page + search API (200)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-7.2",
   "feature": "Medical equipment",
   "sub": "Rent: period, deposit, delivery OTP, reminders, extension, return pickup, condition check, deposit refund",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-7.3",
   "feature": "Medical equipment",
   "sub": "Prescription-required items",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-8.1",
   "feature": "Patient referrals",
   "sub": "Share a doctor's profile; invite with personal referral code; rewards admin-switchable",
   "status": "Done",
-  "notes": "Existing customer referral system reused (H-16); Local integration tests pass (20-Nov-2026)"
+  "notes": "Existing customer referral system reused (H-16); Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-9.1",
   "feature": "Privacy controls",
   "sub": "Who has access; withdraw; access log in IST; download all data; delete request (records retained)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: privacy page, access log and consents APIs (200)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-10.1",
   "feature": "Doctor onboarding",
   "sub": "Registration as consultant firm; council, number, year, certificate, photo, signature / stamp",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-10.2",
   "feature": "Doctor onboarding",
   "sub": "Admin verification before going live; unverified cannot be booked / prescribe",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-10.3",
   "feature": "Doctor onboarding",
   "sub": "Clinics; reception staff with limited role",
   "status": "Done",
-  "notes": "Consult team members; reception cannot open the pad; Local integration tests pass (20-Nov-2026)"
+  "notes": "Consult team members; reception cannot open the pad; Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-11.1",
   "feature": "Availability & fees",
   "sub": "Weekly schedule, slot length, patients per slot, tokens, video hours, leave, fees, follow-up window, policy",
   "status": "Done",
-  "notes": "Consult engine + clinic settings; Local integration tests pass (20-Nov-2026)"
+  "notes": "Consult engine + clinic settings; Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-11.2",
   "feature": "Availability & fees",
   "sub": "Google Calendar sync",
   "status": "Done",
-  "notes": "ICS file + Google Calendar link per booking (consult); two-way sync is phase 2; Local integration tests pass (20-Nov-2026)"
+  "notes": "ICS file + Google Calendar link per booking (consult); two-way sync is phase 2; Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-12.1",
   "feature": "Doctor dashboard",
   "sub": "Today: live list (time, patient, age/gender, new/follow-up, mode, reason, payment, check-in) with sound",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-12.2",
   "feature": "Doctor dashboard",
   "sub": "Queue: call next, arrived, no-show, reorder, walk-in / on-behalf booking; QR / OTP check-in",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-12.3",
   "feature": "Doctor dashboard",
   "sub": "Day / week / month calendars; My patients",
   "status": "Done",
-  "notes": "Consult calendar; patient history via the pad; Local integration tests pass (20-Nov-2026)"
+  "notes": "Consult calendar; patient history via the pad; Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-13.1",
   "feature": "Consultation pad",
   "sub": "Patient summary (allergies red); other records only with consent, logged",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-13.2",
   "feature": "Consultation pad",
   "sub": "Vitals + BMI, complaints, history, examination, diagnosis + ICD-10, tests, advice, follow-up",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-13.3",
   "feature": "Consultation pad",
   "sub": "Medicines from drug master; dose, frequency, timing, duration, auto quantity; Hindi / Marathi lines",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-13.4",
   "feature": "Consultation pad",
   "sub": "Allergy / duplicate warnings; telemedicine list blocks for video",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-13.5",
   "feature": "Consultation pad",
   "sub": "Templates, favourites, repeat last prescription; patient reports; video window",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-14.1",
   "feature": "Issue / amend",
   "sub": "Preview on letterhead; issue: number, verification QR, lock, record, e-mail PDF, notices, print, booking completed",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-14.2",
   "feature": "Issue / amend",
   "sub": "Amend = new version with reason; both kept; patient told",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-15.1",
   "feature": "Letterhead & printing",
   "sub": "Digital letterhead images; pre-printed margins with mm calibration print; standard template",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-15.2",
   "feature": "Letterhead & printing",
   "sub": "Paper size, font, sections, local language, signature on/off; e-mailed PDF always complete",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-15.3",
   "feature": "Letterhead & printing",
   "sub": "Print button; auto-print (Chrome kiosk printing); mobile share sheet; reprints logged",
   "status": "Done",
-  "notes": "PrintNode / QZ Tray helper needs owner account + signing certificate (H-24); Local integration tests pass (20-Nov-2026)"
+  "notes": "PrintNode / QZ Tray helper needs owner account + signing certificate (H-24); Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-16.1",
   "feature": "Doctor suggestions",
   "sub": "Refer to specialist (note, urgency, consent), care staff, equipment, lab tests, follow-up; printed; Book now",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-16.2",
   "feature": "Doctor suggestions",
   "sub": "Doctor sees booked status only; never paid for referrals (NMC)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-17.1",
   "feature": "Medical store",
   "sub": "Eligibility (drug licence, pharmacist); live inbox; verify; quote; substitutes; decline",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-17.2",
   "feature": "Medical store",
   "sub": "Pack → pickup OTP / delivery OTP; bill; dispensed tracking; settlement 2%",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-18.1",
   "feature": "Home-care provider",
   "sub": "Registration (individual / agency), KYC, registration, service area, rates, calendar, bank",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-18.2",
   "feature": "Home-care provider",
   "sub": "Admin verification, police flag, ID card",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-18.3",
   "feature": "Home-care provider",
   "sub": "Inbox, schedule, navigation, OTP check-in / out, notes / vitals / photos, packages, agency staff, earnings",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-19.1",
   "feature": "Equipment store",
   "sub": "Shop type, master list, listings for sale / rent",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-19.2",
   "feature": "Equipment store",
   "sub": "Rental lifecycle end to end; disputes",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-20.1",
   "feature": "Health Prime",
   "sub": "Plans Free / Prime / Prime Plus, admin plan builder (no hard-coded prices), coupons",
   "status": "Done",
-  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Local integration tests pass (20-Nov-2026)"
+  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-20.2",
   "feature": "Health Prime",
   "sub": "Purchase monthly / quarterly / yearly, GST invoice 18%, renewal reminders, grace, downgrade",
   "status": "Done",
-  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Local integration tests pass (20-Nov-2026)"
+  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-20.3",
   "feature": "Health Prime",
   "sub": "Instant booking, labelled priority placement, badge, virtual number + call tracking, analytics",
   "status": "Done",
-  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Telephony vendor account needed (mock until then); Local integration tests pass (20-Nov-2026)"
+  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Telephony vendor account needed (mock until then); Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-20.4",
   "feature": "Health Prime",
   "sub": "Pay-per-booking option; dealer commission on Prime sales (if enabled)",
   "status": "Done",
-  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Pay-per-booking done; dealer commission on Prime sales is phase 2 (needs a ledger entry type and an approved rate, H-39)"
+  "notes": "LAUNCH MODE (owner 20-Nov): every Prime feature included for every verified provider, no plan sold; standard ₹999 registration + 2% commission. Paid plans ready behind rule primeForAll=off. Pay-per-booking done; dealer commission on Prime sales is phase 2 (needs a ledger entry type and an approved rate, H-39); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-20.5",
   "feature": "Health Plus (patient membership)",
   "sub": "Optional, phase 2",
   "status": "Not started",
-  "notes": "Phase 2 per brief (if time is short)"
+  "notes": "Phase 2 per brief (if time is short)",
+  "testTest": "Not run",
+  "deployedTest": "—"
  },
  {
   "id": "H-21.1",
   "feature": "Admin & operator",
   "sub": "Verification queues (doctors, care providers, stores, equipment stores) with documents",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: admin Health page + providers / stores views (200)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-21.2",
   "feature": "Admin & operator",
   "sub": "Drug master with CSV import; care categories; equipment master",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: admin drugs and equipment views (200)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-21.3",
   "feature": "Admin & operator",
   "sub": "Settings, disputes, reports, audit and access logs; break-glass",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: admin settings, report and audit views (200); customer refused (403)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-22.1",
   "feature": "Compliance",
   "sub": "DPDP consent records, withdrawal, access log, export / delete",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-22.2",
   "feature": "Compliance",
   "sub": "Telemedicine guidelines (registration on Rx, tele lists, patient forwards to pharmacy)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-22.3",
   "feature": "Compliance",
   "sub": "Retention ≥ 3 years; NMC no referral commissions",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-22.4",
   "feature": "Compliance",
   "sub": "Security: encrypted files, short-lived links, role checks, rate limits, audit; no clinical data in logs/URLs",
   "status": "Done",
-  "notes": "Owner: confirm VPS disk encryption (H-26); Local integration tests pass (20-Nov-2026)"
+  "notes": "Owner: confirm VPS disk encryption (H-26); Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: role checks: customer refused admin API (403); guest checks TC-HLT-001..005 and the queue's guest tier pass",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-22.5",
   "feature": "Compliance",
   "sub": "ABDM-ready fields (ABHA, HPR, HFR, FHIR-mappable)",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test: needs a verified doctor / store / provider on staging (local integration tests pass)",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Not run"
  },
  {
   "id": "H-23.1",
   "feature": "Events & real time",
   "sub": "Event outbox + live stream (SSE) to every role; scheduler only for reminders / expiries",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: live stream /api/health/stream answers text/event-stream",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-24.1",
   "feature": "UI",
   "sub": "Theme 1 Tile Board entry points: Profile → My Health and Shops → Doctors (customer), Orders → Health hub (clinic Today, reception, prescription requests, home care, equipment, Prime), Admin Health",
   "status": "Done",
-  "notes": "Local integration tests pass (20-Nov-2026)"
+  "notes": "Local integration tests pass (20-Nov-2026); Test 20-Nov 19.50: grocery shop's Orders menu has no Health entry; customer Health pages reachable",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass"
  },
  {
   "id": "H-25.1",
   "feature": "Mobile apps",
   "sub": "Android + iOS 1.10.0 (WebView): /health and /rx app links, version bump, update check",
   "status": "In progress",
-  "notes": "App 1.10.0 links + version done; Android APK built by CI on the PR; iOS via the manual \"iOS\" workflow (Apple secrets); store release and MOBILE_APP_*_LATEST by the owner"
+  "notes": "App 1.10.0 links + version done; Android APK built by CI on the PR; iOS via the manual \"iOS\" workflow (Apple secrets); store release and MOBILE_APP_*_LATEST by the owner; Test: Android APKs (preview + production) built by CI on PR #429",
+  "deployedTest": "20-Nov-2026 19.46",
+  "testTest": "Pass (CI)"
  }
 ]
