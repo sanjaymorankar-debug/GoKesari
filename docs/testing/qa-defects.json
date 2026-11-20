@@ -2730,9 +2730,9 @@
       "actual": "Desktop: all these checks pass (17.00-17.13 IST). Phone (from 17.15): the rider dashboard showed two offers, so getByRole('button', { name: 'Accept', exact: true }) resolved to 2 elements (strict mode) in TC-DEL-001/010/012 (orders-delivery.spec.ts:94); TC-DEL-020 asserts the rider has no active delivery at all and found that check's unaccepted offer (created 17.14:01); the return pickups never reached the rider ('return-pickup-panel' not visible) and the support / returns orders waited longer than 30 s for an offer, because while the rider holds an offer the next one comes only on the minute dispatch tick (offers at 11:50:00.565 and 11:51:00.497 UTC). One QA order was still offered after the run (DB-20261120-KHS786); cancelled as operations with 'QA cleanup' at 17.23 IST.",
       "expected": "Each check acts on its own order's offer and leaves the rider free: the Accept click inside the offer card that shows the order number, TC-DEL-020 checks this order's delivery only, offer waits allow one dispatch tick (about 75 s), and a failed check cancels its order.",
       "fix": "Test fix in tests/qa/signed-in/orders-delivery.spec.ts, orders-returns.spec.ts and orders-support.spec.ts (not a product defect); then re-run the phone pass.",
-      "status": "Open (test fix)",
-      "fixedIn": null,
-      "retest": null
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "#445",
+      "retest": "20-Nov-2026 23.14-23.40 IST on staging with the #445 suite (b000fc47): 2 pass, 75 blocked, none failed. Every order was given the 21-Nov 07.00 slot (delivery hours 07.00-22.00 IST), so no rider search could start (E-40). Re-run the delivery, support and returns files (desktop + phone) between 07.00 and 21.00 IST."
     },
     {
       "id": "E-39",
@@ -2746,9 +2746,34 @@
       "actual": "Everything the case checks passes on desktop: the bad amounts are refused (422), ₹70.50 is stored as 7050 paise and the wallet is credited +7050; the return reaches REFUND_COMPLETED. The last step reloads /shop/returns?tab=all and waits for RT-C4FEEB05 with '70.50': the card is not on the page, because the list puts unfinished returns first and pages them (src/app/shop/returns/page.tsx) and shop A has 15 open QA returns (Requests 10, Pickups 5, from 17-Nov and 20-Nov runs, e.g. 'QA IDOR check').",
       "expected": "The check finds the refunded return wherever the list places it (the page that holds it, or the return's own page).",
       "fix": "Test fix in tests/qa/signed-in/orders-returns.spec.ts (open the page that holds the case); test data: close the stale QA returns on shop A. Not a product defect.",
-      "status": "Open (test fix)",
-      "fixedIn": null,
-      "retest": null
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "#445",
+      "retest": "Not reached on 20-Nov 23.14 IST: the returns chain was blocked on the night slot (E-40). Re-run TC-RET-010 / TC-FLD-098 in delivery hours."
+    },
+    {
+      "id": "E-40",
+      "title": "Test site: rider checks get no offer outside delivery hours (slots 07.00-22.00 IST) or when the rider's location is more than 15 minutes old",
+      "cases": [
+        "TC-DEL-001",
+        "TC-DEL-010",
+        "TC-DEL-012",
+        "TC-DEL-020",
+        "TC-RET-001",
+        "TC-RET-017",
+        "TC-SUP-001",
+        "TC-SUP-006",
+        "TC-SUP-008",
+        "TC-FLD-099",
+        "TC-FLD-102"
+      ],
+      "severity": "Info",
+      "found": "staging re-run 20-Nov-2026 23.14-23.40 IST (suite b000fc47, PR #445)",
+      "actual": "No delivery offer reached the rider for any of the run's orders within 75 s (\"rider offline or busy?\"), although the rider was APPROVED, online and READY. Marking an order ready picks the earliest slot (rule fulfilmentOptions: 60-minute slots 07.00-22.00 IST, rider search gokesariLeadMinutes = 45 before the slot), which after 22.00 is the next morning. Rule riderZoning also skips a rider whose location is more than 15 minutes old; on the test site only an open rider dashboard refreshed it.",
+      "expected": "Rider checks run in delivery hours with a fresh rider location; outside them the suite says why no offer can come.",
+      "fix": "#445: offerFor() sends the rider's location first and blocks at once, naming the slot, when the earliest slot is more than an hour away. Run rider checks on the test site between 07.00 and 21.00 IST. Not a product defect.",
+      "status": "Not a defect",
+      "fixedIn": "#445",
+      "retest": "20-Nov-2026 23.5x IST: TC-DEL-001 blocked at once with \"its earliest delivery slot starts 21 Nov 2026, 7:00 am IST\"; the order was cancelled."
     }
   ]
 }

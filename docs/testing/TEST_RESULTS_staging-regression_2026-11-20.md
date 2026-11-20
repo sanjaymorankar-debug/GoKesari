@@ -108,9 +108,12 @@ On staging itself, the territory rule was switched on at 08.30 IST by another se
 1. **Shared staging test accounts (E-37):** customer 1 is at ₹10 again (17.24 IST) because other sessions
    order with the same accounts. Either one staging QA run at a time, or a test customer and shop owner per
    session; a further top-up only lasts while nobody else uses them.
-2. **E-38 / E-39** are fixes in the QA suite (scope the rider's Accept to the check's own order, wait one
-   dispatch tick, find the refunded return on any page); then the phone pass of the delivery, support and
-   returns checks can be re-run (with funds in customer 1's wallet).
+2. **E-38 / E-39** are fixed in the QA suite by **PR #445** (in the staging queue): the rider's Accept is
+   scoped to the check's own order, offers get 75 s, failed drives cancel their order, return pickups and
+   refunded returns are found by their number. Its re-run at 23.14 IST was blocked throughout because the
+   test site only delivers 07.00-22.00 IST (**E-40**, not a defect), so the delivery, support and returns
+   files still need one run (desktop + phone) **between 07.00 and 21.00 IST**. No top-up is needed for it
+   (customer 1 ₹6,196.50 at 23.50 IST).
 3. **D-157 and D-158** before territory dealers are released.
 
 Done since the morning: the staging queue paused by #422 (issue #424) went on after #428 fixed the test
