@@ -113,7 +113,7 @@ On staging itself, the territory rule was switched on at 08.30 IST by another se
    refunded returns are found by their number. Its re-run at 23.14 IST was blocked throughout because the
    test site only delivers 07.00-22.00 IST (**E-40**, not a defect), so the delivery, support and returns
    files still need one run (desktop + phone) **between 07.00 and 21.00 IST**. No top-up is needed for it
-   (customer 1 ₹6,196.50 at 23.50 IST).
+   (customer 1 ₹6,196.50 at 23.44 IST).
 3. **D-157 and D-158** before territory dealers are released.
 
 Done since the morning: the staging queue paused by #422 (issue #424) went on after #428 fixed the test

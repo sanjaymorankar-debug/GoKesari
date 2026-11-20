@@ -2773,7 +2773,7 @@
       "fix": "#445: offerFor() sends the rider's location first and blocks at once, naming the slot, when the earliest slot is more than an hour away. Run rider checks on the test site between 07.00 and 21.00 IST. Not a product defect.",
       "status": "Not a defect",
       "fixedIn": "#445",
-      "retest": "20-Nov-2026 23.5x IST: TC-DEL-001 blocked at once with \"its earliest delivery slot starts 21 Nov 2026, 7:00 am IST\"; the order was cancelled."
+      "retest": "20-Nov-2026 23.44 IST: TC-DEL-001 blocked at once with \"its earliest delivery slot starts 21 Nov 2026, 7:00 am IST\"; the order was cancelled."
     }
   ]
 }
