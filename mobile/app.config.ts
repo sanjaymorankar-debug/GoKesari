@@ -81,6 +81,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/manufacturer", // batch-2026-10 WS-D (manufacturer portal, F9.1.2)
   "/support", // batch-2026-10 WS-C: help desk portal
   "/dealer", // docs/dealer-programme: dealer application and portal
+  "/puja", // 1.9.0, docs/puja-samagri-2026-11: the Puja Samagri storefront (shared festival / kit links)
   "/consult", // docs/consult-booking-2026-11: Find a Consultant, consultant pages, appointments
   "/health", // docs/health: My Health — records, prescriptions, doctors, medicines, home care, equipment
   "/rx", // docs/health: prescription verification QR (/rx/verify/<token>)

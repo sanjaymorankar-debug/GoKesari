@@ -5,7 +5,8 @@
  * GET ?lat=18.55&lng=73.94&radiusKm=5     from the device's position
  * GET ?q=411014&radiusKm=5                 from a typed PIN code or area (location refused / unavailable)
  *
- * radiusKm is 1, 3, 5 or 10 (default 5). Answers
+ * radiusKm is 1, 3, 5 or 10 (default 5). Optional type=PUJA_SAMAGRI (any shop type key) keeps
+ * shops of that type, or that added it (shop_added_types, docs/puja-samagri-2026-11). Answers
  *   { origin: { latitude, longitude, source: "DEVICE" | "PLACE", place: { area, city, pincode } | null,
  *               address: approximate street address of a device position (OpenStreetMap) | null },
  *     radiusKm, countsByRadius: { 1, 3, 5, 10 }, shops: [...] }
@@ -30,6 +31,7 @@ const querySchema = z
     lng: z.coerce.number().min(-180).max(180).optional(),
     q: z.string().trim().min(2, "Enter a PIN code or an area.").max(80).optional(),
     radiusKm: z.string().optional(),
+    type: z.string().regex(/^[A-Z][A-Z0-9_]{1,59}$/).optional(),
   })
   .refine((v) => (v.lat != null && v.lng != null) || v.q, { message: "Send a position (lat, lng) or a PIN code / area (q).", path: ["q"] });
 
@@ -59,7 +61,7 @@ export const GET = route(async (request: NextRequest) => {
     place = { area: found.area, city: found.city, pincode: found.pincode };
   }
 
-  const result = await findNearbyShops(origin, radiusKm);
+  const result = await findNearbyShops(origin, radiusKm, { shopType: query.type ?? null });
   return NextResponse.json(
     { ...result, origin: { ...result.origin, source, place, address } },
     { headers: { "cache-control": "no-store" } },

@@ -1,5 +1,5 @@
 /**
- * GoKesari Health (docs/health/): the tables in Postgres schema "health" (drizzle/0154_health.sql).
+ * GoKesari Health (docs/health/): the tables in Postgres schema "health" (drizzle/0156_health.sql).
  *
  * Foreign keys to public tables (users, shops, consult_*) exist in the SQL; they are not
  * repeated here so this file needs no import from schema.ts (which re-exports it).

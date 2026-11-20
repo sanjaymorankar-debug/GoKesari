@@ -99,7 +99,7 @@ export interface BoardMenu extends BoardItem {
 
 /* ---------------------------------------------------------------- customer */
 
-/** The eight category tiles under the customer's banners. */
+/** The nine category tiles under the customer's banners (Puja Samagri added 20-Nov-2026, docs/puja-samagri-2026-11). */
 export interface CategoryTile {
   key: string;
   label: Text;
@@ -119,6 +119,8 @@ export const CUSTOMER_CATEGORIES: readonly CategoryTile[] = [
   { key: "sweets", label: L("Sweets", "मिठाई", "मिठाई"), emoji: "🍬", bg: "bg-pink-50", href: "/shops?type=SWEET_SHOP" },
   { key: "pharmacy", label: L("Pharmacy", "दवाइयाँ", "औषधे"), short: { en: "Medicine" }, emoji: "💊", bg: "bg-violet-50", href: "/shops?type=PHARMACY" },
   { key: "household", label: L("Household", "घरेलू", "घरगुती"), short: { en: "Home" }, emoji: "🧴", bg: "bg-indigo-50", href: "/shops?type=SUPERMARKET" },
+  // docs/puja-samagri-2026-11: puja samagri and temple supplies — products, kits, festival items.
+  { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: { en: "Puja", hi: "पूजा", mr: "पूजा" }, emoji: "🪔", bg: "bg-orange-50", href: "/puja" },
   { key: "all", label: L("All", "सभी", "सर्व"), emoji: "🔎", bg: "bg-slate-100", href: "/categories", count: "shopCategories" },
 ];
 
@@ -259,6 +261,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "mine", label: L("Mine", "मेरी", "माझे"), icon: "list-tree", href: "/shop/product-categories" },
       { key: "all", label: L("All", "सभी", "सर्व"), icon: "search", href: "/product-categories", permission: PERMISSIONS.CATALOGUE_BROWSE },
+      // docs/puja-samagri-2026-11: take the puja catalogue, browse, own types and products, restore, price requests.
+      { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/shop/puja" },
     ],
     more: [
       { key: "shopTypes", label: L("Shop types I sell", "मेरी दुकान के प्रकार", "माझ्या दुकानाचे प्रकार"), icon: "store", href: "/shop/manage/shop-types" },
@@ -444,6 +448,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "shop", label: L("Shop", "दुकान", "दुकान"), icon: "store", href: "/admin/shop-categories", count: "shopCategoryCount", permission: PERMISSIONS.CATEGORY_MANAGE },
       { key: "product", label: L("Product", "उत्पाद", "उत्पादन"), icon: "list-tree", href: "/product-categories", count: "productCategories", permission: PERMISSIONS.CATALOGUE_BROWSE },
+      // docs/puja-samagri-2026-11: puja master catalogue, review queue, festivals, configuration.
+      { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/admin/puja", permission: PERMISSIONS.PRODUCT_MANAGE },
     ],
   },
   {
@@ -663,6 +669,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "mrp", label: L("MRP", "एमआरपी", "एमआरपी"), icon: "tag", href: "/admin/mrp", count: "mrpCorrections", permission: PERMISSIONS.PRODUCT_MRP_MANAGE },
       // batch-2026-10 WS-A: "Ref. prices" removed — F1.4.3 dropped.
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
+      // docs/puja-samagri-2026-11: puja master catalogue, review queue, festivals, configuration.
+      { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/admin/puja", permission: PERMISSIONS.PRODUCT_MANAGE },
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },

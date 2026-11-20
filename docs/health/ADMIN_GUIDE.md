@@ -28,4 +28,4 @@ medicines or reports — except through break-glass. Permission `health:manage` 
    account for silent printing, confirmation that the database server's disk is encrypted.
 
 Rollback: switch `health.enabled` off (screens say "coming soon"; issued prescriptions still verify). Database
-rollback `scripts/rollback-0154.sql` only after a full backup of schema `health`.
+rollback `scripts/rollback-0156.sql` only after a full backup of schema `health`.

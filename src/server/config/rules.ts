@@ -951,6 +951,12 @@ export const RULES = {
       .refine((w) => w.activatedShops + w.registrationQuality + w.activity30 + w.costPerActivatedShop + w.coverage === 100, { message: "The weights must add up to 100." }),
     defaults: { activatedShops: 35, registrationQuality: 20, activity30: 20, costPerActivatedShop: 15, coverage: 10 },
   },
+  pujaSamagri: {
+    description:
+      "Puja Samagri & Temple Supplies (docs/puja-samagri-2026-11). edibleNeedsFssai: a shop that lists an edible catalogue line (prasad and dry items, the edible kits and bulk lines) must hold an FSSAI licence — on: FSSAI is added to that shop's required documents (shop_sells_food); off: puja shops never need FSSAI for those lines. seedDefaultStock: the stock each product gets when a shop takes the puja catalogue (the brief: 100). The shop type itself is switched on or off in Admin → Shop types / Puja Samagri → Configuration.",
+    schema: z.object({ edibleNeedsFssai: z.boolean(), seedDefaultStock: int(0, 100000) }),
+    defaults: { edibleNeedsFssai: true, seedDefaultStock: 100 },
+  },
   starterShelf: {
     description:
       "Starter shelf for a new shop (onboarding Phase B): after it chooses its categories, the registration offers up to size products from those categories — the ones most other shops stock — already ticked, priced at their MRP and with defaultStock units, for the owner to adjust and publish in one go. Off: the products step only links to Excel upload and adding one by one.",

@@ -6,7 +6,7 @@
 -- medical stores, home-care visits, equipment rentals, Prime listing plans and call tracking).
 -- Additive only: new schema and tables, five home-care consult categories, three payment purposes.
 -- Nothing changes for anyone until an admin switches rule health on.
--- Rollback: scripts/rollback-0154.sql
+-- Rollback: scripts/rollback-0156.sql
 CREATE SCHEMA IF NOT EXISTS health;
 --> statement-breakpoint
 -- A person whose health record GoKesari keeps: the account holder (SELF) or someone they manage.
@@ -1065,5 +1065,5 @@ ON CONFLICT ("key") DO UPDATE SET "value" = "platform_settings"."value" || '{"en
 --> statement-breakpoint
 INSERT INTO "audit_logs" ("action", "entity_type", "entity_id", "new_value")
 VALUES
-  ('setting.changed', 'platform_setting', 'consultBooking', '{"enabled": true, "by": "migration 0154_health — owner launch decision 20-Nov-2026"}'::jsonb),
-  ('setting.changed', 'platform_setting', 'health', '{"enabled": true, "by": "migration 0154_health — owner launch decision 20-Nov-2026"}'::jsonb);
+  ('setting.changed', 'platform_setting', 'consultBooking', '{"enabled": true, "by": "migration 0156_health — owner launch decision 20-Nov-2026"}'::jsonb),
+  ('setting.changed', 'platform_setting', 'health', '{"enabled": true, "by": "migration 0156_health — owner launch decision 20-Nov-2026"}'::jsonb);

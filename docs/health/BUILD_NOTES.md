@@ -23,7 +23,7 @@ Working tree: `/Users/agtci/GoKesari/.claude/worktrees/health` (branch `feat/gok
 
 | Area | File |
 |---|---|
-| Tables (schema `health`) | `drizzle/0154_health.sql`, Drizzle: `src/server/db/health-schema.ts` (exported from `@/server/db/schema`) |
+| Tables (schema `health`) | `drizzle/0156_health.sql`, Drizzle: `src/server/db/health-schema.ts` (exported from `@/server/db/schema`) |
 | Vocabulary / labels | `src/lib/health/constants.ts` |
 | Rule `health` (switch + settings: storeResponseMinutes, rxCommissionBp, rentalCommissionBp, careCommissionBp, primeGstBp, primeGraceDays, primeTermDiscountBp, payPerBooking, feePerBookingPaise, telephonyProvider, freeListingManualApproval …) | `src/server/config/rules.ts` → `getRule("health")` |
 | Access, consent checks, access log, doctor status | `src/server/health/access.ts` (`requireHealthEnabled`, `requirePatientAccess`, `patientAudience`, `doctorStatus`, `logRecordAccess`, `firmUserIds`, `shopsOfUser`, `isHealthStaff`, `canBreakGlass`) |

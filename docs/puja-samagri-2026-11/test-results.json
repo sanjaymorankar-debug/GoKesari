@@ -1,0 +1,796 @@
+{
+ "title": "Puja Samagri & Temple Supplies — test results",
+ "pr": 427,
+ "cases": [
+  {
+   "id": "PUJA-SEED-01",
+   "area": "Seed",
+   "title": "Catalogue count: 1 shop type, 15 categories, 80 product types, 499 SKUs",
+   "how": {
+    "local": "migration on a fresh PostgreSQL 18 database; seed CLI counts",
+    "test": "GET /api/admin/puja/config counts",
+    "prod": "same on production"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "tests/integration/puja-samagri.test.ts › seed; scripts/puja/seed-catalogue.ts"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-SEED-02",
+   "area": "Seed",
+   "title": "Idempotent re-run: no duplicates",
+   "how": {
+    "local": "seed SQL run 3× (migration, psql, CLI): counts unchanged, 0 added",
+    "test": "seed SQL re-run on gokesari_test over WireGuard",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "seed-catalogue.ts before/after identical; integration test"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-SEED-03",
+   "area": "Seed",
+   "title": "Every item has Hindi and Marathi names",
+   "how": {
+    "local": "0 products without name_hi / name_mr",
+    "test": "admin catalogue API: every item",
+    "prod": "admin catalogue API"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "tests/unit/puja-catalogue.test.ts; seed counts missingLocalNames 0"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-SEED-04",
+   "area": "Seed",
+   "title": "Loose items show an empty price",
+   "how": {
+    "local": "29 loose SKUs, all MRP null; seeded listings unpriced, sale off",
+    "test": "TC-PUJA-010",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "unit + integration"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-OWN-01",
+   "area": "Shop owner",
+   "title": "Taking the type seeds inventory at stock 100, priced at MRP",
+   "how": {
+    "local": "seedPujaCatalogue: stock 100, MRP price, ledger rows",
+    "test": "TC-PUJA-010",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › taking the catalogue"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-OWN-02",
+   "area": "Shop owner",
+   "title": "Deselect categories / products before confirming",
+   "how": {
+    "local": "excluded category and product not listed",
+    "test": "TC-PUJA-010",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-OWN-03",
+   "area": "Shop owner",
+   "title": "Missing-price prompt: loose / no-MRP items wait for the owner's price",
+   "how": {
+    "local": "listing price null, sale off → Needs price",
+    "test": "TC-PUJA-010, TC-PUJA-015",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-OWN-04",
+   "area": "Shop owner",
+   "title": "Shop-only MRP does not change the master or other shops",
+   "how": {
+    "local": "shop A MRP ₹159, master and shop B ₹145",
+    "test": "(integration only)",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › shop-only MRP"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-OWN-05",
+   "area": "Shop owner",
+   "title": "Add, remove, restore and update products",
+   "how": {
+    "local": "remove → Removed list → restore with price & stock",
+    "test": "TC-PUJA-011",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › restore"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-OWN-06",
+   "area": "Shop owner",
+   "title": "Bulk upload: valid, invalid and partial files",
+   "how": {
+    "local": "existing bulk upload (unchanged) — regression suite",
+    "test": "existing QA sellers-product-upload (signed)",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "tests/integration/shop-product-setup.test.ts (existing)"
+    },
+    "test": {
+     "status": "Pass",
+     "at": "20-Nov-2026 13.55 IST",
+     "evidence": "existing signed-in QA sellers-product-upload + sellers-product-setup on test.gokesari.com (valid, invalid and partial files): passed in baseline part 2"
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-OWN-07",
+   "area": "Shop owner",
+   "title": "Owner creates a type and a product; duplicate check fires (close matches first)",
+   "how": {
+    "local": "409 on same / close names, closest first; confirm creates",
+    "test": "TC-PUJA-012",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-ADM-01",
+   "area": "Admin / operator",
+   "title": "Approve / reject / merge with reason; owner notified",
+   "how": {
+    "local": "statuses, reason required, notices in-app + push",
+    "test": "TC-PUJA-013",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-ADM-02",
+   "area": "Admin / operator",
+   "title": "Master catalogue: edit, MRP history, HSN/GST verified, retire, merge, CSV export / import",
+   "how": {
+    "local": "edit + history, merge keeps shop listings, export 500 rows, import with row errors",
+    "test": "admin API export",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › admin catalogue"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-ADM-03",
+   "area": "Admin / operator",
+   "title": "FSSAI toggle for edible categories",
+   "how": {
+    "local": "shop_sells_food: false → true (edible listed) → false (toggle off); dairy unchanged",
+    "test": "TC-PUJA-017",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › FSSAI"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-ADM-04",
+   "area": "Admin / operator",
+   "title": "Festival collections by IST date range; kits first",
+   "how": {
+    "local": "live collection, home banner, kits first",
+    "test": "TC-PUJA-017",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › festivals"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-CUS-01",
+   "area": "Customer",
+   "title": "Search: English, Hindi, Marathi and synonyms",
+   "how": {
+    "local": "कपूर, camphor, मेणबत्ती, mombatti, agarbathi, कुंकू; site search कापूर",
+    "test": "TC-PUJA-014, TC-PUJA-002",
+    "prod": "TC-PUJA-002 (guest)"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › search"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-CUS-02",
+   "area": "Customer",
+   "title": "Filters: category, festival, price, loose / packed, in stock",
+   "how": {
+    "local": "each filter narrows correctly",
+    "test": "TC-PUJA-002, TC-PUJA-014",
+    "prod": "TC-PUJA-002"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › filters"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-CUS-03",
+   "area": "Customer",
+   "title": "Nearby: puja shops (incl. added type), distance, directions",
+   "how": {
+    "local": "type filter keeps puja + added-type shops",
+    "test": "TC-PUJA-003",
+    "prod": "TC-PUJA-003"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › nearby"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-CUS-04",
+   "area": "Customer",
+   "title": "Cart → order → OTP completion",
+   "how": {
+    "local": "existing checkout on a puja listing",
+    "test": "TC-PUJA-016",
+    "prod": "owner decision (real payment)"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › orders (checkout)"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-CUS-05",
+   "area": "Customer",
+   "title": "Cancellation and refund before packing",
+   "how": {
+    "local": "cancel → wallet refunded in full",
+    "test": "TC-PUJA-016",
+    "prod": "owner decision (real payment)"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration › orders"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-CUS-06",
+   "area": "Customer",
+   "title": "Price on confirmation for loose / perishable items",
+   "how": {
+    "local": "ask → shop prices → customer notified → buyable",
+    "test": "TC-PUJA-015",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.20 IST",
+     "evidence": "integration + local browser"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-UI-01",
+   "area": "UI",
+   "title": "All 4 roles fit one screen on desktop and mobile; Tile Board",
+   "how": {
+    "local": "local: home 3×3 tiles, /puja, /shop/puja (360 px)",
+    "test": "TC-PUJA-018 (360×800, 1366×768)",
+    "prod": "TC-PUJA-001 (guest)"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 12.40 IST",
+     "evidence": "headless Chromium, local server: customer /puja, owner /shop/puja, admin /admin/puja, operator review queue at 360×800 and 1366×768 — tabs above the fold, no sideways scroll; customer board (homeDiscovery off) 9 categories + 6 menu tiles fit 360×800 (Profile ends ~735 px), 390×844, 1366×768"
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-APP-01",
+   "area": "Mobile",
+   "title": "Android app build (1.9.0, versionCode 10)",
+   "how": {
+    "local": "—",
+    "test": "CI “Android APK” on PR #427",
+    "prod": "APK from main after release"
+   },
+   "results": {
+    "local": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "test": {
+     "status": "Pass",
+     "at": "20-Nov-2026 11.41 IST",
+     "evidence": "CI “Android APK” on PR #427: APK (production) built in 7m04s (run 44685067628); preview APK running"
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-APP-02",
+   "area": "Mobile",
+   "title": "iOS app build (1.9.0, build 10)",
+   "how": {
+    "local": "—",
+    "test": "EAS build (iPhone app workflow)",
+    "prod": "—"
+   },
+   "results": {
+    "local": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "test": {
+     "status": "Blocked",
+     "at": "20-Nov-2026 11.38 IST",
+     "evidence": "GitHub run 44685423729: EXPO_TOKEN secret missing; Expo project id not in mobile/app.config.ts (owner setup)"
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-REG-01",
+   "area": "Regression",
+   "title": "Existing shop types, orders, wallet, dealer / referral, registration unaffected",
+   "how": {
+    "local": "full vitest suite on PostgreSQL 18",
+    "test": "staging queue guest QA + signed regression subset",
+    "prod": "guest QA tier"
+   },
+   "results": {
+    "local": {
+     "status": "Pass",
+     "at": "20-Nov-2026 12.00 IST",
+     "evidence": "full vitest suite on PostgreSQL 18: 287 files, 3,574 tests passed, 0 failed (2,881 s); Puja + tile-board + migration-journal re-run 71/71"
+    },
+    "test": {
+     "status": "Running",
+     "at": "20-Nov-2026 12.46 IST",
+     "evidence": "baseline before Puja (staging f1fb3c7a+#428): 8 signed-in specs — 46 passed, 29 skipped, 7 failed; all 7 = 'HTTP 402 Insufficient wallet balance' (the staging test customer's wallet is empty: environment, not code). Re-run after #427 lands.; part 2 (20-Nov-2026 13.55 IST): bulk upload, product setup, catalogue, fulfilment, delivery OTP, COD — 24 passed, 46 skipped (local-only), 3 failed (COD: the test customer is at the open-COD-order limit on the site: data, not code)"
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-PRD-01",
+   "area": "Production",
+   "title": "Smoke: site answers, post-deploy check, guest QA + puja guest checks",
+   "how": {
+    "local": "—",
+    "test": "—",
+    "prod": "post-deploy check, qa guest tier"
+   },
+   "results": {
+    "local": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  },
+  {
+   "id": "PUJA-PRD-02",
+   "area": "Production",
+   "title": "End-to-end with a test shop and test customer; test data marked / cleaned",
+   "how": {
+    "local": "—",
+    "test": "—",
+    "prod": "needs owner (real accounts, real payment)"
+   },
+   "results": {
+    "local": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "test": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    },
+    "prod": {
+     "status": "Not run",
+     "at": null,
+     "evidence": ""
+    }
+   }
+  }
+ ],
+ "defects": [
+  {
+   "id": "PUJA-D-01",
+   "found": "20-Nov-2026 11.15 IST",
+   "where": "local",
+   "summary": "Owner setup screen showed 0 items per category: a correlated subquery bound to products.id in a single-table query",
+   "fix": "outer column written fully qualified (src/server/puja/service.ts); integration test asserts the counts",
+   "status": "Fixed 11.18 IST"
+  },
+  {
+   "id": "PUJA-D-02",
+   "found": "20-Nov-2026 11.00 IST",
+   "where": "local",
+   "summary": "/puja crashed with ORDER BY position 0 when no festival is live",
+   "fix": "festival ordering only added when a festival runs",
+   "status": "Fixed 11.02 IST"
+  },
+  {
+   "id": "PUJA-D-03",
+   "found": "20-Nov-2026 11.25 IST",
+   "where": "staging queue (#422)",
+   "summary": "Queue paused: QA harness require() race on next-auth/jwt (not this feature)",
+   "fix": "PR #428 (staging-fix): encode via import()",
+   "status": "Fix in queue"
+  }
+ ],
+ "screenshots": [
+  {
+   "role": "Customer (board, homeDiscovery off)",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-customer-board-360x800.png",
+   "note": "9 category tiles incl. Puja, 6 menu tiles, one screen"
+  },
+  {
+   "role": "Customer (board, laptop)",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-customer-board-1366x768.png",
+   "note": "9 categories in one row"
+  },
+  {
+   "role": "Customer /puja",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-customer-360x800.png",
+   "note": "festival banner, category chips, filters"
+  },
+  {
+   "role": "Shop owner /shop/puja",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-owner-360x800.png",
+   "note": "Take catalogue: categories with item counts, stock 100"
+  },
+  {
+   "role": "Admin /admin/puja",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-admin-1366x768.png",
+   "note": "catalogue with en/hi/mr names and 'to verify with CA'"
+  },
+  {
+   "role": "Operator /admin/puja review",
+   "file": "docs/puja-samagri-2026-11/screenshots/local-operator-360x800.png",
+   "note": "review queue: approve / reject / merge with reason"
+  }
+ ],
+ "notes": [
+  "Test site data: the first test customer's wallet is ₹10 and it is at the open cash-on-delivery limit, so 7 wallet and 3 COD regression cases fail there before any Puja code; Puja's order check uses the second test customer (wallet ₹2,200)."
+ ]
+}

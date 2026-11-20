@@ -1485,6 +1485,24 @@ export const productSubcategories = pgTable(
       .notNull()
       .defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /* Product types (docs/puja-samagri-2026-11, 0153). Every older row: APPROVED, no owner. */
+    nameHi: text("name_hi"),
+    nameMr: text("name_mr"),
+    /** A type a shop owner created: visible to that shop at once, to every shop once approved. */
+    ownerShopId: uuid("owner_shop_id").references((): AnyPgColumn => shops.id, { onDelete: "set null" }),
+    createdBy: uuid("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    approvalStatus: text("approval_status", { enum: ["PENDING_APPROVAL", "APPROVED", "REJECTED", "MERGED"] })
+      .notNull()
+      .default("APPROVED"),
+    defaultUnit: text("default_unit"),
+    variantAttributes: text("variant_attributes").array().notNull().default(sql`'{}'::text[]`),
+    isLoose: boolean("is_loose").notNull().default(false),
+    isPerishable: boolean("is_perishable").notNull().default(false),
+    isEdible: boolean("is_edible").notNull().default(false),
+    reviewedBy: uuid("reviewed_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+    mergedIntoId: uuid("merged_into_id").references((): AnyPgColumn => productSubcategories.id, { onDelete: "set null" }),
   },
   (t) => [
     uniqueIndex("product_subcategories_slug_unique").on(t.slug),
@@ -11991,6 +12009,107 @@ export const riderSecurityGrants = pgTable(
 );
 
 /* <<< rider bank payouts */
+
+/* ------------------------------------------------------------------------------------------
+ * Puja Samagri & Temple Supplies (docs/puja-samagri-2026-11, migration 0154). Generic tables:
+ * any catalogue can use them; the puja catalogue is the first.
+ * ---------------------------------------------------------------------------------------- */
+
+/** Hindi / Marathi names and search synonyms of a master product. */
+export const productLocalNames = pgTable("product_local_names", {
+  productId: uuid("product_id")
+    .primaryKey()
+    .references(() => products.id, { onDelete: "cascade" }),
+  nameHi: text("name_hi"),
+  nameMr: text("name_mr"),
+  synonyms: text("synonyms").array().notNull().default(sql`'{}'::text[]`),
+  /** Lower-cased names (en/hi/mr), product type names and synonyms — one ILIKE / trigram match. */
+  searchText: text("search_text").notNull().default(""),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Catalogue facts products does not carry (flags, festivals, variant attributes, tax-to-verify, merges). */
+export const productCatalogueAttrs = pgTable("product_catalogue_attrs", {
+  productId: uuid("product_id")
+    .primaryKey()
+    .references(() => products.id, { onDelete: "cascade" }),
+  /** Which seeded catalogue the product belongs to ('PUJA_SAMAGRI'), or 'GENERAL'. */
+  catalogue: text("catalogue").notNull().default("GENERAL"),
+  /** The unit as the catalogue states it: pcs, pack, box, dozen, g, kg, ml, L. */
+  sellUnit: text("sell_unit"),
+  isPerishable: boolean("is_perishable").notNull().default(false),
+  isEdible: boolean("is_edible").notNull().default(false),
+  festivals: text("festivals").array().notNull().default(sql`'{}'::text[]`),
+  variantAttrs: jsonb("variant_attrs").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+  /** HSN / GST not yet confirmed by the CA: the admin view flags it. */
+  taxToVerify: boolean("tax_to_verify").notNull().default(false),
+  /** Set when staff merged this duplicate into another master product (this one is retired). */
+  mergedIntoProductId: uuid("merged_into_product_id").references((): AnyPgColumn => products.id, { onDelete: "set null" }),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A shop that carries another type's range on top of its own shops.shop_type. */
+export const shopAddedTypes = pgTable(
+  "shop_added_types",
+  {
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    shopTypeKey: text("shop_type_key").notNull(),
+    addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.shopId, t.shopTypeKey] }), index("shop_added_types_type_idx").on(t.shopTypeKey)],
+);
+
+/** "Price on confirmation": a customer asks a shop to price a listing that has no price yet. */
+export const listingPriceRequests = pgTable(
+  "listing_price_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopProductId: uuid("shop_product_id")
+      .notNull()
+      .references(() => shopProducts.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    quantity: numeric("quantity", { precision: 12, scale: 3, mode: "number" }),
+    note: text("note"),
+    status: text("status", { enum: ["OPEN", "ANSWERED", "DECLINED", "CANCELLED"] }).notNull().default("OPEN"),
+    pricePaise: bigint("price_paise", { mode: "number" }),
+    answeredBy: uuid("answered_by").references(() => users.id, { onDelete: "set null" }),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("listing_price_requests_shop_idx").on(t.shopId, t.status, t.createdAt),
+    index("listing_price_requests_customer_idx").on(t.customerId, t.createdAt),
+  ],
+);
+
+/** A festival's banner and kit promotion, scheduled by date range (entered and shown in IST). */
+export const festivalCollections = pgTable("festival_collections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  shopTypeKey: text("shop_type_key").notNull().default("PUJA_SAMAGRI"),
+  festivalKey: text("festival_key").notNull(),
+  title: text("title").notNull(),
+  titleHi: text("title_hi"),
+  titleMr: text("title_mr"),
+  subtitle: text("subtitle"),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  active: boolean("active").notNull().default(true),
+  /** The home_banners row created alongside it (shown on the home page for the same dates). */
+  homeBannerId: uuid("home_banner_id"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /* >>> consultant appointments (0153, docs/consult-booking-2026-11) */
 

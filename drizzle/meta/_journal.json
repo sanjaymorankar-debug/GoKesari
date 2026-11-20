@@ -1083,8 +1083,22 @@
     {
       "idx": 154,
       "version": "7",
+      "when": 1793265200000,
+      "tag": "0154_puja_samagri_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
       "when": 1793265300000,
-      "tag": "0154_health",
+      "tag": "0155_puja_samagri_catalogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1793265400000,
+      "tag": "0156_health",
       "breakpoints": true
     }
   ]
