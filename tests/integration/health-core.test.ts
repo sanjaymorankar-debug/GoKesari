@@ -58,6 +58,20 @@ let svcInPerson: string;
 let svcVideo: string;
 const actorOf = (u: { id: string; role: string; name?: string | null }): ConsultActor => ({ id: u.id, role: u.role as ConsultActor["role"], name: u.name ?? null });
 const tomorrowAt = (hhmm: string) => istAt(addDays(istDateKey(new Date()), 1), Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3))).toISOString();
+/**
+ * A start a few minutes from now for a 15-minute visit, to the second. The test
+ * doctor's hours end at 23:59 IST, so a visit that would run past it (from 23.40
+ * IST) cannot be booked: then the visit is at 00:00 tomorrow, under 20 minutes
+ * away. Check-in opens 4 hours before the start; the prescription is issued at
+ * `visitTime` (completion opens 15 minutes before the start).
+ */
+const soonStart = () => {
+  const at = new Date(Date.now() + 5 * 60_000);
+  if (at.getTime() + 15 * 60_000 > istAt(istDateKey(at), 23 * 60 + 59).getTime()) return tomorrowAt("00:00");
+  return at.toISOString().replace(/\.\d+Z$/, ".000Z");
+};
+/** Now, or the visit's start when it is still ahead (a visit booked for 00:00 tomorrow by `soonStart`). */
+const visitTime = (startsAt: Date) => new Date(Math.max(Date.now(), startsAt.getTime()));
 
 async function rules() {
   await setRule("consultBooking", { ...RULES.consultBooking.defaults, enabled: true }, admin);
@@ -80,7 +94,7 @@ async function patientWithBooking(mode: "IN_PERSON" | "VIDEO" = "IN_PERSON", sta
   return { patient: self, booking: created.booking };
 }
 
-async function issueBasic(consultationId: string, extra: Record<string, unknown> = {}) {
+async function issueBasic(consultationId: string, extra: Record<string, unknown> = {}, at?: Date) {
   await saveConsultationDraft(consultationId, { vitals: { bpSystolic: 120, bpDiastolic: 80, pulse: 78, temperatureC: 38.2, weightKg: 60, heightCm: 160 }, chiefComplaints: "Fever, body ache", diagnoses: [{ code: "R50.9", text: "Fever, unspecified" }], investigations: [{ name: "CBC" }], advice: "Plenty of fluids", followUpDate: addDays(istDateKey(new Date()), 7) }, owner);
   const [para] = await db.select().from(healthDrugMaster).where(and(eq(healthDrugMaster.genericName, "Paracetamol"), eq(healthDrugMaster.strength, "500 mg")));
   return issuePrescription(
@@ -94,6 +108,7 @@ async function issueBasic(consultationId: string, extra: Record<string, unknown>
       ...extra,
     },
     owner,
+    at,
   );
 }
 
@@ -156,7 +171,7 @@ describe("consultation and e-prescription", () => {
   it("books, checks in with the QR code, issues: PDF, number, QR verification, timeline, e-mail, booking completed — and shows in Today", async () => {
     const live: HealthLiveEvent[] = [];
     const unsubscribe = subscribeHealth({ userId: owner.id, shopIds: [shopId] }, (e) => live.push(e));
-    const { patient, booking } = await patientWithBooking("IN_PERSON", new Date(Date.now() + 5 * 60_000).toISOString().replace(/\.\d+Z$/, ".000Z"));
+    const { patient, booking } = await patientWithBooking("IN_PERSON", soonStart());
     // The clinic's Today list shows the booking with patient details (and its live stream was told).
     const today = await clinicDay(shopId, owner, istDateKey(booking.startsAt));
     expect(today.find((r) => r.bookingId === booking.id)).toMatchObject({ patientName: "Asha Patil", visitType: "NEW", reason: "Fever for 3 days" });
@@ -170,7 +185,7 @@ describe("consultation and e-prescription", () => {
     const c = await startConsultation({ memberId: doctorMemberId, bookingId: booking.id }, owner);
     expect(c.patientId).toBe(patient.id);
     const t0 = Date.now();
-    const issued = await issueBasic(c.id);
+    const issued = await issueBasic(c.id, {}, visitTime(new Date(booking.startsAt)));
     expect(Date.now() - t0).toBeLessThan(30_000);
     expect(issued.prescription.rxNumber).toMatch(/^RX-\d{4}-\d{6}$/);
     expect(issued.bookingCompleted).toBe(true);

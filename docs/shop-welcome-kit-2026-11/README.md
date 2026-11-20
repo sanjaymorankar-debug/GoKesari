@@ -32,7 +32,7 @@
 | Trigger: every go-live path | `approveShopTransaction` (`src/server/services/shops.ts`: admin / operator approval, automatic approval, instant GST/PAN approval) and `approveRegistration` (`src/server/registration/service.ts`: paid self-registration) |
 | Download again (owner / operations; another owner 403, signed out 401) | `GET /api/shops/<id>/banner?lang=en|local&format=pdf|png`, buttons on **Seller Central → Marketing** (named "English" and "Marathi" / "Hindi") |
 | Existing live shops: admin "Send welcome kit" (one shop, or bulk by city / district with a preview) | `src/server/shop-banner/admin-send.ts`, `GET/POST /api/admin/shops/welcome-kit`, page **Admin → Shops → Send welcome kit** (`/admin/shops/welcome-kit`), feature flag `shop_welcome_kit_admin_send_enabled` (off) |
-| Tests | `tests/unit/shop-welcome-kit.test.ts`, `tests/integration/shop-welcome-kit.test.ts`, QA checks `tests/qa/{guest,signed-in,local}/sellers-welcome-kit.spec.ts` (cases TC-WKIT-001 … 013, journey SC-WKIT-01 in `test-cases.xlsx`) |
+| Tests | `tests/unit/shop-welcome-kit.test.ts`, `tests/integration/shop-welcome-kit.test.ts`, QA checks `tests/qa/{guest,signed-in,local}/sellers-welcome-kit.spec.ts` (cases TC-WKIT-001 … 013, journey SC-52 in `test-cases.xlsx`) |
 
 ## How it behaves
 

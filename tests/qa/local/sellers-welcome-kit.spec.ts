@@ -3,7 +3,7 @@
  * a shop or switch the admin flag: local tier (the local server, its database and mail catcher).
  *
  *   TC-WKIT-001 / 004  operations approve a shop → one welcome e-mail, sent, with both banners
- *   TC-WKIT-002 / SC-WKIT-01  wizard registration + sandbox fee → live → e-mail → Marketing download → QR
+ *   TC-WKIT-002 / SC-52  wizard registration + sandbox fee → live → e-mail → Marketing download → QR
  *   TC-WKIT-003        once per shop, ever (suspended and approved again)
  *   TC-WKIT-008        local language: Marathi (Maharashtra / Goa, PIN 40–44), Hindi elsewhere
  *   TC-WKIT-009        admin "Send welcome kit": off by default, admin only, once per shop, bulk by city
@@ -58,7 +58,7 @@ qa(["TC-WKIT-001", "TC-WKIT-004"], "Operations approve a shop: one welcome e-mai
   return `"${shop.name}": 1 row SENT to ${rows[0].to_address}; e-mail has en + mr PDFs, both inline banners, every print instruction and the Marathi line`;
 }, local);
 
-qa(["TC-WKIT-002", "SC-WKIT-01"], "Wizard registration + sandbox fee → live → welcome e-mail → Marketing download → QR opens the shop", async ({ browser }) => {
+qa(["TC-WKIT-002", "SC-52"], "Wizard registration + sandbox fee → live → welcome e-mail → Marketing download → QR opens the shop", async ({ browser }) => {
   const since = Date.now();
   const shop = await liveShop(browser, "wkit-wizard");
   const rows = await kitSettled(shop.shopId);
