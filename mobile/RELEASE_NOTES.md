@@ -1,5 +1,22 @@
 # GoKesari app — release notes
 
+## 1.9.0 (Android versionCode 10, iPhone build 10) — 20 Nov 2026
+
+Consultant appointments (docs/consult-booking-2026-11 at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Book doctors, lawyers, CAs, tutors, salons and home-service experts near you:
+> pick a free time, pay online or at the visit, get reminders, and manage your
+> appointments. Consultants get a calendar for their whole team.
+
+Changes in the app itself:
+- Android App Links: `/consult` (Find a Consultant, consultant pages, appointment
+  pages) opens in the app when tapped outside it. Inside the app nothing native
+  changed — the booking screens, calendar and reminders are website pages, live
+  in every installed version as soon as the website is deployed; booking pushes
+  open their page through the existing notification tap handling.
+
 ## 1.8.0 (Android versionCode 9, iPhone build 9) — 7 Nov 2026
 
 Payments through Cashfree's own mobile SDK (docs/payments-cashfree-audit-2026-11

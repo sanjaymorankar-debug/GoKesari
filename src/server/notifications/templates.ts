@@ -24,6 +24,7 @@ export const CATEGORIES = {
   ACCOUNT_SECURITY: { label: "Account & security", description: "Sign-ins, number and role changes. Always sent." },
   GENERAL: { label: "Other updates", description: "Everything else." },
   ANNOUNCEMENTS: { label: "Announcements", description: "News and offers GoKesari sends to everyone or to your area." }, // batch-2026-10 WS-F
+  APPOINTMENTS: { label: "Appointments", description: "Consultant bookings: confirmations, changes, reminders, payments and refunds." }, // consultant appointments
 } as const;
 export type CategoryKey = keyof typeof CATEGORIES;
 
@@ -51,6 +52,7 @@ const PREFIX_CATEGORY: [string, CategoryKey][] = [
   ["auth.", "ACCOUNT_SECURITY"],
   // Event layer: support alerts and risk flags are operations news (GENERAL).
   ["broadcast.", "ANNOUNCEMENTS"], // batch-2026-10 WS-F
+  ["consult.", "APPOINTMENTS"], // consultant appointments (docs/consult-booking-2026-11)
 ];
 
 export function categoryOf(type: string): CategoryKey {
