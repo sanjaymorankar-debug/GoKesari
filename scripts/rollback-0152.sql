@@ -1,39 +1,22 @@
--- Rollback for 0152_consult_bookings (docs/consult-booking-2026-11).
--- Before running: switch rule consultBooking off, deploy the previous release's code, then delete the
--- 0152 row from drizzle.__drizzle_migrations.
--- Checks first: bookings paid online and their payout lines are real money. Export them, and refuse to
--- drop while any exists:
---   SELECT count(*) FROM consult_bookings WHERE paid_online_paise > 0 OR paid_offline_paise > 0;
---   SELECT count(*) FROM payment_intents WHERE purpose = 'CONSULT_BOOKING';
---   SELECT count(*) FROM financial_adjustments WHERE idempotency_key LIKE 'consult:%';
+-- Rollback for 0152_newspaper_subscriptions (docs/newspaper-subscriptions-2026-11).
+-- Before running: deploy the previous release's code, then delete the 0152 row from
+-- drizzle.__drizzle_migrations.
+-- Checks first: MONTHLY subscriptions and grouped subscriptions are customers' standing orders.
+-- Export them and cancel them in the app before rolling back:
+--   SELECT count(*) FROM subscriptions WHERE frequency = 'MONTHLY';
+--   SELECT count(*) FROM subscriptions WHERE bundle_id IS NOT NULL;
+-- The 'MONTHLY' enum value cannot be dropped in place; it stays (unused) after rollback.
+-- The starter titles and their two categories are left in the catalogue: shops may list them.
+-- Remove them by hand only when no shop_products row points at them.
 BEGIN;
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM payment_intents WHERE purpose = 'CONSULT_BOOKING') THEN
-    RAISE EXCEPTION 'CONSULT_BOOKING payment intents exist: export them (and their bookings) first';
-  END IF;
-  IF EXISTS (SELECT 1 FROM financial_adjustments WHERE idempotency_key LIKE 'consult:%') THEN
-    RAISE EXCEPTION 'Consultant settlement lines exist: export them first';
+  IF EXISTS (SELECT 1 FROM subscriptions WHERE frequency = 'MONTHLY' AND status NOT IN ('CANCELLED', 'COMPLETED')) THEN
+    RAISE EXCEPTION 'Live MONTHLY subscriptions exist: cancel or change them first';
   END IF;
 END $$;
-DELETE FROM scheduled_notices WHERE kind = 'CONSULT_REMINDER';
-DROP TABLE IF EXISTS "consult_receipt_counters";
-DROP TABLE IF EXISTS "consult_access_logs";
-DROP TABLE IF EXISTS "consult_booking_files";
-DROP TABLE IF EXISTS "consult_booking_events";
-DROP TABLE IF EXISTS "consult_booking_members";
-DROP TABLE IF EXISTS "consult_bookings";
-DROP SEQUENCE IF EXISTS "consult_booking_number_seq";
-DROP TABLE IF EXISTS "consult_time_off";
-DROP TABLE IF EXISTS "consult_weekly_hours";
-DROP TABLE IF EXISTS "consult_services";
-DROP TABLE IF EXISTS "consult_member_documents";
-DROP TABLE IF EXISTS "consult_member_categories";
-DROP TABLE IF EXISTS "consult_members";
-DROP TABLE IF EXISTS "consult_profiles";
-DROP TABLE IF EXISTS "consult_policy_templates";
-DROP TABLE IF EXISTS "consult_categories";
-ALTER TABLE "payment_intents" DROP CONSTRAINT IF EXISTS "payment_intents_purpose_check";
-ALTER TABLE "payment_intents" ADD CONSTRAINT "payment_intents_purpose_check" CHECK ("purpose" IN ('ORDER', 'ORDER_GROUP', 'SHOP_REGISTRATION_FEE', 'SUPPORT_SERVICE', 'TERRITORY_FEE'));
--- btree_gist is left installed (harmless; other objects may use it).
+DROP TABLE IF EXISTS "periodical_titles";
+DROP INDEX IF EXISTS "subscriptions_bundle_idx";
+ALTER TABLE "subscriptions" DROP COLUMN IF EXISTS "bundle_id";
+ALTER TABLE "subscriptions" DROP COLUMN IF EXISTS "month_days";
 COMMIT;

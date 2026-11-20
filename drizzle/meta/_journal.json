@@ -1069,15 +1069,22 @@
     {
       "idx": 152,
       "version": "7",
-      "when": 1793265100000,
-      "tag": "0152_consult_bookings",
+      "when": 1793265000000,
+      "tag": "0152_newspaper_subscriptions",
       "breakpoints": true
     },
     {
       "idx": 153,
       "version": "7",
+      "when": 1793265100000,
+      "tag": "0153_consult_bookings",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
       "when": 1793265300000,
-      "tag": "0153_health",
+      "tag": "0154_health",
       "breakpoints": true
     }
   ]

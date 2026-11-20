@@ -170,10 +170,10 @@ describe("permission filtering", () => {
   it("shows a customer all six tiles and every submenu", () => {
     const menus = visibleMenus(CUSTOMER_MENUS, "CUSTOMER");
     expect(menus.map((m) => m.key)).toEqual(["shops", "orders", "subscriptions", "wallet", "tracking", "profile"]);
-    // 20: Orders → "My lists" (docs/purchase-lists-2026-10).
-    // 22: Shops → "Consultants", Orders → "Appointments" (docs/consult-booking-2026-11).
-    // 24: Shops → "Doctors", Profile → "My Health" (docs/health/; no 7th tile — one screen on a phone).
-    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(24);
+    // 20: Orders → "My lists" (docs/purchase-lists-2026-10). 21: Subscriptions → "Newspapers" (docs/newspaper-subscriptions-2026-11).
+    // 23: Shops → "Consultants", Orders → "Appointments" (docs/consult-booking-2026-11).
+    // 25: Shops → "Doctors", Profile → "My Health" (docs/health/; no 7th tile — one screen on a phone).
+    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(25);
   });
 
   it("treats a list of permissions as any-of", () => {
@@ -215,8 +215,10 @@ describe("menu definitions", () => {
     // Shop +2: Inventory → "Bills & GST" (docs/inventory-accounting-2026-10) and Bulk upload (Excel/CSV)
     // (docs/product-import-2026-10); operator +1: Catalogue → Bulk upload (the admin's is under Product master → more).
     // Gig worker flow (docs/gig-worker-2026-10): shop +1, Delivery → "Delivery partners" (feature 7).
+    // Newspaper subscriptions (docs/newspaper-subscriptions-2026-11): shop +1, Orders → "Subscribers".
     // Consultant appointments (docs/consult-booking-2026-11): shop +1, Orders → "Appointments"; admin +1 and operator +1, Shops → "Consultants".
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(45);
+    // GoKesari Health (docs/health/): shop +1, Orders → "Health" (hub); admin +1 and operator +1, Shops → "Health".
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(46);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
     expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(40);
     expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(28);

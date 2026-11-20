@@ -7,7 +7,7 @@ Times IST.
 Owner brief received 10.51. Built 11.00 – 12.40.
 
 ### Added
-- **Database** (migration 0153, schema `health`, 36 tables): patients and family, consents, access log, doctor /
+- **Database** (migration 0154, schema `health`, 36 tables): patients and family, consents, access log, doctor /
   care-provider / pharmacy / equipment-store profiles, clinic settings, letterheads, drug master (70 starter
   medicines with telemedicine lists) and ICD-10 (96 starter codes), appointment links, consultations, versioned
   prescriptions and items (dispensed quantities), suggestions, documents, timeline, event outbox, share links,

@@ -63,6 +63,7 @@ import {
   type ImportRowPlan,
 } from "@/lib/product-import";
 import { SUBSCRIPTION_DELIVERY_STATUSES } from "@/lib/subscription-deliveries";
+import { PERIODICAL_KINDS, PERIODICAL_PUBLICATIONS } from "@/lib/periodicals";
 import {
   CONSULT_BOOKING_KINDS,
   CONSULT_BOOKING_STATUSES,
@@ -326,6 +327,8 @@ export const subscriptionDeliveryStatusEnum = pgEnum("subscription_delivery_stat
 export const subscriptionFrequencyEnum = pgEnum("subscription_frequency", [
   "DAILY",
   "WEEKLY",
+  /** On chosen days of the month (`month_days`, 1–28): monthly and fortnightly periodicals (migration 0152). */
+  "MONTHLY",
 ]);
 
 /** A per-date deviation from the standing subscription quantity. */
@@ -3737,6 +3740,13 @@ export const subscriptions = pgTable(
     frequency: subscriptionFrequencyEnum("frequency").notNull().default("DAILY"),
     /** For WEEKLY: ISO weekdays 1-7 the delivery occurs on. */
     weekdays: jsonb("weekdays").$type<number[]>().notNull().default([]),
+    /** For MONTHLY: days of the month 1-28 the delivery occurs on ([1] monthly, [1, 15] fortnightly). */
+    monthDays: jsonb("month_days").$type<number[]>().notNull().default([]),
+    /**
+     * Subscriptions the customer submitted together (several newspapers from
+     * one vendor in one go). Null for a subscription made on its own.
+     */
+    bundleId: uuid("bundle_id"),
     startDate: date("start_date").notNull(),
     endDate: date("end_date"),
     nextDeliveryDate: date("next_delivery_date"),
@@ -3768,6 +3778,7 @@ export const subscriptions = pgTable(
     index("subscriptions_shop_idx").on(t.shopId),
     index("subscriptions_status_idx").on(t.status),
     index("subscriptions_next_delivery_idx").on(t.nextDeliveryDate),
+    index("subscriptions_bundle_idx").on(t.bundleId),
     check("subscriptions_quantity_positive", sql`${t.quantityMilli} > 0`),
     check(
       "subscriptions_pause_window_valid",
@@ -3877,6 +3888,38 @@ export const subscriptionDeliveries = pgTable(
     uniqueIndex("subscription_deliveries_sub_date_unique").on(t.subscriptionId, t.deliveryDate),
     index("subscription_deliveries_date_idx").on(t.deliveryDate),
     index("subscription_deliveries_order_idx").on(t.orderId),
+  ],
+);
+
+/* ------------------------------------------- newspapers and periodicals */
+
+/**
+ * What a newspaper or periodical catalogue product is and when it comes out
+ * (docs/newspaper-subscriptions-2026-11). One row per title; the product row
+ * stays the sellable item (sold by the copy, `subscribable`). The publication
+ * schedule pre-fills a new subscription — the subscription's own schedule is
+ * what deliveries follow.
+ */
+export const periodicalTitles = pgTable(
+  "periodical_titles",
+  {
+    productId: uuid("product_id")
+      .primaryKey()
+      .references(() => products.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: PERIODICAL_KINDS }).notNull(),
+    language: text("language").notNull(),
+    publisher: text("publisher"),
+    publication: text("publication", { enum: PERIODICAL_PUBLICATIONS }).notNull().default("DAILY"),
+    /** WEEKLY: the ISO weekday (1 Mon … 7 Sun) the issue comes out. */
+    issueWeekday: integer("issue_weekday"),
+    /** FORTNIGHTLY / MONTHLY: the days of the month (1–28) the issue comes out. */
+    issueMonthDays: jsonb("issue_month_days").$type<number[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("periodical_titles_kind_idx").on(t.kind),
+    check("periodical_titles_issue_weekday", sql`${t.issueWeekday} IS NULL OR ${t.issueWeekday} BETWEEN 1 AND 7`),
   ],
 );
 
@@ -6108,6 +6151,7 @@ export type SubscriptionDailyOverride =
   typeof subscriptionDailyOverrides.$inferSelect;
 export type SubscriptionOrder = typeof subscriptionOrders.$inferSelect;
 export type SubscriptionDelivery = typeof subscriptionDeliveries.$inferSelect;
+export type PeriodicalTitle = typeof periodicalTitles.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Address = typeof addresses.$inferSelect;
 export type DeliveryPartner = typeof deliveryPartners.$inferSelect;
@@ -11948,7 +11992,7 @@ export const riderSecurityGrants = pgTable(
 
 /* <<< rider bank payouts */
 
-/* >>> consultant appointments (0152, docs/consult-booking-2026-11) */
+/* >>> consultant appointments (0153, docs/consult-booking-2026-11) */
 
 /**
  * Consultant categories (admin-managed): what a consultant practises, the

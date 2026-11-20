@@ -1,12 +1,12 @@
 -- GoKesari Health (docs/health/; owner brief 20-Nov-2026 10.51 IST).
--- Built on the consultant-appointments engine (0152): a doctor, nurse or therapist is a consult member
+-- Built on the consultant-appointments engine (0153): a doctor, nurse or therapist is a consult member
 -- of a practice (a shop); appointments are consult bookings. This migration adds the clinical layer in a
 -- separate schema "health" (patients and family, consent, access log, consultations, versioned
 -- e-prescriptions, suggestions and referrals, medical documents, the timeline, prescription orders to
 -- medical stores, home-care visits, equipment rentals, Prime listing plans and call tracking).
 -- Additive only: new schema and tables, five home-care consult categories, three payment purposes.
 -- Nothing changes for anyone until an admin switches rule health on.
--- Rollback: scripts/rollback-0153.sql
+-- Rollback: scripts/rollback-0154.sql
 CREATE SCHEMA IF NOT EXISTS health;
 --> statement-breakpoint
 -- A person whose health record GoKesari keeps: the account holder (SELF) or someone they manage.

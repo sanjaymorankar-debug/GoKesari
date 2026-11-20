@@ -13,7 +13,7 @@
 |---|---|---|---|---|---|---|
 | Local — Health integration (6 suites) | 6 | 55 | 55 | 0 | 0 | 20-Nov-2026 12.19 – 12.30 |
 | Local — consultant appointments (base engine) | 1 | 26 | 26 | 0 | 0 | 20-Nov-2026 12.19 |
-| Local — full regression (all unit + integration tests in the repo) | 293 | 3,646 | 3,646 | 0 | 0 | 20-Nov-2026 12.21 – 13.08 (fresh database, migrations 0000–0153) |
+| Local — full regression (all unit + integration tests in the repo) | 293 | 3,646 | 3,646 | 0 | 0 | 20-Nov-2026 12.21 – 13.08 (fresh database, every migration up to Health; renumbered 0154 at 13.11 after newspapers took 0152 and consult 0153 — same SQL) |
 | Local — UI smoke (19 key screens, phone + desktop, signed in as patient / doctor / admin) | 1 | 19 | 19 | 0 | 0 | 20-Nov-2026 12.22 |
 | Local — QA guest checks TC-HLT-001…005 (Playwright, desktop + phone) | 1 | 5 | 5 | 0 | 0 | 20-Nov-2026 12.53 – 12.59 (TC-HLT-005 timed out once in a combined run while the dev server compiled ~70 routes; passes alone) |
 | Local — live update latency (booking → doctor's Today stream) | 1 | 1 | 1 | 0 | 0 | 20-Nov-2026 12.40 (0.51 s) |

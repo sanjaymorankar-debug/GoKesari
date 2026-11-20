@@ -12,6 +12,8 @@ export const NOTIFICATION_TYPES = {
   SHOP_DOCUMENTS_FOLLOW_UP: "shop.documents_follow_up",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",
+  /** To the shop: a customer subscribed (one product, or several newspapers together) — docs/newspaper-subscriptions-2026-11. */
+  SHOP_NEW_SUBSCRIPTION: "shop.new_subscription",
   /** To the shop: an order arrived while the shop is closed (customer confirmed they want to wait). */
   SHOP_ORDER_WHILE_CLOSED: "shop.order_while_closed",
   /** To the shop, once: it is open again and these queued orders are waiting for acceptance. */

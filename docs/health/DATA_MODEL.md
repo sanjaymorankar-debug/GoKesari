@@ -1,6 +1,6 @@
 # GoKesari Health — data model
 
-Migration `drizzle/0153_health.sql` (rollback `scripts/rollback-0153.sql`). All tables in schema **`health`**
+Migration `drizzle/0154_health.sql` (rollback `scripts/rollback-0154.sql`). All tables in schema **`health`**
 except the consult tables they build on. Times are `timestamptz` (UTC), shown in IST. Money in paise.
 
 ```mermaid

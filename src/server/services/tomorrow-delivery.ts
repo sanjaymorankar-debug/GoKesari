@@ -9,6 +9,7 @@
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 
 import { addDays, hourIn, todayIn, type IsoDate } from "@/lib/dates";
+import { scheduleLabel as periodicalScheduleLabel } from "@/lib/periodicals";
 import { getEnv } from "@/lib/env";
 import { lineTotalPaise } from "@/lib/money";
 import { subscriptionQuantityStep } from "@/lib/subscription-quantity";
@@ -56,7 +57,8 @@ export interface TomorrowDelivery {
   following: { date: IsoDate; costPaise: number } | null;
 }
 
-function scheduleLabel(frequency: "DAILY" | "WEEKLY", weekdays: number[]): string {
+function scheduleLabel(frequency: "DAILY" | "WEEKLY" | "MONTHLY", weekdays: number[], monthDays: number[]): string {
+  if (frequency === "MONTHLY") return periodicalScheduleLabel({ frequency, monthDays });
   if (frequency === "DAILY" || weekdays.length === 7) return "Daily";
   return [...weekdays]
     .sort((a, b) => a - b)
@@ -122,7 +124,7 @@ export async function getTomorrowDelivery(
       subscriptionId: sub.id,
       productName: sub.productName,
       shopName: sub.shopName,
-      scheduleLabel: scheduleLabel(sub.frequency, sub.weekdays),
+      scheduleLabel: scheduleLabel(sub.frequency, sub.weekdays, sub.monthDays ?? []),
       unit: sub.unit,
       quantityMilli: result.delivers ? result.quantityMilli : sub.quantityMilli,
       standingQuantityMilli: sub.quantityMilli,
