@@ -16,6 +16,7 @@ import { ShopLocationSettingsForm } from "@/components/shop-location-settings-fo
 import { ShopProductManager } from "@/components/shop-product-manager";
 import { ShopSettingsForm } from "@/components/shop-settings-form";
 import { ShopStatusPanel, type ShopOpenState } from "@/components/shop-status-panel";
+import { ShopSubscribers } from "@/components/shop-subscribers";
 import { ShopWalletBanner } from "@/components/shop-wallet-banner";
 import { DeliveryStatusBadge, SubscriptionDeliveryList } from "@/components/subscription-delivery-list";
 import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
@@ -46,6 +47,7 @@ import { getShopRegistration } from "@/server/tax/registration";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { listShopProducts, suggestProductsForShop } from "@/server/services/catalogue";
 import { getShopDashboard } from "@/server/services/dashboards";
+import { listSubscribersForShop } from "@/server/services/newspaper-subscriptions";
 import { getMaskedPan } from "@/server/services/gst-pan-verification";
 import { getShopLegalStatus } from "@/server/services/legal-documents";
 import { listOrdersForShop } from "@/server/services/orders";
@@ -81,6 +83,8 @@ const SECTIONS = {
   "gst-pan": "GST and PAN",
   "shop-types": "Shop types I sell",
   registration: "Registration and fee",
+  // docs/newspaper-subscriptions-2026-11: everyone subscribed to this shop (newspapers, milk, bread).
+  subscribers: "Subscribers",
 } as const;
 
 type SectionKey = keyof typeof SECTIONS;
@@ -238,7 +242,12 @@ export default async function ShopManagePage({
 
             {/* Subscription orders are separated from normal orders per §40. */}
             <section className="mb-8" id="subscription-deliveries">
-              <h2 className="mb-3 text-lg font-semibold text-ink-900">Today&apos;s subscription deliveries ({subscriptionOrders.length})</h2>
+              <h2 className="mb-3 flex items-baseline justify-between gap-2 text-lg font-semibold text-ink-900">
+                Today&apos;s subscription deliveries ({subscriptionOrders.length})
+                <Link href="/shop/manage/subscribers" className="text-sm font-medium text-kesari-700 hover:underline">
+                  All subscribers →
+                </Link>
+              </h2>
               {subscriptionOrders.length === 0 ? (
                 <EmptyState title="No subscription deliveries scheduled for today." />
               ) : (
@@ -317,6 +326,24 @@ export default async function ShopManagePage({
               )}
             </section>
           </SectionTabs>
+        </>
+      );
+    }
+
+    case "subscribers": {
+      const subscribers = await listSubscribersForShop(shop.id);
+      return (
+        <>
+          {header}
+          <p className="mb-4 text-sm text-ink-600">
+            Everyone with a running subscription to {shop.name}. You get a notice the moment someone subscribes; each
+            delivery day&apos;s orders appear under{" "}
+            <Link href="/shop/manage/today" className="font-medium text-kesari-700 hover:underline">
+              Today&apos;s work
+            </Link>
+            .
+          </p>
+          <ShopSubscribers subscribers={subscribers} />
         </>
       );
     }
