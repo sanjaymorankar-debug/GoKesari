@@ -137,15 +137,29 @@ export interface Activated {
  * (before GST, less `discountPaise` of a coupon) paid, its documents verified —
  * then approved by operations through the API, which accrues the commission.
  */
-export async function activatedShop(dealerId: string, signerId: string | null, basePaise = SLAB_4999, options: { discountPaise?: number; approve?: boolean } = {}): Promise<Activated> {
+export async function activatedShop(dealerId: string, signerId: string | null, basePaise = SLAB_4999, options: { discountPaise?: number; approve?: boolean; referralCode?: string } = {}): Promise<Activated> {
   assertWritable("register and approve a shop");
   const owner = await freshAccount("dlr-shop");
   const ctx = await ctxFor(owner);
+  if (options.referralCode) {
+    // Registered with the signer's own code: the registration itself attributes the shop. A name of its
+    // own, so the duplicate check does not take it for one of the many QA shops at the same spot.
+    const { shop } = await registerShop(ctx, { referralCode: options.referralCode, name: `Q${randomUUID().slice(0, 8)} ${randomUUID().slice(0, 8)}` });
+    const [a] = await db()<{ dealer_id: string; salesperson_id: string | null; match_kind: string }[]>`select dealer_id, salesperson_id, match_kind from shop_attributions where shop_id = ${shop.id}`;
+    expect(a, `the shop registered with ${options.referralCode} is attributed to its signer (not a likely duplicate)`).toEqual({ dealer_id: dealerId, salesperson_id: signerId, match_kind: "NONE" });
+    return payAndApprove(shop.id, owner, ctx, basePaise, options);
+  }
   const { shop } = await registerShop(ctx);
   // registerShop() sends the run's plain referral code (the code is mandatory), which may already have
   // attributed the shop to nobody: the signer's attribution replaces it.
   await db()`insert into shop_attributions (shop_id, dealer_id, salesperson_id, source, match_kind) values (${shop.id}, ${dealerId}, ${signerId}, 'CODE_AT_REGISTRATION', 'NONE')
     on conflict (shop_id) do update set dealer_id = excluded.dealer_id, salesperson_id = excluded.salesperson_id, source = excluded.source, match_kind = excluded.match_kind`;
+  return payAndApprove(shop.id, owner, ctx, basePaise, options);
+}
+
+/** The registered shop's fee recorded as paid, its documents verified, then approved by operations (unless approve: false). */
+async function payAndApprove(shopId: string, owner: Account, ctx: APIRequestContext, basePaise: number, options: { discountPaise?: number; approve?: boolean }): Promise<Activated> {
+  const shop = { id: shopId };
   const discount = options.discountPaise ?? 0;
   const gst = Math.round(((basePaise - discount) * 1800) / 10_000);
   await db()`

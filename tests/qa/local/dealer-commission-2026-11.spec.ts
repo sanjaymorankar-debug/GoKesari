@@ -198,7 +198,8 @@ qa("TC-TIER-021", "an agent cannot add a member himself; his sub-agent request i
     const agentCtx = await ctxFor(need(net.agent.account, "the agent's account"));
     const direct = await call(agentCtx, "POST", "/api/dealer/team", { action: "addMember", employeeId: `QA-X-${RUN}`, name: "QA Direct", role: "AGENT" });
     expectStatus(direct, 403, "an agent adds a member himself");
-    expect(direct.body.error.message).toBe("Only the main dealer adds members; a team member asks for a sub-agent instead.");
+    // PR #420 (DT-28): team leads now add agents themselves; an agent is still refused, with the message the route gives since then.
+    expect(direct.body.error.message).toBe("Only a team lead adds agents; an agent asks for a sub-agent instead.");
     const one = await call(agentCtx, "POST", "/api/dealer/team", { action: "requestSubAgent", employeeId: `QA-S1-${RUN}`, name: "QA Sub One" });
     const two = await call(agentCtx, "POST", "/api/dealer/team", { action: "requestSubAgent", employeeId: `QA-S2-${RUN}`, name: "QA Sub Two" });
     expectStatus(one, 200, "request 1");
