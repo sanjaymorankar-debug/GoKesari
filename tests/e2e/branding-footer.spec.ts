@@ -92,7 +92,7 @@ for (const vp of VIEWPORTS) {
       await page.goto("/signin");
       const brand = page.getByTestId("signin-brand");
       await expect(brand).toContainText("GoKesari");
-      await expect(brand).toContainText("Everything for Everyone");
+      await expect(brand).toContainText("Everything for Everyone, Everywhere");
       expect(await color(page, "[data-testid=signin-brand] [data-testid=brand-go]")).toBe(SAFFRON);
     });
   });

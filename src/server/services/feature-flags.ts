@@ -66,6 +66,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   zoho_connector: "Zoho Books connector",
   odoo_connector: "Odoo connector",
   ondc_mode: "ONDC seller-side mode",
+  shop_welcome_kit_admin_send_enabled: "Send welcome kit to existing shops",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -101,6 +102,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   zoho_connector: "Two-way sync with Zoho Books over its API (OAuth per shop).",
   odoo_connector: "Two-way sync with Odoo over its API.",
   ondc_mode: "GoKesari as the seller-side app on ONDC: TCS when GoKesari releases the payment (Circular 194/06/2023).",
+  shop_welcome_kit_admin_send_enabled:
+    "Admin → Shops → Send welcome kit: e-mail the welcome kit (the shop's two printable QR banners) to shops that went live before it existed — one shop, or every live shop of a city or district (preview first). Each shop gets it once, ever. New shops get it automatically whether this is on or off. Tell the owner before a bulk run on gokesari.com.",
 };
 
 export interface FeatureFlagView {
