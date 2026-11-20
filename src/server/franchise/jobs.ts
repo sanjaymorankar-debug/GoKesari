@@ -53,17 +53,17 @@ async function areas(where: ReturnType<typeof and>): Promise<AreaRow[]> {
   return rows.map((r) => ({ ...r, ownerEmail: r.ownerEmail ?? null }));
 }
 
-/** Email to the owner's address and the CC list, each logged. */
+/** Email to the owner's address and the CC list, each logged. Returns how many were attempted for the first time. */
 async function emailAll(area: AreaRow | null, kind: string, dueOn: string, subject: string, text: string, config: FranchiseConfig): Promise<number> {
   const to = [...new Set([...(area?.ownerEmail ? [area.ownerEmail] : []), ...config.expiryCc])];
   let sent = 0;
   for (const recipient of to) {
     const id = await claim({ allocationId: area?.a.id ?? null, kind, dueOn, channel: "EMAIL", recipient });
     if (!id) continue;
+    sent++;
     try {
       await sendEmail({ to: recipient, subject, text });
       await settle(id, "SENT");
-      sent++;
     } catch (e) {
       await settle(id, "FAILED", e instanceof Error ? e.message : String(e));
     }

@@ -121,7 +121,7 @@ async function launchCounts(client: DbClient, now: Date): Promise<LaunchCounts> 
       and(
         eq(franchiseAllocations.launchOffer, true),
         eq(franchiseAllocations.isTest, false),
-        sql`(${franchiseAllocations.status} = 'PAYMENT_PENDING_VERIFICATION' or (${franchiseAllocations.status} = 'RESERVED' and ${franchiseAllocations.holdExpiresAt} > ${now}))`,
+        sql`(${franchiseAllocations.status} = 'PAYMENT_PENDING_VERIFICATION' or (${franchiseAllocations.status} = 'RESERVED' and ${franchiseAllocations.holdExpiresAt} > ${now.toISOString()}::timestamptz))`,
       ),
     );
   const [campaign] = await client.select().from(franchiseCampaigns).where(eq(franchiseCampaigns.code, "LAUNCH"));

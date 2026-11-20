@@ -229,14 +229,15 @@ export async function saveRatingFormula(formula: RatingFormula, publish: boolean
 }
 
 async function ownerMetrics(client: DbClient, ownerId: string, month: string): Promise<Record<RatingMetric, number>> {
-  const { start, end } = istMonthBounds(month);
-  const prev = istMonthBounds(prevMonth(month));
+  const b = istMonthBounds(month);
+  const p = istMonthBounds(prevMonth(month));
+  const [start, end, prevStart, prevEnd] = [b.start.toISOString(), b.end.toISOString(), p.start.toISOString(), p.end.toISOString()];
   const [r] = (await client.execute(sql`
     select
-      (select count(*)::int from ${franchiseShopAttributions} fa where fa.owner_dealer_id = ${ownerId} and fa.activated_at >= ${start} and fa.activated_at < ${end}) as new_shops,
-      (select count(distinct o.shop_id)::int from ${orderFinancials} o join ${franchiseShopAttributions} fa on fa.shop_id = o.shop_id where fa.owner_dealer_id = ${ownerId} and fa.status = 'ACTIVE' and o.delivered_at >= ${start} and o.delivered_at < ${end}) as active_shops,
-      (select coalesce(sum(o.goods_paise), 0)::bigint from ${orderFinancials} o join ${franchiseShopAttributions} fa on fa.shop_id = o.shop_id where fa.owner_dealer_id = ${ownerId} and fa.status = 'ACTIVE' and o.delivered_at >= ${start} and o.delivered_at < ${end}) as gmv,
-      (select coalesce(sum(o.goods_paise), 0)::bigint from ${orderFinancials} o join ${franchiseShopAttributions} fa on fa.shop_id = o.shop_id where fa.owner_dealer_id = ${ownerId} and fa.status = 'ACTIVE' and o.delivered_at >= ${prev.start} and o.delivered_at < ${prev.end}) as gmv_prev
+      (select count(*)::int from ${franchiseShopAttributions} fa where fa.owner_dealer_id = ${ownerId} and fa.activated_at >= ${start}::timestamptz and fa.activated_at < ${end}::timestamptz) as new_shops,
+      (select count(distinct o.shop_id)::int from ${orderFinancials} o join ${franchiseShopAttributions} fa on fa.shop_id = o.shop_id where fa.owner_dealer_id = ${ownerId} and fa.status = 'ACTIVE' and o.delivered_at >= ${start}::timestamptz and o.delivered_at < ${end}::timestamptz) as active_shops,
+      (select coalesce(sum(o.goods_paise), 0)::bigint from ${orderFinancials} o join ${franchiseShopAttributions} fa on fa.shop_id = o.shop_id where fa.owner_dealer_id = ${ownerId} and fa.status = 'ACTIVE' and o.delivered_at >= ${start}::timestamptz and o.delivered_at < ${end}::timestamptz) as gmv,
+      (select coalesce(sum(o.goods_paise), 0)::bigint from ${orderFinancials} o join ${franchiseShopAttributions} fa on fa.shop_id = o.shop_id where fa.owner_dealer_id = ${ownerId} and fa.status = 'ACTIVE' and o.delivered_at >= ${prevStart}::timestamptz and o.delivered_at < ${prevEnd}::timestamptz) as gmv_prev
   `)) as unknown as { new_shops: number; active_shops: number; gmv: string | number; gmv_prev: string | number }[];
   const gmv = Number(r?.gmv ?? 0);
   const gmvPrev = Number(r?.gmv_prev ?? 0);
@@ -293,7 +294,8 @@ interface ShopMonth {
  * delivered while the allocation earns: from activation to its tail end (or termination).
  */
 export async function franchiseShopMonths(client: DbClient, month: string): Promise<ShopMonth[]> {
-  const { start, end } = istMonthBounds(month);
+  const b = istMonthBounds(month);
+  const [start, end] = [b.start.toISOString(), b.end.toISOString()];
   const earning = sql`o.delivered_at >= a.activated_at and o.delivered_at <= coalesce(case when a.status in ('TERMINATED', 'CANCELLED') then a.ended_at end, a.tail_end_at, a.expires_at)`;
   const delivered = (await client.execute(sql`
     select fa.shop_id, fa.owner_dealer_id, fa.allocation_id, fa.zone_id, a.launch_offer,
@@ -301,7 +303,7 @@ export async function franchiseShopMonths(client: DbClient, month: string): Prom
     from ${franchiseShopAttributions} fa
     join ${franchiseAllocations} a on a.id = fa.allocation_id and not a.is_test and a.status <> 'CANCELLED'
     join ${orderFinancials} o on o.shop_id = fa.shop_id
-    where fa.status = 'ACTIVE' and o.delivered_at >= ${start} and o.delivered_at < ${end} and ${earning}
+    where fa.status = 'ACTIVE' and o.delivered_at >= ${start}::timestamptz and o.delivered_at < ${end}::timestamptz and ${earning}
     group by 1, 2, 3, 4, 5
   `)) as unknown as { shop_id: string; owner_dealer_id: string; allocation_id: string; zone_id: string; launch_offer: boolean; commission: string | number; orders: number }[];
   const refunds = (await client.execute(sql`
@@ -310,7 +312,7 @@ export async function franchiseShopMonths(client: DbClient, month: string): Prom
     join ${orderFinancials} o on o.order_id = adj.order_id
     join ${franchiseShopAttributions} fa on fa.shop_id = o.shop_id and fa.status = 'ACTIVE'
     join ${franchiseAllocations} a on a.id = fa.allocation_id and not a.is_test and a.status <> 'CANCELLED'
-    where adj.type in ('REFUND_SHOP', 'REFUND_PLATFORM') and adj.created_at >= ${start} and adj.created_at < ${end} and ${earning}
+    where adj.type in ('REFUND_SHOP', 'REFUND_PLATFORM') and adj.created_at >= ${start}::timestamptz and adj.created_at < ${end}::timestamptz and ${earning}
   `)) as unknown as { shop_id: string; owner_dealer_id: string; allocation_id: string; zone_id: string; launch_offer: boolean; refund: string | number; goods: string | number; rate_bp: number; commission: string | number }[];
   const map = new Map<string, ShopMonth>();
   const key = (r: { shop_id: string; allocation_id: string }) => `${r.shop_id}:${r.allocation_id}`;

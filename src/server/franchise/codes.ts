@@ -87,7 +87,7 @@ export async function closeOwnerCodesIfNoArea(tx: DbClient, ownerDealerId: strin
   const [active] = await tx
     .select({ id: franchiseAllocations.id })
     .from(franchiseAllocations)
-    .where(and(eq(franchiseAllocations.ownerDealerId, ownerDealerId), eq(franchiseAllocations.status, "ACTIVE"), sql`${franchiseAllocations.expiresAt} >= ${now}`))
+    .where(and(eq(franchiseAllocations.ownerDealerId, ownerDealerId), eq(franchiseAllocations.status, "ACTIVE"), sql`${franchiseAllocations.expiresAt} >= ${now.toISOString()}::timestamptz`))
     .limit(1);
   if (active) return false;
   const rows = await tx.select().from(franchiseCodes).where(and(eq(franchiseCodes.ownerDealerId, ownerDealerId), eq(franchiseCodes.status, "ACTIVE")));

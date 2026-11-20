@@ -75,7 +75,7 @@ async function occupancy(client: DbClient, now: Date): Promise<Map<string, numbe
     .select({ zoneId: franchiseAllocations.zoneId, n: sql<number>`count(*)::int` })
     .from(franchiseAllocations)
     .where(
-      sql`${franchiseAllocations.status} in ('PAYMENT_PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED') or (${franchiseAllocations.status} = 'RESERVED' and ${franchiseAllocations.holdExpiresAt} > ${now})`,
+      sql`${franchiseAllocations.status} in ('PAYMENT_PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED') or (${franchiseAllocations.status} = 'RESERVED' and ${franchiseAllocations.holdExpiresAt} > ${now.toISOString()}::timestamptz)`,
     )
     .groupBy(franchiseAllocations.zoneId);
   return new Map(rows.map((r) => [r.zoneId, Number(r.n)]));
