@@ -17,9 +17,9 @@ export const dynamic = "force-dynamic";
  * hours and map pin are set up here. Only the shops this operator onboarded.
  */
 export default async function OperatorConsultPage() {
-  if (!(await consultEnabled())) notFound();
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
+  if (!(await consultEnabled())) notFound();
   if (!can(user.role, PERMISSIONS.CONSULT_ONBOARD)) redirect("/");
   if (user.role !== "OPERATOR_LIMITED") redirect("/admin/consult");
   const shops = await setupShopsFor(user);

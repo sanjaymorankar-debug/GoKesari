@@ -390,8 +390,11 @@ describe("privacy, permissions and disputes", () => {
     await expect(listAllBookings(customer, {})).rejects.toThrow();
     const report = await consultReport(admin, istDateKey(new Date()), tomorrow());
     expect(report.totals.bookings).toBe(1);
-    const cat = await saveCategory({ name: "Speech therapist", groupName: "Doctors and clinics", commissionPct: 5, requiredDoc: "RCI", requiredDocLabel: "RCI registration" }, admin);
-    expect(cat).toMatchObject({ commissionBp: 500, slug: "speech-therapist", requiredDoc: "RCI" });
+    // Categories outlive the per-test reset (no link to users): a name of its own each run.
+    const name = `Speech therapist ${Date.now().toString(36)}`;
+    const cat = await saveCategory({ name, groupName: "Doctors and clinics", commissionPct: 5, requiredDoc: "RCI", requiredDocLabel: "RCI registration" }, admin);
+    expect(cat).toMatchObject({ commissionBp: 500, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), requiredDoc: "RCI" });
+    await expect(saveCategory({ name, groupName: "Doctors and clinics" }, admin)).rejects.toThrow(/already exists/);
     const dash = await firmDashboard(shopId, owner);
     expect(dash.upcomingCount).toBe(1);
   });

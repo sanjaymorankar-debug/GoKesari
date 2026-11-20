@@ -30,6 +30,8 @@ import {
   setMeetingUrl,
   setPrivateNote,
 } from "@/server/consult/bookings";
+import { bookingViewer } from "@/server/consult/access";
+import { requireBooking } from "@/server/consult/payments";
 import { bookingDetail } from "@/server/consult/views";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +47,8 @@ export const GET = route(async (request: NextRequest, context: RouteContext<{ id
 export const POST = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const user = await requireUser();
   const id = await idOf(context);
+  // Only the customer, the firm and staff get past this line (anyone else: 404).
+  await bookingViewer(await requireBooking(id), user);
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const action = String(body.action ?? "");
   const text = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : null);

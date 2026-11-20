@@ -394,5 +394,25 @@
   "expected": "Reminders and dealer notice at the right times; restart at screen 1 after 7 days; no reminders once paid.",
   "preconditions": "A registration started with a dealer code; time shortened with the developer on staging.",
   "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-CON-01",
+  "title": "Book a consultant, pay at the visit, complete with the code",
+  "features": "CON-C3, CON-D3, CON-E2",
+  "priority": "P0",
+  "journey": "Consultant publishes → customer finds and books (pay at visit) → consultant records payment → completes with the customer's code → customer rates",
+  "expected": "Booking CONFIRMED → PAID (receipt) → COMPLETED; commission line in the next payout; rating on the profile.",
+  "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-CON-02",
+  "title": "Book online, cancel, refund",
+  "features": "CON-D2, CON-D5, CON-C7",
+  "priority": "P0",
+  "journey": "Customer books paying online (sandbox) → cancels before the free-cancellation time",
+  "expected": "Hold → CONFIRMED/PAID → CANCELLED with a full refund in progress; the time is free again.",
+  "preconditions": "Rule consultBooking switched on (Admin → Settings). Sandbox gateway.",
+  "origin": "Added 20-Nov-2026"
  }
 ]

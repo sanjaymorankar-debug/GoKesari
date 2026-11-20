@@ -16,9 +16,9 @@ export const dynamic = "force-dynamic";
  * consult staff, or the operator who onboarded the shop (?shopId=).
  */
 export default async function ShopConsultSetupPage({ searchParams }: { searchParams: Promise<{ shopId?: string }> }) {
-  if (!(await consultEnabled())) notFound();
   const user = await getCurrentUser();
   if (!user) redirect("/signin?callbackUrl=/shop/consult/setup");
+  if (!(await consultEnabled())) notFound();
   const sp = await searchParams;
   const firm = await firmForPage(user, sp.shopId);
   if (!firm) redirect("/shop/consult");

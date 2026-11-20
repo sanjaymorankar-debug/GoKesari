@@ -16,9 +16,9 @@ export const dynamic = "force-dynamic";
  * the team side by side, and every booking action. Owners, team members and consult staff (?shopId=).
  */
 export default async function ShopConsultPage({ searchParams }: { searchParams: Promise<{ shopId?: string; booking?: string }> }) {
-  if (!(await consultEnabled())) notFound();
   const user = await getCurrentUser();
   if (!user) redirect("/signin?callbackUrl=/shop/consult");
+  if (!(await consultEnabled())) notFound();
   const sp = await searchParams;
   const firm = await firmForPage(user, sp.shopId);
   if (!firm) {

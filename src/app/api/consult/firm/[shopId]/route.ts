@@ -9,10 +9,11 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { isDateKey, istDateKey } from "@/lib/consult/time";
-import { validationFailed } from "@/lib/errors";
+import { notFound, validationFailed } from "@/lib/errors";
 import { ok, route, type RouteContext } from "@/server/api/handler";
 import { enforceRateLimit, RATE_LIMITS } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
+import { firmAccessOrNull } from "@/server/consult/access";
 import { memberDocumentLinks } from "@/server/consult/files";
 import { addTimeOff, deleteTimeOff, ensureProfile, pauseProfile, publishProfile, saveMember, saveService, setMemberHours, setupView, updateProfile } from "@/server/consult/setup";
 import { firmCalendar, firmDashboard } from "@/server/consult/views";
@@ -24,6 +25,7 @@ const shopOf = async (context: RouteContext<{ shopId: string }>) => z.string().u
 export const GET = route(async (request: NextRequest, context: RouteContext<{ shopId: string }>) => {
   const user = await requireUser();
   const shopId = await shopOf(context);
+  if (!(await firmAccessOrNull(shopId, user))) throw notFound("Consultant");
   const q = request.nextUrl.searchParams;
   const view = q.get("view") ?? "setup";
   if (view === "calendar") {
@@ -43,6 +45,8 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ s
   const user = await requireUser();
   enforceRateLimit(`consult-setup:${user.id}`, RATE_LIMITS.MUTATION);
   const shopId = await shopOf(context);
+  // Someone with no access to this firm learns nothing, not even which actions exist.
+  if (!(await firmAccessOrNull(shopId, user))) throw notFound("Consultant");
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   switch (body.action) {
     case "create":
