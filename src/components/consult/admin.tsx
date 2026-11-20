@@ -81,7 +81,7 @@ interface ProfileRow {
 function Verify({ post }: { post: Post }) {
   const [filter, setFilter] = useState("PENDING");
   const [q, setQ] = useState("");
-  const [rows, setRows] = useState<ProfileRow[]>([]);
+  const [rows, setRows] = useState<ProfileRow[] | null>(null);
   const [docs, setDocs] = useState<Record<string, { id: string; fileName: string; url: string }[]>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const load = useCallback(async () => {
@@ -109,8 +109,8 @@ function Verify({ post }: { post: Post }) {
         ))}
         <input className={`${inputClass} max-w-xs`} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name or city" aria-label="Search" />
       </div>
-      {rows.length === 0 ? <p className="text-sm text-ink-600">Nothing here.</p> : null}
-      {rows.map((r) => (
+      {rows === null ? <p className="text-sm text-ink-600">Loading…</p> : rows.length === 0 ? <p className="text-sm text-ink-600">Nothing here.</p> : null}
+      {(rows ?? []).map((r) => (
         <div key={r.id} className="rounded-2xl border-2 border-[var(--gk-line)] bg-white p-3" data-testid="consult-admin-profile">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
@@ -195,7 +195,7 @@ function Bookings({ post }: { post: Post }) {
   const [to, setTo] = useState("");
   const [refunds, setRefunds] = useState(false);
   const [disputes, setDisputes] = useState(false);
-  const [rows, setRows] = useState<Card[]>([]);
+  const [rows, setRows] = useState<Card[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const load = useCallback(async () => {
     const p = new URLSearchParams({ view: "bookings" });
@@ -248,7 +248,7 @@ function Bookings({ post }: { post: Post }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((b) => (
+            {(rows ?? []).map((b) => (
               <tr key={b.id} className="border-t border-cream-100">
                 <td className="p-2 font-mono text-xs">{b.bookingNumber}</td>
                 <td className="p-2">{formatSlot(b.startsAt)}</td>
@@ -274,7 +274,7 @@ function Bookings({ post }: { post: Post }) {
             ))}
           </tbody>
         </table>
-        {rows.length === 0 ? <p className="p-3 text-sm text-ink-600">No bookings match.</p> : null}
+        {rows === null ? <p className="p-3 text-sm text-ink-600">Loading…</p> : rows.length === 0 ? <p className="p-3 text-sm text-ink-600">No bookings match.</p> : null}
       </div>
       {open ? (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/30" role="dialog" aria-modal="true" onClick={() => setOpen(null)}>
