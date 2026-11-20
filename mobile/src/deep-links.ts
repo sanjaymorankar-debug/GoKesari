@@ -31,6 +31,8 @@ export const DEEP_LINK_ROUTES = [
   // commission and payout pushes open it — and Add my shop, where a shop's /r/SHOP… link lands.
   { kind: "dealer", prefix: "/dealer" },
   { kind: "shop-register", prefix: "/shop/register" },
+  // 1.11.0 (docs/franchise): the Pune franchise pages — booking, my franchise, renewal and expiry pushes.
+  { kind: "franchise", prefix: "/franchise" },
 ] as const;
 
 export type DeepLinkKind = (typeof DEEP_LINK_ROUTES)[number]["kind"] | "page";

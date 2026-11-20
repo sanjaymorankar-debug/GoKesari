@@ -43,7 +43,7 @@ import {
 } from "@/server/db/schema";
 import { setCommissionSettings } from "@/server/dealers/commission";
 import { recordShopAttributionSafely } from "@/server/dealers/attribution";
-import { addSalesperson, setSalespersonStatus } from "@/server/dealers/service";
+import { addSalesperson, setSalespersonStatus, transferMemberToDealer } from "@/server/dealers/service";
 import { leadAddsAgent, setDealerCommissionModel } from "@/server/dealers/tiered";
 import {
   acceptFranchiseAgreement,
@@ -631,6 +631,27 @@ describe("Model A: 20 / 4 / 3 by level distance (brief §2.3)", () => {
       select rc.code, coalesce(sp.team_role, 'AGENT') as role from dealer_codes dc join referral_codes rc on rc.id = dc.referral_code_id
       join dealer_salespeople sp on sp.id = dc.salesperson_id where dc.dealer_id = ${d.id}`);
     for (const c of codes as unknown as { code: string; role: string }[]) expect(c.code).toMatch(c.role === "TEAM_LEAD" ? /^GKT-/ : /^GKA-/);
+  });
+});
+
+describe("Model A: moving a person to another dealer needs an admin (brief §2.4)", () => {
+  it("old place ends (code stops), new place under the new dealer with a new GKA code and the same PAN", async () => {
+    const mk = async (name: string) => {
+      const u = await createUser({ role: "DEALER" });
+      const [d] = await db.insert(dealers).values({ userId: u.id, legalName: name, contactName: name, dealerType: "PROPRIETORSHIP", status: "APPROVED", panHash: `pan-${u.id}` }).returning();
+      return d;
+    };
+    const a = await mk("Dealer A");
+    const b = await mk("Dealer B");
+    const v = await addSalesperson(a.id, { employeeId: "MOVE1", name: "Mover", mobile: "9876511111" }, admin);
+    await db.update(dealerSalespeople).set({ panHash: "pan-mover", panLast4: "999Z" }).where(eq(dealerSalespeople.id, v.id));
+    await expect(transferMemberToDealer(v.id, b.id, "moving teams", { id: a.userId!, role: "DEALER" })).rejects.toThrow(/Only an admin/);
+    const moved = await transferMemberToDealer(v.id, b.id, "asked to join Dealer B", admin);
+    const [oldRow] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, v.id));
+    const [newRow] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, moved.id));
+    expect(oldRow.status).toBe("INACTIVE");
+    expect(newRow).toMatchObject({ dealerId: b.id, status: "ACTIVE", panHash: "pan-mover", teamRole: "AGENT", depth: 2 });
+    expect(moved.code).toMatch(/^GKA-/);
   });
 });
 

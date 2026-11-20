@@ -98,7 +98,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" />
+      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" action={<LinkButton href="/franchise" variant="secondary">Upgrade to Paid Franchise</LinkButton>} />
       <p className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
         <Badge tone="success">Approved</Badge>
         {dealer.agreementStart && dealer.agreementEnd ? <span>Agreement {dealer.agreementStart} to {dealer.agreementEnd}</span> : null}

@@ -84,6 +84,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/puja", // 1.9.0, docs/puja-samagri-2026-11: the Puja Samagri storefront (shared festival / kit links)
   "/consult", // docs/consult-booking-2026-11: Find a Consultant, consultant pages, appointments
   "/health", // docs/health: My Health — records, prescriptions, doctors, medicines, home care, equipment
+  "/franchise", // 1.11.0, docs/franchise: Pune franchise offer, area booking, my franchise (renewal / expiry pushes open it)
   "/rx", // docs/health: prescription verification QR (/rx/verify/<token>)
 ];
 
@@ -94,7 +95,7 @@ const APP_LINK_PATH_PREFIXES = [
  * Pages not (yet) top-level directories of the website, such as the help
  * desk's /support/tickets/…, are listed here so the intent filter has them.
  */
-const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/", "/search/compare", "/dealer", "/shop/register"];
+const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/", "/search/compare", "/dealer", "/shop/register", "/franchise"];
 
 const INTENT_PATH_PREFIXES = [...new Set([...APP_LINK_PATH_PREFIXES, ...DEEP_LINK_ROUTE_PREFIXES])];
 
@@ -174,7 +175,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   // 1.8.0: card, UPI (the phone's UPI apps) and wallet payments through Cashfree's own mobile SDK
   // (react-native-cashfree-pg-sdk) when the website asks for it (src/cashfree.ts); the website
   // still confirms every payment with its server. Older builds keep Cashfree's web checkout.
-  version: "1.10.0",
+  version: "1.11.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -183,7 +184,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "11",
+    buildNumber: "12",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -202,7 +203,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 11,
+    versionCode: 12,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",

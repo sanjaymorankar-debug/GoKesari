@@ -152,6 +152,10 @@ export const PUBLIC_PAGES = new Set([
   // docs/puja-samagri-2026-11: the Puja Samagri storefront (home tile → /puja) is open to guests like /shops;
   // the owner's /shop/puja and staff's /admin/puja stay signed-in pages.
   "/puja",
+  // docs/franchise (21-Nov-2026): the Pune franchise offer and the area list are open to guests; reserving,
+  // paying, /franchise/my and /admin/franchise need sign-in.
+  "/franchise",
+  "/franchise/book",
 ]);
 
 /**

@@ -1137,3 +1137,44 @@ export async function dealerAccountEmail(dealer: Dealer): Promise<string | null>
   const [u] = await db.select({ email: users.email }).from(users).where(eq(users.id, dealer.userId));
   return u?.email ?? null;
 }
+
+/**
+ * Franchise brief §2.4 (21-Nov-2026): a person moves to another dealer's team only with an admin's approval.
+ * The old place ends (his code stops for new shops, his agents move under the old dealer) and he starts under
+ * the new dealer as an agent reporting to the dealer, with a new code and the same payee details. Commission
+ * already earned stays where it was earned. Audited on both dealers.
+ */
+export async function transferMemberToDealer(memberId: string, toDealerId: string, reason: string, actor: DealerActor): Promise<SalespersonView> {
+  if (actor.role !== "ADMIN") throw forbidden("Only an admin can move a person to another dealer.");
+  const why = clean(reason, 300);
+  if (!why || why.length < 5) throw validationFailed("Say why the person moves.", { fields: { reason: "Required." } });
+  const [member] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId));
+  if (!member) throw notFound("Team member");
+  if (member.dealerId === toDealerId) throw conflict("The person is already in this dealer's team.");
+  const target = await getDealer(toDealerId);
+  if (target.status !== "APPROVED") throw conflict("The new dealer is not approved.");
+  if (member.status === "ACTIVE") await setSalespersonStatus(member.dealerId, member.id, "INACTIVE", actor);
+  const created = await addSalesperson(toDealerId, { employeeId: member.employeeId, name: member.name, mobile: member.mobileE164 ? member.mobileE164.replace(/^\+91/, "") : null, role: "AGENT" }, actor);
+  await db
+    .update(dealerSalespeople)
+    .set({
+      userId: member.userId,
+      panEnc: member.panEnc,
+      panHash: member.panHash,
+      panLast4: member.panLast4,
+      bankHolderName: member.bankHolderName,
+      bankAccountEnc: member.bankAccountEnc,
+      bankAccountLast4: member.bankAccountLast4,
+      bankIfsc: member.bankIfsc,
+      bankStatus: member.bankStatus,
+      bankVerifiedAt: member.bankVerifiedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(dealerSalespeople.id, created.id));
+  // The old record keeps its history; its account link moves with the person (one account, one active place).
+  if (member.userId) await db.update(dealerSalespeople).set({ userId: null, updatedAt: new Date() }).where(eq(dealerSalespeople.id, member.id));
+  for (const dealerId of [member.dealerId, toDealerId]) {
+    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_SALESPERSON_SAVED, entityType: "dealer", entityId: dealerId, newValue: { transfer: { memberId: member.id, newMemberId: created.id, from: member.dealerId, to: toDealerId, reason: why } } });
+  }
+  return created;
+}
