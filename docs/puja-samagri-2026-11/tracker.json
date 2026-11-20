@@ -563,7 +563,7 @@
   {
    "no": "7.1",
    "feature": "Android app 1.9.0 (versionCode 10): parity, /puja app link",
-   "where": "mobile/app.config.ts",
+   "where": "mobile/app.config.ts — Android APK (production) built by CI on PR #427 (run 44685067628, 7m04s)",
    "owner": "Claude Code",
    "history": [
     {
@@ -581,7 +581,7 @@
   {
    "no": "7.2",
    "feature": "iOS app 1.9.0 (build 10): parity",
-   "where": "mobile/app.config.ts",
+   "where": "mobile/app.config.ts — iPhone build needs the EXPO_TOKEN secret and the Expo project id (owner setup; run 44685423729)",
    "owner": "Claude Code",
    "history": [
     {
@@ -592,6 +592,11 @@
     {
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
+     "by": "Claude Code"
+    },
+    {
+     "status": "Blocked",
+     "at": "20-Nov-2026 11.38 IST",
      "by": "Claude Code"
     }
    ]
