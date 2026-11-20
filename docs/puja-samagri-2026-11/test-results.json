@@ -9,7 +9,7 @@
    "how": {
     "local": "migration on a fresh PostgreSQL 18 database; seed CLI counts",
     "test": "GET /api/admin/puja/config counts",
-    "prod": "same on production"
+    "prod": "production database, read-only counts"
    },
    "results": {
     "local": {
@@ -23,9 +23,9 @@
      "evidence": "gokesari_test after migrations 0154/0155 (deployed 17.24 IST, 164 migrations): 1 shop type, 15 categories, 80 product types, 499 products, 499 local-name rows, 499 attribute rows; admin API (TC-PUJA-017, 18.20 IST): products 499, categories 15, types 81 (80 + the owner type approved in TC-PUJA-013), edible 55"
     },
     "prod": {
-     "status": "Not run",
-     "at": null,
-     "evidence": ""
+     "status": "Pass",
+     "at": "20-Nov-2026 23.36 IST",
+     "evidence": "gokesari (port 5432) read-only after release #440 (cf0069d0, live 23.32 IST): 1 shop type (ACTIVE), 15 categories, 80 product types, 499 products, 499 local-name and 499 attribute rows"
     }
    }
   },
@@ -52,7 +52,7 @@
     "prod": {
      "status": "Not run",
      "at": null,
-     "evidence": ""
+     "evidence": "migration 0155 applied once on production at 22.00 IST by the Production database workflow; the re-run was proven on test.gokesari.com (17.58 IST); no extra write to production"
     }
    }
   },
@@ -63,7 +63,7 @@
    "how": {
     "local": "0 products without name_hi / name_mr",
     "test": "admin catalogue API: every item",
-    "prod": "admin catalogue API"
+    "prod": "production database, read-only"
    },
    "results": {
     "local": {
@@ -77,9 +77,9 @@
      "evidence": "DB: products missing Hindi or Marathi names 0 of 499; admin CSV export /api/admin/puja/catalogue/export: 200 text/csv, 501 rows (499 master + 2 owner products), every row has Devanagari names; admin search \"कापूर\" finds Bhimseni Kapur"
     },
     "prod": {
-     "status": "Not run",
-     "at": null,
-     "evidence": ""
+     "status": "Pass",
+     "at": "20-Nov-2026 23.36 IST",
+     "evidence": "gokesari (port 5432) read-only after release #440 (cf0069d0, live 23.32 IST): products missing Hindi or Marathi names 0 of 499, duplicate names 0"
     }
    }
   },
@@ -90,7 +90,7 @@
    "how": {
     "local": "29 loose SKUs, all MRP null; seeded listings unpriced, sale off",
     "test": "TC-PUJA-010",
-    "prod": "—"
+    "prod": "production database, read-only"
    },
    "results": {
     "local": {
@@ -104,9 +104,9 @@
      "evidence": "TC-PUJA-010: every loose item listed with an empty price (19 awaiting price); DB: loose items with a master MRP 0"
     },
     "prod": {
-     "status": "Not run",
-     "at": null,
-     "evidence": ""
+     "status": "Pass",
+     "at": "20-Nov-2026 23.36 IST",
+     "evidence": "gokesari (port 5432) read-only after release #440 (cf0069d0, live 23.32 IST): loose items with a master price 0"
     }
    }
   },
@@ -428,9 +428,9 @@
      "evidence": "TC-PUJA-014 (desktop + phone): कपूर 14 · कापूर 14 · camphor 14 · kapoor 13 results; TC-PUJA-002: kapur 14, agarbathi 0 / मोमबत्ती 0 (shop A took only kapur and flowers)"
     },
     "prod": {
-     "status": "Not run",
-     "at": null,
-     "evidence": ""
+     "status": "Pass (partial)",
+     "at": "20-Nov-2026 23.37 IST",
+     "evidence": "TC-PUJA-002: /puja answers 200 for kapur, कपूर, कापूर, मोमबत्ती, camphor, agarbathi; 0 results as no shop sells puja items yet"
     }
    }
   },
@@ -441,7 +441,7 @@
    "how": {
     "local": "each filter narrows correctly",
     "test": "TC-PUJA-002, TC-PUJA-014",
-    "prod": "TC-PUJA-002"
+    "prod": "TC-PUJA-002 (guest)"
    },
    "results": {
     "local": {
@@ -455,9 +455,9 @@
      "evidence": "TC-PUJA-002: festival, loose, packed, price range, in stock, category and category + loose all answer 200; TC-PUJA-014: flowers + loose show \"Price on confirmation\""
     },
     "prod": {
-     "status": "Not run",
-     "at": null,
-     "evidence": ""
+     "status": "Pass (partial)",
+     "at": "20-Nov-2026 23.37 IST",
+     "evidence": "TC-PUJA-002: festival, loose, packed, price range, in stock, category and category + loose all answer 200 (no listings yet)"
     }
    }
   },
@@ -468,7 +468,7 @@
    "how": {
     "local": "type filter keeps puja + added-type shops",
     "test": "TC-PUJA-003",
-    "prod": "TC-PUJA-003"
+    "prod": "TC-PUJA-003 (guest)"
    },
    "results": {
     "local": {
@@ -482,9 +482,9 @@
      "evidence": "TC-PUJA-003: PIN 411030, 10 km: 1 puja shop of 26 (shop A, a bakery with Puja Samagri as an added type); before shop A took the catalogue: 0 of 26; malformed type → 422"
     },
     "prod": {
-     "status": "Not run",
-     "at": null,
-     "evidence": ""
+     "status": "Pass",
+     "at": "20-Nov-2026 23.39 IST",
+     "evidence": "TC-PUJA-003: /shops/nearby?type=PUJA_SAMAGRI page with the chip selected; Pune centre 10 km: 0 puja shops of 2; malformed type → 422. With PIN 411014: 4 shops, 0 puja"
     }
    }
   },
@@ -576,7 +576,7 @@
    "how": {
     "local": "local: home 3×3 tiles, /puja, /shop/puja (360 px)",
     "test": "TC-PUJA-018 (360×800, 1366×768)",
-    "prod": "TC-PUJA-001 (guest)"
+    "prod": "TC-PUJA-001 (guest, desktop + phone)"
    },
    "results": {
     "local": {
@@ -590,9 +590,9 @@
      "evidence": "TC-PUJA-018: customer /puja, shop /shop/puja, admin and operator /admin/puja at 360×800 and 1366×768: first tab above the fold, no sideways scroll; screenshots docs/puja-samagri-2026-11/screenshots/staging/"
     },
     "prod": {
-     "status": "Not run",
-     "at": null,
-     "evidence": ""
+     "status": "Pass (partial)",
+     "at": "20-Nov-2026 23.37 IST",
+     "evidence": "TC-PUJA-001 at desktop and Pixel 7: tile → /puja, 15 category chips, 5 filters, Nearby link, no sideways scroll; /shop/puja and /admin/puja send a guest to sign-in (307); owner / admin / operator screens need sign-in, not run on production"
     }
    }
   },
@@ -684,7 +684,7 @@
    "how": {
     "local": "—",
     "test": "—",
-    "prod": "post-deploy check, qa guest tier"
+    "prod": "post-deploy check + Puja guest checks + guest access check"
    },
    "results": {
     "local": {
@@ -698,9 +698,9 @@
      "evidence": ""
     },
     "prod": {
-     "status": "Not run",
-     "at": null,
-     "evidence": ""
+     "status": "Pass",
+     "at": "20-Nov-2026 23.40 IST",
+     "evidence": "release #440 merged 23.26 IST; gokesari.com serves cf0069d05196 (/sw.js) since 23.32 IST; Post-deploy check on cf0069d0 passed (23.35 IST); Puja guest checks TC-PUJA-001…004 pass (desktop + phone; 15 puja APIs all 401 to a guest); TC-RBAC-002 / TC-AUTH-033 pass: 230 signed-in pages and account APIs refuse a guest, /puja public; /images/puja/*.svg 200; production catalogue counts as on test"
     }
    }
   },
@@ -711,7 +711,7 @@
    "how": {
     "local": "—",
     "test": "—",
-    "prod": "needs owner (real accounts, real payment)"
+    "prod": "owner decision"
    },
    "results": {
     "local": {
@@ -727,7 +727,7 @@
     "prod": {
      "status": "Not run",
      "at": null,
-     "evidence": ""
+     "evidence": "needs the owner: an end-to-end order on production uses real accounts and a real payment; the QA suite refuses its signed-in tier on production"
     }
    }
   }
@@ -780,6 +780,14 @@
    "summary": "TC-PUJA-012 could not run twice on one site: its Hindi / Marathi type name was fixed, and the previous run's approved type made it an exact duplicate (correct app behaviour)",
    "fix": "the run suffix goes into the local names; TC-PUJA-012 clears its stash first so TC-PUJA-013 never reviews an earlier run's products",
    "status": "Fixed 18.46 IST (QA)"
+  },
+  {
+   "id": "PUJA-D-07",
+   "found": "20-Nov-2026 23.37 IST",
+   "where": "gokesari.com (TC-PUJA-003)",
+   "summary": "TC-PUJA-003 used PIN 411030, which only the test site knows: on production a typed PIN is found only from GoKesari's own shop and customer addresses (or Google when configured), so it answered 404 (not Puja code; place-lookup unchanged in this release)",
+   "fix": "the check uses a device position (Pune centre, lat/lng) instead; passes on gokesari.com (0 puja of 2) and test.gokesari.com (1 of 26)",
+   "status": "Fixed 23.40 IST (QA)"
   }
  ],
  "screenshots": [
@@ -859,6 +867,8 @@
   "20-Nov-2026 18.18–18.21 IST: two checks (TC-PUJA-018 desktop, TC-PUJA-014 phone) hit a network drop on the test Mac (ERR_NETWORK_CHANGED / ERR_INTERNET_DISCONNECTED) and passed on re-run at 18.21 IST; not a site problem.",
   "Test data left on test.gokesari.com shop A (E2E Four Features Bakery): 37 puja listings (kapur and flowers), one priced hibiscus listing, QA Puja Type / QA Puja Dhoop <run> (approved / rejected / merged in review), orders DB-20261120-0RV9GQ (delivered) and DB-20261120-ETT6PT (cancelled, refunded); FSSAI rule restored, the QA festival collection switched off.",
   "Found while testing, not part of Puja: cancelling an order puts stock back on every line (src/server/services/orders.ts, restock on cancel) without checking track_inventory, while checkout does not take stock from an untracked listing; shop A's untracked newspaper listing went from 11 to 65 this afternoon (61 cancels since 17.04 IST). Code from October; proposed as its own fix.",
-  "Found while testing, not part of Puja: the bulk setup upload accepts approved products only, so a shop's own products (pending or rejected in review — 17 pending ones on the test site before Puja) cannot be updated by re-uploading the shop's My products file (\"not in the GoKesari product list\"). Owner decision whether own products should be accepted there."
+  "Found while testing, not part of Puja: the bulk setup upload accepts approved products only, so a shop's own products (pending or rejected in review — 17 pending ones on the test site before Puja) cannot be updated by re-uploading the shop's My products file (\"not in the GoKesari product list\"). Owner decision whether own products should be accepted there.",
+  "Production, not Puja: Nearby by typed PIN finds only PINs of GoKesari's own shop / customer addresses with coordinates (Google geocoding not configured there), so common PINs (411001, 400001…) answer \"We couldn't find that PIN code or area\"; a device position works. Unchanged by release #440.",
+  "FINAL SUMMARY (20-Nov-2026 23.42 IST). Built: shop type Puja Samagri & Temple Supplies with a 499-SKU catalogue (15 categories, 80 types, en/hi/mr names, synonyms, loose / perishable / edible flags, HSN/GST to verify); owner take-catalogue at stock 100, browse / multi-add, remove / restore, own types and products with duplicate check, price on confirmation; admin catalogue, review queue, FSSAI toggle, festival collections; customer /puja tile, three-language search, filters, Nearby puja filter. Deploy times: staging merge 17.18 IST, live 17.24 IST, queue verified via #437 19.40 IST; production migrations 0154/0155 at 22.00 IST, release #440 merged 23.26 IST, live 23.32 IST, post-deploy check passed 23.35 IST. Apps: Android / iOS 1.10.0 (versionCode / build 11) in the joint release; the website changes reach the apps directly (WebView). Blockers / open: iOS build needs EXPO_TOKEN and an Expo project id (owner); end-to-end order on production needs the owner (PUJA-PRD-02); order cancel restocks untracked listings (older defect, proposed as its own fix); bulk setup upload refuses a shop's own non-approved products (owner decision); production Nearby by typed PIN only knows PINs of GoKesari's own addresses."
  ]
 }

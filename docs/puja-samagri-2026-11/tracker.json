@@ -28,6 +28,11 @@
      "status": "Tested on Test",
      "at": "20-Nov-2026 18.20 IST",
      "by": "Claude Code: TC-PUJA-017 (type on, config round-trip); TC-PUJA-010 setup"
+    },
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: guest checks / read-only counts on gokesari.com"
     }
    ]
   },
@@ -51,6 +56,11 @@
      "status": "Tested on Test",
      "at": "20-Nov-2026 17.58 IST",
      "by": "Claude Code: gokesari_test counts 15 categories / 80 types"
+    },
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: guest checks / read-only counts on gokesari.com"
     }
    ]
   },
@@ -74,6 +84,11 @@
      "status": "Tested on Test",
      "at": "20-Nov-2026 18.22 IST",
      "by": "Claude Code: 499 products, all with hi/mr names; admin CSV export 501 rows"
+    },
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: guest checks / read-only counts on gokesari.com"
     }
    ]
   },
@@ -97,6 +112,11 @@
      "status": "Tested on Test",
      "at": "20-Nov-2026 17.58 IST",
      "by": "Claude Code: seed SQL re-run twice on gokesari_test: INSERT 0 0, counts unchanged"
+    },
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: guest checks / read-only counts on gokesari.com"
     }
    ]
   },
@@ -120,6 +140,11 @@
      "status": "Tested on Test",
      "at": "20-Nov-2026 18.23 IST",
      "by": "Claude Code: /images/puja/<category>.svg 200 on test.gokesari.com (15 files)"
+    },
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: guest checks / read-only counts on gokesari.com"
     }
    ]
   },
@@ -521,6 +546,11 @@
      "status": "Tested on Test",
      "at": "20-Nov-2026 18.00 IST",
      "by": "Claude Code: TC-PUJA-001 (desktop + phone)"
+    },
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: guest checks / read-only counts on gokesari.com"
     }
    ]
   },
@@ -544,6 +574,11 @@
      "status": "Tested on Test",
      "at": "20-Nov-2026 18.21 IST",
      "by": "Claude Code: TC-PUJA-003 (1 puja shop of 26 near 411030)"
+    },
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: guest checks / read-only counts on gokesari.com"
     }
    ]
   },
@@ -567,6 +602,11 @@
      "status": "Tested on Test",
      "at": "20-Nov-2026 18.21 IST",
      "by": "Claude Code: TC-PUJA-014 कपूर / कापूर / camphor / kapoor"
+    },
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: guest checks / read-only counts on gokesari.com"
     }
    ]
   },
@@ -590,6 +630,11 @@
      "status": "Tested on Test",
      "at": "20-Nov-2026 18.21 IST",
      "by": "Claude Code: TC-PUJA-002, TC-PUJA-014"
+    },
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: guest checks / read-only counts on gokesari.com"
     }
    ]
   },
@@ -828,6 +873,11 @@
      "status": "Not started",
      "at": "20-Nov-2026 12.35 IST",
      "by": "Owner: waits for the Health module"
+    },
+    {
+     "status": "Deployed to Prod",
+     "at": "20-Nov-2026 23.32 IST",
+     "by": "Health session: release #440 (cf0069d0) merged 23.26, live 23.32, post-deploy check passed 23.35; migrations 0154/0155 applied 22.00 IST"
     }
    ]
   },
@@ -836,14 +886,26 @@
    "feature": "Tested on Prod (smoke + end-to-end with test shop/customer, data marked)",
    "where": null,
    "owner": "Claude Code",
-   "history": []
+   "history": [
+    {
+     "status": "Tested on Prod",
+     "at": "20-Nov-2026 23.40 IST",
+     "by": "Claude Code: production catalogue counts, Puja guest checks 4/4 (desktop + phone), guest access 230/230; end-to-end order on production needs the owner (PUJA-PRD-02)"
+    }
+   ]
   },
   {
    "no": "8.6",
    "feature": "Testing report",
    "where": "docs/puja-samagri-2026-11/TEST_REPORT.md",
    "owner": "Claude Code",
-   "history": []
+   "history": [
+    {
+     "status": "Dev done",
+     "at": "20-Nov-2026 23.42 IST",
+     "by": "Claude Code: TEST_REPORT.md with local, test and production results"
+    }
+   ]
   }
  ]
 }
