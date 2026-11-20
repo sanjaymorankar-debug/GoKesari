@@ -59,7 +59,7 @@ def inpaint_white_text(img, box):
     arr = np.array(img)
     x0, y0, x1, y1 = box
     region = arr[y0:y1, x0:x1]
-    mask = (region.min(axis=2) > 170).astype(np.uint8) * 255
+    mask = (region.min(axis=2) > 135).astype(np.uint8) * 255
     mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=2)
     full = np.zeros(arr.shape[:2], np.uint8)
     full[y0:y1, x0:x1] = mask
