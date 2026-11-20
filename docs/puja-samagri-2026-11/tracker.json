@@ -11,7 +11,7 @@
   {
    "no": "1.1",
    "feature": "Shop type “Puja Samagri & Temple Supplies” (admin-managed, on/off)",
-   "where": "drizzle/0153 shop_types row; /admin/puja Configuration",
+   "where": "drizzle/0155 shop_types row; /admin/puja Configuration",
    "owner": "Claude Code",
    "history": [
     {
@@ -23,13 +23,18 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.20 IST",
+     "by": "Claude Code: TC-PUJA-017 (type on, config round-trip); TC-PUJA-010 setup"
     }
    ]
   },
   {
    "no": "1.2",
    "feature": "15 categories and 80 product types (en/hi/mr)",
-   "where": "drizzle/0153",
+   "where": "drizzle/0155",
    "owner": "Claude Code",
    "history": [
     {
@@ -41,6 +46,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 17.58 IST",
+     "by": "Claude Code: gokesari_test counts 15 categories / 80 types"
     }
    ]
   },
@@ -59,6 +69,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.22 IST",
+     "by": "Claude Code: 499 products, all with hi/mr names; admin CSV export 501 rows"
     }
    ]
   },
@@ -77,6 +92,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 17.58 IST",
+     "by": "Claude Code: seed SQL re-run twice on gokesari_test: INSERT 0 0, counts unchanged"
     }
    ]
   },
@@ -95,6 +115,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.23 IST",
+     "by": "Claude Code: /images/puja/<category>.svg 200 on test.gokesari.com (15 files)"
     }
    ]
   },
@@ -118,6 +143,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-010 (37 added at stock 100, second run 0)"
     }
    ]
   },
@@ -136,6 +166,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-010 (19 awaiting price), TC-PUJA-015"
     }
    ]
   },
@@ -172,6 +207,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-012 (409, closest first)"
     }
    ]
   },
@@ -195,6 +235,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: added-type path TC-PUJA-010 (bakery + Puja); the registration-wizard path tested locally only"
     }
    ]
   },
@@ -213,6 +258,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-010 catalogue filters + multi-add"
     }
    ]
   },
@@ -249,6 +299,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-011"
     }
    ]
   },
@@ -267,6 +322,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.44 IST",
+     "by": "Claude Code: bulk upload + setup regression (run 2); own products not accepted by the setup upload (pre-existing, owner decision)"
     }
    ]
   },
@@ -285,6 +345,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-012"
     }
    ]
   },
@@ -303,6 +368,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-012 (hi/mr names, 2 variants)"
     }
    ]
   },
@@ -321,6 +391,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-013 (approve / reject / merge, owner notified)"
     }
    ]
   },
@@ -344,6 +419,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.22 IST",
+     "by": "Claude Code: export + Marathi search on staging; edit / retire / merge / import by integration test only"
     }
    ]
   },
@@ -362,6 +442,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-013 (operator)"
     }
    ]
   },
@@ -380,6 +465,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.20 IST",
+     "by": "Claude Code: TC-PUJA-017 FSSAI toggle round-trip"
     }
    ]
   },
@@ -398,6 +488,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.20 IST",
+     "by": "Claude Code: TC-PUJA-017 festival banner on /puja; kits-first by integration test"
     }
    ]
   },
@@ -421,6 +516,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.00 IST",
+     "by": "Claude Code: TC-PUJA-001 (desktop + phone)"
     }
    ]
   },
@@ -439,6 +539,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.21 IST",
+     "by": "Claude Code: TC-PUJA-003 (1 puja shop of 26 near 411030)"
     }
    ]
   },
@@ -457,6 +562,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.21 IST",
+     "by": "Claude Code: TC-PUJA-014 कपूर / कापूर / camphor / kapoor"
     }
    ]
   },
@@ -475,6 +585,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.21 IST",
+     "by": "Claude Code: TC-PUJA-002, TC-PUJA-014"
     }
    ]
   },
@@ -493,6 +608,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.20 IST",
+     "by": "Claude Code: festival banner TC-PUJA-017; kits-first by integration test"
     }
    ]
   },
@@ -511,6 +631,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.18 IST",
+     "by": "Claude Code: TC-PUJA-015"
     }
    ]
   },
@@ -529,6 +654,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.20 IST",
+     "by": "Claude Code: TC-PUJA-016 (wallet order delivered with OTP; cancel → refund, stock back)"
     }
    ]
   },
@@ -552,6 +682,11 @@
      "status": "Dev done",
      "at": "20-Nov-2026 11.20 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.21 IST",
+     "by": "Claude Code: TC-PUJA-018 (4 roles × 360 / 1366)"
     }
    ]
   },
@@ -647,6 +782,16 @@
      "status": "In progress",
      "at": "20-Nov-2026 11.24 IST",
      "by": "Claude Code"
+    },
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 17.24 IST",
+     "by": "Staging queue: merged into staging 17.18 IST, deployed 17.24 IST"
+    },
+    {
+     "status": "Blocked",
+     "at": "20-Nov-2026 18.15 IST",
+     "by": "Staging queue: failed on the QA suite's public-page list (/puja), not the app; fix PR #437 (staging-fix) opened 18.19 IST"
     }
    ]
   },
@@ -655,12 +800,23 @@
    "feature": "Tested on Test (test.gokesari.com)",
    "where": null,
    "owner": "Claude Code",
-   "history": []
+   "history": [
+    {
+     "status": "In progress",
+     "at": "20-Nov-2026 18.23 IST",
+     "by": "Claude Code: 22 of 27 cases pass on test.gokesari.com; regression re-run in progress"
+    },
+    {
+     "status": "Tested on Test",
+     "at": "20-Nov-2026 18.46 IST",
+     "by": "Claude Code: 23 of the 25 test-site cases pass (3 of them in part); 1 is integration-only, iOS is blocked; regression: no failure caused by Puja (13 from test data / an older cancel-restock defect)"
+    }
+   ]
   },
   {
    "no": "8.4",
-   "feature": "Deployed to Prod (gokesari.com, 23.00 IST window)",
-   "where": "Owner 20-Nov-2026 12.35 IST: released together with GoKesari Health, newspapers (#423) and consultants (#425) once Health is staging-verified (23.00 IST window)",
+   "feature": "Deployed to Prod (gokesari.com, joint release)",
+   "where": "Owner 20-Nov-2026 12.35 IST: released together with GoKesari Health, newspapers (#423) and consultants (#425). 16.50 IST (relayed by the Health session): release as soon as every PR is staging-verified, not at 23.00 IST. The Health session runs the release.",
    "owner": "Claude Code",
    "history": [
     {

@@ -9,7 +9,8 @@
  *
  * Test data it leaves on shop A: the Kapur (Camphor) and Phool & Patte puja listings (marked
  * by their categories), one product type and products named "QA Puja … <run>" (rejected or
- * approved in the review), one priced marigold listing. The FSSAI toggle and any festival
+ * merged in the review; their listings are removed at the end of TC-PUJA-013), one priced
+ * loose-flower listing. The FSSAI toggle and any festival
  * collection it opens are put back / switched off in a finally block.
  */
 import type { Page } from "@playwright/test";
@@ -122,13 +123,17 @@ qa("TC-PUJA-012", "an owner's new product type and product: the duplicate check 
   const setup = await setupOf(shop.id);
   const agarbatti = setup.categories.find((c) => c.slug === "puja-agarbatti-dhoop")!;
   const owner = await as("shop");
+  // A failed run must not hand TC-PUJA-013 the products of an earlier run.
+  stash(`${KEY}-own`, null);
   const same = await call(owner, "POST", `${base(shop.id)}/puja/types`, { categoryId: agarbatti.id, name: "Agarbatti", unit: "pack" });
   expect(same.status, "same name").toBe(409);
   const close = await call(owner, "POST", `${base(shop.id)}/puja/types`, { categoryId: agarbatti.id, name: "Agarbati", unit: "pack" });
   expect(close.status, "close name").toBe(409);
   expect(close.body.error.details.matches[0].name).toBe("Agarbatti");
   const typeName = `QA Puja Type ${RUN}`;
-  const type = await call(owner, "POST", `${base(shop.id)}/puja/types`, { categoryId: agarbatti.id, name: typeName, nameHi: "क्यूए प्रकार", nameMr: "क्यूए प्रकार", unit: "box", confirmDuplicate: true });
+  // Local names carry the run too: the duplicate check compares Hindi and Marathi names as well, and an
+  // earlier run's type (approved in TC-PUJA-013) keeps its names on the site.
+  const type = await call(owner, "POST", `${base(shop.id)}/puja/types`, { categoryId: agarbatti.id, name: typeName, nameHi: `क्यूए प्रकार ${RUN}`, nameMr: `क्यूए प्रकार ${RUN}`, unit: "box", confirmDuplicate: true });
   expectStatus(type, 201, "create type");
   expect(type.body.type.approvalStatus).toBe("PENDING_APPROVAL");
   const dup = await call(owner, "POST", `${base(shop.id)}/puja/products`, { categoryId: agarbatti.id, name: "Rose Agarbati", unit: "pack", variants: [{ label: "Box, 20 sticks", pricePaise: 2000, stock: 5 }] });
@@ -152,13 +157,29 @@ qa("TC-PUJA-012", "an owner's new product type and product: the duplicate check 
   expect(mine.map((i) => i.approvalStatus)).toEqual(["PENDING_APPROVAL", "PENDING_APPROVAL"]);
   expect(mine.every((i) => i.listing?.state === "LISTED")).toBe(true);
   expect((await shelfNames(shop.id)).filter((n) => n.startsWith(`QA Puja Dhoop ${RUN}`)), "customers see the owner's product at once").toHaveLength(2);
-  stash(`${KEY}-own`, { typeId: type.body.type.id, productIds: product.body.created.map((c: { productId: string }) => c.productId) });
+  stash(`${KEY}-own`, {
+    typeId: type.body.type.id,
+    productIds: product.body.created.map((c: { productId: string }) => c.productId),
+    listingIds: mine.map((i) => i.listing!.id),
+  });
   return `same/close type names → 409 (closest: Agarbatti); "${typeName}" and 2 product variants created, listed at once, pending review`;
 });
 
 qa("TC-PUJA-013", "staff review: approve the type, reject one product with a reason, merge the other; reject without a reason is refused; the owner is notified", async () => {
-  const own = unstash<{ typeId: string; productIds: string[] }>(`${KEY}-own`);
+  const own = unstash<{ typeId: string; productIds: string[]; listingIds?: string[] } | null>(`${KEY}-own`);
   if (!own) blocked("TC-PUJA-012 did not create the owner's type and products");
+  try {
+    return await review(own);
+  } finally {
+    // The two QA products stay the shop's own (rejected / merged) products; their listings are removed so
+    // shop A's "My products" file starts with catalogue products again (the setup upload, TC-CAT-083,
+    // takes its known Product IDs from the top of that file and only accepts approved products).
+    const owner = await as("shop");
+    for (const id of own.listingIds ?? []) await call(owner, "DELETE", `/api/shop-products/${id}`);
+  }
+});
+
+async function review(own: { typeId: string; productIds: string[] }): Promise<string> {
   const ops = await as("ops");
   const queue = await call(ops, "GET", "/api/admin/puja/submissions");
   expectStatus(queue, 200, "review queue (operator)");
@@ -179,8 +200,8 @@ qa("TC-PUJA-013", "staff review: approve the type, reject one product with a rea
   expectStatus(notes, 200, "owner notifications");
   const decided = (notes.body.notifications as { type: string; createdAt: string }[]).filter((n) => n.type === "shop.catalogue_submission_decided");
   expect(decided.length).toBeGreaterThanOrEqual(3);
-  return `type approved, product rejected (reason), ${target ? `product merged into "${target.name}"` : "second product rejected"}; owner has ${decided.length} decision notices`;
-});
+  return `type approved, product rejected (reason), ${target ? `product merged into "${target.name}"` : "second product rejected"}; owner has ${decided.length} decision notices; QA listings removed`;
+}
 
 qa("TC-PUJA-014", "the customer finds puja items by English, Hindi, Marathi names and synonyms, and filters by category and loose / packed", async ({ browser }) => {
   const stashed = unstash<{ shopId: string }>(KEY);
