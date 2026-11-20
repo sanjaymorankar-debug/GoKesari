@@ -13,12 +13,16 @@
 |---|---|---|---|---|---|---|
 | Local — Health integration (6 suites) | 6 | 55 | 55 | 0 | 0 | 20-Nov-2026 12.19 – 12.30 |
 | Local — consultant appointments (base engine) | 1 | 26 | 26 | 0 | 0 | 20-Nov-2026 12.19 |
-| Local — full regression (all unit + integration tests in the repo) | FULL_FILES | FULL_TESTS | FULL_PASSED | FULL_FAILED | FULL_SKIPPED | FULL_WHEN |
+| Local — full regression (all unit + integration tests in the repo) | 293 | 3,646 | 3,646 | 0 | 0 | 20-Nov-2026 12.21 – 13.08 (fresh database, migrations 0000–0153) |
 | Local — UI smoke (19 key screens, phone + desktop, signed in as patient / doctor / admin) | 1 | 19 | 19 | 0 | 0 | 20-Nov-2026 12.22 |
+| Local — QA guest checks TC-HLT-001…005 (Playwright, desktop + phone) | 1 | 5 | 5 | 0 | 0 | 20-Nov-2026 12.53 – 12.59 (TC-HLT-005 timed out once in a combined run while the dev server compiled ~70 routes; passes alone) |
+| Local — live update latency (booking → doctor's Today stream) | 1 | 1 | 1 | 0 | 0 | 20-Nov-2026 12.40 (0.51 s) |
 | Test (test.gokesari.com) — QA suite guest tier + signed-in journeys | — | 28 | — | — | 28 | pending staging |
 | Prod (gokesari.com) — guest smoke + regression | — | 5 | — | — | 5 | pending 23.00 window |
 
-Pass rate: **Local 100%** of the Health and consult suites; Test and Prod not run yet (see §6).
+Pass rate: **Local 100%** (3,646 / 3,646 in the full regression, which includes the 55 Health and 26 consult cases); Test and Prod not run yet (see §6).
+
+Also checked locally: `npx tsc --noEmit` clean (except the pre-existing `barcode-scanner.tsx` error, caused only by `@zxing/browser` missing from this machine's shared `node_modules`); ESLint clean on all Health code; **production build** (`next build --webpack`, 8 GB heap) compiles and generates all 83 static pages and every Health route, 20-Nov-2026 13.08. Edits after 12.21 (print-only CSS, a link on closed consultations, customer tile entries, QA spec, docs) were re-verified by the tile test, type check, lint and the build.
 
 ## 2. What was tested (integration suites against real PostgreSQL)
 
@@ -48,7 +52,7 @@ Pass rate: **Local 100%** of the Health and consult suites; Test and Prod not ru
 | 10 | Equipment: buy and rent incl. deposit, return pickup, deposit refund | Pass (rent); buy = normal order | rentals suite | Not run | Not run |
 | 11 | Prime: purchase, instant booking, labelled placement, call tracking, analytics, renewal, expiry downgrade; prices from admin | Pass | prime suite | Not run | Not run |
 | 12 | Patient referral codes and rewards, switchable by admin | Pass (existing customer-referral programme reused; its own tests in the regression) | full regression | Not run | Not run |
-| 13 | All existing GoKesari features still pass their tests | FULL_VERDICT | full regression | Staging queue CI | Post-deploy check |
+| 13 | All existing GoKesari features still pass their tests | Pass — 293 files / 3,646 tests, 0 failures | full regression | Staging queue CI | Post-deploy check |
 
 ## 4. Defects found and fixed during the build
 
