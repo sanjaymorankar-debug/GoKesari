@@ -36,6 +36,7 @@ import { formatPaise } from "@/lib/money";
 import { PDF_LINE_WIDTH, textPdf, type PdfLine } from "@/lib/pdf";
 import { placeholderEmailFor } from "@/lib/placeholder-email";
 import { db, type DbClient } from "@/server/db";
+import { queueShopWelcomeKit } from "@/server/shop-banner/welcome-kit";
 import {
   distributors,
   distributorTypes,
@@ -692,6 +693,9 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
       .update(shopRegistrations)
       .set({ status: "APPROVED", approvedAt: now, ownerUserId: owner.id, shopId: shop.id, updatedAt: now })
       .where(eq(shopRegistrations.id, reg.id));
+    // docs/shop-welcome-kit-2026-11: registration complete and fee received — the welcome e-mail
+    // with the shop's two printable banners (English + local language), sent after commit; once per shop.
+    await queueShopWelcomeKit(shop, tx);
     await recordAudit(
       {
         actorId: owner.id,

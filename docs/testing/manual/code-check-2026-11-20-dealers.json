@@ -1,0 +1,94 @@
+{
+ "date": "2026-11-20",
+ "note": "Wording of the 20-Nov dealer cases corrected against the code while automating them (local run 2026-11-20-local-dealer-territory-team).",
+ "wording": [
+  {
+   "id": "TC-TIER-039",
+   "field": "steps",
+   "old": "1. As M, click 'Promote to team lead' for A2 and confirm",
+   "new": "1. As M, click 'Promote to team lead' for A2 (it promotes at once; there is no confirm step)",
+   "why": "there is no confirm step: the button promotes at once",
+   "evidence": "src/components/dealer/dealer-team.tsx"
+  },
+  {
+   "id": "TC-TIER-042",
+   "field": "expected",
+   "old": "a 4th level is refused (422 'at most 3 levels')",
+   "new": "a 4th level is refused (422 'An agent can only report to a team lead or to the main dealer — a 4th level is not allowed.')",
+   "why": "the message for an agent placed under an agent; 'at most 3 levels' is the one for a team lead given a parent",
+   "evidence": "src/server/dealers/tiered.ts:1263, 1271"
+  },
+  {
+   "id": "TC-TERR-004",
+   "field": "steps",
+   "old": "Give a dealer a territory with, one at a time:",
+   "new": "Give a dealer a territory (the page, and POST /api/admin/dealer-territories action create) with, one at a time:",
+   "why": "the page only keeps 'Give territory' disabled for these inputs; the messages come from the API",
+   "evidence": "src/components/dealer/territory-admin.tsx"
+  },
+  {
+   "id": "TC-TERR-004",
+   "field": "expected",
+   "old": "1: 'These are not 6-digit pincodes: 41103, 0411038, 4110388, abcdef.' 2: 'Give at least one pincode.' 3: 'At most 500 pincodes in one territory.' (500 is accepted) 4: 'Give the territory a name.' 5: 'Give the yearly fee in rupees (at least ₹1).' Nothing is saved.",
+   "new": "API: 1: 'These are not 6-digit pincodes: 0411038, 41103, 4110388, abcdef.' (sorted) 2: 'Give at least one pincode.' 3: 'At most 500 pincodes in one territory.' (500 is accepted) 4: 'Give the territory a name.' 5: 'Give the yearly fee in rupees (at least ₹1).' On the page, invalid input keeps 'Give territory' disabled with the hint '0 pincodes · not valid: …'. Nothing is saved.",
+   "why": "the API lists the bad pincodes sorted; the page shows a hint and keeps the button disabled (3 and 5: see D-155)",
+   "evidence": "src/server/dealers/territory.ts:91; src/components/dealer/territory-admin.tsx"
+  },
+  {
+   "id": "TC-TERR-007",
+   "field": "preconditions",
+   "old": "Fee not paid yet ('Pay ₹50,000 now' shown to D1).",
+   "new": "Fee not paid yet ('Pay ₹50,000 now' shown to D1); D1 has clicked Pay once (an online checkout started).",
+   "why": "an open fee is replaced only when a checkout was started; otherwise it is re-priced in place",
+   "evidence": "src/server/dealers/territory.ts:237-243"
+  },
+  {
+   "id": "TC-TERR-007",
+   "field": "expected",
+   "old": "The open fee of ₹50,000 is cancelled and a new one of ₹60,000 made; D1's button reads 'Pay ₹60,000 now'.",
+   "new": "The open fee of ₹50,000 (checkout started) is cancelled and a new one of ₹60,000 made (with no checkout started the open fee is re-priced in place); D1's button reads 'Pay ₹60,000 now'.",
+   "why": "an open fee is replaced only when a checkout was started; otherwise it is re-priced in place",
+   "evidence": "src/server/dealers/territory.ts:237-243"
+  },
+  {
+   "id": "TC-TERR-009",
+   "field": "expected",
+   "old": "'Paid up to <day before the same date next year> · yearly fee ₹50,000'",
+   "new": "'Paid up to <the same date next year> · yearly fee ₹50,000' (e.g. 'Paid up to 20 Nov 2027' for a payment on 20 Nov 2026)",
+   "why": "paid_until is the payment time + 12 months; the card prints that day",
+   "evidence": "src/components/dealer/dealer-territory.tsx:10, 53"
+  },
+  {
+   "id": "TC-TERR-011",
+   "field": "expected",
+   "old": "Step 3 does not mark any fee paid; an audit row records 'amount_or_intent_mismatch'.",
+   "new": "Step 3 does not mark any fee paid: a webhook whose amount differs from the payment is stopped by the payments layer (AMOUNT_MISMATCH, flagged for support); a payment whose amount no longer matches the fee leaves the fee unpaid with an audit row 'amount_or_intent_mismatch'.",
+   "why": "two layers refuse a wrong amount; the territory audit row is written only for a payment that no longer matches the fee",
+   "evidence": "src/server/payments/processing.ts:103-111; src/server/dealers/territory.ts:411"
+  },
+  {
+   "id": "TC-TERR-012",
+   "field": "expected",
+   "old": "3: refused (403, 'Only an admin can …').",
+   "new": "3: refused (403, 'You do not have access to this area.').",
+   "why": "the route's role check answers before the service's admin check",
+   "evidence": "src/app/api/admin/dealer-territories/route.ts:56"
+  },
+  {
+   "id": "TC-TERR-025",
+   "field": "expected",
+   "old": "2: 403 'Only an admin can …'.",
+   "new": "2: 403 'You do not have access to this area.'",
+   "why": "the route's role check answers before the service's admin check",
+   "evidence": "src/app/api/admin/dealer-territories/route.ts:56"
+  },
+  {
+   "id": "TC-TERR-021",
+   "field": "expected",
+   "old": "D1's share ₹3.20 (not ₹4.00).",
+   "new": "D1's share ₹3.20 (the card shows '₹3.2 for you'; not ₹4.00).",
+   "why": "the card prints rupees without trailing zeros",
+   "evidence": "src/components/dealer/dealer-territory.tsx:5"
+  }
+ ]
+}

@@ -120,9 +120,30 @@ export interface ShopBoardData {
  */
 export const loadShopCounts = cache((shopId: string): Promise<Counts> => shopCounts(shopId));
 
+/** GoKesari Health: only medical-field shops see Seller Central → Orders → Health (docs/health/). */
+async function healthBoardFlag(shopId: string): Promise<string | null> {
+  try {
+    const m = await import("@/server/health/access");
+    return (await m.isHealthShop(shopId)) ? m.HEALTH_BOARD_FLAG : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The flags a shop's menus are filtered by: feature flags, plus the Health flag for medical-field shops. */
+export async function shopMenuFeatures(shop: { id: string; pincode: string | null }): Promise<string[]> {
+  const [features, health] = await Promise.all([enabledFeatureKeysForShop(shop), healthBoardFlag(shop.id)]);
+  return health ? [...features, health] : features;
+}
+
 export async function loadShopBoard(shopId: string, user: AuthenticatedUser): Promise<ShopBoardData> {
-  const [counts, facts, features] = await Promise.all([loadShopCounts(shopId), shopBoardFacts(shopId, user), enabledFeatureKeysForShop(shopId)]);
-  return { counts, facts, features };
+  const [counts, facts, features, health] = await Promise.all([
+    loadShopCounts(shopId),
+    shopBoardFacts(shopId, user),
+    enabledFeatureKeysForShop(shopId),
+    healthBoardFlag(shopId),
+  ]);
+  return { counts, facts, features: health ? [...features, health] : features };
 }
 
 export interface StaffBoardData {

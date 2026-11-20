@@ -22,8 +22,10 @@ const createSchema = z.object({
   shopProductId: z.string().uuid(),
   /** Milli-units: 2 L/day is 2000. Keeps 0.5 steps exact. */
   quantityMilli: z.number().int().positive().max(100_000),
-  frequency: z.enum(["DAILY", "WEEKLY"]).default("DAILY"),
+  frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY"]).default("DAILY"),
   weekdays: z.array(z.number().int().min(1).max(7)).default([]),
+  /** MONTHLY: days of the month 1–28 (newspaper subscriptions). */
+  monthDays: z.array(z.number().int().min(1).max(28)).max(28).default([]),
   // TC-FLD-108: a real date, today or later (blank, "2026-02-31", text → 422; yesterday refused).
   startDate: todayOrLaterDateSchema,
   endDate: isoDateSchema.nullish(),
@@ -42,6 +44,7 @@ export const POST = route(async (request: NextRequest) => {
     quantityMilli: body.quantityMilli,
     frequency: body.frequency,
     weekdays: body.weekdays,
+    monthDays: body.monthDays,
     startDate: body.startDate,
     endDate: body.endDate ?? null,
     addressId: body.addressId ?? null,

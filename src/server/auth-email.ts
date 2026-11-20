@@ -60,6 +60,7 @@ export function emailProvider(): EmailConfig | null {
         console.info(`[auth] magic link for ${identifier}: ${url}`);
         return;
       }
+      // A sign-in link: never readdressed by EMAIL_REDIRECT_TO (server/email/transport.ts).
       const { createTransport } = await import("nodemailer");
       const result = await createTransport(env.AUTH_EMAIL_SERVER).sendMail({
         to: identifier,

@@ -497,7 +497,13 @@ qa("SD-06", "one registration flow: a shop owner gets the step-by-step wizard at
   try {
     for (const url of ["/shop/register", "/shop/register?form=1"]) {
       await page.goto(url);
-      await expect(page.getByTestId("registration-tiles")).toBeVisible();
+      // An owner with a shop still waiting for approval cannot start another one ("you can add another
+      // shop after that") — the wizard is rightly not offered, so the precondition is missing, not the feature.
+      const tiles = page.getByTestId("registration-tiles");
+      const waiting = page.getByRole("status").filter({ hasText: /is already waiting for approval/ });
+      await expect(tiles.or(waiting).first()).toBeVisible();
+      if (await waiting.isVisible()) blocked(`the staging shop owner has a shop waiting for approval ("${(await waiting.innerText()).slice(0, 90)}…"); the wizard opens once it is reviewed`);
+      await expect(tiles).toBeVisible();
       await expect(page.getByText("Tell us about your shop, clinic or office.", { exact: false })).toHaveCount(0);
     }
     shots.push(await shot(page, "sd06-one-flow-shop-owner-wizard-390.png"));

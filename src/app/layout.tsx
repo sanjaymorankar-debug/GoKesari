@@ -27,7 +27,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "GoKesari — Everything for Everyone",
+    default: "GoKesari — Everything for Everyone, Everywhere",
     template: "%s · GoKesari",
   },
   description:
@@ -151,6 +151,8 @@ export default async function RootLayout({
             android: parseStoreLink(process.env.MOBILE_APP_ANDROID_URL, "android"),
             ios: parseStoreLink(process.env.MOBILE_APP_IOS_URL, "ios"),
           }}
+          shoppingNav={homeDiscovery.enabled}
+          cartBar={cartCount > 0 && Boolean(user)}
         />
         <AppUpdatePrompt lang={lang} />
         {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} /> : null}

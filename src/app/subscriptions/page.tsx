@@ -18,6 +18,7 @@ import { TomorrowDeliveryCard } from "@/components/tomorrow-delivery-card";
 import { formatDisplayDate } from "@/lib/dates";
 import { MILLI_PER_UNIT, lineTotalPaise } from "@/lib/money";
 import { subscriptionStatusLabel, subscriptionStatusTone } from "@/lib/subscription-status-view";
+import { scheduleLabel } from "@/lib/periodicals";
 import { getCurrentUser } from "@/server/authz/guards";
 import {
   getWalletForecast,
@@ -47,8 +48,13 @@ function cutoffLabel(hour: number): string {
 export const metadata = { title: "My Subscriptions" };
 export const dynamic = "force-dynamic";
 
-export default async function SubscriptionsPage() {
+export default async function SubscriptionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ added?: string }>;
+}) {
   const user = await getCurrentUser();
+  const { added } = await searchParams;
   if (!user) redirect("/signin");
   const lang = await getBoardLang();
 
@@ -69,8 +75,25 @@ export default async function SubscriptionsPage() {
       <PageHeader
         title="My Subscriptions"
         description="Recurring deliveries paid from your wallet."
-        action={<LinkButton href="/category/DAIRY">Browse products</LinkButton>}
+        action={
+          <div className="flex flex-wrap gap-2">
+            {/* docs/newspaper-subscriptions-2026-11 */}
+            <LinkButton href="/subscriptions/newspapers" variant="secondary">
+              Newspapers &amp; magazines
+            </LinkButton>
+            <LinkButton href="/category/DAIRY">Browse products</LinkButton>
+          </div>
+        }
       />
+
+      {added === "newspapers" ? (
+        <div className="mb-6" data-testid="newspapers-added">
+          <Alert tone="success" title="Your newspaper subscriptions are set up">
+            The vendor has been told and deliveries start on the date you chose. Each copy is paid from your wallet on its
+            delivery day.
+          </Alert>
+        </div>
+      ) : null}
 
       {tomorrow ? (
         <div id="tomorrow" className="mb-6 scroll-mt-20">
@@ -132,7 +155,7 @@ export default async function SubscriptionsPage() {
                   <Badge tone={subscriptionStatusTone(s.status)}>
                     {subscriptionStatusLabel(s.status, s.renewalReason)}
                   </Badge>
-                  <Badge>{s.frequency.toLowerCase()}</Badge>
+                  <Badge>{s.frequency === "MONTHLY" ? scheduleLabel(s) : s.frequency.toLowerCase()}</Badge>
                 </div>
 
                 <h2 className="text-lg font-semibold text-ink-900">
@@ -141,7 +164,7 @@ export default async function SubscriptionsPage() {
                 <p className="text-sm text-ink-500">from {s.shopName}</p>
 
                 <p className="mt-3 text-2xl font-bold text-ink-900">
-                  {s.quantityMilli / MILLI_PER_UNIT} {s.unit}
+                  {s.quantityMilli / MILLI_PER_UNIT} {s.isPeriodical ? (s.quantityMilli === MILLI_PER_UNIT ? "copy" : "copies") : s.unit}
                   <span className="text-sm font-normal text-ink-500">
                     {" "}
                     / delivery

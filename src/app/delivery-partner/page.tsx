@@ -47,6 +47,18 @@ const STATUS_MESSAGE: Record<string, string> = {
 };
 
 /**
+ * D-140: one clear status with the next step first. An approved partner who still has checks to
+ * pass before going Active hears that, not just "approved" above a list of checks not started.
+ */
+function statusMessage(status: string, gate: { allowed: boolean; missing: string[] }): string | undefined {
+  if (status === "APPROVED" && !gate.allowed && gate.missing.length > 0) {
+    const n = gate.missing.length;
+    return `You're approved — finish ${n === 1 ? "1 more check" : `${n} more checks`} below to start delivering: ${gate.missing.join("; ")}.`;
+  }
+  return STATUS_MESSAGE[status];
+}
+
+/**
  * Self-service status page — a minimal complement to registration (Slice B).
  * The fuller dashboard (deliveries, earnings, online toggle) is Slice C,
  * once there's an assignment/earnings system for it to show.
@@ -105,7 +117,7 @@ export default async function DeliveryPartnerStatusPage() {
         <div className="mb-3 flex items-center gap-2">
           <StatusBadge status={partner.status} />
         </div>
-        <p className="text-sm text-ink-700">{STATUS_MESSAGE[partner.status]}</p>
+        <p className="text-sm text-ink-700">{statusMessage(partner.status, gate)}</p>
 
         {partner.status === "REJECTED" && partner.rejectionReason ? (
           <div className="mt-3">

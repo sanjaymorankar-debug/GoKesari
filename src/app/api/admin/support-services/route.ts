@@ -40,16 +40,18 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("refund"), requestId: z.string().uuid(), amountPaise: z.number().int(), reason: z.string().max(300) }),
 ]);
 
+// Who is calling comes first: a guest gets 401 and a non-staff caller 403 whether or not the
+// feature is on, before its setting is read (D-150).
 export const GET = route(async () => {
-  await requireOn();
   await requireRole("ADMIN", "OPERATOR");
+  await requireOn();
   const [charges, settings, report] = await Promise.all([listCharges(), getSupportSettings(), supportServicesReport()]);
   return ok({ charges, settings, ...report });
 });
 
 export const POST = route(async (request: NextRequest) => {
-  await requireOn();
   const admin = await requireRole("ADMIN");
+  await requireOn();
   const body = await parseBody(request, schema);
   if (body.action === "saveCharge") return ok({ charge: await saveCharge(body.serviceKey, body.charge, body.reason, admin) });
   if (body.action === "settings") return ok({ settings: await saveSupportSettings(body.patch, body.reason, admin) });

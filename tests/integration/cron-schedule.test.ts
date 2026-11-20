@@ -32,8 +32,12 @@ describe("schedule", () => {
     expect([...names(EVERY_MINUTE), ...names(HOURLY), ...names(DAILY)].sort()).toEqual(
       [
         "aftercare", "auth-housekeeping", "bill-captures", "billing-daily", "broadcast-dispatch", "daily-orders", "dealer-monthly-payout", "dispute-escalation",
+        // Consultant appointments (20 Nov 2026): times held for a payment that never came are released.
+        "consult-holds",
         // docs/referrals-dealer-2026-11: TIERED lapses (daily) and dealer payout retries (hourly).
         "dealer-tiered-daily", "dealer-payout-retries",
+        // 0151 territory dealers (20 Nov 2026): expiry, release, renewal reminders and ratings (daily).
+        "dealer-territory-daily",
         // Owner, 5 Nov 2026: dealer team reports (daily, and weekly on Mondays).
         "dealer-team-report-daily", "dealer-team-report-weekly",
         "document-emails", "finance-weekly", "gst-reminders", "integration-sync", "notification-retry", "operator-onboarding",
@@ -44,9 +48,9 @@ describe("schedule", () => {
   });
 
   it("keeps each every-minute job at its own cadence", () => {
-    const always = ["timeout-sweep", "notification-retry", "broadcast-dispatch", "integration-sync", "pmd-ingest"];
+    const always = ["timeout-sweep", "consult-holds", "notification-retry", "broadcast-dispatch", "integration-sync", "pmd-ingest"];
     expect(names(dueEveryMinute(at(7)))).toEqual(always);
-    expect(names(dueEveryMinute(at(5)))).toEqual([...always.slice(0, 4), "payments-reconcile", "operator-onboarding", "document-emails", "pmd-ingest"]);
+    expect(names(dueEveryMinute(at(5)))).toEqual([...always.slice(0, 5), "payments-reconcile", "operator-onboarding", "document-emails", "pmd-ingest"]);
     expect(names(dueEveryMinute(at(10)))).toContain("bill-captures");
     expect(names(dueEveryMinute(at(5)))).not.toContain("bill-captures");
     expect(names(dueEveryMinute(at(45)))).toContain("push-receipts");
@@ -55,8 +59,8 @@ describe("schedule", () => {
   });
 
   it("runs the finance week on Mondays only; the payout cycle every day (it acts on Saturdays)", () => {
-    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "dealer-team-report-weekly", "purchase-list-reminders", "shop-document-follow-up", "billing-daily"]); // Monday
-    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "purchase-list-reminders", "shop-document-follow-up", "billing-daily"]); // Saturday
+    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "dealer-team-report-weekly", "purchase-list-reminders", "shop-document-follow-up", "billing-daily"]); // Monday
+    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "purchase-list-reminders", "shop-document-follow-up", "billing-daily"]); // Saturday
   });
 });
 

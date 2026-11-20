@@ -1,0 +1,625 @@
+{
+ "date": "2026-11-20",
+ "note": "Consultant appointments (docs/consult-booking-2026-11), owner brief 20-Nov-2026 09.37 IST.",
+ "features": [
+  {
+   "id": "CON-A1",
+   "module": "Consultant appointments",
+   "feature": "Consultant / Professional Firm seller type",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-A2",
+   "module": "Consultant appointments",
+   "feature": "Admin-managed consultant categories",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-A3",
+   "module": "Consultant appointments",
+   "feature": "Mandatory registration by category + verification",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-A4",
+   "module": "Consultant appointments",
+   "feature": "Consultant profile, services, office pin, policy",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-A5",
+   "module": "Consultant appointments",
+   "feature": "Firm with team members and calendars",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-B1",
+   "module": "Consultant appointments",
+   "feature": "Weekly hours, several sessions a day",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-B4",
+   "module": "Consultant appointments",
+   "feature": "UTC storage, IST display",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-B5",
+   "module": "Consultant appointments",
+   "feature": "No double booking (exclusion constraint, locks, 10-minute hold)",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-C1",
+   "module": "Consultant appointments",
+   "feature": "Find a Consultant search",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-C2",
+   "module": "Consultant appointments",
+   "feature": "Nearby with distance, map, directions",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-C3",
+   "module": "Consultant appointments",
+   "feature": "Booking flow",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-C4",
+   "module": "Consultant appointments",
+   "feature": "Individual appointment",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-C5",
+   "module": "Consultant appointments",
+   "feature": "Team booking",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-C6",
+   "module": "Consultant appointments",
+   "feature": "Group booking",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-C7",
+   "module": "Consultant appointments",
+   "feature": "Reschedule, cancel, history, reminders",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-D2",
+   "module": "Consultant appointments",
+   "feature": "Online payment via the gateway",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-D3",
+   "module": "Consultant appointments",
+   "feature": "Pay at visit + receipt",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-D5",
+   "module": "Consultant appointments",
+   "feature": "Policy refunds",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-D6",
+   "module": "Consultant appointments",
+   "feature": "GST receipts / tax invoices",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-E1",
+   "module": "Consultant appointments",
+   "feature": "Day/week/month calendar",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-E2",
+   "module": "Consultant appointments",
+   "feature": "Consultant actions incl. completion code",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-E3",
+   "module": "Consultant appointments",
+   "feature": "Firm owner team view, reassignment",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-E4",
+   "module": "Consultant appointments",
+   "feature": "Agenda, earnings, utilisation",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-F1",
+   "module": "Consultant appointments",
+   "feature": "Event notifications",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-F2",
+   "module": "Consultant appointments",
+   "feature": "24 h / 1 h reminders",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-F3",
+   "module": "Consultant appointments",
+   "feature": "Disputes → help-desk ticket",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-G1",
+   "module": "Consultant appointments",
+   "feature": "Admin: categories, commission, policies, verification, bookings, reports",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-H1",
+   "module": "Consultant appointments",
+   "feature": "Tile Board entries",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-I1",
+   "module": "Consultant appointments",
+   "feature": "Privacy, consent, access logs, signed links",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  },
+  {
+   "id": "CON-M1",
+   "module": "Consultant appointments",
+   "feature": "Mobile apps",
+   "status": "Built 20-Nov-2026 (feat/consult-booking)"
+  }
+ ],
+ "scenarios": [
+  {
+   "id": "TS-CON-01",
+   "module": "Consultant appointments",
+   "title": "Find a Consultant and the public APIs",
+   "description": "Guests can search; everything private is refused."
+  },
+  {
+   "id": "TS-CON-02",
+   "module": "Consultant appointments",
+   "title": "Consultant onboarding and setup",
+   "description": "Profile, team, hours, services, certificates, publish."
+  },
+  {
+   "id": "TS-CON-03",
+   "module": "Consultant appointments",
+   "title": "Booking: individual, team, group, any member, no double booking",
+   "description": "Customer books; the database refuses a second booking of the same time."
+  },
+  {
+   "id": "TS-CON-04",
+   "module": "Consultant appointments",
+   "title": "Changes: cancel, reschedule, notices, disputes",
+   "description": "Policy refunds, reminders, help-desk tickets."
+  },
+  {
+   "id": "TS-CON-05",
+   "module": "Consultant appointments",
+   "title": "Consultant actions: pay at visit, receipts, completion code, calendar",
+   "description": "The consultant's side of a booking."
+  },
+  {
+   "id": "TS-CON-06",
+   "module": "Consultant appointments",
+   "title": "Online payment: hold, success, failure",
+   "description": "Gateway payment with the 10-minute hold."
+  },
+  {
+   "id": "TS-CON-07",
+   "module": "Consultant appointments",
+   "title": "Admin and operator",
+   "description": "Categories, commission, verification, bookings, reports, permissions."
+  },
+  {
+   "id": "TS-CON-08",
+   "module": "Consultant appointments",
+   "title": "Navigation and apps",
+   "description": "Tile Board entries and the mobile apps."
+  }
+ ],
+ "cases": [
+  {
+   "id": "TC-CON-001",
+   "scenario": "TS-CON-01",
+   "module": "Consultant appointments",
+   "features": "CON-C1",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Guest",
+   "method": "UI",
+   "title": "Find a Consultant opens for a guest; 'coming soon' while the module is off",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). (or off, for the second check)",
+   "steps": "1. Open /consult as a guest\n2. Switch the rule off and open /consult again",
+   "expected": "On: the search box, category list, 'Near me' and consultant cards (name, modes, fee, next free time) show without sideways scroll on a phone. Off: a 'Coming soon' note, no error page."
+  },
+  {
+   "id": "TC-CON-002",
+   "scenario": "TS-CON-01",
+   "module": "Consultant appointments",
+   "features": "CON-C1",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Guest",
+   "method": "API",
+   "title": "Public consultant search answers with results (or 'not available' while off)",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. GET /api/consult/search\n2. GET /api/consult/search?category=general-physician&mode=VIDEO&maxFee=500",
+   "expected": "200 with {results: [...], radiusKm}; each result has name, slug, modes, fee range, rating, next free time. Off: 404 FEATURE_NOT_AVAILABLE."
+  },
+  {
+   "id": "TC-CON-003",
+   "scenario": "TS-CON-01",
+   "module": "Consultant appointments",
+   "features": "CON-I1",
+   "type": "Negative",
+   "priority": "P0",
+   "role": "Guest",
+   "method": "API",
+   "title": "A guest cannot book, see bookings, use the consultant or admin APIs",
+   "preconditions": "—",
+   "steps": "1. POST /api/consult/bookings with an empty body\n2. GET /api/consult/bookings\n3. GET and POST /api/consult/firm/<any id>\n4. GET /api/admin/consult",
+   "expected": "Every call answers 401 before reading the request; nothing is created."
+  },
+  {
+   "id": "TC-CON-004",
+   "scenario": "TS-CON-01",
+   "module": "Consultant appointments",
+   "features": "CON-I1",
+   "type": "Negative",
+   "priority": "P0",
+   "role": "Guest",
+   "method": "API",
+   "title": "A private file link without a session or with a bad signature is refused",
+   "preconditions": "—",
+   "steps": "1. GET /api/consult/files/booking/<id>?exp=…&sig=bad without a session",
+   "expected": "401 (no session); with a session and a wrong or expired signature: 403. No file bytes."
+  },
+  {
+   "id": "TC-CON-005",
+   "scenario": "TS-CON-02",
+   "module": "Consultant appointments",
+   "features": "CON-A1, CON-A4, CON-A5, CON-B1",
+   "type": "Positive",
+   "priority": "P0",
+   "role": "Shop Owner",
+   "method": "API",
+   "title": "A consultant sets up a booking profile, team member, hours and a service, and publishes",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). An approved shop with a map pin.",
+   "steps": "1. POST /api/consult/firm/<shop> {action:create}\n2. profile (name, headline, notice 0)\n3. hours for the owner member\n4. service (free, 15 min, in person)\n5. publish",
+   "expected": "Profile LIVE; GET ?view=setup shows no remaining problems; the consultant appears in /api/consult/search by name."
+  },
+  {
+   "id": "TC-CON-006",
+   "scenario": "TS-CON-02",
+   "module": "Consultant appointments",
+   "features": "CON-A3",
+   "type": "Negative",
+   "priority": "P0",
+   "role": "Shop Owner",
+   "method": "API",
+   "title": "A doctor cannot publish without the council registration certificate",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. Put the member in category General Physician\n2. Publish",
+   "expected": "409 naming the missing registration certificate; after uploading a PDF the profile publishes with verification PENDING."
+  },
+  {
+   "id": "TC-CON-007",
+   "scenario": "TS-CON-03",
+   "module": "Consultant appointments",
+   "features": "CON-C3, CON-C4, CON-B4",
+   "type": "Positive",
+   "priority": "P0",
+   "role": "Customer",
+   "method": "API",
+   "title": "A customer books a free appointment at a free time; it is confirmed at once",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). A live consultant (TC-CON-005).",
+   "steps": "1. GET /api/consult/availability?serviceId=…\n2. POST /api/consult/bookings with the first free start, visitor name, consent",
+   "expected": "201; status CONFIRMED, booking number CBYYMM-NNNNNN; the time no longer appears in availability; times shown in IST."
+  },
+  {
+   "id": "TC-CON-008",
+   "scenario": "TS-CON-03",
+   "module": "Consultant appointments",
+   "features": "CON-B5",
+   "type": "Negative",
+   "priority": "P0",
+   "role": "Customer",
+   "method": "API",
+   "title": "Two customers cannot take the same time, even at the same moment",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. Customer 1 and customer 2 POST /api/consult/bookings for the same member and start at once",
+   "expected": "Exactly one 201; the other 409 'That time was just taken'."
+  },
+  {
+   "id": "TC-CON-009",
+   "scenario": "TS-CON-03",
+   "module": "Consultant appointments",
+   "features": "CON-I1",
+   "type": "Negative",
+   "priority": "P0",
+   "role": "Customer",
+   "method": "API",
+   "title": "Another customer cannot see or act on someone's booking",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). A booking of customer 1.",
+   "steps": "1. As customer 2: GET /api/consult/bookings/<id>\n2. POST {action:cancel}",
+   "expected": "404 for both; the booking is unchanged."
+  },
+  {
+   "id": "TC-CON-010",
+   "scenario": "TS-CON-04",
+   "module": "Consultant appointments",
+   "features": "CON-C7, CON-D5",
+   "type": "Positive",
+   "priority": "P0",
+   "role": "Customer",
+   "method": "API",
+   "title": "The customer cancels before the free-cancellation time; the time is free again",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. POST /api/consult/bookings/<id> {action:cancel}\n2. GET availability",
+   "expected": "CANCELLED by CUSTOMER; full refund of anything paid online; the time is offered again; both sides notified."
+  },
+  {
+   "id": "TC-CON-011",
+   "scenario": "TS-CON-04",
+   "module": "Consultant appointments",
+   "features": "CON-C7",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Customer",
+   "method": "API",
+   "title": "The customer moves a booking within the policy; the limit is enforced",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. reschedule to another free time\n2. repeat beyond max reschedules",
+   "expected": "First moves succeed (reschedule count +1, reminders moved); beyond the limit 409 with the policy reason."
+  },
+  {
+   "id": "TC-CON-012",
+   "scenario": "TS-CON-05",
+   "module": "Consultant appointments",
+   "features": "CON-D3, CON-D6",
+   "type": "Positive",
+   "priority": "P0",
+   "role": "Shop Owner",
+   "method": "API",
+   "title": "Pay at visit: the consultant records the payment and a receipt is issued",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). A fixed-fee booking with 'pay at the visit'.",
+   "steps": "1. As the consultant POST {action:paid, method:UPI}\n2. Open the receipt",
+   "expected": "Payment status PAID, paid at visit = fee, receipt number GKC/<FY>/NNNNNN; receipt shows the firm, customer, service and amounts (tax invoice when the firm is GST-registered)."
+  },
+  {
+   "id": "TC-CON-013",
+   "scenario": "TS-CON-05",
+   "module": "Consultant appointments",
+   "features": "CON-E2",
+   "type": "Positive",
+   "priority": "P0",
+   "role": "Shop Owner",
+   "method": "API",
+   "title": "Completion needs the customer's 4-digit code; a wrong code is refused",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). A confirmed in-person booking starting within 15 minutes.",
+   "steps": "1. complete with a wrong code\n2. customer reads the code on the booking\n3. complete with that code",
+   "expected": "Wrong code: 422 with tries left; right code: COMPLETED; settlement lines written; the customer can rate it."
+  },
+  {
+   "id": "TC-CON-014",
+   "scenario": "TS-CON-05",
+   "module": "Consultant appointments",
+   "features": "CON-E1, CON-E3, CON-E4",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Shop Owner",
+   "method": "API",
+   "title": "The consultant's calendar and dashboard show the booking",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. GET /api/consult/firm/<shop>?view=calendar&from=<today>&to=<+7>\n2. ?view=dashboard",
+   "expected": "The booking is listed with visitor, service, status and its member; dashboard has upcoming count, earnings and utilisation."
+  },
+  {
+   "id": "TC-CON-015",
+   "scenario": "TS-CON-06",
+   "module": "Consultant appointments",
+   "features": "CON-D2",
+   "type": "Positive",
+   "priority": "P0",
+   "role": "Customer",
+   "method": "UI",
+   "title": "Online payment holds the time and confirms the booking on success (sandbox on the test site)",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). Test site with the sandbox gateway.",
+   "steps": "1. Book a fixed-fee service paying online\n2. On the sandbox page press Pay (success)",
+   "expected": "While paying the booking is PENDING_PAYMENT with a 10-minute hold; after success CONFIRMED, PAID, receipt issued; the customer lands on the booking page."
+  },
+  {
+   "id": "TC-CON-016",
+   "scenario": "TS-CON-06",
+   "module": "Consultant appointments",
+   "features": "CON-D2",
+   "type": "Negative",
+   "priority": "P0",
+   "role": "Customer",
+   "method": "UI",
+   "title": "A failed online payment frees the time",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). Sandbox gateway.",
+   "steps": "1. Book paying online\n2. Press Fail on the sandbox page",
+   "expected": "Booking EXPIRED with payment FAILED; the time is offered again; the customer is told."
+  },
+  {
+   "id": "TC-CON-017",
+   "scenario": "TS-CON-07",
+   "module": "Consultant appointments",
+   "features": "CON-G1",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Admin",
+   "method": "API",
+   "title": "Admin sees every booking, reports, categories and policy templates",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. GET /api/admin/consult?view=bookings\n2. ?view=report\n3. ?view=categories\n4. ?view=templates",
+   "expected": "200 each: bookings with filters; report totals, by category, area and day; 28 seeded categories with commission and required registration; Standard/Flexible/Strict templates."
+  },
+  {
+   "id": "TC-CON-018",
+   "scenario": "TS-CON-07",
+   "module": "Consultant appointments",
+   "features": "CON-G1, CON-I1",
+   "type": "Negative",
+   "priority": "P0",
+   "role": "Customer",
+   "method": "API",
+   "title": "Customers and shop owners are refused the consultant admin API",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. As a customer and as a shop owner: GET and POST /api/admin/consult",
+   "expected": "403 for both."
+  },
+  {
+   "id": "TC-CON-019",
+   "scenario": "TS-CON-07",
+   "module": "Consultant appointments",
+   "features": "CON-A2",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Admin",
+   "method": "UI",
+   "title": "Admin adds and edits a category with its commission and required registration",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. Admin → Shops → Consultants → Categories → Add\n2. Set commission 5% and registration RCI",
+   "expected": "Saved; listed with 5% and RCI; a booking in that category uses 5% commission."
+  },
+  {
+   "id": "TC-CON-020",
+   "scenario": "TS-CON-08",
+   "module": "Consultant appointments",
+   "features": "CON-H1",
+   "type": "Positive",
+   "priority": "P2",
+   "role": "All roles",
+   "method": "UI",
+   "title": "Each role has its entry on the Tile Board",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. Customer: Shops → Consultants, Orders → Appointments\n2. Shop owner: Orders → Appointments\n3. Admin and operator: Shops → Consultants\n4. Operator-limited: My shops → Consultant setup",
+   "expected": "Each entry opens its page; every menu still fits the one-screen rule."
+  },
+  {
+   "id": "TC-CON-021",
+   "scenario": "TS-CON-03",
+   "module": "Consultant appointments",
+   "features": "CON-C2",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Customer",
+   "method": "API",
+   "title": "Near me: results are nearest first with distance and directions",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. GET /api/consult/search?lat=<customer>&lng=<…>&radiusKm=25",
+   "expected": "Results ordered by distance; each has distance text and a Google Maps directions link; a far location returns none."
+  },
+  {
+   "id": "TC-CON-022",
+   "scenario": "TS-CON-03",
+   "module": "Consultant appointments",
+   "features": "CON-C6",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Customer",
+   "method": "API",
+   "title": "A group session takes several people up to its capacity",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). A GROUP service with capacity 3.",
+   "steps": "1. Book 2 places\n2. Another customer books 1\n3. A third tries 1",
+   "expected": "First two succeed (fee × people); the third gets 409; availability shows places left."
+  },
+  {
+   "id": "TC-CON-023",
+   "scenario": "TS-CON-03",
+   "module": "Consultant appointments",
+   "features": "CON-C5",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Customer",
+   "method": "API",
+   "title": "Team appointment books two consultants together; 'any available' picks a free member",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). A firm with two members.",
+   "steps": "1. Book the TEAM service\n2. Book 'any available' at a time one member is busy",
+   "expected": "Team booking holds both members; 'any available' assigns the free member."
+  },
+  {
+   "id": "TC-CON-024",
+   "scenario": "TS-CON-04",
+   "module": "Consultant appointments",
+   "features": "CON-F1, CON-F2",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Customer",
+   "method": "API",
+   "title": "Booking notices go to both sides at once; reminders are scheduled 24 h and 1 h before",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. Book\n2. Read the customer's and owner's notifications",
+   "expected": "Both get an 'Appointments' notification immediately; two reminder notices are scheduled (scheduled_notices CONSULT_REMINDER)."
+  },
+  {
+   "id": "TC-CON-025",
+   "scenario": "TS-CON-04",
+   "module": "Consultant appointments",
+   "features": "CON-F3",
+   "type": "Positive",
+   "priority": "P1",
+   "role": "Customer",
+   "method": "API",
+   "title": "Report a problem opens a help-desk ticket linked to the consultant",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. POST {action:dispute, reason}",
+   "expected": "A ticket in category 'An appointment booking', priority High, linked to the firm; a second dispute is refused."
+  },
+  {
+   "id": "TC-CON-026",
+   "scenario": "TS-CON-08",
+   "module": "Consultant appointments",
+   "features": "CON-M1",
+   "type": "Positive",
+   "priority": "P2",
+   "role": "Customer",
+   "method": "UI",
+   "title": "The apps show the module; /consult opens in the Android app",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+   "steps": "1. In the GoKesari app open Shops → Consultants and book\n2. Tap a /consult link outside the app (Android 1.9.0)",
+   "expected": "Booking works inside the app; a booking push opens its page; the link opens the app (Android 1.9.0+)."
+  }
+ ],
+ "e2e": [
+  {
+   "id": "SC-50",
+   "title": "Book a consultant, pay at the visit, complete with the code",
+   "features": "CON-C3, CON-D3, CON-E2",
+   "priority": "P0",
+   "journey": "Consultant publishes → customer finds and books (pay at visit) → consultant records payment → completes with the customer's code → customer rates",
+   "expected": "Booking CONFIRMED → PAID (receipt) → COMPLETED; commission line in the next payout; rating on the profile.",
+   "origin": "Added",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings)."
+  },
+  {
+   "id": "SC-51",
+   "title": "Book online, cancel, refund",
+   "features": "CON-D2, CON-D5, CON-C7",
+   "priority": "P0",
+   "journey": "Customer books paying online (sandbox) → cancels before the free-cancellation time",
+   "expected": "Hold → CONFIRMED/PAID → CANCELLED with a full refund in progress; the time is free again.",
+   "origin": "Added",
+   "preconditions": "Rule consultBooking switched on (Admin → Settings). Sandbox gateway."
+  }
+ ],
+ "overrides": []
+}

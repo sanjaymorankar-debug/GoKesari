@@ -24,7 +24,8 @@ export type FeatureFlagKey =
   | "tally_connector"
   | "zoho_connector"
   | "odoo_connector"
-  | "ondc_mode";
+  | "ondc_mode"
+  | "shop_welcome_kit_admin_send_enabled";
 
 interface FlagValue {
   enabled: boolean;

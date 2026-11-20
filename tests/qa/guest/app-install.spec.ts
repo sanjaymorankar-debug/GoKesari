@@ -131,7 +131,8 @@ qa(["TC-APP-007", "TC-APP-013"], "iPhone: Add to Home Screen guide, and the whol
     await expect(guide.getByRole("listitem")).toHaveText([/Tap Share/, /Add to Home Screen/, /Tap Add/]);
     const fit = await page.evaluate(() => {
       const box = document.querySelector("[data-testid=app-install-prompt]")!.getBoundingClientRect();
-      const buttons = [...document.querySelectorAll<HTMLElement>("[data-testid=app-install-prompt] button")].map((b) => b.getBoundingClientRect().height);
+      // Buttons shown at this size only: the corner close button is a wide-screen one.
+      const buttons = [...document.querySelectorAll<HTMLElement>("[data-testid=app-install-prompt] button")].map((b) => b.getBoundingClientRect().height).filter((h) => h > 0);
       return { top: box.top, bottom: box.bottom, vh: window.innerHeight, sideways: document.documentElement.scrollWidth > window.innerWidth, minButton: Math.min(...buttons) };
     });
     expect(fit.top, "sheet starts on screen").toBeGreaterThanOrEqual(0);

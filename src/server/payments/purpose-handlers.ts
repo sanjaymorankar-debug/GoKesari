@@ -35,5 +35,19 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   /* >>> dealer programme (docs/dealer-programme, step 7) */
   // A support-service request paid online: marked paid in the capture transaction; its ticket opens after commit.
   SUPPORT_SERVICE: async (intent, client, afterCommit) => (await import("@/server/services/support-services")).onSupportServicePaymentCaptured(intent, client as never, afterCommit),
+  // 0151 territory dealers: a territory's yearly fee paid online — the territory is paid up in the capture transaction.
+  TERRITORY_FEE: async (intent, client, afterCommit) => (await import("@/server/dealers/territory")).onTerritoryFeeCaptured(intent, client, afterCommit),
   /* <<< end dealer programme */
+  //
+  /* >>> consultant appointments (docs/consult-booking-2026-11) */
+  // A booking's fee or advance (or its balance) paid online: the booking is confirmed in the capture transaction.
+  CONSULT_BOOKING: async (intent, client, afterCommit) => (await import("@/server/consult/payments")).onConsultPaymentCaptured(intent, client, afterCommit),
+  /* <<< consultant appointments */
+  //
+  /* >>> GoKesari Health (docs/health/) */
+  // A medicines order from a forwarded prescription, an equipment rental (rent + deposit + delivery, or an extension), a Prime plan.
+  HEALTH_RX_ORDER: async (intent, client, afterCommit) => (await import("@/server/health/rx-orders")).onRxOrderPaymentCaptured(intent, client, afterCommit),
+  HEALTH_RENTAL: async (intent, client, afterCommit) => (await import("@/server/health/rentals")).onRentalPaymentCaptured(intent, client, afterCommit),
+  HEALTH_PRIME: async (intent, client, afterCommit) => (await import("@/server/health/prime")).onPrimePaymentCaptured(intent, client, afterCommit),
+  /* <<< GoKesari Health */
 };

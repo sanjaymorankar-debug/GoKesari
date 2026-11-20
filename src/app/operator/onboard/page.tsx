@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { OnboardWizard } from "@/components/batch-d/onboard-wizard";
 import { PageHeader } from "@/components/ui";
 import { maskEmailAddress } from "@/lib/contact";
+import { operatorPortalFallback } from "@/lib/operator-portal";
 import { listShopTypes } from "@/server/services/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function OnboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_ONBOARD)) redirect("/");
+  if (!can(user.role, PERMISSIONS.OPERATOR_LIMITED_ONBOARD)) redirect(operatorPortalFallback(user.role, "/admin/shop-registrations"));
   const params = await searchParams;
   const [open, categories] = await Promise.all([listOpenOnboardings(user), listShopCategories({ activeOnly: true })]);
   const resumeId = typeof params.resume === "string" ? params.resume : null;

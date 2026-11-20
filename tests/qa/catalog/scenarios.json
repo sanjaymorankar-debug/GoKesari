@@ -294,5 +294,155 @@
   "priority": "P1",
   "journey": "1. The agent signs the staging test accounts in with the emailed codes (owner's mailbox)\n2. It runs the signed-in tier on test.gokesari.com\n3. It collects the results and rebuilds the register",
   "expected": "A staging run with signed-in checks that passed (so the sessions worked), collected into docs/testing/qa-runs."
+ },
+ {
+  "id": "SC-38",
+  "title": "Identity-first shop registration to first sale",
+  "features": "DI-11, DI-12, DI-03, DI-13, PU",
+  "priority": "P0",
+  "journey": "1. New user opens /shop/register, verifies the GSTIN with consent\n2. Confirms owner / address, pins the shop on the map, fills shop details and turnover slab\n3. Reviews and pays the fee in the sandbox\n4. Sees the live screen and e-mail; downloads the product template\n5. Uploads 10 products (2 bad rows), fixes them\n6. Customer at the PIN finds the shop, orders, shop fulfils, rider delivers",
+  "expected": "Shop live immediately after payment; bad rows explained and the rest imported; only Live listings visible; the first order completes end to end.",
+  "preconditions": "New test user, a staging-verifiable GSTIN, Cashfree sandbox data, a customer at the shop's PIN.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-39",
+  "title": "PAN-only shop with a mandatory licence: grace, reminder, suspension",
+  "features": "DI-12, DI-14, KYC-SBX",
+  "priority": "P1",
+  "journey": "1. Register with PAN, declaration and consent; pick a food shop type\n2. Read the FSSAI 90-day grace notice; pay; shop goes live\n3. Receive the grace e-mail and a 15-day reminder\n4. Let the grace end; the follow-up run suspends the shop\n5. Customer opens the shop page",
+  "expected": "Go-live not blocked; e-mails sent with the right dates; automatic suspension with admin notice; customers see the shop is not taking orders.",
+  "preconditions": "New test user, a staging-verifiable PAN (may be Blocked by defect D2), food shop type; grace shortened with the developer.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-40",
+  "title": "Delivery partner: DigiLocker KYC to first withdrawal",
+  "features": "DIGILOCKER, BANK-SID, RPAY, TDS-194C",
+  "priority": "P0",
+  "journey": "1. Applicant verifies PAN and Aadhaar (DigiLocker mock); admin approves\n2. Rider delivers orders and earns\n3. Adds a bank account; Secure ID verifies it\n4. Withdraws ₹100 with the e-mailed code\n5. Monthly payout runs; TDS checked against the 194C limits",
+  "expected": "Aadhaar kept masked; withdrawal within limits paid by IMPS with no fee; monthly payout by NEFT; TDS only above the limits.",
+  "preconditions": "Rider payout flags ON on staging; DigiLocker mock; Cashfree sandbox bank data.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-41",
+  "title": "Dealer chain earns tiered commission on a new shop",
+  "features": "DLR-TIER, SREF-REQ",
+  "priority": "P1",
+  "journey": "1. Prospect requests a referral code; the agent shares his dealer code\n2. Shop registers with the code applied and pays the ₹4,999 slab\n3. Commission records for agent, lead and main dealer; the agent's dashboard updates live\n4. Payout on the 5th (“Close <Month YYYY> now”) with payee checks",
+  "expected": "₹999.80 / ₹199.96 / ₹149.97 (20 / 4 / 3 %) earned at activation; held where agreement, PAN or bank is missing; paid otherwise.",
+  "preconditions": "Dealer programme and tiered commission ON on staging; agent → lead → main dealer chain.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-45",
+  "title": "Dealer network month: targets, promotion, development bonus, reports, close and reversal",
+  "features": "DLR-TIER, DT-18, DT-19, DT-20, DT-21, DT-22, DT-23",
+  "priority": "P1",
+  "journey": "1. During the month shops activate under agents and leads; dashboards and team performance update\n2. Daily report next morning; weekly report on Monday\n3. An agent reaches 50 shops and 3 ready agents and is promoted\n4. A renewal is paid; one shop is refunded\n5. Month close on the 5th: bonuses, development check, one payout per person",
+  "expected": "Shares 20 / 4 / 3 %; target bonus only at 50+; development bonus only with 100+ team shops; renewal 10 / 2 / 1 %; refund reverses every level; one payout per person with gross / TDS / net.",
+  "preconditions": "TIERED chain on staging with seeded month data (developer); PR #417 on staging for the 3% parts.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-42",
+  "title": "New shop fills its shelf: starter shelf, barcode, Excel update",
+  "features": "PSU, SHELF, BARCODE, SETUP-XL, DELIV-SETUP",
+  "priority": "P0",
+  "journey": "1. Set how the shop delivers and its radius\n2. Publish the starter shelf\n3. Scan one known and one unknown barcode\n4. Update prices and stock with the Excel file (with some bad rows)\n5. Customer browses the shop",
+  "expected": "Listings Live with correct prices; unknown barcode sent for approval; bad Excel rows explained; customer sees only Live listings within the radius.",
+  "preconditions": "A newly live shop with one category; a phone with camera.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-43",
+  "title": "Shop day on Billing v2: POS, online orders, returns and GST",
+  "features": "BILL-V2",
+  "priority": "P1",
+  "journey": "1. Shop makes POS sales, some offline\n2. Online orders delivered; one partial return\n3. Purchases recorded\n4. Month-end: GSTR-1 / 3B prepared, 2B reconciled, Tally export",
+  "expected": "Bills numbered without gaps; credit note for the return; TCS / TDS correct; GSTR-1 / 3B prepared from the books (totals match the portal's after Save); 2B reconciled; the Tally export reads back unchanged.",
+  "preconditions": "billing_v2 and related flags ON for the test district (else Not Applicable).",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-46",
+  "title": "Assisted registration: a dealer registers a shop and the owner pays on their phone (planned WP7)",
+  "features": "WP7, WP6",
+  "priority": "P1",
+  "journey": "1. Dealer chooses Register for someone and enters the owner's mobile\n2. Owner gives consent by OTP or link\n3. Dealer fills the wizard on the owner's draft with his code locked\n4. Owner pays on their own phone by QR / UPI or the pay link\n5. Shop goes live; map pin and starter shelf done with the owner",
+  "expected": "Consent recorded; helper never pays; shop live after the owner's payment; dealer credited; every helper step audited.",
+  "preconditions": "Assisted mode on staging (R4).",
+  "origin": "Planned - R4, not built yet (20-Nov-2026)"
+ },
+ {
+  "id": "SC-47",
+  "title": "PAN-only owner registers on a phone in Marathi with scan and DigiLocker (planned WP8, WP10)",
+  "features": "WP8, WP10, WP6",
+  "priority": "P1",
+  "journey": "1. Owner switches to मरा and finds a dealer by PIN\n2. Scans the PAN card; status chip shows Checking… then the result\n3. Verifies identity with DigiLocker\n4. Pins the shop, pays the fee, goes live",
+  "expected": "Every screen in Marathi (English fallback, never blank); PAN read by scan; Aadhaar never stored; shop live after payment.",
+  "preconditions": "Wave 2 / 3 on staging; DigiLocker live or mock.",
+  "origin": "Planned - R4 / R5, not built yet (20-Nov-2026)"
+ },
+ {
+  "id": "SC-44",
+  "title": "Abandoned registration: reminders, dealer notice, restart",
+  "features": "ONB-REM",
+  "priority": "P2",
+  "journey": "1. Owner stops at the Address step\n2. Reminder after 24 h and again after 72 h idle; dealer told at 72 h\n3. After 7 days the draft is abandoned\n4. Owner opens /shop/register again",
+  "expected": "Reminders and dealer notice at the right times; restart at screen 1 after 7 days; no reminders once paid.",
+  "preconditions": "A registration started with a dealer code; time shortened with the developer on staging.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-48",
+  "title": "Territory dealer: territory, fee, rating, order income and payout",
+  "features": "DT-24, DT-25, DT-26, DT-27",
+  "priority": "P1",
+  "journey": "1. Admin gives the dealer a territory (exclusive pincodes, yearly fee)\n2. Dealer pays the fee online (sandbox) and the territory becomes Active\n3. Daily rating; customers order from shops in the territory; one goods refund\n4. The dealer's card shows this month's orders and income\n5. Month close: TERRITORY entry, one payout on the 5th with 'Territory order income'\n6. Rule switched off again",
+  "expected": "Pincodes held exclusively; Active only after the webhook; share 20-25% by rating; refunds netted; one payout with the territory line; nothing else changes while the rule is off.",
+  "preconditions": "Rule territoryDealer switched on for the test on staging; a TIERED test dealer; test shops in the test pincodes; sandbox payments; month close with the developer.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-49",
+  "title": "Team lead grows his team; the main dealer promotes an agent",
+  "features": "DT-28, DT-29, DT-20, DT-23",
+  "priority": "P2",
+  "journey": "1. Team lead adds an agent from /dealer; the main dealer is told\n2. The new agent signs shops with his own code (sandbox); commission waits until his account is linked and the agreement accepted\n3. An agent reaches 50 shops and 3 ready agents\n4. The main dealer promotes him from /dealer\n5. Month close with >= 100 shops from the new team",
+  "expected": "Agent added at once under the lead; 20 / 4 / 3 % on his shops; promotion only when eligible, recruits move with him; former lead's 1% development bonus only in months with >= 100 shops.",
+  "preconditions": "A TIERED chain main dealer > team lead > agent with linked accounts; promotion counts arranged with the developer on staging.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-50",
+  "title": "Book a consultant, pay at the visit, complete with the code",
+  "features": "CON-C3, CON-D3, CON-E2",
+  "priority": "P0",
+  "journey": "Consultant publishes → customer finds and books (pay at visit) → consultant records payment → completes with the customer's code → customer rates",
+  "expected": "Booking CONFIRMED → PAID (receipt) → COMPLETED; commission line in the next payout; rating on the profile.",
+  "preconditions": "Rule consultBooking switched on (Admin → Settings).",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-51",
+  "title": "Book online, cancel, refund",
+  "features": "CON-D2, CON-D5, CON-C7",
+  "priority": "P0",
+  "journey": "Customer books paying online (sandbox) → cancels before the free-cancellation time",
+  "expected": "Hold → CONFIRMED/PAID → CANCELLED with a full refund in progress; the time is free again.",
+  "preconditions": "Rule consultBooking switched on (Admin → Settings). Sandbox gateway.",
+  "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-WKIT-01",
+  "title": "New shop → paid → live → welcome kit e-mail → banner downloaded again → QR opens the shop",
+  "features": "WKIT-01",
+  "priority": "P0",
+  "journey": "1. A new owner registers a shop in the wizard and pays the fee (sandbox)\n2. The shop goes live\n3. The welcome e-mail arrives with both banners and print instructions\n4. The owner downloads the banners from Seller Central → Marketing\n5. The QR code on the banner opens the shop's page",
+  "expected": "One welcome e-mail with the English and the local-language banner (PDFs attached); the Marketing downloads match; the QR opens <site>/shops/<slug>.",
+  "preconditions": "PAYMENT_GATEWAY=SANDBOX; e-mail delivery configured.",
+  "origin": "Added 20-Nov-2026"
  }
 ]

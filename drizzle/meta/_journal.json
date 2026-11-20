@@ -1051,6 +1051,55 @@
       "when": 1793264700000,
       "tag": "0149_shop_product_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1793264800000,
+      "tag": "0150_dealer_main_override_3pct",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1793264900000,
+      "tag": "0151_territory_dealers",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1793265000000,
+      "tag": "0152_newspaper_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1793265100000,
+      "tag": "0153_consult_bookings",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1793265200000,
+      "tag": "0154_puja_samagri_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1793265300000,
+      "tag": "0155_puja_samagri_catalogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1793265400000,
+      "tag": "0156_health",
+      "breakpoints": true
     }
   ]
 }

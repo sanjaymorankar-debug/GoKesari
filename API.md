@@ -924,12 +924,21 @@ audited with the old value, the new value and the reason.
 | GET | `/api/admin/dealer-tiers?dealerId=` | ADMIN, OPERATOR | rule values, TDS rule, open sub-agent requests; with `dealerId`: team tree, earnings by type and level, TRADING progress |
 | POST | `/api/admin/dealer-tiers` | ADMIN | `{action}`: `setModel {dealerId, model: STANDARD\|TIERED, reason}` · `setRates {dealerId, directBp, leadOverrideBp, mainOverrideBp, reason}` (null = default) · `addMember {dealerId, employeeId, name, mobile?, role, parentId?}` · `placeMember {memberId, role, parentId, reason}` · `promote {memberId, reason, override?}` · `decideRequest {requestId, approve, note?}` · `payee {memberId, pan?, bankHolderName?, bankAccount?, ifsc?}` · `verifyBank {memberId, verified, reason}` · `linkAccount {memberId, email}` |
 | GET | `/api/dealer/team` | approved dealer or a linked team member | who I am in the network, the tree (main dealer, or a lead's own branch), my earnings by type and level, my shops' TRADING progress |
-| POST | `/api/dealer/team` | same | `acceptAgreement {version}` · `requestSubAgent {employeeId, name, mobile?, note?}` (members) · `addMember {…, role, parentId?}` (main dealer) · `payee {pan?, bankHolderName?, bankAccount?, ifsc?}` (members) |
+| POST | `/api/dealer/team` | same | `acceptAgreement {version}` · `requestSubAgent {employeeId, name, mobile?, note?}` (members) · `addMember {…, role, parentId?}` (main dealer; a team lead: an AGENT under himself, DT-28) · `promote {memberId}` (main dealer: an agent who meets the promotion rule, DT-29) · `payee {pan?, bankHolderName?, bankAccount?, ifsc?}` (members) |
 | POST | `/api/admin/dealer-commission` | ADMIN | `createPayout` now takes `memberId` (a team member's payout); `payoutPaid` is refused (409 `PAYEE_NOT_READY`) without the payee's PAN and a verified bank account |
 | GET | `/api/dealer/commission/statement?month=YYYY-MM` | dealer or team member | the payee's own statement (CSV) with a line per entry type and gross / TDS / net |
 | GET | `/api/admin/shop-referrals?status=` | ADMIN, OPERATOR | shop referrals with their outcome |
 | POST | `/api/admin/shop-referrals` | ADMIN | `{action: "reverse", id, reason}` — takes the reward back |
 | GET | `/r/{code}` | anyone | a shop code (`SHOP…`, rule on) redirects to `/shop/register?ref={code}`; a customer code as before |
+
+Territory dealers (0151, 20-Nov-2026, docs/dealer-programme/TERRITORY_DEALER.md; rule `territoryDealer`, off by default):
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/api/admin/dealer-territories` | ADMIN, OPERATOR | every territory (pincodes, fees, rating and share, this month so far, income worked out), the TIERED dealers that can be given one, the rule |
+| POST | `/api/admin/dealer-territories` | ADMIN | `{action}`: `create {dealerId, name, pincodes[], feePaise}` (409 when a pincode is held by another territory, or the dealer is not TIERED) · `pincodes {territoryId, add[], remove[], reason}` · `fee {territoryId, feePaise, reason}` · `recordPayment {territoryId, reference}` (fee paid offline) · `cancel {territoryId, reason}` · `rate {territoryId}` |
+| GET | `/api/dealer/territory` | approved dealer | my territories with the same detail |
+| POST | `/api/dealer/territory` | approved dealer (own territory) | `{territoryId}` → `{intentId, checkoutUrl}`: pays the open yearly fee online (purpose `TERRITORY_FEE`); paid up only when the gateway's signed webhook confirms it |
 
 Gap report additions (03-Nov-2026, docs/referrals-dealer-2026-11):
 

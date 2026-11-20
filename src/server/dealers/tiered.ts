@@ -18,8 +18,8 @@
  *                 least developmentMinShopsPerMonth shops (owner, 5 Nov 2026) —
  *                 settled when the month closes (accrueDevelopmentBonuses)
  *
- * A missing level is not paid and nobody earns twice on a shop (20 + 4 + 2 = 26%
- * at most, owner 5 Nov 2026). With tradingOrders 0 (the default since 5 Nov 2026)
+ * A missing level is not paid and nobody earns twice on a shop (20 + 4 + 3 = 27%
+ * at most; owner 5 Nov 2026, main dealer 3% since 20 Nov 2026). With tradingOrders 0 (the default since 5 Nov 2026)
  * everything is earned when the shop pays and is activated: the whole direct part
  * (DIRECT_1, firstPartBp 100%) and every override, straight after. With a trading
  * condition, firstPartBp of the direct part is earned at ACTIVATED; the rest
@@ -323,7 +323,7 @@ export async function mappingHistory(dealerId: string, memberId?: string): Promi
 
 /* ================================================================ ledger */
 
-interface EntryInput {
+export interface EntryInput {
   dealer: Dealer;
   payee: DealerSalesperson | null;
   shopId: string | null;
@@ -347,7 +347,7 @@ interface EntryInput {
  * Held ON_HOLD while the dealer is not approved, for the shop's documents, or
  * until the payee accepts the agent agreement. Call under the dealer lock.
  */
-async function writeEntry(tx: DbClient, input: EntryInput): Promise<DealerCommissionEntry[]> {
+export async function writeEntry(tx: DbClient, input: EntryInput): Promise<DealerCommissionEntry[]> {
   const [already] = await tx
     .select({ id: dealerCommissionLedger.id })
     .from(dealerCommissionLedger)
@@ -419,6 +419,7 @@ const ENTRY_WORDS: Record<CommissionEntryType, string> = {
   RENEWAL: "renewal commission",
   DEVELOPMENT: "development bonus",
   BONUS: "target bonus",
+  TERRITORY: "territory order income",
 };
 
 /* ============================================================= activation */
@@ -1378,11 +1379,29 @@ export async function promotionEligibility(client: DbClient, member: Pick<Dealer
 
 export async function promoteToTeamLead(memberId: string, input: { reason: string; override?: boolean }, actor: Actor): Promise<{ member: DealerSalesperson; movedAgents: number; developmentId: string | null }> {
   requireAdmin(actor, "promote team members");
+  return promoteMember(memberId, input, actor, null);
+}
+
+/**
+ * Owner, 20 Nov 2026 (DT-29): the main dealer promotes an agent of his own
+ * network to team lead from his dealer page — only once the agent meets the
+ * promotion rule (promotionMinShops shops, promotionMinAgents ready agents).
+ * Promoting earlier stays an admin's override.
+ */
+export async function dealerPromotesAgent(actor: Actor, memberId: string, reason: string): Promise<{ member: DealerSalesperson; movedAgents: number; developmentId: string | null }> {
+  const { getDealerForUser } = await import("./service");
+  const dealer = await getDealerForUser(actor.id);
+  if (!dealer || dealer.status !== "APPROVED") throw forbidden("Only the main dealer promotes an agent of his network.");
+  return promoteMember(memberId, { reason, override: false }, actor, dealer.id);
+}
+
+/** Promotes an agent (admin, or the main dealer of `ownDealerId` without an override). */
+async function promoteMember(memberId: string, input: { reason: string; override?: boolean }, actor: Actor, ownDealerId: string | null): Promise<{ member: DealerSalesperson; movedAgents: number; developmentId: string | null }> {
   const why = requireReason(input.reason);
   const rule = await tierRule();
   const result = await db.transaction(async (tx) => {
     const [before] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId)).for("update");
-    if (!before) throw notFound("Team member");
+    if (!before || (ownDealerId && before.dealerId !== ownDealerId)) throw notFound("Team member");
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, before.dealerId)).for("update");
     if (!dealer || dealer.commissionModel !== "TIERED") throw conflict("Promotion is part of the TIERED model: move the dealer to TIERED first.");
     if (before.teamRole !== "AGENT") throw conflict("Only an agent can be promoted to team lead.");
@@ -1390,7 +1409,7 @@ export async function promoteToTeamLead(memberId: string, input: { reason: strin
     const check = await promotionEligibility(tx, before, rule);
     if (!check.eligible && !input.override) {
       throw conflict(
-        `Not eligible yet: ${check.activatedShops} of ${check.minShops} activated shops, ${check.readyAgents} of ${check.minAgents} ready agents. An admin can promote anyway with an override and a reason.`,
+        `Not eligible yet: ${check.activatedShops} of ${check.minShops} activated shops, ${check.readyAgents} of ${check.minAgents} ready agents. ${ownDealerId ? "GoKesari can promote earlier on your request." : "An admin can promote anyway with an override and a reason."}`,
         { reason: "NOT_ELIGIBLE", activatedShops: check.activatedShops, readyAgents: check.readyAgents },
       );
     }
@@ -1495,6 +1514,33 @@ export async function requestSubAgent(actor: Actor, input: { employeeId: string;
     .returning();
   await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_TEAM_REQUEST, entityType: "dealer_team_request", entityId: row.id, newValue: { dealerId: me.dealer.id, requestedBy: me.member.id, employeeId, name, status: "PENDING" } });
   return { id: row.id };
+}
+
+/**
+ * Owner, 20 Nov 2026 (DT-28): a team lead adds an agent under himself
+ * directly — no admin approval. The agent gets his own code at once; the main
+ * dealer is told. Agents still ask (requestSubAgent). Never a 4th level, and
+ * nothing is paid for recruiting.
+ */
+export async function leadAddsAgent(actor: Actor, input: { employeeId: string; name: string; mobile?: string | null }): Promise<{ id: string; name: string; employeeId: string }> {
+  const me = await getMemberForUser(actor.id);
+  if (!me) throw forbidden("Only a member of a dealer team can add an agent.");
+  if (me.member.teamRole !== "TEAM_LEAD") throw forbidden("Only a team lead adds agents; an agent asks for a sub-agent instead.");
+  if (me.member.status !== "ACTIVE") throw forbidden("Your place in the team is not active.");
+  if (me.dealer.status !== "APPROVED") throw forbidden("Your dealer is not approved at present.");
+  if (!(await isTieredDealer(me.dealer))) throw conflict("Adding agents is part of the TIERED model.");
+  const { addSalesperson } = await import("./service");
+  const created = await addSalesperson(me.dealer.id, { employeeId: input.employeeId, name: input.name, mobile: input.mobile ?? null, role: "AGENT", parentId: me.member.id }, actor);
+  if (me.dealer.userId) {
+    await notify({
+      userId: me.dealer.userId,
+      type: NOTIFICATION_TYPES.DEALER_TEAM_CHANGED,
+      vars: { message: `${me.member.name} (team lead) added ${created.name} (${created.employeeId}) to his team as an agent.` },
+      actionUrl: "/dealer",
+      dedupeKey: `lead-added:${created.id}`,
+    }).catch((e) => console.error("[tiered] lead-added notice failed", created.id, e));
+  }
+  return { id: created.id, name: created.name, employeeId: created.employeeId };
 }
 
 export async function listTeamRequests(filter: { status?: "PENDING" | "ALL"; dealerId?: string } = {}) {

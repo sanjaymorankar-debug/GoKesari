@@ -124,10 +124,14 @@ export function entryHref(item: Pick<BoardItem, "auth"> & { href: string }, sign
   return item.auth && !signedIn ? "/signin" : item.href;
 }
 
-/** Label of an entry: the short form where one exists and room is tight. */
-function ItemLabel({ item, lang, short }: { item: Resolved<BoardItem>; lang: Lang; short?: boolean }) {
+/**
+ * Label of an entry: the short form where one exists and room is tight. A "Verified" entry whose
+ * record is known not to be verified says so (D-139), instead of reading as a status it lacks.
+ */
+export function boardItemLabel(item: Resolved<BoardItem>, lang: Lang, ticks?: Partial<Record<TickKey, boolean>>, short?: boolean): string {
+  if (item.tick && ticks?.[item.tick] === false) return tr(UI.notVerified, lang);
   const s = item.short?.[lang];
-  return <>{short && s ? s : tr(item.label, lang)}</>;
+  return short && s ? s : tr(item.label, lang);
 }
 
 /** One submenu chip — a link of its own (wide screens). */
@@ -165,7 +169,7 @@ export function Chip({
     >
       {withIcon && item.icon ? <Icon name={item.icon} size={16} className={clsx("shrink-0", tone ? TONE_ICON[tone] : "text-kesari-700")} /> : null}
       <span className="min-w-0 truncate leading-tight">
-        <ItemLabel item={item} lang={lang} />
+        {boardItemLabel(item, lang, ticks)}
       </span>
       {extra ? <span className="text-xs font-bold tabular-nums text-ink-700">{extra}</span> : null}
       <CountBadge value={value} tone={item.urgent ? "alert" : "soft"} />
@@ -201,7 +205,7 @@ function Tag({
     <span className={clsx("flex min-w-0 items-center gap-0.5 leading-[1.15]", inline && "max-w-full")} data-testid="board-tag" data-key={item.key}>
       <span className={clsx("h-1 w-1 shrink-0 rounded-full", item.urgent && value ? "bg-red-700" : "bg-current opacity-60", TONE_ICON[tone])} aria-hidden />
       <span className="min-w-0 truncate">
-        <ItemLabel item={item} lang={lang} short />
+        {boardItemLabel(item, lang, ticks, true)}
       </span>
       {extra ? <span className="shrink-0 font-bold tabular-nums">{extra}</span> : null}
       <CountBadge value={value} tone={item.urgent ? "alert" : "soft"} className="!h-[1.125rem] !min-w-[1.125rem] !px-1" />

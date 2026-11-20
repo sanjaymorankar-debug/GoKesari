@@ -1,5 +1,74 @@
 # GoKesari app — release notes
 
+## 1.10.0 (Android versionCode 11, iPhone build 11) — 20 Nov 2026
+
+GoKesari Health (docs/health at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> My Health: one health record for you and your family. Book verified doctors,
+> get prescriptions on your phone and by e-mail, send them to a nearby medical
+> store for pickup or home delivery, book nurses and physiotherapists at home,
+> and rent medical equipment. Doctors get a live clinic dashboard and an
+> e-prescription pad.
+
+Changes in the app itself:
+- Android App Links / iOS associated domains: `/health` (My Health, doctors,
+  prescriptions, medicine orders, home care, equipment) and `/rx` (prescription
+  QR verification) open in the app when tapped outside it. Clinic, store and
+  provider screens (`/shop/health…`) are already covered by `/shop`.
+- Nothing native changed: every Health screen is a website page, live in every
+  installed version once the website is deployed; live updates use the WebView's
+  EventSource; printing uses the system print / share sheet from the PDF.
+- The in-app update check offers 1.10.0 once `MOBILE_APP_ANDROID_LATEST` /
+  `MOBILE_APP_IOS_LATEST` are set to 1.10.0 on the server after the store release.
+
+## 1.9.0 (Android versionCode 10, iPhone build 10) — 20 Nov 2026
+
+One build carries two website modules: Consultant appointments and Puja Samagri.
+
+### Consultant appointments
+
+Consultant appointments (docs/consult-booking-2026-11 at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Book doctors, lawyers, CAs, tutors, salons and home-service experts near you:
+> pick a free time, pay online or at the visit, get reminders, and manage your
+> appointments. Consultants get a calendar for their whole team.
+
+Changes in the app itself:
+- Android App Links: `/consult` (Find a Consultant, consultant pages, appointment
+  pages) opens in the app when tapped outside it. Inside the app nothing native
+  changed — the booking screens, calendar and reminders are website pages, live
+  in every installed version as soon as the website is deployed; booking pushes
+  open their page through the existing notification tap handling.
+
+### Puja Samagri & Temple Supplies
+
+Puja Samagri & Temple Supplies (docs/puja-samagri-2026-11 at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> New: Puja Samagri. Agarbatti, diye, kapur, havan samagri, kumkum, murti,
+> puja kits and festival items from shops near you — search in English, हिंदी
+> or मराठी, filter by festival, price or loose / packed, and ask the price of
+> loose flowers and items. Puja shop owners: take the full puja catalogue in
+> one go, add your own products and manage stock from the app.
+
+Changes in the app itself:
+- `/puja` opens in the app from shared links (Android App Links intent filter;
+  iOS Universal Links already cover every path).
+- Every screen of the feature — the customer Puja page and tile, Nearby's
+  Puja filter, the shop owner's Puja Samagri screen (catalogue, product types,
+  bulk Excel / CSV, inline stock and price grid) and the admin / operator
+  screens — is the website inside the app, so 1.8.x apps get it too, without
+  an update.
+- No new permissions, no new native modules. The in-app update check
+  (`/api/app/version`) offers 1.9.0 once `MOBILE_APP_ANDROID_LATEST` /
+  `MOBILE_APP_IOS_LATEST` are set to 1.9.0 on the server after the store
+  release; 1.8.0 stays the minimum (no forced update).
+
 ## 1.8.0 (Android versionCode 9, iPhone build 9) — 7 Nov 2026
 
 Payments through Cashfree's own mobile SDK (docs/payments-cashfree-audit-2026-11

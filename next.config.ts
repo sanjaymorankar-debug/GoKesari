@@ -49,7 +49,8 @@ const cspDirectives = [
   "img-src 'self' blob: data: https://maps.googleapis.com https://maps.gstatic.com https://sdk.cashfree.com",
   "font-src 'self'",
   "connect-src 'self' https://maps.googleapis.com https://*.cashfree.com",
-  "frame-src https://*.cashfree.com",
+  // Consultant appointments (docs/consult-booking-2026-11): a consultant's office pin as a keyless Google Maps embed.
+  "frame-src https://*.cashfree.com https://maps.google.com https://www.google.com",
   "object-src 'none'",
   "base-uri 'self'",
   // Cashfree's hosted checkout ("_self", used for order payments) may be opened by a form post to a
@@ -144,6 +145,9 @@ const nextConfig: NextConfig = {
     "/api/cron/bill-captures": OCR_RUNTIME_FILES,
     "/api/inbound/bill-email": OCR_RUNTIME_FILES,
     "/shop/accounts/share": OCR_RUNTIME_FILES,
+    // docs/shop-welcome-kit-2026-11: the banner templates and font are read from disk at run time
+    // (the e-mail is sent from the approval routes and the every-minute cron).
+    "/api/**": ["./src/server/shop-banner/assets/**"],
   },
   // next/image optimisation would occupy Node processes on Hostinger; serve images as-is.
   images: { unoptimized: true },

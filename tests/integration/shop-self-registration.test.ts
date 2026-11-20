@@ -22,6 +22,7 @@ import { db } from "@/server/db";
 import {
   distributors,
   distributorTypes,
+  documentEmails,
   domainEvents,
   outboundTestMessages,
   platformSettings,
@@ -228,6 +229,9 @@ describe("payment webhook approves the shop in one transaction", () => {
     const [commission] = await db.select().from(referralCommissions);
     expect(commission).toMatchObject({ distributorId: d.id, commissionType: "PERCENT", commissionValue: 1000, basePaise: 200_000, amountPaise: 20_000, status: "ACCRUED" });
     expect(await db.select().from(domainEvents).where(eq(domainEvents.type, "shop.self_registered"))).toHaveLength(1);
+    // docs/shop-welcome-kit-2026-11: registration complete and fee received → the welcome kit (two printable
+    // QR banners) is queued with the approval, once. This owner has only a placeholder address: the outbox skips it.
+    expect(await db.select().from(documentEmails).where(and(eq(documentEmails.docType, "SHOP_WELCOME_KIT"), eq(documentEmails.docId, shop.id)))).toHaveLength(1);
 
     const status = await registrationStatus(token);
     expect(status).toMatchObject({ status: "APPROVED", shop: { registrationNumber: shop.registrationNumber }, receipt: receipt.reference });

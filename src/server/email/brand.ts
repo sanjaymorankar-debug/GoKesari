@@ -15,7 +15,7 @@ export function emailBrandHeader(): string {
     `<span style="color:${EMAIL_BRAND_SAFFRON}"><span style="font-weight:800">G</span>o</span>` +
     `<span style="color:${EMAIL_BRAND_SAFFRON}"><span style="font-weight:800">K</span>esari</span>` +
     `</div>` +
-    `<div style="font-size:12px;font-weight:700;color:${EMAIL_BRAND_SAFFRON}">Everything for Everyone</div>` +
+    `<div style="font-size:12px;font-weight:700;color:${EMAIL_BRAND_SAFFRON}">Everything for Everyone, Everywhere</div>` +
     `</div>`
   );
 }

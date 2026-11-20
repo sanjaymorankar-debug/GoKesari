@@ -24,6 +24,8 @@ export const CATEGORIES = {
   ACCOUNT_SECURITY: { label: "Account & security", description: "Sign-ins, number and role changes. Always sent." },
   GENERAL: { label: "Other updates", description: "Everything else." },
   ANNOUNCEMENTS: { label: "Announcements", description: "News and offers GoKesari sends to everyone or to your area." }, // batch-2026-10 WS-F
+  APPOINTMENTS: { label: "Appointments", description: "Consultant bookings: confirmations, changes, reminders, payments and refunds." }, // consultant appointments
+  HEALTH: { label: "My Health", description: "Prescriptions, health records, medicine orders, home-care visits, equipment rentals and Prime plans." }, // GoKesari Health
 } as const;
 export type CategoryKey = keyof typeof CATEGORIES;
 
@@ -51,6 +53,8 @@ const PREFIX_CATEGORY: [string, CategoryKey][] = [
   ["auth.", "ACCOUNT_SECURITY"],
   // Event layer: support alerts and risk flags are operations news (GENERAL).
   ["broadcast.", "ANNOUNCEMENTS"], // batch-2026-10 WS-F
+  ["consult.", "APPOINTMENTS"], // consultant appointments (docs/consult-booking-2026-11)
+  ["health.", "HEALTH"], // GoKesari Health (docs/health/)
 ];
 
 export function categoryOf(type: string): CategoryKey {
@@ -258,6 +262,7 @@ export const TEMPLATES: Record<string, Template> = {
   // Time-critical for the shop (it has acceptMinutes to act) or the seller (they
   // must act on the result): emailed by default as well as in the app.
   [T.SHOP_NEW_ORDER]: t("New order", "Order {{orderNumber}} is waiting for you to accept it."),
+  [T.SHOP_NEW_SUBSCRIPTION]: t("New subscriber", "{{customerName}} subscribed to {{items}}, starting {{startDate}}."),
   [T.SHOP_ACCEPT_REMINDER]: t("Accept the new order", "Order {{orderNumber}} is cancelled automatically unless you accept it in the next {{minutes}} min."),
   [T.SHOP_ORDER_TIMED_OUT]: t("Order cancelled — not accepted in time", "Order {{orderNumber}} was cancelled and the customer refunded because it was not accepted in time."),
   [T.SHOP_DOCUMENT_VERIFIED]: t("{{docLabel}} verified", "{{shopName}}'s {{docLabel}} has been verified."),
@@ -425,6 +430,7 @@ export const TEMPLATES: Record<string, Template> = {
   [T.DEALER_TEAM_REPORT]: t("{{period}} team report: {{registered}} registered, {{commission}} earned", "{{period}} ({{label}}): {{started}} registrations started, {{registered}} shops registered, {{commission}} commission earned. Each person's numbers are on your dealer page."),
   [T.DEALER_PAYOUT_HELD]: t("Commission waiting: add your {{missing}}", "{{amount}} of commission for {{month}} is waiting. It is paid as soon as your {{missing}} is added on your dealer page; it is carried to the next payout until then."),
   [T.DEALER_PAYOUT_FAILED]: t("Commission transfer did not go through", "The bank transfer of {{amount}} failed ({{reason}}). {{next}}"),
+  [T.DEALER_TERRITORY_CHANGED]: t("Your territory {{territory}}: {{headline}}", "{{message}}"),
   [T.SHOP_REFERRAL_REWARDED]: t("Referral reward: {{reward}}", "{{shopName}}, which joined GoKesari with your shop's referral code, is live and has delivered its first order. {{reward}} — {{detail}}"),
   [T.SHOP_REFERRAL_REVERSED]: t("Referral reward reversed", "A shop referral reward was reversed after a review. {{detail}}"),
   [T.SHOP_FIRST_PRODUCTS_LIVE]: t(
@@ -462,6 +468,34 @@ export const TEMPLATES: Record<string, Template> = {
   ),
   [T.RIDER_PAYOUT_FAILED]: t("Payment to your bank failed", "{{what}} of {{amount}} to {{account}} failed: {{reason}} {{next}}"),
   [T.RIDER_PAYOUT_CARRIED]: t("{{month}} earnings carried forward", "Your unpaid earnings of {{amount}} for {{month}} were not paid this month: {{reason}} They stay in your balance and go into the next payout."),
+  /* >>> GoKesari Health (docs/health/) — the services pass their own title/body; these are fallbacks and the e-mail default.
+     The prescription e-mail with its PDF goes through the document-email outbox, so the notice itself sends no e-mail. */
+  [T.HEALTH_PRESCRIPTION_ISSUED]: t("Your prescription is ready", "{{doctor}} issued prescription {{rxNumber}} for {{patient}}. Open My Health to see, print or order the medicines.", false),
+  [T.HEALTH_PRESCRIPTION_AMENDED]: t("Your prescription was updated", "{{doctor}} amended prescription {{rxNumber}} for {{patient}}: {{reason}}", false),
+  [T.HEALTH_SUGGESTION]: t("Your doctor suggested a next step", "{{doctor}} suggested: {{what}}. Book it from My Health.", false),
+  [T.HEALTH_REFERRAL_RECEIVED]: t("New referral", "{{doctor}} referred a patient to you: {{note}}"),
+  [T.HEALTH_CONSENT]: t("Record sharing changed", "{{text}}", false),
+  [T.HEALTH_FAMILY_LINK]: t("Family health record", "{{text}}"),
+  [T.HEALTH_RECORD_ADDED]: t("New item in your health record", "{{text}}", false),
+  [T.HEALTH_RX_REQUEST]: t("New prescription request", "{{patient}} sent prescription {{rxNumber}} for {{fulfilment}}. Reply within {{minutes}} minutes."),
+  [T.HEALTH_RX_QUOTED]: t("Your medicines quote is ready", "{{shopName}} replied to your request {{orderNumber}}: {{amount}}. Approve it in My Health."),
+  [T.HEALTH_RX_DECLINED]: t("The store could not take your request", "{{shopName}} declined {{orderNumber}}: {{reason}}. Choose another store in My Health."),
+  [T.HEALTH_RX_EXPIRED]: t("No reply from the store", "{{shopName}} did not reply to {{orderNumber}} in time. Choose another store in My Health."),
+  [T.HEALTH_RX_APPROVED]: t("Medicines order approved", "{{patient}} approved order {{orderNumber}} ({{amount}}). Please pack it."),
+  [T.HEALTH_RX_READY]: t("Your medicines are ready for pickup", "Order {{orderNumber}} is ready at {{shopName}}. Show your pickup code at the counter."),
+  [T.HEALTH_RX_OUT_FOR_DELIVERY]: t("Your medicines are on the way", "Order {{orderNumber}} from {{shopName}} is out for delivery. Give your delivery code to the delivery person."),
+  [T.HEALTH_RX_COMPLETED]: t("Medicines order completed", "Order {{orderNumber}} is complete. The bill is saved in your health record."),
+  [T.HEALTH_CARE_BOOKING]: t("Home-care booking update", "{{text}}"),
+  [T.HEALTH_CARE_VISIT]: t("Home-care visit update", "{{text}}", false),
+  [T.HEALTH_CARE_SOS]: t("SOS during a home-care visit", "{{text}}"),
+  [T.HEALTH_RENTAL]: t("Equipment rental update", "{{text}}"),
+  [T.HEALTH_RENTAL_DUE]: t("Equipment return due soon", "{{item}} is due back on {{dueDate}}. Extend the rental or schedule the return pickup in My Health."),
+  [T.HEALTH_PRIME]: t("GoKesari Health Prime", "{{text}}"),
+  [T.HEALTH_PRIME_RENEWAL]: t("Your Prime plan ends soon", "{{plan}} for {{shopName}} ends on {{endsOn}}. Renew to keep instant booking and priority placement."),
+  [T.HEALTH_CALL_MISSED]: t("Missed call from a patient", "You missed a call on your GoKesari number at {{time}}. Call back from your Prime dashboard.", false),
+  [T.HEALTH_VERIFICATION]: t("Health profile verification", "{{text}}"),
+  [T.HEALTH_BREAK_GLASS]: t("Emergency access to a health record", "{{text}}"),
+  /* <<< GoKesari Health */
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */

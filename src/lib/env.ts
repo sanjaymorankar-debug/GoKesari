@@ -58,6 +58,13 @@ const serverEnvSchema = z.object({
   AUTH_EMAIL_FROM: z.string().optional(),
   /** SMTP connection string, e.g. smtps://user:pass@smtp.host:465. Without it, links go to the console (non-production only). */
   AUTH_EMAIL_SERVER: z.string().optional(),
+  /**
+   * Test site only (owner, 20 Nov 2026): every outgoing e-mail except sign-in
+   * codes goes to this one inbox (testing@gokesari.com on test.gokesari.com),
+   * the intended recipient named in the subject. Ignored on gokesari.com.
+   * Empty = off.
+   */
+  EMAIL_REDIRECT_TO: z.union([z.literal(""), z.string().trim().email()]).optional(),
 
   // Cashfree. Absent in dev/test, in which case payments run in MOCK mode.
   CASHFREE_APP_ID: z.string().optional(),
@@ -270,6 +277,8 @@ const serverEnvSchema = z.object({
   // HDFC Bank SmartGateway (src/server/payments/gateway/hdfc.ts). Values from the HDFC dashboard / onboarding kit.
   /** UAT https://smartgateway.hdfcuat.bank.in, or the production URL HDFC gives at go-live. A UAT URL is refused on gokesari.com. */
   HDFC_BASE_URL: z.string().url().optional(),
+  /** GoKesari Health Prime call tracking: HMAC secret of the telephony provider's webhook (docs/health). */
+  HEALTH_TELEPHONY_WEBHOOK_SECRET: z.string().min(16).optional(),
   HDFC_MERCHANT_ID: z.string().optional(),
   HDFC_API_KEY: z.string().optional(),
   /** The payment page client id (kit: PAYMENT_PAGE_CLIENT_ID). */
