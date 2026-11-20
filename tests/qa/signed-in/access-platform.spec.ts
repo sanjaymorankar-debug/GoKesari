@@ -19,6 +19,7 @@ import { blocked, expect, need, qa } from "../lib/record";
 import { BASE_URL, IS_LOCAL } from "../lib/target";
 import { world } from "../lib/world";
 import { NO_SUCH_ID, openPage } from "../lib/access-helpers";
+import { encodeSession } from "../lib/session-jwt";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
 
@@ -613,11 +614,10 @@ qa("TC-RBAC-001", "a guest asking to subscribe to a subscribable product is aske
 
 /** A session cookie signed with a key the site does not have: a forged or tampered session. */
 async function forgedContext() {
-  const { encode } = await import("next-auth/jwt");
   const secure = BASE_URL.startsWith("https");
   const name = secure ? "__Secure-authjs.session-token" : "authjs.session-token";
   const user = world().users.admin?.id ?? NO_SUCH_ID;
-  const value = await encode({ token: { sub: user, email: "forged@test.local", role: "ADMIN" }, secret: `not-the-site-secret-${RUN}`, salt: name });
+  const value = await encodeSession({ token: { sub: user, email: "forged@test.local", role: "ADMIN" }, secret: `not-the-site-secret-${RUN}`, salt: name });
   const { request } = await import("@playwright/test");
   return request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { cookie: `${name}=${value}` } });
 }
