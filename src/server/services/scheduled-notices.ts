@@ -166,6 +166,10 @@ export async function deliverDueScheduledNotices(options: { now?: Date; limit?: 
         // Consultant appointments (docs/consult-booking-2026-11): 24 h / 1 h before a booking; re-checks the booking first.
         if (await (await import("@/server/consult/notify")).sendConsultReminder(notice)) sent += 1;
         else skipped += 1;
+      } else if (notice.kind.startsWith("HEALTH_")) {
+        // GoKesari Health (docs/health/): store reply timeouts, rental due-back reminders, Prime renewal / expiry.
+        if (await (await import("@/server/health/scheduled")).runHealthNotice(notice)) sent += 1;
+        else skipped += 1;
       } else {
         skipped += 1;
       }

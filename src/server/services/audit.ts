@@ -519,6 +519,20 @@ export const AUDIT_ACTIONS = {
   CONSULT_BOOKING_SETTLED: "consult.booking_settled",
   CONSULT_PRIVATE_VIEWED: "consult.private_viewed",
   /* <<< consultant appointments */
+  /* >>> GoKesari Health (docs/health/) — metadata only, never clinical text */
+  HEALTH_CONSENT_CHANGED: "health.consent_changed",
+  HEALTH_DOCTOR_PROFILE: "health.doctor_profile",
+  HEALTH_PRESCRIPTION_ISSUED: "health.prescription_issued",
+  HEALTH_PRESCRIPTION_AMENDED: "health.prescription_amended",
+  HEALTH_BREAK_GLASS: "health.break_glass",
+  HEALTH_DRUG_MASTER: "health.drug_master",
+  HEALTH_RX_ORDER: "health.rx_order",
+  HEALTH_RENTAL: "health.rental",
+  HEALTH_PRIME_PLAN: "health.prime_plan",
+  HEALTH_PRIME_SUBSCRIPTION: "health.prime_subscription",
+  HEALTH_DATA_REQUEST: "health.data_request",
+  HEALTH_SETTINGS: "health.settings",
+  /* <<< GoKesari Health */
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
