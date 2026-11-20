@@ -405,6 +405,19 @@ export const NOTIFICATION_TYPES = {
   /** To the shop owner: the monthly TCS / TDS statement from GoKesari is ready. */
   SHOP_TAX_STATEMENT_READY: "shop.tax_statement_ready",
   /* <<< billing v2 */
+  /* >>> consultant appointments (docs/consult-booking-2026-11) — to the customer and to the consultant / firm */
+  CONSULT_BOOKED: "consult.booked",
+  CONSULT_CONFIRMED: "consult.confirmed",
+  CONSULT_PENDING_APPROVAL: "consult.pending_approval",
+  CONSULT_RESCHEDULED: "consult.rescheduled",
+  CONSULT_CANCELLED: "consult.cancelled",
+  CONSULT_PAYMENT: "consult.payment",
+  CONSULT_REFUND: "consult.refund",
+  CONSULT_REMINDER: "consult.reminder",
+  CONSULT_COMPLETED: "consult.completed",
+  CONSULT_DISPUTE: "consult.dispute",
+  CONSULT_VERIFICATION: "consult.verification",
+  /* <<< consultant appointments */
   //
 } as const;
 

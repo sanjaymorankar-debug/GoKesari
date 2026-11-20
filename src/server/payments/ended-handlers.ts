@@ -16,4 +16,6 @@ export type EndedHandler = (intent: PaymentIntentRow, to: "FAILED" | "EXPIRED", 
 export const PAYMENT_ENDED_HANDLERS: Partial<Record<PaymentPurpose, EndedHandler>> = {
   ORDER: (intent, to, client) => onOrderPaymentEnded(intent, to, client),
   ORDER_GROUP: (intent, to, client) => onOrderPaymentEnded(intent, to, client),
+  // Consultant appointments: a failed or expired booking payment frees the held slot.
+  CONSULT_BOOKING: async (intent, to, client) => (await import("@/server/consult/payments")).onConsultPaymentEnded(intent, to, client),
 };

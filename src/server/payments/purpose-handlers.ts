@@ -38,4 +38,9 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   // 0151 territory dealers: a territory's yearly fee paid online — the territory is paid up in the capture transaction.
   TERRITORY_FEE: async (intent, client, afterCommit) => (await import("@/server/dealers/territory")).onTerritoryFeeCaptured(intent, client, afterCommit),
   /* <<< end dealer programme */
+  //
+  /* >>> consultant appointments (docs/consult-booking-2026-11) */
+  // A booking's fee or advance (or its balance) paid online: the booking is confirmed in the capture transaction.
+  CONSULT_BOOKING: async (intent, client, afterCommit) => (await import("@/server/consult/payments")).onConsultPaymentCaptured(intent, client, afterCommit),
+  /* <<< consultant appointments */
 };
