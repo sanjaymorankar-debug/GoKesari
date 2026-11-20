@@ -25,6 +25,7 @@ import { HOME } from "@/lib/home-i18n";
 import type { UserRole } from "@/server/db/schema";
 import { setLanguageAction } from "@/server/language-action";
 import { signOutAction } from "@/server/sign-out-action";
+import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
 
 export interface AccountUser {
   name: string | null;
@@ -281,6 +282,11 @@ export function AccountDrawer({ lang, user, roles, balancePaise, extraLinks, par
             data-testid="account-drawer"
             className="absolute inset-y-0 left-0 flex w-[min(20rem,86vw)] flex-col overflow-y-auto bg-white pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] shadow-2xl"
           >
+            <p className="border-b border-cream-200 px-3 pb-1.5 pt-2 leading-tight" data-testid="drawer-brand">
+              <BrandWordmark className="text-base" />
+              <br />
+              <BrandTagline className="text-xs" />
+            </p>
             <div className="flex items-center justify-between gap-2 border-b border-cream-200 px-3 py-2">
               {user ? (
                 <span className="flex min-w-0 items-center gap-2">

@@ -20,7 +20,7 @@ const SITE_ORIGIN = (() => {
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "GoKesari — Everything for Everyone",
+    name: "GoKesari — Everything for Everyone, Everywhere",
     short_name: "GoKesari",
     description: "Every local shop near you, in one directory. Wallet payments and flexible daily subscriptions.",
     start_url: "/",

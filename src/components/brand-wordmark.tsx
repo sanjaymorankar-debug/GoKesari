@@ -28,7 +28,8 @@ function brandColour(tone: "light" | "dark"): string {
 }
 
 /** The tagline, saffron and bold wherever it appears. */
-export const BRAND_TAGLINE = "Everything for Everyone";
+/** Owner, 20-Nov-2026: "Everything for Everyone, Everywhere" (was "Everything for Everyone"). */
+export const BRAND_TAGLINE = "Everything for Everyone, Everywhere";
 
 export function BrandTagline({ tone = "light", className }: { tone?: "light" | "dark"; className?: string }) {
   return (

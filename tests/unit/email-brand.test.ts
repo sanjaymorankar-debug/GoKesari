@@ -9,7 +9,7 @@ describe("email wordmark", () => {
     const html = emailBrandHeader();
     expect(html).toContain(`<span style="color:${EMAIL_BRAND_SAFFRON}"><span style="font-weight:800">G</span>o</span>`);
     expect(html).toContain(`<span style="color:${EMAIL_BRAND_SAFFRON}"><span style="font-weight:800">K</span>esari</span>`);
-    expect(html).toMatch(new RegExp(`font-weight:700;color:${EMAIL_BRAND_SAFFRON}">Everything for Everyone`));
+    expect(html).toMatch(new RegExp(`font-weight:700;color:${EMAIL_BRAND_SAFFRON}">Everything for Everyone, Everywhere`));
   });
 
   it("is added once, however often a body passes through", () => {
@@ -19,6 +19,6 @@ describe("email wordmark", () => {
   });
 
   it("is on the sign-in link email", () => {
-    expect(magicLinkEmail("https://gokesari.com/api/auth/callback?token=a").html).toContain("Everything for Everyone");
+    expect(magicLinkEmail("https://gokesari.com/api/auth/callback?token=a").html).toContain("Everything for Everyone, Everywhere");
   });
 });
