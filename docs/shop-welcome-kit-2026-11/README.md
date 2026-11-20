@@ -140,8 +140,8 @@ Owner action, per server (`gk-site env set`, then `gk-deploy restart`; no rebuil
 
 | Server | `MOBILE_ANDROID_CERT_SHA256` | Note |
 |---|---|---|
-| test.gokesari.com (`gokesari-staging`) | the value above | the preview APK then opens scanned QR codes |
-| gokesari.com (`gokesari-prod`) | the value above, **owner decision** | that key is public: any sideloaded app named `com.gokesari.app` and signed with it could claim the links. Add the Play Store app-signing SHA-256 (comma-separated) when the app is on Play, and drop this one then |
+| test.gokesari.com (`gokesari-staging`) | the value above — **set 20-Nov-2026 16.45 IST** (owner's request), live from the next staging deploy | the preview APK then opens scanned QR codes |
+| gokesari.com (`gokesari-prod`) | the value above — **set 20-Nov-2026 17.18 IST** (owner's decision), live from the next production deploy | that key is public: any sideloaded app named `com.gokesari.app` and signed with it could claim the links. Add the Play Store app-signing SHA-256 (comma-separated) when the app is on Play, and drop this one then |
 
 **iOS:** no iPhone build is distributed yet (TestFlight on hold, PLT-017), so there is nothing
 to open; set `MOBILE_IOS_APP_IDS` with the Team ID when it is.

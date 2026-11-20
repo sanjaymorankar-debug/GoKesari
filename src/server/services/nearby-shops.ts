@@ -95,7 +95,7 @@ export function isValidPosition(latitude: number, longitude: number): boolean {
 export async function findNearbyShops(
   origin: { latitude: number; longitude: number },
   radiusKm: NearbyRadiusKm,
-  options: { limit?: number; now?: Date } = {},
+  options: { limit?: number; now?: Date; shopType?: string | null } = {},
 ): Promise<NearbyResult> {
   const { latitude, longitude } = origin;
   const latDelta = MAX_RADIUS_KM / 111.32;
@@ -109,6 +109,8 @@ export async function findNearbyShops(
              ${asNumber("latitude")} as lat, ${asNumber("longitude")} as lng
       from shops
       where status = 'APPROVED' and deleted_at is null
+        and (${options.shopType ?? null}::text is null or shop_type::text = ${options.shopType ?? null}::text
+             or exists (select 1 from shop_added_types sat where sat.shop_id = shops.id and sat.shop_type_key = ${options.shopType ?? null}::text))
     ), placed as (
       select * from s
       where lat between -90 and 90 and lng between -180 and 180 and not (lat = 0 and lng = 0)

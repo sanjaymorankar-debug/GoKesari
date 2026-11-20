@@ -102,7 +102,7 @@ function problemFromError(error: GeolocationPositionError | { code?: number }): 
   return "UNAVAILABLE";
 }
 
-export function NearbyShops() {
+export function NearbyShops({ shopType = null }: { shopType?: string | null } = {}) {
   const router = useRouter();
   const [phase, setPhase] = useState<"locating" | "loading" | "ready" | "problem">("locating");
   const [problem, setProblem] = useState<LocationProblem | null>(null);
@@ -121,6 +121,7 @@ export function NearbyShops() {
     setPhase("loading");
     setError(null);
     const params = new URLSearchParams({ radiusKm: String(km) });
+    if (shopType) params.set("type", shopType);
     if (next.kind === "position") {
       params.set("lat", next.latitude.toFixed(6));
       params.set("lng", next.longitude.toFixed(6));
@@ -140,7 +141,7 @@ export function NearbyShops() {
       setError(caught instanceof Error ? caught.message : "Could not load nearby shops. Please try again.");
       setPhase(next.kind === "place" ? "problem" : "ready");
     }
-  }, []);
+  }, [shopType]);
 
   const locate = useCallback(
     (km: NearbyRadiusKm) => {

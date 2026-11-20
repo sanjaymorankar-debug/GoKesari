@@ -28,6 +28,7 @@ export const DOCUMENT_TYPES = [
   "PAYOUT_STATEMENT",
   "PLATFORM_INVOICE",
   "DEALER_STATEMENT",
+  "HEALTH_PRESCRIPTION",
   // docs/shop-welcome-kit-2026-11: the welcome e-mail with the shop's printable banner; docId is the shop.
   "SHOP_WELCOME_KIT",
 ] as const;
@@ -43,7 +44,7 @@ export interface QueueDocumentEmailInput {
   /** In-app path the email links to. */
   actionUrl?: string;
   /** Notification category whose email opt-out applies. */
-  category: "ORDERS" | "SHOP" | "GENERAL";
+  category: "ORDERS" | "SHOP" | "GENERAL" | "HEALTH";
   maxAttempts?: number;
   /** false: leave it to the outbox sweep instead of sending right after commit (bulk runs: shop welcome kit). Default true. */
   deliverNow?: boolean;
@@ -135,6 +136,12 @@ export async function renderDocumentAttachments(docType: string, docId: string):
     case "PLATFORM_INVOICE": {
       const { renderPlatformInvoiceById } = await import("@/server/platform-invoices/service");
       const doc = await renderPlatformInvoiceById(docId);
+      return doc ? { attachments: [{ filename: doc.filename, content: doc.pdf, contentType: "application/pdf" }] } : null;
+    }
+    case "HEALTH_PRESCRIPTION": {
+      // GoKesari Health (docs/health/): the issued prescription's PDF; docId is the prescription version.
+      const { prescriptionPdfForEmail } = await import("@/server/health/prescriptions");
+      const doc = await prescriptionPdfForEmail(docId);
       return doc ? { attachments: [{ filename: doc.filename, content: doc.pdf, contentType: "application/pdf" }] } : null;
     }
     default:
