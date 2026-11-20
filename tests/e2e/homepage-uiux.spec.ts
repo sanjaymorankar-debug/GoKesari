@@ -114,7 +114,7 @@ for (const width of BREAKPOINTS) {
         const hero = page.getByTestId("hero-carousel");
         await expect(hero).toBeVisible();
         expect((await hero.boundingBox())!.height).toBeGreaterThanOrEqual(170);
-        await expect(page.getByTestId("home-category")).toHaveCount(8);
+        await expect(page.getByTestId("home-category")).toHaveCount(9);
         await expect(page.getByTestId("shop-chip")).toHaveCount(4);
         // F4: Compare prices is the accent chip with its badge.
         const compare = page.locator("[data-testid=shop-chip][data-key=compare]");

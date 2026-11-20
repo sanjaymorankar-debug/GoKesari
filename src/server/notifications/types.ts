@@ -387,6 +387,14 @@ export const NOTIFICATION_TYPES = {
   /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */
   SHOP_READY_FOR_PRODUCT_UPLOAD: "shop.ready_for_product_upload",
   /* <<< end dealer programme */
+  /* >>> Puja Samagri (docs/puja-samagri-2026-11) */
+  /** To the shop owner: staff approved, rejected or merged a product type or product the owner created; push too. */
+  SHOP_CATALOGUE_SUBMISSION_DECIDED: "shop.catalogue_submission_decided",
+  /** To the shop owner: a customer asks the price of a loose / perishable item with no price yet; push too. */
+  SHOP_PRICE_REQUESTED: "shop.price_requested",
+  /** To the customer: the shop set the price they asked for — the item can go in the cart now; push too. */
+  CUSTOMER_PRICE_CONFIRMED: "order.price_confirmed",
+  /* <<< Puja Samagri */
   /* >>> rider bank payouts (docs/gig-bank-payouts-2026-10) — "delivery" prefix: the Deliveries category */
   /** To the rider: a withdrawal was sent to the bank. */
   RIDER_WITHDRAWAL_SENT: "delivery.rider_withdrawal_sent",

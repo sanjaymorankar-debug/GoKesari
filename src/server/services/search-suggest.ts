@@ -113,7 +113,8 @@ export async function suggest(rawQuery: string, options: { lang: Lang; nearby?: 
       .innerJoin(shops, eq(shops.id, shopProducts.shopId))
       .where(
         and(
-          ilike(products.name, pattern),
+          // docs/puja-samagri-2026-11: Hindi / Marathi names and synonyms match too.
+          or(ilike(products.name, pattern), sql`EXISTS (SELECT 1 FROM product_local_names pln WHERE pln.product_id = "products"."id" AND pln.search_text ILIKE ${pattern})`),
           eq(shops.status, "APPROVED"),
           isNull(shops.deletedAt),
           eq(shopProducts.isActive, true),

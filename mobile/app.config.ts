@@ -81,6 +81,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/manufacturer", // batch-2026-10 WS-D (manufacturer portal, F9.1.2)
   "/support", // batch-2026-10 WS-C: help desk portal
   "/dealer", // docs/dealer-programme: dealer application and portal
+  "/puja", // 1.9.0, docs/puja-samagri-2026-11: the Puja Samagri storefront (shared festival / kit links)
 ];
 
 /**
@@ -170,7 +171,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   // 1.8.0: card, UPI (the phone's UPI apps) and wallet payments through Cashfree's own mobile SDK
   // (react-native-cashfree-pg-sdk) when the website asks for it (src/cashfree.ts); the website
   // still confirms every payment with its server. Older builds keep Cashfree's web checkout.
-  version: "1.8.0",
+  version: "1.9.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -179,7 +180,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "9",
+    buildNumber: "10",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -198,7 +199,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 9,
+    versionCode: 10,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",

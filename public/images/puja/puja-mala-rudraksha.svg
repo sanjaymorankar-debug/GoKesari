@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-label="Mala &amp; Rudraksha">
+<rect width="400" height="400" rx="32" fill="#5D4037"/>
+<circle cx="200" cy="140" r="78" fill="#fff" opacity="0.12"/>
+<path d="M200 70c22 30 30 52 18 72-6 10-14 14-18 14s-12-4-18-14c-12-20-4-42 18-72z" fill="#FFE082"/>
+<path d="M200 102c10 15 13 26 7 36-3 5-6 7-7 7s-4-2-7-7c-6-10-3-21 7-36z" fill="#FF7043"/>
+<path d="M118 176h164c0 40-37 64-82 64s-82-24-82-64z" fill="#FFF3E0"/>
+<rect x="150" y="238" width="100" height="10" rx="5" fill="#FFF3E0" opacity="0.8"/>
+<text x="200" y="292" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" font-weight="600" fill="#fff">Mala &amp; Rudraksha</text>
+</svg>

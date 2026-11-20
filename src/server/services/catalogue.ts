@@ -209,12 +209,12 @@ export async function suggestProductsForShop(
 
 /* --------------------------------------- shop-owner / admin product creation */
 
-function normaliseProductName(name: string): string {
+export function normaliseProductName(name: string): string {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 /** Classic edit-distance, used only for short product names so O(n·m) is fine. */
-function levenshtein(a: string, b: string): number {
+export function levenshtein(a: string, b: string): number {
   const rows = a.length + 1;
   const cols = b.length + 1;
   const d: number[][] = Array.from({ length: rows }, (_, i) => [
@@ -1246,6 +1246,8 @@ function storefrontConditions(options: StorefrontFilters) {
           ilike(shops.ownerName, term),
           ilike(shops.area, term),
           eq(shops.pincode, word),
+          // docs/puja-samagri-2026-11: Hindi / Marathi names and synonyms ("kapur" finds camphor, "मोमबत्ती" candles).
+          sql`EXISTS (SELECT 1 FROM product_local_names pln WHERE pln.product_id = "products"."id" AND pln.search_text ILIKE ${term})`,
         )!,
       );
     }

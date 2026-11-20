@@ -1065,6 +1065,20 @@
       "when": 1793264900000,
       "tag": "0151_territory_dealers",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1793265000000,
+      "tag": "0152_puja_samagri_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1793265100000,
+      "tag": "0153_puja_samagri_catalogue",
+      "breakpoints": true
     }
   ]
 }

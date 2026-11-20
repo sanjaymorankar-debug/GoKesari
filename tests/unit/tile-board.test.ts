@@ -205,7 +205,7 @@ describe("menu definitions", () => {
 
   it("match the approved menu counts", () => {
     expect(CUSTOMER_MENUS).toHaveLength(6);
-    expect(CUSTOMER_CATEGORIES).toHaveLength(8);
+    expect(CUSTOMER_CATEGORIES).toHaveLength(9);
     expect(SHOP_MENUS).toHaveLength(16);
     expect(ADMIN_MENUS).toHaveLength(9);
     // The brief's six operator menus plus "Catalogue", the one home for the catalogue tools operators already had.
@@ -213,10 +213,10 @@ describe("menu definitions", () => {
     // Shop +2: Inventory → "Bills & GST" (docs/inventory-accounting-2026-10) and Bulk upload (Excel/CSV)
     // (docs/product-import-2026-10); operator +1: Catalogue → Bulk upload (the admin's is under Product master → more).
     // Gig worker flow (docs/gig-worker-2026-10): shop +1, Delivery → "Delivery partners" (feature 7).
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(43);
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(44);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
-    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(38);
-    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(26);
+    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
+    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(27);
   });
 
   it("keep every group to at most seven entries on the board (Hick's law)", () => {
