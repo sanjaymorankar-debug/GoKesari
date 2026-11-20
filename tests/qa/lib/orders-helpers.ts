@@ -218,6 +218,11 @@ export interface Driven {
  * Moves a CONFIRMED order forward to `target` the way the people involved do
  * (shop buttons, rider offer, pickup code from the packing slip, delivery code
  * from the customer). `onStep` runs after each status is reached.
+ *
+ * If a step fails (or is blocked, e.g. no rider offer in time) the order is
+ * cancelled before the error goes on: an order left READY would otherwise be
+ * offered to the shared staging rider a minute later and stand in the way of
+ * the next checks (E-38).
  */
 export async function driveTo(
   orderId: string,
@@ -228,7 +233,27 @@ export async function driveTo(
   const shop = options.shop ?? "shop";
   const out: Driven = {};
   const start = STAGES.indexOf(options.from ?? "CONFIRMED");
-  for (const stage of STAGES.slice(start + 1, STAGES.indexOf(target) + 1)) {
+  try {
+    await driveSteps(orderId, STAGES.slice(start + 1, STAGES.indexOf(target) + 1), out, rider, shop, options);
+  } catch (error) {
+    await abandon(orderId);
+    throw error;
+  }
+  return out;
+}
+
+/** Offers come at once when the rider is free, otherwise on the next minute's dispatch run. */
+export const OFFER_WAIT_MS = 75_000;
+
+async function driveSteps(
+  orderId: string,
+  stages: Stage[],
+  out: Driven,
+  rider: Role,
+  shop: Role,
+  options: { customer?: Role; onStep?: (stage: Stage) => Promise<void>; cashCollected?: boolean },
+) {
+  for (const stage of stages) {
     switch (stage) {
       case "ACCEPTED":
         expectStatus(await fulfil(orderId, "accept", {}, shop), 200, "shop accepts");
@@ -240,7 +265,7 @@ export async function driveTo(
         expectStatus(await fulfil(orderId, "ready", {}, shop), 200, "shop marks ready");
         break;
       case "ASSIGNED": {
-        const offer = await offerFor(orderId, rider, 30_000);
+        const offer = await offerFor(orderId, rider, OFFER_WAIT_MS);
         out.deliveryOrderId = offer.deliveryOrderId;
         if (offer.status === "OFFERED") expectStatus(await riderAction(offer.deliveryOrderId, "accept", {}, rider), 200, "rider accepts");
         break;
@@ -267,7 +292,6 @@ export async function driveTo(
     }
     if (options.onStep) await options.onStep(stage);
   }
-  return out;
 }
 
 /**

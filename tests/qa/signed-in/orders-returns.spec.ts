@@ -26,6 +26,7 @@ import {
   kept,
   listingOf,
   notesFor,
+  OFFER_WAIT_MS,
   orderRow,
   PDF_BYTES,
   png,
@@ -93,22 +94,61 @@ function riderSpot() {
   return { geolocation: { latitude: home.lat + 0.001, longitude: home.lng + 0.001 }, permissions: ["geolocation"] };
 }
 
-/** The rider's return-pickup panel on the dashboard. */
-async function pickupPanel(page: Page) {
+/**
+ * The rider's return-pickup panel on the dashboard. With `returnNumber` it waits
+ * for that return's pickup: it is offered on approval, or at the next minute's
+ * sweep when the rider was busy, and the dashboard does not refresh by itself.
+ * If the shared staging rider still holds another return's pickup the check is
+ * blocked (no free rider), not failed (E-38).
+ */
+async function pickupPanel(page: Page, returnNumber?: string) {
   await page.goto("/delivery-partner");
   const panel = page.getByTestId("return-pickup-panel");
-  await expect(panel, "the return pickup reaches the rider").toBeVisible({ timeout: 20_000 });
-  return panel;
+  if (!returnNumber) {
+    await expect(panel, "the return pickup reaches the rider").toBeVisible({ timeout: 20_000 });
+    return panel;
+  }
+  const ours = panel.filter({ hasText: returnNumber });
+  try {
+    await expect(async () => {
+      if (!(await ours.isVisible())) await page.reload();
+      await expect(ours, `the pickup of ${returnNumber} reaches the rider`).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: OFFER_WAIT_MS, intervals: [5_000] });
+  } catch (error) {
+    if (await panel.isVisible()) {
+      const held = (await panel.innerText()).split("\n").slice(0, 2).join(" · ");
+      blocked(`the staging rider still holds another return pickup (${held}); ${returnNumber} was not offered within ${OFFER_WAIT_MS / 1000} s`);
+    }
+    throw error;
+  }
+  return ours;
+}
+
+/**
+ * The shop's card of one return on the "All" tab, on whichever page it is:
+ * unfinished returns come first, five to a page, so a finished one can be
+ * several pages in (E-39).
+ */
+async function shopReturnCase(page: Page, returnNumber: string) {
+  for (let n = 1; n <= 50; n++) {
+    await page.goto(`/shop/returns?tab=all&page=${n}`);
+    await expect(page.getByTestId("return-case").first()).toBeVisible();
+    const card = page.getByTestId("return-case").filter({ hasText: returnNumber }).first();
+    if (await card.isVisible()) return card;
+    if ((await page.getByTestId("pager").locator('a[rel="next"]').count()) === 0) break;
+  }
+  throw new Error(`${returnNumber} is not on any page of the shop's returns ("All")`);
 }
 
 /** Rider accepts and sets off on the dashboard. */
 async function acceptAndSetOff(browser: Browser, returnId: string) {
+  const { returnNumber } = (await returnDetail(returnId)).ret;
   const { context, page } = await pageAs(browser, "rider", riderSpot());
   try {
-    let panel = await pickupPanel(page);
+    let panel = await pickupPanel(page, returnNumber);
     await panel.getByRole("button", { name: "Accept" }).click();
     await expect.poll(async () => (await returnDetail(returnId)).ret.status, { timeout: 15_000 }).toBe("PICKUP_ASSIGNED");
-    panel = await pickupPanel(page);
+    panel = await pickupPanel(page, returnNumber);
     await panel.getByRole("button", { name: "Set off to the customer" }).click();
     await expect.poll(async () => (await returnDetail(returnId)).ret.status, { timeout: 15_000 }).toBe("RIDER_EN_ROUTE");
   } finally {
@@ -307,8 +347,7 @@ qa(["TC-RET-005", "TC-RET-007"], "the shop sees the photo and approves: customer
   expect(told.map((n) => n.title), "customer told").toContain("Return approved");
   const { context, page } = await pageAs(browser, "rider", riderSpot());
   try {
-    const panel = await pickupPanel(page);
-    await expect(panel).toContainText(damaged.returnNumber);
+    const panel = await pickupPanel(page, damaged.returnNumber);
     await expect(panel, "the rider never sees the handover code").not.toContainText(/Handover code:/);
     await panel.getByRole("button", { name: "Accept" }).click();
     await expect.poll(async () => (await returnDetail(damaged.id)).ret.status, { timeout: 15_000 }).toBe("PICKUP_ASSIGNED");
@@ -336,7 +375,7 @@ qa(["TC-RET-008", "TC-RET-010", "TC-RET-021"], "set off, a wrong handover code i
   const damaged = kept<{ id: string; returnNumber: string }>("return-damaged") ?? blocked("needs the return created by TC-RET-002");
   const { context, page } = await pageAs(browser, "rider", riderSpot());
   try {
-    const panel = await pickupPanel(page);
+    const panel = await pickupPanel(page, damaged.returnNumber);
     await panel.getByRole("button", { name: "Set off to the customer" }).click();
     await expect.poll(async () => (await returnDetail(damaged.id)).ret.status, { timeout: 15_000 }).toBe("RIDER_EN_ROUTE");
   } finally {
@@ -358,8 +397,7 @@ qa(["TC-RET-008", "TC-RET-010", "TC-RET-021"], "set off, a wrong handover code i
   const start = await walletOf();
   const shop = await pageAs(browser, "shop");
   try {
-    await shop.page.goto("/shop/returns?tab=all");
-    let card = shop.page.getByTestId("return-case").filter({ hasText: damaged.returnNumber }).first();
+    let card = await shopReturnCase(shop.page, damaged.returnNumber);
     await card.getByRole("button", { name: "Goods received" }).click();
     await expect.poll(async () => (await returnDetail(damaged.id)).ret.status, { timeout: 15_000 }).toBe("INSPECTION_PENDING");
     card = shop.page.getByTestId("return-case").filter({ hasText: damaged.returnNumber }).first();
@@ -419,8 +457,7 @@ qa(["TC-RET-010", "TC-FLD-098"], "inspection refund amount: 0, negative, text, 3
   }
   const { context, page } = await pageAs(browser, "shop");
   try {
-    await page.goto("/shop/returns?tab=all");
-    const card = page.getByTestId("return-case").filter({ hasText: r.returnNumber }).first();
+    const card = await shopReturnCase(page, r.returnNumber);
     await card.getByRole("button", { name: "Inspect goods" }).click();
     await card.getByLabel("What did you find?").fill("Seal broken on one jar");
     await card.getByLabel(/Refund ₹/).fill("abc");
@@ -434,8 +471,7 @@ qa(["TC-RET-010", "TC-FLD-098"], "inspection refund amount: 0, negative, text, 3
     const detail = await returnDetail(r.id);
     expect(detail.ret.refundAmountPaise, "₹70.50 stored as 7050 paise").toBe(7050);
     expect(await walletOf(), "partial refund credited").toBe(start + 7050);
-    await page.reload();
-    await expect(page.getByTestId("return-case").filter({ hasText: r.returnNumber }).first()).toContainText("70.50");
+    await expect(await shopReturnCase(page, r.returnNumber)).toContainText("70.50");
   } finally {
     await context.close();
   }
@@ -492,10 +528,10 @@ qa(["TC-RET-009", "TC-RET-013"], "the rider reports 'could not collect': back to
   expectStatus(await act(r.id, { action: "approve" }), 200, "approve");
   const { context, page } = await pageAs(browser, "rider", riderSpot());
   try {
-    let panel = await pickupPanel(page);
+    let panel = await pickupPanel(page, r.returnNumber);
     await panel.getByRole("button", { name: "Accept" }).click();
     await expect.poll(async () => (await returnDetail(r.id)).ret.status, { timeout: 15_000 }).toBe("PICKUP_ASSIGNED");
-    panel = await pickupPanel(page);
+    panel = await pickupPanel(page, r.returnNumber);
     await panel.getByRole("button", { name: "Could not collect" }).click();
     await page.getByLabel("Reason the pickup failed").fill("Customer not home");
     await page.getByRole("button", { name: "Report failed pickup" }).click();
