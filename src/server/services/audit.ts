@@ -507,6 +507,26 @@ export const AUDIT_ACTIONS = {
   /** Admin → Payments → Cashfree: a ₹1 live/sandbox test order was opened, then checked and refunded. */
   CASHFREE_LIVE_TEST_STARTED: "cashfree.live_test_started",
   CASHFREE_LIVE_TEST_FINISHED: "cashfree.live_test_finished",
+  /* ------------------------- Puja Samagri & Temple Supplies (docs/puja-samagri-2026-11) */
+  /** A shop's inventory was filled from the puja master catalogue (counts and excluded categories in newValue). */
+  PUJA_CATALOGUE_SEEDED: "shop.puja_catalogue_seeded",
+  /** A shop of another type added a type's range (shop_added_types). */
+  SHOP_TYPE_ADDED: "shop.type_added",
+  /** A shop owner created a product type (product_subcategories row of their shop). */
+  PRODUCT_TYPE_CREATED: "product_type.created",
+  /** Staff approved, rejected or merged an owner-created product type or product. */
+  CATALOGUE_SUBMISSION_DECIDED: "catalogue_submission.decided",
+  /** A removed listing was brought back by its shop. */
+  LISTING_RESTORED: "shop_product.restored",
+  /** "Price on confirmation": a customer asked, or the shop answered with a price. */
+  LISTING_PRICE_REQUESTED: "shop_product.price_requested",
+  LISTING_PRICE_ANSWERED: "shop_product.price_answered",
+  /** Staff edited, added, retired, merged or imported master catalogue products. */
+  MASTER_PRODUCT_UPDATED: "product.master_updated",
+  MASTER_PRODUCT_MERGED: "product.master_merged",
+  MASTER_CATALOGUE_IMPORTED: "product.master_imported",
+  /** Festival collections (banner + kit promotion by date range). */
+  FESTIVAL_COLLECTION_SAVED: "festival_collection.saved",
   /* >>> consultant appointments (docs/consult-booking-2026-11) */
   CONSULT_CATEGORY_CHANGED: "consult.category_changed",
   CONSULT_POLICY_TEMPLATE_CHANGED: "consult.policy_template_changed",

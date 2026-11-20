@@ -140,7 +140,7 @@ export function CustomerBoard({ lang, user, header, data, timeZone, referralCode
           ) : null}
 
           <nav aria-label={tr(UI.board, lang)}>
-            <ul className="grid grid-cols-4 gap-1.5 lg:grid-cols-8 lg:gap-3">
+            <ul className="grid grid-cols-3 gap-1.5 lg:grid-cols-9 lg:gap-3">
               {CUSTOMER_CATEGORIES.map((c) => (
                 <li key={c.key}>
                   <Link
