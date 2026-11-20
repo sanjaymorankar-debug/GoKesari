@@ -16,7 +16,7 @@ import { request as playwrightRequest, type APIRequestContext, type Browser, typ
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { encode } from "next-auth/jwt";
+import { encodeSession } from "./session-jwt";
 
 import { call } from "./http";
 import { blocked } from "./record";
@@ -43,7 +43,7 @@ export async function storageFor(role: Role): Promise<StorageState> {
     if (!user?.id) blocked(`the local world has no ${ROLE_NAMES[role]} account "${role}" (run scripts/qa/seed-local.ts)`);
     const secret = process.env.AUTH_SECRET;
     if (!secret) blocked("AUTH_SECRET (the local server's) is not set");
-    const value = await encode({ token: { sub: user.id, email: user.email, name: role }, secret, salt: COOKIE });
+    const value = await encodeSession({ token: { sub: user.id, email: user.email, name: role }, secret, salt: COOKIE });
     const url = new URL(BASE_URL);
     return {
       cookies: [{ name: COOKIE, value, domain: url.hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" }],

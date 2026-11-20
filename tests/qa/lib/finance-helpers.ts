@@ -19,7 +19,7 @@
 import { expect, request as playwrightRequest, type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { deflateSync } from "node:zlib";
-import { encode } from "next-auth/jwt";
+import { encodeSession } from "./session-jwt";
 
 import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
 
@@ -814,7 +814,7 @@ let personSeq = 0;
 
 async function sessionState(userId: string, email: string) {
   const secret = need(process.env.AUTH_SECRET, "AUTH_SECRET (the local server's)");
-  const value = await encode({ token: { sub: userId, email, name: "qa" }, secret, salt: SESSION_COOKIE });
+  const value = await encodeSession({ token: { sub: userId, email, name: "qa" }, secret, salt: SESSION_COOKIE });
   return {
     cookies: [{ name: SESSION_COOKIE, value, domain: new URL(BASE_URL).hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" as const }],
     origins: [],
@@ -1218,7 +1218,7 @@ export async function signOutOnPage(page: Page) {
 export async function expiredSession(person: { id: string; email: string }) {
   const secret = need(process.env.AUTH_SECRET, "AUTH_SECRET (the local server's)");
   // Expired an hour ago (Auth.js allows a few seconds of clock skew when it reads a session).
-  const value = await encode({ token: { sub: person.id, email: person.email, name: "qa" }, secret, salt: SESSION_COOKIE, maxAge: -3600 });
+  const value = await encodeSession({ token: { sub: person.id, email: person.email, name: "qa" }, secret, salt: SESSION_COOKIE, maxAge: -3600 });
   return { name: SESSION_COOKIE, value, domain: new URL(BASE_URL).hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" as const };
 }
 
