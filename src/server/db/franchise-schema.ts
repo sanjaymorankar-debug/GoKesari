@@ -189,6 +189,8 @@ export const franchiseCodes = pgTable("franchise_codes", {
   id: uuid("id").primaryKey().defaultRandom(),
   referralCodeId: uuid("referral_code_id").notNull(),
   ownerDealerId: uuid("owner_dealer_id").notNull(),
+  /** The booked area this dealer code belongs to (one code per dealer per area); null for a member's tracking code. */
+  allocationId: uuid("allocation_id"),
   memberId: uuid("member_id"),
   status: text("status", { enum: ["ACTIVE", "SUSPENDED", "RETIRED"] }).notNull().default("ACTIVE"),
   createdAt: ts("created_at").notNull().defaultNow(),
@@ -205,6 +207,9 @@ export const franchiseShopAttributions = pgTable("franchise_shop_attributions", 
   memberId: uuid("member_id"),
   status: text("status", { enum: ["ACTIVE", "HELD", "REVERSED"] }).notNull().default("ACTIVE"),
   holdReason: text("hold_reason"),
+  /** Set when an admin tagged a shop outside the code's area (brief 21-Nov-2026 §1.5). */
+  overrideReason: text("override_reason"),
+  overrideBy: uuid("override_by"),
   registeredAt: ts("registered_at").notNull().defaultNow(),
   activatedAt: ts("activated_at"),
   createdAt: ts("created_at").notNull().defaultNow(),
@@ -222,32 +227,41 @@ export const franchiseShopAttributionHistory = pgTable("franchise_shop_attributi
   createdAt: ts("created_at").notNull().defaultNow(),
 });
 
-export const franchiseRatingFormulas = pgTable("franchise_rating_formulas", {
-  version: integer("version").primaryKey(),
-  status: text("status", { enum: ["DRAFT", "PUBLISHED", "RETIRED"] }).notNull().default("DRAFT"),
-  formula: jsonb("formula").$type<Record<string, unknown>>().notNull(),
-  reason: text("reason").notNull(),
-  publishedAt: ts("published_at"),
-  publishedBy: uuid("published_by"),
-  createdBy: uuid("created_by"),
+export const franchiseMonthlySnapshots = pgTable("franchise_monthly_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  allocationId: uuid("allocation_id").notNull(),
+  ownerDealerId: uuid("owner_dealer_id").notNull(),
+  zoneId: text("zone_id").notNull(),
+  code: text("code"),
+  month: text("month").notNull(),
+  configVersion: integer("config_version").notNull(),
+  openingShopIds: jsonb("opening_shop_ids").$type<string[]>().notNull().default([]),
+  openingShops: integer("opening_shops").notNull(),
+  baselinePaise: money("baseline_paise").notNull(),
+  newShops: integer("new_shops").notNull(),
+  actualBusinessPaise: money("actual_business_paise").notNull(),
+  allBusinessPaise: money("all_business_paise").notNull(),
+  regBasePts: integer("reg_base_pts").notNull(),
+  bizBasePts: integer("biz_base_pts").notNull(),
+  totalBasePts: integer("total_base_pts").notNull(),
+  mainPts: numeric("main_pts", { precision: 10, scale: 2, mode: "number" }).notNull(),
+  bonusBp: integer("bonus_bp").notNull(),
+  commissionRateBp: integer("commission_rate_bp").notNull(),
+  rating: numeric("rating", { precision: 4, scale: 2, mode: "number" }).notNull(),
+  bonusEligible: boolean("bonus_eligible").notNull().default(true),
+  onboardingPaise: money("onboarding_paise").notNull(),
+  recurringPaise: money("recurring_paise").notNull(),
+  adjustmentsPaise: money("adjustments_paise").notNull().default(0),
+  totalPayoutPaise: money("total_payout_paise").notNull(),
+  nextOpeningShops: integer("next_opening_shops").notNull(),
+  status: text("status", { enum: ["DRAFT", "LOCKED"] }).notNull().default("DRAFT"),
+  calculatedAt: ts("calculated_at").notNull().defaultNow(),
+  lockedAt: ts("locked_at"),
+  lockedBy: uuid("locked_by"),
+  statementEmailedAt: ts("statement_emailed_at"),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
-
-export const franchisePerformanceRatings = pgTable(
-  "franchise_performance_ratings",
-  {
-    ownerDealerId: uuid("owner_dealer_id").notNull(),
-    month: text("month").notNull(),
-    formulaVersion: integer("formula_version"),
-    score: numeric("score", { precision: 6, scale: 2, mode: "number" }).notNull().default(0),
-    bonusBp: integer("bonus_bp").notNull().default(0),
-    metrics: jsonb("metrics").$type<Record<string, number>>().notNull().default({}),
-    explanation: text("explanation").notNull(),
-    createdAt: ts("created_at").notNull().defaultNow(),
-  },
-  (t) => [primaryKey({ name: "franchise_performance_ratings_pk", columns: [t.ownerDealerId, t.month] })],
-);
-export type FranchisePerformanceRating = typeof franchisePerformanceRatings.$inferSelect;
+export type FranchiseMonthlySnapshot = typeof franchiseMonthlySnapshots.$inferSelect;
 
 export const franchiseNotificationLog = pgTable("franchise_notification_log", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -50,10 +50,11 @@ interface Overview {
   expiring: { soon: (Allocation & { red: boolean; renewal: string })[]; expired: Allocation[]; alerts: { kind: string; detail: string | null; atIst: string }[] };
   attributions: { shopId: string; shopName: string; zoneId: string; ownerName: string; reason: string | null }[];
   notifications: { id: string; kind: string; channel: string; recipient: string; status: string; sentAtIst: string; dueOn: string }[];
-  formula: { version: number; formula: Json } | null;
+  points: { id: string; month: string; dealer: string; zoneId: string; code: string | null; openingShops: number; baselinePaise: number; newShops: number; actualBusinessPaise: number; regPts: number; bizPts: number; totalPts: number; mainPts: number; bonusBp: number; rateBp: number; rating: number; totalPayoutPaise: number; status: string; lockedAtIst: string; emailedAtIst: string }[];
+  configAudit: { atIst: string; actorId: string | null; previous: Json | null; next: Json | null }[];
 }
 
-const TABS = ["Overview", "Zones", "Allocations", "Expiring", "Attribution", "Settings", "Bonus formula", "Reports", "Send log"] as const;
+const TABS = ["Overview", "Zones", "Allocations", "Monthly points", "Expiring", "Attribution", "Bonus settings", "Settings", "Reports", "Send log"] as const;
 type Tab = (typeof TABS)[number];
 
 async function call(url: string, method: string, body?: unknown) {
@@ -294,6 +295,19 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
       {tab === "Attribution" ? (
         <Card className="space-y-2 p-4">
           <h2 className="font-bold text-ink-900">Held franchise attributions (duplicates, disputes)</h2>
+          {isAdmin ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                const shopId = ask("Shop id (uuid) to tag outside its code's area") ?? "";
+                const code = ask("Dealer code (GKF-…)") ?? "";
+                if (shopId && code) void act(() => call("/api/admin/franchise/tag-shop", "POST", { shopId, code, reason: ask("Reason (logged)") ?? "" }), "Shop tagged (override logged)");
+              }}
+            >
+              Tag a shop outside its area (override)
+            </Button>
+          ) : null}
           {!data.attributions.length ? <p className="text-sm text-ink-600">Nothing waiting.</p> : null}
           {data.attributions.map((a) => (
             <div key={a.shopId} className="flex flex-wrap items-center justify-between gap-2 border-t border-cream-100 py-2 text-sm">
@@ -317,7 +331,9 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
 
       {tab === "Settings" ? <SettingsEditor data={data} isAdmin={isAdmin} act={act} /> : null}
 
-      {tab === "Bonus formula" ? <FormulaEditor current={data.formula} isAdmin={isAdmin} act={act} /> : null}
+      {tab === "Bonus settings" ? <BonusSettingsForm data={data} isAdmin={isAdmin} act={act} /> : null}
+
+      {tab === "Monthly points" ? <PointsTable rows={data.points} isAdmin={isAdmin} act={act} ask={ask} /> : null}
 
       {tab === "Reports" ? (
         <Card className="space-y-2 p-4">
@@ -449,36 +465,102 @@ function SettingsEditor({ data, isAdmin, act }: { data: Overview; isAdmin: boole
   );
 }
 
-const SAMPLE_FORMULA = {
-  metrics: [
-    { key: "newShopsActivated", weight: 40, target: 20 },
-    { key: "activeShops", weight: 30, target: 50 },
-    { key: "attributedGmvPaise", weight: 30, target: 500_000_000 },
-  ],
-  tiers: [
-    { minScore: 50, bonusBp: 100 },
-    { minScore: 70, bonusBp: 300 },
-    { minScore: 90, bonusBp: 500 },
-  ],
-};
+const BONUS_FIELDS: { key: string; label: string; unit: "paise" | "bp" | "count" }[] = [
+  { key: "oneTimeBp", label: "Onboarding commission (% of registration fee)", unit: "bp" },
+  { key: "recurringBaseBp", label: "Recurring base share (% of GoKesari's commission)", unit: "bp" },
+  { key: "gokesariCommissionBp", label: "GoKesari order commission (%)", unit: "bp" },
+  { key: "monthlyShopTarget", label: "Monthly shop registration target", unit: "count" },
+  { key: "expectedBusinessPerShopPaise", label: "Expected business per shop per month (₹)", unit: "paise" },
+  { key: "businessSlotPaise", label: "Business slot size (₹)", unit: "paise" },
+  { key: "basePointsPerMainPoint", label: "Base points per main point", unit: "count" },
+  { key: "bonusBpPerMainPoint", label: "Bonus per main point (%)", unit: "bp" },
+  { key: "bonusMaxBp", label: "Maximum bonus (%)", unit: "bp" },
+];
 
-function FormulaEditor({ current, isAdmin, act }: { current: { version: number; formula: Json } | null; isAdmin: boolean; act: (fn: () => Promise<unknown>, ok: string) => Promise<void> }) {
-  const [text, setText] = useState(JSON.stringify(current?.formula ?? SAMPLE_FORMULA, null, 2));
+function BonusSettingsForm({ data, isAdmin, act }: { data: Overview; isAdmin: boolean; act: (fn: () => Promise<unknown>, ok: string) => Promise<void> }) {
+  const show = (key: string, unit: string) => {
+    const v = Number(data.config.config[key] ?? 0);
+    return unit === "paise" ? String(v / 100) : unit === "bp" ? String(v / 100) : String(v);
+  };
+  const [vals, setVals] = useState<Record<string, string>>(Object.fromEntries(BONUS_FIELDS.map((f) => [f.key, show(f.key, f.unit)])));
   const [reason, setReason] = useState("");
+  const save = () => {
+    const patch: Record<string, number> = {};
+    for (const f of BONUS_FIELDS) {
+      const n = Number(vals[f.key]);
+      patch[f.key] = f.unit === "count" ? Math.round(n) : Math.round(n * 100);
+    }
+    return act(() => call("/api/admin/franchise/config", "PUT", { patch, reason }), "Saved — applies from the 1st of next month (IST)");
+  };
   return (
-    <Card className="space-y-2 p-4">
-      <h2 className="font-bold text-ink-900">Performance bonus formula {current ? `(published v${current.version})` : "(none published — bonus is 0%)"}</h2>
-      <p className="text-xs text-ink-600">Metrics: newShopsActivated, activeShops, attributedGmvPaise, momGrowthPct, ticketCompliancePct. Score 0–100 → the highest tier reached; the bonus is capped at bonusMaxBp (5 points). Applies from the next monthly run.</p>
-      <textarea className={`${inputClass} h-72 font-mono text-xs`} value={text} onChange={(e) => setText(e.target.value)} readOnly={!isAdmin} aria-label="Formula JSON" />
+    <Card className="space-y-3 p-4" data-testid="admin-bonus-settings">
+      <h2 className="font-bold text-ink-900">Commission and bonus settings</h2>
+      <p className="text-xs text-ink-600">Admin only. A change applies from the next calendar month (IST), never to the current one, and is logged with who changed it and the old and new value.</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {BONUS_FIELDS.map((f) => (
+          <label key={f.key} className="text-sm text-ink-700">
+            {f.label}
+            <input className={inputClass} value={vals[f.key]} readOnly={!isAdmin} inputMode="decimal" onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })} />
+          </label>
+        ))}
+      </div>
       {isAdmin ? (
         <div className="flex flex-wrap gap-2">
           <input className={inputClass} placeholder="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <Button variant="secondary" onClick={() => act(() => call("/api/admin/franchise/rating", "POST", { formula: JSON.parse(text), publish: false, reason }), "Draft saved")}>
-            Save draft
-          </Button>
-          <Button onClick={() => act(() => call("/api/admin/franchise/rating", "POST", { formula: JSON.parse(text), publish: true, reason }), "Published")}>Publish</Button>
+          <Button onClick={save}>Save (from next month)</Button>
         </div>
       ) : null}
+      <h3 className="pt-2 font-semibold text-ink-900">Change log</h3>
+      <ul className="space-y-1 text-xs text-ink-700">
+        {data.configAudit.map((a, i) => (
+          <li key={i}>
+            {a.atIst} · by {a.actorId ?? "system"} · from {JSON.stringify(a.previous)} → {JSON.stringify(a.next)}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function PointsTable({ rows, isAdmin, act, ask }: { rows: Overview["points"]; isAdmin: boolean; act: (fn: () => Promise<unknown>, ok: string) => Promise<void>; ask: (q: string) => string | null }) {
+  const month = (q: string) => {
+    const m = ask(q) ?? "";
+    return /^\d{4}-\d{2}$/.test(m) ? m : null;
+  };
+  return (
+    <Card className="space-y-3 p-4" data-testid="admin-points">
+      <div className="flex flex-wrap gap-2">
+        {isAdmin ? (
+          <>
+            <Button size="sm" variant="secondary" onClick={() => { const m = month("Recalculate month (YYYY-MM)"); if (m) void act(() => call("/api/admin/franchise/run", "POST", { month: m, action: "calculate" }), `Recalculated ${m}`); }}>
+              Recalculate a month
+            </Button>
+            <Button size="sm" onClick={() => { const m = month("Lock month for payout (YYYY-MM) — after this it never changes"); if (m) void act(() => call("/api/admin/franchise/run", "POST", { month: m, action: "lock" }), `Locked ${m}: approve the payouts in Dealers → Commission → Payouts`); }}>
+              Approve and lock a month
+            </Button>
+          </>
+        ) : null}
+        <a className="inline-flex min-h-10 items-center rounded-lg border border-cream-200 px-3 text-sm" href="/api/admin/franchise/points?format=xlsx">Export to Excel</a>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-xs">
+          <thead className="text-left text-ink-500">
+            <tr>
+              <th>Month</th><th>Dealer</th><th>Area</th><th>Code</th><th>Opening</th><th>Baseline</th><th>New</th><th>Business</th><th>Reg pts</th><th>Biz pts</th><th>Main pts</th><th>Bonus</th><th>Rate</th><th>Rating</th><th>Payout</th><th>Status</th><th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-t border-cream-100">
+                <td>{r.month}</td><td>{r.dealer}</td><td>{r.zoneId}</td><td className="font-mono">{r.code}</td><td>{r.openingShops}</td><td>{rupees(r.baselinePaise)}</td><td>{r.newShops}</td><td>{rupees(r.actualBusinessPaise)}</td>
+                <td>{r.regPts}</td><td>{r.bizPts}</td><td>{r.mainPts.toFixed(2)}</td><td>{(r.bonusBp / 100).toFixed(2)}%</td><td>{(r.rateBp / 100).toFixed(2)}%</td><td>{r.rating.toFixed(2)}</td><td>{rupees(r.totalPayoutPaise)}</td>
+                <td>{r.status}{r.status === "LOCKED" ? ` ${r.lockedAtIst}` : ""}</td>
+                <td><a className="text-kesari-800 underline" href={`/api/franchise/statements/${r.id}`}>PDF</a></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }

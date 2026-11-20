@@ -20,6 +20,7 @@ import { db } from "@/server/db";
 import {
   dealerCommissionLedger,
   dealerCommissionMonths,
+  financialAdjustments,
   dealerSalespeople,
   dealers,
   franchiseAllocations,
@@ -29,8 +30,8 @@ import {
   franchiseCodes,
   franchiseConfigVersions,
   franchiseNotificationLog,
-  franchisePerformanceRatings,
-  franchiseRatingFormulas,
+  franchiseConfigVersions as _cv,
+  franchiseMonthlySnapshots,
   franchiseShopAttributions,
   franchiseZoneBoundaries,
   franchiseZones,
@@ -56,7 +57,10 @@ import {
   startRenewal,
 } from "@/server/franchise/booking";
 import { assertCodeForLocation } from "@/server/franchise/codes";
-import { runFranchiseMonth, saveRatingFormula } from "@/server/franchise/commission";
+import { calculateAllocationMonth, calculateFranchiseMonth, lockFranchiseMonth, prevMonth } from "@/server/franchise/commission";
+import { emailStatements, statementData, statementPdf } from "@/server/franchise/statements";
+import { adminTagShop } from "@/server/franchise/codes";
+import { tailEndAt, istMonthBounds } from "@/lib/franchise";
 import { franchiseConfig, saveFranchiseConfig } from "@/server/franchise/config";
 import { expireAreas, sendDigest, sendReminders } from "@/server/franchise/jobs";
 import { approveBoundary, clusterSummary, listClusters, saveBoundaryDraft, splitZone, zoneViews, zonesContaining } from "@/server/franchise/zones";
@@ -82,8 +86,7 @@ beforeEach(async () => {
   await db.delete(dealerCommissionMonths);
   await db.delete(franchiseNotificationLog);
   await db.delete(franchiseCalcRuns);
-  await db.delete(franchisePerformanceRatings);
-  await db.delete(franchiseRatingFormulas);
+  await db.delete(franchiseMonthlySnapshots);
   await db.delete(franchiseZoneBoundaries);
   await db.delete(franchiseZones).where(sql`${franchiseZones.origin} in ('SUB_ZONE', 'TEST')`);
   await db.update(franchiseZones).set({ status: "BOUNDARY_PENDING", statusReason: null, maxOwners: 2 });
@@ -99,7 +102,8 @@ beforeEach(async () => {
   await setFeatureFlag("dealer_programme_enabled", { enabled: true, districtCodes: null }, "on (test)", admin);
   await setFeatureFlag("dealer_rating_bonus_enabled", { enabled: false, districtCodes: null }, "off (test)", admin);
   for (const key of ["dealerTieredCommission", "dealerPayouts", "dealerPayoutTds"]) await db.execute(sql`delete from platform_settings where key = ${key}`);
-  await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true }, admin);
+  // The 20-Nov brief's level-distance overrides (off by default since the 21-Nov brief; see DECISIONS F-07).
+  await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, overrideByDistance: true }, admin);
   clearRuleCache();
   await setCommissionRate({ scope: "DEFAULT", rateBp: 200 }, admin);
   await saveFranchiseConfig({ bookingOpen: true }, { reason: "open for the tests" }, admin);
@@ -137,9 +141,24 @@ async function book(o: Awaited<ReturnType<typeof owner>>, zoneIds: string[]) {
 
 const allocs = (bookingId: string) => db.select().from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, bookingId));
 
-async function codeOf(dealerId: string): Promise<string> {
-  const [r] = await db.select({ code: referralCodes.code }).from(franchiseCodes).innerJoin(referralCodes, eq(referralCodes.id, franchiseCodes.referralCodeId)).where(eq(franchiseCodes.ownerDealerId, dealerId));
+/** The dealer code of the owner's area in `zoneId` (one code per dealer per area). */
+async function codeOf(dealerId: string, zoneId = "4"): Promise<string> {
+  const [r] = await db
+    .select({ code: referralCodes.code })
+    .from(franchiseCodes)
+    .innerJoin(referralCodes, eq(referralCodes.id, franchiseCodes.referralCodeId))
+    .innerJoin(franchiseAllocations, eq(franchiseAllocations.id, franchiseCodes.allocationId))
+    .where(and(eq(franchiseCodes.ownerDealerId, dealerId), eq(franchiseAllocations.zoneId, zoneId)))
+    .orderBy(sql`${franchiseCodes.createdAt} desc`)
+    .limit(1);
   return r.code;
+}
+
+/** A money setting in force from a past moment (the admin screen can only schedule the next month). */
+async function moneyConfigFrom(patch: Record<string, unknown>, from: Date) {
+  const { config } = await franchiseConfig();
+  const [m] = (await db.execute(sql`select coalesce(max(version), 0)::int as v from franchise_config_versions`)) as unknown as { v: number }[];
+  await db.insert(_cv).values({ version: Number(m.v) + 1, effectiveFrom: from, config: { ...config, ...patch } as Record<string, unknown>, reason: "test" });
 }
 
 /** A shop at (lat, lng) registered with `code`, fee paid online (base + 18%), verified and approved. */
@@ -234,7 +253,15 @@ describe("zone boundaries and the 5 km rule (brief §6)", () => {
     await expect(splitZone("4", [{ name: "a", shops: 1 }, { name: "b", shops: 1 }], "wrong total", admin)).rejects.toThrow(/add up to 4,000/);
   });
 
-  it("overlapping boundaries are refused; a point resolves to exactly one zone", async () => {
+  it("5 km areas may overlap by default; the 20-Nov no-overlap rule still works when switched back", async () => {
+    await openZone("4", Z4, 5000);
+    await saveBoundaryDraft("5A", { ref: { lat: Z4[0] + 0.01, lng: Z4[1] }, shape: "CIRCLE", radiusM: 5000 }, admin);
+    expect(await approveBoundary("5A", admin)).toEqual({ approved: true, errors: [] });
+    expect(await zonesContaining(Z4[0], Z4[1])).toEqual(["4", "5A"]);
+  });
+
+  it("with allowOverlappingAreas off: overlapping boundaries are refused; a point resolves to exactly one zone", async () => {
+    await saveFranchiseConfig({ allowOverlappingAreas: false }, { reason: "test: no overlap" }, admin);
     await openZone("4", Z4);
     await saveBoundaryDraft("5A", { ref: { lat: Z4[0] + 0.005, lng: Z4[1] }, shape: "CIRCLE", radiusM: 1000 }, admin);
     const r = await approveBoundary("5A", admin);
@@ -326,7 +353,8 @@ describe("two slots a zone, enforced in the database (brief §4.4)", () => {
     expect(a.status).toBe("ACTIVE");
     expect(a.expiresAt!.getTime()).toBe(allocationExpiry(a.activatedAt!, 12).getTime());
     expect(formatIst(a.expiresAt)).toMatch(/23\.59 IST$/);
-    expect(a.tailEndAt!.getTime()).toBe(allocationExpiry(a.activatedAt!, 36).getTime());
+    // Brief 21-Nov §6: the base share continues up to 2 years after expiry.
+    expect(a.tailEndAt!.getTime()).toBe(tailEndAt({ chainStartAt: a.activatedAt!, expiresAt: a.expiresAt!, mode: "years_after_lapse", tailYears: 2 }).getTime());
     expect(await codeOf(o.dealer.id)).toMatch(/^GKF-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/);
   });
 });
@@ -380,7 +408,7 @@ describe("franchise code, attribution and commission (brief §3.2, §7, §8)", (
     await book(o, ["4"]);
     const code = await codeOf(o.dealer.id);
     expect(await assertCodeForLocation(code, Z4[0], Z4[1])).toMatchObject({ kind: "FRANCHISE", zoneId: "4" });
-    await expect(assertCodeForLocation(code, Z10[0], Z10[1])).rejects.toThrow(/outside the franchise's areas/);
+    await expect(assertCodeForLocation(code, Z10[0], Z10[1])).rejects.toThrow(/outside the dealer code's area/);
     await expect(assertCodeForLocation(code, null, null)).rejects.toThrow(/map/);
     expect(await assertCodeForLocation("NOTAFRAN", Z4[0], Z4[1])).toEqual({ kind: "NOT_FRANCHISE" });
   });
@@ -405,50 +433,106 @@ describe("franchise code, attribution and commission (brief §3.2, §7, §8)", (
     expect((await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, retail.id)))[0].status).toBe("REVERSED");
   });
 
-  it("monthly: 25% of GoKesari's actual 2% (₹1,00,000 → ₹2,000 → ₹500); bonus 0% until a formula is published", async () => {
+  it("one dealer code per area: the code of area 4 is refused in area 10 and the other way round", async () => {
+    await openZone("4", Z4);
+    await openZone("10", Z10);
+    const o = await owner();
+    await book(o, ["4", "10"]);
+    const [c4, c10] = [await codeOf(o.dealer.id, "4"), await codeOf(o.dealer.id, "10")];
+    expect(c4).not.toBe(c10);
+    expect(await assertCodeForLocation(c10, Z10[0], Z10[1])).toMatchObject({ kind: "FRANCHISE", zoneId: "10" });
+    await expect(assertCodeForLocation(c4, Z10[0], Z10[1])).rejects.toThrow(/outside the dealer code's area/);
+    const shop = await registeredShop(c10, Z10);
+    expect((await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, shop.id)))[0]).toMatchObject({ zoneId: "10", status: "ACTIVE" });
+  });
+
+  it("admin override: a shop outside the area is tagged anyway, and the override is logged", async () => {
     await openZone("4", Z4);
     const o = await owner();
     await book(o, ["4"]);
-    const shop = await registeredShop(await codeOf(o.dealer.id), Z4);
-    await deliver(shop.id, 10_000_000);
-    const month = thisMonth();
-    // The month is over "now + 40 days" for the run; ratings and entries written once.
-    await db.execute(sql`select 1`);
-    const { accrueFranchiseRecurring, rateOwnersForMonth } = await import("@/server/franchise/commission");
-    expect(await rateOwnersForMonth(month)).toBe(1);
-    const [rating] = await db.select().from(franchisePerformanceRatings).where(eq(franchisePerformanceRatings.ownerDealerId, o.dealer.id));
-    expect(rating).toMatchObject({ bonusBp: 0 });
-    expect(rating.explanation).toMatch(/No performance formula/);
-    const r = await db.transaction((tx) => accrueFranchiseRecurring(tx, month, "test-run"));
-    expect(r).toMatchObject({ entries: 1, basePaise: 50_000, bonusPaise: 0 });
-    const again = await db.transaction((tx) => accrueFranchiseRecurring(tx, month, "test-run-2"));
-    expect(again.entries).toBe(0);
-    const rec = (await entries(shop.id)).filter((e) => e.entryType === "RECURRING_BASE");
-    expect(rec.map((e) => [e.amountPaise, e.basePaise, e.milestone])).toEqual([[50_000, 200_000, "MONTHLY"]]);
+    const shopOwner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(shopOwner.id, { name: "Far shop", status: "APPROVED" });
+    await expect(adminTagShop(shop.id, await codeOf(o.dealer.id), "too short".slice(0, 3), admin)).rejects.toThrow(/reason/);
+    await adminTagShop(shop.id, await codeOf(o.dealer.id), "owner confirmed the shop serves the area", admin);
+    const [t] = await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, shop.id));
+    expect(t).toMatchObject({ zoneId: "4", overrideReason: "owner confirmed the shop serves the area", overrideBy: admin.id });
+    await expect(adminTagShop(shop.id, await codeOf(o.dealer.id), "second time is refused", admin)).rejects.toThrow(/permanent/);
   });
 
-  it("with a published formula the bonus is added (max 5 points) and explained", async () => {
+  it("live month: rate × 2% × delivered value (₹1,00,000 → ₹500 at 25%); a first month has baseline ₹0", async () => {
     await openZone("4", Z4);
     const o = await owner();
-    await book(o, ["4"]);
+    const r = await book(o, ["4"]);
     const shop = await registeredShop(await codeOf(o.dealer.id), Z4);
     await deliver(shop.id, 10_000_000);
-    await saveRatingFormula({ metrics: [{ key: "newShopsActivated", weight: 1, target: 1 }], tiers: [{ minScore: 50, bonusBp: 300 }, { minScore: 100, bonusBp: 900 }] }, true, "test formula", admin);
-    const { accrueFranchiseRecurring, rateOwnersForMonth } = await import("@/server/franchise/commission");
-    await rateOwnersForMonth(thisMonth());
-    const [rating] = await db.select().from(franchisePerformanceRatings).where(eq(franchisePerformanceRatings.ownerDealerId, o.dealer.id));
-    expect(rating).toMatchObject({ bonusBp: 500 }); // tier 900 capped at bonusMaxBp 500
-    expect(rating.explanation).toMatch(/Score 100\.0/);
-    await db.transaction((tx) => accrueFranchiseRecurring(tx, thisMonth(), "run"));
-    const rec = await entries(shop.id);
-    expect(rec.filter((e) => e.entryType.startsWith("RECURRING")).map((e) => [e.entryType, e.amountPaise]).sort()).toEqual([
-      ["RECURRING_BASE", 50_000],
-      ["RECURRING_BONUS", 10_000],
-    ]);
+    const [a] = await allocs(r.booking.id);
+    const c = await calculateAllocationMonth(db, a, thisMonth());
+    expect(c.result).toMatchObject({ openingShops: 0, newShops: 1, baselinePaise: 0, businessPoints: 0, registrationPoints: 0, bonusBp: 0, commissionRateBp: 2500, rating: 5, recurringPaise: 50_000, onboardingPaise: 25_000 });
   });
 
-  it("runFranchiseMonth refuses a month not yet over", async () => {
-    expect(await runFranchiseMonth(thisMonth())).toEqual({ skipped: `${thisMonth()} is not over yet` });
+  it("past month: DRAFT (rerunnable) → lock writes the ledger lines → never changes; a later refund is next month's adjustment (TC5)", async () => {
+    await openZone("4", Z4);
+    const o = await owner();
+    const r = await book(o, ["4"]);
+    const [a] = await allocs(r.booking.id);
+    const prev = prevMonth(thisMonth());
+    const { start: prevStart } = istMonthBounds(prev);
+    const twoBack = istMonthBounds(prevMonth(prev)).start;
+    await db.update(franchiseAllocations).set({ activatedAt: twoBack, periodStart: twoBack }).where(eq(franchiseAllocations.id, a.id));
+    const shop = await registeredShop(await codeOf(o.dealer.id), Z4);
+    const order = await deliver(shop.id, 10_000_000);
+    const inPrev = new Date(prevStart.getTime() + 3 * 86_400_000);
+    await db.execute(sql`update franchise_shop_attributions set activated_at = ${inPrev.toISOString()}::timestamptz where shop_id = ${shop.id}`);
+    await db.execute(sql`update order_financials set delivered_at = ${inPrev.toISOString()}::timestamptz where order_id = ${order.id}`);
+    expect(await calculateFranchiseMonth(prev)).toMatchObject({ calculated: 1 });
+    expect(await calculateFranchiseMonth(prev)).toMatchObject({ calculated: 1 }); // rerunnable
+    let [snap] = await db.select().from(franchiseMonthlySnapshots).where(eq(franchiseMonthlySnapshots.allocationId, a.id));
+    expect(snap).toMatchObject({ month: prev, status: "DRAFT", openingShops: 0, newShops: 1, recurringPaise: 50_000, nextOpeningShops: 1 });
+    expect(await lockFranchiseMonth(prev, admin)).toMatchObject({ locked: 1 });
+    [snap] = await db.select().from(franchiseMonthlySnapshots).where(eq(franchiseMonthlySnapshots.allocationId, a.id));
+    expect(snap.status).toBe("LOCKED");
+    const lines = (await entries(shop.id)).filter((e) => e.entryType === "RECURRING_BASE");
+    expect(lines.map((e) => [e.amountPaise, e.franchiseZoneId])).toEqual([[50_000, "4"]]);
+    expect(lines[0].createdAt.getTime()).toBeLessThan(istMonthBounds(prev).end.getTime());
+    expect(await calculateFranchiseMonth(prev)).toMatchObject({ calculated: 0, locked: 1 }); // a locked month never changes
+    // TC5: ₹40,000 refunded now on that order (already paid on) → −₹200 on this month's statement.
+    await db.insert(financialAdjustments).values({ type: "REFUND_SHOP", party: "SHOP", status: "PENDING", shopId: shop.id, orderId: order.id, amountPaise: -4_000_000, customerRefundPaise: 4_000_000, reason: "refund after payout (test)", idempotencyKey: `test-refund-${order.id}` });
+    const [a2] = await allocs(r.booking.id);
+    const now = await calculateAllocationMonth(db, a2, thisMonth());
+    expect(now.result).toMatchObject({ openingShops: 1, adjustmentsPaise: -20_000 });
+  });
+
+  it("statement: PDF built and e-mailed to the dealer and ceo@agtci.com once", async () => {
+    await openZone("4", Z4);
+    const o = await owner();
+    const r = await book(o, ["4"]);
+    const [a] = await allocs(r.booking.id);
+    const prev = prevMonth(thisMonth());
+    await db.update(franchiseAllocations).set({ activatedAt: istMonthBounds(prev).start, periodStart: istMonthBounds(prev).start }).where(eq(franchiseAllocations.id, a.id));
+    await calculateFranchiseMonth(prev);
+    const [snap] = await db.select().from(franchiseMonthlySnapshots).where(eq(franchiseMonthlySnapshots.allocationId, a.id));
+    expect(statementPdf(await statementData(snap.id)).subarray(0, 5).toString()).toBe("%PDF-");
+    await emailStatements(prev, ["ceo@agtci.com"]);
+    await emailStatements(prev, ["ceo@agtci.com"]);
+    const log = await db.select().from(franchiseNotificationLog).where(eq(franchiseNotificationLog.kind, `STATEMENT:${prev}`));
+    expect(log.map((l) => l.recipient).sort()).toEqual([o.user.email, "ceo@agtci.com"].sort());
+  });
+
+  it("TC6: a money setting changed now applies from the 1st of next month; other settings apply now", async () => {
+    await saveFranchiseConfig({ businessSlotPaise: 5_000_000, reservationHoldMinutes: 20 }, { reason: "test: slot ₹50K" }, admin);
+    const now = (await franchiseConfig()).config;
+    expect(now).toMatchObject({ businessSlotPaise: 500_000, reservationHoldMinutes: 20 });
+    const { franchiseConfigAt } = await import("@/server/franchise/config");
+    const nextStart = istMonthBounds(thisMonth()).end;
+    expect((await franchiseConfigAt(nextStart)).config).toMatchObject({ businessSlotPaise: 5_000_000, reservationHoldMinutes: 20 });
+    // A later non-money change is carried into the scheduled version too.
+    await saveFranchiseConfig({ reservationHoldMinutes: 25 }, { reason: "test: hold 25" }, admin);
+    expect((await franchiseConfigAt(nextStart)).config).toMatchObject({ businessSlotPaise: 5_000_000, reservationHoldMinutes: 25 });
+    void moneyConfigFrom;
+  });
+
+  it("a month not yet over is not calculated", async () => {
+    expect(await calculateFranchiseMonth(thisMonth())).toMatchObject({ skipped: `${thisMonth()} is not over yet` });
   });
 });
 
@@ -515,7 +599,7 @@ describe("validity, reminders, expiry and renewal (brief §9)", () => {
     await expect(startRenewal(a4.id, o.actor)).rejects.toThrow(/expired; renewal is closed/);
     const code = await codeOf(o.dealer.id);
     await expect(assertCodeForLocation(code, Z4[0], Z4[1])).rejects.toThrow(/This franchise area has expired\./);
-    expect(await assertCodeForLocation(code, Z10[0], Z10[1])).toMatchObject({ kind: "FRANCHISE", zoneId: "10" });
+    expect(await assertCodeForLocation(await codeOf(o.dealer.id, "10"), Z10[0], Z10[1])).toMatchObject({ kind: "FRANCHISE", zoneId: "10" });
     const log = await db.select().from(franchiseNotificationLog).where(and(eq(franchiseNotificationLog.allocationId, a4.id), eq(franchiseNotificationLog.kind, "EXPIRED")));
     expect(log.map((l) => l.recipient)).toEqual(expect.arrayContaining(["ceo@agtci.com", "admin-dashboard"]));
     // The slot is free: the same owner (no priority) or anyone books it as a new allocation.
@@ -532,7 +616,7 @@ describe("validity, reminders, expiry and renewal (brief §9)", () => {
     await expireAreas(new Date(), (await franchiseConfig()).config);
     const [fc] = await db.select().from(franchiseCodes).where(eq(franchiseCodes.ownerDealerId, o.dealer.id));
     expect(fc.status).toBe("SUSPENDED");
-    await expect(assertCodeForLocation(await codeOf(o.dealer.id), Z4[0], Z4[1])).rejects.toThrow(/closed for new shops/);
+    await expect(assertCodeForLocation(await codeOf(o.dealer.id), Z4[0], Z4[1])).rejects.toThrow(/has expired/);
   });
 
   it("tail: shops keep earning after expiry until the tail end, then stop", async () => {
@@ -540,10 +624,11 @@ describe("validity, reminders, expiry and renewal (brief §9)", () => {
     const shop = await registeredShop(await codeOf(o.dealer.id), Z4);
     await db.update(franchiseAllocations).set({ status: "EXPIRED", activatedAt: new Date(Date.now() - 400 * 86_400_000), periodStart: new Date(Date.now() - 400 * 86_400_000), expiresAt: new Date(Date.now() - 86_400_000), tailEndAt: new Date(Date.now() + 86_400_000) }).where(eq(franchiseAllocations.id, a.id));
     await deliver(shop.id, 1_000_000);
-    const { franchiseShopMonths } = await import("@/server/franchise/commission");
-    expect((await franchiseShopMonths(db, thisMonth())).map((r) => r.commissionPaise)).toEqual([20_000]);
+    const reload = async () => (await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, a.id)))[0];
+    const within = await calculateAllocationMonth(db, await reload(), thisMonth());
+    expect(within.result).toMatchObject({ bonusBp: 0, commissionRateBp: 2500, recurringPaise: 5_000 }); // ₹10,000 × 2% × 25%, no bonus once expired
     await db.update(franchiseAllocations).set({ tailEndAt: new Date(Date.now() - 3600_000) }).where(eq(franchiseAllocations.id, a.id));
-    expect(await franchiseShopMonths(db, thisMonth())).toEqual([]);
+    expect((await calculateAllocationMonth(db, await reload(), thisMonth())).result.recurringPaise).toBe(0);
   });
 
   it("the 09:00 IST digest goes once a day to the CC list", async () => {

@@ -14,8 +14,9 @@ import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
 import { releaseExpiredHolds, renewalFeeFor } from "./booking";
-import { closeOwnerCodesIfNoArea } from "./codes";
-import { prevMonth, runFranchiseMonth } from "./commission";
+import { closeAllocationCodes } from "./codes";
+import { calculateFranchiseMonth, lockFranchiseMonth, prevMonth } from "./commission";
+import { emailStatements } from "./statements";
 import { franchiseConfig, franchiseNow, type FranchiseConfig } from "./config";
 
 const SITE = () => (process.env.APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? "https://gokesari.com").replace(/\/$/, "");
@@ -93,7 +94,7 @@ export async function expireAreas(now: Date, config: FranchiseConfig): Promise<n
         .where(and(eq(franchiseAllocations.id, area.a.id), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"])))
         .returning({ id: franchiseAllocations.id });
       if (!moved.length) return false;
-      const codesClosed = await closeOwnerCodesIfNoArea(tx, area.a.ownerDealerId, now);
+      const codesClosed = await closeAllocationCodes(tx, area.a, now);
       await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_allocation", entityId: area.a.id, previousValue: { status: area.a.status }, newValue: { status: "EXPIRED", zoneId: area.a.zoneId, slotReleased: area.a.slotNo, renewal: "disabled", codesClosed, tailEndAt: area.a.tailEndAt?.toISOString() ?? null } }, tx);
       return true;
     });
@@ -185,10 +186,14 @@ export async function runFranchiseJob(real: Date = new Date()): Promise<Record<s
   out.expired = await expireAreas(now, config);
   out.reminded = await sendReminders(now, config);
   out.digest = await sendDigest(now, config);
-  // Brief §8.2: the month before is calculated on the 1st from calcHourIst (ratings, then recurring entries).
-  if (istHour(now) >= config.calcHourIst) {
-    const month = prevMonth(istDate(now).slice(0, 7));
-    out.monthly = await runFranchiseMonth(month).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
-  }
+  // Brief 21-Nov §5 (IST): days 1..calcLastDay from calcHourIst — calculate last month (once an hour, rerunnable,
+  // DRAFT); statementDay from statementHourIst — e-mail the statements; from the 5th — lock (the payout close
+  // on the 5th locks it too). A locked month never changes; later corrections go to the next month.
+  const day = Number(istDate(now).slice(8, 10));
+  const month = prevMonth(istDate(now).slice(0, 7));
+  const err = (e: unknown) => ({ error: e instanceof Error ? e.message : String(e) });
+  if (day <= config.calcLastDay && istHour(now) >= config.calcHourIst && now.getUTCMinutes() < 5) out.calculated = await calculateFranchiseMonth(month).catch(err);
+  if (day === config.statementDay && istHour(now) >= config.statementHourIst) out.statements = await emailStatements(month, config.expiryCc).catch(err);
+  if (day >= 5 && day <= 7 && now.getUTCMinutes() < 5) out.locked = await lockFranchiseMonth(month).catch(err);
   return out;
 }

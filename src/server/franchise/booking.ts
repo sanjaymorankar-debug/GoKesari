@@ -45,7 +45,7 @@ import type { PaymentIntentRef } from "@/server/payments/intents";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
 import { franchiseConfig, franchiseConfigAt, franchiseNow, type FranchiseConfig } from "./config";
-import { ensureOwnerCode, reopenOwnerCodes } from "./codes";
+import { closeAllocationCodes, ensureAllocationCode, reopenMemberCodes } from "./codes";
 
 export interface Actor {
   id: string;
@@ -402,14 +402,13 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
         .update(franchiseAllocations)
         .set({ status: "ACTIVE", holdExpiresAt: null, activatedAt: now, periodStart: now, expiresAt, tailEndAt: tail, launchSeq: booking.launchOffer && !booking.isTest ? seq : null, updatedAt: now })
         .where(eq(franchiseAllocations.id, a.id));
+      // Brief 21-Nov §1.4: one dealer code per dealer per area.
+      await ensureAllocationCode(client, a);
       activated.push(a.zoneId);
     }
     await client.update(franchiseBookings).set({ status: "PAID", paidAt: now, failureReason: lost.length ? `slot lost for ${lost.join(", ")} — refund due` : null, updatedAt: now }).where(eq(franchiseBookings.id, booking.id));
     if (counts) await maybeCloseLaunch(client, config, now);
-    if (activated.length) {
-      await ensureOwnerCode(client, booking.ownerDealerId, null);
-      await reopenOwnerCodes(client, booking.ownerDealerId);
-    }
+    if (activated.length) await reopenMemberCodes(client, booking.ownerDealerId);
     await recordAudit(
       { action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { activated, lost, activatedAt: now.toISOString(), expiresAt: expiresAt.toISOString(), tailEndAt: tail.toISOString(), intentId: intent.id, launchOffer: booking.launchOffer } },
       client,
@@ -534,6 +533,7 @@ export async function setAllocationStatus(allocationId: string, to: "SUSPENDED" 
       .set({ status: to, updatedAt: now, ...(ending ? { endedAt: now, endReason: reason.trim().slice(0, 300), tailEndAt: to === "TERMINATED" ? now : a.tailEndAt } : {}) })
       .where(eq(franchiseAllocations.id, allocationId))
       .returning();
+    if (ending) await closeAllocationCodes(tx, a, now);
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_allocation", entityId: allocationId, previousValue: { status: a.status }, newValue: { status: to, reason } }, tx);
     return after;
   });

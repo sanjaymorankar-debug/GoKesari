@@ -13,7 +13,9 @@ import {
   franchiseBookings,
   franchiseComplianceViolations,
   franchiseNotificationLog,
-  franchisePerformanceRatings,
+  franchiseMonthlySnapshots,
+  franchiseZoneBoundaries,
+  auditLogs,
   franchiseShopAttributions,
   franchiseZones,
   orderFinancials,
@@ -50,7 +52,7 @@ export interface OwnerArea {
 export async function ownerDashboard(userId: string) {
   const status = await ownerStatusForUser(userId);
   const offer = await offerView();
-  if (!status.dealer) return { status: { hasDealer: false, missing: status.missing, agreementAccepted: false }, offer, areas: [], bookings: [], shops: [], money: null, codes: [], rating: null, violations: [] };
+  if (!status.dealer) return { status: { hasDealer: false, missing: status.missing, agreementAccepted: false }, offer, areas: [], bookings: [], shops: [], money: null, codes: [], rating: null, violations: [], live: [], statements: [], totals: null };
   const dealer = status.dealer;
   const { config } = await franchiseConfig();
   const now = franchiseNow(config);
@@ -103,8 +105,18 @@ export async function ownerDashboard(userId: string) {
     from ${orderFinancials} o join ${franchiseShopAttributions} fa on fa.shop_id = o.shop_id
     where fa.owner_dealer_id = ${dealer.id} and fa.status = 'ACTIVE' and o.delivered_at >= ${start.toISOString()}::timestamptz
   `)) as unknown as { commission: string | number; gmv: string | number }[];
-  const [rating] = await db.select().from(franchisePerformanceRatings).where(eq(franchisePerformanceRatings.ownerDealerId, dealer.id)).orderBy(desc(franchisePerformanceRatings.month)).limit(1);
-  const bonusBp = Math.min(config.bonusMaxBp, rating?.bonusBp ?? 0);
+  // Brief 21-Nov §7: live month-to-date per dealer code (the month's calculation so far, not stored) …
+  const { liveMonth } = await import("./commission");
+  const live = [];
+  for (const { a, zoneName } of rows.filter((r) => r.a.status === "ACTIVE" || r.a.status === "SUSPENDED" || r.a.status === "EXPIRED")) {
+    const c = await liveMonth(a, now);
+    live.push({ allocationId: a.id, zoneId: a.zoneId, zoneName, code: c.code, openingShops: c.result.openingShops, baselinePaise: c.result.baselinePaise, newShops: c.result.newShops, target: config.monthlyShopTarget, actualBusinessPaise: c.result.actualBusinessPaise, allBusinessPaise: c.lines.reduce((t, l) => t + l.netPaise, 0), totalPoints: c.result.totalPoints, mainPoints: c.result.mainPoints, bonusBp: c.result.bonusBp, rateBp: c.result.commissionRateBp, rating: c.result.rating, projectedPayoutPaise: c.result.totalPayoutPaise, bonusEligible: c.bonusEligible });
+  }
+  // … and the statement history (all codes), newest first.
+  const statements = await db.select().from(franchiseMonthlySnapshots).where(eq(franchiseMonthlySnapshots.ownerDealerId, dealer.id)).orderBy(desc(franchiseMonthlySnapshots.month), franchiseMonthlySnapshots.zoneId);
+  const latest = statements[0];
+  const bonusBp = live.length ? Math.max(...live.map((l) => l.bonusBp)) : 0;
+  const boundaries = rows.length ? await db.select().from(franchiseZoneBoundaries).where(and(inArray(franchiseZoneBoundaries.zoneId, rows.map((r) => r.a.zoneId)), eq(franchiseZoneBoundaries.status, "APPROVED"))) : [];
   const commission = Number(mtd?.commission ?? 0);
   const fyStart = (() => {
     const d = istDate(now);
@@ -150,7 +162,16 @@ export async function ownerDashboard(userId: string) {
       nextPayoutDate: payoutDate(nextPayoutMonth, 5, config.bankHolidays, config.payoutOnNextWorkingDay),
     },
     codes: await ownerCodes(dealer.id),
-    rating: rating ? { month: rating.month, score: rating.score, bonusBp: rating.bonusBp, explanation: rating.explanation } : null,
+    rating: latest ? { month: latest.month, rating: Number(latest.rating), bonusBp: latest.bonusBp, rateBp: latest.commissionRateBp } : null,
+    live,
+    totals: {
+      projectedPayoutPaise: live.reduce((t, l) => t + l.projectedPayoutPaise, 0),
+      newShops: live.reduce((t, l) => t + l.newShops, 0),
+      openingShops: live.reduce((t, l) => t + l.openingShops, 0),
+      allBusinessPaise: live.reduce((t, l) => t + l.allBusinessPaise, 0),
+    },
+    statements: statements.map((st) => ({ id: st.id, month: st.month, zoneId: st.zoneId, code: st.code, status: st.status, rating: Number(st.rating), rateBp: st.commissionRateBp, totalPayoutPaise: st.totalPayoutPaise })),
+    maps: boundaries.map((b) => ({ zoneId: b.zoneId, shape: b.shape, centre: b.refLat != null && b.refLng != null ? [Number(b.refLat), Number(b.refLng)] as [number, number] : null, radiusM: b.radiusM, polygon: b.polygon })),
     violations: violations.map((v) => ({ level: v.level, note: v.note, atIst: formatIst(v.createdAt) })),
   };
 }
@@ -322,3 +343,80 @@ export async function recordViolation(input: { ownerDealerId: string; level: "WA
   });
 }
 
+
+/* ============================================================= monthly points (brief 21-Nov §7) */
+
+export async function pointsTable(month?: string) {
+  const rows = await db
+    .select({ s: franchiseMonthlySnapshots, dealer: dealers.legalName })
+    .from(franchiseMonthlySnapshots)
+    .innerJoin(dealers, eq(dealers.id, franchiseMonthlySnapshots.ownerDealerId))
+    .where(month ? eq(franchiseMonthlySnapshots.month, month) : undefined)
+    .orderBy(desc(franchiseMonthlySnapshots.month), franchiseMonthlySnapshots.zoneId)
+    .limit(2000);
+  return rows.map(({ s: x, dealer }) => ({
+    id: x.id,
+    month: x.month,
+    dealer,
+    zoneId: x.zoneId,
+    code: x.code,
+    openingShops: x.openingShops,
+    baselinePaise: x.baselinePaise,
+    newShops: x.newShops,
+    actualBusinessPaise: x.actualBusinessPaise,
+    regPts: x.regBasePts,
+    bizPts: x.bizBasePts,
+    totalPts: x.totalBasePts,
+    mainPts: Number(x.mainPts),
+    bonusBp: x.bonusBp,
+    rateBp: x.commissionRateBp,
+    rating: Number(x.rating),
+    onboardingPaise: x.onboardingPaise,
+    recurringPaise: x.recurringPaise,
+    adjustmentsPaise: x.adjustmentsPaise,
+    totalPayoutPaise: x.totalPayoutPaise,
+    status: x.status,
+    lockedAtIst: formatIst(x.lockedAt),
+    emailedAtIst: formatIst(x.statementEmailedAt),
+  }));
+}
+
+export async function pointsWorkbook(rows: Awaited<ReturnType<typeof pointsTable>>): Promise<Buffer> {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Monthly points");
+  ws.columns = [
+    { header: "Month", key: "month", width: 9 },
+    { header: "Dealer", key: "dealer", width: 28 },
+    { header: "Area", key: "zoneId", width: 7 },
+    { header: "Dealer code", key: "code", width: 12 },
+    { header: "Opening shops", key: "openingShops", width: 10 },
+    { header: "Baseline (₹)", key: "baseline", width: 14 },
+    { header: "New shops", key: "newShops", width: 9 },
+    { header: "Actual business (₹)", key: "actual", width: 16 },
+    { header: "Registration pts", key: "regPts", width: 12 },
+    { header: "Business pts", key: "bizPts", width: 11 },
+    { header: "Total pts", key: "totalPts", width: 9 },
+    { header: "Main pts", key: "mainPts", width: 9 },
+    { header: "Bonus %", key: "bonus", width: 8 },
+    { header: "Rate %", key: "rate", width: 8 },
+    { header: "Rating", key: "rating", width: 7 },
+    { header: "Onboarding (₹)", key: "onboarding", width: 13 },
+    { header: "Recurring (₹)", key: "recurring", width: 13 },
+    { header: "Adjustments (₹)", key: "adjustments", width: 13 },
+    { header: "Total payout (₹)", key: "total", width: 14 },
+    { header: "Status", key: "status", width: 8 },
+    { header: "Locked (IST)", key: "locked", width: 20 },
+  ];
+  for (const r of rows) {
+    ws.addRow({ ...r, baseline: r.baselinePaise / 100, actual: r.actualBusinessPaise / 100, bonus: r.bonusBp / 100, rate: r.rateBp / 100, onboarding: r.onboardingPaise / 100, recurring: r.recurringPaise / 100, adjustments: r.adjustmentsPaise / 100, total: r.totalPayoutPaise / 100, locked: r.lockedAtIst });
+  }
+  ws.getRow(1).font = { bold: true };
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+/** Every change of the franchise settings: who, old value, new value, IST time (brief 21-Nov §2). */
+export async function configAudit(limit = 100) {
+  const rows = await db.select().from(auditLogs).where(eq(auditLogs.action, "franchise.config_changed")).orderBy(desc(auditLogs.createdAt)).limit(limit);
+  return rows.map((r) => ({ atIst: formatIst(r.createdAt), actorId: r.actorId, previous: r.previousValue, next: r.newValue }));
+}

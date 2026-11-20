@@ -779,7 +779,9 @@ export const RULES = {
       developmentMonths: 6,
       developmentMinShopsPerMonth: 100,
       targetBonusesEnabled: true,
-      overrideByDistance: true,
+      // Off by default: the owner's 21-Nov 00.30 brief keeps the free dealership "unchanged" (dealer 3% on every
+      // member's shop). Switch on for the 20-Nov brief's 4% when the signer reports to the dealer directly.
+      overrideByDistance: false,
       targets: [
         { role: "AGENT", minShops: 50, bonusPaise: 0, bonusBp: 1000 },
         { role: "TEAM_LEAD", minShops: 50, bonusPaise: 0, bonusBp: 1000 },

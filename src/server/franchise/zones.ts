@@ -350,7 +350,9 @@ export async function approveBoundary(zoneId: string, actor: Actor): Promise<{ a
     const ref: LatLng | null = draft.refLat != null && draft.refLng != null ? [Number(draft.refLat), Number(draft.refLng)] : null;
     const errors = [...validateBoundary({ ...shape, ref }, config.maxAreaRadiusKm).errors];
     const ring = boundaryRing(shape);
-    for (const other of await approvedBoundaries(tx, { includeTest: true })) {
+    // Brief 21-Nov §1.1: an area is everything within 5 km of its centre, so neighbouring areas may overlap
+    // (the dealer code decides which area a shop is in). allowOverlappingAreas false: the 20-Nov no-overlap rule.
+    for (const other of config.allowOverlappingAreas ? [] : await approvedBoundaries(tx, { includeTest: true })) {
       if (other.zoneId === zoneId) continue;
       const os = shapeOf(other.boundary);
       if (os && ringsOverlap(ring, boundaryRing(os))) errors.push(`It overlaps zone ${other.zoneId}.`);

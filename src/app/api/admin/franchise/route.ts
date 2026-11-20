@@ -5,9 +5,8 @@
  */
 import { ok, route } from "@/server/api/handler";
 import { offerView } from "@/server/franchise/booking";
-import { publishedFormula } from "@/server/franchise/commission";
 import { franchiseConfig, listConfigVersions } from "@/server/franchise/config";
-import { adminAllocations, attributionQueue, expiringAreas, notificationLog } from "@/server/franchise/dashboard";
+import { adminAllocations, attributionQueue, configAudit, expiringAreas, notificationLog, pointsTable } from "@/server/franchise/dashboard";
 import { isSuperAdmin, requireFranchiseReader } from "@/server/franchise/http";
 import { clusterSummary, listClusters, zoneViews } from "@/server/franchise/zones";
 
@@ -27,6 +26,7 @@ export const GET = route(async () => {
     expiring: await expiringAreas(),
     attributions: await attributionQueue(),
     notifications: await notificationLog(100),
-    formula: await publishedFormula(),
+    points: await pointsTable(),
+    configAudit: await configAudit(),
   });
 });

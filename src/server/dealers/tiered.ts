@@ -468,7 +468,7 @@ export async function accrueTieredActivation(
       const adj = bonusOn ? ratingAdjustmentBp(dealer.rating, dealer.ratingStepBp ?? settings.ratingStepBp) : 0;
       // Franchise brief §2.3: a signer reporting to the main dealer directly (an agent with no active lead, or a
       // team lead) puts the main dealer one level up — the first override (4%), not the second (3%).
-      const mainOverrideBp = rule.overrideByDistance !== false && place.direct && !place.lead ? rates.leadOverrideBp : rates.mainOverrideBp;
+      const mainOverrideBp = rule.overrideByDistance === true && place.direct && !place.lead ? rates.leadOverrideBp : rates.mainOverrideBp;
       [plan] = await tx
         .insert(dealerTierShopPlans)
         .values({

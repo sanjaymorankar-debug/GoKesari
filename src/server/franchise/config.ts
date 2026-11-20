@@ -3,10 +3,12 @@
  * (franchise_config_versions). A booking, allocation and commission entry remembers the version in force
  * when it was made. Every value is server-side; the client never sends a price or a percentage.
  */
-import { desc, eq, lte, sql } from "drizzle-orm";
+import { desc, eq, gt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { conflict, forbidden, validationFailed } from "@/lib/errors";
+import { forbidden, validationFailed } from "@/lib/errors";
+import { istMonth, istMonthBounds } from "@/lib/franchise";
+import type { BonusSettings } from "@/lib/franchise-bonus";
 import { db, type DbClient } from "@/server/db";
 import { franchiseConfigVersions, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
@@ -38,9 +40,23 @@ export const franchiseConfigSchema = z
     postLaunchRecurringBp: int(0, 10_000).nullable(),
     /** One-time commission, bp of the shop registration fee excluding GST — all shop types (D3). */
     oneTimeBp: int(0, 10_000),
-    /** Recurring share of GoKesari's actual order commission, and the most a bonus can add. */
+    /** Recurring share of GoKesari's order commission, and the most a bonus can add (brief 21-Nov §2). */
     recurringBaseBp: int(0, 10_000),
     bonusMaxBp: int(0, 10_000),
+    /** GoKesari's order commission on delivered order value (200 = 2%). */
+    gokesariCommissionBp: int(0, 10_000),
+    /** Monthly bonus (brief 21-Nov §2–§3): target, expected business per shop, slot, points. */
+    monthlyShopTarget: int(0, 100_000),
+    expectedBusinessPerShopPaise: int(0, 10_000_000_000),
+    businessSlotPaise: int(1, 10_000_000_000),
+    basePointsPerMainPoint: int(1, 1_000_000),
+    bonusBpPerMainPoint: int(0, 10_000),
+    /** Areas are 5 km circles around their centre (brief 21-Nov §1.1): neighbouring areas may overlap; the code decides. */
+    allowOverlappingAreas: z.boolean(),
+    /** Month-end (brief 21-Nov §5): calculation runs on days 1..calcLastDay, statements on statementDay at statementHourIst. */
+    calcLastDay: int(1, 4),
+    statementDay: int(2, 5),
+    statementHourIst: int(0, 23),
     /** Renewal fee; null = the fee then in force (launch owners: the launch fee). */
     renewalFeePaise: int(1, 1_000_000_000).nullable(),
     renewalWindowDays: int(1, 365),
@@ -82,10 +98,21 @@ export const FRANCHISE_DEFAULTS: FranchiseConfig = {
   oneTimeBp: 2500,
   recurringBaseBp: 2500,
   bonusMaxBp: 500,
+  gokesariCommissionBp: 200,
+  monthlyShopTarget: 60,
+  expectedBusinessPerShopPaise: 10_000_000,
+  businessSlotPaise: 500_000,
+  basePointsPerMainPoint: 100,
+  bonusBpPerMainPoint: 100,
+  allowOverlappingAreas: true,
+  calcLastDay: 3,
+  statementDay: 4,
+  statementHourIst: 10,
   renewalFeePaise: null,
   renewalWindowDays: 30,
-  tailMode: "fixed_end_of_year_3",
-  tailYears: 3,
+  // Owner brief 21-Nov-2026 §6: the base share continues for up to 2 years after expiry (replaces D4's default).
+  tailMode: "years_after_lapse",
+  tailYears: 2,
   franchiseCodeOutsideZone: "reject",
   freeDealerInFranchisedZone: "allow",
   expiryCc: ["ceo@agtci.com"],
@@ -165,43 +192,77 @@ export async function saveFranchiseConfig(patch: Partial<FranchiseConfig>, input
     throw forbidden("Only a super-admin can change the maximum owners per area.");
   }
   if (next.data.clockOffsetDays !== 0 && isProduction()) throw forbidden("The test clock cannot be used on gokesari.com.");
-  const effectiveFrom = input.effectiveFrom ?? new Date();
-  const saved = await db.transaction(async (tx) => {
+  const changed = (Object.keys(next.data) as (keyof FranchiseConfig)[]).filter((k) => JSON.stringify(current.config[k]) !== JSON.stringify(next.data[k]));
+  if (!changed.length) return current;
+  // Brief 21-Nov §2: what changes the money applies from the next calendar month (IST), never retroactively;
+  // everything else (booking open, reminders …) applies now. One save may therefore make two versions.
+  const moneyKeys = changed.filter((k) => MONEY_KEYS.includes(k));
+  const otherKeys = changed.filter((k) => !MONEY_KEYS.includes(k));
+  const nextMonthStart = istMonthBounds(istMonth(new Date())).end;
+  const pick = (keys: (keyof FranchiseConfig)[]) => Object.fromEntries(keys.map((k) => [k, next.data[k]])) as Partial<FranchiseConfig>;
+  let last: VersionedConfig = current;
+  await db.transaction(async (tx) => {
     await tx.execute(sqlLock);
-    const maxRows = (await tx.execute(sqlMax)) as unknown as { max: number | null }[];
-    const version = Number(maxRows[0]?.max ?? 0) + 1;
-    if (version > 1 && effectiveFrom.getTime() < current.effectiveFrom.getTime()) throw conflict("A new version cannot take effect before the one in force.");
-    const [row] = await tx
-      .insert(franchiseConfigVersions)
-      .values({ version, effectiveFrom, config: next.data as unknown as Record<string, unknown>, reason, createdBy: actor.id })
-      .returning();
-    await recordAudit(
-      {
-        actorId: actor.id,
-        actorRole: actor.role,
-        action: AUDIT_ACTIONS.FRANCHISE_CONFIG_CHANGED,
-        entityType: "franchise_config",
-        entityId: String(version),
-        previousValue: { version: current.version, ...diff(current.config, next.data, "from") },
-        newValue: { version, effectiveFrom: effectiveFrom.toISOString(), reason, ...diff(current.config, next.data, "to") },
-      },
-      tx,
-    );
-    return row;
+    const insert = async (part: Partial<FranchiseConfig>, effectiveFrom: Date, base: FranchiseConfig) => {
+      const maxRows = (await tx.execute(sqlMax)) as unknown as { max: number | null }[];
+      const version = Number(maxRows[0]?.max ?? 0) + 1;
+      const config = { ...base, ...part };
+      await tx.insert(franchiseConfigVersions).values({ version, effectiveFrom, config: config as unknown as Record<string, unknown>, reason, createdBy: actor.id });
+      // A version already scheduled after this one carries the change too (it would otherwise undo it).
+      const later = await tx.select().from(franchiseConfigVersions).where(gt(franchiseConfigVersions.effectiveFrom, effectiveFrom));
+      for (const l of later) {
+        if (l.version === version) continue;
+        await tx.update(franchiseConfigVersions).set({ config: { ...(l.config as object), ...part } as Record<string, unknown> }).where(eq(franchiseConfigVersions.version, l.version));
+      }
+      await recordAudit(
+        {
+          actorId: actor.id,
+          actorRole: actor.role,
+          action: AUDIT_ACTIONS.FRANCHISE_CONFIG_CHANGED,
+          entityType: "franchise_config",
+          entityId: String(version),
+          previousValue: { version: current.version, ...Object.fromEntries(Object.keys(part).map((k) => [k, current.config[k as keyof FranchiseConfig]])) },
+          newValue: { version, effectiveFrom: effectiveFrom.toISOString(), reason, ...part },
+        },
+        tx,
+      );
+      last = { version, effectiveFrom, config: parse(config) };
+    };
+    if (otherKeys.length) {
+      const at = input.effectiveFrom && input.effectiveFrom.getTime() > Date.now() ? input.effectiveFrom : new Date();
+      await insert(pick(otherKeys), at, current.config);
+    }
+    if (moneyKeys.length) {
+      const at = input.effectiveFrom && input.effectiveFrom.getTime() > nextMonthStart.getTime() ? input.effectiveFrom : nextMonthStart;
+      // Based on the latest version scheduled at or before that moment (so a scheduled change is not lost).
+      const [base] = await tx.select().from(franchiseConfigVersions).where(lte(franchiseConfigVersions.effectiveFrom, at)).orderBy(desc(franchiseConfigVersions.effectiveFrom), desc(franchiseConfigVersions.version)).limit(1);
+      await insert(pick(moneyKeys), at, parse(base?.config ?? current.config));
+    }
   });
-  return { version: saved.version, effectiveFrom: saved.effectiveFrom, config: next.data };
+  return last;
+}
+
+/** Settings that change what is paid: a change takes effect from the next calendar month. */
+export const MONEY_KEYS: (keyof FranchiseConfig)[] = ["oneTimeBp", "recurringBaseBp", "bonusMaxBp", "gokesariCommissionBp", "monthlyShopTarget", "expectedBusinessPerShopPaise", "businessSlotPaise", "basePointsPerMainPoint", "bonusBpPerMainPoint", "postLaunchOneTimeBp", "postLaunchRecurringBp"];
+
+/** The bonus settings of a config (src/lib/franchise-bonus.ts). */
+export function bonusSettingsOf(c: FranchiseConfig): BonusSettings {
+  return {
+    onboardingBp: c.oneTimeBp,
+    recurringBaseBp: c.recurringBaseBp,
+    gokesariCommissionBp: c.gokesariCommissionBp,
+    monthlyShopTarget: c.monthlyShopTarget,
+    expectedBusinessPerShopPaise: c.expectedBusinessPerShopPaise,
+    businessSlotPaise: c.businessSlotPaise,
+    basePointsPerMainPoint: c.basePointsPerMainPoint,
+    bonusBpPerMainPoint: c.bonusBpPerMainPoint,
+    bonusMaxBp: c.bonusMaxBp,
+  };
 }
 
 const sqlLock = sql`select pg_advisory_xact_lock(hashtext('franchise-config'))`;
 const sqlMax = sql`select max(version) as max from franchise_config_versions`;
 
-function diff(a: FranchiseConfig, b: FranchiseConfig, side: "from" | "to"): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const k of Object.keys(b) as (keyof FranchiseConfig)[]) {
-    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) out[k] = side === "from" ? a[k] : b[k];
-  }
-  return out;
-}
 
 /** "Now" for franchise dates: real time, shifted by the test clock on the test server only. */
 export function franchiseNow(config: Pick<FranchiseConfig, "clockOffsetDays">, real: Date = new Date()): Date {

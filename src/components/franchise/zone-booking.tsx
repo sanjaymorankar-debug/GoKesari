@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Badge, Button, Card, inputClass } from "@/components/ui";
 import { ESTIMATE_DISCLOSURE, ZONE_BADGE_LABELS, bookingAmounts, crore, rupees, type ZoneBadge } from "@/lib/franchise";
 import { isMapsAvailable, loadGoogleMaps } from "@/lib/geo/provider";
+import { AreaMap } from "./area-map";
 import type { OfferView } from "@/server/franchise/booking";
 import type { ClusterSummary, ZoneView } from "@/server/franchise/zones";
 
@@ -98,6 +99,7 @@ export function ZoneBooking({ zones, clusters, offer, signedIn, owner, agreement
     return (
       <Card className="space-y-4 p-4" data-testid="franchise-summary">
         <h2 className="text-lg font-bold text-ink-900">Summary</h2>
+        <AreaMap zoneIds={cart} height={260} />
         <table className="min-w-full text-sm">
           <tbody>
             {chosen.map((z) => (

@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AreaMap, type AreaShape } from "@/components/franchise/area-map";
 import { FranchiseActions } from "@/components/franchise/franchise-actions";
 import { Alert, Badge, Card, LinkButton, PageHeader } from "@/components/ui";
 import { formatIst, rupees } from "@/lib/franchise";
@@ -25,8 +26,9 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
   const d = await ownerDashboard(user.id);
   const sp = await searchParams;
   const origin = originFromHeaders(await headers());
-  const ownerCode = d.codes.find((c) => !c.memberId && c.status === "ACTIVE")?.code ?? null;
-  const qr = ownerCode ? await codeQrSvg(origin, ownerCode) : null;
+  const areaCodes = d.codes.filter((c) => c.allocationId);
+  const qrs = new Map(await Promise.all(areaCodes.filter((c) => c.status === "ACTIVE").map(async (c) => [c.code, await codeQrSvg(origin, c.code)] as const)));
+  const maps = ("maps" in d ? d.maps : []) as AreaShape[];
   const justPaid = sp.booking ? d.bookings.find((b) => b.id === sp.booking) : null;
   const pending = d.bookings.filter((b) => b.status === "RESERVED" || b.status === "PAYMENT_PENDING");
   return (
@@ -108,34 +110,100 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
         </Card>
       ) : null}
 
-      {ownerCode ? (
-        <Card className="grid gap-4 p-4 sm:grid-cols-[1fr_auto]">
-          <div className="space-y-2">
-            <h2 className="text-base font-bold text-ink-900">Your franchise code</h2>
-            <p className="font-mono text-2xl font-bold text-kesari-800" data-testid="franchise-code">{ownerCode}</p>
-            <p className="text-sm text-ink-700">Shops register with this code inside your active areas only (their map location decides). Your team leads and agents can have their own tracking codes — their shops count for you, and only you are paid.</p>
-            <div className="flex flex-wrap gap-2 text-sm">
-              <a className="font-semibold text-kesari-800 underline" href={shareLinkFor(origin, ownerCode)}>Registration link</a>
-              <a className="font-semibold text-kesari-800 underline" href={whatsappShareFor(origin, ownerCode, d.status.hasDealer && "dealerName" in d.status ? d.status.dealerName ?? "GoKesari" : "GoKesari")}>Share on WhatsApp</a>
-            </div>
-            {d.codes.filter((c) => c.memberId).length ? (
-              <ul className="text-sm text-ink-700">
-                {d.codes.filter((c) => c.memberId).map((c) => (
-                  <li key={c.code}>
-                    {c.memberName}: <span className="font-mono">{c.code}</span> ({c.status.toLowerCase()})
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+      {d.live.length ? (
+        <Card className="space-y-3 p-4" data-testid="franchise-live">
+          <h2 className="text-base font-bold text-ink-900">This month so far</h2>
+          {d.totals ? (
+            <p className="text-sm text-ink-700">
+              All your areas: {d.totals.newShops} new shops · {d.totals.openingShops} opening shops · {rupees(d.totals.allBusinessPaise)} delivered · projected payout <strong>{rupees(d.totals.projectedPayoutPaise)}</strong>
+            </p>
+          ) : null}
+          <div className="grid gap-3 md:grid-cols-2">
+            {d.live.map((l) => (
+              <div key={l.allocationId} className="space-y-1 rounded-lg border border-cream-200 p-3 text-sm text-ink-700">
+                <p className="font-semibold text-ink-900">
+                  {l.zoneId} · {l.zoneName} · <span className="font-mono">{l.code ?? "—"}</span>
+                </p>
+                <p>
+                  New shops <strong>{l.newShops}</strong> of target {l.target} · business of opening shops {rupees(l.actualBusinessPaise)} vs baseline {rupees(l.baselinePaise)} ({l.openingShops} shops)
+                </p>
+                <p>
+                  Base points so far <strong>{l.totalPoints}</strong> → {l.mainPoints.toFixed(2)} main points → bonus {(l.bonusBp / 100).toFixed(2)}% → rate <strong>{(l.rateBp / 100).toFixed(2)}%</strong> · rating {l.rating.toFixed(2)}
+                  {l.bonusEligible ? "" : " (franchise not active: no bonus)"}
+                </p>
+                <p>
+                  Projected payout <strong>{rupees(l.projectedPayoutPaise)}</strong> (on {rupees(l.allBusinessPaise)} delivered so far)
+                </p>
+              </div>
+            ))}
           </div>
-          {qr ? <div className="h-40 w-40" aria-label={`QR code for ${ownerCode}`} dangerouslySetInnerHTML={{ __html: qr }} /> : null}
+          <p className="text-xs text-ink-500">Shops registered this month join your baseline next month. Final figures are worked out after the month ends; statements arrive on the 4th, payout on the 5th.</p>
+        </Card>
+      ) : null}
+
+      {areaCodes.length ? (
+        <Card className="space-y-3 p-4">
+          <h2 className="text-base font-bold text-ink-900">Your dealer codes (one per area)</h2>
+          <AreaMap shapes={maps} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {areaCodes.map((c) => (
+              <div key={c.code} className="flex items-start justify-between gap-3 rounded-lg border border-cream-200 p-3">
+                <div className="space-y-1 text-sm">
+                  <p className="font-mono text-xl font-bold text-kesari-800" data-testid="franchise-code">{c.code}</p>
+                  <p className="text-ink-700">Area {c.zoneId} · {c.status === "ACTIVE" ? "open for new shops" : "closed for new shops"}</p>
+                  <p className="text-ink-700">{d.shops.filter((x) => x.zoneId === c.zoneId).length} shops tagged</p>
+                  {c.status === "ACTIVE" ? (
+                    <div className="flex flex-wrap gap-2">
+                      <a className="font-semibold text-kesari-800 underline" href={shareLinkFor(origin, c.code)}>Registration link</a>
+                      <a className="font-semibold text-kesari-800 underline" href={whatsappShareFor(origin, c.code, "dealerName" in d.status ? (d.status.dealerName ?? "GoKesari") : "GoKesari")}>WhatsApp</a>
+                    </div>
+                  ) : null}
+                </div>
+                {qrs.get(c.code) ? <div className="h-28 w-28 shrink-0" aria-label={`QR code for ${c.code}`} dangerouslySetInnerHTML={{ __html: qrs.get(c.code)! }} /> : null}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-ink-500">A shop can register with an area&apos;s code only if its map location is inside that area (within 5 km of the centre). Team members&apos; tracking codes count for your areas; only you are paid.</p>
+          {d.codes.filter((c) => c.memberId).length ? (
+            <ul className="text-sm text-ink-700">
+              {d.codes.filter((c) => c.memberId).map((c) => (
+                <li key={c.code}>
+                  {c.memberName}: <span className="font-mono">{c.code}</span> ({c.status.toLowerCase()})
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {d.statements.length ? (
+        <Card className="space-y-2 p-4" data-testid="franchise-statements">
+          <h2 className="text-base font-bold text-ink-900">Monthly statements</h2>
+          <table className="min-w-full text-sm">
+            <tbody>
+              {d.statements.map((st) => (
+                <tr key={st.id} className="border-b border-cream-100">
+                  <td className="py-1 pr-2">{st.month}</td>
+                  <td className="py-1 pr-2">{st.zoneId} · <span className="font-mono">{st.code ?? "—"}</span></td>
+                  <td className="py-1 pr-2">rate {(st.rateBp / 100).toFixed(2)}% · rating {st.rating.toFixed(2)}</td>
+                  <td className="py-1 pr-2 text-right">{rupees(st.totalPayoutPaise)}</td>
+                  <td className="py-1 pr-2">{st.status === "LOCKED" ? "Final" : "Draft"}</td>
+                  <td className="py-1">
+                    <a className="font-semibold text-kesari-800 underline" href={`/api/franchise/statements/${st.id}`}>PDF</a> · <a className="text-kesari-800 underline" href={`/api/franchise/statements/${st.id}?format=csv`}>CSV</a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Card>
       ) : null}
 
       {d.rating ? (
         <Card className="space-y-1 p-4">
-          <h2 className="text-base font-bold text-ink-900">Performance bonus ({d.rating.month})</h2>
-          <p className="text-sm text-ink-700">{d.rating.explanation}</p>
+          <h2 className="text-base font-bold text-ink-900">Your rating</h2>
+          <p className="text-sm text-ink-700">
+            {d.rating.month}: rating <strong>{d.rating.rating.toFixed(2)}</strong> (5.0 + your bonus %), commission rate {(d.rating.rateBp / 100).toFixed(2)}%. It is worked out every month and can go up or down.
+          </p>
         </Card>
       ) : null}
 

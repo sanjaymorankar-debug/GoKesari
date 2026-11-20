@@ -218,11 +218,13 @@ CREATE TABLE IF NOT EXISTS "franchise_campaigns" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
--- A franchise code (GKF-xxxxxx): the owner's own (member_id null) or a team member's, tracking only.
+-- A dealer code (GKF-xxxxxx): one per dealer per booked area (allocation_id; brief 21-Nov-2026 §1.4), or a team
+-- member's tracking code (member_id, allocation_id null) that counts for the owner's areas.
 CREATE TABLE IF NOT EXISTS "franchise_codes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"referral_code_id" uuid NOT NULL REFERENCES "referral_codes"("id") ON DELETE restrict,
 	"owner_dealer_id" uuid NOT NULL REFERENCES "dealers"("id") ON DELETE restrict,
+	"allocation_id" uuid REFERENCES "franchise_allocations"("id") ON DELETE restrict,
 	"member_id" uuid REFERENCES "dealer_salespeople"("id") ON DELETE restrict,
 	"status" text DEFAULT 'ACTIVE' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -232,7 +234,7 @@ CREATE TABLE IF NOT EXISTS "franchise_codes" (
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "franchise_codes_referral_unique" ON "franchise_codes" ("referral_code_id");
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "franchise_codes_owner_unique" ON "franchise_codes" ("owner_dealer_id") WHERE "member_id" IS NULL AND "status" = 'ACTIVE';
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_codes_allocation_unique" ON "franchise_codes" ("allocation_id") WHERE "allocation_id" IS NOT NULL AND "member_id" IS NULL;
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "franchise_codes_member_unique" ON "franchise_codes" ("member_id") WHERE "member_id" IS NOT NULL AND "status" = 'ACTIVE';
 --> statement-breakpoint
@@ -246,6 +248,8 @@ CREATE TABLE IF NOT EXISTS "franchise_shop_attributions" (
 	"member_id" uuid REFERENCES "dealer_salespeople"("id") ON DELETE restrict,
 	"status" text DEFAULT 'ACTIVE' NOT NULL,
 	"hold_reason" text,
+	"override_reason" text,
+	"override_by" uuid,
 	"registered_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"activated_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -269,31 +273,49 @@ CREATE TABLE IF NOT EXISTS "franchise_shop_attribution_history" (
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "franchise_shop_attribution_history_shop_idx" ON "franchise_shop_attribution_history" ("shop_id", "created_at");
 --> statement-breakpoint
--- Performance bonus engine: a published formula (metrics, weights, score tiers → bonus) and each month's rating.
-CREATE TABLE IF NOT EXISTS "franchise_rating_formulas" (
-	"version" integer PRIMARY KEY NOT NULL,
+-- The monthly bonus calculation per dealer code (brief 21-Nov-2026 §3, §5): opening shops (frozen at the first run),
+-- baseline, new shops, business, points, bonus, rate, rating and the payout lines. DRAFT until the payout is locked
+-- on the 5th; after that it never changes and later corrections go to the next month's adjustments.
+CREATE TABLE IF NOT EXISTS "franchise_monthly_snapshots" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"allocation_id" uuid NOT NULL REFERENCES "franchise_allocations"("id") ON DELETE restrict,
+	"owner_dealer_id" uuid NOT NULL REFERENCES "dealers"("id") ON DELETE restrict,
+	"zone_id" text NOT NULL,
+	"code" text,
+	"month" text NOT NULL,
+	"config_version" integer NOT NULL,
+	"opening_shop_ids" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"opening_shops" integer NOT NULL,
+	"baseline_paise" bigint NOT NULL,
+	"new_shops" integer NOT NULL,
+	"actual_business_paise" bigint NOT NULL,
+	"all_business_paise" bigint NOT NULL,
+	"reg_base_pts" integer NOT NULL,
+	"biz_base_pts" integer NOT NULL,
+	"total_base_pts" integer NOT NULL,
+	"main_pts" numeric(10, 2) NOT NULL,
+	"bonus_bp" integer NOT NULL,
+	"commission_rate_bp" integer NOT NULL,
+	"rating" numeric(4, 2) NOT NULL,
+	"bonus_eligible" boolean DEFAULT true NOT NULL,
+	"onboarding_paise" bigint NOT NULL,
+	"recurring_paise" bigint NOT NULL,
+	"adjustments_paise" bigint DEFAULT 0 NOT NULL,
+	"total_payout_paise" bigint NOT NULL,
+	"next_opening_shops" integer NOT NULL,
 	"status" text DEFAULT 'DRAFT' NOT NULL,
-	"formula" jsonb NOT NULL,
-	"reason" text NOT NULL,
-	"published_at" timestamp with time zone,
-	"published_by" uuid,
-	"created_by" uuid,
+	"calculated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"locked_at" timestamp with time zone,
+	"locked_by" uuid,
+	"statement_emailed_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "franchise_rating_formulas_status" CHECK ("status" IN ('DRAFT', 'PUBLISHED', 'RETIRED'))
+	CONSTRAINT "franchise_monthly_snapshots_status" CHECK ("status" IN ('DRAFT', 'LOCKED')),
+	CONSTRAINT "franchise_monthly_snapshots_month" CHECK ("month" ~ '^[0-9]{4}-[0-9]{2}$')
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "franchise_performance_ratings" (
-	"owner_dealer_id" uuid NOT NULL REFERENCES "dealers"("id") ON DELETE restrict,
-	"month" text NOT NULL,
-	"formula_version" integer,
-	"score" numeric(6, 2) DEFAULT 0 NOT NULL,
-	"bonus_bp" integer DEFAULT 0 NOT NULL,
-	"metrics" jsonb DEFAULT '{}'::jsonb NOT NULL,
-	"explanation" text NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "franchise_performance_ratings_pk" PRIMARY KEY ("owner_dealer_id", "month"),
-	CONSTRAINT "franchise_performance_ratings_bonus" CHECK ("bonus_bp" BETWEEN 0 AND 10000)
-);
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_monthly_snapshots_unique" ON "franchise_monthly_snapshots" ("allocation_id", "month");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "franchise_monthly_snapshots_owner_idx" ON "franchise_monthly_snapshots" ("owner_dealer_id", "month");
 --> statement-breakpoint
 -- Every expiry reminder / alert / digest sent (recipient, channel, time) — also the guard against sending twice.
 CREATE TABLE IF NOT EXISTS "franchise_notification_log" (
