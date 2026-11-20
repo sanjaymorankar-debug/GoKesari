@@ -28,7 +28,7 @@ manual("TC-HLT-025", "a store that does not reply in time — the patient is tol
 manual("TC-HLT-026", "suggestions on the prescription: Book now for specialist, care, equipment, lab, follow-up", WHERE);
 manual("TC-HLT-027", "home care: book, accept, on the way, OTP check-in / out, notes in the record, rating", WHERE);
 manual("TC-HLT-028", "equipment rental: deposit, delivery OTP, return, deposit refund minus damages", WHERE);
-manual("TC-HLT-029", "Prime: purchase, instant booking, labelled placement, call tracking, expiry downgrade", WHERE);
+manual("TC-HLT-029", "listing in launch mode: Prime features free for every medical shop, no plan to buy; admin-priced plans when launch mode is off", WHERE);
 manual("TC-HLT-030", "patient referral codes and rewards can be switched off by admin", "the existing customer referral flow (its own cases); Health links to it");
 manual("TC-HLT-031", "admin: verification queues, drug master CSV, break-glass with a reason", WHERE);
 manual("TC-HLT-032", "privacy: withdraw sharing, access log in IST, download data, delete request", WHERE);
