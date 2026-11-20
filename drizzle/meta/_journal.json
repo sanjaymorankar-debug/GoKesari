@@ -1065,6 +1065,13 @@
       "when": 1793264900000,
       "tag": "0151_territory_dealers",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1793265000000,
+      "tag": "0152_newspaper_subscriptions",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,8 @@
  * (retry, overlapping cron, manual replay) cannot create a second delivery or a
  * second wallet deduction for the same day.
  */
+import { randomUUID } from "node:crypto";
+
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import {
@@ -27,12 +29,19 @@ import { formatPaise, lineTotalPaise } from "@/lib/money";
 import { subscriptionQuantityProblem } from "@/lib/subscription-quantity";
 import { milliToStockUnits } from "@/lib/stock-quantity";
 import { getEnv } from "@/lib/env";
+import {
+  deliveriesIn30Days,
+  scheduleProblem,
+  sortedUnique,
+  type SubscriptionFrequency,
+} from "@/lib/periodicals";
 import { db, type DbClient } from "@/server/db";
 import {
   addresses,
   orderItems,
   orderStatusHistory,
   orders,
+  periodicalTitles,
   products,
   shopProducts,
   shopSlaEvents,
@@ -55,6 +64,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { resolveAddressSociety } from "./societies";
 import { consumeOnlineStock, isOnlinePurchasable } from "./catalogue";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { notifyShopOfNewSubscriptions } from "./subscription-notices";
 import { generateOrderNumber } from "./orders";
 import { applyWalletMutation } from "./wallet";
 import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
@@ -72,8 +82,10 @@ export function isDeliveringStatus(status: Subscription["status"]): boolean {
 
 export interface ScheduleInput {
   status: Subscription["status"];
-  frequency: "DAILY" | "WEEKLY";
+  frequency: SubscriptionFrequency;
   weekdays: number[];
+  /** MONTHLY: days of the month 1–28 (newspaper subscriptions, migration 0152). Absent = none. */
+  monthDays?: number[];
   quantityMilli: number;
   startDate: IsoDate;
   endDate: IsoDate | null;
@@ -102,7 +114,7 @@ export type DeliveryResolution =
  *   1. Subscription must be live at all.
  *   2. Date must fall inside the subscription's window.
  *   3. A pause window suppresses everything.
- *   4. The frequency must actually schedule this weekday.
+ *   4. The frequency must actually schedule this weekday (or day of the month).
  *   5. Only then may a per-date override adjust or skip it.
  *
  * Step 5 last means an override never *creates* a delivery on a day the
@@ -135,6 +147,11 @@ export function resolveDelivery(
       return { delivers: false, reason: "NOT_SCHEDULED_DAY" };
     }
   }
+  if (subscription.frequency === "MONTHLY") {
+    if (!(subscription.monthDays ?? []).includes(dayOfMonth(date))) {
+      return { delivers: false, reason: "NOT_SCHEDULED_DAY" };
+    }
+  }
 
   if (override) {
     if (override.type === "SKIP") {
@@ -154,6 +171,11 @@ export function resolveDelivery(
     quantityMilli: subscription.quantityMilli,
     reason: "STANDARD",
   };
+}
+
+/** 1–31 for an ISO date ("2026-11-15" → 15). */
+export function dayOfMonth(date: IsoDate): number {
+  return Number(date.slice(8, 10));
 }
 
 /** Next date on or after `from` that the subscription delivers. */
@@ -179,8 +201,10 @@ export interface CreateSubscriptionInput {
   userId: string;
   shopProductId: string;
   quantityMilli: number;
-  frequency?: "DAILY" | "WEEKLY";
+  frequency?: SubscriptionFrequency;
   weekdays?: number[];
+  /** MONTHLY: days of the month 1–28. */
+  monthDays?: number[];
   startDate: IsoDate;
   endDate?: IsoDate | null;
   addressId?: string | null;
@@ -195,9 +219,7 @@ export async function createSubscription(
     throw validationFailed("Quantity must be a positive amount.");
   }
   const frequency = input.frequency ?? "DAILY";
-  if (frequency === "WEEKLY" && (input.weekdays ?? []).length === 0) {
-    throw validationFailed("Choose at least one delivery day of the week.");
-  }
+  const schedule = normaliseSchedule(frequency, input.weekdays, input.monthDays);
   const row = await assertSubscribable(input.shopProductId, input.quantityMilli);
   assertQuantityOnStep(input.quantityMilli, row.product);
   if (input.addressId) await assertOwnAddress(input.userId, input.addressId);
@@ -212,7 +234,8 @@ export async function createSubscription(
       addressId: input.addressId ?? null,
       quantityMilli: input.quantityMilli,
       frequency,
-      weekdays: input.weekdays ?? [],
+      weekdays: schedule.weekdays,
+      monthDays: schedule.monthDays,
       startDate: input.startDate,
       endDate: input.endDate ?? null,
       status: input.draft ? "DRAFT" : "ACTIVE",
@@ -252,8 +275,147 @@ export async function createSubscription(
     body: `Your ${row.product.name} subscription starts on ${input.startDate}.`,
     actionUrl: `/subscriptions/${subscription.id}`,
   });
+  // The vendor learns of every new subscriber at once (newspaper subscriptions, 20-Nov-2026).
+  await notifyShopOfNewSubscriptions([withNext]);
   await afterScheduleChange(subscription.id);
   return withNext;
+}
+
+export interface SubscriptionGroupItem {
+  shopProductId: string;
+  quantityMilli: number;
+  frequency: SubscriptionFrequency;
+  weekdays?: number[];
+  monthDays?: number[];
+}
+
+export interface CreateSubscriptionGroupInput {
+  userId: string;
+  /** Every item must be one of this shop's listings. */
+  shopId: string;
+  addressId: string;
+  startDate: IsoDate;
+  endDate?: IsoDate | null;
+  items: SubscriptionGroupItem[];
+}
+
+/** The most items one grouped submission may carry. */
+export const SUBSCRIPTION_GROUP_MAX_ITEMS = 20;
+
+/**
+ * Several subscriptions to one shop submitted together — the newspaper flow
+ * (several titles from one vendor, docs/newspaper-subscriptions-2026-11).
+ *
+ * All or nothing: every item is checked first, then all rows are written in
+ * one transaction sharing a `bundle_id`. The customer gets one confirmation
+ * and the shop one notice listing every item; nothing is charged now — each
+ * delivery day is generated and paid exactly as for a single subscription.
+ */
+export async function createSubscriptionGroup(input: CreateSubscriptionGroupInput): Promise<Subscription[]> {
+  if (input.items.length === 0) throw validationFailed("Choose at least one item to subscribe to.");
+  if (input.items.length > SUBSCRIPTION_GROUP_MAX_ITEMS) {
+    throw validationFailed(`Subscribe to at most ${SUBSCRIPTION_GROUP_MAX_ITEMS} items at a time.`);
+  }
+  if (new Set(input.items.map((i) => i.shopProductId)).size !== input.items.length) {
+    throw validationFailed("Each item can be chosen only once.");
+  }
+  if (input.endDate && input.endDate < input.startDate) {
+    throw validationFailed("The end date must be on or after the start date.");
+  }
+  await assertOwnAddress(input.userId, input.addressId);
+
+  const checked: { item: SubscriptionGroupItem; schedule: { weekdays: number[]; monthDays: number[] }; productName: string }[] = [];
+  for (const item of input.items) {
+    if (!Number.isInteger(item.quantityMilli) || item.quantityMilli <= 0) {
+      throw validationFailed("Quantity must be a positive amount.");
+    }
+    const schedule = normaliseSchedule(item.frequency, item.weekdays, item.monthDays);
+    const row = await assertSubscribable(item.shopProductId, item.quantityMilli);
+    if (row.sp.shopId !== input.shopId) {
+      throw validationFailed(`${row.product.name} is not sold by the chosen shop.`);
+    }
+    assertQuantityOnStep(item.quantityMilli, row.product);
+    checked.push({ item, schedule, productName: row.product.name });
+  }
+  await assertSignupReferralForFirstOrder(input.userId);
+
+  const bundleId = randomUUID();
+  const created = await db.transaction(async (tx) => {
+    const rows: Subscription[] = [];
+    for (const { item, schedule } of checked) {
+      const values = {
+        userId: input.userId,
+        shopId: input.shopId,
+        shopProductId: item.shopProductId,
+        addressId: input.addressId,
+        quantityMilli: item.quantityMilli,
+        frequency: item.frequency,
+        weekdays: schedule.weekdays,
+        monthDays: schedule.monthDays,
+        bundleId,
+        startDate: input.startDate,
+        endDate: input.endDate ?? null,
+        status: "ACTIVE" as const,
+        statusActorId: input.userId,
+      };
+      const next = nextDeliveryDate(
+        toScheduleInput({ ...values, pauseFrom: null, pauseUntil: null }),
+        input.startDate,
+      );
+      const [row] = await tx.insert(subscriptions).values({ ...values, nextDeliveryDate: next }).returning();
+      rows.push(row);
+    }
+    return rows;
+  });
+
+  // After commit: the records, one confirmation, one shop notice, the schedules.
+  for (const [i, sub] of created.entries()) {
+    await recordAudit({
+      actorId: input.userId,
+      action: AUDIT_ACTIONS.SUBSCRIPTION_CREATED,
+      entityType: "subscription",
+      entityId: sub.id,
+      newValue: {
+        quantityMilli: sub.quantityMilli,
+        frequency: sub.frequency,
+        startDate: sub.startDate,
+        bundleId,
+        item: checked[i].productName,
+      },
+    });
+  }
+  const names = checked.map((c) => c.productName);
+  await notify({
+    userId: input.userId,
+    type: NOTIFICATION_TYPES.SUBSCRIPTION_CREATED,
+    title: created.length === 1 ? "Subscription created" : `${created.length} subscriptions created`,
+    body: `Your subscription${created.length === 1 ? "" : "s"} to ${names.join(", ")} start${created.length === 1 ? "s" : ""} on ${input.startDate}.`,
+    actionUrl: created.length === 1 ? `/subscriptions/${created[0].id}` : "/subscriptions",
+    dedupeKey: `subscription-group:${bundleId}`,
+  });
+  await notifyShopOfNewSubscriptions(created);
+  for (const sub of created) await afterScheduleChange(sub.id);
+  return created;
+}
+
+/**
+ * The frequency's days, checked and tidied: WEEKLY keeps its weekdays, MONTHLY
+ * its days of the month (1–28), DAILY neither. Refuses an unusable schedule
+ * with the same words the subscription pages show.
+ */
+export function normaliseSchedule(
+  frequency: SubscriptionFrequency,
+  weekdays: number[] = [],
+  monthDays: number[] = [],
+): { weekdays: number[]; monthDays: number[] } {
+  const schedule = {
+    frequency,
+    weekdays: frequency === "WEEKLY" ? sortedUnique(weekdays) : [],
+    monthDays: frequency === "MONTHLY" ? sortedUnique(monthDays) : [],
+  };
+  const problem = scheduleProblem(schedule);
+  if (problem) throw validationFailed(problem);
+  return { weekdays: schedule.weekdays, monthDays: schedule.monthDays };
 }
 
 /**
@@ -384,6 +546,7 @@ export async function activateSubscription(
     body: `Your ${row.product.name} subscription starts on ${startDate}.`,
     actionUrl: `/subscriptions/${subscriptionId}`,
   });
+  await notifyShopOfNewSubscriptions([withNext]);
   await afterScheduleChange(subscriptionId);
   return withNext;
 }
@@ -396,8 +559,9 @@ export async function updateSubscription(
   patch: {
     quantityMilli?: number;
     shopProductId?: string;
-    frequency?: "DAILY" | "WEEKLY";
+    frequency?: SubscriptionFrequency;
     weekdays?: number[];
+    monthDays?: number[];
     addressId?: string | null;
     endDate?: IsoDate | null;
     /** Change takes effect from this date; earlier generated orders are untouched. */
@@ -419,6 +583,15 @@ export async function updateSubscription(
     assertQuantityOnStep(patch.quantityMilli ?? current.quantityMilli, await productOf(patch.shopProductId ?? current.shopProductId));
   }
   if (patch.addressId) await assertOwnAddress(current.userId, patch.addressId);
+  // A schedule change is checked as a whole: the new (or current) frequency with its days.
+  const scheduleChange =
+    patch.frequency !== undefined || patch.weekdays !== undefined || patch.monthDays !== undefined
+      ? normaliseSchedule(
+          patch.frequency ?? current.frequency,
+          patch.weekdays ?? current.weekdays,
+          patch.monthDays ?? current.monthDays,
+        )
+      : null;
 
   const [updated] = await db
     .update(subscriptions)
@@ -428,7 +601,7 @@ export async function updateSubscription(
         : {}),
       ...(patch.shopProductId ? { shopProductId: patch.shopProductId } : {}),
       ...(patch.frequency ? { frequency: patch.frequency } : {}),
-      ...(patch.weekdays ? { weekdays: patch.weekdays } : {}),
+      ...(scheduleChange ? { weekdays: scheduleChange.weekdays, monthDays: scheduleChange.monthDays } : {}),
       ...(patch.addressId !== undefined ? { addressId: patch.addressId } : {}),
       ...(patch.endDate !== undefined ? { endDate: patch.endDate } : {}),
       updatedAt: new Date(),
@@ -793,6 +966,8 @@ export interface SubscriptionDetail extends Subscription {
   shopName: string;
   shopSlug: string;
   currentUnitPricePaise: number | null;
+  /** A newspaper or magazine — counted in copies (docs/newspaper-subscriptions-2026-11). */
+  isPeriodical: boolean;
 }
 
 export async function listSubscriptionsForUser(
@@ -804,11 +979,13 @@ export async function listSubscriptionsForUser(
       product: products,
       sp: shopProducts,
       shop: shops,
+      periodical: periodicalTitles.productId,
     })
     .from(subscriptions)
     .innerJoin(shopProducts, eq(subscriptions.shopProductId, shopProducts.id))
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(shops, eq(subscriptions.shopId, shops.id))
+    .leftJoin(periodicalTitles, eq(periodicalTitles.productId, products.id))
     .where(eq(subscriptions.userId, userId))
     .orderBy(asc(subscriptions.createdAt));
 
@@ -820,6 +997,7 @@ export async function listSubscriptionsForUser(
     shopName: r.shop.name,
     shopSlug: r.shop.slug,
     currentUnitPricePaise: r.sp.onlinePricePaise,
+    isPeriodical: Boolean(r.periodical),
   }));
 }
 
@@ -832,11 +1010,13 @@ export async function getSubscriptionDetail(
       product: products,
       sp: shopProducts,
       shop: shops,
+      periodical: periodicalTitles.productId,
     })
     .from(subscriptions)
     .innerJoin(shopProducts, eq(subscriptions.shopProductId, shopProducts.id))
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(shops, eq(subscriptions.shopId, shops.id))
+    .leftJoin(periodicalTitles, eq(periodicalTitles.productId, products.id))
     .where(eq(subscriptions.id, subscriptionId))
     .limit(1);
   if (!row) return undefined;
@@ -849,6 +1029,7 @@ export async function getSubscriptionDetail(
     shopName: row.shop.name,
     shopSlug: row.shop.slug,
     currentUnitPricePaise: row.sp.onlinePricePaise,
+    isPeriodical: Boolean(row.periodical),
   };
 }
 
@@ -951,8 +1132,9 @@ export interface CostPreview {
 export async function getCostPreview(
   shopProductId: string,
   quantityMilli: number,
-  frequency: "DAILY" | "WEEKLY" = "DAILY",
+  frequency: SubscriptionFrequency = "DAILY",
   weekdays: number[] = [],
+  monthDays: number[] = [],
 ): Promise<CostPreview> {
   const sp = await db.query.shopProducts.findFirst({
     where: eq(shopProducts.id, shopProductId),
@@ -961,8 +1143,10 @@ export async function getCostPreview(
   const price = sp.onlinePricePaise ?? 0;
 
   const perDelivery = price > 0 ? lineTotalPaise(price, quantityMilli) : 0;
-  const deliveriesPerWeek = frequency === "DAILY" ? 7 : weekdays.length;
-  const deliveryDaysIn30 = Math.round((deliveriesPerWeek / 7) * 30);
+  const deliveryDaysIn30 = deliveriesIn30Days({ frequency, weekdays, monthDays });
+  // MONTHLY: the 7-day figure is the month's share of a week.
+  const deliveriesPerWeek =
+    frequency === "DAILY" ? 7 : frequency === "WEEKLY" ? sortedUnique(weekdays).length : Math.round((deliveryDaysIn30 * 7) / 30);
 
   return {
     unitPricePaise: price,
@@ -1521,6 +1705,7 @@ export function toScheduleInput(
     | "status"
     | "frequency"
     | "weekdays"
+    | "monthDays"
     | "quantityMilli"
     | "startDate"
     | "endDate"
@@ -1532,6 +1717,7 @@ export function toScheduleInput(
     status: subscription.status,
     frequency: subscription.frequency,
     weekdays: subscription.weekdays,
+    monthDays: subscription.monthDays ?? [],
     quantityMilli: subscription.quantityMilli,
     startDate: subscription.startDate,
     endDate: subscription.endDate,
