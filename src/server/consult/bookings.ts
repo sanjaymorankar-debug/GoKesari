@@ -101,6 +101,13 @@ async function addEvent(
     note: input.note?.slice(0, 1000) ?? null,
     meta: input.meta ?? {},
   });
+  // GoKesari Health (docs/health/): every booking change refreshes the clinic's and the patient's live
+  // screens at once (server-sent events; ids and status only). Inside a transaction it waits for the commit.
+  const live = booking as Partial<Pick<ConsultBooking, "shopId" | "customerId">>;
+  if (live.shopId) {
+    const { pushLiveOnly } = await import("@/server/health/events");
+    pushLiveOnly({ name: "appointment.changed", shopId: live.shopId, userIds: [live.customerId], subjectId: booking.id, payload: { kind, to: input.to ?? null }, delayMs: client === db ? 0 : 400 });
+  }
 }
 
 export function policyOf(p: Pick<ConsultProfile, "freeCancelHours" | "lateCancelRefundPct" | "noShowRefundPct" | "rescheduleMinHours" | "maxReschedules" | "policyNote">) {

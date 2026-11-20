@@ -358,6 +358,12 @@ export const PERMISSIONS = {
   /** Set up a consultant's booking profile, team, services and hours for a shop the user onboarded (operator-limited). */
   CONSULT_ONBOARD: "consult:onboard",
   /* <<< end consultant appointments */
+  /* >>> GoKesari Health (docs/health/) */
+  /** Health metadata only: verification queues, drug master, care and equipment lists, Prime plans, reports, access logs. No clinical content. */
+  HEALTH_MANAGE: "health:manage",
+  /** Emergency ("break-glass") read of a patient's clinical record, with a reason; every use is logged and the patient is told. */
+  HEALTH_BREAK_GLASS: "health:break_glass",
+  /* <<< GoKesari Health */
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -430,6 +436,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
 const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.CONSULT_MANAGE, // consultant appointments: operators run consultant onboarding and bookings with admins
   PERMISSIONS.CONSULT_ONBOARD,
+  PERMISSIONS.HEALTH_MANAGE, // GoKesari Health: operators verify providers and keep the lists with admins (no clinical content; break-glass is admin-only)
   PERMISSIONS.DEALER_PAYOUTS_READ, // gap report D4: read-only, as the dealer commission screens already were
   PERMISSIONS.SHOP_CREATE,
   PERMISSIONS.ORDER_PLACE,
@@ -794,4 +801,6 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   /* <<< end dealer programme */
   [PERMISSIONS.CONSULT_MANAGE]: "Manage consultant categories, cancellation policies, profile verification, every booking, refunds and booking reports",
   [PERMISSIONS.CONSULT_ONBOARD]: "Set up the booking profile, team, services, hours and map pin of a consultant the user onboarded",
+  [PERMISSIONS.HEALTH_MANAGE]: "GoKesari Health administration: provider verification, drug master, care and equipment lists, Prime plans and pricing, reports and access logs (metadata only)",
+  [PERMISSIONS.HEALTH_BREAK_GLASS]: "Emergency read of a patient's clinical record with a stated reason (logged and shown to the patient)",
 };

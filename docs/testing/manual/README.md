@@ -15,21 +15,21 @@ Owner's copy: `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking/GOKESARI_
 | How to use | — | Legend (amber = fill in), status and severity definitions, evidence rules and naming, worked example rows |
 | Test Plan | Test plan | Scope, approach, environment, test accounts, test data, entry / exit / suspension criteria, risks, roles |
 | Summary | Test status report | Live counts overall, by module, by priority; E2E; defects by severity; exit criteria Met / Not met |
-| Test Scenarios | Test design specification (test conditions) | 290 scenarios (TS-…), each with its TC IDs and a live status |
-| Test Cases | Test case specification + test procedure | 1,048 cases (TC-…): steps, data, expected; amber result and evidence columns |
-| E2E Scenarios | Test procedure (journeys) | 47 end-to-end journeys (SC-01 … SC-47) |
+| Test Scenarios | Test design specification (test conditions) | 296 scenarios (TS-…), each with its TC IDs and a live status |
+| Test Cases | Test case specification + test procedure | 1,084 cases (TC-…): steps, data, expected; amber result and evidence columns |
+| E2E Scenarios | Test procedure (journeys) | 49 end-to-end journeys (SC-01 … SC-49) |
 | Execution Log | Test execution log | One row per run of a case, re-runs and retests included |
 | Evidence Register | Test execution evidence | One row per evidence file, with a clickable link |
 | Defect Log | Incident report | Severity, steps, expected / actual, evidence, fix reference, retest |
-| Traceability | Requirements traceability | 261 features / decisions → scenarios → cases → live coverage status |
+| Traceability | Requirements traceability | 267 features / decisions → scenarios → cases → live coverage status |
 | Sign-off | Test completion report | Results, risks, Go / No-go recommendation, approvals |
 
 ## Where the content comes from
 
 | Source | What |
 |---|---|
-| `tests/qa/catalog/cases.json`, `scenarios.json` | The plan, exported from `test-cases.xlsx`: 1,048 cases and 47 journeys — the 875 cases and 37 journeys of 08-Nov-2026 plus everything added on 20-Nov-2026 (below) |
-| `test-scenarios.json` (here) | Grouping of the cases into 290 test scenarios (TS-PRE-01 …; TS-…-12 onwards for the 20-Nov cases) |
+| `tests/qa/catalog/cases.json`, `scenarios.json` | The plan, exported from `test-cases.xlsx`: 1,084 cases and 49 journeys — the 875 cases and 37 journeys of 08-Nov-2026 plus everything added on 20-Nov-2026 (below) |
+| `test-scenarios.json` (here) | Grouping of the cases into 296 test scenarios (TS-PRE-01 …; TS-…-12 onwards and TS-TERR-01 … 05 for the 20-Nov cases) |
 | `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx` | Automation status and latest automated staging result (grey reference columns) |
 | `test-cases.xlsx` → Coverage | Feature list for the Traceability sheet |
 
@@ -78,6 +78,22 @@ How they reached the plan and the suite:
   planned ones are declared in `tests/qa/guest/planned-features.spec.ts`
   ("feature not on staging yet (R4 – WP6)" …) and show as "Planned (not built)" in the
   master register.
+
+Added later on 20-Nov-2026, after PR #419 and #420 reached staging (record:
+`cases-added-2026-11-20-dealers.json`, 36 cases, 6 scenarios, 2 journeys, 6 features):
+
+- **Territory dealers** (DT-24 … DT-27, PR #419, rule `territoryDealer` off by default):
+  TC-TERR-001 … 026 in TS-TERR-01 … 05 — giving a territory and its exclusive pincodes,
+  the yearly fee (online / offline, renewal window, lapse, grace and release), the daily
+  rating and the 20–25 % share, order income at month close, access and the dealer's card;
+  journey SC-48.
+- **Team leads add agents; the main dealer promotes an agent** (DT-28, DT-29, PR #420):
+  TC-TIER-033 … 042 in TS-DLR-18; journey SC-49.
+- Added with `plan_workbook.py add-json docs/testing/manual/cases-added-2026-11-20-dealers.json`
+  and automated as local-tier checks (`tests/qa/local/dealer-territory-2026-11.spec.ts`,
+  `dealer-team-2026-11.spec.ts`, `tests/qa/scenarios/SC-48-*`, `SC-49-*`). Automating them
+  showed 11 fields to correct against the code (`code-check-2026-11-20-dealers.json`, one
+  Change log line each) and 5 defects (D-154 … D-158).
 
 ## Rebuild
 

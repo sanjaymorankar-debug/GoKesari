@@ -22,7 +22,7 @@ import { EmailUnavailableError, emailMode, sendEmail, type EmailAttachment } fro
 import { renderEmail } from "@/server/notifications/templates";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 
-export const DOCUMENT_TYPES = ["TAX_INVOICE", "CREDIT_NOTE", "PAYOUT_STATEMENT", "PLATFORM_INVOICE", "DEALER_STATEMENT"] as const;
+export const DOCUMENT_TYPES = ["TAX_INVOICE", "CREDIT_NOTE", "PAYOUT_STATEMENT", "PLATFORM_INVOICE", "DEALER_STATEMENT", "HEALTH_PRESCRIPTION"] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export interface QueueDocumentEmailInput {
@@ -35,7 +35,7 @@ export interface QueueDocumentEmailInput {
   /** In-app path the email links to. */
   actionUrl?: string;
   /** Notification category whose email opt-out applies. */
-  category: "ORDERS" | "SHOP" | "GENERAL";
+  category: "ORDERS" | "SHOP" | "GENERAL" | "HEALTH";
   maxAttempts?: number;
 }
 
@@ -119,6 +119,12 @@ export async function renderDocumentAttachments(docType: string, docId: string):
     case "PLATFORM_INVOICE": {
       const { renderPlatformInvoiceById } = await import("@/server/platform-invoices/service");
       const doc = await renderPlatformInvoiceById(docId);
+      return doc ? { attachments: [{ filename: doc.filename, content: doc.pdf, contentType: "application/pdf" }] } : null;
+    }
+    case "HEALTH_PRESCRIPTION": {
+      // GoKesari Health (docs/health/): the issued prescription's PDF; docId is the prescription version.
+      const { prescriptionPdfForEmail } = await import("@/server/health/prescriptions");
+      const doc = await prescriptionPdfForEmail(docId);
       return doc ? { attachments: [{ filename: doc.filename, content: doc.pdf, contentType: "application/pdf" }] } : null;
     }
     default:

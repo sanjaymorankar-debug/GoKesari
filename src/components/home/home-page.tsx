@@ -164,7 +164,7 @@ export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNa
 
         <section aria-labelledby="home-categories">
           <SectionHeading id="home-categories" title={tr(HOME.shopByCategory, lang)} href="/categories" linkLabel={tr(HOME.allCategories, lang)} />
-          <ul className="grid grid-cols-4 gap-2 sm:gap-3 lg:grid-cols-8">
+          <ul className="grid grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-9">
             {CUSTOMER_CATEGORIES.map((c) => (
               <li key={c.key}>
                 <Link

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
+import { PujaCatalogueSetup } from "@/components/puja/puja-shop-manager";
 import { ReferralRequestDialog } from "@/components/referral-request-dialog";
 import { RegistrationFeePayButton } from "@/components/registration-fee-pay-button";
 import { ShopCategoryPicker, type PickerCategory } from "@/components/shop-category-picker";
@@ -11,6 +12,7 @@ import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
 import { useShopTypes } from "@/components/use-shop-types";
 import { tr, type Lang } from "@/lib/board/i18n";
 import { licenceGraceMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
+import { PUJA_SHOP_TYPE_KEY } from "@/lib/puja";
 import { GST_DECLARATION_TEXT, SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
 import { SELLER_DOC_LABELS, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { formatRupeesIndian, turnoverSlab, turnoverSlabLabel, type TurnoverFeeRule } from "@/lib/registration-fee";
@@ -509,7 +511,12 @@ export function OnboardingWizard({
           title="7. Add your products"
           intro="We've picked the products shops like yours sell most, priced at MRP. Check them and publish — customers can order as soon as they are listed."
         >
-          <StarterShelf shopId={state.shop.id} onDone={refresh} />
+          {/* docs/puja-samagri-2026-11: a Puja Samagri shop takes the whole puja catalogue (stock 100, untick first). */}
+          {state.details?.shopType === PUJA_SHOP_TYPE_KEY ? (
+            <PujaCatalogueSetup shopId={state.shop.id} onDone={refresh} />
+          ) : (
+            <StarterShelf shopId={state.shop.id} onDone={refresh} />
+          )}
           <div className="grid gap-2 sm:grid-cols-2">
             <Link href="/shop/product-import" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-kesari-600 px-4 text-sm font-medium text-white">
               Upload product list

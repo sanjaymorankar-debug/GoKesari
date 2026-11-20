@@ -3366,5 +3366,173 @@
    "TC-RGR-011",
    "TC-RGR-012"
   ]
+ },
+ {
+  "id": "TS-DLR-18",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify a team lead adds agents himself and the main dealer promotes an agent who meets the rule",
+  "description": "DT-28 / DT-29: lead adds an AGENT under himself at once, agents cannot, promotion progress and 'Promote to team lead' on the main dealer's page, refusals (dealer, admin).",
+  "caseIds": [
+   "TC-TIER-033",
+   "TC-TIER-034",
+   "TC-TIER-035",
+   "TC-TIER-036",
+   "TC-TIER-037",
+   "TC-TIER-038",
+   "TC-TIER-039",
+   "TC-TIER-040",
+   "TC-TIER-041",
+   "TC-TIER-042"
+  ]
+ },
+ {
+  "id": "TS-TERR-01",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify an admin gives a TIERED dealer an exclusive territory and changes its pincodes, fee or status",
+  "description": "Create with pincode exclusivity and field checks, TIERED and approved dealers only, change pincodes / fee with a reason, cancel (admin).",
+  "caseIds": [
+   "TC-TERR-002",
+   "TC-TERR-003",
+   "TC-TERR-004",
+   "TC-TERR-005",
+   "TC-TERR-006",
+   "TC-TERR-007",
+   "TC-TERR-008"
+  ]
+ },
+ {
+  "id": "TS-TERR-02",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify the yearly territory fee: online and offline payment, renewal window, lapse and release",
+  "description": "Pay online (sandbox, paid up only on the signed webhook), record offline, renew within 30 days, expire, release after 30 days' grace (dealer, admin).",
+  "caseIds": [
+   "TC-TERR-009",
+   "TC-TERR-010",
+   "TC-TERR-011",
+   "TC-TERR-012",
+   "TC-TERR-013",
+   "TC-TERR-014",
+   "TC-TERR-015"
+  ]
+ },
+ {
+  "id": "TS-TERR-03",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify the daily territory rating and the 20-25% share",
+  "description": "Rating from onboarding and product-upload points, share table, edges, daily job and Rate now (admin, dealer).",
+  "caseIds": [
+   "TC-TERR-016",
+   "TC-TERR-017",
+   "TC-TERR-018",
+   "TC-TERR-019"
+  ]
+ },
+ {
+  "id": "TS-TERR-04",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify territory order income: which orders count, refunds, month close, payout and statement",
+  "description": "Orders delivered by shops in the territory while paid up, refunds netted, TERRITORY ledger entry at month close, REVERSAL for late refunds, team commission unchanged (dealer, admin).",
+  "caseIds": [
+   "TC-TERR-020",
+   "TC-TERR-021",
+   "TC-TERR-022",
+   "TC-TERR-023",
+   "TC-TERR-024"
+  ]
+ },
+ {
+  "id": "TS-TERR-05",
+  "module": "Dealer network & shop referrals",
+  "title": "Verify the territoryDealer rule switch, access control and the dealer's territory card",
+  "description": "Nothing changes while the rule is off; who may read / change territories; the territory card on /dealer on desktop and phone.",
+  "caseIds": [
+   "TC-TERR-001",
+   "TC-TERR-025",
+   "TC-TERR-026"
+  ]
+ },
+ {
+  "id": "TS-HLT-01",
+  "module": "GoKesari Health",
+  "title": "Guest access and public checks",
+  "description": "Private Health pages and APIs refuse a guest; the prescription QR check and share links show nothing private.",
+  "caseIds": [
+   "TC-HLT-001",
+   "TC-HLT-002",
+   "TC-HLT-003",
+   "TC-HLT-004",
+   "TC-HLT-005"
+  ]
+ },
+ {
+  "id": "TS-HLT-02",
+  "module": "GoKesari Health",
+  "title": "Doctor booking, clinic Today and the live queue",
+  "description": "Only verified doctors are bookable; bookings, tokens and queue positions update live.",
+  "caseIds": [
+   "TC-HLT-010",
+   "TC-HLT-011",
+   "TC-HLT-012"
+  ]
+ },
+ {
+  "id": "TS-HLT-03",
+  "module": "GoKesari Health",
+  "title": "E-prescriptions",
+  "description": "Issue, PDF, e-mail, print, QR verification, amend and the telemedicine / allergy safety checks.",
+  "caseIds": [
+   "TC-HLT-013",
+   "TC-HLT-014",
+   "TC-HLT-015",
+   "TC-HLT-016",
+   "TC-HLT-017",
+   "TC-HLT-018"
+  ]
+ },
+ {
+  "id": "TS-HLT-04",
+  "module": "GoKesari Health",
+  "title": "Health record, consent, family and privacy",
+  "description": "One lifelong record per person; doctors see it only with consent; every look is logged; DPDP rights.",
+  "caseIds": [
+   "TC-HLT-019",
+   "TC-HLT-020",
+   "TC-HLT-021",
+   "TC-HLT-032"
+  ]
+ },
+ {
+  "id": "TS-HLT-05",
+  "module": "GoKesari Health",
+  "title": "Prescriptions to medical stores",
+  "description": "Pickup and delivery with OTP, substitutes, dispensed quantity, no-reply fallback.",
+  "caseIds": [
+   "TC-HLT-022",
+   "TC-HLT-023",
+   "TC-HLT-024",
+   "TC-HLT-025"
+  ]
+ },
+ {
+  "id": "TS-HLT-06",
+  "module": "GoKesari Health",
+  "title": "Suggestions, home care and medical equipment",
+  "description": "Book now from a doctor's suggestion; home-care visits with OTP; equipment rental with deposit.",
+  "caseIds": [
+   "TC-HLT-026",
+   "TC-HLT-027",
+   "TC-HLT-028"
+  ]
+ },
+ {
+  "id": "TS-HLT-07",
+  "module": "GoKesari Health",
+  "title": "Listing, referrals and Health admin",
+  "description": "Launch mode (all Prime features free), patient referrals, verification queues, drug master, break-glass.",
+  "caseIds": [
+   "TC-HLT-029",
+   "TC-HLT-030",
+   "TC-HLT-031"
+  ]
  }
 ]

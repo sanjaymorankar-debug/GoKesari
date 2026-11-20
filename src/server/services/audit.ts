@@ -507,6 +507,26 @@ export const AUDIT_ACTIONS = {
   /** Admin → Payments → Cashfree: a ₹1 live/sandbox test order was opened, then checked and refunded. */
   CASHFREE_LIVE_TEST_STARTED: "cashfree.live_test_started",
   CASHFREE_LIVE_TEST_FINISHED: "cashfree.live_test_finished",
+  /* ------------------------- Puja Samagri & Temple Supplies (docs/puja-samagri-2026-11) */
+  /** A shop's inventory was filled from the puja master catalogue (counts and excluded categories in newValue). */
+  PUJA_CATALOGUE_SEEDED: "shop.puja_catalogue_seeded",
+  /** A shop of another type added a type's range (shop_added_types). */
+  SHOP_TYPE_ADDED: "shop.type_added",
+  /** A shop owner created a product type (product_subcategories row of their shop). */
+  PRODUCT_TYPE_CREATED: "product_type.created",
+  /** Staff approved, rejected or merged an owner-created product type or product. */
+  CATALOGUE_SUBMISSION_DECIDED: "catalogue_submission.decided",
+  /** A removed listing was brought back by its shop. */
+  LISTING_RESTORED: "shop_product.restored",
+  /** "Price on confirmation": a customer asked, or the shop answered with a price. */
+  LISTING_PRICE_REQUESTED: "shop_product.price_requested",
+  LISTING_PRICE_ANSWERED: "shop_product.price_answered",
+  /** Staff edited, added, retired, merged or imported master catalogue products. */
+  MASTER_PRODUCT_UPDATED: "product.master_updated",
+  MASTER_PRODUCT_MERGED: "product.master_merged",
+  MASTER_CATALOGUE_IMPORTED: "product.master_imported",
+  /** Festival collections (banner + kit promotion by date range). */
+  FESTIVAL_COLLECTION_SAVED: "festival_collection.saved",
   /* >>> consultant appointments (docs/consult-booking-2026-11) */
   CONSULT_CATEGORY_CHANGED: "consult.category_changed",
   CONSULT_POLICY_TEMPLATE_CHANGED: "consult.policy_template_changed",
@@ -519,6 +539,24 @@ export const AUDIT_ACTIONS = {
   CONSULT_BOOKING_SETTLED: "consult.booking_settled",
   CONSULT_PRIVATE_VIEWED: "consult.private_viewed",
   /* <<< consultant appointments */
+  /* >>> GoKesari Health (docs/health/) — metadata only, never clinical text */
+  HEALTH_CONSENT_CHANGED: "health.consent_changed",
+  HEALTH_DOCTOR_PROFILE: "health.doctor_profile",
+  HEALTH_PRESCRIPTION_ISSUED: "health.prescription_issued",
+  HEALTH_PRESCRIPTION_AMENDED: "health.prescription_amended",
+  HEALTH_BREAK_GLASS: "health.break_glass",
+  HEALTH_DRUG_MASTER: "health.drug_master",
+  HEALTH_RX_ORDER: "health.rx_order",
+  HEALTH_RENTAL: "health.rental",
+  HEALTH_PRIME_PLAN: "health.prime_plan",
+  HEALTH_PRIME_SUBSCRIPTION: "health.prime_subscription",
+  HEALTH_DATA_REQUEST: "health.data_request",
+  HEALTH_SETTINGS: "health.settings",
+  HEALTH_PROVIDER_VERIFIED: "health.provider_verified",
+  HEALTH_EQUIPMENT_MASTER: "health.equipment_master",
+  HEALTH_CARE_PROVIDER: "health.care_provider",
+  HEALTH_EQUIPMENT_STORE: "health.equipment_store",
+  /* <<< GoKesari Health */
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
