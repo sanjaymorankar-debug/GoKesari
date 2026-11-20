@@ -161,6 +161,8 @@ interface Job {
 /** The order is the order of urgency: customer-facing timeouts first, long imports last. */
 export const EVERY_MINUTE: readonly Job[] = [
   { name: "timeout-sweep", run: timeoutSweep },
+  // Consultant appointments: times held for a payment that never came are released (one indexed query when none are due).
+  { name: "consult-holds", run: async () => (await import("@/server/consult/bookings")).expireLapsedHolds() },
   {
     name: "notification-retry",
     run: async () => ({

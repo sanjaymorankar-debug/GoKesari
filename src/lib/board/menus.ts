@@ -99,7 +99,7 @@ export interface BoardMenu extends BoardItem {
 
 /* ---------------------------------------------------------------- customer */
 
-/** The eight category tiles under the customer's banners. */
+/** The nine category tiles under the customer's banners (Puja Samagri added 20-Nov-2026, docs/puja-samagri-2026-11). */
 export interface CategoryTile {
   key: string;
   label: Text;
@@ -119,6 +119,8 @@ export const CUSTOMER_CATEGORIES: readonly CategoryTile[] = [
   { key: "sweets", label: L("Sweets", "मिठाई", "मिठाई"), emoji: "🍬", bg: "bg-pink-50", href: "/shops?type=SWEET_SHOP" },
   { key: "pharmacy", label: L("Pharmacy", "दवाइयाँ", "औषधे"), short: { en: "Medicine" }, emoji: "💊", bg: "bg-violet-50", href: "/shops?type=PHARMACY" },
   { key: "household", label: L("Household", "घरेलू", "घरगुती"), short: { en: "Home" }, emoji: "🧴", bg: "bg-indigo-50", href: "/shops?type=SUPERMARKET" },
+  // docs/puja-samagri-2026-11: puja samagri and temple supplies — products, kits, festival items.
+  { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: { en: "Puja", hi: "पूजा", mr: "पूजा" }, emoji: "🪔", bg: "bg-orange-50", href: "/puja" },
   { key: "all", label: L("All", "सभी", "सर्व"), emoji: "🔎", bg: "bg-slate-100", href: "/categories", count: "shopCategories" },
 ];
 
@@ -134,6 +136,10 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "deliversHere", label: L("Delivers here", "यहाँ डिलीवरी", "इथे डिलिव्हरी"), short: { en: "Delivers" }, icon: "truck", href: "/shops?delivery=true", count: "deliveringShops" },
       // Was the "Compare prices near you" section under the old home page.
       { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare" },
+      // docs/consult-booking-2026-11: doctors, lawyers, CAs and other professionals near you, with free times.
+      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/consult" },
+      // GoKesari Health (docs/health/): verified doctors near you (the board keeps 6 tiles — one screen on a phone).
+      { key: "doctors", label: L("Doctors", "डॉक्टर", "डॉक्टर"), icon: "search", href: "/health/doctors", auth: true },
     ],
   },
   {
@@ -144,6 +150,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "returns", label: L("Returns", "वापसी", "परतावा"), icon: "undo-2", href: "/returns", count: "openReturns", auth: true },
       // docs/purchase-lists-2026-10: weekly / monthly shopping and medicine lists, reordered in a few taps.
       { key: "lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या"), short: { en: "Lists" }, icon: "clipboard-check", href: "/lists", auth: true },
+      // docs/consult-booking-2026-11: the customer's consultant appointments.
+      { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), short: { en: "Bookings" }, icon: "calendar-clock", href: "/consult/bookings", auth: true },
     ],
   },
   {
@@ -177,6 +185,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "addresses", label: L("Addresses", "पते", "पत्ते"), icon: "map-pin", href: "/profile/addresses", auth: true },
       { key: "society", label: L("Society", "सोसाइटी", "सोसायटी"), icon: "building-2", href: "/society", auth: true },
       { key: "refer", label: L("Refer & earn", "रेफ़र करें", "रेफर करा"), short: { en: "Refer" }, icon: "gift", href: "/refer", auth: true },
+      // GoKesari Health (docs/health/): the family's health record, prescriptions, medicines, home care, equipment.
+      { key: "health", label: L("My Health", "मेरा स्वास्थ्य", "माझे आरोग्य"), short: { en: "Health" }, icon: "shield-check", href: "/health", auth: true },
       // Mockup: "App theme" — no theme setting exists; nearest real destination.
       { key: "bank", label: L("Bank account", "बैंक खाता", "बँक खाते"), short: { en: "Bank" }, icon: "landmark", href: "/profile/bank-account", auth: true },
       { key: "help", label: L("Help", "मदद", "मदत"), icon: "circle-help", href: "/contact" },
@@ -202,6 +212,10 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "out", label: L("Out", "रास्ते में", "रवाना"), href: "/shop/orders?status=out", count: "shopOut" },
       // docs/newspaper-subscriptions-2026-11: every running subscriber — newspaper rounds, milk, bread.
       { key: "subscribers", label: L("Subscribers", "सब्सक्राइबर", "सदस्य"), href: "/shop/manage/subscribers" },
+      // docs/consult-booking-2026-11: a consultant's / firm's calendar and bookings (the shop board is at its 16-tile limit).
+      { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), href: "/shop/consult" },
+      // GoKesari Health (docs/health/): clinic Today, prescription requests, home-care visits, equipment rentals, Prime (the board is at 16 tiles).
+      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), href: "/shop/health/hub", feature: "health_provider" },
     ],
   },
   {
@@ -247,6 +261,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "mine", label: L("Mine", "मेरी", "माझे"), icon: "list-tree", href: "/shop/product-categories" },
       { key: "all", label: L("All", "सभी", "सर्व"), icon: "search", href: "/product-categories", permission: PERMISSIONS.CATALOGUE_BROWSE },
+      // docs/puja-samagri-2026-11: take the puja catalogue, browse, own types and products, restore, price requests.
+      { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/shop/puja" },
     ],
     more: [
       { key: "shopTypes", label: L("Shop types I sell", "मेरी दुकान के प्रकार", "माझ्या दुकानाचे प्रकार"), icon: "store", href: "/shop/manage/shop-types" },
@@ -381,6 +397,10 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "verified", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "suspensions", label: L("Suspensions", "निलंबन", "निलंबन"), icon: "lock", href: "/admin/suspensions", count: "activeSuspensions", permission: PERMISSIONS.SHOP_SUSPEND },
       { key: "grade", label: L("Grade", "ग्रेड", "श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
+      // docs/consult-booking-2026-11: consultant verification, bookings, categories and commission, policies, reports.
+      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
+      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
+      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
     more: [
       { key: "documents", label: L("Legal documents", "कानूनी दस्तावेज़", "कायदेशीर कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
@@ -428,6 +448,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "shop", label: L("Shop", "दुकान", "दुकान"), icon: "store", href: "/admin/shop-categories", count: "shopCategoryCount", permission: PERMISSIONS.CATEGORY_MANAGE },
       { key: "product", label: L("Product", "उत्पाद", "उत्पादन"), icon: "list-tree", href: "/product-categories", count: "productCategories", permission: PERMISSIONS.CATALOGUE_BROWSE },
+      // docs/puja-samagri-2026-11: puja master catalogue, review queue, festivals, configuration.
+      { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/admin/puja", permission: PERMISSIONS.PRODUCT_MANAGE },
     ],
   },
   {
@@ -548,6 +570,10 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "documents", label: L("Documents", "दस्तावेज़", "कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "photoChecks", label: L("Photo checks", "फ़ोटो जाँच", "फोटो तपासणी"), icon: "images", href: "/admin/image-moderation", count: "pendingImages", permission: PERMISSIONS.PRODUCT_MANAGE },
       { key: "grade", label: L("Quality grade", "गुणवत्ता ग्रेड", "गुणवत्ता श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
+      // docs/consult-booking-2026-11: operators run consultant onboarding and bookings with admins.
+      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
+      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
+      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
     more: [
       { key: "verification", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
@@ -643,6 +669,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "mrp", label: L("MRP", "एमआरपी", "एमआरपी"), icon: "tag", href: "/admin/mrp", count: "mrpCorrections", permission: PERMISSIONS.PRODUCT_MRP_MANAGE },
       // batch-2026-10 WS-A: "Ref. prices" removed — F1.4.3 dropped.
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
+      // docs/puja-samagri-2026-11: puja master catalogue, review queue, festivals, configuration.
+      { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/admin/puja", permission: PERMISSIONS.PRODUCT_MANAGE },
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },

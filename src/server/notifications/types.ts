@@ -389,6 +389,14 @@ export const NOTIFICATION_TYPES = {
   /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */
   SHOP_READY_FOR_PRODUCT_UPLOAD: "shop.ready_for_product_upload",
   /* <<< end dealer programme */
+  /* >>> Puja Samagri (docs/puja-samagri-2026-11) */
+  /** To the shop owner: staff approved, rejected or merged a product type or product the owner created; push too. */
+  SHOP_CATALOGUE_SUBMISSION_DECIDED: "shop.catalogue_submission_decided",
+  /** To the shop owner: a customer asks the price of a loose / perishable item with no price yet; push too. */
+  SHOP_PRICE_REQUESTED: "shop.price_requested",
+  /** To the customer: the shop set the price they asked for — the item can go in the cart now; push too. */
+  CUSTOMER_PRICE_CONFIRMED: "order.price_confirmed",
+  /* <<< Puja Samagri */
   /* >>> rider bank payouts (docs/gig-bank-payouts-2026-10) — "delivery" prefix: the Deliveries category */
   /** To the rider: a withdrawal was sent to the bank. */
   RIDER_WITHDRAWAL_SENT: "delivery.rider_withdrawal_sent",
@@ -405,6 +413,47 @@ export const NOTIFICATION_TYPES = {
   /** To the shop owner: the monthly TCS / TDS statement from GoKesari is ready. */
   SHOP_TAX_STATEMENT_READY: "shop.tax_statement_ready",
   /* <<< billing v2 */
+  /* >>> consultant appointments (docs/consult-booking-2026-11) — to the customer and to the consultant / firm */
+  CONSULT_BOOKED: "consult.booked",
+  CONSULT_CONFIRMED: "consult.confirmed",
+  CONSULT_PENDING_APPROVAL: "consult.pending_approval",
+  CONSULT_RESCHEDULED: "consult.rescheduled",
+  CONSULT_CANCELLED: "consult.cancelled",
+  CONSULT_PAYMENT: "consult.payment",
+  CONSULT_REFUND: "consult.refund",
+  CONSULT_REMINDER: "consult.reminder",
+  CONSULT_COMPLETED: "consult.completed",
+  CONSULT_DISPUTE: "consult.dispute",
+  CONSULT_VERIFICATION: "consult.verification",
+  /* <<< consultant appointments */
+  //
+  /* >>> GoKesari Health (docs/health/) — patients, doctors, clinics, medical stores, home care, equipment, Prime */
+  HEALTH_PRESCRIPTION_ISSUED: "health.prescription_issued",
+  HEALTH_PRESCRIPTION_AMENDED: "health.prescription_amended",
+  HEALTH_SUGGESTION: "health.suggestion",
+  HEALTH_REFERRAL_RECEIVED: "health.referral_received",
+  HEALTH_CONSENT: "health.consent",
+  HEALTH_FAMILY_LINK: "health.family_link",
+  HEALTH_RECORD_ADDED: "health.record_added",
+  HEALTH_RX_REQUEST: "health.rx_request",
+  HEALTH_RX_QUOTED: "health.rx_quoted",
+  HEALTH_RX_DECLINED: "health.rx_declined",
+  HEALTH_RX_EXPIRED: "health.rx_expired",
+  HEALTH_RX_APPROVED: "health.rx_approved",
+  HEALTH_RX_READY: "health.rx_ready",
+  HEALTH_RX_OUT_FOR_DELIVERY: "health.rx_out_for_delivery",
+  HEALTH_RX_COMPLETED: "health.rx_completed",
+  HEALTH_CARE_BOOKING: "health.care_booking",
+  HEALTH_CARE_VISIT: "health.care_visit",
+  HEALTH_CARE_SOS: "health.care_sos",
+  HEALTH_RENTAL: "health.rental",
+  HEALTH_RENTAL_DUE: "health.rental_due",
+  HEALTH_PRIME: "health.prime",
+  HEALTH_PRIME_RENEWAL: "health.prime_renewal",
+  HEALTH_CALL_MISSED: "health.call_missed",
+  HEALTH_VERIFICATION: "health.verification",
+  HEALTH_BREAK_GLASS: "health.break_glass",
+  /* <<< GoKesari Health */
   //
 } as const;
 

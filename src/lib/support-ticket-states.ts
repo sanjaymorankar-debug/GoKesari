@@ -89,6 +89,8 @@ export const TICKET_CATEGORIES = [
   "SHOP_PAYOUT",
   "GRIEVANCE",
   "OTHER",
+  /** Consultant appointments: a dispute about a booking (docs/consult-booking-2026-11). */
+  "BOOKING",
 ] as const;
 export type TicketCategory = (typeof TICKET_CATEGORIES)[number];
 
@@ -103,6 +105,7 @@ export const TICKET_CATEGORY_LABELS: Record<TicketCategory, string> = {
   SHOP_PAYOUT: "Shop payout or settlement",
   GRIEVANCE: "Formal grievance",
   OTHER: "Something else",
+  BOOKING: "An appointment booking",
 };
 
 export const TICKET_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
