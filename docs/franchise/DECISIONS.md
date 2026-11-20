@@ -27,9 +27,29 @@ versioned change with an effective time. The only exceptions are the items marke
 | F-04 | Moving existing dealers to Model A (§13) | `scripts/franchise/migrate-model-a.ts`, a dry run by default, moves approved STANDARD dealers to TIERED from now on. History is never recalculated, because each shop's plan is frozen. **Not run on production** until the owner says so | Changes future earnings for existing dealers |
 | F-05 | Old pincode "territory dealer" data (PR #419) | Not migrated. Production has none; staging has one QA territory. Pincodes cannot be mapped to zones one-to-one (411002 is in 8 zones). Rule `territoryDealer` stays off | Superseded by Model B |
 | F-06 | "Super-admin" for maximum owners per area | Admin e-mails listed in `FRANCHISE_SUPER_ADMIN_EMAILS`. The list is empty by default, so nobody can change it. The database also refuses more than 2 | No super-admin role existed |
-| F-07 | Main dealer's override by distance (Model A cases 2 and 4) | New rule field `dealerTieredCommission.overrideByDistance = true`. When the signer reports directly to the dealer, the dealer gets the first override (4%); otherwise the second (3%). Setting it to false restores the earlier 3% | Brief §2.3 supersedes DT-23 for those two cases |
+| F-07 | Main dealer's override by distance (Model A cases 2 and 4) | Rule field `dealerTieredCommission.overrideByDistance`, **default false since the 21-Nov 00.30 brief** ("the free 3-level dealership … is unchanged"): the dealer keeps 3% on every member's shop. Setting it to true gives the 20-Nov brief's 4% when the signer reports to the dealer directly | **Owner to confirm** which applies |
 | F-08 | Franchise code used in the old `/shop/join` flow (no map location before payment) | Not blocked there. The shop is recorded but **not paid**: the audit shows `franchise_code_outside_active_zone`. The registration wizard and "Add my shop" check the location before payment | That legacy flow takes no location before payment |
 | F-09 | Recurring base "net of refunds in the month" | Each month = commission on orders delivered in the month − commission on refunds **recorded** in the month, per shop. A negative month is written as a negative adjustment | The brief's own words (§8.2) |
 | F-10 | Bank holiday on the 5th | `payoutOnNextWorkingDay` and a `bankHolidays` list (dates) are configurable. The payout date shown to owners skips Sundays and the listed holidays. The existing close job still runs on the 5th | The holiday list must come from finance |
 | F-11 | Ticket-response compliance (rating metric) | The metric is in the engine but returns 100% until tickets record franchise response times | No per-franchise ticket timing exists yet |
 | F-12 | Test clock (brief §15: time travel on the test server) | `clockOffsetDays` in the settings shifts franchise "now". It is refused on gokesari.com | Expiry, renewal and tail tests on staging |
+
+## Brief of 21-Nov-2026 00.30 IST (dealer code per area, monthly bonus) — as built
+
+It supersedes the matching points of the 20-Nov brief.
+
+| # | Point | Built |
+|---|---|---|
+| B-01 | Area = all shops within 5 km of the area's centre (§1.1) | Each area's approved boundary is a circle around its centre (up to `maxAreaRadiusKm` = 5 km); polygons still possible. Neighbouring areas may overlap (`allowOverlappingAreas` true): the dealer code decides the area |
+| B-02 | Map before and after booking (§1.2) | The booking summary shows the chosen areas on the map; `/franchise/my` shows the dealer's areas |
+| B-03 | One dealer code per dealer per area (§1.4) | `franchise_codes.allocation_id`: each activated area gets its own GKF code; a renewal keeps it; a re-booking after expiry gets a new code (old shops not restored) |
+| B-04 | Outside the area: blocked, admin override logged (§1.5) | Registration wizard and Add my shop refuse it before payment. Admin → Franchise → Attribution → "Tag a shop outside its area" records `override_reason` / `override_by` and an audit entry. Tags are permanent |
+| B-05 | Bonus formula (§3) | `src/lib/franchise-bonus.ts` exactly as §3: registration points over the target 60, business points per ₹5,000 above the baseline (opening shops × ₹1,00,000; 0 in a first month), main points ÷ 100 (2 decimals, never rounded up), 1% a main point up to 5%, rate 25% + bonus, rating 5.0 + bonus %. Replaces D2's "0% until a formula is published" |
+| B-06 | Recurring payout | Rate × GoKesari's 2% (`gokesariCommissionBp`) × delivered order value (goods) of **all** the code's shops in the month, net of refunds on the month's orders, worked out per shop |
+| B-07 | Onboarding | 25% of the shop registration fee **actually paid, excluding GST** (₹250 on ₹1,000), earned at activation and shown on the month's statement |
+| B-08 | Settings: admin only, audited, from next month (§2) | Money settings saved now take effect on the 1st of next month (IST); other settings apply at once (one save can make two versions). The audit log shows who, old and new value and IST time |
+| B-09 | Month-end (§5) | Days 1–3 from 02:00 IST: calculate last month (hourly, rerunnable; opening shops frozen at the first run). 4th at 10:00 IST: statement PDF + summary to the dealer and ceo@agtci.com (once each). 5th: lock (writes the per-shop ledger lines dated in the month), then the existing payout close pays them; payout approval stays in Dealers → Commission → Payouts. After the lock, corrections go to the next month's adjustments (TC5) |
+| B-10 | Expired / not renewed (§6) | Code closed for new shops; no bonus; base 25% continues **up to 2 years after expiry** (`tailMode = years_after_lapse`, `tailYears = 2`; replaces D4) |
+| B-11 | Shop deactivated by admin | Leaves the opening shops from the next month (opening = approved and tagged shops at the month's first run) |
+| B-12 | Model A | Unchanged (see F-07). Franchise owners pay their own staff; team members' tracking codes earn only the owner |
+| B-13 | Production `territoryDealer` rule | The other session switched it on at gokesari.com on 21-Nov 00.11 IST (0 territories). Model B replaces it — **owner to decide** whether to switch it off |

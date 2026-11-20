@@ -80,6 +80,26 @@ Evidence:
 - `tests/integration/franchise-pmr.test.ts` (32 cases);
 - `tests/unit/franchise-lib.test.ts` (26 cases).
 
+## 2b. Brief of 21-Nov-2026 00.30 IST — run 21-Nov-2026 00.50–01.00 IST (local)
+
+| ID | Case | Result |
+|---|---|---|
+| TC1 | January, first month: 0 opening, 70 new → 10 points → 0.10% → 25.10%, rating 5.10 | PASS (unit) |
+| TC2 | February: 70 opening (₹70L), 75 new, ₹1 Cr → 615 points → capped 5% → 30%, rating 10.0; 30% on all shops; 75 × ₹250 | PASS (unit) |
+| TC3 | March: opening 145 → baseline ₹1.45 Cr; a deactivated shop leaves next month's opening | PASS (unit) |
+| TC4 | 120 opening, 45 new, ₹1.1 Cr → 0 points, 25%, rating 5.0 | PASS (unit) |
+| TC5 | Refund after payout → next month's adjustment (−₹200 on a ₹40,000 refund at 25%) | PASS (unit + integration, locked month unchanged) |
+| TC6 | Slot ₹50K → 75 points → 25.75%; a change saved now applies from the 1st of next month; other settings now | PASS (unit + integration) |
+| FR-B-01 | One code per area: area 4's code refused in area 10 and the other way round; shop tagged to area 10 | PASS |
+| FR-B-02 | Admin override tags a shop outside its area; reason and admin logged; a second tag refused (permanent) | PASS |
+| FR-B-03 | Live month: ₹1,00,000 delivered → ₹500 at 25%; first month baseline ₹0 | PASS |
+| FR-B-04 | Past month: DRAFT rerunnable → lock writes the ledger line inside the month → locked month never recalculated | PASS |
+| FR-B-05 | Statement PDF built (%PDF) and e-mailed once to the dealer and ceo@agtci.com | PASS |
+| FR-B-06 | Expired area: no bonus, 25% continues in the tail, nothing after the tail end | PASS |
+| FR-B-07 | 5 km areas overlap by default; the no-overlap rule still works when switched back | PASS |
+
+Totals: franchise integration 37/37, franchise unit 39/39 (TC1–TC6 13), dealer / cron / referral / unit regression 1,418/1,418 (111 files).
+
 ## 3. Browser checks (local dev server, localhost:3720)
 
 The booking checks used a desktop width and phone width (375 px).
