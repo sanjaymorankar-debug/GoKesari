@@ -14,7 +14,7 @@
 import { as, pageAs } from "../lib/actors";
 import { shopOf } from "../lib/flows";
 import { call, expectStatus, pace, RUN, why, type Answer } from "../lib/http";
-import { blocked, expect, need, qa } from "../lib/record";
+import { blocked, expect, manual, need, qa } from "../lib/record";
 import { NO_SUCH_ID } from "../lib/routes";
 import { assertWritable } from "../lib/target";
 import { world, type Role } from "../lib/world";
@@ -326,6 +326,30 @@ qa(["TC-CON-013"], "completing an in-person appointment needs the customer's cod
   return `wrong code 422, right code → COMPLETED, rated 5`;
 }, signed);
 
+qa(["SC-50"], "journey: the customer finds the consultant, books paying at the visit; the consultant records the payment and completes with the customer's code; the customer rates", async () => {
+  const p = await practice();
+  const found = await call(await as("customer"), "GET", `/api/consult/search?q=${encodeURIComponent("QA Test Clinic")}`);
+  expectStatus(found, 200, "search");
+  expect((found.body.results as { shopId: string }[]).some((r) => r.shopId === p.shopId), "found by name").toBe(true);
+  const soon = (await freeStarts(p.services.visit, { memberId: p.ownerMemberId, days: 1 })).find((s) => new Date(s.start).getTime() <= Date.now() + 14 * 60_000);
+  const start = need(soon?.start, "a free 15-minute time within 14 minutes");
+  const res = await book("customer", { serviceId: p.services.visit, memberId: p.ownerMemberId, start, paymentMode: "PAY_AT_VISIT" });
+  expectStatus(res, 201, "book");
+  expect(res.body.booking.status).toBe("CONFIRMED");
+  const id = res.body.booking.id as string;
+  const paid = await act(OWNER, id, "paid", { method: "UPI" });
+  expectStatus(paid, 200, "record the payment");
+  expect(paid.body.booking.paymentStatus).toBe("PAID");
+  expect(paid.body.booking.receiptNumber).toMatch(/^GKC\/\d{4}-\d{2}\/\d{6}$/);
+  const code = need((await bookingOf("customer", id)).body.completionCode as string | null, "the customer's completion code");
+  const done = await act(OWNER, id, "complete", { code });
+  expectStatus(done, 200, "complete");
+  expect(done.body.booking.status).toBe("COMPLETED");
+  const rated = await act("customer", id, "rate", { rating: 5, review: "QA journey" });
+  expectStatus(rated, 200, "rate");
+  return `found → booked (pay at visit) → paid ${paid.body.booking.receiptNumber} → COMPLETED with the code → rated 5`;
+}, { ...signed, partial: "the commission line in the next payout and the rating on the public profile are checked by tests/integration/consult-bookings.test.ts" });
+
 /* ============================================================ online money */
 
 async function onlineBooking(hoursAhead: number) {
@@ -343,8 +367,8 @@ async function onlineBooking(hoursAhead: number) {
   return { p, id: res.body.booking.id as string, path, start };
 }
 
-qa(["TC-CON-015", "TC-CON-010"], "online payment: the time is held, success confirms it with a receipt; cancelling early refunds it in full", async ({ browser }) => {
-  const { id, path } = await onlineBooking(24);
+qa(["TC-CON-015", "TC-CON-010", "SC-51"], "online payment: the time is held, success confirms it with a receipt; cancelling early refunds it in full and frees the time", async ({ browser }) => {
+  const { p, id, path, start } = await onlineBooking(24);
   const held = await bookingOf("customer", id);
   expect(held.body.booking.holdExpiresAt, "10-minute hold").toBeTruthy();
   const { context, page } = await pageAs(browser, "customer");
@@ -368,7 +392,9 @@ qa(["TC-CON-015", "TC-CON-010"], "online payment: the time is held, success conf
   expect(cancelled.body.booking.refundPaise).toBe(100);
   const view = await bookingOf("customer", id);
   expect(["PENDING", "REFUNDED"]).toContain(view.body.refund.status);
-  return `paid ₹1 in the sandbox → CONFIRMED (${paid.body.booking.receiptNumber}); cancelled → ₹1 refund ${view.body.refund.status}`;
+  const again = await freeStarts(p.services.online, { memberId: p.ownerMemberId, days: 3 });
+  expect(again.some((s) => s.start === start), "the cancelled time is offered again").toBe(true);
+  return `paid ₹1 in the sandbox → CONFIRMED (${paid.body.booking.receiptNumber}); cancelled → ₹1 refund ${view.body.refund.status}; time offered again`;
 }, signed);
 
 qa(["TC-CON-016"], "a failed online payment frees the held time", async ({ browser }) => {
@@ -437,3 +463,26 @@ qa(["TC-CON-003"], "a booking id that does not exist answers 404 to a signed-in 
   expect(res.status).toBe(404);
   return "404";
 }, signed);
+
+/* ============================================ not automated here (with the reason) */
+
+manual(
+  "TC-CON-006",
+  "a doctor cannot publish without the council registration certificate; after the upload the profile publishes PENDING",
+  "needs a practice that is not yet live and a certificate upload; the shared QA Test Clinic must stay live for the other checks. Proved by tests/integration/consult-bookings.test.ts (publish refused without the certificate, PENDING → VERIFIED after the upload)",
+);
+manual(
+  "TC-CON-019",
+  "admin adds and edits a category with its commission and required registration",
+  "a category cannot be deleted, so each run would leave one more on the shared site. Proved by tests/integration/consult-bookings.test.ts (category with commission and RCI; a booking in it uses that commission); TC-CON-017 reads the categories as admin here",
+);
+manual(
+  "TC-CON-020",
+  "each role has its consultant entry on the Tile Board",
+  "the entries for every role are checked by tests/unit/tile-board.test.ts (menu counts and the seven-per-group rule); a click-through per role is not automated yet",
+);
+manual(
+  "TC-CON-026",
+  "the apps show the module and a /consult link opens the Android app",
+  "needs the Android / iOS app (1.9.0) on a phone",
+);

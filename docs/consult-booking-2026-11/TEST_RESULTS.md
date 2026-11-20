@@ -14,7 +14,7 @@ that says "full suite" runs every module's tests in one run, not only the new on
 | R3 | 20-Nov-2026 10.33–10.52 | Local dev server (port 3310), demo data | Browser walkthrough: customer, consultant, admin; phone width | **Pass** — 1 display defect found and fixed (D-CB-01), 1 loading-state defect fixed (D-CB-02) |
 | R4 | 20-Nov-2026 10.49 | Local dev server | QA guest tier `tests/qa/guest/consult.spec.ts` | **4 / 4 passed** |
 | R5 | 20-Nov-2026 13.07 → | GitHub CI on PR #425 (merge commit 76a19dd2) | Lint, typecheck, full unit + integration suite (all modules) | running |
-| R6 | — | test.gokesari.com | Migration 0153 by the Test database workflow; QA suite all tiers (all modules) + TC-CON signed-in checks | pending (staging queue) |
+| R6 | 20-Nov-2026 13.41 → 14.29 | test.gokesari.com (staging queue) | #425 merged 13.41 IST and deployed (consult pages and APIs answer; rule off); guest QA tier, all modules | **Failed: 1 check, TC-QA-001** — 4 cases (TC-CON-006, 019, 020, 026) and 2 journeys were in the plan but not declared in the suite (D-CB-06). Fix PR "Fix #425" (staging-fix); everything else in the guest tier passed |
 | R7 | — | gokesari.com | Production database workflow (snapshot first), release, post-deploy check, guest QA tier | pending (owner approval) |
 
 ## R1 — what the consultant tests prove
@@ -54,3 +54,4 @@ Evidence: `Test_Cases_Tracking/Evidence/consult-booking-2026-11-20/local/` (9 sc
 | D-CB-03 | R2, 10.30 | Low (test) | Category test failed on a second run: categories outlive the test reset | Unique category name per run | Fixed |
 | D-CB-04 | Review, 10.45 | Medium | `/operator/consult` and `/shop/consult` answered 404 to a guest while the module was off (guest-access sweep expects sign-in first) | Sign-in check before the module switch | Fixed (71f10461) |
 | D-CB-05 | Review, 10.45 | Low | Firm and booking action routes validated the action before checking access | Access checked first (404 to outsiders) | Fixed (71f10461) |
+| D-CB-06 | R6, 14.29 | Medium (queue paused) | TC-QA-001: TC-CON-006, 019, 020, 026 and the journeys SC-CON-01 / SC-CON-02 were not declared in the QA suite; the check only recognises `SC-<number>` journey IDs | Journeys renamed **SC-50** / **SC-51** (#426 holds SC-48 / 49); SC-50 is a new signed-in check (find → book, pay at the visit → payment recorded → completed with the code → rated); SC-51 joins the online-payment check, which now also checks the time is offered again; TC-CON-006 / 019 / 020 / 026 declared with `manual()` and the reason (proved by the integration and unit tests, or needs a phone). Local: TC-QA-001 and the guest checks 12 / 12 passed (1 skipped) | Fix PR into staging |
