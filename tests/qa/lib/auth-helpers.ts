@@ -20,7 +20,7 @@ import { expect, request as playwrightRequest, type APIRequestContext, type Brow
 import { randomInt, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import { encode } from "next-auth/jwt";
+import { encodeSession } from "./session-jwt";
 
 import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
 
@@ -256,7 +256,7 @@ export async function mintSession(userId: string, email: string, maxAgeSeconds?:
   if (!IS_LOCAL) blocked("minting a session needs the local server's secret");
   const secret = process.env.AUTH_SECRET;
   if (!secret) blocked("AUTH_SECRET (the local server's) is not set");
-  return encode({ token: { sub: userId, email, name: email.split("@")[0] }, secret, salt: SESSION_COOKIE, ...(maxAgeSeconds !== undefined ? { maxAge: maxAgeSeconds } : {}) });
+  return encodeSession({ token: { sub: userId, email, name: email.split("@")[0] }, secret, salt: SESSION_COOKIE, ...(maxAgeSeconds !== undefined ? { maxAge: maxAgeSeconds } : {}) });
 }
 
 export function cookieState(value: string) {

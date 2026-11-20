@@ -43,7 +43,8 @@ export const emailOtpProvider: OtpProvider = {
     // Sent directly, never queued: a code must not sit in the notification tables.
     const message =
       rendered ?? (purpose === "EMAIL_CHANGE" ? renderEmailChangeOtpEmail(code, expiryMinutes) : renderOtpEmail(code, expiryMinutes));
-    await sendEmail({ to, ...message });
+    // A sign-in code stays with its account even where the test site sends other mail to one inbox.
+    await sendEmail({ to, ...message, keepRecipient: !rendered && purpose !== "EMAIL_CHANGE" });
   },
 };
 
