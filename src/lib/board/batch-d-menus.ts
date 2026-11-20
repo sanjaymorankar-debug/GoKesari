@@ -25,6 +25,8 @@ export const OPERATOR_LIMITED_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "all", label: L("All", "सभी", "सर्व"), icon: "store", href: "/operator/shops", permission: PERMISSIONS.OPERATOR_LIMITED_ONBOARD },
       { key: "pending", label: L("Pending", "लंबित", "प्रलंबित"), icon: "timer", href: "/operator/shops?status=PENDING_APPROVAL", permission: PERMISSIONS.OPERATOR_LIMITED_ONBOARD },
+      // docs/consult-booking-2026-11: set up the appointments of a consultant this operator onboarded.
+      { key: "consult", label: L("Consultant setup", "सलाहकार सेटअप", "सल्लागार सेटअप"), short: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/operator/consult", permission: PERMISSIONS.CONSULT_ONBOARD },
     ],
   },
   {

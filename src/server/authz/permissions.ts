@@ -351,6 +351,13 @@ export const PERMISSIONS = {
   /** Gap report D2 / D5: TDS certificates (lower / nil), challans and Form 16A on commission (admin and CA). */
   COMMISSION_TDS_MANAGE: "tds:commission:manage",
   /* <<< end dealer programme */
+  //
+  /* >>> consultant appointments (docs/consult-booking-2026-11) */
+  /** Consultant categories, policy templates, profile verification, all bookings, refunds and reports (admin and operator). */
+  CONSULT_MANAGE: "consult:manage",
+  /** Set up a consultant's booking profile, team, services and hours for a shop the user onboarded (operator-limited). */
+  CONSULT_ONBOARD: "consult:onboard",
+  /* <<< end consultant appointments */
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -421,6 +428,8 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
 ];
 
 const OPERATOR_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.CONSULT_MANAGE, // consultant appointments: operators run consultant onboarding and bookings with admins
+  PERMISSIONS.CONSULT_ONBOARD,
   PERMISSIONS.DEALER_PAYOUTS_READ, // gap report D4: read-only, as the dealer commission screens already were
   PERMISSIONS.SHOP_CREATE,
   PERMISSIONS.ORDER_PLACE,
@@ -561,6 +570,7 @@ const CA_PERMISSIONS: readonly Permission[] = [
 ];
 
 const OPERATOR_LIMITED_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.CONSULT_ONBOARD, // consultant appointments: only for the shops the operator onboarded (checked in src/server/consult)
   PERMISSIONS.ORDER_PLACE,
   PERMISSIONS.ORDER_VIEW_OWN,
   PERMISSIONS.ORDER_CANCEL_OWN,
@@ -782,4 +792,6 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.DEALER_PAYOUTS_READ]: "Read dealer commission ledgers, payouts and payout reports (no approving or paying)",
   [PERMISSIONS.COMMISSION_TDS_MANAGE]: "Keep TDS certificates, challans and Form 16A for commission payees",
   /* <<< end dealer programme */
+  [PERMISSIONS.CONSULT_MANAGE]: "Manage consultant categories, cancellation policies, profile verification, every booking, refunds and booking reports",
+  [PERMISSIONS.CONSULT_ONBOARD]: "Set up the booking profile, team, services, hours and map pin of a consultant the user onboarded",
 };

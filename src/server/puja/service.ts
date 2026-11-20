@@ -709,7 +709,7 @@ export interface NewProductInput {
 
 const UNIT_TO_PRODUCT_UNIT: Record<string, string> = { pcs: "piece", piece: "piece", pack: "pack", box: "box", dozen: "dozen", g: "g", kg: "kg", ml: "ml", L: "L", l: "L" };
 
-/** Lower-cased search text from the names and synonyms (same expression as the seed, 0154). */
+/** Lower-cased search text from the names and synonyms (same expression as the seed, 0155). */
 export function buildSearchText(parts: readonly (string | null | undefined)[], synonyms: readonly string[]): string {
   return [...parts, ...synonyms]
     .map((p) => (p ?? "").trim())

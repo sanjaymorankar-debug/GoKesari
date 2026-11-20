@@ -65,12 +65,29 @@ import {
 import { SUBSCRIPTION_DELIVERY_STATUSES } from "@/lib/subscription-deliveries";
 import { PERIODICAL_KINDS, PERIODICAL_PUBLICATIONS } from "@/lib/periodicals";
 import {
+  CONSULT_BOOKING_KINDS,
+  CONSULT_BOOKING_STATUSES,
+  CONSULT_DOC_STATUSES,
+  CONSULT_FEE_TYPES,
+  CONSULT_MODES,
+  CONSULT_OFFLINE_METHODS,
+  CONSULT_PAYMENT_MODES,
+  CONSULT_PAYMENT_STATUSES,
+  CONSULT_PROFILE_STATUSES,
+  CONSULT_REFUND_STATUSES,
+  CONSULT_REQUIRED_DOCS,
+  CONSULT_TIME_OFF_KINDS,
+  CONSULT_VERIFICATION_STATUSES,
+  type ConsultMode,
+} from "@/lib/consult/constants";
+import {
   type AnyPgColumn,
   bigint,
   boolean,
   check,
   customType,
   date,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -8683,7 +8700,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING"] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -11994,7 +12011,7 @@ export const riderSecurityGrants = pgTable(
 /* <<< rider bank payouts */
 
 /* ------------------------------------------------------------------------------------------
- * Puja Samagri & Temple Supplies (docs/puja-samagri-2026-11, migration 0153). Generic tables:
+ * Puja Samagri & Temple Supplies (docs/puja-samagri-2026-11, migration 0154). Generic tables:
  * any catalogue can use them; the puja catalogue is the first.
  * ---------------------------------------------------------------------------------------- */
 
@@ -12093,3 +12110,443 @@ export const festivalCollections = pgTable("festival_collections", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/* >>> consultant appointments (0153, docs/consult-booking-2026-11) */
+
+/**
+ * Consultant categories (admin-managed): what a consultant practises, the
+ * professional registration each consultant in it must upload, the modes it
+ * usually offers, its SAC code for tax invoices and GoKesari's commission on
+ * its bookings (null: rule consultBooking.defaultCommissionBp).
+ */
+export const consultCategories = pgTable(
+  "consult_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    groupName: text("group_name").notNull().default("Other services"),
+    description: text("description"),
+    requiredDoc: text("required_doc", { enum: CONSULT_REQUIRED_DOCS }).notNull().default("NONE"),
+    requiredDocLabel: text("required_doc_label"),
+    defaultModes: text("default_modes").array().$type<ConsultMode[]>().notNull().default(sql`'{IN_PERSON}'::text[]`),
+    commissionBp: integer("commission_bp"),
+    sacCode: text("sac_code"),
+    /** Medical / legal: notes and files get the strictest handling (shown to the customer, the firm and authorised staff only). */
+    sensitive: boolean("sensitive").notNull().default(false),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    sortOrder: integer("sort_order").notNull().default(100),
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("consult_categories_slug_uq").on(t.slug), uniqueIndex("consult_categories_name_uq").on(sql`lower(${t.name})`)],
+);
+export type ConsultCategory = typeof consultCategories.$inferSelect;
+
+/** Cancellation policy templates staff offer to consultants (copied onto a profile when chosen). */
+export const consultPolicyTemplates = pgTable(
+  "consult_policy_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description"),
+    freeCancelHours: integer("free_cancel_hours").notNull().default(24),
+    lateCancelRefundPct: integer("late_cancel_refund_pct").notNull().default(50),
+    noShowRefundPct: integer("no_show_refund_pct").notNull().default(0),
+    rescheduleMinHours: integer("reschedule_min_hours").notNull().default(4),
+    maxReschedules: integer("max_reschedules").notNull().default(2),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    isDefault: boolean("is_default").notNull().default(false),
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("consult_policy_templates_name_uq").on(sql`lower(${t.name})`)],
+);
+export type ConsultPolicyTemplate = typeof consultPolicyTemplates.$inferSelect;
+
+/** A shop's booking profile — one per shop (the firm or one-person practice). */
+export const consultProfiles = pgTable(
+  "consult_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    kind: text("kind", { enum: ["INDIVIDUAL", "FIRM"] }).notNull().default("INDIVIDUAL"),
+    displayName: text("display_name").notNull(),
+    headline: text("headline"),
+    about: text("about"),
+    photoUrl: text("photo_url"),
+    /** Office address and map pin; null → the shop's own address and pin. */
+    addressLine: text("address_line"),
+    latitude: doublePrecision("latitude"),
+    longitude: doublePrecision("longitude"),
+    policyTemplateId: uuid("policy_template_id").references(() => consultPolicyTemplates.id, { onDelete: "set null" }),
+    freeCancelHours: integer("free_cancel_hours").notNull().default(24),
+    lateCancelRefundPct: integer("late_cancel_refund_pct").notNull().default(50),
+    noShowRefundPct: integer("no_show_refund_pct").notNull().default(0),
+    rescheduleMinHours: integer("reschedule_min_hours").notNull().default(4),
+    maxReschedules: integer("max_reschedules").notNull().default(2),
+    policyNote: text("policy_note"),
+    manualApproval: boolean("manual_approval").notNull().default(false),
+    bookingWindowDays: integer("booking_window_days").notNull().default(30),
+    minNoticeMinutes: integer("min_notice_minutes").notNull().default(60),
+    completionOtp: boolean("completion_otp").notNull().default(true),
+    status: text("status", { enum: CONSULT_PROFILE_STATUSES }).notNull().default("DRAFT"),
+    verification: text("verification", { enum: CONSULT_VERIFICATION_STATUSES }).notNull().default("PENDING"),
+    verificationNote: text("verification_note"),
+    verifiedBy: uuid("verified_by"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
+    ratingCount: integer("rating_count").notNull().default(0),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("consult_profiles_shop_uq").on(t.shopId), index("consult_profiles_status_idx").on(t.status)],
+);
+export type ConsultProfile = typeof consultProfiles.$inferSelect;
+
+/** A consultant (the practitioner, or one member of a firm's team); each has a calendar. */
+export const consultMembers = pgTable(
+  "consult_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => consultProfiles.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    /** The member's own GoKesari account, when linked: they see and run their own calendar. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    title: text("title"),
+    photoUrl: text("photo_url"),
+    qualifications: text("qualifications"),
+    experienceYears: integer("experience_years"),
+    languages: text("languages").array().notNull().default(sql`'{}'::text[]`),
+    bio: text("bio"),
+    registrationNumber: text("registration_number"),
+    registrationBody: text("registration_body"),
+    docStatus: text("doc_status", { enum: CONSULT_DOC_STATUSES }).notNull().default("NOT_REQUIRED"),
+    docNote: text("doc_note"),
+    slotMinutes: integer("slot_minutes").notNull().default(30),
+    bufferMinutes: integer("buffer_minutes").notNull().default(0),
+    maxPerSlot: integer("max_per_slot").notNull().default(1),
+    color: text("color").notNull().default("#c2410c"),
+    isOwner: boolean("is_owner").notNull().default(false),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    sortOrder: integer("sort_order").notNull().default(100),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consult_members_profile_idx").on(t.profileId, t.sortOrder)],
+);
+export type ConsultMember = typeof consultMembers.$inferSelect;
+
+export const consultMemberCategories = pgTable(
+  "consult_member_categories",
+  {
+    memberId: uuid("member_id")
+      .notNull()
+      .references(() => consultMembers.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => consultCategories.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.memberId, t.categoryId] }), index("consult_member_categories_category_idx").on(t.categoryId)],
+);
+
+/** A member's registration certificate — AES-GCM encrypted bytes (lib/pan-crypto). */
+export const consultMemberDocuments = pgTable(
+  "consult_member_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memberId: uuid("member_id")
+      .notNull()
+      .references(() => consultMembers.id, { onDelete: "cascade" }),
+    fileName: text("file_name").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    data: bytea("data").notNull(),
+    uploadedBy: uuid("uploaded_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consult_member_documents_member_idx").on(t.memberId, t.createdAt)],
+);
+
+export const consultServices = pgTable(
+  "consult_services",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => consultProfiles.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    categoryId: uuid("category_id").references(() => consultCategories.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    durationMinutes: integer("duration_minutes").notNull().default(30),
+    feeType: text("fee_type", { enum: CONSULT_FEE_TYPES }).notNull().default("FIXED"),
+    feePaise: bigint("fee_paise", { mode: "number" }).notNull().default(0),
+    depositPaise: bigint("deposit_paise", { mode: "number" }).notNull().default(0),
+    modes: text("modes").array().$type<ConsultMode[]>().notNull().default(sql`'{IN_PERSON}'::text[]`),
+    bookingKind: text("booking_kind", { enum: CONSULT_BOOKING_KINDS }).notNull().default("INDIVIDUAL"),
+    /** GROUP: attendees per session. */
+    capacity: integer("capacity").notNull().default(1),
+    /** TEAM: how many members the appointment needs together. */
+    requiredMembers: integer("required_members").notNull().default(1),
+    /** Members who offer it; empty → every active member. */
+    memberIds: uuid("member_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    payOnline: boolean("pay_online").notNull().default(true),
+    payAtVisit: boolean("pay_at_visit").notNull().default(true),
+    /** GST in the fee (fees are GST-inclusive); used only when the firm is GST-registered. */
+    gstRateBp: integer("gst_rate_bp").notNull().default(0),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    sortOrder: integer("sort_order").notNull().default(100),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consult_services_profile_idx").on(t.profileId, t.sortOrder)],
+);
+export type ConsultService = typeof consultServices.$inferSelect;
+
+/** Weekly working hours, minutes after midnight IST; several sessions a day allowed. */
+export const consultWeeklyHours = pgTable(
+  "consult_weekly_hours",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memberId: uuid("member_id")
+      .notNull()
+      .references(() => consultMembers.id, { onDelete: "cascade" }),
+    weekday: integer("weekday").notNull(),
+    startMinute: integer("start_minute").notNull(),
+    endMinute: integer("end_minute").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consult_weekly_hours_member_idx").on(t.memberId, t.weekday)],
+);
+export type ConsultWeeklyHour = typeof consultWeeklyHours.$inferSelect;
+
+/** Leave, holidays (member null: the whole firm), blocked time and one-off extra hours. */
+export const consultTimeOff = pgTable(
+  "consult_time_off",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => consultProfiles.id, { onDelete: "cascade" }),
+    memberId: uuid("member_id").references(() => consultMembers.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: CONSULT_TIME_OFF_KINDS }).notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    reason: text("reason"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consult_time_off_profile_idx").on(t.profileId, t.startsAt)],
+);
+export type ConsultTimeOff = typeof consultTimeOff.$inferSelect;
+
+/** The policy in force when a booking was made (copied, so later edits never change it). */
+export interface ConsultPolicySnapshot {
+  freeCancelHours: number;
+  lateCancelRefundPct: number;
+  noShowRefundPct: number;
+  rescheduleMinHours: number;
+  maxReschedules: number;
+  note?: string | null;
+}
+
+export const consultBookings = pgTable(
+  "consult_bookings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookingNumber: text("booking_number").notNull(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => consultProfiles.id, { onDelete: "restrict" }),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => consultServices.id, { onDelete: "restrict" }),
+    categoryId: uuid("category_id").references(() => consultCategories.id, { onDelete: "set null" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    /** An operator or staff member who booked for the customer; null when the customer booked. */
+    bookedBy: uuid("booked_by"),
+    bookingKind: text("booking_kind", { enum: CONSULT_BOOKING_KINDS }).notNull(),
+    mode: text("mode", { enum: CONSULT_MODES }).notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    status: text("status", { enum: CONSULT_BOOKING_STATUSES }).notNull(),
+    attendees: integer("attendees").notNull().default(1),
+    anyMember: boolean("any_member").notNull().default(false),
+    visitorName: text("visitor_name").notNull(),
+    visitorPhone: text("visitor_phone"),
+    visitorEmail: text("visitor_email"),
+    visitorAge: integer("visitor_age"),
+    customerNote: text("customer_note"),
+    /** The consultant's private note — never shown to the customer. */
+    privateNote: text("private_note"),
+    visitAddress: text("visit_address"),
+    visitLatitude: doublePrecision("visit_latitude"),
+    visitLongitude: doublePrecision("visit_longitude"),
+    meetingUrl: text("meeting_url"),
+    serviceName: text("service_name").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    feeType: text("fee_type", { enum: CONSULT_FEE_TYPES }).notNull(),
+    feePaise: bigint("fee_paise", { mode: "number" }).notNull().default(0),
+    /** What is charged online at booking (the fee, or the advance). */
+    onlineDuePaise: bigint("online_due_paise", { mode: "number" }).notNull().default(0),
+    gstRateBp: integer("gst_rate_bp").notNull().default(0),
+    paymentMode: text("payment_mode", { enum: CONSULT_PAYMENT_MODES }).notNull(),
+    paymentStatus: text("payment_status", { enum: CONSULT_PAYMENT_STATUSES }).notNull(),
+    paymentIntentId: uuid("payment_intent_id"),
+    balanceIntentId: uuid("balance_intent_id"),
+    paidOnlinePaise: bigint("paid_online_paise", { mode: "number" }).notNull().default(0),
+    paidOfflinePaise: bigint("paid_offline_paise", { mode: "number" }).notNull().default(0),
+    offlineMethod: text("offline_method", { enum: CONSULT_OFFLINE_METHODS }),
+    offlineMarkedBy: uuid("offline_marked_by"),
+    offlineMarkedAt: timestamp("offline_marked_at", { withTimezone: true }),
+    refundPaise: bigint("refund_paise", { mode: "number" }).notNull().default(0),
+    refundStatus: text("refund_status", { enum: CONSULT_REFUND_STATUSES }).notNull().default("NONE"),
+    receiptNumber: text("receipt_number"),
+    receiptIssuedAt: timestamp("receipt_issued_at", { withTimezone: true }),
+    commissionBp: integer("commission_bp").notNull().default(0),
+    commissionPaise: bigint("commission_paise", { mode: "number" }).notNull().default(0),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    policy: jsonb("policy").$type<ConsultPolicySnapshot>().notNull().default(sql`'{}'::jsonb`),
+    holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }),
+    /** Per-booking salt of the completion code (the code itself is never stored; lib consult/otp). */
+    otpSalt: text("otp_salt"),
+    otpAttempts: integer("otp_attempts").notNull().default(0),
+    rescheduleCount: integer("reschedule_count").notNull().default(0),
+    rescheduledFrom: timestamp("rescheduled_from", { withTimezone: true }),
+    arrivedAt: timestamp("arrived_at", { withTimezone: true }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by", { enum: ["CUSTOMER", "CONSULTANT", "ADMIN", "SYSTEM"] }),
+    cancelReason: text("cancel_reason"),
+    consentAt: timestamp("consent_at", { withTimezone: true }),
+    consentVersion: text("consent_version"),
+    ticketId: uuid("ticket_id"),
+    rating: integer("rating"),
+    review: text("review"),
+    ratedAt: timestamp("rated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("consult_bookings_number_uq").on(t.bookingNumber),
+    index("consult_bookings_shop_time_idx").on(t.shopId, t.startsAt),
+    index("consult_bookings_customer_idx").on(t.customerId, t.startsAt),
+    index("consult_bookings_status_idx").on(t.status, t.startsAt),
+  ],
+);
+export type ConsultBooking = typeof consultBookings.$inferSelect;
+
+/**
+ * Calendar time a booking takes from each member assigned to it. The
+ * migration adds the generated `slot` range and the exclusion constraint
+ * consult_booking_members_no_overlap (same member, overlapping slot, different
+ * share key, while active) — the database-level guard against double booking.
+ */
+export const consultBookingMembers = pgTable(
+  "consult_booking_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => consultBookings.id, { onDelete: "cascade" }),
+    memberId: uuid("member_id")
+      .notNull()
+      .references(() => consultMembers.id, { onDelete: "restrict" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    /** End of the appointment plus the member's buffer. */
+    blocksUntil: timestamp("blocks_until", { withTimezone: true }).notNull(),
+    shareKey: text("share_key").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consult_booking_members_booking_idx").on(t.bookingId)],
+);
+export type ConsultBookingMember = typeof consultBookingMembers.$inferSelect;
+
+export const consultBookingEvents = pgTable(
+  "consult_booking_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => consultBookings.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
+    actorId: uuid("actor_id"),
+    actorRole: text("actor_role"),
+    note: text("note"),
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consult_booking_events_booking_idx").on(t.bookingId, t.createdAt)],
+);
+export type ConsultBookingEvent = typeof consultBookingEvents.$inferSelect;
+
+export const consultBookingFiles = pgTable(
+  "consult_booking_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => consultBookings.id, { onDelete: "cascade" }),
+    uploadedBy: uuid("uploaded_by").notNull(),
+    uploaderSide: text("uploader_side", { enum: ["CUSTOMER", "CONSULTANT"] }).notNull(),
+    fileName: text("file_name").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consult_booking_files_booking_idx").on(t.bookingId, t.createdAt)],
+);
+
+export const consultAccessLogs = pgTable(
+  "consult_access_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookingId: uuid("booking_id"),
+    fileId: uuid("file_id"),
+    memberDocumentId: uuid("member_document_id"),
+    userId: uuid("user_id").notNull(),
+    role: text("role").notNull(),
+    action: text("action").notNull(),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consult_access_logs_booking_idx").on(t.bookingId, t.createdAt)],
+);
+
+export const consultReceiptCounters = pgTable(
+  "consult_receipt_counters",
+  {
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    fy: text("fy").notNull(),
+    nextNo: integer("next_no").notNull().default(1),
+  },
+  (t) => [primaryKey({ columns: [t.shopId, t.fy] })],
+);
+
+/* <<< consultant appointments */

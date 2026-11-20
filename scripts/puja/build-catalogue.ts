@@ -36,7 +36,7 @@ function buildSql(): string {
 -- ${PUJA_CATEGORIES.length} categories, ${PUJA_TYPES.length} product types, ${rows.length} SKUs.
 -- Idempotent: every insert skips what already exists (shop type by key, categories / product
 -- types / products by slug, names and flags by product), so running it again adds nothing and
--- never overwrites an admin's later edits. Rollback: scripts/rollback-0153.sql.`);
+-- never overwrites an admin's later edits. Rollback: scripts/rollback-0154.sql.`);
 
   const goods = ["Agarbatti", "dhoop", "kapur", "candles", "diye", "havan samagri", "kumkum", "puja thali", "murti", "shringar", "flowers", "prasad", "mala", "puja kits", "festival items", "religious books", "temple bulk supplies"];
   out.push(`INSERT INTO "shop_types" ("key", "label", "standard_goods", "is_food", "status")

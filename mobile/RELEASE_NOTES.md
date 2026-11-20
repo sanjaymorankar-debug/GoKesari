@@ -2,6 +2,27 @@
 
 ## 1.9.0 (Android versionCode 10, iPhone build 10) — 20 Nov 2026
 
+One build carries two website modules: Consultant appointments and Puja Samagri.
+
+### Consultant appointments
+
+Consultant appointments (docs/consult-booking-2026-11 at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Book doctors, lawyers, CAs, tutors, salons and home-service experts near you:
+> pick a free time, pay online or at the visit, get reminders, and manage your
+> appointments. Consultants get a calendar for their whole team.
+
+Changes in the app itself:
+- Android App Links: `/consult` (Find a Consultant, consultant pages, appointment
+  pages) opens in the app when tapped outside it. Inside the app nothing native
+  changed — the booking screens, calendar and reminders are website pages, live
+  in every installed version as soon as the website is deployed; booking pushes
+  open their page through the existing notification tap handling.
+
+### Puja Samagri & Temple Supplies
+
 Puja Samagri & Temple Supplies (docs/puja-samagri-2026-11 at the repository root).
 
 For the Play Store "What's new" / App Store "What's New in This Version":

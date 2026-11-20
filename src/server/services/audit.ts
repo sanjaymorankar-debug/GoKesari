@@ -527,6 +527,18 @@ export const AUDIT_ACTIONS = {
   MASTER_CATALOGUE_IMPORTED: "product.master_imported",
   /** Festival collections (banner + kit promotion by date range). */
   FESTIVAL_COLLECTION_SAVED: "festival_collection.saved",
+  /* >>> consultant appointments (docs/consult-booking-2026-11) */
+  CONSULT_CATEGORY_CHANGED: "consult.category_changed",
+  CONSULT_POLICY_TEMPLATE_CHANGED: "consult.policy_template_changed",
+  CONSULT_PROFILE_CHANGED: "consult.profile_changed",
+  CONSULT_PROFILE_VERIFIED: "consult.profile_verified",
+  CONSULT_MEMBER_DOCUMENT: "consult.member_document",
+  CONSULT_BOOKING_CHANGED: "consult.booking_changed",
+  CONSULT_BOOKING_PAYMENT: "consult.booking_payment",
+  CONSULT_BOOKING_REFUND: "consult.booking_refund",
+  CONSULT_BOOKING_SETTLED: "consult.booking_settled",
+  CONSULT_PRIVATE_VIEWED: "consult.private_viewed",
+  /* <<< consultant appointments */
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

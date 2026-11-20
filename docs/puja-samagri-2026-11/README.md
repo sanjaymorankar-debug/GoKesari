@@ -15,8 +15,8 @@ shop type or row is changed.
 | Catalogue data (names en/hi/mr, synonyms, variants, units, MRP, flags, HSN/GST, festivals) | `src/server/puja/catalogue-data.ts` |
 | Catalogue expander (one row per SKU) | `src/server/puja/catalogue.ts` |
 | Shared constants (type key, categories, festivals, units, IST helpers) | `src/lib/puja.ts` |
-| Schema migration (additive, reversible) | `drizzle/0153_puja_samagri_schema.sql`, rollback `scripts/rollback-0153.sql` |
-| Seed migration (idempotent, generated) | `drizzle/0154_puja_samagri_catalogue.sql` |
+| Schema migration (additive, reversible) | `drizzle/0154_puja_samagri_schema.sql`, rollback `scripts/rollback-0154.sql` |
+| Seed migration (idempotent, generated) | `drizzle/0155_puja_samagri_catalogue.sql` |
 | Generator (seed SQL, CSV, Excel, placeholder images) | `scripts/puja/build-catalogue.ts` |
 | Re-run the seed / prove idempotency | `scripts/puja/seed-catalogue.ts` (`DATABASE_URL=… node --import tsx scripts/puja/seed-catalogue.ts`) |
 | Catalogue file | `docs/puja-samagri-2026-11/puja-samagri-catalogue.csv` and `.xlsx` |
@@ -27,7 +27,7 @@ shop type or row is changed.
 | Screens | customer `/puja`, owner `/shop/puja`, admin & operator `/admin/puja`, Nearby `/shops/nearby?type=PUJA_SAMAGRI` |
 | Tests | `tests/unit/puja-catalogue.test.ts`, `tests/integration/puja-samagri.test.ts` |
 
-## Data model (migration 0153)
+## Data model (migration 0154)
 
 - `product_local_names` — Hindi / Marathi names and synonyms of any master product, plus a
   lower-cased `search_text` (trigram index). Site search (`listStorefrontProducts`), the
@@ -48,7 +48,7 @@ shop type or row is changed.
   the admin toggle `pujaSamagri.edibleNeedsFssai` is on (default on). The first three
   branches are unchanged; every other shop type gives the same answer as before.
 
-Seed (0154): the shop type as an admin-managed `shop_types` row (so Admin → Shop types /
+Seed (0155): the shop type as an admin-managed `shop_types` row (so Admin → Shop types /
 Puja Samagri → Configuration can switch it on and off), 15 product categories
 (department `PUJA_SAMAGRI`), 80 product types, 499 products, their local names and flags.
 Every insert skips what exists (by key / slug / product), so re-running adds nothing and

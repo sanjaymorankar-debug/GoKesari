@@ -801,6 +801,35 @@ export const RULES = {
     // product-upload support); yearly fee; defaults confirmed the same day.
     defaults: { enabled: false, baseShareBp: 2000, stepBp: 100, maxShareBp: 2500, productWeightBp: 5000, liveMinProducts: 10, termMonths: 12, graceDays: 30 },
   },
+  consultBooking: {
+    description:
+      "Consultant appointments (docs/consult-booking-2026-11; owner brief, 20 Nov 2026). Shops that are professional practices or firms (doctors, advocates, CAs, IT consultants, salons, home-service experts …) publish a booking profile with their team, services, weekly hours and cancellation policy; customers find them (\"Find a Consultant\", nearby first) and book a time — one-to-one, a team appointment or a place in a group session — paying online (the fee or an advance), at the visit, or nothing for a free service. A time is held for holdMinutes while the customer pays; a failed or abandoned payment frees it. GoKesari's commission is the category's rate, else defaultCommissionBp (2%), taken from the firm's next payout (online money is paid out with it). Reminders go reminderHours before each appointment. completionOtpModes: the modes whose completion needs the customer's code (as with delivery). Off: no consultant pages, no new bookings; existing bookings can still be viewed, cancelled and refunded.",
+    schema: z.object({
+      enabled: z.boolean(),
+      holdMinutes: int(2, 60),
+      defaultCommissionBp: int(0, 5000),
+      reminderHours: z.array(int(1, 168)).max(4),
+      completionOtpModes: z.array(z.enum(["IN_PERSON", "VIDEO", "PHONE", "HOME_VISIT"])),
+      otpMaxAttempts: int(1, 20),
+      maxFileBytes: int(100_000, 20_000_000),
+      maxFilesPerBooking: int(0, 20),
+      nearbyRadiusKm: int(1, 100),
+      autoVerifyWithoutDocs: z.boolean(),
+    }),
+    // Owner brief 20-Nov-2026: 10-minute hold, flat 2% commission by default, reminders 24 h and 1 h before.
+    defaults: {
+      enabled: false,
+      holdMinutes: 10,
+      defaultCommissionBp: 200,
+      reminderHours: [24, 1],
+      completionOtpModes: ["IN_PERSON", "HOME_VISIT"],
+      otpMaxAttempts: 5,
+      maxFileBytes: 5_000_000,
+      maxFilesPerBooking: 5,
+      nearbyRadiusKm: 25,
+      autoVerifyWithoutDocs: true,
+    },
+  },
   dealerPayoutTds: {
     description:
       "Income-tax TDS on dealer and team-member commission payouts (every model). Off until the CA confirms. On: each payout is taxed by the dated rows in Admin → TDS on commission (payee type, PAN status, rate, annual threshold, CATCH_UP or EXCESS_ONLY, the section, the CA's confirmation), summed per PAN over the financial year (April–March), with a payee's lower / nil certificate where one applies. A payout taxed under a row the CA has not confirmed is blocked until an admin overrides it with a reason. The statement shows gross, TDS and net; the bank transfer is the net. rateBp and annualThresholdPaise are the starting values the first rows were seeded with (no longer read).",
