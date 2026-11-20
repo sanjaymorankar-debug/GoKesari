@@ -134,6 +134,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "deliversHere", label: L("Delivers here", "यहाँ डिलीवरी", "इथे डिलिव्हरी"), short: { en: "Delivers" }, icon: "truck", href: "/shops?delivery=true", count: "deliveringShops" },
       // Was the "Compare prices near you" section under the old home page.
       { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare" },
+      // docs/consult-booking-2026-11: doctors, lawyers, CAs and other professionals near you, with free times.
+      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/consult" },
     ],
   },
   {
@@ -144,6 +146,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "returns", label: L("Returns", "वापसी", "परतावा"), icon: "undo-2", href: "/returns", count: "openReturns", auth: true },
       // docs/purchase-lists-2026-10: weekly / monthly shopping and medicine lists, reordered in a few taps.
       { key: "lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या"), short: { en: "Lists" }, icon: "clipboard-check", href: "/lists", auth: true },
+      // docs/consult-booking-2026-11: the customer's consultant appointments.
+      { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), short: { en: "Bookings" }, icon: "calendar-clock", href: "/consult/bookings", auth: true },
     ],
   },
   {
@@ -198,6 +202,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "packing", label: L("Packing", "पैकिंग", "पॅकिंग"), href: "/shop/orders?status=packing", count: "shopPacking" },
       { key: "ready", label: L("Ready", "तैयार", "तयार"), href: "/shop/orders?status=ready", count: "shopReady" },
       { key: "out", label: L("Out", "रास्ते में", "रवाना"), href: "/shop/orders?status=out", count: "shopOut" },
+      // docs/consult-booking-2026-11: a consultant's / firm's calendar and bookings (the shop board is at its 16-tile limit).
+      { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), href: "/shop/consult" },
     ],
   },
   {
@@ -377,6 +383,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "verified", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "suspensions", label: L("Suspensions", "निलंबन", "निलंबन"), icon: "lock", href: "/admin/suspensions", count: "activeSuspensions", permission: PERMISSIONS.SHOP_SUSPEND },
       { key: "grade", label: L("Grade", "ग्रेड", "श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
+      // docs/consult-booking-2026-11: consultant verification, bookings, categories and commission, policies, reports.
+      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
     ],
     more: [
       { key: "documents", label: L("Legal documents", "कानूनी दस्तावेज़", "कायदेशीर कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
@@ -544,6 +552,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "documents", label: L("Documents", "दस्तावेज़", "कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "photoChecks", label: L("Photo checks", "फ़ोटो जाँच", "फोटो तपासणी"), icon: "images", href: "/admin/image-moderation", count: "pendingImages", permission: PERMISSIONS.PRODUCT_MANAGE },
       { key: "grade", label: L("Quality grade", "गुणवत्ता ग्रेड", "गुणवत्ता श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
+      // docs/consult-booking-2026-11: operators run consultant onboarding and bookings with admins.
+      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
     ],
     more: [
       { key: "verification", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
