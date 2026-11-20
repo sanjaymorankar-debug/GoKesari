@@ -8,7 +8,7 @@ import { CARE_CATEGORY_GROUP, EXTRA_CARE_CATEGORY_SLUGS } from "@/lib/health/con
 import { AppError } from "@/lib/errors";
 import { getCurrentUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
-import { consultBookings, consultCategories } from "@/server/db/schema";
+import { consultBookings, consultCategories, healthPrescriptions } from "@/server/db/schema";
 import { loadConsultationForDoctor, patientSummary } from "@/server/health/consultations";
 import { effectiveLetterhead } from "@/server/health/letterheads";
 
@@ -31,6 +31,7 @@ export default async function ConsultationPage({ params }: { params: Promise<{ i
     .select({ slug: consultCategories.slug, name: consultCategories.name })
     .from(consultCategories)
     .where(and(eq(consultCategories.status, "ACTIVE"), or(eq(consultCategories.groupName, CARE_CATEGORY_GROUP), inArray(consultCategories.slug, [...EXTRA_CARE_CATEGORY_SLUGS]))));
+  const [rx] = await db.select({ id: healthPrescriptions.id }).from(healthPrescriptions).where(and(eq(healthPrescriptions.consultationId, consultation.id), eq(healthPrescriptions.status, "ISSUED"))).limit(1);
   const [booking] = consultation.bookingId ? await db.select({ meetingUrl: consultBookings.meetingUrl, number: consultBookings.bookingNumber }).from(consultBookings).where(eq(consultBookings.id, consultation.bookingId)) : [];
   return (
     <div className="mx-auto max-w-6xl">
@@ -54,6 +55,7 @@ export default async function ConsultationPage({ params }: { params: Promise<{ i
         letterheadAutoPrint={lh.autoPrint}
         localLanguage={lh.localLanguage}
         careCategories={care}
+        prescriptionId={rx?.id ?? null}
       />
     </div>
   );

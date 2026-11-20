@@ -64,7 +64,7 @@ async function main() {
     try {
       const res = await page.goto(`${BASE}${s.path}`, { waitUntil: "networkidle", timeout: 120_000 });
       await page.waitForTimeout(800);
-      await page.screenshot({ path: `${OUT}/${s.name}.png`, fullPage: true });
+      await page.screenshot({ path: `${OUT}/${s.name}.jpg`, fullPage: true, type: "jpeg", quality: 60 });
       console.log(`${s.name}: ${res?.status()} ${page.url().replace(BASE, "")}`);
     } catch (e) {
       console.log(`${s.name}: FAILED ${(e as Error).message.split("\n")[0]}`);

@@ -40,7 +40,14 @@ export default async function PrintPrescriptionPage({ params, searchParams }: { 
   const imgSrc = (which: "header" | "footer") => `/api/health/letterhead/${rx.shopId}/image/view?which=${which}&member=${rx.memberId}`;
   const css = `
     @page { size: ${PAPER_SIZES_MM[paper].w}mm ${PAPER_SIZES_MM[paper].h}mm; margin: ${mode === "STANDARD" ? Math.min(lh.marginTopMm, 15) : lh.marginTopMm}mm ${lh.marginRightMm}mm ${lh.marginBottomMm}mm ${lh.marginLeftMm}mm; }
-    @media print { .no-print { display: none !important; } body { background: #fff !important; } header.site, footer.site, nav { display: none !important; } }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff !important; }
+      /* Only the prescription prints: the site header, menus and footer are hidden whatever their markup. */
+      body * { visibility: hidden !important; }
+      .rx, .rx * { visibility: visible !important; }
+      .rx { position: absolute; left: 0; top: 0; width: 100%; }
+    }
     .rx { font-size: ${lh.fontSizePt}pt; color: #111; font-family: system-ui, "Noto Sans Devanagari", sans-serif; }
     .rx table { width: 100%; border-collapse: collapse; }
     .rx td, .rx th { text-align: left; vertical-align: top; padding: 2mm 1mm; border-bottom: 0.2mm solid #ddd; }

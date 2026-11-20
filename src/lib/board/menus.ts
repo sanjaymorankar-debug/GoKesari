@@ -136,6 +136,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare" },
       // docs/consult-booking-2026-11: doctors, lawyers, CAs and other professionals near you, with free times.
       { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/consult" },
+      // GoKesari Health (docs/health/): verified doctors near you (the board keeps 6 tiles — one screen on a phone).
+      { key: "doctors", label: L("Doctors", "डॉक्टर", "डॉक्टर"), icon: "search", href: "/health/doctors", auth: true },
     ],
   },
   {
@@ -148,19 +150,6 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या"), short: { en: "Lists" }, icon: "clipboard-check", href: "/lists", auth: true },
       // docs/consult-booking-2026-11: the customer's consultant appointments.
       { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), short: { en: "Bookings" }, icon: "calendar-clock", href: "/consult/bookings", auth: true },
-    ],
-  },
-  // GoKesari Health (docs/health/): one lifelong record for the family, doctors, prescriptions, medicines, home care, equipment.
-  {
-    key: "health", label: L("My Health", "मेरा स्वास्थ्य", "माझे आरोग्य"), short: { en: "Health" }, icon: "shield-check", tone: "green", href: "/health", auth: true,
-    items: [
-      { key: "doctors", label: L("Find a doctor", "डॉक्टर खोजें", "डॉक्टर शोधा"), short: { en: "Doctors" }, icon: "search", href: "/health/doctors", auth: true },
-      { key: "records", label: L("Health records", "स्वास्थ्य रिकॉर्ड", "आरोग्य नोंदी"), short: { en: "Records" }, icon: "file-text", href: "/health/records", auth: true },
-      { key: "prescriptions", label: L("Prescriptions", "पर्चे", "प्रिस्क्रिप्शन"), short: { en: "Rx" }, icon: "scroll-text", href: "/health/prescriptions", auth: true },
-      { key: "medicines", label: L("Medicine orders", "दवा ऑर्डर", "औषध ऑर्डर"), short: { en: "Medicines" }, icon: "package", href: "/health/medicines", auth: true },
-      { key: "care", label: L("Home care", "घर पर देखभाल", "घरी सेवा"), icon: "house", href: "/health/care", auth: true },
-      { key: "equipment", label: L("Equipment", "उपकरण", "उपकरणे"), icon: "boxes", href: "/health/equipment", auth: true },
-      { key: "family", label: L("Family", "परिवार", "कुटुंब"), icon: "users", href: "/health/family", auth: true },
     ],
   },
   {
@@ -192,6 +181,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "addresses", label: L("Addresses", "पते", "पत्ते"), icon: "map-pin", href: "/profile/addresses", auth: true },
       { key: "society", label: L("Society", "सोसाइटी", "सोसायटी"), icon: "building-2", href: "/society", auth: true },
       { key: "refer", label: L("Refer & earn", "रेफ़र करें", "रेफर करा"), short: { en: "Refer" }, icon: "gift", href: "/refer", auth: true },
+      // GoKesari Health (docs/health/): the family's health record, prescriptions, medicines, home care, equipment.
+      { key: "health", label: L("My Health", "मेरा स्वास्थ्य", "माझे आरोग्य"), short: { en: "Health" }, icon: "shield-check", href: "/health", auth: true },
       // Mockup: "App theme" — no theme setting exists; nearest real destination.
       { key: "bank", label: L("Bank account", "बैंक खाता", "बँक खाते"), short: { en: "Bank" }, icon: "landmark", href: "/profile/bank-account", auth: true },
       { key: "help", label: L("Help", "मदद", "मदत"), icon: "circle-help", href: "/contact" },

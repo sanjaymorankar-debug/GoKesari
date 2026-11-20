@@ -578,7 +578,7 @@ function IcdSearch({ onPick }: { onPick: (c: { code: string; title: string }) =>
   );
 }
 
-export function ConsultationPad({ consultation: initial, summary, letterheadAutoPrint, localLanguage, careCategories }: { consultation: Consultation; summary: Summary; letterheadAutoPrint: boolean; localLanguage: string; careCategories: { slug: string; name: string }[] }) {
+export function ConsultationPad({ consultation: initial, summary, letterheadAutoPrint, localLanguage, careCategories, prescriptionId }: { consultation: Consultation; summary: Summary; letterheadAutoPrint: boolean; localLanguage: string; careCategories: { slug: string; name: string }[]; prescriptionId?: string | null }) {
   const router = useRouter();
   const [c, setC] = useState(initial);
   const [items, setItems] = useState<Item[]>([]);
@@ -731,7 +731,16 @@ export function ConsultationPad({ consultation: initial, summary, letterheadAuto
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="flex flex-col gap-4">
-        {readOnly ? <p className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold">This consultation is closed. Open the prescription to amend it.</p> : null}
+        {readOnly ? (
+          <p className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold">
+            This consultation is closed.{" "}
+            {prescriptionId ? (
+              <Link className="underline" href={`/health/prescriptions/${prescriptionId}`} data-testid="pad-open-rx">
+                Open the prescription (medicines, print, amend)
+              </Link>
+            ) : null}
+          </p>
+        ) : null}
         <Panel title="Vitals" action={<span className="text-xs text-ink-600">{saved}</span>}>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
             {[

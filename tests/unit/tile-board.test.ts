@@ -167,13 +167,13 @@ describe("permission filtering", () => {
     expect(visibleItems(SHOP_DO_NOW, "SHOP_OWNER")).toHaveLength(3);
   });
 
-  it("shows a customer all seven tiles and every submenu", () => {
+  it("shows a customer all six tiles and every submenu", () => {
     const menus = visibleMenus(CUSTOMER_MENUS, "CUSTOMER");
-    expect(menus.map((m) => m.key)).toEqual(["shops", "orders", "health", "subscriptions", "wallet", "tracking", "profile"]);
+    expect(menus.map((m) => m.key)).toEqual(["shops", "orders", "subscriptions", "wallet", "tracking", "profile"]);
     // 20: Orders → "My lists" (docs/purchase-lists-2026-10).
     // 22: Shops → "Consultants", Orders → "Appointments" (docs/consult-booking-2026-11).
-    // 29: My Health tile with 7 entries (docs/health/).
-    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(29);
+    // 24: Shops → "Doctors", Profile → "My Health" (docs/health/; no 7th tile — one screen on a phone).
+    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(24);
   });
 
   it("treats a list of permissions as any-of", () => {
@@ -206,7 +206,7 @@ describe("menu definitions", () => {
   const all = Object.values(MENUS).flatMap((menus) => menus.flatMap((m) => [m, ...m.items, ...(m.more ?? [])]));
 
   it("match the approved menu counts", () => {
-    expect(CUSTOMER_MENUS).toHaveLength(7);
+    expect(CUSTOMER_MENUS).toHaveLength(6);
     expect(CUSTOMER_CATEGORIES).toHaveLength(8);
     expect(SHOP_MENUS).toHaveLength(16);
     expect(ADMIN_MENUS).toHaveLength(9);
