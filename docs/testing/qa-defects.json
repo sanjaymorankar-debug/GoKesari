@@ -2578,6 +2578,71 @@
       "expected": "docs/dealer-programme/TIERED_COMMISSION.md Part 2: \"A reason is asked and logged\" when the commission settings change.",
       "fix": "Not fixed. Ask for a reason in the settings editor and store it with setting.changed — or correct the design note if a reason is not wanted.",
       "status": "Open (owner to confirm)"
+    },
+    {
+      "id": "D-154",
+      "title": "A team lead whose place is inactive is told 'Only a member of a dealer team can add an agent.', not 'Your place in the team is not active.'",
+      "cases": [
+        "TC-TIER-036"
+      ],
+      "severity": "Low",
+      "found": "20-Nov-2026 local run (tests/qa/local/dealer-team-2026-11.spec.ts); PR #420.",
+      "actual": "An admin deactivates team lead L1 (PATCH /api/admin/dealers/<dealer>/salespeople/<L1> {status: INACTIVE}); L1 then POSTs /api/dealer/team {action: addMember, role: AGENT}: 403 'Only a member of a dealer team can add an agent.' leadAddsAgent looks the lead up with getMemberForUser, which returns ACTIVE members only (src/server/dealers/tiered.ts getMemberForUser), so its own check 'Your place in the team is not active.' (tiered.ts leadAddsAgent) is never reached. The refusal itself is right and nothing is created; the dealer-not-approved message ('Your dealer is not approved at present.') is shown correctly.",
+      "expected": "TC-TIER-036 step 2: refused with 'Your place in the team is not active.'",
+      "fix": "Not fixed. In leadAddsAgent, find the member without the ACTIVE filter (or give getMemberForUser an option) so an inactive lead gets the clear message.",
+      "status": "Open"
+    },
+    {
+      "id": "D-155",
+      "title": "Territory form: 501 pincodes (and a fee under ₹1) get 'Please check the highlighted fields.' instead of the clear message, and the admin page highlights nothing",
+      "cases": [
+        "TC-TERR-004"
+      ],
+      "severity": "Low",
+      "found": "20-Nov-2026 local run (tests/qa/local/dealer-territory-2026-11.spec.ts); PR #419.",
+      "actual": "POST /api/admin/dealer-territories {action: create, pincodes: <501 valid pincodes>} → 422 'Please check the highlighted fields.' {fields: {pincodes: 'Too big: expected array to have <=500 items'}}; feePaise 0 → 422 'Please check the highlighted fields.' {fields: {feePaise: 'Too small: expected number to be >=100'}}. The route's request schema caps pincodes at 500 and the fee at ≥100 paise (src/app/api/admin/dealer-territories/route.ts: pincodes .max(500), fee .min(100)), so the service's own messages ('At most 500 pincodes in one territory.', 'Give the yearly fee in rupees (at least ₹1).', src/server/dealers/territory.ts checkPincodes / checkFee) are never reached. On Admin → Dealers → Territory dealers, 501 pincodes can be sent ('Give territory' is enabled) and the page shows only 'Please check the highlighted fields.' with no field highlighted. A fee of 0 or empty cannot be sent from the page (the button stays disabled). Nothing is saved in either case; 500 pincodes are accepted.",
+      "expected": "TC-TERR-004 steps 3 and 5: 'At most 500 pincodes in one territory.' and 'Give the yearly fee in rupees (at least ₹1).'",
+      "fix": "Not fixed. Let the service give the message (e.g. pincodes .max(5000) in the route schema, fee .min(0)), or map these zod issues to the same texts; the page could also count pincodes and keep the button disabled above 500.",
+      "status": "Open"
+    },
+    {
+      "id": "D-156",
+      "title": "Paying a cancelled territory tells the dealer its pincodes were released after the grace period",
+      "cases": [
+        "TC-TERR-008"
+      ],
+      "severity": "Low",
+      "found": "20-Nov-2026 local run (tests/qa/local/dealer-territory-2026-11.spec.ts); PR #419.",
+      "actual": "After an admin cancels a territory, POST /api/dealer/territory {territoryId} by its dealer → 409 'This territory's pincodes were released after the grace period; ask GoKesari to give it again.' payTerritoryFeeOnline checks for released pincodes before the cancelled status (src/server/dealers/territory.ts payTerritoryFeeOnline), and a cancel releases every pincode. The /dealer card itself is right (Cancelled, 'Pincodes: released', no Pay button) and the admin's changes are refused 'This territory is cancelled.'",
+      "expected": "TC-TERR-008: the dealer's payment is refused 'This territory is cancelled.'",
+      "fix": "Not fixed. In payTerritoryFeeOnline, check territory.status === 'CANCELLED' before the released-pincodes check.",
+      "status": "Open"
+    },
+    {
+      "id": "D-157",
+      "title": "No 'Pay … to renew' button on /dealer in the 30-day renewal window — the card waits for an open fee that is only made once a payment starts",
+      "cases": [
+        "TC-TERR-013"
+      ],
+      "severity": "Medium",
+      "found": "20-Nov-2026 local run (tests/qa/local/dealer-territory-2026-11.spec.ts); PR #419.",
+      "actual": "An Active territory 29 days before its paid-up date: the daily job sends 'Your territory <name>: renewal due' ('… Pay the yearly fee of ₹50,000 on your dealer page …'), GET /api/dealer/territory gives canPay true but openFee null, and the /dealer card shows 'Paid up to <date> · yearly fee ₹50,000' with no Pay button. DealerTerritory shows the button only when canPay && openFee (src/components/dealer/dealer-territory.tsx), and after the first fee is paid no AWAITING_PAYMENT fee exists until payTerritoryFeeOnline, recordOfflineFee or the lapse creates one (ensureOpenFee, src/server/dealers/territory.ts). The renewal itself works through the API the button would call (POST /api/dealer/territory → sandbox payment → paid-up date = old date + 12 months), so the dealer can renew only after the territory has lapsed (the job then makes the open fee) — earning nothing in between — or through an admin's 'Record payment'.",
+      "expected": "TC-TERR-013 step 2: 30 days before the paid-up date the card shows 'Pay ₹50,000 to renew' with 'Covers 12 months from the paid-up date'.",
+      "fix": "Not fixed. Show the button whenever canPay (with the territory's yearly fee when there is no open fee yet), or let the renewal reminder of the daily job create the open fee.",
+      "status": "Open"
+    },
+    {
+      "id": "D-158",
+      "title": "After a failed online territory-fee payment, 'Pay' reopens the same failed attempt — the dealer cannot pay online again",
+      "cases": [
+        "TC-TERR-010"
+      ],
+      "severity": "Medium",
+      "found": "20-Nov-2026 local run (tests/qa/local/dealer-territory-2026-11.spec.ts); PR #419.",
+      "actual": "The dealer clicks 'Pay ₹50,000 now' on /dealer and chooses Fail on the sandbox payment page: the territory stays 'Waiting for the fee' with the Pay button (right). Clicking Pay again opens the same attempt, whose page says 'This payment is already failed.' with no way to pay. payTerritoryFeeOnline creates the intent with the fixed idempotency key territory-fee:<fee id> (src/server/dealers/territory.ts), and createPaymentIntent returns the existing FAILED intent for that key (src/server/payments/intents.ts createPaymentIntent). The same happens once an abandoned attempt has expired. The fee can then be paid only by an admin's 'Record payment' (or after an admin changes the fee, which replaces it).",
+      "expected": "TC-TERR-010 step 4: paying again with 'Pay (success)' makes the territory Active with one paid fee.",
+      "fix": "Not fixed. Start a new attempt when the fee's intent has ended (FAILED / EXPIRED): e.g. key the intent on the fee and an attempt number, or clear fee.paymentIntentId and use a new key, as order payments do with 'Retry payment'.",
+      "status": "Open"
     }
   ]
 }

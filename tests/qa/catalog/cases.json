@@ -14765,7 +14765,7 @@
   "role": "Dealer, Admin",
   "method": "UI",
   "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging. A TIERED chain: main dealer M > team lead L1 > agent A1, each with a linked account and the agent agreement accepted. A second TIERED dealer M2 with its own agent A9. Agent A2 under L1 meets the rule (50 activated shops, 3 ready agents he brought in).",
-  "steps": "1. As M, click 'Promote to team lead' for A2 and confirm\n2. Open the team mapping and history\n3. As admin, open the TIERED screen for M's network\n4. In a later month with >= 100 shops from A2's team, close the month",
+  "steps": "1. As M, click 'Promote to team lead' for A2 (it promotes at once; there is no confirm step)\n2. Open the team mapping and history\n3. As admin, open the TIERED screen for M's network\n4. In a later month with >= 100 shops from A2's team, close the month",
   "expected": "A2 becomes a team lead reporting to M; the agents he brought in move under him; the history says 'promoted by the main dealer on the dealer page'. The result is the same as an admin's promotion: L1 gets the 1% development bonus on A2's team for 6 months, only in months with >= 100 shops.",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-DLR-18; docs/testing/manual/README.md)"
  },
@@ -14808,7 +14808,7 @@
   "method": "UI",
   "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging. A TIERED chain: main dealer M > team lead L1 > agent A1, each with a linked account and the agent agreement accepted. A second TIERED dealer M2 with its own agent A9.",
   "steps": "1. As M, add a team lead and an agent from /dealer\n2. As admin, move an agent to another lead with a reason\n3. Try to place a member under an agent (4th level)\n4. Open the dealer's team performance (this month)",
-  "expected": "M adds both as before; the move needs a reason and is logged; a 4th level is refused (422 'at most 3 levels'); agents added by leads appear in team performance under their lead.",
+  "expected": "M adds both as before; the move needs a reason and is logged; a 4th level is refused (422 'An agent can only report to a team lead or to the main dealer — a 4th level is not allowed.'); agents added by leads appear in team performance under their lead.",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-DLR-18; docs/testing/manual/README.md)"
  },
  {
@@ -14863,8 +14863,8 @@
   "role": "Admin",
   "method": "UI",
   "preconditions": "On test.gokesari.com: rule territoryDealer switched ON by an admin for this test (Admin > Settings > territoryDealer: enabled true; defaults baseShareBp 2000, stepBp 100, maxShareBp 2500, productWeightBp 5000, liveMinProducts 10, termMonths 12, graceDays 30; the reason is logged). Test dealer D1 approved, on the TIERED model, with a linked account. Test pincodes agreed for the test (shops of the staging test world). Switch the rule off again when the test ends.",
-  "steps": "Give a dealer a territory with, one at a time:\n1. Pincodes '41103, 0411038, 4110388, abcdef'\n2. Pincodes empty\n3. 501 valid pincodes\n4. Name 'P'\n5. Yearly fee 0 and empty",
-  "expected": "1: 'These are not 6-digit pincodes: 41103, 0411038, 4110388, abcdef.' 2: 'Give at least one pincode.' 3: 'At most 500 pincodes in one territory.' (500 is accepted) 4: 'Give the territory a name.' 5: 'Give the yearly fee in rupees (at least ₹1).' Nothing is saved.",
+  "steps": "Give a dealer a territory (the page, and POST /api/admin/dealer-territories action create) with, one at a time:\n1. Pincodes '41103, 0411038, 4110388, abcdef'\n2. Pincodes empty\n3. 501 valid pincodes\n4. Name 'P'\n5. Yearly fee 0 and empty",
+  "expected": "API: 1: 'These are not 6-digit pincodes: 0411038, 41103, 4110388, abcdef.' (sorted) 2: 'Give at least one pincode.' 3: 'At most 500 pincodes in one territory.' (500 is accepted) 4: 'Give the territory a name.' 5: 'Give the yearly fee in rupees (at least ₹1).' On the page, invalid input keeps 'Give territory' disabled with the hint '0 pincodes · not valid: …'. Nothing is saved.",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-TERR-01; docs/testing/manual/README.md)"
  },
  {
@@ -14904,9 +14904,9 @@
   "priority": "P2",
   "role": "Admin, Dealer",
   "method": "UI",
-  "preconditions": "On test.gokesari.com: rule territoryDealer switched ON by an admin for this test (Admin > Settings > territoryDealer: enabled true; defaults baseShareBp 2000, stepBp 100, maxShareBp 2500, productWeightBp 5000, liveMinProducts 10, termMonths 12, graceDays 30; the reason is logged). Test dealer D1 approved, on the TIERED model, with a linked account. Test pincodes agreed for the test (shops of the staging test world). Switch the rule off again when the test ends. D1 holds territory 'Pune - Test 1' (pincodes of the test shops). Fee not paid yet ('Pay ₹50,000 now' shown to D1).",
+  "preconditions": "On test.gokesari.com: rule territoryDealer switched ON by an admin for this test (Admin > Settings > territoryDealer: enabled true; defaults baseShareBp 2000, stepBp 100, maxShareBp 2500, productWeightBp 5000, liveMinProducts 10, termMonths 12, graceDays 30; the reason is logged). Test dealer D1 approved, on the TIERED model, with a linked account. Test pincodes agreed for the test (shops of the staging test world). Switch the rule off again when the test ends. D1 holds territory 'Pune - Test 1' (pincodes of the test shops). Fee not paid yet ('Pay ₹50,000 now' shown to D1); D1 has clicked Pay once (an online checkout started).",
   "steps": "1. Admin: New yearly fee 60000 with a reason\n2. D1 reloads /dealer\n3. Admin: change the fee of an Active territory",
-  "expected": "The open fee of ₹50,000 is cancelled and a new one of ₹60,000 made; D1's button reads 'Pay ₹60,000 now'. On an Active territory the new fee applies to the next renewal only. Each change needs a reason and is logged.",
+  "expected": "The open fee of ₹50,000 (checkout started) is cancelled and a new one of ₹60,000 made (with no checkout started the open fee is re-priced in place); D1's button reads 'Pay ₹60,000 now'. On an Active territory the new fee applies to the next renewal only. Each change needs a reason and is logged.",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-TERR-01; docs/testing/manual/README.md)"
  },
  {
@@ -14934,7 +14934,7 @@
   "method": "UI",
   "preconditions": "On test.gokesari.com: rule territoryDealer switched ON by an admin for this test (Admin > Settings > territoryDealer: enabled true; defaults baseShareBp 2000, stepBp 100, maxShareBp 2500, productWeightBp 5000, liveMinProducts 10, termMonths 12, graceDays 30; the reason is logged). Test dealer D1 approved, on the TIERED model, with a linked account. Test pincodes agreed for the test (shops of the staging test world). Switch the rule off again when the test ends. D1 holds territory 'Pune - Test 1' (pincodes of the test shops). Fee ₹50,000 not paid yet.",
   "steps": "1. As D1 open /dealer > Your territory\n2. Click 'Pay ₹50,000 now'\n3. On the test payment page click 'Pay (success)'\n4. Return to /dealer and reload after the webhook",
-  "expected": "Card before paying: 'Waiting for the fee', 'GST included. Covers 12 months from the day you pay.' After the signed webhook: 'Active', 'Paid up to <day before the same date next year> · yearly fee ₹50,000'; the fee is PAID (ONLINE, payment purpose TERRITORY_FEE) and logged. Until the webhook arrives it stays 'Waiting for the fee'.",
+  "expected": "Card before paying: 'Waiting for the fee', 'GST included. Covers 12 months from the day you pay.' After the signed webhook: 'Active', 'Paid up to <the same date next year> · yearly fee ₹50,000' (e.g. 'Paid up to 20 Nov 2027' for a payment on 20 Nov 2026); the fee is PAID (ONLINE, payment purpose TERRITORY_FEE) and logged. Until the webhook arrives it stays 'Waiting for the fee'.",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-TERR-02; docs/testing/manual/README.md)"
  },
  {
@@ -14962,7 +14962,7 @@
   "method": "API",
   "preconditions": "On test.gokesari.com: rule territoryDealer switched ON by an admin for this test (Admin > Settings > territoryDealer: enabled true; defaults baseShareBp 2000, stepBp 100, maxShareBp 2500, productWeightBp 5000, liveMinProducts 10, termMonths 12, graceDays 30; the reason is logged). Test dealer D1 approved, on the TIERED model, with a linked account. Test pincodes agreed for the test (shops of the staging test world). Switch the rule off again when the test ends. D1 holds territory 'Pune - Test 1' (pincodes of the test shops). Developer access to replay webhooks on staging or the local server.",
   "steps": "1. Pay the fee (sandbox) and let the webhook arrive\n2. Replay the same webhook\n3. Send a captured webhook for a TERRITORY_FEE intent with a different amount",
-  "expected": "Step 2 changes nothing: one paid fee, paid-up date unchanged. Step 3 does not mark any fee paid; an audit row records 'amount_or_intent_mismatch'.",
+  "expected": "Step 2 changes nothing: one paid fee, paid-up date unchanged. Step 3 does not mark any fee paid: a webhook whose amount differs from the payment is stopped by the payments layer (AMOUNT_MISMATCH, flagged for support); a payment whose amount no longer matches the fee leaves the fee unpaid with an audit row 'amount_or_intent_mismatch'.",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-TERR-02; docs/testing/manual/README.md)"
  },
  {
@@ -14976,7 +14976,7 @@
   "method": "UI+API",
   "preconditions": "On test.gokesari.com: rule territoryDealer switched ON by an admin for this test (Admin > Settings > territoryDealer: enabled true; defaults baseShareBp 2000, stepBp 100, maxShareBp 2500, productWeightBp 5000, liveMinProducts 10, termMonths 12, graceDays 30; the reason is logged). Test dealer D1 approved, on the TIERED model, with a linked account. Test pincodes agreed for the test (shops of the staging test world). Switch the rule off again when the test ends. D1 holds territory 'Pune - Test 1' (pincodes of the test shops).",
   "steps": "1. Admin: Record a fee paid offline with reference 'AB'\n2. Repeat with reference 'UTR TEST 0001'\n3. As an operator, POST recordPayment",
-  "expected": "1: 'Give the payment reference (UTR, cheque number…).' 2: status Active, paid up for 12 months, fee PAID (OFFLINE) with the reference, logged. 3: refused (403, 'Only an admin can …').",
+  "expected": "1: 'Give the payment reference (UTR, cheque number…).' 2: status Active, paid up for 12 months, fee PAID (OFFLINE) with the reference, logged. 3: refused (403, 'You do not have access to this area.').",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-TERR-02; docs/testing/manual/README.md)"
  },
  {
@@ -15102,7 +15102,7 @@
   "method": "UI",
   "preconditions": "On test.gokesari.com: rule territoryDealer switched ON by an admin for this test (Admin > Settings > territoryDealer: enabled true; defaults baseShareBp 2000, stepBp 100, maxShareBp 2500, productWeightBp 5000, liveMinProducts 10, termMonths 12, graceDays 30; the reason is logged). Test dealer D1 approved, on the TIERED model, with a linked account. Test pincodes agreed for the test (shops of the staging test world). Switch the rule off again when the test ends. D1 holds territory 'Pune - Test 1' (pincodes of the test shops). Its fee is paid (status Active). Rating 5 (20%).",
   "steps": "1. Deliver a ₹1,000 order (commission ₹20)\n2. Refund ₹200 of its goods\n3. Read D1's month so far",
-  "expected": "Commission kept ₹20 - ₹4 = ₹16; D1's share ₹3.20 (not ₹4.00).",
+  "expected": "Commission kept ₹20 - ₹4 = ₹16; D1's share ₹3.20 (the card shows '₹3.2 for you'; not ₹4.00).",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-TERR-04; docs/testing/manual/README.md)"
  },
  {
@@ -15158,7 +15158,7 @@
   "method": "API",
   "preconditions": "On test.gokesari.com: rule territoryDealer switched ON by an admin for this test (Admin > Settings > territoryDealer: enabled true; defaults baseShareBp 2000, stepBp 100, maxShareBp 2500, productWeightBp 5000, liveMinProducts 10, termMonths 12, graceDays 30; the reason is logged). Test dealer D1 approved, on the TIERED model, with a linked account. Test pincodes agreed for the test (shops of the staging test world). Switch the rule off again when the test ends. D1 holds territory 'Pune - Test 1' (pincodes of the test shops). A second dealer D2 with his own territory.",
   "steps": "1. GET /api/admin/dealer-territories as admin, operator, customer, shop owner, guest\n2. POST create / pincodes / fee / cancel as operator\n3. As D1, GET /api/dealer/territory; POST /api/dealer/territory with D2's territoryId",
-  "expected": "1: admin and operator 200; customer and shop owner 403; guest 401. 2: 403 'Only an admin can …'. 3: D1 sees only his own territories; paying D2's is refused (404 'Territory').",
+  "expected": "1: admin and operator 200; customer and shop owner 403; guest 401. 2: 403 'You do not have access to this area.' 3: D1 sees only his own territories; paying D2's is refused (404 'Territory').",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-TERR-05; docs/testing/manual/README.md)"
  },
  {
