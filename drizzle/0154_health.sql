@@ -1055,3 +1055,15 @@ INSERT INTO health.icd10_codes ("code", "title", "chapter") VALUES
   ('S93.4', 'Sprain of ankle', 'Injury'), ('T14.1', 'Open wound of unspecified body region', 'Injury'), ('T78.4', 'Allergy, unspecified', 'Injury'),
   ('Z00.0', 'General medical examination', 'Factors'), ('Z23', 'Need for immunization', 'Factors'), ('Z71.3', 'Dietary counselling and surveillance', 'Factors')
 ON CONFLICT ("code") DO NOTHING;
+--> statement-breakpoint
+-- Launch switch (owner, 20-Nov-2026 14.10 IST: "switch Health on in prod at launch"). GoKesari Health needs consultant
+-- appointments on as well. Merged over the stored value exactly as Admin → Settings would (the rest of each rule
+-- keeps its defaults or earlier admin choices) and written to the audit log. Turn either off in Admin → Settings.
+INSERT INTO "platform_settings" ("key", "value", "updated_at")
+VALUES ('consultBooking', '{"enabled": true}'::jsonb, now()), ('health', '{"enabled": true}'::jsonb, now())
+ON CONFLICT ("key") DO UPDATE SET "value" = "platform_settings"."value" || '{"enabled": true}'::jsonb, "updated_at" = now();
+--> statement-breakpoint
+INSERT INTO "audit_logs" ("action", "entity_type", "entity_id", "new_value")
+VALUES
+  ('setting.changed', 'platform_setting', 'consultBooking', '{"enabled": true, "by": "migration 0154_health — owner launch decision 20-Nov-2026"}'::jsonb),
+  ('setting.changed', 'platform_setting', 'health', '{"enabled": true, "by": "migration 0154_health — owner launch decision 20-Nov-2026"}'::jsonb);
