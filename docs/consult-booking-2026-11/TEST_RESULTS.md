@@ -18,7 +18,7 @@ that says "full suite" runs every module's tests in one run, not only the new on
 | R6b | 20-Nov-2026 15.11 → 15.55 | test.gokesari.com (staging queue) | Fix PR #433 merged and deployed; CI, migration, deploy, post-deploy check, guest QA tier (all modules, incl. TC-QA-001) | **Passed — staging-verified 15.55 IST**; queue resumed |
 | R7 | 20-Nov-2026 15.58 → 16.02 | test.gokesari.com | Rule `consultBooking` switched on (15.58, Admin settings). Consultant guest + signed-in checks, two runs | Run 1 (15.58): 19 passed, 1 failed (TC-CON-022), 11 blocked — all three causes were the test, not the app (D-CB-07, D-CB-08, CB-24). Run 2 (16.02) after the fix: **22 / 22 automatable checks passed** on desktop + 1 on phone; 4 online-payment checks need the Cashfree sandbox (R8); 4 manual |
 | R8 | 20-Nov-2026 16.02 → 16.15 | test.gokesari.com, Cashfree **sandbox** via the "Sandbox payment" workflow (test UPI only) | TC-CON-015, TC-CON-016, TC-CON-010 (refund), SC-51 | **Passed** — paid → CONFIRMED with receipt; early cancel → full refund settled; failed attempt → time released at the hold's end. 1 defect: D-CB-09 (fixed) |
-| R9 | 20-Nov-2026 16.03 → | test.gokesari.com | **Full suite, all modules** (guest + signed-in tiers; local-only checks skip by rule) | running |
+| R9 | 20-Nov-2026 16.03 → 17.20, re-runs 17.28 → 18.09 | test.gokesari.com | **Full suite, all modules** (guest + signed-in; local-only checks not run on staging by rule), then re-runs of the affected files after the test wallets were refilled | **656 passed, 12 failed rows (8 IDs), 194 blocked, 697 not run by rule. No new product defect.** Every consultant check passes. The 12 failed rows: known test data (2 old COD orders, E-16; returns list 13 pages long; one shared order delivered before its phone repeat), known defects D-152 and D-78 / D-144, and SD-06 (check already corrected in #426) — see R9 below |
 | R10 | — | gokesari.com | Joint release (newspapers #423, consultants #425/#433, Puja #427, Health #429) run by the Health session: production database snapshot first, release, post-deploy check, guest QA tier incl. TC-CON-001..004 | pending (owner approval, 23.00 IST window) |
 
 ## R1 — what the consultant tests prove
@@ -69,6 +69,31 @@ The site's checkout opens a Cashfree sandbox session (`/orders/pay/session/…`)
 | 16.10 Cashfree refund webhook | CB2611-000029 | refund SUCCESS, **REFUNDED ₹1** |
 | 16.03 book online ₹1, 21-Nov 22.05; workflow run 44720205711, `upi-failure` | CB2611-000030 | Cashfree keeps the session open for a retry, so the booking waits |
 | 16.13 hold lapses (10 min); every-minute job | CB2611-000030 | **EXPIRED, 22.05 offered again** — but payment still "PENDING" and no message to the customer → D-CB-09 |
+
+## R9 — full suite on test.gokesari.com, all modules (owner: "all modules should be tested together")
+
+Suite: this branch (staging 0bc9144 + PR #434's checks). First pass 16.03 → 17.20 IST (2,358 tests, 1 h 17 min) while the staging queue deployed #426 and #427. Re-runs: 17.28 → 18.08 (10 spec files, after a ₹10,000 sandbox top-up of customer 1's test wallet) and 18.09 (2 checks). The latest result of each check counts.
+
+| | Pass | Fail | Blocked | Not run here by rule |
+|---|---|---|---|---|
+| Desktop | 538 | 8 | 161 | 669 |
+| Phone (Pixel 7) | 118 | 4 | 33 | 28 |
+| **Total rows** | **656** | **12** | **194** | **697** |
+
+(This morning's staging regression, same suite before the consultant module: 566 / 39 / 217 / 697.)
+
+| Failed check | Why | Class |
+|---|---|---|
+| TC-COD-001, 002 (desktop + phone), 012 | Customer 1 already has 2 cash-on-delivery orders on the way | Test data (E-16) |
+| TC-RET-010, TC-FLD-098 | The refund works (₹70.50 stored as 7050 paise and credited); only the last step fails: after the reload the completed return is no longer on page 1 of shop A's returns (13 pages of test returns) | Test data volume; the check should open the case by number |
+| TC-CART-018 (phone) | The shared order of the run was already delivered by later desktop checks; the desktop check passes | Run-order artefact |
+| TC-RPAY-001 (desktop + phone) | Rider bank account text | Known defect D-152 |
+| TC-FLD-056 | No logo upload | Known defect D-78 / D-144 |
+| SD-06 | Staging shop owner has a shop waiting for approval; #426 already makes this check record *blocked* | Check fixed in #426 (E-27) |
+
+Fixed during the run (test data, not the site): **customer 1's test wallet** ran out twice (the suite's own wallet orders spend about ₹6,000 a pass; E-33) — refilled through the "Sandbox payment" workflow (Cashfree sandbox, test UPI: ₹5,000 at 16.20, ₹10,000 at 17.28 IST); **shop owner A's own wallet** (B2B buyer) ₹0 → ₹3,000 the same way (17.15). Shop A / B prepaid wallets were healthy (₹4,928.91 / ₹5,000). Two transient failures during queue deploys (TC-RBAC-004 TLS disconnect, TC-FLD-126) pass on re-run.
+
+Blocked (194) are preconditions staging does not have: shop B / rider 2 sessions (codes go to a mailbox the QA agent does not read), a verified society, features not on staging yet, the Cashfree checkout (4 consultant checks, done in R8), SMS / WhatsApp providers, and checks that wait on an earlier step.
 
 ## R3 — browser walkthrough (local)
 
