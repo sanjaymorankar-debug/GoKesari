@@ -7,8 +7,11 @@
 # then promotes those PRs ONE AT A TIME, with no manual step in between:
 #
 #   1. pick the oldest PR labelled ready-for-staging (lowest number);
-#   2. wait for its CI; bring it up to date with staging when it is behind
-#      (CI then runs again on the new head) and wait again;
+#   2. wait for its CI. When it is behind staging, bring it up to date (CI
+#      then runs again on the new head) and wait again — unless nothing
+#      staging gained since the PR branched off touches the PR's files and
+#      staging's own runs passed: then it is merged as it is, and staging's CI
+#      on the merge tests the two together (option A, 20 Nov 2026, README);
 #   3. wait until nothing else is running on staging, then merge it;
 #   4. wait for staging's own runs for that merge (CI, "Test database"
 #      migration), for the server (gk-deploy) to deploy it to test.gokesari.com (the build
@@ -36,6 +39,7 @@
 #
 # Env: GH_TOKEN (required: a token whose actions trigger workflows — see the
 # README), GITHUB_REPOSITORY, QUEUE_RUN_URL, QUEUE_QA_SCRIPT (optional),
+# QUEUE_SKIP_UPDATE=0 (always update a PR that is behind: option A off),
 # DRY_RUN=1 (print what would happen, write nothing).
 set -euo pipefail
 
@@ -52,6 +56,8 @@ RUN_URL="${QUEUE_RUN_URL:-}"
 DRY_RUN="${DRY_RUN:-0}"
 QUEUE_DIR="${QUEUE_DIR:-$(cd "$(dirname "$0")" && pwd)}" # holds post-deploy-check.sh
 MAX_PRS="${QUEUE_MAX_PRS:-20}"           # per run; the next trigger carries on
+SKIP_UPDATE="${QUEUE_SKIP_UPDATE:-1}"    # option A: merge a behind PR as it is when safe
+CI_WORKFLOW="${QUEUE_CI_WORKFLOW:-CI}"   # staging's CI, which option A needs to have passed
 
 READY=ready-for-staging FIX=staging-fix HOLD=staging-hold
 TESTING=staging-testing VERIFIED=staging-verified
@@ -226,6 +232,44 @@ wait_merge_runs() {
   done
 }
 
+# Option A (owner's choice, 20 Nov 2026; README, "Speed"). A PR that is behind
+# staging is merged as it is — no branch update, so no second CI run of about
+# 30 min on the updated branch — when all of these hold:
+#   - staging's own push runs on its head (the previous merge) passed;
+#   - nothing staging gained since the PR branched off changes a file the PR
+#     changes (both names of a renamed file count);
+#   - they don't both change drizzle/ (two new migrations can clash without
+#     sharing a file).
+# Staging's push CI on the merge commit is then the first test of the two
+# together. A break between them (say, a function renamed on staging that the
+# PR calls) fails the PR on staging and pauses the queue, where an updated
+# branch would have been blocked before the merge. When in doubt (a file list
+# cut off at 300, an API error), the branch is updated as before.
+FILES='if (.files | length) >= 300 then error("file list cut off at 300")
+       else .files[] | .filename, (.previous_filename // empty) end'
+merge_as_is() { # $1 = PR head sha → prints staging's head; fails = update the branch
+  local sha="$1" head runs mine theirs both
+  [ "$SKIP_UPDATE" = 1 ] || return 1
+  head="$(api "repos/$REPO/branches/$BASE" --jq .commit.sha)" && [ -n "$head" ] || return 1
+  runs="$(api "repos/$REPO/actions/runs?head_sha=$head&per_page=50" --jq "
+    [ .workflow_runs[] | $PUSH_RUN | select(.name != \"$SELF_WORKFLOW\") ] | group_by(.name) | map(max_by(.id))
+    | if (any(.[]; .name == \"$CI_WORKFLOW\") | not) then \"no $CI_WORKFLOW run\"
+      elif any(.[]; .status != \"completed\") then \"still running\"
+      elif any(.[]; (.conclusion | IN(\"success\",\"skipped\",\"neutral\")) | not) then \"failed\"
+      else \"passed\" end")" || return 1
+  if [ "$runs" != passed ]; then log "$BASE's push runs on ${head:0:7}: $runs — updating the branch"; return 1; fi
+  mine="$(api "repos/$REPO/compare/$BASE...$sha" --jq "$FILES")" && [ -n "$mine" ] || return 1
+  theirs="$(api "repos/$REPO/compare/$sha...$head" --jq "$FILES")" || return 1
+  if [ -n "$theirs" ]; then
+    both="$(grep -Fx -f <(printf '%s\n' "$theirs") <<<"$mine" | head -3 | paste -sd ' ' - || true)"
+    if [ -n "$both" ]; then log "$BASE changed files this PR changes too ($both) — updating the branch"; return 1; fi
+    if grep -q '^drizzle/' <<<"$mine" && grep -q '^drizzle/' <<<"$theirs"; then
+      log "$BASE and this PR both change drizzle/ (migrations) — updating the branch"; return 1
+    fi
+  fi
+  echo "$head"
+}
+
 site_version() { # build version baked into /sw.js (GK_BUILD_VERSION)
   curl -sS -m 20 -A "GoKesari staging queue" "$SITE/sw.js" 2>/dev/null |
     sed -n 's/^const VERSION = "\(.*\)";$/\1/p' | head -1
@@ -298,7 +342,7 @@ Production (\`main\`) is not part of this queue: staging → main stays the owne
 # ---------------------------------------------------------------- one PR
 # Returns 0 = verified, 1 = failed on staging (queue pauses), 2 = skipped.
 process_pr() {
-  local n="$1" pr head sha ref state behind merged_sha merged_at before runs qa_log
+  local n="$1" pr head sha ref state behind as_is="" merged_sha merged_at before runs qa_log
   pr="$(api "repos/$REPO/pulls/$n")"
   [ "$(jq -r .state <<<"$pr")" = open ] || return 2
   sha="$(jq -r .head.sha <<<"$pr")"; ref="$(jq -r .head.ref <<<"$pr")"
@@ -308,8 +352,13 @@ process_pr() {
   remove_label "$n" "$BLOCKED"
 
   # Up to date with staging? (Only then do the checks cover what will land.)
+  # Behind, but staging's changes touch none of its files: merge it as it is
+  # and let staging's CI on the merge test the two together (option A).
   behind="$(api "repos/$REPO/compare/$BASE...$sha" --jq .behind_by)"
-  if [ "$behind" -gt 0 ]; then
+  if [ "$behind" -gt 0 ] && as_is="$(merge_as_is "$sha")"; then
+    note "#$n is $behind commit(s) behind $BASE, but nothing $BASE gained since it branched off touches its files and $BASE's runs on ${as_is:0:7} passed — merging it as it is, without updating the branch (option A); $BASE's CI tests the merge"
+  elif [ "$behind" -gt 0 ]; then
+    as_is=""
     note "#$n is $behind commit(s) behind $BASE — updating the branch"
     if ! try_write -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" >/dev/null; then
       # Only a merge conflict is for the PR's session to fix. Anything else (the
@@ -345,6 +394,11 @@ process_pr() {
   fi
 
   wait_staging_idle
+  # Merged as it is: only onto the staging head that was checked. If staging
+  # moved meanwhile, its push starts another queue run, which looks again.
+  if [ -n "$as_is" ] && [ "$(api "repos/$REPO/branches/$BASE" --jq .commit.sha)" != "$as_is" ]; then
+    note "#$n left queued: $BASE moved after it was checked; the next run looks at it again"; return 2
+  fi
   before="$(site_version || true)"
   if [ "$DRY_RUN" = 1 ]; then note "DRY RUN: would merge #$n at ${sha:0:7} and test $SITE"; return 2; fi
   # Not while GitHub refuses this run's writes: the PR could not be labelled
@@ -365,7 +419,7 @@ process_pr() {
   remove_label "$n" "$READY"; add_label "$n" "$TESTING"
   note "#$n merged into $BASE as ${merged_sha:0:7}"
   update_tracker "🧪 testing #$n on $SITE"
-  comment "$n" "🧪 **Staging queue** ($(ist)): merged into \`$BASE\` as \`${merged_sha:0:7}\`. Testing on $SITE now${RUN_URL:+ ([run]($RUN_URL))}."
+  comment "$n" "🧪 **Staging queue** ($(ist)): merged into \`$BASE\` as \`${merged_sha:0:7}\`.${as_is:+ It was behind \`$BASE\` and was merged as it was, without updating the branch, because nothing \`$BASE\` gained since it branched off changes its files (option A, docs/staging-queue/README.md). The CI of \`$BASE\` on the merge is the first test of the two together.} Testing on $SITE now${RUN_URL:+ ([run]($RUN_URL))}."
 
   local fail="" failed_tests=""
   runs="$(wait_merge_runs "$merged_sha")"
