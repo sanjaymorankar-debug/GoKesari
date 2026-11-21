@@ -56,12 +56,15 @@ import { assertShopType, isKnownShopType } from "./shop-types";
 import { getRule } from "./settings";
 import { getShopOnboarding, missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
 import { documentsDueLabel } from "./shop-document-gate";
-import { todayIn } from "@/lib/dates";
+import { formatDisplayDate, todayIn } from "@/lib/dates";
+import { licenceGraceMessage } from "@/lib/shop-licences";
 import { getEnv } from "@/lib/env";
 import { decideGovAutoApproval, govAutoApprovalApplies, logGovDecision } from "./gov-auto-approval";
 import { sendReadyForProductUpload } from "./shop-ready-email";
 import { queueShopWelcomeKit } from "@/server/shop-banner/welcome-kit";
-import { assertFssaiAllowsApproval } from "./document-uploads";
+import { assertFssaiAllowsApproval, fssaiStatus } from "./document-uploads";
+import { shopSellsFood } from "./seller-verification";
+import { activeFssaiWaiver, recordFssaiWaiver } from "./fssai-waiver";
 import { assertLegalDocsAllowApproval } from "./legal-documents";
 import { emitEvent } from "@/server/events/emit";
 import {
@@ -785,6 +788,11 @@ export async function approveShop(
      * missing documents are then chased on the 1st and 15th (shop-document-follow-up.ts).
      */
     acceptDocumentsPromise?: boolean;
+    /**
+     * Owner request 21-Nov-2026 (fssai-waiver.ts): an admin approves a food shop without its FSSAI
+     * licence, with a reason; the owner must upload it within rule documentUpload.fssaiWaiverDays.
+     */
+    waiveFssai?: { reason: string };
   } = {},
 ): Promise<Shop> {
   let approved: Shop;
@@ -794,6 +802,7 @@ export async function approveShop(
       input,
       actor,
       options.waiveDocuments ?? (options.acceptDocumentsPromise ? { promise: true } : undefined),
+      options.waiveFssai,
     );
   } catch (error) {
     if (isShopActUniqueViolation(error)) throw conflict(SHOP_ACT_TAKEN_MESSAGE);
@@ -811,11 +820,33 @@ export async function approveShop(
     });
     // docs/dealer-programme: an approved shop is the ACTIVATED commission milestone.
     await checkCommissionMilestonesSafely(shopId, actor);
+    // Approved without its FSSAI licence: the owner is told the date it is due (fssai-waiver.ts).
+    if (options.waiveFssai) await sendFssaiWaiverNotice(approved);
   };
   // The approval is saved: a follow-up that fails is logged, never turned into a failed answer.
   const runFollowUp = () => followUp().catch((error) => console.error("[shops] approval follow-up failed", shopId, error));
   await runOrDefer(runFollowUp, options.defer);
   return approved;
+}
+
+/** The owner of a shop an admin approved without its FSSAI licence: upload it by the due date. */
+async function sendFssaiWaiverNotice(shop: Shop): Promise<void> {
+  const waiver = await activeFssaiWaiver(shop.id);
+  if (!waiver) return;
+  const days = Math.round((waiver.dueAt.getTime() - waiver.createdAt.getTime()) / 86_400_000);
+  await notify({
+    userId: shop.ownerId,
+    type: NOTIFICATION_TYPES.SHOP_LICENCE_GRACE_NOTICE,
+    vars: {
+      shopName: shop.name,
+      graceDays: days,
+      message: licenceGraceMessage("FSSAI licence", days).en,
+      dueDate: formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, waiver.dueAt)),
+    },
+    actionUrl: `/shop/documents?shop=${shop.id}`,
+    dedupeKey: `shop-fssai-waiver:${waiver.id}`,
+    mandatory: true,
+  });
 }
 
 /**
@@ -1008,6 +1039,8 @@ function approveShopTransaction(
    * or operator approves a shop whose owner promised them (`promise`, 29 Oct 2026).
    */
   waiveDocuments?: { reason: string } | { promise: true },
+  /** Owner request 21-Nov-2026: an admin approves a food shop without its FSSAI licence (fssai-waiver.ts). */
+  waiveFssai?: { reason: string },
 ): Promise<Shop> {
   return db.transaction(async (tx) => {
     let [shop] = await tx
@@ -1023,7 +1056,24 @@ function approveShopTransaction(
     if (shop.status === "APPROVED") {
       throw conflict("This shop is already approved.");
     }
-    if (waiveDocuments) {
+    // Approve without FSSAI (admin only): recorded only when the shop sells food and no valid
+    // licence is on file; with one on file the approval goes ahead as usual.
+    if (waiveFssai && (actor.role !== "ADMIN" || !actor.id)) {
+      throw forbidden("Only an admin can approve a shop without its FSSAI licence.");
+    }
+    const fssaiMissing = waiveFssai ? (await shopSellsFood(shop)) && !(await fssaiStatus(shop, tx)).onFile : false;
+    let documentsWaiver = waiveDocuments;
+    // A shop whose only unverified seller document is its FSSAI licence waits in KYC_PENDING (FSSAI
+    // is a seller document there): the FSSAI waiver covers that too, as "Approve without documents"
+    // would, naming FSSAI alone. Any other missing document still needs its own waiver.
+    if (waiveFssai && fssaiMissing && !documentsWaiver) {
+      const missing = await missingMandatoryDocuments(shop, tx, { countDeferred: true });
+      if (missing.length === 1 && missing[0] === "FSSAI") {
+        documentsWaiver = { reason: `Approved without the FSSAI licence: ${waiveFssai.reason.trim()}` };
+      }
+    }
+    if (documentsWaiver) {
+      const waiveDocuments = documentsWaiver;
       let reason: string;
       if ("promise" in waiveDocuments) {
         // The route already asked for SHOP_APPROVE; a person, never the automatic approval.
@@ -1069,8 +1119,11 @@ function approveShopTransaction(
     const blocker = await onboardingApprovalBlocker(shop, tx);
     if (blocker) throw conflict(blocker, { lifecycleStatus: shop.lifecycleStatus });
     assertRegistrationFeeSettled(shop);
+    if (waiveFssai && fssaiMissing) await recordFssaiWaiver(tx, shop, waiveFssai.reason, actor);
+    // An FSSAI waiver still running (this approval's or an earlier one): its due date follows instead.
+    const fssaiWaived = (await activeFssaiWaiver(shop.id, tx)) !== null;
     // Mandatory legal documents (FSSAI / drug licence / medical registration) are submitted.
-    await assertLegalDocsAllowApproval(shop, tx);
+    await assertLegalDocsAllowApproval(shop, tx, { waived: fssaiWaived ? ["FSSAI"] : [] });
     // Task 3 (docs/document-upload-2026-10): a food shop needs a valid FSSAI licence on file.
     await assertFssaiAllowsApproval(shop, tx);
 

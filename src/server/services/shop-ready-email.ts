@@ -58,7 +58,8 @@ export async function sendReadyForProductUpload(shop: Shop): Promise<void> {
           message: licenceGraceMessage(licence.label.en, graceDays).en,
           dueDate: formatDisplayDate(addDays(todayIn(zone), graceDays)),
         },
-        actionUrl: licence.docType === "FSSAI" ? `/shop/verification?shop=${shop.id}` : "/shop/legal-documents",
+        // The FSSAI licence file is uploaded on Upload documents (the verification page takes the number only).
+        actionUrl: licence.docType === "FSSAI" ? `/shop/documents?shop=${shop.id}` : "/shop/legal-documents",
         dedupeKey: `shop-licence-grace:${shop.id}`,
         mandatory: true,
       });

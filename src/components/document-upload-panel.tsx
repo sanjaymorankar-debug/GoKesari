@@ -121,14 +121,32 @@ async function errorOf(response: Response): Promise<{ message: string; reupload:
   };
 }
 
-export function DocumentUploadPanel({ shopId, items, browserOcr = false }: { shopId: string; items: PanelItem[]; browserOcr?: boolean }) {
+export function DocumentUploadPanel({
+  shopId,
+  items,
+  browserOcr = false,
+  onBehalfOf,
+}: {
+  shopId: string;
+  items: PanelItem[];
+  browserOcr?: boolean;
+  /** An admin or operator uploads a document the owner sent to GoKesari: the owner's name, for the consent line. */
+  onBehalfOf?: string;
+}) {
   const [focus, setFocus] = useState<UploadDocType | null>(null);
   const main = items.filter((i) => !i.additional || i.requirement !== "optional");
   const more = items.filter((i) => i.additional && i.requirement === "optional");
   const moreOpen = more.some((i) => i.latest?.status === "EXTRACTED" || i.docType === focus);
   // Remount a card when its latest upload changes (a scan filed onto it), so it shows the new read.
   const card = (item: PanelItem) => (
-    <DocumentCard key={`${item.docType}:${item.latest?.id ?? ""}`} shopId={shopId} item={item} browserOcr={browserOcr} focus={item.docType === focus} />
+    <DocumentCard
+      key={`${item.docType}:${item.latest?.id ?? ""}`}
+      shopId={shopId}
+      item={item}
+      browserOcr={browserOcr}
+      focus={item.docType === focus}
+      onBehalfOf={onBehalfOf}
+    />
   );
   return (
     <div className="space-y-4">
@@ -248,7 +266,19 @@ function prefill(upload: PanelUpload | null) {
   };
 }
 
-function DocumentCard({ shopId, item, browserOcr, focus = false }: { shopId: string; item: PanelItem; browserOcr: boolean; focus?: boolean }) {
+function DocumentCard({
+  shopId,
+  item,
+  browserOcr,
+  focus = false,
+  onBehalfOf,
+}: {
+  shopId: string;
+  item: PanelItem;
+  browserOcr: boolean;
+  focus?: boolean;
+  onBehalfOf?: string;
+}) {
   const router = useRouter();
   const pending = item.latest?.status === "EXTRACTED" ? item.latest : null;
   const [upload, setUpload] = useState<PanelUpload | null>(pending);
@@ -474,7 +504,11 @@ function DocumentCard({ shopId, item, browserOcr, focus = false }: { shopId: str
             {!reuploadFlag ? (
               <label className="flex items-start gap-2 text-xs text-ink-700">
                 <input type="checkbox" className="mt-0.5" checked={consent} onChange={(e) => setConsent(e.target.checked)} data-testid="doc-consent" />
-                <span>{SELLER_VERIFICATION_CONSENT_TEXT}</span>
+                <span>
+                  {onBehalfOf
+                    ? `${onBehalfOf} sent this document to GoKesari and agreed to it being checked. On their behalf: ${SELLER_VERIFICATION_CONSENT_TEXT}`
+                    : SELLER_VERIFICATION_CONSENT_TEXT}
+                </span>
               </label>
             ) : null}
             {error ? <Alert tone="danger">{error}</Alert> : null}
