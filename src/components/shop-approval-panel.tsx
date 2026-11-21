@@ -59,7 +59,7 @@ export interface AdminShop {
    * A food shop with no valid FSSAI licence on file (and no admin waiver running): approval is
    * refused until one is uploaded, or an admin approves without it (owner request 21-Nov-2026).
    */
-  fssaiNeeded?: "missing" | "expired" | "grace" | null;
+  fssaiNeeded?: "missing" | "expired" | null;
 }
 
 const dueLabel = (iso: string) =>
@@ -120,7 +120,6 @@ export function ShopApprovalPanel({
   canUploadDocuments = false,
   fssaiWaiverDays = 30,
   fssaiDueLabel = "",
-  licenceGraceDays = 90,
 }: {
   pending: AdminShop[];
   approved: AdminShop[];
@@ -142,8 +141,6 @@ export function ShopApprovalPanel({
   fssaiWaiverDays?: number;
   /** The due date a waiver given today would set ("21 Dec 2026"), from the server. */
   fssaiDueLabel?: string;
-  /** DI-14: shopDocumentFollowUp.graceDays — a wizard shop's time to upload its licence after going live. */
-  licenceGraceDays?: number;
 }) {
   const [filter, setFilter] = useState<ShopOnboardingStage | "ALL">("ALL");
   const counts = Object.fromEntries(
@@ -191,7 +188,6 @@ export function ShopApprovalPanel({
                 canUploadDocuments={canUploadDocuments}
                 fssaiWaiverDays={fssaiWaiverDays}
                 fssaiDueLabel={fssaiDueLabel}
-                licenceGraceDays={licenceGraceDays}
               />
             ))}
           </div>
@@ -231,7 +227,6 @@ function PendingShopRow({
   canUploadDocuments,
   fssaiWaiverDays,
   fssaiDueLabel,
-  licenceGraceDays,
 }: {
   shop: AdminShop;
   canApprove: boolean;
@@ -243,7 +238,6 @@ function PendingShopRow({
   canUploadDocuments: boolean;
   fssaiWaiverDays: number;
   fssaiDueLabel: string;
-  licenceGraceDays: number;
 }) {
   const stage = shop.onboardingStage;
   const promisedBy = shop.documentsPromisedAt ? dueLabel(shop.documentsDueAt ?? shop.documentsPromisedAt) : null;
@@ -254,11 +248,10 @@ function PendingShopRow({
   const canRemind = stage === "KYC_PENDING" && shop.notUploadedDocuments.length + shop.sendAgainDocuments.length > 0;
   // Declared before use below: the FSSAI state decides whether "Approve without documents" is offered.
   const fssaiState = shop.fssaiNeeded ?? null;
-  const fssaiNeededEarly = fssaiState === "grace" ? null : fssaiState;
   // "Approve without documents" (admin, with a reason): unverified seller documents, or — owner
   // 21-Nov-2026 — a food shop held only for its FSSAI licence (then due within fssaiWaiverDays).
   const canWaive =
-    canWaiveDocuments && ((approvalGateOn && stage === "KYC_PENDING") || (fssaiNeededEarly !== null && canWaiveFssai));
+    canWaiveDocuments && ((approvalGateOn && stage === "KYC_PENDING") || (fssaiState !== null && canWaiveFssai));
   // An admin or operator approves a promised shop after inspecting it; the 1st / 15th reminders follow.
   const canAcceptPromise = approvalGateOn && stage === "KYC_PENDING" && shop.documentsPromisedAt !== null;
   const [acceptingPromise, setAcceptingPromise] = useState(false);
@@ -266,9 +259,8 @@ function PendingShopRow({
   const [waiving, setWaiving] = useState(false);
   const [waiveReason, setWaiveReason] = useState("");
   // Owner request 21-Nov-2026: an admin approves a food shop without its FSSAI licence, due in fssaiWaiverDays.
-  // DI-14: a wizard shop is not blocked; it only needs the licence within licenceGraceDays of going live.
-  const fssaiGrace = fssaiState === "grace";
-  const fssaiNeeded = fssaiNeededEarly;
+  // DF-08 (21-Nov-2026 night): a wizard food shop needs it too — no 90-day grace for FSSAI any more.
+  const fssaiNeeded = fssaiState;
   const waivedDocuments = [...shop.missingDocuments.filter((d) => !/FSSAI/i.test(d)), ...(fssaiNeeded ? ["FSSAI licence"] : [])];
   // A document the owner sent to GoKesari is uploaded for them (FSSAI, or anything still missing).
   const uploadHref = `/admin/shops/${shop.id}/documents`;
@@ -333,7 +325,6 @@ function PendingShopRow({
             {fssaiNeeded ? (
               <Badge tone="danger">{fssaiNeeded === "expired" ? "FSSAI licence expired" : "FSSAI licence missing"}</Badge>
             ) : null}
-            {fssaiGrace ? <Badge tone="warning">FSSAI due within {licenceGraceDays} days of going live</Badge> : null}
             <PromiseBadge shop={shop} />
             <FeeBadge shop={shop} />
           </div>
@@ -346,13 +337,6 @@ function PendingShopRow({
                   {next.linkLabel} →
                 </Link>
               ) : null}
-            </p>
-          ) : null}
-          {fssaiGrace && canApprove ? (
-            <p className="mt-1 text-sm text-ink-700" data-testid="fssai-grace">
-              <span className="font-medium">FSSAI: </span>
-              not on file yet. This shop registered itself, so it can go live now (owner decision DI-14): the owner then has{" "}
-              {licenceGraceDays} days to upload it, is reminded on the 1st and 15th, and the shop is suspended if it is still missing.
             </p>
           ) : null}
           {fssaiNeeded && canApprove ? (

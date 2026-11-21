@@ -96,6 +96,7 @@ import { assertRegistrationReferralCode, attributeRegistrationReferral } from ".
 import { isReferralRequired } from "./referral-settings";
 import { looksLikeShopCode, shopReferralRule } from "./shop-referrals";
 import { latestRegistrationFeeAttempt, registrationFeeDue } from "./registration-fee-payment";
+import { documentsDueLabel, promiseShopDocuments, shopDocumentGate } from "./shop-document-gate";
 import { applyDocumentChecks, type ShopFacts } from "./seller-verification-checks";
 import {
   importRegistrationCheck,
@@ -255,7 +256,28 @@ export interface WizardView extends ShopRegistrationDraftView {
   /** Where the wizard resumes. */
   /** Days a licence may follow after going live (rule shopDocumentFollowUp). */
   licenceGraceDays: number;
+  /**
+   * DF-08 (owner, 21-Nov-2026 night): the documents screen once the shop exists and the fee is due.
+   * FSSAI is a must-have for a food shop; the other mandatory documents may follow go-live on the
+   * owner's promise (within promiseDays, reminded on the 1st / 15th, suspended after the date).
+   */
+  documentsStep: WizardDocumentsStep | null;
   nextStep: WizardStep;
+}
+
+export interface WizardDocumentsStep {
+  /** A food shop whose FSSAI licence is not on file (nor with the team): upload it to go on. */
+  fssaiNeeded: boolean;
+  /** Mandatory documents not given yet that may follow go-live on the promise (labels). */
+  promiseCovers: string[];
+  /** The promise was given: its due date ("19 Feb 2027"). */
+  promisedBy: string | null;
+  /** Days the promise gives (rule shopDocumentFollowUp.promiseDays). */
+  promiseDays: number;
+  /** The due date a promise given today would set. */
+  promiseDueLabel: string;
+  /** "Continue to payment" may go ahead now (FSSAI in place and nothing unpromised). */
+  canContinue: boolean;
 }
 
 export interface WizardDocuments {
@@ -343,6 +365,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
 
   let shop: WizardView["shop"] = null;
   let setup: WizardView["setup"] = null;
+  let documentsStep: WizardDocumentsStep | null = null;
   if (draft.shopId) {
     const [s] = await db.select().from(shops).where(eq(shops.id, draft.shopId));
     if (s) {
@@ -357,6 +380,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
         lastPaymentFailed: attempt?.status === "FAILED" || attempt?.status === "EXPIRED",
       };
       if (s.status === "APPROVED") setup = await shopSetup(s);
+      if (s.status === "PENDING_APPROVAL" && registrationFeeDue(s) > 0) documentsStep = await documentsStepOf(s);
     }
   }
 
@@ -395,9 +419,15 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   if (shop?.status === "APPROVED" && setup) {
     nextStep = !setup.location ? "LOCATION" : !setup.products ? "LIVE" : "DONE";
   } else if (draft.status === "COMPLETED") nextStep = "DONE";
-  // Owner, 21-Nov-2026: once the shop exists, an optional screen to upload FSSAI, the Shop Act, Udyam and
-  // licences (the owner's own Upload documents panel) before payment. Never required: DI-14 stands.
-  else if (draft.status === "SUBMITTED" && shop?.status === "PENDING_APPROVAL" && shop.feeDuePaise > 0 && partialOf(draft).documentsStepDone !== true) {
+  // Owner, 21-Nov-2026: once the shop exists, a screen to upload FSSAI, the Shop Act, Udyam and licences
+  // (the owner's own Upload documents panel) before payment. DF-08 (the same night): FSSAI must be there for a
+  // food shop, and the rest uploaded or promised — the screen comes back until that holds.
+  else if (
+    draft.status === "SUBMITTED" &&
+    shop?.status === "PENDING_APPROVAL" &&
+    shop.feeDuePaise > 0 &&
+    (partialOf(draft).documentsStepDone !== true || (documentsStep !== null && !documentsStep.canContinue))
+  ) {
     nextStep = "DOCUMENTS";
   }
   else if (draft.status === "SUBMITTED") nextStep = shop && shop.feeDuePaise > 0 ? "PAYMENT" : "WAITING";
@@ -435,8 +465,23 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     feeRule,
     membershipMonths,
     licenceGraceDays: (await getRule("shopDocumentFollowUp")).graceDays,
+    documentsStep,
     setup,
     nextStep,
+  };
+}
+
+/** DF-08: what the documents screen needs from the shop's own documents gate (shop-document-gate.ts). */
+async function documentsStepOf(shop: Shop): Promise<WizardDocumentsStep> {
+  const gate = await shopDocumentGate(shop);
+  const { promiseDays } = await getRule("shopDocumentFollowUp");
+  return {
+    fssaiNeeded: gate.fssaiNeeded,
+    promiseCovers: gate.promisedAt ? [] : gate.promiseCovers,
+    promisedBy: gate.dueAt ? documentsDueLabel(gate.dueAt) : null,
+    promiseDays,
+    promiseDueLabel: documentsDueLabel(new Date(Date.now() + promiseDays * 86_400_000)),
+    canContinue: gate.canPay,
   };
 }
 
@@ -656,10 +701,45 @@ export async function answerDocumentsReady(input: { actor: Actor; later: boolean
 }
 
 /**
- * Owner, 21-Nov-2026: the optional documents screen is answered — "Continue to payment" or "Upload
- * later" (the same: nothing is required). Whatever was uploaded stays; the rest is chased after go-live.
+ * Owner, 21-Nov-2026: the documents screen is answered with "Continue to payment". DF-08 (the same
+ * night): a food shop's FSSAI licence must be on file (or with GoKesari's team) first, and any other
+ * mandatory document not uploaded is promised — `promise: true` is the owner's tick, "I will upload
+ * them within <promiseDays> days"; the 1st / 15th follow-up then chases them and suspends the shop
+ * after that date. Whatever was uploaded stays.
  */
-export async function finishDraftDocumentsStep(input: { actor: Actor }): Promise<WizardView> {
+export async function finishDraftDocumentsStep(input: { actor: Actor; promise?: boolean }): Promise<WizardView> {
+  const [pending] = await db
+    .select({ shopId: shopRegistrationDrafts.shopId })
+    .from(shopRegistrationDrafts)
+    .where(and(eq(shopRegistrationDrafts.ownerId, input.actor.id), eq(shopRegistrationDrafts.status, "SUBMITTED")))
+    .orderBy(desc(shopRegistrationDrafts.updatedAt))
+    .limit(1);
+  if (!pending?.shopId) throw notFound("Registration in progress");
+  const [shopRow] = await db.select().from(shops).where(eq(shops.id, pending.shopId));
+  if (shopRow && shopRow.status === "PENDING_APPROVAL" && registrationFeeDue(shopRow) > 0) {
+    let gate = await shopDocumentGate(shopRow);
+    if (gate.fssaiNeeded) {
+      throw conflict("Your shop sells food, so an FSSAI licence is required by law. Please upload your FSSAI licence to continue.", {
+        reason: "FSSAI_REQUIRED",
+        fields: { fssai: "Upload your FSSAI licence." },
+      });
+    }
+    if (!gate.canPay && gate.canPromise) {
+      if (input.promise !== true) {
+        const { promiseDays } = await getRule("shopDocumentFollowUp");
+        throw conflict(
+          `Please upload ${gate.promiseCovers.join(", ")}, or tick that you will upload ${gate.promiseCovers.length > 1 ? "them" : "it"} within ${promiseDays} days.`,
+          { reason: "DOCUMENTS_PROMISE_NEEDED", missing: gate.promiseCovers, fields: { promise: "Tick to promise the documents." } },
+        );
+      }
+      gate = await promiseShopDocuments(shopRow.id, { id: input.actor.id, role: input.actor.role }, "SIGNUP_WIZARD");
+    }
+    if (!gate.canPay) {
+      throw conflict("A valid PAN or GST is required to register. Please get your GSTIN or PAN verified before paying the registration fee.", {
+        reason: "IDENTITY_NOT_VERIFIED",
+      });
+    }
+  }
   const draft = await db.transaction(async (tx) => {
     const [latest] = await tx
       .select()

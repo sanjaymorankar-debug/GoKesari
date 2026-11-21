@@ -206,6 +206,34 @@ describe("the 1st / 15th follow-up", () => {
     }
   });
 
+  it("a wizard shop with a verified PAN and no GST is chased only for the Shop Act it promised, then suspended after the date (DF-08)", async () => {
+    const { owner, shop } = await liveShopMissingDocuments();
+    // "PAN / GST" (owner, 21-Nov-2026): the verified PAN is enough; the GSTIN is never chased.
+    await verifySellerDocuments(shop.id, ["PAN"]);
+    await db
+      .update(shops)
+      .set({
+        gstin: null,
+        approvedAt: new Date("2026-11-01T00:00:00Z"),
+        documentsPromisedAt: new Date("2026-11-01T00:00:00Z"),
+        documentsDueAt: new Date("2027-01-30T00:00:00Z"),
+      })
+      .where(eq(shops.id, shop.id));
+    await db.insert(shopRegistrationDrafts).values({ ownerId: owner.id, shopId: shop.id, status: "COMPLETED" });
+    expect(await runShopDocumentFollowUp("2026-11-15", new Date("2026-11-15T00:30:00Z"))).toMatchObject({ reminded: 1, suspended: 0 });
+    const [first] = await noticesOf(owner.id, "shop.documents_follow_up");
+    expect(first.body).toContain("Shop Act");
+    expect(first.body).not.toContain("GSTIN");
+    expect(first.body).toMatch(/You promised to upload them when you registered your shop; they are due by 30 Jan 2027\./);
+    for (const day of ["2026-12-01", "2026-12-15", "2027-01-01", "2027-01-15"]) {
+      expect(await runShopDocumentFollowUp(day, new Date(`${day}T00:30:00Z`))).toMatchObject({ reminded: 1, suspended: 0 });
+    }
+    expect(await runShopDocumentFollowUp("2027-02-01", new Date("2027-02-01T00:30:00Z"))).toMatchObject({ suspended: 1, reminded: 0 });
+    expect((await shopRow(shop.id)).status).toBe("SUSPENDED");
+    const [suspended] = await noticesOf(owner.id, "shop.suspended");
+    expect(suspended.body).toMatch(/Shop documents promised at registration not uploaded by 30 Jan 2027: Shop Act/);
+  });
+
   it("a shop approved with a waiver has 3 months from its latest waiver; a new waiver gives 3 more", async () => {
     const { shop } = await liveShopMissingDocuments();
     await db.insert(shopDocumentWaivers).values({ shopId: shop.id, missingDocTypes: ["GSTIN", "SHOP_ACT"], reason: "Known trader", waivedBy: admin.id, createdAt: new Date("2026-11-01T00:00:00Z") });
