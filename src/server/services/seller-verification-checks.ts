@@ -114,7 +114,9 @@ export function applyDocumentChecks(input: DocCheckInput): DocCheckResult {
   if (docType === "GSTIN" && checks.panLinked === false) return fail("gstin_pan_mismatch");
   if (docType === "GSTIN" && checks.stateMatch === false) return fail("state_mismatch");
   if (docType === "FSSAI") {
-    if (!record.validUntil) return fail("expiry_not_returned");
+    // Cashfree gives no expiry date; its "licence is in force today" flag stands in
+    // for it, and the licence is re-checked every fssaiRecheckDays.
+    if (!record.validUntil && record.activeConfirmed !== true) return fail("expiry_not_returned");
     if (checks.pincodeMatch === false) return fail("address_mismatch");
   }
   if (docType === "SHOP_ACT" && checks.pincodeMatch === false) return fail("address_mismatch");

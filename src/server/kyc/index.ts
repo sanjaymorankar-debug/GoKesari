@@ -16,6 +16,10 @@
 import type { SellerDocType, SellerVerificationStatus } from "@/lib/kyc/doc-formats";
 import { getEnv, isProductionSite, kycConfigProblem } from "@/lib/env";
 
+import { cashfreeVerificationConfig } from "@/server/payments/cashfree-verification";
+import { getRule } from "@/server/services/settings";
+
+import { createCashfreeAdapter } from "./adapters/cashfree";
 import { createGridlinesAdapter, GRIDLINES_BASE_URL } from "./adapters/gridlines";
 import { createMockAdapter } from "./adapters/mock";
 import { createSandboxCoAdapter, SANDBOX_CO_BASE_URLS } from "./adapters/sandbox-co";
@@ -84,6 +88,22 @@ export function getKycAdapter(): KycAdapter {
   }
 }
 
+/**
+ * FSSAI goes to Cashfree (rule sellerVerification.fssaiProvider) because
+ * KYC_PROVIDER's vendor (Sandbox.co.in) has no FSSAI lookup. Not with the mock
+ * (local work and tests keep its FSSAI scenarios), and only once the
+ * Cashfree Verification keys are set: until then FSSAI stays with the main
+ * vendor, i.e. manual review, as before.
+ */
+async function adapterFor(docType: SellerDocType): Promise<KycAdapter> {
+  if (docType === "FSSAI" && !adapterOverride && getEnv().KYC_PROVIDER !== "mock") {
+    const rule = await getRule("sellerVerification");
+    const config = rule.fssaiProvider === "cashfree" ? cashfreeVerificationConfig() : null;
+    if (config) return createCashfreeAdapter(config, httpOptions());
+  }
+  return getKycAdapter();
+}
+
 let digilockerOverride: DigilockerAdapter | null = null;
 
 /** Tests only: route DigiLocker through a given adapter. Pass null to restore. */
@@ -126,6 +146,8 @@ export function statusFromOutcome(outcome: ProviderOutcome, onDate = today()): {
   if (docStatus === "expired" || (validUntil && validUntil < onDate)) {
     return { status: "EXPIRED", errorCode: "document_expired" };
   }
+  // The source gave no inactive reason but flags the licence as not in force.
+  if (outcome.record.activeConfirmed === false && docStatus === "unknown") return { status: "FAILED", errorCode: "document_inactive" };
   if (docStatus === "active") return { status: "VERIFIED", errorCode: null };
   if (docStatus === "unknown") return { status: "MANUAL_REVIEW", errorCode: "source_status_unknown" };
   return { status: "FAILED", errorCode: `document_${docStatus}` };
@@ -139,7 +161,7 @@ export async function verifyDocument(
 ): Promise<VerifyDocumentResult> {
   let providerId: KycProviderId = getEnv().KYC_PROVIDER;
   try {
-    const adapter = getKycAdapter();
+    const adapter = await adapterFor(docType);
     providerId = adapter.id;
     const outcome = await adapter.verify({ docType, number, extra, idempotencyKey });
     const { status, errorCode } = statusFromOutcome(outcome);

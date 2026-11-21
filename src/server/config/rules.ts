@@ -486,6 +486,14 @@ export const RULES = {
       consistencyAutoApprove: int(0, 100),
       /** Re-check a verified GSTIN with the vendor this often (cancellations show up here). */
       gstRecheckDays: int(1, 365),
+      /**
+       * Who checks FSSAI licences. "cashfree": Cashfree Verification (needs CASHFREE_VERIFICATION_CLIENT_ID and
+       * _CLIENT_SECRET; until they are set FSSAI goes to manual review). "kyc_provider": KYC_PROVIDER's vendor,
+       * which for Sandbox.co.in means manual review.
+       */
+      fssaiProvider: z.enum(["cashfree", "kyc_provider"]),
+      /** Cashfree gives no FSSAI expiry date: re-check a verified licence this often so a lapse shows up. */
+      fssaiRecheckDays: int(1, 365),
       /** Warn the seller this many days before an FSSAI or Shop Act document expires. */
       expiryWarningDays: int(1, 180),
       /** A document left PENDING because the vendor was down is retried after this long. */
@@ -517,6 +525,8 @@ export const RULES = {
       nameMatchAutoApprove: 85,
       consistencyAutoApprove: 80,
       gstRecheckDays: 30,
+      fssaiProvider: "cashfree",
+      fssaiRecheckDays: 7,
       expiryWarningDays: 30,
       pendingRetryMinutes: 15,
       maxChecksPerShopPerHour: 10,

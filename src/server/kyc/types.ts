@@ -12,7 +12,8 @@ import type { SellerDocType } from "@/lib/kyc/doc-formats";
 
 export type { SellerDocType };
 
-export type KycProviderId = "mock" | "gridlines" | "sandboxco" | "idfy";
+/** "cashfree": Cashfree Verification Suite, for FSSAI only (rule sellerVerification.fssaiProvider). */
+export type KycProviderId = "mock" | "gridlines" | "sandboxco" | "idfy" | "cashfree";
 
 /** Extra inputs some lookups need. All optional; adapters ignore what they don't use. */
 export interface VerifyExtraFields {
@@ -61,6 +62,13 @@ export interface SourceRecord {
   category?: string | null;
   /** ISO date (YYYY-MM-DD) the document stops being valid, if it expires. */
   validUntil?: string | null;
+  /**
+   * FSSAI, for a vendor that gives no expiry date: true when the source itself
+   * says the licence is in force today (Cashfree's license_active_flag). Lets
+   * an active licence pass without validUntil; it is re-checked every
+   * sellerVerification.fssaiRecheckDays instead.
+   */
+  activeConfirmed?: boolean | null;
   /** Vendor-side name-match score 0–100, where the vendor computes one. */
   vendorNameMatchScore?: number | null;
 }

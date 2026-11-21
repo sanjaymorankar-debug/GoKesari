@@ -46,6 +46,7 @@ export interface SweepResult {
   reviewReminders: number;
   pendingRetried: number;
   gstRechecked: number;
+  fssaiRechecked: number;
   expiryWarnings: number;
   expired: number;
   shopsSuspended: number;
@@ -61,6 +62,7 @@ export async function runSellerVerificationSweep(now: Date = new Date()): Promis
     reviewReminders: 0,
     pendingRetried: 0,
     gstRechecked: 0,
+    fssaiRechecked: 0,
     expiryWarnings: 0,
     expired: 0,
     shopsSuspended: 0,
@@ -69,7 +71,7 @@ export async function runSellerVerificationSweep(now: Date = new Date()): Promis
   };
   const todayIso = isoDay(now);
 
-  const recheckAll = async (ids: string[], counter: "pendingRetried" | "gstRechecked") => {
+  const recheckAll = async (ids: string[], counter: "pendingRetried" | "gstRechecked" | "fssaiRechecked") => {
     for (const id of ids) {
       try {
         await recheckVerification(id, null);
@@ -108,6 +110,23 @@ export async function runSellerVerificationSweep(now: Date = new Date()): Promis
     )
     .limit(MAX_VENDOR_CALLS_PER_STEP);
   await recheckAll(gst.map((r) => r.id), "gstRechecked");
+
+  // 2b. Periodic FSSAI re-check, only for licences with no expiry date on file (Cashfree gives none;
+  // a date, where a vendor returns one, is already watched by steps 3-5).
+  const fssai = await db
+    .select({ id: sellerVerifications.id })
+    .from(sellerVerifications)
+    .where(
+      and(
+        eq(sellerVerifications.docType, "FSSAI"),
+        eq(sellerVerifications.status, "VERIFIED"),
+        eq(sellerVerifications.providerId, "cashfree"),
+        isNotNull(sellerVerifications.numberEncrypted),
+        lt(sellerVerifications.lastAttemptAt, new Date(now.getTime() - rule.fssaiRecheckDays * DAY_MS)),
+      ),
+    )
+    .limit(MAX_VENDOR_CALLS_PER_STEP);
+  await recheckAll(fssai.map((r) => r.id), "fssaiRechecked");
 
   // 3. Expiry warnings.
   const warnUntil = isoDay(new Date(now.getTime() + rule.expiryWarningDays * DAY_MS));
