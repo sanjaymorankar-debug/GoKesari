@@ -21,3 +21,8 @@ FROM (
 UPDATE "franchise_config_versions"
 SET "config" = "config" || '{"ownerOverrideBp":400,"ownerSecondOverrideBp":300,"recurringBaseBp":2000}'::jsonb
 WHERE "effective_from" > now();
+--> statement-breakpoint
+-- Owner, 21-Nov-2026: a territory and a franchise are the same thing. The older territory-dealer rule (its own
+-- recurring 20-25% share) is switched off so a shop's orders are never paid twice; territories are sold as franchise
+-- zones. No territory had been given on either site when this ran.
+UPDATE "platform_settings" SET "value" = "value" || '{"enabled":false}'::jsonb, "updated_at" = now() WHERE "key" = 'territoryDealer';
