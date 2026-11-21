@@ -20,12 +20,10 @@
  * is whitelisted in the Cashfree dashboard, or CASHFREE_VERIFICATION_PUBLIC_KEY
  * holds the Secure ID public key and every call carries a signature.
  */
-import crypto from "node:crypto";
-
 import { and, desc, eq, gte, ne } from "drizzle-orm";
 
 import { maskAccountNumber } from "@/lib/bank-accounts";
-import { cashfreeEnvProblem, findCashfreeVerificationKeys, getEnv, type ServerEnv } from "@/lib/env";
+import { cashfreeEnvProblem } from "@/lib/env";
 import { AppError, conflict, forbidden, notFound } from "@/lib/errors";
 import { nameMatchScore } from "@/lib/kyc/name-match";
 import { decryptSecret } from "@/lib/pan-crypto";
@@ -33,6 +31,13 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { bankAccountChecks, bankAccounts, type BankAccount, type BankAccountCheck, type UserRole } from "@/server/db/schema";
 import { emitEvent } from "@/server/events/emit";
+import {
+  CASHFREE_VERIFICATION_KEY_NAMES,
+  cashfreeSignature,
+  cashfreeVerificationApiBase as bankCheckApiBase,
+  cashfreeVerificationConfig as bankCheckConfig,
+  type CashfreeVerificationConfig,
+} from "@/server/payments/cashfree-verification";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
 
@@ -43,63 +48,15 @@ interface Actor {
 
 /* ============================================================ config */
 
-export interface BankCheckConfig {
-  clientId: string;
-  clientSecret: string;
-  publicKey: string | null;
-  env: "sandbox" | "production";
-  /** Which variable names held the id and secret (never their values). */
-  foundAs: { clientId: string; clientSecret: string };
-}
+// The keys, host and signature are shared with the FSSAI licence check (kyc/adapters/cashfree.ts).
+export type BankCheckConfig = CashfreeVerificationConfig;
+export {
+  cashfreeVerificationConfig as bankCheckConfig,
+  cashfreeVerificationApiBase as bankCheckApiBase,
+  cashfreeSignature,
+} from "@/server/payments/cashfree-verification";
 
-const KEY_NAMES = [
-  ["CASHFREE_VERIFICATION_CLIENT_ID", "CASHFREE_VERIFICATION_CLIENT_SECRET"],
-  ["CASHFREE_VERIFICATION_APP_ID", "CASHFREE_VERIFICATION_SECRET_KEY"],
-] as const;
-
-/** A PEM pasted into a host's settings often arrives with literal "\n"s. */
-function normalizePem(raw: string | undefined): string | null {
-  const value = raw?.replace(/\\n/g, "\n").trim();
-  return value ? value : null;
-}
-
-/** The Verification Suite keys, or null when they are not set. */
-export function bankCheckConfig(env: ServerEnv = getEnv(), other: ReturnType<typeof findCashfreeVerificationKeys> = findCashfreeVerificationKeys()): BankCheckConfig | null {
-  for (const [idName, secretName] of KEY_NAMES) {
-    const clientId = env[idName];
-    const clientSecret = env[secretName];
-    if (clientId && clientSecret) {
-      return {
-        clientId,
-        clientSecret,
-        publicKey: normalizePem(env.CASHFREE_VERIFICATION_PUBLIC_KEY),
-        env: env.CASHFREE_VERIFICATION_ENV ?? env.CASHFREE_ENV,
-        foundAs: { clientId: idName, clientSecret: secretName },
-      };
-    }
-  }
-  // Keys saved on the host under another name (see findCashfreeVerificationKeys).
-  if (other) {
-    return {
-      clientId: other.clientId,
-      clientSecret: other.clientSecret,
-      publicKey: normalizePem(env.CASHFREE_VERIFICATION_PUBLIC_KEY),
-      env: env.CASHFREE_VERIFICATION_ENV ?? env.CASHFREE_ENV,
-      foundAs: { clientId: other.idName, clientSecret: other.secretName },
-    };
-  }
-  return null;
-}
-
-export function bankCheckApiBase(env: "sandbox" | "production"): string {
-  return env === "production" ? "https://api.cashfree.com/verification" : "https://sandbox.cashfree.com/verification";
-}
-
-/** Cashfree's 2FA signature: "<client id>.<unix seconds>", RSA-OAEP (SHA-1) with the Secure ID public key, base64. */
-export function cashfreeSignature(clientId: string, publicKeyPem: string, now: number = Date.now()): string {
-  const data = Buffer.from(`${clientId}.${Math.floor(now / 1000)}`);
-  return crypto.publicEncrypt({ key: publicKeyPem, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha1" }, data).toString("base64");
-}
+const KEY_NAMES = CASHFREE_VERIFICATION_KEY_NAMES;
 
 /* ======================================================== the call */
 
