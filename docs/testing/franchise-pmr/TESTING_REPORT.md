@@ -1,4 +1,7 @@
-# Franchise module (Model A + Pune PMR Model B) — testing report
+# Franchise module — testing report
+
+> **Current: section 0 (final brief of 21-Nov-2026 08.06 IST).** Sections 1–7 are the earlier briefs' runs, kept for
+> the record; their 91-zone / 5 km cases were replaced by section 0.
 
 **Report time:** 21-Nov-2026 (IST; see the times in the table).
 
@@ -11,6 +14,53 @@
 | Local (PostgreSQL 18, databases `gk_franchise_test` / `gk_franchise_full` / `gk_franchise_dev`) | **Run — results below** |
 | Test server (test.gokesari.com) | **Not yet**: runs when the staging queue merges PR #446 (CI, migration, deploy, post-deploy check, guest QA), then the franchise checks below on staging |
 | Production (gokesari.com) | **Not started**: the release needs the owner's OK (one release at a time; 23.00 IST window) |
+
+## 0. Final brief of 21-Nov-2026 08.06 IST — local runs, 21-Nov-2026 (IST)
+
+| Environment | State |
+|---|---|
+| Local (PostgreSQL, `gk_franchise_test`, `gk_franchise_dev`) | **Run — results below** |
+| Test server (test.gokesari.com) | **Not yet**: PR #446 goes back into the staging queue (CI, migration, deploy, post-deploy check, guest QA); then the franchise checks on staging |
+| Production (gokesari.com) | **Not started**: needs the owner's OK (one release at a time, 23.00 IST window) |
+
+### 0.1 Zone data checks (`scripts/franchise/build-zone-seed.py`, 21-Nov-2026 08.40 IST)
+
+| Check | Result |
+|---|---|
+| 50 zones, 50 clusters, 196 areas read from the owner's files | PASS |
+| Every clustered area maps to exactly one known area (short names → full names) | PASS — 189 mapped |
+| Unzoned = Koregaon Bhima, Sanaswadi, Shikrapur, Ranjangaon, Saswad, Khed Shivapur, Rajgurunagar (Khed) | PASS |
+| Average of the provisional index | 99.4 |
+| Fee rule reproduces every fee and tier of §5.3 | PASS — 20 Premier, 12 Standard, 18 Emerging |
+| Migration applies on a copy of the test database; rollback leaves no franchise table | PASS |
+
+### 0.2 Automated tests (local)
+
+| Suite | Cases | Result | Time (IST) |
+|---|---:|---|---|
+| `tests/integration/franchise-pmr.test.ts` (§11: zones, areas, fees, status, booking, coupons, 8 cases × 2 fees, parity, free teams, split, recurring, upgrade, tail, month end, reminders, team rules) | 34 | **34 passed** | 21-Nov-2026 10.05 |
+| `tests/unit/franchise-zones.test.ts` (tier boundaries ±10% / 10.1%, rounding, seed reproduction, description, coupon maths, cases A1–B4, parity) | 21 | **21 passed** | 21-Nov-2026 10.10 |
+| `tests/unit/franchise-bonus.test.ts` (TC1–TC6 at one decimal, 30 points → 25.3%, cap, downgrade) | 15 | **15 passed** | 21-Nov-2026 10.10 |
+| `tests/unit/franchise-lib.test.ts` | 25 | **25 passed** | 21-Nov-2026 10.10 |
+| Mobile (`mobile/`, incl. new zone / chart links) | 61 | **61 passed** | 21-Nov-2026 (UI helper) |
+| `npx tsc --noEmit`, eslint on changed files | — | clean | 21-Nov-2026 10.15 |
+
+### 0.3 Browser checks (local dev server, localhost:3720)
+
+| Page | Check | Result |
+|---|---|---|
+| `/franchise/book` | 50 zones; tier chips 20 / 12 / 18; filters region / tier / availability / fee; cards with tier, Provisional tag, fee + GST, % vs average, business + source + as-of, areas, description, slots; "Bookings open soon" while booking is off | PASS |
+| `/franchise/book` at 375 px | No horizontal scroll; filters stack (evidence `docs/franchise/evidence/10-final-book-phone.jpg`) | PASS |
+| `/dealer/commission-chart` | A1–A4 and B1–B4 rates and ₹ amounts on ₹1,000 / ₹2,500 exactly as §3.3; recurring rules | PASS |
+| Admin console tabs | Built and type-checked; not clicked through (needs an admin session) | To check on staging |
+
+### 0.4 Defects found and fixed during the build
+
+| # | Defect | Fix |
+|---|---|---|
+| D-F1 | Zone reference tables had a foreign key to dealers (reserved-for), so emptying users in tests would have emptied the zones | Plain id, checked by the service |
+| D-F2 | The as-of date showed as 21-11-2026 | Shown as 21-Nov-2026 |
+| D-F3 | The local browser served the old booking page from the service-worker cache | Not a code defect (cache cleared) |
 
 ## 1. Territory import validation (brief §5)
 

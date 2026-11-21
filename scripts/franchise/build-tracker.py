@@ -7,48 +7,42 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 out, stamp = sys.argv[1], sys.argv[2]
-L = "Built + tested locally (gk_franchise_test); waiting for the staging queue"
+L = "Built + tested locally (gk_franchise_test); waiting for the staging queue (PR #446)"
 E = "tests/integration/franchise-pmr.test.ts"
+U = "tests/unit/franchise-zones.test.ts"
 rows = [
-    ("Model A", "Free dealer registration (OTP, PAN, bank penny-drop, KYC)", "COMPLETED", "Production (existing)", "Existed before the brief; regression suite", "No change needed (gap A1)"),
-    ("Model A", "Dealer → Team Lead → Agent team management (add / move / promote / deactivate; TL deactivated → agents under the dealer; one mobile / bank per team; admin transfer)", "IN PROGRESS", "Local", E + " (Model A sections)", L),
-    ("Model A", "20 / 4 / 3 commission; dealer 4% one level up (owner decision 21-Nov, F-07)", "IN PROGRESS", "Local", E + " — the four cases × 2 fees", L + "; F-07 decided 21-Nov: 4%"),
-    ("Model A", "GKD- / GKT- / GKA- codes for new codes", "IN PROGRESS", "Local", E + " — code prefixes", L + "; old codes keep working (F-01)"),
-    ("Model B", "Territory master import (91 zones, 7 clusters, totals)", "IN PROGRESS", "Local", "scripts/franchise/build-zone-seed.py output (ALL PASS) + " + E, L),
-    ("Model B", "Area booking UI (clusters, search, filters, sort, list / map, cart)", "IN PROGRESS", "Local", "docs/franchise/evidence/01-book-desktop.jpg, 02-book-phone-c5-cart.jpg", L),
-    ("Model B", "Launch-offer counters (25 owners / 25 areas, close rules, no future price)", "IN PROGRESS", "Local", E + " — launch offer", L),
-    ("Model B", "Boundary editor (reference point, circle / polygon, 5 km, overlap, GeoJSON, split)", "IN PROGRESS", "Local", E + " — boundaries", L + "; real boundaries must be drawn / imported by an admin (no coordinates in the workbook)"),
-    ("Model B", "Capacity locking (2 slots in the DB, 10 parallel → 2, one owner one slot, all-or-nothing)", "IN PROGRESS", "Local", E + " — capacity", L),
-    ("Model B", "Payments (FRANCHISE_FEE intent, signed webhook, idempotent, release on failure)", "IN PROGRESS", "Local", E + " — capture / failure", L + "; staging run uses the Sandbox payment page"),
-    ("Model B", "Renewal (30-day window, same slot, +12 months, no auto-charge)", "IN PROGRESS", "Local", E + " — renewal", L),
-    ("Model B", "Expiry reminders 30 / 15 / daily + CEO copy, 09:00 IST digest, admin alerts", "IN PROGRESS", "Local", E + " — reminders, digest", L + "; e-mail delivery itself verified on staging (EMAIL_REDIRECT_TO)"),
-    ("Model B", "Auto-disable at expiry (renewal off, code closed for the zone, slot released)", "IN PROGRESS", "Local", E + " — at expiry", L),
-    ("Model B", "Tail: base share up to 2 years after expiry (brief 21-Nov)", "IN PROGRESS", "Local", "tests/unit/franchise-lib.test.ts + " + E + " — tail", L),
-    ("Model B", "One-time 25% and monthly 25% of GoKesari's actual 2% (net of refunds)", "IN PROGRESS", "Local", E + " — commission", L),
-    ("Model B", "Rating engine (bonus 0% until a formula is published; 0–5 pp)", "IN PROGRESS", "Local", E + " — bonus", L + "; formula itself is owner decision D2"),
-    ("Model B", "Payouts on the 5th, TDS, statements (existing dealer payout)", "IN PROGRESS", "Local", "Existing close / batch / TDS reused; franchise statement lines added", L),
-    ("Both", "Dashboards (owner /franchise/my, admin /admin/franchise, dealer upgrade link)", "IN PROGRESS", "Local", "Browser check on localhost:3720 (guest redirects, 401s)", L),
-    ("Both", "Admin configuration (versioned, effective dates, super-admin max owners)", "IN PROGRESS", "Local", E + " — config used by every test", L),
-    ("Both", "Migration (existing dealers → Model A; pincode territories)", "IN PROGRESS", "Local", "scripts/franchise/migrate-model-a.ts dry run", "Production run needs the owner's go-ahead (F-04); pincode territories not migrated (F-05)"),
-    ("Brief 21-Nov", "Area = 5 km around the centre; map before and after booking", "IN PROGRESS", "Local", E + " — overlap test; area-map component", L),
-    ("Brief 21-Nov", "One dealer code per dealer per area; outside-area block; admin override logged", "IN PROGRESS", "Local", E + " — code per area, override", L),
-    ("Brief 21-Nov", "Monthly bonus formula (TC1–TC6), rating 5.0 + bonus", "IN PROGRESS", "Local", "tests/unit/franchise-bonus.test.ts (13 cases)", L),
-    ("Brief 21-Nov", "Settings admin-only, audited, effective next month", "IN PROGRESS", "Local", E + " — TC6 setting change", L),
-    ("Brief 21-Nov", "Month-end: snapshot, recalc until lock, statement PDF on the 4th 10:00 IST, lock + payout on the 5th, adjustments (TC5)", "IN PROGRESS", "Local", E + " — past month / statement", L),
-    ("Brief 21-Nov", "Dealer dashboard: areas map, codes, live month-to-date, statements", "IN PROGRESS", "Local", "/franchise/my (typechecked; browser check on staging)", L),
-    ("Brief 21-Nov", "Admin: bonus settings + audit, area availability, monthly points, recalc / lock, Excel", "IN PROGRESS", "Local", "/admin/franchise (typechecked; browser check on staging)", L),
-    ("Apps", "Android app (franchise pages via WebView, /franchise deep links, 1.11.0 / versionCode 12)", "BLOCKED", "Code only", "mobile/app.config.ts, mobile/src/deep-links.ts; mobile tests 59/59", "Signed build + Play Console upload need the owner's EAS / Play access"),
-    ("Apps", "iOS app (same, build 12)", "BLOCKED", "Code only", "mobile/app.config.ts; mobile tests 59/59", "TestFlight / App Store Connect need the owner's access"),
-    ("Testing", "Test server (test.gokesari.com) run", "IN PROGRESS", "Local", "docs/testing/franchise-pmr/TESTING_REPORT.md (local run)", "Staging run after the queue merges the PR"),
-    ("Testing", "Production (gokesari.com) run", "NOT STARTED", "—", "—", "Release needs the owner's OK (one release at a time; 23.00 IST window)"),
+    ("Team", "Roles: top person adds Team Leads and Agents; TL adds Agents only; own codes; PAN / mobile / bank once per team; moves by admin; TL deactivated → agents under the top person (§2)", "IN PROGRESS", "Local", E + " — team rules", L),
+    ("Commission", "One-time Model A cases A1–A4 (20 / 4 / 3; dealer 4% one level up) (§3.1)", "IN PROGRESS", "Local", E + " — 8 cases × ₹1,000 / ₹2,500; " + U, L),
+    ("Commission", "One-time Model B cases B1–B4 (owner 25% / 5%, agent 20%, TL 4%), GoKesari pays each person directly (§3.2)", "IN PROGRESS", "Local", E + " — 8 cases × ₹1,000 / ₹2,500", L),
+    ("Commission", "Hierarchy snapshot on every commission record (model, case, franchise, zone, rates)", "IN PROGRESS", "Local", "dealer_tier_shop_plans.model / case_code / franchise_* ; " + E, L),
+    ("Commission", "Parity rule: one agent and one TL rate for both models; owner rates never below the free dealer's (§3.4)", "IN PROGRESS", "Local", E + " — parity", L),
+    ("Commission", "Recurring 25% of 2% on delivered orders, cancellations / refunds netted (§4)", "IN PROGRESS", "Local", E + " — recurring", L),
+    ("Commission", "Monthly bonus: baseline, base points, 100 points = 1%, one decimal, cap 30% (§4.1)", "IN PROGRESS", "Local", "tests/unit/franchise-bonus.test.ts", L),
+    ("Commission", "Free teams in a paid zone: no owner override, attached for recurring, 2-owner split, attaches to a later franchise (§6)", "IN PROGRESS", "Local", E + " — zone attachment", L),
+    ("Commission", "Upgrade Free → Paid: team rates unchanged, earlier shops attach, new shops Model B (§7)", "IN PROGRESS", "Local", E + " — upgrade", L),
+    ("Franchise", "Renewal at the current fee, 2 per zone, reminders 30 / 15 / daily with CEO copy, code closed at expiry (§4.2)", "IN PROGRESS", "Local", E + " — reminders, tail", L),
+    ("Franchise", "Tail: own-team shops 2 more years; free-team shops move to the next owner; buy-back does not restore (§4.2)", "IN PROGRESS", "Local", E + " — tail", L),
+    ("Zones", "50 zones GKZ-PUN-01…50, area master 196 areas, 189 mapped, 7 Unzoned, short names mapped (§5.1)", "IN PROGRESS", "Local", "scripts/franchise/build-zone-seed.py checks; " + E, L),
+    ("Zones", "Shop → area at registration (suggested by PIN / location, confirmed); admin / operator correction audited (§5.1)", "IN PROGRESS", "Local", E + " — areas", L + "; area coordinates / PINs are approximate (G-03)"),
+    ("Zones", "Tier and fee rule, ±10% Standard, nearest ₹1,000, min / max option, tier names and colours (§5.2)", "IN PROGRESS", "Local", U, L),
+    ("Zones", "Provisional seed (20 / 12 / 18), import → preview → publish, provisional-sale switch off (§5.3)", "IN PROGRESS", "Local", E + " — fees; " + U, L + "; owner to import actual business"),
+    ("Zones", "Zone description text, positive for every tier (§5.4)", "IN PROGRESS", "Local", U, L),
+    ("Booking", "Booking page: map coloured by tier, list filters, cart, 15-min hold, 100% upfront, fee locked (§5.5)", "IN PROGRESS", "Local", E + " — booking", L + "; browser check on staging"),
+    ("Zones", "Zone status: Available / Coming Soon / Reserved / On Hold / Sold Out / Inactive, bulk, scheduled, logged, notified, max 1–2 (§5.6)", "IN PROGRESS", "Local", E + " — zone status", L),
+    ("Coupons", "Coupons on franchise fees: %, flat, cap, scope, public / private, limits, first purchase, launch only, renewal, GST after discount, release on failure / refund, report (§5.7)", "IN PROGRESS", "Local", E + " — coupons; " + U, L),
+    ("Payouts", "Payout on the 5th, TDS, statements, reversals deducted from next payout (§8)", "IN PROGRESS", "Local", E + " — month end", L + "; uses the existing dealer payout batches"),
+    ("Screens", "Dealer / owner, TL, agent dashboards; public Commission Chart; Admin zones, status, fees, areas, coupons (§9)", "IN PROGRESS", "Local", "src/app/dealer/commission-chart, src/components/franchise/admin/*", L + "; browser check on staging"),
+    ("Mobile", "Android and iOS apps: pages via WebView, links for zones and the commission chart, 1.12.0 (§12.1)", "BLOCKED", "Local", "mobile tests 61/61", "Store builds need the owner's EAS / Play / App Store access"),
+    ("Testing", "Testing on test.gokesari.com (§12.3)", "NOT STARTED", "Staging", "—", "After PR #446 passes the staging queue"),
+    ("Testing", "Testing on gokesari.com (§12.3)", "NOT STARTED", "Production", "—", "Needs the owner's OK in the 23.00 IST window"),
 ]
 wb = Workbook()
 ws = wb.active
 ws.title = "Tracker"
-ws.append(["GoKesari Franchise — Model A (free) and Model B (Pune PMR paid areas) — briefs 20-Nov 22.50 and 21-Nov 00.30 IST"])
-ws.append([f"Brief 20-Nov-2026 22.50 IST · last updated {stamp} · statuses: COMPLETED · IN PROGRESS · BLOCKED · NOT STARTED"])
+ws.append(["GoKesari Franchise — final brief 21-Nov-2026 08.06 IST: dealer charging, commission and Pune franchise zones"])
+ws.append([f"Last updated {stamp} · statuses: DONE · IN PROGRESS · BLOCKED · NOT STARTED"])
 ws.append(["No.", "Area", "Feature", "Status", "Environment", "Evidence", "Notes / next step", "Last updated (IST)"])
-fills = {"COMPLETED": "C6EFCE", "IN PROGRESS": "FFEB9C", "BLOCKED": "FFC7CE", "NOT STARTED": "D9D9D9"}
+fills = {"DONE": "C6EFCE", "IN PROGRESS": "FFEB9C", "BLOCKED": "FFC7CE", "NOT STARTED": "D9D9D9"}
 for i, r in enumerate(rows, 1):
     ws.append([i, r[0], r[1], r[2], r[3], r[4], r[5], stamp])
     ws.cell(row=ws.max_row, column=4).fill = PatternFill("solid", fgColor=fills[r[2]])

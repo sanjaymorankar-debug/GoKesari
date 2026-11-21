@@ -9,9 +9,16 @@ export function TierBadge({ name, colour }: { name: string; colour: string | nul
   );
 }
 
-/** "Business index 150 (Pune average ≈ 100) · source: Provisional estimate, as of 21-11-2026". */
+/** "Business index 150 (Pune average ≈ 100) · source: Provisional estimate, as of 21-Nov-2026". */
 export function businessText(z: Pick<ZoneView, "metric" | "value" | "source" | "asOf">): string {
   if (z.value == null) return "Business figure to be published";
   const figure = z.metric === "ANNUAL_CR" ? `Annual business ₹${z.value.toLocaleString("en-IN")} Cr` : `Business index ${z.value.toLocaleString("en-IN")} (Pune average ≈ 100)`;
-  return `${figure} · source: ${z.source ?? "—"}${z.asOf ? `, as of ${z.asOf.split("-").reverse().join("-")}` : ""}`;
+  return `${figure} · source: ${z.source ?? "—"}${z.asOf ? `, as of ${asOfDate(z.asOf)}` : ""}`;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "2026-11-21" → "21-Nov-2026" (the owner's date format). */
+export function asOfDate(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${d}-${MONTHS[Number(m) - 1] ?? m}-${y}`;
 }

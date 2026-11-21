@@ -1,204 +1,144 @@
-# GoKesari Franchise — free dealership (Model A) and Pune PMR paid areas (Model B)
+# GoKesari Franchise — free dealership (Model A) and paid zone franchise (Model B)
 
-Owner brief: **20-Nov-2026, 22.50 IST** ("Franchise dealer module (free + paid) and Pune PMR area booking"). It replaces
-earlier dealer, territory-fee and franchise briefs. Built on 20/21-Nov-2026 on branch `feat/franchise-pmr-2026-11`.
+Current brief: the owner's **final brief of 21-Nov-2026, 08.06 IST** ("Dealer Charging Structure, Commission and
+Franchise Zone Creation"). It replaces the earlier dealer, territory, 5 km area and zone-list briefs (20-Nov 22.50 IST
+and 21-Nov 00.30 IST). Branch `feat/franchise-pmr-2026-11`.
 
+- Decisions and defaults: [DECISIONS.md](DECISIONS.md) (final brief: G-01 … G-19).
 - Gap analysis: [gap-analysis.md](gap-analysis.md).
-- Decisions and defaults: [DECISIONS.md](DECISIONS.md).
-- Territory master: [pune_pmr_91_zones_seed.csv](pune_pmr_91_zones_seed.csv), built by
-  `scripts/franchise/build-zone-seed.py` from the owner's workbook. The validation output is in the testing report.
-- Migration: `drizzle/0157_franchise_pmr.sql`. Rollback: `scripts/rollback-0157.sql`.
+- Zone data: [data/](data/) — the owner's seed (`GoKesari_Pune_Franchise_Zones_Seed.csv`), the "50 Clusters" and
+  "Pune Areas" sheets (`pune_clusters.csv`, `pune_areas.csv`, with approximate coordinates and PIN codes for the
+  registration suggestion). `scripts/franchise/build-zone-seed.py` checks them and writes the migration's seed.
+- Migration: `drizzle/0157_franchise_pmr.sql` (DDL head in `scripts/franchise/sql/`). Rollback: `scripts/rollback-0157.sql`.
 - Testing report: [docs/testing/franchise-pmr/TESTING_REPORT.md](../testing/franchise-pmr/TESTING_REPORT.md).
 
 ---
 
 ## Part 1 — Owner guide (plain words)
 
-### Model A — free dealer, team lead, agent
+**Same work, same pay — and GoKesari pays everyone directly.** An agent or team lead earns the same in a free team and
+in a franchise team. The franchise owner earns more only for what he paid for: his zone, recurring commission and the
+monthly bonus. Everybody is paid by GoKesari on the 5th, after TDS, into his own verified bank account.
 
-- **Joining**: anyone can join free at `/dealer/apply`. This is the existing application: mobile OTP, PAN, a bank
-  check, KYC documents, and admin approval.
-- **Codes**: new codes are issued as `GKD-xxxxxx` (dealer), `GKT-xxxxxx` (team lead) and `GKA-xxxxxx` (agent).
-  Older 8-letter codes keep working.
-- **Commission on every activated shop** is a percentage of the registration fee without GST:
+### Who earns what when a shop is activated (fee without GST)
 
-| Who registered the shop | Registering person | One level up | Two levels up |
-|---|---:|---:|---:|
-| Dealer himself | Dealer 20% | — | — |
-| Agent directly under the dealer | Agent 20% | Dealer **4%** | — |
-| Agent under a team lead | Agent 20% | Team lead 4% | Dealer 3% |
-| Team lead himself | Team lead 20% | Dealer **4%** | — |
+| Case | Who registered the shop | Registering person | Team lead | Top person |
+|---|---|---:|---:|---:|
+| A1 | Free dealer himself | — | — | Dealer 20% |
+| A2 | Agent directly under the dealer | Agent 20% | — | Dealer 4% |
+| A3 | Agent under a team lead | Agent 20% | 4% | Dealer 3% |
+| A4 | Team lead himself | Team lead 20% | — | Dealer 4% |
+| B1 | Franchise owner himself | — | — | Owner 25% |
+| B2 | Agent directly under the owner | Agent 20% | — | Owner 5% |
+| B3 | Agent under a team lead | Agent 20% | 4% | Owner 5% |
+| B4 | Team lead himself | Team lead 20% | — | Owner 5% |
 
-  The two bold 4% cells are new: until now the dealer got 3% in those cases. A shop pays according to the team on
-  the day it is activated, and earlier shops never change.
-- **Team rules**:
-  - A deactivated team lead's agents now move straight under the dealer.
-  - The same mobile number or bank account cannot appear twice in one team. PAN was already blocked.
-  - Moving a person to another dealer is done by an admin, and is logged.
-- **Upgrade**: a free dealer can buy paid areas from the same account. The "Upgrade to Paid Franchise" button is on
-  `/dealer`.
+Model B applies to shops the owner's team registers **inside his paid zone(s)**; anywhere else his team follows
+Model A. A free team may register shops inside a paid zone: it earns its normal Model A commission, the owner gets no
+one-time share, and the shop is attached to the zone's franchise for recurring commission. The live chart is public at
+`/dealer/commission-chart`.
 
-### Model B — paid area in Pune
+### Recurring commission (paid franchise only)
 
-**Booking**
+- 25% of GoKesari's 2% on every delivered order of the shops attached to the franchise, plus a monthly bonus of up to
+  5% (100 base points = 1%, shown to one decimal: 30 points → 25.3%). Base points: 1 per new shop above the target of
+  60 a month, and 1 per ₹5,000 of business above the baseline (opening shops × ₹1 lakh).
+- Two owners in one zone share a free team's shop 50/50. A zone with no owner: its shops attach to the next franchise
+  sold.
+- If an owner stops renewing, he keeps recurring on his own team's shops for 2 more years; the zone's other shops move
+  to the next active owner.
 
-- **Where**: `/franchise` explains the offer; `/franchise/book` lists the 91 areas.
-  - The areas are grouped into 7 clusters, with search, filters, sorting, a list view and a map view.
-  - Each area shows its estimated business, with the disclosure.
-- **Fee**: ₹1,50,000 per area for 12 months, plus GST, paid 100% online.
-- **Capacity**: at most **2 owners per area**, and one owner can hold only one of an area's two slots.
-- **Holding a slot**: choosing areas holds a slot for 15 minutes while the owner pays. All the areas in one booking
-  are taken together, or none are.
-- **Validity**: an area runs from the moment the payment is verified until 23:59:59 IST the day before its one-year
-  anniversary.
-- **Launch offer**: open to the first 25 owners or 25 areas, whichever is reached first. The public page shows how
-  many launch places are left. Once the offer closes, booking shows "new terms coming soon" until you set new prices.
-  No future price is ever shown before that.
+### Zones and fees
 
-**Codes and earnings**
+- 50 Pune zones (`GKZ-PUN-01`–`50`), one per cluster of areas, at most 2 franchises each, 1-year term.
+- Fee by business: **Premier** (more than 10% above the Pune average) and **Emerging** (more than 10% below) pay
+  ₹1,50,000 × (1 + difference); **Standard** pays ₹1,50,000. GST extra. The fee is locked for the term; a renewal pays
+  the zone's fee at that time.
+- The business index in the seed is a **provisional estimate**. Before selling, import the actual annual business
+  per zone (Admin → Franchise → Fees), check the preview and publish. Until then the booking page says "Fees being
+  finalised" (unless you switch on "Allow zone sale at provisional fees").
+- These fees and rates are the launch offer for the first 25 franchise dealers; later terms are never shown.
 
-- **Franchise code**: each owner gets one `GKF-xxxxxx` code.
-  - A shop that registers with it must be **on the map inside one of the owner's active areas**; otherwise it is
-    refused. The PIN code alone is not used, because 411002, for example, belongs to 8 areas.
-  - Team members can get their own tracking codes. Their shops count for the owner, and only the owner is paid.
-- **Earnings**:
-  - 25% of each activated shop's fee without GST: ₹250 on a ₹1,000 retail shop, ₹625 on a ₹2,500 wholesale shop.
-  - Every month, 25% of GoKesari's actual 2% commission on the completed orders of those shops, net of refunds.
-  - A performance bonus of 0 to 5 points on top. It stays 0% until you publish a bonus formula.
-  - Everything is paid on the 5th with the dealer payout, after TDS, with a statement.
+### What needs you before booking opens
 
-**Expiry and renewal**
-
-- **Reminders**: 30 days and 15 days before expiry, then every day from 14 days before up to the last day, at 10:00
-  IST.
-  - They go by e-mail, in-app message, push, SMS and WhatsApp.
-  - Every reminder e-mail is copied to **ceo@agtci.com**.
-  - A digest of expiring and expired areas goes to ceo@agtci.com at 09:00 IST.
-- **Renewal**: from 30 days before expiry until 23:59:59 IST on the expiry day. It keeps the same slot and adds 12
-  months.
-- **At expiry**:
-  - Renewal closes.
-  - The code stops adding shops in that area (it still works in the owner's other active areas).
-  - The slot is free for anyone, with no priority.
-  - Shops stay live, and their monthly commission continues until the end of year 3 from the first activation.
-
-### What is not automatic (needs you)
-
-- **Area boundaries**: an area is bookable only after an admin approves its boundary. The workbook has PIN codes
-  only, no map shapes.
-  - The admin can seed reference points by geocoding each area's first locality. These are marked
-    "auto – needs review".
-  - The admin then draws a circle or polygon of at most 5 km, or imports GeoJSON, and approves it.
-  - Large outer areas such as 66, 68, 69 and 70 may need to be split first.
-- **Opening booking**: switch it on in Admin → Dealers → Franchise areas → Overview. It is off by default.
-- **Bonus formula**: publish one when you decide it (D2).
-- **Tax rates**: TDS and GST rates are confirmed by the CA (D8).
+1. Import and publish the actual business figures (or allow sale at provisional fees).
+2. Set the zones you want to sell to **Available** (they start as Coming Soon), and switch booking on.
+3. Optionally correct area map points / PIN codes (approximate today) and draw zone shapes for the map.
+4. Confirm TDS / GST rates with the CA (unchanged from the dealer payouts).
 
 ---
 
 ## Part 2 — Admin guide
 
-The console is at **Admin → Dealers → Franchise areas** (`/admin/franchise`). Operators can read it; only admins can
-change anything. Every change asks for a reason and is written to the audit log.
+Console: **Admin → Franchise** (`/admin/franchise`). Operators can read; only admins change anything; every change asks
+for a reason and is audited.
 
 | Tab | What you do there |
 |---|---|
-| Overview | Open or close booking; see the launch counters and the cluster occupancy; create the hidden test zone `T-QA1` |
-| Zones | Seed reference points (geocode); import GeoJSON; for each zone: draft a boundary (reference point plus circle radius or polygon), approve it (5 km and no-overlap checks), pause or resume, split |
-| Allocations | Every slot with its owner and dates; suspend, resume, terminate, or void a test allocation |
-| Expiring | Areas due in the next 30 days (red at 7 days or fewer); expired areas; the alerts log |
-| Attribution | Shops held for review (likely duplicates): release (pays) or reverse (never pays) |
-| Settings | The versioned commercial settings as JSON (money in paise, percentages in basis points), with an effective time and a reason |
-| Bonus formula | Metrics, weights, targets and score tiers (bonus in basis points, capped at 5 points); draft or publish |
-| Reports | CSV downloads: fees collected, occupancy by cluster, shops and GMV by owner, commission payable and paid; run a month now |
-| Send log | Every reminder, alert and digest: recipient, channel, time and status |
+| Overview | Booking and provisional-sale switches, launch counters, counts by tier and status, area summary |
+| Zones | Zone master (tier, Provisional tag, fee, % vs average, business, status, max franchises, owners); max 1 or 2; map shapes |
+| Zone status | Change one zone or many: Available, Coming Soon, Reserved (dealer + expiry), On Hold, Inactive; schedule for an IST time; history; cancel a scheduled change. Sold Out is set by the system |
+| Fees | Import business (CSV: zone code, ₹ Cr, source, as-of), preview old vs new, publish or discard; recalculate after changing the standard fee / band / min-max |
+| Areas | Area master and area-to-zone mapping (Unzoned included); move an area; edit its map point and PIN codes; correct one shop's area |
+| Coupons | Create / edit / pause coupons, assign private ones to dealers, uses report, Excel export |
+| Franchises | Every franchise; suspend, resume, terminate; refund a booking (then refund the money in the gateway) |
+| Commission & bonus | Owner rates (parity-checked), bonus settings with change log |
+| Monthly points | Recalculate, lock, Excel |
+| Settings, Expiring, Attribution, Send log | As before |
 
-**Super-admin.** Changing the maximum owners per area is limited to the admin e-mails listed in the environment
-variable `FRANCHISE_SUPER_ADMIN_EMAILS` (comma separated). The list is empty by default, so nobody can change it. The
-database never allows more than 2 owners per area.
-
-**Production end-to-end test.**
-
-1. Create `T-QA1`. It is hidden from the public: a 1 km circle in the sea, so no real shop can ever fall inside it.
-2. Book it with an internal admin account (`reserveZones` with `test: true`).
-3. Void the allocation.
-
-Test bookings never count toward the launch offer.
+**Production end-to-end test:** create the hidden test zone `T-QA1` (one test area in the sea), book it with an internal
+admin account (`test: true`), then void it. Test bookings never count toward the launch offer.
 
 ### Data
 
 | Table | What it holds |
 |---|---|
-| `franchise_regions`, `franchise_clusters`, `franchise_zones`, `franchise_zone_pins` | The territory master (PMR, C1–C7, 91 zones and their PINs) |
-| `franchise_zone_estimates` | Shops and GMV per shop for each zone (monthly and annual figures are computed by the app) |
-| `franchise_zone_boundaries` | Reference point plus polygon or circle; versioned; one APPROVED row per zone |
-| `franchise_config_versions` | Commercial settings, versioned, with an effective time |
-| `franchise_bookings` | A cart or renewal: amounts, config version, hold, payment intent |
-| `franchise_allocations` | One owner's slot in one zone: status, dates, tail end, launch sequence |
-| `franchise_allocation_renewals` | Each renewal: old and new expiry, fee |
-| `franchise_campaigns` | The moment the launch offer closed |
-| `franchise_codes` | GKF codes (the owner's, and members' tracking codes) linked to `referral_codes` |
-| `franchise_shop_attributions` (+ `_history`) | Which owner, allocation and zone a shop earns for, with status ACTIVE, HELD or REVERSED |
-| `franchise_rating_formulas`, `franchise_performance_ratings` | The bonus formula and each owner's monthly score, bonus and explanation |
-| `franchise_notification_log` | Every reminder, alert and digest. This is also the guard that stops a second send |
-| `franchise_compliance_violations` | Warning, recorded, suspension and termination entries |
-| `franchise_agreement_acceptances` | Clickwrap: version, text hash, IP address and device |
-| `franchise_calc_runs` | Each monthly run |
-| `dealer_commission_ledger` | The existing ledger. New entry types `ONE_TIME_FRANCHISE`, `RECURRING_BASE` and `RECURRING_BONUS`, and link columns `franchise_allocation_id`, `franchise_zone_id`, `config_version` and `calc_run_id` |
+| `franchise_zone_sets` | A city's zone set (`PUN` Pune); another city is imported as a new set and tiered against its own average |
+| `franchise_zones` | Zone code, cluster no, name, region, civic body, reason, status, reserved-for dealer and expiry, max franchises |
+| `franchise_areas` (+ `franchise_area_zone_history`) | The area master and each area's zone (null = Unzoned) |
+| `franchise_shop_area_periods` | Each shop's area and zone over time (corrections open a new period) |
+| `franchise_zone_business` | Business figures (provisional index or ₹ Cr) with source and as-of; DRAFT batches, PUBLISHED |
+| `franchise_zone_fee_versions` | Tier, % vs average and fee per zone, versioned |
+| `franchise_zone_status_history` | Every status change and scheduled change |
+| `franchise_coupons`, `franchise_coupon_assignments`, `franchise_coupon_redemptions` | Coupons, private assignments, uses (HELD / USED / RELEASED) |
+| `franchise_bookings` | A cart or renewal: list fees, discount, coupon, taxable, GST, total, hold, payment intent |
+| `franchise_allocations` (+ `_renewals`) | One owner's slot in one zone: list fee locked for the term, discount, tier, dates, tail end |
+| `franchise_codes` | One `GKF-` code per franchise (alias of the owner's code) |
+| `franchise_shop_attributions` (+ `_history`) | The owner's own-team shops (TEAM) and shops attached on an upgrade (UPGRADE) |
+| `franchise_monthly_snapshots`, `franchise_calc_runs` | The monthly bonus calculation per franchise |
+| `dealer_tier_shop_plans` | Each shop's frozen one-time plan, now with `model`, `case_code`, `franchise_allocation_id`, `franchise_zone_id` |
+| `dealer_commission_ledger` | The existing ledger (one-time per person; recurring lines to the owner) |
 
-The two-slot rule is enforced by the database. Partial unique indexes cover `(zone_id, slot_no)` and
-`(zone_id, owner_dealer_id)` while the status is RESERVED, PAYMENT_PENDING_VERIFICATION, ACTIVE or SUSPENDED, and a
-check constraint keeps `slot_no IN (1,2)`.
+Capacity: partial unique indexes on `(zone_id, slot_no)` and `(zone_id, owner_dealer_id)` while a franchise is held.
 
 ### Jobs
 
-The `franchise` job runs every 5 minutes, from the every-minute cron group:
+The `franchise` job runs every 5 minutes: expired holds (and their coupon uses) released; scheduled zone status changes
+and Reserved expiries applied; franchises past expiry expired (codes closed, Sold Out re-checked); renewal reminders at
+30 / 15 days then daily from 10:00 IST with the renewal fee (and why it changed), copied to ceo@agtci.com; Inactive-zone
+notice; the 09:00 IST digest; month calculation on days 1–3, statements on the 4th at 10:00, lock on the 5th.
 
-- releases expired holds;
-- expires areas whose time has passed (closing their codes for those zones);
-- sends reminders from 10:00 IST;
-- sends the digest from 09:00 IST;
-- on the 1st, from 02:00 IST, runs last month's ratings and recurring commission.
-
-The monthly close on the 5th (`dealer-monthly-payout`) runs the month again first, and only adds what is missing.
-
-### API
+### API (new or changed)
 
 | Endpoint | Who | What |
 |---|---|---|
-| `GET /api/franchise/zones` | public | Zones (search, filter and sort parameters), cluster summary, offer |
-| `GET /api/franchise/zones/[zoneId]` | public | One zone card |
-| `GET /api/franchise/boundaries` | public | Approved boundaries as GeoJSON |
-| `GET /api/franchise/offer` | public | Fee, launch places, rules text and its version |
-| `GET /api/franchise/me` | signed in | The owner dashboard |
-| `POST /api/franchise/agreement` | signed in | Accept the rules (version, IP, device) |
-| `POST /api/franchise/bookings` | owner | Reserve `{ zoneIds }` (all-or-nothing) |
-| `POST /api/franchise/bookings/[id]/pay` | owner | Open the gateway payment |
-| `DELETE /api/franchise/bookings/[id]` | owner | Cancel a reservation |
-| `POST /api/franchise/allocations/[id]/renew` | owner | Renew an area |
-| `POST /api/franchise/codes` | owner | Tracking code for a team member |
-| `/api/admin/franchise/*` | admin | Overview, config, zones (boundary, approve, status, maxOwners, split), boundaries (import, auto-reference, test zone), allocations, attributions, rating, run, violations, reports |
-| `POST /api/admin/dealers/[id]/salespeople/[spId]/transfer` | admin | Move a person to another dealer (Model A) |
-| `POST /api/admin/shops/[id]/reverse-commission` | admin | Reverse all commission on a shop |
-
-Payments use the existing payment intents with the new purpose `FRANCHISE_FEE`:
-
-- On capture, the handler activates the areas inside the capture transaction. A duplicate webhook does nothing.
-- On a failed or expired payment, the handler releases the slots.
+| `GET /api/franchise/zones` | public | Zones with tier, fee, description, status, slots; filters region / tier / slots / fee range |
+| `GET /api/franchise/zones/[zoneId]` | public | One zone with its areas |
+| `GET /api/franchise/boundaries` | public | Zones as GeoJSON coloured by tier (shape, or a point at the centre of its areas) |
+| `GET /api/franchise/areas` | public | Area suggestions (PIN, location) and the area list |
+| `GET /api/franchise/commission-chart` | public | The live commission chart |
+| `POST /api/franchise/cart` | signed in | Cart preview with coupon, GST and total |
+| `POST /api/franchise/bookings` | owner | Reserve `{ zoneIds, couponCode? }` |
+| `POST /api/franchise/allocations/[id]/renew` | owner | Renew `{ couponCode? }` at the zone's current fee |
+| `POST /api/shops/registration-draft/area` | shop owner | The wizard's area choice |
+| `/api/admin/franchise/zones/status`, `/fees`, `/areas`, `/shops/[id]/area`, `/coupons`, `/coupons/[id]`, `/bookings/[id]/refund` | admin (read: operator) | As in the tabs above |
 
 ### Mobile apps
 
-The Android and iOS apps are a WebView shell around the website, so every franchise page is in the apps as soon as
-the website is deployed. App 1.11.0 (versionCode 12, build 12) adds `/franchise` to App Links and associated domains
-and to the notification-tap routes. The store builds and submissions need the owner's EAS, Play Console and App
-Store Connect access (see the report).
+WebView shell: every page is in the apps once the website is deployed. 1.12.0 (versionCode 13, build 13) adds links
+for `/franchise/zones/…` and `/dealer/commission-chart`. Store builds need the owner's EAS, Play and App Store access.
 
 ### Rollback
 
-1. Close booking.
-2. Deploy the previous release.
-3. Run `scripts/rollback-0157.sql`. It refuses to run while any franchise ledger entries or `FRANCHISE_FEE` payment
-   intents exist, because those are real money.
-4. Delete the `0157` row from `drizzle.__drizzle_migrations`.
-5. Revert the `overrideByDistance` change if needed by setting rule `dealerTieredCommission.overrideByDistance` to
-   false. That restores the main dealer's 3% in every case.
+1. Close booking. 2. Deploy the previous release. 3. Run `scripts/rollback-0157.sql` (it refuses while franchise ledger
+entries or `FRANCHISE_FEE` payments exist). 4. Delete the `0157` row from `drizzle.__drizzle_migrations`.

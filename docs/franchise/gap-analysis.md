@@ -1,5 +1,35 @@
 # Franchise dealer module — gap analysis
 
+## Final brief of 21-Nov-2026 08.06 IST — gap analysis (current)
+
+Read against this branch at `e9ae2e01`'s parent (the 20-Nov / 00.30 build) on 21-Nov-2026 08.15 IST. Status:
+**EXISTS** (reused unchanged), **PARTIAL** (smallest change made in place), **MISSING** (built new). Decisions: G-xx in
+[DECISIONS.md](DECISIONS.md).
+
+| # | Brief item | Before | Built |
+|---|---|---|---|
+| F1 | Team structure, codes, PAN / mobile / bank once per team, moves by admin, TL deactivated → agents under the top person (§2) | EXISTS (Model A, 20-Nov work) | Reused for franchise owners too; owners with an active franchise can manage a team even where the free programme flag is off |
+| F2 | One-time A1–A4 (§3.1) | EXISTS (dealer 4% one level up since 21-Nov owner decision) | Unchanged |
+| F3 | One-time B1–B4, GoKesari pays the team directly (§3.2) | PARTIAL (owner 25% only, team paid by owner) | Team plan decides Model B by the shop's zone; owner 25% / 5%, agent 20%, TL 4%; plan stores model, case, franchise, zone |
+| F4 | Parity rule (§3.4) | MISSING | One agent and one TL field (rule `dealerTieredCommission`); save refused if owner < free dealer |
+| F5 | Recurring 25% of 2% + bonus ≤ 5%, one decimal (§4, §4.1) | PARTIAL (per dealer code, two decimals) | Per franchise; free-team shops attached by zone, 50/50 split; one decimal |
+| F6 | Renewal, 2 per zone, reminders with CEO copy, tail of own-team shops, buy-back (§4.2) | PARTIAL | Renewal at current fee with reason; tail only for own-team shops; free-team shops move to next owner |
+| F7 | 50 zones, area master, unzoned areas, shop → area → zone, admin correction, zone sets (§5.1) | MISSING (91 zones by PIN / 5 km circles) | New tables and seed from the owner's sheet; area picker at registration; corrections by period |
+| F8 | Tier and fee rule, display names, colours, min / max (§5.2) | MISSING | `src/lib/franchise-zones.ts`, versioned fees, settings |
+| F9 | Provisional seed, import → preview → publish, provisional-sale switch (§5.3) | MISSING | Fees tab, `franchise_zone_business`, `allowProvisionalSale` |
+| F10 | Zone description (§5.4) | MISSING | Generated from data, positive wording for every tier |
+| F11 | Booking map by tier, filters, cart, 15-min hold, 100% upfront, fee locked (§5.5) | PARTIAL (flat fee, cluster filters) | Per-zone fees, tier map and filters, cart with coupon and GST |
+| F12 | Zone status Admin control, scheduled, Reserved, Sold Out auto, Inactive (§5.6) | PARTIAL (BOOKABLE / PAUSED / RETIRED) | Six statuses, bulk + scheduled changes, history, notices |
+| F13 | Coupons (§5.7) | MISSING | Coupons, assignments, redemptions, report |
+| F14 | Free teams in a paid zone, upgrade (§6, §7) | PARTIAL | Zone attachment for recurring; upgrade attaches earlier team shops |
+| F15 | Payouts on the 5th, TDS, reversals, notifications (§8) | EXISTS (dealer payouts, TDS rows, ledger reversals, payee notices) | Reused; Model B reversal also ends the franchise attachment |
+| F16 | Screens (§9) | PARTIAL | Commission chart page, zone pages, admin tabs (zones, status, fees, areas, coupons) |
+| F17 | Mobile apps | EXISTS (WebView shell) | Links for the new pages, 1.12.0 |
+
+---
+
+## Earlier briefs (20-Nov 22.50 IST, 21-Nov 00.30 IST) — kept for the record
+
 Brief: owner prompt of **20-Nov-2026, 22.50 IST**: "Franchise dealer module (free + paid) and Pune PMR area booking".
 Read against `origin/staging` at `000b73ad`, 20-Nov-2026 22.55 IST. The website, APIs and admin were read, and so was
 the mobile app (`mobile/`) and the database schema (`src/server/db/schema.ts`, migrations to `0156_health`).

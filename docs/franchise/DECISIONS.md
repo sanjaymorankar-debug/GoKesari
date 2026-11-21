@@ -1,5 +1,9 @@
 # Franchise module — decisions and defaults (20/21-Nov-2026)
 
+> **Current model: the owner's final brief of 21-Nov-2026 08.06 IST** (section "Final brief" below). It replaces the
+> 5 km area definition, the 91-zone list and "the owner pays his own team". Older rows that it supersedes are kept
+> for the record and marked *superseded*.
+
 The brief (§0 rule 3) says: where a business rule is open, build the stated default, make it admin-configurable, log
 it here, and carry on. Every value below can be changed in **Admin → Dealers → Franchise areas → Settings**, a
 versioned change with an effective time. The only exceptions are the items marked *code*.
@@ -53,3 +57,27 @@ It supersedes the matching points of the 20-Nov brief.
 | B-11 | Shop deactivated by admin | Leaves the opening shops from the next month (opening = approved and tagged shops at the month's first run) |
 | B-12 | Model A | Unchanged apart from F-07 (dealer 4% one level up, owner 21-Nov-2026). Franchise owners pay their own staff; team members' tracking codes earn only the owner |
 | B-13 | Production `territoryDealer` rule | The other session switched it on at gokesari.com on 21-Nov 00.11 IST (0 territories). Model B replaces it for paid areas. **Owner, 21-Nov-2026: leave it on** |
+
+## Final brief of 21-Nov-2026 08.06 IST — as built (G-xx)
+
+| # | Point | Built |
+|---|---|---|
+| G-01 | Zones (§5.1) | 50 zones `GKZ-PUN-01`…`50`, one per cluster of the owner's "Pune Areas List" sheet, with region and civic body. Area master of 196 areas; 189 mapped to exactly one zone, 7 **Unzoned** (Koregaon Bhima, Sanaswadi, Shikrapur, Ranjangaon, Saswad, Khed Shivapur, Rajgurunagar (Khed)). Short cluster names mapped to full names and kept as aliases. Data: `docs/franchise/data/` |
+| G-02 | Shop → area → zone | The owner confirms the area at the wizard's pin step (suggested from the PIN code, then the nearest area). An API registration without an area gets the best suggestion. Registration is never blocked. Admin / operator corrections open a new period, so earlier commission keeps the old zone |
+| G-03 | Area coordinates and PIN codes | **Approximate** (for the suggestion only, which the user confirms); `location_source = APPROXIMATE` until an admin edits them in Admin → Franchise → Areas |
+| G-04 | Tier and fee (§5.2) | Exact rule: +10.0% / −10.0% Standard; fee = ₹1,50,000 × (1 + difference), nearest ₹1,000; optional min / max off. The seed reproduces every fee and tier of §5.3 (average 99.4; 20 / 12 / 18), all marked **Provisional** |
+| G-05 | Going on sale | Zones are seeded **Coming Soon**; booking also needs `bookingOpen`; zones with provisional fees can be bought only when "Allow zone sale at provisional fees" is on (off) — otherwise "Fees being finalised" |
+| G-06 | Business import (§5.3) | CSV (zone code, ₹ Cr, source, as-of) must cover **every active zone** of the set (one unit for the average). Preview old vs new → publish (reason) or discard. "Recalculate" re-tiers the published figures under changed settings. Active franchises keep the fee they paid; renewals use the published fee |
+| G-07 | Zone status (§5.6) | Admin-only (operators read). Sold Out is set and cleared by the system. Reserved needs a dealer and an expiry and returns to Available by itself; when the named dealer buys, the zone returns to Available (or Sold Out). Scheduled changes are applied by the 5-minute job. Every change: reason, history, in-app + e-mail to the zone's owners, e-mail to ceo@agtci.com |
+| G-08 | Max franchises per zone | 1 or 2, set by an admin, never below the active or reserved franchises (the super-admin list of F-06 is no longer used) |
+| G-09 | Coupons (§5.7) | Limits count used **and live held** uses, so the last use is never sold twice; a held use is released when the hold runs out, the payment fails or the booking is fully refunded. The code is checked at checkout and again when the payment starts — a code no longer valid releases the reservation with the reason. "Launch-offer dealers only" = the launch offer is still open for the dealer. % cap and flat amounts are shared in proportion to the eligible fees; remainders go to the largest line; no fee below ₹1 |
+| G-10 | Refund of a franchise booking | Admin → Franchises → "Refund booking": the franchise(s) are voided, codes closed, slots freed and the coupon use released. The money is refunded in the gateway by the admin |
+| G-11 | One-time commission (§3) | Model B = the dealer holds an active franchise in the shop's zone when the shop is activated; it runs through the existing team plan (cases B1–B4: owner 25% own shop, 5% on each team shop; agent 20%, team lead 4%), so GoKesari pays each person directly on the 5th. Each plan stores the model, case, franchise and zone (hierarchy snapshot). Outside his paid zones the owner's team follows Model A (§7) |
+| G-12 | Parity (§3.4) | One agent-direct and one team-lead field (rule `dealerTieredCommission`) for both models. Saving owner rates below the free dealer's (20% / 4% / 3%) — or free-dealer rates above the owner's — is refused with a message |
+| G-13 | Programme flag | Model B shops earn even where the free-dealer programme flag is off; Model A keeps needing the flag |
+| G-14 | Free teams in a paid zone (§6) | The shop attaches, order by order, to the franchises active in its zone when the order is delivered: 50/50 with two owners (or the nearest owner by the owner's PIN area, setting `recurringSplitMode`); none active → no recurring until one is sold |
+| G-15 | Tail (§4.2) | The owner's own-team shops (Model B, and earlier shops attached on an upgrade) stay his — 100% — while his franchise is active and for 2 years after it lapses. Free-team shops move to the zone's active owner(s). After the tail, or on a buy-back after a gap, the old shops are not restored as his own: they attach like any shop of the zone |
+| G-16 | Bonus (§4.1) | Main points floored to one decimal (30 base points → 0.3 → 25.3%; 75 → 0.7). Business points use the whole business of the opening shops; recurring pays the franchise's share. Rating (5 + bonus %) kept on the statement |
+| G-17 | Franchise codes | One `GKF-` code per franchise is kept as an alias of the owner's own code and closes at expiry. Team members' franchise tracking codes are removed: members use their own `GKT-` / `GKA-` codes and are paid directly |
+| G-18 | Removed | The 5 km circles, the "outside the area" block and its admin override, area splitting, the 91-zone seed, the cluster summary |
+| G-19 | Production rule `territoryDealer` | Left on (owner, 21-Nov-2026) |
