@@ -134,13 +134,12 @@ rolling 24 hours, then the next one takes over; the `AUTH_EMAIL_SERVER`
 mailbox is tried last. A mailbox the mail server refuses (its limit, or a
 wrong password) is paused for an hour and the next one is used at once.
 Sends are counted per mailbox in the `email_mailbox_sends` table (no
-recipients stored). Both sites use all ten mailboxes (owner, 21 Nov 2026):
-gokesari.com in the order `code1` → `code10@gokesari.com`, test.gokesari.com
-in the reverse order `code10` → `code1`, so the two sites meet only when the
-pool is nearly used up. Each site counts only its own sends, but Hostinger
-counts both: if their combined total reaches Hostinger's limit, the refusal
-pauses that mailbox for an hour and the next one is used. On the server (one
-site shown):
+recipients stored). One combined pool (owner, 21 Nov 2026): both sites list
+the same ten mailboxes, `code1` → `code10@gokesari.com`, in the same order,
+and no mailbox belongs to one site. Each site counts only its own sends (its
+own database), but Hostinger counts both: when their combined total reaches
+Hostinger's limit, the refusal pauses that mailbox for an hour and the next
+one is used at once. On the server (the same for `gokesari-staging`):
 
 ```bash
 echo "code1@gokesari.com code2@gokesari.com code3@gokesari.com code4@gokesari.com code5@gokesari.com code6@gokesari.com code7@gokesari.com code8@gokesari.com code9@gokesari.com code10@gokesari.com" | sudo gk-site env set gokesari-prod EMAIL_POOL
