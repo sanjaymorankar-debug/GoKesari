@@ -37,7 +37,8 @@ import {
   walletOf,
   withShopSettings,
 } from "../lib/orders-helpers";
-import { blocked, expect, qa } from "../lib/record";
+import { clickWrite } from "../lib/http";
+import { blocked, expect, qa, test } from "../lib/record";
 import { IS_LOCAL } from "../lib/target";
 import { world } from "../lib/world";
 
@@ -79,6 +80,31 @@ async function returnDetail(id: string, role: "customer" | "shop" | "ops" = "cus
 async function act(id: string, body: Record<string, unknown>, role: "customer" | "shop" | "ops" = "shop") {
   return call(await as(role), "PATCH", `/api/returns/${id}`, body);
 }
+
+/**
+ * Returns a check has sent towards the one staging rider (approved for a pickup). When the check fails or
+ * is blocked before it has finished them, operations cancel them: a pickup the rider still holds, or one
+ * still waiting for a rider, would otherwise block every later pickup check (E-41).
+ */
+const sentToRider = new Set<string>();
+function forRider(id: string) {
+  sentToRider.add(id);
+}
+test.afterEach(async () => {
+  const ids = [...sentToRider];
+  sentToRider.clear();
+  if (test.info().status === "passed") return;
+  for (const id of ids) {
+    try {
+      const { ret } = await returnDetail(id, "ops");
+      if (["UNDER_REVIEW", "APPROVED", "PICKUP_ASSIGNED", "PICKUP_SCHEDULED", "RIDER_EN_ROUTE"].includes(ret.status)) {
+        await act(id, { action: "cancel", note: "QA cleanup" }, "ops");
+      }
+    } catch {
+      /* best effort: the run's notes name any return left open */
+    }
+  }
+});
 
 /** Opens a return (one unit of a line) with a photo; returns its id and number. */
 async function openReturn(o: Delivered, key: "packaged" | "sharedA" | "milk" | "premium", reason = "QUALITY_ISSUE", extra: Record<string, unknown> = {}) {
@@ -146,10 +172,10 @@ async function acceptAndSetOff(browser: Browser, returnId: string) {
   const { context, page } = await pageAs(browser, "rider", riderSpot());
   try {
     let panel = await pickupPanel(page, returnNumber);
-    await panel.getByRole("button", { name: "Accept" }).click();
+    await clickWrite(page, panel.getByRole("button", { name: "Accept" }), "/api/return-pickups/");
     await expect.poll(async () => (await returnDetail(returnId)).ret.status, { timeout: 15_000 }).toBe("PICKUP_ASSIGNED");
     panel = await pickupPanel(page, returnNumber);
-    await panel.getByRole("button", { name: "Set off to the customer" }).click();
+    await clickWrite(page, panel.getByRole("button", { name: "Set off to the customer" }), "/api/return-pickups/");
     await expect.poll(async () => (await returnDetail(returnId)).ret.status, { timeout: 15_000 }).toBe("RIDER_EN_ROUTE");
   } finally {
     await context.close();
@@ -161,9 +187,7 @@ async function enterHandover(browser: Browser, code: string) {
   try {
     const panel = await pickupPanel(page);
     await panel.getByLabel("Handover code from the customer").fill(code);
-    const answered = page.waitForResponse((r) => r.url().includes("/api/return-pickups/") && r.request().method() === "PATCH");
-    await panel.getByRole("button", { name: "Confirm pickup" }).click();
-    await answered; // the rider's message appears only once the server has answered
+    await clickWrite(page, panel.getByRole("button", { name: "Confirm pickup" }), "/api/return-pickups/"); // the rider's message appears only once the server has answered
     await page.waitForLoadState("networkidle").catch(() => {});
     return (await panel.innerText().catch(() => "")) + (await page.locator("body").innerText());
   } finally {
@@ -330,6 +354,7 @@ qa(["TC-RET-003", "TC-FLD-094"], "quantities: more than delivered, the same line
 qa(["TC-RET-005", "TC-RET-007"], "the shop sees the photo and approves: customer told, a rider pickup is offered; the rider accepts on the dashboard (Pickup assigned), the customer sees the handover code and picks a time (Pickup scheduled)", async ({ browser }) => {
   await ready();
   const damaged = kept<{ id: string; returnNumber: string }>("return-damaged") ?? blocked("needs the return created by TC-RET-002");
+  forRider(damaged.id);
   const shop = await pageAs(browser, "shop");
   try {
     await shop.page.goto("/shop/returns?tab=requests");
@@ -338,7 +363,7 @@ qa(["TC-RET-005", "TC-RET-007"], "the shop sees the photo and approves: customer
     const img = card.getByRole("img", { name: "Evidence" }).first();
     await expect(img).toBeVisible();
     expect(await img.evaluate((el) => (el as HTMLImageElement).naturalWidth), "the photo loads for the shop").toBeGreaterThan(0);
-    await card.getByRole("button", { name: "Approve return" }).click();
+    await clickWrite(shop.page, card.getByRole("button", { name: "Approve return" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(damaged.id)).ret.status, { timeout: 15_000 }).toMatch(/APPROVED|PICKUP_ASSIGNED/);
   } finally {
     await shop.context.close();
@@ -349,7 +374,7 @@ qa(["TC-RET-005", "TC-RET-007"], "the shop sees the photo and approves: customer
   try {
     const panel = await pickupPanel(page, damaged.returnNumber);
     await expect(panel, "the rider never sees the handover code").not.toContainText(/Handover code:/);
-    await panel.getByRole("button", { name: "Accept" }).click();
+    await clickWrite(page, panel.getByRole("button", { name: "Accept" }), "/api/return-pickups/");
     await expect.poll(async () => (await returnDetail(damaged.id)).ret.status, { timeout: 15_000 }).toBe("PICKUP_ASSIGNED");
   } finally {
     await context.close();
@@ -363,7 +388,7 @@ qa(["TC-RET-005", "TC-RET-007"], "the shop sees the photo and approves: customer
     const when = new Date(Date.now() + 3 * 3_600_000);
     const local = new Date(when.getTime() - when.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     await caseCard.locator('input[type="datetime-local"]').fill(local);
-    await caseCard.getByRole("button", { name: "Save time" }).click();
+    await clickWrite(customer.page, caseCard.getByRole("button", { name: "Save time" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(damaged.id)).ret.status, { timeout: 15_000 }).toBe("PICKUP_SCHEDULED");
   } finally {
     await customer.context.close();
@@ -373,10 +398,11 @@ qa(["TC-RET-005", "TC-RET-007"], "the shop sees the photo and approves: customer
 
 qa(["TC-RET-008", "TC-RET-010", "TC-RET-021"], "set off, a wrong handover code is refused, the right one completes the pickup (rider paid a fee); goods received, inspected, refunded in full to the wallet; the customer's timeline shows every step", async ({ browser }) => {
   const damaged = kept<{ id: string; returnNumber: string }>("return-damaged") ?? blocked("needs the return created by TC-RET-002");
+  forRider(damaged.id);
   const { context, page } = await pageAs(browser, "rider", riderSpot());
   try {
     const panel = await pickupPanel(page, damaged.returnNumber);
-    await panel.getByRole("button", { name: "Set off to the customer" }).click();
+    await clickWrite(page, panel.getByRole("button", { name: "Set off to the customer" }), "/api/return-pickups/");
     await expect.poll(async () => (await returnDetail(damaged.id)).ret.status, { timeout: 15_000 }).toBe("RIDER_EN_ROUTE");
   } finally {
     await context.close();
@@ -398,12 +424,12 @@ qa(["TC-RET-008", "TC-RET-010", "TC-RET-021"], "set off, a wrong handover code i
   const shop = await pageAs(browser, "shop");
   try {
     let card = await shopReturnCase(shop.page, damaged.returnNumber);
-    await card.getByRole("button", { name: "Goods received" }).click();
+    await clickWrite(shop.page, card.getByRole("button", { name: "Goods received" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(damaged.id)).ret.status, { timeout: 15_000 }).toBe("INSPECTION_PENDING");
     card = shop.page.getByTestId("return-case").filter({ hasText: damaged.returnNumber }).first();
     await card.getByRole("button", { name: "Inspect goods" }).click();
     await card.getByLabel("What did you find?").fill("Crushed pack, as the photo shows");
-    await card.getByRole("button", { name: "Accept — refund the customer" }).click();
+    await clickWrite(shop.page, card.getByRole("button", { name: "Accept — refund the customer" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(damaged.id)).ret.status, { timeout: 20_000 }).toBe("REFUND_COMPLETED");
   } finally {
     await shop.context.close();
@@ -441,6 +467,7 @@ qa(["TC-RET-010", "TC-FLD-098"], "inspection refund amount: 0, negative, text, 3
   const o = order();
   const ghee = line(o, "premium");
   const r = await openReturn(o, "premium");
+  forRider(r.id);
   expectStatus(await act(r.id, { action: "approve" }), 200, "approve");
   await acceptAndSetOff(browser, r.id);
   const code = (await returnDetail(r.id)).pickup?.handoverCode ?? blocked("handover code");
@@ -466,7 +493,7 @@ qa(["TC-RET-010", "TC-FLD-098"], "inspection refund amount: 0, negative, text, 3
     expect((await returnDetail(r.id)).ret.status).toBe("INSPECTION_PENDING");
     const start = await walletOf();
     await card.getByLabel(/Refund ₹/).fill("70.50");
-    await card.getByRole("button", { name: "Accept — refund the customer" }).click();
+    await clickWrite(page, card.getByRole("button", { name: "Accept — refund the customer" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(r.id)).ret.status, { timeout: 20_000 }).toBe("REFUND_COMPLETED");
     const detail = await returnDetail(r.id);
     expect(detail.ret.refundAmountPaise, "₹70.50 stored as 7050 paise").toBe(7050);
@@ -504,7 +531,7 @@ qa(["TC-RET-006", "TC-FLD-096"], "the shop rejects with a reason the customer se
     await expect(card).toContainText("<script>alert(1)</script>");
     await card.getByRole("button", { name: "Reject" }).click();
     await card.getByPlaceholder("Reason shown to the customer").fill("Seal intact — please check the bag again");
-    await card.getByRole("button", { name: "Confirm" }).click();
+    await clickWrite(page, card.getByRole("button", { name: "Confirm" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(id)).ret.status, { timeout: 15_000 }).toBe("REJECTED");
   } finally {
     await context.close();
@@ -525,16 +552,17 @@ qa(["TC-RET-009", "TC-RET-013"], "the rider reports 'could not collect': back to
   await ready();
   const o = order();
   const r = await openReturn(o, "milk", "MISSING_ITEM");
+  forRider(r.id);
   expectStatus(await act(r.id, { action: "approve" }), 200, "approve");
   const { context, page } = await pageAs(browser, "rider", riderSpot());
   try {
     let panel = await pickupPanel(page, r.returnNumber);
-    await panel.getByRole("button", { name: "Accept" }).click();
+    await clickWrite(page, panel.getByRole("button", { name: "Accept" }), "/api/return-pickups/");
     await expect.poll(async () => (await returnDetail(r.id)).ret.status, { timeout: 15_000 }).toBe("PICKUP_ASSIGNED");
     panel = await pickupPanel(page, r.returnNumber);
     await panel.getByRole("button", { name: "Could not collect" }).click();
     await page.getByLabel("Reason the pickup failed").fill("Customer not home");
-    await page.getByRole("button", { name: "Report failed pickup" }).click();
+    await clickWrite(page, page.getByRole("button", { name: "Report failed pickup" }), "/api/return-pickups/");
     await expect.poll(async () => (await returnDetail(r.id)).ret.status, { timeout: 15_000 }).toBe("APPROVED");
   } finally {
     await context.close();
@@ -547,7 +575,7 @@ qa(["TC-RET-009", "TC-RET-013"], "the rider reports 'could not collect': back to
   try {
     await shop.page.goto("/shop/returns?tab=pickups");
     const card = shop.page.getByTestId("return-case").filter({ hasText: r.returnNumber }).first();
-    await card.getByRole("button", { name: "Find a rider again" }).click();
+    await clickWrite(shop.page, card.getByRole("button", { name: "Find a rider again" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(r.id)).pickup?.status, { timeout: 15_000 }).toBe("OFFERED");
   } finally {
     await shop.context.close();
@@ -555,7 +583,7 @@ qa(["TC-RET-009", "TC-RET-013"], "the rider reports 'could not collect': back to
   const customer = await pageAs(browser, "customer");
   try {
     await customer.page.goto(`/returns/${r.id}`);
-    await customer.page.getByTestId("return-case").getByRole("button", { name: "Cancel return" }).click();
+    await clickWrite(customer.page, customer.page.getByTestId("return-case").getByRole("button", { name: "Cancel return" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(r.id)).ret.status, { timeout: 15_000 }).toBe("RETURN_CANCELLED");
   } finally {
     await customer.context.close();
@@ -568,6 +596,7 @@ qa(["TC-RET-013", "TC-RET-022"], "after the rider sets off the customer cannot c
   await ready();
   const o = order();
   const r = await openReturn(o, "milk", "MISSING_ITEM");
+  forRider(r.id);
   expectStatus(await act(r.id, { action: "approve" }), 200, "approve");
   await acceptAndSetOff(browser, r.id);
   const late = await act(r.id, { action: "cancel" }, "customer");
@@ -578,7 +607,7 @@ qa(["TC-RET-013", "TC-RET-022"], "after the rider sets off the customer cannot c
     await page.goto("/admin/returns");
     const card = page.getByTestId("return-case").filter({ hasText: r.returnNumber }).first();
     await expect(card).toContainText("Rider on the way");
-    await card.getByRole("button", { name: "Cancel return" }).click();
+    await clickWrite(page, card.getByRole("button", { name: "Cancel return" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(r.id)).ret.status, { timeout: 15_000 }).toBe("RETURN_CANCELLED");
   } finally {
     await context.close();
@@ -590,6 +619,7 @@ qa(["TC-RET-008", "TC-RET-022", "TC-RET-011"], "five wrong handover codes leave 
   await ready();
   const o = order();
   const r = await openReturn(o, "sharedA", "MISSING_ITEM");
+  forRider(r.id);
   expectStatus(await act(r.id, { action: "approve" }), 200, "approve");
   await acceptAndSetOff(browser, r.id);
   const code = (await returnDetail(r.id)).pickup?.handoverCode ?? blocked("handover code");
@@ -604,7 +634,7 @@ qa(["TC-RET-008", "TC-RET-022", "TC-RET-011"], "five wrong handover codes leave 
     const card = page.getByTestId("return-case").filter({ hasText: r.returnNumber }).first();
     await card.getByRole("button", { name: "Complete pickup manually" }).click();
     await card.getByPlaceholder("How was the pickup confirmed?").fill("Customer confirmed on a call");
-    await card.getByRole("button", { name: "Confirm" }).click();
+    await clickWrite(page, card.getByRole("button", { name: "Confirm" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(r.id)).ret.status, { timeout: 15_000 }).toBe("PICKUP_COMPLETED");
   } finally {
     await context.close();
@@ -635,7 +665,7 @@ qa("TC-RET-012", "a return to a shop that does not deliver: no rider pickup, 'Cu
   try {
     await page.goto("/shop/returns?tab=pickups");
     const card = page.getByTestId("return-case").filter({ hasText: r.returnNumber }).first();
-    await card.getByRole("button", { name: "Customer handed goods over" }).click();
+    await clickWrite(page, card.getByRole("button", { name: "Customer handed goods over" }), "/api/returns/");
     await expect.poll(async () => (await returnDetail(r.id)).ret.status, { timeout: 15_000 }).toBe("INSPECTION_PENDING");
   } finally {
     await context.close();
