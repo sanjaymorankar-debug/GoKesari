@@ -52,4 +52,4 @@ It supersedes the matching points of the 20-Nov brief.
 | B-10 | Expired / not renewed (§6) | Code closed for new shops; no bonus; base 25% continues **up to 2 years after expiry** (`tailMode = years_after_lapse`, `tailYears = 2`; replaces D4) |
 | B-11 | Shop deactivated by admin | Leaves the opening shops from the next month (opening = approved and tagged shops at the month's first run) |
 | B-12 | Model A | Unchanged apart from F-07 (dealer 4% one level up, owner 21-Nov-2026). Franchise owners pay their own staff; team members' tracking codes earn only the owner |
-| B-13 | Production `territoryDealer` rule | The other session switched it on at gokesari.com on 21-Nov 00.11 IST (0 territories). Model B replaces it — **owner to decide** whether to switch it off |
+| B-13 | Production `territoryDealer` rule | The other session switched it on at gokesari.com on 21-Nov 00.11 IST (0 territories). Model B replaces it for paid areas. **Owner, 21-Nov-2026: leave it on** |
