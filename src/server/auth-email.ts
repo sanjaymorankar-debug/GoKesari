@@ -12,6 +12,7 @@ import type { EmailConfig } from "next-auth/providers/email";
 
 import { getEnv } from "@/lib/env";
 import { emailBrandHeader } from "@/server/email/brand";
+import { DeliveryFailedError, sendThroughMailboxes } from "@/server/email/mailbox-pool";
 
 export const EMAIL_PROVIDER_ID = "email";
 
@@ -61,14 +62,13 @@ export function emailProvider(): EmailConfig | null {
         return;
       }
       // A sign-in link: never readdressed by EMAIL_REDIRECT_TO (server/email/transport.ts).
-      const { createTransport } = await import("nodemailer");
-      const result = await createTransport(env.AUTH_EMAIL_SERVER).sendMail({
-        to: identifier,
-        from: env.AUTH_EMAIL_FROM,
-        ...message,
-      });
-      const failed = [...(result.rejected ?? []), ...(result.pending ?? [])].filter(Boolean);
-      if (failed.length) throw new Error("The sign-in email could not be sent.");
+      // AUTH_EMAIL_SERVER, or the next mailbox with room when EMAIL_POOL is set.
+      try {
+        await sendThroughMailboxes({ to: identifier, ...message }, env);
+      } catch (error) {
+        if (error instanceof DeliveryFailedError) throw new Error("The sign-in email could not be sent.");
+        throw error;
+      }
     },
   };
 }

@@ -233,7 +233,7 @@ describe("purge job", () => {
     const response = await housekeepingRoute(request);
     expect(response.status).toBe(200);
     // The same job forgets expired sign-out revocations too (TC-AUTH-034); none here.
-    expect(await response.json()).toEqual({ otps: { deleted: 3 }, sessions: { deleted: 0 } });
+    expect(await response.json()).toEqual({ otps: { deleted: 3 }, sessions: { deleted: 0 }, mailboxSends: { deleted: 0 } });
     const left = await db.select().from(loginOtps);
     expect(left.map((r) => r.email)).toEqual(["keep@example.com"]);
     expect((await purgeExpiredOtps()).deleted).toBe(0);

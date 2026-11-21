@@ -12,6 +12,7 @@
 import { getEnv, isProductionSite, type ServerEnv } from "@/lib/env";
 
 import { withEmailBrand } from "./brand";
+import { sendThroughMailboxes } from "./mailbox-pool";
 
 export interface OutboundEmail {
   to: string;
@@ -101,18 +102,16 @@ export async function sendEmail(original: OutboundEmail): Promise<void> {
     }
     return;
   }
-  const { createTransport } = await import("nodemailer");
-  const result = await createTransport(env.AUTH_EMAIL_SERVER).sendMail({
-    from: env.AUTH_EMAIL_FROM,
-    to: message.to,
-    subject: message.subject,
-    text: message.text,
-    // Every HTML email opens with the GoKesari wordmark.
-    html: message.html ? withEmailBrand(message.html) : undefined,
-    ...(message.attachments?.length
-      ? { attachments: message.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType, ...(a.cid ? { cid: a.cid } : {}) })) }
-      : {}),
-  });
-  const failed = [...(result.rejected ?? []), ...(result.pending ?? [])].filter(Boolean);
-  if (failed.length) throw new Error("The email could not be delivered.");
+  // AUTH_EMAIL_SERVER, or the next mailbox with room when EMAIL_POOL is set (mailbox-pool.ts).
+  await sendThroughMailboxes(
+    {
+      to: message.to,
+      subject: message.subject,
+      text: message.text,
+      // Every HTML email opens with the GoKesari wordmark.
+      html: message.html ? withEmailBrand(message.html) : undefined,
+      attachments: message.attachments,
+    },
+    env,
+  );
 }

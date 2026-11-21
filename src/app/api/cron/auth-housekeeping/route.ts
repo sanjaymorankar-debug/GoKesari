@@ -1,7 +1,8 @@
 /**
  * Sign-in housekeeping (batch-2026-10 WS-A, F1.1.2): deletes expired and used
  * one-time codes (rule otpHousekeeping), and the sign-out list's entries whose
- * session tokens have all expired (auth-sessions.ts, TC-AUTH-034). Schedule hourly:
+ * session tokens have all expired (auth-sessions.ts, TC-AUTH-034), and mailbox
+ * send counts older than two days (email/mailbox-pool.ts). Schedule hourly:
  *   curl -X POST https://<host>/api/cron/auth-housekeeping -H "Authorization: Bearer $CRON_SECRET"
  * Idempotent.
  */
@@ -9,6 +10,7 @@ import type { NextRequest } from "next/server";
 
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { purgeExpiredSessionRevocations } from "@/server/auth-sessions";
+import { purgeOldMailboxSends } from "@/server/email/mailbox-pool";
 import { ok, route } from "@/server/api/handler";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
 import { purgeExpiredOtps } from "@/server/otp/housekeeping";
@@ -20,8 +22,9 @@ export const POST = route(async (request: NextRequest) => {
   assertCronAuthorized(request);
   const otps = await purgeExpiredOtps();
   const sessions = await purgeExpiredSessionRevocations();
-  console.info("[cron:auth-housekeeping]", JSON.stringify({ otps, sessions }));
-  return ok({ otps, sessions });
+  const mailboxSends = await purgeOldMailboxSends();
+  console.info("[cron:auth-housekeeping]", JSON.stringify({ otps, sessions, mailboxSends }));
+  return ok({ otps, sessions, mailboxSends });
 });
 
 export const GET = route(async (request: NextRequest) => {
