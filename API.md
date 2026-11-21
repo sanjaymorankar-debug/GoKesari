@@ -152,6 +152,12 @@ is on file after it. Audited `shop.approved_without_fssai`. With a licence
 already on file, `waiveFssai` records nothing. Admin or operator:
 `"acceptDocumentsPromise": true` approves on the owner's documents promise.
 
+### `POST /api/shops/registration-draft/documents-step`
+Shop owner (`shop:create`), no body. The signup wizard's optional documents screen
+(owner, 21-Nov-2026) is done — "Continue to payment" or "Upload later". Answers
+with the whole wizard; its `nextStep` moves from `DOCUMENTS` to `PAYMENT`. The
+uploads themselves use `/api/shops/{id}/documents/…`.
+
 ### `POST /api/shops/{id}/reject`
 Requires `shop:reject`. Body: `{ "reason": "…" }`. Notifies the owner, who
 can correct the details and resubmit.

@@ -126,10 +126,13 @@ export function DocumentUploadPanel({
   items,
   browserOcr = false,
   onBehalfOf,
+  onChanged,
 }: {
   shopId: string;
   items: PanelItem[];
   browserOcr?: boolean;
+  /** Called after an upload is read or submitted, for a host that loads the checklist itself (the signup wizard). */
+  onChanged?: () => void;
   /** An admin or operator uploads a document the owner sent to GoKesari: the owner's name, for the consent line. */
   onBehalfOf?: string;
 }) {
@@ -146,11 +149,12 @@ export function DocumentUploadPanel({
       browserOcr={browserOcr}
       focus={item.docType === focus}
       onBehalfOf={onBehalfOf}
+      onChanged={onChanged}
     />
   );
   return (
     <div className="space-y-4">
-      <ScanCard shopId={shopId} browserOcr={browserOcr} onRead={setFocus} />
+      <ScanCard shopId={shopId} browserOcr={browserOcr} onRead={setFocus} onChanged={onChanged} />
       {main.map(card)}
       {more.length ? (
         <details className="group rounded-xl border border-cream-200 bg-white p-4" open={moreOpen || undefined} data-testid="more-licences">
@@ -168,7 +172,17 @@ export function DocumentUploadPanel({
 }
 
 /** "Scan a document": any document, any order — the server works out which one it is. */
-function ScanCard({ shopId, browserOcr, onRead }: { shopId: string; browserOcr: boolean; onRead: (docType: UploadDocType) => void }) {
+function ScanCard({
+  shopId,
+  browserOcr,
+  onRead,
+  onChanged,
+}: {
+  shopId: string;
+  browserOcr: boolean;
+  onRead: (docType: UploadDocType) => void;
+  onChanged?: () => void;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -192,6 +206,7 @@ function ScanCard({ shopId, browserOcr, onRead }: { shopId: string; browserOcr: 
     setFound(UPLOAD_DOC_LABELS[read.docType] ?? read.docType);
     onRead(read.docType);
     router.refresh();
+    onChanged?.();
   }
 
   const pick = (source: "FILE" | "CAMERA") => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -272,12 +287,14 @@ function DocumentCard({
   browserOcr,
   focus = false,
   onBehalfOf,
+  onChanged,
 }: {
   shopId: string;
   item: PanelItem;
   browserOcr: boolean;
   focus?: boolean;
   onBehalfOf?: string;
+  onChanged?: () => void;
 }) {
   const router = useRouter();
   const pending = item.latest?.status === "EXTRACTED" ? item.latest : null;
@@ -351,6 +368,7 @@ function DocumentCard({
     }
     setUpload(null);
     router.refresh();
+    onChanged?.();
   }
 
   async function discard() {
