@@ -12,7 +12,7 @@ E = "tests/integration/franchise-pmr.test.ts"
 rows = [
     ("Model A", "Free dealer registration (OTP, PAN, bank penny-drop, KYC)", "COMPLETED", "Production (existing)", "Existed before the brief; regression suite", "No change needed (gap A1)"),
     ("Model A", "Dealer → Team Lead → Agent team management (add / move / promote / deactivate; TL deactivated → agents under the dealer; one mobile / bank per team; admin transfer)", "IN PROGRESS", "Local", E + " (Model A sections)", L),
-    ("Model A", "20 / 4 / 3 commission — unchanged per brief 21-Nov (level-distance 4% available, off)", "IN PROGRESS", "Local", E + " — the four cases × 2 fees", L + "; owner to confirm F-07"),
+    ("Model A", "20 / 4 / 3 commission; dealer 4% one level up (owner decision 21-Nov, F-07)", "IN PROGRESS", "Local", E + " — the four cases × 2 fees", L + "; F-07 decided 21-Nov: 4%"),
     ("Model A", "GKD- / GKT- / GKA- codes for new codes", "IN PROGRESS", "Local", E + " — code prefixes", L + "; old codes keep working (F-01)"),
     ("Model B", "Territory master import (91 zones, 7 clusters, totals)", "IN PROGRESS", "Local", "scripts/franchise/build-zone-seed.py output (ALL PASS) + " + E, L),
     ("Model B", "Area booking UI (clusters, search, filters, sort, list / map, cart)", "IN PROGRESS", "Local", "docs/franchise/evidence/01-book-desktop.jpg, 02-book-phone-c5-cart.jpg", L),
