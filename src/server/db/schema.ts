@@ -10939,6 +10939,29 @@ export const shopDocumentWaivers = pgTable(
 );
 export type ShopDocumentWaiver = typeof shopDocumentWaivers.$inferSelect;
 
+/**
+ * Approval without the FSSAI licence (0159, owner request 21-Nov-2026): an admin's written
+ * override for a food shop with no valid FSSAI licence on file. The owner must upload it by
+ * due_at (rule documentUpload.fssaiWaiverDays after the waiver); the document follow-up
+ * suspends the shop after that. Append-only. Unlike shop_document_waivers it does not make the
+ * shop KYC-complete. waived_by is a customer-side user: no foreign key.
+ */
+export const shopFssaiWaivers = pgTable(
+  "shop_fssai_waivers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull(),
+    waivedBy: uuid("waived_by").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shop_fssai_waivers_shop_idx").on(t.shopId, t.createdAt)],
+);
+export type ShopFssaiWaiver = typeof shopFssaiWaivers.$inferSelect;
+
 export const DRAFT_CHECK_STATUSES = ["NOT_SUBMITTED", "PENDING", "VERIFIED", "FAILED", "EXPIRED", "MANUAL_REVIEW"] as const;
 export type DraftCheckStatus = (typeof DRAFT_CHECK_STATUSES)[number];
 

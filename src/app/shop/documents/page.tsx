@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { DocumentUploadPanel, type PanelItem } from "@/components/document-upload-panel";
+import { DocumentUploadPanel } from "@/components/document-upload-panel";
 import { Alert, EmptyState, PageHeader } from "@/components/ui";
+import { toPanelItems } from "@/lib/document-panel-items";
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { browserReadEnabled } from "@/server/kyc/document-reader";
@@ -33,30 +34,7 @@ export default async function ShopDocumentsPage({ searchParams }: { searchParams
   const shop = await activeShop(shops, params.shop);
   const checklist = await getDocumentChecklist(shop.id, user);
 
-  const items: PanelItem[] = checklist.items.map((item) => ({
-    docType: item.docType,
-    label: item.label,
-    requirement: item.requirement,
-    status: item.status,
-    validUntil: item.validUntil,
-    done: item.done,
-    additional: item.additional,
-    held: item.held,
-    latest: item.latest
-      ? {
-          id: item.latest.id,
-          status: item.latest.status,
-          fields: item.latest.fields,
-          flags: item.latest.flags,
-          blocking: item.latest.blocking,
-          contentType: item.latest.contentType,
-          readerEngine: item.latest.readerEngine,
-          validUntil: item.latest.validUntil,
-          numberLast4: item.latest.numberLast4,
-          confirmedAt: item.latest.confirmedAt?.toISOString() ?? null,
-        }
-      : null,
-  }));
+  const items = toPanelItems(checklist);
   const missingLabels = checklist.items.filter((i) => checklist.missing.includes(i.docType)).map((i) => i.label);
 
   return (

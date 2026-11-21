@@ -345,12 +345,17 @@ export async function assertLegalDocsAllowOrders(shopId: string): Promise<void> 
  * Shop approval (going live): every required document must be submitted first.
  * Pass the approval's transaction — it holds the shop row's lock.
  */
-export async function assertLegalDocsAllowApproval(shop: Shop, client: DbClient = db): Promise<void> {
+export async function assertLegalDocsAllowApproval(
+  shop: Shop,
+  client: DbClient = db,
+  /** Documents an admin let the shop go live without (FSSAI, fssai-waiver.ts): their deadline follows. */
+  options: { waived?: LegalDocType[] } = {},
+): Promise<void> {
   const rule = await getRule("legalDocuments");
   if (!rule.enabled) return;
   // Owner, 08-Nov-2026: a licence never stops a wizard shop going live; the grace period follows.
   if (await isWizardRegisteredShop(shop.id, client)) return;
-  const required = await requiredLegalDocTypes(shop, client);
+  const required = (await requiredLegalDocTypes(shop, client)).filter((type) => !options.waived?.includes(type));
   if (required.length === 0) return;
   const rows = await ensureRows(shop, required, client);
   const missing = required.filter((type) => {

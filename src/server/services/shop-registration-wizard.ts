@@ -162,7 +162,11 @@ export interface DraftAddress {
 }
 
 /** What the draft holds before the SHOP step: the owner name and address, saved on their own steps. */
-type PartialDetails = Partial<DraftShopDetails> & { addressConfirmed?: boolean };
+type PartialDetails = Partial<DraftShopDetails> & {
+  addressConfirmed?: boolean;
+  /** Owner, 21-Nov-2026: the optional documents screen was answered (Continue or Upload later). */
+  documentsStepDone?: boolean;
+};
 
 function partialOf(draft: ShopRegistrationDraft): PartialDetails {
   return (draft.details as PartialDetails | null) ?? {};
@@ -189,6 +193,8 @@ export const WIZARD_STEPS = [
   "PIN",
   "SHOP",
   "REVIEW",
+  // Owner, 21-Nov-2026: an optional documents screen once the shop exists, before payment.
+  "DOCUMENTS",
   "PAYMENT",
   "WAITING",
   "LIVE",
@@ -389,6 +395,11 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   if (shop?.status === "APPROVED" && setup) {
     nextStep = !setup.location ? "LOCATION" : !setup.products ? "LIVE" : "DONE";
   } else if (draft.status === "COMPLETED") nextStep = "DONE";
+  // Owner, 21-Nov-2026: once the shop exists, an optional screen to upload FSSAI, the Shop Act, Udyam and
+  // licences (the owner's own Upload documents panel) before payment. Never required: DI-14 stands.
+  else if (draft.status === "SUBMITTED" && shop?.status === "PENDING_APPROVAL" && shop.feeDuePaise > 0 && partialOf(draft).documentsStepDone !== true) {
+    nextStep = "DOCUMENTS";
+  }
   else if (draft.status === "SUBMITTED") nextStep = shop && shop.feeDuePaise > 0 ? "PAYMENT" : "WAITING";
   else if (!referral.answered || !base.canContinue) nextStep = "IDENTITY";
   else if (!email.confirmed) nextStep = "EMAIL";
@@ -527,7 +538,8 @@ export async function wizardContinuePath(ownerId: string, shopId: string): Promi
     .limit(1);
   if (!draft) return null;
   const view = await toWizardView(draft);
-  return view.nextStep === "DONE" || view.nextStep === "PAYMENT" ? null : "/shop/register";
+  // Still owing the fee (the optional documents screen or the payment): the fee page is right.
+  return view.nextStep === "DONE" || view.nextStep === "PAYMENT" || view.nextStep === "DOCUMENTS" ? null : "/shop/register";
 }
 
 /* --------------------------------------------------------------- guards */
@@ -637,6 +649,30 @@ export async function answerDocumentsReady(input: { actor: Actor; later: boolean
       .update(shopRegistrationDrafts)
       .set({ documentsLater: input.later, updatedAt: new Date() })
       .where(eq(shopRegistrationDrafts.id, locked.id))
+      .returning();
+    return updated;
+  });
+  return toWizardView(draft);
+}
+
+/**
+ * Owner, 21-Nov-2026: the optional documents screen is answered — "Continue to payment" or "Upload
+ * later" (the same: nothing is required). Whatever was uploaded stays; the rest is chased after go-live.
+ */
+export async function finishDraftDocumentsStep(input: { actor: Actor }): Promise<WizardView> {
+  const draft = await db.transaction(async (tx) => {
+    const [latest] = await tx
+      .select()
+      .from(shopRegistrationDrafts)
+      .where(and(eq(shopRegistrationDrafts.ownerId, input.actor.id), eq(shopRegistrationDrafts.status, "SUBMITTED")))
+      .orderBy(desc(shopRegistrationDrafts.updatedAt))
+      .limit(1)
+      .for("update");
+    if (!latest) throw notFound("Registration in progress");
+    const [updated] = await tx
+      .update(shopRegistrationDrafts)
+      .set({ details: { ...((latest.details as PartialDetails | null) ?? {}), documentsStepDone: true }, updatedAt: new Date() })
+      .where(eq(shopRegistrationDrafts.id, latest.id))
       .returning();
     return updated;
   });

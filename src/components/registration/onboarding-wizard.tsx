@@ -17,6 +17,7 @@ import { PUJA_SHOP_TYPE_KEY } from "@/lib/puja";
 import { GST_DECLARATION_TEXT, SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
 import { SELLER_DOC_LABELS, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { formatRupeesIndian, turnoverSlab, turnoverSlabLabel, type TurnoverFeeRule } from "@/lib/registration-fee";
+import { DocumentUploadPanel, type PanelItem } from "@/components/document-upload-panel";
 import { DocumentScan } from "./document-scan";
 import { StarterShelf } from "./starter-shelf";
 
@@ -47,6 +48,7 @@ type Step =
   | "PIN"
   | "SHOP"
   | "REVIEW"
+  | "DOCUMENTS"
   | "PAYMENT"
   | "WAITING"
   | "LIVE"
@@ -165,6 +167,7 @@ function tileOf(step: Step): number {
     case "SHOP":
       return 3;
     case "REVIEW":
+    case "DOCUMENTS":
     case "PAYMENT":
       return 4;
     case "WAITING":
@@ -281,6 +284,65 @@ function Consent({ checked, onChange, text = SELLER_VERIFICATION_CONSENT_TEXT, s
   );
 }
 
+/** The shop's document checklist as the upload panel's cards (GET /api/shops/{id}/documents, dates as text). */
+interface ChecklistJson {
+  enabled: boolean;
+  fssaiRequired: boolean;
+  fssaiOnFile: boolean;
+  items: (Omit<PanelItem, "latest"> & { latest: (Omit<NonNullable<PanelItem["latest"]>, "confirmedAt"> & { confirmedAt: string | null }) | null })[];
+}
+
+/**
+ * Owner, 21-Nov-2026: after "Create my shop", an optional screen to upload FSSAI (food shops), the Shop
+ * Act, Udyam and any licence — the same cards as My Shop → Upload documents. Nothing here is required:
+ * a missing licence never stops the shop going live (DI-14); it is chased after go-live.
+ */
+function DocumentsStep({ shopId, busy, send }: { shopId: string; busy: boolean; send: (path: string) => Promise<boolean> }) {
+  const [checklist, setChecklist] = useState<ChecklistJson | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/shops/${shopId}/documents`)
+      .then((r) => (r.ok ? (r.json() as Promise<ChecklistJson>) : Promise.reject(new Error(String(r.status)))))
+      .then((data) => {
+        if (live) setChecklist(data);
+      })
+      .catch(() => {
+        if (live) setLoadFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [shopId, version]);
+  const items: PanelItem[] = (checklist?.items ?? []).map((item) => ({ ...item, latest: item.latest ? { ...item.latest } : null }));
+  return (
+    <StepCard
+      title="Upload your documents (optional)"
+      intro="Add your FSSAI licence, Shop Act certificate, Udyam and any other licence now if you have them — a photo or PDF, read for you. You can also do it later from My Shop → Upload documents."
+    >
+      {checklist?.fssaiRequired && !checklist.fssaiOnFile ? (
+        <Alert tone="warning" title="FSSAI licence">
+          Your shop sells food, so an FSSAI licence or registration is required by law. Your shop can still go live without it; please upload it
+          within the grace period, or the shop will be suspended.
+        </Alert>
+      ) : null}
+      {loadFailed ? <Alert tone="info">Your documents could not be loaded just now. You can upload them later from My Shop → Upload documents.</Alert> : null}
+      {checklist && !checklist.enabled ? <Alert tone="info">Document upload is not available just now. You can add them later.</Alert> : null}
+      {checklist?.enabled ? <DocumentUploadPanel shopId={shopId} items={items} onChanged={() => setVersion((v) => v + 1)} /> : null}
+      {!checklist && !loadFailed ? <p className="text-sm text-ink-500">Loading your documents…</p> : null}
+      <div className="flex flex-wrap gap-2" data-testid="documents-step-actions">
+        <Button type="button" disabled={busy} onClick={() => void send("/api/shops/registration-draft/documents-step")} data-testid="documents-step-continue">
+          Continue to payment
+        </Button>
+        <Button type="button" variant="ghost" disabled={busy} onClick={() => void send("/api/shops/registration-draft/documents-step")} data-testid="documents-step-later">
+          Upload later
+        </Button>
+      </div>
+    </StepCard>
+  );
+}
+
 function StepCard({ title, intro, children }: { title: string; intro?: ReactNode; children: ReactNode }) {
   return (
     <Card className="rounded-2xl border-[var(--gk-line)] p-3 sm:p-5">
@@ -388,7 +450,7 @@ export function OnboardingWizard({
     setState(result.data);
     setViewing(null);
     setNotice(noticeFor(path, result.data));
-    if (path.endsWith("/submit") && result.data.nextStep === "PAYMENT") setOpenPayment(true);
+    if ((path.endsWith("/submit") || path.endsWith("/documents-step")) && result.data.nextStep === "PAYMENT") setOpenPayment(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
     return true;
   }
@@ -438,6 +500,7 @@ export function OnboardingWizard({
         <ShopStep state={state} busy={busy} fields={fields} send={send} changeEmail={() => setViewing("EMAIL")} back={back("PIN")} lang={lang} />
       ) : null}
       {step === "REVIEW" && state ? <ReviewStep state={state} busy={busy} send={send} goTo={setViewing} /> : null}
+      {step === "DOCUMENTS" && state?.shop ? <DocumentsStep shopId={state.shop.id} busy={busy} send={send} /> : null}
       {step === "PAYMENT" && state?.shop ? (
         <StepCard title="Pay the registration fee" intro="Pay by UPI or card. Your shop goes live as soon as the payment is confirmed.">
           <p className="text-sm text-ink-700">

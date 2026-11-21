@@ -67,6 +67,13 @@ export default async function ShopVerificationPage({ searchParams }: { searchPar
           ))}
         </nav>
       ) : null}
+      {/* The cards below take document numbers; a licence's copy (FSSAI and the rest) is uploaded on Upload documents. */}
+      <p className="text-sm text-ink-700" data-testid="verification-upload-link">
+        Have a licence certificate to send — FSSAI, drug licence, trade licence or any other?{" "}
+        <Link href={`/shop/documents?shop=${shop.id}`} className="font-medium text-kesari-600 hover:underline">
+          Upload a photo or PDF on Upload documents →
+        </Link>
+      </p>
       {summary.complete ? (
         <Alert tone="success" title="All required documents are verified.">
           Keep them up to date — we&apos;ll remind you 30 days before anything expires.
