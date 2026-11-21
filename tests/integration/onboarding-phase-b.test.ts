@@ -50,6 +50,7 @@ import {
 import { getShopSetupChecklist } from "@/server/services/shop-setup-checklist";
 import { getStarterShelf, publishStarterShelf } from "@/server/services/starter-shelf";
 import { createCategory, createProduct, createShop, createUser, linkShopCategory, resetDatabase } from "../helpers/fixtures";
+import { promiseShopDocuments } from "@/server/services/shop-document-gate";
 
 const gstinFor = (pan: string) => {
   const first14 = `27${pan}1Z`;
@@ -102,6 +103,8 @@ function details(overrides: Partial<DraftShopDetails> = {}): DraftShopDetails {
 }
 
 async function payInSandbox(shopId: string) {
+  // DF-08: the documents screen's promise for what may follow go-live (Shop Act, licences).
+  await promiseShopDocuments(shopId, owner, "SIGNUP_WIZARD").catch(() => undefined);
   const checkout = await startRegistrationFeeCheckout(shopId, owner);
   await simulateSandboxCheckout({ ref: checkout.intentId, viewerId: owner.id, outcome: "SUCCESS" });
   await finishFeeCapture(shopId, checkout.intentId);
