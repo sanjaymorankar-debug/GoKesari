@@ -397,10 +397,6 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "verified", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "suspensions", label: L("Suspensions", "निलंबन", "निलंबन"), icon: "lock", href: "/admin/suspensions", count: "activeSuspensions", permission: PERMISSIONS.SHOP_SUSPEND },
       { key: "grade", label: L("Grade", "ग्रेड", "श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
-      // docs/consult-booking-2026-11: consultant verification, bookings, categories and commission, policies, reports.
-      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
-      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
-      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
     more: [
       { key: "documents", label: L("Legal documents", "कानूनी दस्तावेज़", "कायदेशीर कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
@@ -452,6 +448,11 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "product", label: L("Product", "उत्पाद", "उत्पादन"), icon: "list-tree", href: "/product-categories", count: "productCategories", permission: PERMISSIONS.CATALOGUE_BROWSE },
       // docs/puja-samagri-2026-11: puja master catalogue, review queue, festivals, configuration.
       { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/admin/puja", permission: PERMISSIONS.PRODUCT_MANAGE },
+      // Service modules sit with the other module consoles here, not under Shops (owner, 21-Nov-2026).
+      // docs/consult-booking-2026-11: consultant verification, bookings, categories and commission, policies, reports.
+      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
+      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
+      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
   },
   {
@@ -572,10 +573,6 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "documents", label: L("Documents", "दस्तावेज़", "कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "photoChecks", label: L("Photo checks", "फ़ोटो जाँच", "फोटो तपासणी"), icon: "images", href: "/admin/image-moderation", count: "pendingImages", permission: PERMISSIONS.PRODUCT_MANAGE },
       { key: "grade", label: L("Quality grade", "गुणवत्ता ग्रेड", "गुणवत्ता श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
-      // docs/consult-booking-2026-11: operators run consultant onboarding and bookings with admins.
-      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
-      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
-      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
     more: [
       { key: "verification", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
@@ -673,6 +670,11 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
       // docs/puja-samagri-2026-11: puja master catalogue, review queue, festivals, configuration.
       { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/admin/puja", permission: PERMISSIONS.PRODUCT_MANAGE },
+      // Service modules, beside Puja Samagri as on the admin Categories hub (owner, 21-Nov-2026); not under Shop onboarding.
+      // docs/consult-booking-2026-11: operators run consultant onboarding and bookings with admins.
+      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
+      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
+      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
