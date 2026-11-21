@@ -33,7 +33,7 @@ break-glass on/off, free-listing manual approval, care OTP attempts, family code
 | Medical store | `/shop/health/prescriptions`, `/shop/health/pharmacy` | Live prescription inbox, verify, quote, substitutes, pack, pickup / delivery with codes, bill with batch / expiry |
 | Home-care provider | `/shop/health/care` | Visit inbox, accept, on my way, OTP check-in / check-out, notes and vitals, packages, ID card |
 | Equipment store | `/shop/health/equipment` | Listings (sale / rent), rentals: dispatch, delivery code, returns, condition, deposit refund |
-| Admin / operator | `/admin/health` (admin Categories → Health; operator Catalogue → Health) | Verification queues, drug master, lists, Prime plans and coupons, reports, access and audit logs, break-glass (admin), data requests |
+| Admin / operator | `/admin/health` (admin Categories → Shop categories → Health; operator Catalogue → Shop categories → Health) | Verification queues, drug master, lists, Prime plans and coupons, reports, access and audit logs, break-glass (admin), data requests |
 
 ## Access and consent (enforced in `src/server/health/access.ts` and each service)
 

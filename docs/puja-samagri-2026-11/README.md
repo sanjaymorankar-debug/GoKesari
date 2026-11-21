@@ -24,7 +24,7 @@ shop type or row is changed.
 | Shop owner service | `src/server/puja/service.ts` |
 | Admin / operator service | `src/server/puja/admin.ts` |
 | Customer storefront + price requests | `src/server/puja/storefront.ts` |
-| Screens | customer `/puja`, owner `/shop/puja`, admin & operator `/admin/puja`, Nearby `/shops/nearby?type=PUJA_SAMAGRI` |
+| Screens | customer `/puja`, owner `/shop/puja`, admin & operator `/admin/puja` (Categories → Shop categories → Puja Samagri, or the link on Product categories; operators: Catalogue → Shop categories; owner, 21-Nov-2026), Nearby `/shops/nearby?type=PUJA_SAMAGRI` |
 | Tests | `tests/unit/puja-catalogue.test.ts`, `tests/integration/puja-samagri.test.ts` |
 
 ## Data model (migration 0154)

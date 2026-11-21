@@ -30,6 +30,16 @@ export default async function CategoryMasterPage({ searchParams }: { searchParam
           </Link>
         }
       />
+      {/* Owner, 21-Nov-2026: Puja Samagri's categories are in this list; its own page (catalogue check, review
+          queue, festivals, settings) opens from here and from Shop categories, not as a Categories tile. */}
+      {user.role === "ADMIN" || user.role === "OPERATOR" ? (
+        <p className="rounded-xl border border-[var(--gk-line)] bg-white px-3 py-2 text-sm text-ink-700" data-testid="puja-catalogue-link">
+          🪔 Puja Samagri&apos;s product categories are in this list.{" "}
+          <Link prefetch={false} href="/admin/puja" className="font-semibold text-kesari-800 hover:underline">
+            Puja catalogue, review queue, festivals and settings →
+          </Link>
+        </p>
+      ) : null}
       <form method="get" className="flex gap-2" role="search">
         <input name="q" defaultValue={query} placeholder="Search categories" className={inputClass} />
         <button type="submit" className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800">
