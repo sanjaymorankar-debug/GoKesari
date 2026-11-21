@@ -44,6 +44,7 @@
 | `tests/unit/franchise-lib.test.ts` | 25 | **25 passed** | 21-Nov-2026 10.10 |
 | Mobile (`mobile/`, incl. new zone / chart links) | 61 | **61 passed** | 21-Nov-2026 (UI helper) |
 | `npx tsc --noEmit`, eslint on changed files | — | clean | 21-Nov-2026 10.15 |
+| Regression: all unit tests + franchise, dealer, registration, wizard, onboarding, referral, settings and cron integration tests (131 files) | 1,712 | **1,712 passed** | 21-Nov-2026 09.04 IST |
 
 ### 0.3 Browser checks (local dev server, localhost:3720)
 
