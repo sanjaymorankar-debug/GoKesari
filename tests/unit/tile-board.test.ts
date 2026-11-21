@@ -217,12 +217,13 @@ describe("menu definitions", () => {
     // Gig worker flow (docs/gig-worker-2026-10): shop +1, Delivery → "Delivery partners" (feature 7).
     // Newspaper subscriptions (docs/newspaper-subscriptions-2026-11): shop +1, Orders → "Subscribers".
     // Puja Samagri (docs/puja-samagri-2026-11): shop +1, Product categories → "Puja Samagri".
-    // Consultant appointments (docs/consult-booking-2026-11): shop +1, Orders → "Appointments"; admin +1 and operator +1, Shops → "Consultants".
-    // GoKesari Health (docs/health/): shop +1, Orders → "Health" (hub); admin +1 and operator +1, Shops → "Health".
+    // Consultant appointments (docs/consult-booking-2026-11): shop +1, Orders → "Appointments"; admin +1 and operator +1, "Consultants".
+    // GoKesari Health (docs/health/): shop +1, Orders → "Health" (hub); admin +1 and operator +1, "Health".
+    // Both sit in admin Categories / operator Catalogue next to Puja Samagri (moved out of Shops, 21-Nov-2026).
     expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(47);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
-    // Consultant appointments and Puja Samagri: admin +1 and operator +1 each (Shops → "Consultants";
-    // Categories / Catalogue → "Puja Samagri").
+    // Consultant appointments and Puja Samagri: admin +1 and operator +1 each (Categories / Catalogue →
+    // "Consultants" and "Puja Samagri").
     expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(41);
     expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(29);
   });

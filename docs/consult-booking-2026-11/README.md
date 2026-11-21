@@ -6,7 +6,7 @@ Owner brief 20-Nov-2026, 09.37 IST. Gap report: [GAP_REPORT.md](GAP_REPORT.md). 
 
 Rule **`consultBooking`** (Admin → Settings), shipped **off**. Off: `/consult` says "coming soon", consultant
 pages and new bookings are closed, existing bookings can still be opened, cancelled and refunded, and staff can
-prepare categories and verify profiles in Admin → Shops → Consultants. Settings in the rule: hold minutes (10),
+prepare categories and verify profiles in Admin → Categories → Consultants. Settings in the rule: hold minutes (10),
 default commission (200 bp = 2%), reminder hours ([24, 1]), modes whose completion needs the customer's code
 (in person, home visit), code attempts (5), file size / count, nearby radius (25 km), auto-verify profiles that
 need no certificate.
@@ -18,7 +18,7 @@ need no certificate.
 | Customer | `/consult`, `/consult/<shop slug>`, `/consult/bookings`, `/consult/bookings/<id>` (+ `/receipt`) | Find (category, service / name, language, mode, fee, day, near me), book, pay, attach files, reschedule, cancel, rate, dispute, add to calendar |
 | Consultant / firm owner | Seller Central → Orders → **Appointments** (`/shop/consult`), Setup (`/shop/consult/setup`) | Dashboard, day (team side by side) / week / month calendar, all booking actions, profile, policy, team, services, hours, leave, certificates, publish |
 | Team member | `/shop/consult` (linked by their GoKesari e-mail) | Own calendar and bookings |
-| Admin / operator (`consult:manage`) | Admin → Shops → **Consultants** (`/admin/consult`) | Verification, every booking (refunds, disputes, staff cancel), categories (commission %, registration, SAC), policy templates, reports |
+| Admin / operator (`consult:manage`) | Admin → Categories → **Consultants**; operator → Catalogue → **Consultants** (`/admin/consult`) | Verification, every booking (refunds, disputes, staff cancel), categories (commission %, registration, SAC), policy templates, reports |
 | Operator-limited (`consult:onboard`) | Operator → My shops → **Consultant setup** (`/operator/consult`) | Onboard the practice with the owner's e-mail consent (existing flow), then set up its appointments and map pin |
 
 Registration of a consultant is the existing shop registration (fee, referral code, GST/PAN, payment-based
