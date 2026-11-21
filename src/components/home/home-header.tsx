@@ -133,8 +133,15 @@ export function HomeHeader(props: HomeHeaderProps) {
         </span>
       </div>
 
+      <p className={clsx("hidden pb-1 text-center leading-tight lg:block xl:hidden", compact && "lg:hidden")} data-testid="home-tagline-wide">
+        <BrandTagline className="text-xs" />
+      </p>
       <div className="px-2 pb-2 sm:px-4 lg:hidden">
         <SearchBox lang={lang} signedIn={Boolean(user)} size="lg" />
+        {/* The tagline on phones and tablets too (the header row has no room for it below 1024 px). */}
+        <p className={clsx("mt-1 text-center leading-tight", compact && "hidden")} data-testid="home-tagline-mobile">
+          <BrandTagline className="text-xs" />
+        </p>
       </div>
 
       {locationOpen ? (

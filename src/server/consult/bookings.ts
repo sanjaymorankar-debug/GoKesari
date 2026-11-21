@@ -145,19 +145,32 @@ async function expireHoldsFor(client: DbClient, memberIds: readonly string[], no
     .from(consultBookings)
     .innerJoin(consultBookingMembers, eq(consultBookingMembers.bookingId, consultBookings.id))
     .where(and(eq(consultBookings.status, "PENDING_PAYMENT"), lt(consultBookings.holdExpiresAt, now), inArray(consultBookingMembers.memberId, [...memberIds]), eq(consultBookingMembers.active, true)));
-  for (const { id } of lapsed) await expireOne(client, id, now, "The payment was not completed in time; the time was released.");
+  for (const { id } of lapsed) await expireOne(client, id, now, "The payment was not completed in time; the time was released.", { tell: true });
   return lapsed.map((l) => l.id);
 }
 
-async function expireOne(client: DbClient, bookingId: string, now: Date, note: string): Promise<ConsultBooking | null> {
+/**
+ * Ends a booking still waiting for its online payment and frees its time. The
+ * payment did not happen, so a PENDING payment becomes FAILED (D-CB-09: with
+ * Cashfree a failed attempt leaves the session open for a retry, so the hold
+ * lapsing is what ends it, and the gateway's later "expired" no longer finds a
+ * waiting booking). `tell` sends the customer "payment did not go through".
+ */
+async function expireOne(client: DbClient, bookingId: string, now: Date, note: string, options: { tell?: boolean } = {}): Promise<ConsultBooking | null> {
   const [b] = await client
     .update(consultBookings)
-    .set({ status: "EXPIRED", holdExpiresAt: null, updatedAt: now })
+    .set({
+      status: "EXPIRED",
+      paymentStatus: sql`CASE WHEN ${consultBookings.paymentStatus} = 'PENDING' THEN 'FAILED' ELSE ${consultBookings.paymentStatus} END`,
+      holdExpiresAt: null,
+      updatedAt: now,
+    })
     .where(and(eq(consultBookings.id, bookingId), eq(consultBookings.status, "PENDING_PAYMENT")))
     .returning();
   if (!b) return null;
   await client.update(consultBookingMembers).set({ active: false }).where(eq(consultBookingMembers.bookingId, bookingId));
   await addEvent(client, b, "EXPIRED", { from: "PENDING_PAYMENT", to: "EXPIRED", actor: null, note });
+  if (options.tell) await tellBooking(b, "PAYMENT_FAILED", {}, client);
   return b;
 }
 
@@ -170,7 +183,7 @@ export async function expireLapsedHolds(now: Date = new Date()): Promise<{ expir
     .limit(200);
   let expired = 0;
   for (const { id } of due) {
-    const b = await db.transaction((tx) => expireOne(tx, id, now, "The payment was not completed in time; the time was released."));
+    const b = await db.transaction((tx) => expireOne(tx, id, now, "The payment was not completed in time; the time was released.", { tell: true }));
     if (b) expired += 1;
   }
   return { expired };

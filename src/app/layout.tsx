@@ -27,7 +27,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "GoKesari — Everything for Everyone",
+    default: "GoKesari — Everything for Everyone, Everywhere",
     template: "%s · GoKesari",
   },
   description:

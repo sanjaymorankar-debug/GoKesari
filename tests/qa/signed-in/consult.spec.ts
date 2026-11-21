@@ -10,19 +10,29 @@
  * practice on shop B (idempotent), bookings whose visitor is "QA CON <run>",
  * one help-desk ticket per run (dispute check). Never on production
  * (assertWritable). Each check stands alone: it books its own times.
+ *
+ * On a site where shop owner B has no saved session (test.gokesari.com: its
+ * sign-in codes go to a mailbox the QA agent does not read), shop owner A is
+ * the test consultant instead (decision CB-24).
  */
-import { as, pageAs } from "../lib/actors";
+import { existsSync } from "node:fs";
+import { as, pageAs, sessionFile } from "../lib/actors";
 import { shopOf } from "../lib/flows";
 import { call, expectStatus, pace, RUN, why, type Answer } from "../lib/http";
 import { blocked, expect, manual, need, qa } from "../lib/record";
 import { NO_SUCH_ID } from "../lib/routes";
-import { assertWritable } from "../lib/target";
+import { assertWritable, IS_LOCAL } from "../lib/target";
 import { world, type Role } from "../lib/world";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
-const OWNER: Role = "shopB";
+const OWNER_SHOP: "A" | "B" = IS_LOCAL || existsSync(sessionFile("shopB")) ? "B" : "A";
+const OWNER: Role = OWNER_SHOP === "B" ? "shopB" : "shop";
 const VISITOR = `QA CON ${RUN}`;
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, start: "00:00", end: "24:00" }));
+
+type Hours = { weekday: number; startMinute: number; endMinute: number };
+/** The test hours: all day, every day (a shop's consultant row may start with the shop's own hours). */
+const allDay = (hours: Hours[] = []) => [0, 1, 2, 3, 4, 5, 6].every((d) => hours.some((h) => h.weekday === d && h.startMinute === 0 && h.endMinute === 1440));
 
 interface Practice {
   shopId: string;
@@ -48,8 +58,8 @@ async function firm(role: Role, shopId: string, method: "GET" | "POST", body?: R
 /** The test practice on shop B: made once, kept live (idempotent, so every check can call it). */
 async function practice(): Promise<Practice> {
   assertWritable("set up a test consultant");
-  need(world().users[OWNER], "shop owner B (the test consultant's account)");
-  const shop = await shopOf("B");
+  need(world().users[OWNER], `shop owner ${OWNER_SHOP} (the test consultant's account)`);
+  const shop = await shopOf(OWNER_SHOP);
   const search = await call(await as("customer"), "GET", "/api/consult/search?q=x");
   if (search.status === 404) blocked("rule consultBooking is off on this site (Admin → Settings)");
   let setup = await firm(OWNER, shop.id, "GET", undefined, "?view=setup");
@@ -58,7 +68,7 @@ async function practice(): Promise<Practice> {
     expectStatus(await firm(OWNER, shop.id, "POST", { action: "profile", profile: { displayName: "QA Test Clinic", headline: "Test consultant for the QA suite — not a real practice", minNoticeMinutes: 0, latitude: 18.5308, longitude: 73.8475, bookingWindowDays: 30, completionOtp: true } }), 200, "profile");
   }
   setup = await firm(OWNER, shop.id, "GET", undefined, "?view=setup");
-  const members = setup.body.members as { id: string; name: string; isOwner: boolean; hours: unknown[]; slotMinutes: number }[];
+  const members = setup.body.members as { id: string; name: string; isOwner: boolean; hours: Hours[]; slotMinutes: number }[];
   const ownerMember = need(members.find((m) => m.isOwner), "the owner's consultant row");
   if (ownerMember.slotMinutes !== 5) expectStatus(await firm(OWNER, shop.id, "POST", { action: "member", member: { id: ownerMember.id, name: "QA Doctor", languages: ["English", "Marathi"], slotMinutes: 5 } }), 200, "owner member");
   let assistant = members.find((m) => m.name === "QA Assistant");
@@ -68,7 +78,7 @@ async function practice(): Promise<Practice> {
     assistant = made.body.member;
   }
   for (const m of [ownerMember, assistant!]) {
-    if ((members.find((x) => x.id === m.id)?.hours.length ?? 0) < 7) expectStatus(await firm(OWNER, shop.id, "POST", { action: "hours", memberId: m.id, rows: EVERY_DAY }), 200, "hours");
+    if (!allDay(members.find((x) => x.id === m.id)?.hours)) expectStatus(await firm(OWNER, shop.id, "POST", { action: "hours", memberId: m.id, rows: EVERY_DAY }), 200, "hours");
   }
   const existing = setup.body.services as { id: string; name: string }[];
   const services = {} as Practice["services"];
@@ -243,13 +253,16 @@ qa(["TC-CON-010", "TC-CON-011"], "the customer moves a booking within the policy
 
 qa(["TC-CON-022"], "a group session takes people up to its capacity", async () => {
   const p = await practice();
-  const slots = await freeStarts(p.services.group, { days: 3, attendees: 3 });
+  // One consultant's session: with "any available" a full session sends the next person to a
+  // colleague's session at the same time (pickMembers), so capacity is per consultant.
+  const memberId = p.ownerMemberId;
+  const slots = await freeStarts(p.services.group, { memberId, days: 3, attendees: 3 });
   const start = need(slots.find((s) => new Date(s.start).getTime() > Date.now() + 18 * 3_600_000 && s.places === 3)?.start, "an empty group session 18 h ahead");
-  const a = await book("customer", { serviceId: p.services.group, start, attendees: 2 });
+  const a = await book("customer", { serviceId: p.services.group, memberId, start, attendees: 2 });
   expectStatus(a, 201, "2 places");
-  const b = await book("customer2", { serviceId: p.services.group, start, attendees: 1 });
+  const b = await book("customer2", { serviceId: p.services.group, memberId, start, attendees: 1 });
   expectStatus(b, 201, "1 place");
-  const c = await book("customer2", { serviceId: p.services.group, start, attendees: 1 });
+  const c = await book("customer2", { serviceId: p.services.group, memberId, start, attendees: 1 });
   expect(c.status, why(c)).toBe(409);
   for (const [role, r] of [["customer", a], ["customer2", b]] as const) await act(role, r.body.booking.id, "cancel");
   return `3 of 3 places taken at ${start}; the 4th refused`;
