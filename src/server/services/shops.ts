@@ -54,13 +54,13 @@ import { applyShopCategories } from "./shop-categories";
 import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateBp } from "./registration-fee-coupons";
 import { assertShopType, isKnownShopType } from "./shop-types";
 import { getRule } from "./settings";
-import { getShopOnboarding, missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { getShopOnboarding, isWizardRegisteredShop, missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
 import { documentsDueLabel } from "./shop-document-gate";
 import { formatDisplayDate, todayIn } from "@/lib/dates";
 import { licenceGraceMessage } from "@/lib/shop-licences";
 import { getEnv } from "@/lib/env";
 import { decideGovAutoApproval, govAutoApprovalApplies, logGovDecision } from "./gov-auto-approval";
-import { sendReadyForProductUpload } from "./shop-ready-email";
+import { sendLicenceGraceNoticeIfMissing, sendReadyForProductUpload } from "./shop-ready-email";
 import { queueShopWelcomeKit } from "@/server/shop-banner/welcome-kit";
 import { assertFssaiAllowsApproval, fssaiStatus } from "./document-uploads";
 import { shopSellsFood } from "./seller-verification";
@@ -822,6 +822,8 @@ export async function approveShop(
     await checkCommissionMilestonesSafely(shopId, actor);
     // Approved without its FSSAI licence: the owner is told the date it is due (fssai-waiver.ts).
     if (options.waiveFssai) await sendFssaiWaiverNotice(approved);
+    // DI-14: a wizard shop live without its licence gets the 90-day grace notice, however it went live.
+    await sendLicenceGraceNoticeIfMissing(approved);
   };
   // The approval is saved: a follow-up that fails is logged, never turned into a failed answer.
   const runFollowUp = () => followUp().catch((error) => console.error("[shops] approval follow-up failed", shopId, error));
@@ -972,6 +974,7 @@ async function autoApproveShopIfReadyInner(shopId: string): Promise<boolean> {
     body: `${approved.name} is now live on GoKesari.`,
     actionUrl: "/shop",
   });
+  await sendLicenceGraceNoticeIfMissing(approved);
   await emitEvent({
     type: "shop.auto_approved",
     subjectId: shopId,
@@ -1061,7 +1064,10 @@ function approveShopTransaction(
     if (waiveFssai && (actor.role !== "ADMIN" || !actor.id)) {
       throw forbidden("Only an admin can approve a shop without its FSSAI licence.");
     }
-    const fssaiMissing = waiveFssai ? (await shopSellsFood(shop)) && !(await fssaiStatus(shop, tx)).onFile : false;
+    // A wizard shop needs no FSSAI waiver: it goes live anyway with DI-14's 90 days (a waiver would cut them to 30).
+    const fssaiMissing = waiveFssai
+      ? (await shopSellsFood(shop)) && !(await fssaiStatus(shop, tx)).onFile && !(await isWizardRegisteredShop(shop.id, tx))
+      : false;
     let documentsWaiver = waiveDocuments;
     // A shop whose only unverified seller document is its FSSAI licence waits in KYC_PENDING (FSSAI
     // is a seller document there): the FSSAI waiver covers that too, as "Approve without documents"

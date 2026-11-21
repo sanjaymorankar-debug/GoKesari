@@ -46,7 +46,7 @@ import { listRegistrationFeeCoupons, registrationFeeGstRateBp } from "@/server/s
 import { getActiveFee, listFeeHistory } from "@/server/services/registration-fees";
 import { listRolesForUsers } from "@/server/services/roles";
 import { getRegistrationFeeReport } from "@/server/services/shop-payments";
-import { countShopsByLifecycle, getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
+import { countShopsByLifecycle, getShopOnboarding, isWizardRegisteredShop, type ShopOnboarding } from "@/server/services/shop-onboarding";
 import { fssaiBlocksRegistration, fssaiStatus } from "@/server/services/document-uploads";
 import { getRule } from "@/server/services/settings";
 import { listShopsByStatus, searchShopsAdmin } from "@/server/services/shops";
@@ -110,11 +110,12 @@ export default async function AdminConsoleSectionPage({
 
   switch (key) {
     case "shops": {
-      const [pending, approved, statusModelsRule, documentUploadRule] = await Promise.all([
+      const [pending, approved, statusModelsRule, documentUploadRule, followUpRule] = await Promise.all([
         listShopsByStatus("PENDING_APPROVAL"),
         searchShopsAdmin({ status: "APPROVED", limit: 100 }).then((rows) => rows.sort((a, b) => a.name.localeCompare(b.name))),
         getRule("statusModels"),
         getRule("documentUpload"),
+        getRule("shopDocumentFollowUp"),
       ]);
       const onboarding = await getShopOnboarding(pending.map((s) => s.id));
       // Owner request 21-Nov-2026: say up front which food shops have no valid FSSAI licence on file.
@@ -122,6 +123,8 @@ export default async function AdminConsoleSectionPage({
         await Promise.all(
           pending.map(async (s) => {
             if (!(await fssaiBlocksRegistration(s))) return [s.id, null] as const;
+            // DI-14: a wizard shop goes live without it and has 90 days; Approve is not blocked.
+            if (await isWizardRegisteredShop(s.id)) return [s.id, "grace" as const] as const;
             return [s.id, (await fssaiStatus(s)).expired ? ("expired" as const) : ("missing" as const)] as const;
           }),
         ),
@@ -142,6 +145,7 @@ export default async function AdminConsoleSectionPage({
             canUploadDocuments={can(user.role, PERMISSIONS.SHOP_GST_PAN_VERIFY)}
             fssaiWaiverDays={documentUploadRule.fssaiWaiverDays}
             fssaiDueLabel={fssaiWaiverDueLabel(documentUploadRule.fssaiWaiverDays)}
+            licenceGraceDays={followUpRule.graceDays}
           />
         </>
       );

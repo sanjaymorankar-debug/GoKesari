@@ -43,12 +43,13 @@ import { POST as emailRoute } from "@/app/api/shops/registration-draft/email/rou
 import { POST as referralRoute } from "@/app/api/shops/registration-draft/referral/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
-import { notifications, shopCategories, shopRegistrationDrafts, shops } from "@/server/db/schema";
+import { notifications, platformSettings, shopCategories, shopFssaiWaivers, shopRegistrationDrafts, shops } from "@/server/db/schema";
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
 import { findLikelyDuplicate } from "@/server/dealers/attribution";
 import { finishFeeCapture } from "@/server/services/operator-limited";
+import { approveShop } from "@/server/services/shops";
 import { startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
 import { setRegistrationFee } from "@/server/services/registration-fees";
 import { setReferralSetting } from "@/server/services/referral-settings";
@@ -304,6 +305,50 @@ describe("Flow 1 with a GSTIN", () => {
     expect(notice.body).toContain("FSSAI licence is mandatory for this type of shop");
     expect(notice.body).toContain("grace period of 90 days");
     expect(notice.body).toContain("Otherwise, your shop will be suspended.");
+  });
+});
+
+describe("DI-14 with the FSSAI rule on, as shipped (D-151, confirmed by the owner 21-Nov-2026)", () => {
+  beforeEach(async () => {
+    // resetDatabase switches documentUpload.fssaiMandatoryForFood off for older tests; here it is on.
+    await db.delete(platformSettings).where(eq(platformSettings.key, "documentUpload"));
+    clearRuleCache();
+  });
+
+  it("a food shop with no FSSAI licence goes live on payment and is told it has 90 days", async () => {
+    await verifyGstin(gstinFor("ABCPK5678L"));
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
+    const submitted = await submitDraftForPayment({ actor: owner });
+    await payInSandbox(submitted.shop!.id);
+    expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED" });
+    const [notice] = await db.select().from(notifications).where(eq(notifications.type, "shop.licence_grace_notice"));
+    expect(notice.body).toContain("grace period of 90 days");
+    expect(notice.actionUrl).toBe(`/shop/documents?shop=${submitted.shop!.id}`);
+  });
+
+  it("one still held for review is approved by an admin without any FSSAI override, and gets the 90-day notice", async () => {
+    await verifyGstin(gstinFor("ABCPK5678L"));
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
+    const submitted = await submitDraftForPayment({ actor: owner });
+    const shopId = submitted.shop!.id;
+    // As a shop held before this fix: paid, still waiting.
+    await db.update(shops).set({ feePaymentStatus: "PAID", registrationFeePaise: 0 }).where(eq(shops.id, shopId));
+    expect(await shopRow(shopId)).toMatchObject({ status: "PENDING_APPROVAL" });
+
+    const admin = await createUser({ role: "ADMIN" });
+    // A 30-day FSSAI override is not recorded for a wizard shop: DI-14's 90 days apply.
+    const approved = await approveShop(shopId, { classification: "GREEN" }, { id: admin.id, role: "ADMIN" }, {
+      waiveFssai: { reason: "Should be ignored for a wizard shop" },
+    });
+    expect(approved.status).toBe("APPROVED");
+    expect(await db.select().from(shopFssaiWaivers)).toHaveLength(0);
+    const notices = await db.select().from(notifications).where(eq(notifications.type, "shop.licence_grace_notice"));
+    expect(notices).toHaveLength(1);
+    expect(notices[0].body).toContain("grace period of 90 days");
   });
 });
 

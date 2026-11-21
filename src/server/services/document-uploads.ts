@@ -64,6 +64,7 @@ import {
 import { readDocument, type BrowserReadInput } from "@/server/kyc/document-reader";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { activeFssaiWaiver } from "./fssai-waiver";
+import { isWizardRegisteredShop } from "./shop-onboarding";
 import { legalDocLabel, requiredLegalDocTypes, submitLegalDocument } from "./legal-documents";
 import {
   detectDocumentFile,
@@ -707,6 +708,11 @@ export async function fssaiBlocksRegistration(shop: Pick<Shop, "id" | "shopType"
 
 /** Shop approval gate (shops.ts). Pass the approval's transaction. */
 export async function assertFssaiAllowsApproval(shop: Shop, client: DbClient = db): Promise<void> {
+  // DI-14 (owner, 08-Nov-2026; confirmed 21-Nov-2026, defect D-151): a licence, FSSAI included, never
+  // stops a shop registered through the wizard going live — as legal-documents.ts already does for the
+  // other licences. It has shopDocumentFollowUp.graceDays (90) from going live, is reminded on the 1st
+  // and 15th and is suspended automatically after that (shop-document-follow-up.ts).
+  if (await isWizardRegisteredShop(shop.id, client)) return;
   const blocker = await fssaiBlocksRegistration(shop, client);
   if (blocker) throw conflict(blocker, { fssaiRequired: true });
 }
