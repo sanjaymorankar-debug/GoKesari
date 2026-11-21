@@ -316,5 +316,20 @@ updates_branch
 check "does not look at staging" not_called 'branches/staging'
 end_case
 
+# 20 Nov 2026: GitHub stopped a run at 350 min during #420's guest QA, so #420
+# never got a verdict. A run past its time budget starts no new PR and hands
+# the queue over to the next run.
+run_case run-budget-used "" QUEUE_RUN_BUDGET=0
+check "exits 0" exits 0
+check "says why" said "run time budget reached"
+check "starts no PR" not_called 'repos/acme/shop/(pulls/7|compare/|issues/7/)'
+check "tells the tracker" called '^PATCH repos/acme/shop/issues/340 body=.*handing over — #7 is next'
+end_case
+
+run_case run-budget-left "$UP_TO_DATE" DRY_RUN=1 QUEUE_RUN_BUDGET=3600
+check "still takes the PR" said "DRY RUN: would merge #7 at aaaa111"
+check "does not hand over" eval '! said "run time budget reached"'
+end_case
+
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]
