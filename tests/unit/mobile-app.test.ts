@@ -146,7 +146,8 @@ describe("website and app agree (mobile/)", () => {
       .filter((entry) => entry.isDirectory() && !/^[._(@[]/.test(entry.name))
       .map((entry) => entry.name)
       // sw.js: the service worker script (docs/app-install-2026-10), not a page.
-      .filter((name) => !["api", "mobile-auth", "sw.js"].includes(name));
+      // app: the "Get the app" download page stays in the browser (owner, 21-Nov-2026).
+      .filter((name) => !["api", "mobile-auth", "sw.js", "app"].includes(name));
 
     const missing = pages.filter((page) => !prefixes.some((prefix) => `/${page}/x`.startsWith(prefix)));
     // A new top-level page: add it to APP_LINK_PATH_PREFIXES in mobile/app.config.ts.

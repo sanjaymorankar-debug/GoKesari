@@ -7,7 +7,7 @@ import { offerView } from "@/server/franchise/booking";
 import { commissionChart } from "@/server/franchise/chart";
 import { zoneFacets, zoneViews } from "@/server/franchise/zones";
 
-export const metadata = { title: "GoKesari Franchise — Pune" };
+export const metadata = { title: "GoKesari Franchise — Pune, Mumbai (Konkan), Nashik" };
 export const dynamic = "force-dynamic";
 
 const pct = (bp: number) => `${(bp / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}%`;
@@ -21,16 +21,17 @@ export default async function FranchisePage() {
   const [offer, chart, zones] = await Promise.all([offerView(), commissionChart(), zoneViews()]);
   const facets = zoneFacets(zones);
   const fees = zones.map((z) => z.feePaise).filter((f): f is number => f != null);
+  const regular = zones.map((z) => z.regularFeePaise).filter((f): f is number => f != null);
   const r = chart.rates;
   const rec = chart.recurring;
   const provisional = zones.some((z) => z.provisional);
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-4 py-6" data-testid="franchise-info">
-      <PageHeader title="GoKesari Territory Franchise — Pune" description="Own a Pune zone on GoKesari: build your team, onboard local shops, support them, and earn on every order they complete." />
+      <PageHeader title="GoKesari Territory Franchise" description="Own a zone in Pune, Mumbai (Konkan) or Nashik on GoKesari: build your team, onboard local shops, support them, and earn on every order they complete." />
 
       <Card className="space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge tone="info">Pune only</Badge>
+          <Badge tone="info">{[...new Set(zones.map((z) => z.setName))].join(" · ")}</Badge>
           <Badge tone="neutral">{zones.length} zones</Badge>
           {offer.launch.open ? (
             <Badge tone="success">
@@ -42,14 +43,19 @@ export default async function FranchisePage() {
         </div>
         {offer.launch.open && fees.length ? (
           <p className="text-lg font-semibold text-ink-900">
-            Annual fee from {rupees(Math.min(...fees))} to {rupees(Math.max(...fees))} + GST, by zone · {offer.validityMonths} months · 100% upfront, online · at most {offer.maxOwnersPerZone} franchises a zone
+            {offer.promoFeePaise != null ? (
+              <>Launch offer {rupees(offer.promoFeePaise)} + GST a year for every zone (regular rates {rupees(Math.min(...regular))} to {rupees(Math.max(...regular))}, by zone)</>
+            ) : (
+              <>Annual fee from {rupees(Math.min(...fees))} to {rupees(Math.max(...fees))} + GST, by zone</>
+            )}{" "}
+            · {offer.validityMonths} months · 100% upfront, online · at most {offer.maxOwnersPerZone} franchises a zone
           </p>
         ) : (
           <Alert tone="warning" title="Launch offer closed – new terms coming soon">
             Leave your details on WhatsApp or call <a className="font-semibold underline" href={`https://wa.me/${FRANCHISE_CONTACT_PHONE.replace(/\D/g, "")}`}>{FRANCHISE_CONTACT_PHONE}</a>.
           </Alert>
         )}
-        {provisional ? <p className="text-sm text-ink-600">Zone fees are provisional while GoKesari finalises the business figures.</p> : null}
+        {provisional ? <p className="text-sm text-ink-600">Regular zone rates are provisional while GoKesari finalises the business figures.</p> : null}
         {offer.closedMessage && offer.launch.open ? <Alert tone="info">{offer.closedMessage}</Alert> : null}
         <div className="flex flex-wrap gap-2">
           <LinkButton href="/franchise/book">See the zones</LinkButton>
@@ -65,7 +71,7 @@ export default async function FranchisePage() {
 
       <Card className="space-y-2 p-4">
         <h2 className="text-base font-bold text-ink-900">Three kinds of zone</h2>
-        <p className="text-sm text-ink-700">Each zone&apos;s fee follows its business compared with the Pune zone average. Every tier is a good opportunity: Emerging zones grow fast and cost less to enter.</p>
+        <p className="text-sm text-ink-700">Each zone&apos;s fee follows its business compared with its city&apos;s zone average. Every tier is a good opportunity: Emerging zones grow fast and cost less to enter.</p>
         <ul className="space-y-1 text-sm text-ink-700">
           {facets.tiers.map((t) => (
             <li key={t.tier}>

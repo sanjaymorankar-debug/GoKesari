@@ -83,8 +83,14 @@ export interface ZoneView {
   value: number | null;
   source: string | null;
   asOf: string | null;
+  /** The tier fee's figures are provisional (post-launch / regular rate). */
   provisional: boolean;
+  /** What a booking pays now: the launch-offer fee while it is open, else the regular (tier) fee. */
   feePaise: number | null;
+  /** The zone's regular annual fee from its tier (shown beside the launch offer). */
+  regularFeePaise: number | null;
+  /** The launch-offer fee while the launch offer is open, else null. */
+  promoFeePaise: number | null;
   feeVersionId: string | null;
   description: string;
   areas: string[];
@@ -99,6 +105,7 @@ export async function zoneViews(options: { includeTest?: boolean; zoneIds?: stri
   const client = options.client ?? db;
   const { config } = await franchiseConfig(client);
   const display = tierDisplayOf(config);
+  const promoFeePaise = await promoFeeNow(client, config.promoFeePaise);
   const rows = await client
     .select({ z: franchiseZones, setName: franchiseZoneSets.name })
     .from(franchiseZones)
@@ -158,12 +165,15 @@ export async function zoneViews(options: { includeTest?: boolean; zoneIds?: stri
       source: bus?.source ?? null,
       asOf: bus?.asOf ?? null,
       provisional,
-      feePaise: fee ? Number(fee.feePaise) : null,
+      feePaise: z.isTest ? (fee ? Number(fee.feePaise) : null) : (promoFeePaise ?? (fee ? Number(fee.feePaise) : null)),
+      regularFeePaise: fee ? Number(fee.feePaise) : null,
+      promoFeePaise: z.isTest ? null : promoFeePaise,
       feeVersionId: fee?.id ?? null,
-      description: fee ? zoneDescription({ tier: fee.tier, diffBp: fee.diffBp, reason: z.reason, feePaise: Number(fee.feePaise), setName, display }) : z.reason,
+      description: fee ? zoneDescription({ tier: fee.tier, diffBp: fee.diffBp, reason: z.reason, feePaise: Number(fee.feePaise), setName, display, promoFeePaise: z.isTest ? null : promoFeePaise }) : z.reason,
       areas: zoneAreas.map((a) => a.name),
       centre,
-      forSale: z.status === "AVAILABLE" && slotsFree > 0 && !!fee && (!provisional || config.allowProvisionalSale),
+      // The launch-offer fee is fixed, so it can be sold while the regular rate is still provisional.
+      forSale: z.status === "AVAILABLE" && slotsFree > 0 && !!fee && (promoFeePaise != null || !provisional || config.allowProvisionalSale),
       isTest: z.isTest,
     });
   }
@@ -176,6 +186,16 @@ export async function zoneView(zoneId: string, options: { includeTest?: boolean 
   return v;
 }
 
+/**
+ * The launch-offer fee while the launch offer is open (owner, 21-Nov-2026 09.20 IST: ₹1,50,000 for every zone), or
+ * null. The offer closes for good when its 25-dealer limit is reached (franchise_campaigns.closed_at).
+ */
+export async function promoFeeNow(client: DbClient, promoFeePaise: number | null): Promise<number | null> {
+  if (promoFeePaise == null) return null;
+  const rows = (await client.execute(sql`select closed_at from franchise_campaigns where code = 'LAUNCH'`)) as unknown as { closed_at: Date | null }[];
+  return rows[0]?.closed_at ? null : promoFeePaise;
+}
+
 /** Whether `dealerId` may buy the zone now, and why not. */
 export function saleProblem(z: ZoneView, dealerId: string | null, now: Date, allowProvisionalSale: boolean): string | null {
   if (z.status === "RESERVED") {
@@ -185,7 +205,7 @@ export function saleProblem(z: ZoneView, dealerId: string | null, now: Date, all
   }
   if (z.slotsFree <= 0) return `${z.zoneId} is sold out.`;
   if (z.feePaise == null) return `${z.zoneId} has no fee yet.`;
-  if (z.provisional && !allowProvisionalSale) return "Fees being finalised";
+  if (z.provisional && z.promoFeePaise == null && !allowProvisionalSale) return "Fees being finalised";
   return null;
 }
 

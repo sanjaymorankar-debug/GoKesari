@@ -55,6 +55,55 @@ def tier_and_fee(index, average):
     return tier, int(fee), int((diff * 10000).quantize(Decimal(1), ROUND_HALF_UP))
 
 
+EXTRA_SETS = [
+    # (code, name, file) — drafted 21-Nov-2026 from the standard local areas for the owner's review; every zone
+    # Available at the launch offer, regular rate provisional (index 100 → Standard) until business data is published.
+    ("MUM", "Mumbai (Konkan)", "mumbai_konkan_zones.csv"),
+    ("NSK", "Nashik", "nashik_zones.csv"),
+]
+
+
+def extra_sets():
+    out = []
+    for code, name, fname in EXTRA_SETS:
+        rows = list(csv.DictReader(open(DATA / fname, encoding="utf-8")))
+        names = set()
+        zrows, arows, frows = [], [], []
+        n_area = 0
+        for r in rows:
+            zid = f"GKZ-{code}-{int(r['zone_no']):02d}"
+            zrows.append(f"\t({q(zid)}, '{code}', {int(r['zone_no'])}, {q(r['zone_name'])}, {q(r['region'])}, {q(r['civic_body'])}, {q(r['reason'])}, 'AVAILABLE', 'On sale at the launch offer (owner, 21-Nov-2026 09.20 IST); zone list drafted for review')")
+            frows.append(f"\t({q(zid)})")
+            for a in r["areas"].split(";"):
+                an, lat, lng, pin = a.split("|")
+                assert an not in names, (code, an)
+                names.add(an)
+                n_area += 1
+                arows.append(f"\t('{code}', {n_area}, {q(an)}, {q(r['region'])}, {q(r['civic_body'])}, NULL, {q(zid)}, {lat}, {lng}, ARRAY[{q(pin)}]::text[], '{{}}'::text[])")
+        out.append(f"-- Zone set {code} ({name}): {len(rows)} zones, {n_area} areas.")
+        out.append(f"INSERT INTO \"franchise_zone_sets\" (\"code\", \"name\", \"state\") VALUES ('{code}', {q(name)}, 'Maharashtra') ON CONFLICT DO NOTHING;")
+        out.append("--> statement-breakpoint")
+        out.append("INSERT INTO \"franchise_zones\" (\"zone_id\", \"zone_set_code\", \"cluster_no\", \"name\", \"region\", \"civic_body\", \"reason\", \"status\", \"status_reason\") VALUES\n" + ",\n".join(zrows) + "\nON CONFLICT DO NOTHING;")
+        out.append("--> statement-breakpoint")
+        out.append("INSERT INTO \"franchise_areas\" (\"zone_set_code\", \"area_no\", \"name\", \"region\", \"civic_body\", \"notes\", \"zone_id\", \"lat\", \"lng\", \"pincodes\", \"aliases\") VALUES\n" + ",\n".join(arows) + "\nON CONFLICT DO NOTHING;")
+        out.append("--> statement-breakpoint")
+        vals = ",\n".join(frows)
+        out.append(
+            "INSERT INTO \"franchise_zone_business\" (\"zone_id\", \"batch_id\", \"metric\", \"value\", \"source\", \"as_of\", \"provisional\", \"status\", \"published_at\")\n"
+            f"SELECT v.zone_id, '{BATCH[:-4]}{'a001' if code == 'MUM' else 'a002'}'::uuid, 'INDEX', 100, 'Provisional (no business data yet)', DATE '{AS_OF}', true, 'PUBLISHED', now()\nFROM (VALUES\n{vals}\n) AS v(zone_id)\n"
+            "WHERE NOT EXISTS (SELECT 1 FROM \"franchise_zone_business\" b WHERE b.zone_id = v.zone_id);"
+        )
+        out.append("--> statement-breakpoint")
+        out.append(
+            "INSERT INTO \"franchise_zone_fee_versions\" (\"zone_id\", \"business_id\", \"tier\", \"value\", \"average\", \"diff_bp\", \"fee_paise\", \"reason\", \"provisional\")\n"
+            f"SELECT z.zone_id, b.id, 'STANDARD', 100, 100, 0, {int(STANDARD_FEE) * 100}, z.reason, true FROM \"franchise_zones\" z JOIN \"franchise_zone_business\" b ON b.zone_id = z.zone_id AND b.status = 'PUBLISHED'\n"
+            f"WHERE z.zone_set_code = '{code}' AND NOT EXISTS (SELECT 1 FROM \"franchise_zone_fee_versions\" f WHERE f.zone_id = z.zone_id);"
+        )
+        out.append("--> statement-breakpoint")
+        print(f"{code}: {len(rows)} zones, {n_area} areas")
+    return out
+
+
 def main(head, ledger):
     seed = list(csv.DictReader(open(DATA / "GoKesari_Pune_Franchise_Zones_Seed.csv", encoding="utf-8")))
     clusters = {int(r["cluster_no"]): r for r in csv.DictReader(open(DATA / "pune_clusters.csv", encoding="utf-8"))}
@@ -82,13 +131,13 @@ def main(head, ledger):
     out.append("--> statement-breakpoint")
     out.append("INSERT INTO \"franchise_campaigns\" (\"code\") VALUES ('LAUNCH') ON CONFLICT DO NOTHING;")
     out.append("--> statement-breakpoint")
-    out.append("-- The 50 Pune franchise zones (one cluster each), Coming Soon until an admin opens them.")
+    out.append("-- The 50 Pune franchise zones (one cluster each), Available at the launch offer (owner, 21-Nov-2026 09.20 IST).")
     rows = []
     for r in seed:
         n = int(r["zone_no"])
         c = clusters[n]
         assert c["cluster_name"] == r["zone_name"], (n, c["cluster_name"], r["zone_name"])
-        rows.append(f"\t({q(zone_id(n))}, '{SET}', {n}, {q(r['zone_name'])}, {q(r['region'])}, {q(c['civic_body'])}, {q(r['fee_reason'])}, 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)')")
+        rows.append(f"\t({q(zone_id(n))}, '{SET}', {n}, {q(r['zone_name'])}, {q(r['region'])}, {q(c['civic_body'])}, {q(r['fee_reason'])}, 'AVAILABLE', 'On sale at the launch offer (owner, 21-Nov-2026 09.20 IST)')")
     out.append("INSERT INTO \"franchise_zones\" (\"zone_id\", \"zone_set_code\", \"cluster_no\", \"name\", \"region\", \"civic_body\", \"reason\", \"status\", \"status_reason\") VALUES\n" + ",\n".join(rows) + "\nON CONFLICT DO NOTHING;")
     out.append("--> statement-breakpoint")
     out.append("-- The area master: 196 areas; zone_id null = Unzoned. Coordinates and PIN codes are approximate (for the")
@@ -131,6 +180,7 @@ def main(head, ledger):
         "WHERE NOT EXISTS (SELECT 1 FROM \"franchise_zone_fee_versions\" f WHERE f.zone_id = v.zone_id);"
     )
     out.append("--> statement-breakpoint")
+    out.extend(extra_sets())
     out.append("INSERT INTO \"franchise_zone_status_history\" (\"zone_id\", \"old_status\", \"new_status\", \"reason\", \"applied_at\")\nSELECT z.zone_id, NULL, z.status, 'Zone created (seed, 21-Nov-2026)', now() FROM \"franchise_zones\" z\nWHERE NOT EXISTS (SELECT 1 FROM \"franchise_zone_status_history\" h WHERE h.zone_id = z.zone_id);")
     sql = Path(head).read_text() + Path(ledger).read_text() + "\n".join(out) + "\n"
     (ROOT / "drizzle/0157_franchise_pmr.sql").write_text(sql)

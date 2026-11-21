@@ -62,12 +62,12 @@ function buyable(z: ZoneView, dealerId: string | null, allowProvisional: boolean
   } else if (z.status !== "AVAILABLE") return { ok: false, why: ZONE_BADGE_LABELS[z.badge] };
   if (z.slotsFree <= 0) return { ok: false, why: "Sold out" };
   if (z.feePaise == null) return { ok: false, why: "Fee not set yet" };
-  if (z.provisional && !allowProvisional) return { ok: false, why: "Fees being finalised" };
+  if (z.provisional && z.promoFeePaise == null && !allowProvisional) return { ok: false, why: "Fees being finalised" };
   return { ok: true, why: null };
 }
 
 /**
- * Zone booking (final brief 21-Nov-2026 §5.5): Pune map coloured by tier and a list with region / tier / slots /
+ * Zone booking (final brief 21-Nov-2026 §5.5): a map coloured by tier and a list with region / tier / slots /
  * fee filters; select zones → the server-priced cart (fee, tier, coupon, GST, total) → rules (clickwrap) → reserve
  * (15-minute hold) and pay 100% online. Every amount shown comes from the server.
  */
@@ -382,6 +382,7 @@ function ZoneCard({ zone: z, colour, selected, canBook, sale, onToggle }: { zone
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded bg-ink-900 px-2 py-0.5 text-sm font-bold text-white">{z.zoneId}</span>
         {z.tierName ? <TierBadge name={z.tierName} colour={colour ?? z.tierColour} /> : null}
+        {z.promoFeePaise != null ? <Badge tone="success">Launch offer</Badge> : null}
         {z.provisional ? <Badge tone="neutral">Provisional</Badge> : null}
         <Badge tone={BADGE_TONE[z.badge]}>{ZONE_BADGE_LABELS[z.badge]}</Badge>
       </div>
@@ -392,8 +393,13 @@ function ZoneCard({ zone: z, colour, selected, canBook, sale, onToggle }: { zone
         <span className="ml-2 text-xs font-normal text-ink-500">{z.region}</span>
       </h3>
       <p className="text-xl font-bold text-kesari-800" data-testid={`zone-fee-${z.zoneId}`}>
-        {z.feePaise != null ? rupees(z.feePaise) : "—"} <span className="text-sm font-normal text-ink-600">a year + GST · {z.vsAverage} vs Pune average</span>
+        {z.feePaise != null ? rupees(z.feePaise) : "—"} <span className="text-sm font-normal text-ink-600">a year + GST{z.promoFeePaise != null ? " · launch offer" : ""} · {z.vsAverage} vs {z.setName} average</span>
       </p>
+      {z.promoFeePaise != null && z.regularFeePaise != null ? (
+        <p className="text-xs text-ink-600" data-testid={`zone-regular-fee-${z.zoneId}`}>
+          Regular rate after the launch offer: {rupees(z.regularFeePaise)} a year + GST{z.provisional ? " (provisional)" : ""}
+        </p>
+      ) : null}
       <p className="text-sm text-ink-700">{z.description}</p>
       <p className="text-xs text-ink-500">{businessText(z)}</p>
       <p className="text-xs text-ink-600">Areas: {z.areas.join(", ") || "—"}</p>
@@ -460,7 +466,7 @@ function ZoneMap({ zones, cart, onToggle, tiers }: { zones: ZoneView[]; cart: st
   return (
     <div className="space-y-2">
       {problem ? <Alert tone="info">{problem}</Alert> : null}
-      <div ref={box} className="h-[420px] w-full rounded-xl border border-cream-200 bg-cream-50" aria-label="Map of Pune franchise zones" />
+      <div ref={box} className="h-[420px] w-full rounded-xl border border-cream-200 bg-cream-50" aria-label="Map of franchise zones" />
       <p className="text-xs text-ink-500">
         {tiers.map((t) => (
           <span key={t.tier} className="mr-3">

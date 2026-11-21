@@ -32,18 +32,24 @@ export default async function FranchiseZonePage({ params }: { params: Promise<{ 
       <Card className="space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           {z.tierName ? <TierBadge name={z.tierName} colour={z.tierColour} /> : null}
+          {z.promoFeePaise != null ? <Badge tone="success">Launch offer</Badge> : null}
           {z.provisional ? <Badge tone="neutral">Provisional</Badge> : null}
           <Badge tone={z.badge === "AVAILABLE" ? "success" : z.badge === "ONE_LEFT" ? "warning" : z.badge === "SOLD_OUT" ? "danger" : "neutral"}>{ZONE_BADGE_LABELS[z.badge]}</Badge>
         </div>
         <p className="text-2xl font-bold text-kesari-800">
-          {z.feePaise != null ? rupees(z.feePaise) : "—"} <span className="text-base font-normal text-ink-600">a year + GST · {z.vsAverage} vs the Pune zone average</span>
+          {z.feePaise != null ? rupees(z.feePaise) : "—"} <span className="text-base font-normal text-ink-600">a year + GST{z.promoFeePaise != null ? " · launch offer" : ""} · {z.vsAverage} vs the {z.setName} zone average</span>
         </p>
+        {z.promoFeePaise != null && z.regularFeePaise != null ? (
+          <p className="text-sm text-ink-700">
+            Regular rate after the launch offer: <strong>{rupees(z.regularFeePaise)}</strong> a year + GST{z.provisional ? " (provisional)" : ""}. The fee you pay is locked for your 12-month term.
+          </p>
+        ) : null}
         <p className="text-ink-800">{z.description}</p>
         <p className="text-sm text-ink-600">{businessText(z)}</p>
         <p className="text-sm text-ink-700">
           {z.slotsFree} of {z.maxOwners} franchise slot{z.maxOwners === 1 ? "" : "s"} left · {offer.validityMonths} months from the verified payment, at the fee paid
         </p>
-        {z.provisional && !offer.allowProvisionalSale ? <Alert tone="info">Fees being finalised — this zone opens for booking once its fee is final.</Alert> : null}
+        {z.provisional && z.promoFeePaise == null && !offer.allowProvisionalSale ? <Alert tone="info">Fees being finalised — this zone opens for booking once its fee is final.</Alert> : null}
         <LinkButton href="/franchise/book">Book this zone</LinkButton>
       </Card>
       <Card className="space-y-2 p-4">

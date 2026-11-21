@@ -159,6 +159,8 @@ export const PUBLIC_PAGES = new Set([
   // Final franchise brief (21-Nov-2026 08.06 IST): each zone's page and the commission chart are public too.
   "/franchise/zones/[zoneId]",
   "/dealer/commission-chart",
+  // Owner, 21-Nov-2026 09.20 IST: the app is installed from the website until the stores are ready.
+  "/app",
 ]);
 
 /**

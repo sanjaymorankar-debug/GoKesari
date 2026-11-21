@@ -28,6 +28,8 @@ export function SiteFooter({ lang = "en" }: { lang?: Lang }) {
       links: [
         { href: "/sell", label: tr(HOME.sellOnGoKesari, lang) },
         { href: "/delivery-partner/apply", label: tr(HOME.becomeDeliveryPartner, lang) },
+        { href: "/franchise", label: "Franchise" },
+        { href: "/app", label: "Get the app" },
         { href: "/legal/seller-terms", label: tr(HOME.sellerTerms, lang) },
       ],
     },

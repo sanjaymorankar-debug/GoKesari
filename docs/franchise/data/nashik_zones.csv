@@ -1,0 +1,12 @@
+zone_no,zone_name,region,civic_body,reason,areas
+1,Old Nashik–Panchavati,Nashik City,NMC,"Old city markets and pilgrimage centre",Panchavati|20.0080|73.7930|422003;Old Nashik|20.0030|73.7890|422001;Ravivar Karanja|20.0010|73.7850|422001
+2,College Road–Gangapur Road,Nashik City,NMC,"High street, education hub, affluent residential",College Road|20.0050|73.7660|422005;Gangapur Road|20.0130|73.7550|422013;Canada Corner|20.0000|73.7700|422005
+3,Nashik Road–Deolali,Nashik City,NMC / Cantonment,"Railway hub, cantonment and residential",Nashik Road|19.9500|73.8400|422101;Deolali Camp|19.9450|73.8340|422401;Jail Road|19.9600|73.8300|422101
+4,CIDCO–Ambad–Satpur,Nashik City,NMC,"MIDC industry and large residential",CIDCO Nashik|19.9800|73.7550|422009;Ambad|19.9600|73.7400|422010;Satpur|20.0080|73.7350|422007
+5,Indira Nagar–Pathardi,Nashik City,NMC,"Growing residential",Indira Nagar Nashik|19.9800|73.7820|422009;Pathardi Phata|19.9550|73.7700|422010;Rane Nagar|19.9720|73.7750|422009
+6,Mhasrul–Adgaon,Nashik City,NMC,"Developing fringe",Mhasrul|20.0400|73.8000|422004;Adgaon|20.0300|73.8300|422003;Makhmalabad|20.0250|73.7650|422003
+7,Malegaon,Malegaon,MMC,"Powerloom textile trade town",Malegaon|20.5579|74.5287|423203
+8,Sinnar–Igatpuri,Nashik District,Municipal Councils,"MIDC (Sinnar) and hill towns",Sinnar|19.8460|73.9980|422103;Igatpuri|19.6950|73.5600|422403;Ghoti|19.7160|73.6280|422402
+9,Niphad–Ozar–Pimpalgaon,Nashik District,Municipal Councils,"Grape and onion belt, HAL Ozar",Niphad|20.0800|74.1100|422303;Ozar|20.0950|73.9270|422206;Pimpalgaon Baswant|20.1700|73.9900|422209
+10,Yeola–Manmad–Nandgaon,Nashik District,Municipal Councils,"Railway junction and trading towns",Yeola|20.0420|74.4890|423401;Manmad|20.2510|74.4370|423104;Nandgaon|20.3070|74.6570|423106
+11,Dindori–Kalwan–Satana,Nashik District,Municipal Councils,"Agricultural market towns",Dindori|20.2040|73.8330|422202;Kalwan|20.4950|74.0300|423501;Satana|20.5980|74.2030|423301

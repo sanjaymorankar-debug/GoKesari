@@ -25,6 +25,9 @@ export const franchiseConfigSchema = z
     bookingOpen: z.boolean(),
     /** Zone sets shown in the booking flow and API (brief §5.1). */
     zoneSetsEnabled: z.array(z.string().regex(/^[A-Z]{3}$/)).min(1),
+    /** Owner, 21-Nov-2026 09.20 IST: the launch-offer (promotional) fee for every zone while the launch offer is open
+     * (first 25 franchise dealers); the zone's tier fee is shown beside it as the regular rate. null = no promotion. */
+    promoFeePaise: int(100, 1_000_000_000).nullable(),
     /** §5.3: zones whose current fee is provisional can be bought only when this is on (off by default). */
     allowProvisionalSale: z.boolean(),
     /** §5.2: the standard fee, the ±band that is Standard, and the optional min / max fee (null = off). */
@@ -90,8 +93,10 @@ export type FranchiseConfig = z.infer<typeof franchiseConfigSchema>;
 
 /** Brief defaults (final brief 21-Nov-2026 08.06 IST). */
 export const FRANCHISE_DEFAULTS: FranchiseConfig = {
-  bookingOpen: false,
-  zoneSetsEnabled: ["PUN"],
+  // Owner, 21-Nov-2026 09.20 IST: booking open; Pune, Mumbai (Konkan) and Nashik zones on sale at the ₹1,50,000 launch fee.
+  bookingOpen: true,
+  zoneSetsEnabled: ["PUN", "MUM", "NSK"],
+  promoFeePaise: 15_000_000,
   allowProvisionalSale: false,
   standardFeePaise: DEFAULT_TIER_SETTINGS.standardFeePaise,
   standardBandBp: DEFAULT_TIER_SETTINGS.standardBandBp,

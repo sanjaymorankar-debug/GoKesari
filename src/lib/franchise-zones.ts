@@ -100,11 +100,14 @@ const rupeesWhole = (paise: number) => `₹${INR.format(Math.round(paise / 100))
  * The zone's one-paragraph description (§5.4), positive for every tier: an Emerging zone is a growth opportunity at a
  * lower entry fee. `setName` is the zone set's city ("Pune").
  */
-export function zoneDescription(input: { tier: ZoneTier; diffBp: number; reason: string; feePaise: number; setName: string; display?: TierDisplay }): string {
+export function zoneDescription(input: { tier: ZoneTier; diffBp: number; reason: string; feePaise: number; setName: string; display?: TierDisplay; promoFeePaise?: number | null }): string {
   const d = input.display ?? DEFAULT_TIER_DISPLAY;
   const pct = Math.round(Math.abs(input.diffBp) / 100);
   const avg = `the ${input.setName} zone average`;
-  const fee = `Annual franchise fee ${rupeesWhole(input.feePaise)} + GST.`;
+  const fee =
+    input.promoFeePaise != null
+      ? `Launch offer ${rupeesWhole(input.promoFeePaise)} + GST a year for the first 25 franchise dealers (regular annual fee ${rupeesWhole(input.feePaise)} + GST).`
+      : `Annual franchise fee ${rupeesWhole(input.feePaise)} + GST.`;
   const reason = input.reason.trim().replace(/\.$/, "");
   if (input.tier === "PREMIER") return `${d.names.PREMIER} zone – business about ${pct}% above ${avg}. ${reason}. ${fee}`;
   if (input.tier === "EMERGING") return `${d.names.EMERGING} zone – business about ${pct}% below ${avg}. ${reason}, with room to grow. ${fee}`;

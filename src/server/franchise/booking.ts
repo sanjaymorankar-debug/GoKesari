@@ -140,6 +140,8 @@ export interface OfferView {
   maxOwnersPerZone: number;
   holdMinutes: number;
   maxZonesPerBooking: number;
+  /** The launch-offer fee for every zone while the offer is open, else null. */
+  promoFeePaise: number | null;
   closedMessage: string | null;
 }
 
@@ -150,7 +152,7 @@ export async function offerView(client: DbClient = db): Promise<OfferView> {
   const launch = launchState({ owners: c.owners, areas: c.areas, maxOwners: config.launchMaxOwners, maxAreas: config.launchMaxAreas, closeRule: config.launchCloseRule, closedAt: c.closedAt });
   // §4 / §5.5: the zone fees are the launch offer for the first 25 dealers; later terms are never shown.
   const closedMessage = !config.bookingOpen ? "Bookings open soon." : !launch.open ? "Launch offer closed – new terms coming soon." : null;
-  return { bookingOpen: config.bookingOpen && launch.open, launch, allowProvisionalSale: config.allowProvisionalSale, gstRateBp: config.gstRateBp, validityMonths: config.validityMonths, maxOwnersPerZone: config.maxOwnersPerZone, holdMinutes: config.reservationHoldMinutes, maxZonesPerBooking: config.maxAreasPerBooking, closedMessage };
+  return { bookingOpen: config.bookingOpen && launch.open, launch, allowProvisionalSale: config.allowProvisionalSale, gstRateBp: config.gstRateBp, validityMonths: config.validityMonths, maxOwnersPerZone: config.maxOwnersPerZone, holdMinutes: config.reservationHoldMinutes, maxZonesPerBooking: config.maxAreasPerBooking, promoFeePaise: launch.open ? config.promoFeePaise : null, closedMessage };
 }
 
 /** The cart's amounts (§5.7): list fees − coupon discount = taxable; GST on the taxable amount; total. */

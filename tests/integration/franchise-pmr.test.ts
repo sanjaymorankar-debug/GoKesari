@@ -71,7 +71,6 @@ import { RULES } from "@/server/config/rules";
 import { createOrder, createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 let admin: { id: string; role: "ADMIN" };
-const SEED_BATCH = "8a6f3c2e-0b1d-4c5e-9f7a-21b0c0de0157";
 
 /** Zones used below (seed fees): 03 Shivajinagar–Deccan Premier ₹2,26,000; 07 Karve Nagar–Erandwane Standard ₹1,50,000; 47 Pirangut–Mulshi Emerging ₹75,000. */
 const Z3 = "GKZ-PUN-03";
@@ -94,8 +93,8 @@ beforeEach(async () => {
   await db.delete(franchiseZoneStatusHistory).where(sql`${franchiseZoneStatusHistory.reason} not like 'Zone created%'`);
   await db.delete(franchiseZoneFeeVersions).where(sql`not ${franchiseZoneFeeVersions.provisional} or ${franchiseZoneFeeVersions.zoneId} like 'T-%'`);
   await db.update(franchiseZoneFeeVersions).set({ supersededAt: null });
-  await db.delete(franchiseZoneBusiness).where(sql`${franchiseZoneBusiness.batchId} <> ${SEED_BATCH}::uuid`);
-  await db.update(franchiseZoneBusiness).set({ status: "PUBLISHED" });
+  await db.delete(franchiseZoneBusiness).where(sql`not ${franchiseZoneBusiness.provisional}`); // the seed rows (all sets) are provisional
+  await db.update(franchiseZoneBusiness).set({ status: "PUBLISHED" }).where(sql`${franchiseZoneBusiness.provisional}`);
   await db.delete(franchiseZones).where(eq(franchiseZones.isTest, true));
   // Every zone on sale for the tests (the real default is Coming Soon until an admin opens them).
   await db.update(franchiseZones).set({ status: "AVAILABLE", statusReason: null, reservedForDealerId: null, reservedUntil: null, maxOwners: 2 });
@@ -114,7 +113,8 @@ beforeEach(async () => {
   await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true }, admin);
   clearRuleCache();
   await setCommissionRate({ scope: "DEFAULT", rateBp: 200 }, admin);
-  await saveFranchiseConfig({ bookingOpen: true, allowProvisionalSale: true }, { reason: "open for the tests" }, admin);
+  // Most cases test the regular (tier) fees; the launch-offer fee has its own case below.
+  await saveFranchiseConfig({ bookingOpen: true, allowProvisionalSale: true, promoFeePaise: null }, { reason: "open for the tests" }, admin);
 });
 
 /* ================================================================ helpers */
@@ -208,8 +208,12 @@ const coupon = (over: Partial<CouponInput> = {}): CouponInput => ({
 
 describe("zones and the area master (§5.1)", () => {
   it("50 zones GKZ-PUN-01…50 with cluster, region and civic body; 189 areas mapped to exactly one zone; 7 unzoned", async () => {
-    const zones = await zoneViews();
+    const all = await zoneViews();
+    const zones = all.filter((z) => z.zoneSetCode === "PUN");
     expect(zones).toHaveLength(50);
+    // Owner, 21-Nov-2026 09.20 IST: Mumbai (Konkan) and Nashik zone sets are on sale too.
+    expect(all.filter((z) => z.zoneSetCode === "MUM")).toHaveLength(38);
+    expect(all.filter((z) => z.zoneSetCode === "NSK")).toHaveLength(11);
     expect(zones.map((z) => z.zoneId)).toEqual(Array.from({ length: 50 }, (_, i) => `GKZ-PUN-${String(i + 1).padStart(2, "0")}`));
     expect(zones[1]).toMatchObject({ clusterNo: 2, name: "Peth East", region: "Central", civicBody: "PMC" });
     const areas = await listAreas({ zoneSetCode: "PUN" });
@@ -264,7 +268,7 @@ describe("zones and the area master (§5.1)", () => {
 
 describe("tiers and fees", () => {
   it("the seed reproduces every fee and tier of the brief's table: 20 Premier, 12 Standard, 18 Emerging, all provisional", async () => {
-    const zones = await zoneViews();
+    const zones = (await zoneViews()).filter((z) => z.zoneSetCode === "PUN");
     const count = (t: string) => zones.filter((z) => z.tier === t).length;
     expect([count("PREMIER"), count("STANDARD"), count("EMERGING")]).toEqual([20, 12, 18]);
     expect(zones.every((z) => z.provisional)).toBe(true);
@@ -273,6 +277,21 @@ describe("tiers and fees", () => {
     const z2 = zones.find((z) => z.zoneId === "GKZ-PUN-02")!;
     expect(z2.description).toBe("Premier zone – business about 51% above the Pune zone average. Wholesale trade peths (Raviwar, Budhwar, Ganj). Annual franchise fee ₹2,26,000 + GST.");
     expect(zones.find((z) => z.zoneId === "GKZ-PUN-31")!.description).toMatch(/^Emerging zone – business about 30% below the Pune zone average\. .*room to grow\. Annual franchise fee ₹1,06,000 \+ GST\.$/);
+  });
+
+  it("launch offer (owner, 21-Nov 09.20 IST): every zone at ₹1,50,000 with its regular rate beside it; sold even while the regular rate is provisional; locked for the term", async () => {
+    await saveFranchiseConfig({ promoFeePaise: 15_000_000, allowProvisionalSale: false }, { reason: "launch offer (test)" }, admin);
+    const z = await zoneView("GKZ-PUN-02");
+    expect(z).toMatchObject({ feePaise: 15_000_000, promoFeePaise: 15_000_000, regularFeePaise: 22_600_000, provisional: true, forSale: true });
+    expect(z.description).toMatch(/Launch offer ₹1,50,000 \+ GST a year for the first 25 franchise dealers \(regular annual fee ₹2,26,000 \+ GST\)/);
+    expect((await zoneView("GKZ-MUM-09")).feePaise).toBe(15_000_000);
+    const o = await dealer();
+    const r = await book(o, ["GKZ-PUN-02", "GKZ-NSK-02"]);
+    expect(r.booking).toMatchObject({ listPaise: 30_000_000, launchOffer: true });
+    expect((await allocs(r.booking.id)).map((a) => Number(a.feePaise))).toEqual([15_000_000, 15_000_000]);
+    // Once the launch offer closes, the regular rate applies.
+    await db.update(franchiseCampaigns).set({ closedAt: new Date() });
+    expect((await zoneView("GKZ-PUN-02")).feePaise).toBe(22_600_000);
   });
 
   it("checkout is disabled with 'Fees being finalised' while the provisional-sale switch is off", async () => {
@@ -285,7 +304,7 @@ describe("tiers and fees", () => {
   it("import → preview → publish: new tiers and fees for new bookings; an active franchise keeps its fee; renewal uses the new one", async () => {
     const o = await dealer();
     const r = await book(o, [Z7]);
-    const zones = await zoneViews({ includeInactive: true });
+    const zones = (await zoneViews({ includeInactive: true })).filter((z) => z.zoneSetCode === "PUN");
     // Actual business: zone 07 now 2× everyone else's (₹200 Cr vs ₹100 Cr).
     const csv = ["zone code,annual business (₹ Cr),source,as of", ...zones.map((z) => `${z.zoneId},${z.zoneId === Z7 ? 200 : 100},GST data (test),2026-11-20`)].join("\n");
     await expect(importZoneBusiness(csv.split("\n").slice(0, 10).join("\n"), admin)).rejects.toThrow(/must cover every active zone/);

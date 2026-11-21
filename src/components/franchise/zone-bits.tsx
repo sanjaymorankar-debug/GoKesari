@@ -10,9 +10,9 @@ export function TierBadge({ name, colour }: { name: string; colour: string | nul
 }
 
 /** "Business index 150 (Pune average ≈ 100) · source: Provisional estimate, as of 21-Nov-2026". */
-export function businessText(z: Pick<ZoneView, "metric" | "value" | "source" | "asOf">): string {
+export function businessText(z: Pick<ZoneView, "metric" | "value" | "source" | "asOf" | "setName">): string {
   if (z.value == null) return "Business figure to be published";
-  const figure = z.metric === "ANNUAL_CR" ? `Annual business ₹${z.value.toLocaleString("en-IN")} Cr` : `Business index ${z.value.toLocaleString("en-IN")} (Pune average ≈ 100)`;
+  const figure = z.metric === "ANNUAL_CR" ? `Annual business ₹${z.value.toLocaleString("en-IN")} Cr` : `Business index ${z.value.toLocaleString("en-IN")} (${z.setName} average ≈ 100)`;
   return `${figure} · source: ${z.source ?? "—"}${z.asOf ? `, as of ${asOfDate(z.asOf)}` : ""}`;
 }
 

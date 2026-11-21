@@ -81,3 +81,12 @@ It supersedes the matching points of the 20-Nov brief.
 | G-17 | Franchise codes | One `GKF-` code per franchise is kept as an alias of the owner's own code and closes at expiry. Team members' franchise tracking codes are removed: members use their own `GKT-` / `GKA-` codes and are paid directly |
 | G-18 | Removed | The 5 km circles, the "outside the area" block and its admin override, area splitting, the 91-zone seed, the cluster summary |
 | G-19 | Production rule `territoryDealer` | Left on (owner, 21-Nov-2026) |
+
+## Owner, 21-Nov-2026 09.20 IST — launch settings (G-20 …)
+
+| # | Point | Built |
+|---|---|---|
+| G-20 | Promotional fee | `promoFeePaise` = ₹1,50,000 (default): every zone sells at ₹1,50,000 + GST while the launch offer is open (first 25 franchise dealers); the fee paid is locked for the 12-month term. Each zone also shows its **regular (post-promotional) rate** from its tier on the same card / page. After the launch offer closes the regular rate applies; renewals pay the zone's regular rate then |
+| G-21 | Zones on sale | Pune (50), Mumbai (Konkan) (38) and Nashik (11) zone sets, every zone **Available**; booking switched on by default |
+| G-22 | Mumbai (Konkan) and Nashik zones | No owner sheet existed: drafted from the standard local areas (Mumbai City, suburbs, Thane, Navi Mumbai, Palghar, Raigad, Ratnagiri, Sindhudurg; Nashik city and district). Files `docs/franchise/data/mumbai_konkan_zones.csv`, `nashik_zones.csv`. Area points / PINs approximate. Regular rates provisional (index 100 → Standard ₹1,50,000) until business data is published. **Owner to review** the zone lists in Admin → Franchise → Areas |
+| G-23 | Apps | No Play / App Store access yet: Android installs from **gokesari.com/app** (APK served by the site, `MOBILE_APP_ANDROID_APK_PATH` on the server); iPhone uses Add to Home Screen. Footer links "Franchise" and "Get the app" |
