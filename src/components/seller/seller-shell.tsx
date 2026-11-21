@@ -13,7 +13,7 @@ import { RoleSwitcher } from "@/components/role-switcher";
 import { ShopSwitcher } from "@/components/seller/shop-switcher";
 import { ShopUrlSync } from "@/components/seller/shop-url-sync";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
-import { BrandWordmark } from "@/components/brand-wordmark";
+import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
 import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
 import type { Counts, ResolvedMenu } from "@/lib/board/menus";
 import { SELLER_TEXT, shopStatusPill, type ResolvedSellerGroup } from "@/lib/seller/nav";
@@ -154,6 +154,7 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, shops, group
             <span className="hidden flex-col leading-tight min-[400px]:flex">
               <BrandWordmark tone="dark" className="text-base" />
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">{tr(SELLER_TEXT.sellerCentral, lang)}</span>
+              <BrandTagline tone="dark" className="hidden text-[11px] leading-tight lg:block" />
             </span>
           </Link>
 

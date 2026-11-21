@@ -46,14 +46,17 @@ qa("TC-PUJA-003", "Nearby has a Puja Samagri chip that keeps puja shops only (ty
   await expect(page.getByRole("heading", { level: 1, name: "Puja Samagri shops nearby" })).toBeVisible();
   await expect(page.getByTestId("nearby-puja-chip")).toHaveAttribute("aria-current", "page");
   const guest = await anonymous();
-  const all = await call(guest, "GET", "/api/shops/nearby?q=411030&radiusKm=10");
-  const puja = await call(guest, "GET", "/api/shops/nearby?q=411030&radiusKm=10&type=PUJA_SAMAGRI");
+  // A device position in Pune, not a typed PIN: a PIN is found only from the site's own shop and customer
+  // addresses (or Google when configured), so a PIN known on the test site can be unknown on production.
+  const at = "lat=18.5204&lng=73.8567&radiusKm=10";
+  const all = await call(guest, "GET", `/api/shops/nearby?${at}`);
+  const puja = await call(guest, "GET", `/api/shops/nearby?${at}&type=PUJA_SAMAGRI`);
   expect(all.status).toBe(200);
   expect(puja.status).toBe(200);
   expect(puja.body.shops.length).toBeLessThanOrEqual(all.body.shops.length);
-  const bad = await call(guest, "GET", "/api/shops/nearby?q=411030&type=puja;drop");
+  const bad = await call(guest, "GET", `/api/shops/nearby?${at}&type=puja;drop`);
   expect(bad.status, "a malformed type is refused").toBe(422);
-  return `PIN 411030, 10 km: ${puja.body.shops.length} puja shop(s) of ${all.body.shops.length}`;
+  return `Pune centre, 10 km: ${puja.body.shops.length} puja shop(s) of ${all.body.shops.length}`;
 });
 
 qa("TC-PUJA-004", "the puja APIs refuse a caller without a session (401) before reading the request", async () => {

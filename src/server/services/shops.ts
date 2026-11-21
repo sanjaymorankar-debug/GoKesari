@@ -60,6 +60,7 @@ import { todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { decideGovAutoApproval, govAutoApprovalApplies, logGovDecision } from "./gov-auto-approval";
 import { sendReadyForProductUpload } from "./shop-ready-email";
+import { queueShopWelcomeKit } from "@/server/shop-banner/welcome-kit";
 import { assertFssaiAllowsApproval } from "./document-uploads";
 import { assertLegalDocsAllowApproval } from "./legal-documents";
 import { emitEvent } from "@/server/events/emit";
@@ -1115,6 +1116,9 @@ function approveShopTransaction(
       .update(shopRegistrationDrafts)
       .set({ status: "COMPLETED", completedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(shopRegistrationDrafts.shopId, shopId), eq(shopRegistrationDrafts.status, "SUBMITTED")));
+    // docs/shop-welcome-kit-2026-11: the welcome e-mail with the shop's two printable banners
+    // (English + local language), queued with the approval and sent after commit; once per shop.
+    await queueShopWelcomeKit(updated, tx);
     return updated;
   });
 }
