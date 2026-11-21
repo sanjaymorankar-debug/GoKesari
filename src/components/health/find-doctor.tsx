@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { HEALTH_SPECIALTY_GROUPS, healthGroupOf, OTHER_HEALTH_GROUP, plainWordsFor } from "@/lib/health/specialties";
 import { SYMPTOM_CHIPS } from "@/lib/health/symptoms";
 import type { DoctorCard } from "@/server/health/find-doctor";
 import { Alert, Button, Field, inputClass } from "@/components/ui";
@@ -17,6 +18,8 @@ import { DoctorCardView } from "./doctor-card";
 export interface FinderFilters {
   q?: string;
   specialty?: string;
+  /** Health group key (src/lib/health/specialties.ts): the subcategory picked before a specialty. */
+  group?: string;
   symptom?: string;
   area?: string;
   minFee?: string;
@@ -28,7 +31,7 @@ export interface FinderFilters {
 }
 
 interface Props {
-  categories: { slug: string; name: string }[];
+  categories: { slug: string; name: string; groupName: string }[];
   initial: DoctorCard[];
   origin: { latitude: number; longitude: number; label?: string | null } | null;
   initialFilters: FinderFilters;
@@ -81,9 +84,13 @@ export function DoctorFinder({ categories, initial, origin: savedOrigin, initial
     }
     void run(f, origin);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.specialty, f.mode, f.available, f.prime, f.language, origin]);
+  }, [f.specialty, f.group, f.mode, f.available, f.prime, f.language, origin]);
 
   const set = (patch: Partial<FinderFilters>) => setF((cur) => ({ ...cur, ...patch }));
+
+  // The Health groups that have at least one specialty, in the agreed order ("Other doctors" last).
+  const groups = [...HEALTH_SPECIALTY_GROUPS, OTHER_HEALTH_GROUP].filter((g) => categories.some((c) => healthGroupOf(c.groupName).key === g.key));
+  const shown = f.group ? categories.filter((c) => healthGroupOf(c.groupName).key === f.group || c.slug === f.specialty) : categories;
 
   const locate = () => {
     if (!navigator.geolocation) {
@@ -150,15 +157,29 @@ export function DoctorFinder({ categories, initial, origin: savedOrigin, initial
         </div>
         <div>
           <p className="mb-1 text-xs font-bold uppercase tracking-wide text-ink-600">Speciality</p>
-          <div className="flex gap-1.5 overflow-x-auto pb-1">
-            <Chip active={!f.specialty} onClick={() => set({ specialty: undefined })}>
+          {/* Health groups first (owner, 21-Nov-2026), then the specialties of the chosen group. */}
+          <div className="flex gap-1.5 overflow-x-auto pb-1" data-testid="health-groups">
+            <Chip active={!f.specialty && !f.group} onClick={() => set({ specialty: undefined, group: undefined })} testId="health-group-all">
               All doctors
             </Chip>
-            {categories.map((c) => (
-              <Chip key={c.slug} active={f.specialty === c.slug} onClick={() => set({ specialty: c.slug, symptom: undefined })} testId={`health-specialty-${c.slug}`}>
-                {c.name}
+            {groups.map((g) => (
+              <Chip key={g.key} active={f.group === g.key && !f.specialty} onClick={() => set({ group: g.key, specialty: undefined, symptom: undefined })} testId={`health-group-${g.key}`}>
+                {g.short}
               </Chip>
             ))}
+          </div>
+          <div className="mt-1 flex gap-1.5 overflow-x-auto pb-1" data-testid="health-specialties">
+            {shown.map((c) => {
+              const plain = plainWordsFor(c.slug);
+              return (
+                <Chip key={c.slug} active={f.specialty === c.slug} onClick={() => set({ specialty: c.slug, symptom: undefined })} testId={`health-specialty-${c.slug}`}>
+                  <span className="whitespace-nowrap">
+                    {c.name}
+                    {plain ? <span className="font-normal opacity-80"> · {plain}</span> : null}
+                  </span>
+                </Chip>
+              );
+            })}
           </div>
         </div>
         <div>
@@ -169,7 +190,7 @@ export function DoctorFinder({ categories, initial, origin: savedOrigin, initial
                 key={s}
                 active={f.symptom === s}
                 onClick={() => {
-                  const next = { ...f, symptom: s, q: undefined, specialty: undefined };
+                  const next = { ...f, symptom: s, q: undefined, specialty: undefined, group: undefined };
                   setF(next);
                   void run(next, origin);
                 }}

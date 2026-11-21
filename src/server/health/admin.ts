@@ -20,6 +20,7 @@ import { z } from "zod";
 import { addDays, isDateKey, istAt, istDateKey, monthStart } from "@/lib/consult/time";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { ACCESS_ACTIONS, CARE_CATEGORY_GROUP, EXTRA_CARE_CATEGORY_SLUGS, HEALTH_DOCTOR_PATH, HEALTH_PATH } from "@/lib/health/constants";
+import { HEALTH_GROUP_PREFIX, HEALTH_SPECIALTY_GROUPS, healthGroupOf, OTHER_HEALTH_GROUP } from "@/lib/health/specialties";
 import { verifyProfile } from "@/server/consult/admin";
 import { db } from "@/server/db";
 import {
@@ -48,6 +49,7 @@ import {
   healthRentals,
   healthRxOrders,
   healthTimeline,
+  shopCategories,
   shops,
   users,
   type HealthEquipmentMaster,
@@ -74,7 +76,7 @@ export const prescriptionPdfPath = (id: string) => `/api/health/prescriptions/${
 
 /* ------------------------------------------------------------------ who sees what */
 
-export const HEALTH_ADMIN_TABS = ["verify", "drugs", "lists", "prime", "settings", "reports", "logs", "breakglass", "requests", "support"] as const;
+export const HEALTH_ADMIN_TABS = ["verify", "specialties", "drugs", "lists", "prime", "settings", "reports", "logs", "breakglass", "requests", "support"] as const;
 export type HealthAdminTab = (typeof HEALTH_ADMIN_TABS)[number];
 
 /** Operators (health:manage) see verification, drug master, lists, reports, logs and data requests; admins see everything; break-glass needs health:break_glass. */
@@ -451,6 +453,80 @@ export async function careCategories(actor: HealthActor): Promise<{ id: string; 
     .where(or(eq(consultCategories.groupName, CARE_CATEGORY_GROUP), inArray(consultCategories.slug, [...EXTRA_CARE_CATEGORY_SLUGS])))
     .orderBy(asc(consultCategories.sortOrder), asc(consultCategories.name));
   return rows.map((r) => ({ ...r, providers: Number(r.providers) }));
+}
+
+export interface HealthSpecialtyRow {
+  id: string;
+  name: string;
+  slug: string;
+  groupName: string;
+  requiredDoc: string;
+  requiredDocLabel: string | null;
+  status: string;
+  /** Listed on "Find a doctor" (needs a medical registration and is ACTIVE). */
+  inDoctorSearch: boolean;
+  /** Doctors / providers who offer it. */
+  providers: number;
+}
+
+export interface HealthSpecialtyGroupView {
+  key: string;
+  name: string;
+  short: string;
+  /** Bookable specialties (consultant categories): what "Find a doctor" and bookings use. */
+  specialties: HealthSpecialtyRow[];
+  /** The same group in the registration list (shop categories), with how many shops chose each. */
+  shopCategories: { id: string; name: string; status: string; shops: number }[];
+}
+
+/**
+ * Health → Specialties (owner, 21-Nov-2026): every medical practitioner by Health group — the consultant
+ * categories ("Find a doctor", bookings) and the shop categories (registration) side by side. Read-only:
+ * names, commission and new specialties are edited in Consultants → Categories and Shop categories.
+ */
+export async function healthSpecialties(actor: HealthActor): Promise<HealthSpecialtyGroupView[]> {
+  requireStaff(actor);
+  const healthLike = `${HEALTH_GROUP_PREFIX}%`;
+  const [consult, shopCats] = await Promise.all([
+    db
+      .select({
+        id: consultCategories.id,
+        name: consultCategories.name,
+        slug: consultCategories.slug,
+        groupName: consultCategories.groupName,
+        requiredDoc: consultCategories.requiredDoc,
+        requiredDocLabel: consultCategories.requiredDocLabel,
+        status: consultCategories.status,
+        providers: sql<number>`(select count(*)::int from consult_member_categories mc where mc.category_id = ${consultCategories.id})`,
+      })
+      .from(consultCategories)
+      .where(or(sql`${consultCategories.groupName} like ${healthLike}`, eq(consultCategories.requiredDoc, "MEDICAL_REGISTRATION"), eq(consultCategories.groupName, CARE_CATEGORY_GROUP), inArray(consultCategories.slug, [...EXTRA_CARE_CATEGORY_SLUGS])))
+      .orderBy(asc(consultCategories.sortOrder), asc(consultCategories.name)),
+    db
+      .select({
+        id: shopCategories.id,
+        name: shopCategories.name,
+        groupName: shopCategories.groupName,
+        status: shopCategories.status,
+        shops: sql<number>`(select count(*)::int from shop_category_mapping m where m.category_id = ${shopCategories.id})`,
+      })
+      .from(shopCategories)
+      .where(sql`${shopCategories.groupName} like ${healthLike}`)
+      .orderBy(asc(shopCategories.name)),
+  ]);
+  const care = { key: "home-care", name: CARE_CATEGORY_GROUP, short: "Home care" };
+  const keyOf = (groupName: string | null) => (groupName === CARE_CATEGORY_GROUP ? care.key : healthGroupOf(groupName).key);
+  return [...HEALTH_SPECIALTY_GROUPS, care, OTHER_HEALTH_GROUP]
+    .map((g) => ({
+      key: g.key,
+      name: g.name,
+      short: g.short,
+      specialties: consult
+        .filter((c) => keyOf(c.groupName) === g.key)
+        .map((c) => ({ ...c, providers: Number(c.providers), inDoctorSearch: c.requiredDoc === "MEDICAL_REGISTRATION" && c.status === "ACTIVE" })),
+      shopCategories: shopCats.filter((c) => keyOf(c.groupName) === g.key).map((c) => ({ id: c.id, name: c.name, status: c.status, shops: Number(c.shops) })),
+    }))
+    .filter((g) => g.specialties.length || g.shopCategories.length);
 }
 
 export const equipmentInput = z.object({

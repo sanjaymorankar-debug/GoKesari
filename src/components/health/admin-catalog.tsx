@@ -296,7 +296,7 @@ export function Lists({ post }: { post: Post }) {
             ))}
           </ul>
         )}
-        <p className="mt-2 text-xs text-ink-600">Home-care categories live in the &quot;Home care&quot; group of the consultant categories (physiotherapists are under Doctors and clinics).</p>
+        <p className="mt-2 text-xs text-ink-600">Home-care categories live in the &quot;Home care&quot; group of the consultant categories (physiotherapists are under Health — Therapy).</p>
       </Panel>
       <Panel
         title="Medical equipment list"

@@ -27,13 +27,13 @@ break-glass on/off, free-listing manual approval, care OTP attempts, family code
 
 | Role | Where | What |
 |---|---|---|
-| Patient (customer) | `/health` (Profile → **My Health**; Shops → **Doctors**) | Notice and consent; profile; family (dependents, adults by OTP); find and book doctors (`/health/doctors`); appointments, check-in QR, live queue; records: timeline, by provider, medicines, reports (`/health/records`); prescriptions with Book-now suggestions, PDF, print, share (`/health/prescriptions`); medicine orders (`/health/medicines`); home care (`/health/care`); equipment (`/health/equipment`); privacy, access log, data requests (`/health/privacy`); refer a friend (`/refer`) |
+| Patient (customer) | `/health` (Profile → **My Health**; Shops → **Doctors**) | Notice and consent; profile; family (dependents, adults by OTP); find and book doctors (`/health/doctors`: Health group first, then specialty; plain words such as "heart" or "kidney stone" find the specialists); appointments, check-in QR, live queue; records: timeline, by provider, medicines, reports (`/health/records`); prescriptions with Book-now suggestions, PDF, print, share (`/health/prescriptions`); medicine orders (`/health/medicines`); home care (`/health/care`); equipment (`/health/equipment`); privacy, access log, data requests (`/health/privacy`); refer a friend (`/refer`) |
 | Doctor | `/shop/health` (Seller Central → Orders → Health) | Live Today, queue, check-in, walk-ins; consultation pad (`/shop/health/consult/<id>`); registration details, signature, letterhead, calibration, templates (`/shop/health/settings`); Prime (`/shop/health/prime`) |
 | Clinic reception | `/shop/health` | Today, check-in (QR / code), queue, walk-ins, payments (consult) — no clinical notes (they cannot open the pad unless they are a doctor) |
 | Medical store | `/shop/health/prescriptions`, `/shop/health/pharmacy` | Live prescription inbox, verify, quote, substitutes, pack, pickup / delivery with codes, bill with batch / expiry |
 | Home-care provider | `/shop/health/care` | Visit inbox, accept, on my way, OTP check-in / check-out, notes and vitals, packages, ID card |
 | Equipment store | `/shop/health/equipment` | Listings (sale / rent), rentals: dispatch, delivery code, returns, condition, deposit refund |
-| Admin / operator | `/admin/health` (admin Categories → Shop categories → Health; operator Catalogue → Shop categories → Health) | Verification queues, drug master, lists, Prime plans and coupons, reports, access and audit logs, break-glass (admin), data requests |
+| Admin / operator | `/admin/health` (admin Categories → Shop categories → Health; operator Catalogue → Shop categories → Health) | Verification queues, specialties by Health group (Specialties tab), drug master, lists, Prime plans and coupons, reports, access and audit logs, break-glass (admin), data requests |
 
 ## Access and consent (enforced in `src/server/health/access.ts` and each service)
 

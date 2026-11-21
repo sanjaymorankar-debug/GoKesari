@@ -14,7 +14,7 @@ import { getCustomerLocation } from "@/server/location";
 export const metadata = { title: "Find a doctor" };
 export const dynamic = "force-dynamic";
 
-type Search = { q?: string; specialty?: string; symptom?: string; area?: string; mode?: string; available?: string; prime?: string; patient?: string; suggestion?: string; date?: string };
+type Search = { q?: string; specialty?: string; group?: string; symptom?: string; area?: string; mode?: string; available?: string; prime?: string; patient?: string; suggestion?: string; date?: string };
 
 /**
  * GoKesari Health "Find a doctor" (owner brief §2.2): verified doctors only, nearest first when the
@@ -34,6 +34,7 @@ export default async function FindDoctorPage({ searchParams }: { searchParams: P
   const filters: FinderFilters = {
     q: sp.q || undefined,
     specialty: sp.specialty || undefined,
+    group: sp.group && /^[a-z-]{1,40}$/.test(sp.group) ? sp.group : undefined,
     symptom: sp.symptom || undefined,
     area: sp.area || undefined,
     mode: sp.mode === "VIDEO" || sp.mode === "IN_PERSON" ? sp.mode : "",
@@ -57,7 +58,7 @@ export default async function FindDoctorPage({ searchParams }: { searchParams: P
           ) : null
         }
       />
-      {!filters.q && !filters.specialty && !filters.symptom ? <FeaturedDoctorsStrip lat={origin?.latitude} lng={origin?.longitude} query={carry.toString()} /> : null}
+      {!filters.q && !filters.specialty && !filters.group && !filters.symptom ? <FeaturedDoctorsStrip lat={origin?.latitude} lng={origin?.longitude} query={carry.toString()} /> : null}
       <DoctorFinder categories={categories} initial={initial} origin={nearby.results.length ? origin : null} initialFilters={filters} carry={carry.toString()} />
     </div>
   );
