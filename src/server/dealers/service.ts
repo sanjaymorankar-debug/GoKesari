@@ -61,7 +61,7 @@ import { notify } from "@/server/services/notifications";
 import { grantRole, revokeRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
-import { newReferralCode } from "@/server/services/referrals";
+import { prefixedCode } from "@/server/franchise/prefixed-code";
 import { activeCodeFor, issueCode, listDealerCodes, replaceCode, setCodesStatus } from "./codes";
 import { holdDealerCommission } from "./commission";
 import { placeNewMember, recordMapping } from "./tiered";
@@ -799,7 +799,7 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
       const existing = (await listDealerCodes(dealer.id, tx)).find((c) => c.kind !== "SALESPERSON" && c.status === "ACTIVE");
       code =
         existing?.code ??
-        (await issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: newReferralCode, label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId }, actor)).code;
+        (await issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: () => prefixedCode("GKD"), label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId }, actor)).code;
       if (dealer.userId) await grantRole(dealer.userId, "DEALER", { source: "ADMIN", grantedBy: actor.id, activateIfCustomer: true }, tx);
     } else if (decision.action === "REJECT") {
       to = "REJECTED";
@@ -948,7 +948,7 @@ export async function createDealerByAdmin(input: AdminDealerInput, actor: Dealer
     await tx.insert(dealerTerritories).values({ dealerId: dealer.id, areaCode: territory });
     const { code } = await issueCode(
       tx,
-      { dealerId: dealer.id, kind: "DEALER", makeCode: newReferralCode, label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId },
+      { dealerId: dealer.id, kind: "DEALER", makeCode: () => prefixedCode("GKD"), label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId },
       actor,
     );
     if (dealer.userId) await grantRole(dealer.userId, "DEALER", { source: "ADMIN", grantedBy: actor.id, activateIfCustomer: true }, tx);
@@ -976,7 +976,7 @@ export async function replaceDealerCode(dealerId: string, dealerCodeId: string, 
     const dealer = await getDealer(dealerId, tx);
     const [dc] = await tx.select().from(dealerCodes).where(and(eq(dealerCodes.id, dealerCodeId), eq(dealerCodes.dealerId, dealerId)));
     if (!dc) throw notFound("Code");
-    return replaceCode(tx, dealerCodeId, newReferralCode, `Dealer: ${dealer.legalName}`, actor, why);
+    return replaceCode(tx, dealerCodeId, () => prefixedCode(dc.salespersonId ? "GKA" : "GKD"), `Dealer: ${dealer.legalName}`, actor, why);
   });
 }
 
@@ -1052,6 +1052,14 @@ export async function addSalesperson(
       .from(dealerSalespeople)
       .where(and(eq(dealerSalespeople.dealerId, dealerId), sql`lower(${dealerSalespeople.employeeId}) = lower(${employeeId})`));
     if (dupe) throw conflict("You already have an employee with this ID.", { fields: { employeeId: "Already used." } });
+    // Franchise brief §2.4: one mobile appears once in a team (the dealer and his active members) — no self-dealing for overrides.
+    if (mobileE164) {
+      const [sameMobile] = await tx
+        .select({ id: dealerSalespeople.id })
+        .from(dealerSalespeople)
+        .where(and(eq(dealerSalespeople.dealerId, dealerId), eq(dealerSalespeople.mobileE164, mobileE164), eq(dealerSalespeople.status, "ACTIVE")));
+      if (sameMobile || dealer.mobileE164 === mobileE164) throw conflict("This mobile number is already in your team.", { fields: { mobile: "Already in the team." } });
+    }
     const [person] = await tx
       .insert(dealerSalespeople)
       .values({ dealerId, employeeId, name, mobileE164, source: actor.role === "ADMIN" ? "ADMIN" : "DEALER" })
@@ -1062,7 +1070,7 @@ export async function addSalesperson(
     }
     // 0138: the member's first place in the team, kept in the mapping history.
     await recordMapping(tx, person.id, "added to the team", actor.id);
-    await issueCode(tx, { dealerId, salespersonId: person.id, kind: "SALESPERSON", makeCode: newReferralCode, label: `${dealer.legalName}: ${name} (${employeeId})`, referrerName: name }, actor);
+    await issueCode(tx, { dealerId, salespersonId: person.id, kind: "SALESPERSON", makeCode: () => prefixedCode(input.role === "TEAM_LEAD" ? "GKT" : "GKA"), label: `${dealer.legalName}: ${name} (${employeeId})`, referrerName: name }, actor);
     await recordAudit(
       { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_SALESPERSON_SAVED, entityType: "dealer", entityId: dealerId, newValue: { salespersonId: person.id, employeeId, status: "ACTIVE", role: input.role ?? "AGENT", parentId: input.parentId ?? null, recruitedById: input.recruitedById ?? null } },
       tx,
@@ -1102,8 +1110,20 @@ export async function setSalespersonStatus(dealerId: string, salespersonId: stri
         actor,
         status === "INACTIVE" ? "employee deactivated" : "employee reactivated",
       );
+      // Franchise brief §2.4: a team lead leaves → his active agents report to the dealer directly from now on
+      // (the first-override rate for shops activated later; plans already frozen never change).
+      let movedAgents: string[] = [];
+      if (status === "INACTIVE" && person.teamRole === "TEAM_LEAD") {
+        const moved = await tx
+          .update(dealerSalespeople)
+          .set({ depth: 2, parentId: null, parentDepth: null, parentRole: null, updatedAt: now })
+          .where(and(eq(dealerSalespeople.dealerId, dealerId), eq(dealerSalespeople.parentId, salespersonId), eq(dealerSalespeople.status, "ACTIVE")))
+          .returning({ id: dealerSalespeople.id });
+        movedAgents = moved.map((m) => m.id);
+        for (const id of movedAgents) await recordMapping(tx, id, "team lead deactivated: moved under the dealer", actor.id, now);
+      }
       await recordAudit(
-        { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_SALESPERSON_SAVED, entityType: "dealer", entityId: dealerId, previousValue: { status: person.status }, newValue: { salespersonId, status } },
+        { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_SALESPERSON_SAVED, entityType: "dealer", entityId: dealerId, previousValue: { status: person.status }, newValue: { salespersonId, status, movedAgents } },
         tx,
       );
     }
@@ -1116,4 +1136,45 @@ export async function dealerAccountEmail(dealer: Dealer): Promise<string | null>
   if (!dealer.userId) return null;
   const [u] = await db.select({ email: users.email }).from(users).where(eq(users.id, dealer.userId));
   return u?.email ?? null;
+}
+
+/**
+ * Franchise brief §2.4 (21-Nov-2026): a person moves to another dealer's team only with an admin's approval.
+ * The old place ends (his code stops for new shops, his agents move under the old dealer) and he starts under
+ * the new dealer as an agent reporting to the dealer, with a new code and the same payee details. Commission
+ * already earned stays where it was earned. Audited on both dealers.
+ */
+export async function transferMemberToDealer(memberId: string, toDealerId: string, reason: string, actor: DealerActor): Promise<SalespersonView> {
+  if (actor.role !== "ADMIN") throw forbidden("Only an admin can move a person to another dealer.");
+  const why = clean(reason, 300);
+  if (!why || why.length < 5) throw validationFailed("Say why the person moves.", { fields: { reason: "Required." } });
+  const [member] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId));
+  if (!member) throw notFound("Team member");
+  if (member.dealerId === toDealerId) throw conflict("The person is already in this dealer's team.");
+  const target = await getDealer(toDealerId);
+  if (target.status !== "APPROVED") throw conflict("The new dealer is not approved.");
+  if (member.status === "ACTIVE") await setSalespersonStatus(member.dealerId, member.id, "INACTIVE", actor);
+  const created = await addSalesperson(toDealerId, { employeeId: member.employeeId, name: member.name, mobile: member.mobileE164 ? member.mobileE164.replace(/^\+91/, "") : null, role: "AGENT" }, actor);
+  await db
+    .update(dealerSalespeople)
+    .set({
+      userId: member.userId,
+      panEnc: member.panEnc,
+      panHash: member.panHash,
+      panLast4: member.panLast4,
+      bankHolderName: member.bankHolderName,
+      bankAccountEnc: member.bankAccountEnc,
+      bankAccountLast4: member.bankAccountLast4,
+      bankIfsc: member.bankIfsc,
+      bankStatus: member.bankStatus,
+      bankVerifiedAt: member.bankVerifiedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(dealerSalespeople.id, created.id));
+  // The old record keeps its history; its account link moves with the person (one account, one active place).
+  if (member.userId) await db.update(dealerSalespeople).set({ userId: null, updatedAt: new Date() }).where(eq(dealerSalespeople.id, member.id));
+  for (const dealerId of [member.dealerId, toDealerId]) {
+    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_SALESPERSON_SAVED, entityType: "dealer", entityId: dealerId, newValue: { transfer: { memberId: member.id, newMemberId: created.id, from: member.dealerId, to: toDealerId, reason: why } } });
+  }
+  return created;
 }

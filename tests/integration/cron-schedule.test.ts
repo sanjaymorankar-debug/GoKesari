@@ -41,6 +41,8 @@ describe("schedule", () => {
         // Owner, 5 Nov 2026: dealer team reports (daily, and weekly on Mondays).
         "dealer-team-report-daily", "dealer-team-report-weekly",
         "document-emails", "finance-weekly", "gst-reminders", "integration-sync", "notification-retry", "operator-onboarding",
+        // 0157 franchise (21 Nov 2026): holds, expiry, reminders, digest and the monthly run (every 5 minutes).
+        "franchise",
         "payments-reconcile", "payout-cycle", "payout-retries", "pmd-ingest", "purchase-list-reminders", "push-receipts",
         "rider-monthly-payout", "risk-rules", "seller-verification", "shop-document-follow-up", "timeout-sweep",
       ].sort(),
@@ -50,7 +52,7 @@ describe("schedule", () => {
   it("keeps each every-minute job at its own cadence", () => {
     const always = ["timeout-sweep", "consult-holds", "notification-retry", "broadcast-dispatch", "integration-sync", "pmd-ingest"];
     expect(names(dueEveryMinute(at(7)))).toEqual(always);
-    expect(names(dueEveryMinute(at(5)))).toEqual([...always.slice(0, 5), "payments-reconcile", "operator-onboarding", "document-emails", "pmd-ingest"]);
+    expect(names(dueEveryMinute(at(5)))).toEqual([...always.slice(0, 5), "payments-reconcile", "operator-onboarding", "document-emails", "franchise", "pmd-ingest"]);
     expect(names(dueEveryMinute(at(10)))).toContain("bill-captures");
     expect(names(dueEveryMinute(at(5)))).not.toContain("bill-captures");
     expect(names(dueEveryMinute(at(45)))).toContain("push-receipts");

@@ -1105,7 +1105,14 @@
       "idx": 157,
       "version": "7",
       "when": 1793265500000,
-      "tag": "0157_email_mailbox_sends",
+      "tag": "0157_franchise_pmr",
+      "breakpoints": true
+    },
+    {
+      "idx": 158,
+      "version": "7",
+      "when": 1793265600000,
+      "tag": "0158_email_mailbox_sends",
       "breakpoints": true
     }
   ]

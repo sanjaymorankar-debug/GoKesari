@@ -60,7 +60,7 @@ function pgErrorCode(error: unknown): string | undefined {
  */
 /** The tables resetDatabase() names; TRUNCATE … CASCADE reaches the rest through foreign keys. */
 const RESET_TABLES = [
-  // Mailbox rotation (0157): per-mailbox send counts, no foreign keys.
+  // Mailbox rotation (0158): per-mailbox send counts, no foreign keys.
   "email_mailbox_sends",
   // docs/billing: GoKesari's delivery-invoice series has no foreign key for the cascade to follow.
   "platform_delivery_invoice_counters",

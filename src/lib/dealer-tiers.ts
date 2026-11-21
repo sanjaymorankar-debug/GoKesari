@@ -36,6 +36,10 @@ export const COMMISSION_ENTRY_TYPES = [
   "DEVELOPMENT",
   "BONUS",
   "TERRITORY",
+  // 0157 franchise (docs/franchise): Model B one-time 25% and monthly recurring share + bonus.
+  "ONE_TIME_FRANCHISE",
+  "RECURRING_BASE",
+  "RECURRING_BONUS",
 ] as const;
 export type CommissionEntryType = (typeof COMMISSION_ENTRY_TYPES)[number];
 
@@ -49,6 +53,9 @@ export const COMMISSION_ENTRY_TYPE_LABELS: Record<CommissionEntryType, string> =
   DEVELOPMENT: "Development bonus",
   BONUS: "Monthly target bonus",
   TERRITORY: "Territory order income",
+  ONE_TIME_FRANCHISE: "Franchise — one-time (25% of shop fee)",
+  RECURRING_BASE: "Franchise — monthly share of GoKesari commission",
+  RECURRING_BONUS: "Franchise — performance bonus",
 };
 
 /** Short names for the statement's "line per type" (direct-1, direct-2, override, renewal, development, bonus). */
@@ -61,6 +68,9 @@ export const STATEMENT_LINES: { key: string; label: string; types: CommissionEnt
   { key: "development", label: "Development bonus", types: ["DEVELOPMENT"] },
   { key: "bonus", label: "Target bonus", types: ["BONUS"] },
   { key: "territory", label: "Territory order income", types: ["TERRITORY"] },
+  { key: "franchise-one-time", label: "Franchise one-time (25%)", types: ["ONE_TIME_FRANCHISE"] },
+  { key: "franchise-recurring", label: "Franchise monthly share", types: ["RECURRING_BASE"] },
+  { key: "franchise-bonus", label: "Franchise performance bonus", types: ["RECURRING_BONUS"] },
 ];
 
 export const TIER_PLAN_STATUSES = ["PENDING", "TRADING", "LAPSED", "REVERSED"] as const;

@@ -646,7 +646,7 @@ export const loginOtps = pgTable(
 );
 
 /**
- * Mailbox rotation (drizzle/0157_email_mailbox_sends.sql; src/server/email/mailbox-pool.ts):
+ * Mailbox rotation (drizzle/0158_email_mailbox_sends.sql; src/server/email/mailbox-pool.ts):
  * one row per e-mail a pool mailbox sent (SENT) or Hostinger refused for it
  * (REFUSED: sending limit, or a wrong password). Counted over the last 24
  * hours to pick the mailbox; rows older than two days are deleted hourly.
@@ -8725,7 +8725,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE"] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -11378,6 +11378,11 @@ export const dealerCommissionLedger = pgTable(
     approvedBy: uuid("approved_by"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     note: text("note"),
+    /** 0157 franchise (docs/franchise): the allocation, zone, config version and calculation run behind the entry. */
+    franchiseAllocationId: uuid("franchise_allocation_id"),
+    franchiseZoneId: text("franchise_zone_id"),
+    configVersion: integer("config_version"),
+    calcRunId: text("calc_run_id"),
     createdBy: uuid("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -11426,6 +11431,11 @@ export const dealerTierShopPlans = pgTable(
     firstPartBp: integer("first_part_bp").notNull(),
     leadOverrideBp: integer("lead_override_bp").notNull(),
     mainOverrideBp: integer("main_override_bp").notNull(),
+    /** Franchise brief 21-Nov-2026 §3: A = free dealership, B = paid franchise; the case A1–A4 / B1–B4; for B the franchise. */
+    model: text("model", { enum: ["A", "B"] }).notNull().default("A"),
+    caseCode: text("case_code"),
+    franchiseAllocationId: uuid("franchise_allocation_id"),
+    franchiseZoneId: text("franchise_zone_id"),
     developmentBp: integer("development_bp").notNull().default(0),
     tradingOrders: integer("trading_orders").notNull(),
     activatedAt: timestamp("activated_at", { withTimezone: true }).notNull(),
@@ -12580,4 +12590,5 @@ export const consultReceiptCounters = pgTable(
 
 /* >>> GoKesari Health (docs/health/; drizzle/0153_health.sql) */
 export * from "./health-schema";
+export * from "./franchise-schema";
 /* <<< GoKesari Health */
