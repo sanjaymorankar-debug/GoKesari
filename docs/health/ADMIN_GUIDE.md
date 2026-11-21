@@ -1,6 +1,6 @@
 # GoKesari Health — admin and operator guide
 
-Admin board → Categories → **Health**; operator board → Catalogue → **Health** (`/admin/health`). Staff see **metadata only** — no diagnoses, notes,
+Admin board → Categories → Shop categories → **Health**; operator board → Catalogue → Shop categories → **Health** (`/admin/health`). Staff see **metadata only** — no diagnoses, notes,
 medicines or reports — except through break-glass. Permission `health:manage` (admins and operators);
 `health:break_glass` (admins only).
 

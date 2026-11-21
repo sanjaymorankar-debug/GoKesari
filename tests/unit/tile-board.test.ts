@@ -27,6 +27,7 @@ import {
   resolveHref,
   SHOP_DO_NOW,
   SHOP_MENUS,
+  SHOP_TYPE_MODULES,
   visibleItems,
   visibleMenus,
   type BoardItem,
@@ -219,13 +220,15 @@ describe("menu definitions", () => {
     // Puja Samagri (docs/puja-samagri-2026-11): shop +1, Product categories → "Puja Samagri".
     // Consultant appointments (docs/consult-booking-2026-11): shop +1, Orders → "Appointments"; admin +1 and operator +1, "Consultants".
     // GoKesari Health (docs/health/): shop +1, Orders → "Health" (hub); admin +1 and operator +1, "Health".
-    // Both sit in admin Categories / operator Catalogue next to Puja Samagri (moved out of Shops, 21-Nov-2026).
+    // Both moved out of Shops (21-Nov-2026), then off the board: with Puja Samagri they open from the Shop
+    // categories page (SHOP_TYPE_MODULES), so admin -3 and operator -3 (owner, 21-Nov-2026).
     expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(47);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
-    // Consultant appointments and Puja Samagri: admin +1 and operator +1 each (Categories / Catalogue →
-    // "Consultants" and "Puja Samagri").
-    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(41);
-    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(29);
+    // Consultant appointments and Puja Samagri: admin +1 and operator +1 each; 21-Nov-2026 (owner): Categories is
+    // only Shop and Product, so Puja Samagri, Consultants and Health leave the board (admin -3, operator -3) and
+    // operator Catalogue shows Shop categories and Product categories on the board (+2, from "more").
+    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(38);
+    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(28);
   });
 
   it("keep every group to at most seven entries on the board (Hick's law)", () => {
@@ -430,6 +433,35 @@ function sourceText(dir = path.join(process.cwd(), "src")): string {
     })
     .join("\n");
 }
+
+describe("shop types with their own setup (Shop categories page)", () => {
+  it("keeps Categories to Shop and Product, and opens Puja Samagri, Consultants and Health from Shop categories", () => {
+    const categories = ADMIN_MENUS.find((m) => m.key === "categories");
+    expect(categories?.items.map((i) => i.key)).toEqual(["shop", "product"]);
+    expect(categories?.more ?? []).toEqual([]);
+    expect(SHOP_TYPE_MODULES.map((m) => m.href)).toEqual(["/admin/puja", "/admin/consult", "/admin/health"]);
+    const onBoards = Object.values(MENUS).flatMap((menus) => menus.flatMap((m) => [...m.items, ...(m.more ?? [])])).map((i) => i.href);
+    for (const href of ["/admin/puja", "/admin/consult", "/admin/health"]) expect(onBoards, href).not.toContain(href);
+    const catalogue = OPERATOR_MENUS.find((m) => m.key === "catalogue");
+    expect(catalogue?.items.map((i) => i.key)).toEqual(expect.arrayContaining(["shopCategories", "productCategories"]));
+  });
+
+  it("shows all three to admins and operators and none to anyone else", () => {
+    expect(visibleItems(SHOP_TYPE_MODULES, "ADMIN").map((m) => m.key)).toEqual(["puja", "consultants", "health"]);
+    expect(visibleItems(SHOP_TYPE_MODULES, "OPERATOR").map((m) => m.key)).toEqual(["puja", "consultants", "health"]);
+    for (const role of ["CUSTOMER", "SHOP_OWNER", "OPERATOR_LIMITED"] as const) expect(visibleItems(SHOP_TYPE_MODULES, role), role).toEqual([]);
+  });
+
+  it("label and describe each one in all three languages, with known icons", () => {
+    for (const m of SHOP_TYPE_MODULES) {
+      if (m.icon) expect(ICON_NAMES).toContain(m.icon);
+      for (const lang of LANGUAGES) {
+        expect(m.label[lang].trim(), `${m.key} ${lang}`).not.toBe("");
+        expect(m.note[lang].trim(), `${m.key} note ${lang}`).not.toBe("");
+      }
+    }
+  });
+});
 
 describe("board links", () => {
   const routes = pageRoutes();

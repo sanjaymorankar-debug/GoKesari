@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { ShopCategoriesAdmin } from "@/components/shop-categories-admin";
+import { ShopTypeModules } from "@/components/shop-type-modules";
 import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
 import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -21,6 +22,7 @@ export default async function ShopCategoriesPage() {
         title="Shop categories"
         description="What kind of business each shop runs. Owners choose several per shop; you manage the list and can assign categories to any shop. Customers do not browse by these."
       />
+      <ShopTypeModules role={user.role} />
       <UnsavedChangesProvider>
         <ShopCategoriesAdmin
           categories={categories.map((c) => ({ id: c.id, name: c.name, description: c.description, groupName: c.groupName, status: c.status, shopCount: c.shopCount }))}
