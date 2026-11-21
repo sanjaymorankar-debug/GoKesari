@@ -85,6 +85,53 @@ What the run showed about the test set-up (logged, none a product defect):
   was cancelled as operations ("QA cleanup") at 17.23 IST.
 - **E-39 (test fix):** TC-RET-010's last step looks only at page 1 of `/shop/returns?tab=all`.
 
+## Morning re-run in delivery hours (21-Nov-2026, 07.13 to 07.47 IST)
+
+This was the re-test of E-38, E-39 and E-40 on test.gokesari.com, inside the site's delivery hours (07.00 to 22.00 IST), with PR #445's suite.
+
+**Before the run.** Wallets: customer 1 ₹6,196.50, shop A ₹4,672.33, shop B ₹5,000. The rider was approved, online, ready and free. No top-up was needed.
+
+**What ran:**
+
+1. TC-DEL-001 / 010 / 012 and TC-DEL-020, plus the support and returns files in full, on desktop and phone (07.13 to 07.37, suite 4ff18be6).
+2. The returns file again at 07.42 to 07.47, after the E-41 fix (suite 5852a2ea).
+
+**Record.** `docs/testing/qa-runs/2026-11-21-staging-rider-fix-retest.json`: 43 IDs and 77 rows. 76 rows pass; 1 is blocked by design (TC-FLD-103: the shop contact page has no message field).
+
+**Register, staging column:**
+
+| Status | Before | After |
+|---|---|---|
+| Fail | 21 | 8 |
+| Blocked | 71 | 68 |
+| Pass | 141 | 153 |
+| Pass (partial) | 252 | 256 |
+
+Overall Fail went from 77 to 64. No new product defect was found.
+
+| Group | Result |
+|---|---|
+| Rider delivery (TC-DEL-001 / 010 / 012 / 020) | **4 of 4 pass**, desktop and phone. Each offer reached the rider within the wait (E-38 and E-40 fixed). |
+| Support file | **All pass**, desktop and phone (TC-SUP-001 / 002 / 006 / 008 among them). |
+| Returns file, first pass (07.17 to 07.37) | TC-RET-010 / TC-FLD-098 **pass**: the refunded return is found on the page that holds it (E-39 fixed). At 07.18 the ops "Cancel return" click in TC-RET-013 / 022 was refused by the site's per-IP API limit (**E-41**). The return stayed with the rider, so 13 later pickup rows were blocked. |
+| Returns file, again (07.42 to 07.47) | **44 of 46 rows pass**. Desktop passes in full. On the phone, TC-RET-001 / TC-FLD-095 were blocked only because customer 1's wallet was down to ₹1,188.50 (HTTP 402). They had passed on the phone at 07.28, and the record counts that pass. |
+
+**What the run showed about the test set-up** (logged; none is a product defect):
+
+- **E-41 (test fix, PR #445):**
+  - The site's proxy allows 240 API calls a minute from one IP. The suite paces its own calls to 150 a minute, but the browser's calls count too.
+  - The `/admin/returns` page loads every evidence photo through `/api/images`, about 50 of them.
+  - So operations' click got 429 "Too many requests". The screen showed only "That did not work.".
+  - The fix:
+    - Write clicks now wait out the limit and click again.
+    - A check that fails or is blocked cancels its returns as operations, so the rider is never left holding them.
+  - The run's 5 open returns were cancelled as operations ("QA cleanup") at 07.39 IST.
+- **Wallet use:** the morning's 24 QA orders (19 delivered, 5 refunded) brought customer 1 from ₹6,196.50 down to ₹1,188.50.
+
+After the run, every QA order of the morning was delivered or refunded and the rider held nothing. Shop A has ₹4,487.93 and shop B ₹5,000.
+
+The 8 returns still shown as Approved on `/admin/returns` (RT-95AB5CDB and others) date from earlier runs. They hold no rider pickup and were left as they are.
+
 ## Territory dealers and team leads (new, local server)
 
 36 new cases (TC-TERR-001 … 026, TC-TIER-033 … 042) and journeys SC-48 / SC-49, automated as local-tier
@@ -108,12 +155,13 @@ On staging itself, the territory rule was switched on at 08.30 IST by another se
 1. **Shared staging test accounts (E-37):** customer 1 is at ₹10 again (17.24 IST) because other sessions
    order with the same accounts. Either one staging QA run at a time, or a test customer and shop owner per
    session; a further top-up only lasts while nobody else uses them.
-2. **E-38 / E-39** are fixed in the QA suite by **PR #445** (in the staging queue): the rider's Accept is
-   scoped to the check's own order, offers get 75 s, failed drives cancel their order, return pickups and
-   refunded returns are found by their number. Its re-run at 23.14 IST was blocked throughout because the
-   test site only delivers 07.00-22.00 IST (**E-40**, not a defect), so the delivery, support and returns
-   files still need one run (desktop + phone) **between 07.00 and 21.00 IST**. No top-up is needed for it
-   (customer 1 ₹6,196.50 at 23.44 IST).
+2. **E-38 / E-39 / E-41: fixed and re-tested** on 21-Nov 07.13 to 07.47 IST (above).
+   - The fixes are in the QA suite only (**PR #445**, in the staging queue).
+   - Customer 1 had **₹1,188.50** left after the run, below the ₹1,500 a full delivery / returns / support run needs.
+   - **Topped up on your OK (21-Nov-2026, 10.24 IST):** ₹5,000 through the "Sandbox payment" workflow
+     (Cashfree sandbox, UPI testsuccess@gocash, order `topup_1795236809678_9bcd2e47`). Customer 1 now has
+     **₹6,188.50**, about one run like this morning's (two passes of the returns file used ₹5,008), as long
+     as no other session orders with the account (E-37).
 3. **D-157 and D-158** before territory dealers are released.
 
 Done since the morning: the staging queue paused by #422 (issue #424) went on after #428 fixed the test
