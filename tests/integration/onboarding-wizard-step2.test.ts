@@ -74,6 +74,7 @@ import { clearRuleCache } from "@/server/services/settings";
 import { promiseShopDocuments, shopDocumentGate } from "@/server/services/shop-document-gate";
 import { submitDraftGstin, submitDraftPan } from "@/server/services/shop-registration-draft";
 import {
+  finishDraftDocumentsStep,
   answerDraftDocument,
   answerDraftReferral,
   getWizardDraft,
@@ -305,7 +306,9 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
   it("GSTIN verified + payment: copied to seller_verifications, live without the Shop Act, email sent, then map → categories → products", async () => {
     await walkToReview();
     const submitted = await submitDraftForPayment({ actor: owner });
-    expect(submitted).toMatchObject({ status: "SUBMITTED", nextStep: "PAYMENT", shop: { status: "PENDING_APPROVAL", feePaymentStatus: "PENDING" } });
+    // Owner, 21-Nov-2026: the optional documents screen comes first; "Continue to payment" moves on.
+    expect(submitted).toMatchObject({ status: "SUBMITTED", nextStep: "DOCUMENTS", shop: { status: "PENDING_APPROVAL", feePaymentStatus: "PENDING" } });
+    expect(await finishDraftDocumentsStep({ actor: owner })).toMatchObject({ nextStep: "PAYMENT" });
     expect(submitted.shop!.feeDuePaise).toBeGreaterThan(0);
     const shopId = submitted.shop!.id;
 
@@ -371,7 +374,7 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
     await walkToReview();
     const [a, b] = await Promise.all([submitDraftForPayment({ actor: owner }), submitDraftForPayment({ actor: owner })]);
     expect(a.shop!.id).toBe(b.shop!.id);
-    expect([a.nextStep, b.nextStep]).toEqual(["PAYMENT", "PAYMENT"]);
+    expect([a.nextStep, b.nextStep]).toEqual(["DOCUMENTS", "DOCUMENTS"]);
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(1);
   });
 });
@@ -381,12 +384,15 @@ describe("pending admin approval", () => {
     await walkToReview();
     const { shop } = await submitDraftForPayment({ actor: owner });
     expect(await shopRow(shop!.id)).toMatchObject({ status: "PENDING_APPROVAL", feePaymentStatus: "PENDING" });
+    expect((await getWizardDraft(owner))!.nextStep).toBe("DOCUMENTS");
+    await finishDraftDocumentsStep({ actor: owner }); // "Upload later"
     expect((await getWizardDraft(owner))!.nextStep).toBe("PAYMENT");
   });
 
   it("a failed payment leaves the shop pending at the payment step; a retry that succeeds makes it live", async () => {
     await walkToReview();
     const { shop } = await submitDraftForPayment({ actor: owner });
+    await finishDraftDocumentsStep({ actor: owner });
     expect((await getWizardDraft(owner))!.shop!.lastPaymentFailed).toBe(false);
     await payInSandbox(shop!.id, "FAILURE");
     expect((await shopRow(shop!.id)).status).toBe("PENDING_APPROVAL");

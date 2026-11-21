@@ -55,6 +55,11 @@ export interface AdminShop {
   documentsDueAt: string | null;
   /** The promised date has passed. */
   documentsOverdue: boolean;
+  /**
+   * A food shop with no valid FSSAI licence on file (and no admin waiver running): approval is
+   * refused until one is uploaded, or an admin approves without it (owner request 21-Nov-2026).
+   */
+  fssaiNeeded?: "missing" | "expired" | "grace" | null;
 }
 
 const dueLabel = (iso: string) =>
@@ -111,6 +116,11 @@ export function ShopApprovalPanel({
   canRecordPayment = false,
   canWaiveFee = false,
   approvalGateOn = true,
+  canWaiveFssai = false,
+  canUploadDocuments = false,
+  fssaiWaiverDays = 30,
+  fssaiDueLabel = "",
+  licenceGraceDays = 90,
 }: {
   pending: AdminShop[];
   approved: AdminShop[];
@@ -124,6 +134,16 @@ export function ShopApprovalPanel({
   canWaiveFee?: boolean;
   /** statusModels.enforceTransitions — when off, Approve is offered at any stage. */
   approvalGateOn?: boolean;
+  /** Admin only: approve a food shop without its FSSAI licence, with a reason. */
+  canWaiveFssai?: boolean;
+  /** SHOP_GST_PAN_VERIFY: upload a document the owner sent to GoKesari, on their behalf. */
+  canUploadDocuments?: boolean;
+  /** Rule documentUpload.fssaiWaiverDays: how long the owner has to upload a waived FSSAI licence. */
+  fssaiWaiverDays?: number;
+  /** The due date a waiver given today would set ("21 Dec 2026"), from the server. */
+  fssaiDueLabel?: string;
+  /** DI-14: shopDocumentFollowUp.graceDays — a wizard shop's time to upload its licence after going live. */
+  licenceGraceDays?: number;
 }) {
   const [filter, setFilter] = useState<ShopOnboardingStage | "ALL">("ALL");
   const counts = Object.fromEntries(
@@ -167,6 +187,11 @@ export function ShopApprovalPanel({
                 canRecordPayment={canRecordPayment}
                 canWaiveFee={canWaiveFee}
                 approvalGateOn={approvalGateOn}
+                canWaiveFssai={canWaiveFssai}
+                canUploadDocuments={canUploadDocuments}
+                fssaiWaiverDays={fssaiWaiverDays}
+                fssaiDueLabel={fssaiDueLabel}
+                licenceGraceDays={licenceGraceDays}
               />
             ))}
           </div>
@@ -202,6 +227,11 @@ function PendingShopRow({
   canRecordPayment,
   canWaiveFee,
   approvalGateOn,
+  canWaiveFssai,
+  canUploadDocuments,
+  fssaiWaiverDays,
+  fssaiDueLabel,
+  licenceGraceDays,
 }: {
   shop: AdminShop;
   canApprove: boolean;
@@ -209,6 +239,11 @@ function PendingShopRow({
   canRecordPayment: boolean;
   canWaiveFee: boolean;
   approvalGateOn: boolean;
+  canWaiveFssai: boolean;
+  canUploadDocuments: boolean;
+  fssaiWaiverDays: number;
+  fssaiDueLabel: string;
+  licenceGraceDays: number;
 }) {
   const stage = shop.onboardingStage;
   const promisedBy = shop.documentsPromisedAt ? dueLabel(shop.documentsDueAt ?? shop.documentsPromisedAt) : null;
@@ -217,13 +252,27 @@ function PendingShopRow({
   const nothingUploaded = stage === "KYC_PENDING" && shop.documentsUploaded === 0;
   // Only what the owner has to send: documents waiting for our check are not theirs to chase.
   const canRemind = stage === "KYC_PENDING" && shop.notUploadedDocuments.length + shop.sendAgainDocuments.length > 0;
-  const canWaive = canWaiveDocuments && approvalGateOn && stage === "KYC_PENDING";
+  // Declared before use below: the FSSAI state decides whether "Approve without documents" is offered.
+  const fssaiState = shop.fssaiNeeded ?? null;
+  const fssaiNeededEarly = fssaiState === "grace" ? null : fssaiState;
+  // "Approve without documents" (admin, with a reason): unverified seller documents, or — owner
+  // 21-Nov-2026 — a food shop held only for its FSSAI licence (then due within fssaiWaiverDays).
+  const canWaive =
+    canWaiveDocuments && ((approvalGateOn && stage === "KYC_PENDING") || (fssaiNeededEarly !== null && canWaiveFssai));
   // An admin or operator approves a promised shop after inspecting it; the 1st / 15th reminders follow.
   const canAcceptPromise = approvalGateOn && stage === "KYC_PENDING" && shop.documentsPromisedAt !== null;
   const [acceptingPromise, setAcceptingPromise] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [waiving, setWaiving] = useState(false);
   const [waiveReason, setWaiveReason] = useState("");
+  // Owner request 21-Nov-2026: an admin approves a food shop without its FSSAI licence, due in fssaiWaiverDays.
+  // DI-14: a wizard shop is not blocked; it only needs the licence within licenceGraceDays of going live.
+  const fssaiGrace = fssaiState === "grace";
+  const fssaiNeeded = fssaiNeededEarly;
+  const waivedDocuments = [...shop.missingDocuments.filter((d) => !/FSSAI/i.test(d)), ...(fssaiNeeded ? ["FSSAI licence"] : [])];
+  // A document the owner sent to GoKesari is uploaded for them (FSSAI, or anything still missing).
+  const uploadHref = `/admin/shops/${shop.id}/documents`;
+  const showUpload = canUploadDocuments && (fssaiState !== null || stage === "KYC_PENDING");
   const feeDue = shop.feePaymentStatus !== "PAID";
   const outstandingPaise = Math.max(0, (shop.registrationFeePaise ?? 0) - shop.amountPaidPaise);
   const [feeAction, setFeeAction] = useState<"record" | "waive" | null>(null);
@@ -281,6 +330,10 @@ function PendingShopRow({
             <Badge>{shop.shopType}</Badge>
             {stage ? <OnboardingStageBadge stage={stage} /> : <Badge tone="warning">pending</Badge>}
             {nothingUploaded ? <Badge tone="danger">no documents uploaded</Badge> : null}
+            {fssaiNeeded ? (
+              <Badge tone="danger">{fssaiNeeded === "expired" ? "FSSAI licence expired" : "FSSAI licence missing"}</Badge>
+            ) : null}
+            {fssaiGrace ? <Badge tone="warning">FSSAI due within {licenceGraceDays} days of going live</Badge> : null}
             <PromiseBadge shop={shop} />
             <FeeBadge shop={shop} />
           </div>
@@ -293,6 +346,21 @@ function PendingShopRow({
                   {next.linkLabel} →
                 </Link>
               ) : null}
+            </p>
+          ) : null}
+          {fssaiGrace && canApprove ? (
+            <p className="mt-1 text-sm text-ink-700" data-testid="fssai-grace">
+              <span className="font-medium">FSSAI: </span>
+              not on file yet. This shop registered itself, so it can go live now (owner decision DI-14): the owner then has{" "}
+              {licenceGraceDays} days to upload it, is reminded on the 1st and 15th, and the shop is suspended if it is still missing.
+            </p>
+          ) : null}
+          {fssaiNeeded && canApprove ? (
+            <p className="mt-1 text-sm text-ink-700" data-testid="fssai-needed">
+              <span className="font-medium">FSSAI: </span>
+              {fssaiNeeded === "expired" ? "the licence on file has expired." : "no valid licence on file."}{" "}
+              {canUploadDocuments ? "Upload the copy the owner sent you" : "The owner uploads it on My Shop → Upload documents"}
+              {canWaiveFssai ? `, or use Approve without documents — the owner then has ${fssaiWaiverDays} days to upload it.` : "."}
             </p>
           ) : null}
         </div>
@@ -357,6 +425,24 @@ function PendingShopRow({
                 ) : null}
               </div>
             ) : null}
+            {fssaiNeeded && showUpload ? (
+              <Link
+                href={uploadHref}
+                data-testid="upload-for-owner"
+                className="text-sm font-medium text-kesari-700 hover:underline"
+              >
+                Upload FSSAI for owner →
+              </Link>
+            ) : null}
+            {!fssaiNeeded && showUpload ? (
+              <Link
+                href={uploadHref}
+                data-testid="upload-for-owner"
+                className="text-sm font-medium text-kesari-700 hover:underline"
+              >
+                Upload documents for owner →
+              </Link>
+            ) : null}
             {canRemind || canWaive || canAcceptPromise ? (
               <div className="flex flex-wrap justify-end gap-2">
                 {canAcceptPromise ? (
@@ -375,7 +461,7 @@ function PendingShopRow({
                   </Button>
                 ) : null}
                 {canWaive ? (
-                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => setWaiving((v) => !v)}>
+                  <Button size="sm" variant="secondary" disabled={busy} data-testid="approve-without-documents" onClick={() => setWaiving((v) => !v)}>
                     Approve without documents
                   </Button>
                 ) : null}
@@ -479,8 +565,11 @@ function PendingShopRow({
         <div className="mt-3 space-y-2 rounded-lg border border-cream-200 p-3">
           <p className="text-sm text-ink-700">
             Approve {shop.name} as {classification === "KESARI" ? "Kesari" : "Green"} without verified documents (
-            {shop.missingDocuments.join(", ")}). The shop goes live now; your name and reason are recorded. The
-            registration fee and any licence the shop type needs are still checked.
+            {waivedDocuments.join(", ")}). The shop goes live now; your name and reason are recorded. The
+            registration fee is still checked.
+            {fssaiNeeded
+              ? ` The owner must upload a valid FSSAI licence within ${fssaiWaiverDays} days (by ${fssaiDueLabel}); they are reminded on the 1st and 15th, and the shop is suspended automatically if it is still missing then.`
+              : ""}
           </p>
           <div className="flex gap-2">
             <input
@@ -493,7 +582,13 @@ function PendingShopRow({
             <Button
               size="sm"
               disabled={busy || waiveReason.trim().length < 10}
-              onClick={() => act("approve", { classification, waiveDocuments: { reason: waiveReason } })}
+              onClick={() =>
+                act("approve", {
+                  classification,
+                  waiveDocuments: { reason: waiveReason },
+                  ...(fssaiNeeded && canWaiveFssai ? { waiveFssai: { reason: waiveReason } } : {}),
+                })
+              }
             >
               Confirm approval
             </Button>

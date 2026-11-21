@@ -143,6 +143,20 @@ A badly formatted number is a 422 with `details.fields`.
 Requires `shop:approve` (Operator/Admin). Body: `{ "classification": "KESARI" | "GREEN" }`.
 Notifies the owner. 409 if the shop was rejected and its Shop Act licence is
 now held by another live registration.
+Optional, admin only: `"waiveDocuments": { "reason" }` approves without the
+seller documents (0109); `"waiveFssai": { "reason" }` approves a food shop
+without its FSSAI licence (0159, owner request 21-Nov-2026). The owner then
+has rule `documentUpload.fssaiWaiverDays` (30) to upload it, is told the due
+date, and the shop is suspended by the 1st / 15th follow-up if no valid licence
+is on file after it. Audited `shop.approved_without_fssai`. With a licence
+already on file, `waiveFssai` records nothing. Admin or operator:
+`"acceptDocumentsPromise": true` approves on the owner's documents promise.
+
+### `POST /api/shops/registration-draft/documents-step`
+Shop owner (`shop:create`), no body. The signup wizard's optional documents screen
+(owner, 21-Nov-2026) is done — "Continue to payment" or "Upload later". Answers
+with the whole wizard; its `nextStep` moves from `DOCUMENTS` to `PAYMENT`. The
+uploads themselves use `/api/shops/{id}/documents/…`.
 
 ### `POST /api/shops/{id}/reject`
 Requires `shop:reject`. Body: `{ "reason": "…" }`. Notifies the owner, who

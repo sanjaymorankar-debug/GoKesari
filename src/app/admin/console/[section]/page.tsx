@@ -46,7 +46,8 @@ import { listRegistrationFeeCoupons, registrationFeeGstRateBp } from "@/server/s
 import { getActiveFee, listFeeHistory } from "@/server/services/registration-fees";
 import { listRolesForUsers } from "@/server/services/roles";
 import { getRegistrationFeeReport } from "@/server/services/shop-payments";
-import { countShopsByLifecycle, getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
+import { countShopsByLifecycle, getShopOnboarding, isWizardRegisteredShop, type ShopOnboarding } from "@/server/services/shop-onboarding";
+import { fssaiBlocksRegistration, fssaiStatus } from "@/server/services/document-uploads";
 import { getRule } from "@/server/services/settings";
 import { listShopsByStatus, searchShopsAdmin } from "@/server/services/shops";
 import { countSubscriptionsByStatus } from "@/server/services/subscriptions";
@@ -109,17 +110,30 @@ export default async function AdminConsoleSectionPage({
 
   switch (key) {
     case "shops": {
-      const [pending, approved, statusModelsRule] = await Promise.all([
+      const [pending, approved, statusModelsRule, documentUploadRule, followUpRule] = await Promise.all([
         listShopsByStatus("PENDING_APPROVAL"),
         searchShopsAdmin({ status: "APPROVED", limit: 100 }).then((rows) => rows.sort((a, b) => a.name.localeCompare(b.name))),
         getRule("statusModels"),
+        getRule("documentUpload"),
+        getRule("shopDocumentFollowUp"),
       ]);
       const onboarding = await getShopOnboarding(pending.map((s) => s.id));
+      // Owner request 21-Nov-2026: say up front which food shops have no valid FSSAI licence on file.
+      const fssaiNeeded = new Map(
+        await Promise.all(
+          pending.map(async (s) => {
+            if (!(await fssaiBlocksRegistration(s))) return [s.id, null] as const;
+            // DI-14: a wizard shop goes live without it and has 90 days; Approve is not blocked.
+            if (await isWizardRegisteredShop(s.id)) return [s.id, "grace" as const] as const;
+            return [s.id, (await fssaiStatus(s)).expired ? ("expired" as const) : ("missing" as const)] as const;
+          }),
+        ),
+      );
       return (
         <>
           {header}
           <ShopApprovalPanel
-            pending={pending.map((s) => serialiseShop(s, onboarding.get(s.id)))}
+            pending={pending.map((s) => ({ ...serialiseShop(s, onboarding.get(s.id)), fssaiNeeded: fssaiNeeded.get(s.id) ?? null }))}
             approved={approved.map((s) => serialiseShop(s))}
             approvalGateOn={statusModelsRule.enforceTransitions}
             canApprove={can(user.role, PERMISSIONS.SHOP_APPROVE)}
@@ -127,6 +141,11 @@ export default async function AdminConsoleSectionPage({
             canWaiveDocuments={user.role === "ADMIN"}
             canRecordPayment={can(user.role, PERMISSIONS.PAYMENT_RECORD)}
             canWaiveFee={user.role === "ADMIN"}
+            canWaiveFssai={user.role === "ADMIN"}
+            canUploadDocuments={can(user.role, PERMISSIONS.SHOP_GST_PAN_VERIFY)}
+            fssaiWaiverDays={documentUploadRule.fssaiWaiverDays}
+            fssaiDueLabel={fssaiWaiverDueLabel(documentUploadRule.fssaiWaiverDays)}
+            licenceGraceDays={followUpRule.graceDays}
           />
         </>
       );
@@ -615,6 +634,13 @@ export default async function AdminConsoleSectionPage({
       );
     }
   }
+}
+
+/** The FSSAI due date a waiver given today would set (fssai-waiver.ts), as the card shows it. */
+function fssaiWaiverDueLabel(days: number): string {
+  return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).format(
+    new Date(Date.now() + days * 86_400_000),
+  );
 }
 
 function serialiseShop(shop: typeof shops.$inferSelect, onboarding?: ShopOnboarding) {

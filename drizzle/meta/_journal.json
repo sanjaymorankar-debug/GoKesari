@@ -1114,6 +1114,13 @@
       "when": 1793265600000,
       "tag": "0158_email_mailbox_sends",
       "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1793265700000,
+      "tag": "0159_shop_fssai_waivers",
+      "breakpoints": true
     }
   ]
 }

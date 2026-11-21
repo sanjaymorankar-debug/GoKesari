@@ -2550,8 +2550,8 @@
       "found": "20-Nov-2026 local run of the new onboarding checks (tests/qa/local/sellers-go-live.spec.ts, tests/qa/scenarios/SC-39-licence-grace.spec.ts); found first by reading the code (docs/testing/manual/code-check-2026-11-20.json).",
       "actual": "After the fee is paid the shop stays PENDING_APPROVAL; the approval log says \"A shop that sells food needs a valid FSSAI licence or registration before registration can be completed.\" The instant approval runs approveShopTransaction → assertFssaiAllowsApproval (src/server/services/shops.ts:1072-1074, src/server/services/document-uploads.ts:677-692) with no wizard exemption, and rule documentUpload.fssaiMandatoryForFood defaults to true (src/server/config/rules.ts:1182). A pharmacy (drug licence) goes live with its 90-day grace as intended.",
       "expected": "DI-14 (owner, 08-Nov-2026): licences never block go-live, FSSAI included — the shop goes live, gets the 90-day grace notice and is suspended only if the licence is still missing at the end. Note: DI-13 of the same day still says \"FSSAI for a food shop still applies\"; the owner should confirm which holds.",
-      "fix": "Not fixed. If DI-14 holds: exempt wizard go-live from assertFssaiAllowsApproval (the grace follow-up already covers FSSAI). The integration test passes only because tests/helpers/fixtures.ts turns the rule off.",
-      "status": "Open (owner to confirm)"
+      "fix": "Fixed 21-Nov-2026 (branch feat/fssai-admin-override; owner confirmed DI-14 holds): assertFssaiAllowsApproval skips wizard-registered shops; the 90-day licence notice is sent however the shop went live. Tests: tests/integration/shop-registration-flow.test.ts \"DI-14 with the FSSAI rule on, as shipped\".",
+      "status": "Fixed (awaiting staging retest)"
     },
     {
       "id": "D-152",
@@ -2730,9 +2730,9 @@
       "actual": "Desktop: all these checks pass (17.00-17.13 IST). Phone (from 17.15): the rider dashboard showed two offers, so getByRole('button', { name: 'Accept', exact: true }) resolved to 2 elements (strict mode) in TC-DEL-001/010/012 (orders-delivery.spec.ts:94); TC-DEL-020 asserts the rider has no active delivery at all and found that check's unaccepted offer (created 17.14:01); the return pickups never reached the rider ('return-pickup-panel' not visible) and the support / returns orders waited longer than 30 s for an offer, because while the rider holds an offer the next one comes only on the minute dispatch tick (offers at 11:50:00.565 and 11:51:00.497 UTC). One QA order was still offered after the run (DB-20261120-KHS786); cancelled as operations with 'QA cleanup' at 17.23 IST.",
       "expected": "Each check acts on its own order's offer and leaves the rider free: the Accept click inside the offer card that shows the order number, TC-DEL-020 checks this order's delivery only, offer waits allow one dispatch tick (about 75 s), and a failed check cancels its order.",
       "fix": "Test fix in tests/qa/signed-in/orders-delivery.spec.ts, orders-returns.spec.ts and orders-support.spec.ts (not a product defect); then re-run the phone pass.",
-      "status": "Fixed (re-test pending)",
+      "status": "Fixed - retest passed",
       "fixedIn": "#445",
-      "retest": "20-Nov-2026 23.14-23.40 IST on staging with the #445 suite (b000fc47): 2 pass, 75 blocked, none failed. Every order was given the 21-Nov 07.00 slot (delivery hours 07.00-22.00 IST), so no rider search could start (E-40). Re-run the delivery, support and returns files (desktop + phone) between 07.00 and 21.00 IST."
+      "retest": "20-Nov-2026 23.14-23.40 IST on staging with the #445 suite (b000fc47): 2 pass, 75 blocked, none failed. Every order was given the 21-Nov 07.00 slot (delivery hours 07.00-22.00 IST), so no rider search could start (E-40). Re-run the delivery, support and returns files (desktop + phone) between 07.00 and 21.00 IST. | 21-Nov-2026 07.13-07.47 IST on staging, in delivery hours (suite 4ff18be6, returns file again with 5852a2ea; docs/testing/qa-runs/2026-11-21-staging-rider-fix-retest.json): every case of this entry passes, on desktop and on the phone where the check runs there. TC-DEL-001/010/012/020 4 of 4 (07.14-07.16); the support file in full; the returns file 44 of 46 rows at 07.42-07.47 (phone TC-RET-001 / TC-FLD-095 passed at 07.28; their repeat at 07.47 was blocked only by customer 1's wallet, Rs 1,188.50). The first returns pass at 07.18 was stopped by E-41, fixed in the same PR."
     },
     {
       "id": "E-39",
@@ -2746,9 +2746,9 @@
       "actual": "Everything the case checks passes on desktop: the bad amounts are refused (422), ₹70.50 is stored as 7050 paise and the wallet is credited +7050; the return reaches REFUND_COMPLETED. The last step reloads /shop/returns?tab=all and waits for RT-C4FEEB05 with '70.50': the card is not on the page, because the list puts unfinished returns first and pages them (src/app/shop/returns/page.tsx) and shop A has 15 open QA returns (Requests 10, Pickups 5, from 17-Nov and 20-Nov runs, e.g. 'QA IDOR check').",
       "expected": "The check finds the refunded return wherever the list places it (the page that holds it, or the return's own page).",
       "fix": "Test fix in tests/qa/signed-in/orders-returns.spec.ts (open the page that holds the case); test data: close the stale QA returns on shop A. Not a product defect.",
-      "status": "Fixed (re-test pending)",
+      "status": "Fixed - retest passed",
       "fixedIn": "#445",
-      "retest": "Not reached on 20-Nov 23.14 IST: the returns chain was blocked on the night slot (E-40). Re-run TC-RET-010 / TC-FLD-098 in delivery hours."
+      "retest": "Not reached on 20-Nov 23.14 IST: the returns chain was blocked on the night slot (E-40). Re-run TC-RET-010 / TC-FLD-098 in delivery hours. | 21-Nov-2026 07.17 and 07.43 IST on staging (docs/testing/qa-runs/2026-11-21-staging-rider-fix-retest.json): TC-RET-010 / TC-FLD-098 pass (desktop check); the refunded return with 70.50 is found on the page that holds it."
     },
     {
       "id": "E-40",
@@ -2773,7 +2773,30 @@
       "fix": "#445: offerFor() sends the rider's location first and blocks at once, naming the slot, when the earliest slot is more than an hour away. Run rider checks on the test site between 07.00 and 21.00 IST. Not a product defect.",
       "status": "Not a defect",
       "fixedIn": "#445",
-      "retest": "20-Nov-2026 23.44 IST: TC-DEL-001 blocked at once with \"its earliest delivery slot starts 21 Nov 2026, 7:00 am IST\"; the order was cancelled."
+      "retest": "20-Nov-2026 23.44 IST: TC-DEL-001 blocked at once with \"its earliest delivery slot starts 21 Nov 2026, 7:00 am IST\"; the order was cancelled. | 21-Nov-2026 07.13-07.47 IST, in delivery hours: offers reached the rider within the wait for every check (offerFor sends a fresh rider location first); TC-DEL-001/010/012/020, the support checks and the return pickups pass (docs/testing/qa-runs/2026-11-21-staging-rider-fix-retest.json)."
+    },
+    {
+      "id": "E-41",
+      "title": "QA suite: an operations click in the returns checks gets the site's own API limit (429 'Too many requests'); the return stays with the rider and blocks every later pickup check",
+      "cases": [
+        "TC-RET-013",
+        "TC-RET-022",
+        "TC-RET-008",
+        "TC-RET-011",
+        "TC-RET-005",
+        "TC-RET-007",
+        "TC-RET-009",
+        "TC-RET-010",
+        "TC-RET-021"
+      ],
+      "severity": "Low",
+      "found": "staging re-run 21-Nov-2026 07.13-07.37 IST (suite 4ff18be6, PR #445)",
+      "actual": "TC-RET-013 / TC-RET-022 (desktop, 07.18 IST): the rider set off (RT-67A24B51, RIDER_EN_ROUTE), the customer's cancel was refused 409 as expected, then operations' 'Cancel return' on /admin/returns sent PATCH /api/returns/34fa667d-... and got 429 {\"error\":\"Too many requests\"} with Retry-After 60, the proxy's per-IP limit (API_RATE_LIMIT_PER_MIN, 240; src/proxy.ts). The page had just loaded about 50 evidence photos through /api/images, which count towards the same limit as the suite's own calls (paced to 150 a minute, tests/qa/lib/http.ts). The screen said 'That did not work.' and the check timed out waiting for RETURN_CANCELLED. The rider kept the pickup on the way to the customer, so the 13 later pickup rows were blocked ('the staging rider still holds another return pickup'), and 4 approved returns were left waiting for a rider. Cancelled as operations ('QA cleanup') at 07.39 IST.",
+      "expected": "A write the proxy refused is sent again after Retry-After, as call() already does for the suite's API calls, and a check that stops part-way leaves no pickup with the rider.",
+      "fix": "#445 (5852a2ea): clickWrite() waits for the answer of a write click and clicks again after Retry-After on the proxy's 429; every write click in orders-returns.spec.ts uses it; returns a check sends to the rider are cancelled as operations in afterEach when the check fails or is blocked. Not a product defect. Note for the product: images served under /api count towards the per-IP API limit, and a 429 shows the generic 'That did not work.' on the return card.",
+      "status": "Fixed - retest passed",
+      "fixedIn": "#445",
+      "retest": "21-Nov-2026 07.42-07.47 IST on staging with 5852a2ea (docs/testing/qa-runs/2026-11-21-staging-rider-fix-retest.json): the returns file passes 44 of 46 rows (desktop in full, TC-RET-013 / TC-RET-022 included; the other 2 blocked only by customer 1's wallet); no return left with the rider."
     }
   ]
 }

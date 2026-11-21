@@ -11,6 +11,11 @@
  * its latest waiver, or from its approval for a promise. It is reminded on every reminder day
  * (every 15 days) until then, however many reminders that is, and suspended at the first run after.
  *
+ * Owner request, 21-Nov-2026 (fssai-waiver.ts): a food shop an admin approved without its FSSAI
+ * licence has until that waiver's due date (rule documentUpload.fssaiWaiverDays, 30) when that is
+ * sooner: it is reminded until then and suspended at the first run after, unless a valid licence
+ * is on file by then (the same test as the approval gate).
+ *
  * Chased: a mandatory document (PAN, GSTIN, Shop Act, FSSAI for food) never given, or one that
  * must be sent again (FAILED / EXPIRED). A document waiting for GoKesari's check
  * (PENDING / MANUAL_REVIEW, the "not GST-registered" declaration included) is the team's to
@@ -31,6 +36,8 @@ import { db } from "@/server/db";
 import { sellerVerifications, shopDocumentReminders, shopDocumentWaivers, shopLegalDocuments, shopRegistrationDrafts, shops, users, type Shop } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { fssaiStatus } from "./document-uploads";
+import { latestFssaiDueDates } from "./fssai-waiver";
 import { notify } from "./notifications";
 import { isMandatory } from "./seller-verification-checks";
 import { getRule } from "./settings";
@@ -178,12 +185,22 @@ export async function runShopDocumentFollowUp(
   }
   result.cleared = done.length;
 
-  const lastWaiver = await latestWaivers(candidates.filter(isChased).map((c) => c.shop.id));
+  const chasedIds = candidates.filter(isChased).map((c) => c.shop.id);
+  const lastWaiver = await latestWaivers(chasedIds);
+  const fssaiDue = await latestFssaiDueDates(chasedIds);
   for (const c of candidates) {
     if (!isChased(c)) continue;
     result.checked += 1;
     try {
-      const outcome = await followUpShop(c, today, now, rule, graceUntil(c.shop, lastWaiver.get(c.shop.id) ?? null, rule.graceDays, c.wizardRegistered));
+      let grace = graceUntil(c.shop, lastWaiver.get(c.shop.id) ?? null, rule.graceDays, c.wizardRegistered);
+      // Approved without its FSSAI licence: the waiver's due date, when sooner, unless a licence is on file now.
+      const due = fssaiDue.get(c.shop.id);
+      let fssaiDeadline = false;
+      if (due && c.missing.includes("FSSAI") && (grace === null || due.getTime() < grace.getTime()) && !(await fssaiStatus(c.shop)).onFile) {
+        grace = due;
+        fssaiDeadline = true;
+      }
+      const outcome = await followUpShop(c, today, now, rule, grace, fssaiDeadline);
       if (outcome === "REMINDED") result.reminded += 1;
       else if (outcome === "SUSPENDED") result.suspended += 1;
       else if (outcome === "WAITING") result.waiting += 1;
@@ -259,6 +276,8 @@ async function followUpShop(
   now: Date,
   rule: Rule,
   grace: Date | null,
+  /** `grace` is the due date of an admin's FSSAI waiver (fssai-waiver.ts). */
+  fssaiDeadline = false,
 ): Promise<"REMINDED" | "SUSPENDED" | "WAITING" | "DONE_TODAY"> {
   const { shop } = c;
   if (c.lastReminderOn === today) return "DONE_TODAY";
@@ -269,7 +288,9 @@ async function followUpShop(
   if (graceOver || (grace === null && c.remindersSent >= max)) {
     // A promise is kept until its date, whatever the reminders say.
     if (grace === null && shop.documentsDueAt && shop.documentsDueAt.getTime() > now.getTime()) return "WAITING";
-    const reason = grace
+    const reason = fssaiDeadline
+      ? `FSSAI licence not uploaded by ${formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, grace!))}, the date set when the shop was approved without it. Missing: ${labels}.`
+      : grace
       ? `Shop documents not submitted within ${rule.graceDays} days of approval without them: ${labels}.`
       : `Shop documents not submitted after ${max} reminders: ${labels}.`;
     await suspendShopWithPolicy(
@@ -288,7 +309,7 @@ async function followUpShop(
       action: AUDIT_ACTIONS.SHOP_DOCUMENTS_FOLLOW_UP,
       entityType: "shop",
       entityId: shop.id,
-      newValue: { outcome: "SUSPENDED", missing: c.missing, remindersSent: c.remindersSent, day: today, graceUntil: grace?.toISOString() ?? null },
+      newValue: { outcome: "SUSPENDED", missing: c.missing, remindersSent: c.remindersSent, day: today, graceUntil: grace?.toISOString() ?? null, fssaiWaiverDue: fssaiDeadline },
     });
     return "SUSPENDED";
   }
@@ -324,7 +345,9 @@ async function followUpShop(
           ? `This is the last reminder: if they are still missing on ${next}, your shop will be suspended automatically.`
           : `If they are still missing after reminder ${max}, your shop will be suspended automatically.`,
     },
-    actionUrl: c.missing.length === 0 ? "/shop/legal-documents" : `/shop/verification?shop=${shop.id}`,
+    // A licence file (FSSAI) is uploaded on Upload documents; the verification page takes numbers only.
+    actionUrl:
+      c.missing.length === 0 ? "/shop/legal-documents" : c.missing.includes("FSSAI") ? `/shop/documents?shop=${shop.id}` : `/shop/verification?shop=${shop.id}`,
     dedupeKey: `shop-documents-follow-up:${shop.id}:${today}`,
     mandatory: true,
   });

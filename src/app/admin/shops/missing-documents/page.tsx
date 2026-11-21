@@ -29,6 +29,7 @@ export default async function ShopsMissingDocumentsPage({ searchParams }: { sear
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   if (!can(user.role, PERMISSIONS.SHOP_APPROVE)) redirect("/");
+  const canUpload = can(user.role, PERMISSIONS.SHOP_GST_PAN_VERIFY);
   const params = await searchParams;
   const view: View = params.view && params.view in VIEWS ? (params.view as View) : "live";
   const rule = await getRule("shopDocumentFollowUp");
@@ -111,6 +112,12 @@ export default async function ShopsMissingDocumentsPage({ searchParams }: { sear
                     <Link href={`/admin/shops/${r.shop.id}`} className="font-medium text-kesari-600 hover:underline">
                       Open shop →
                     </Link>
+                    {/* Owner request 21-Nov-2026: a document the owner sent to GoKesari is uploaded for them. */}
+                    {canUpload ? (
+                      <Link href={`/admin/shops/${r.shop.id}/documents`} className="block font-medium text-kesari-600 hover:underline">
+                        Upload for owner →
+                      </Link>
+                    ) : null}
                   </div>
                 </div>
               </Card>

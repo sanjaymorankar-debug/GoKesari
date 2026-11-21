@@ -138,7 +138,7 @@ describe("the onboarding funnel (B3)", () => {
     await getWizardDraft(owner); // read again: no second row for the same step
     const steps = await db.select({ step: shopOnboardingSteps.step }).from(shopOnboardingSteps);
     const names = steps.map((s) => s.step);
-    expect(names).toEqual(expect.arrayContaining(["IDENTITY", "PIN", "REVIEW", "PAYMENT", "LIVE"]));
+    expect(names).toEqual(expect.arrayContaining(["IDENTITY", "PIN", "REVIEW", "DOCUMENTS", "LIVE"]));
     expect(new Set(names).size).toBe(names.length);
 
     const funnel = await getOnboardingFunnel(30);
