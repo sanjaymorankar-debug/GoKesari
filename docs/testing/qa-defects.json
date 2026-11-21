@@ -2550,8 +2550,8 @@
       "found": "20-Nov-2026 local run of the new onboarding checks (tests/qa/local/sellers-go-live.spec.ts, tests/qa/scenarios/SC-39-licence-grace.spec.ts); found first by reading the code (docs/testing/manual/code-check-2026-11-20.json).",
       "actual": "After the fee is paid the shop stays PENDING_APPROVAL; the approval log says \"A shop that sells food needs a valid FSSAI licence or registration before registration can be completed.\" The instant approval runs approveShopTransaction → assertFssaiAllowsApproval (src/server/services/shops.ts:1072-1074, src/server/services/document-uploads.ts:677-692) with no wizard exemption, and rule documentUpload.fssaiMandatoryForFood defaults to true (src/server/config/rules.ts:1182). A pharmacy (drug licence) goes live with its 90-day grace as intended.",
       "expected": "DI-14 (owner, 08-Nov-2026): licences never block go-live, FSSAI included — the shop goes live, gets the 90-day grace notice and is suspended only if the licence is still missing at the end. Note: DI-13 of the same day still says \"FSSAI for a food shop still applies\"; the owner should confirm which holds.",
-      "fix": "Not fixed. If DI-14 holds: exempt wizard go-live from assertFssaiAllowsApproval (the grace follow-up already covers FSSAI). The integration test passes only because tests/helpers/fixtures.ts turns the rule off.",
-      "status": "Open (owner to confirm)"
+      "fix": "Fixed 21-Nov-2026 (branch feat/fssai-admin-override; owner confirmed DI-14 holds): assertFssaiAllowsApproval skips wizard-registered shops; the 90-day licence notice is sent however the shop went live. Tests: tests/integration/shop-registration-flow.test.ts \"DI-14 with the FSSAI rule on, as shipped\".",
+      "status": "Fixed (awaiting staging retest)"
     },
     {
       "id": "D-152",

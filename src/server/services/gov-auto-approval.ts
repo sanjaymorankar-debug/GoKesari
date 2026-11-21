@@ -20,7 +20,7 @@
  *     wizard is also held for the same mobile or a similar name nearby);
  *   - every document the approval needs is in place. A shop registered through the
  *     onboarding wizard (owner decision 29 Oct 2026, "follow the brief"; 0118) needs only
- *     the GSTIN (or PAN) above and FSSAI for a food shop — the Shop Act and the rest are
+ *     the GSTIN (or PAN) above — licences, FSSAI included (DI-14), and the Shop Act are
  *     uploaded after go-live. Any other shop, exactly as before:
  *     the mandatory seller documents verified (PAN, GSTIN or the "not
  *     registered" declaration, Shop Act — the database's own onboarding rule,

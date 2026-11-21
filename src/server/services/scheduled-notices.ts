@@ -33,6 +33,7 @@ const STEP_LABEL: Record<string, { label: string; tile: number }> = {
   SHOP: { label: "Shop name", tile: 4 },
   FSSAI: { label: "FSSAI licence", tile: 4 },
   REVIEW: { label: "Review and pay", tile: 5 },
+  DOCUMENTS: { label: "Upload your documents (optional), then pay", tile: 5 },
   PAYMENT: { label: "Pay the registration fee", tile: 5 },
 };
 /** The tile where the shop goes live once its last step is done. */

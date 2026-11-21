@@ -63,6 +63,8 @@ import {
 } from "@/server/db/schema";
 import { readDocument, type BrowserReadInput } from "@/server/kyc/document-reader";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { activeFssaiWaiver } from "./fssai-waiver";
+import { isWizardRegisteredShop } from "./shop-onboarding";
 import { legalDocLabel, requiredLegalDocTypes, submitLegalDocument } from "./legal-documents";
 import {
   detectDocumentFile,
@@ -285,6 +287,21 @@ export interface ReadUploadInput {
   actor: Actor;
 }
 
+/**
+ * A licence (FSSAI, drug licence, the optional licences…) is kept in the legal-documents register and
+ * the Shop Act certificate with seller verification, both capped at rule uploads.sellerDocumentMaxBytes
+ * (5 MB), below this page's own limit (10 MB). Refuse a larger file when it is uploaded, not after the
+ * owner has checked every field and clicked Verify & Approve (where it failed half-way, 21-Nov-2026).
+ */
+async function assertKeptFileSize(docType: string, size: number): Promise<void> {
+  const kept = docType === "SHOP_ACT" || docType === "FSSAI" || docType === "DRUG_LICENCE" || docType === "MEDICAL_REGISTRATION" || isAdditionalLicence(docType);
+  if (!kept) return;
+  const maxBytes = (await getRule("uploads")).sellerDocumentMaxBytes;
+  if (size > maxBytes) {
+    throw validationFailed(`This document can be at most ${maxBytes / 1_000_000} MB. Upload a smaller PDF, or take a photo of it instead.`);
+  }
+}
+
 export async function readUploadedDocument(input: ReadUploadInput): Promise<UploadView> {
   const rule = await getRule("documentUpload");
   if (!rule.enabled) throw conflict("Document upload is switched off. Use the verification page to enter the numbers.");
@@ -298,6 +315,7 @@ export async function readUploadedDocument(input: ReadUploadInput): Promise<Uplo
   }
   const contentType = detectDocumentFile(input.file);
   if (!contentType) throw validationFailed("Upload the document as a PDF, JPEG, PNG or WebP file.");
+  if (!auto) await assertKeptFileSize(input.docType, input.file.length);
 
   const [{ n }] = await db
     .select({ n: count() })
@@ -324,6 +342,7 @@ export async function readUploadedDocument(input: ReadUploadInput): Promise<Uplo
   } else {
     docType = input.docType as UploadDocType;
   }
+  if (auto) await assertKeptFileSize(docType, input.file.length);
   const parsed = extractDocumentFields(read.text, docType);
   // An engine that understands documents (Claude) fills what the text parse missed.
   const fields: ExtractedFields = { ...parsed.fields };
@@ -671,7 +690,7 @@ export async function fssaiStatus(shop: Pick<Shop, "id">, client: DbClient = db)
 }
 
 export const FSSAI_REQUIRED_MESSAGE =
-  "A shop that sells food needs a valid FSSAI licence or registration before registration can be completed. Upload it on Documents (Shop → Upload your documents).";
+  "A shop that sells food needs a valid FSSAI licence or registration before registration can be completed. Upload it on My Shop → Upload documents.";
 
 /** Task 3: food shops cannot complete registration (approval / profile completion) without a valid FSSAI licence. */
 export async function fssaiBlocksRegistration(shop: Pick<Shop, "id" | "shopType">, client: DbClient = db): Promise<string | null> {
@@ -680,6 +699,8 @@ export async function fssaiBlocksRegistration(shop: Pick<Shop, "id" | "shopType"
   if (!(await shopSellsFood(shop))) return null;
   const status = await fssaiStatus(shop, client);
   if (status.onFile) return null;
+  // Owner request 21-Nov-2026 (fssai-waiver.ts): an admin approved it without the licence; it is due later.
+  if (await activeFssaiWaiver(shop.id, client)) return null;
   return status.expired
     ? `This shop's FSSAI licence expired on ${status.validUntil}. Upload the renewed licence before registration can be completed.`
     : FSSAI_REQUIRED_MESSAGE;
@@ -687,6 +708,11 @@ export async function fssaiBlocksRegistration(shop: Pick<Shop, "id" | "shopType"
 
 /** Shop approval gate (shops.ts). Pass the approval's transaction. */
 export async function assertFssaiAllowsApproval(shop: Shop, client: DbClient = db): Promise<void> {
+  // DI-14 (owner, 08-Nov-2026; confirmed 21-Nov-2026, defect D-151): a licence, FSSAI included, never
+  // stops a shop registered through the wizard going live — as legal-documents.ts already does for the
+  // other licences. It has shopDocumentFollowUp.graceDays (90) from going live, is reminded on the 1st
+  // and 15th and is suspended automatically after that (shop-document-follow-up.ts).
+  if (await isWizardRegisteredShop(shop.id, client)) return;
   const blocker = await fssaiBlocksRegistration(shop, client);
   if (blocker) throw conflict(blocker, { fssaiRequired: true });
 }

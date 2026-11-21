@@ -3,6 +3,8 @@
  * `waiveDocuments` (admin only): approve without the seller documents, with a written reason (0109).
  * `acceptDocumentsPromise` (admin or operator): approve a shop whose owner promised the missing
  * documents within 30 days, after inspecting it (owner decision 29 Oct 2026).
+ * `waiveFssai` (admin only): approve a food shop without its FSSAI licence, with a written reason; the
+ * owner must upload it within rule documentUpload.fssaiWaiverDays (owner request 21-Nov-2026).
  */
 import { after, type NextRequest } from "next/server";
 import { z } from "zod";
@@ -16,13 +18,14 @@ const schema = z.object({
   classification: z.enum(["KESARI", "GREEN"]),
   waiveDocuments: z.object({ reason: z.string().trim().min(10).max(500) }).optional(),
   acceptDocumentsPromise: z.literal(true).optional(),
+  waiveFssai: z.object({ reason: z.string().trim().min(10).max(500) }).optional(),
 });
 
 export const POST = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
     const user = await requirePermission(PERMISSIONS.SHOP_APPROVE);
     const { id } = await context.params;
-    const { classification, waiveDocuments, acceptDocumentsPromise } = await parseBody(request, schema);
-    return ok(toShopView(await approveShop(id, { classification }, user, { defer: after, waiveDocuments, acceptDocumentsPromise })));
+    const { classification, waiveDocuments, acceptDocumentsPromise, waiveFssai } = await parseBody(request, schema);
+    return ok(toShopView(await approveShop(id, { classification }, user, { defer: after, waiveDocuments, acceptDocumentsPromise, waiveFssai })));
   },
 );

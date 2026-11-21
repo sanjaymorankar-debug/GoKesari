@@ -22,6 +22,8 @@ export const AUDIT_ACTIONS = {
   SHOP_WELCOME_KIT_BULK_SENT: "shop.welcome_kit_bulk_sent",
   SHOP_REJECTED: "shop.rejected",
   SHOP_APPROVED_WITHOUT_DOCUMENTS: "shop.approved_without_documents",
+  /** 0159 (owner request 21-Nov-2026): an admin approved a food shop without its FSSAI licence; due date recorded. */
+  SHOP_APPROVED_WITHOUT_FSSAI: "shop.approved_without_fssai",
   SHOP_DOCUMENTS_REMINDED: "shop.documents_reminded",
   SHOP_DOCUMENTS_PROMISED: "shop.documents_promised", // 0115: "I will provide all relevant documents within 30 days"
   SHOP_DOCUMENTS_FOLLOW_UP: "shop.documents_follow_up", // 0115: 1st / 15th reminder, or suspension after the last

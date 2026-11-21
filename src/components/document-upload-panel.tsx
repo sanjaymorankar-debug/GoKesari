@@ -121,18 +121,40 @@ async function errorOf(response: Response): Promise<{ message: string; reupload:
   };
 }
 
-export function DocumentUploadPanel({ shopId, items, browserOcr = false }: { shopId: string; items: PanelItem[]; browserOcr?: boolean }) {
+export function DocumentUploadPanel({
+  shopId,
+  items,
+  browserOcr = false,
+  onBehalfOf,
+  onChanged,
+}: {
+  shopId: string;
+  items: PanelItem[];
+  browserOcr?: boolean;
+  /** Called after an upload is read or submitted, for a host that loads the checklist itself (the signup wizard). */
+  onChanged?: () => void;
+  /** An admin or operator uploads a document the owner sent to GoKesari: the owner's name, for the consent line. */
+  onBehalfOf?: string;
+}) {
   const [focus, setFocus] = useState<UploadDocType | null>(null);
   const main = items.filter((i) => !i.additional || i.requirement !== "optional");
   const more = items.filter((i) => i.additional && i.requirement === "optional");
   const moreOpen = more.some((i) => i.latest?.status === "EXTRACTED" || i.docType === focus);
   // Remount a card when its latest upload changes (a scan filed onto it), so it shows the new read.
   const card = (item: PanelItem) => (
-    <DocumentCard key={`${item.docType}:${item.latest?.id ?? ""}`} shopId={shopId} item={item} browserOcr={browserOcr} focus={item.docType === focus} />
+    <DocumentCard
+      key={`${item.docType}:${item.latest?.id ?? ""}`}
+      shopId={shopId}
+      item={item}
+      browserOcr={browserOcr}
+      focus={item.docType === focus}
+      onBehalfOf={onBehalfOf}
+      onChanged={onChanged}
+    />
   );
   return (
     <div className="space-y-4">
-      <ScanCard shopId={shopId} browserOcr={browserOcr} onRead={setFocus} />
+      <ScanCard shopId={shopId} browserOcr={browserOcr} onRead={setFocus} onChanged={onChanged} />
       {main.map(card)}
       {more.length ? (
         <details className="group rounded-xl border border-cream-200 bg-white p-4" open={moreOpen || undefined} data-testid="more-licences">
@@ -150,7 +172,17 @@ export function DocumentUploadPanel({ shopId, items, browserOcr = false }: { sho
 }
 
 /** "Scan a document": any document, any order — the server works out which one it is. */
-function ScanCard({ shopId, browserOcr, onRead }: { shopId: string; browserOcr: boolean; onRead: (docType: UploadDocType) => void }) {
+function ScanCard({
+  shopId,
+  browserOcr,
+  onRead,
+  onChanged,
+}: {
+  shopId: string;
+  browserOcr: boolean;
+  onRead: (docType: UploadDocType) => void;
+  onChanged?: () => void;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,6 +206,7 @@ function ScanCard({ shopId, browserOcr, onRead }: { shopId: string; browserOcr: 
     setFound(UPLOAD_DOC_LABELS[read.docType] ?? read.docType);
     onRead(read.docType);
     router.refresh();
+    onChanged?.();
   }
 
   const pick = (source: "FILE" | "CAMERA") => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -248,7 +281,21 @@ function prefill(upload: PanelUpload | null) {
   };
 }
 
-function DocumentCard({ shopId, item, browserOcr, focus = false }: { shopId: string; item: PanelItem; browserOcr: boolean; focus?: boolean }) {
+function DocumentCard({
+  shopId,
+  item,
+  browserOcr,
+  focus = false,
+  onBehalfOf,
+  onChanged,
+}: {
+  shopId: string;
+  item: PanelItem;
+  browserOcr: boolean;
+  focus?: boolean;
+  onBehalfOf?: string;
+  onChanged?: () => void;
+}) {
   const router = useRouter();
   const pending = item.latest?.status === "EXTRACTED" ? item.latest : null;
   const [upload, setUpload] = useState<PanelUpload | null>(pending);
@@ -321,6 +368,7 @@ function DocumentCard({ shopId, item, browserOcr, focus = false }: { shopId: str
     }
     setUpload(null);
     router.refresh();
+    onChanged?.();
   }
 
   async function discard() {
@@ -474,7 +522,11 @@ function DocumentCard({ shopId, item, browserOcr, focus = false }: { shopId: str
             {!reuploadFlag ? (
               <label className="flex items-start gap-2 text-xs text-ink-700">
                 <input type="checkbox" className="mt-0.5" checked={consent} onChange={(e) => setConsent(e.target.checked)} data-testid="doc-consent" />
-                <span>{SELLER_VERIFICATION_CONSENT_TEXT}</span>
+                <span>
+                  {onBehalfOf
+                    ? `${onBehalfOf} sent this document to GoKesari and agreed to it being checked. On their behalf: ${SELLER_VERIFICATION_CONSENT_TEXT}`
+                    : SELLER_VERIFICATION_CONSENT_TEXT}
+                </span>
               </label>
             ) : null}
             {error ? <Alert tone="danger">{error}</Alert> : null}
