@@ -23,7 +23,7 @@
 | Test server (test.gokesari.com) | **Not yet**: PR #446 goes back into the staging queue (CI, migration, deploy, post-deploy check, guest QA); then the franchise checks on staging |
 | Production (gokesari.com) | **Not started**: needs the owner's OK (one release at a time, 23.00 IST window) |
 
-### 0.1 Zone data checks (`scripts/franchise/build-zone-seed.py`, 21-Nov-2026 08.40 IST)
+### 0.1 Zone data checks (`scripts/franchise/build-zone-seed.py`, 21-Nov-2026 08.20 IST)
 
 | Check | Result |
 |---|---|
@@ -38,12 +38,12 @@
 
 | Suite | Cases | Result | Time (IST) |
 |---|---:|---|---|
-| `tests/integration/franchise-pmr.test.ts` (§11: zones, areas, fees, status, booking, coupons, 8 cases × 2 fees, parity, free teams, split, recurring, upgrade, tail, month end, reminders, team rules) | 34 | **34 passed** | 21-Nov-2026 10.05 |
-| `tests/unit/franchise-zones.test.ts` (tier boundaries ±10% / 10.1%, rounding, seed reproduction, description, coupon maths, cases A1–B4, parity) | 21 | **21 passed** | 21-Nov-2026 10.10 |
-| `tests/unit/franchise-bonus.test.ts` (TC1–TC6 at one decimal, 30 points → 25.3%, cap, downgrade) | 15 | **15 passed** | 21-Nov-2026 10.10 |
-| `tests/unit/franchise-lib.test.ts` | 25 | **25 passed** | 21-Nov-2026 10.10 |
+| `tests/integration/franchise-pmr.test.ts` (§11: zones, areas, fees, status, booking, coupons, 8 cases × 2 fees, parity, free teams, split, recurring, upgrade, tail, month end, reminders, team rules) | 34 | **34 passed** | 21-Nov-2026 08.50 |
+| `tests/unit/franchise-zones.test.ts` (tier boundaries ±10% / 10.1%, rounding, seed reproduction, description, coupon maths, cases A1–B4, parity) | 21 | **21 passed** | 21-Nov-2026 08.55 |
+| `tests/unit/franchise-bonus.test.ts` (TC1–TC6 at one decimal, 30 points → 25.3%, cap, downgrade) | 15 | **15 passed** | 21-Nov-2026 08.55 |
+| `tests/unit/franchise-lib.test.ts` | 25 | **25 passed** | 21-Nov-2026 08.55 |
 | Mobile (`mobile/`, incl. new zone / chart links) | 61 | **61 passed** | 21-Nov-2026 (UI helper) |
-| `npx tsc --noEmit`, eslint on changed files | — | clean | 21-Nov-2026 10.15 |
+| `npx tsc --noEmit`, eslint on changed files | — | clean | 21-Nov-2026 08.58 |
 | Regression: all unit tests + franchise, dealer, registration, wizard, onboarding, referral, settings and cron integration tests (131 files) | 1,712 | **1,712 passed** | 21-Nov-2026 09.04 IST |
 
 ### 0.3 Browser checks (local dev server, localhost:3720)
