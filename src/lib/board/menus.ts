@@ -694,7 +694,7 @@ export const SHOP_TYPE_MODULES: readonly (BoardItem & { note: Text })[] = [
   },
   // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
   {
-    // Opens on Specialties: every medical practitioner by Health group (owner, 21-Nov-2026; 0160).
+    // Opens on Specialties: every medical practitioner by Health group (owner, 21-Nov-2026; 0161).
     key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health?tab=specialties", permission: PERMISSIONS.HEALTH_MANAGE,
     note: L("All doctor specialties by group, verification, medicine lists, Prime, reports", "समूह अनुसार सभी डॉक्टर विशेषज्ञता, सत्यापन, दवा सूची, प्राइम, रिपोर्ट", "गटानुसार सर्व डॉक्टर विशेषज्ञता, पडताळणी, औषध यादी, प्राइम, अहवाल"),
   },

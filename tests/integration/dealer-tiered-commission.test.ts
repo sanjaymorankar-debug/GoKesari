@@ -70,6 +70,12 @@ let admin: { id: string; role: "ADMIN" };
  * owner's structure of 5 Nov 2026 — the rule's defaults — is tested in its own block (`ownerStructure`).
  */
 async function tiered(over: Partial<RuleValue<"dealerTieredCommission">> = {}) {
+  // Parity (franchise §3.4): a free dealer's override may not pass the franchise owner's (4% / 3% by default since
+  // 21-Nov-2026), so these 20 / 5 / 3 tests first raise the owner's rates.
+  const { FRANCHISE_DEFAULTS } = await import("@/server/franchise/config");
+  const { franchiseConfigVersions } = await import("@/server/db/schema");
+  await db.delete(franchiseConfigVersions);
+  await db.insert(franchiseConfigVersions).values({ version: 1, effectiveFrom: new Date("2026-01-01T00:00:00Z"), config: { ...FRANCHISE_DEFAULTS, ownerOverrideBp: 1000, ownerSecondOverrideBp: 1000 }, reason: "dealer-tier tests" });
   await setRule(
     "dealerTieredCommission",
     { ...RULES.dealerTieredCommission.defaults, enabled: true, leadOverrideBp: 500, mainOverrideBp: 300, firstPartBp: 6000, tradingOrders: 2, developmentMinShopsPerMonth: 0, ...over },
