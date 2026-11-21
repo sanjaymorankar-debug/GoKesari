@@ -20,8 +20,8 @@
 | Environment | State |
 |---|---|
 | Local (PostgreSQL, `gk_franchise_test`, `gk_franchise_dev`) | **Run — results below** |
-| Test server (test.gokesari.com) | **Not yet**: PR #446 goes back into the staging queue (CI, migration, deploy, post-deploy check, guest QA); then the franchise checks on staging |
-| Production (gokesari.com) | **Not started**: needs the owner's OK (one release at a time, 23.00 IST window) |
+| Test server (test.gokesari.com) | **Passed** — staging queue verified PR #446 on 21-Nov-2026 at 11.13 IST (section 0.5) |
+| Production (gokesari.com) | **Released and guest-checked** — release #453 live 11.22 IST; post-deploy check 5/5 at 11.31 IST (section 0.6). Signed-in booking and a real payment are still to run (owner) |
 
 ### 0.1 Zone data checks (`scripts/franchise/build-zone-seed.py`, 21-Nov-2026 08.20 IST)
 
@@ -62,6 +62,33 @@
 | D-F1 | Zone reference tables had a foreign key to dealers (reserved-for), so emptying users in tests would have emptied the zones | Plain id, checked by the service |
 | D-F2 | The as-of date showed as 21-11-2026 | Shown as 21-Nov-2026 |
 | D-F3 | The local browser served the old booking page from the service-worker cache | Not a code defect (cache cleared) |
+
+| D-F4 | Production release: the franchise pages answered 500 from 11.22 to 11.26 IST on 21-Nov-2026, because migration 0157 was applied *after* the code went live (the "Production database" workflow must run before merging into `main`, DEPLOYMENT.md §4) | Ran "Production database" → migrate at 11.25 IST (snapshot first; 157 → 158 migrations); pages 200 from 11.26 IST |
+
+### 0.5 Test server (test.gokesari.com) — 21-Nov-2026
+
+| Check | Result | Time (IST) |
+|---|---|---|
+| Staging queue: CI on staging, "Test database" migration 0157, deploy, post-deploy check, guest QA tier | **Passed** (`staging-verified`) | 11.13 |
+| Launch settings in the build: ₹1,50,000 launch fee, Mumbai (Konkan) and Nashik zone sets, all zones Available, booking open, `/app` | Included in the verified commit `419b5be4` | 11.13 |
+| Signed-in franchise flows on staging (book with Cashfree sandbox, coupon, admin tabs) | **Not yet run** — not part of the queue's guest tier | — |
+
+### 0.6 Production (gokesari.com) — release 21-Nov-2026
+
+| Step / check | Result | Time (IST) |
+|---|---|---|
+| No other release in flight (no open PRs into `main`, last deploy 20-Nov 23.32) | OK | 11.14 |
+| Release PR #453 (staging at `419b5be4`: #446 franchise, #434 consultant fix, QA records) merged into `main` | Merged | 11.15 |
+| Server deploy `ac258d1b` (green slot) | ok | 11.22 |
+| Post-deploy check workflow | Passed | 11.24 |
+| `/franchise`, `/franchise/book`, `/dealer/commission-chart` | **500** (no migration yet) → see D-F4 | 11.25 |
+| "Production database" workflow → migrate (snapshot, 0157 applied, 158 recorded) | Passed | 11.26 |
+| `/franchise`, `/franchise/book`, `/franchise/zones/GKZ-PUN-02`, `/franchise/zones/GKZ-MUM-09`, `/dealer/commission-chart`, `/app`, `/` | 200 | 11.28 |
+| Zones API: 99 zones (Pune 50, Mumbai (Konkan) 38, Nashik 11), all Available; booking open; launch places 25 | Pass | 11.28 |
+| Launch fee: GKZ-PUN-02 sells at ₹1,50,000, regular rate ₹2,26,000 shown, for sale | Pass | 11.28 |
+| Android download `/app/download/android`: 200, 42,147,603 bytes, `application/vnd.android.package-archive`, sha256 `205eb69f…` (app 1.12.0) | Pass | 11.25 |
+| `scripts/release/post-deploy-check.sh https://gokesari.com` | 5 / 5 healthy rounds | 11.31 |
+| Signed-in zone booking with a real payment, coupon, owner dashboard, admin console | **Not run** — needs the owner's own dealer / admin account and a real payment | — |
 
 ## 1. Territory import validation (brief §5)
 
