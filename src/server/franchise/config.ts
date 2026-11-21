@@ -9,6 +9,7 @@ import { z } from "zod";
 import { forbidden, validationFailed } from "@/lib/errors";
 import { istMonth, istMonthBounds } from "@/lib/franchise";
 import type { BonusSettings } from "@/lib/franchise-bonus";
+import { DEFAULT_TIER_DISPLAY, DEFAULT_TIER_SETTINGS, TIER_NAME_CHOICES, parityProblems, type OneTimeRates, type TierDisplay, type TierSettings } from "@/lib/franchise-zones";
 import { db, type DbClient } from "@/server/db";
 import { franchiseConfigVersions, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
@@ -16,54 +17,61 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+const tierRecord = <T extends z.ZodTypeAny>(t: T) => z.object({ PREMIER: t, STANDARD: t, EMERGING: t });
+
 export const franchiseConfigSchema = z
   .object({
     /** Master switch: no booking or payment while false (zones and pages still show). */
     bookingOpen: z.boolean(),
-    /** Regions shown in the booking flow and API (brief §4.1). Only PMR exists in this release. */
-    regionsEnabled: z.array(z.string().min(1)).min(1),
-    /** Launch fee per area per term, paise, before GST. */
-    feePerAreaPaise: int(1, 1_000_000_000),
+    /** Zone sets shown in the booking flow and API (brief §5.1). */
+    zoneSetsEnabled: z.array(z.string().regex(/^[A-Z]{3}$/)).min(1),
+    /** §5.3: zones whose current fee is provisional can be bought only when this is on (off by default). */
+    allowProvisionalSale: z.boolean(),
+    /** §5.2: the standard fee, the ±band that is Standard, and the optional min / max fee (null = off). */
+    standardFeePaise: int(100, 1_000_000_000),
+    standardBandBp: int(0, 5_000),
+    feeMinPaise: int(100, 1_000_000_000).nullable(),
+    feeMaxPaise: int(100, 1_000_000_000).nullable(),
+    /** §5.2: tier display names (one of each pair) and badge colours. */
+    tierNames: tierRecord(z.string().min(1).max(30)),
+    tierColours: tierRecord(z.string().regex(/^#[0-9a-fA-F]{6}$/)),
     gstRateBp: int(0, 5_000),
     validityMonths: int(1, 60),
-    /** Super-admin only (brief §4.4); the database never allows more than 2. */
+    /** The default for new zones; each zone has its own (1 or 2), never below its active franchises. */
     maxOwnersPerZone: int(1, 2),
     reservationHoldMinutes: int(5, 120),
-    maxAreaRadiusKm: z.number().min(0.5).max(50),
-    maxAreasPerBooking: int(1, 91),
+    maxAreasPerBooking: int(1, 50),
     launchMaxOwners: int(0, 10_000),
     launchMaxAreas: int(0, 10_000),
     launchCloseRule: z.enum(["first_limit_reached", "owners_only", "areas_only"]),
-    /** Blank (null) by default: after the launch offer closes, booking shows "new terms coming soon" (D7). */
-    postLaunchFeePaise: int(1, 1_000_000_000).nullable(),
-    postLaunchOneTimeBp: int(0, 10_000).nullable(),
+    /** Blank (null) by default: after the launch offer closes, booking shows "new terms coming soon". */
     postLaunchRecurringBp: int(0, 10_000).nullable(),
-    /** One-time commission, bp of the shop registration fee excluding GST — all shop types (D3). */
-    oneTimeBp: int(0, 10_000),
-    /** Recurring share of GoKesari's order commission, and the most a bonus can add (brief 21-Nov §2). */
+    /** §3.2: the franchise owner's one-time rates — own shop, and override on each team shop. Agent / team-lead
+     * rates are the free dealership's (rule dealerTieredCommission), one field each for both models (§3.4). */
+    ownerSelfBp: int(0, 10_000),
+    ownerOverrideBp: int(0, 10_000),
+    /** Recurring share of GoKesari's order commission, and the most a bonus can add (§4). */
     recurringBaseBp: int(0, 10_000),
     bonusMaxBp: int(0, 10_000),
     /** GoKesari's order commission on delivered order value (200 = 2%). */
     gokesariCommissionBp: int(0, 10_000),
-    /** Monthly bonus (brief 21-Nov §2–§3): target, expected business per shop, slot, points. */
+    /** Monthly bonus (§4.1): target, expected business per shop, slot, points. */
     monthlyShopTarget: int(0, 100_000),
     expectedBusinessPerShopPaise: int(0, 10_000_000_000),
     businessSlotPaise: int(1, 10_000_000_000),
     basePointsPerMainPoint: int(1, 1_000_000),
     bonusBpPerMainPoint: int(0, 10_000),
-    /** Areas are 5 km circles around their centre (brief 21-Nov §1.1): neighbouring areas may overlap; the code decides. */
-    allowOverlappingAreas: z.boolean(),
-    /** Month-end (brief 21-Nov §5): calculation runs on days 1..calcLastDay, statements on statementDay at statementHourIst. */
+    /** §6: a free-team shop in a zone with two active franchises — split 50/50, or to the nearest owner. */
+    recurringSplitMode: z.enum(["split", "nearest"]),
+    /** Month-end: calculation runs on days 1..calcLastDay, statements on statementDay at statementHourIst. */
     calcLastDay: int(1, 4),
     statementDay: int(2, 5),
     statementHourIst: int(0, 23),
-    /** Renewal fee; null = the fee then in force (launch owners: the launch fee). */
-    renewalFeePaise: int(1, 1_000_000_000).nullable(),
     renewalWindowDays: int(1, 365),
+    /** §5.6: owners of a franchise in an Inactive zone are told this many days before expiry. */
+    inactiveNoticeDays: int(1, 365),
     tailMode: z.enum(["fixed_end_of_year_3", "years_after_lapse"]),
     tailYears: int(0, 10),
-    franchiseCodeOutsideZone: z.enum(["reject", "treat_as_model_A_direct_20"]),
-    freeDealerInFranchisedZone: z.enum(["allow", "allow_and_notify_franchise", "block"]),
     expiryCc: z.array(z.string().email()).max(10),
     reminderHourIst: int(0, 23),
     digestHourIst: int(0, 23),
@@ -74,28 +82,34 @@ export const franchiseConfigSchema = z
     /** Test server only: shift "now" by this many days for expiry / renewal / tail tests. Refused on production. */
     clockOffsetDays: int(-3650, 3650),
   })
-  .refine((c) => c.recurringBaseBp + c.bonusMaxBp <= 10_000, { message: "Share plus bonus cannot pass 100%.", path: ["bonusMaxBp"] });
+  .refine((c) => c.recurringBaseBp + c.bonusMaxBp <= 10_000, { message: "Share plus bonus cannot pass 100%.", path: ["bonusMaxBp"] })
+  .refine((c) => c.feeMinPaise == null || c.feeMaxPaise == null || c.feeMinPaise <= c.feeMaxPaise, { message: "The minimum fee cannot be above the maximum.", path: ["feeMinPaise"] })
+  .refine((c) => (Object.keys(TIER_NAME_CHOICES) as (keyof typeof TIER_NAME_CHOICES)[]).every((t) => TIER_NAME_CHOICES[t].includes(c.tierNames[t])), { message: "Each tier name must be one of its pair (Premier / Platinum, Standard / Established, Emerging / Developing).", path: ["tierNames"] });
 
 export type FranchiseConfig = z.infer<typeof franchiseConfigSchema>;
 
-/** Brief defaults (§3, §17). */
+/** Brief defaults (final brief 21-Nov-2026 08.06 IST). */
 export const FRANCHISE_DEFAULTS: FranchiseConfig = {
   bookingOpen: false,
-  regionsEnabled: ["PMR"],
-  feePerAreaPaise: 15_000_000,
+  zoneSetsEnabled: ["PUN"],
+  allowProvisionalSale: false,
+  standardFeePaise: DEFAULT_TIER_SETTINGS.standardFeePaise,
+  standardBandBp: DEFAULT_TIER_SETTINGS.standardBandBp,
+  feeMinPaise: null,
+  feeMaxPaise: null,
+  tierNames: DEFAULT_TIER_DISPLAY.names,
+  tierColours: DEFAULT_TIER_DISPLAY.colours,
   gstRateBp: 1800,
   validityMonths: 12,
   maxOwnersPerZone: 2,
   reservationHoldMinutes: 15,
-  maxAreaRadiusKm: 5,
   maxAreasPerBooking: 10,
   launchMaxOwners: 25,
   launchMaxAreas: 25,
   launchCloseRule: "first_limit_reached",
-  postLaunchFeePaise: null,
-  postLaunchOneTimeBp: null,
   postLaunchRecurringBp: null,
-  oneTimeBp: 2500,
+  ownerSelfBp: 2500,
+  ownerOverrideBp: 500,
   recurringBaseBp: 2500,
   bonusMaxBp: 500,
   gokesariCommissionBp: 200,
@@ -104,17 +118,15 @@ export const FRANCHISE_DEFAULTS: FranchiseConfig = {
   businessSlotPaise: 500_000,
   basePointsPerMainPoint: 100,
   bonusBpPerMainPoint: 100,
-  allowOverlappingAreas: true,
+  recurringSplitMode: "split",
   calcLastDay: 3,
   statementDay: 4,
   statementHourIst: 10,
-  renewalFeePaise: null,
   renewalWindowDays: 30,
-  // Owner brief 21-Nov-2026 §6: the base share continues for up to 2 years after expiry (replaces D4's default).
+  inactiveNoticeDays: 30,
+  // §4.2: the owner keeps recurring commission on his own team's shops for 2 more years after he stops renewing.
   tailMode: "years_after_lapse",
   tailYears: 2,
-  franchiseCodeOutsideZone: "reject",
-  freeDealerInFranchisedZone: "allow",
   expiryCc: ["ceo@agtci.com"],
   reminderHourIst: 10,
   digestHourIst: 9,
@@ -123,6 +135,26 @@ export const FRANCHISE_DEFAULTS: FranchiseConfig = {
   bankHolidays: [],
   clockOffsetDays: 0,
 };
+
+/** The tier settings of a config (src/lib/franchise-zones.ts). */
+export const tierSettingsOf = (c: FranchiseConfig): TierSettings => ({ standardFeePaise: c.standardFeePaise, standardBandBp: c.standardBandBp, feeMinPaise: c.feeMinPaise, feeMaxPaise: c.feeMaxPaise });
+export const tierDisplayOf = (c: FranchiseConfig): TierDisplay => ({ names: c.tierNames, colours: c.tierColours });
+
+/** The one-time rates of both models (§3): agent / team lead / free dealer from the tiered rule, owner from here. */
+export async function oneTimeRates(c: Pick<FranchiseConfig, "ownerSelfBp" | "ownerOverrideBp">): Promise<OneTimeRates> {
+  const { getRule } = await import("@/server/services/settings");
+  const rule = await getRule("dealerTieredCommission");
+  return {
+    memberDirectBp: rule.directBp,
+    leadOverrideBp: rule.leadOverrideBp,
+    dealerSelfBp: rule.directBp,
+    // Owner, 21-Nov-2026: the free dealer earns the first override (4%) one level up and the second (3%) two up.
+    dealerOverrideBp: rule.overrideByDistance === false ? rule.mainOverrideBp : rule.leadOverrideBp,
+    dealerSecondOverrideBp: rule.mainOverrideBp,
+    ownerSelfBp: c.ownerSelfBp,
+    ownerOverrideBp: c.ownerOverrideBp,
+  };
+}
 
 export interface VersionedConfig {
   version: number;
@@ -141,7 +173,7 @@ function parse(raw: unknown): FranchiseConfig {
 async function ensureFirstVersion(client: DbClient): Promise<void> {
   await client
     .insert(franchiseConfigVersions)
-    .values({ version: 1, effectiveFrom: new Date("2026-11-20T17:20:00Z"), config: FRANCHISE_DEFAULTS as unknown as Record<string, unknown>, reason: "Brief defaults (owner prompt 20-Nov-2026)" })
+    .values({ version: 1, effectiveFrom: new Date("2026-11-20T17:20:00Z"), config: FRANCHISE_DEFAULTS as unknown as Record<string, unknown>, reason: "Brief defaults (owner prompts 20/21-Nov-2026)" })
     .onConflictDoNothing();
 }
 
@@ -171,8 +203,6 @@ export async function listConfigVersions(): Promise<{ version: number; effective
 export interface Actor {
   id: string;
   role: UserRole;
-  /** Super-admin: may change maxOwnersPerZone (brief §4.4). */
-  superAdmin?: boolean;
 }
 
 const isProduction = () => (process.env.APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? "").replace(/\/$/, "") === "https://gokesari.com";
@@ -188,9 +218,9 @@ export async function saveFranchiseConfig(patch: Partial<FranchiseConfig>, input
   const current = await franchiseConfig();
   const next = franchiseConfigSchema.safeParse({ ...current.config, ...patch });
   if (!next.success) throw validationFailed(next.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
-  if (next.data.maxOwnersPerZone !== current.config.maxOwnersPerZone && !actor.superAdmin) {
-    throw forbidden("Only a super-admin can change the maximum owners per area.");
-  }
+  // §3.4: the owner's rates may never be lower than the free dealer's.
+  const parity = parityProblems(await oneTimeRates(next.data));
+  if (parity.length) throw validationFailed(parity.join(" "));
   if (next.data.clockOffsetDays !== 0 && isProduction()) throw forbidden("The test clock cannot be used on gokesari.com.");
   const changed = (Object.keys(next.data) as (keyof FranchiseConfig)[]).filter((k) => JSON.stringify(current.config[k]) !== JSON.stringify(next.data[k]));
   if (!changed.length) return current;
@@ -243,12 +273,12 @@ export async function saveFranchiseConfig(patch: Partial<FranchiseConfig>, input
 }
 
 /** Settings that change what is paid: a change takes effect from the next calendar month. */
-export const MONEY_KEYS: (keyof FranchiseConfig)[] = ["oneTimeBp", "recurringBaseBp", "bonusMaxBp", "gokesariCommissionBp", "monthlyShopTarget", "expectedBusinessPerShopPaise", "businessSlotPaise", "basePointsPerMainPoint", "bonusBpPerMainPoint", "postLaunchOneTimeBp", "postLaunchRecurringBp"];
+export const MONEY_KEYS: (keyof FranchiseConfig)[] = ["ownerSelfBp", "ownerOverrideBp", "recurringBaseBp", "bonusMaxBp", "gokesariCommissionBp", "monthlyShopTarget", "expectedBusinessPerShopPaise", "businessSlotPaise", "basePointsPerMainPoint", "bonusBpPerMainPoint", "postLaunchRecurringBp", "recurringSplitMode"];
 
 /** The bonus settings of a config (src/lib/franchise-bonus.ts). */
 export function bonusSettingsOf(c: FranchiseConfig): BonusSettings {
   return {
-    onboardingBp: c.oneTimeBp,
+    onboardingBp: c.ownerSelfBp,
     recurringBaseBp: c.recurringBaseBp,
     gokesariCommissionBp: c.gokesariCommissionBp,
     monthlyShopTarget: c.monthlyShopTarget,

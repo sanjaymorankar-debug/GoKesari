@@ -509,11 +509,15 @@ async function activeProducts(shopId: string, client: DbClient): Promise<number>
  */
 export async function checkCommissionMilestones(shopId: string, actor: Actor | null = null): Promise<DealerCommissionEntry[]> {
   const flag = await getFeatureFlag("dealer_programme_enabled");
-  if (!flag.enabled) return [];
   const [row] = await db.select({ a: shopAttributions, shop: shops }).from(shopAttributions).innerJoin(shops, eq(shops.id, shopAttributions.shopId)).where(eq(shopAttributions.shopId, shopId));
   if (!row || row.a.status !== "ACTIVE") return [];
+  // Franchise brief 21-Nov-2026 §3.2: a shop in its dealer's paid franchise zone is Model B and earns even where
+  // the free dealer programme is off; the franchise owner's team is paid by GoKesari directly.
+  const { franchiseModelFor } = await import("@/server/franchise/model");
+  const franchise = await franchiseModelFor(db, row.a.dealerId, shopId, row.shop.approvedAt ?? new Date());
+  if (!flag.enabled && !franchise) return [];
   const district = await districtCodeForPincode(row.shop.pincode);
-  if (!flagCoversDistrict(flag, district)) return [];
+  if (!franchise && !flagCoversDistrict(flag, district)) return [];
 
   const settings = await getCommissionSettings();
   const missing = await missingMandatoryDocuments(row.shop);
@@ -529,7 +533,7 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
   // TIERED dealers (0136, rule dealerTieredCommission on): the network commission, part 1 at activation.
   const [dealerRow] = await db.select({ commissionModel: dealers.commissionModel }).from(dealers).where(eq(dealers.id, row.a.dealerId));
   // A shop that already earned on the standard model stays on it when its dealer moves to TIERED.
-  const tiered = dealerRow ? (await isTieredDealer(dealerRow)) && !(await hasStandardCommission(db, shopId)) : false;
+  const tiered = dealerRow ? (!!franchise || (await isTieredDealer(dealerRow))) && !(await hasStandardCommission(db, shopId)) : false;
   // Base % model: the whole commission is earned at activation; the other milestones earn nothing.
   const earning = tiered || settings.commissionModel === "BASE_PERCENT" ? reached.filter((m) => m === "ACTIVATED") : reached;
   // A waived fee earns the dealer nothing; the rating below still counts the shop.
@@ -553,8 +557,6 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
 
 /** Never lets commission break the caller (approval, payment, a product upload): logs and returns []. */
 export async function checkCommissionMilestonesSafely(shopId: string, actor: Actor | null = null): Promise<DealerCommissionEntry[]> {
-  // 0157 franchise (docs/franchise): a shop registered with a franchise code earns its owner the one-time 25%.
-  await (await import("@/server/franchise/commission")).accrueFranchiseActivationSafely(shopId, actor);
   try {
     return await checkCommissionMilestones(shopId, actor);
   } catch (error) {
@@ -720,6 +722,8 @@ export async function reverseShopCommission(shopId: string, reason: string, acto
     const n = await reverseAccruals(tx, shopId, why, actor);
     // TIERED: every level goes (direct, overrides, development); the plan never reaches TRADING.
     await reversePlan(tx, shopId);
+    // A Model B shop's franchise attachment ends too (franchise brief 21-Nov-2026 §8: same rule in both models).
+    await (await import("@/server/franchise/commission")).markFranchiseShopReversed(shopId, why, tx);
     await tx.update(shopAttributions).set({ status: "REVERSED", note: `reversed: ${why}`, updatedAt: new Date() }).where(eq(shopAttributions.shopId, shopId));
     await recordAudit(
       {

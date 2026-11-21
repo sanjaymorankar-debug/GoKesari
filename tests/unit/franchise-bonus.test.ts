@@ -26,9 +26,9 @@ describe("TC2 – February, the cap applies", () => {
   const allFeb = 2 * CRORE; // the 70 + 75 shops' February orders (any figure; the rate applies to all of it)
   const feb = monthlyBonus({ openingShops: 70, newShops: 75, openingBusinessPaise: CRORE, allBusinessPaise: allFeb, onboardingPaise: 75 * 25_000 }, S);
   it("baseline ₹70L; (₹1 Cr − ₹70L) ÷ ₹5K = 600 business points; 15 registration points", () => {
-    expect(feb).toMatchObject({ baselinePaise: 70 * LAKH, businessPoints: 600, registrationPoints: 15, totalPoints: 615, mainPoints: 6.15 });
+    expect(feb).toMatchObject({ baselinePaise: 70 * LAKH, businessPoints: 600, registrationPoints: 15, totalPoints: 615, mainPoints: 6.1 });
   });
-  it("6.15 main points capped at 5 → bonus 5% → rate 30%, rating 10.0", () => {
+  it("6.1 main points (615 base points, one decimal) capped at 5 → bonus 5% → rate 30%, rating 10.0", () => {
     expect(feb).toMatchObject({ bonusBp: 500, commissionRateBp: 3000, rating: 10 });
   });
   it("30% × 2% on ALL shops' value, plus 75 × ₹250 onboarding", () => {
@@ -66,9 +66,9 @@ describe("TC5 – adjustment after payout", () => {
 });
 
 describe("TC6 – setting change", () => {
-  it("with a ₹50K slot, TC2 gives 15 + 60 = 75 points → 0.75 main points → 25.75%", () => {
+  it("with a ₹50K slot, TC2 gives 15 + 60 = 75 points → 0.7 (one decimal, never rounded up) → 25.7%", () => {
     const r = monthlyBonus({ openingShops: 70, newShops: 75, openingBusinessPaise: CRORE, allBusinessPaise: CRORE, onboardingPaise: 0 }, { ...S, businessSlotPaise: 5_000_000 });
-    expect(r).toMatchObject({ businessPoints: 60, totalPoints: 75, mainPoints: 0.75, bonusBp: 75, commissionRateBp: 2575, rating: 5.75 });
+    expect(r).toMatchObject({ businessPoints: 60, totalPoints: 75, mainPoints: 0.7, bonusBp: 70, commissionRateBp: 2570, rating: 5.7 });
   });
   it("the month uses the settings in force at its start (the server's config lookup; see the integration test)", () => {
     expect(monthlyBonus({ openingShops: 70, newShops: 75, openingBusinessPaise: CRORE, allBusinessPaise: CRORE, onboardingPaise: 0 }, S).commissionRateBp).toBe(3000);
@@ -80,5 +80,16 @@ describe("special rules (§6)", () => {
     const r = monthlyBonus({ openingShops: 70, newShops: 75, openingBusinessPaise: CRORE, allBusinessPaise: CRORE, onboardingPaise: 0, bonusEligible: false }, S);
     expect(r).toMatchObject({ bonusBp: 0, commissionRateBp: 2500, rating: 5 });
     expect(r.recurringPaise).toBe(Math.round(CRORE * 0.02 * 0.25));
+  });
+});
+
+describe("final brief 21-Nov-2026 08.06 §4.1", () => {
+  it("30 base points → 25.3%; shown to one decimal", () => {
+    const r = monthlyBonus({ openingShops: 0, newShops: 90, openingBusinessPaise: 0, allBusinessPaise: 0, onboardingPaise: 0 }, S);
+    expect(r).toMatchObject({ registrationPoints: 30, mainPoints: 0.3, bonusBp: 30, commissionRateBp: 2530 });
+  });
+  it("capped at +5% (30%); the next month can go down again", () => {
+    expect(monthlyBonus({ openingShops: 10, newShops: 0, openingBusinessPaise: 100 * LAKH, allBusinessPaise: 0, onboardingPaise: 0 }, S).commissionRateBp).toBe(3000);
+    expect(monthlyBonus({ openingShops: 10, newShops: 0, openingBusinessPaise: 10 * LAKH, allBusinessPaise: 0, onboardingPaise: 0 }, S).commissionRateBp).toBe(2500);
   });
 });

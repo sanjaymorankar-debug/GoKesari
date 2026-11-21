@@ -19,9 +19,13 @@ export default async function FranchiseReceipt({ params }: { params: Promise<{ b
   const [row] = await db.select({ b: franchiseBookings, owner: dealers }).from(franchiseBookings).innerJoin(dealers, eq(dealers.id, franchiseBookings.ownerDealerId)).where(eq(franchiseBookings.id, bookingId));
   if (!row || row.b.status !== "PAID" || (row.owner.userId !== user.id && user.role !== "ADMIN")) notFound();
   const { b, owner } = row;
-  const zones = b.kind === "RENEWAL"
-    ? await db.select({ zoneId: franchiseAllocations.zoneId, name: franchiseZones.name, expiresAt: franchiseAllocations.expiresAt }).from(franchiseAllocations).innerJoin(franchiseZones, eq(franchiseZones.zoneId, franchiseAllocations.zoneId)).where(eq(franchiseAllocations.id, b.renewalAllocationId!))
-    : await db.select({ zoneId: franchiseAllocations.zoneId, name: franchiseZones.name, expiresAt: franchiseAllocations.expiresAt }).from(franchiseAllocations).innerJoin(franchiseZones, eq(franchiseZones.zoneId, franchiseAllocations.zoneId)).where(and(eq(franchiseAllocations.bookingId, b.id)));
+  const cols = { zoneId: franchiseAllocations.zoneId, name: franchiseZones.name, expiresAt: franchiseAllocations.expiresAt, feePaise: franchiseAllocations.feePaise, discountPaise: franchiseAllocations.discountPaise, tier: franchiseAllocations.tier };
+  const rows = b.kind === "RENEWAL"
+    ? await db.select(cols).from(franchiseAllocations).innerJoin(franchiseZones, eq(franchiseZones.zoneId, franchiseAllocations.zoneId)).where(eq(franchiseAllocations.id, b.renewalAllocationId!))
+    : await db.select(cols).from(franchiseAllocations).innerJoin(franchiseZones, eq(franchiseZones.zoneId, franchiseAllocations.zoneId)).where(and(eq(franchiseAllocations.bookingId, b.id)));
+  // A renewal's own amounts are on the booking (the allocation carries the latest term's fee).
+  const zones = b.kind === "RENEWAL" ? rows.map((r) => ({ ...r, feePaise: b.listPaise, discountPaise: b.discountPaise })) : rows;
+  const tierName = (t: string) => t.charAt(0) + t.slice(1).toLowerCase();
   const [intent] = b.paymentIntentId ? await db.select({ gateway: paymentIntents.gateway, gatewayPaymentId: paymentIntents.gatewayPaymentId }).from(paymentIntents).where(eq(paymentIntents.id, b.paymentIntentId)) : [];
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
@@ -29,19 +33,32 @@ export default async function FranchiseReceipt({ params }: { params: Promise<{ b
         <h1 className="text-xl font-bold text-ink-900">Payment receipt — GoKesari Territory Franchise</h1>
         <p className="text-sm text-ink-700">ASMY Global Trading and Consulting India Private Limited (AGTCI) · gokesari.com</p>
         <p className="text-sm text-ink-700">
-          Received from <strong>{owner.legalName}</strong> · {b.kind === "RENEWAL" ? "Renewal (12 months)" : "New areas"} · paid {formatIst(b.paidAt)}
+          Received from <strong>{owner.legalName}</strong> · {b.kind === "RENEWAL" ? "Renewal (12 months)" : "New franchise zones"} · paid {formatIst(b.paidAt)}
         </p>
         <table className="min-w-full text-sm">
           <tbody>
             {zones.map((z) => (
               <tr key={z.zoneId} className="border-b border-cream-100">
-                <td className="py-1 pr-2 font-semibold">{z.zoneId}</td>
-                <td className="py-1 pr-2">{z.name}</td>
-                <td className="py-1 text-right">valid until {formatIst(z.expiresAt)}</td>
+                <td className="py-1 pr-2">
+                  <span className="font-semibold">{z.zoneId}</span> {z.name} · {tierName(z.tier)}
+                  <div className="text-xs text-ink-500">valid until {formatIst(z.expiresAt)}</div>
+                </td>
+                <td className="py-1 pr-2 text-right">Zone fee {rupees(z.feePaise)}</td>
+                <td className="py-1 text-right">{z.discountPaise ? `− ${rupees(z.discountPaise)}` : ""}</td>
               </tr>
             ))}
             <tr>
-              <td colSpan={2} className="py-1 pr-2 text-right">Fee {rupees(b.feePerAreaPaise)} × {b.areaCount}</td>
+              <td colSpan={2} className="py-1 pr-2 text-right">Zone fees</td>
+              <td className="py-1 text-right">{rupees(b.listPaise)}</td>
+            </tr>
+            {b.couponCode ? (
+              <tr>
+                <td colSpan={2} className="py-1 pr-2 text-right">Coupon {b.couponCode}</td>
+                <td className="py-1 text-right">− {rupees(b.discountPaise)}</td>
+              </tr>
+            ) : null}
+            <tr>
+              <td colSpan={2} className="py-1 pr-2 text-right">Taxable amount</td>
               <td className="py-1 text-right">{rupees(b.basePaise)}</td>
             </tr>
             <tr>

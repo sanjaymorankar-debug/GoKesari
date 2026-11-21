@@ -2,18 +2,9 @@
 import { forbidden } from "@/lib/errors";
 import { requireRole, requireUser } from "@/server/authz/guards";
 
-/** Super-admin (brief §4.4): an admin whose e-mail is listed in FRANCHISE_SUPER_ADMIN_EMAILS (empty = nobody). */
-export function isSuperAdmin(email: string | null | undefined): boolean {
-  const list = (process.env.FRANCHISE_SUPER_ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  return !!email && list.includes(email.toLowerCase());
-}
-
 export async function requireFranchiseAdmin() {
   const user = await requireRole("ADMIN");
-  return { id: user.id, role: user.role, superAdmin: isSuperAdmin(user.email) };
+  return { id: user.id, role: user.role };
 }
 
 /** Admin or operator may read the franchise admin screens; only an admin changes anything. */

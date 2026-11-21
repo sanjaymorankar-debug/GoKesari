@@ -26,14 +26,14 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
   const d = await ownerDashboard(user.id);
   const sp = await searchParams;
   const origin = originFromHeaders(await headers());
-  const areaCodes = d.codes.filter((c) => c.allocationId);
+  const areaCodes = d.codes;
   const qrs = new Map(await Promise.all(areaCodes.filter((c) => c.status === "ACTIVE").map(async (c) => [c.code, await codeQrSvg(origin, c.code)] as const)));
   const maps = ("maps" in d ? d.maps : []) as AreaShape[];
   const justPaid = sp.booking ? d.bookings.find((b) => b.id === sp.booking) : null;
   const pending = d.bookings.filter((b) => b.status === "RESERVED" || b.status === "PAYMENT_PENDING");
   return (
     <div className="mx-auto max-w-5xl space-y-4 px-4 py-6" data-testid="franchise-my">
-      <PageHeader title="My franchise" description={d.status.hasDealer ? `${"dealerName" in d.status ? d.status.dealerName : ""} · Pune Metropolitan Region` : "GoKesari Territory Franchise"} action={<LinkButton href="/franchise/book">Book areas</LinkButton>} />
+      <PageHeader title="My franchise" description={d.status.hasDealer ? `${"dealerName" in d.status ? d.status.dealerName : ""} · Pune franchise zones` : "GoKesari Territory Franchise"} action={<LinkButton href="/franchise/book">Book zones</LinkButton>} />
       {!d.status.hasDealer ? (
         <Alert tone="info" title="Start with a free dealer account">
           Franchise areas are booked on a GoKesari dealer account (KYC, PAN and a verified bank account). <Link className="font-semibold underline" href="/dealer/apply">Apply free</Link>.
@@ -50,7 +50,7 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
       {d.money ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Card className="p-3">
-            <p className="text-xs text-ink-500">Active areas</p>
+            <p className="text-xs text-ink-500">Active zones</p>
             <p className="text-2xl font-bold text-ink-900">{d.areas.filter((a) => a.status === "ACTIVE").length}</p>
             <p className="text-xs text-ink-500">{d.areas.filter((a) => a.daysLeft != null && a.daysLeft <= 30 && a.status === "ACTIVE").length} expiring in 30 days</p>
           </Card>
@@ -76,22 +76,28 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
 
       <Card className="space-y-3 p-4" data-testid="franchise-territories">
         <h2 className="text-base font-bold text-ink-900">My territories</h2>
-        {!d.areas.length ? <p className="text-sm text-ink-600">No areas yet. <Link className="font-semibold underline" href="/franchise/book">Choose your areas</Link>.</p> : null}
+        {!d.areas.length ? <p className="text-sm text-ink-600">No zones yet. <Link className="font-semibold underline" href="/franchise/book">Choose your zones</Link>.</p> : null}
         {d.areas.map((a) => (
           <div key={a.id} id={`renew-${a.id}`} className="space-y-1 rounded-lg border border-cream-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded bg-ink-900 px-2 py-0.5 text-sm font-bold text-white">{a.zoneId}</span>
               <span className="font-semibold text-ink-900">{a.zoneName}</span>
               <Badge tone={TONE[a.status] ?? "neutral"}>{a.statusLabel}</Badge>
+              <Badge tone="neutral">{a.tier.charAt(0) + a.tier.slice(1).toLowerCase()}</Badge>
               {a.launchOffer ? <Badge tone="info">Launch offer</Badge> : null}
             </div>
             <p className="text-sm text-ink-700">
-              Slot {a.slotNo} · valid until <strong>{a.expiresAtIst}</strong>
+              Slot {a.slotNo} · fee {rupees(a.feePaise)} a year + GST (locked for this term) · valid until <strong>{a.expiresAtIst}</strong>
               {a.status === "ACTIVE" && a.daysLeft != null ? ` · ${a.daysLeft} day${a.daysLeft === 1 ? "" : "s"} left` : ""} · {a.shops} shop{a.shops === 1 ? "" : "s"} · other active owners in this zone: {a.otherOwners}
             </p>
-            <p className="text-xs text-ink-500">Recurring commission on shops you registered here continues until {a.tailEndAtIst}.</p>
-            {a.renewalOpen ? <FranchiseActions kind="renew" id={a.id} label={`Renew for ${a.renewalFeePaise != null ? rupees(a.renewalFeePaise) : "—"} + GST`} /> : a.status === "ACTIVE" ? <p className="text-xs text-ink-500">Renewal opens 30 days before expiry.</p> : null}
-            {a.status === "EXPIRED" ? <p className="text-xs text-red-700">Expired: renewal is closed and your code no longer adds shops here. Book it again if a slot is free.</p> : null}
+            <p className="text-xs text-ink-500">Recurring commission on shops your own team registered here continues until {a.tailEndAtIst}.</p>
+            {a.renewalOpen ? (
+              <FranchiseActions kind="renew" id={a.id} coupon label={`Renew for ${a.renewalFeePaise != null ? rupees(a.renewalFeePaise) : "—"} + GST`} />
+            ) : a.status === "ACTIVE" ? (
+              <p className="text-xs text-ink-500">Renewal opens 30 days before expiry, at the zone&apos;s published fee then.</p>
+            ) : null}
+            {a.renewalOpen && a.renewalFeePaise != null && a.renewalFeePaise !== a.feePaise ? <p className="text-xs text-ink-600">The zone&apos;s fee was updated from new business data: renewal is {rupees(a.renewalFeePaise)} (this term {rupees(a.feePaise)}).</p> : null}
+            {a.status === "EXPIRED" ? <p className="text-xs text-red-700">Expired: renewal is closed and your franchise code no longer adds shops. Book the zone again if a slot is free.</p> : null}
           </div>
         ))}
       </Card>
@@ -128,7 +134,7 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
                   New shops <strong>{l.newShops}</strong> of target {l.target} · business of opening shops {rupees(l.actualBusinessPaise)} vs baseline {rupees(l.baselinePaise)} ({l.openingShops} shops)
                 </p>
                 <p>
-                  Base points so far <strong>{l.totalPoints}</strong> → {l.mainPoints.toFixed(2)} main points → bonus {(l.bonusBp / 100).toFixed(2)}% → rate <strong>{(l.rateBp / 100).toFixed(2)}%</strong> · rating {l.rating.toFixed(2)}
+                  Base points so far <strong>{l.totalPoints}</strong> → bonus {(l.bonusBp / 100).toFixed(1)}% → rate <strong>{(l.rateBp / 100).toFixed(1)}%</strong> · rating {l.rating.toFixed(2)}
                   {l.bonusEligible ? "" : " (franchise not active: no bonus)"}
                 </p>
                 <p>
@@ -143,14 +149,16 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
 
       {areaCodes.length ? (
         <Card className="space-y-3 p-4">
-          <h2 className="text-base font-bold text-ink-900">Your dealer codes (one per area)</h2>
-          <AreaMap shapes={maps} />
+          <h2 className="text-base font-bold text-ink-900">Your franchise codes (one per zone)</h2>
+          {maps.length ? <AreaMap shapes={maps} /> : null}
           <div className="grid gap-3 sm:grid-cols-2">
             {areaCodes.map((c) => (
               <div key={c.code} className="flex items-start justify-between gap-3 rounded-lg border border-cream-200 p-3">
                 <div className="space-y-1 text-sm">
                   <p className="font-mono text-xl font-bold text-kesari-800" data-testid="franchise-code">{c.code}</p>
-                  <p className="text-ink-700">Area {c.zoneId} · {c.status === "ACTIVE" ? "open for new shops" : "closed for new shops"}</p>
+                  <p className="text-ink-700">
+                    <Link className="underline" href={`/franchise/zones/${encodeURIComponent(c.zoneId)}`}>Zone {c.zoneId}</Link> · {c.status === "ACTIVE" ? "open for new shops" : "closed for new shops"}
+                  </p>
                   <p className="text-ink-700">{d.shops.filter((x) => x.zoneId === c.zoneId).length} shops tagged</p>
                   {c.status === "ACTIVE" ? (
                     <div className="flex flex-wrap gap-2">
@@ -163,16 +171,7 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
               </div>
             ))}
           </div>
-          <p className="text-xs text-ink-500">A shop can register with an area&apos;s code only if its map location is inside that area (within 5 km of the centre). Team members&apos; tracking codes count for your areas; only you are paid.</p>
-          {d.codes.filter((c) => c.memberId).length ? (
-            <ul className="text-sm text-ink-700">
-              {d.codes.filter((c) => c.memberId).map((c) => (
-                <li key={c.code}>
-                  {c.memberName}: <span className="font-mono">{c.code}</span> ({c.status.toLowerCase()})
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <p className="text-xs text-ink-500">This code works like your own dealer code: a shop you register with it counts as yours. A shop&apos;s zone comes from the area chosen at registration. Your team leads and agents use their own codes and GoKesari pays them directly.</p>
         </Card>
       ) : null}
 
@@ -185,7 +184,7 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
                 <tr key={st.id} className="border-b border-cream-100">
                   <td className="py-1 pr-2">{st.month}</td>
                   <td className="py-1 pr-2">{st.zoneId} · <span className="font-mono">{st.code ?? "—"}</span></td>
-                  <td className="py-1 pr-2">rate {(st.rateBp / 100).toFixed(2)}% · rating {st.rating.toFixed(2)}</td>
+                  <td className="py-1 pr-2">rate {(st.rateBp / 100).toFixed(1)}% · rating {st.rating.toFixed(1)}</td>
                   <td className="py-1 pr-2 text-right">{rupees(st.totalPayoutPaise)}</td>
                   <td className="py-1 pr-2">{st.status === "LOCKED" ? "Final" : "Draft"}</td>
                   <td className="py-1">
@@ -202,14 +201,14 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
         <Card className="space-y-1 p-4">
           <h2 className="text-base font-bold text-ink-900">Your rating</h2>
           <p className="text-sm text-ink-700">
-            {d.rating.month}: rating <strong>{d.rating.rating.toFixed(2)}</strong> (5.0 + your bonus %), commission rate {(d.rating.rateBp / 100).toFixed(2)}%. It is worked out every month and can go up or down.
+            {d.rating.month}: rating <strong>{d.rating.rating.toFixed(1)}</strong> (5.0 + your bonus %), commission rate {(d.rating.rateBp / 100).toFixed(1)}%. It is worked out every month and can go up or down.
           </p>
         </Card>
       ) : null}
 
       <Card className="space-y-2 p-4">
         <h2 className="text-base font-bold text-ink-900">My shops</h2>
-        {!d.shops.length ? <p className="text-sm text-ink-600">No shops registered with your franchise code yet.</p> : null}
+        {!d.shops.length ? <p className="text-sm text-ink-600">No shops attached to your franchise yet.</p> : null}
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <tbody>
@@ -229,7 +228,7 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
 
       <Card className="space-y-2 p-4">
         <h2 className="text-base font-bold text-ink-900">Earnings and statements</h2>
-        <p className="text-sm text-ink-700">Your franchise commission appears with your dealer statements (lines: franchise one-time, franchise monthly share, performance bonus), with TDS and the payout reference.</p>
+        <p className="text-sm text-ink-700">Your franchise commission appears with your dealer statements (lines: one-time commission on your team&apos;s shops, franchise monthly share, performance bonus), with TDS and the payout reference.</p>
         <Link className="text-sm font-semibold text-kesari-800 underline" href="/dealer#statements">Open my statements</Link>
         {d.violations.length ? (
           <Alert tone="warning" title="Notes on your account">

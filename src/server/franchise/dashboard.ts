@@ -43,6 +43,9 @@ export interface OwnerArea {
   tailEndAtIst: string;
   renewalOpen: boolean;
   renewalFeePaise: number | null;
+  /** The list fee locked for the current term, and its tier. */
+  feePaise: number;
+  tier: string;
   otherOwners: number;
   launchOffer: boolean;
   shops: number;
@@ -80,7 +83,9 @@ export async function ownerDashboard(userId: string) {
       daysLeft: a.expiresAt ? daysBetween(istDate(now), istDate(a.expiresAt)) : null,
       tailEndAtIst: formatIst(a.tailEndAt),
       renewalOpen: a.status === "ACTIVE" && !!a.expiresAt && renewalOpen(a.expiresAt, now, config.renewalWindowDays),
-      renewalFeePaise: renewalFeeFor(a, config),
+      renewalFeePaise: (await renewalFeeFor(a))?.feePaise ?? null,
+      feePaise: Number(a.feePaise),
+      tier: a.tier,
       otherOwners: await otherOwnersInZone(a.zoneId, dealer.id),
       launchOffer: a.launchOffer,
       shops: shopCounts.get(a.id) ?? 0,
@@ -283,13 +288,11 @@ export async function franchiseReport(kind: "fees" | "occupancy" | "owners" | "c
     return { columns: ["Booking", "Kind", "Owner", "Areas", "Fee (₹)", "GST (₹)", "Total (₹)", "Paid at (IST)", "Launch offer", "Test"], rows: rows.map((r) => [r.id, r.kind, r.owner, r.areas, r.base / 100, r.gst / 100, r.total / 100, formatIst(r.paidAt), r.launch ? "yes" : "no", r.test ? "yes" : "no"]) };
   }
   if (kind === "occupancy") {
-    const { zoneViews, clusterSummary, listClusters } = await import("./zones");
-    const zones = await zoneViews();
-    const { clusters, total } = clusterSummary(zones, await listClusters());
-    const occ = (code: string) => zones.filter((z) => z.clusterCode === code).reduce((s, z) => s + z.occupied, 0);
+    const { zoneViews } = await import("./zones");
+    const zones = await zoneViews({ includeInactive: true });
     return {
-      columns: ["Cluster", "Zones", "Bookable zones", "Slots occupied", "Slots free", "Est. shops", "Est. annual area business (₹ Cr)"],
-      rows: [...clusters, total].map((c) => [`${c.code} ${c.name}`, c.zones, c.bookable, c.code === "PMR" ? zones.reduce((s, z) => s + z.occupied, 0) : occ(c.code), c.slotsFree, c.estShops, c.annualCrHundredths / 100]),
+      columns: ["Zone", "Name", "Region", "Tier", "Status", "Max franchises", "Active", "Slots free", "Annual fee (₹)", "Provisional"],
+      rows: zones.map((z) => [z.zoneId, z.name, z.region, z.tierName ?? "—", z.statusLabel, z.maxOwners, z.active, z.slotsFree, (z.feePaise ?? 0) / 100, z.provisional ? "yes" : "no"]),
     };
   }
   if (kind === "owners") {

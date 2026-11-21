@@ -1,69 +1,65 @@
 /**
- * Franchise dealer module + Pune PMR area booking (owner brief 20-Nov-2026; docs/franchise/), against real
- * PostgreSQL. The brief's §15 "test server" list, as far as it runs without a browser or a payment gateway:
- *   import (91 zones, totals) · Pune only · boundaries (5 km, overlap, one zone per point, not bookable unapproved)
- *   capacity (10 parallel → 2, one owner one slot, all-or-nothing cart, hold expiry, payment failure,
- *   duplicate webhook) · launch counters and close rules · franchise code inside / outside / expired zone
- *   one-time 25% (₹1,000 → ₹250, ₹2,500 → ₹625) and its reversal · monthly 25% of the actual 2% + bonus,
- *   tail · expiry reminders (30 / 15 / daily, CEO copy), expiry actions, renewal, rebooking
- *   Model A 20 / 4 / 3 by level distance (4 cases × ₹1,000 / ₹2,500), team lead deactivated → agents under
- *   the dealer, team duplicates
+ * Franchise module — owner's final brief 21-Nov-2026 08.06 IST (docs/franchise/), against real PostgreSQL.
+ * §11 minimum tests, as far as they run without a browser or a payment gateway:
+ *   zones and areas (50 zones, 189 mapped, 7 unzoned, short names) · seed fees and tiers · import → preview → publish
+ *   zone status (each status, Sold Out automatic, Reserved expiry, Inactive, scheduled change, logged and told)
+ *   booking (multi-zone cart, third franchise blocked, 2 slots under a race, 15-minute hold, provisional sale switch)
+ *   coupons (%, cap, flat split, scope, private, limits, minimum, first purchase, launch only, renewal only, GST on
+ *   the discounted amount, released on failure and refund, rejection messages, commission unaffected)
+ *   the 8 cases A1–A4 / B1–B4 on ₹1,000 and ₹2,500 · parity · free team in a paid zone (no owner override, attached
+ *   for recurring, 2-owner split, attaches to a later franchise) · recurring 25% of 2% · upgrade Free → Paid
+ *   tail and transfer of free-team shops · reminders with the renewal fee · month lock, statement · Model A team rules
  */
 import { randomUUID } from "node:crypto";
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { AGENT_AGREEMENT_VERSION } from "@/lib/dealer-tiers";
-import { FRANCHISE_AGREEMENT_VERSION, allocationExpiry, formatIst, istInstant, zoneEstimate } from "@/lib/franchise";
+import { FRANCHISE_AGREEMENT_VERSION, istMonthBounds } from "@/lib/franchise";
 import { db } from "@/server/db";
 import {
   dealerCommissionLedger,
   dealerCommissionMonths,
-  financialAdjustments,
   dealerSalespeople,
+  dealerTierShopPlans,
   dealers,
+  financialAdjustments,
   franchiseAllocations,
+  franchiseAreas,
   franchiseBookings,
   franchiseCalcRuns,
   franchiseCampaigns,
-  franchiseCodes,
   franchiseConfigVersions,
-  franchiseNotificationLog,
-  franchiseConfigVersions as _cv,
+  franchiseCouponAssignments,
+  franchiseCouponRedemptions,
+  franchiseCoupons,
   franchiseMonthlySnapshots,
+  franchiseNotificationLog,
   franchiseShopAttributions,
   franchiseZoneBoundaries,
+  franchiseZoneBusiness,
+  franchiseZoneFeeVersions,
+  franchiseZoneStatusHistory,
   franchiseZones,
   orders,
-  referralCodes,
   sellerVerifications,
   shopAttributions,
   shops,
   type DealerSalesperson,
 } from "@/server/db/schema";
-import { setCommissionSettings } from "@/server/dealers/commission";
-import { recordShopAttributionSafely } from "@/server/dealers/attribution";
+import { reverseShopCommission, setCommissionSettings } from "@/server/dealers/commission";
 import { addSalesperson, setSalespersonStatus, transferMemberToDealer } from "@/server/dealers/service";
 import { leadAddsAgent, setDealerCommissionModel } from "@/server/dealers/tiered";
-import {
-  acceptFranchiseAgreement,
-  cancelReservation,
-  offerView,
-  onFranchiseFeeCaptured,
-  onFranchiseFeeEnded,
-  releaseExpiredHolds,
-  reserveZones,
-  startRenewal,
-} from "@/server/franchise/booking";
-import { assertCodeForLocation } from "@/server/franchise/codes";
+import { acceptFranchiseAgreement, cancelReservation, onFranchiseFeeCaptured, onFranchiseFeeEnded, refundBooking, releaseExpiredHolds, reserveZones, setAllocationStatus, startRenewal } from "@/server/franchise/booking";
+import { assertFranchiseCodeOpen } from "@/server/franchise/codes";
 import { calculateAllocationMonth, calculateFranchiseMonth, lockFranchiseMonth, prevMonth } from "@/server/franchise/commission";
-import { emailStatements, statementData, statementPdf } from "@/server/franchise/statements";
-import { adminTagShop } from "@/server/franchise/codes";
-import { tailEndAt, istMonthBounds } from "@/lib/franchise";
+import { createCoupon, type CouponInput } from "@/server/franchise/coupons";
 import { franchiseConfig, saveFranchiseConfig } from "@/server/franchise/config";
-import { expireAreas, sendDigest, sendReminders } from "@/server/franchise/jobs";
-import { approveBoundary, clusterSummary, listClusters, saveBoundaryDraft, splitZone, zoneViews, zonesContaining } from "@/server/franchise/zones";
+import { expireAreas, sendReminders } from "@/server/franchise/jobs";
+import { emailStatements, statementData, statementPdf } from "@/server/franchise/statements";
+import { changeZoneStatus, correctShopArea, importZoneBusiness, listAreas, publishFees, remapArea, runZoneStatusJobs, setShopArea, setZoneMaxOwners, suggestAreas, zoneView, zoneViews } from "@/server/franchise/zones";
+import type { PaymentIntentRow } from "@/server/db/schema";
 import type { PaymentIntentRef } from "@/server/payments/intents";
 import { setFeatureFlag } from "@/server/services/feature-flags";
 import { setCommissionRate } from "@/server/services/finance";
@@ -75,10 +71,13 @@ import { RULES } from "@/server/config/rules";
 import { createOrder, createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 let admin: { id: string; role: "ADMIN" };
+const SEED_BATCH = "8a6f3c2e-0b1d-4c5e-9f7a-21b0c0de0157";
 
-/** Two zones far enough apart that 1 km circles never overlap. */
-const Z4: [number, number] = [18.51, 73.85]; // zone 4, Sadashiv Peth
-const Z10: [number, number] = [18.53, 73.83]; // zone 10, FC Road
+/** Zones used below (seed fees): 03 Shivajinagar–Deccan Premier ₹2,26,000; 07 Karve Nagar–Erandwane Standard ₹1,50,000; 47 Pirangut–Mulshi Emerging ₹75,000. */
+const Z3 = "GKZ-PUN-03";
+const Z7 = "GKZ-PUN-07";
+const Z47 = "GKZ-PUN-47";
+const AREA: Record<string, string> = { [Z3]: "Shivajinagar", [Z7]: "Karve Nagar", [Z47]: "Pirangut" };
 
 beforeEach(async () => {
   await resetDatabase();
@@ -87,9 +86,19 @@ beforeEach(async () => {
   await db.delete(franchiseNotificationLog);
   await db.delete(franchiseCalcRuns);
   await db.delete(franchiseMonthlySnapshots);
+  await db.delete(franchiseCouponRedemptions);
+  await db.delete(franchiseCouponAssignments);
+  await db.delete(franchiseCoupons);
   await db.delete(franchiseZoneBoundaries);
-  await db.delete(franchiseZones).where(sql`${franchiseZones.origin} in ('SUB_ZONE', 'TEST')`);
-  await db.update(franchiseZones).set({ status: "BOUNDARY_PENDING", statusReason: null, maxOwners: 2 });
+  await db.delete(franchiseAreas).where(eq(franchiseAreas.isTest, true));
+  await db.delete(franchiseZoneStatusHistory).where(sql`${franchiseZoneStatusHistory.reason} not like 'Zone created%'`);
+  await db.delete(franchiseZoneFeeVersions).where(sql`not ${franchiseZoneFeeVersions.provisional} or ${franchiseZoneFeeVersions.zoneId} like 'T-%'`);
+  await db.update(franchiseZoneFeeVersions).set({ supersededAt: null });
+  await db.delete(franchiseZoneBusiness).where(sql`${franchiseZoneBusiness.batchId} <> ${SEED_BATCH}::uuid`);
+  await db.update(franchiseZoneBusiness).set({ status: "PUBLISHED" });
+  await db.delete(franchiseZones).where(eq(franchiseZones.isTest, true));
+  // Every zone on sale for the tests (the real default is Coming Soon until an admin opens them).
+  await db.update(franchiseZones).set({ status: "AVAILABLE", statusReason: null, reservedForDealerId: null, reservedUntil: null, maxOwners: 2 });
   await db.delete(franchiseConfigVersions);
   await db.update(franchiseCampaigns).set({ closedAt: null, closedReason: null, ownersAtClose: null, areasAtClose: null });
   const a = await createUser({ role: "ADMIN" });
@@ -102,76 +111,64 @@ beforeEach(async () => {
   await setFeatureFlag("dealer_programme_enabled", { enabled: true, districtCodes: null }, "on (test)", admin);
   await setFeatureFlag("dealer_rating_bonus_enabled", { enabled: false, districtCodes: null }, "off (test)", admin);
   for (const key of ["dealerTieredCommission", "dealerPayouts", "dealerPayoutTds"]) await db.execute(sql`delete from platform_settings where key = ${key}`);
-  // The 20-Nov brief's level-distance overrides (off by default since the 21-Nov brief; see DECISIONS F-07).
-  await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, overrideByDistance: true }, admin);
+  await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true }, admin);
   clearRuleCache();
   await setCommissionRate({ scope: "DEFAULT", rateBp: 200 }, admin);
-  await saveFranchiseConfig({ bookingOpen: true }, { reason: "open for the tests" }, admin);
+  await saveFranchiseConfig({ bookingOpen: true, allowProvisionalSale: true }, { reason: "open for the tests" }, admin);
 });
 
-async function openZone(zoneId: string, centre: [number, number], radiusM = 1000) {
-  await saveBoundaryDraft(zoneId, { ref: { lat: centre[0], lng: centre[1], label: "test centre" }, shape: "CIRCLE", radiusM }, admin);
-  const r = await approveBoundary(zoneId, admin);
-  expect(r).toEqual({ approved: true, errors: [] });
+/* ================================================================ helpers */
+
+async function areaId(name: string): Promise<string> {
+  const [a] = await db.select({ id: franchiseAreas.id }).from(franchiseAreas).where(eq(franchiseAreas.name, name));
+  return a.id;
 }
 
-/** An approved dealer with PAN and a verified bank who accepted the franchise rules (a would-be owner). */
-async function owner(name = `Owner ${Math.random().toString(36).slice(2, 6)}`) {
+/** An approved dealer (TIERED) with PAN and a verified bank who accepted the franchise rules. */
+async function dealer(name = `Dealer ${Math.random().toString(36).slice(2, 6)}`) {
   const user = await createUser({ role: "DEALER" });
-  const [dealer] = await db
+  const [d] = await db
     .insert(dealers)
     .values({ userId: user.id, legalName: name, contactName: name, dealerType: "PROPRIETORSHIP", status: "APPROVED", panHash: `pan-${user.id}`, bankStatus: "VERIFIED", tierAgreementVersion: AGENT_AGREEMENT_VERSION, tierAgreementAcceptedAt: new Date() })
     .returning();
+  await setDealerCommissionModel(d.id, "TIERED", "model A team (test)", admin);
   const actor = { id: user.id, role: "DEALER" as const };
   await acceptFranchiseAgreement(actor, FRANCHISE_AGREEMENT_VERSION, { ipAddress: "127.0.0.1", userAgent: "vitest" });
-  return { dealer, actor, user };
+  return { dealer: d, actor, user };
+}
+type Owner = Awaited<ReturnType<typeof dealer>>;
+
+async function member(dealerId: string, name: string, role: "TEAM_LEAD" | "AGENT", parentId: string | null = null): Promise<DealerSalesperson> {
+  const v = await addSalesperson(dealerId, { employeeId: name.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12), name, role, parentId }, admin);
+  const [m] = await db.update(dealerSalespeople).set({ panHash: `pan-${v.id}`, bankStatus: "VERIFIED", agreementVersion: AGENT_AGREEMENT_VERSION, agreementAcceptedAt: new Date() }).where(eq(dealerSalespeople.id, v.id)).returning();
+  return m;
 }
 
-async function capture(bookingId: string, intentId?: string) {
+async function capture(bookingId: string) {
   const [b] = await db.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId));
-  const intent = { id: intentId ?? b.paymentIntentId ?? randomUUID(), purpose: "FRANCHISE_FEE", referenceId: b.id, userId: null, amountPaise: Number(b.totalPaise), refundedPaise: 0, status: "CAPTURED", gateway: "SANDBOX", gatewayOrderId: null, gatewayPaymentId: null } as unknown as PaymentIntentRef;
-  await db.transaction((tx) => onFranchiseFeeCaptured(intent, tx));
+  const intent = { id: b.paymentIntentId ?? randomUUID(), purpose: "FRANCHISE_FEE", referenceId: b.id, userId: null, amountPaise: Number(b.totalPaise), refundedPaise: 0, status: "CAPTURED", gateway: "SANDBOX", gatewayOrderId: null, gatewayPaymentId: null } as unknown as PaymentIntentRef;
+  // As the payment purpose handlers do: notices and the Sold Out check run after the commit.
+  const after: (() => Promise<void>)[] = [];
+  await db.transaction((tx) => onFranchiseFeeCaptured(intent, tx, (task) => after.push(task)));
+  for (const task of after) await task();
 }
 
-async function book(o: Awaited<ReturnType<typeof owner>>, zoneIds: string[]) {
-  const r = await reserveZones(o.actor, { zoneIds });
+async function book(o: Owner, zoneIds: string[], couponCode?: string) {
+  const r = await reserveZones(o.actor, { zoneIds, couponCode });
   await capture(r.booking.id);
   return r;
 }
 
 const allocs = (bookingId: string) => db.select().from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, bookingId));
 
-/** The dealer code of the owner's area in `zoneId` (one code per dealer per area). */
-async function codeOf(dealerId: string, zoneId = "4"): Promise<string> {
-  const [r] = await db
-    .select({ code: referralCodes.code })
-    .from(franchiseCodes)
-    .innerJoin(referralCodes, eq(referralCodes.id, franchiseCodes.referralCodeId))
-    .innerJoin(franchiseAllocations, eq(franchiseAllocations.id, franchiseCodes.allocationId))
-    .where(and(eq(franchiseCodes.ownerDealerId, dealerId), eq(franchiseAllocations.zoneId, zoneId)))
-    .orderBy(sql`${franchiseCodes.createdAt} desc`)
-    .limit(1);
-  return r.code;
-}
-
-/** A money setting in force from a past moment (the admin screen can only schedule the next month). */
-async function moneyConfigFrom(patch: Record<string, unknown>, from: Date) {
-  const { config } = await franchiseConfig();
-  const [m] = (await db.execute(sql`select coalesce(max(version), 0)::int as v from franchise_config_versions`)) as unknown as { v: number }[];
-  await db.insert(_cv).values({ version: Number(m.v) + 1, effectiveFrom: from, config: { ...config, ...patch } as Record<string, unknown>, reason: "test" });
-}
-
-/** A shop at (lat, lng) registered with `code`, fee paid online (base + 18%), verified and approved. */
-async function registeredShop(code: string, at: [number, number], basePaise = 100_000) {
+/** A shop in `areaName` registered by `dealerId` (signer: a member or the dealer), fee paid (base + 18%), approved. */
+async function signed(dealerId: string, signerId: string | null, basePaise: number, areaName: string) {
   const shopOwner = await createUser({ role: "SHOP_OWNER" });
   const gst = Math.round(basePaise * 0.18);
-  const shop = await createShop(shopOwner.id, { name: `Shop ${Math.random().toString(36).slice(2, 7)}`, status: "PENDING_APPROVAL", shopType: "GENERAL_TRADING" as never, registrationFeePaise: basePaise + gst });
-  const [rc] = await db.select().from(referralCodes).where(eq(referralCodes.code, code));
-  await db
-    .update(shops)
-    .set({ registrationFeeBasePaise: basePaise, registrationFeeDiscountPaise: 0, registrationFeeGstPaise: gst, latitude: at[0].toFixed(7), longitude: at[1].toFixed(7), referralCodeId: rc?.id ?? null, phone: `9${Math.floor(100_000_000 + Math.random() * 899_999_999)}` })
-    .where(eq(shops.id, shop.id));
-  await recordShopAttributionSafely(shop.id, admin);
+  const shop = await createShop(shopOwner.id, { name: `S ${Math.random().toString(36).slice(2, 7)}`, status: "PENDING_APPROVAL", shopType: "GENERAL_TRADING" as never, registrationFeePaise: basePaise + gst });
+  await db.update(shops).set({ registrationFeeBasePaise: basePaise, registrationFeeDiscountPaise: 0, registrationFeeGstPaise: gst, phone: `9${Math.floor(100_000_000 + Math.random() * 899_999_999)}` }).where(eq(shops.id, shop.id));
+  await db.transaction(async (tx) => setShopArea(tx, shop.id, await areaId(areaName), { source: "REGISTRATION" }));
+  await db.insert(shopAttributions).values({ shopId: shop.id, dealerId, salespersonId: signerId, source: "CODE_AT_REGISTRATION", matchKind: "NONE" });
   await recordPayment({ shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: basePaise + gst, method: "ONLINE", transactionId: `cf_${shop.id.slice(0, 8)}` }, admin);
   for (const docType of ["PAN", "GSTIN", "SHOP_ACT"] as const) await db.insert(sellerVerifications).values({ shopId: shop.id, docType, status: "VERIFIED", providerId: "mock", verifiedAt: new Date() });
   await approveShop(shop.id, { classification: "KESARI" }, admin);
@@ -186,564 +183,539 @@ async function deliver(shopId: string, subtotalPaise: number) {
   return order;
 }
 
-const entries = (shopId: string) => db.select().from(dealerCommissionLedger).where(eq(dealerCommissionLedger.shopId, shopId));
+/** "TYPE:payee:amount" for every ledger entry of a shop (payee: member name, or OWNER). */
+async function split(shopId: string): Promise<string[]> {
+  const rows = await db.select({ e: dealerCommissionLedger, name: dealerSalespeople.name }).from(dealerCommissionLedger).leftJoin(dealerSalespeople, eq(dealerSalespeople.id, dealerCommissionLedger.payeeMemberId)).where(eq(dealerCommissionLedger.shopId, shopId));
+  return rows.map((r) => `${r.e.entryType}:${r.name ?? "TOP"}:${r.e.amountPaise}`).sort();
+}
+
 const thisMonth = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 7);
 
-/* =================================================================== import */
+const coupon = (over: Partial<CouponInput> = {}): CouponInput => ({
+  code: `C${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+  name: "Test coupon",
+  discountType: "PERCENT",
+  percentBp: 1000,
+  scope: { all: true },
+  appliesOn: "BOTH",
+  visibility: "PUBLIC",
+  startsAt: new Date(Date.now() - 3_600_000),
+  endsAt: new Date(Date.now() + 30 * 86_400_000),
+  ...over,
+});
 
-describe("territory master (brief §5)", () => {
-  it("91 zones, 7 clusters, 52 original + 39 split, totals as in the brief", async () => {
+/* ================================================================ zones and areas (§5.1) */
+
+describe("zones and the area master (§5.1)", () => {
+  it("50 zones GKZ-PUN-01…50 with cluster, region and civic body; 189 areas mapped to exactly one zone; 7 unzoned", async () => {
     const zones = await zoneViews();
-    expect(zones).toHaveLength(91);
-    expect(new Set(zones.map((z) => z.zoneId)).size).toBe(91);
-    expect(zones.filter((z) => z.origin === "ORIGINAL")).toHaveLength(52);
-    expect(zones.filter((z) => z.origin === "SPLIT")).toHaveLength(39);
-    const { clusters, total } = clusterSummary(zones, await listClusters());
-    expect(clusters.map((c) => [c.code, c.zones, c.estShops, Math.round(c.annualCrHundredths / 100), Math.round(c.largestZoneCrHundredths / 100)])).toEqual([
-      ["C1", 22, 49_400, 80_958, 4608],
-      ["C2", 15, 42_800, 50_556, 4692],
-      ["C3", 10, 35_900, 35_412, 4446],
-      ["C4", 10, 27_700, 32_598, 4554],
-      ["C5", 7, 24_300, 26_496, 4914],
-      ["C6", 18, 47_800, 57_383, 4428],
-      ["C7", 9, 22_000, 18_252, 2958],
+    expect(zones).toHaveLength(50);
+    expect(zones.map((z) => z.zoneId)).toEqual(Array.from({ length: 50 }, (_, i) => `GKZ-PUN-${String(i + 1).padStart(2, "0")}`));
+    expect(zones[1]).toMatchObject({ clusterNo: 2, name: "Peth East", region: "Central", civicBody: "PMC" });
+    const areas = await listAreas({ zoneSetCode: "PUN" });
+    expect(areas).toHaveLength(196);
+    expect(areas.filter((a) => a.zoneId)).toHaveLength(189);
+    expect(areas.filter((a) => !a.zoneId).map((a) => a.name).sort()).toEqual(["Koregaon Bhima", "Khed Shivapur", "Rajgurunagar (Khed)", "Ranjangaon", "Sanaswadi", "Saswad", "Shikrapur"].sort());
+  });
+
+  it("short cluster names map to the full area names", async () => {
+    const byName = new Map((await listAreas()).map((a) => [a.name, a.zoneId]));
+    expect(byName.get("Budhwar Peth")).toBe("GKZ-PUN-02");
+    expect(byName.get("Ghorpade Peth")).toBe("GKZ-PUN-02");
+    expect(byName.get("Ganj Peth (Mahatma Phule Peth)")).toBe("GKZ-PUN-02");
+    expect(byName.get("Camp (Pune Cantonment)")).toBe("GKZ-PUN-05");
+    expect(byName.get("Ganeshkhind (University area)")).toBe("GKZ-PUN-11");
+    expect(byName.get("Lohegaon")).toBe("GKZ-PUN-15");
+    expect(byName.get("Pradhikaran (Nigdi)")).toBe("GKZ-PUN-37");
+  });
+
+  it("registration suggests areas by PIN code first, then by distance; the user's choice decides the zone", async () => {
+    const s = await suggestAreas({ pincode: "411038", lat: 18.5074, lng: 73.8077 });
+    expect(s[0]).toMatchObject({ name: "Kothrud", zoneId: "GKZ-PUN-06", pinMatch: true });
+    const near = await suggestAreas({ lat: 18.5913, lng: 73.7389 });
+    expect(near[0].name).toBe("Hinjewadi");
+  });
+
+  it("an admin / operator corrects a shop's area: audited, and only later commission follows the new zone", async () => {
+    const o = await dealer();
+    const shop = await signed(o.dealer.id, null, 100_000, AREA[Z3]);
+    const operator = await createUser({ role: "OPERATOR" });
+    const zone = await correctShopArea(shop.id, await areaId("Karve Nagar"), "pin was on the wrong road", { id: operator.id, role: "OPERATOR" });
+    expect(zone).toBe(Z7);
+    const periods = await db.execute<{ zone_id: string; valid_to: Date | null }>(sql`select zone_id, valid_to from franchise_shop_area_periods where shop_id = ${shop.id} order by valid_from`);
+    expect((periods as unknown as { zone_id: string; valid_to: Date | null }[]).map((p) => [p.zone_id, p.valid_to === null])).toEqual([
+      [Z3, false],
+      [Z7, true],
     ]);
-    expect(total).toMatchObject({ zones: 91, estShops: 249_900, largestZoneId: "43" });
-    expect(Math.round(total.annualCrHundredths / 100)).toBe(301_655);
-    const byAnnual = [...zones].sort((a, b) => a.annualCrHundredths - b.annualCrHundredths);
-    expect([byAnnual[0].zoneId, byAnnual[0].annualCrHundredths]).toEqual(["68", 118_800]);
-    expect([byAnnual[90].zoneId, byAnnual[90].annualCrHundredths]).toEqual(["43", 491_400]);
-    expect(zones.every((z) => z.annualCrHundredths < 500_000)).toBe(true);
-    expect(zones.find((z) => z.zoneId === "1A")).toMatchObject({ pinCodes: ["411002"], estShops: 2300, gmvPerShopLakh: 14.5, monthlyCrHundredths: 33_350, splitFromZone: "1" });
   });
 
-  it("411002 is in 8 zones — the PIN alone cannot place a shop", async () => {
-    const zones = await zoneViews();
-    expect(zones.filter((z) => z.pinCodes.includes("411002")).map((z) => z.zoneId)).toEqual(["1A", "1B", "2A", "2B", "2C", "3A", "3B", "7A"]);
-  });
-
-  it("Pune only: a region not enabled is never returned", async () => {
-    await saveFranchiseConfig({ regionsEnabled: ["XYZ"] }, { reason: "test: another region only" }, admin);
-    expect(await zoneViews()).toHaveLength(0);
+  it("an area moved to another zone (or Unzoned) is audited and its shops get a new period from now", async () => {
+    const o = await dealer();
+    const shop = await signed(o.dealer.id, null, 100_000, "Hingne Khurd");
+    const id = await areaId("Hingne Khurd");
+    await remapArea(id, null, "boundary review (test)", admin);
+    const [now] = (await db.execute(sql`select zone_id from franchise_shop_area_periods where shop_id = ${shop.id} and valid_to is null`)) as unknown as { zone_id: string | null }[];
+    expect(now.zone_id).toBeNull();
+    await remapArea(id, Z7, "back (test)", admin);
   });
 });
 
-/* ============================================================== boundaries */
+/* ================================================================ tiers and fees (§5.2, §5.3) */
 
-describe("zone boundaries and the 5 km rule (brief §6)", () => {
-  it("a zone without an approved boundary is 'coming soon' and cannot be booked", async () => {
-    const o = await owner();
-    expect((await zoneViews({ zoneIds: ["4"] }))[0]).toMatchObject({ status: "BOUNDARY_PENDING", badge: "COMING_SOON", bookable: false });
-    await expect(reserveZones(o.actor, { zoneIds: ["4"] })).rejects.toThrow(/coming soon/);
+describe("tiers and fees", () => {
+  it("the seed reproduces every fee and tier of the brief's table: 20 Premier, 12 Standard, 18 Emerging, all provisional", async () => {
+    const zones = await zoneViews();
+    const count = (t: string) => zones.filter((z) => z.tier === t).length;
+    expect([count("PREMIER"), count("STANDARD"), count("EMERGING")]).toEqual([20, 12, 18]);
+    expect(zones.every((z) => z.provisional)).toBe(true);
+    const fee = (id: string) => zones.find((z) => z.zoneId === id)!.feePaise! / 100;
+    expect([fee("GKZ-PUN-02"), fee("GKZ-PUN-03"), fee(Z7), fee("GKZ-PUN-23"), fee("GKZ-PUN-27"), fee(Z47), fee("GKZ-PUN-50")]).toEqual([226_000, 226_000, 150_000, 98_000, 91_000, 75_000, 83_000]);
+    const z2 = zones.find((z) => z.zoneId === "GKZ-PUN-02")!;
+    expect(z2.description).toBe("Premier zone – business about 51% above the Pune zone average. Wholesale trade peths (Raviwar, Budhwar, Ganj). Annual franchise fee ₹2,26,000 + GST.");
+    expect(zones.find((z) => z.zoneId === "GKZ-PUN-31")!.description).toMatch(/^Emerging zone – business about 30% below the Pune zone average\. .*room to grow\. Annual franchise fee ₹1,06,000 \+ GST\.$/);
   });
 
-  it("over 5 km is refused and the zone is flagged NEEDS_SPLIT; a split makes sub-zones 66-1, 66-2", async () => {
-    await saveBoundaryDraft("66", { ref: { lat: 18.75, lng: 73.4 }, shape: "CIRCLE", radiusM: 9000 }, admin);
-    const r = await approveBoundary("66", admin);
-    expect(r.approved).toBe(false);
-    expect(r.errors.join(" ")).toMatch(/limit is 5 km/);
-    expect((await zoneViews({ zoneIds: ["66"] }))[0].status).toBe("NEEDS_SPLIT");
-    const ids = await splitZone("66", [{ name: "Lonavala", shops: 1700 }, { name: "Karla-Kamshet", shops: 1200 }], "too large for 5 km", admin);
-    expect(ids).toEqual(["66-1", "66-2"]);
-    const subs = await zoneViews({ zoneIds: ids });
-    expect(subs.map((z) => [z.zoneId, z.estShops, z.gmvPerShopLakh, z.status])).toEqual([
-      ["66-1", 1700, 8.5, "BOUNDARY_PENDING"],
-      ["66-2", 1200, 8.5, "BOUNDARY_PENDING"],
-    ]);
-    await expect(splitZone("4", [{ name: "a", shops: 1 }, { name: "b", shops: 1 }], "wrong total", admin)).rejects.toThrow(/add up to 4,000/);
+  it("checkout is disabled with 'Fees being finalised' while the provisional-sale switch is off", async () => {
+    await saveFranchiseConfig({ allowProvisionalSale: false }, { reason: "final fees first" }, admin);
+    const o = await dealer();
+    await expect(reserveZones(o.actor, { zoneIds: [Z7] })).rejects.toThrow(/fees being finalised/);
+    expect((await zoneView(Z7)).forSale).toBe(false);
   });
 
-  it("5 km areas may overlap by default; the 20-Nov no-overlap rule still works when switched back", async () => {
-    await openZone("4", Z4, 5000);
-    await saveBoundaryDraft("5A", { ref: { lat: Z4[0] + 0.01, lng: Z4[1] }, shape: "CIRCLE", radiusM: 5000 }, admin);
-    expect(await approveBoundary("5A", admin)).toEqual({ approved: true, errors: [] });
-    expect(await zonesContaining(Z4[0], Z4[1])).toEqual(["4", "5A"]);
-  });
-
-  it("with allowOverlappingAreas off: overlapping boundaries are refused; a point resolves to exactly one zone", async () => {
-    await saveFranchiseConfig({ allowOverlappingAreas: false }, { reason: "test: no overlap" }, admin);
-    await openZone("4", Z4);
-    await saveBoundaryDraft("5A", { ref: { lat: Z4[0] + 0.005, lng: Z4[1] }, shape: "CIRCLE", radiusM: 1000 }, admin);
-    const r = await approveBoundary("5A", admin);
-    expect(r.approved).toBe(false);
-    expect(r.errors).toContain("It overlaps zone 4.");
-    await openZone("10", Z10);
-    expect(await zonesContaining(Z4[0], Z4[1])).toEqual(["4"]);
-    expect(await zonesContaining(Z10[0] + 0.001, Z10[1])).toEqual(["10"]);
-    expect(await zonesContaining(18.9, 74.5)).toEqual([]);
-  });
-});
-
-/* ================================================================ capacity */
-
-describe("two slots a zone, enforced in the database (brief §4.4)", () => {
-  it("10 parallel bookings of one zone: exactly 2 succeed, on slots 1 and 2", async () => {
-    await openZone("4", Z4);
-    const owners = await Promise.all(Array.from({ length: 10 }, (_, i) => owner(`Racer ${i}`)));
-    const results = await Promise.allSettled(owners.map((o) => reserveZones(o.actor, { zoneIds: ["4"] })));
-    const won = results.filter((r) => r.status === "fulfilled");
-    expect(won).toHaveLength(2);
-    expect(results.filter((r) => r.status === "rejected").every((r) => /fully booked|took one of these areas/.test(String((r as PromiseRejectedResult).reason?.message)))).toBe(true);
-    const held = await db.select().from(franchiseAllocations).where(and(eq(franchiseAllocations.zoneId, "4"), inArray(franchiseAllocations.status, ["RESERVED", "PAYMENT_PENDING_VERIFICATION", "ACTIVE", "SUSPENDED"])));
-    expect(held.map((h) => h.slotNo).sort()).toEqual([1, 2]);
-    // The database itself refuses a third occupying row, whatever the code does.
-    const extra = owners.find((o) => !held.some((h) => h.ownerDealerId === o.dealer.id))!;
-    await expect(
-      db.insert(franchiseAllocations).values({ zoneId: "4", slotNo: 1, ownerDealerId: extra.dealer.id, bookingId: held[0].bookingId, status: "ACTIVE", activatedAt: new Date(), expiresAt: new Date(Date.now() + 1e10), feePaise: 1, configVersion: 1 }),
-    ).rejects.toThrow();
-  });
-
-  it("one owner never holds both slots of a zone", async () => {
-    await openZone("4", Z4);
-    const o = await owner();
-    await book(o, ["4"]);
-    await expect(reserveZones(o.actor, { zoneIds: ["4"] })).rejects.toThrow(/already hold/);
-  });
-
-  it("a multi-area cart is all-or-nothing and names the full zone", async () => {
-    await openZone("4", Z4);
-    await openZone("10", Z10);
-    await book(await owner(), ["4"]);
-    await book(await owner(), ["4"]);
-    const o = await owner();
-    await expect(reserveZones(o.actor, { zoneIds: ["10", "4"] })).rejects.toThrow(/4 is fully booked/);
-    expect((await zoneViews({ zoneIds: ["10"] }))[0]).toMatchObject({ occupied: 0, badge: "AVAILABLE_2" });
-    const ok = await reserveZones(o.actor, { zoneIds: ["10"] });
-    expect(ok.booking).toMatchObject({ areaCount: 1, basePaise: 15_000_000, gstPaise: 2_700_000, totalPaise: 17_700_000 });
-  });
-
-  it("an expired hold frees the slot (at read time and by the job); a cancelled one at once", async () => {
-    await openZone("4", Z4);
-    const a = await owner();
-    const b = await owner();
-    const r1 = await reserveZones(a.actor, { zoneIds: ["4"] });
-    await reserveZones(b.actor, { zoneIds: ["4"] });
-    expect((await zoneViews({ zoneIds: ["4"] }))[0].badge).toBe("FULL");
-    await db.update(franchiseAllocations).set({ holdExpiresAt: new Date(Date.now() - 1000) }).where(eq(franchiseAllocations.bookingId, r1.booking.id));
-    expect((await zoneViews({ zoneIds: ["4"] }))[0].badge).toBe("ONE_LEFT");
-    expect(await releaseExpiredHolds(db, new Date())).toBe(1);
-    expect((await allocs(r1.booking.id))[0].status).toBe("RESERVATION_EXPIRED");
-    const c = await owner();
-    const r3 = await reserveZones(c.actor, { zoneIds: ["4"] });
-    await cancelReservation(r3.booking.id, c.actor);
-    expect((await allocs(r3.booking.id))[0].status).toBe("CANCELLED");
-  });
-
-  it("a failed payment releases the slots; a duplicate capture does not activate twice", async () => {
-    await openZone("4", Z4);
-    const o = await owner();
-    const r = await reserveZones(o.actor, { zoneIds: ["4"] });
-    await db.transaction((tx) => onFranchiseFeeEnded({ id: randomUUID(), referenceId: r.booking.id } as never, "FAILED", tx));
-    expect((await allocs(r.booking.id))[0].status).toBe("PAYMENT_FAILED");
-    const again = await reserveZones(o.actor, { zoneIds: ["4"] });
-    const intentId = randomUUID();
-    await capture(again.booking.id, intentId);
-    const [first] = await allocs(again.booking.id);
-    await capture(again.booking.id, intentId);
-    const [second] = await allocs(again.booking.id);
-    expect(second).toMatchObject({ status: "ACTIVE", activatedAt: first.activatedAt, expiresAt: first.expiresAt });
-    expect(await db.select().from(franchiseCodes).where(eq(franchiseCodes.ownerDealerId, o.dealer.id))).toHaveLength(1);
-  });
-
-  it("activation: 12 months − 1 day to 23:59:59 IST; a GKF code; tail to the end of year 3", async () => {
-    await openZone("4", Z4);
-    const o = await owner();
-    const r = await book(o, ["4"]);
+  it("import → preview → publish: new tiers and fees for new bookings; an active franchise keeps its fee; renewal uses the new one", async () => {
+    const o = await dealer();
+    const r = await book(o, [Z7]);
+    const zones = await zoneViews({ includeInactive: true });
+    // Actual business: zone 07 now 2× everyone else's (₹200 Cr vs ₹100 Cr).
+    const csv = ["zone code,annual business (₹ Cr),source,as of", ...zones.map((z) => `${z.zoneId},${z.zoneId === Z7 ? 200 : 100},GST data (test),2026-11-20`)].join("\n");
+    await expect(importZoneBusiness(csv.split("\n").slice(0, 10).join("\n"), admin)).rejects.toThrow(/must cover every active zone/);
+    const preview = await importZoneBusiness(csv, admin);
+    const row = preview.rows.find((x) => x.zoneId === Z7)!;
+    expect(row).toMatchObject({ oldTier: "STANDARD", oldFeePaise: 15_000_000, newTier: "PREMIER", newDiffBp: 9608, newFeePaise: 29_400_000, changed: true });
+    expect(preview.counts).toEqual({ PREMIER: 1, STANDARD: 49, EMERGING: 0 }); // the others are 2% below the new average: Standard
+    await publishFees("PUN", preview.batchId, "actual GST data (test)", admin);
+    const z7 = await zoneView(Z7);
+    expect(z7).toMatchObject({ tier: "PREMIER", feePaise: 29_400_000, provisional: false, source: "GST data (test)" });
     const [a] = await allocs(r.booking.id);
-    expect(a.status).toBe("ACTIVE");
-    expect(a.expiresAt!.getTime()).toBe(allocationExpiry(a.activatedAt!, 12).getTime());
-    expect(formatIst(a.expiresAt)).toMatch(/23\.59 IST$/);
-    // Brief 21-Nov §6: the base share continues up to 2 years after expiry.
-    expect(a.tailEndAt!.getTime()).toBe(tailEndAt({ chainStartAt: a.activatedAt!, expiresAt: a.expiresAt!, mode: "years_after_lapse", tailYears: 2 }).getTime());
-    expect(await codeOf(o.dealer.id)).toMatch(/^GKF-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/);
+    expect(Number(a.feePaise)).toBe(15_000_000); // locked for the term
+    await db.update(franchiseAllocations).set({ expiresAt: new Date(Date.now() + 10 * 86_400_000) }).where(eq(franchiseAllocations.id, a.id));
+    await startRenewal(a.id, o.actor).catch(() => null); // the gateway is not reachable in tests; the booking is made first
+    const [renewal] = await db.select().from(franchiseBookings).where(eq(franchiseBookings.renewalAllocationId, a.id));
+    expect(Number(renewal.listPaise)).toBe(29_400_000);
   });
 });
 
-/* ============================================================ launch offer */
+/* ================================================================ zone status (§5.6) */
 
-describe("launch offer counters (brief §3.1)", () => {
-  it("first_limit_reached: closes at 2 areas; then no price is shown and payment is refused", async () => {
-    await saveFranchiseConfig({ launchMaxAreas: 2, launchMaxOwners: 25 }, { reason: "test limit" }, admin);
-    await openZone("4", Z4);
-    await openZone("10", Z10);
-    const o = await owner();
-    expect((await offerView()).launch).toMatchObject({ open: true, placesLeft: 2 });
-    await book(o, ["4", "10"]);
-    const v = await offerView();
-    expect(v).toMatchObject({ bookingOpen: false, feePerAreaPaise: null, closedMessage: "Launch offer closed – new terms coming soon." });
-    expect(v.launch).toMatchObject({ open: false, placesLeft: 0, areas: 2, owners: 1 });
-    const [camp] = await db.select().from(franchiseCampaigns).where(eq(franchiseCampaigns.code, "LAUNCH"));
-    expect(camp.closedAt).not.toBeNull();
-    await expect(reserveZones((await owner()).actor, { zoneIds: ["4"] })).rejects.toThrow(/new terms coming soon/);
-    // Once the owner sets post-launch terms, booking resumes at them (not a launch place).
-    await saveFranchiseConfig({ postLaunchFeePaise: 20_000_000 }, { reason: "post-launch terms" }, admin);
-    const later = await reserveZones((await owner()).actor, { zoneIds: ["4"] });
-    expect(later.booking).toMatchObject({ launchOffer: false, feePerAreaPaise: 20_000_000 });
+describe("zone status — Admin control", () => {
+  it("Coming Soon and On Hold cannot be bought; Inactive is hidden; every change needs a reason and is logged", async () => {
+    const o = await dealer();
+    await expect(changeZoneStatus([Z3], { status: "ON_HOLD", reason: "no" }, admin)).rejects.toThrow(/reason/);
+    await changeZoneStatus([Z3, Z7], { status: "COMING_SOON", reason: "launch next week" }, admin);
+    await expect(reserveZones(o.actor, { zoneIds: [Z3] })).rejects.toThrow(/coming soon/);
+    await changeZoneStatus([Z3], { status: "ON_HOLD", reason: "data review" }, admin);
+    await expect(reserveZones(o.actor, { zoneIds: [Z3] })).rejects.toThrow(/on hold/);
+    await changeZoneStatus([Z3], { status: "INACTIVE", reason: "zone withdrawn (test)" }, admin);
+    expect((await zoneViews()).some((z) => z.zoneId === Z3)).toBe(false);
+    const h = await db.select().from(franchiseZoneStatusHistory).where(and(eq(franchiseZoneStatusHistory.zoneId, Z3), sql`${franchiseZoneStatusHistory.changedBy} is not null`));
+    expect(h.map((x) => [x.oldStatus, x.newStatus])).toEqual(expect.arrayContaining([["AVAILABLE", "COMING_SOON"], ["COMING_SOON", "ON_HOLD"], ["ON_HOLD", "INACTIVE"]]));
+    await expect(changeZoneStatus([Z3], { status: "SOLD_OUT", reason: "manual sold out" }, admin)).rejects.toThrow(/system/);
   });
 
-  it("owners_only: 1 owner may take many areas; a second owner is refused", async () => {
-    await saveFranchiseConfig({ launchMaxOwners: 1, launchCloseRule: "owners_only" }, { reason: "test owners only" }, admin);
-    await openZone("4", Z4);
-    await openZone("10", Z10);
-    await book(await owner(), ["4", "10"]);
-    expect((await offerView()).launch.open).toBe(false);
+  it("Reserved: only the named dealer can buy until the expiry, then it is Available again automatically", async () => {
+    const x = await dealer("Reserved for");
+    const y = await dealer("Someone else");
+    const until = new Date(Date.now() + 2 * 86_400_000);
+    await changeZoneStatus([Z7], { status: "RESERVED", reason: "promised at the meeting", reservedForDealerId: x.dealer.id, reservedUntil: until }, admin);
+    await expect(reserveZones(y.actor, { zoneIds: [Z7] })).rejects.toThrow(/reserved for another dealer/);
+    await runZoneStatusJobs(new Date(until.getTime() + 60_000));
+    expect((await zoneView(Z7)).status).toBe("AVAILABLE");
+    await changeZoneStatus([Z3], { status: "RESERVED", reason: "promised", reservedForDealerId: x.dealer.id, reservedUntil: until }, admin);
+    await book(x, [Z3]);
+    expect((await zoneView(Z3)).status).toBe("AVAILABLE");
   });
 
-  it("pending reservations hold launch places: the last place is never sold twice", async () => {
-    await saveFranchiseConfig({ launchMaxAreas: 1 }, { reason: "one place" }, admin);
-    await openZone("4", Z4);
-    await openZone("10", Z10);
-    await reserveZones((await owner()).actor, { zoneIds: ["4"] });
-    await expect(reserveZones((await owner()).actor, { zoneIds: ["10"] })).rejects.toThrow(/being paid for/);
+  it("Sold Out is set when 2 franchises are active and cleared when a slot frees; max franchises never below the active count", async () => {
+    const a = await dealer();
+    const b = await dealer();
+    await book(a, [Z7]);
+    const rb = await book(b, [Z7]);
+    const v = await zoneView(Z7);
+    expect([v.status, v.badge, v.slotsFree]).toEqual(["SOLD_OUT", "SOLD_OUT", 0]);
+    await expect(setZoneMaxOwners(Z7, 1, "one only", admin)).rejects.toThrow(/cannot go below/);
+    const [ab] = await allocs(rb.booking.id);
+    await setAllocationStatus(ab.id, "TERMINATED", "breach (test)", admin);
+    expect((await zoneView(Z7)).status).toBe("AVAILABLE");
+    const log = await db.select().from(franchiseNotificationLog).where(sql`${franchiseNotificationLog.kind} like ${`ZONE_STATUS:${Z7}:%`}`);
+    expect(log.some((l) => l.recipient === "ceo@agtci.com")).toBe(true);
+  });
+
+  it("a change scheduled for a future IST time is applied by the job at that time, not before", async () => {
+    const at = new Date(Date.now() + 3 * 3_600_000);
+    const r = await changeZoneStatus([Z47], { status: "COMING_SOON", reason: "launch day switch", scheduledFor: at }, admin);
+    expect(r).toEqual({ applied: [], scheduled: [Z47] });
+    await runZoneStatusJobs(new Date(at.getTime() - 60_000));
+    expect((await zoneView(Z47)).status).toBe("AVAILABLE");
+    await runZoneStatusJobs(new Date(at.getTime() + 60_000));
+    expect((await zoneView(Z47)).status).toBe("COMING_SOON");
+  });
+
+  it("Inactive: the running term continues, renewal is blocked and the owner is told before expiry", async () => {
+    const o = await dealer();
+    const r = await book(o, [Z7]);
+    const [a] = await allocs(r.booking.id);
+    await changeZoneStatus([Z7], { status: "INACTIVE", reason: "zone withdrawn (test)" }, admin);
+    expect((await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, a.id)))[0].status).toBe("ACTIVE");
+    const noon = new Date();
+    noon.setUTCHours(6, 0, 0, 0); // 11.30 IST
+    await db.update(franchiseAllocations).set({ expiresAt: new Date(noon.getTime() + 20 * 86_400_000) }).where(eq(franchiseAllocations.id, a.id));
+    await expect(startRenewal(a.id, o.actor)).rejects.toThrow(/inactive: renewal is closed/);
+    const { config } = await franchiseConfig();
+    await sendReminders(noon, config);
+    const log = await db.select().from(franchiseNotificationLog).where(and(eq(franchiseNotificationLog.allocationId, a.id), eq(franchiseNotificationLog.kind, "INACTIVE_NOTICE")));
+    expect(log.map((l) => l.recipient)).toEqual(expect.arrayContaining(["ceo@agtci.com"]));
   });
 });
 
-/* ======================================================== codes and money */
+/* ================================================================ booking (§5.5) */
 
-describe("franchise code, attribution and commission (brief §3.2, §7, §8)", () => {
-  it("inside the owner's zone: accepted; outside: refused; no location: refused", async () => {
-    await openZone("4", Z4);
-    await openZone("10", Z10);
-    const o = await owner();
-    await book(o, ["4"]);
-    const code = await codeOf(o.dealer.id);
-    expect(await assertCodeForLocation(code, Z4[0], Z4[1])).toMatchObject({ kind: "FRANCHISE", zoneId: "4" });
-    await expect(assertCodeForLocation(code, Z10[0], Z10[1])).rejects.toThrow(/outside the dealer code's area/);
-    await expect(assertCodeForLocation(code, null, null)).rejects.toThrow(/map/);
-    expect(await assertCodeForLocation("NOTAFRAN", Z4[0], Z4[1])).toEqual({ kind: "NOT_FRANCHISE" });
+describe("booking", () => {
+  it("a multi-zone cart is all-or-nothing; the third franchise in a zone is refused", async () => {
+    const a = await dealer();
+    const b = await dealer();
+    const c = await dealer();
+    await book(a, [Z7]);
+    await book(b, [Z7]);
+    await expect(reserveZones(c.actor, { zoneIds: [Z3, Z7] })).rejects.toThrow(/Nothing was reserved: .*GKZ-PUN-07/);
+    expect(await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.ownerDealerId, c.dealer.id))).toHaveLength(0);
+    const ok = await book(c, [Z3, Z47]);
+    expect(ok.booking).toMatchObject({ areaCount: 2, listPaise: 22_600_000 + 7_500_000, discountPaise: 0, basePaise: 30_100_000, gstPaise: 5_418_000, totalPaise: 35_518_000 });
   });
 
-  it("one-time 25% of the fee excl. GST (₹1,000 → ₹250, ₹2,500 → ₹625), owner only; reversed on refund", async () => {
-    await openZone("4", Z4);
-    const o = await owner();
-    await book(o, ["4"]);
-    const code = await codeOf(o.dealer.id);
-    const retail = await registeredShop(code, Z4, 100_000);
-    const wholesale = await registeredShop(code, [Z4[0] + 0.002, Z4[1]], 250_000);
-    const r = await entries(retail.id);
-    expect(r.map((e) => [e.entryType, e.amountPaise, e.dealerId, e.payeeMemberId, e.franchiseZoneId])).toEqual([["ONE_TIME_FRANCHISE", 25_000, o.dealer.id, null, "4"]]);
-    expect((await entries(wholesale.id)).map((e) => e.amountPaise)).toEqual([62_500]);
-    // No Model A attribution was made for a franchise shop.
-    expect(await db.select().from(shopAttributions).where(eq(shopAttributions.shopId, retail.id))).toHaveLength(0);
-    const [attr] = await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, retail.id));
-    expect(attr).toMatchObject({ ownerDealerId: o.dealer.id, zoneId: "4", status: "ACTIVE" });
-    // A refund of the fee reverses it.
-    await recordPayment({ shopId: retail.id, paymentType: "REFUND", amountPaise: 118_000, method: "ONLINE", transactionId: `rf_${retail.id.slice(0, 8)}` }, admin);
-    expect((await entries(retail.id)).map((e) => [e.entryType, e.status])).toEqual([["ONE_TIME_FRANCHISE", "REVERSED"]]);
-    expect((await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, retail.id)))[0].status).toBe("REVERSED");
+  it("10 dealers racing for one zone: exactly 2 slots are taken", async () => {
+    const owners = await Promise.all(Array.from({ length: 10 }, () => dealer()));
+    const results = await Promise.allSettled(owners.map((o) => reserveZones(o.actor, { zoneIds: [Z3] })));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
   });
 
-  it("one dealer code per area: the code of area 4 is refused in area 10 and the other way round", async () => {
-    await openZone("4", Z4);
-    await openZone("10", Z10);
-    const o = await owner();
-    await book(o, ["4", "10"]);
-    const [c4, c10] = [await codeOf(o.dealer.id, "4"), await codeOf(o.dealer.id, "10")];
-    expect(c4).not.toBe(c10);
-    expect(await assertCodeForLocation(c10, Z10[0], Z10[1])).toMatchObject({ kind: "FRANCHISE", zoneId: "10" });
-    await expect(assertCodeForLocation(c4, Z10[0], Z10[1])).rejects.toThrow(/outside the dealer code's area/);
-    const shop = await registeredShop(c10, Z10);
-    expect((await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, shop.id)))[0]).toMatchObject({ zoneId: "10", status: "ACTIVE" });
+  it("the 15-minute hold: released when it runs out or the payment fails; the coupon use is released with it", async () => {
+    const o = await dealer();
+    const c = await createCoupon(coupon({ totalLimit: 1 }), admin);
+    const r = await reserveZones(o.actor, { zoneIds: [Z7], couponCode: c.code });
+    expect(r.booking.discountPaise).toBe(1_500_000);
+    await releaseExpiredHolds(db, new Date(Date.now() + 16 * 60_000));
+    expect((await allocs(r.booking.id))[0].status).toBe("RESERVATION_EXPIRED");
+    const [red] = await db.select().from(franchiseCouponRedemptions).where(eq(franchiseCouponRedemptions.bookingId, r.booking.id));
+    expect(red.status).toBe("RELEASED");
+    const r2 = await reserveZones(o.actor, { zoneIds: [Z7], couponCode: c.code }); // the single use is free again
+    const intent = { id: randomUUID(), purpose: "FRANCHISE_FEE", referenceId: r2.booking.id, status: "FAILED" } as unknown as PaymentIntentRow;
+    await db.transaction((tx) => onFranchiseFeeEnded(intent, "FAILED", tx));
+    expect((await db.select().from(franchiseCouponRedemptions).where(eq(franchiseCouponRedemptions.bookingId, r2.booking.id)))[0].status).toBe("RELEASED");
+    await cancelReservation((await reserveZones(o.actor, { zoneIds: [Z3] })).booking.id, o.actor);
+  });
+});
+
+/* ================================================================ coupons (§5.7) */
+
+describe("coupons on franchise fees", () => {
+  it("% coupon with a cap; GST on the discounted amount; the list fee stays locked; one use counted only after payment", async () => {
+    const o = await dealer();
+    const c = await createCoupon(coupon({ percentBp: 2000, maxDiscountPaise: 3_000_000 }), admin);
+    const r = await reserveZones(o.actor, { zoneIds: [Z3, Z7], couponCode: c.code.toLowerCase() });
+    // 20% of ₹2,26,000 + ₹1,50,000 = ₹75,200, capped at ₹30,000, shared in proportion to the fees.
+    expect(r.booking).toMatchObject({ listPaise: 37_600_000, discountPaise: 3_000_000, basePaise: 34_600_000, gstPaise: 6_228_000, totalPaise: 40_828_000, couponCode: c.code });
+    const parts = (await allocs(r.booking.id)).sort((x, y) => x.zoneId.localeCompare(y.zoneId)).map((a) => [a.zoneId, Number(a.feePaise), Number(a.discountPaise)]);
+    expect(parts).toEqual([
+      [Z3, 22_600_000, 1_803_192],
+      [Z7, 15_000_000, 1_196_808],
+    ]);
+    expect((await db.select().from(franchiseCouponRedemptions).where(eq(franchiseCouponRedemptions.bookingId, r.booking.id)))[0].status).toBe("HELD");
+    await capture(r.booking.id);
+    expect((await db.select().from(franchiseCouponRedemptions).where(eq(franchiseCouponRedemptions.bookingId, r.booking.id)))[0].status).toBe("USED");
   });
 
-  it("admin override: a shop outside the area is tagged anyway, and the override is logged", async () => {
-    await openZone("4", Z4);
-    const o = await owner();
-    await book(o, ["4"]);
-    const shopOwner = await createUser({ role: "SHOP_OWNER" });
-    const shop = await createShop(shopOwner.id, { name: "Far shop", status: "APPROVED" });
-    await expect(adminTagShop(shop.id, await codeOf(o.dealer.id), "too short".slice(0, 3), admin)).rejects.toThrow(/reason/);
-    await adminTagShop(shop.id, await codeOf(o.dealer.id), "owner confirmed the shop serves the area", admin);
-    const [t] = await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, shop.id));
-    expect(t).toMatchObject({ zoneId: "4", overrideReason: "owner confirmed the shop serves the area", overrideBy: admin.id });
-    await expect(adminTagShop(shop.id, await codeOf(o.dealer.id), "second time is refused", admin)).rejects.toThrow(/permanent/);
+  it("flat coupon split in proportion over the eligible zones only (scope by tier); never below ₹1", async () => {
+    const o = await dealer();
+    const c = await createCoupon(coupon({ discountType: "FLAT", percentBp: null, flatPaise: 5_000_000, scope: { tiers: ["EMERGING"] } }), admin);
+    const r = await reserveZones(o.actor, { zoneIds: [Z7, Z47], couponCode: c.code });
+    const parts = (await allocs(r.booking.id)).sort((x, y) => x.zoneId.localeCompare(y.zoneId)).map((a) => [a.zoneId, Number(a.discountPaise)]);
+    expect(parts).toEqual([
+      [Z7, 0],
+      [Z47, 5_000_000],
+    ]);
+    const big = await createCoupon(coupon({ discountType: "FLAT", percentBp: null, flatPaise: 100_000_000, scope: { zones: [Z47] } }), admin);
+    const o2 = await dealer();
+    const r2 = await reserveZones(o2.actor, { zoneIds: [Z47], couponCode: big.code });
+    expect(Number(r2.booking.basePaise)).toBe(100); // ₹1
   });
 
-  it("live month: rate × 2% × delivered value (₹1,00,000 → ₹500 at 25%); a first month has baseline ₹0", async () => {
-    await openZone("4", Z4);
-    const o = await owner();
-    const r = await book(o, ["4"]);
-    const shop = await registeredShop(await codeOf(o.dealer.id), Z4);
+  it("rejections with clear reasons: unknown, paused, expired, wrong zone, private, limits, minimum, first purchase, launch only, renewal only", async () => {
+    const o = await dealer();
+    const other = await dealer();
+    await expect(reserveZones(o.actor, { zoneIds: [Z7], couponCode: "NOPE99" })).rejects.toThrow(/does not exist/);
+    const paused = await createCoupon(coupon({ code: "PAUSED1" }), admin);
+    await db.update(franchiseCoupons).set({ status: "PAUSED" }).where(eq(franchiseCoupons.id, paused.id));
+    await expect(reserveZones(o.actor, { zoneIds: [Z7], couponCode: "PAUSED1" })).rejects.toThrow(/paused/);
+    await createCoupon(coupon({ code: "OLD1", startsAt: new Date(Date.now() - 10 * 86_400_000), endsAt: new Date(Date.now() - 86_400_000) }), admin);
+    await expect(reserveZones(o.actor, { zoneIds: [Z7], couponCode: "OLD1" })).rejects.toThrow(/expired/);
+    await createCoupon(coupon({ code: "PREM1", scope: { tiers: ["PREMIER"] } }), admin);
+    await expect(reserveZones(o.actor, { zoneIds: [Z7], couponCode: "PREM1" })).rejects.toThrow(/not valid for this zone/);
+    const priv = await createCoupon(coupon({ code: "PRIV1", visibility: "PRIVATE" }), admin);
+    await db.insert(franchiseCouponAssignments).values({ couponId: priv.id, dealerId: other.dealer.id });
+    await expect(reserveZones(o.actor, { zoneIds: [Z7], couponCode: "PRIV1" })).rejects.toThrow(/not assigned to you/);
+    await createCoupon(coupon({ code: "MIN1", minCartPaise: 20_000_000 }), admin);
+    await expect(reserveZones(o.actor, { zoneIds: [Z7], couponCode: "MIN1" })).rejects.toThrow(/at least ₹2,00,000/);
+    await createCoupon(coupon({ code: "RENEW1", appliesOn: "RENEWAL" }), admin);
+    await expect(reserveZones(o.actor, { zoneIds: [Z7], couponCode: "RENEW1" })).rejects.toThrow(/renewals only/);
+    await createCoupon(coupon({ code: "ONCE1", perDealerLimit: 1 }), admin);
+    await book(o, [Z7], "ONCE1");
+    await expect(reserveZones(o.actor, { zoneIds: [Z3], couponCode: "ONCE1" })).rejects.toThrow(/most times allowed/);
+    await createCoupon(coupon({ code: "FIRST1", firstPurchaseOnly: true }), admin);
+    await expect(reserveZones(o.actor, { zoneIds: [Z3], couponCode: "FIRST1" })).rejects.toThrow(/first franchise purchase/);
+    await createCoupon(coupon({ code: "TOTAL1", totalLimit: 1 }), admin);
+    await book(other, [Z3], "TOTAL1");
+    await expect(reserveZones(o.actor, { zoneIds: [Z3], couponCode: "TOTAL1" })).rejects.toThrow(/limit of uses/);
+    await saveFranchiseConfig({ launchMaxOwners: 2, launchMaxAreas: 2 }, { reason: "small launch (test)" }, admin);
+    await createCoupon(coupon({ code: "LAUNCH1", launchOnly: true }), admin);
+    const late = await dealer();
+    await expect(reserveZones(late.actor, { zoneIds: [Z47], couponCode: "LAUNCH1" })).rejects.toThrow(/Launch offer closed/);
+  });
+
+  it("a fully refunded booking releases its coupon use, voids the franchise and frees the slot", async () => {
+    const o = await dealer();
+    const c = await createCoupon(coupon({ totalLimit: 1 }), admin);
+    const r = await book(o, [Z7], c.code);
+    await refundBooking(r.booking.id, "owner withdrew (test)", admin);
+    expect((await db.select().from(franchiseCouponRedemptions).where(eq(franchiseCouponRedemptions.bookingId, r.booking.id)))[0].status).toBe("RELEASED");
+    expect((await allocs(r.booking.id))[0].status).toBe("CANCELLED");
+    expect((await zoneView(Z7)).slotsFree).toBe(2);
+  });
+});
+
+/* ================================================================ one-time commission (§3) */
+
+describe("one-time commission: cases A1–A4 and B1–B4, GoKesari pays everyone directly", () => {
+  for (const [fee, a, tl, d4, d3, own25, own5] of [
+    [100_000, 20_000, 4000, 4000, 3000, 25_000, 5000],
+    [250_000, 50_000, 10_000, 10_000, 7500, 62_500, 12_500],
+  ] as const) {
+    it(`₹${(fee / 100).toLocaleString("en-IN")} shop: amounts exactly as §3.3`, async () => {
+      // Model A: a free dealer and his team, shops anywhere.
+      const d = await dealer("Free");
+      const lead = await member(d.dealer.id, `Lead ${fee}`, "TEAM_LEAD");
+      const direct = await member(d.dealer.id, `Direct ${fee}`, "AGENT");
+      const under = await member(d.dealer.id, `Under ${fee}`, "AGENT", lead.id);
+      expect(await split((await signed(d.dealer.id, null, fee, AREA[Z47])).id)).toEqual([`DIRECT_1:TOP:${a}`]); // A1
+      expect(await split((await signed(d.dealer.id, direct.id, fee, AREA[Z47])).id)).toEqual([`DIRECT_1:${direct.name}:${a}`, `OVERRIDE_MAIN:TOP:${d4}`].sort()); // A2
+      expect(await split((await signed(d.dealer.id, under.id, fee, AREA[Z47])).id)).toEqual([`DIRECT_1:${under.name}:${a}`, `OVERRIDE_LEAD:${lead.name}:${tl}`, `OVERRIDE_MAIN:TOP:${d3}`].sort()); // A3
+      expect(await split((await signed(d.dealer.id, lead.id, fee, AREA[Z47])).id)).toEqual([`DIRECT_1:${lead.name}:${a}`, `OVERRIDE_MAIN:TOP:${d4}`].sort()); // A4
+      // Model B: a franchise owner and his team, shops inside his paid zone.
+      const o = await dealer("Owner");
+      await book(o, [Z3]);
+      const olead = await member(o.dealer.id, `OLead ${fee}`, "TEAM_LEAD");
+      const odirect = await member(o.dealer.id, `ODirect ${fee}`, "AGENT");
+      const ounder = await member(o.dealer.id, `OUnder ${fee}`, "AGENT", olead.id);
+      const b1 = await signed(o.dealer.id, null, fee, AREA[Z3]);
+      expect(await split(b1.id)).toEqual([`DIRECT_1:TOP:${own25}`]);
+      expect(await split((await signed(o.dealer.id, odirect.id, fee, AREA[Z3])).id)).toEqual([`DIRECT_1:${odirect.name}:${a}`, `OVERRIDE_MAIN:TOP:${own5}`].sort());
+      expect(await split((await signed(o.dealer.id, ounder.id, fee, AREA[Z3])).id)).toEqual([`DIRECT_1:${ounder.name}:${a}`, `OVERRIDE_LEAD:${olead.name}:${tl}`, `OVERRIDE_MAIN:TOP:${own5}`].sort());
+      expect(await split((await signed(o.dealer.id, olead.id, fee, AREA[Z3])).id)).toEqual([`DIRECT_1:${olead.name}:${a}`, `OVERRIDE_MAIN:TOP:${own5}`].sort());
+      const [plan] = await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, b1.id));
+      expect(plan).toMatchObject({ model: "B", caseCode: "B1", franchiseZoneId: Z3 });
+      // The owner's own shop outside his paid zone follows Model A (§7).
+      expect(await split((await signed(o.dealer.id, null, fee, AREA[Z47])).id)).toEqual([`DIRECT_1:TOP:${a}`]);
+    });
+  }
+
+  it("parity: one agent and one team-lead rate for both models; owner rates can never go below the free dealer's", async () => {
+    await expect(saveFranchiseConfig({ ownerSelfBp: 1500 }, { reason: "lower owner (test)" }, admin)).rejects.toThrow(/cannot be lower/);
+    await expect(saveFranchiseConfig({ ownerOverrideBp: 300 }, { reason: "lower owner (test)" }, admin)).rejects.toThrow(/cannot be lower/);
+    await expect(setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, leadOverrideBp: 600 }, admin)).rejects.toThrow(/cannot be lower/);
+    await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, directBp: 1800 }, admin);
+    clearRuleCache();
+    const o = await dealer();
+    await book(o, [Z3]);
+    const ag = await member(o.dealer.id, "Parity agent", "AGENT");
+    expect(await split((await signed(o.dealer.id, ag.id, 100_000, AREA[Z3])).id)).toEqual([`DIRECT_1:${ag.name}:18000`, "OVERRIDE_MAIN:TOP:5000"]);
+  });
+
+  it("a refunded shop reverses every person's commission (both models)", async () => {
+    const o = await dealer();
+    await book(o, [Z3]);
+    const ag = await member(o.dealer.id, "Refund agent", "AGENT");
+    const shop = await signed(o.dealer.id, ag.id, 100_000, AREA[Z3]);
+    await reverseShopCommission(shop.id, "registration fee refunded", admin);
+    const rows = await db.select().from(dealerCommissionLedger).where(eq(dealerCommissionLedger.shopId, shop.id));
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows.filter((r) => r.status !== "REVERSED").reduce((sum, r) => sum + r.amountPaise, 0)).toBe(0);
+    expect((await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, shop.id)))[0].status).toBe("REVERSED");
+  });
+});
+
+/* ================================================================ free teams in a paid zone, recurring, upgrade, tail (§4, §6, §7) */
+
+describe("recurring commission and zone attachment", () => {
+  it("a free team's shop in a paid zone: normal Model A commission, no owner override, attached to the franchise for recurring (25% of 2%)", async () => {
+    const o = await dealer("Zone owner");
+    const r = await book(o, [Z3]);
+    const free = await dealer("Free team");
+    const ag = await member(free.dealer.id, "Free agent", "AGENT");
+    const shop = await signed(free.dealer.id, ag.id, 100_000, AREA[Z3]);
+    expect(await split(shop.id)).toEqual([`DIRECT_1:${ag.name}:20000`, "OVERRIDE_MAIN:TOP:4000"]);
     await deliver(shop.id, 10_000_000);
     const [a] = await allocs(r.booking.id);
     const c = await calculateAllocationMonth(db, a, thisMonth());
-    expect(c.result).toMatchObject({ openingShops: 0, newShops: 1, baselinePaise: 0, businessPoints: 0, registrationPoints: 0, bonusBp: 0, commissionRateBp: 2500, rating: 5, recurringPaise: 50_000, onboardingPaise: 25_000 });
+    expect(c.newShopIds).toEqual([shop.id]);
+    expect(c.result).toMatchObject({ baselinePaise: 0, commissionRateBp: 2500, recurringPaise: 50_000 }); // 25% × 2% × ₹1,00,000
   });
 
-  it("past month: DRAFT (rerunnable) → lock writes the ledger lines → never changes; a later refund is next month's adjustment (TC5)", async () => {
-    await openZone("4", Z4);
-    const o = await owner();
-    const r = await book(o, ["4"]);
+  it("two active franchises in the zone: a free shop's recurring is split 50/50; a zone with no franchise attaches to the next one sold", async () => {
+    const free = await dealer("Free");
+    const early = await signed(free.dealer.id, null, 100_000, AREA[Z7]);
+    await deliver(early.id, 4_000_000); // before any franchise: nobody earns recurring
+    const x = await dealer("X");
+    const y = await dealer("Y");
+    const rx = await book(x, [Z7]);
+    const ry = await book(y, [Z7]);
+    await deliver(early.id, 10_000_000);
+    const [ax] = await allocs(rx.booking.id);
+    const [ay] = await allocs(ry.booking.id);
+    const cx = await calculateAllocationMonth(db, ax, thisMonth());
+    const cy = await calculateAllocationMonth(db, ay, thisMonth());
+    expect([cx.result.recurringPaise, cy.result.recurringPaise]).toEqual([25_000, 25_000]);
+  });
+
+  it("orders cancelled / refunded in the month are netted; bonus counts only shops attached at the month's start", async () => {
+    const o = await dealer();
+    const r = await book(o, [Z3]);
+    const shop = await signed(o.dealer.id, null, 100_000, AREA[Z3]);
+    const order = await deliver(shop.id, 10_000_000);
+    await db.insert(financialAdjustments).values({ type: "REFUND_SHOP", party: "SHOP", status: "PENDING", shopId: shop.id, orderId: order.id, amountPaise: -4_000_000, customerRefundPaise: 4_000_000, reason: "refund (test)", idempotencyKey: `t-${order.id}` });
+    const [a] = await allocs(r.booking.id);
+    const c = await calculateAllocationMonth(db, a, thisMonth());
+    expect(c.result).toMatchObject({ openingShops: 0, newShops: 1, recurringPaise: 30_000 }); // ₹60,000 net × 2% × 25%
+  });
+
+  it("upgrade Free → Paid: the team keeps its rates; earlier shops in the zone attach for recurring; new shops there follow Model B", async () => {
+    const d = await dealer("Upgrader");
+    const ag = await member(d.dealer.id, "Up agent", "AGENT");
+    const before = await signed(d.dealer.id, ag.id, 100_000, AREA[Z7]);
+    expect(await split(before.id)).toEqual([`DIRECT_1:${ag.name}:20000`, "OVERRIDE_MAIN:TOP:4000"]);
+    await book(d, [Z7]);
+    const [att] = await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, before.id));
+    expect(att).toMatchObject({ origin: "UPGRADE", ownerDealerId: d.dealer.id, zoneId: Z7 });
+    expect(await split(before.id)).toEqual([`DIRECT_1:${ag.name}:20000`, "OVERRIDE_MAIN:TOP:4000"]); // unchanged
+    const after = await signed(d.dealer.id, ag.id, 100_000, AREA[Z7]);
+    expect(await split(after.id)).toEqual([`DIRECT_1:${ag.name}:20000`, "OVERRIDE_MAIN:TOP:5000"]);
+  });
+
+  it("tail: after the owner stops renewing, his own team's shops keep earning for 2 years; free-team shops move to the next active owner", async () => {
+    const x = await dealer("Lapsing");
+    const rx = await book(x, [Z7]);
+    const own = await signed(x.dealer.id, null, 100_000, AREA[Z7]);
+    const free = await dealer("Free");
+    const freeShop = await signed(free.dealer.id, null, 100_000, AREA[Z7]);
+    const [ax] = await allocs(rx.booking.id);
+    // X expired an hour ago (not renewed); Y bought the zone.
+    const past = new Date(Date.now() - 3_600_000);
+    await db.update(franchiseAllocations).set({ activatedAt: new Date(past.getTime() - 86_400_000), expiresAt: past, tailEndAt: new Date(past.getTime() + 2 * 365 * 86_400_000) }).where(eq(franchiseAllocations.id, ax.id));
+    const { config } = await franchiseConfig();
+    expect(await expireAreas(new Date(), config)).toBe(1);
+    await expect(assertFranchiseCodeOpen((await db.execute(sql`select rc.code from franchise_codes fc join referral_codes rc on rc.id = fc.referral_code_id where fc.allocation_id = ${ax.id}`) as unknown as { code: string }[])[0].code)).rejects.toThrow(/closed when the franchise/);
+    const y = await dealer("Next owner");
+    const ry = await book(y, [Z7]);
+    await deliver(own.id, 10_000_000);
+    await deliver(freeShop.id, 10_000_000);
+    const [ax2] = await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, ax.id));
+    const [ay] = await allocs(ry.booking.id);
+    const cx = await calculateAllocationMonth(db, ax2, thisMonth());
+    const cy = await calculateAllocationMonth(db, ay, thisMonth());
+    expect(cx.lines.map((l) => l.shopId)).toEqual([own.id]);
+    expect(cx.result).toMatchObject({ bonusBp: 0, recurringPaise: 50_000 });
+    expect(cy.lines.map((l) => l.shopId)).toEqual([freeShop.id]);
+  });
+});
+
+/* ================================================================ month end, statement, reminders */
+
+describe("month end, statements and reminders", () => {
+  it("past month: DRAFT → lock writes the per-shop ledger lines dated in the month → never changes", async () => {
+    const o = await dealer();
+    const r = await book(o, [Z3]);
     const [a] = await allocs(r.booking.id);
     const prev = prevMonth(thisMonth());
-    const { start: prevStart } = istMonthBounds(prev);
+    const { start } = istMonthBounds(prev);
     const twoBack = istMonthBounds(prevMonth(prev)).start;
     await db.update(franchiseAllocations).set({ activatedAt: twoBack, periodStart: twoBack }).where(eq(franchiseAllocations.id, a.id));
-    const shop = await registeredShop(await codeOf(o.dealer.id), Z4);
+    const shop = await signed(o.dealer.id, null, 100_000, AREA[Z3]);
     const order = await deliver(shop.id, 10_000_000);
-    const inPrev = new Date(prevStart.getTime() + 3 * 86_400_000);
-    await db.execute(sql`update franchise_shop_attributions set activated_at = ${inPrev.toISOString()}::timestamptz where shop_id = ${shop.id}`);
+    const inPrev = new Date(start.getTime() + 3 * 86_400_000);
+    await db.update(shops).set({ approvedAt: inPrev }).where(eq(shops.id, shop.id));
+    await db.execute(sql`update franchise_shop_area_periods set valid_from = ${new Date(start.getTime() + 86_400_000).toISOString()}::timestamptz where shop_id = ${shop.id}`);
     await db.execute(sql`update order_financials set delivered_at = ${inPrev.toISOString()}::timestamptz where order_id = ${order.id}`);
     expect(await calculateFranchiseMonth(prev)).toMatchObject({ calculated: 1 });
-    expect(await calculateFranchiseMonth(prev)).toMatchObject({ calculated: 1 }); // rerunnable
     let [snap] = await db.select().from(franchiseMonthlySnapshots).where(eq(franchiseMonthlySnapshots.allocationId, a.id));
-    expect(snap).toMatchObject({ month: prev, status: "DRAFT", openingShops: 0, newShops: 1, recurringPaise: 50_000, nextOpeningShops: 1 });
+    expect(snap).toMatchObject({ status: "DRAFT", newShops: 1, recurringPaise: 50_000 });
     expect(await lockFranchiseMonth(prev, admin)).toMatchObject({ locked: 1 });
     [snap] = await db.select().from(franchiseMonthlySnapshots).where(eq(franchiseMonthlySnapshots.allocationId, a.id));
     expect(snap.status).toBe("LOCKED");
-    const lines = (await entries(shop.id)).filter((e) => e.entryType === "RECURRING_BASE");
-    expect(lines.map((e) => [e.amountPaise, e.franchiseZoneId])).toEqual([[50_000, "4"]]);
-    expect(lines[0].createdAt.getTime()).toBeLessThan(istMonthBounds(prev).end.getTime());
-    expect(await calculateFranchiseMonth(prev)).toMatchObject({ calculated: 0, locked: 1 }); // a locked month never changes
-    // TC5: ₹40,000 refunded now on that order (already paid on) → −₹200 on this month's statement.
-    await db.insert(financialAdjustments).values({ type: "REFUND_SHOP", party: "SHOP", status: "PENDING", shopId: shop.id, orderId: order.id, amountPaise: -4_000_000, customerRefundPaise: 4_000_000, reason: "refund after payout (test)", idempotencyKey: `test-refund-${order.id}` });
-    const [a2] = await allocs(r.booking.id);
-    const now = await calculateAllocationMonth(db, a2, thisMonth());
-    expect(now.result).toMatchObject({ openingShops: 1, adjustmentsPaise: -20_000 });
-  });
-
-  it("statement: PDF built and e-mailed to the dealer and ceo@agtci.com once", async () => {
-    await openZone("4", Z4);
-    const o = await owner();
-    const r = await book(o, ["4"]);
-    const [a] = await allocs(r.booking.id);
-    const prev = prevMonth(thisMonth());
-    await db.update(franchiseAllocations).set({ activatedAt: istMonthBounds(prev).start, periodStart: istMonthBounds(prev).start }).where(eq(franchiseAllocations.id, a.id));
-    await calculateFranchiseMonth(prev);
-    const [snap] = await db.select().from(franchiseMonthlySnapshots).where(eq(franchiseMonthlySnapshots.allocationId, a.id));
+    const lines = (await db.select().from(dealerCommissionLedger).where(and(eq(dealerCommissionLedger.shopId, shop.id), eq(dealerCommissionLedger.entryType, "RECURRING_BASE"))));
+    expect(lines.map((e) => [e.amountPaise, e.franchiseZoneId])).toEqual([[50_000, Z3]]);
+    expect(await calculateFranchiseMonth(prev)).toMatchObject({ calculated: 0, locked: 1 });
     expect(statementPdf(await statementData(snap.id)).subarray(0, 5).toString()).toBe("%PDF-");
-    await emailStatements(prev, ["ceo@agtci.com"]);
     await emailStatements(prev, ["ceo@agtci.com"]);
     const log = await db.select().from(franchiseNotificationLog).where(eq(franchiseNotificationLog.kind, `STATEMENT:${prev}`));
     expect(log.map((l) => l.recipient).sort()).toEqual([o.user.email, "ceo@agtci.com"].sort());
   });
 
-  it("TC6: a money setting changed now applies from the 1st of next month; other settings apply now", async () => {
-    await saveFranchiseConfig({ businessSlotPaise: 5_000_000, reservationHoldMinutes: 20 }, { reason: "test: slot ₹50K" }, admin);
-    const now = (await franchiseConfig()).config;
-    expect(now).toMatchObject({ businessSlotPaise: 500_000, reservationHoldMinutes: 20 });
-    const { franchiseConfigAt } = await import("@/server/franchise/config");
-    const nextStart = istMonthBounds(thisMonth()).end;
-    expect((await franchiseConfigAt(nextStart)).config).toMatchObject({ businessSlotPaise: 5_000_000, reservationHoldMinutes: 20 });
-    // A later non-money change is carried into the scheduled version too.
-    await saveFranchiseConfig({ reservationHoldMinutes: 25 }, { reason: "test: hold 25" }, admin);
-    expect((await franchiseConfigAt(nextStart)).config).toMatchObject({ businessSlotPaise: 5_000_000, reservationHoldMinutes: 25 });
-    void moneyConfigFrom;
-  });
-
-  it("a month not yet over is not calculated", async () => {
-    expect(await calculateFranchiseMonth(thisMonth())).toMatchObject({ skipped: `${thisMonth()} is not over yet` });
-  });
-});
-
-/* ==================================================== expiry and renewal */
-
-describe("validity, reminders, expiry and renewal (brief §9)", () => {
-  async function activeArea() {
-    await openZone("4", Z4);
-    await openZone("10", Z10);
-    const o = await owner();
-    const r = await book(o, ["4"]);
+  it("renewal reminders show the renewal fee and, when it changed, why; copied to ceo@agtci.com", async () => {
+    const o = await dealer();
+    const r = await book(o, [Z7]);
     const [a] = await allocs(r.booking.id);
-    return { o, a };
-  }
-
-  it("reminders: 30 days, 15 days, then daily — owner channels and a copy to ceo@agtci.com", async () => {
-    const { a } = await activeArea();
+    const at = new Date();
+    at.setUTCHours(6, 0, 0, 0); // 11.30 IST, after the reminder hour
+    await db.update(franchiseAllocations).set({ expiresAt: new Date(at.getTime() + 10 * 86_400_000) }).where(eq(franchiseAllocations.id, a.id));
+    // A newer published fee for the zone (reset by beforeEach: non-provisional versions are removed).
+    const [cur] = await db.update(franchiseZoneFeeVersions).set({ supersededAt: new Date() }).where(and(eq(franchiseZoneFeeVersions.zoneId, Z7), isNull(franchiseZoneFeeVersions.supersededAt))).returning();
+    await db.insert(franchiseZoneFeeVersions).values({ zoneId: Z7, tier: "PREMIER", value: 115, average: 99.4, diffBp: 1569, feePaise: 17_000_000, reason: cur.reason, provisional: false });
     const { config } = await franchiseConfig();
-    const exp = a.expiresAt!;
-    const at = (daysBefore: number) => new Date(exp.getTime() - daysBefore * 86_400_000 - 13 * 3600_000); // ~10:59 IST that day
-    expect(await sendReminders(at(30), config)).toBe(1);
-    expect(await sendReminders(at(30), config)).toBe(0); // once a day
-    expect(await sendReminders(at(29), config)).toBe(0);
-    await sendReminders(at(15), config);
-    await sendReminders(at(14), config);
-    await sendReminders(at(0), config);
-    const log = await db.select().from(franchiseNotificationLog).where(eq(franchiseNotificationLog.allocationId, a.id));
-    const ceo = log.filter((l) => l.recipient === "ceo@agtci.com" && l.channel === "EMAIL").map((l) => l.kind).sort();
-    expect(ceo).toEqual(["D15", "D30", "DAILY", "DAILY"]);
-    expect(log.some((l) => l.channel === "IN_APP" && l.kind === "D30")).toBe(true);
-    expect(log.some((l) => l.channel === "WHATSAPP")).toBe(true);
-    // Before 10:00 IST nothing is sent.
-    const early = new Date(exp.getTime() - 20 * 86_400_000 - 20 * 3600_000); // ~03:59 IST
-    expect(await sendReminders(early, config)).toBe(0);
-  });
-
-  it("renewal: open from 30 days before expiry, extends the same slot by 12 months", async () => {
-    const { o, a } = await activeArea();
-    await expect(startRenewal(a.id, o.actor)).rejects.toThrow(/Renewal opens 30 days before/);
-    await db.update(franchiseAllocations).set({ expiresAt: new Date(Date.now() + 10 * 86_400_000) }).where(eq(franchiseAllocations.id, a.id));
-    await startRenewal(a.id, o.actor).catch(() => {}); // the gateway part is not under test here
-    const [rb] = await db.select().from(franchiseBookings).where(eq(franchiseBookings.renewalAllocationId, a.id));
-    expect(rb).toMatchObject({ kind: "RENEWAL", areaCount: 1, basePaise: 15_000_000 });
-    const before = (await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, a.id)))[0];
-    await capture(rb.id);
-    const [after] = await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, a.id));
-    expect(after).toMatchObject({ slotNo: a.slotNo, renewalCount: 1, status: "ACTIVE" });
-    expect(after.expiresAt!.getTime() - before.expiresAt!.getTime()).toBeGreaterThanOrEqual(365 * 86_400_000);
-  });
-
-  it("at expiry: EXPIRED, renewal refused, code closed for that zone (still valid in another), slot free to anyone", async () => {
-    await openZone("4", Z4);
-    await openZone("10", Z10);
-    const o = await owner();
-    const r = await book(o, ["4", "10"]);
-    const [a4, a10] = (await allocs(r.booking.id)).sort((x, y) => x.zoneId.localeCompare(y.zoneId)).reverse();
-    expect(a4.zoneId).toBe("4");
-    // Zone 4 lapses (its expiry moved into the past); zone 10 stays active.
-    await db.update(franchiseAllocations).set({ activatedAt: new Date(Date.now() - 400 * 86_400_000), periodStart: new Date(Date.now() - 400 * 86_400_000), expiresAt: new Date(Date.now() - 60_000) }).where(eq(franchiseAllocations.id, a4.id));
-    const { config } = await franchiseConfig();
-    expect(await expireAreas(new Date(), config)).toBe(1);
-    const [gone] = await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, a4.id));
-    expect(gone.status).toBe("EXPIRED");
-    await expect(startRenewal(a4.id, o.actor)).rejects.toThrow(/expired; renewal is closed/);
-    const code = await codeOf(o.dealer.id);
-    await expect(assertCodeForLocation(code, Z4[0], Z4[1])).rejects.toThrow(/This franchise area has expired\./);
-    expect(await assertCodeForLocation(await codeOf(o.dealer.id, "10"), Z10[0], Z10[1])).toMatchObject({ kind: "FRANCHISE", zoneId: "10" });
-    const log = await db.select().from(franchiseNotificationLog).where(and(eq(franchiseNotificationLog.allocationId, a4.id), eq(franchiseNotificationLog.kind, "EXPIRED")));
-    expect(log.map((l) => l.recipient)).toEqual(expect.arrayContaining(["ceo@agtci.com", "admin-dashboard"]));
-    // The slot is free: the same owner (no priority) or anyone books it as a new allocation.
-    const again = await book(o, ["4"]);
-    const [fresh] = await allocs(again.booking.id);
-    expect(fresh.id).not.toBe(a4.id);
-    expect(fresh.status).toBe("ACTIVE");
-    void a10;
-  });
-
-  it("the last area expiring closes the owner's code completely", async () => {
-    const { o, a } = await activeArea();
-    await db.update(franchiseAllocations).set({ activatedAt: new Date(Date.now() - 400 * 86_400_000), periodStart: new Date(Date.now() - 400 * 86_400_000), expiresAt: new Date(Date.now() - 60_000) }).where(eq(franchiseAllocations.id, a.id));
-    await expireAreas(new Date(), (await franchiseConfig()).config);
-    const [fc] = await db.select().from(franchiseCodes).where(eq(franchiseCodes.ownerDealerId, o.dealer.id));
-    expect(fc.status).toBe("SUSPENDED");
-    await expect(assertCodeForLocation(await codeOf(o.dealer.id), Z4[0], Z4[1])).rejects.toThrow(/has expired/);
-  });
-
-  it("tail: shops keep earning after expiry until the tail end, then stop", async () => {
-    const { o, a } = await activeArea();
-    const shop = await registeredShop(await codeOf(o.dealer.id), Z4);
-    await db.update(franchiseAllocations).set({ status: "EXPIRED", activatedAt: new Date(Date.now() - 400 * 86_400_000), periodStart: new Date(Date.now() - 400 * 86_400_000), expiresAt: new Date(Date.now() - 86_400_000), tailEndAt: new Date(Date.now() + 86_400_000) }).where(eq(franchiseAllocations.id, a.id));
-    await deliver(shop.id, 1_000_000);
-    const reload = async () => (await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, a.id)))[0];
-    const within = await calculateAllocationMonth(db, await reload(), thisMonth());
-    expect(within.result).toMatchObject({ bonusBp: 0, commissionRateBp: 2500, recurringPaise: 5_000 }); // ₹10,000 × 2% × 25%, no bonus once expired
-    await db.update(franchiseAllocations).set({ tailEndAt: new Date(Date.now() - 3600_000) }).where(eq(franchiseAllocations.id, a.id));
-    expect((await calculateAllocationMonth(db, await reload(), thisMonth())).result.recurringPaise).toBe(0);
-  });
-
-  it("the 09:00 IST digest goes once a day to the CC list", async () => {
-    await activeArea();
-    const { config } = await franchiseConfig();
-    const nine = istInstant(new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10), 9, 5);
-    await sendDigest(nine, config);
-    await sendDigest(nine, config);
-    const rows = await db.select().from(franchiseNotificationLog).where(eq(franchiseNotificationLog.kind, "DIGEST"));
-    expect(rows.map((r) => r.recipient)).toEqual(["ceo@agtci.com"]);
+    await sendReminders(at, config);
+    const log = await db.select().from(franchiseNotificationLog).where(and(eq(franchiseNotificationLog.allocationId, a.id), inArray(franchiseNotificationLog.channel, ["EMAIL"])));
+    expect(log.map((l) => l.recipient)).toEqual(expect.arrayContaining(["ceo@agtci.com"]));
   });
 });
 
-/* ================================================================ Model A */
+/* ================================================================ team rules (unchanged Model A behaviour) */
 
-describe("Model A: 20 / 4 / 3 by level distance (brief §2.3)", () => {
-  async function tieredDealer() {
-    const user = await createUser({ role: "DEALER" });
-    const [d] = await db
-      .insert(dealers)
-      .values({ userId: user.id, legalName: "Model A Dealer", contactName: "A", dealerType: "PROPRIETORSHIP", status: "APPROVED", panHash: `pan-${user.id}`, bankStatus: "VERIFIED", mobileE164: "+919800000001", tierAgreementVersion: AGENT_AGREEMENT_VERSION, tierAgreementAcceptedAt: new Date() })
-      .returning();
-    await setDealerCommissionModel(d.id, "TIERED", "model A (test)", admin);
-    return d;
-  }
-  async function member(dealerId: string, name: string, role: "TEAM_LEAD" | "AGENT", parentId: string | null = null): Promise<DealerSalesperson> {
-    const v = await addSalesperson(dealerId, { employeeId: name.toUpperCase(), name, role, parentId }, admin);
-    const [m] = await db.update(dealerSalespeople).set({ panHash: `pan-${v.id}`, bankStatus: "VERIFIED", agreementVersion: AGENT_AGREEMENT_VERSION, agreementAcceptedAt: new Date() }).where(eq(dealerSalespeople.id, v.id)).returning();
-    return m;
-  }
-  async function signed(dealerId: string, signerId: string | null, basePaise: number) {
-    const shopOwner = await createUser({ role: "SHOP_OWNER" });
-    const gst = Math.round(basePaise * 0.18);
-    const shop = await createShop(shopOwner.id, { name: `A ${Math.random().toString(36).slice(2, 7)}`, status: "PENDING_APPROVAL", shopType: "GENERAL_TRADING" as never, registrationFeePaise: basePaise + gst });
-    await db.update(shops).set({ registrationFeeBasePaise: basePaise, registrationFeeDiscountPaise: 0, registrationFeeGstPaise: gst, phone: `9${Math.floor(100_000_000 + Math.random() * 899_999_999)}` }).where(eq(shops.id, shop.id));
-    await db.insert(shopAttributions).values({ shopId: shop.id, dealerId, salespersonId: signerId, source: "CODE_AT_REGISTRATION", matchKind: "NONE" });
-    await recordPayment({ shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: basePaise + gst, method: "ONLINE", transactionId: `cf_${shop.id.slice(0, 8)}` }, admin);
-    for (const docType of ["PAN", "GSTIN", "SHOP_ACT"] as const) await db.insert(sellerVerifications).values({ shopId: shop.id, docType, status: "VERIFIED", providerId: "mock", verifiedAt: new Date() });
-    await approveShop(shop.id, { classification: "KESARI" }, admin);
-    return shop;
-  }
-  const split = async (shopId: string) =>
-    (await db.select().from(dealerCommissionLedger).where(eq(dealerCommissionLedger.shopId, shopId))).map((e) => `${e.entryType}:${e.amountPaise}`).sort();
-
-  for (const [fee, d20, o4, o3] of [
-    [100_000, 20_000, 4000, 3000],
-    [250_000, 50_000, 10_000, 7500],
-  ] as const) {
-    it(`the four cases on a ₹${fee / 100} shop`, async () => {
-      const d = await tieredDealer();
-      const lead = await member(d.id, `Lead${fee}`, "TEAM_LEAD");
-      const direct = await member(d.id, `Direct${fee}`, "AGENT");
-      const under = await member(d.id, `Under${fee}`, "AGENT", lead.id);
-      expect(await split((await signed(d.id, null, fee)).id)).toEqual([`DIRECT_1:${d20}`]); // 1 dealer
-      expect(await split((await signed(d.id, direct.id, fee)).id)).toEqual([`DIRECT_1:${d20}`, `OVERRIDE_MAIN:${o4}`]); // 2 agent under dealer
-      expect(await split((await signed(d.id, under.id, fee)).id)).toEqual([`DIRECT_1:${d20}`, `OVERRIDE_LEAD:${o4}`, `OVERRIDE_MAIN:${o3}`]); // 3 agent under lead
-      expect(await split((await signed(d.id, lead.id, fee)).id)).toEqual([`DIRECT_1:${d20}`, `OVERRIDE_MAIN:${o4}`]); // 4 lead
-    });
-  }
-
-  it("a team lead deactivated: his agents move under the dealer; later shops pay the dealer 4%, earlier ones unchanged", async () => {
-    const d = await tieredDealer();
-    const lead = await member(d.id, "LeadX", "TEAM_LEAD");
-    const agent = await member(d.id, "AgentX", "AGENT", lead.id);
-    const before = await signed(d.id, agent.id, 100_000);
-    await setSalespersonStatus(d.id, lead.id, "INACTIVE", admin);
-    const [moved] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, agent.id));
-    expect(moved).toMatchObject({ depth: 2, parentId: null, status: "ACTIVE" });
-    const after = await signed(d.id, agent.id, 100_000);
-    expect(await split(before.id)).toEqual(["DIRECT_1:20000", "OVERRIDE_LEAD:4000", "OVERRIDE_MAIN:3000"]);
-    expect(await split(after.id)).toEqual(["DIRECT_1:20000", "OVERRIDE_MAIN:4000"]);
+describe("team rules", () => {
+  it("a team lead deactivated: his agents move under the top person; later shops pay the dealer 4%, earlier ones unchanged", async () => {
+    const d = await dealer();
+    const lead = await member(d.dealer.id, "LeadX", "TEAM_LEAD");
+    const agent = await member(d.dealer.id, "AgentX", "AGENT", lead.id);
+    const before = await signed(d.dealer.id, agent.id, 100_000, AREA[Z47]);
+    await setSalespersonStatus(d.dealer.id, lead.id, "INACTIVE", admin);
+    const after = await signed(d.dealer.id, agent.id, 100_000, AREA[Z47]);
+    expect(await split(before.id)).toEqual(["DIRECT_1:AgentX:20000", "OVERRIDE_LEAD:LeadX:4000", "OVERRIDE_MAIN:TOP:3000"]);
+    expect(await split(after.id)).toEqual(["DIRECT_1:AgentX:20000", "OVERRIDE_MAIN:TOP:4000"]);
   });
 
-  it("a team lead cannot add a team lead; one mobile once per team; new codes are GKD- / GKT- / GKA-", async () => {
-    const d = await tieredDealer();
-    const lead = await member(d.id, "LeadY", "TEAM_LEAD");
+  it("a team lead adds only agents; one mobile once per team; codes GKT- / GKA-", async () => {
+    const d = await dealer();
+    const lead = await member(d.dealer.id, "LeadY", "TEAM_LEAD");
     await db.update(dealerSalespeople).set({ userId: (await createUser({ role: "DEALER" })).id }).where(eq(dealerSalespeople.id, lead.id));
     const [l] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, lead.id));
     const added = await leadAddsAgent({ id: l.userId!, role: "DEALER" }, { employeeId: "SUB1", name: "Sub One" });
     expect((await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, added.id)))[0]).toMatchObject({ teamRole: "AGENT", parentId: lead.id });
-    await addSalesperson(d.id, { employeeId: "M1", name: "Mob One", mobile: "9876500001" }, admin);
-    await expect(addSalesperson(d.id, { employeeId: "M2", name: "Mob Two", mobile: "9876500001" }, admin)).rejects.toThrow(/already in your team/);
-    await expect(addSalesperson(d.id, { employeeId: "M3", name: "Dealer Mobile", mobile: "9800000001" }, admin)).rejects.toThrow(/already in your team/);
-    const codes = await db.execute<{ code: string; role: string }>(sql`
-      select rc.code, coalesce(sp.team_role, 'AGENT') as role from dealer_codes dc join referral_codes rc on rc.id = dc.referral_code_id
-      join dealer_salespeople sp on sp.id = dc.salesperson_id where dc.dealer_id = ${d.id}`);
-    for (const c of codes as unknown as { code: string; role: string }[]) expect(c.code).toMatch(c.role === "TEAM_LEAD" ? /^GKT-/ : /^GKA-/);
+    await addSalesperson(d.dealer.id, { employeeId: "M1", name: "Mob One", mobile: "9876500001" }, admin);
+    await expect(addSalesperson(d.dealer.id, { employeeId: "M2", name: "Mob Two", mobile: "9876500001" }, admin)).rejects.toThrow(/already in your team/);
   });
-});
 
-describe("Model A: moving a person to another dealer needs an admin (brief §2.4)", () => {
-  it("old place ends (code stops), new place under the new dealer with a new GKA code and the same PAN", async () => {
-    const mk = async (name: string) => {
-      const u = await createUser({ role: "DEALER" });
-      const [d] = await db.insert(dealers).values({ userId: u.id, legalName: name, contactName: name, dealerType: "PROPRIETORSHIP", status: "APPROVED", panHash: `pan-${u.id}` }).returning();
-      return d;
-    };
-    const a = await mk("Dealer A");
-    const b = await mk("Dealer B");
-    const v = await addSalesperson(a.id, { employeeId: "MOVE1", name: "Mover", mobile: "9876511111" }, admin);
-    await db.update(dealerSalespeople).set({ panHash: "pan-mover", panLast4: "999Z" }).where(eq(dealerSalespeople.id, v.id));
-    await expect(transferMemberToDealer(v.id, b.id, "moving teams", { id: a.userId!, role: "DEALER" })).rejects.toThrow(/Only an admin/);
-    const moved = await transferMemberToDealer(v.id, b.id, "asked to join Dealer B", admin);
-    const [oldRow] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, v.id));
-    const [newRow] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, moved.id));
-    expect(oldRow.status).toBe("INACTIVE");
-    expect(newRow).toMatchObject({ dealerId: b.id, status: "ACTIVE", panHash: "pan-mover", teamRole: "AGENT", depth: 2 });
+  it("moving a person to another team needs an admin and is logged", async () => {
+    const a = await dealer("Dealer A");
+    const b = await dealer("Dealer B");
+    const v = await addSalesperson(a.dealer.id, { employeeId: "MOVE1", name: "Mover", mobile: "9876511111" }, admin);
+    await expect(transferMemberToDealer(v.id, b.dealer.id, "moving teams", a.actor)).rejects.toThrow(/Only an admin/);
+    const moved = await transferMemberToDealer(v.id, b.dealer.id, "asked to join Dealer B", admin);
     expect(moved.code).toMatch(/^GKA-/);
-  });
-});
-
-/* ============================================================ the estimate */
-
-describe("estimate helper agrees with the stored inputs", () => {
-  it("zone 50C: 1,600 × ₹16.4 lakh = ₹262.40 Cr a month", () => {
-    expect(zoneEstimate({ estShopCount: 1600, gmvPerShopLakh: 16.4 }).monthlyCrHundredths).toBe(26_240);
   });
 });

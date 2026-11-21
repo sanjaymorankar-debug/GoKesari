@@ -1,17 +1,21 @@
 "use client";
 import { useState } from "react";
 
-import { Alert, Button } from "@/components/ui";
+import { Alert, Button, inputClass } from "@/components/ui";
 
-/** Renew an area, or pay / cancel a reserved booking, from the owner's page. */
-export function FranchiseActions({ kind, id, label, cancel }: { kind: "renew" | "pay"; id: string; label: string; cancel?: boolean }) {
+/** Renew a franchise (optionally with a renewal coupon), or pay / cancel a reserved booking, from the owner's page. */
+export function FranchiseActions({ kind, id, label, cancel, coupon }: { kind: "renew" | "pay"; id: string; label: string; cancel?: boolean; coupon?: boolean }) {
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function go() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(kind === "renew" ? `/api/franchise/allocations/${id}/renew` : `/api/franchise/bookings/${id}/pay`, { method: "POST" });
+      const res =
+        kind === "renew"
+          ? await fetch(`/api/franchise/allocations/${id}/renew`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ couponCode: code.trim() || null }) })
+          : await fetch(`/api/franchise/bookings/${id}/pay`, { method: "POST" });
       const p = await res.json().catch(() => null);
       if (!res.ok) throw new Error(p?.error?.message ?? "The payment could not be started.");
       if (p?.checkoutUrl) window.location.assign(p.checkoutUrl);
@@ -29,7 +33,8 @@ export function FranchiseActions({ kind, id, label, cancel }: { kind: "renew" | 
   }
   return (
     <div className="space-y-1">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {coupon ? <input className={`${inputClass} w-40 uppercase`} placeholder="Coupon (optional)" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={30} aria-label="Renewal coupon code" data-testid={`franchise-renew-coupon-${id}`} /> : null}
         <Button size="sm" onClick={go} disabled={busy} data-testid={`franchise-${kind}-${id}`}>
           {busy ? "Please wait…" : label}
         </Button>

@@ -12,8 +12,8 @@ export interface AreaShape {
 }
 
 /**
- * Shows franchise areas on a map (brief 21-Nov §1.2): before booking (the chosen areas) and after (the dealer's
- * areas). Given `shapes`, or `zoneIds` to look up from the public boundaries GeoJSON. Falls back to a text list.
+ * Shows franchise zones on a map (the dealer's zones on his franchise page).
+ * Given `shapes`, or `zoneIds` to look up from the public zones GeoJSON. Falls back to a text message.
  */
 export function AreaMap({ shapes, zoneIds, height = 320 }: { shapes?: AreaShape[]; zoneIds?: string[]; height?: number }) {
   const box = useRef<HTMLDivElement>(null);
@@ -67,7 +67,7 @@ export function AreaMap({ shapes, zoneIds, height = 320 }: { shapes?: AreaShape[
   return (
     <div className="space-y-1">
       <div ref={box} style={{ height }} className="w-full rounded-xl border border-cream-200 bg-cream-50" aria-label="Map of franchise areas" />
-      {problem ? <p className="text-xs text-ink-500">{problem}</p> : <p className="text-xs text-ink-500">The shaded circle is the area: shops within it (5 km of the centre) can register with its dealer code.</p>}
+      {problem ? <p className="text-xs text-ink-500">{problem}</p> : <p className="text-xs text-ink-500">The shaded shape is your franchise zone. A shop belongs to it when its area (chosen at registration) is one of the zone&apos;s areas.</p>}
     </div>
   );
 }

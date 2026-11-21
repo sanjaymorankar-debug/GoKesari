@@ -1,5 +1,25 @@
 # GoKesari app — release notes
 
+## 1.12.0 (Android versionCode 13, iPhone build 13) — 21 Nov 2026
+
+GoKesari franchise zones and commission chart (owner's final brief, 21 Nov 2026 08.06 IST; docs/franchise).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Choose a Pune franchise zone on the map or in the list: 50 zones in Premier,
+> Standard and Emerging tiers, each with its own fee, areas and free slots.
+> Apply a coupon at checkout, see the commission chart for free dealers and
+> franchise owners, and pick your shop's area when you register.
+
+Changes in the app itself:
+- Deep links: zone pages `/franchise/zones/<zone>` and the public commission
+  chart `/dealer/commission-chart` open in the app (both under existing link
+  prefixes, so App Links / associated domains are unchanged).
+- Nothing native changed: every screen is a website page, live in every
+  installed version once the website is deployed.
+- The in-app update check offers 1.12.0 once `MOBILE_APP_ANDROID_LATEST` /
+  `MOBILE_APP_IOS_LATEST` are set to 1.12.0 on the server after the store release.
+
 ## 1.11.0 (Android versionCode 12, iPhone build 12) — 21 Nov 2026
 
 GoKesari Territory Franchise, Pune (docs/franchise at the repository root).

@@ -1,0 +1,197 @@
+area_no,area,region,civic_body,notes,lat,lng,pincodes
+1,Shivajinagar,Central,PMC,Commercial & education hub,18.5308,73.8475,411005
+2,Deccan Gymkhana,Central,PMC,FC Road / JM Road,18.5167,73.8411,411004
+3,Sadashiv Peth,Central,PMC,Old city peth,18.5106,73.8475,411030
+4,Narayan Peth,Central,PMC,Old city peth,18.5145,73.8510,411030
+5,Shaniwar Peth,Central,PMC,Old city peth; Shaniwar Wada,18.5180,73.8530,411030
+6,Budhwar Peth,Central,PMC,Old city peth; Dagdusheth temple,18.5164,73.8567,411002
+7,Shukrawar Peth,Central,PMC,Old city peth,18.5080,73.8560,411002
+8,Raviwar Peth,Central,PMC,Old city peth; wholesale market,18.5150,73.8610,411002
+9,Kasba Peth,Central,PMC,Old city peth,18.5203,73.8590,411011
+10,Somwar Peth,Central,PMC,Old city peth,18.5200,73.8680,411011
+11,Mangalwar Peth,Central,PMC,Old city peth,18.5230,73.8650,411011
+12,Rasta Peth,Central,PMC,Old city peth,18.5170,73.8690,411011
+13,Nana Peth,Central,PMC,Old city peth,18.5120,73.8670,411002
+14,Bhavani Peth,Central,PMC,Old city peth,18.5070,73.8650,411042
+15,Ganesh Peth,Central,PMC,Old city peth,18.5110,73.8620,411002
+16,Guruwar Peth,Central,PMC,Old city peth,18.5060,73.8600,411042
+17,Ghorpade Peth,Central,PMC,Old city peth,18.5030,73.8620,411042
+18,Ganj Peth (Mahatma Phule Peth),Central,PMC,Old city peth,18.5040,73.8660,411042
+19,Navi Peth,Central,PMC,Old city peth,18.5070,73.8460,411030
+20,Swargate,Central,PMC,Bus & metro hub,18.5018,73.8636,411042
+21,Model Colony,Central,PMC,,18.5285,73.8380,411016
+22,Prabhat Road,Central,PMC,,18.5130,73.8330,411004
+23,Camp (Pune Cantonment),Central,Pune Cantonment Board,MG Road / East Street,18.5150,73.8780,411001
+24,Pune Station,Central,PMC,Railway station area,18.5289,73.8744,411001
+25,Mukund Nagar,Central,PMC,,18.4930,73.8610,411037
+26,Gultekdi,Central,PMC,,18.4930,73.8680,411037
+27,Market Yard,Central,PMC,APMC wholesale market,18.4880,73.8700,411037
+28,Parvati,Central,PMC,,18.4960,73.8480,411009
+29,Salisbury Park,Central,PMC,,18.4930,73.8740,411037
+30,Maharshi Nagar,Central,PMC,,18.4890,73.8650,411037
+31,Kothrud,West,PMC,,18.5074,73.8077,411038
+32,Karve Nagar,West,PMC,,18.4890,73.8190,411052
+33,Erandwane,West,PMC,,18.5080,73.8300,411004
+34,Warje,West,PMC,,18.4820,73.8020,411058
+35,Bavdhan,West,PMC,Bavdhan Budruk merged into PMC (2021),18.5180,73.7790,411021
+36,Paud Road,West,PMC,,18.5080,73.8150,411038
+37,Bhusari Colony,West,PMC,,18.5030,73.7920,411038
+38,Dahanukar Colony,West,PMC,,18.4990,73.8160,411038
+39,Shivane,West,PMC,Merged into PMC (2017),18.4660,73.7870,411023
+40,Uttam Nagar,West,PMC,Merged into PMC (2017),18.4700,73.7930,411023
+41,Kondhwe Dhawade,West,PMC,Merged into PMC (2021),18.4600,73.7780,411023
+42,Kopare,West,PMC,Merged into PMC (2021),18.4750,73.8000,411023
+43,Aundh,North-West,PMC,,18.5580,73.8075,411007
+44,Baner,North-West,PMC,IT offices & high street,18.5590,73.7868,411045
+45,Balewadi,North-West,PMC,Sports complex,18.5770,73.7790,411045
+46,Pashan,North-West,PMC,,18.5370,73.7960,411021
+47,Sutarwadi,North-West,PMC,,18.5450,73.7900,411021
+48,Sus,North-West,PMC,Merged into PMC (2021),18.5470,73.7570,411021
+49,Mahalunge,North-West,PMC,Merged into PMC (2021),18.5700,73.7550,411045
+50,Gokhale Nagar,North-West,PMC,,18.5290,73.8300,411016
+51,Senapati Bapat Road,North-West,PMC,,18.5300,73.8290,411016
+52,Chatushringi,North-West,PMC,,18.5390,73.8290,411016
+53,Ganeshkhind (University area),North-West,PMC,,18.5510,73.8250,411007
+54,Bopodi,North-West,PMC,,18.5700,73.8330,411003
+55,Khadki,North-West,Khadki Cantonment Board,,18.5640,73.8460,411003
+56,Yerawada,North,PMC,,18.5520,73.8850,411006
+57,Vishrantwadi,North,PMC,,18.5720,73.8780,411015
+58,Dhanori,North,PMC,,18.5880,73.8960,411015
+59,Kalas,North,PMC,,18.5800,73.8720,411015
+60,Tingre Nagar,North,PMC,,18.5730,73.8880,411032
+61,Lohegaon,North,PMC,Pune Airport,18.5960,73.9200,411047
+62,Porwal Road,North,PMC,,18.5930,73.9050,411047
+63,Sangamwadi,North,PMC,,18.5370,73.8680,411001
+64,Phule Nagar,North,PMC,,18.5610,73.8770,411006
+65,Shastri Nagar,North,PMC,,18.5470,73.8890,411006
+66,Koregaon Park,East,PMC,,18.5362,73.8940,411001
+67,Kalyani Nagar,East,PMC,,18.5480,73.9020,411006
+68,Viman Nagar,East,PMC,,18.5679,73.9143,411014
+69,Wadgaon Sheri,East,PMC,,18.5520,73.9230,411014
+70,Kharadi,East,PMC,IT hub (EON IT Park),18.5510,73.9400,411014
+71,Chandan Nagar,East,PMC,,18.5620,73.9330,411014
+72,Wagholi,East,PMC,Merged into PMC (2021),18.5800,73.9820,412207
+73,Mundhwa,East,PMC,,18.5330,73.9300,411036
+74,Keshav Nagar,East,PMC,Merged into PMC (2017),18.5370,73.9420,411036
+75,Ghorpadi,East,PMC,,18.5260,73.8960,411001
+76,Bund Garden,East,PMC,,18.5370,73.8820,411001
+77,Dhole Patil Road,East,PMC,,18.5330,73.8790,411001
+78,Hadapsar,South-East,PMC,,18.5089,73.9260,411028
+79,Magarpatta City,South-East,PMC,IT township,18.5150,73.9290,411013
+80,Amanora Park Town,South-East,PMC,Township,18.5180,73.9400,411028
+81,Sasane Nagar,South-East,PMC,,18.4960,73.9300,411028
+82,Satav Nagar,South-East,PMC,,18.5040,73.9380,411028
+83,Ramtekdi,South-East,PMC,,18.5000,73.9150,411013
+84,Fatima Nagar,South-East,PMC,,18.5050,73.8990,411013
+85,Wanowrie,South-East,PMC,,18.4930,73.9000,411040
+86,Salunke Vihar,South-East,PMC,,18.4850,73.8990,411048
+87,Lullanagar,South-East,PMC,,18.4860,73.8890,411040
+88,Kondhwa Khurd,South-East,PMC,,18.4750,73.8900,411048
+89,Kondhwa Budruk,South-East,PMC,,18.4560,73.8800,411048
+90,NIBM Road,South-East,PMC,,18.4730,73.9000,411048
+91,Undri,South-East,PMC,Merged into PMC (2017),18.4560,73.9060,411060
+92,Pisoli,South-East,PMC,Merged into PMC (2021),18.4450,73.9050,411060
+93,Mohammed Wadi,South-East,PMC,,18.4700,73.9200,411060
+94,Handewadi,South-East,PMC,Autade Handewadi merged into PMC (2021),18.4560,73.9320,411060
+95,Holkarwadi,South-East,PMC,Merged into PMC (2021),18.4460,73.9250,412308
+96,Wadachi Wadi,South-East,PMC,Merged into PMC (2021),18.4380,73.9150,411060
+97,Yewalewadi,South-East,PMC,,18.4440,73.8730,411048
+98,Manjri Budruk,South-East,PMC,Merged into PMC (2021),18.5100,73.9700,412307
+99,Shewalewadi,South-East,PMC,Merged into PMC (2021),18.4990,73.9620,412307
+100,Katraj,South,PMC,,18.4529,73.8650,411046
+101,Dhankawadi,South,PMC,,18.4630,73.8540,411043
+102,Balaji Nagar,South,PMC,,18.4660,73.8580,411043
+103,Bibwewadi,South,PMC,,18.4730,73.8650,411037
+104,Upper Indira Nagar,South,PMC,,18.4700,73.8700,411037
+105,Sahakar Nagar,South,PMC,,18.4830,73.8550,411009
+106,Padmavati,South,PMC,,18.4800,73.8590,411009
+107,Gokul Nagar,South,PMC,,18.4500,73.8700,411046
+108,Sinhagad Road,South,PMC,,18.4800,73.8270,411030
+109,Vadgaon Budruk,South,PMC,,18.4650,73.8200,411041
+110,Anand Nagar,South,PMC,On Sinhagad Road,18.4780,73.8240,411051
+111,Manik Baug,South,PMC,,18.4730,73.8220,411051
+112,Hingne Khurd,South,PMC,,18.4850,73.8150,411051
+113,Vitthalwadi,South,PMC,,18.4880,73.8250,411030
+114,Dhayari,South,PMC,Merged into PMC (2017),18.4500,73.8130,411041
+115,Narhe,South,PMC,Merged into PMC (2021),18.4460,73.8300,411041
+116,Ambegaon Budruk,South,PMC,Merged into PMC (2017),18.4500,73.8450,411046
+117,Ambegaon Khurd,South,PMC,Merged into PMC (2017),18.4420,73.8400,411046
+118,Jambhulwadi,South,PMC,Merged into PMC (2021),18.4300,73.8500,411046
+119,Mangdewadi,South,PMC,Merged into PMC (2021),18.4250,73.8650,411046
+120,Bhilarewadi,South,PMC,Merged into PMC (2021),18.4200,73.8600,411046
+121,Gujar Nimbalkarwadi,South,PMC,Merged into PMC (2021),18.4300,73.8800,411046
+122,Nanded City,South,PMC,Nanded village merged into PMC (2021),18.4600,73.7980,411068
+123,Kirkatwadi,South,PMC,Merged into PMC (2021),18.4400,73.7900,411024
+124,Khadakwasla,South,PMC,Merged into PMC (2021); dam,18.4400,73.7700,411024
+125,Nandoshi,South,PMC,Merged into PMC (2021),18.4300,73.7800,411024
+126,Sanasnagar,South,PMC,Merged into PMC (2021),18.4250,73.7900,411024
+127,Kolewadi,South,PMC,Merged into PMC (2021),18.4200,73.7750,411024
+128,Pimpri,Pimpri-Chinchwad,PCMC,Pimpri market / camp,18.6279,73.8009,411018
+129,Chinchwad,Pimpri-Chinchwad,PCMC,,18.6440,73.7900,411033
+130,Chinchwadgaon,Pimpri-Chinchwad,PCMC,,18.6360,73.7800,411033
+131,Akurdi,Pimpri-Chinchwad,PCMC,,18.6480,73.7700,411035
+132,Nigdi,Pimpri-Chinchwad,PCMC,,18.6560,73.7700,411044
+133,Pradhikaran (Nigdi),Pimpri-Chinchwad,PCMC,,18.6500,73.7600,411044
+134,Yamuna Nagar,Pimpri-Chinchwad,PCMC,,18.6600,73.7800,411044
+135,Bhosari,Pimpri-Chinchwad,PCMC,,18.6290,73.8480,411039
+136,MIDC Bhosari,Pimpri-Chinchwad,PCMC,Industrial area,18.6370,73.8400,411026
+137,Moshi,Pimpri-Chinchwad,PCMC,,18.6700,73.8500,412105
+138,Chikhali,Pimpri-Chinchwad,PCMC,,18.6800,73.8100,411062
+139,Dighi,Pimpri-Chinchwad,PCMC,,18.6150,73.8700,411015
+140,Charholi,Pimpri-Chinchwad,PCMC,,18.6400,73.8900,412105
+141,Talawade,Pimpri-Chinchwad,PCMC,IT park,18.6900,73.7800,411062
+142,Dudulgaon,Pimpri-Chinchwad,PCMC,,18.6600,73.8800,412105
+143,Wakad,Pimpri-Chinchwad,PCMC,,18.5990,73.7620,411057
+144,Tathawade,Pimpri-Chinchwad,PCMC,,18.6200,73.7450,411033
+145,Punawale,Pimpri-Chinchwad,PCMC,,18.6300,73.7400,411033
+146,Ravet,Pimpri-Chinchwad,PCMC,,18.6450,73.7450,412101
+147,Kiwale,Pimpri-Chinchwad,PCMC,,18.6550,73.7350,412101
+148,Mamurdi,Pimpri-Chinchwad,PCMC,,18.6650,73.7200,412101
+149,Thergaon,Pimpri-Chinchwad,PCMC,,18.6100,73.7750,411033
+150,Kalewadi,Pimpri-Chinchwad,PCMC,,18.6150,73.7900,411017
+151,Rahatani,Pimpri-Chinchwad,PCMC,,18.6000,73.7900,411017
+152,Pimple Saudagar,Pimpri-Chinchwad,PCMC,,18.5990,73.8040,411027
+153,Pimple Gurav,Pimpri-Chinchwad,PCMC,,18.5900,73.8150,411061
+154,Pimple Nilakh,Pimpri-Chinchwad,PCMC,,18.5800,73.7950,411027
+155,Sangvi,Pimpri-Chinchwad,PCMC,,18.5770,73.8200,411027
+156,New Sangvi,Pimpri-Chinchwad,PCMC,,18.5850,73.8180,411027
+157,Dapodi,Pimpri-Chinchwad,PCMC,,18.5800,73.8350,411012
+158,Kasarwadi,Pimpri-Chinchwad,PCMC,,18.6000,73.8250,411034
+159,Phugewadi,Pimpri-Chinchwad,PCMC,,18.5900,73.8350,411012
+160,Nehru Nagar,Pimpri-Chinchwad,PCMC,,18.6250,73.8150,411018
+161,Sant Tukaram Nagar,Pimpri-Chinchwad,PCMC,,18.6200,73.8120,411018
+162,Masulkar Colony,Pimpri-Chinchwad,PCMC,,18.6300,73.8150,411018
+163,Kharalwadi,Pimpri-Chinchwad,PCMC,,18.6250,73.8050,411018
+164,Morwadi,Pimpri-Chinchwad,PCMC,,18.6300,73.8000,411018
+165,Bijalinagar,Pimpri-Chinchwad,PCMC,,18.6400,73.7750,411033
+166,Walhekarwadi,Pimpri-Chinchwad,PCMC,,18.6450,73.7650,411033
+167,Kudalwadi,Pimpri-Chinchwad,PCMC,,18.6750,73.8300,412114
+168,Indrayani Nagar,Pimpri-Chinchwad,PCMC,,18.6400,73.8550,411026
+169,Hinjewadi,Outskirts,Gram Panchayat (PMRDA area),Rajiv Gandhi Infotech Park,18.5913,73.7389,411057
+170,Maan,Outskirts,Gram Panchayat (PMRDA area),Hinjewadi IT Park Phase 3,18.5850,73.6950,411057
+171,Marunji,Outskirts,Gram Panchayat (PMRDA area),,18.6050,73.7250,411057
+172,Pirangut,Outskirts,Gram Panchayat (PMRDA area),,18.5100,73.6800,412115
+173,Bhugaon,Outskirts,Gram Panchayat (PMRDA area),,18.5000,73.7550,412115
+174,Bhukum,Outskirts,Gram Panchayat (PMRDA area),,18.5050,73.7300,412115
+175,Lavale,Outskirts,Gram Panchayat (PMRDA area),,18.5300,73.7100,412115
+176,Nande,Outskirts,Gram Panchayat (PMRDA area),,18.5450,73.7200,412115
+177,Paud,Outskirts,Gram Panchayat (PMRDA area),,18.5250,73.6150,412108
+178,Chakan,Outskirts,Chakan Municipal Council,Auto & industrial hub,18.7600,73.8600,410501
+179,Talegaon Dabhade,Outskirts,Talegaon Dabhade Municipal Council,,18.7350,73.6750,410506
+180,Alandi,Outskirts,Alandi Municipal Council,Pilgrimage town,18.6770,73.8970,412105
+181,Dehu,Outskirts,Dehu Nagar Panchayat,Pilgrimage town,18.7180,73.7660,412109
+182,Dehu Road,Outskirts,Dehu Road Cantonment Board,,18.6800,73.7300,412101
+183,Lonikand,Outskirts,Gram Panchayat (PMRDA area),,18.6300,74.0200,412216
+184,Kesnand,Outskirts,Gram Panchayat (PMRDA area),,18.6050,74.0100,412207
+185,Koregaon Bhima,Outskirts,Gram Panchayat (PMRDA area),,18.6450,74.0600,412216
+186,Sanaswadi,Outskirts,Gram Panchayat (PMRDA area),,18.6600,74.1000,412208
+187,Shikrapur,Outskirts,Gram Panchayat (PMRDA area),,18.6950,74.1350,412208
+188,Ranjangaon,Outskirts,Gram Panchayat (PMRDA area),Ranjangaon MIDC,18.7600,74.2500,412220
+189,Loni Kalbhor,Outskirts,Gram Panchayat (PMRDA area),,18.4870,74.0200,412201
+190,Theur,Outskirts,Gram Panchayat (PMRDA area),,18.5200,74.0500,412110
+191,Uruli Kanchan,Outskirts,Gram Panchayat (PMRDA area),,18.4800,74.1400,412202
+192,Fursungi,Outskirts,Fursungi–Uruli Devachi Municipal Council,Separated from PMC,18.4800,73.9600,412308
+193,Uruli Devachi,Outskirts,Fursungi–Uruli Devachi Municipal Council,Separated from PMC,18.4650,73.9500,412308
+194,Saswad,Outskirts,Saswad Municipal Council,,18.3450,74.0300,412301
+195,Khed Shivapur,Outskirts,Gram Panchayat (PMRDA area),,18.3750,73.8600,412205
+196,Rajgurunagar (Khed),Outskirts,Rajgurunagar Municipal Council,,18.8600,73.8900,410505

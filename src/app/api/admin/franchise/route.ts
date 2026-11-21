@@ -1,27 +1,29 @@
 /**
- * Admin: the franchise overview (brief §10) — config and its versions, zones (with the hidden test zone),
- * cluster summary, launch counters, allocations, expiring areas and alerts, the attribution queue and the
- * notification log. Admin and operator may read; only an admin changes anything (the other routes).
+ * Admin: the franchise overview — config and its versions, zones (Inactive and the hidden test zone included), zone
+ * sets, the area summary, launch counters, franchises, expiring ones, the attribution queue, notifications, the
+ * monthly points table and the config audit. Admin and operator may read; only an admin changes anything.
  */
 import { ok, route } from "@/server/api/handler";
 import { offerView } from "@/server/franchise/booking";
 import { franchiseConfig, listConfigVersions } from "@/server/franchise/config";
 import { adminAllocations, attributionQueue, configAudit, expiringAreas, notificationLog, pointsTable } from "@/server/franchise/dashboard";
-import { isSuperAdmin, requireFranchiseReader } from "@/server/franchise/http";
-import { clusterSummary, listClusters, zoneViews } from "@/server/franchise/zones";
+import { requireFranchiseReader } from "@/server/franchise/http";
+import { areaSummary, zoneStatusHistory, zoneViews } from "@/server/franchise/zones";
 
 export const dynamic = "force-dynamic";
 
 export const GET = route(async () => {
   const user = await requireFranchiseReader();
-  const zones = await zoneViews({ includeTest: true });
+  const config = await franchiseConfig();
+  const zones = await zoneViews({ includeTest: true, includeInactive: true });
   return ok({
-    me: { role: user.role, superAdmin: user.role === "ADMIN" && isSuperAdmin(user.email) },
-    config: await franchiseConfig(),
+    me: { role: user.role },
+    config,
     versions: await listConfigVersions(),
     offer: await offerView(),
     zones,
-    clusters: clusterSummary(zones, await listClusters()),
+    areaSummary: await Promise.all(config.config.zoneSetsEnabled.map(async (code) => ({ code, ...(await areaSummary(code)) }))),
+    statusHistory: await zoneStatusHistory(undefined, 200),
     allocations: await adminAllocations(),
     expiring: await expiringAreas(),
     attributions: await attributionQueue(),

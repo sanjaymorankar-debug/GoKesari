@@ -1,26 +1,22 @@
 "use client";
+/**
+ * Admin → Franchise (final brief 21-Nov-2026 08.06 IST §9): zones, zone status, business data / fees, area master,
+ * coupons, franchises, monthly points, expiry, attribution, commission & bonus settings, settings, reports and the
+ * send log. Operators see everything; only admins act. Times IST, money ₹ with Indian grouping.
+ */
 import { useCallback, useEffect, useState } from "react";
 
 import { Alert, Badge, Button, Card, inputClass } from "@/components/ui";
-import { ZONE_BADGE_LABELS, crore, rupees, type ZoneBadge } from "@/lib/franchise";
+import { rupees } from "@/lib/franchise";
 
-type Json = Record<string, unknown>;
-interface Zone {
-  zoneId: string;
-  clusterCode: string;
-  name: string;
-  status: string;
-  statusReason: string | null;
-  isTest: boolean;
-  maxOwners: number;
-  occupied: number;
-  slotsFree: number;
-  badge: ZoneBadge;
-  estShops: number;
-  annualCrHundredths: number;
-  hasApprovedBoundary: boolean;
-  reference: { lat: number; lng: number; label: string | null; needsReview: boolean } | null;
-}
+import { AreasTab } from "./admin/areas-tab";
+import { CouponsTab } from "./admin/coupons-tab";
+import { FeesTab } from "./admin/fees-tab";
+import { SettingsTab } from "./admin/settings-tab";
+import { COUPON_XLSX, STATUS_TONE, call, type Act, type AdminZone, type Ask, type Json, type StatusHistoryRow, type Tier } from "./admin/shared";
+import { StatusTab } from "./admin/status-tab";
+import { TierBadge, ZonesTab } from "./admin/zones-tab";
+
 interface Allocation {
   id: string;
   zoneId: string;
@@ -38,14 +34,16 @@ interface Allocation {
   launchSeq: number | null;
   renewals: number;
   isTest: boolean;
+  bookingId: string;
 }
 interface Overview {
-  me: { role: string; superAdmin: boolean };
+  me: { role: string };
   config: { version: number; effectiveFrom: string; config: Json };
   versions: { version: number; effectiveFrom: string; reason: string }[];
-  offer: { bookingOpen: boolean; launch: { open: boolean; placesLeft: number; placesTotal: number; owners: number; areas: number }; feePerAreaPaise: number | null; closedMessage: string | null };
-  zones: Zone[];
-  clusters: { clusters: { code: string; name: string; zones: number; bookable: number; slotsFree: number; estShops: number; annualCrHundredths: number }[] };
+  offer: { bookingOpen: boolean; allowProvisionalSale: boolean; launch: { open: boolean; placesLeft: number; placesTotal: number; owners: number; areas: number }; closedMessage: string | null };
+  zones: AdminZone[];
+  areaSummary: { code: string; total: number; zoned: number; unzoned: string[] }[];
+  statusHistory: StatusHistoryRow[];
   allocations: Allocation[];
   expiring: { soon: (Allocation & { red: boolean; renewal: string })[]; expired: Allocation[]; alerts: { kind: string; detail: string | null; atIst: string }[] };
   attributions: { shopId: string; shopName: string; zoneId: string; ownerName: string; reason: string | null }[];
@@ -54,32 +52,27 @@ interface Overview {
   configAudit: { atIst: string; actorId: string | null; previous: Json | null; next: Json | null }[];
 }
 
-const TABS = ["Overview", "Zones", "Allocations", "Monthly points", "Expiring", "Attribution", "Bonus settings", "Settings", "Reports", "Send log"] as const;
+const TABS = ["Overview", "Zones", "Zone status", "Fees", "Areas", "Coupons", "Franchises", "Monthly points", "Expiring", "Attribution", "Commission & bonus", "Settings", "Reports", "Send log"] as const;
 type Tab = (typeof TABS)[number];
 
-async function call(url: string, method: string, body?: unknown) {
-  const res = await fetch(url, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
-  const payload = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(payload?.error?.message ?? `${res.status}`);
-  return payload;
-}
+const TIERS: Tier[] = ["PREMIER", "STANDARD", "EMERGING"];
 
-/** Admin console for franchise areas (brief §10). Operators see everything; only admins act. */
+/** Admin console for franchise zones. Operators see everything; only admins act. */
 export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; initialTab?: string }) {
-  const [tab, setTab] = useState<Tab>(initialTab === "expiring" ? "Expiring" : "Overview");
+  const [tab, setTab] = useState<Tab>(() => TABS.find((t) => t.toLowerCase().replace(/[^a-z]+/g, "-") === (initialTab ?? "").toLowerCase()) ?? (initialTab === "expiring" ? "Expiring" : "Overview"));
   const [data, setData] = useState<Overview | null>(null);
   const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
-  const load = useCallback(async () => setData(await call("/api/admin/franchise", "GET")), []);
+  const load = useCallback(async () => setData(await call<Overview>("/api/admin/franchise", "GET")), []);
   useEffect(() => {
     let alive = true;
-    call("/api/admin/franchise", "GET")
+    call<Overview>("/api/admin/franchise", "GET")
       .then((d) => alive && setData(d))
       .catch((e) => alive && setMsg({ tone: "danger", text: String(e.message) }));
     return () => {
       alive = false;
     };
   }, []);
-  const act = async (fn: () => Promise<unknown>, ok: string) => {
+  const act: Act = async (fn, ok) => {
     setMsg(null);
     try {
       const r = await fn();
@@ -89,9 +82,12 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
       setMsg({ tone: "danger", text: e instanceof Error ? e.message : String(e) });
     }
   };
-  const ask = (q: string) => (typeof window === "undefined" ? null : window.prompt(q));
-  if (!data) return <p className="text-sm text-ink-600">Loading…</p>;
+  const ask: Ask = (q) => (typeof window === "undefined" ? null : window.prompt(q));
+  if (!data) return msg ? <Alert tone={msg.tone}>{msg.text}</Alert> : <p className="text-sm text-ink-600">Loading…</p>;
   const red = data.expiring.soon.filter((s) => s.red).length;
+  const real = data.zones.filter((z) => !z.isTest);
+  const tierNames = (data.config.config.tierNames as Record<Tier, string>) ?? { PREMIER: "Premier", STANDARD: "Standard", EMERGING: "Emerging" };
+  const statuses = [...new Set(real.map((z) => z.status))];
   return (
     <div className="space-y-4" data-testid="franchise-admin">
       <nav className="flex flex-wrap gap-2" aria-label="Franchise admin">
@@ -104,14 +100,15 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
         ))}
       </nav>
       {msg ? <Alert tone={msg.tone}>{msg.text}</Alert> : null}
-      {red ? <Alert tone="danger" title="Franchise areas expiring">{red} area(s) expire in 7 days or fewer — see Expiring.</Alert> : null}
+      {red ? <Alert tone="danger" title="Franchises expiring">{red} franchise(s) expire in 7 days or fewer — see Expiring.</Alert> : null}
 
       {tab === "Overview" ? (
         <Card className="space-y-3 p-4">
           <div className="flex flex-wrap gap-2">
-            <Badge tone={data.offer.bookingOpen ? "success" : "warning"}>{data.offer.bookingOpen ? "Booking open" : data.offer.closedMessage ?? "Booking closed"}</Badge>
+            <Badge tone={data.offer.bookingOpen ? "success" : "warning"}>{data.offer.bookingOpen ? "Booking open" : (data.offer.closedMessage ?? "Booking closed")}</Badge>
+            <Badge tone={data.offer.allowProvisionalSale ? "warning" : "info"}>{data.offer.allowProvisionalSale ? "Provisional fees on sale" : "Provisional fees not on sale"}</Badge>
             <Badge tone="info">
-              Launch: {data.offer.launch.owners} owners · {data.offer.launch.areas} areas · {data.offer.launch.placesLeft} of {data.offer.launch.placesTotal} places left
+              Launch: {data.offer.launch.owners} dealers · {data.offer.launch.areas} zones · {data.offer.launch.placesLeft} of {data.offer.launch.placesTotal} places left
             </Badge>
             <Badge tone="neutral">Config v{data.config.version}</Badge>
           </div>
@@ -125,132 +122,71 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
               </Button>
             </div>
           ) : null}
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-xs text-ink-500">
-              <tr>
-                <th>Cluster</th>
-                <th className="text-right">Zones</th>
-                <th className="text-right">Bookable</th>
-                <th className="text-right">Slots free</th>
-                <th className="text-right">Est. shops</th>
-                <th className="text-right">₹ Cr / year</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.clusters.clusters.map((c) => (
-                <tr key={c.code} className="border-t border-cream-100">
-                  <td>
-                    {c.code} · {c.name}
-                  </td>
-                  <td className="text-right">{c.zones}</td>
-                  <td className="text-right">{c.bookable}</td>
-                  <td className="text-right">{c.slotsFree}</td>
-                  <td className="text-right">{c.estShops.toLocaleString("en-IN")}</td>
-                  <td className="text-right">{crore(c.annualCrHundredths)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      ) : null}
-
-      {tab === "Zones" ? (
-        <Card className="space-y-3 p-4">
-          {isAdmin ? (
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary" onClick={() => act(() => call("/api/admin/franchise/boundaries", "POST", { action: "auto-reference", limit: 100 }), "Reference points seeded (auto – needs review)")}>
-                Seed reference points (geocode)
-              </Button>
-              <label className="inline-flex min-h-10 cursor-pointer items-center rounded-lg border border-cream-200 px-3 text-sm">
-                Import GeoJSON
-                <input
-                  type="file"
-                  accept=".json,.geojson,application/geo+json,application/json"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    const geojson = JSON.parse(await f.text());
-                    await act(() => call("/api/admin/franchise/boundaries", "POST", { action: "import", geojson }), "Imported as drafts (approve each zone)");
-                  }}
-                />
-              </label>
-            </div>
-          ) : null}
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm" data-testid="admin-zones">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <table className="min-w-full text-sm">
               <thead className="text-left text-xs text-ink-500">
                 <tr>
-                  <th>Zone</th>
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th>Slots</th>
-                  <th>Reference</th>
-                  <th>₹ Cr</th>
-                  {isAdmin ? <th>Actions</th> : null}
+                  <th>Tier</th>
+                  <th className="text-right">Zones</th>
+                  <th className="text-right">Provisional</th>
+                  <th className="text-right">Active franchises</th>
+                  <th className="text-right">Fee range</th>
                 </tr>
               </thead>
               <tbody>
-                {data.zones.map((z) => (
-                  <tr key={z.zoneId} className="border-t border-cream-100 align-top">
-                    <td className="font-semibold">
-                      {z.zoneId}
-                      {z.isTest ? " (test)" : ""}
-                    </td>
-                    <td>{z.name}</td>
+                {TIERS.map((t) => {
+                  const zs = real.filter((z) => z.tier === t);
+                  const fees = zs.map((z) => z.feePaise ?? 0).filter(Boolean);
+                  return (
+                    <tr key={t} className="border-t border-cream-100">
+                      <td>{zs[0] ? <TierBadge z={{ ...zs[0], provisional: false }} /> : tierNames[t]}</td>
+                      <td className="text-right">{zs.length}</td>
+                      <td className="text-right">{zs.filter((z) => z.provisional).length}</td>
+                      <td className="text-right">{zs.reduce((s, z) => s + z.active, 0)}</td>
+                      <td className="text-right">{fees.length ? `${rupees(Math.min(...fees))} – ${rupees(Math.max(...fees))}` : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-xs text-ink-500">
+                <tr>
+                  <th>Status</th>
+                  <th className="text-right">Zones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {statuses.map((st) => (
+                  <tr key={st} className="border-t border-cream-100">
                     <td>
-                      <Badge tone={z.badge === "FULL" ? "danger" : z.badge === "ONE_LEFT" ? "warning" : z.badge === "AVAILABLE_2" ? "success" : "neutral"}>{z.status === "BOOKABLE" ? ZONE_BADGE_LABELS[z.badge] : z.status}</Badge>
-                      {z.statusReason ? <div className="text-xs text-ink-500">{z.statusReason}</div> : null}
+                      <Badge tone={STATUS_TONE[st] ?? "neutral"}>{real.find((z) => z.status === st)?.statusLabel ?? st}</Badge>
                     </td>
-                    <td>
-                      {z.occupied}/{z.maxOwners}
-                    </td>
-                    <td className="text-xs">{z.reference ? `${z.reference.lat.toFixed(4)}, ${z.reference.lng.toFixed(4)}${z.reference.needsReview ? " · auto – needs review" : ""}` : "—"}</td>
-                    <td>{crore(z.annualCrHundredths)}</td>
-                    {isAdmin ? (
-                      <td className="space-x-1 whitespace-nowrap">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => {
-                            const ref = ask(`Zone ${z.zoneId}: reference point "lat,lng"`, ) ?? "";
-                            const [lat, lng] = ref.split(",").map((s) => Number(s.trim()));
-                            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-                            const shape = (ask("Circle radius in metres (e.g. 2500), or paste a polygon as [[lat,lng],…]") ?? "").trim();
-                            const body = shape.startsWith("[") ? { action: "boundary", ref: { lat, lng, label: "admin" }, shape: "POLYGON", polygon: JSON.parse(shape) } : { action: "boundary", ref: { lat, lng, label: "admin" }, shape: "CIRCLE", radiusM: Number(shape) };
-                            void act(() => call(`/api/admin/franchise/zones/${encodeURIComponent(z.zoneId)}`, "PATCH", body), "Draft saved");
-                          }}
-                        >
-                          Boundary
-                        </Button>
-                        <Button size="sm" onClick={() => act(() => call(`/api/admin/franchise/zones/${encodeURIComponent(z.zoneId)}`, "PATCH", { action: "approve" }).then((r) => { if (!r.approved) throw new Error(r.errors.join(" ")); return r; }), `Zone ${z.zoneId} approved`)}>
-                          Approve
-                        </Button>
-                        <Button size="sm" variant="secondary" onClick={() => act(() => call(`/api/admin/franchise/zones/${encodeURIComponent(z.zoneId)}`, "PATCH", { action: "status", status: z.status === "PAUSED" ? "BOOKABLE" : "PAUSED", reason: ask("Reason") ?? "" }), "Saved")}>
-                          {z.status === "PAUSED" ? "Resume" : "Pause"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            const raw = ask(`Split ${z.zoneId} (${z.estShops} shops): "Name A:shops; Name B:shops"`) ?? "";
-                            const parts = raw.split(";").map((p) => p.split(":")).filter((p) => p.length === 2).map(([name, shops]) => ({ name: name.trim(), shops: Number(shops) }));
-                            if (parts.length >= 2) void act(() => call(`/api/admin/franchise/zones/${encodeURIComponent(z.zoneId)}`, "PATCH", { action: "split", parts, reason: ask("Reason") ?? "" }), "Split done");
-                          }}
-                        >
-                          Split
-                        </Button>
-                      </td>
-                    ) : null}
+                    <td className="text-right">{real.filter((z) => z.status === st).length}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {data.areaSummary.map((a) => (
+            <p key={a.code} className="text-sm text-ink-700">
+              Zone set {a.code}: {a.total} areas, {a.zoned} in a zone, {a.unzoned.length} unzoned{a.unzoned.length ? ` (${a.unzoned.join(", ")})` : ""}.
+            </p>
+          ))}
         </Card>
       ) : null}
 
-      {tab === "Allocations" ? (
+      {tab === "Zones" ? <ZonesTab zones={data.zones} isAdmin={isAdmin} act={act} ask={ask} /> : null}
+
+      {tab === "Zone status" ? <StatusTab zones={data.zones} history={data.statusHistory} isAdmin={isAdmin} act={act} /> : null}
+
+      {tab === "Fees" ? <FeesTab zoneSets={(data.config.config.zoneSetsEnabled as string[]) ?? ["PUN"]} tierNames={tierNames} isAdmin={isAdmin} act={act} /> : null}
+
+      {tab === "Areas" ? <AreasTab zones={data.zones} isAdmin={isAdmin} act={act} ask={ask} /> : null}
+
+      {tab === "Coupons" ? <CouponsTab zones={real} tierNames={tierNames} isAdmin={isAdmin} act={act} /> : null}
+
+      {tab === "Franchises" ? (
         <Card className="overflow-x-auto p-4">
           <AllocationTable rows={data.allocations} isAdmin={isAdmin} act={act} ask={ask} />
         </Card>
@@ -258,7 +194,7 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
 
       {tab === "Expiring" ? (
         <Card className="space-y-3 p-4" data-testid="admin-expiring">
-          <h2 className="font-bold text-ink-900">Franchise areas expiring (next 30 days)</h2>
+          <h2 className="font-bold text-ink-900">Franchises expiring (next 30 days)</h2>
           {!data.expiring.soon.length ? <p className="text-sm text-ink-600">None.</p> : null}
           <table className="min-w-full text-sm">
             <tbody>
@@ -294,20 +230,8 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
 
       {tab === "Attribution" ? (
         <Card className="space-y-2 p-4">
-          <h2 className="font-bold text-ink-900">Held franchise attributions (duplicates, disputes)</h2>
-          {isAdmin ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                const shopId = ask("Shop id (uuid) to tag outside its code's area") ?? "";
-                const code = ask("Dealer code (GKF-…)") ?? "";
-                if (shopId && code) void act(() => call("/api/admin/franchise/tag-shop", "POST", { shopId, code, reason: ask("Reason (logged)") ?? "" }), "Shop tagged (override logged)");
-              }}
-            >
-              Tag a shop outside its area (override)
-            </Button>
-          ) : null}
+          <h2 className="font-bold text-ink-900">Held franchise team shops (duplicates, disputes)</h2>
+          <p className="text-xs text-ink-600">To move a shop to another zone, correct its area on the Areas tab.</p>
           {!data.attributions.length ? <p className="text-sm text-ink-600">Nothing waiting.</p> : null}
           {data.attributions.map((a) => (
             <div key={a.shopId} className="flex flex-wrap items-center justify-between gap-2 border-t border-cream-100 py-2 text-sm">
@@ -329,9 +253,9 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
         </Card>
       ) : null}
 
-      {tab === "Settings" ? <SettingsEditor data={data} isAdmin={isAdmin} act={act} /> : null}
+      {tab === "Settings" ? <SettingsTab config={data.config.config} version={data.config.version} versions={data.versions} isAdmin={isAdmin} act={act} /> : null}
 
-      {tab === "Bonus settings" ? <BonusSettingsForm data={data} isAdmin={isAdmin} act={act} /> : null}
+      {tab === "Commission & bonus" ? <BonusSettingsForm data={data} isAdmin={isAdmin} act={act} /> : null}
 
       {tab === "Monthly points" ? <PointsTable rows={data.points} isAdmin={isAdmin} act={act} ask={ask} /> : null}
 
@@ -340,16 +264,19 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
           <h2 className="font-bold text-ink-900">Reports (CSV)</h2>
           {(["fees", "occupancy", "owners", "commission"] as const).map((k) => (
             <a key={k} className="block text-sm font-semibold text-kesari-800 underline" href={`/api/admin/franchise/reports?kind=${k}&format=csv`}>
-              {k === "fees" ? "Franchise fees collected" : k === "occupancy" ? "Areas booked / available by cluster" : k === "owners" ? "Shops, activation rate and GMV by owner" : "Commissions payable / paid"}
+              {k === "fees" ? "Franchise fees collected" : k === "occupancy" ? "Zones: tier, status, slots and fee" : k === "owners" ? "Shops, activation rate and GMV by owner" : "Commissions payable / paid"}
             </a>
           ))}
+          <a className="block text-sm font-semibold text-kesari-800 underline" href={COUPON_XLSX}>
+            Coupon report (Excel)
+          </a>
           {isAdmin ? (
             <Button
               size="sm"
               variant="secondary"
               onClick={() => {
                 const month = ask("Run the monthly calculation for month (YYYY-MM)") ?? "";
-                if (/^\d{4}-\d{2}$/.test(month)) void act(() => call("/api/admin/franchise/run", "POST", { month, force: true }), `Month ${month} calculated`);
+                if (/^\d{4}-\d{2}$/.test(month)) void act(() => call("/api/admin/franchise/run", "POST", { month, action: "calculate" }), `Month ${month} calculated`);
               }}
             >
               Run a month now
@@ -379,7 +306,7 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
   );
 }
 
-function AllocationTable({ rows, isAdmin, act, ask }: { rows: Allocation[]; isAdmin: boolean; act: (fn: () => Promise<unknown>, ok: string) => Promise<void>; ask: (q: string) => string | null }) {
+function AllocationTable({ rows, isAdmin, act, ask }: { rows: Allocation[]; isAdmin: boolean; act: Act; ask: Ask }) {
   return (
     <table className="min-w-full text-sm" data-testid="admin-allocations">
       <thead className="text-left text-xs text-ink-500">
@@ -390,7 +317,7 @@ function AllocationTable({ rows, isAdmin, act, ask }: { rows: Allocation[]; isAd
           <th>Status</th>
           <th>Active from</th>
           <th>Valid until</th>
-          <th>Fee</th>
+          <th>Fee (locked)</th>
           <th>Launch #</th>
           {isAdmin ? <th /> : null}
         </tr>
@@ -426,6 +353,19 @@ function AllocationTable({ rows, isAdmin, act, ask }: { rows: Allocation[]; isAd
                     {a.isTest ? "Void" : "Terminate"}
                   </Button>
                 ) : null}
+                {a.status === "ACTIVE" || a.status === "SUSPENDED" ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (typeof window !== "undefined" && !window.confirm(`Refund booking ${a.bookingId.slice(0, 8)}…? Every franchise in that booking is voided, its codes closed and its coupon use released. Refund the money itself in the payment gateway.`)) return;
+                      const reason = ask("Reason for the refund (logged)") ?? "";
+                      if (reason.trim().length >= 5) void act(() => call(`/api/admin/franchise/bookings/${a.bookingId}/refund`, "POST", { reason }), "Booking marked refunded — refund the money in the gateway");
+                    }}
+                  >
+                    Refund booking
+                  </Button>
+                ) : null}
               </td>
             ) : null}
           </tr>
@@ -435,38 +375,9 @@ function AllocationTable({ rows, isAdmin, act, ask }: { rows: Allocation[]; isAd
   );
 }
 
-function SettingsEditor({ data, isAdmin, act }: { data: Overview; isAdmin: boolean; act: (fn: () => Promise<unknown>, ok: string) => Promise<void> }) {
-  const [text, setText] = useState(JSON.stringify(data.config.config, null, 2));
-  const [reason, setReason] = useState("");
-  const [from, setFrom] = useState("");
-  return (
-    <Card className="space-y-2 p-4">
-      <h2 className="font-bold text-ink-900">Commercial settings (version {data.config.version})</h2>
-      <p className="text-xs text-ink-600">
-        Money in paise (₹1,50,000 = 15000000), percentages in basis points (25% = 2500). maxOwnersPerZone only by a super-admin{data.me.superAdmin ? " (you)" : ""}. postLaunchFeePaise blank (null) keeps booking closed after the launch offer. A new version takes effect at the time you set (default now); bookings and commissions keep the version in force when they were made.
-      </p>
-      <textarea className={`${inputClass} h-96 font-mono text-xs`} value={text} onChange={(e) => setText(e.target.value)} readOnly={!isAdmin} aria-label="Settings JSON" />
-      {isAdmin ? (
-        <div className="grid gap-2 sm:grid-cols-3">
-          <input className={inputClass} placeholder="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <input className={inputClass} type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Effective from (IST)" />
-          <Button onClick={() => act(() => call("/api/admin/franchise/config", "PUT", { patch: JSON.parse(text), reason, effectiveFrom: from ? new Date(`${from}:00+05:30`).toISOString() : undefined }), "New version saved")}>Save new version</Button>
-        </div>
-      ) : null}
-      <h3 className="pt-2 font-semibold text-ink-900">Versions</h3>
-      <ul className="text-xs text-ink-700">
-        {data.versions.map((v) => (
-          <li key={v.version}>
-            v{v.version} · from {new Date(v.effectiveFrom).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST · {v.reason}
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
 const BONUS_FIELDS: { key: string; label: string; unit: "paise" | "bp" | "count" }[] = [
-  { key: "oneTimeBp", label: "Onboarding commission (% of registration fee)", unit: "bp" },
+  { key: "ownerSelfBp", label: "Franchise owner's own shop (% of registration fee excl. GST)", unit: "bp" },
+  { key: "ownerOverrideBp", label: "Franchise owner's override on each team shop (%)", unit: "bp" },
   { key: "recurringBaseBp", label: "Recurring base share (% of GoKesari's commission)", unit: "bp" },
   { key: "gokesariCommissionBp", label: "GoKesari order commission (%)", unit: "bp" },
   { key: "monthlyShopTarget", label: "Monthly shop registration target", unit: "count" },
@@ -477,7 +388,7 @@ const BONUS_FIELDS: { key: string; label: string; unit: "paise" | "bp" | "count"
   { key: "bonusMaxBp", label: "Maximum bonus (%)", unit: "bp" },
 ];
 
-function BonusSettingsForm({ data, isAdmin, act }: { data: Overview; isAdmin: boolean; act: (fn: () => Promise<unknown>, ok: string) => Promise<void> }) {
+function BonusSettingsForm({ data, isAdmin, act }: { data: Overview; isAdmin: boolean; act: Act }) {
   const show = (key: string, unit: string) => {
     const v = Number(data.config.config[key] ?? 0);
     return unit === "paise" ? String(v / 100) : unit === "bp" ? String(v / 100) : String(v);
@@ -496,6 +407,9 @@ function BonusSettingsForm({ data, isAdmin, act }: { data: Overview; isAdmin: bo
     <Card className="space-y-3 p-4" data-testid="admin-bonus-settings">
       <h2 className="font-bold text-ink-900">Commission and bonus settings</h2>
       <p className="text-xs text-ink-600">Admin only. A change applies from the next calendar month (IST), never to the current one, and is logged with who changed it and the old and new value.</p>
+      <p className="text-xs text-ink-600">
+        Parity rule: the agent&apos;s direct % and the team lead&apos;s override % are one field each, used by both models (Admin → Settings → rule dealerTieredCommission). The franchise owner&apos;s rates can never be lower than the free dealer&apos;s (own shop 20%, override 4%, second override 3%) — a lower value is refused.
+      </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {BONUS_FIELDS.map((f) => (
           <label key={f.key} className="text-sm text-ink-700">
@@ -522,7 +436,7 @@ function BonusSettingsForm({ data, isAdmin, act }: { data: Overview; isAdmin: bo
   );
 }
 
-function PointsTable({ rows, isAdmin, act, ask }: { rows: Overview["points"]; isAdmin: boolean; act: (fn: () => Promise<unknown>, ok: string) => Promise<void>; ask: (q: string) => string | null }) {
+function PointsTable({ rows, isAdmin, act, ask }: { rows: Overview["points"]; isAdmin: boolean; act: Act; ask: Ask }) {
   const month = (q: string) => {
     const m = ask(q) ?? "";
     return /^\d{4}-\d{2}$/.test(m) ? m : null;
@@ -546,14 +460,14 @@ function PointsTable({ rows, isAdmin, act, ask }: { rows: Overview["points"]; is
         <table className="min-w-full text-xs">
           <thead className="text-left text-ink-500">
             <tr>
-              <th>Month</th><th>Dealer</th><th>Area</th><th>Code</th><th>Opening</th><th>Baseline</th><th>New</th><th>Business</th><th>Reg pts</th><th>Biz pts</th><th>Main pts</th><th>Bonus</th><th>Rate</th><th>Rating</th><th>Payout</th><th>Status</th><th />
+              <th>Month</th><th>Dealer</th><th>Zone</th><th>Code</th><th>Opening</th><th>Baseline</th><th>New</th><th>Business</th><th>Reg pts</th><th>Biz pts</th><th>Main pts</th><th>Bonus</th><th>Rate</th><th>Rating</th><th>Payout</th><th>Status</th><th />
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="border-t border-cream-100">
                 <td>{r.month}</td><td>{r.dealer}</td><td>{r.zoneId}</td><td className="font-mono">{r.code}</td><td>{r.openingShops}</td><td>{rupees(r.baselinePaise)}</td><td>{r.newShops}</td><td>{rupees(r.actualBusinessPaise)}</td>
-                <td>{r.regPts}</td><td>{r.bizPts}</td><td>{r.mainPts.toFixed(2)}</td><td>{(r.bonusBp / 100).toFixed(2)}%</td><td>{(r.rateBp / 100).toFixed(2)}%</td><td>{r.rating.toFixed(2)}</td><td>{rupees(r.totalPayoutPaise)}</td>
+                <td>{r.regPts}</td><td>{r.bizPts}</td><td>{r.mainPts.toFixed(1)}</td><td>{(r.bonusBp / 100).toFixed(1)}%</td><td>{(r.rateBp / 100).toFixed(1)}%</td><td>{r.rating.toFixed(2)}</td><td>{rupees(r.totalPayoutPaise)}</td>
                 <td>{r.status}{r.status === "LOCKED" ? ` ${r.lockedAtIst}` : ""}</td>
                 <td><a className="text-kesari-800 underline" href={`/api/franchise/statements/${r.id}`}>PDF</a></td>
               </tr>

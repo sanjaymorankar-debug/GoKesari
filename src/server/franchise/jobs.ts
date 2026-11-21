@@ -13,11 +13,12 @@ import { sendEmail } from "@/server/email/transport";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
-import { releaseExpiredHolds, renewalFeeFor } from "./booking";
+import { releaseExpiredHolds } from "./booking";
 import { closeAllocationCodes } from "./codes";
 import { calculateFranchiseMonth, lockFranchiseMonth, prevMonth } from "./commission";
 import { emailStatements } from "./statements";
-import { franchiseConfig, franchiseNow, type FranchiseConfig } from "./config";
+import { franchiseConfig, franchiseNow, tierDisplayOf, type FranchiseConfig } from "./config";
+import { currentFee, runZoneStatusJobs, syncSoldOut } from "./zones";
 
 const SITE = () => (process.env.APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? "https://gokesari.com").replace(/\/$/, "");
 
@@ -38,6 +39,7 @@ async function settle(id: string, status: "SENT" | "FAILED", detail?: string): P
 interface AreaRow {
   a: FranchiseAllocation;
   zoneName: string;
+  zoneStatus: string;
   ownerName: string;
   ownerUserId: string | null;
   ownerEmail: string | null;
@@ -45,7 +47,7 @@ interface AreaRow {
 
 async function areas(where: ReturnType<typeof and>): Promise<AreaRow[]> {
   const rows = await db
-    .select({ a: franchiseAllocations, zoneName: franchiseZones.name, ownerName: dealers.legalName, ownerUserId: dealers.userId, ownerEmail: users.email })
+    .select({ a: franchiseAllocations, zoneName: franchiseZones.name, zoneStatus: franchiseZones.status, ownerName: dealers.legalName, ownerUserId: dealers.userId, ownerEmail: users.email })
     .from(franchiseAllocations)
     .innerJoin(franchiseZones, eq(franchiseZones.zoneId, franchiseAllocations.zoneId))
     .innerJoin(dealers, eq(dealers.id, franchiseAllocations.ownerDealerId))
@@ -100,10 +102,11 @@ export async function expireAreas(now: Date, config: FranchiseConfig): Promise<n
     });
     if (!done) continue;
     n++;
+    await syncSoldOut(area.a.zoneId).catch(() => {});
     const day = istDate(now);
-    const subject = `Franchise area expired: zone ${area.a.zoneId} (${area.zoneName})`;
+    const subject = `Franchise expired: zone ${area.a.zoneId} (${area.zoneName})`;
     const text = [
-      `Franchise area zone ${area.a.zoneId} — ${area.zoneName} — expired on ${formatIst(area.a.expiresAt)}.`,
+      `Franchise in zone ${area.a.zoneId} — ${area.zoneName} — expired on ${formatIst(area.a.expiresAt)}.`,
       `Owner: ${area.ownerName}.`,
       "Renewal is now closed for this area and the franchise code no longer adds new shops in it. The slot is free for a fresh booking by anyone, with no priority.",
       `Recurring commission on shops already registered continues until ${formatIst(area.a.tailEndAt)}, then stops.`,
@@ -118,27 +121,49 @@ export async function expireAreas(now: Date, config: FranchiseConfig): Promise<n
 
 const REMINDER_WORDS: Record<ReminderKind, string> = { D30: "in 30 days", D15: "in 15 days", DAILY: "soon" };
 
-/** Brief §9.1: 30 days, 15 days, then every day to the expiry day — at the reminder hour, every channel, CC the CEO. */
+/**
+ * §4.2 / §5.5: 30 days, 15 days, then every day to the expiry day — at the reminder hour, every channel, CC the CEO —
+ * with the renewal fee (the zone's current published fee) and, when it changed, why. A franchise in an Inactive zone
+ * cannot renew (§5.6): its owner is told once, `inactiveNoticeDays` before expiry, instead.
+ */
 export async function sendReminders(now: Date, config: FranchiseConfig): Promise<number> {
   if (istHour(now) < config.reminderHourIst) return 0;
   const today = istDate(now);
-  const horizon = new Date(now.getTime() + 31 * 86_400_000);
+  const horizon = new Date(now.getTime() + Math.max(31, config.inactiveNoticeDays + 1) * 86_400_000);
   const active = await areas(and(eq(franchiseAllocations.status, "ACTIVE"), gte(franchiseAllocations.expiresAt, now), lte(franchiseAllocations.expiresAt, horizon), eq(franchiseAllocations.isTest, false)));
+  const names = tierDisplayOf(config).names;
   let n = 0;
   for (const area of active) {
+    if (area.zoneStatus === "INACTIVE") {
+      const daysLeft = Math.floor((area.a.expiresAt!.getTime() - now.getTime()) / 86_400_000);
+      if (daysLeft > config.inactiveNoticeDays) continue;
+      const subject = `Franchise zone ${area.a.zoneId} is inactive: your franchise ends on ${formatIst(area.a.expiresAt, false)}`;
+      const text = [
+        `Zone ${area.a.zoneId} — ${area.zoneName} (owner: ${area.ownerName}) has been made inactive by GoKesari.`,
+        `Your franchise runs to the end of its paid term, ${formatIst(area.a.expiresAt)}. Renewal is not available for this zone.`,
+        "Recurring commission on your own team's shops continues for the tail period after expiry, as in your terms.",
+        `${SITE()}/franchise/my`,
+      ].join("\n");
+      const sent = await emailAll(area, "INACTIVE_NOTICE", today, subject, text, config);
+      await tellOwnerChannels(area, "INACTIVE_NOTICE", today, `Zone ${area.a.zoneId} is inactive`, `Your franchise runs until ${formatIst(area.a.expiresAt)}; renewal is not available for this zone.`, "/franchise/my");
+      if (sent) n++;
+      continue;
+    }
     const due = reminderDue(area.a.expiresAt!, now);
     if (!due) continue;
-    const fee = renewalFeeFor(area.a, config);
-    const amount = fee == null ? "the renewal fee (to be announced)" : `${rupees(fee)} + GST`;
-    const subject = `Renew your franchise area: zone ${area.a.zoneId} expires ${due.daysLeft === 0 ? "today" : `in ${due.daysLeft} day${due.daysLeft === 1 ? "" : "s"}`}`;
+    const fee = await currentFee(area.a.zoneId);
+    const amount = fee == null ? "the renewal fee (to be announced)" : `${rupees(Number(fee.feePaise))} + GST`;
+    const changed = fee != null && Number(fee.feePaise) !== Number(area.a.feePaise);
+    const why = changed && fee ? ` The fee changed from ${rupees(Number(area.a.feePaise))}: the zone's annual fee was updated from new business data — it is now a ${names[fee.tier]} zone, business about ${Math.round(Math.abs(fee.diffBp) / 100)}% ${fee.diffBp >= 0 ? "above" : "below"} the zone average.` : "";
+    const subject = `Renew your franchise: zone ${area.a.zoneId} expires ${due.daysLeft === 0 ? "today" : `in ${due.daysLeft} day${due.daysLeft === 1 ? "" : "s"}`}`;
     const text = [
       `Zone ${area.a.zoneId} — ${area.zoneName} (owner: ${area.ownerName}) expires on ${formatIst(area.a.expiresAt)}.`,
-      `Days left: ${due.daysLeft}. Renewal amount: ${amount}.`,
+      `Days left: ${due.daysLeft}. Renewal fee: ${amount}.${why}`,
       `Renew: ${SITE()}/franchise/my#renew-${area.a.id}`,
-      "Renewal is open until 23:59:59 IST on the expiry date. After that the area ends and its slot is released.",
+      "Renewal is open until 23:59:59 IST on the expiry date. After that the franchise ends and its slot is released.",
     ].join("\n");
     const sent = await emailAll(area, due.kind, today, subject, text, config);
-    await tellOwnerChannels(area, due.kind, today, `Franchise area ${area.a.zoneId} expires ${REMINDER_WORDS[due.kind] === "soon" ? (due.daysLeft === 0 ? "today" : `in ${due.daysLeft} days`) : REMINDER_WORDS[due.kind]}`, `Renew zone ${area.a.zoneId} for ${amount} before ${formatIst(area.a.expiresAt)}.`, `/franchise/my#renew-${area.a.id}`);
+    await tellOwnerChannels(area, due.kind, today, `Franchise zone ${area.a.zoneId} expires ${REMINDER_WORDS[due.kind] === "soon" ? (due.daysLeft === 0 ? "today" : `in ${due.daysLeft} days`) : REMINDER_WORDS[due.kind]}`, `Renew zone ${area.a.zoneId} for ${amount} before ${formatIst(area.a.expiresAt)}.${why}`, `/franchise/my#renew-${area.a.id}`);
     if (sent) n++;
   }
   return n;
@@ -183,6 +208,8 @@ export async function runFranchiseJob(real: Date = new Date()): Promise<Record<s
   const now = franchiseNow(config, real);
   const out: Record<string, unknown> = { at: now.toISOString() };
   out.holdsReleased = await releaseExpiredHolds(db, now);
+  // §5.6: scheduled zone status changes due now, and reservations past their expiry back to Available.
+  out.zoneStatus = await runZoneStatusJobs(real).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
   out.expired = await expireAreas(now, config);
   out.reminded = await sendReminders(now, config);
   out.digest = await sendDigest(now, config);

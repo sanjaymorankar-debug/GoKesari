@@ -11406,6 +11406,11 @@ export const dealerTierShopPlans = pgTable(
     firstPartBp: integer("first_part_bp").notNull(),
     leadOverrideBp: integer("lead_override_bp").notNull(),
     mainOverrideBp: integer("main_override_bp").notNull(),
+    /** Franchise brief 21-Nov-2026 §3: A = free dealership, B = paid franchise; the case A1–A4 / B1–B4; for B the franchise. */
+    model: text("model", { enum: ["A", "B"] }).notNull().default("A"),
+    caseCode: text("case_code"),
+    franchiseAllocationId: uuid("franchise_allocation_id"),
+    franchiseZoneId: text("franchise_zone_id"),
     developmentBp: integer("development_bp").notNull().default(0),
     tradingOrders: integer("trading_orders").notNull(),
     activatedAt: timestamp("activated_at", { withTimezone: true }).notNull(),

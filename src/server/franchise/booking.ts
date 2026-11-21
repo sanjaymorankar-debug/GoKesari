@@ -1,8 +1,9 @@
 /**
- * Franchise area booking (brief §3, §4.4–§4.5, §9.3): cart → reserve slots → pay → verify → activate, renewal,
- * and release on failure or expiry. Capacity is enforced by the database (two partial unique indexes on
- * franchise_allocations); the code takes zone rows FOR UPDATE in Zone ID order so a multi-area cart never
- * deadlocks, and the whole cart is all-or-nothing. Every amount is computed here from the config in force.
+ * Franchise zone booking (final brief 21-Nov-2026 §5.5–§5.7): cart → reserve slots (15-minute hold) → pay 100%
+ * online → verify → activate, renewal at the zone's current published fee, coupons, refunds, and release on
+ * failure or expiry. Capacity is enforced by the database (two partial unique indexes on franchise_allocations); the
+ * code takes zone rows FOR UPDATE in Zone ID order so a multi-zone cart never deadlocks, and the whole cart is
+ * all-or-nothing. Every amount is computed here from the zone fees and config in force, never from the client.
  */
 import { createHash } from "node:crypto";
 
@@ -14,7 +15,6 @@ import {
   FRANCHISE_AGREEMENT_VERSION,
   OCCUPYING_STATUSES,
   allocationExpiry,
-  bookingAmounts,
   formatIst,
   launchState,
   renewalOpen,
@@ -31,7 +31,6 @@ import {
   franchiseAllocations,
   franchiseBookings,
   franchiseCampaigns,
-  franchiseZoneBoundaries,
   franchiseZones,
   users,
   type Dealer,
@@ -44,8 +43,11 @@ import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import type { PaymentIntentRef } from "@/server/payments/intents";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
+import { gstOn, type CartLine } from "@/lib/franchise-zones";
 import { franchiseConfig, franchiseConfigAt, franchiseNow, type FranchiseConfig } from "./config";
-import { closeAllocationCodes, ensureAllocationCode, reopenMemberCodes } from "./codes";
+import { closeAllocationCodes, ensureAllocationCode } from "./codes";
+import { checkCoupon, extendHold, holdRedemption, markRedemptionUsed, releaseRedemption } from "./coupons";
+import { currentFee, saleProblem, syncSoldOut, zoneViews } from "./zones";
 
 export interface Actor {
   id: string;
@@ -131,12 +133,13 @@ async function launchCounts(client: DbClient, now: Date): Promise<LaunchCounts> 
 export interface OfferView {
   bookingOpen: boolean;
   launch: LaunchState;
-  /** Whether a new booking can be paid now, and at what fee (null: "new terms coming soon"). */
-  feePerAreaPaise: number | null;
+  /** §5.3: zones with a provisional fee can be bought only when this is on. */
+  allowProvisionalSale: boolean;
   gstRateBp: number;
   validityMonths: number;
   maxOwnersPerZone: number;
   holdMinutes: number;
+  maxZonesPerBooking: number;
   closedMessage: string | null;
 }
 
@@ -145,9 +148,18 @@ export async function offerView(client: DbClient = db): Promise<OfferView> {
   const now = franchiseNow(config);
   const c = await launchCounts(client, now);
   const launch = launchState({ owners: c.owners, areas: c.areas, maxOwners: config.launchMaxOwners, maxAreas: config.launchMaxAreas, closeRule: config.launchCloseRule, closedAt: c.closedAt });
-  const fee = launch.open ? config.feePerAreaPaise : config.postLaunchFeePaise;
-  const closedMessage = !config.bookingOpen ? "Bookings open soon." : fee == null ? "Launch offer closed – new terms coming soon." : null;
-  return { bookingOpen: config.bookingOpen && fee != null, launch, feePerAreaPaise: fee, gstRateBp: config.gstRateBp, validityMonths: config.validityMonths, maxOwnersPerZone: config.maxOwnersPerZone, holdMinutes: config.reservationHoldMinutes, closedMessage };
+  // §4 / §5.5: the zone fees are the launch offer for the first 25 dealers; later terms are never shown.
+  const closedMessage = !config.bookingOpen ? "Bookings open soon." : !launch.open ? "Launch offer closed – new terms coming soon." : null;
+  return { bookingOpen: config.bookingOpen && launch.open, launch, allowProvisionalSale: config.allowProvisionalSale, gstRateBp: config.gstRateBp, validityMonths: config.validityMonths, maxOwnersPerZone: config.maxOwnersPerZone, holdMinutes: config.reservationHoldMinutes, maxZonesPerBooking: config.maxAreasPerBooking, closedMessage };
+}
+
+/** The cart's amounts (§5.7): list fees − coupon discount = taxable; GST on the taxable amount; total. */
+export function cartAmounts(lines: readonly { listPaise: number; discountPaise: number }[], gstRateBp: number) {
+  const listPaise = lines.reduce((s, l) => s + l.listPaise, 0);
+  const discountPaise = lines.reduce((s, l) => s + l.discountPaise, 0);
+  const basePaise = listPaise - discountPaise;
+  const gstPaise = gstOn(basePaise, gstRateBp);
+  return { areaCount: lines.length, listPaise, discountPaise, basePaise, gstRateBp, gstPaise, totalPaise: basePaise + gstPaise };
 }
 
 /* ============================================================= reserve (cart) */
@@ -158,15 +170,16 @@ export interface ReserveResult {
 }
 
 /**
- * Reserves one slot in each zone of the cart for `holdMinutes` (brief §4.4). All-or-nothing: if any zone is
- * full, not bookable or already held by this owner, nothing is reserved and the zones are named.
+ * Reserves one slot in each zone of the cart for the hold time (§5.5). All-or-nothing: if any zone cannot be bought
+ * (status, reserved for someone else, sold out, fee still provisional, already held by this owner), nothing is
+ * reserved and the zones are named. An optional coupon is validated here and held with the slots.
  */
-export async function reserveZones(actor: Actor, input: { zoneIds: string[]; test?: boolean }): Promise<ReserveResult> {
+export async function reserveZones(actor: Actor, input: { zoneIds: string[]; couponCode?: string | null; test?: boolean }): Promise<ReserveResult> {
   const owner = await requireOwner(actor);
   const { version, config } = await franchiseConfig();
   const zoneIds = [...new Set(input.zoneIds.map((z) => z.trim().toUpperCase()))].filter(Boolean);
-  if (!zoneIds.length) throw validationFailed("Choose at least one area.");
-  if (zoneIds.length > config.maxAreasPerBooking) throw validationFailed(`Book at most ${config.maxAreasPerBooking} areas at a time.`);
+  if (!zoneIds.length) throw validationFailed("Choose at least one zone.");
+  if (zoneIds.length > config.maxAreasPerBooking) throw validationFailed(`Book at most ${config.maxAreasPerBooking} zones at a time.`);
   const isTest = !!input.test;
   if (isTest && actor.role !== "ADMIN") throw forbidden("Only an admin can book the test zone.");
   if (!config.bookingOpen && !isTest) throw conflict("Franchise bookings are not open yet.");
@@ -179,11 +192,9 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; tes
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('franchise-launch'))`);
     const c = await launchCounts(tx, now);
     const launch = launchState({ owners: c.owners, areas: c.areas, maxOwners: config.launchMaxOwners, maxAreas: config.launchMaxAreas, closeRule: config.launchCloseRule, closedAt: c.closedAt });
-    let fee: number;
     let launchOffer = false;
-    if (isTest) {
-      fee = config.feePerAreaPaise;
-    } else if (launch.open) {
+    if (!isTest) {
+      if (!launch.open) throw conflict("Launch offer closed – new terms coming soon. WhatsApp or call +91 91751 93009.");
       // Places still free once pending reservations are counted (so the 25th place is never sold twice).
       const ownerIsNew = !(await ownerHasLaunchArea(tx, owner.id)) && !c.pendingOwners.includes(owner.id);
       const areasLeft = config.launchMaxAreas - c.areas - c.pendingAreas;
@@ -191,33 +202,30 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; tes
       const areasOk = config.launchCloseRule === "owners_only" || areasLeft >= zoneIds.length;
       const ownersOk = config.launchCloseRule === "areas_only" || !ownerIsNew || ownersLeft >= 1;
       if (!areasOk || !ownersOk) {
-        throw conflict(areasLeft > 0 && ownersOk ? `Only ${areasLeft} launch place${areasLeft === 1 ? "" : "s"} left (some are being paid for now). Choose fewer areas or try again in 15 minutes.` : "The last launch places are being paid for right now. Try again in 15 minutes.");
+        throw conflict(areasLeft > 0 && ownersOk ? `Only ${areasLeft} launch place${areasLeft === 1 ? "" : "s"} left (some are being paid for now). Choose fewer zones or try again in 15 minutes.` : "The last launch places are being paid for right now. Try again in 15 minutes.");
       }
-      fee = config.feePerAreaPaise;
       launchOffer = true;
-    } else if (config.postLaunchFeePaise != null) {
-      fee = config.postLaunchFeePaise;
-    } else {
-      throw conflict("Launch offer closed – new terms coming soon. WhatsApp or call +91 91751 93009.");
     }
 
-    // Brief §4.4: lock the zones in Zone ID order (no deadlock between two carts).
+    // Lock the zones in Zone ID order (no deadlock between two carts), then free expired holds under the lock.
     const locked = await tx.select().from(franchiseZones).where(inArray(franchiseZones.zoneId, zoneIds)).orderBy(asc(franchiseZones.zoneId)).for("update");
     const missingIds = zoneIds.filter((z) => !locked.some((l) => l.zoneId === z));
-    if (missingIds.length) throw validationFailed(`Unknown area${missingIds.length > 1 ? "s" : ""}: ${missingIds.join(", ")}.`);
-    const approved = new Set(
-      (await tx.select({ zoneId: franchiseZoneBoundaries.zoneId }).from(franchiseZoneBoundaries).where(and(inArray(franchiseZoneBoundaries.zoneId, zoneIds), eq(franchiseZoneBoundaries.status, "APPROVED")))).map((r) => r.zoneId),
-    );
-    // Expired holds in these zones are freed now, under the lock (and by the job).
+    if (missingIds.length) throw validationFailed(`Unknown zone${missingIds.length > 1 ? "s" : ""}: ${missingIds.join(", ")}.`);
     await releaseExpiredHolds(tx, now, zoneIds);
+    const views = await zoneViews({ zoneIds, includeTest: isTest, includeInactive: true, client: tx });
 
     const problems: string[] = [];
-    const plan: { zoneId: string; slotNo: number }[] = [];
+    const plan: { zoneId: string; slotNo: number; line: CartLine; feeVersionId: string }[] = [];
     for (const zone of locked) {
-      if (!config.regionsEnabled.includes(zone.regionCode)) problems.push(`${zone.zoneId} is not open for booking`);
-      else if (zone.isTest !== isTest) problems.push(`${zone.zoneId} cannot be booked here`);
-      else if (zone.status !== "BOOKABLE" || !approved.has(zone.zoneId)) problems.push(`${zone.zoneId} is ${zone.status === "PAUSED" ? "paused" : "coming soon (boundary not yet approved)"}`);
-      if (problems.length) continue;
+      const v = views.find((x) => x.zoneId === zone.zoneId);
+      if (!v || !config.zoneSetsEnabled.includes(zone.zoneSetCode)) {
+        problems.push(`${zone.zoneId} is not open for booking`);
+        continue;
+      }
+      if (zone.isTest !== isTest) {
+        problems.push(`${zone.zoneId} cannot be booked here`);
+        continue;
+      }
       const taken = await tx
         .select({ slotNo: franchiseAllocations.slotNo, owner: franchiseAllocations.ownerDealerId })
         .from(franchiseAllocations)
@@ -226,36 +234,65 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; tes
         problems.push(`you already hold or are booking ${zone.zoneId}`);
         continue;
       }
-      const max = Math.min(zone.maxOwners, config.maxOwnersPerZone);
-      const free = [1, 2].filter((s) => s <= max && !taken.some((t) => t.slotNo === s));
-      if (!free.length) problems.push(`${zone.zoneId} is fully booked`);
-      else plan.push({ zoneId: zone.zoneId, slotNo: free[0] });
+      const why = saleProblem(v, owner.id, now, config.allowProvisionalSale);
+      if (why) {
+        problems.push(why === "Fees being finalised" ? `${zone.zoneId}: fees being finalised` : why.replace(/\.$/, ""));
+        continue;
+      }
+      const free = [1, 2].filter((s) => s <= zone.maxOwners && !taken.some((t) => t.slotNo === s));
+      if (!free.length) problems.push(`${zone.zoneId} is sold out`);
+      else plan.push({ zoneId: zone.zoneId, slotNo: free[0], line: { zoneId: zone.zoneId, zoneSetCode: zone.zoneSetCode, tier: v.tier!, listPaise: v.feePaise! }, feeVersionId: v.feeVersionId! });
     }
-    if (problems.length) throw conflict(`Nothing was reserved: ${problems.join("; ")}. Remove ${problems.length > 1 ? "these areas" : "this area"} and try again.`);
+    if (problems.length) throw conflict(`Nothing was reserved: ${problems.join("; ")}. Remove ${problems.length > 1 ? "these zones" : "this zone"} and try again.`);
 
-    const amounts = bookingAmounts(plan.length, fee, config.gstRateBp);
+    // §5.7: one coupon per order, validated on the server; the discount comes off the fees before GST.
+    const coupon = input.couponCode?.trim() ? await checkCoupon(input.couponCode, { dealerId: owner.id, kind: "NEW", lines: plan.map((p) => p.line), launchEligible: launchOffer, now }, tx) : null;
+    const lines = plan.map((p, i) => ({ ...p, listPaise: p.line.listPaise, discountPaise: coupon?.discounts[i] ?? 0 }));
+    const amounts = cartAmounts(lines, config.gstRateBp);
     const holdExpiresAt = new Date(now.getTime() + config.reservationHoldMinutes * 60_000);
     const [booking] = await tx
       .insert(franchiseBookings)
-      .values({ ownerDealerId: owner.id, kind: "NEW", status: "RESERVED", ...amounts, configVersion: version, launchOffer, holdExpiresAt, isTest, createdBy: actor.id })
+      .values({ ownerDealerId: owner.id, kind: "NEW", status: "RESERVED", ...amounts, couponId: coupon?.coupon.id ?? null, couponCode: coupon?.coupon.code ?? null, configVersion: version, launchOffer, holdExpiresAt, isTest, createdBy: actor.id })
       .returning();
     const allocations = await tx
       .insert(franchiseAllocations)
-      .values(plan.map((p) => ({ zoneId: p.zoneId, slotNo: p.slotNo, ownerDealerId: owner.id, bookingId: booking.id, status: "RESERVED" as const, holdExpiresAt, feePaise: fee, configVersion: version, launchOffer, isTest })))
+      .values(lines.map((l) => ({ zoneId: l.zoneId, slotNo: l.slotNo, ownerDealerId: owner.id, bookingId: booking.id, status: "RESERVED" as const, holdExpiresAt, feePaise: l.listPaise, discountPaise: l.discountPaise, tier: l.line.tier, feeVersionId: l.feeVersionId, configVersion: version, launchOffer, isTest })))
       .returning();
+    if (coupon) await holdRedemption(tx, { couponId: coupon.coupon.id, dealerId: owner.id, bookingId: booking.id, discountPaise: amounts.discountPaise, heldUntil: holdExpiresAt });
     await recordAudit(
-      { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { reserved: plan, totalPaise: amounts.totalPaise, launchOffer, holdExpiresAt: holdExpiresAt.toISOString(), configVersion: version, isTest } },
+      { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { reserved: lines.map((l) => ({ zoneId: l.zoneId, slotNo: l.slotNo, tier: l.line.tier, listPaise: l.listPaise, discountPaise: l.discountPaise })), coupon: coupon?.coupon.code ?? null, ...amounts, launchOffer, holdExpiresAt: holdExpiresAt.toISOString(), configVersion: version, isTest } },
       tx,
     );
     return { booking, allocations };
   }).catch((e: unknown) => {
     // A race lost to the unique indexes (another cart took the last slot between the read and the insert).
     if (/franchise_allocations_(slot|owner)_unique/.test(String((e as Error)?.message ?? "")) || (e as { code?: string })?.code === "23505") {
-      throw conflict("Another owner took one of these areas a moment ago. Refresh and try again.");
+      throw conflict("Another owner took one of these zones a moment ago. Refresh and try again.");
     }
     throw e;
   });
   return result;
+}
+
+/** Checks a coupon against a cart before reserving (the cart page's "Apply"): the discount per zone and the totals. */
+export async function previewCart(actor: Actor, input: { zoneIds: string[]; couponCode?: string | null }) {
+  const owner = await requireOwner(actor);
+  const { config } = await franchiseConfig();
+  const zoneIds = [...new Set(input.zoneIds.map((z) => z.trim().toUpperCase()))].filter(Boolean);
+  const views = await zoneViews({ zoneIds });
+  const now = franchiseNow(config);
+  const lines: CartLine[] = [];
+  const problems: string[] = [];
+  for (const id of zoneIds) {
+    const v = views.find((x) => x.zoneId === id);
+    const why = v ? saleProblem(v, owner.id, now, config.allowProvisionalSale) : `${id} is not open for booking`;
+    if (why || !v) problems.push(why ?? id);
+    else lines.push({ zoneId: v.zoneId, zoneSetCode: v.zoneSetCode, tier: v.tier!, listPaise: v.feePaise! });
+  }
+  const launch = (await offerView()).launch;
+  const coupon = input.couponCode?.trim() && lines.length ? await checkCoupon(input.couponCode, { dealerId: owner.id, kind: "NEW", lines, launchEligible: launch.open }) : null;
+  const priced = lines.map((l, i) => ({ ...l, discountPaise: coupon?.discounts[i] ?? 0 }));
+  return { lines: priced, problems, coupon: coupon ? { code: coupon.coupon.code, name: coupon.coupon.name } : null, ...cartAmounts(priced, config.gstRateBp) };
 }
 
 async function ownerHasLaunchArea(client: DbClient, ownerId: string): Promise<boolean> {
@@ -275,7 +312,9 @@ export async function releaseExpiredHolds(client: DbClient, now: Date, zoneIds?:
     await client.update(franchiseBookings).set({ status: "EXPIRED", failureReason: "hold expired before payment", updatedAt: now }).where(and(inArray(franchiseBookings.id, bookingIds), eq(franchiseBookings.status, "RESERVED")));
   }
   // A renewal booking holds no slot: it just lapses.
-  await client.update(franchiseBookings).set({ status: "EXPIRED", failureReason: "not paid in time", updatedAt: now }).where(and(eq(franchiseBookings.status, "RESERVED"), eq(franchiseBookings.kind, "RENEWAL"), lte(franchiseBookings.holdExpiresAt, now)));
+  const lapsed = await client.update(franchiseBookings).set({ status: "EXPIRED", failureReason: "not paid in time", updatedAt: now }).where(and(eq(franchiseBookings.status, "RESERVED"), eq(franchiseBookings.kind, "RENEWAL"), lte(franchiseBookings.holdExpiresAt, now))).returning({ id: franchiseBookings.id });
+  // §5.7: the coupon use of a booking that was never paid is released.
+  for (const id of [...bookingIds, ...lapsed.map((l) => l.id)]) await releaseRedemption(client, id, "hold expired before payment", now);
   return expired.length;
 }
 
@@ -290,6 +329,7 @@ export async function cancelReservation(bookingId: string, actor: Actor): Promis
     const now = new Date();
     await tx.update(franchiseBookings).set({ status: "CANCELLED", failureReason: "cancelled before payment", updatedAt: now }).where(eq(franchiseBookings.id, bookingId));
     await tx.update(franchiseAllocations).set({ status: "CANCELLED", endedAt: now, endReason: "reservation cancelled", updatedAt: now }).where(and(eq(franchiseAllocations.bookingId, bookingId), eq(franchiseAllocations.status, "RESERVED")));
+    await releaseRedemption(tx, bookingId, "reservation cancelled", now);
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: bookingId, newValue: { cancelled: true } }, tx);
   });
 }
@@ -311,6 +351,18 @@ export async function startBookingPayment(bookingId: string, actor: Actor) {
   } else if (booking.holdExpiresAt.getTime() <= now.getTime()) {
     throw conflict("The 15-minute hold ran out before payment. Please reserve again.");
   }
+  // §5.7: the coupon is checked again when the payment starts; a code no longer valid cancels the reservation.
+  if (booking.couponCode && booking.status === "RESERVED") {
+    const allocs = await db.select({ zoneId: franchiseAllocations.zoneId, fee: franchiseAllocations.feePaise, tier: franchiseAllocations.tier, set: franchiseZones.zoneSetCode }).from(franchiseAllocations).innerJoin(franchiseZones, eq(franchiseZones.zoneId, franchiseAllocations.zoneId)).where(eq(franchiseAllocations.bookingId, booking.id));
+    const lines: CartLine[] = booking.kind === "RENEWAL" ? await renewalLines(booking) : allocs.map((a) => ({ zoneId: a.zoneId, zoneSetCode: a.set, tier: a.tier, listPaise: Number(a.fee) }));
+    try {
+      await checkCoupon(booking.couponCode, { dealerId: owner.id, kind: booking.kind, lines, launchEligible: booking.launchOffer, excludeBookingId: booking.id, now });
+    } catch (e) {
+      await cancelReservation(booking.id, actor).catch(() => {});
+      throw conflict(`${e instanceof Error ? e.message : "The coupon is no longer valid."} Your reservation was released — reserve again without it.`);
+    }
+    await extendHold(db, booking.id, new Date(now.getTime() + 2 * 60 * 60_000));
+  }
   const [u] = await db.select({ name: users.name, email: users.email, phone: users.phone }).from(users).where(eq(users.id, actor.id));
   const zones = booking.kind === "NEW" ? (await db.select({ zoneId: franchiseAllocations.zoneId }).from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, booking.id))).map((a) => a.zoneId) : [];
   const { createPaymentIntent } = await import("@/server/payments/intents");
@@ -320,7 +372,7 @@ export async function startBookingPayment(bookingId: string, actor: Actor) {
     userId: actor.id,
     amountPaise: booking.totalPaise,
     customer: { id: actor.id, name: u?.name ?? null, email: u?.email ?? null, phone: u?.phone ?? null },
-    description: booking.kind === "RENEWAL" ? "GoKesari franchise renewal (12 months)" : `GoKesari franchise — ${zones.join(", ")}`,
+    description: booking.kind === "RENEWAL" ? "GoKesari franchise renewal (12 months)" : `GoKesari franchise — ${zones.join(", ")}${booking.couponCode ? ` (coupon ${booking.couponCode})` : ""}`,
     idempotencyKey: `franchise-booking:${booking.id}`,
     mode: "CHECKOUT",
     returnPath: `/franchise/my?booking=${booking.id}`,
@@ -367,9 +419,15 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
     }
     const newExpiry = renewedExpiry(alloc.expiresAt, bookingConfig.config.validityMonths);
     const tail = tailEndAt({ chainStartAt: alloc.activatedAt!, expiresAt: newExpiry, mode: config.tailMode, tailYears: config.tailYears });
-    await client.update(franchiseAllocations).set({ periodStart: alloc.expiresAt, expiresAt: newExpiry, tailEndAt: tail, renewalCount: alloc.renewalCount + 1, updatedAt: now }).where(eq(franchiseAllocations.id, alloc.id));
-    await client.insert(franchiseAllocationRenewals).values({ allocationId: alloc.id, bookingId: booking.id, previousExpiresAt: alloc.expiresAt, newExpiresAt: newExpiry, feePaise: booking.basePaise, paidAt: now });
+    // §5.5: the renewal pays the zone's current list fee, locked for the new term (the coupon is this payment only).
+    const fee = await currentFee(alloc.zoneId, client);
+    await client
+      .update(franchiseAllocations)
+      .set({ periodStart: alloc.expiresAt, expiresAt: newExpiry, tailEndAt: tail, renewalCount: alloc.renewalCount + 1, feePaise: booking.listPaise, discountPaise: booking.discountPaise, tier: fee?.tier ?? alloc.tier, feeVersionId: fee?.id ?? alloc.feeVersionId, updatedAt: now })
+      .where(eq(franchiseAllocations.id, alloc.id));
+    await client.insert(franchiseAllocationRenewals).values({ allocationId: alloc.id, bookingId: booking.id, previousExpiresAt: alloc.expiresAt, newExpiresAt: newExpiry, feePaise: booking.listPaise, discountPaise: booking.discountPaise, tier: fee?.tier ?? alloc.tier, paidAt: now });
     await client.update(franchiseBookings).set({ status: "PAID", paidAt: now, updatedAt: now }).where(eq(franchiseBookings.id, booking.id));
+    await markRedemptionUsed(client, booking.id, now);
     await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_allocation", entityId: alloc.id, previousValue: { expiresAt: alloc.expiresAt.toISOString() }, newValue: { renewed: true, expiresAt: newExpiry.toISOString(), bookingId: booking.id, intentId: intent.id } }, client);
     notices.push(() => tellOwner(booking.ownerDealerId, "Franchise area renewed", `Zone ${alloc.zoneId} is renewed until ${formatIst(newExpiry)}. Receipt: /franchise/my/receipt/${booking.id}`, `franchise-renewed:${booking.id}`));
   } else {
@@ -402,13 +460,18 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
         .update(franchiseAllocations)
         .set({ status: "ACTIVE", holdExpiresAt: null, activatedAt: now, periodStart: now, expiresAt, tailEndAt: tail, launchSeq: booking.launchOffer && !booking.isTest ? seq : null, updatedAt: now })
         .where(eq(franchiseAllocations.id, a.id));
-      // Brief 21-Nov §1.4: one dealer code per dealer per area.
+      // One franchise code per owner per franchise (an alias of his own code; closed at expiry).
       await ensureAllocationCode(client, a);
+      // §7: an upgrade from the free dealership — his team's earlier shops in this zone attach for recurring.
+      await attachUpgradeShops(client, { ...a, activatedAt: now });
+      // A zone Reserved for this dealer is his now: back to Available (Sold Out if every slot is taken).
+      await client.update(franchiseZones).set({ status: "AVAILABLE", reservedForDealerId: null, reservedUntil: null, statusReason: "Reserved dealer bought the zone", updatedAt: now }).where(and(eq(franchiseZones.zoneId, a.zoneId), eq(franchiseZones.status, "RESERVED"), eq(franchiseZones.reservedForDealerId, a.ownerDealerId)));
       activated.push(a.zoneId);
     }
     await client.update(franchiseBookings).set({ status: "PAID", paidAt: now, failureReason: lost.length ? `slot lost for ${lost.join(", ")} — refund due` : null, updatedAt: now }).where(eq(franchiseBookings.id, booking.id));
+    await markRedemptionUsed(client, booking.id, now);
     if (counts) await maybeCloseLaunch(client, config, now);
-    if (activated.length) await reopenMemberCodes(client, booking.ownerDealerId);
+    for (const zoneId of activated) notices.push(() => syncSoldOut(zoneId));
     await recordAudit(
       { action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { activated, lost, activatedAt: now.toISOString(), expiresAt: expiresAt.toISOString(), tailEndAt: tail.toISOString(), intentId: intent.id, launchOffer: booking.launchOffer } },
       client,
@@ -453,6 +516,7 @@ export async function onFranchiseFeeEnded(intent: PaymentIntentRow, to: "FAILED"
       .set({ status: to === "FAILED" ? "PAYMENT_FAILED" : "RESERVATION_EXPIRED", endedAt: now, endReason: to === "FAILED" ? "payment failed" : "payment expired", updatedAt: now })
       .where(and(eq(franchiseAllocations.bookingId, booking.id), inArray(franchiseAllocations.status, ["RESERVED", "PAYMENT_PENDING_VERIFICATION"])));
   }
+  await releaseRedemption(client, booking.id, to === "FAILED" ? "payment failed" : "payment timed out", now);
   await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { ended: to, intentId: intent.id, slotsReleased: booking.kind === "NEW" } }, client);
   const [owner] = await client.select({ userId: dealers.userId }).from(dealers).where(eq(dealers.id, booking.ownerDealerId));
   if (owner?.userId) {
@@ -478,25 +542,35 @@ async function tellOwner(ownerDealerId: string, title: string, message: string, 
 
 /* ============================================================= renewal */
 
-/** The renewal fee then in force (brief §9.3): renewalFeePaise, else launch owners the launch fee, else the current fee. */
-export function renewalFeeFor(alloc: Pick<FranchiseAllocation, "launchOffer">, config: FranchiseConfig): number | null {
-  if (config.renewalFeePaise != null) return config.renewalFeePaise;
-  if (alloc.launchOffer) return config.feePerAreaPaise;
-  return config.postLaunchFeePaise ?? config.feePerAreaPaise;
+/** §5.5: the renewal fee is the zone's current published fee (null when the zone has none). */
+export async function renewalFeeFor(alloc: Pick<FranchiseAllocation, "zoneId">, client: DbClient = db): Promise<{ feePaise: number; tier: string; changed: boolean; reason: string } | null> {
+  const fee = await currentFee(alloc.zoneId, client);
+  return fee ? { feePaise: Number(fee.feePaise), tier: fee.tier, changed: false, reason: fee.reason } : null;
 }
 
-/** Starts (or reuses) a renewal booking for one allocation — open 30 days before expiry up to its last second. */
-export async function startRenewal(allocationId: string, actor: Actor) {
+async function renewalLines(booking: FranchiseBooking): Promise<CartLine[]> {
+  const [a] = await db.select({ zoneId: franchiseAllocations.zoneId, set: franchiseZones.zoneSetCode }).from(franchiseAllocations).innerJoin(franchiseZones, eq(franchiseZones.zoneId, franchiseAllocations.zoneId)).where(eq(franchiseAllocations.id, booking.renewalAllocationId!));
+  const fee = a ? await currentFee(a.zoneId) : null;
+  return a && fee ? [{ zoneId: a.zoneId, zoneSetCode: a.set, tier: fee.tier, listPaise: Number(booking.listPaise) }] : [];
+}
+
+/**
+ * Starts (or reuses) a renewal booking for one franchise — open 30 days before expiry up to its last second — at the
+ * zone's current published fee, with an optional renewal coupon. Blocked when the zone is Inactive (§5.6).
+ */
+export async function startRenewal(allocationId: string, actor: Actor, input: { couponCode?: string | null } = {}) {
   const owner = await requireOwner(actor);
   const { version, config } = await franchiseConfig();
   const now = franchiseNow(config);
   const booking = await db.transaction(async (tx) => {
     const [alloc] = await tx.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, allocationId)).for("update");
-    if (!alloc || alloc.ownerDealerId !== owner.id) throw notFound("Area");
-    if (alloc.status !== "ACTIVE" || !alloc.expiresAt) throw conflict(alloc.status === "EXPIRED" ? "This area has expired; renewal is closed. Book it again if a slot is free." : "Only an active area can be renewed.");
+    if (!alloc || alloc.ownerDealerId !== owner.id) throw notFound("Franchise");
+    if (alloc.status !== "ACTIVE" || !alloc.expiresAt) throw conflict(alloc.status === "EXPIRED" ? "This franchise has expired; renewal is closed. Book the zone again if a slot is free." : "Only an active franchise can be renewed.");
     if (!renewalOpen(alloc.expiresAt, now, config.renewalWindowDays)) throw conflict(`Renewal opens ${config.renewalWindowDays} days before expiry (${formatIst(alloc.expiresAt)}).`);
-    const fee = renewalFeeFor(alloc, config);
-    if (fee == null) throw conflict("The renewal fee is not set yet. Contact GoKesari.");
+    const [zone] = await tx.select().from(franchiseZones).where(eq(franchiseZones.zoneId, alloc.zoneId));
+    if (zone?.status === "INACTIVE") throw conflict(`Zone ${alloc.zoneId} is inactive: renewal is closed. Your franchise runs to the end of its paid term (${formatIst(alloc.expiresAt)}).`);
+    const fee = await currentFee(alloc.zoneId, tx);
+    if (!fee) throw conflict("The zone's fee is not set. Contact GoKesari.");
     const [open] = await tx
       .select()
       .from(franchiseBookings)
@@ -504,15 +578,63 @@ export async function startRenewal(allocationId: string, actor: Actor) {
       .orderBy(desc(franchiseBookings.createdAt))
       .limit(1);
     if (open) return open;
-    const amounts = bookingAmounts(1, fee, config.gstRateBp);
+    const line: CartLine = { zoneId: alloc.zoneId, zoneSetCode: zone!.zoneSetCode, tier: fee.tier, listPaise: Number(fee.feePaise) };
+    const coupon = input.couponCode?.trim() ? await checkCoupon(input.couponCode, { dealerId: owner.id, kind: "RENEWAL", lines: [line], launchEligible: alloc.launchOffer, now }, tx) : null;
+    const amounts = cartAmounts([{ listPaise: line.listPaise, discountPaise: coupon?.discounts[0] ?? 0 }], config.gstRateBp);
+    const holdExpiresAt = new Date(Math.min(now.getTime() + config.reservationHoldMinutes * 60_000, alloc.expiresAt.getTime()));
     const [row] = await tx
       .insert(franchiseBookings)
-      .values({ ownerDealerId: owner.id, kind: "RENEWAL", status: "RESERVED", ...amounts, configVersion: version, launchOffer: alloc.launchOffer, renewalAllocationId: alloc.id, holdExpiresAt: new Date(Math.min(now.getTime() + config.reservationHoldMinutes * 60_000, alloc.expiresAt.getTime())), isTest: alloc.isTest, createdBy: actor.id })
+      .values({ ownerDealerId: owner.id, kind: "RENEWAL", status: "RESERVED", ...amounts, couponId: coupon?.coupon.id ?? null, couponCode: coupon?.coupon.code ?? null, configVersion: version, launchOffer: alloc.launchOffer, renewalAllocationId: alloc.id, holdExpiresAt, isTest: alloc.isTest, createdBy: actor.id })
       .returning();
-    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: row.id, newValue: { renewalOf: alloc.id, totalPaise: row.totalPaise } }, tx);
+    if (coupon) await holdRedemption(tx, { couponId: coupon.coupon.id, dealerId: owner.id, bookingId: row.id, discountPaise: amounts.discountPaise, heldUntil: holdExpiresAt });
+    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: row.id, newValue: { renewalOf: alloc.id, listPaise: amounts.listPaise, coupon: coupon?.coupon.code ?? null, totalPaise: row.totalPaise } }, tx);
     return row;
   });
   return startBookingPayment(booking.id, actor);
+}
+
+/**
+ * §7: when a free dealer buys a franchise, his team's earlier (free-dealership) shops in that zone attach to the
+ * franchise for recurring commission. Shops already attached to an earlier franchise of his are not restored (§4.2).
+ */
+export async function attachUpgradeShops(client: DbClient, allocation: Pick<FranchiseAllocation, "id" | "zoneId" | "ownerDealerId"> & { activatedAt: Date | null }): Promise<number> {
+  const rows = (await client.execute(sql`
+    insert into franchise_shop_attributions (shop_id, owner_dealer_id, allocation_id, zone_id, origin, member_id, status, registered_at, activated_at)
+    select sa.shop_id, ${allocation.ownerDealerId}::uuid, ${allocation.id}::uuid, ${allocation.zoneId}, 'UPGRADE', sa.salesperson_id, 'ACTIVE', s.created_at, s.approved_at
+    from shop_attributions sa
+    join shops s on s.id = sa.shop_id
+    join franchise_shop_area_periods p on p.shop_id = sa.shop_id and p.valid_to is null and p.zone_id = ${allocation.zoneId}
+    where sa.dealer_id = ${allocation.ownerDealerId}::uuid and sa.status = 'ACTIVE'
+      and not exists (select 1 from franchise_shop_attributions f where f.shop_id = sa.shop_id)
+    returning shop_id`)) as unknown as { shop_id: string }[];
+  if (rows.length) await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_ATTRIBUTION_CHANGED, entityType: "franchise_allocation", entityId: allocation.id, newValue: { upgradeShopsAttached: rows.length } }, client);
+  return rows.length;
+}
+
+/**
+ * Full refund of a franchise booking (§5.7): the booking is REFUNDED, its franchises are voided, codes closed, the
+ * coupon use released and the zones' Sold Out status re-checked. The money itself is refunded in the gateway.
+ */
+export async function refundBooking(bookingId: string, reason: string, actor: Actor): Promise<void> {
+  if (actor.role !== "ADMIN") throw forbidden("Only an admin can refund a franchise booking.");
+  if (reason.trim().length < 5) throw validationFailed("Give a reason of at least 5 characters.");
+  const zones = await db.transaction(async (tx) => {
+    const [b] = await tx.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId)).for("update");
+    if (!b) throw notFound("Booking");
+    if (b.status !== "PAID") throw conflict("Only a paid booking can be refunded.");
+    const now = new Date();
+    await tx.update(franchiseBookings).set({ status: "REFUNDED", failureReason: `refunded: ${reason.trim().slice(0, 200)}`, updatedAt: now }).where(eq(franchiseBookings.id, bookingId));
+    const allocs = b.kind === "NEW" ? await tx.select().from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, bookingId)) : [];
+    for (const a of allocs) {
+      if (!["ACTIVE", "SUSPENDED", "PAYMENT_PENDING_VERIFICATION", "RESERVED"].includes(a.status)) continue;
+      await tx.update(franchiseAllocations).set({ status: "CANCELLED", endedAt: now, endReason: `refunded: ${reason.trim().slice(0, 200)}`, tailEndAt: now, updatedAt: now }).where(eq(franchiseAllocations.id, a.id));
+      await closeAllocationCodes(tx, a, now);
+    }
+    await releaseRedemption(tx, bookingId, "booking refunded", now);
+    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: bookingId, newValue: { refunded: true, reason, allocations: allocs.map((a) => a.id) } }, tx);
+    return allocs.map((a) => a.zoneId);
+  });
+  for (const z of zones) await syncSoldOut(z);
 }
 
 /* ============================================================= admin: suspend / terminate / void */
@@ -534,7 +656,11 @@ export async function setAllocationStatus(allocationId: string, to: "SUSPENDED" 
       .where(eq(franchiseAllocations.id, allocationId))
       .returning();
     if (ending) await closeAllocationCodes(tx, a, now);
+    if (to === "CANCELLED") await releaseRedemption(tx, a.bookingId, "franchise voided", now);
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_allocation", entityId: allocationId, previousValue: { status: a.status }, newValue: { status: to, reason } }, tx);
+    return after;
+  }).then(async (after) => {
+    await syncSoldOut(after.zoneId);
     return after;
   });
 }

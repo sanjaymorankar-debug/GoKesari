@@ -702,8 +702,8 @@ export async function saveDraftDetails(input: { actor: Actor; details: DraftShop
   };
   // A referral code the platform requires (or one that is not valid) is caught here, not at payment.
   await assertRegistrationReferralCode(details.referralCode);
-  // 0157 franchise (docs/franchise): a franchise code works only for a shop inside the owner's active areas.
-  await (await import("@/server/franchise/codes")).assertCodeForLocation(details.referralCode, open?.latitude, open?.longitude);
+  // 0157 franchise (docs/franchise): a franchise code is closed for new shops once its franchise has ended.
+  await (await import("@/server/franchise/codes")).assertFranchiseCodeOpen(details.referralCode);
   // The name and PIN are both known now: the same rules as registerShop(), told here and not at "Create my shop and pay".
   const duplicate = await checkRegistrationDuplicate(
     { panNumber: open?.panEncrypted ? decryptSecret(open.panEncrypted) : null, name: details.name, addressLine1: details.addressLine1, pincode: details.pincode },
@@ -909,6 +909,22 @@ export async function submitDraftDocument(input: SubmitDraftDocumentInput): Prom
 
 /* ---------------------------------------------------------------- the map */
 
+/** Franchise brief 21-Nov-2026 §5.1: the owner confirms the shop's area (suggested from its PIN code and pin). */
+export async function saveDraftArea(input: { actor: Actor; areaId: string }): Promise<WizardView> {
+  const { areaById } = await import("@/server/franchise/zones");
+  const area = await areaById(input.areaId);
+  const draft = await db.transaction(async (tx) => {
+    const locked = await lockReadyDraft(tx, input.actor.id);
+    const [updated] = await tx
+      .update(shopRegistrationDrafts)
+      .set({ details: { ...(locked.details ?? {}), franchiseAreaId: area.id, franchiseAreaName: area.name }, updatedAt: new Date() })
+      .where(eq(shopRegistrationDrafts.id, locked.id))
+      .returning();
+    return updated;
+  });
+  return toWizardView(draft);
+}
+
 export async function saveDraftLocation(input: { actor: Actor; latitude: number; longitude: number; address?: string | null }): Promise<WizardView> {
   const { latitude, longitude } = input;
   // India's bounding box: a pin anywhere else is a slip of the finger.
@@ -1081,7 +1097,7 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
   const row = (t: DraftCheckDocType) => checks.find((c) => c.docType === t);
   const referralCode = await assertRegistrationReferralCode(details.referralCode);
   // 0157 franchise: the main guard — before any shop exists or any fee is paid.
-  await (await import("@/server/franchise/codes")).assertCodeForLocation(referralCode, open.latitude, open.longitude);
+  await (await import("@/server/franchise/codes")).assertFranchiseCodeOpen(referralCode);
   const rule = await getRule("sellerVerification");
   // 0120: on "upload later" a number tried and refused before the owner switched is not carried over.
   const later = false;
@@ -1160,6 +1176,8 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
     throw error;
   }
 
+  // Franchise brief 21-Nov-2026 §5.1: the area confirmed at the location step (else suggested) decides the zone.
+  await (await import("@/server/franchise/zones")).assignAreaAtRegistration(shop.id, { areaId: typeof open.details?.franchiseAreaId === "string" ? open.details.franchiseAreaId : null, latitude: open.latitude, longitude: open.longitude, pincode: details.pincode }, actor);
   // After the commit, as POST /api/shops does: referral code and dealer attribution never block the registration.
   if (referralCode) await attributeRegistrationReferral(shop, referralCode, actor);
   await recordShopAttributionSafely(shop.id, actor, { employeeText: details.employeeId ?? null });

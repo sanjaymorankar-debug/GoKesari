@@ -1,74 +1,172 @@
--- Franchise dealer module, Pune PMR area booking (owner brief 20-Nov-2026 22.50 IST; docs/franchise/README.md).
--- New tables only, plus three widened checks that keep every existing value: ledger entry types
--- ONE_TIME_FRANCHISE / RECURRING_BASE / RECURRING_BONUS, payment-intent purpose FRANCHISE_FEE, and four
--- nullable link columns on the ledger. Nothing is bookable until an admin approves a zone boundary and
--- switches booking on (franchise config `bookingOpen`). Rollback: scripts/rollback-0157.sql
-CREATE TABLE IF NOT EXISTS "franchise_regions" (
+-- Franchise dealer module: Pune franchise zones (owner's final brief 21-Nov-2026 08.06 IST; docs/franchise/README.md).
+-- New tables only, plus widened checks that keep every existing value: ledger entry types ONE_TIME_FRANCHISE /
+-- RECURRING_BASE / RECURRING_BONUS, payment-intent purpose FRANCHISE_FEE, nullable link columns on the ledger and on
+-- dealer_tier_shop_plans (the commission model and case of each shop). A zone is one of the 50 Pune clusters, with
+-- an area master (196 areas, 7 unzoned), provisional business index, tier and fee. Nothing is bookable until an
+-- admin sets zones Available, publishes final fees (or allows provisional sale) and switches booking on.
+-- Rollback: scripts/rollback-0157.sql
+CREATE TABLE IF NOT EXISTS "franchise_zone_sets" (
 	"code" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
 	"state" text NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "franchise_zone_sets_code" CHECK ("code" ~ '^[A-Z]{3}$')
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "franchise_clusters" (
-	"code" text PRIMARY KEY NOT NULL,
-	"region_code" text NOT NULL REFERENCES "franchise_regions"("code") ON DELETE restrict,
-	"name" text NOT NULL,
-	"sort_order" smallint NOT NULL
-);
---> statement-breakpoint
--- A bookable area. The owner of a slot lives on franchise_allocations, never here.
+-- One franchise zone (a cluster of areas). The owners of its slots live on franchise_allocations, never here.
+-- reserved_for_dealer_id has no foreign key on purpose (the service checks the dealer), so reference data never
+-- depends on a dealer row.
 CREATE TABLE IF NOT EXISTS "franchise_zones" (
 	"zone_id" text PRIMARY KEY NOT NULL,
-	"region_code" text NOT NULL REFERENCES "franchise_regions"("code") ON DELETE restrict,
-	"cluster_code" text NOT NULL REFERENCES "franchise_clusters"("code") ON DELETE restrict,
+	"zone_set_code" text NOT NULL REFERENCES "franchise_zone_sets"("code") ON DELETE restrict,
+	"cluster_no" integer NOT NULL,
 	"name" text NOT NULL,
-	"commercial_profile" text NOT NULL,
-	"origin" text NOT NULL,
-	"split_from_zone" text,
-	"parent_zone_id" text REFERENCES "franchise_zones"("zone_id") ON DELETE restrict,
-	"status" text DEFAULT 'BOUNDARY_PENDING' NOT NULL,
+	"region" text NOT NULL,
+	"civic_body" text,
+	"reason" text NOT NULL,
+	"status" text DEFAULT 'COMING_SOON' NOT NULL,
+	"reserved_for_dealer_id" uuid,
+	"reserved_until" timestamp with time zone,
 	"max_owners" smallint DEFAULT 2 NOT NULL,
 	"is_test" boolean DEFAULT false NOT NULL,
-	"sort_key" integer NOT NULL,
 	"status_reason" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "franchise_zones_id" CHECK ("zone_id" ~ '^[0-9]{1,3}[A-Z]?(-[0-9]{1,2})?$|^T-[A-Z0-9]{1,8}$'),
-	CONSTRAINT "franchise_zones_origin" CHECK ("origin" IN ('ORIGINAL', 'SPLIT', 'SUB_ZONE', 'TEST')),
-	CONSTRAINT "franchise_zones_status" CHECK ("status" IN ('BOUNDARY_PENDING', 'NEEDS_SPLIT', 'BOOKABLE', 'PAUSED', 'RETIRED')),
-	CONSTRAINT "franchise_zones_max_owners" CHECK ("max_owners" BETWEEN 0 AND 2)
+	CONSTRAINT "franchise_zones_id" CHECK ("zone_id" ~ '^GKZ-[A-Z]{3}-[0-9]{2,3}$|^T-[A-Z0-9]{1,8}$'),
+	CONSTRAINT "franchise_zones_status" CHECK ("status" IN ('AVAILABLE', 'COMING_SOON', 'RESERVED', 'ON_HOLD', 'SOLD_OUT', 'INACTIVE')),
+	CONSTRAINT "franchise_zones_reserved" CHECK ("status" <> 'RESERVED' OR ("reserved_for_dealer_id" IS NOT NULL AND "reserved_until" IS NOT NULL)),
+	CONSTRAINT "franchise_zones_max_owners" CHECK ("max_owners" BETWEEN 1 AND 2)
 );
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "franchise_zones_cluster_idx" ON "franchise_zones" ("cluster_code", "sort_key");
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_zones_cluster_unique" ON "franchise_zones" ("zone_set_code", "cluster_no") WHERE NOT "is_test";
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "franchise_zone_pins" (
-	"zone_id" text NOT NULL REFERENCES "franchise_zones"("zone_id") ON DELETE cascade,
-	"pincode" text NOT NULL,
-	CONSTRAINT "franchise_zone_pins_pk" PRIMARY KEY ("zone_id", "pincode"),
-	CONSTRAINT "franchise_zone_pins_pincode" CHECK ("pincode" ~ '^[1-9][0-9]{5}$')
+-- The area master: every area of a zone set; zone_id null = Unzoned (free teams only, no franchise sale).
+CREATE TABLE IF NOT EXISTS "franchise_areas" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"zone_set_code" text NOT NULL REFERENCES "franchise_zone_sets"("code") ON DELETE restrict,
+	"area_no" integer NOT NULL,
+	"name" text NOT NULL,
+	"region" text NOT NULL,
+	"civic_body" text,
+	"notes" text,
+	"zone_id" text REFERENCES "franchise_zones"("zone_id") ON DELETE restrict,
+	"lat" numeric(9, 6),
+	"lng" numeric(9, 6),
+	"pincodes" text[] DEFAULT '{}'::text[] NOT NULL,
+	"aliases" text[] DEFAULT '{}'::text[] NOT NULL,
+	"location_source" text DEFAULT 'APPROXIMATE' NOT NULL,
+	"is_test" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "franchise_areas_location_source" CHECK ("location_source" IN ('APPROXIMATE', 'ADMIN'))
 );
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "franchise_zone_pins_pincode_idx" ON "franchise_zone_pins" ("pincode");
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_areas_name_unique" ON "franchise_areas" ("zone_set_code", lower("name"));
 --> statement-breakpoint
--- The estimate inputs (shops, GMV per shop); monthly and annual area business are computed by the app.
-CREATE TABLE IF NOT EXISTS "franchise_zone_estimates" (
+CREATE INDEX IF NOT EXISTS "franchise_areas_zone_idx" ON "franchise_areas" ("zone_id");
+--> statement-breakpoint
+-- Each change of an area's zone (audit; commission after the change follows the new zone).
+CREATE TABLE IF NOT EXISTS "franchise_area_zone_history" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"area_id" uuid NOT NULL REFERENCES "franchise_areas"("id") ON DELETE restrict,
+	"old_zone_id" text,
+	"new_zone_id" text,
+	"reason" text NOT NULL,
+	"changed_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+-- A shop's area (and so its zone) over time: one open period (valid_to null) per shop. An admin / operator
+-- correction closes the open period and opens a new one, so commission before the change keeps the old zone.
+CREATE TABLE IF NOT EXISTS "franchise_shop_area_periods" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"shop_id" uuid NOT NULL REFERENCES "shops"("id") ON DELETE restrict,
+	"area_id" uuid NOT NULL REFERENCES "franchise_areas"("id") ON DELETE restrict,
+	"zone_id" text REFERENCES "franchise_zones"("zone_id") ON DELETE restrict,
+	"valid_from" timestamp with time zone DEFAULT now() NOT NULL,
+	"valid_to" timestamp with time zone,
+	"source" text NOT NULL,
+	"reason" text,
+	"set_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "franchise_shop_area_periods_source" CHECK ("source" IN ('REGISTRATION', 'ADMIN', 'OPERATOR', 'BACKFILL')),
+	CONSTRAINT "franchise_shop_area_periods_dates" CHECK ("valid_to" IS NULL OR "valid_to" > "valid_from")
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_shop_area_periods_open_unique" ON "franchise_shop_area_periods" ("shop_id") WHERE "valid_to" IS NULL;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "franchise_shop_area_periods_zone_idx" ON "franchise_shop_area_periods" ("zone_id", "valid_from");
+--> statement-breakpoint
+-- A zone's business figure: the provisional index from the seed or an imported annual business (₹ Cr), with its
+-- source and as-of date. An import is a batch of DRAFT rows; publishing makes them PUBLISHED (one per zone).
+CREATE TABLE IF NOT EXISTS "franchise_zone_business" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"zone_id" text NOT NULL REFERENCES "franchise_zones"("zone_id") ON DELETE cascade,
-	"est_shop_count" integer NOT NULL,
-	"gmv_per_shop_lakh" numeric(8, 2) NOT NULL,
-	"as_of" date NOT NULL,
+	"batch_id" uuid NOT NULL,
+	"metric" text NOT NULL,
+	"value" numeric(14, 2) NOT NULL,
 	"source" text NOT NULL,
-	"is_current" boolean DEFAULT true NOT NULL,
+	"as_of" date NOT NULL,
+	"provisional" boolean DEFAULT false NOT NULL,
+	"status" text DEFAULT 'DRAFT' NOT NULL,
 	"created_by" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "franchise_zone_estimates_shops" CHECK ("est_shop_count" >= 0),
-	CONSTRAINT "franchise_zone_estimates_gmv" CHECK ("gmv_per_shop_lakh" >= 0)
+	"published_by" uuid,
+	"published_at" timestamp with time zone,
+	CONSTRAINT "franchise_zone_business_metric" CHECK ("metric" IN ('INDEX', 'ANNUAL_CR')),
+	CONSTRAINT "franchise_zone_business_value" CHECK ("value" >= 0),
+	CONSTRAINT "franchise_zone_business_status" CHECK ("status" IN ('DRAFT', 'PUBLISHED', 'SUPERSEDED', 'DISCARDED'))
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "franchise_zone_estimates_current_unique" ON "franchise_zone_estimates" ("zone_id") WHERE "is_current";
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_zone_business_published_unique" ON "franchise_zone_business" ("zone_id") WHERE "status" = 'PUBLISHED';
 --> statement-breakpoint
--- A zone's boundary: reference point plus a polygon ([[lat, lng], ...]) or a circle. One APPROVED row per zone.
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_zone_business_batch_unique" ON "franchise_zone_business" ("batch_id", "zone_id");
+--> statement-breakpoint
+-- A zone's tier and annual fee from a published business figure (brief §5.2). New bookings and renewals use the
+-- current version; an active franchise keeps the fee it paid (franchise_allocations.fee_paise) for its term.
+CREATE TABLE IF NOT EXISTS "franchise_zone_fee_versions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"zone_id" text NOT NULL REFERENCES "franchise_zones"("zone_id") ON DELETE cascade,
+	"business_id" uuid REFERENCES "franchise_zone_business"("id") ON DELETE restrict,
+	"tier" text NOT NULL,
+	"value" numeric(14, 2) NOT NULL,
+	"average" numeric(14, 4) NOT NULL,
+	"diff_bp" integer NOT NULL,
+	"fee_paise" bigint NOT NULL,
+	"reason" text NOT NULL,
+	"provisional" boolean DEFAULT false NOT NULL,
+	"effective_from" timestamp with time zone DEFAULT now() NOT NULL,
+	"superseded_at" timestamp with time zone,
+	"created_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "franchise_zone_fee_versions_tier" CHECK ("tier" IN ('PREMIER', 'STANDARD', 'EMERGING')),
+	CONSTRAINT "franchise_zone_fee_versions_fee" CHECK ("fee_paise" > 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_zone_fee_versions_current_unique" ON "franchise_zone_fee_versions" ("zone_id") WHERE "superseded_at" IS NULL;
+--> statement-breakpoint
+-- Every zone status change (who, old, new, reason, IST time shown in the app) and every scheduled change.
+CREATE TABLE IF NOT EXISTS "franchise_zone_status_history" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"zone_id" text NOT NULL REFERENCES "franchise_zones"("zone_id") ON DELETE cascade,
+	"old_status" text,
+	"new_status" text NOT NULL,
+	"reason" text NOT NULL,
+	"reserved_for_dealer_id" uuid,
+	"reserved_until" timestamp with time zone,
+	"changed_by" uuid,
+	"scheduled_for" timestamp with time zone,
+	"applied_at" timestamp with time zone,
+	"cancelled_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "franchise_zone_status_history_new" CHECK ("new_status" IN ('AVAILABLE', 'COMING_SOON', 'RESERVED', 'ON_HOLD', 'SOLD_OUT', 'INACTIVE'))
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "franchise_zone_status_history_zone_idx" ON "franchise_zone_status_history" ("zone_id", "created_at");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "franchise_zone_status_history_due_idx" ON "franchise_zone_status_history" ("scheduled_for") WHERE "applied_at" IS NULL AND "cancelled_at" IS NULL;
+--> statement-breakpoint
+-- A zone's map shape (optional): reference point plus a polygon ([[lat, lng], ...]) or a circle. One APPROVED row.
 CREATE TABLE IF NOT EXISTS "franchise_zone_boundaries" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"zone_id" text NOT NULL REFERENCES "franchise_zones"("zone_id") ON DELETE cascade,
@@ -122,14 +220,69 @@ CREATE TABLE IF NOT EXISTS "franchise_agreement_acceptances" (
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "franchise_agreement_acceptances_owner_idx" ON "franchise_agreement_acceptances" ("owner_dealer_id", "accepted_at");
 --> statement-breakpoint
--- A cart / order: one or more zones (NEW) or one allocation's renewal (RENEWAL), paid together.
+-- Coupon codes on franchise fees (brief §5.7). The code is unique ignoring case; scope is
+-- {"all":true} or any of {"zoneSets":[...],"tiers":[...],"zones":[...]}. EXPIRED is worked out from the dates
+-- and the uses, never stored.
+CREATE TABLE IF NOT EXISTS "franchise_coupons" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"code" text NOT NULL,
+	"name" text NOT NULL,
+	"note" text,
+	"discount_type" text NOT NULL,
+	"percent_bp" integer,
+	"flat_paise" bigint,
+	"max_discount_paise" bigint,
+	"scope" jsonb DEFAULT '{"all":true}'::jsonb NOT NULL,
+	"applies_on" text DEFAULT 'BOTH' NOT NULL,
+	"visibility" text DEFAULT 'PUBLIC' NOT NULL,
+	"starts_at" timestamp with time zone NOT NULL,
+	"ends_at" timestamp with time zone NOT NULL,
+	"total_limit" integer,
+	"per_dealer_limit" integer,
+	"min_cart_paise" bigint,
+	"first_purchase_only" boolean DEFAULT false NOT NULL,
+	"launch_only" boolean DEFAULT false NOT NULL,
+	"status" text DEFAULT 'ACTIVE' NOT NULL,
+	"created_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "franchise_coupons_code" CHECK ("code" ~ '^[A-Za-z0-9_-]{3,30}$'),
+	CONSTRAINT "franchise_coupons_type" CHECK (("discount_type" = 'PERCENT' AND "percent_bp" BETWEEN 1 AND 10000 AND "flat_paise" IS NULL) OR ("discount_type" = 'FLAT' AND "flat_paise" > 0 AND "percent_bp" IS NULL)),
+	CONSTRAINT "franchise_coupons_applies_on" CHECK ("applies_on" IN ('NEW', 'RENEWAL', 'BOTH')),
+	CONSTRAINT "franchise_coupons_visibility" CHECK ("visibility" IN ('PUBLIC', 'PRIVATE')),
+	CONSTRAINT "franchise_coupons_status" CHECK ("status" IN ('ACTIVE', 'PAUSED')),
+	CONSTRAINT "franchise_coupons_dates" CHECK ("ends_at" > "starts_at"),
+	CONSTRAINT "franchise_coupons_limits" CHECK (coalesce("total_limit", 1) > 0 AND coalesce("per_dealer_limit", 1) > 0 AND coalesce("min_cart_paise", 0) >= 0 AND coalesce("max_discount_paise", 1) > 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_coupons_code_unique" ON "franchise_coupons" (lower("code"));
+--> statement-breakpoint
+-- A private coupon's dealers: by dealer, mobile (+91…) or e-mail.
+CREATE TABLE IF NOT EXISTS "franchise_coupon_assignments" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"coupon_id" uuid NOT NULL REFERENCES "franchise_coupons"("id") ON DELETE cascade,
+	"dealer_id" uuid REFERENCES "dealers"("id") ON DELETE restrict,
+	"mobile_e164" text,
+	"email" text,
+	"created_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "franchise_coupon_assignments_one" CHECK (num_nonnulls("dealer_id", "mobile_e164", "email") = 1)
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "franchise_coupon_assignments_coupon_idx" ON "franchise_coupon_assignments" ("coupon_id");
+--> statement-breakpoint
+-- A cart / order: one or more zones (NEW) or one allocation's renewal (RENEWAL), paid together. list = the zones'
+-- list fees; base = list − discount (taxable); total = base + GST.
 CREATE TABLE IF NOT EXISTS "franchise_bookings" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"owner_dealer_id" uuid NOT NULL REFERENCES "dealers"("id") ON DELETE restrict,
 	"kind" text DEFAULT 'NEW' NOT NULL,
 	"status" text DEFAULT 'RESERVED' NOT NULL,
 	"area_count" integer NOT NULL,
-	"fee_per_area_paise" bigint NOT NULL,
+	"list_paise" bigint NOT NULL,
+	"discount_paise" bigint DEFAULT 0 NOT NULL,
+	"coupon_id" uuid REFERENCES "franchise_coupons"("id") ON DELETE restrict,
+	"coupon_code" text,
 	"base_paise" bigint NOT NULL,
 	"gst_rate_bp" integer NOT NULL,
 	"gst_paise" bigint NOT NULL,
@@ -147,16 +300,38 @@ CREATE TABLE IF NOT EXISTS "franchise_bookings" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "franchise_bookings_kind" CHECK ("kind" IN ('NEW', 'RENEWAL')),
-	CONSTRAINT "franchise_bookings_status" CHECK ("status" IN ('RESERVED', 'PAYMENT_PENDING', 'PAID', 'FAILED', 'EXPIRED', 'CANCELLED')),
-	CONSTRAINT "franchise_bookings_amounts" CHECK ("area_count" > 0 AND "fee_per_area_paise" > 0 AND "base_paise" = "fee_per_area_paise" * "area_count" AND "gst_paise" >= 0 AND "total_paise" = "base_paise" + "gst_paise")
+	CONSTRAINT "franchise_bookings_status" CHECK ("status" IN ('RESERVED', 'PAYMENT_PENDING', 'PAID', 'FAILED', 'EXPIRED', 'CANCELLED', 'REFUNDED')),
+	CONSTRAINT "franchise_bookings_amounts" CHECK ("area_count" > 0 AND "list_paise" > 0 AND "discount_paise" >= 0 AND "base_paise" = "list_paise" - "discount_paise" AND "base_paise" >= "area_count" * 100 AND "gst_paise" >= 0 AND "total_paise" = "base_paise" + "gst_paise")
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "franchise_bookings_owner_idx" ON "franchise_bookings" ("owner_dealer_id", "created_at");
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "franchise_bookings_intent_unique" ON "franchise_bookings" ("payment_intent_id") WHERE "payment_intent_id" IS NOT NULL;
 --> statement-breakpoint
+-- A coupon's use on one booking: HELD from checkout, USED once the payment succeeds, RELEASED when the payment
+-- fails, times out or the booking is fully refunded. Limits count USED and live HELD uses.
+CREATE TABLE IF NOT EXISTS "franchise_coupon_redemptions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"coupon_id" uuid NOT NULL REFERENCES "franchise_coupons"("id") ON DELETE restrict,
+	"owner_dealer_id" uuid NOT NULL REFERENCES "dealers"("id") ON DELETE restrict,
+	"booking_id" uuid NOT NULL REFERENCES "franchise_bookings"("id") ON DELETE restrict,
+	"discount_paise" bigint NOT NULL,
+	"status" text DEFAULT 'HELD' NOT NULL,
+	"held_until" timestamp with time zone NOT NULL,
+	"used_at" timestamp with time zone,
+	"released_at" timestamp with time zone,
+	"release_reason" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "franchise_coupon_redemptions_status" CHECK ("status" IN ('HELD', 'USED', 'RELEASED'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_coupon_redemptions_booking_unique" ON "franchise_coupon_redemptions" ("booking_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "franchise_coupon_redemptions_coupon_idx" ON "franchise_coupon_redemptions" ("coupon_id", "status");
+--> statement-breakpoint
 -- One owner's slot in one zone. The capacity rule lives in the two partial unique indexes below: a zone has
--- slots 1 and 2 only, each held by one occupying allocation, and one owner never holds both.
+-- slots 1 and 2 only, each held by one occupying allocation, and one owner never holds both. fee_paise is the
+-- zone's list fee, locked for the term; discount_paise is this payment's coupon share.
 CREATE TABLE IF NOT EXISTS "franchise_allocations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"zone_id" text NOT NULL REFERENCES "franchise_zones"("zone_id") ON DELETE restrict,
@@ -171,6 +346,9 @@ CREATE TABLE IF NOT EXISTS "franchise_allocations" (
 	"tail_end_at" timestamp with time zone,
 	"renewal_count" integer DEFAULT 0 NOT NULL,
 	"fee_paise" bigint NOT NULL,
+	"discount_paise" bigint DEFAULT 0 NOT NULL,
+	"tier" text NOT NULL,
+	"fee_version_id" uuid REFERENCES "franchise_zone_fee_versions"("id") ON DELETE restrict,
 	"config_version" integer NOT NULL REFERENCES "franchise_config_versions"("version") ON DELETE restrict,
 	"launch_offer" boolean DEFAULT false NOT NULL,
 	"launch_seq" integer,
@@ -180,6 +358,8 @@ CREATE TABLE IF NOT EXISTS "franchise_allocations" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "franchise_allocations_slot" CHECK ("slot_no" IN (1, 2)),
+	CONSTRAINT "franchise_allocations_tier" CHECK ("tier" IN ('PREMIER', 'STANDARD', 'EMERGING')),
+	CONSTRAINT "franchise_allocations_discount" CHECK ("discount_paise" >= 0 AND "discount_paise" < "fee_paise"),
 	CONSTRAINT "franchise_allocations_status" CHECK ("status" IN ('RESERVED', 'PAYMENT_PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED', 'EXPIRED', 'TERMINATED', 'CANCELLED', 'RESERVATION_EXPIRED', 'PAYMENT_FAILED')),
 	CONSTRAINT "franchise_allocations_active_dates" CHECK ("status" NOT IN ('ACTIVE', 'SUSPENDED', 'EXPIRED') OR ("activated_at" IS NOT NULL AND "expires_at" > "activated_at"))
 );
@@ -201,6 +381,8 @@ CREATE TABLE IF NOT EXISTS "franchise_allocation_renewals" (
 	"previous_expires_at" timestamp with time zone NOT NULL,
 	"new_expires_at" timestamp with time zone NOT NULL,
 	"fee_paise" bigint NOT NULL,
+	"discount_paise" bigint DEFAULT 0 NOT NULL,
+	"tier" text,
 	"paid_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "franchise_allocation_renewals_dates" CHECK ("new_expires_at" > "previous_expires_at")
@@ -218,14 +400,13 @@ CREATE TABLE IF NOT EXISTS "franchise_campaigns" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
--- A dealer code (GKF-xxxxxx): one per dealer per booked area (allocation_id; brief 21-Nov-2026 §1.4), or a team
--- member's tracking code (member_id, allocation_id null) that counts for the owner's areas.
+-- A franchise code (GKF-xxxxxx), one per owner per franchise (allocation): an alias of the owner's own code that
+-- is closed for new shops when the franchise expires. Who registered a shop is the code; its zone is its area.
 CREATE TABLE IF NOT EXISTS "franchise_codes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"referral_code_id" uuid NOT NULL REFERENCES "referral_codes"("id") ON DELETE restrict,
 	"owner_dealer_id" uuid NOT NULL REFERENCES "dealers"("id") ON DELETE restrict,
-	"allocation_id" uuid REFERENCES "franchise_allocations"("id") ON DELETE restrict,
-	"member_id" uuid REFERENCES "dealer_salespeople"("id") ON DELETE restrict,
+	"allocation_id" uuid NOT NULL REFERENCES "franchise_allocations"("id") ON DELETE restrict,
 	"status" text DEFAULT 'ACTIVE' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -234,26 +415,27 @@ CREATE TABLE IF NOT EXISTS "franchise_codes" (
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "franchise_codes_referral_unique" ON "franchise_codes" ("referral_code_id");
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "franchise_codes_allocation_unique" ON "franchise_codes" ("allocation_id") WHERE "allocation_id" IS NOT NULL AND "member_id" IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "franchise_codes_allocation_unique" ON "franchise_codes" ("allocation_id");
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "franchise_codes_member_unique" ON "franchise_codes" ("member_id") WHERE "member_id" IS NOT NULL AND "status" = 'ACTIVE';
---> statement-breakpoint
--- A shop registered with a franchise code: which owner, allocation and zone it earns for.
+-- A shop registered by a franchise owner's own team (or the owner) and the franchise it belongs to: Model B shops
+-- (origin TEAM) and, on an upgrade from the free dealership, the team's earlier shops in the bought zone
+-- (UPGRADE). The owner keeps recurring commission on these through the franchise's tail. Shops of free teams are
+-- not here: they attach to the zone's active franchises month by month (brief §6).
 CREATE TABLE IF NOT EXISTS "franchise_shop_attributions" (
 	"shop_id" uuid PRIMARY KEY NOT NULL REFERENCES "shops"("id") ON DELETE restrict,
 	"owner_dealer_id" uuid NOT NULL REFERENCES "dealers"("id") ON DELETE restrict,
 	"allocation_id" uuid NOT NULL REFERENCES "franchise_allocations"("id") ON DELETE restrict,
 	"zone_id" text NOT NULL REFERENCES "franchise_zones"("zone_id") ON DELETE restrict,
-	"franchise_code_id" uuid NOT NULL REFERENCES "franchise_codes"("id") ON DELETE restrict,
+	"origin" text DEFAULT 'TEAM' NOT NULL,
+	"franchise_code_id" uuid REFERENCES "franchise_codes"("id") ON DELETE restrict,
 	"member_id" uuid REFERENCES "dealer_salespeople"("id") ON DELETE restrict,
 	"status" text DEFAULT 'ACTIVE' NOT NULL,
 	"hold_reason" text,
-	"override_reason" text,
-	"override_by" uuid,
 	"registered_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"activated_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "franchise_shop_attributions_origin" CHECK ("origin" IN ('TEAM', 'UPGRADE')),
 	CONSTRAINT "franchise_shop_attributions_status" CHECK ("status" IN ('ACTIVE', 'HELD', 'REVERSED'))
 );
 --> statement-breakpoint
@@ -273,9 +455,9 @@ CREATE TABLE IF NOT EXISTS "franchise_shop_attribution_history" (
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "franchise_shop_attribution_history_shop_idx" ON "franchise_shop_attribution_history" ("shop_id", "created_at");
 --> statement-breakpoint
--- The monthly bonus calculation per dealer code (brief 21-Nov-2026 §3, §5): opening shops (frozen at the first run),
--- baseline, new shops, business, points, bonus, rate, rating and the payout lines. DRAFT until the payout is locked
--- on the 5th; after that it never changes and later corrections go to the next month's adjustments.
+-- The monthly bonus calculation per franchise (brief §4.1): opening shops (frozen at the first run), baseline, new
+-- shops, business, points, bonus, rate and the payout lines. DRAFT until the payout is locked on the 5th; after
+-- that it never changes and later corrections go to the next month's adjustments.
 CREATE TABLE IF NOT EXISTS "franchise_monthly_snapshots" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"allocation_id" uuid NOT NULL REFERENCES "franchise_allocations"("id") ON DELETE restrict,
@@ -317,7 +499,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS "franchise_monthly_snapshots_unique" ON "franc
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "franchise_monthly_snapshots_owner_idx" ON "franchise_monthly_snapshots" ("owner_dealer_id", "month");
 --> statement-breakpoint
--- Every expiry reminder / alert / digest sent (recipient, channel, time) — also the guard against sending twice.
+-- Every expiry reminder / alert / digest / zone notice sent (recipient, channel, time) — also the guard against
+-- sending twice.
 CREATE TABLE IF NOT EXISTS "franchise_notification_log" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"allocation_id" uuid REFERENCES "franchise_allocations"("id") ON DELETE restrict,
@@ -360,6 +543,23 @@ CREATE TABLE IF NOT EXISTS "franchise_calc_runs" (
 	CONSTRAINT "franchise_calc_runs_kind" CHECK ("kind" IN ('MONTHLY')),
 	CONSTRAINT "franchise_calc_runs_status" CHECK ("status" IN ('RUNNING', 'DONE', 'FAILED'))
 );
+--> statement-breakpoint
+-- Each shop's frozen commission plan records the model and case (A1–A4 free dealership, B1–B4 paid franchise) and,
+-- for Model B, the franchise and zone (brief §3: a hierarchy snapshot on every commission record).
+ALTER TABLE "dealer_tier_shop_plans" ADD COLUMN IF NOT EXISTS "model" text DEFAULT 'A' NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "dealer_tier_shop_plans" ADD COLUMN IF NOT EXISTS "case_code" text;
+--> statement-breakpoint
+ALTER TABLE "dealer_tier_shop_plans" ADD COLUMN IF NOT EXISTS "franchise_allocation_id" uuid REFERENCES "franchise_allocations"("id") ON DELETE restrict;
+--> statement-breakpoint
+ALTER TABLE "dealer_tier_shop_plans" ADD COLUMN IF NOT EXISTS "franchise_zone_id" text;
+--> statement-breakpoint
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dealer_tier_shop_plans_model') THEN
+		ALTER TABLE "dealer_tier_shop_plans" ADD CONSTRAINT "dealer_tier_shop_plans_model" CHECK ("model" IN ('A', 'B'));
+	END IF;
+END $$;
 --> statement-breakpoint
 -- Ledger: link columns (all nullable) and the three franchise entry types, keeping every existing type.
 ALTER TABLE "dealer_commission_ledger" ADD COLUMN IF NOT EXISTS "franchise_allocation_id" uuid REFERENCES "franchise_allocations"("id") ON DELETE restrict;
@@ -410,323 +610,379 @@ BEGIN
 		(SELECT string_agg(quote_literal(v), ', ' ORDER BY v) FROM unnest(vals) v));
 END $$;
 --> statement-breakpoint
-INSERT INTO "franchise_regions" ("code", "name", "state") VALUES ('PMR', 'Pune Metropolitan Region', 'Maharashtra') ON CONFLICT DO NOTHING;
+INSERT INTO "franchise_zone_sets" ("code", "name", "state") VALUES ('PUN', 'Pune', 'Maharashtra') ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "franchise_campaigns" ("code") VALUES ('LAUNCH') ON CONFLICT DO NOTHING;
 --> statement-breakpoint
--- The Pune PMR territory master: 7 macro clusters, 91 zones, their PIN codes and estimates (docs/franchise/pune_pmr_91_zones_seed.csv).
-INSERT INTO "franchise_clusters" ("code", "region_code", "name", "sort_order") VALUES
-	('C1', 'PMR', 'Central Core & Peth Areas', 1),
-	('C2', 'PMR', 'East Corridor (Nagar Rd & Hadapsar)', 2),
-	('C3', 'PMR', 'South-East & South Corridor', 3),
-	('C4', 'PMR', 'West Corridor (Kothrud & Baner)', 4),
-	('C5', 'PMR', 'North-West IT & Residential Belt', 5),
-	('C6', 'PMR', 'PCMC Core & Industrial Belt', 6),
-	('C7', 'PMR', 'Outer PMR Growth Corridors', 7)
+-- The 50 Pune franchise zones (one cluster each), Coming Soon until an admin opens them.
+INSERT INTO "franchise_zones" ("zone_id", "zone_set_code", "cluster_no", "name", "region", "civic_body", "reason", "status", "status_reason") VALUES
+	('GKZ-PUN-01', 'PUN', 1, 'Peth West', 'Central', 'PMC', 'Dense old-city retail peths', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-02', 'PUN', 2, 'Peth East', 'Central', 'PMC', 'Wholesale trade peths (Raviwar, Budhwar, Ganj)', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-03', 'PUN', 3, 'Shivajinagar–Deccan', 'Central', 'PMC', 'FC/JM Road high street, education hub', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-04', 'PUN', 4, 'Swargate–Market Yard', 'Central', 'PMC', 'APMC wholesale market, transport hub', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-05', 'PUN', 5, 'Camp–Pune Station', 'Central', 'PMC / Cantonment', 'MG Road retail, railway station', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-06', 'PUN', 6, 'Kothrud', 'West', 'PMC', 'Large affluent residential market', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-07', 'PUN', 7, 'Karve Nagar–Erandwane', 'West', 'PMC', 'Established residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-08', 'PUN', 8, 'Warje–Shivane', 'West', 'PMC', 'Growing residential, newer merged areas', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-09', 'PUN', 9, 'Bavdhan–Sus', 'West', 'PMC', 'Newer residential, low shop density', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-10', 'PUN', 10, 'Baner–Balewadi', 'North-West', 'PMC', 'IT offices and high street', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-11', 'PUN', 11, 'Aundh–Pashan', 'North-West', 'PMC', 'Affluent residential, university area', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-12', 'PUN', 12, 'Khadki–Bopodi', 'North-West', 'PMC / Cantonment', 'Cantonment, limited retail', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-13', 'PUN', 13, 'Yerawada', 'North', 'PMC', 'Mixed residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-14', 'PUN', 14, 'Vishrantwadi–Dhanori', 'North', 'PMC', 'Growing residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-15', 'PUN', 15, 'Lohegaon', 'North', 'PMC', 'Airport area, lower shop density', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-16', 'PUN', 16, 'Viman Nagar–Kalyani Nagar', 'North / East', 'PMC', 'Premium residential and malls', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-17', 'PUN', 17, 'Koregaon Park–Mundhwa', 'East', 'PMC', 'Premium residential, dining', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-18', 'PUN', 18, 'Wadgaon Sheri–Chandan Nagar', 'East', 'PMC', 'Established residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-19', 'PUN', 19, 'Kharadi', 'East', 'PMC', 'IT hub (EON IT Park)', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-20', 'PUN', 20, 'Wagholi', 'East', 'PMC / Gram Panchayat', 'Fast-growing fringe', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-21', 'PUN', 21, 'Hadapsar', 'South-East', 'PMC', 'Large population and market', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-22', 'PUN', 22, 'Magarpatta–Amanora', 'South-East', 'PMC', 'IT townships', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-23', 'PUN', 23, 'Manjri–Shewalewadi', 'South-East', 'PMC', 'Newly merged, developing', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-24', 'PUN', 24, 'Wanowrie–Fatima Nagar', 'South-East', 'PMC', 'Established residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-25', 'PUN', 25, 'Kondhwa–NIBM', 'South-East', 'PMC', 'Dense residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-26', 'PUN', 26, 'Undri–Pisoli', 'South-East', 'PMC', 'Newly merged, developing', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-27', 'PUN', 27, 'Fursungi–Uruli Devachi', 'South-East', 'Municipal Council', 'Peri-urban council area', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-28', 'PUN', 28, 'Bibwewadi', 'South', 'PMC', 'Established residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-29', 'PUN', 29, 'Sahakar Nagar–Dhankawadi', 'South', 'PMC', 'Established residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-30', 'PUN', 30, 'Katraj', 'South', 'PMC', 'Residential, highway trade', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-31', 'PUN', 31, 'Ambegaon', 'South', 'PMC', 'Newly merged, developing', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-32', 'PUN', 32, 'Sinhagad Road', 'South', 'PMC', 'Dense residential corridor', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-33', 'PUN', 33, 'Dhayari–Narhe', 'South', 'PMC', 'Growing residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-34', 'PUN', 34, 'Nanded City–Khadakwasla', 'South', 'PMC', 'Township and newly merged villages', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-35', 'PUN', 35, 'Pimpri', 'Pimpri-Chinchwad', 'PCMC', 'Pimpri market, PCMC trade centre', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-36', 'PUN', 36, 'Chinchwad', 'Pimpri-Chinchwad', 'PCMC', 'Established commercial', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-37', 'PUN', 37, 'Akurdi–Nigdi', 'Pimpri-Chinchwad', 'PCMC', 'Planned residential (Pradhikaran)', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-38', 'PUN', 38, 'Bhosari', 'Pimpri-Chinchwad', 'PCMC', 'MIDC industrial area', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-39', 'PUN', 39, 'Moshi–Chikhali', 'Pimpri-Chinchwad', 'PCMC', 'Growing residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-40', 'PUN', 40, 'Dighi–Charholi', 'Pimpri-Chinchwad', 'PCMC', 'Developing fringe', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-41', 'PUN', 41, 'Wakad', 'Pimpri-Chinchwad', 'PCMC', 'IT-linked premium residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-42', 'PUN', 42, 'Thergaon–Rahatani', 'Pimpri-Chinchwad', 'PCMC', 'Dense residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-43', 'PUN', 43, 'Ravet–Punawale', 'Pimpri-Chinchwad', 'PCMC', 'Fast-growing residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-44', 'PUN', 44, 'Pimple Saudagar–Gurav', 'Pimpri-Chinchwad', 'PCMC', 'Affluent residential, high street', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-45', 'PUN', 45, 'Sangvi–Dapodi', 'Pimpri-Chinchwad', 'PCMC', 'Established residential', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-46', 'PUN', 46, 'Hinjewadi', 'Fringe', 'Gram Panchayat (PMRDA)', 'Rajiv Gandhi Infotech Park', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-47', 'PUN', 47, 'Pirangut–Mulshi', 'Fringe', 'Gram Panchayat (PMRDA)', 'Rural-fringe villages', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-48', 'PUN', 48, 'Dehu Road–Talegaon', 'Fringe', 'Cantonment / Councils', 'Cantonment and council towns', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-49', 'PUN', 49, 'Chakan–Alandi', 'Fringe', 'Municipal Councils', 'Auto/industrial hub, pilgrimage town', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)'),
+	('GKZ-PUN-50', 'PUN', 50, 'Loni Kalbhor–Theur', 'Fringe', 'Gram Panchayat (PMRDA)', 'Rural-fringe villages', 'COMING_SOON', 'Seeded from the owner''s zone list (21-Nov-2026)')
 ON CONFLICT DO NOTHING;
 --> statement-breakpoint
-INSERT INTO "franchise_zones" ("zone_id", "region_code", "cluster_code", "name", "commercial_profile", "origin", "split_from_zone", "sort_key") VALUES
-	('1A', 'PMR', 'C1', 'Mandai & Tulsibaug Market', 'High-Footfall Retail & General Trade', 'SPLIT', '1', 101),
-	('1B', 'PMR', 'C1', 'Budhwar Peth (Electronics & Book Market)', 'Electronics, Optics & Wholesale', 'SPLIT', '1', 102),
-	('2A', 'PMR', 'C1', 'Raviwar Peth (Kapad Ganj & Wholesale Cloth)', 'Textiles & Apparel Wholesale', 'SPLIT', '2', 201),
-	('2B', 'PMR', 'C1', 'Bohri Ali & Ganesh Peth (Hardware & Electricals)', 'Hardware, Paint & Electrical Wholesale', 'SPLIT', '2', 202),
-	('2C', 'PMR', 'C1', 'Raviwar Peth East & Phadke Haud Belt', 'General Wholesale & Packaging', 'SPLIT', '2', 203),
-	('3A', 'PMR', 'C1', 'Shukrawar Peth (Mandai South & Bajirao Rd)', 'Dense Retail & Hardware Trade', 'SPLIT', '3', 301),
-	('3B', 'PMR', 'C1', 'Swargate North, Jedhe Chowk & Ghorpade Peth', 'Transit Hub & Wholesale Fringe', 'SPLIT', '3', 302),
-	('4', 'PMR', 'C1', 'Sadashiv Peth & Tilak Road', 'Traditional Retail & Commercial', 'ORIGINAL', NULL, 400),
-	('5A', 'PMR', 'C1', 'Laxmi Road (Belbaug Chowk to Umbrya Ganpati)', 'Jewelry & Bridal High-Street', 'SPLIT', '5', 501),
-	('5B', 'PMR', 'C1', 'Narayan Peth & Kelkar Road', 'Apparel, Books & Commercial Retail', 'SPLIT', '5', 502),
-	('6', 'PMR', 'C1', 'Kasba Peth & Somwar Peth', 'Old City Mixed Retail', 'ORIGINAL', NULL, 600),
-	('7A', 'PMR', 'C1', 'Nana Peth & Quarter Gate (Auto Spare Parts Hub)', 'Automotive & Machinery Wholesale', 'SPLIT', '7', 701),
-	('7B', 'PMR', 'C1', 'Rasta Peth & Bhavani Peth North', 'Electricals, Timber & Retail', 'SPLIT', '7', 702),
-	('8A', 'PMR', 'C1', 'Camp – MG Road & Aurora Towers Belt', 'Premium High-Street & Apparel', 'SPLIT', '8', 801),
-	('8B', 'PMR', 'C1', 'East Street, Sachapir Street & Center Street', 'F&B, Footwear & Heritage Retail', 'SPLIT', '8', 802),
-	('9A', 'PMR', 'C1', 'JM Road & Deccan Gymkhana', 'Youth High-Street, F&B & Retail', 'SPLIT', '9', 901),
-	('9B', 'PMR', 'C1', 'Shivajinagar & Patil Estate Commercial', 'Commercial Offices, Auto & Retail', 'SPLIT', '9', 902),
-	('10', 'PMR', 'C1', 'FC Road, Model Colony & Gokhalenagar', 'Student, F&B & Retail Hub', 'ORIGINAL', NULL, 1000),
-	('11A', 'PMR', 'C1', 'Gultekdi Market Yard (Wholesale Agri & Grain Block)', 'Agri-Commodity Wholesale', 'SPLIT', '11', 1101),
-	('11B', 'PMR', 'C1', 'Gultekdi Fruits, Veg & Cold Storage Hub', 'Perishables & Bulk Wholesale', 'SPLIT', '11', 1102),
-	('11C', 'PMR', 'C1', 'Timber Market & Bhavani Peth South', 'Timber, Plywood & Hardware Wholesale', 'SPLIT', '11', 1103),
-	('12', 'PMR', 'C1', 'Salisbury Park, Maharshi Nagar & Swargate South', 'Residential & Mid-Tier Retail', 'ORIGINAL', NULL, 1200),
-	('13', 'PMR', 'C2', 'Koregaon Park & Bund Garden Road', 'Upscale F&B, Boutiques & Commercial', 'ORIGINAL', NULL, 1300),
-	('14', 'PMR', 'C2', 'Kalyani Nagar & Wadgaon Sheri West', 'Affluent Residential & Commercial', 'ORIGINAL', NULL, 1400),
-	('15', 'PMR', 'C2', 'Wadgaon Sheri East & Chandan Nagar', 'High-Density Neighborhood Retail', 'ORIGINAL', NULL, 1500),
-	('16A', 'PMR', 'C2', 'Viman Nagar – Phoenix Marketcity & Airport Rd', 'Malls, High-Street & Hospitality', 'SPLIT', '16', 1601),
-	('16B', 'PMR', 'C2', 'Sakore Nagar, Symbiosis & Datta Mandir Chowk', 'F&B, Student & Neighborhood Retail', 'SPLIT', '16', 1602),
-	('17', 'PMR', 'C2', 'Yerwada, Vishrantwadi & Tingre Nagar', 'Mixed Urban & Arterial Retail', 'ORIGINAL', NULL, 1700),
-	('18', 'PMR', 'C2', 'Dhanori, Lohegaon & Porwal Road', 'Rapid-Growth Suburban Retail', 'ORIGINAL', NULL, 1800),
-	('19A', 'PMR', 'C2', 'Kharadi – EON IT Park & World Trade Center', 'Corporate F&B & Modern Retail', 'SPLIT', '19', 1901),
-	('19B', 'PMR', 'C2', 'Tulaja Bhavani Nagar & Chandan Nagar South', 'High-Density Neighborhood Retail', 'SPLIT', '19', 1902),
-	('20', 'PMR', 'C2', 'Kharadi South, Mundhwa & Keshav Nagar', 'Emerging Residential & F&B', 'ORIGINAL', NULL, 2000),
-	('21', 'PMR', 'C2', 'Wagholi West (Kesnand Phata to Ivy Estate)', 'High-Growth Township Retail', 'ORIGINAL', NULL, 2100),
-	('22', 'PMR', 'C2', 'Wagholi East & Bakori / Lonikand Fringe', 'Peri-Urban & Highway Retail', 'ORIGINAL', NULL, 2200),
-	('23A', 'PMR', 'C2', 'Hadapsar Gadital & North Solapur Road', 'Suburban Wholesale & Arterial Retail', 'SPLIT', '23', 2301),
-	('23B', 'PMR', 'C2', 'Magarpatta City & Amanora Commercial Belt', 'IT Hub, Malls & Modern Retail', 'SPLIT', '23', 2302),
-	('24', 'PMR', 'C2', 'Hadapsar South – Manjari, Sade Satra Nali & Bhekrai Nagar', 'Expanding Residential & General Trade', 'ORIGINAL', NULL, 2400),
-	('25', 'PMR', 'C3', 'Wanowrie, Fatima Nagar & Ramtekdi', 'Mixed Residential & Industrial Fringe', 'ORIGINAL', NULL, 2500),
-	('26', 'PMR', 'C3', 'Kondhwa Khurd & NIBM Road', 'High-Density Retail & Cafes', 'ORIGINAL', NULL, 2600),
-	('27', 'PMR', 'C3', 'Kondhwa Budruk, Pisoli & Yewalewadi', 'Suburban General Trade & Hardware', 'ORIGINAL', NULL, 2700),
-	('28', 'PMR', 'C3', 'Undri, Mohammedwadi & Handewadi', 'New Residential & Convenience Retail', 'ORIGINAL', NULL, 2800),
-	('29', 'PMR', 'C3', 'Bibwewadi & Upper Indira Nagar', 'Dense Middle-Class Retail', 'ORIGINAL', NULL, 2900),
-	('30', 'PMR', 'C3', 'Dhankawadi, Balajinagar & Padmavati', 'High-Footfall Arterial Retail', 'ORIGINAL', NULL, 3000),
-	('31', 'PMR', 'C3', 'Katraj, Bharati Vidyapeeth & Ambegaon Bk', 'Student, Transit & Highway Retail', 'ORIGINAL', NULL, 3100),
-	('32', 'PMR', 'C3', 'Narhe, Dhayari & Vadgaon Budruk', 'Suburban & Small-Industrial Retail', 'ORIGINAL', NULL, 3200),
-	('33', 'PMR', 'C3', 'Sinhagad Road – Anand Nagar, Hingne & Manik Baug', 'Established Residential High-Street', 'ORIGINAL', NULL, 3300),
-	('34', 'PMR', 'C3', 'Parvati, Dattawadi & Sinhagad Rd North', 'Dense Urban General Trade', 'ORIGINAL', NULL, 3400),
-	('35', 'PMR', 'C4', 'Karve Nagar & Cummins College Belt', 'Dense Residential & Student Retail', 'ORIGINAL', NULL, 3500),
-	('36A', 'PMR', 'C4', 'Kothrud – Paud Road & MIT Belt', 'Suburban Commercial & Student Retail', 'SPLIT', '36', 3601),
-	('36B', 'PMR', 'C4', 'Rambaug Colony, Ideal Colony & Karve Statue', 'Established High-Street Retail', 'SPLIT', '36', 3602),
-	('37', 'PMR', 'C4', 'Kothrud – Bhusari Colony, Chandni Chowk & Bavdhan', 'Affluent Suburban & Highway Retail', 'ORIGINAL', NULL, 3700),
-	('38', 'PMR', 'C4', 'Warje Malwadi & NDA Road', 'High-Density General Trade', 'ORIGINAL', NULL, 3800),
-	('39', 'PMR', 'C4', 'Erandwane, Prabhat Road & Law College Road', 'Upscale Neighborhood & Boutique Retail', 'ORIGINAL', NULL, 3900),
-	('40', 'PMR', 'C4', 'Aundh & ITI Road Belt', 'Premium High-Street & F&B', 'ORIGINAL', NULL, 4000),
-	('41A', 'PMR', 'C4', 'Baner Road (Sadanand to Pancard Club Rd)', 'IT Corridor & High-Street Retail', 'SPLIT', '41', 4101),
-	('41B', 'PMR', 'C4', 'Balewadi High Street & Balewadi Phata', 'Upscale F&B & Commercial Hub', 'SPLIT', '41', 4102),
-	('42', 'PMR', 'C4', 'Pashan, Sus & Mahalunge', 'Growing Residential & Tech Fringe', 'ORIGINAL', NULL, 4200),
-	('43', 'PMR', 'C5', 'Wakad East & Kaspate Wasti', 'Dense IT-Residential Retail', 'ORIGINAL', NULL, 4300),
-	('44', 'PMR', 'C5', 'Wakad West, Tathawade & Punawale', 'Rapid-Growth Township & Highway Retail', 'ORIGINAL', NULL, 4400),
-	('45', 'PMR', 'C5', 'Hinjewadi Phase 1 & Phase 2', 'IT Park Support, F&B & Retail', 'ORIGINAL', NULL, 4500),
-	('46', 'PMR', 'C5', 'Hinjewadi Phase 3, Maan & Marunji', 'Emerging IT-Residential Fringe', 'ORIGINAL', NULL, 4600),
-	('47', 'PMR', 'C5', 'Pimple Saudagar & Rahatani', 'High-Income Suburban High-Street', 'ORIGINAL', NULL, 4700),
-	('48', 'PMR', 'C5', 'Pimple Nilakh, Vishal Nagar & Jagtap Dairy', 'Affluent Neighborhood Retail', 'ORIGINAL', NULL, 4800),
-	('49', 'PMR', 'C5', 'Pimple Gurav, Sangvi & Dapodi', 'High-Density General Trade', 'ORIGINAL', NULL, 4900),
-	('50A', 'PMR', 'C6', 'Pimpri Camp – Main Bazaar & Sai Chowk', 'Mega Wholesale & General Retail', 'SPLIT', '50', 5001),
-	('50B', 'PMR', 'C6', 'Shagun Chowk & Pimpri Station Road', 'Apparel, Electronics & High-Street', 'SPLIT', '50', 5002),
-	('50C', 'PMR', 'C6', 'Pimpri Cloth Market & Nehru Nagar Fringe', 'Wholesale & Commercial Trade', 'SPLIT', '50', 5003),
-	('51', 'PMR', 'C6', 'Pimpri Waghere, Kalewadi & Jyotiba Nagar', 'Dense Residential & General Trade', 'ORIGINAL', NULL, 5100),
-	('52', 'PMR', 'C6', 'Kasarwadi, Phugewadi & Nashik Phata', 'Highway, Auto & Industrial Retail', 'ORIGINAL', NULL, 5200),
-	('53A', 'PMR', 'C6', 'Bhosari MIDC (Industrial & Engineering Supply)', 'Industrial B2B & Tooling', 'SPLIT', '53', 5301),
-	('53B', 'PMR', 'C6', 'Bhosari Gaon & Pune-Nashik Highway West', 'Hardware, Auto & Commercial', 'SPLIT', '53', 5302),
-	('54', 'PMR', 'C6', 'Bhosari East, Dighi & Charholi', 'Suburban General Trade', 'ORIGINAL', NULL, 5400),
-	('55A', 'PMR', 'C6', 'Chinchwad Station & Empire Estate', 'Commercial, Auto & High-Street', 'SPLIT', '55', 5501),
-	('55B', 'PMR', 'C6', 'Morwadi, Ajmera & Pimpri-Chinchwad Link Rd', 'Mixed Commercial & General Trade', 'SPLIT', '55', 5502),
-	('56', 'PMR', 'C6', 'Chinchwad Gaon, Walhekarwadi & Bijlinagar', 'Dense Residential Retail', 'ORIGINAL', NULL, 5600),
-	('57', 'PMR', 'C6', 'Thergaon & Dange Chowk Belt', 'High-Footfall Suburban Retail', 'ORIGINAL', NULL, 5700),
-	('58A', 'PMR', 'C6', 'Nigdi Pradhikaran & Bhakti Shakti', 'Affluent High-Street & Retail', 'SPLIT', '58', 5801),
-	('58B', 'PMR', 'C6', 'Akurdi Station, Khandoba Mal & Bijlinagar East', 'Commercial, Student & General Trade', 'SPLIT', '58', 5802),
-	('59', 'PMR', 'C6', 'Ravet, Kiwale & Mamurdi', 'New Township & Expressway Retail', 'ORIGINAL', NULL, 5900),
-	('60', 'PMR', 'C6', 'Chikhali, Moshi & Spine Road', 'Industrial-Residential Growth Belt', 'ORIGINAL', NULL, 6000),
-	('61', 'PMR', 'C6', 'Talawade IT Park & Rupeenagar', 'Semi-Urban & Industrial Fringe', 'ORIGINAL', NULL, 6100),
-	('62', 'PMR', 'C6', 'Dehu Road & Dehu Gaon', 'Cantonment, Highway & Pilgrim Retail', 'ORIGINAL', NULL, 6200),
-	('63A', 'PMR', 'C7', 'Chakan Town & Talegaon Chowk Market', 'Town Market & Agri-Retail', 'SPLIT', '63', 6301),
-	('63B', 'PMR', 'C7', 'Chakan MIDC Phase 1 & 2 (Mahalunge-Kharabwadi)', 'Auto-Industrial Supply & Highway Retail', 'SPLIT', '63', 6302),
-	('64', 'PMR', 'C7', 'Alandi, Markal & Kelgaon', 'Pilgrim Town & Industrial Fringe', 'ORIGINAL', NULL, 6400),
-	('65', 'PMR', 'C7', 'Talegaon Dabhade & Vadgaon Maval', 'Satellite Town & Highway Market', 'ORIGINAL', NULL, 6500),
-	('66', 'PMR', 'C7', 'Lonavala & Karla-Kamshet Corridor', 'Tourism, F&B & Highway Retail', 'ORIGINAL', NULL, 6600),
-	('67', 'PMR', 'C7', 'Pirangut, Bhugaon & Mulshi Corridor', 'Industrial & Peri-Urban Corridor', 'ORIGINAL', NULL, 6700),
-	('68', 'PMR', 'C7', 'Khed Shivapur, Nasrapur & Velhe Belt', 'NH-48 Highway & Rural Market Hub', 'ORIGINAL', NULL, 6800),
-	('69', 'PMR', 'C7', 'Saswad, Dive Ghat & Jejuri Corridor', 'Taluka Market & Pilgrim Corridor', 'ORIGINAL', NULL, 6900),
-	('70', 'PMR', 'C7', 'Loni Kalbhor, Uruli Kanchan & Yavat Corridor', 'Solapur Highway & Agri-Trade Belt', 'ORIGINAL', NULL, 7000)
+-- The area master: 196 areas; zone_id null = Unzoned. Coordinates and PIN codes are approximate (for the
+-- registration suggestion only, which the user confirms) until an admin corrects them.
+INSERT INTO "franchise_areas" ("zone_set_code", "area_no", "name", "region", "civic_body", "notes", "zone_id", "lat", "lng", "pincodes", "aliases") VALUES
+	('PUN', 1, 'Shivajinagar', 'Central', 'PMC', 'Commercial & education hub', 'GKZ-PUN-03', 18.5308, 73.8475, ARRAY['411005']::text[], '{}'::text[]),
+	('PUN', 2, 'Deccan Gymkhana', 'Central', 'PMC', 'FC Road / JM Road', 'GKZ-PUN-03', 18.5167, 73.8411, ARRAY['411004']::text[], '{}'::text[]),
+	('PUN', 3, 'Sadashiv Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-01', 18.5106, 73.8475, ARRAY['411030']::text[], '{}'::text[]),
+	('PUN', 4, 'Narayan Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-01', 18.5145, 73.8510, ARRAY['411030']::text[], '{}'::text[]),
+	('PUN', 5, 'Shaniwar Peth', 'Central', 'PMC', 'Old city peth; Shaniwar Wada', 'GKZ-PUN-01', 18.5180, 73.8530, ARRAY['411030']::text[], '{}'::text[]),
+	('PUN', 6, 'Budhwar Peth', 'Central', 'PMC', 'Old city peth; Dagdusheth temple', 'GKZ-PUN-02', 18.5164, 73.8567, ARRAY['411002']::text[], ARRAY['Budhwar']::text[]),
+	('PUN', 7, 'Shukrawar Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-01', 18.5080, 73.8560, ARRAY['411002']::text[], '{}'::text[]),
+	('PUN', 8, 'Raviwar Peth', 'Central', 'PMC', 'Old city peth; wholesale market', 'GKZ-PUN-02', 18.5150, 73.8610, ARRAY['411002']::text[], ARRAY['Raviwar']::text[]),
+	('PUN', 9, 'Kasba Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5203, 73.8590, ARRAY['411011']::text[], ARRAY['Kasba']::text[]),
+	('PUN', 10, 'Somwar Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5200, 73.8680, ARRAY['411011']::text[], ARRAY['Somwar']::text[]),
+	('PUN', 11, 'Mangalwar Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5230, 73.8650, ARRAY['411011']::text[], ARRAY['Mangalwar']::text[]),
+	('PUN', 12, 'Rasta Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5170, 73.8690, ARRAY['411011']::text[], '{}'::text[]),
+	('PUN', 13, 'Nana Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5120, 73.8670, ARRAY['411002']::text[], ARRAY['Nana']::text[]),
+	('PUN', 14, 'Bhavani Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5070, 73.8650, ARRAY['411042']::text[], ARRAY['Bhavani']::text[]),
+	('PUN', 15, 'Ganesh Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5110, 73.8620, ARRAY['411002']::text[], ARRAY['Ganesh']::text[]),
+	('PUN', 16, 'Guruwar Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5060, 73.8600, ARRAY['411042']::text[], ARRAY['Guruwar']::text[]),
+	('PUN', 17, 'Ghorpade Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5030, 73.8620, ARRAY['411042']::text[], ARRAY['Ghorpade']::text[]),
+	('PUN', 18, 'Ganj Peth (Mahatma Phule Peth)', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-02', 18.5040, 73.8660, ARRAY['411042']::text[], ARRAY['Ganj']::text[]),
+	('PUN', 19, 'Navi Peth', 'Central', 'PMC', 'Old city peth', 'GKZ-PUN-01', 18.5070, 73.8460, ARRAY['411030']::text[], '{}'::text[]),
+	('PUN', 20, 'Swargate', 'Central', 'PMC', 'Bus & metro hub', 'GKZ-PUN-04', 18.5018, 73.8636, ARRAY['411042']::text[], '{}'::text[]),
+	('PUN', 21, 'Model Colony', 'Central', 'PMC', NULL, 'GKZ-PUN-03', 18.5285, 73.8380, ARRAY['411016']::text[], '{}'::text[]),
+	('PUN', 22, 'Prabhat Road', 'Central', 'PMC', NULL, 'GKZ-PUN-03', 18.5130, 73.8330, ARRAY['411004']::text[], '{}'::text[]),
+	('PUN', 23, 'Camp (Pune Cantonment)', 'Central', 'Pune Cantonment Board', 'MG Road / East Street', 'GKZ-PUN-05', 18.5150, 73.8780, ARRAY['411001']::text[], ARRAY['Camp']::text[]),
+	('PUN', 24, 'Pune Station', 'Central', 'PMC', 'Railway station area', 'GKZ-PUN-05', 18.5289, 73.8744, ARRAY['411001']::text[], '{}'::text[]),
+	('PUN', 25, 'Mukund Nagar', 'Central', 'PMC', NULL, 'GKZ-PUN-04', 18.4930, 73.8610, ARRAY['411037']::text[], '{}'::text[]),
+	('PUN', 26, 'Gultekdi', 'Central', 'PMC', NULL, 'GKZ-PUN-04', 18.4930, 73.8680, ARRAY['411037']::text[], '{}'::text[]),
+	('PUN', 27, 'Market Yard', 'Central', 'PMC', 'APMC wholesale market', 'GKZ-PUN-04', 18.4880, 73.8700, ARRAY['411037']::text[], '{}'::text[]),
+	('PUN', 28, 'Parvati', 'Central', 'PMC', NULL, 'GKZ-PUN-04', 18.4960, 73.8480, ARRAY['411009']::text[], '{}'::text[]),
+	('PUN', 29, 'Salisbury Park', 'Central', 'PMC', NULL, 'GKZ-PUN-04', 18.4930, 73.8740, ARRAY['411037']::text[], '{}'::text[]),
+	('PUN', 30, 'Maharshi Nagar', 'Central', 'PMC', NULL, 'GKZ-PUN-04', 18.4890, 73.8650, ARRAY['411037']::text[], '{}'::text[]),
+	('PUN', 31, 'Kothrud', 'West', 'PMC', NULL, 'GKZ-PUN-06', 18.5074, 73.8077, ARRAY['411038']::text[], '{}'::text[]),
+	('PUN', 32, 'Karve Nagar', 'West', 'PMC', NULL, 'GKZ-PUN-07', 18.4890, 73.8190, ARRAY['411052']::text[], '{}'::text[]),
+	('PUN', 33, 'Erandwane', 'West', 'PMC', NULL, 'GKZ-PUN-07', 18.5080, 73.8300, ARRAY['411004']::text[], '{}'::text[]),
+	('PUN', 34, 'Warje', 'West', 'PMC', NULL, 'GKZ-PUN-08', 18.4820, 73.8020, ARRAY['411058']::text[], '{}'::text[]),
+	('PUN', 35, 'Bavdhan', 'West', 'PMC', 'Bavdhan Budruk merged into PMC (2021)', 'GKZ-PUN-09', 18.5180, 73.7790, ARRAY['411021']::text[], '{}'::text[]),
+	('PUN', 36, 'Paud Road', 'West', 'PMC', NULL, 'GKZ-PUN-06', 18.5080, 73.8150, ARRAY['411038']::text[], '{}'::text[]),
+	('PUN', 37, 'Bhusari Colony', 'West', 'PMC', NULL, 'GKZ-PUN-06', 18.5030, 73.7920, ARRAY['411038']::text[], '{}'::text[]),
+	('PUN', 38, 'Dahanukar Colony', 'West', 'PMC', NULL, 'GKZ-PUN-06', 18.4990, 73.8160, ARRAY['411038']::text[], '{}'::text[]),
+	('PUN', 39, 'Shivane', 'West', 'PMC', 'Merged into PMC (2017)', 'GKZ-PUN-08', 18.4660, 73.7870, ARRAY['411023']::text[], '{}'::text[]),
+	('PUN', 40, 'Uttam Nagar', 'West', 'PMC', 'Merged into PMC (2017)', 'GKZ-PUN-08', 18.4700, 73.7930, ARRAY['411023']::text[], '{}'::text[]),
+	('PUN', 41, 'Kondhwe Dhawade', 'West', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-08', 18.4600, 73.7780, ARRAY['411023']::text[], '{}'::text[]),
+	('PUN', 42, 'Kopare', 'West', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-08', 18.4750, 73.8000, ARRAY['411023']::text[], '{}'::text[]),
+	('PUN', 43, 'Aundh', 'North-West', 'PMC', NULL, 'GKZ-PUN-11', 18.5580, 73.8075, ARRAY['411007']::text[], '{}'::text[]),
+	('PUN', 44, 'Baner', 'North-West', 'PMC', 'IT offices & high street', 'GKZ-PUN-10', 18.5590, 73.7868, ARRAY['411045']::text[], '{}'::text[]),
+	('PUN', 45, 'Balewadi', 'North-West', 'PMC', 'Sports complex', 'GKZ-PUN-10', 18.5770, 73.7790, ARRAY['411045']::text[], '{}'::text[]),
+	('PUN', 46, 'Pashan', 'North-West', 'PMC', NULL, 'GKZ-PUN-11', 18.5370, 73.7960, ARRAY['411021']::text[], '{}'::text[]),
+	('PUN', 47, 'Sutarwadi', 'North-West', 'PMC', NULL, 'GKZ-PUN-11', 18.5450, 73.7900, ARRAY['411021']::text[], '{}'::text[]),
+	('PUN', 48, 'Sus', 'North-West', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-09', 18.5470, 73.7570, ARRAY['411021']::text[], '{}'::text[]),
+	('PUN', 49, 'Mahalunge', 'North-West', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-10', 18.5700, 73.7550, ARRAY['411045']::text[], '{}'::text[]),
+	('PUN', 50, 'Gokhale Nagar', 'North-West', 'PMC', NULL, 'GKZ-PUN-03', 18.5290, 73.8300, ARRAY['411016']::text[], '{}'::text[]),
+	('PUN', 51, 'Senapati Bapat Road', 'North-West', 'PMC', NULL, 'GKZ-PUN-11', 18.5300, 73.8290, ARRAY['411016']::text[], '{}'::text[]),
+	('PUN', 52, 'Chatushringi', 'North-West', 'PMC', NULL, 'GKZ-PUN-11', 18.5390, 73.8290, ARRAY['411016']::text[], '{}'::text[]),
+	('PUN', 53, 'Ganeshkhind (University area)', 'North-West', 'PMC', NULL, 'GKZ-PUN-11', 18.5510, 73.8250, ARRAY['411007']::text[], ARRAY['Ganeshkhind']::text[]),
+	('PUN', 54, 'Bopodi', 'North-West', 'PMC', NULL, 'GKZ-PUN-12', 18.5700, 73.8330, ARRAY['411003']::text[], '{}'::text[]),
+	('PUN', 55, 'Khadki', 'North-West', 'Khadki Cantonment Board', NULL, 'GKZ-PUN-12', 18.5640, 73.8460, ARRAY['411003']::text[], '{}'::text[]),
+	('PUN', 56, 'Yerawada', 'North', 'PMC', NULL, 'GKZ-PUN-13', 18.5520, 73.8850, ARRAY['411006']::text[], '{}'::text[]),
+	('PUN', 57, 'Vishrantwadi', 'North', 'PMC', NULL, 'GKZ-PUN-14', 18.5720, 73.8780, ARRAY['411015']::text[], '{}'::text[]),
+	('PUN', 58, 'Dhanori', 'North', 'PMC', NULL, 'GKZ-PUN-14', 18.5880, 73.8960, ARRAY['411015']::text[], '{}'::text[]),
+	('PUN', 59, 'Kalas', 'North', 'PMC', NULL, 'GKZ-PUN-14', 18.5800, 73.8720, ARRAY['411015']::text[], '{}'::text[]),
+	('PUN', 60, 'Tingre Nagar', 'North', 'PMC', NULL, 'GKZ-PUN-14', 18.5730, 73.8880, ARRAY['411032']::text[], '{}'::text[]),
+	('PUN', 61, 'Lohegaon', 'North', 'PMC', 'Pune Airport', 'GKZ-PUN-15', 18.5960, 73.9200, ARRAY['411047']::text[], ARRAY['Lohegaon (airport area)']::text[]),
+	('PUN', 62, 'Porwal Road', 'North', 'PMC', NULL, 'GKZ-PUN-14', 18.5930, 73.9050, ARRAY['411047']::text[], '{}'::text[]),
+	('PUN', 63, 'Sangamwadi', 'North', 'PMC', NULL, 'GKZ-PUN-05', 18.5370, 73.8680, ARRAY['411001']::text[], '{}'::text[]),
+	('PUN', 64, 'Phule Nagar', 'North', 'PMC', NULL, 'GKZ-PUN-13', 18.5610, 73.8770, ARRAY['411006']::text[], '{}'::text[]),
+	('PUN', 65, 'Shastri Nagar', 'North', 'PMC', NULL, 'GKZ-PUN-13', 18.5470, 73.8890, ARRAY['411006']::text[], '{}'::text[]),
+	('PUN', 66, 'Koregaon Park', 'East', 'PMC', NULL, 'GKZ-PUN-17', 18.5362, 73.8940, ARRAY['411001']::text[], '{}'::text[]),
+	('PUN', 67, 'Kalyani Nagar', 'East', 'PMC', NULL, 'GKZ-PUN-16', 18.5480, 73.9020, ARRAY['411006']::text[], '{}'::text[]),
+	('PUN', 68, 'Viman Nagar', 'East', 'PMC', NULL, 'GKZ-PUN-16', 18.5679, 73.9143, ARRAY['411014']::text[], '{}'::text[]),
+	('PUN', 69, 'Wadgaon Sheri', 'East', 'PMC', NULL, 'GKZ-PUN-18', 18.5520, 73.9230, ARRAY['411014']::text[], '{}'::text[]),
+	('PUN', 70, 'Kharadi', 'East', 'PMC', 'IT hub (EON IT Park)', 'GKZ-PUN-19', 18.5510, 73.9400, ARRAY['411014']::text[], '{}'::text[]),
+	('PUN', 71, 'Chandan Nagar', 'East', 'PMC', NULL, 'GKZ-PUN-18', 18.5620, 73.9330, ARRAY['411014']::text[], '{}'::text[]),
+	('PUN', 72, 'Wagholi', 'East', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-20', 18.5800, 73.9820, ARRAY['412207']::text[], '{}'::text[]),
+	('PUN', 73, 'Mundhwa', 'East', 'PMC', NULL, 'GKZ-PUN-17', 18.5330, 73.9300, ARRAY['411036']::text[], '{}'::text[]),
+	('PUN', 74, 'Keshav Nagar', 'East', 'PMC', 'Merged into PMC (2017)', 'GKZ-PUN-17', 18.5370, 73.9420, ARRAY['411036']::text[], '{}'::text[]),
+	('PUN', 75, 'Ghorpadi', 'East', 'PMC', NULL, 'GKZ-PUN-17', 18.5260, 73.8960, ARRAY['411001']::text[], '{}'::text[]),
+	('PUN', 76, 'Bund Garden', 'East', 'PMC', NULL, 'GKZ-PUN-05', 18.5370, 73.8820, ARRAY['411001']::text[], '{}'::text[]),
+	('PUN', 77, 'Dhole Patil Road', 'East', 'PMC', NULL, 'GKZ-PUN-05', 18.5330, 73.8790, ARRAY['411001']::text[], '{}'::text[]),
+	('PUN', 78, 'Hadapsar', 'South-East', 'PMC', NULL, 'GKZ-PUN-21', 18.5089, 73.9260, ARRAY['411028']::text[], '{}'::text[]),
+	('PUN', 79, 'Magarpatta City', 'South-East', 'PMC', 'IT township', 'GKZ-PUN-22', 18.5150, 73.9290, ARRAY['411013']::text[], '{}'::text[]),
+	('PUN', 80, 'Amanora Park Town', 'South-East', 'PMC', 'Township', 'GKZ-PUN-22', 18.5180, 73.9400, ARRAY['411028']::text[], '{}'::text[]),
+	('PUN', 81, 'Sasane Nagar', 'South-East', 'PMC', NULL, 'GKZ-PUN-21', 18.4960, 73.9300, ARRAY['411028']::text[], '{}'::text[]),
+	('PUN', 82, 'Satav Nagar', 'South-East', 'PMC', NULL, 'GKZ-PUN-22', 18.5040, 73.9380, ARRAY['411028']::text[], '{}'::text[]),
+	('PUN', 83, 'Ramtekdi', 'South-East', 'PMC', NULL, 'GKZ-PUN-21', 18.5000, 73.9150, ARRAY['411013']::text[], '{}'::text[]),
+	('PUN', 84, 'Fatima Nagar', 'South-East', 'PMC', NULL, 'GKZ-PUN-24', 18.5050, 73.8990, ARRAY['411013']::text[], '{}'::text[]),
+	('PUN', 85, 'Wanowrie', 'South-East', 'PMC', NULL, 'GKZ-PUN-24', 18.4930, 73.9000, ARRAY['411040']::text[], '{}'::text[]),
+	('PUN', 86, 'Salunke Vihar', 'South-East', 'PMC', NULL, 'GKZ-PUN-24', 18.4850, 73.8990, ARRAY['411048']::text[], '{}'::text[]),
+	('PUN', 87, 'Lullanagar', 'South-East', 'PMC', NULL, 'GKZ-PUN-24', 18.4860, 73.8890, ARRAY['411040']::text[], '{}'::text[]),
+	('PUN', 88, 'Kondhwa Khurd', 'South-East', 'PMC', NULL, 'GKZ-PUN-25', 18.4750, 73.8900, ARRAY['411048']::text[], '{}'::text[]),
+	('PUN', 89, 'Kondhwa Budruk', 'South-East', 'PMC', NULL, 'GKZ-PUN-25', 18.4560, 73.8800, ARRAY['411048']::text[], '{}'::text[]),
+	('PUN', 90, 'NIBM Road', 'South-East', 'PMC', NULL, 'GKZ-PUN-25', 18.4730, 73.9000, ARRAY['411048']::text[], '{}'::text[]),
+	('PUN', 91, 'Undri', 'South-East', 'PMC', 'Merged into PMC (2017)', 'GKZ-PUN-26', 18.4560, 73.9060, ARRAY['411060']::text[], '{}'::text[]),
+	('PUN', 92, 'Pisoli', 'South-East', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-26', 18.4450, 73.9050, ARRAY['411060']::text[], '{}'::text[]),
+	('PUN', 93, 'Mohammed Wadi', 'South-East', 'PMC', NULL, 'GKZ-PUN-26', 18.4700, 73.9200, ARRAY['411060']::text[], '{}'::text[]),
+	('PUN', 94, 'Handewadi', 'South-East', 'PMC', 'Autade Handewadi merged into PMC (2021)', 'GKZ-PUN-26', 18.4560, 73.9320, ARRAY['411060']::text[], '{}'::text[]),
+	('PUN', 95, 'Holkarwadi', 'South-East', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-26', 18.4460, 73.9250, ARRAY['412308']::text[], '{}'::text[]),
+	('PUN', 96, 'Wadachi Wadi', 'South-East', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-26', 18.4380, 73.9150, ARRAY['411060']::text[], '{}'::text[]),
+	('PUN', 97, 'Yewalewadi', 'South-East', 'PMC', NULL, 'GKZ-PUN-30', 18.4440, 73.8730, ARRAY['411048']::text[], '{}'::text[]),
+	('PUN', 98, 'Manjri Budruk', 'South-East', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-23', 18.5100, 73.9700, ARRAY['412307']::text[], '{}'::text[]),
+	('PUN', 99, 'Shewalewadi', 'South-East', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-23', 18.4990, 73.9620, ARRAY['412307']::text[], '{}'::text[]),
+	('PUN', 100, 'Katraj', 'South', 'PMC', NULL, 'GKZ-PUN-30', 18.4529, 73.8650, ARRAY['411046']::text[], '{}'::text[]),
+	('PUN', 101, 'Dhankawadi', 'South', 'PMC', NULL, 'GKZ-PUN-29', 18.4630, 73.8540, ARRAY['411043']::text[], '{}'::text[]),
+	('PUN', 102, 'Balaji Nagar', 'South', 'PMC', NULL, 'GKZ-PUN-29', 18.4660, 73.8580, ARRAY['411043']::text[], '{}'::text[]),
+	('PUN', 103, 'Bibwewadi', 'South', 'PMC', NULL, 'GKZ-PUN-28', 18.4730, 73.8650, ARRAY['411037']::text[], '{}'::text[]),
+	('PUN', 104, 'Upper Indira Nagar', 'South', 'PMC', NULL, 'GKZ-PUN-28', 18.4700, 73.8700, ARRAY['411037']::text[], '{}'::text[]),
+	('PUN', 105, 'Sahakar Nagar', 'South', 'PMC', NULL, 'GKZ-PUN-29', 18.4830, 73.8550, ARRAY['411009']::text[], '{}'::text[]),
+	('PUN', 106, 'Padmavati', 'South', 'PMC', NULL, 'GKZ-PUN-28', 18.4800, 73.8590, ARRAY['411009']::text[], '{}'::text[]),
+	('PUN', 107, 'Gokul Nagar', 'South', 'PMC', NULL, 'GKZ-PUN-30', 18.4500, 73.8700, ARRAY['411046']::text[], '{}'::text[]),
+	('PUN', 108, 'Sinhagad Road', 'South', 'PMC', NULL, 'GKZ-PUN-32', 18.4800, 73.8270, ARRAY['411030']::text[], '{}'::text[]),
+	('PUN', 109, 'Vadgaon Budruk', 'South', 'PMC', NULL, 'GKZ-PUN-32', 18.4650, 73.8200, ARRAY['411041']::text[], '{}'::text[]),
+	('PUN', 110, 'Anand Nagar', 'South', 'PMC', 'On Sinhagad Road', 'GKZ-PUN-32', 18.4780, 73.8240, ARRAY['411051']::text[], '{}'::text[]),
+	('PUN', 111, 'Manik Baug', 'South', 'PMC', NULL, 'GKZ-PUN-32', 18.4730, 73.8220, ARRAY['411051']::text[], '{}'::text[]),
+	('PUN', 112, 'Hingne Khurd', 'South', 'PMC', NULL, 'GKZ-PUN-07', 18.4850, 73.8150, ARRAY['411051']::text[], '{}'::text[]),
+	('PUN', 113, 'Vitthalwadi', 'South', 'PMC', NULL, 'GKZ-PUN-32', 18.4880, 73.8250, ARRAY['411030']::text[], '{}'::text[]),
+	('PUN', 114, 'Dhayari', 'South', 'PMC', 'Merged into PMC (2017)', 'GKZ-PUN-33', 18.4500, 73.8130, ARRAY['411041']::text[], '{}'::text[]),
+	('PUN', 115, 'Narhe', 'South', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-33', 18.4460, 73.8300, ARRAY['411041']::text[], '{}'::text[]),
+	('PUN', 116, 'Ambegaon Budruk', 'South', 'PMC', 'Merged into PMC (2017)', 'GKZ-PUN-31', 18.4500, 73.8450, ARRAY['411046']::text[], '{}'::text[]),
+	('PUN', 117, 'Ambegaon Khurd', 'South', 'PMC', 'Merged into PMC (2017)', 'GKZ-PUN-31', 18.4420, 73.8400, ARRAY['411046']::text[], '{}'::text[]),
+	('PUN', 118, 'Jambhulwadi', 'South', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-31', 18.4300, 73.8500, ARRAY['411046']::text[], '{}'::text[]),
+	('PUN', 119, 'Mangdewadi', 'South', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-31', 18.4250, 73.8650, ARRAY['411046']::text[], '{}'::text[]),
+	('PUN', 120, 'Bhilarewadi', 'South', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-31', 18.4200, 73.8600, ARRAY['411046']::text[], '{}'::text[]),
+	('PUN', 121, 'Gujar Nimbalkarwadi', 'South', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-31', 18.4300, 73.8800, ARRAY['411046']::text[], '{}'::text[]),
+	('PUN', 122, 'Nanded City', 'South', 'PMC', 'Nanded village merged into PMC (2021)', 'GKZ-PUN-34', 18.4600, 73.7980, ARRAY['411068']::text[], '{}'::text[]),
+	('PUN', 123, 'Kirkatwadi', 'South', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-34', 18.4400, 73.7900, ARRAY['411024']::text[], '{}'::text[]),
+	('PUN', 124, 'Khadakwasla', 'South', 'PMC', 'Merged into PMC (2021); dam', 'GKZ-PUN-34', 18.4400, 73.7700, ARRAY['411024']::text[], '{}'::text[]),
+	('PUN', 125, 'Nandoshi', 'South', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-34', 18.4300, 73.7800, ARRAY['411024']::text[], '{}'::text[]),
+	('PUN', 126, 'Sanasnagar', 'South', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-34', 18.4250, 73.7900, ARRAY['411024']::text[], '{}'::text[]),
+	('PUN', 127, 'Kolewadi', 'South', 'PMC', 'Merged into PMC (2021)', 'GKZ-PUN-34', 18.4200, 73.7750, ARRAY['411024']::text[], '{}'::text[]),
+	('PUN', 128, 'Pimpri', 'Pimpri-Chinchwad', 'PCMC', 'Pimpri market / camp', 'GKZ-PUN-35', 18.6279, 73.8009, ARRAY['411018']::text[], '{}'::text[]),
+	('PUN', 129, 'Chinchwad', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-36', 18.6440, 73.7900, ARRAY['411033']::text[], '{}'::text[]),
+	('PUN', 130, 'Chinchwadgaon', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-36', 18.6360, 73.7800, ARRAY['411033']::text[], '{}'::text[]),
+	('PUN', 131, 'Akurdi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-37', 18.6480, 73.7700, ARRAY['411035']::text[], '{}'::text[]),
+	('PUN', 132, 'Nigdi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-37', 18.6560, 73.7700, ARRAY['411044']::text[], '{}'::text[]),
+	('PUN', 133, 'Pradhikaran (Nigdi)', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-37', 18.6500, 73.7600, ARRAY['411044']::text[], ARRAY['Pradhikaran']::text[]),
+	('PUN', 134, 'Yamuna Nagar', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-37', 18.6600, 73.7800, ARRAY['411044']::text[], '{}'::text[]),
+	('PUN', 135, 'Bhosari', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-38', 18.6290, 73.8480, ARRAY['411039']::text[], '{}'::text[]),
+	('PUN', 136, 'MIDC Bhosari', 'Pimpri-Chinchwad', 'PCMC', 'Industrial area', 'GKZ-PUN-38', 18.6370, 73.8400, ARRAY['411026']::text[], '{}'::text[]),
+	('PUN', 137, 'Moshi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-39', 18.6700, 73.8500, ARRAY['412105']::text[], '{}'::text[]),
+	('PUN', 138, 'Chikhali', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-39', 18.6800, 73.8100, ARRAY['411062']::text[], '{}'::text[]),
+	('PUN', 139, 'Dighi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-40', 18.6150, 73.8700, ARRAY['411015']::text[], '{}'::text[]),
+	('PUN', 140, 'Charholi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-40', 18.6400, 73.8900, ARRAY['412105']::text[], '{}'::text[]),
+	('PUN', 141, 'Talawade', 'Pimpri-Chinchwad', 'PCMC', 'IT park', 'GKZ-PUN-39', 18.6900, 73.7800, ARRAY['411062']::text[], '{}'::text[]),
+	('PUN', 142, 'Dudulgaon', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-40', 18.6600, 73.8800, ARRAY['412105']::text[], '{}'::text[]),
+	('PUN', 143, 'Wakad', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-41', 18.5990, 73.7620, ARRAY['411057']::text[], '{}'::text[]),
+	('PUN', 144, 'Tathawade', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-43', 18.6200, 73.7450, ARRAY['411033']::text[], '{}'::text[]),
+	('PUN', 145, 'Punawale', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-43', 18.6300, 73.7400, ARRAY['411033']::text[], '{}'::text[]),
+	('PUN', 146, 'Ravet', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-43', 18.6450, 73.7450, ARRAY['412101']::text[], '{}'::text[]),
+	('PUN', 147, 'Kiwale', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-43', 18.6550, 73.7350, ARRAY['412101']::text[], '{}'::text[]),
+	('PUN', 148, 'Mamurdi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-43', 18.6650, 73.7200, ARRAY['412101']::text[], '{}'::text[]),
+	('PUN', 149, 'Thergaon', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-42', 18.6100, 73.7750, ARRAY['411033']::text[], '{}'::text[]),
+	('PUN', 150, 'Kalewadi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-42', 18.6150, 73.7900, ARRAY['411017']::text[], '{}'::text[]),
+	('PUN', 151, 'Rahatani', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-42', 18.6000, 73.7900, ARRAY['411017']::text[], '{}'::text[]),
+	('PUN', 152, 'Pimple Saudagar', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-44', 18.5990, 73.8040, ARRAY['411027']::text[], '{}'::text[]),
+	('PUN', 153, 'Pimple Gurav', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-44', 18.5900, 73.8150, ARRAY['411061']::text[], '{}'::text[]),
+	('PUN', 154, 'Pimple Nilakh', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-44', 18.5800, 73.7950, ARRAY['411027']::text[], '{}'::text[]),
+	('PUN', 155, 'Sangvi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-45', 18.5770, 73.8200, ARRAY['411027']::text[], '{}'::text[]),
+	('PUN', 156, 'New Sangvi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-45', 18.5850, 73.8180, ARRAY['411027']::text[], '{}'::text[]),
+	('PUN', 157, 'Dapodi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-45', 18.5800, 73.8350, ARRAY['411012']::text[], '{}'::text[]),
+	('PUN', 158, 'Kasarwadi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-45', 18.6000, 73.8250, ARRAY['411034']::text[], '{}'::text[]),
+	('PUN', 159, 'Phugewadi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-45', 18.5900, 73.8350, ARRAY['411012']::text[], '{}'::text[]),
+	('PUN', 160, 'Nehru Nagar', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-35', 18.6250, 73.8150, ARRAY['411018']::text[], '{}'::text[]),
+	('PUN', 161, 'Sant Tukaram Nagar', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-35', 18.6200, 73.8120, ARRAY['411018']::text[], '{}'::text[]),
+	('PUN', 162, 'Masulkar Colony', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-35', 18.6300, 73.8150, ARRAY['411018']::text[], '{}'::text[]),
+	('PUN', 163, 'Kharalwadi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-35', 18.6250, 73.8050, ARRAY['411018']::text[], '{}'::text[]),
+	('PUN', 164, 'Morwadi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-35', 18.6300, 73.8000, ARRAY['411018']::text[], '{}'::text[]),
+	('PUN', 165, 'Bijalinagar', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-36', 18.6400, 73.7750, ARRAY['411033']::text[], '{}'::text[]),
+	('PUN', 166, 'Walhekarwadi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-36', 18.6450, 73.7650, ARRAY['411033']::text[], '{}'::text[]),
+	('PUN', 167, 'Kudalwadi', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-39', 18.6750, 73.8300, ARRAY['412114']::text[], '{}'::text[]),
+	('PUN', 168, 'Indrayani Nagar', 'Pimpri-Chinchwad', 'PCMC', NULL, 'GKZ-PUN-38', 18.6400, 73.8550, ARRAY['411026']::text[], '{}'::text[]),
+	('PUN', 169, 'Hinjewadi', 'Outskirts', 'Gram Panchayat (PMRDA area)', 'Rajiv Gandhi Infotech Park', 'GKZ-PUN-46', 18.5913, 73.7389, ARRAY['411057']::text[], '{}'::text[]),
+	('PUN', 170, 'Maan', 'Outskirts', 'Gram Panchayat (PMRDA area)', 'Hinjewadi IT Park Phase 3', 'GKZ-PUN-46', 18.5850, 73.6950, ARRAY['411057']::text[], '{}'::text[]),
+	('PUN', 171, 'Marunji', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-46', 18.6050, 73.7250, ARRAY['411057']::text[], '{}'::text[]),
+	('PUN', 172, 'Pirangut', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-47', 18.5100, 73.6800, ARRAY['412115']::text[], '{}'::text[]),
+	('PUN', 173, 'Bhugaon', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-47', 18.5000, 73.7550, ARRAY['412115']::text[], '{}'::text[]),
+	('PUN', 174, 'Bhukum', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-47', 18.5050, 73.7300, ARRAY['412115']::text[], '{}'::text[]),
+	('PUN', 175, 'Lavale', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-47', 18.5300, 73.7100, ARRAY['412115']::text[], '{}'::text[]),
+	('PUN', 176, 'Nande', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-47', 18.5450, 73.7200, ARRAY['412115']::text[], '{}'::text[]),
+	('PUN', 177, 'Paud', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-47', 18.5250, 73.6150, ARRAY['412108']::text[], '{}'::text[]),
+	('PUN', 178, 'Chakan', 'Outskirts', 'Chakan Municipal Council', 'Auto & industrial hub', 'GKZ-PUN-49', 18.7600, 73.8600, ARRAY['410501']::text[], '{}'::text[]),
+	('PUN', 179, 'Talegaon Dabhade', 'Outskirts', 'Talegaon Dabhade Municipal Council', NULL, 'GKZ-PUN-48', 18.7350, 73.6750, ARRAY['410506']::text[], '{}'::text[]),
+	('PUN', 180, 'Alandi', 'Outskirts', 'Alandi Municipal Council', 'Pilgrimage town', 'GKZ-PUN-49', 18.6770, 73.8970, ARRAY['412105']::text[], '{}'::text[]),
+	('PUN', 181, 'Dehu', 'Outskirts', 'Dehu Nagar Panchayat', 'Pilgrimage town', 'GKZ-PUN-48', 18.7180, 73.7660, ARRAY['412109']::text[], '{}'::text[]),
+	('PUN', 182, 'Dehu Road', 'Outskirts', 'Dehu Road Cantonment Board', NULL, 'GKZ-PUN-48', 18.6800, 73.7300, ARRAY['412101']::text[], '{}'::text[]),
+	('PUN', 183, 'Lonikand', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-20', 18.6300, 74.0200, ARRAY['412216']::text[], '{}'::text[]),
+	('PUN', 184, 'Kesnand', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-20', 18.6050, 74.0100, ARRAY['412207']::text[], '{}'::text[]),
+	('PUN', 185, 'Koregaon Bhima', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, NULL, 18.6450, 74.0600, ARRAY['412216']::text[], '{}'::text[]),
+	('PUN', 186, 'Sanaswadi', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, NULL, 18.6600, 74.1000, ARRAY['412208']::text[], '{}'::text[]),
+	('PUN', 187, 'Shikrapur', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, NULL, 18.6950, 74.1350, ARRAY['412208']::text[], '{}'::text[]),
+	('PUN', 188, 'Ranjangaon', 'Outskirts', 'Gram Panchayat (PMRDA area)', 'Ranjangaon MIDC', NULL, 18.7600, 74.2500, ARRAY['412220']::text[], '{}'::text[]),
+	('PUN', 189, 'Loni Kalbhor', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-50', 18.4870, 74.0200, ARRAY['412201']::text[], '{}'::text[]),
+	('PUN', 190, 'Theur', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-50', 18.5200, 74.0500, ARRAY['412110']::text[], '{}'::text[]),
+	('PUN', 191, 'Uruli Kanchan', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, 'GKZ-PUN-50', 18.4800, 74.1400, ARRAY['412202']::text[], '{}'::text[]),
+	('PUN', 192, 'Fursungi', 'Outskirts', 'Fursungi–Uruli Devachi Municipal Council', 'Separated from PMC', 'GKZ-PUN-27', 18.4800, 73.9600, ARRAY['412308']::text[], '{}'::text[]),
+	('PUN', 193, 'Uruli Devachi', 'Outskirts', 'Fursungi–Uruli Devachi Municipal Council', 'Separated from PMC', 'GKZ-PUN-27', 18.4650, 73.9500, ARRAY['412308']::text[], '{}'::text[]),
+	('PUN', 194, 'Saswad', 'Outskirts', 'Saswad Municipal Council', NULL, NULL, 18.3450, 74.0300, ARRAY['412301']::text[], '{}'::text[]),
+	('PUN', 195, 'Khed Shivapur', 'Outskirts', 'Gram Panchayat (PMRDA area)', NULL, NULL, 18.3750, 73.8600, ARRAY['412205']::text[], '{}'::text[]),
+	('PUN', 196, 'Rajgurunagar (Khed)', 'Outskirts', 'Rajgurunagar Municipal Council', NULL, NULL, 18.8600, 73.8900, ARRAY['410505']::text[], '{}'::text[])
 ON CONFLICT DO NOTHING;
 --> statement-breakpoint
-INSERT INTO "franchise_zone_pins" ("zone_id", "pincode") VALUES
-	('1A', '411002'),
-	('1B', '411002'),
-	('2A', '411002'),
-	('2B', '411002'),
-	('2C', '411002'),
-	('3A', '411002'),
-	('3B', '411002'),
-	('3B', '411042'),
-	('4', '411030'),
-	('5A', '411030'),
-	('5B', '411030'),
-	('6', '411011'),
-	('7A', '411002'),
-	('7B', '411011'),
-	('7B', '411042'),
-	('8A', '411001'),
-	('8B', '411001'),
-	('9A', '411004'),
-	('9B', '411005'),
-	('10', '411016'),
-	('11A', '411037'),
-	('11B', '411037'),
-	('11C', '411042'),
-	('12', '411037'),
-	('13', '411001'),
-	('14', '411014'),
-	('15', '411014'),
-	('16A', '411014'),
-	('16B', '411014'),
-	('17', '411006'),
-	('17', '411015'),
-	('18', '411015'),
-	('18', '411047'),
-	('19A', '411014'),
-	('19B', '411014'),
-	('20', '411036'),
-	('21', '412207'),
-	('22', '412207'),
-	('23A', '411028'),
-	('23B', '411028'),
-	('24', '411028'),
-	('24', '412307'),
-	('25', '411013'),
-	('25', '411040'),
-	('26', '411048'),
-	('27', '411048'),
-	('28', '411060'),
-	('29', '411037'),
-	('30', '411043'),
-	('31', '411046'),
-	('32', '411041'),
-	('33', '411051'),
-	('34', '411009'),
-	('34', '411030'),
-	('35', '411052'),
-	('36A', '411038'),
-	('36B', '411038'),
-	('37', '411038'),
-	('37', '411021'),
-	('38', '411058'),
-	('39', '411004'),
-	('40', '411007'),
-	('41A', '411045'),
-	('41B', '411045'),
-	('42', '411021'),
-	('42', '411045'),
-	('43', '411057'),
-	('44', '411057'),
-	('44', '411033'),
-	('45', '411057'),
-	('46', '411057'),
-	('47', '411027'),
-	('47', '411017'),
-	('48', '411027'),
-	('49', '411061'),
-	('49', '411027'),
-	('49', '411012'),
-	('50A', '411017'),
-	('50B', '411017'),
-	('50C', '411017'),
-	('51', '411017'),
-	('52', '411034'),
-	('53A', '411026'),
-	('53B', '411026'),
-	('54', '411039'),
-	('54', '411015'),
-	('55A', '411019'),
-	('55B', '411018'),
-	('55B', '411019'),
-	('56', '411033'),
-	('57', '411033'),
-	('58A', '411044'),
-	('58B', '411035'),
-	('59', '412101'),
-	('60', '412105'),
-	('60', '411062'),
-	('61', '411062'),
-	('62', '412101'),
-	('62', '412109'),
-	('63A', '410501'),
-	('63B', '410501'),
-	('64', '412105'),
-	('65', '410506'),
-	('65', '412106'),
-	('66', '410401'),
-	('66', '410405'),
-	('67', '412115'),
-	('68', '412205'),
-	('69', '412301'),
-	('69', '412303'),
-	('70', '412201'),
-	('70', '412202')
-ON CONFLICT DO NOTHING;
---> statement-breakpoint
-INSERT INTO "franchise_zone_estimates" ("zone_id", "est_shop_count", "gmv_per_shop_lakh", "as_of", "source")
-SELECT v.zone_id, v.shops, v.gmv, DATE '2026-11-01', 'Pune_PMR_Restructured_Zones_Max_5K_Cr.xlsx (owner, Nov 2026)'
+-- Provisional business index (average 99.4) and the tier / fee it gives (§5.3), all marked provisional.
+INSERT INTO "franchise_zone_business" ("zone_id", "batch_id", "metric", "value", "source", "as_of", "provisional", "status", "published_at")
+SELECT v.zone_id, '8a6f3c2e-0b1d-4c5e-9f7a-21b0c0de0157'::uuid, 'INDEX', v.value, 'Provisional estimate', DATE '2026-11-21', true, 'PUBLISHED', now()
 FROM (VALUES
-	('1A', 2300, 14.5),
-	('1B', 2200, 13.5),
-	('2A', 1600, 19),
-	('2B', 1600, 18),
-	('2C', 1600, 17),
-	('3A', 2100, 11.5),
-	('3B', 2100, 10.5),
-	('4', 4000, 9.5),
-	('5A', 2200, 16),
-	('5B', 2200, 14),
-	('6', 3600, 7.5),
-	('7A', 2300, 16.5),
-	('7B', 2300, 15.5),
-	('8A', 1900, 15),
-	('8B', 1900, 14),
-	('9A', 2100, 14),
-	('9B', 2000, 13),
-	('10', 3500, 1E+1),
-	('11A', 1600, 24),
-	('11B', 1600, 22),
-	('11C', 1500, 19.8),
-	('12', 3200, 8),
-	('13', 3000, 12.5),
-	('14', 3400, 11.5),
-	('15', 3800, 8.5),
-	('16A', 2000, 13.5),
-	('16B', 1900, 12.5),
-	('17', 4100, 9),
-	('18', 3300, 7),
-	('19A', 1900, 12.5),
-	('19B', 1800, 11.5),
-	('20', 3400, 8.5),
-	('21', 3500, 7.5),
-	('22', 2600, 5.5),
-	('23A', 2300, 13.5),
-	('23B', 2200, 13.5),
-	('24', 3600, 7.5),
-	('25', 3700, 9),
-	('26', 3900, 9.5),
-	('27', 3200, 6.5),
-	('28', 3100, 7),
-	('29', 3600, 8),
-	('30', 4000, 9),
-	('31', 3800, 8.5),
-	('32', 3500, 7),
-	('33', 3700, 9.5),
-	('34', 3400, 7.5),
-	('35', 3600, 8.5),
-	('36A', 2100, 11),
-	('36B', 2000, 11),
-	('37', 3500, 9.5),
-	('38', 3700, 8),
-	('39', 2900, 9.5),
-	('40', 3300, 11.5),
-	('41A', 1900, 13),
-	('41B', 1900, 13),
-	('42', 2800, 6.5),
-	('43', 3900, 10.5),
-	('44', 3600, 8.5),
-	('45', 3400, 1E+1),
-	('46', 2500, 6),
-	('47', 3800, 10.5),
-	('48', 3100, 8.5),
-	('49', 4000, 8.5),
-	('50A', 1700, 18.5),
-	('50B', 1600, 17.5),
-	('50C', 1600, 16.4),
-	('51', 4100, 9),
-	('52', 3300, 8.5),
-	('53A', 2200, 15.5),
-	('53B', 2200, 13.5),
-	('54', 3600, 7.5),
-	('55A', 2000, 11.5),
-	('55B', 1900, 10.5),
-	('56', 3700, 8.5),
-	('57', 3800, 9),
-	('58A', 2100, 11.5),
-	('58B', 2100, 11.5),
-	('59', 2900, 6.5),
-	('60', 3500, 8),
-	('61', 2800, 6),
-	('62', 2700, 6),
-	('63A', 1900, 11),
-	('63B', 1900, 11),
-	('64', 2400, 5),
-	('65', 3100, 7),
-	('66', 2900, 8.5),
-	('67', 2300, 5),
-	('68', 2200, 4.5),
-	('69', 2500, 5.5),
-	('70', 2800, 6)
-) AS v(zone_id, shops, gmv)
-WHERE NOT EXISTS (SELECT 1 FROM "franchise_zone_estimates" e WHERE e.zone_id = v.zone_id AND e.is_current);
+	('GKZ-PUN-01', 120),
+	('GKZ-PUN-02', 150),
+	('GKZ-PUN-03', 150),
+	('GKZ-PUN-04', 140),
+	('GKZ-PUN-05', 145),
+	('GKZ-PUN-06', 130),
+	('GKZ-PUN-07', 105),
+	('GKZ-PUN-08', 80),
+	('GKZ-PUN-09', 75),
+	('GKZ-PUN-10', 130),
+	('GKZ-PUN-11', 115),
+	('GKZ-PUN-12', 70),
+	('GKZ-PUN-13', 85),
+	('GKZ-PUN-14', 90),
+	('GKZ-PUN-15', 70),
+	('GKZ-PUN-16', 135),
+	('GKZ-PUN-17', 130),
+	('GKZ-PUN-18', 95),
+	('GKZ-PUN-19', 120),
+	('GKZ-PUN-20', 85),
+	('GKZ-PUN-21', 130),
+	('GKZ-PUN-22', 110),
+	('GKZ-PUN-23', 65),
+	('GKZ-PUN-24', 95),
+	('GKZ-PUN-25', 105),
+	('GKZ-PUN-26', 70),
+	('GKZ-PUN-27', 60),
+	('GKZ-PUN-28', 95),
+	('GKZ-PUN-29', 95),
+	('GKZ-PUN-30', 90),
+	('GKZ-PUN-31', 70),
+	('GKZ-PUN-32', 105),
+	('GKZ-PUN-33', 80),
+	('GKZ-PUN-34', 65),
+	('GKZ-PUN-35', 135),
+	('GKZ-PUN-36', 125),
+	('GKZ-PUN-37', 110),
+	('GKZ-PUN-38', 120),
+	('GKZ-PUN-39', 80),
+	('GKZ-PUN-40', 65),
+	('GKZ-PUN-41', 120),
+	('GKZ-PUN-42', 90),
+	('GKZ-PUN-43', 85),
+	('GKZ-PUN-44', 110),
+	('GKZ-PUN-45', 90),
+	('GKZ-PUN-46', 115),
+	('GKZ-PUN-47', 50),
+	('GKZ-PUN-48', 70),
+	('GKZ-PUN-49', 95),
+	('GKZ-PUN-50', 55)
+) AS v(zone_id, value)
+WHERE NOT EXISTS (SELECT 1 FROM "franchise_zone_business" b WHERE b.zone_id = v.zone_id);
+--> statement-breakpoint
+INSERT INTO "franchise_zone_fee_versions" ("zone_id", "business_id", "tier", "value", "average", "diff_bp", "fee_paise", "reason", "provisional")
+SELECT v.zone_id, b.id, v.tier, v.value, 99.4, v.diff_bp, v.fee, v.reason, true
+FROM (VALUES
+	('GKZ-PUN-01', 'PREMIER', 120, 2072, 18100000, 'Dense old-city retail peths'),
+	('GKZ-PUN-02', 'PREMIER', 150, 5091, 22600000, 'Wholesale trade peths (Raviwar, Budhwar, Ganj)'),
+	('GKZ-PUN-03', 'PREMIER', 150, 5091, 22600000, 'FC/JM Road high street, education hub'),
+	('GKZ-PUN-04', 'PREMIER', 140, 4085, 21100000, 'APMC wholesale market, transport hub'),
+	('GKZ-PUN-05', 'PREMIER', 145, 4588, 21900000, 'MG Road retail, railway station'),
+	('GKZ-PUN-06', 'PREMIER', 130, 3078, 19600000, 'Large affluent residential market'),
+	('GKZ-PUN-07', 'STANDARD', 105, 563, 15000000, 'Established residential'),
+	('GKZ-PUN-08', 'EMERGING', 80, -1952, 12100000, 'Growing residential, newer merged areas'),
+	('GKZ-PUN-09', 'EMERGING', 75, -2455, 11300000, 'Newer residential, low shop density'),
+	('GKZ-PUN-10', 'PREMIER', 130, 3078, 19600000, 'IT offices and high street'),
+	('GKZ-PUN-11', 'PREMIER', 115, 1569, 17400000, 'Affluent residential, university area'),
+	('GKZ-PUN-12', 'EMERGING', 70, -2958, 10600000, 'Cantonment, limited retail'),
+	('GKZ-PUN-13', 'EMERGING', 85, -1449, 12800000, 'Mixed residential'),
+	('GKZ-PUN-14', 'STANDARD', 90, -946, 15000000, 'Growing residential'),
+	('GKZ-PUN-15', 'EMERGING', 70, -2958, 10600000, 'Airport area, lower shop density'),
+	('GKZ-PUN-16', 'PREMIER', 135, 3581, 20400000, 'Premium residential and malls'),
+	('GKZ-PUN-17', 'PREMIER', 130, 3078, 19600000, 'Premium residential, dining'),
+	('GKZ-PUN-18', 'STANDARD', 95, -443, 15000000, 'Established residential'),
+	('GKZ-PUN-19', 'PREMIER', 120, 2072, 18100000, 'IT hub (EON IT Park)'),
+	('GKZ-PUN-20', 'EMERGING', 85, -1449, 12800000, 'Fast-growing fringe'),
+	('GKZ-PUN-21', 'PREMIER', 130, 3078, 19600000, 'Large population and market'),
+	('GKZ-PUN-22', 'PREMIER', 110, 1066, 16600000, 'IT townships'),
+	('GKZ-PUN-23', 'EMERGING', 65, -3461, 9800000, 'Newly merged, developing'),
+	('GKZ-PUN-24', 'STANDARD', 95, -443, 15000000, 'Established residential'),
+	('GKZ-PUN-25', 'STANDARD', 105, 563, 15000000, 'Dense residential'),
+	('GKZ-PUN-26', 'EMERGING', 70, -2958, 10600000, 'Newly merged, developing'),
+	('GKZ-PUN-27', 'EMERGING', 60, -3964, 9100000, 'Peri-urban council area'),
+	('GKZ-PUN-28', 'STANDARD', 95, -443, 15000000, 'Established residential'),
+	('GKZ-PUN-29', 'STANDARD', 95, -443, 15000000, 'Established residential'),
+	('GKZ-PUN-30', 'STANDARD', 90, -946, 15000000, 'Residential, highway trade'),
+	('GKZ-PUN-31', 'EMERGING', 70, -2958, 10600000, 'Newly merged, developing'),
+	('GKZ-PUN-32', 'STANDARD', 105, 563, 15000000, 'Dense residential corridor'),
+	('GKZ-PUN-33', 'EMERGING', 80, -1952, 12100000, 'Growing residential'),
+	('GKZ-PUN-34', 'EMERGING', 65, -3461, 9800000, 'Township and newly merged villages'),
+	('GKZ-PUN-35', 'PREMIER', 135, 3581, 20400000, 'Pimpri market, PCMC trade centre'),
+	('GKZ-PUN-36', 'PREMIER', 125, 2575, 18900000, 'Established commercial'),
+	('GKZ-PUN-37', 'PREMIER', 110, 1066, 16600000, 'Planned residential (Pradhikaran)'),
+	('GKZ-PUN-38', 'PREMIER', 120, 2072, 18100000, 'MIDC industrial area'),
+	('GKZ-PUN-39', 'EMERGING', 80, -1952, 12100000, 'Growing residential'),
+	('GKZ-PUN-40', 'EMERGING', 65, -3461, 9800000, 'Developing fringe'),
+	('GKZ-PUN-41', 'PREMIER', 120, 2072, 18100000, 'IT-linked premium residential'),
+	('GKZ-PUN-42', 'STANDARD', 90, -946, 15000000, 'Dense residential'),
+	('GKZ-PUN-43', 'EMERGING', 85, -1449, 12800000, 'Fast-growing residential'),
+	('GKZ-PUN-44', 'PREMIER', 110, 1066, 16600000, 'Affluent residential, high street'),
+	('GKZ-PUN-45', 'STANDARD', 90, -946, 15000000, 'Established residential'),
+	('GKZ-PUN-46', 'PREMIER', 115, 1569, 17400000, 'Rajiv Gandhi Infotech Park'),
+	('GKZ-PUN-47', 'EMERGING', 50, -4970, 7500000, 'Rural-fringe villages'),
+	('GKZ-PUN-48', 'EMERGING', 70, -2958, 10600000, 'Cantonment and council towns'),
+	('GKZ-PUN-49', 'STANDARD', 95, -443, 15000000, 'Auto/industrial hub, pilgrimage town'),
+	('GKZ-PUN-50', 'EMERGING', 55, -4467, 8300000, 'Rural-fringe villages')
+) AS v(zone_id, tier, value, diff_bp, fee, reason)
+JOIN "franchise_zone_business" b ON b.zone_id = v.zone_id AND b.status = 'PUBLISHED'
+WHERE NOT EXISTS (SELECT 1 FROM "franchise_zone_fee_versions" f WHERE f.zone_id = v.zone_id);
+--> statement-breakpoint
+INSERT INTO "franchise_zone_status_history" ("zone_id", "old_status", "new_status", "reason", "applied_at")
+SELECT z.zone_id, NULL, z.status, 'Zone created (seed, 21-Nov-2026)', now() FROM "franchise_zones" z
+WHERE NOT EXISTS (SELECT 1 FROM "franchise_zone_status_history" h WHERE h.zone_id = z.zone_id);

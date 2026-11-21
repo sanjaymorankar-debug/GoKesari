@@ -156,6 +156,9 @@ export const PUBLIC_PAGES = new Set([
   // paying, /franchise/my and /admin/franchise need sign-in.
   "/franchise",
   "/franchise/book",
+  // Final franchise brief (21-Nov-2026 08.06 IST): each zone's page and the commission chart are public too.
+  "/franchise/zones/[zoneId]",
+  "/dealer/commission-chart",
 ]);
 
 /**

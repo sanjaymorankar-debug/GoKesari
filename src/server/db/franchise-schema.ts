@@ -5,69 +5,188 @@
  * repeated here so this file needs no import from schema.ts (which re-exports it). The capacity rule
  * (two slots a zone, one slot an owner) is the pair of partial unique indexes in the SQL.
  */
-import { bigint, boolean, date, integer, jsonb, numeric, primaryKey, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, integer, jsonb, numeric, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { pgTable } from "drizzle-orm/pg-core";
 
-import type { AllocationStatus, BookingStatus, LatLng, ZoneStatus } from "@/lib/franchise";
+import type { AllocationStatus, BookingStatus, CouponScope, LatLng, ZoneStatus, ZoneTier } from "@/lib/franchise";
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 const money = (name: string) => bigint(name, { mode: "number" });
 
-export const franchiseRegions = pgTable("franchise_regions", {
+export const franchiseZoneSets = pgTable("franchise_zone_sets", {
   code: text("code").primaryKey(),
   name: text("name").notNull(),
   state: text("state").notNull(),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
-
-export const franchiseClusters = pgTable("franchise_clusters", {
-  code: text("code").primaryKey(),
-  regionCode: text("region_code").notNull(),
-  name: text("name").notNull(),
-  sortOrder: smallint("sort_order").notNull(),
-});
-export type FranchiseCluster = typeof franchiseClusters.$inferSelect;
+export type FranchiseZoneSet = typeof franchiseZoneSets.$inferSelect;
 
 export const franchiseZones = pgTable("franchise_zones", {
   zoneId: text("zone_id").primaryKey(),
-  regionCode: text("region_code").notNull(),
-  clusterCode: text("cluster_code").notNull(),
+  zoneSetCode: text("zone_set_code").notNull(),
+  clusterNo: integer("cluster_no").notNull(),
   name: text("name").notNull(),
-  commercialProfile: text("commercial_profile").notNull(),
-  origin: text("origin", { enum: ["ORIGINAL", "SPLIT", "SUB_ZONE", "TEST"] }).notNull(),
-  splitFromZone: text("split_from_zone"),
-  parentZoneId: text("parent_zone_id"),
-  status: text("status").$type<ZoneStatus>().notNull().default("BOUNDARY_PENDING"),
+  region: text("region").notNull(),
+  civicBody: text("civic_body"),
+  reason: text("reason").notNull(),
+  status: text("status").$type<ZoneStatus>().notNull().default("COMING_SOON"),
+  reservedForDealerId: uuid("reserved_for_dealer_id"),
+  reservedUntil: ts("reserved_until"),
   maxOwners: smallint("max_owners").notNull().default(2),
   isTest: boolean("is_test").notNull().default(false),
-  sortKey: integer("sort_key").notNull(),
   statusReason: text("status_reason"),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 });
 export type FranchiseZone = typeof franchiseZones.$inferSelect;
 
-export const franchiseZonePins = pgTable(
-  "franchise_zone_pins",
-  {
-    zoneId: text("zone_id").notNull(),
-    pincode: text("pincode").notNull(),
-  },
-  (t) => [primaryKey({ name: "franchise_zone_pins_pk", columns: [t.zoneId, t.pincode] })],
-);
+export const franchiseAreas = pgTable("franchise_areas", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  zoneSetCode: text("zone_set_code").notNull(),
+  areaNo: integer("area_no").notNull(),
+  name: text("name").notNull(),
+  region: text("region").notNull(),
+  civicBody: text("civic_body"),
+  notes: text("notes"),
+  /** null = Unzoned: free teams may register shops here, no franchise can be bought. */
+  zoneId: text("zone_id"),
+  lat: numeric("lat", { precision: 9, scale: 6, mode: "number" }),
+  lng: numeric("lng", { precision: 9, scale: 6, mode: "number" }),
+  pincodes: text("pincodes").array().notNull().default([]),
+  aliases: text("aliases").array().notNull().default([]),
+  locationSource: text("location_source", { enum: ["APPROXIMATE", "ADMIN"] }).notNull().default("APPROXIMATE"),
+  isTest: boolean("is_test").notNull().default(false),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+export type FranchiseArea = typeof franchiseAreas.$inferSelect;
 
-export const franchiseZoneEstimates = pgTable("franchise_zone_estimates", {
+export const franchiseAreaZoneHistory = pgTable("franchise_area_zone_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  areaId: uuid("area_id").notNull(),
+  oldZoneId: text("old_zone_id"),
+  newZoneId: text("new_zone_id"),
+  reason: text("reason").notNull(),
+  changedBy: uuid("changed_by"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const franchiseShopAreaPeriods = pgTable("franchise_shop_area_periods", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  shopId: uuid("shop_id").notNull(),
+  areaId: uuid("area_id").notNull(),
+  zoneId: text("zone_id"),
+  validFrom: ts("valid_from").notNull().defaultNow(),
+  validTo: ts("valid_to"),
+  source: text("source", { enum: ["REGISTRATION", "ADMIN", "OPERATOR", "BACKFILL"] }).notNull(),
+  reason: text("reason"),
+  setBy: uuid("set_by"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+export type FranchiseShopAreaPeriod = typeof franchiseShopAreaPeriods.$inferSelect;
+
+export const franchiseZoneBusiness = pgTable("franchise_zone_business", {
   id: uuid("id").primaryKey().defaultRandom(),
   zoneId: text("zone_id").notNull(),
-  estShopCount: integer("est_shop_count").notNull(),
-  gmvPerShopLakh: numeric("gmv_per_shop_lakh", { precision: 8, scale: 2, mode: "number" }).notNull(),
-  asOf: date("as_of", { mode: "string" }).notNull(),
+  batchId: uuid("batch_id").notNull(),
+  metric: text("metric", { enum: ["INDEX", "ANNUAL_CR"] }).notNull(),
+  value: numeric("value", { precision: 14, scale: 2, mode: "number" }).notNull(),
   source: text("source").notNull(),
-  isCurrent: boolean("is_current").notNull().default(true),
+  asOf: date("as_of", { mode: "string" }).notNull(),
+  provisional: boolean("provisional").notNull().default(false),
+  status: text("status", { enum: ["DRAFT", "PUBLISHED", "SUPERSEDED", "DISCARDED"] }).notNull().default("DRAFT"),
+  createdBy: uuid("created_by"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  publishedBy: uuid("published_by"),
+  publishedAt: ts("published_at"),
+});
+export type FranchiseZoneBusiness = typeof franchiseZoneBusiness.$inferSelect;
+
+export const franchiseZoneFeeVersions = pgTable("franchise_zone_fee_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  zoneId: text("zone_id").notNull(),
+  businessId: uuid("business_id"),
+  tier: text("tier").$type<ZoneTier>().notNull(),
+  value: numeric("value", { precision: 14, scale: 2, mode: "number" }).notNull(),
+  average: numeric("average", { precision: 14, scale: 4, mode: "number" }).notNull(),
+  diffBp: integer("diff_bp").notNull(),
+  feePaise: money("fee_paise").notNull(),
+  reason: text("reason").notNull(),
+  provisional: boolean("provisional").notNull().default(false),
+  effectiveFrom: ts("effective_from").notNull().defaultNow(),
+  supersededAt: ts("superseded_at"),
   createdBy: uuid("created_by"),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
-export type FranchiseZoneEstimate = typeof franchiseZoneEstimates.$inferSelect;
+export type FranchiseZoneFeeVersion = typeof franchiseZoneFeeVersions.$inferSelect;
+
+export const franchiseZoneStatusHistory = pgTable("franchise_zone_status_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  zoneId: text("zone_id").notNull(),
+  oldStatus: text("old_status").$type<ZoneStatus | null>(),
+  newStatus: text("new_status").$type<ZoneStatus>().notNull(),
+  reason: text("reason").notNull(),
+  reservedForDealerId: uuid("reserved_for_dealer_id"),
+  reservedUntil: ts("reserved_until"),
+  changedBy: uuid("changed_by"),
+  scheduledFor: ts("scheduled_for"),
+  appliedAt: ts("applied_at"),
+  cancelledAt: ts("cancelled_at"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+export type FranchiseZoneStatusChange = typeof franchiseZoneStatusHistory.$inferSelect;
+
+export const franchiseCoupons = pgTable("franchise_coupons", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  note: text("note"),
+  discountType: text("discount_type", { enum: ["PERCENT", "FLAT"] }).notNull(),
+  percentBp: integer("percent_bp"),
+  flatPaise: money("flat_paise"),
+  maxDiscountPaise: money("max_discount_paise"),
+  scope: jsonb("scope").$type<CouponScope>().notNull().default({ all: true }),
+  appliesOn: text("applies_on", { enum: ["NEW", "RENEWAL", "BOTH"] }).notNull().default("BOTH"),
+  visibility: text("visibility", { enum: ["PUBLIC", "PRIVATE"] }).notNull().default("PUBLIC"),
+  startsAt: ts("starts_at").notNull(),
+  endsAt: ts("ends_at").notNull(),
+  totalLimit: integer("total_limit"),
+  perDealerLimit: integer("per_dealer_limit"),
+  minCartPaise: money("min_cart_paise"),
+  firstPurchaseOnly: boolean("first_purchase_only").notNull().default(false),
+  launchOnly: boolean("launch_only").notNull().default(false),
+  status: text("status", { enum: ["ACTIVE", "PAUSED"] }).notNull().default("ACTIVE"),
+  createdBy: uuid("created_by"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+export type FranchiseCoupon = typeof franchiseCoupons.$inferSelect;
+
+export const franchiseCouponAssignments = pgTable("franchise_coupon_assignments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  couponId: uuid("coupon_id").notNull(),
+  dealerId: uuid("dealer_id"),
+  mobileE164: text("mobile_e164"),
+  email: text("email"),
+  createdBy: uuid("created_by"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+export type FranchiseCouponAssignment = typeof franchiseCouponAssignments.$inferSelect;
+
+export const franchiseCouponRedemptions = pgTable("franchise_coupon_redemptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  couponId: uuid("coupon_id").notNull(),
+  ownerDealerId: uuid("owner_dealer_id").notNull(),
+  bookingId: uuid("booking_id").notNull(),
+  discountPaise: money("discount_paise").notNull(),
+  status: text("status", { enum: ["HELD", "USED", "RELEASED"] }).notNull().default("HELD"),
+  heldUntil: ts("held_until").notNull(),
+  usedAt: ts("used_at"),
+  releasedAt: ts("released_at"),
+  releaseReason: text("release_reason"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+export type FranchiseCouponRedemption = typeof franchiseCouponRedemptions.$inferSelect;
 
 export const franchiseZoneBoundaries = pgTable("franchise_zone_boundaries", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -118,7 +237,11 @@ export const franchiseBookings = pgTable("franchise_bookings", {
   kind: text("kind", { enum: ["NEW", "RENEWAL"] }).notNull().default("NEW"),
   status: text("status").$type<BookingStatus>().notNull().default("RESERVED"),
   areaCount: integer("area_count").notNull(),
-  feePerAreaPaise: money("fee_per_area_paise").notNull(),
+  /** The zones' list fees together; base = list − discount (the taxable amount). */
+  listPaise: money("list_paise").notNull(),
+  discountPaise: money("discount_paise").notNull().default(0),
+  couponId: uuid("coupon_id"),
+  couponCode: text("coupon_code"),
   basePaise: money("base_paise").notNull(),
   gstRateBp: integer("gst_rate_bp").notNull(),
   gstPaise: money("gst_paise").notNull(),
@@ -153,7 +276,12 @@ export const franchiseAllocations = pgTable("franchise_allocations", {
   expiresAt: ts("expires_at"),
   tailEndAt: ts("tail_end_at"),
   renewalCount: integer("renewal_count").notNull().default(0),
+  /** The zone's list fee, locked for the term. */
   feePaise: money("fee_paise").notNull(),
+  /** This payment's coupon share (the list fee stays locked). */
+  discountPaise: money("discount_paise").notNull().default(0),
+  tier: text("tier").$type<ZoneTier>().notNull(),
+  feeVersionId: uuid("fee_version_id"),
   configVersion: integer("config_version").notNull(),
   launchOffer: boolean("launch_offer").notNull().default(false),
   launchSeq: integer("launch_seq"),
@@ -172,6 +300,8 @@ export const franchiseAllocationRenewals = pgTable("franchise_allocation_renewal
   previousExpiresAt: ts("previous_expires_at").notNull(),
   newExpiresAt: ts("new_expires_at").notNull(),
   feePaise: money("fee_paise").notNull(),
+  discountPaise: money("discount_paise").notNull().default(0),
+  tier: text("tier").$type<ZoneTier | null>(),
   paidAt: ts("paid_at").notNull(),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
@@ -189,9 +319,8 @@ export const franchiseCodes = pgTable("franchise_codes", {
   id: uuid("id").primaryKey().defaultRandom(),
   referralCodeId: uuid("referral_code_id").notNull(),
   ownerDealerId: uuid("owner_dealer_id").notNull(),
-  /** The booked area this dealer code belongs to (one code per dealer per area); null for a member's tracking code. */
-  allocationId: uuid("allocation_id"),
-  memberId: uuid("member_id"),
+  /** The franchise this code belongs to (one per owner per franchise); closed for new shops at its expiry. */
+  allocationId: uuid("allocation_id").notNull(),
   status: text("status", { enum: ["ACTIVE", "SUSPENDED", "RETIRED"] }).notNull().default("ACTIVE"),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
@@ -203,13 +332,12 @@ export const franchiseShopAttributions = pgTable("franchise_shop_attributions", 
   ownerDealerId: uuid("owner_dealer_id").notNull(),
   allocationId: uuid("allocation_id").notNull(),
   zoneId: text("zone_id").notNull(),
-  franchiseCodeId: uuid("franchise_code_id").notNull(),
+  /** TEAM: a Model B shop of the owner's team; UPGRADE: an earlier free-dealership shop of his team in the zone. */
+  origin: text("origin", { enum: ["TEAM", "UPGRADE"] }).notNull().default("TEAM"),
+  franchiseCodeId: uuid("franchise_code_id"),
   memberId: uuid("member_id"),
   status: text("status", { enum: ["ACTIVE", "HELD", "REVERSED"] }).notNull().default("ACTIVE"),
   holdReason: text("hold_reason"),
-  /** Set when an admin tagged a shop outside the code's area (brief 21-Nov-2026 §1.5). */
-  overrideReason: text("override_reason"),
-  overrideBy: uuid("override_by"),
   registeredAt: ts("registered_at").notNull().defaultNow(),
   activatedAt: ts("activated_at"),
   createdAt: ts("created_at").notNull().defaultNow(),

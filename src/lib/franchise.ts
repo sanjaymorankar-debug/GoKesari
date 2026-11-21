@@ -10,8 +10,16 @@ export const IST_OFFSET_MS = 330 * 60 * 1000;
 
 /* ------------------------------------------------------------------ statuses and labels */
 
-export const ZONE_STATUSES = ["BOUNDARY_PENDING", "NEEDS_SPLIT", "BOOKABLE", "PAUSED", "RETIRED"] as const;
+/** Zone status (brief 21-Nov-2026 08.06 §5.6). SOLD_OUT is set and cleared by the system only. */
+export const ZONE_STATUSES = ["AVAILABLE", "COMING_SOON", "RESERVED", "ON_HOLD", "SOLD_OUT", "INACTIVE"] as const;
 export type ZoneStatus = (typeof ZONE_STATUSES)[number];
+export const ADMIN_ZONE_STATUSES = ["AVAILABLE", "COMING_SOON", "RESERVED", "ON_HOLD", "INACTIVE"] as const satisfies readonly ZoneStatus[];
+
+export const ZONE_TIERS = ["PREMIER", "STANDARD", "EMERGING"] as const;
+export type ZoneTier = (typeof ZONE_TIERS)[number];
+
+/** A coupon's scope: all zones, or any of zone sets / tiers / zones. */
+export type CouponScope = { all: true } | { all?: false; zoneSets?: string[]; tiers?: ZoneTier[]; zones?: string[] };
 
 export const ALLOCATION_STATUSES = [
   "RESERVED",
@@ -41,26 +49,36 @@ export const ALLOCATION_STATUS_LABELS: Record<AllocationStatus, string> = {
   PAYMENT_FAILED: "Payment failed",
 };
 
-export const BOOKING_STATUSES = ["RESERVED", "PAYMENT_PENDING", "PAID", "FAILED", "EXPIRED", "CANCELLED"] as const;
+export const BOOKING_STATUSES = ["RESERVED", "PAYMENT_PENDING", "PAID", "FAILED", "EXPIRED", "CANCELLED", "REFUNDED"] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
-export type ZoneBadge = "AVAILABLE_2" | "ONE_LEFT" | "FULL" | "COMING_SOON" | "PAUSED";
+export type ZoneBadge = "AVAILABLE" | "ONE_LEFT" | "COMING_SOON" | "RESERVED" | "ON_HOLD" | "SOLD_OUT" | "INACTIVE";
 
 export const ZONE_BADGE_LABELS: Record<ZoneBadge, string> = {
-  AVAILABLE_2: "Available (2 slots)",
+  AVAILABLE: "Available",
   ONE_LEFT: "1 slot left",
-  FULL: "Fully booked",
   COMING_SOON: "Coming soon",
-  PAUSED: "Paused",
+  RESERVED: "Reserved",
+  ON_HOLD: "Temporarily unavailable",
+  SOLD_OUT: "Sold out",
+  INACTIVE: "Not available",
 };
 
-/** The status badge of a zone card (brief §4.3). */
+export const ZONE_STATUS_LABELS: Record<ZoneStatus, string> = {
+  AVAILABLE: "Available",
+  COMING_SOON: "Coming Soon",
+  RESERVED: "Reserved",
+  ON_HOLD: "On Hold",
+  SOLD_OUT: "Sold Out",
+  INACTIVE: "Inactive",
+};
+
+/** The badge of a zone card on the booking page (brief §5.6). */
 export function zoneBadge(status: ZoneStatus, maxOwners: number, occupied: number): ZoneBadge {
-  if (status === "PAUSED" || status === "RETIRED") return "PAUSED";
-  if (status !== "BOOKABLE") return "COMING_SOON";
+  if (status !== "AVAILABLE") return status;
   const free = Math.max(0, maxOwners - occupied);
-  if (free <= 0) return "FULL";
-  return free >= 2 ? "AVAILABLE_2" : "ONE_LEFT";
+  if (free <= 0) return "SOLD_OUT";
+  return free === 1 && maxOwners > 1 ? "ONE_LEFT" : "AVAILABLE";
 }
 
 export const ESTIMATE_DISCLOSURE =
@@ -93,23 +111,6 @@ export function gstOn(basePaise: number, gstRateBp: number): number {
   return Math.round((Math.max(0, basePaise) * Math.max(0, gstRateBp)) / 10_000);
 }
 
-export interface BookingAmounts {
-  areaCount: number;
-  feePerAreaPaise: number;
-  basePaise: number;
-  gstRateBp: number;
-  gstPaise: number;
-  totalPaise: number;
-}
-
-/** ₹1,50,000 × N + GST, all server-side (brief §4.5 step 4). */
-export function bookingAmounts(areaCount: number, feePerAreaPaise: number, gstRateBp: number): BookingAmounts {
-  if (!Number.isInteger(areaCount) || areaCount < 1) throw new Error("At least one area is needed.");
-  if (!Number.isInteger(feePerAreaPaise) || feePerAreaPaise <= 0) throw new Error("The franchise fee is not set.");
-  const basePaise = feePerAreaPaise * areaCount;
-  const gstPaise = gstOn(basePaise, gstRateBp);
-  return { areaCount, feePerAreaPaise, basePaise, gstRateBp, gstPaise, totalPaise: basePaise + gstPaise };
-}
 
 /** basis points of an amount, rounded to the paisa. */
 export function bpOf(paise: number, bp: number): number {
@@ -132,14 +133,6 @@ export interface ZoneEstimate {
   annualCrHundredths: number;
 }
 
-/** monthly (₹ Cr) = shops × GMV per shop (₹ lakh) ÷ 100; annual = monthly × 12 (brief §5). */
-export function zoneEstimate(input: ZoneEstimateInput): ZoneEstimate {
-  const shops = Math.max(0, Math.trunc(Number(input.estShopCount) || 0));
-  const gmv = Number(input.gmvPerShopLakh) || 0;
-  const gmvHundredths = Math.round(gmv * 100);
-  const monthlyCrHundredths = Math.round((shops * gmvHundredths) / 100);
-  return { shops, gmvPerShopLakh: gmvHundredths / 100, monthlyCrHundredths, annualCrHundredths: monthlyCrHundredths * 12 };
-}
 
 /* ------------------------------------------------------------------ zone ids */
 

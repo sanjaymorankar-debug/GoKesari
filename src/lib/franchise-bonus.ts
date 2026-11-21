@@ -1,11 +1,11 @@
 /**
- * Monthly performance bonus for a paid franchise dealer code (owner brief 21-Nov-2026 00.30 IST, §2–§3).
+ * Monthly performance bonus for a paid franchise (owner briefs 21-Nov-2026 00.30 IST §2–§3 and 08.06 IST §4.1).
  * Pure: the server supplies the month's counts and values per dealer code; money in paise, rates in basis points.
  *
  *   Registration base points = max(0, NEW SHOPS − target)
  *   Baseline                 = OPENING SHOPS × expected business per shop
  *   Business base points     = max(0, floor((actual business of OPENING SHOPS − baseline) ÷ slot))  (0 in a first month)
- *   Main points              = total base points ÷ base points per main point (2 decimals, never rounded up)
+ *   Main points              = total base points ÷ base points per main point (1 decimal, never rounded up)
  *   Bonus                    = min(main points × bonus per main point, maximum)
  *   Commission rate          = recurring base share + bonus
  *   Rating                   = 5.0 + bonus % (at most 10.0)
@@ -64,7 +64,7 @@ export interface MonthResult {
   registrationPoints: number;
   businessPoints: number;
   totalPoints: number;
-  /** Two decimals. */
+  /** One decimal. */
   mainPoints: number;
   bonusBp: number;
   commissionRateBp: number;
@@ -84,7 +84,8 @@ export function monthlyBonus(input: MonthInput, s: BonusSettings): MonthResult {
   // A first month (no opening shops): baseline 0 and no business points.
   const businessPoints = opening > 0 && s.businessSlotPaise > 0 ? Math.max(0, Math.floor((input.openingBusinessPaise - baselinePaise) / s.businessSlotPaise)) : 0;
   const totalPoints = registrationPoints + businessPoints;
-  const mainPoints = s.basePointsPerMainPoint > 0 ? Math.floor((totalPoints * 100) / s.basePointsPerMainPoint) / 100 : 0;
+  // Final brief 21-Nov-2026 §4.1: shown to one decimal (30 base points → 0.3 → 25.3%), never rounded up.
+  const mainPoints = s.basePointsPerMainPoint > 0 ? Math.floor((totalPoints * 10) / s.basePointsPerMainPoint) / 10 : 0;
   const eligible = input.bonusEligible !== false;
   const bonusBp = eligible ? Math.min(s.bonusMaxBp, Math.round(mainPoints * s.bonusBpPerMainPoint)) : 0;
   const commissionRateBp = s.recurringBaseBp + bonusBp;

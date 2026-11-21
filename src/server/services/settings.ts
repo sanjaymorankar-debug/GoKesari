@@ -93,6 +93,16 @@ export async function setRule<K extends RuleKey>(
       fields: Object.fromEntries(parsed.error.issues.map((i) => [i.path.join(".") || "_", i.message])),
     });
   }
+  // Franchise brief 21-Nov-2026 §3.4: the agent / team-lead / free-dealer rates may never rise above the franchise
+  // owner's matching rates (one field per role, used by both models).
+  if (key === "dealerTieredCommission") {
+    const { franchiseConfig } = await import("@/server/franchise/config");
+    const { parityProblems } = await import("@/lib/franchise-zones");
+    const v = parsed.data as RuleValue<"dealerTieredCommission">;
+    const { config } = await franchiseConfig();
+    const problems = parityProblems({ memberDirectBp: v.directBp, leadOverrideBp: v.leadOverrideBp, dealerSelfBp: v.directBp, dealerOverrideBp: v.overrideByDistance === false ? v.mainOverrideBp : v.leadOverrideBp, dealerSecondOverrideBp: v.mainOverrideBp, ownerSelfBp: config.ownerSelfBp, ownerOverrideBp: config.ownerOverrideBp });
+    if (problems.length) throw validationFailed(problems.join(" "));
+  }
   const previous = await getRule(key);
   await db
     .insert(platformSettings)

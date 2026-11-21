@@ -98,7 +98,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" action={<LinkButton href="/franchise" variant="secondary">Upgrade to Paid Franchise</LinkButton>} />
+      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" action={<div className="flex flex-wrap gap-2"><LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton><LinkButton href="/franchise" variant="secondary">Upgrade to Paid Franchise</LinkButton></div>} />
       <p className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
         <Badge tone="success">Approved</Badge>
         {dealer.agreementStart && dealer.agreementEnd ? <span>Agreement {dealer.agreementStart} to {dealer.agreementEnd}</span> : null}
@@ -165,7 +165,7 @@ async function MemberPortal({ member, dealer, openStatement }: { member: DealerS
   const statements = await Promise.all(months.map((m) => dealerMonthStatement(dealer.id, m, member.id)));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-      <PageHeader title={member.name} description={`${member.teamRole === "TEAM_LEAD" ? "Team lead" : "Agent"} · ${dealer.legalName}`} />
+      <PageHeader title={member.name} description={`${member.teamRole === "TEAM_LEAD" ? "Team lead" : "Agent"} · ${dealer.legalName}`} action={<LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton>} />
       {code ? (
         <DealerPortal
           legalName={`${dealer.legalName}: ${member.name}`}

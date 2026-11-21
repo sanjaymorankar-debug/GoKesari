@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   allocationExpiry,
-  bookingAmounts,
   boundaryContains,
   compareZoneIds,
   crore,
@@ -20,16 +19,11 @@ import {
   tailEndAt,
   validateBoundary,
   zoneBadge,
-  zoneEstimate,
   type LatLng,
 } from "@/lib/franchise";
 
-describe("franchise — estimates (brief §5)", () => {
-  it("monthly = shops × GMV ÷ 100, annual = × 12, exact", () => {
-    expect(zoneEstimate({ estShopCount: 2300, gmvPerShopLakh: 14.5 })).toMatchObject({ monthlyCrHundredths: 33350, annualCrHundredths: 400200 });
-    expect(zoneEstimate({ estShopCount: 3900, gmvPerShopLakh: "10.5" }).annualCrHundredths).toBe(491400); // Zone 43, ₹4,914 Cr
-    expect(zoneEstimate({ estShopCount: 2200, gmvPerShopLakh: 4.5 }).annualCrHundredths).toBe(118800); // Zone 68, ₹1,188 Cr
-    expect(zoneEstimate({ estShopCount: 1600, gmvPerShopLakh: 16.4 }).annualCrHundredths).toBe(314880); // Zone 50C
+describe("franchise — crore figures", () => {
+  it("Indian grouping of ₹ Cr (hundredths)", () => {
     expect(crore(314880)).toBe("3,148.80");
     expect(crore(30165480)).toBe("3,01,654.80");
   });
@@ -40,10 +34,6 @@ describe("franchise — money (brief §0.6)", () => {
     expect(rupees(15_000_000)).toBe("₹1,50,000");
     expect(rupees(45_000_000)).toBe("₹4,50,000");
     expect(rupees(25_050)).toBe("₹250.50");
-  });
-  it("₹1,50,000 × N + GST", () => {
-    expect(bookingAmounts(3, 15_000_000, 1800)).toEqual({ areaCount: 3, feePerAreaPaise: 15_000_000, basePaise: 45_000_000, gstRateBp: 1800, gstPaise: 8_100_000, totalPaise: 53_100_000 });
-    expect(() => bookingAmounts(0, 15_000_000, 1800)).toThrow();
   });
 });
 
@@ -131,15 +121,13 @@ describe("franchise — launch offer (brief §3.1)", () => {
   });
 });
 
-describe("franchise — zone badge (brief §4.3)", () => {
-  it("2 / 1 / 0 slots, coming soon, paused", () => {
-    expect(zoneBadge("BOOKABLE", 2, 0)).toBe("AVAILABLE_2");
-    expect(zoneBadge("BOOKABLE", 2, 1)).toBe("ONE_LEFT");
-    expect(zoneBadge("BOOKABLE", 2, 2)).toBe("FULL");
-    expect(zoneBadge("BOOKABLE", 1, 0)).toBe("ONE_LEFT");
-    expect(zoneBadge("BOUNDARY_PENDING", 2, 0)).toBe("COMING_SOON");
-    expect(zoneBadge("NEEDS_SPLIT", 2, 0)).toBe("COMING_SOON");
-    expect(zoneBadge("PAUSED", 2, 0)).toBe("PAUSED");
+describe("franchise — zone badge (final brief §5.6)", () => {
+  it("Available with slots, 1 slot left, Sold Out when full; every other status shows itself", () => {
+    expect(zoneBadge("AVAILABLE", 2, 0)).toBe("AVAILABLE");
+    expect(zoneBadge("AVAILABLE", 2, 1)).toBe("ONE_LEFT");
+    expect(zoneBadge("AVAILABLE", 2, 2)).toBe("SOLD_OUT");
+    expect(zoneBadge("AVAILABLE", 1, 0)).toBe("AVAILABLE");
+    for (const s of ["COMING_SOON", "RESERVED", "ON_HOLD", "SOLD_OUT", "INACTIVE"] as const) expect(zoneBadge(s, 2, 0)).toBe(s);
   });
 });
 
