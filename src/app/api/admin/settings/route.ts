@@ -28,6 +28,9 @@ export const GET = route(async () => {
 export const PUT = route(async (request: NextRequest) => {
   const admin = await requireRole("ADMIN");
   const body = await parseBody(request, putSchema);
+  // Owner, 21-Nov-2026: a territory and a franchise are the same thing — territories are sold and paid only as
+  // franchise zones (Admin → Franchise), so the older territory rule cannot be switched back on (no double recurring).
+  if (body.key === "territoryDealer" && body.value.enabled === true) throw validationFailed("Territories are now franchise zones: sell and manage them in Admin → Franchise.");
   return ok({ key: body.key, value: await setRule(body.key as RuleKey, body.value, admin) });
 });
 

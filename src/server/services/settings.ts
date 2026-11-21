@@ -100,7 +100,7 @@ export async function setRule<K extends RuleKey>(
     const { parityProblems } = await import("@/lib/franchise-zones");
     const v = parsed.data as RuleValue<"dealerTieredCommission">;
     const { config } = await franchiseConfig();
-    const problems = parityProblems({ memberDirectBp: v.directBp, leadOverrideBp: v.leadOverrideBp, dealerSelfBp: v.directBp, dealerOverrideBp: v.overrideByDistance === false ? v.mainOverrideBp : v.leadOverrideBp, dealerSecondOverrideBp: v.mainOverrideBp, ownerSelfBp: config.ownerSelfBp, ownerOverrideBp: config.ownerOverrideBp });
+    const problems = parityProblems({ memberDirectBp: v.directBp, leadOverrideBp: v.leadOverrideBp, dealerSelfBp: v.directBp, dealerOverrideBp: v.overrideByDistance === false ? v.mainOverrideBp : v.leadOverrideBp, dealerSecondOverrideBp: v.mainOverrideBp, ownerSelfBp: config.ownerSelfBp, ownerOverrideBp: config.ownerOverrideBp, ownerSecondOverrideBp: config.ownerSecondOverrideBp });
     if (problems.length) throw validationFailed(problems.join(" "));
   }
   const previous = await getRule(key);
