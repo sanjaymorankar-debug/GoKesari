@@ -34,7 +34,8 @@ taken on what the consultant keeps and settled in the weekly shop payout. Refund
 method.
 
 **Unpaid holds (#434, D-CB-09 — next release).** When the 10-minute hold on an online booking runs out without payment, the
-booking ends as "payment failed", the time is freed and the customer is told "Payment for … did not go through".
+booking ends as "payment failed", the time is freed and the customer is told "Payment for … did not go through". On
+test.gokesari.com since 21-Nov-2026 02.12 IST (verified 03.27 IST, R11); on gokesari.com with the next release.
 
 **Switch.** Rule `consultBooking` (Admin → Settings). GoKesari Health's migration 0156 (#429) switches it on: on
 test.gokesari.com when #429 landed, on gokesari.com in the joint release (owner's launch decision, CB-23).
