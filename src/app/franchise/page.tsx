@@ -89,7 +89,7 @@ export default async function FranchisePage() {
             Your own shops: <strong>{pct(r.ownerSelfBp)}</strong> of the registration fee (excluding GST) — {rupees(chart.modelB[0].amounts[0].top)} on a ₹1,000 retail shop.
           </li>
           <li>
-            Every shop your team leads and agents register in your zone: <strong>{pct(r.ownerOverrideBp)}</strong> to you. Your agents get {pct(r.memberDirectBp)} and team leads {pct(r.leadOverrideBp)} on their agents&apos; shops — the same as in a free dealership — paid to them by GoKesari.
+            Every shop your team registers in your zone: <strong>{pct(r.ownerOverrideBp)}</strong> to you when the agent or team lead reports to you directly, <strong>{pct(r.ownerSecondOverrideBp)}</strong> when an agent works under one of your team leads. Your agents get {pct(r.memberDirectBp)} and team leads {pct(r.leadOverrideBp)} on their agents&apos; shops — the same as in a free dealership — paid to them by GoKesari.
           </li>
           <li>
             <strong>{pct(rec.recurringBaseBp)}</strong> of GoKesari&apos;s {pct(rec.gokesariCommissionBp)} order commission on every delivered order of the shops in your zone, every month — plus a performance bonus of up to {pct(rec.bonusMaxBp)}.

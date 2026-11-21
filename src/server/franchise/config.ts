@@ -53,6 +53,8 @@ export const franchiseConfigSchema = z
      * rates are the free dealership's (rule dealerTieredCommission), one field each for both models (§3.4). */
     ownerSelfBp: int(0, 10_000),
     ownerOverrideBp: int(0, 10_000),
+    /** Owner, 21-Nov-2026: two levels up (an agent under a team lead) — the 3% of the 20/4/3 flow. */
+    ownerSecondOverrideBp: int(0, 10_000),
     /** Recurring share of GoKesari's order commission, and the most a bonus can add (§4). */
     recurringBaseBp: int(0, 10_000),
     bonusMaxBp: int(0, 10_000),
@@ -113,9 +115,12 @@ export const FRANCHISE_DEFAULTS: FranchiseConfig = {
   launchMaxAreas: 25,
   launchCloseRule: "first_limit_reached",
   postLaunchRecurringBp: null,
+  // Owner, 21-Nov-2026 (evening): own shop 25%; team shops keep the 20/4/3 flow (owner 4% one level up, 3% two up);
+  // recurring 20% of GoKesari's order commission. Every value is editable by an admin.
   ownerSelfBp: 2500,
-  ownerOverrideBp: 500,
-  recurringBaseBp: 2500,
+  ownerOverrideBp: 400,
+  ownerSecondOverrideBp: 300,
+  recurringBaseBp: 2000,
   bonusMaxBp: 500,
   gokesariCommissionBp: 200,
   monthlyShopTarget: 60,
@@ -146,7 +151,7 @@ export const tierSettingsOf = (c: FranchiseConfig): TierSettings => ({ standardF
 export const tierDisplayOf = (c: FranchiseConfig): TierDisplay => ({ names: c.tierNames, colours: c.tierColours });
 
 /** The one-time rates of both models (§3): agent / team lead / free dealer from the tiered rule, owner from here. */
-export async function oneTimeRates(c: Pick<FranchiseConfig, "ownerSelfBp" | "ownerOverrideBp">): Promise<OneTimeRates> {
+export async function oneTimeRates(c: Pick<FranchiseConfig, "ownerSelfBp" | "ownerOverrideBp" | "ownerSecondOverrideBp">): Promise<OneTimeRates> {
   const { getRule } = await import("@/server/services/settings");
   const rule = await getRule("dealerTieredCommission");
   return {
@@ -158,6 +163,7 @@ export async function oneTimeRates(c: Pick<FranchiseConfig, "ownerSelfBp" | "own
     dealerSecondOverrideBp: rule.mainOverrideBp,
     ownerSelfBp: c.ownerSelfBp,
     ownerOverrideBp: c.ownerOverrideBp,
+    ownerSecondOverrideBp: c.ownerSecondOverrideBp,
   };
 }
 
@@ -278,7 +284,7 @@ export async function saveFranchiseConfig(patch: Partial<FranchiseConfig>, input
 }
 
 /** Settings that change what is paid: a change takes effect from the next calendar month. */
-export const MONEY_KEYS: (keyof FranchiseConfig)[] = ["ownerSelfBp", "ownerOverrideBp", "recurringBaseBp", "bonusMaxBp", "gokesariCommissionBp", "monthlyShopTarget", "expectedBusinessPerShopPaise", "businessSlotPaise", "basePointsPerMainPoint", "bonusBpPerMainPoint", "postLaunchRecurringBp", "recurringSplitMode"];
+export const MONEY_KEYS: (keyof FranchiseConfig)[] = ["ownerSelfBp", "ownerOverrideBp", "ownerSecondOverrideBp", "recurringBaseBp", "bonusMaxBp", "gokesariCommissionBp", "monthlyShopTarget", "expectedBusinessPerShopPaise", "businessSlotPaise", "basePointsPerMainPoint", "bonusBpPerMainPoint", "postLaunchRecurringBp", "recurringSplitMode"];
 
 /** The bonus settings of a config (src/lib/franchise-bonus.ts). */
 export function bonusSettingsOf(c: FranchiseConfig): BonusSettings {

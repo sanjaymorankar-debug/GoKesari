@@ -90,3 +90,12 @@ It supersedes the matching points of the 20-Nov brief.
 | G-21 | Zones on sale | Pune (50), Mumbai (Konkan) (38) and Nashik (11) zone sets, every zone **Available**; booking switched on by default |
 | G-22 | Mumbai (Konkan) and Nashik zones | No owner sheet existed: drafted from the standard local areas (Mumbai City, suburbs, Thane, Navi Mumbai, Palghar, Raigad, Ratnagiri, Sindhudurg; Nashik city and district). Files `docs/franchise/data/mumbai_konkan_zones.csv`, `nashik_zones.csv`. Area points / PINs approximate. Regular rates provisional (index 100 → Standard ₹1,50,000) until business data is published. **Owner to review** the zone lists in Admin → Franchise → Areas |
 | G-23 | Apps | No Play / App Store access yet: Android installs from **gokesari.com/app** (APK served by the site, `MOBILE_APP_ANDROID_APK_PATH` on the server); iPhone uses Add to Home Screen. Footer links "Franchise" and "Get the app" |
+
+## Owner, 21-Nov-2026 evening — two dealer models, every rate admin-editable (G-24 …)
+
+| # | Topic | Decision as built |
+|---|---|---|
+| G-24 | Model 1 — free dealership (no upfront fee) | One-time commission only, on each shop's registration fee: **20% / 4% / 3%** (the signer 20%, one level up 4%, two levels up 3%). No recurring. Admin → Dealer tiers (rule `dealerTieredCommission`) |
+| G-25 | Model 2 — franchise (zone bought upfront), one-time | Owner's own shop **25%** (`ownerSelfBp`). Team shops keep the **same 20 / 4 / 3 flow**: agent or team lead 20%, the owner **4%** one level up (`ownerOverrideBp`, was a flat 5%), **3%** two levels up when an agent works under a team lead (`ownerSecondOverrideBp`, new). B3 now totals 27%, the same as A3 |
+| G-26 | Model 2 — franchise, recurring | **20%** of GoKesari's order commission (`recurringBaseBp`, was 25%), plus the monthly bonus of up to 5% (`bonusMaxBp`), on delivered orders of the shops attached to the zone |
+| G-27 | Admin control | Every value above is editable by an admin: Model 1 in Admin → Dealer tiers; Model 2 in Admin → Franchise → Settings ("Commission and bonus settings"). Parity still holds: a franchise owner's rate may never be lower than the free dealer's matching rate. Saved changes apply from the 1st of next month (IST); this owner change itself was applied at once by migration 0160 (a new settings version, effective on deploy) |
