@@ -65,6 +65,23 @@ const serverEnvSchema = z.object({
    * Empty = off.
    */
   EMAIL_REDIRECT_TO: z.union([z.literal(""), z.string().trim().email()]).optional(),
+  /**
+   * Mailbox rotation (owner, 21 Nov 2026; src/server/email/mailbox-pool.ts).
+   * Hostinger lets each mailbox send about 100 e-mails in any 24 hours, so
+   * mail goes out from these mailboxes in turn: each sends up to
+   * EMAIL_POOL_DAILY_CAP in a rolling 24 hours, then the next one takes over.
+   * The AUTH_EMAIL_SERVER mailbox is the last one tried. Separate entries
+   * with spaces or commas. An entry is either a mailbox address, e.g.
+   * "code1@gokesari.com code2@gokesari.com", which signs in with
+   * EMAIL_POOL_PASSWORD on AUTH_EMAIL_SERVER's host and port, or a full SMTP
+   * URL with its own (URL-encoded) password. Empty = no rotation: every
+   * e-mail goes through AUTH_EMAIL_SERVER, as before.
+   */
+  EMAIL_POOL: z.string().optional(),
+  /** Password of the EMAIL_POOL mailboxes given as plain addresses. */
+  EMAIL_POOL_PASSWORD: z.string().optional(),
+  /** E-mails each pool mailbox sends in a rolling 24 hours before the next one is used (Hostinger's limit is 100). */
+  EMAIL_POOL_DAILY_CAP: z.coerce.number().int().min(1).max(10_000).default(90),
 
   // Cashfree. Absent in dev/test, in which case payments run in MOCK mode.
   CASHFREE_APP_ID: z.string().optional(),

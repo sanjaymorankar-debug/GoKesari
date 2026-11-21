@@ -645,6 +645,31 @@ export const loginOtps = pgTable(
   ],
 );
 
+/**
+ * Mailbox rotation (drizzle/0158_email_mailbox_sends.sql; src/server/email/mailbox-pool.ts):
+ * one row per e-mail a pool mailbox sent (SENT) or Hostinger refused for it
+ * (REFUSED: sending limit, or a wrong password). Counted over the last 24
+ * hours to pick the mailbox; rows older than two days are deleted hourly.
+ * Holds no recipient and no message content.
+ */
+export const emailMailboxSends = pgTable(
+  "email_mailbox_sends",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The sending mailbox's address. */
+    mailbox: text("mailbox").notNull(),
+    outcome: text("outcome", { enum: ["SENT", "REFUSED"] }).notNull(),
+    /** For REFUSED: the server's reply, shortened. */
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("email_mailbox_sends_mailbox_created_idx").on(t.mailbox, t.createdAt),
+    index("email_mailbox_sends_created_idx").on(t.createdAt),
+    check("email_mailbox_sends_outcome", sql`${t.outcome} IN ('SENT', 'REFUSED')`),
+  ],
+);
+
 export const accounts = pgTable(
   "accounts",
   {
