@@ -373,7 +373,7 @@ describe("Find a doctor", () => {
     expect((await searchDoctors({ prime: "1" })).results.map((c) => c.memberId)).toEqual([prime.memberId]);
     expect((await searchDoctors({ area: "Pune" })).results).toHaveLength(2);
     expect((await searchDoctors({ symptom: "toothache" })).results).toHaveLength(0);
-    // Health groups (0161, owner 21-Nov-2026): general physicians are under "General & family", not "Dental";
+    // Health groups (0160, owner 21-Nov-2026): general physicians are under "General & family", not "Dental";
     // plain words typed in the search box ("fever") find the matching specialists too.
     expect((await searchDoctors({ group: "general" })).results.map((c) => c.memberId)).toEqual(expect.arrayContaining([clinic.memberId, prime.memberId]));
     expect((await searchDoctors({ group: "dental" })).results).toHaveLength(0);

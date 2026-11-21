@@ -70,7 +70,7 @@ describe("seeded categories", () => {
     );
     expect(byName.get("Chartered Accountant (CA)")).toBe("Finance and legal");
     expect(byName.get("Advocate / Lawyer")).toBe("Finance and legal");
-    // Health specialties (0161, owner 21-Nov-2026): medical practitioners sit in the Health groups.
+    // Health specialties (0160, owner 21-Nov-2026): medical practitioners sit in the Health groups.
     expect(byName.get("Dentist")).toBe("Health — Dental");
     expect(byName.get("Dermatologist")).toBe("Health — Specialists");
     expect(byName.get("Doctor / Clinic")).toBe("Health — General & family doctors");

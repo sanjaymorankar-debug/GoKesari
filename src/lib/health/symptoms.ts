@@ -23,7 +23,7 @@ export const SYMPTOM_SPECIALTIES: readonly SymptomEntry[] = [
   { words: ["back pain", "knee pain", "joint pain", "fracture", "sprain", "neck pain", "shoulder pain", "arthritis"], specialties: ["orthopaedic"] },
   { words: ["eye", "vision", "red eye", "eye pain", "spectacles", "cataract"], specialties: ["eye-specialist"] },
   { words: ["ear", "ear pain", "nose", "sinus", "tonsils", "throat", "hearing", "nosebleed"], specialties: ["ent-specialist"] },
-  // Health specialties (owner, 21-Nov-2026; src/lib/health/specialties.ts): the specialists added in 0161.
+  // Health specialties (owner, 21-Nov-2026; src/lib/health/specialties.ts): the specialists added in 0160.
   { words: ["heart", "chest pain", "palpitation", "palpitations", "heart attack", "angina"], specialties: ["cardiologist", "general-physician"] },
   { words: ["seizure", "fits", "epilepsy", "paralysis", "stroke", "numbness", "tremor", "memory loss", "migraine"], specialties: ["neurologist"] },
   { words: ["diabetes", "sugar", "thyroid", "hormone", "hormones"], specialties: ["diabetologist-endocrinologist"] },

@@ -9,7 +9,7 @@ doctor specialists", with subcategories for better search.
 
 - **One grouped list** (`src/lib/health/specialties.ts`): General & family, Specialists, Women & child, Dental,
   Eye & ENT, Mind, Therapy, AYUSH, Diagnostics, Animal care.
-- **Migration 0161** (`drizzle/0161_health_specialties.sql`, rollback `scripts/rollback-0161.sql`): the built-in
+- **Migration 0160** (`drizzle/0160_health_specialties.sql`, rollback `scripts/rollback-0160.sql`): the built-in
   medical shop categories and consultant categories move into those groups (only while they still carry their seeded
   group), and the missing specialties are added to both: cardiologist, neurologist, diabetologist, gastroenterologist,
   pulmonologist, nephrologist, urologist, oncologist, general surgeon, orthodontist, psychiatrist, speech therapist,

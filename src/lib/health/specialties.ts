@@ -4,7 +4,7 @@
  * registration) and the admin Health → Specialties tab. The groups are the subcategories patients
  * pick first; the specialty is the second step.
  *
- * Both tables keep their own rows (admins can rename or add): migration 0161_health_specialties puts the
+ * Both tables keep their own rows (admins can rename or add): migration 0160_health_specialties puts the
  * built-in medical rows into these groups and adds the missing specialties. A category an admin adds
  * later joins a group by carrying its exact `name` as its group; any other group shows as "Other doctors".
  *
@@ -61,7 +61,7 @@ export interface HealthSpecialty {
 }
 
 /**
- * The built-in list (what migration 0161 aligns the two tables to). Some specialties have different slugs
+ * The built-in list (what migration 0160 aligns the two tables to). Some specialties have different slugs
  * in the two tables because each table was seeded on its own (eye-specialist / ophthalmologist); the
  * migration never renames a row that may already have doctors or shops on it.
  */

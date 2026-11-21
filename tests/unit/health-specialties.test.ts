@@ -1,6 +1,6 @@
 /**
  * GoKesari Health specialties (owner, 21-Nov-2026): the grouped list in src/lib/health/specialties.ts, the
- * migration that aligns the two category tables to it (0161) and the symptom → specialty table stay in step.
+ * migration that aligns the two category tables to it (0160) and the symptom → specialty table stay in step.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -11,7 +11,7 @@ import { HEALTH_GROUP_PREFIX, HEALTH_SPECIALTIES, HEALTH_SPECIALTY_GROUPS, healt
 import { SYMPTOM_SPECIALTIES, specialtiesForSymptom } from "@/lib/health/symptoms";
 
 const drizzle = (file: string) => readFileSync(path.join(process.cwd(), "drizzle", file), "utf8");
-const MIGRATION = drizzle("0161_health_specialties.sql");
+const MIGRATION = drizzle("0160_health_specialties.sql");
 // Where each slug was first seeded: shop categories 0062 (doctor-clinic) and 0098, consult categories 0153 and 0156.
 const SEEDS = [drizzle("0062_legal_documents.sql"), drizzle("0098_professional_registration.sql"), drizzle("0153_consult_bookings.sql"), drizzle("0156_health.sql"), MIGRATION].join("\n");
 
@@ -38,7 +38,7 @@ describe("Health specialty groups", () => {
   });
 });
 
-describe("migration 0161", () => {
+describe("migration 0160", () => {
   it("only uses the Health group names, besides the two old ones it moves rows out of", () => {
     const quoted = [...MIGRATION.matchAll(/'((?:Health —|Medical —|Doctors and)[^']*)'/g)].map((m) => m[1]);
     const allowed = new Set<string>([...HEALTH_SPECIALTY_GROUPS.map((g) => g.name), "Medical — doctors and clinics", "Doctors and clinics"]);
@@ -65,7 +65,7 @@ describe("migration 0161", () => {
 
   it("is in the migration journal", () => {
     const journal = JSON.parse(drizzle(path.join("meta", "_journal.json"))) as { entries: { tag: string }[] };
-    expect(journal.entries.map((e) => e.tag)).toContain("0161_health_specialties");
+    expect(journal.entries.map((e) => e.tag)).toContain("0160_health_specialties");
   });
 });
 

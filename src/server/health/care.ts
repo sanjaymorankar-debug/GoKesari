@@ -81,7 +81,7 @@ export interface CareCategory {
   requiredDocLabel: string | null;
 }
 
-/** The home-care categories: group "Home care" plus physiotherapists (in "Health — Therapy", 0161). */
+/** The home-care categories: group "Home care" plus physiotherapists (in "Health — Therapy", 0160). */
 export async function careCategories(client: DbClient = db): Promise<CareCategory[]> {
   return client
     .select({ id: consultCategories.id, slug: consultCategories.slug, name: consultCategories.name, requiredDoc: consultCategories.requiredDoc, requiredDocLabel: consultCategories.requiredDocLabel })

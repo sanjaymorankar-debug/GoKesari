@@ -1,4 +1,4 @@
--- Rollback of 0161_health_specialties.sql (run by hand, only if the Health groups must be undone).
+-- Rollback of 0160_health_specialties.sql (run by hand, only if the Health groups must be undone).
 -- Puts the built-in medical rows back under their old group names and retires the specialties the
 -- migration added that nobody uses yet. Rows with shops, doctors or bookings on them are left ACTIVE.
 BEGIN;

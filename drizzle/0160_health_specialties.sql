@@ -8,7 +8,7 @@
 --   * missing specialties are added (skipped when the slug or the name already exists);
 --   * no row is renamed, deleted or re-slugged, so shops, doctors and bookings keep their categories.
 -- The "Home care" group of consult_categories (Health home care) is not touched.
--- Rollback: scripts/rollback-0161.sql.
+-- Rollback: scripts/rollback-0160.sql.
 
 UPDATE "shop_categories" AS c SET "group_name" = v.grp, "updated_at" = now()
 FROM (VALUES

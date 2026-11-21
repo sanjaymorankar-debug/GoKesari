@@ -329,7 +329,7 @@ export const CARE_VISIT_STATUS_LABELS: Record<CareVisitStatus, string> = {
 };
 /** Consult category group that holds the home-care categories (0153). */
 export const CARE_CATEGORY_GROUP = "Home care";
-/** Home-care categories that live in another group (physiotherapists are in "Health — Therapy", 0161). */
+/** Home-care categories that live in another group (physiotherapists are in "Health — Therapy", 0160). */
 export const EXTRA_CARE_CATEGORY_SLUGS = ["physiotherapist"] as const;
 
 export const RENTAL_STATUSES = ["PENDING_PAYMENT", "CONFIRMED", "OUT_FOR_DELIVERY", "ACTIVE", "RETURN_SCHEDULED", "RETURNED", "CLOSED", "CANCELLED"] as const;

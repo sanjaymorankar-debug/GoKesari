@@ -158,7 +158,7 @@ describe("who may use the Health admin API", () => {
     expect(healthAdminTabs(owner)).toEqual([]);
   });
 
-  it("lists every medical practitioner by Health group, consultant and shop categories side by side (0161)", async () => {
+  it("lists every medical practitioner by Health group, consultant and shop categories side by side (0160)", async () => {
     const res = await get(operator, "view=specialties");
     expect(res.status).toBe(200);
     type Group = { key: string; specialties: { slug: string; inDoctorSearch: boolean }[]; shopCategories: { name: string }[] };
