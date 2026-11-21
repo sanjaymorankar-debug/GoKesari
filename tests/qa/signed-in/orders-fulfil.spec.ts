@@ -21,6 +21,7 @@ import {
   fulfil,
   listingOf,
   notesFor,
+  OFFER_WAIT_MS,
   offerFor,
   orderRow,
   pickupCode,
@@ -173,7 +174,7 @@ qa(["TC-FUL-005", "TC-FUL-006"], "start picking and tick each of three lines (PR
     } finally {
       await context.close();
     }
-    const offer = await offerFor(placed.id, "rider", 20_000);
+    const offer = await offerFor(placed.id, "rider", OFFER_WAIT_MS);
     return `${placed.orderNumber}: 3 lines picked one by one → READY; offer ${offer.status} to the rider without pressing anything`;
   } finally {
     await abandon(placed.id);

@@ -10,7 +10,7 @@
  * operator, on their own orders. On the local run the riders are placed with
  * lib/flows onlyRiderOnline (or the helpers' two-rider arrangement).
  */
-import type { Browser } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 
 import { anonymous } from "../lib/http";
 import { as, pageAs } from "../lib/actors";
@@ -26,6 +26,8 @@ import {
   expectStatus,
   homeSpot,
   notesFor,
+  OFFER_WAIT_MS,
+  offerFor,
   orderRow,
   pickupCode,
   placeSimple,
@@ -61,6 +63,19 @@ async function riderPage(browser: Browser, role: Role = "rider") {
   return pageAs(browser, role, { geolocation: { latitude: home.lat + 0.001, longitude: home.lng + 0.001 }, permissions: ["geolocation"] });
 }
 
+/**
+ * One order's card on the rider's dashboard: the innermost block holding its
+ * number and buttons. A return pickup (or another offer) on the same screen has
+ * its own Accept, so buttons are always looked up inside this card (E-38).
+ */
+function riderCard(page: Page, orderNumber: string) {
+  return page
+    .locator("div")
+    .filter({ has: page.getByText(orderNumber, { exact: true }) })
+    .filter({ has: page.getByRole("button") })
+    .last();
+}
+
 /** What must never reach a rider: the codes, the customer's name, recipient and phone. */
 async function secretsOf(orderId: string) {
   const out: { label: string; value: string }[] = [{ label: "customer name", value: "QA Customer One" }, { label: "recipient", value: "QA Recipient" }];
@@ -86,12 +101,15 @@ qa(["TC-DEL-001", "TC-DEL-010", "TC-DEL-012"], "the rider accepts on the dashboa
   const notes: string[] = [];
   try {
     await driveTo(placed.id, "READY");
+    // The offer comes at once when the rider is free, otherwise on the next minute's dispatch run;
+    // the dashboard does not refresh by itself, so it is opened once the offer is there.
+    await offerFor(placed.id, "rider", OFFER_WAIT_MS);
     await page.goto("/delivery-partner");
-    await expect(page.getByText(/New delivery offer/)).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(placed.orderNumber)).toBeVisible();
+    const offerCard = riderCard(page, placed.orderNumber);
+    await expect(offerCard).toContainText(/New delivery offer/);
     assertNoLeak(await page.content(), secrets, [], "the dashboard at OFFERED");
     assertNoLeak((await call(await as("rider"), "GET", "/api/delivery-partner/deliveries")).text, secrets, [], "the rider API at OFFERED");
-    await page.getByRole("button", { name: "Accept", exact: true }).click();
+    await offerCard.getByRole("button", { name: "Accept", exact: true }).click();
     await expect.poll(() => statusOf(placed.id), { timeout: 15_000 }).toBe("ASSIGNED");
     await page.reload();
     const chips = page.getByTestId("delivery-progress");
@@ -541,7 +559,8 @@ qa("TC-DEL-020", "a shop without platform delivery moves READY → Out for deliv
     await driveTo(placed.id, "PREPARING");
     restore.fn = await withShopSettings({ deliveryAvailable: false });
     await driveTo(placed.id, "READY", { from: "PREPARING" });
-    expect(await activeDelivery("rider"), "no rider offered for a self-delivering shop").toBeNull();
+    // The shared staging rider may hold someone else's order; what matters is that this one is not offered.
+    expect((await activeDelivery("rider"))?.orderId, "no rider offered for a self-delivering shop").not.toBe(placed.id);
     const { context, page } = await pageAs(browser, "shop");
     try {
       const card = await shopCard(page, placed.orderNumber, "ready");
