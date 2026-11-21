@@ -49,8 +49,9 @@ import { checkAccountNumber, checkIfsc } from "@/lib/bank-accounts";
 import { createHash } from "node:crypto";
 
 import { AGENT_AGREEMENT_TEXT, AGENT_AGREEMENT_VERSION, type CommissionEntryType, type NetworkRole, type TeamRole } from "@/lib/dealer-tiers";
+import { caseOf } from "@/lib/franchise-zones";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
+import { decryptSecret, encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
 import { db, type DbClient } from "@/server/db";
 import {
   dealerAgreementAcceptances,
@@ -420,6 +421,9 @@ const ENTRY_WORDS: Record<CommissionEntryType, string> = {
   DEVELOPMENT: "development bonus",
   BONUS: "target bonus",
   TERRITORY: "territory order income",
+  ONE_TIME_FRANCHISE: "franchise one-time commission",
+  RECURRING_BASE: "franchise monthly share",
+  RECURRING_BONUS: "franchise performance bonus",
 };
 
 /* ============================================================= activation */
@@ -463,6 +467,16 @@ export async function accrueTieredActivation(
       const place = await placementFor(tx, dealerId, salespersonId, shop.createdAt);
       const rates = tierRatesFor(dealer, rule);
       const adj = bonusOn ? ratingAdjustmentBp(dealer.rating, dealer.ratingStepBp ?? settings.ratingStepBp) : 0;
+      // Franchise brief 21-Nov-2026 §3: Model B when the dealer holds an active franchise in the shop's zone. Agent and
+      // team-lead rates are the same in both models (parity); only the top person's differ (owner 25% / 5%).
+      const { franchiseModelFor } = await import("@/server/franchise/model");
+      const franchise = await franchiseModelFor(tx, dealerId, shop.id, now);
+      const owner = franchise ? (await (await import("@/server/franchise/config")).franchiseConfigAt(now, tx)).config : null;
+      // Model A (owner, 21-Nov-2026): a signer reporting to the main dealer directly (an agent with no active lead,
+      // or a team lead) puts the main dealer one level up — the first override (4%), not the second (3%).
+      const mainOverrideBp = owner ? owner.ownerOverrideBp : rule.overrideByDistance === true && place.direct && !place.lead ? rates.leadOverrideBp : rates.mainOverrideBp;
+      const directBp = owner && !place.direct ? owner.ownerSelfBp : rates.directBp;
+      const caseCode = caseOf(owner ? "B" : "A", place.direct ? { role: place.direct.teamRole === "TEAM_LEAD" ? "TEAM_LEAD" : "AGENT" } : null, !!place.lead);
       [plan] = await tx
         .insert(dealerTierShopPlans)
         .values({
@@ -475,11 +489,15 @@ export async function accrueTieredActivation(
           developmentId: place.development?.id ?? null,
           developmentMemberId: place.development?.member.id ?? null,
           feePaise: fee,
-          directBp: rates.directBp,
+          directBp,
           ratingAdjustmentBp: adj,
           firstPartBp: rates.firstPartBp,
           leadOverrideBp: rates.leadOverrideBp,
-          mainOverrideBp: rates.mainOverrideBp,
+          mainOverrideBp,
+          model: owner ? "B" : "A",
+          caseCode,
+          franchiseAllocationId: franchise?.id ?? null,
+          franchiseZoneId: franchise?.zoneId ?? null,
           developmentBp: place.development?.bp ?? 0,
           tradingOrders: rule.tradingOrders,
           activatedAt: now,
@@ -498,6 +516,13 @@ export async function accrueTieredActivation(
         },
         tx,
       );
+      // Model B: the shop belongs to the owner's franchise (recurring commission and its tail).
+      if (franchise) {
+        await tx.execute(sql`
+          insert into franchise_shop_attributions (shop_id, owner_dealer_id, allocation_id, zone_id, origin, member_id, status, registered_at, activated_at)
+          values (${shop.id}::uuid, ${dealerId}::uuid, ${franchise.id}::uuid, ${franchise.zoneId}, 'TEAM', ${place.direct?.id ?? null}::uuid, 'ACTIVE', ${shop.createdAt.toISOString()}::timestamptz, ${now.toISOString()}::timestamptz)
+          on conflict (shop_id) do nothing`);
+      }
     }
     if (plan.status === "REVERSED") return null;
     const amounts = planAmounts(plan);
@@ -550,6 +575,10 @@ export function planAmounts(plan: DealerTierShopPlan): TierAmounts {
 }
 
 const planAudit = (p: DealerTierShopPlan) => ({
+  model: p.model,
+  caseCode: p.caseCode,
+  franchiseAllocationId: p.franchiseAllocationId,
+  franchiseZoneId: p.franchiseZoneId,
   dealerId: p.dealerId,
   directMemberId: p.directMemberId,
   directLevel: p.directLevel,
@@ -1628,6 +1657,23 @@ export async function saveMemberPayee(memberId: string, input: { pan?: string | 
     if (!account.ok) throw validationFailed(account.error, { fields: { bankAccount: account.error } });
     if (!ifsc.ok) throw validationFailed(ifsc.error, { fields: { ifsc: ifsc.error } });
     if (!holder) throw validationFailed("Give the account holder's name.", { fields: { bankHolderName: "Required." } });
+    // Franchise brief §2.4: one bank account appears once in a team (the dealer and its members).
+    if (actor.role !== "ADMIN") {
+      const key = `${ifsc.value}:${account.value}`;
+      const team = [
+        ...(await db.select({ enc: dealerSalespeople.bankAccountEnc, ifsc: dealerSalespeople.bankIfsc }).from(dealerSalespeople).where(and(eq(dealerSalespeople.dealerId, member.dealerId), ne(dealerSalespeople.id, memberId)))),
+        ...(await db.select({ enc: dealers.bankAccountEnc, ifsc: dealers.bankIfsc }).from(dealers).where(eq(dealers.id, member.dealerId))),
+      ];
+      const sameAccount = team.some((o) => {
+        if (!o.enc || !o.ifsc) return false;
+        try {
+          return `${o.ifsc.toUpperCase()}:${decryptSecret(o.enc)}` === key;
+        } catch {
+          return false;
+        }
+      });
+      if (sameAccount) throw conflict("This bank account is already on file for someone in your team.", { fields: { bankAccount: "Already in the team." } });
+    }
     Object.assign(patch, {
       bankHolderName: holder,
       bankAccountEnc: encryptSecret(account.value),

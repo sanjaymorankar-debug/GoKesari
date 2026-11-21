@@ -1,4 +1,5 @@
 /** Public shop search (§15) and shop registration (§8). */
+import { z } from "zod";
 import type { NextRequest } from "next/server";
 
 import { validationFailed } from "@/lib/errors";
@@ -51,7 +52,7 @@ export const GET = route(async (request: NextRequest) => {
 });
 
 // Shared with dealer-assisted registration (docs/dealer-programme), which must validate exactly the same way.
-const registerSchema = shopRegisterSchema;
+const registerSchema = shopRegisterSchema.extend({ franchiseAreaId: z.string().uuid().optional().nullable() });
 
 /**
  * 201 for a new registration; 200 when the caller's own rejected registration
@@ -72,8 +73,12 @@ export const POST = route(async (request: NextRequest) => {
     });
   }
   const referralCode = privileged ? null : await assertRegistrationReferralCode(body.referralCode);
-  const { employeeId, ...details } = body;
+  // 0157 franchise (docs/franchise): a franchise code is closed for new shops once its franchise has ended.
+  if (referralCode) await (await import("@/server/franchise/codes")).assertFranchiseCodeOpen(referralCode);
+  const { employeeId, franchiseAreaId, ...details } = body;
   const result = await registerShop(details, user, { privileged });
+  // Franchise brief 21-Nov-2026 §5.1: the shop's area (confirmed by the user, else suggested) decides its zone.
+  await (await import("@/server/franchise/zones")).assignAreaAtRegistration(result.id, { areaId: franchiseAreaId ?? null, latitude: body.latitude, longitude: body.longitude, pincode: body.pincode }, user);
   if (referralCode) await attributeRegistrationReferral(result, referralCode, user);
   // docs/dealer-programme: which dealer (and employee) brought the shop — never blocks the registration.
   await recordShopAttributionSafely(result.id, user, { employeeText: employeeId ?? null });

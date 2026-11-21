@@ -196,12 +196,13 @@ export interface AttributionOptions {
  * unchanged.
  */
 export async function recordShopAttribution(shopId: string, actor: Actor, options: AttributionOptions = {}): Promise<ShopAttribution | null> {
-  // Programme off: one read of the flag and nothing else.
+  // Programme off: one read of the flag — unless the code is a franchise owner's (or his team's), whose shops are
+  // recorded everywhere (franchise brief 21-Nov-2026: GoKesari pays the franchise team directly).
   const flag = await getFeatureFlag("dealer_programme_enabled");
-  if (!flag.enabled) return null;
   const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
   if (!shop) return null;
-  if (!flagCoversDistrict(flag, await districtCodeForPincode(shop.pincode))) return null;
+  const franchiseCode = shop.referralCodeId ? await franchiseOwnerOfCode(shop.referralCodeId) : null;
+  if (!franchiseCode && (!flag.enabled || !flagCoversDistrict(flag, await districtCodeForPincode(shop.pincode)))) return null;
   const [existing] = await db.select().from(shopAttributions).where(eq(shopAttributions.shopId, shopId));
   if (existing) return existing;
 
@@ -219,7 +220,9 @@ export async function recordShopAttribution(shopId: string, actor: Actor, option
     // 1. A code at registration (or the dealer's own, attached by a dealer-assisted registration).
     if (shop.referralCodeId) {
       const [link] = await tx.select().from(dealerCodes).where(eq(dealerCodes.referralCodeId, shop.referralCodeId));
-      dealerId = link?.dealerId ?? (await directDealer(tx)).id;
+      // 0157: a franchise code (GKF-…) is an alias of its owner's own code: the owner registered the shop.
+      const franchise = link ? null : await (await import("@/server/franchise/codes")).franchiseCodeFor(shop.referralCodeId, tx);
+      dealerId = link?.dealerId ?? franchise?.ownerDealerId ?? (await directDealer(tx)).id;
       salespersonId = link?.salespersonId ?? null;
       source = options.assisted ? "DEALER_ASSISTED" : "CODE_AT_REGISTRATION";
     } else if (options.assisted) {
@@ -354,4 +357,14 @@ export async function recordShopAttributionSafely(shopId: string, actor: Actor, 
     console.error("[dealers] could not record the shop's dealer attribution", shopId, error instanceof Error ? error.message : error);
     return null;
   }
+}
+
+/** The dealer behind a code when that dealer holds an active franchise (its shops are recorded even with the programme off). */
+async function franchiseOwnerOfCode(referralCodeId: string): Promise<string | null> {
+  const [link] = await db.select({ dealerId: dealerCodes.dealerId }).from(dealerCodes).where(eq(dealerCodes.referralCodeId, referralCodeId));
+  const { franchiseCodeFor } = await import("@/server/franchise/codes");
+  const dealerId = link?.dealerId ?? (await franchiseCodeFor(referralCodeId))?.ownerDealerId ?? null;
+  if (!dealerId) return null;
+  const { hasActiveFranchise } = await import("@/server/franchise/model");
+  return (await hasActiveFranchise(db, dealerId)) ? dealerId : null;
 }

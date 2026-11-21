@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
+import { AreaPicker } from "@/components/franchise/area-picker";
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 import { PujaCatalogueSetup } from "@/components/puja/puja-shop-manager";
 import { ReferralRequestDialog } from "@/components/referral-request-dialog";
@@ -888,13 +889,16 @@ function PinStep({ state, busy, fields, send, back }: { state: WizardState; busy
   const [problem, setProblem] = useState<string | null>(null);
   const start = state.location ? { latitude: Number(state.location.latitude), longitude: Number(state.location.longitude) } : null;
   const a = state.address;
+  const [areaId, setAreaId] = useState<string | null>(null);
 
-  function save(latitude: number, longitude: number, address: string | null) {
+  async function save(latitude: number, longitude: number, address: string | null) {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       setProblem("Please enter the latitude and longitude as numbers, for example 18.5204 and 73.8567.");
       return;
     }
     setProblem(null);
+    // Franchise brief 21-Nov-2026 §5.1: the confirmed area is saved first (it never blocks the location step).
+    if (areaId) await fetch("/api/shops/registration-draft/area", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ areaId }) }).catch(() => null);
     void send("/api/shops/registration-draft/location", { latitude, longitude, address });
   }
 
@@ -906,13 +910,14 @@ function PinStep({ state, busy, fields, send, back }: { state: WizardState; busy
         </p>
       ) : null}
       {problem || fields.location ? <Alert tone="danger">{problem ?? fields.location}</Alert> : null}
-      <MapPicker initialCoordinates={start} purpose="shop_registration" onConfirm={(result: MapPickerResult) => save(result.latitude, result.longitude, result.formattedAddress || null)} />
+      <AreaPicker pincode={a?.pincode ?? null} latitude={start?.latitude ?? null} longitude={start?.longitude ?? null} value={areaId} onChange={setAreaId} />
+      <MapPicker initialCoordinates={start} purpose="shop_registration" onConfirm={(result: MapPickerResult) => void save(result.latitude, result.longitude, result.formattedAddress || null)} />
       <details className="text-sm text-ink-700">
         <summary className="cursor-pointer">Map not loading? Enter the coordinates</summary>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            save(Number(manual.latitude), Number(manual.longitude), null);
+            void save(Number(manual.latitude), Number(manual.longitude), null);
           }}
           className="mt-3 grid gap-3 sm:grid-cols-3"
         >

@@ -736,6 +736,10 @@ export const RULES = {
         developmentMonths: int(1, 60),
         developmentMinShopsPerMonth: int(0, 100_000),
         targetBonusesEnabled: z.boolean(),
+        // Franchise brief §2.3 (21-Nov-2026): the main dealer's override follows his distance from the signer —
+        // one level up (the signer reports to him directly) earns leadOverrideBp (4%), two levels up mainOverrideBp (3%).
+        // false: the main dealer always earns mainOverrideBp (the rule before 21-Nov-2026).
+        overrideByDistance: z.boolean(),
         targets: z
           .array(
             z.object({
@@ -775,6 +779,9 @@ export const RULES = {
       developmentMonths: 6,
       developmentMinShopsPerMonth: 100,
       targetBonusesEnabled: true,
+      // Owner, 21-Nov-2026: the dealer earns 4% when the signer reports to him directly (a team lead, or an
+      // agent placed straight under him) and 3% two levels up. false = 3% on every member's shop.
+      overrideByDistance: true,
       targets: [
         { role: "AGENT", minShops: 50, bonusPaise: 0, bonusBp: 1000 },
         { role: "TEAM_LEAD", minShops: 50, bonusPaise: 0, bonusBp: 1000 },

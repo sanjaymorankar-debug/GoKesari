@@ -292,6 +292,10 @@ Guide: [docs/dealer-programme/TIERED_COMMISSION.md](dealer-programme/TIERED_COMM
 - **DT-29 — The main dealer promotes an agent** (owner, 20-Nov-2026: "team dealer should have option to promote a agent to team lead"). On his dealer page each agent shows his promotion progress and, once he meets the rule (DT-20: 50 activated shops and 3 ready agents), *Promote to team lead*. It works exactly like an admin's promotion (his recruits move with him; the former lead's development bonus). Promoting earlier stays an admin's override. *Claude's reading of the message: the main dealer, within the existing rule.*
 - **D-F06 confirmed (05-Nov-2026):** the owner keeps the payout hold for "documents later" shops — settlements wait until the GSTIN or PAN is verified (or an admin waives the documents).
 
+## Franchise — Model A (free) and Model B (Pune PMR paid areas) (20/21-Nov-2026, owner brief)
+
+Decisions D1–D9 as built and the defaults chosen while building (F-01 … F-12): [docs/franchise/DECISIONS.md](franchise/DECISIONS.md). The brief supersedes the territory-dealer design below (pincode exclusivity); rule `territoryDealer` stays off.
+
 ## Territory dealers (20-Nov-2026, owner)
 
 Guide: [docs/dealer-programme/TERRITORY_DEALER.md](dealer-programme/TERRITORY_DEALER.md). Migration 0151; rule `territoryDealer` (off by default).
