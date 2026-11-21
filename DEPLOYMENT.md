@@ -127,6 +127,29 @@ set gokesari-staging EMAIL_REDIRECT_TO`; the site picks it up at its next
 deploy, or at once with `sudo gk-deploy restart gokesari-staging`. To stop it:
 `sudo gk-site env unset gokesari-staging EMAIL_REDIRECT_TO`, then restart.
 
+**Mailbox rotation** (owner, 21 Nov 2026): Hostinger lets each mailbox send
+about 100 e-mails in any 24 hours. `EMAIL_POOL` lists extra mailboxes that
+send in turn: each sends up to `EMAIL_POOL_DAILY_CAP` (default 90) in a
+rolling 24 hours, then the next one takes over; the `AUTH_EMAIL_SERVER`
+mailbox is tried last. A mailbox the mail server refuses (its limit, or a
+wrong password) is paused for an hour and the next one is used at once.
+Sends are counted per mailbox in the `email_mailbox_sends` table (no
+recipients stored). The sites use separate mailboxes so their counts never
+overlap: gokesari.com `code1`–`code9@gokesari.com`, test.gokesari.com
+`code10@gokesari.com`. On the server (one site shown):
+
+```bash
+echo "code1@gokesari.com code2@gokesari.com code3@gokesari.com code4@gokesari.com code5@gokesari.com code6@gokesari.com code7@gokesari.com code8@gokesari.com code9@gokesari.com" | sudo gk-site env set gokesari-prod EMAIL_POOL
+sudo gk-site env set gokesari-prod EMAIL_POOL_PASSWORD   # hidden prompt: the mailboxes' password
+sudo gk-deploy restart gokesari-prod
+```
+
+An entry may also be a full SMTP URL with its own URL-encoded password
+(`smtps://code1%40gokesari.com:<password>@smtp.hostinger.com:465`). Without
+`EMAIL_POOL` every e-mail goes through `AUTH_EMAIL_SERVER`, as before. A
+warning in the site's log names any entry that cannot be used; "All N
+mailboxes have sent …" means it is time to add mailboxes.
+
 ### Google OAuth
 
 In Google Cloud Console → APIs & Services → Credentials, create an OAuth 2.0
