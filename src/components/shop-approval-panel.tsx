@@ -252,7 +252,13 @@ function PendingShopRow({
   const nothingUploaded = stage === "KYC_PENDING" && shop.documentsUploaded === 0;
   // Only what the owner has to send: documents waiting for our check are not theirs to chase.
   const canRemind = stage === "KYC_PENDING" && shop.notUploadedDocuments.length + shop.sendAgainDocuments.length > 0;
-  const canWaive = canWaiveDocuments && approvalGateOn && stage === "KYC_PENDING";
+  // Declared before use below: the FSSAI state decides whether "Approve without documents" is offered.
+  const fssaiState = shop.fssaiNeeded ?? null;
+  const fssaiNeededEarly = fssaiState === "grace" ? null : fssaiState;
+  // "Approve without documents" (admin, with a reason): unverified seller documents, or — owner
+  // 21-Nov-2026 — a food shop held only for its FSSAI licence (then due within fssaiWaiverDays).
+  const canWaive =
+    canWaiveDocuments && ((approvalGateOn && stage === "KYC_PENDING") || (fssaiNeededEarly !== null && canWaiveFssai));
   // An admin or operator approves a promised shop after inspecting it; the 1st / 15th reminders follow.
   const canAcceptPromise = approvalGateOn && stage === "KYC_PENDING" && shop.documentsPromisedAt !== null;
   const [acceptingPromise, setAcceptingPromise] = useState(false);
@@ -260,13 +266,10 @@ function PendingShopRow({
   const [waiving, setWaiving] = useState(false);
   const [waiveReason, setWaiveReason] = useState("");
   // Owner request 21-Nov-2026: an admin approves a food shop without its FSSAI licence, due in fssaiWaiverDays.
-  const fssaiState = shop.fssaiNeeded ?? null;
   // DI-14: a wizard shop is not blocked; it only needs the licence within licenceGraceDays of going live.
   const fssaiGrace = fssaiState === "grace";
-  const fssaiNeeded = fssaiGrace ? null : fssaiState;
-  const [waivingFssai, setWaivingFssai] = useState(false);
-  const [fssaiReason, setFssaiReason] = useState("");
-  const [alsoWaiveFssai, setAlsoWaiveFssai] = useState(false);
+  const fssaiNeeded = fssaiNeededEarly;
+  const waivedDocuments = [...shop.missingDocuments.filter((d) => !/FSSAI/i.test(d)), ...(fssaiNeeded ? ["FSSAI licence"] : [])];
   // A document the owner sent to GoKesari is uploaded for them (FSSAI, or anything still missing).
   const uploadHref = `/admin/shops/${shop.id}/documents`;
   const showUpload = canUploadDocuments && (fssaiState !== null || stage === "KYC_PENDING");
@@ -357,7 +360,7 @@ function PendingShopRow({
               <span className="font-medium">FSSAI: </span>
               {fssaiNeeded === "expired" ? "the licence on file has expired." : "no valid licence on file."}{" "}
               {canUploadDocuments ? "Upload the copy the owner sent you" : "The owner uploads it on My Shop → Upload documents"}
-              {canWaiveFssai ? `, or approve without it — the owner then has ${fssaiWaiverDays} days to upload it.` : "."}
+              {canWaiveFssai ? `, or use Approve without documents — the owner then has ${fssaiWaiverDays} days to upload it.` : "."}
             </p>
           ) : null}
         </div>
@@ -422,29 +425,14 @@ function PendingShopRow({
                 ) : null}
               </div>
             ) : null}
-            {fssaiNeeded && (canWaiveFssai || showUpload) ? (
-              <div className="flex flex-wrap justify-end gap-2">
-                {canWaiveFssai ? (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={busy}
-                    data-testid="approve-without-fssai"
-                    onClick={() => setWaivingFssai((v) => !v)}
-                  >
-                    Approve without FSSAI
-                  </Button>
-                ) : null}
-                {showUpload ? (
-                  <Link
-                    href={uploadHref}
-                    data-testid="upload-for-owner"
-                    className="inline-flex items-center rounded-lg border border-cream-200 px-3 py-1.5 text-sm font-medium text-kesari-700 hover:bg-cream-100"
-                  >
-                    Upload FSSAI for owner
-                  </Link>
-                ) : null}
-              </div>
+            {fssaiNeeded && showUpload ? (
+              <Link
+                href={uploadHref}
+                data-testid="upload-for-owner"
+                className="text-sm font-medium text-kesari-700 hover:underline"
+              >
+                Upload FSSAI for owner →
+              </Link>
             ) : null}
             {!fssaiNeeded && showUpload ? (
               <Link
@@ -473,7 +461,7 @@ function PendingShopRow({
                   </Button>
                 ) : null}
                 {canWaive ? (
-                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => setWaiving((v) => !v)}>
+                  <Button size="sm" variant="secondary" disabled={busy} data-testid="approve-without-documents" onClick={() => setWaiving((v) => !v)}>
                     Approve without documents
                   </Button>
                 ) : null}
@@ -573,56 +561,16 @@ function PendingShopRow({
         </div>
       ) : null}
 
-      {waivingFssai ? (
-        <div className="mt-3 space-y-2 rounded-lg border border-cream-200 p-3" data-testid="fssai-waiver-form">
-          <p className="text-sm text-ink-700">
-            Approve {shop.name} as {classification === "KESARI" ? "Kesari" : "Green"} without its FSSAI licence. The shop goes
-            live now; {shop.ownerName} must upload a valid FSSAI licence within {fssaiWaiverDays} days (by {fssaiDueLabel}) and is
-            reminded on the 1st and 15th. If it is still missing then, the shop is suspended automatically. Your name and
-            reason are recorded. Other missing seller documents and the registration fee are still checked.
-          </p>
-          <div className="flex gap-2">
-            <input
-              value={fssaiReason}
-              onChange={(e) => setFssaiReason(e.target.value)}
-              placeholder="Reason for approving without the FSSAI licence"
-              className={inputClass}
-              aria-label="Reason for approving without the FSSAI licence"
-            />
-            <Button
-              size="sm"
-              disabled={busy || fssaiReason.trim().length < 10}
-              onClick={async () => {
-                if (await act("approve", { classification, waiveFssai: { reason: fssaiReason } })) setWaivingFssai(false);
-              }}
-            >
-              Confirm approval
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
       {waiving ? (
         <div className="mt-3 space-y-2 rounded-lg border border-cream-200 p-3">
           <p className="text-sm text-ink-700">
             Approve {shop.name} as {classification === "KESARI" ? "Kesari" : "Green"} without verified documents (
-            {shop.missingDocuments.join(", ")}). The shop goes live now; your name and reason are recorded. The
-            registration fee and any licence the shop type needs are still checked.
+            {waivedDocuments.join(", ")}). The shop goes live now; your name and reason are recorded. The
+            registration fee is still checked.
+            {fssaiNeeded
+              ? ` The owner must upload a valid FSSAI licence within ${fssaiWaiverDays} days (by ${fssaiDueLabel}); they are reminded on the 1st and 15th, and the shop is suspended automatically if it is still missing then.`
+              : ""}
           </p>
-          {fssaiNeeded && canWaiveFssai ? (
-            <label className="flex items-start gap-2 text-sm text-ink-700">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={alsoWaiveFssai}
-                onChange={(e) => setAlsoWaiveFssai(e.target.checked)}
-                data-testid="also-waive-fssai"
-              />
-              <span>
-                Also approve without the FSSAI licence. The owner must upload it within {fssaiWaiverDays} days (by {fssaiDueLabel}).
-              </span>
-            </label>
-          ) : null}
           <div className="flex gap-2">
             <input
               value={waiveReason}
@@ -638,7 +586,7 @@ function PendingShopRow({
                 act("approve", {
                   classification,
                   waiveDocuments: { reason: waiveReason },
-                  ...(alsoWaiveFssai && fssaiNeeded ? { waiveFssai: { reason: waiveReason } } : {}),
+                  ...(fssaiNeeded && canWaiveFssai ? { waiveFssai: { reason: waiveReason } } : {}),
                 })
               }
             >
