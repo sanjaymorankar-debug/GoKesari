@@ -18,6 +18,7 @@ import {
   consultBookings,
   consultCategories,
   financialAdjustments,
+  notifications,
   paymentIntents,
   paymentRefunds,
   scheduledNotices,
@@ -219,7 +220,10 @@ describe("booking", () => {
     const second = await book({ serviceId: svc.fixed, paymentMode: "ONLINE" }, customer2);
     await db.update(consultBookings).set({ holdExpiresAt: new Date(Date.now() - 1000) }).where(eq(consultBookings.id, second.booking.id));
     expect((await expireLapsedHolds()).expired).toBe(1);
-    expect((await reload(second.booking.id)).status).toBe("EXPIRED");
+    // D-CB-09: the lapsed hold ends the payment too, and the customer is told.
+    expect(await reload(second.booking.id)).toMatchObject({ status: "EXPIRED", paymentStatus: "FAILED" });
+    const told = await db.select({ title: notifications.title }).from(notifications).where(eq(notifications.userId, customer2.id));
+    expect(told.map((n) => n.title)).toContain(`Payment for ${second.booking.bookingNumber} did not go through`);
     const third = await book({ serviceId: svc.free }, customer);
     expect(third.booking.status).toBe("CONFIRMED");
   });

@@ -13632,7 +13632,7 @@
   "method": "UI",
   "preconditions": "dealer_programme_enabled and the rule dealerTieredCommission ON on staging (Admin > Settings; mainOverrideBp 300 once PR #417 is on staging, else mark the 3% parts Blocked). A TIERED chain main dealer > team lead > agent, each with a linked account, accepted agreement, PAN and verified bank. Three new shops paying the Rs 4,999 slab: one signed by the agent, one by the team lead, one by the main dealer; one Rs 9,999 shop signed by the agent.",
   "steps": "1. Register and pay each shop with the signer's code\n2. Approve the shops (if not live already)\n3. Open each person's ledger on /dealer and Admin > Dealers > Commission > Ledger",
-  "expected": "Agent's ₹4,999 shop: agent ₹999.80, lead ₹199.96, main dealer ₹149.97 (27%). Lead's own shop: lead ₹999.80, main dealer ₹149.97 (23%; no 4% on top). Main dealer's own shop: ₹999.80 only (20%). ₹9,999 by the agent: ₹1,999.80 / ₹399.96 / ₹299.97. All earned at activation (no TRADING wait), no per-shop cap, nobody paid twice.",
+  "expected": "Agent's ₹4,999 shop: agent ₹999.80, lead ₹199.96, main dealer ₹149.97 (27%). Lead's own shop: lead ₹999.80, main dealer ₹199.96 (24%; the dealer is one level up, so 4% — owner 21-Nov-2026, rule overrideByDistance). Main dealer's own shop: ₹999.80 only (20%). ₹9,999 by the agent: ₹1,999.80 / ₹399.96 / ₹299.97. All earned at activation (no TRADING wait), no per-shop cap, nobody paid twice.",
   "source": "Added 20-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-DLR-12; docs/testing/manual/README.md)"
  },
  {

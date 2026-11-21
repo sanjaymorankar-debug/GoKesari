@@ -233,5 +233,103 @@ GET repos/acme/shop/actions/runs?head_sha=f971899b7d74979fbe58d6d14b6ad5b2bdfb58
 check "times out on step 4" said "staging runs: staging runs still running after"
 end_case
 
+# Option A (owner, 20 Nov 2026): #7 is 2 commits behind staging (head
+# bbbb222, whose push runs passed); staging's new commits change other files
+# than #7 does. #7 is merged as it is, without updating its branch.
+OPTION_A='GET repos/acme/shop/branches/staging 200 {"commit":{"sha":"bbbb222"}}
+GET repos/acme/shop/actions/runs?head_sha=bbbb222* 200 {"workflow_runs":[{"id":11,"name":"CI","event":"push","status":"completed","conclusion":"success"},{"id":12,"name":"Test database","event":"push","status":"completed","conclusion":"skipped"},{"id":13,"name":"CI","event":"pull_request","status":"in_progress","conclusion":null}]}
+GET repos/acme/shop/compare/staging...aaaa111 200 {"behind_by":2,"files":[{"filename":"src/feature-x.ts"},{"filename":"src/new-name.ts","previous_filename":"src/old-name.ts"},{"filename":"drizzle/0079_x.sql"}]}
+GET repos/acme/shop/compare/aaaa111...bbbb222 200 {"files":[{"filename":"src/other.ts"},{"filename":"docs/other.md"}]}'
+theirs() { echo "GET repos/acme/shop/compare/aaaa111...bbbb222 200 $1"; }
+
+run_case behind-merged-as-is "$OPTION_A
+$MERGED_F971899
+GET repos/acme/shop/actions/runs?head_sha=f971899b7d74979fbe58d6d14b6ad5b2bdfb583c* 200 $RUNS_F971899"
+check "says why" said "merging it as it is, without updating the branch (option A)"
+check "does not update the branch" not_called 'update-branch'
+check "merges the head that passed CI" called '^PUT repos/acme/shop/pulls/7/merge merge_method=merge sha=aaaa111'
+check "tells the PR it was merged as it was" called '^POST repos/acme/shop/issues/7/comments body=.*merged as it was, without updating the branch'
+check "then tests the merge as usual" said "staging runs passed: CI, Sandbox payment"
+end_case
+
+run_case dry-run-as-is "$OPTION_A" DRY_RUN=1
+check "exits 0" exits 0
+check "writes nothing" not_called "$WRITES"
+check "would merge the head as it is" said "DRY RUN: would merge #7 at aaaa111"
+end_case
+
+# Each of these sends #7 the old way: update the branch, wait for CI again.
+# (Dry runs, so the update is reported instead of waited for.)
+updates_branch() {
+  check "updates the branch" said "DRY RUN: gh api -X PUT repos/acme/shop/pulls/7/update-branch -f expected_head_sha=aaaa111"
+  check "does not merge as it is" eval '! said "merging it as it is"'
+}
+
+run_case as-is-same-file "$(theirs '{"files":[{"filename":"src/other.ts"},{"filename":"src/feature-x.ts"}]}')
+$OPTION_A" DRY_RUN=1
+updates_branch
+check "names the shared file" said "staging changed files this PR changes too (src/feature-x.ts)"
+end_case
+
+run_case as-is-renamed-file "$(theirs '{"files":[{"filename":"src/old-name.ts"}]}')
+$OPTION_A" DRY_RUN=1
+updates_branch
+check "counts the old name of a renamed file" said "(src/old-name.ts)"
+end_case
+
+run_case as-is-both-migrations "$(theirs '{"files":[{"filename":"drizzle/0079_y.sql"},{"filename":"drizzle/meta/0079_snapshot.json"}]}')
+$OPTION_A" DRY_RUN=1
+updates_branch
+check "says why" said "staging and this PR both change drizzle/ (migrations)"
+end_case
+
+run_case as-is-staging-ci-failed 'GET repos/acme/shop/actions/runs?head_sha=bbbb222* 200 {"workflow_runs":[{"id":11,"name":"CI","event":"push","status":"completed","conclusion":"failure"}]}
+'"$OPTION_A" DRY_RUN=1
+updates_branch
+check "says why" said "staging's push runs on bbbb222: failed"
+end_case
+
+run_case as-is-staging-ci-running 'GET repos/acme/shop/actions/runs?head_sha=bbbb222* 200 {"workflow_runs":[{"id":11,"name":"CI","event":"push","status":"in_progress","conclusion":null}]}
+'"$OPTION_A" DRY_RUN=1
+updates_branch
+check "says why" said "staging's push runs on bbbb222: still running"
+end_case
+
+run_case as-is-no-staging-ci 'GET repos/acme/shop/actions/runs?head_sha=bbbb222* 200 {"workflow_runs":[{"id":13,"name":"CI","event":"pull_request","status":"completed","conclusion":"success"}]}
+'"$OPTION_A" DRY_RUN=1
+updates_branch
+check "says why" said "staging's push runs on bbbb222: no CI run"
+end_case
+
+run_case as-is-300-files "$(theirs "$(jq -nc '{files: [range(300) | {filename: "src/f\(.).ts"}]}')")
+$OPTION_A" DRY_RUN=1
+updates_branch
+end_case
+
+run_case as-is-api-error "GET repos/acme/shop/compare/aaaa111...bbbb222 500 {\"message\":\"Server Error\"}
+$OPTION_A" DRY_RUN=1
+updates_branch
+end_case
+
+run_case as-is-switched-off "$OPTION_A" DRY_RUN=1 QUEUE_SKIP_UPDATE=0
+updates_branch
+check "does not look at staging" not_called 'branches/staging'
+end_case
+
+# 20 Nov 2026: GitHub stopped a run at 350 min during #420's guest QA, so #420
+# never got a verdict. A run past its time budget starts no new PR and hands
+# the queue over to the next run.
+run_case run-budget-used "" QUEUE_RUN_BUDGET=0
+check "exits 0" exits 0
+check "says why" said "run time budget reached"
+check "starts no PR" not_called 'repos/acme/shop/(pulls/7|compare/|issues/7/)'
+check "tells the tracker" called '^PATCH repos/acme/shop/issues/340 body=.*handing over — #7 is next'
+end_case
+
+run_case run-budget-left "$UP_TO_DATE" DRY_RUN=1 QUEUE_RUN_BUDGET=3600
+check "still takes the PR" said "DRY RUN: would merge #7 at aaaa111"
+check "does not hand over" eval '! said "run time budget reached"'
+end_case
+
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]

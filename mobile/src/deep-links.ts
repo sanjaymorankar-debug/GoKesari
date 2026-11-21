@@ -29,8 +29,13 @@ export const DEEP_LINK_ROUTES = [
   { kind: "compare", prefix: "/search/compare" },
   // 1.7.0 (docs/dealer-programme/TIERED_COMMISSION.md): the dealer portal (team, earnings, statements) —
   // commission and payout pushes open it — and Add my shop, where a shop's /r/SHOP… link lands.
+  // 1.12.0 (franchise brief 21-Nov-2026): the public commission chart (before /dealer: the first match wins).
+  { kind: "commission-chart", prefix: "/dealer/commission-chart" },
   { kind: "dealer", prefix: "/dealer" },
   { kind: "shop-register", prefix: "/shop/register" },
+  // 1.11.0 (docs/franchise): the Pune franchise pages — booking, my franchise, renewal and expiry pushes;
+  // 1.12.0: the 50 zone pages /franchise/zones/<GKZ-PUN-nn> too.
+  { kind: "franchise", prefix: "/franchise" },
 ] as const;
 
 export type DeepLinkKind = (typeof DEEP_LINK_ROUTES)[number]["kind"] | "page";

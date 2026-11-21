@@ -1,0 +1,51 @@
+cluster_no,cluster_name,region,areas_included,civic_body
+1,Peth West,Central,"Sadashiv Peth, Narayan Peth, Shaniwar Peth, Shukrawar Peth, Navi Peth",PMC
+2,Peth East,Central,"Budhwar, Raviwar, Kasba, Somwar, Mangalwar, Ganesh, Nana, Bhavani, Ganj, Guruwar, Ghorpade, Rasta Peth",PMC
+3,Shivajinagar–Deccan,Central,"Shivajinagar, Deccan Gymkhana, Model Colony, Prabhat Road, Gokhale Nagar",PMC
+4,Swargate–Market Yard,Central,"Swargate, Parvati, Mukund Nagar, Gultekdi, Market Yard, Salisbury Park, Maharshi Nagar",PMC
+5,Camp–Pune Station,Central,"Camp, Pune Station, Sangamwadi, Bund Garden, Dhole Patil Road",PMC / Cantonment
+6,Kothrud,West,"Kothrud, Paud Road, Bhusari Colony, Dahanukar Colony",PMC
+7,Karve Nagar–Erandwane,West,"Karve Nagar, Erandwane, Hingne Khurd",PMC
+8,Warje–Shivane,West,"Warje, Shivane, Uttam Nagar, Kopare, Kondhwe Dhawade",PMC
+9,Bavdhan–Sus,West,"Bavdhan, Sus",PMC
+10,Baner–Balewadi,North-West,"Baner, Balewadi, Mahalunge",PMC
+11,Aundh–Pashan,North-West,"Aundh, Pashan, Sutarwadi, Ganeshkhind, Chatushringi, Senapati Bapat Road",PMC
+12,Khadki–Bopodi,North-West,"Khadki, Bopodi",PMC / Cantonment
+13,Yerawada,North,"Yerawada, Phule Nagar, Shastri Nagar",PMC
+14,Vishrantwadi–Dhanori,North,"Vishrantwadi, Dhanori, Kalas, Tingre Nagar, Porwal Road",PMC
+15,Lohegaon,North,Lohegaon (airport area),PMC
+16,Viman Nagar–Kalyani Nagar,North / East,"Viman Nagar, Kalyani Nagar",PMC
+17,Koregaon Park–Mundhwa,East,"Koregaon Park, Ghorpadi, Mundhwa, Keshav Nagar",PMC
+18,Wadgaon Sheri–Chandan Nagar,East,"Wadgaon Sheri, Chandan Nagar",PMC
+19,Kharadi,East,Kharadi,PMC
+20,Wagholi,East,"Wagholi, Lonikand, Kesnand",PMC / Gram Panchayat
+21,Hadapsar,South-East,"Hadapsar, Ramtekdi, Sasane Nagar",PMC
+22,Magarpatta–Amanora,South-East,"Magarpatta City, Amanora Park Town, Satav Nagar",PMC
+23,Manjri–Shewalewadi,South-East,"Manjri Budruk, Shewalewadi",PMC
+24,Wanowrie–Fatima Nagar,South-East,"Wanowrie, Fatima Nagar, Salunke Vihar, Lullanagar",PMC
+25,Kondhwa–NIBM,South-East,"Kondhwa Khurd, Kondhwa Budruk, NIBM Road",PMC
+26,Undri–Pisoli,South-East,"Undri, Pisoli, Mohammed Wadi, Handewadi, Holkarwadi, Wadachi Wadi",PMC
+27,Fursungi–Uruli Devachi,South-East,"Fursungi, Uruli Devachi",Municipal Council
+28,Bibwewadi,South,"Bibwewadi, Upper Indira Nagar, Padmavati",PMC
+29,Sahakar Nagar–Dhankawadi,South,"Sahakar Nagar, Dhankawadi, Balaji Nagar",PMC
+30,Katraj,South,"Katraj, Gokul Nagar, Yewalewadi",PMC
+31,Ambegaon,South,"Ambegaon Budruk, Ambegaon Khurd, Jambhulwadi, Mangdewadi, Bhilarewadi, Gujar Nimbalkarwadi",PMC
+32,Sinhagad Road,South,"Sinhagad Road, Vadgaon Budruk, Anand Nagar, Manik Baug, Vitthalwadi",PMC
+33,Dhayari–Narhe,South,"Dhayari, Narhe",PMC
+34,Nanded City–Khadakwasla,South,"Nanded City, Kirkatwadi, Khadakwasla, Nandoshi, Sanasnagar, Kolewadi",PMC
+35,Pimpri,Pimpri-Chinchwad,"Pimpri, Sant Tukaram Nagar, Morwadi, Kharalwadi, Masulkar Colony, Nehru Nagar",PCMC
+36,Chinchwad,Pimpri-Chinchwad,"Chinchwad, Chinchwadgaon, Bijalinagar, Walhekarwadi",PCMC
+37,Akurdi–Nigdi,Pimpri-Chinchwad,"Akurdi, Nigdi, Pradhikaran, Yamuna Nagar",PCMC
+38,Bhosari,Pimpri-Chinchwad,"Bhosari, MIDC Bhosari, Indrayani Nagar",PCMC
+39,Moshi–Chikhali,Pimpri-Chinchwad,"Moshi, Chikhali, Kudalwadi, Talawade",PCMC
+40,Dighi–Charholi,Pimpri-Chinchwad,"Dighi, Charholi, Dudulgaon",PCMC
+41,Wakad,Pimpri-Chinchwad,Wakad,PCMC
+42,Thergaon–Rahatani,Pimpri-Chinchwad,"Thergaon, Kalewadi, Rahatani",PCMC
+43,Ravet–Punawale,Pimpri-Chinchwad,"Ravet, Punawale, Tathawade, Kiwale, Mamurdi",PCMC
+44,Pimple Saudagar–Gurav,Pimpri-Chinchwad,"Pimple Saudagar, Pimple Gurav, Pimple Nilakh",PCMC
+45,Sangvi–Dapodi,Pimpri-Chinchwad,"Sangvi, New Sangvi, Dapodi, Kasarwadi, Phugewadi",PCMC
+46,Hinjewadi,Fringe,"Hinjewadi, Maan, Marunji",Gram Panchayat (PMRDA)
+47,Pirangut–Mulshi,Fringe,"Pirangut, Bhugaon, Bhukum, Lavale, Nande, Paud",Gram Panchayat (PMRDA)
+48,Dehu Road–Talegaon,Fringe,"Dehu Road, Dehu, Talegaon Dabhade",Cantonment / Councils
+49,Chakan–Alandi,Fringe,"Chakan, Alandi",Municipal Councils
+50,Loni Kalbhor–Theur,Fringe,"Loni Kalbhor, Theur, Uruli Kanchan",Gram Panchayat (PMRDA)

@@ -3,7 +3,7 @@
  * and text and never throws on an HTTP status, so a check can assert on the
  * refusal it expects.
  */
-import { expect, request as playwrightRequest, type APIRequestContext } from "@playwright/test";
+import { expect, request as playwrightRequest, type APIRequestContext, type Locator, type Page, type Response } from "@playwright/test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -60,6 +60,25 @@ export async function call(ctx: APIRequestContext, method: Method, path: string,
     answer = await send(ctx, method, path, data, options);
   }
   return answer;
+}
+
+/**
+ * Clicks a button that sends one API write from the page and returns the server's answer. The page's
+ * own calls (a queue page loads every evidence photo through /api/images) count towards the proxy's
+ * per-IP limit but are not paced like call(): when the proxy refuses the write (429 "Too many
+ * requests"), wait out its Retry-After and click again. The site's screens show the refusal and leave
+ * the button enabled, so the second click is the operator's own retry.
+ */
+export async function clickWrite(page: Page, button: Locator, urlPart: string, method: Method = "PATCH"): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const answered = page.waitForResponse((r) => r.url().includes(urlPart) && r.request().method() === method, { timeout: SLOW_MS });
+    await button.click();
+    const res = await answered;
+    if (res.status() !== 429 || attempt >= 2) return res;
+    const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    if (body?.error !== "Too many requests") return res;
+    await page.waitForTimeout((Number(res.headers()["retry-after"]) || 60) * 1000 + 2_000);
+  }
 }
 
 async function send(ctx: APIRequestContext, method: Method, path: string, data: unknown, options: CallOptions): Promise<Answer> {

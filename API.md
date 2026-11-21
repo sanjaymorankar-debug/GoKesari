@@ -931,7 +931,9 @@ audited with the old value, the new value and the reason.
 | POST | `/api/admin/shop-referrals` | ADMIN | `{action: "reverse", id, reason}` — takes the reward back |
 | GET | `/r/{code}` | anyone | a shop code (`SHOP…`, rule on) redirects to `/shop/register?ref={code}`; a customer code as before |
 
-Territory dealers (0151, 20-Nov-2026, docs/dealer-programme/TERRITORY_DEALER.md; rule `territoryDealer`, off by default):
+Franchise — Model A / Model B, Pune PMR area booking (0157, 21-Nov-2026): see [docs/franchise/README.md](docs/franchise/README.md) → "API" (public zones / boundaries / offer, owner booking / pay / renew / codes, `/api/admin/franchise/*`, member transfer, reverse-all).
+
+Territory dealers (0151, 20-Nov-2026, docs/dealer-programme/TERRITORY_DEALER.md; rule `territoryDealer`, off by default; superseded by the franchise brief of 20-Nov-2026 22.50 IST):
 
 | Method | Path | Who | What |
 |---|---|---|---|

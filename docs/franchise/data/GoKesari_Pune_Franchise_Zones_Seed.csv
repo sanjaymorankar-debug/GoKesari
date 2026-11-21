@@ -1,0 +1,51 @@
+zone_no,zone_name,region,business_index_provisional,vs_average,tier,annual_fee_inr,fee_reason
+1,Peth West,Central,120,+21%,Premier,181000,Dense old-city retail peths
+2,Peth East,Central,150,+51%,Premier,226000,"Wholesale trade peths (Raviwar, Budhwar, Ganj)"
+3,Shivajinagar–Deccan,Central,150,+51%,Premier,226000,"FC/JM Road high street, education hub"
+4,Swargate–Market Yard,Central,140,+41%,Premier,211000,"APMC wholesale market, transport hub"
+5,Camp–Pune Station,Central,145,+46%,Premier,219000,"MG Road retail, railway station"
+6,Kothrud,West,130,+31%,Premier,196000,Large affluent residential market
+7,Karve Nagar–Erandwane,West,105,+6%,Standard,150000,Established residential
+8,Warje–Shivane,West,80,-20%,Emerging,121000,"Growing residential, newer merged areas"
+9,Bavdhan–Sus,West,75,-25%,Emerging,113000,"Newer residential, low shop density"
+10,Baner–Balewadi,North-West,130,+31%,Premier,196000,IT offices and high street
+11,Aundh–Pashan,North-West,115,+16%,Premier,174000,"Affluent residential, university area"
+12,Khadki–Bopodi,North-West,70,-30%,Emerging,106000,"Cantonment, limited retail"
+13,Yerawada,North,85,-14%,Emerging,128000,Mixed residential
+14,Vishrantwadi–Dhanori,North,90,-9%,Standard,150000,Growing residential
+15,Lohegaon,North,70,-30%,Emerging,106000,"Airport area, lower shop density"
+16,Viman Nagar–Kalyani Nagar,North / East,135,+36%,Premier,204000,Premium residential and malls
+17,Koregaon Park–Mundhwa,East,130,+31%,Premier,196000,"Premium residential, dining"
+18,Wadgaon Sheri–Chandan Nagar,East,95,-4%,Standard,150000,Established residential
+19,Kharadi,East,120,+21%,Premier,181000,IT hub (EON IT Park)
+20,Wagholi,East,85,-14%,Emerging,128000,Fast-growing fringe
+21,Hadapsar,South-East,130,+31%,Premier,196000,Large population and market
+22,Magarpatta–Amanora,South-East,110,+11%,Premier,166000,IT townships
+23,Manjri–Shewalewadi,South-East,65,-35%,Emerging,98000,"Newly merged, developing"
+24,Wanowrie–Fatima Nagar,South-East,95,-4%,Standard,150000,Established residential
+25,Kondhwa–NIBM,South-East,105,+6%,Standard,150000,Dense residential
+26,Undri–Pisoli,South-East,70,-30%,Emerging,106000,"Newly merged, developing"
+27,Fursungi–Uruli Devachi,South-East,60,-40%,Emerging,91000,Peri-urban council area
+28,Bibwewadi,South,95,-4%,Standard,150000,Established residential
+29,Sahakar Nagar–Dhankawadi,South,95,-4%,Standard,150000,Established residential
+30,Katraj,South,90,-9%,Standard,150000,"Residential, highway trade"
+31,Ambegaon,South,70,-30%,Emerging,106000,"Newly merged, developing"
+32,Sinhagad Road,South,105,+6%,Standard,150000,Dense residential corridor
+33,Dhayari–Narhe,South,80,-20%,Emerging,121000,Growing residential
+34,Nanded City–Khadakwasla,South,65,-35%,Emerging,98000,Township and newly merged villages
+35,Pimpri,Pimpri-Chinchwad,135,+36%,Premier,204000,"Pimpri market, PCMC trade centre"
+36,Chinchwad,Pimpri-Chinchwad,125,+26%,Premier,189000,Established commercial
+37,Akurdi–Nigdi,Pimpri-Chinchwad,110,+11%,Premier,166000,Planned residential (Pradhikaran)
+38,Bhosari,Pimpri-Chinchwad,120,+21%,Premier,181000,MIDC industrial area
+39,Moshi–Chikhali,Pimpri-Chinchwad,80,-20%,Emerging,121000,Growing residential
+40,Dighi–Charholi,Pimpri-Chinchwad,65,-35%,Emerging,98000,Developing fringe
+41,Wakad,Pimpri-Chinchwad,120,+21%,Premier,181000,IT-linked premium residential
+42,Thergaon–Rahatani,Pimpri-Chinchwad,90,-9%,Standard,150000,Dense residential
+43,Ravet–Punawale,Pimpri-Chinchwad,85,-14%,Emerging,128000,Fast-growing residential
+44,Pimple Saudagar–Gurav,Pimpri-Chinchwad,110,+11%,Premier,166000,"Affluent residential, high street"
+45,Sangvi–Dapodi,Pimpri-Chinchwad,90,-9%,Standard,150000,Established residential
+46,Hinjewadi,Fringe,115,+16%,Premier,174000,Rajiv Gandhi Infotech Park
+47,Pirangut–Mulshi,Fringe,50,-50%,Emerging,75000,Rural-fringe villages
+48,Dehu Road–Talegaon,Fringe,70,-30%,Emerging,106000,Cantonment and council towns
+49,Chakan–Alandi,Fringe,95,-4%,Standard,150000,"Auto/industrial hub, pilgrimage town"
+50,Loni Kalbhor–Theur,Fringe,55,-45%,Emerging,83000,Rural-fringe villages

@@ -48,7 +48,7 @@ const AGREEMENT_HOLD_NOTE = "held: the agent agreement is not accepted yet — r
 
 /* ------------------------------------------------ TS-DLR-12: the split */
 
-qa("TC-TIER-012", "each signer: agent's ₹4,999 shop 999.80 / 199.96 / 149.97; lead's own 999.80 + 149.97; main dealer's own 999.80; ₹9,999 1,999.80 / 399.96 / 299.97 — all at activation", async () => {
+qa("TC-TIER-012", "each signer: agent's ₹4,999 shop 999.80 / 199.96 / 149.97; lead's own 999.80 + 199.96 (dealer 4% one level up, 21-Nov-2026); main dealer's own 999.80; ₹9,999 1,999.80 / 399.96 / 299.97 — all at activation", async () => {
   return tiered(async () => {
     const net = await tieredNetwork("t012");
     const agentShop = await activatedShop(net.dealerId, net.agent.id, SLAB_4999);
@@ -60,9 +60,9 @@ qa("TC-TIER-012", "each signer: agent's ₹4,999 shop 999.80 / 199.96 / 149.97; 
       ["OVERRIDE_LEAD", net.lead.id, 19_996],
       ["OVERRIDE_MAIN", null, 14_997],
     ]);
-    expect(await accruals(leadShop.shopId), "lead's own shop (23%, no 4% on top)").toEqual([
+    expect(await accruals(leadShop.shopId), "lead's own shop (24%: dealer one level up earns 4%)").toEqual([
       ["DIRECT_1", net.lead.id, 99_980],
-      ["OVERRIDE_MAIN", null, 14_997],
+      ["OVERRIDE_MAIN", null, 19_996],
     ]);
     expect(await accruals(mainShop.shopId), "main dealer's own shop (20% only)").toEqual([["DIRECT_1", null, 99_980]]);
     expect(await accruals(bigShop.shopId), "₹9,999 by the agent").toEqual([

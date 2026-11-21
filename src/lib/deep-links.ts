@@ -40,8 +40,12 @@ export const DEEP_LINK_ROUTES = [
   { kind: "compare", example: "/search/compare?product=<id>", prefix: "/search/compare" },
   // docs/dealer-programme/TIERED_COMMISSION.md: the dealer portal (pushes for commission, reversal and payouts open it)
   // and Add my shop (a shop's referral link /r/SHOP… lands there with the code filled in).
+  // Franchise brief 21-Nov-2026 (app 1.12.0): the public commission chart, both models side by side.
+  { kind: "commission-chart", example: "/dealer/commission-chart", prefix: "/dealer/commission-chart" },
   { kind: "dealer", example: "/dealer", prefix: "/dealer" },
   { kind: "shop-register", example: "/shop/register?ref=<code>", prefix: "/shop/register" },
+  // docs/franchise (app 1.11.0): the Pune franchise pages; renewal, expiry and booking pushes open /franchise/my.
+  { kind: "franchise", example: "/franchise/zones/<zone>", prefix: "/franchise" },
 ] as const;
 
 /** test.gokesari.com (and any test.* host) is the preview build; everything else the store build. */

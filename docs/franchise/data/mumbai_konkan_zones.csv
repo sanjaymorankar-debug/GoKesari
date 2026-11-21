@@ -1,0 +1,39 @@
+zone_no,zone_name,region,civic_body,reason,areas
+1,Colaba–Cuffe Parade,Mumbai City,BMC,"South Mumbai retail, tourism and offices",Colaba|18.9067|72.8147|400005;Cuffe Parade|18.9150|72.8200|400005;Navy Nagar|18.8990|72.8110|400005
+2,Fort–Churchgate,Mumbai City,BMC,"Business district, offices and high street",Fort|18.9340|72.8360|400001;Churchgate|18.9322|72.8264|400020;Nariman Point|18.9256|72.8242|400021;Ballard Estate|18.9400|72.8400|400001
+3,Kalbadevi–Girgaon,Mumbai City,BMC,"Wholesale markets (Crawford, Zaveri Bazaar), dense retail",Kalbadevi|18.9490|72.8300|400002;Girgaon|18.9550|72.8170|400004;Marine Lines|18.9450|72.8230|400002;Crawford Market|18.9470|72.8340|400001
+4,Byculla–Mazgaon,Mumbai City,BMC,"Mixed residential and trading, docks",Byculla|18.9760|72.8330|400027;Mazgaon|18.9640|72.8440|400010;Nagpada|18.9690|72.8270|400008;Mumbai Central|18.9690|72.8190|400008
+5,Malabar Hill–Grant Road,Mumbai City,BMC,"Premium residential, Grant Road retail",Malabar Hill|18.9548|72.7985|400006;Walkeshwar|18.9480|72.7950|400006;Grant Road|18.9630|72.8160|400007;Tardeo|18.9690|72.8120|400034
+6,Worli–Lower Parel,Mumbai City,BMC,"Offices, malls and premium residential",Worli|19.0176|72.8162|400018;Lower Parel|18.9950|72.8300|400013;Prabhadevi|19.0160|72.8290|400025;Mahalaxmi|18.9820|72.8240|400011
+7,Dadar–Matunga,Mumbai City,BMC,"Central markets (Dadar), dense residential",Dadar|19.0178|72.8478|400014;Matunga|19.0270|72.8550|400019;Mahim|19.0390|72.8410|400016;Wadala|19.0160|72.8650|400031
+8,Sion–Dharavi,Mumbai City,BMC,"Small industry and trading, dense residential",Sion|19.0390|72.8620|400022;Dharavi|19.0430|72.8540|400017;Antop Hill|19.0240|72.8650|400037
+9,Bandra–Khar,Mumbai Suburban West,BMC,"High street, BKC offices, affluent residential",Bandra West|19.0596|72.8295|400050;Bandra East|19.0600|72.8480|400051;Khar|19.0700|72.8370|400052
+10,Santacruz–Vile Parle,Mumbai Suburban West,BMC,"Airport area, residential and retail",Santacruz|19.0810|72.8410|400054;Vile Parle|19.0990|72.8440|400057;Juhu|19.1070|72.8260|400049
+11,Andheri West–Versova,Mumbai Suburban West,BMC,"Dense residential, media and retail",Andheri West|19.1360|72.8270|400053;Versova|19.1310|72.8150|400061;Lokhandwala|19.1420|72.8250|400053;Oshiwara|19.1500|72.8350|400102
+12,Andheri East–Marol,Mumbai Suburban West,BMC,"Offices, MIDC and residential",Andheri East|19.1150|72.8700|400069;Marol|19.1190|72.8830|400059;Chakala|19.1110|72.8650|400099;Saki Naka|19.1030|72.8880|400072
+13,Jogeshwari–Goregaon,Mumbai Suburban West,BMC,"Residential, film city and offices",Jogeshwari|19.1350|72.8490|400060;Goregaon West|19.1640|72.8430|400062;Goregaon East|19.1630|72.8580|400063
+14,Malad,Mumbai Suburban West,BMC,"Large residential market, malls",Malad West|19.1870|72.8350|400064;Malad East|19.1860|72.8590|400097
+15,Kandivali,Mumbai Suburban West,BMC,Large residential market,Kandivali West|19.2050|72.8400|400067;Kandivali East|19.2060|72.8670|400101
+16,Borivali–Dahisar,Mumbai Suburban West,BMC,"Large residential market, northern suburbs",Borivali West|19.2310|72.8500|400092;Borivali East|19.2290|72.8640|400066;Dahisar|19.2500|72.8590|400068
+17,Kurla–Chembur,Mumbai Suburban East,BMC,"Trading, transport hub and residential",Kurla|19.0700|72.8790|400070;Chembur|19.0620|72.9000|400071;Chunabhatti|19.0510|72.8730|400022;Tilak Nagar|19.0670|72.8930|400089
+18,Ghatkopar–Vikhroli,Mumbai Suburban East,BMC,"Retail high streets, offices and residential",Ghatkopar|19.0860|72.9080|400077;Vikhroli|19.1110|72.9280|400079;Kanjurmarg|19.1290|72.9310|400042
+19,Powai–Bhandup,Mumbai Suburban East,BMC,"IT offices, premium and mid residential",Powai|19.1176|72.9060|400076;Bhandup|19.1430|72.9370|400078;Nahur|19.1550|72.9460|400078
+20,Mulund,Mumbai Suburban East,BMC,Established residential market,Mulund West|19.1720|72.9560|400080;Mulund East|19.1700|72.9640|400081
+21,Govandi–Mankhurd,Mumbai Suburban East,BMC,"Developing residential, harbour line",Govandi|19.0550|72.9150|400043;Mankhurd|19.0480|72.9320|400088;Trombay|19.0060|72.9330|400088;Deonar|19.0490|72.9120|400088
+22,Thane City,Thane,TMC,"Dense retail and residential, district centre",Thane West|19.1970|72.9640|400601;Naupada|19.1920|72.9730|400602;Majiwada|19.2240|72.9810|400601;Kopri|19.1890|72.9850|400603
+23,Ghodbunder Road,Thane,TMC,"Fast-growing premium residential",Ghodbunder Road|19.2580|72.9670|400615;Kasarvadavali|19.2720|72.9700|400615;Manpada|19.2350|72.9750|400607
+24,Kalwa–Mumbra,Thane,TMC,"Dense residential, developing",Kalwa|19.2010|72.9970|400605;Mumbra|19.1750|73.0230|400612;Diva|19.1900|73.0430|400612
+25,Kalyan–Dombivli,Thane,KDMC,"Large residential twin city, markets",Kalyan|19.2437|73.1355|421301;Dombivli|19.2180|73.0870|421201;Thakurli|19.2260|73.0980|421201
+26,Ulhasnagar–Ambernath–Badlapur,Thane,Municipal Councils,"Trading town and growing suburbs",Ulhasnagar|19.2180|73.1630|421003;Ambernath|19.2010|73.1870|421501;Badlapur|19.1550|73.2650|421503
+27,Bhiwandi,Thane,BNMC,"Warehousing and textile trade",Bhiwandi|19.2960|73.0630|421302
+28,Mira–Bhayandar,Thane,MBMC,"Large residential market",Mira Road|19.2810|72.8690|401107;Bhayandar|19.3010|72.8510|401101
+29,Vashi–Sanpada,Navi Mumbai,NMMC,"APMC market, retail and residential",Vashi|19.0770|72.9990|400703;Sanpada|19.0630|73.0110|400705;Turbhe|19.0760|73.0170|400705;Koparkhairane|19.1030|73.0100|400709
+30,Nerul–Belapur,Navi Mumbai,NMMC,"Residential and CBD offices",Nerul|19.0330|73.0190|400706;CBD Belapur|19.0230|73.0390|400614;Seawoods|19.0200|73.0190|400706
+31,Airoli–Ghansoli,Navi Mumbai,NMMC,"IT parks and residential",Airoli|19.1590|72.9990|400708;Ghansoli|19.1170|73.0040|400701;Rabale|19.1400|73.0050|400701
+32,Kharghar–Panvel,Navi Mumbai,NMMC / PMC (Panvel),"Fast-growing residential, new airport belt",Kharghar|19.0470|73.0700|410210;Kamothe|19.0210|73.0950|410209;Panvel|18.9894|73.1175|410206;Kalamboli|19.0300|73.1010|410218
+33,Vasai–Virar,Palghar,VVMC,"Large and growing residential",Vasai|19.3910|72.8390|401202;Nalasopara|19.4180|72.8190|401203;Virar|19.4560|72.8120|401303
+34,Palghar–Boisar,Palghar,Municipal Councils,"Industrial (Tarapur MIDC) and district towns",Palghar|19.6970|72.7650|401404;Boisar|19.8030|72.7550|401501;Dahanu|19.9750|72.7330|401601
+35,Alibag–Pen–Uran,Raigad,Municipal Councils,"Coastal towns, port (JNPT) and tourism",Alibag|18.6414|72.8722|402201;Pen|18.7370|73.0960|402107;Uran|18.8780|72.9390|400702
+36,Khopoli–Karjat,Raigad,Municipal Councils,"Industrial and hill towns",Khopoli|18.7860|73.3450|410203;Karjat|18.9100|73.3230|410201;Khalapur|18.8270|73.2810|410202
+37,Ratnagiri–Chiplun,Ratnagiri,Municipal Councils,"District towns, Konkan coast",Ratnagiri|16.9902|73.3120|415612;Chiplun|17.5310|73.5150|415605;Dapoli|17.7590|73.1860|415712
+38,Sindhudurg,Sindhudurg,Municipal Councils,"District towns, tourism",Kudal|16.0100|73.6890|416520;Sawantwadi|15.9050|73.8210|416510;Malvan|16.0590|73.4690|416606;Kankavli|16.2650|73.7120|416602

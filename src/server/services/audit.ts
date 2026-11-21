@@ -427,6 +427,16 @@ export const AUDIT_ACTIONS = {
   DEALER_TERRITORY_CHANGED: "dealer.territory_changed", // 0151: territory given, pincodes / fee changed, cancelled, expired, released
   DEALER_TERRITORY_FEE_PAID: "dealer.territory_fee_paid", // 0151: a yearly territory fee paid (online or recorded offline)
   DEALER_TERRITORY_INCOME: "dealer.territory_income", // 0151: a month's territory order income (or a later refund correction)
+  FRANCHISE_CONFIG_CHANGED: "franchise.config_changed", // 0157 (docs/franchise): a new versioned franchise config
+  FRANCHISE_ZONE_CHANGED: "franchise.zone_changed", // 0157: zone status / pause / max owners / split / estimate
+  FRANCHISE_BOUNDARY_CHANGED: "franchise.boundary_changed", // 0157: boundary drafted, approved, imported
+  FRANCHISE_BOOKING_CHANGED: "franchise.booking_changed", // 0157: slots reserved, released, payment started / failed
+  FRANCHISE_ALLOCATION_CHANGED: "franchise.allocation_changed", // 0157: activated, renewed, suspended, terminated, expired
+  FRANCHISE_CODE_CHANGED: "franchise.code_changed", // 0157: GKF code issued / closed
+  FRANCHISE_ATTRIBUTION_CHANGED: "franchise.attribution_changed", // 0157: shop attributed / held / reversed
+  FRANCHISE_COMMISSION: "franchise.commission", // 0157: one-time and monthly entries written, reversed
+  FRANCHISE_VIOLATION_RECORDED: "franchise.violation_recorded", // 0157: warning / record / suspension / termination
+  FRANCHISE_AGREEMENT_ACCEPTED: "franchise.agreement_accepted", // 0157: clickwrap with version and IP
   SHOP_REFERRAL_APPLIED: "shop_referral.applied", // shop-refers-shop (0137)
   SHOP_REFERRAL_DECIDED: "shop_referral.decided", // shop-refers-shop (0137)
   SHOP_REFERRAL_REVERSED: "shop_referral.reversed", // shop-refers-shop (0137)

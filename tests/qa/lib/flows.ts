@@ -211,13 +211,18 @@ export async function fulfil(orderId: string, action: "accept" | "start" | "read
   return res;
 }
 
+/** Start of the delivery slot chosen for each order this worker marked ready (offerFor reads it). */
+const plannedSlotStart = new Map<string, string>();
+
 /** Marks a PREPARING order ready with plan "GoKesari delivery partner, earliest slot" (POST fulfilment-plan, markReady). */
 export async function readyWithPartner(orderId: string, role: Role = "shop") {
   const ctx = await as(role);
   const options = await call(ctx, "GET", `/api/orders/${orderId}/fulfilment-plan`);
   expectStatus(options, 200, "delivery plan options");
-  const slotKey = (options.body?.days as { slots: { key: string }[] }[] | undefined)?.[0]?.slots[0]?.key;
+  const slot = (options.body?.days as { slots: { key: string; start?: string }[] }[] | undefined)?.[0]?.slots[0];
+  const slotKey = slot?.key;
   if (!slotKey) throw new Error(`no delivery slot can be chosen now for order ${orderId} (${JSON.stringify(options.body).slice(0, 200)})`);
+  if (slot?.start) plannedSlotStart.set(orderId, slot.start);
   const planned = await call(ctx, "POST", `/api/orders/${orderId}/fulfilment-plan`, { option: "GOKESARI_PARTNER", slotKey, markReady: true });
   // A shop with delivery switched off, or an order without an address, cannot use a partner: it is collected from the shop.
   if (planned.status === 422 && /delivery switched on|choose pickup/.test(why(planned))) {
@@ -244,6 +249,22 @@ export interface Offer {
 /** The rider's current offer/assignment for an order (waits for dispatch up to `waitMs`). */
 export async function offerFor(orderId: string, rider: Role = "rider", waitMs = 45_000): Promise<Offer> {
   const ctx = await as(rider);
+  // Outside the delivery hours (07.00-22.00 IST on the test site) the earliest slot is the next
+  // morning, and the rider search only starts shortly before it (rule fulfilmentOptions,
+  // gokesariLeadMinutes, 45 there): no offer can come now, so say so instead of waiting.
+  const slotStart = plannedSlotStart.get(orderId);
+  if (slotStart && Date.parse(slotStart) - Date.now() > 60 * 60_000) {
+    const when = new Date(slotStart).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" });
+    blocked(`no rider offer yet for order ${orderId}: its earliest delivery slot starts ${when} IST and the rider search starts shortly before it (outside the site's delivery hours)`);
+  }
+  // Dispatch skips a rider whose last location is older than rule riderZoning allows (15 min);
+  // the phone keeps it fresh while the dashboard is open. On a hosted site nothing else does that
+  // between checks, so the rider's phone reports its spot (next to shop A) first. The local
+  // database already places each rider (onlyRiderOnline / ridersOnlyOnline).
+  const spot = world().location;
+  if (!IS_LOCAL && spot) {
+    await call(ctx, "POST", "/api/delivery-partner/location", { latitude: spot.lat + 0.001, longitude: spot.lng + 0.001 });
+  }
   const found = await poll(
     async () => {
       const res = await call(ctx, "GET", "/api/delivery-partner/deliveries");

@@ -51,6 +51,8 @@ jobs:
         github.event.label.name == 'ready-for-staging' || github.event.label.name == 'staging-fix') &&
       (github.event_name != 'issues' || contains(github.event.issue.labels.*.name, 'staging-queue-paused'))
     runs-on: ubuntu-latest
+    # The script starts no new PR after 4 h (QUEUE_RUN_BUDGET), so the PR in
+    # hand can finish before this limit (20 Nov 2026: #420 was cut off).
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v5
@@ -72,6 +74,9 @@ jobs:
           QUEUE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           QUEUE_RESULTS: ${{ runner.temp }}/queue-results
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+          # Option A (README, "Speed"): a repository variable
+          # STAGING_QUEUE_SKIP_UPDATE=0 turns it off without a code change.
+          QUEUE_SKIP_UPDATE: ${{ vars.STAGING_QUEUE_SKIP_UPDATE || '1' }}
         run: |
           mkdir -p "$RUNNER_TEMP/queue"
           cp scripts/release/staging-queue.sh scripts/release/staging-queue-qa.sh \

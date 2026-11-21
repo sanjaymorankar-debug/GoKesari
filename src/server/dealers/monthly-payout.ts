@@ -116,6 +116,9 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
   const { start, end } = monthBounds(month);
   if (end.getTime() > now.getTime()) throw conflict(`${monthLabel(month)} is not over yet.`);
   const settings = await getCommissionSettings();
+  // 0157 franchise (docs/franchise): lock the month's franchise statements first — their recurring, bonus and
+  // adjustment lines are written into this month and paid by this close.
+  await (await import("@/server/franchise/commission")).lockFranchiseMonth(month, actor as never).catch((e: unknown) => console.error("[franchise] month lock before the close failed", month, e));
 
   const result = await db.transaction(async (tx) => {
     const [claimed] = await tx.insert(dealerCommissionMonths).values({ periodMonth: month, closedBy: actor?.id ?? null }).onConflictDoNothing().returning();

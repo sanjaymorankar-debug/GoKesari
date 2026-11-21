@@ -203,7 +203,7 @@
   ],
   "e2e": [
     {
-      "id": "SC-WKIT-01",
+      "id": "SC-52",
       "title": "New shop → paid → live → welcome kit e-mail → banner downloaded again → QR opens the shop",
       "features": "WKIT-01",
       "priority": "P0",

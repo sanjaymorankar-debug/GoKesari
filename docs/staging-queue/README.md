@@ -37,7 +37,7 @@ Oldest PR first (lowest number; `staging-fix` PRs go before everything):
 
 | Step | What has to hold |
 |---|---|
-| 1. Checks | the PR's CI (GitHub Actions) is green. If the branch is behind `staging`, the queue updates it and waits for CI again, so what was tested is what lands. |
+| 1. Checks | the PR's CI (GitHub Actions) is green. If the branch is behind `staging`, the queue updates it and waits for CI again, so what was tested is what lands. **Except (option A, see "Speed" below):** if nothing `staging` gained since the PR branched off changes a file the PR changes, they don't both change `drizzle/`, and staging's own push runs on its head passed, the PR is merged as it is. Staging's CI on the merge (step 4) then tests the two together. |
 | 2. Staging idle | no other push-triggered workflow is still running on `staging`. |
 | 3. Merge | merge commit into `staging`; the PR gets `staging-testing`. |
 | 4. Staging runs | every **push run of the merge commit** (CI on staging, "Test database" migration, app builds) passes. Runs on the same commit that the push did not start — the CI of an open `staging` → `main` release PR, or a hand-run tool such as "Sandbox payment" — are not counted, so an open release PR no longer holds the queue (it did on 7 Nov 2026, #363). |
@@ -47,7 +47,13 @@ Oldest PR first (lowest number; `staging-fix` PRs go before everything):
 
 Then:
 
-- **passed** → `staging-verified`, and the next PR starts at once;
+- **passed** → `staging-verified`, and the next PR starts at once. The
+  exception is a run that has been going for **4 hours**: it starts no new
+  PR and hands over. The next run carries on, started by a push to `staging`,
+  a label, or the hourly schedule. GitHub stops a run at 350 minutes, and one
+  PR can take up to about 90, so the PR in hand always gets its verdict. (On
+  20-Nov-2026 a run was cut off during #420's guest QA.) `QUEUE_RUN_BUDGET`
+  (seconds) changes the 4 hours;
 - **failed** → `staging-failed`, a **"Staging queue paused"** issue is opened
   and nothing else is merged. The comment on the PR tells the owning session
   what failed and how to fix it; the session opens the fix PR labelled
@@ -74,6 +80,69 @@ Then:
 The live status is the issue labelled **`staging-queue-tracker`** (open PRs,
 their place and state, recently verified PRs, all times IST). It is an issue,
 not a file, so updating it never triggers another deploy.
+
+## Speed: option A (owner's choice, 20-Nov-2026)
+
+**Measured on 20-Nov-2026** from the queue's run logs for the last 15
+verified PRs (17–20 Nov: #406, #408, #410–#413, #416–#419, #421, #423,
+#426, #428, #433). Medians for code PRs, in minutes:
+
+| Part | Median (range) |
+|---|---|
+| (a) The PR's own CI again after the queue updated a branch that was behind (#406, #418, #419, #421, #423) | 32.7 (22.7–36.2) |
+| (b) Staging's push runs of the merge commit (CI; "Test database" takes 1–2) | 29.2 (23.3–33.0) |
+| (c) The server's deploy (`gk-deploy`) | 0 extra: done about 6 min after the merge, while (b) still runs |
+| (d) Post-deploy check | 1.7 |
+| (e) Guest QA | 12.6 (11.8–17.5) |
+| Merge → verified | 44.2 (37.4–51.1) |
+
+When several PRs wait, each one is behind by the time its turn comes, so it
+pays (a) and then (b) to (e). That is about 70–79 min per PR, and five PRs
+take about 6 hours. Inside CI, "Unit and integration tests" alone takes 23 of
+its roughly 32 minutes.
+
+**The options put to the owner:**
+
+- **A.** Merge a PR that is behind as it is when staging's changes touch none
+  of its files.
+- **B.** Test 2–3 PRs together.
+- **C.** A second test site on the server.
+- **D.** Skip staging's CI when the merged tree already passed, and update the
+  next PR early.
+
+**The owner chose A** (20-Nov-2026, 20.30 IST). What it does:
+
+- **When it applies:** a PR that is behind `staging` is merged as it is, with
+  no branch update and no second CI run, when all of these hold:
+  - staging's own push runs on its head passed (a run named `CI` among them);
+  - nothing staging gained since the PR branched off changes a file the PR
+    changes (both names of a renamed file count);
+  - they don't both change `drizzle/`;
+  - neither file list was cut off at GitHub's 300.
+- **When it doesn't:** if any of these is in doubt (or an API call fails), the
+  branch is updated as before. The queue merges only onto the staging head it
+  checked; if staging moved meanwhile, the PR waits for the next run.
+- **Expected time:** about 45 min per PR when several wait (from about 75),
+  so five PRs take about 3¾ hours.
+- **What it gives up:** the PR's own CI no longer tests the PR together with
+  staging's newer changes; staging's CI on the merge commit does that instead
+  (step 4). A break between the two that shares no file is caught after the
+  merge, not before it. An example is a function renamed on staging that the
+  PR calls from a file staging did not touch. The PR then gets
+  `staging-failed`, the queue pauses, and the owning session opens a
+  `staging-fix` PR (until now such a PR was `staging-blocked` before merging).
+  The PR's comment says when it was merged as it was.
+- **Turning it off:** set the repository variable
+  **`STAGING_QUEUE_SKIP_UPDATE`** to `0` (Settings → Secrets and variables →
+  Actions → Variables). Every behind PR is then updated as before; no code
+  change is needed.
+- **Fixed alongside A (owner, 20-Nov-2026):** the queue job stops at
+  350 minutes. On 20-Nov-2026 the run that started at 00.18 IST was cut off at
+  06.08 IST, during #420's guest QA, so #420 was merged but got no verdict.
+  - A run now starts no new PR after 4 hours (see "Then:" above).
+  - #420 was given its verdict by hand. Its staging CI had passed, the site
+    ran its build, the post-deploy check had passed, and 44 guest checks had
+    passed with none failing. #421 then passed the full guest QA on top of it.
 
 ## What it does not do
 
@@ -109,9 +178,10 @@ access …": renew the token with the permissions above and update the secret.
 ## Tests
 
 `scripts/release/staging-queue.test.sh` runs the queue script against a fake
-`gh` (403 / 422 answers, dry runs, and the 7 Nov 2026 runs of `f971899` with
-the release PR's CI still running — `scripts/release/fixtures/`; nothing goes
-to GitHub). CI runs it in the
+`gh` (403 / 422 answers, dry runs, the 7 Nov 2026 runs of `f971899` with
+the release PR's CI still running — `scripts/release/fixtures/` — and when
+option A merges a behind PR as it is or updates it; nothing goes to GitHub).
+CI runs it in the
 `scope` job; locally it needs bash 4+ and jq (macOS: `brew install bash jq`).
 
 ## Triggers
