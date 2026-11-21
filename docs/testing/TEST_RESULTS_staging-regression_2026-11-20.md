@@ -157,8 +157,11 @@ On staging itself, the territory rule was switched on at 08.30 IST by another se
    session; a further top-up only lasts while nobody else uses them.
 2. **E-38 / E-39 / E-41: fixed and re-tested** on 21-Nov 07.13 to 07.47 IST (above).
    - The fixes are in the QA suite only (**PR #445**, in the staging queue).
-   - Customer 1 has **₹1,188.50** left, below the ₹1,500 a full delivery / returns / support run needs.
-   - The next such run needs a top-up, which only happens on your OK.
+   - Customer 1 had **₹1,188.50** left after the run, below the ₹1,500 a full delivery / returns / support run needs.
+   - **Topped up on your OK (21-Nov-2026, 10.24 IST):** ₹5,000 through the "Sandbox payment" workflow
+     (Cashfree sandbox, UPI testsuccess@gocash, order `topup_1795236809678_9bcd2e47`). Customer 1 now has
+     **₹6,188.50**, about one run like this morning's (two passes of the returns file used ₹5,008), as long
+     as no other session orders with the account (E-37).
 3. **D-157 and D-158** before territory dealers are released.
 
 Done since the morning: the staging queue paused by #422 (issue #424) went on after #428 fixed the test
