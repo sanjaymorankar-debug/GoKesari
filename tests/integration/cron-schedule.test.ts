@@ -47,6 +47,8 @@ describe("schedule", () => {
         "rider-monthly-payout", "risk-rules", "seller-verification", "shop-document-follow-up", "timeout-sweep",
         // docs/smart-shopping-2026-11: list photos deleted after the retention days (daily).
         "smart-list-photo-retention",
+        // docs/smart-shopping-2026-11 (Feature 2): add-by-photo photos past the retention days (daily).
+        "photo-listing-purge",
       ].sort(),
     );
   });
@@ -63,8 +65,8 @@ describe("schedule", () => {
   });
 
   it("runs the finance week on Mondays only; the payout cycle every day (it acts on Saturdays)", () => {
-    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "dealer-team-report-weekly", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention"]); // Monday
-    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention"]); // Saturday
+    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "dealer-team-report-weekly", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention", "photo-listing-purge"]); // Monday
+    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention", "photo-listing-purge"]); // Saturday
   });
 });
 

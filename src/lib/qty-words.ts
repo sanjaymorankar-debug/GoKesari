@@ -218,3 +218,8 @@ export function planPacks(request: ParsedQuantity, pack: { amount: number; unit:
   const base = `${packs} × ${displayOf(pack.amount, pack.unit)} = ${displayOf(supplied, pack.unit)}`;
   return { packs, supplied, difference, note: difference === 0 ? base : `${base} (asked ${request.display})` };
 }
+
+/** A single number token — digits (any script), a fraction "1/2" or a number word ("साठ", "twelve") — or null. */
+export function numberFromWord(word: string): number | null {
+  return numberOf(asciiDigits(word).trim().toLowerCase());
+}

@@ -232,6 +232,8 @@ export const DAILY: readonly Job[] = [
   { name: "billing-daily", run: async () => (await import("@/server/tax/daily")).runBillingDaily() },
   // docs/smart-shopping-2026-11: list photos are deleted after rule smartShopping.photoRetentionDays.
   { name: "smart-list-photo-retention", run: async () => (await import("@/server/services/smart-list/scan")).sweepExpiredScanPhotos() },
+  // docs/smart-shopping-2026-11 (Feature 2): add-by-photo photos not used for a product, after rule smartShopping.photoRetentionDays.
+  { name: "photo-listing-purge", run: async () => (await import("@/server/services/shop-photo-listing")).purgeExpiredPhotoListingPhotos() },
 ];
 
 /** The jobs of an every-minute run at `now`. */

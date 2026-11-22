@@ -243,6 +243,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "accounts", label: L("Bills & GST", "बिल और GST", "बिले आणि GST"), icon: "receipt", href: "/shop/accounts" },
       // docs/product-import-2026-10: many products and their stock from one Excel/CSV file.
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/shop/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_OWN },
+      // docs/smart-shopping-2026-11 (Feature 2): photos + spoken price/stock → AI fills the product. Only while its flag is on.
+      { key: "addByPhoto", label: L("Add product by photo", "फ़ोटो से उत्पाद जोड़ें", "फोटोने उत्पादन जोडा"), short: L("Add by photo", "फ़ोटो से जोड़ें", "फोटोने जोडा"), icon: "images", href: "/shop/photo-listing", feature: "shop_photo_listing_enabled" },
     ],
     more: [
       { key: "scanBill", label: L("Scan supplier bill", "सप्लायर बिल स्कैन करें", "पुरवठादाराचे बिल स्कॅन करा"), icon: "images", href: "/shop/accounts/capture?mode=scan" },
@@ -465,6 +467,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
       { key: "productBrowser", label: L("Product browser", "प्रोडक्ट ब्राउज़र", "उत्पादन ब्राउझर"), icon: "search", href: "/admin/product-browser", permission: PERMISSIONS.PMD_VIEW }, // batch-2026-10 WS-D
+      // docs/smart-shopping-2026-11 (Feature 2): products added by photo and how often owners corrected the AI.
+      { key: "photoListings", label: L("Added by photo (AI accuracy)", "फ़ोटो से जोड़े गए (AI सटीकता)", "फोटोने जोडलेली (AI अचूकता)"), short: L("Added by photo", "फ़ोटो से जोड़े", "फोटोने जोडलेली"), icon: "images", href: "/admin/photo-listing", permission: PERMISSIONS.PRODUCT_APPROVE },
     ],
   },
   {
