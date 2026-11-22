@@ -2,7 +2,7 @@
 
 /**
  * GoKesari Health for admins and operators (docs/health/; owner brief §6, §7). One tab at a time, each
- * sized for a phone: verification queues, drug master, lists, Prime plans, settings, reports, access and
+ * sized for a phone: verification queues, specialties by Health group, drug master, lists, Prime plans, settings, reports, access and
  * audit logs, break-glass (admins), DPDP data requests and the disputes link. The tabs offered come from
  * the server (operators: verification, drug master, lists, reports, logs, data requests).
  */
@@ -17,10 +17,12 @@ import { DrugMaster, Lists } from "./admin-catalog";
 import { AccessLogs, Reports } from "./admin-insights";
 import { BreakGlass, DataRequests } from "./admin-privacy";
 import { AdminPrime } from "./admin-prime";
+import { Specialties } from "./admin-specialties";
 import { Verification } from "./admin-verify";
 
 const TAB_LABELS: Record<HealthAdminTab, string> = {
   verify: "Verification",
+  specialties: "Specialties",
   drugs: "Drug master",
   lists: "Lists",
   prime: "Prime",
@@ -74,6 +76,7 @@ export function HealthAdmin({ tabs, initialTab, breakGlassEnabled }: { tabs: Hea
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {tab === "verify" ? <Verification post={post} /> : null}
+      {tab === "specialties" ? <Specialties /> : null}
       {tab === "drugs" ? <DrugMaster post={post} /> : null}
       {tab === "lists" ? <Lists post={post} /> : null}
       {tab === "prime" ? <AdminPrime /> : null}

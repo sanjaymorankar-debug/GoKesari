@@ -5,7 +5,9 @@
  *                          verification already uses: a food shop type or a
  *                          food aisle), plus any extra categories in the rule
  *   Drug licence           pharmacies / medical shops (shop type or category)
- *   Medical registration   doctors / clinics (the "Doctor / Clinic" category)
+ *   Medical registration   doctors: every shop category in a Health doctor group
+ *                          (owner, 22-Nov-2026; src/lib/health/specialties.ts),
+ *                          plus any shop type or category the rule lists
  *
  * Each needs the number (FSSAI: exactly 14 digits), the expiry date (FSSAI,
  * drug licence) or the issuing council (medical registration), and an
@@ -64,6 +66,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { detectDocumentFile, shopSellsFood } from "./seller-verification";
 import { getRule } from "./settings";
 import { upsertRow } from "@/server/db/upsert";
+import { isDoctorGroup } from "@/lib/health/specialties";
 import { isWizardRegisteredShop } from "./shop-onboarding";
 import type { DocumentLevel } from "@/lib/shop-document-rules";
 import { documentRequirementsFor, getShopDocumentType, type ShopDocumentRequirement } from "./shop-document-rules";
@@ -84,17 +87,19 @@ export const isLegalDocReviewer = (actor: Actor) => can(actor.role, PERMISSIONS.
 export async function requiredLegalDocTypes(shop: Pick<Shop, "id" | "shopType">, client: DbClient = db): Promise<LegalDocType[]> {
   const rule = await getRule("legalDocuments");
   const slugRows = await client
-    .select({ slug: shopCategories.slug })
+    .select({ slug: shopCategories.slug, groupName: shopCategories.groupName })
     .from(shopCategoryMapping)
     .innerJoin(shopCategories, eq(shopCategories.id, shopCategoryMapping.categoryId))
     .where(eq(shopCategoryMapping.shopId, shop.id));
   const slugs = slugRows.map((r) => r.slug);
   const inAny = (list: readonly string[]) => slugs.some((s) => list.includes(s));
+  // Owner, 22-Nov-2026: every doctor category (the Health doctor groups, including ones an admin adds later).
+  const doctorCategory = slugRows.some((r) => isDoctorGroup(r.groupName));
 
   const required: LegalDocType[] = [];
   if (inAny(rule.fssaiExtraCategorySlugs) || (await shopSellsFood(shop))) required.push("FSSAI");
   if (rule.drugLicenceShopTypes.includes(shop.shopType) || inAny(rule.drugLicenceCategorySlugs)) required.push("DRUG_LICENCE");
-  if (rule.medicalRegistrationShopTypes.includes(shop.shopType) || inAny(rule.medicalRegistrationCategorySlugs)) {
+  if (rule.medicalRegistrationShopTypes.includes(shop.shopType) || inAny(rule.medicalRegistrationCategorySlugs) || doctorCategory) {
     required.push("MEDICAL_REGISTRATION");
   }
   for (const extra of rule.otherRequirements) {

@@ -139,7 +139,7 @@ beforeEach(async () => {
 });
 
 describe("who may use the Health admin API", () => {
-  const VIEWS = ["view=providers", "view=providers&kind=CARE", `view=documents&member=${"0".repeat(8)}-0000-0000-0000-${"0".repeat(12)}`, "view=stores", "view=stores&kind=EQUIPMENT", `view=legal&shopId=${"0".repeat(8)}-0000-0000-0000-${"0".repeat(12)}`, "view=drugs", "view=careCategories", "view=equipment", "view=settings", "view=report", "view=accessLog", "view=audit", "view=dataRequests"];
+  const VIEWS = ["view=providers", "view=specialties", "view=providers&kind=CARE", `view=documents&member=${"0".repeat(8)}-0000-0000-0000-${"0".repeat(12)}`, "view=stores", "view=stores&kind=EQUIPMENT", `view=legal&shopId=${"0".repeat(8)}-0000-0000-0000-${"0".repeat(12)}`, "view=drugs", "view=careCategories", "view=equipment", "view=settings", "view=report", "view=accessLog", "view=audit", "view=dataRequests"];
   const ACTIONS = ["decideProvider", "police", "decideStore", "drug", "importDrugs", "importIcd", "equipment", "deleteEquipment", "findPatient", "breakGlass", "dataRequest"];
 
   it("gives customers and shop owners 403 on every view and action, and signed-out callers 401", async () => {
@@ -152,10 +152,25 @@ describe("who may use the Health admin API", () => {
   });
 
   it("offers operators the operator tabs only; admins see everything", () => {
-    expect(healthAdminTabs(operator)).toEqual(["verify", "drugs", "lists", "reports", "logs", "requests"]);
-    expect(healthAdminTabs(admin)).toEqual(["verify", "drugs", "lists", "prime", "settings", "reports", "logs", "breakglass", "requests", "support"]);
+    expect(healthAdminTabs(operator)).toEqual(["verify", "specialties", "drugs", "lists", "reports", "logs", "requests"]);
+    expect(healthAdminTabs(admin)).toEqual(["verify", "specialties", "drugs", "lists", "prime", "settings", "reports", "logs", "breakglass", "requests", "support"]);
     expect(healthAdminTabs(customer)).toEqual([]);
     expect(healthAdminTabs(owner)).toEqual([]);
+  });
+
+  it("lists every medical practitioner by Health group, consultant and shop categories side by side (0161)", async () => {
+    const res = await get(operator, "view=specialties");
+    expect(res.status).toBe(200);
+    type Group = { key: string; specialties: { slug: string; inDoctorSearch: boolean }[]; shopCategories: { name: string }[] };
+    const groups = new Map((res.body.groups as Group[]).map((g) => [g.key, g]));
+    expect([...groups.keys()]).toEqual(expect.arrayContaining(["general", "specialists", "women-child", "dental", "eye-ent", "mind", "therapy", "ayush", "diagnostics", "animal", "home-care"]));
+    const specialists = groups.get("specialists")!;
+    expect(specialists.specialties.map((s) => s.slug)).toEqual(expect.arrayContaining(["cardiologist", "neurologist", "nephrologist", "dermatologist", "orthopaedic"]));
+    expect(specialists.specialties.find((s) => s.slug === "cardiologist")?.inDoctorSearch).toBe(true);
+    expect(specialists.shopCategories.map((c) => c.name)).toEqual(expect.arrayContaining(["Cardiologist", "Nephrologist", "Dermatologist"]));
+    // Speech therapists need an RCI registration, not a medical one: listed under Therapy, not on "Find a doctor".
+    expect(groups.get("therapy")!.specialties.find((s) => s.slug === "speech-therapist")?.inDoctorSearch).toBe(false);
+    expect(groups.get("home-care")!.specialties.map((s) => s.slug)).toContain("home-nurse");
   });
 });
 
