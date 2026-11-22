@@ -404,6 +404,7 @@ export const AUDIT_ACTIONS = {
   DEALER_PAN_REVEALED: "dealer.pan_revealed", // docs/dealer-programme
   DEALER_BANK_REVEALED: "dealer.bank_revealed", // docs/dealer-programme
   DEALER_BANK_CHECKED: "dealer.bank_checked", // docs/dealer-programme
+  DEALER_DOCUMENT_CHECKED_ONLINE: "dealer.document_checked_online", // docs/dealer-programme/ONLINE_VERIFICATION.md
   DEALER_CODE_ISSUED: "dealer.code_issued", // docs/dealer-programme
   DEALER_CODE_STATUS_CHANGED: "dealer.code_status_changed", // docs/dealer-programme
   DEALER_CODE_REPLACED: "dealer.code_replaced", // docs/dealer-programme

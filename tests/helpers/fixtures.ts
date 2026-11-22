@@ -155,7 +155,7 @@ export async function resetDatabase(): Promise<void> {
         INSERT INTO platform_settings (key, value) VALUES ('documentUpload', '{"fssaiMandatoryForFood": false}'::jsonb)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       `);
-      // DF-09 (0163): the shop document rules back to the seeded ones (they reference no user, so the
+      // DF-09 (0163, 0165): the shop document rules back to the seeded ones (they reference no user, so the
       // TRUNCATE above leaves a test's own rules and documents behind). Without the migration's
       // "live shops: 90 days from the release" date on the licence rows, so tests on fixed dates
       // do not move with the clock; tests of that date set it themselves.
@@ -169,7 +169,8 @@ export async function resetDatabase(): Promise<void> {
           ('DRUG_LICENCE', 'TYPE:PHARMACY', 'PROMISE'),
           ('MEDICAL_REGISTRATION', 'TYPE:DOCTOR_CLINIC', 'PROMISE'),
           ('MEDICAL_REGISTRATION', 'TYPE:SUPER_SPECIALITY_CLINIC', 'PROMISE'),
-          ('MEDICAL_REGISTRATION', 'TYPE:PROFESSIONAL_OFFICE', 'PROMISE')
+          ('MEDICAL_REGISTRATION', 'TYPE:PROFESSIONAL_OFFICE', 'PROMISE'),
+          ('MEDICAL_REGISTRATION', 'DOCTOR', 'PROMISE')
       `);
       clearRuleCache();
       // TRUNCATE users … CASCADE also empties feature_flags (updated_by references users).

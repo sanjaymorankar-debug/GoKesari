@@ -23,6 +23,10 @@ export interface ApplicationDealer {
   territories: string[];
   requirements: { docType: DealerDocType; label: string; required: boolean; status: string }[];
   documents: { id: string; docType: DealerDocType; fileName: string; status: string; reviewNote: string | null }[];
+  /** Latest online check of his PAN / GSTIN (22-Nov-2026). */
+  onlineChecks?: { docType: "PAN" | "GSTIN"; status: string; matchedName: string | null; current: boolean }[];
+  /** Zones he bought as a paid franchise: his working area, so no area is asked. */
+  franchiseZones?: { id: string; name: string }[];
 }
 
 interface Props {
@@ -33,7 +37,16 @@ interface Props {
   smsAvailable: boolean;
   /** The franchise zone he chose to work in free (Book a franchise zone → Free dealership), with its name. */
   workZone?: { id: string; name: string } | null;
+  /** The bank account can be checked online on this site (Cashfree Verification keys set). */
+  bankCheckAvailable?: boolean;
 }
+
+/** Documents that can be checked online instead of uploaded, and what the check uses. */
+const ONLINE: Partial<Record<DealerDocType, { target: "PAN" | "GSTIN" | "BANK"; button: string; how: string }>> = {
+  PAN: { target: "PAN", button: "Verify PAN online", how: "Checks the PAN from step 1 with the Income Tax record." },
+  GSTIN: { target: "GSTIN", button: "Verify GSTIN online", how: "Checks the GSTIN from step 1 with the GST record." },
+  BANK_PROOF: { target: "BANK", button: "Verify with the bank", how: "Checks the account from step 1 with the bank (account valid and in your name)." },
+};
 
 const EDITABLE = ["DRAFT", "REJECTED"];
 
@@ -43,7 +56,7 @@ const EDITABLE = ["DRAFT", "REJECTED"];
  * agreement and submit. PAN and the account number are typed in again only
  * when they change — the saved ones are shown masked.
  */
-export function DealerApplication({ dealer, requirements, areas, agreementVersion, smsAvailable, workZone = null }: Props) {
+export function DealerApplication({ dealer, requirements, areas, agreementVersion, smsAvailable, workZone = null, bankCheckAvailable = false }: Props) {
   const router = useRouter();
   const editable = !dealer || EDITABLE.includes(dealer.status);
   const [form, setForm] = useState({
@@ -119,6 +132,25 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
     await send("/api/dealer/application", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, "save", "Saved.");
   }
 
+  async function checkOnline(target: "PAN" | "GSTIN" | "BANK") {
+    setBusy(`check-${target}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/dealer/application/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target }) });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.error?.message ?? "The check did not work.");
+      const result: { status: string; message: string } = payload.data?.result ?? payload.result;
+      if (result.status === "VERIFIED") setNotice(result.message);
+      else setError(result.message);
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The check did not work.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function upload(docType: DealerDocType, file: File | undefined) {
     if (!file) return;
     const data = new FormData();
@@ -134,6 +166,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
   const states = areas.filter((a) => a.parent === null);
   const chosenState = pickedState ?? states.find((s) => territories.some((t) => t === s.code || t.startsWith(`${s.code}-`)))?.code ?? (states.length === 1 ? states[0].code : "");
   const districts = chosenState ? (byParent.get(chosenState) ?? []) : [];
+  const ownedZones = dealer?.franchiseZones ?? [];
   const toggle = (code: string, on: boolean) => setTerritories((t) => (on ? [...t, code] : t.filter((c) => c !== code)));
 
   return (
@@ -201,6 +234,13 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
           </Field>
         </div>
 
+        {ownedZones.length ? (
+          <div className="rounded-xl border border-cream-200 p-3" data-testid="dealer-franchise-area">
+            <p className="text-sm font-semibold text-ink-900">Where you will work: your franchise {ownedZones.length === 1 ? "zone" : "zones"}</p>
+            <p className="text-sm text-ink-700">{ownedZones.map((z) => `${z.name} (${z.id})`).join(", ")}</p>
+            <p className="text-xs text-ink-500">You booked {ownedZones.length === 1 ? "this zone" : "these zones"}, so there is no other area to choose.</p>
+          </div>
+        ) : (
         <fieldset>
           <legend className="text-sm font-semibold text-ink-900">Where you will work</legend>
           <p className="text-xs text-ink-500">Several dealers may work in the same area; no area is exclusive.</p>
@@ -250,6 +290,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
             ))}
           </div>
         </fieldset>
+        )}
 
         <h3 className="pt-2 text-sm font-semibold text-ink-900">Bank account for your commission</h3>
         {dealer?.bank.accountMasked ? (
@@ -312,20 +353,54 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
       {dealer ? (
         <Card className="space-y-3 p-4">
           <h2 className="text-base font-bold text-ink-900">3. Documents</h2>
-          <p className="text-xs text-ink-500">PDF, JPEG, PNG or WebP, up to 5 MB each. Stored encrypted; only GoKesari&apos;s authorised staff can open them.</p>
+          <p className="text-xs text-ink-500">
+            Verify online where offered (no upload needed once verified), or upload: PDF, JPEG, PNG or WebP, up to 5 MB each. Stored encrypted; only GoKesari&apos;s
+            authorised staff can open them.
+          </p>
           <ul className="divide-y divide-cream-200">
             {reqs.map((r) => {
               const latest = dealer.documents.find((d) => d.docType === r.docType);
+              const open = ["DRAFT", "REJECTED", "PENDING"].includes(dealer.status);
+              const online = ONLINE[r.docType];
+              const verifiedOnline = r.status === "VERIFIED_ONLINE";
+              const check = online && online.target !== "BANK" ? dealer.onlineChecks?.find((c) => c.docType === online.target && c.current) : undefined;
+              const canCheck =
+                online &&
+                !verifiedOnline &&
+                (online.target === "PAN" ? !!dealer.panMasked : online.target === "GSTIN" ? !!dealer.gstin : bankCheckAvailable && !!dealer.bank.accountMasked);
               return (
-                <li key={r.docType} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <li key={r.docType} className="flex flex-wrap items-center justify-between gap-2 py-2" data-testid={`dealer-doc-${r.docType}`}>
                   <span className="text-sm">
                     <span className="font-semibold text-ink-900">{r.label}</span> {r.required ? <Badge tone="warning">Required</Badge> : <Badge>Optional</Badge>}{" "}
-                    {latest ? (
+                    {verifiedOnline ? (
+                      <Badge tone="success">verified online</Badge>
+                    ) : latest ? (
                       <Badge tone={latest.status === "ACCEPTED" ? "success" : latest.status === "REJECTED" ? "danger" : "info"}>{latest.status.toLowerCase()}</Badge>
                     ) : null}
-                    {latest?.reviewNote ? <span className="block text-xs text-red-700">{latest.reviewNote}</span> : null}
+                    {latest?.reviewNote && !verifiedOnline ? <span className="block text-xs text-red-700">{latest.reviewNote}</span> : null}
+                    {verifiedOnline && r.docType === "ADDRESS_PROOF" ? <span className="block text-xs text-ink-500">Your GSTIN verified online carries your registered address.</span> : null}
+                    {!verifiedOnline && r.docType === "ADDRESS_PROOF" && open ? (
+                      <span className="block text-xs text-ink-500">Have a GSTIN? Verify it online above and no address proof upload is needed.</span>
+                    ) : null}
+                    {check && check.status !== "VERIFIED" ? (
+                      <span className="block text-xs text-red-700">
+                        Online check: {check.status === "NAME_MISMATCH" ? `the name on the record (${check.matchedName ?? "—"}) does not match` : check.status === "FAILED" ? "not verified" : "could not be done"}
+                      </span>
+                    ) : null}
+                    {canCheck && open ? <span className="block text-xs text-ink-500">{online.how}</span> : null}
+                    {online && !canCheck && !verifiedOnline && open ? (
+                      <span className="block text-xs text-ink-500">
+                        {online.target === "BANK" && !bankCheckAvailable ? "The online bank check is not available yet; upload the proof." : `Save your ${online.target === "BANK" ? "bank account" : online.target} in step 1 to verify it online.`}
+                      </span>
+                    ) : null}
                   </span>
-                  {["DRAFT", "REJECTED", "PENDING"].includes(dealer.status) ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                  {open && canCheck ? (
+                    <Button variant="secondary" disabled={busy !== null} onClick={() => checkOnline(online.target)}>
+                      {busy === `check-${online.target}` ? "Checking…" : online.button}
+                    </Button>
+                  ) : null}
+                  {open && !verifiedOnline ? (
                     <label className="inline-flex min-h-11 cursor-pointer items-center rounded-lg border border-cream-200 px-3 text-sm font-medium text-ink-700 hover:bg-cream-100">
                       {busy === `doc-${r.docType}` ? "Uploading…" : latest ? "Replace" : "Upload"}
                       <input
@@ -337,6 +412,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
                       />
                     </label>
                   ) : null}
+                  </div>
                 </li>
               );
             })}

@@ -10,6 +10,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
 import { franchiseZones } from "@/server/db/schema";
 import { smsAvailable } from "@/server/dealers/http";
+import { bankCheckAvailable } from "@/server/dealers/online-verify";
 import { dealerView, documentRequirements, getDealerForUser } from "@/server/dealers/service";
 import { getFeatureFlag } from "@/server/services/feature-flags";
 import { openAreasFor } from "@/server/services/geo-areas";
@@ -43,7 +44,7 @@ export default async function DealerApplyPage({ searchParams }: { searchParams: 
     <div className="mx-auto max-w-3xl px-4 py-6">
       <PageHeader
         title="Become a GoKesari dealer"
-        description="Authorised dealers bring shops onto GoKesari with their own team and earn a commission for every shop that goes live. Fill in your details, verify your mobile, upload your documents and submit; our team reviews every application."
+        description="Authorised dealers bring shops onto GoKesari with their own team and earn a commission for every shop that goes live. Fill in your details, verify your mobile, verify your documents online or upload them, and submit; our team reviews every application."
       />
       <DealerApplication
         dealer={view as ApplicationDealer | null}
@@ -51,7 +52,8 @@ export default async function DealerApplyPage({ searchParams }: { searchParams: 
         areas={areas}
         agreementVersion={DEALER_AGREEMENT_VERSION}
         smsAvailable={smsAvailable()}
-        workZone={zone ?? null}
+        workZone={view?.franchiseZones.length ? null : (zone ?? null)}
+        bankCheckAvailable={bankCheckAvailable()}
       />
       {view?.status === "TERMINATED" ? (
         <p className="mt-4 text-sm text-ink-700">

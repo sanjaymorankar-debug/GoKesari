@@ -1156,6 +1156,20 @@
       "when": 1793266200000,
       "tag": "0164_franchise_free_or_paid",
       "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1793266300000,
+      "tag": "0165_doctor_document_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1793266400000,
+      "tag": "0166_dealer_online_verification",
+      "breakpoints": true
     }
   ]
 }

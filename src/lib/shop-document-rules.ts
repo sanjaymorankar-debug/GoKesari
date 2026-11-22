@@ -82,14 +82,18 @@ export function customDocKeyFromLabel(label: string): string {
 
 /**
  * Who a rule applies to: every shop, every shop that sells food (a food shop type or a food aisle —
- * the test FSSAI has always used), or one shop type. A shop-type rule wins over the food rule, which
- * wins over the all-shops rule.
+ * the test FSSAI has always used), every doctor (a shop in a Health doctor category — owner,
+ * 22-Nov-2026, H-52; src/lib/health/specialties.ts isDoctorGroup), or one shop type. The most specific
+ * wins: a shop-type rule, then the doctor rule, then the food rule, then the all-shops rule.
  */
-export type RuleScope = "ALL" | "FOOD" | `TYPE:${string}`;
+export type RuleScope = "ALL" | "FOOD" | "DOCTOR" | `TYPE:${string}`;
 
 export function isRuleScope(value: string): value is RuleScope {
-  return value === "ALL" || value === "FOOD" || /^TYPE:[A-Z0-9_]{2,60}$/.test(value);
+  return value === "ALL" || value === "FOOD" || value === "DOCTOR" || /^TYPE:[A-Z0-9_]{2,60}$/.test(value);
 }
+
+/** The admin screen's name for the doctor scope. */
+export const DOCTOR_SCOPE_LABEL = "Doctors (shops in a Health doctor category)";
 
 export function scopeShopType(scope: string): string | null {
   return scope.startsWith("TYPE:") ? scope.slice(5) : null;
@@ -98,6 +102,7 @@ export function scopeShopType(scope: string): string | null {
 export function scopeLabel(scope: string, shopTypeLabels: Record<string, string> = {}): string {
   if (scope === "ALL") return "All shops";
   if (scope === "FOOD") return "Shops that sell food";
+  if (scope === "DOCTOR") return DOCTOR_SCOPE_LABEL;
   const type = scopeShopType(scope);
   return type ? (shopTypeLabels[type] ?? type) : scope;
 }
@@ -108,11 +113,15 @@ export interface RuleLike {
   level: DocumentLevel;
 }
 
-/** The rule that decides `docKey` for a shop: its shop type's, else the food rule (food shops), else the all-shops rule. */
-export function pickRule<T extends RuleLike>(rules: readonly T[], docKey: string, shopType: string, sellsFood: boolean): T | null {
+/**
+ * The rule that decides `docKey` for a shop: its shop type's, else the doctor rule (doctors), else the
+ * food rule (food shops), else the all-shops rule.
+ */
+export function pickRule<T extends RuleLike>(rules: readonly T[], docKey: string, shopType: string, sellsFood: boolean, isDoctor = false): T | null {
   const forDoc = rules.filter((r) => r.docKey === docKey);
   return (
     forDoc.find((r) => r.scope === `TYPE:${shopType}`) ??
+    (isDoctor ? forDoc.find((r) => r.scope === "DOCTOR") : undefined) ??
     (sellsFood ? forDoc.find((r) => r.scope === "FOOD") : undefined) ??
     forDoc.find((r) => r.scope === "ALL") ??
     null

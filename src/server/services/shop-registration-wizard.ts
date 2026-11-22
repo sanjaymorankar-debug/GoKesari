@@ -489,6 +489,7 @@ async function documentNoticesByShopType(): Promise<WizardView["documentNotices"
   const [set, types] = await Promise.all([loadDocumentRuleSet(), listShopTypes()]);
   const out: WizardView["documentNotices"] = {};
   for (const type of types) {
+    // Not the "Doctors" rule (H-52): shop categories are picked after payment, so it is chased from then.
     const notices = requirementsFromRuleSet(set, type.key, type.isFood)
       .filter((r) => (r.kind !== "seller" || r.key === "FSSAI") && r.level !== "OPTIONAL")
       .map((r) => ({ label: r.label, level: r.level as "MUST_HAVE" | "PROMISE" }));

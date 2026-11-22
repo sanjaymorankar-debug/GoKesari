@@ -54,7 +54,7 @@ import {
 } from "@/server/db/schema";
 import { reverseShopCommission, setCommissionSettings } from "@/server/dealers/commission";
 import { addMoveDocument, cancelMoveRequest, createMoveRequest, decideMoveRequest, missingDocuments } from "@/server/dealers/referral-moves";
-import { addSalesperson, saveApplication, setSalespersonStatus, transferMemberToDealer } from "@/server/dealers/service";
+import { addSalesperson, dealerView, saveApplication, setSalespersonStatus, transferMemberToDealer } from "@/server/dealers/service";
 import { leadAddsAgent, setDealerCommissionModel } from "@/server/dealers/tiered";
 import { acceptFranchiseAgreement, cancelReservation, goLiveAfterKyc, onFranchiseFeeCaptured, ownerStatusForUser, previewCart, startFranchiseBuyer, sweepFranchiseKyc, onFranchiseFeeEnded, refundBooking, releaseExpiredHolds, reserveZones, setAllocationStatus, startRenewal } from "@/server/franchise/booking";
 import { assertFranchiseCodeOpen } from "@/server/franchise/codes";
@@ -919,6 +919,30 @@ describe("free dealership or paid franchise (owner 22-Nov-2026): pay first, KYC 
     expect(live.kycClearedAt).not.toBeNull();
     expect(await db.select().from(franchiseCodes).where(eq(franchiseCodes.allocationId, a.id))).toHaveLength(1);
     expect(await goLiveAfterKyc(d.id)).toEqual([]); // idempotent
+  });
+
+  it("after paying, his dealer application asks for no other area: his zone is his working area", async () => {
+    const n = await newcomer();
+    const d = await startFranchiseBuyer(n.actor, { name: "Zone Buyer", mobile: "9876511111", pan: pan() });
+    const form = {
+      legalName: "Zone Buyer",
+      contactName: "Zone Buyer",
+      dealerType: "INDIVIDUAL" as const,
+      addressLine1: "1 Main Road",
+      city: "Pune",
+      pincode: "411004",
+      territories: [] as string[],
+    };
+    // Before buying a zone, a free dealer must still choose an area.
+    await expect(saveApplication(form, n.actor)).rejects.toThrow(/at least one district or area/);
+    await acceptFranchiseAgreement(n.actor, FRANCHISE_AGREEMENT_VERSION, { ipAddress: "127.0.0.1", userAgent: "vitest" });
+    const r = await reserveZones(n.actor, { zoneIds: [Z7] });
+    await capture(r.booking.id);
+    const saved = await saveApplication(form, n.actor);
+    expect(saved.id).toBe(d.id);
+    const view = await dealerView(saved);
+    expect(view.territories).toEqual([]);
+    expect(view.franchiseZones).toEqual([{ id: Z7, name: "Pune – Karve Nagar–Erandwane" }]);
   });
 
   it("an approved dealer with KYC done goes live at payment as before", async () => {

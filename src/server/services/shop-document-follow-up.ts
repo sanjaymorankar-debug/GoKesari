@@ -47,7 +47,7 @@ import { notify } from "./notifications";
 import { isMandatory } from "./seller-verification-checks";
 import { getRule } from "./settings";
 import { documentsDueLabel } from "./shop-document-gate";
-import { loadDocumentRuleSet, requirementsFromRuleSet } from "./shop-document-rules";
+import { loadDocumentRuleSet, requirementsFromRuleSet, shopIsDoctorSql } from "./shop-document-rules";
 import { suspendShopWithPolicy } from "./shop-suspension";
 
 /** The owner sent it and it waits for GoKesari's check: not chased. */
@@ -116,6 +116,7 @@ export async function shopsMissingDocuments(
         shopType: shops.shopType,
       },
       sellsFood: sql<boolean>`shop_sells_food(${shops.id}, ${shops.shopType}::text)`,
+      isDoctor: shopIsDoctorSql(),
     })
     .from(shops)
     .where(and(inArray(shops.status, statuses), isNull(shops.deletedAt)))
@@ -158,7 +159,7 @@ export async function shopsMissingDocuments(
           !identityVerified,
       );
       // DF-09: everything else from the admin's rules (optional documents are never chased).
-      const needed = requirementsFromRuleSet(ruleSet, row.shop.shopType, row.sellsFood).filter((r) => r.level !== "OPTIONAL");
+      const needed = requirementsFromRuleSet(ruleSet, row.shop.shopType, row.sellsFood, row.isDoctor).filter((r) => r.level !== "OPTIONAL");
       const sellerNeeded = needed.filter((r) => r.kind === "seller" && status.get(r.key as SellerDocType) !== "VERIFIED");
       const shopLicences = licences.filter((l) => l.shopId === row.shop.id);
       const licenceNeeded = needed.filter(

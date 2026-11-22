@@ -2,6 +2,12 @@
 
 Times IST.
 
+## 22-Nov-2026 (afternoon) — Doctors scope in the document rules (owner)
+
+- Admin → Shops → Document rules has a **Doctors** scope (a shop in any Health doctor category). Migration
+  0165 sets the medical registration for it on the owner's promise, so doctors are asked for it with rule
+  `legalDocuments` off too; shops already live get 90 days (H-52). Rollback: `scripts/rollback-0165.sql`.
+
 ## 22-Nov-2026 — Medical registration for every doctor category (owner)
 
 - Rule `legalDocuments`: a shop in any shop category of a Health doctor group (General & family, Specialists,
