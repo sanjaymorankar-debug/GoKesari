@@ -51,8 +51,11 @@ import {
   type Dealer,
   type DealerSalesperson,
   type UserRole,
+  dealerVerifications,
+  franchiseAllocations,
   franchiseZones,
 } from "@/server/db/schema";
+import { OCCUPYING_STATUSES } from "@/lib/franchise";
 import { verifyRegistrationOtp, sendRegistrationOtp } from "@/server/registration/otp";
 import { bankCheckConfig, bankCheckDecision, callCashfreeBav } from "@/server/services/bank-account-check";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
@@ -140,6 +143,53 @@ export async function setDocumentRequirement(dealerType: DealerType, docType: De
   });
 }
 
+/**
+ * The franchise zones a dealer bought (or is paying for): a slot-holding allocation, KYC pending or not. A paid
+ * franchise buyer's working area is his zone, so the application asks him for no other area (22-Nov-2026).
+ */
+export async function franchiseZonesOfDealer(dealerId: string, client: DbClient = db): Promise<{ id: string; name: string }[]> {
+  const rows = await client
+    .selectDistinct({ id: franchiseZones.zoneId, name: franchiseZones.name })
+    .from(franchiseAllocations)
+    .innerJoin(franchiseZones, eq(franchiseZones.zoneId, franchiseAllocations.zoneId))
+    .where(and(eq(franchiseAllocations.ownerDealerId, dealerId), inArray(franchiseAllocations.status, [...OCCUPYING_STATUSES]), eq(franchiseAllocations.isTest, false)));
+  return rows.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** How each document type can be satisfied without an upload, and the latest online check of the dealer's own numbers. */
+export type OnlineCheckView = {
+  docType: "PAN" | "GSTIN";
+  status: "VERIFIED" | "NAME_MISMATCH" | "FAILED" | "PENDING";
+  matchedName: string | null;
+  checkedAt: Date;
+  /** True when the check was for the number saved now (a changed number needs a new check). */
+  current: boolean;
+};
+
+async function onlineChecks(dealer: Dealer, client: DbClient): Promise<OnlineCheckView[]> {
+  const rows = await client.select().from(dealerVerifications).where(eq(dealerVerifications.dealerId, dealer.id));
+  return rows.map((r) => ({
+    docType: r.docType,
+    status: r.status,
+    matchedName: r.matchedName,
+    checkedAt: r.checkedAt,
+    current: r.numberKey === (r.docType === "PAN" ? dealer.panHash : dealer.gstin),
+  }));
+}
+
+/**
+ * A document satisfied online (22-Nov-2026): PAN or GSTIN verified at the source for the saved number; the bank
+ * proof by the bank check; the address proof by a verified GSTIN (the GST record carries the registered address).
+ */
+function satisfiedOnline(docType: DealerDocType, dealer: Dealer, checks: OnlineCheckView[]): boolean {
+  const ok = (t: "PAN" | "GSTIN") => checks.some((c) => c.docType === t && c.current && c.status === "VERIFIED");
+  if (docType === "PAN") return ok("PAN");
+  if (docType === "GSTIN") return ok("GSTIN");
+  if (docType === "ADDRESS_PROOF") return ok("GSTIN");
+  if (docType === "BANK_PROOF") return dealer.bankStatus === "VERIFIED";
+  return false;
+}
+
 export async function territoryCodes(dealerId: string, client: DbClient = db): Promise<string[]> {
   const rows = await client.select({ code: dealerTerritories.areaCode }).from(dealerTerritories).where(eq(dealerTerritories.dealerId, dealerId));
   return rows.map((r) => r.code).sort();
@@ -193,7 +243,11 @@ export interface DealerView {
   territoryNames: string[];
   /** Free dealer's working zone (franchise zone code), or null. */
   preferredZoneId: string | null;
-  requirements: { docType: DealerDocType; label: string; required: boolean; status: "MISSING" | "SUBMITTED" | "ACCEPTED" | "REJECTED" }[];
+  /** VERIFIED_ONLINE: checked at the source (or by the bank), no upload needed — counts as accepted. */
+  requirements: { docType: DealerDocType; label: string; required: boolean; status: "MISSING" | "SUBMITTED" | "ACCEPTED" | "REJECTED" | "VERIFIED_ONLINE" }[];
+  onlineChecks: OnlineCheckView[];
+  /** Zones he owns as a paid franchise (his working area; no other area is asked). */
+  franchiseZones: { id: string; name: string }[];
   documents: DealerDocumentView[];
   codes: { id: string; code: string; kind: string; status: string; salespersonId: string | null; createdAt: Date }[];
   isInternal: boolean;
@@ -207,7 +261,7 @@ const maskAccount = (last4: string | null) => (last4 ? `••••${last4}` : 
 
 /** The dealer as the dealer and staff see it: personal numbers masked. */
 export async function dealerView(dealer: Dealer, client: DbClient = db): Promise<DealerView> {
-  const [requirements, docs, codes, territories] = await Promise.all([
+  const [requirements, docs, codes, territories, checks, ownedZones] = await Promise.all([
     documentRequirements(dealer.dealerType, client),
     client
       .select({
@@ -225,6 +279,8 @@ export async function dealerView(dealer: Dealer, client: DbClient = db): Promise
       .orderBy(desc(dealerDocuments.uploadedAt)),
     listDealerCodes(dealer.id, client),
     territoryCodes(dealer.id, client),
+    onlineChecks(dealer, client),
+    franchiseZonesOfDealer(dealer.id, client),
   ]);
   const names = territories.length
     ? new Map((await client.select({ code: geoAreas.code, name: geoAreas.name }).from(geoAreas).where(inArray(geoAreas.code, territories))).map((a) => [a.code, a.name]))
@@ -269,8 +325,10 @@ export async function dealerView(dealer: Dealer, client: DbClient = db): Promise
       docType: r.docType,
       label: DEALER_DOC_LABELS[r.docType],
       required: r.required,
-      status: latest.get(r.docType)?.status ?? "MISSING",
+      status: satisfiedOnline(r.docType, dealer, checks) && latest.get(r.docType)?.status !== "ACCEPTED" ? ("VERIFIED_ONLINE" as const) : (latest.get(r.docType)?.status ?? "MISSING"),
     })),
+    onlineChecks: checks,
+    franchiseZones: ownedZones,
     documents: docs.map((d) => ({ ...d, label: DEALER_DOC_LABELS[d.docType] })),
     codes: codes.map((c) => ({ id: c.id, code: c.code, kind: c.kind, status: c.status, salespersonId: c.salespersonId, createdAt: c.createdAt })),
     isInternal: dealer.isInternal,
@@ -311,8 +369,10 @@ function clean(value: string | null | undefined, max = 200): string | null {
   return v ? v.slice(0, max) : null;
 }
 
-async function validateTerritories(codes: string[]): Promise<string[]> {
+async function validateTerritories(codes: string[], franchiseOwner = false): Promise<string[]> {
   const wanted = [...new Set(codes.map((c) => c.trim().toUpperCase()).filter(Boolean))].sort();
+  // A paid franchise owner works in his zone(s); other areas are optional for him.
+  if (wanted.length === 0 && franchiseOwner) return [];
   if (wanted.length === 0) throw validationFailed("Choose at least one district or area you will work in.", { fields: { territories: "Choose at least one area." } });
   if (wanted.length > 50) throw validationFailed("Choose at most 50 areas.", { fields: { territories: "At most 50." } });
   const rows = await db.select({ code: geoAreas.code, level: geoAreas.level, status: geoAreas.status }).from(geoAreas).where(inArray(geoAreas.code, wanted));
@@ -364,7 +424,8 @@ export async function saveApplication(input: DealerApplicationInput, actor: Deal
     if (!IFSC.test(ifsc)) throw validationFailed("That is not a valid IFSC (e.g. HDFC0001234).", { fields: { bankIfsc: "Invalid IFSC." } });
     bank = { holderName, account, ifsc };
   }
-  const territories = await validateTerritories(input.territories);
+  const franchiseOwner = saved ? (await franchiseZonesOfDealer(saved.id)).length > 0 : false;
+  const territories = await validateTerritories(input.territories, franchiseOwner);
   const mobileE164 = mobileRaw ? `+91${mobileRaw}` : saved?.mobileE164;
   if (!mobileE164) throw validationFailed("Enter a 10-digit Indian mobile number.", { fields: { mobile: "10 digits." } });
   const panHash = pan ? panBlindIndex(pan) : null;
@@ -558,7 +619,7 @@ export async function submitApplication(actor: DealerActor, acceptAgreementVersi
   if (!dealer.mobileVerifiedAt && options.smsAvailable) throw validationFailed("Verify your mobile number with the code we send you.", { fields: { mobile: "Not verified." } });
   const view = await dealerView(dealer);
   const missing = view.requirements.filter((r) => r.required && (r.status === "MISSING" || r.status === "REJECTED"));
-  if (missing.length) throw validationFailed(`Upload: ${missing.map((m) => m.label).join(", ")}.`, { fields: { documents: "Required documents missing." }, missing: missing.map((m) => m.docType) });
+  if (missing.length) throw validationFailed(`Upload or check online: ${missing.map((m) => m.label).join(", ")}.`, { fields: { documents: "Required documents missing." }, missing: missing.map((m) => m.docType) });
   if (!dealer.panEnc && view.requirements.some((r) => r.docType === "PAN" && r.required)) throw validationFailed("Enter your PAN.", { fields: { pan: "Required." } });
   if (dealer.dealerType === "COMPANY" && !dealer.gstin && view.requirements.some((r) => r.docType === "GSTIN" && r.required)) {
     throw validationFailed("Enter your GSTIN.", { fields: { gstin: "Required." } });
@@ -566,7 +627,8 @@ export async function submitApplication(actor: DealerActor, acceptAgreementVersi
   if (dealer.bankStatus === "NOT_PROVIDED") throw validationFailed("Add the bank account your commission is paid to.", { fields: { bank: "Required." } });
   const flag = await getFeatureFlag("dealer_programme_enabled");
   const districts = await territoryDistricts(dealer.id);
-  if (!districts.some((d) => flagCoversDistrict(flag, d.code))) {
+  // A paid franchise owner's area is his zone; the district check is for free dealers' chosen areas.
+  if (view.franchiseZones.length === 0 && !districts.some((d) => flagCoversDistrict(flag, d.code))) {
     throw validationFailed("GoKesari is not appointing dealers in your areas yet. Choose an area in a district where the programme is open.", {
       fields: { territories: "Not open in these districts yet." },
     });
@@ -800,7 +862,7 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
         throw validationFailed("The mobile number is not verified. Confirm it by calling the dealer, then tick the box.", { fields: { mobile: "Not verified." } });
       }
       const view = await dealerView(dealer, tx);
-      const notAccepted = view.requirements.filter((r) => r.required && r.status !== "ACCEPTED");
+      const notAccepted = view.requirements.filter((r) => r.required && r.status !== "ACCEPTED" && r.status !== "VERIFIED_ONLINE");
       if (notAccepted.length) throw validationFailed(`Accept these documents first: ${notAccepted.map((r) => r.label).join(", ")}.`);
       if (dealer.bankStatus !== "VERIFIED") {
         const bankProof = view.requirements.find((r) => r.docType === "BANK_PROOF");

@@ -36,6 +36,8 @@ interface Dealer {
   territories: string[];
   territoryNames: string[];
   requirements: { docType: string; label: string; required: boolean; status: string }[];
+  onlineChecks?: { docType: string; status: string; matchedName: string | null; checkedAt: string; current: boolean }[];
+  franchiseZones?: { id: string; name: string }[];
   documents: Doc[];
   codes: { id: string; code: string; kind: string; status: string; salespersonId: string | null }[];
   isInternal: boolean;
@@ -236,10 +238,26 @@ export function DealerAdminDetail({
         <ul className="divide-y divide-cream-200 text-sm">
           {dealer.requirements.map((r) => (
             <li key={r.docType} className="py-1">
-              {r.label} {r.required ? <Badge tone="warning">required</Badge> : <Badge>optional</Badge>} <Badge tone={r.status === "ACCEPTED" ? "success" : r.status === "REJECTED" ? "danger" : r.status === "MISSING" ? "neutral" : "info"}>{r.status.toLowerCase()}</Badge>
+              {r.label} {r.required ? <Badge tone="warning">required</Badge> : <Badge>optional</Badge>} <Badge tone={r.status === "ACCEPTED" || r.status === "VERIFIED_ONLINE" ? "success" : r.status === "REJECTED" ? "danger" : r.status === "MISSING" ? "neutral" : "info"}>
+                {r.status === "VERIFIED_ONLINE" ? "verified online" : r.status.toLowerCase()}
+              </Badge>
             </li>
           ))}
         </ul>
+        {dealer.onlineChecks?.length ? (
+          <ul className="text-xs text-ink-700" data-testid="dealer-online-checks">
+            {dealer.onlineChecks.map((c) => (
+              <li key={c.docType}>
+                {c.docType === "PAN" ? "PAN" : "GSTIN"} checked online: {c.status.toLowerCase().replace("_", " ")}
+                {c.matchedName ? ` · name on record: ${c.matchedName}` : ""}
+                {c.current ? "" : " · for an earlier number"} · {new Date(c.checkedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {dealer.franchiseZones?.length ? (
+          <p className="text-xs text-ink-700">Franchise zones (his working area): {dealer.franchiseZones.map((z) => `${z.name} (${z.id})`).join(", ")}</p>
+        ) : null}
         <ul className="space-y-2 text-sm" data-testid="dealer-documents">
           {dealer.documents.map((d) => (
             <li key={d.id} className="rounded-xl border border-cream-200 p-2">
