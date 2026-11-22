@@ -13,9 +13,9 @@ export const dynamic = "force-dynamic";
 
 /** docs/smart-shopping-2026-11 (Feature 1): photo of a written list → AI reads it → editable wishlist. */
 export default async function ScanListPage() {
-  if (!(await isFeatureEnabled("smart_list_scan_enabled"))) notFound();
   const user = await getCurrentUser();
   if (!user) redirect("/signin?next=/wishlist/scan");
+  if (!(await isFeatureEnabled("smart_list_scan_enabled"))) notFound();
   const [lang, rule, ai] = await Promise.all([getBoardLang(), getRule("smartShopping"), activeAiProvider()]);
   return (
     <>
