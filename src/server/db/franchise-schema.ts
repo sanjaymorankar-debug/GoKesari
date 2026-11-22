@@ -340,10 +340,28 @@ export const franchiseShopAttributions = pgTable("franchise_shop_attributions", 
   holdReason: text("hold_reason"),
   registeredAt: ts("registered_at").notNull().defaultNow(),
   activatedAt: ts("activated_at"),
+  /** Referral move (22-Nov-2026): attached to this franchise from this moment (null: from the start). Earlier
+   * attachments are in franchise_shop_team_periods. */
+  attachedFrom: ts("attached_from"),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 });
 export type FranchiseShopAttribution = typeof franchiseShopAttributions.$inferSelect;
+
+/** Referral move (owner, 22-Nov-2026): a shop's earlier attachment to another franchise's team, [validFrom, validTo).
+ * Recurring commission for orders delivered in that window stays with that franchise ("old stays, new from move"). */
+export const franchiseShopTeamPeriods = pgTable("franchise_shop_team_periods", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  shopId: uuid("shop_id").notNull(),
+  zoneId: text("zone_id").notNull(),
+  allocationId: uuid("allocation_id").notNull(),
+  ownerDealerId: uuid("owner_dealer_id").notNull(),
+  validFrom: ts("valid_from"),
+  validTo: ts("valid_to").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+export type FranchiseShopTeamPeriod = typeof franchiseShopTeamPeriods.$inferSelect;
 
 export const franchiseShopAttributionHistory = pgTable("franchise_shop_attribution_history", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -439,7 +439,7 @@ describe("shop types with their own setup (Shop categories page)", () => {
     const categories = ADMIN_MENUS.find((m) => m.key === "categories");
     expect(categories?.items.map((i) => i.key)).toEqual(["shop", "product"]);
     expect(categories?.more ?? []).toEqual([]);
-    expect(SHOP_TYPE_MODULES.map((m) => m.href)).toEqual(["/admin/puja", "/admin/consult", "/admin/health"]);
+    expect(SHOP_TYPE_MODULES.map((m) => m.href)).toEqual(["/admin/puja", "/admin/consult", "/admin/health?tab=specialties"]);
     const onBoards = Object.values(MENUS).flatMap((menus) => menus.flatMap((m) => [...m.items, ...(m.more ?? [])])).map((i) => i.href);
     for (const href of ["/admin/puja", "/admin/consult", "/admin/health"]) expect(onBoards, href).not.toContain(href);
     const catalogue = OPERATOR_MENUS.find((m) => m.key === "catalogue");

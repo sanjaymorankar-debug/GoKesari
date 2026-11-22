@@ -44,7 +44,7 @@ export const LEGAL_DOC_LABELS: Record<LegalDocKey, string> = {
 export const LEGAL_DOC_WHO: Record<LegalDocKey, string> = {
   FSSAI: "Shops that sell food",
   DRUG_LICENCE: "Medical shops and pharmacies",
-  MEDICAL_REGISTRATION: "Doctors and clinics",
+  MEDICAL_REGISTRATION: "Doctors and clinics (every Health doctor category)",
   TRADE_LICENCE: "Shops your municipal corporation or council licenses",
   LEGAL_METROLOGY: "Shops that weigh or measure what they sell",
   FIRE_NOC: "Restaurants, large stores and shops that store fuel or gas",

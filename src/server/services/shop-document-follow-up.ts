@@ -131,10 +131,15 @@ export async function shopsMissingDocuments(
     const wizardShops = new Set(drafts.map((d) => d.shopId));
     for (const row of chunk) {
       const status = new Map(documents.filter((d) => d.shopId === row.shop.id).map((d) => [d.docType, d.status as string]));
-      const notVerified = SELLER_DOC_TYPES.filter(
-        (d) => isMandatory(d, { isFoodBusiness: row.sellsFood }) && status.get(d) !== "VERIFIED",
-      );
       const wizardRegistered = wizardShops.has(row.shop.id);
+      // DF-08 (owner, 21-Nov-2026): "PAN / GST" — a wizard shop with either one verified is not chased for the other.
+      const identityVerified = wizardRegistered && (status.get("GSTIN") === "VERIFIED" || status.get("PAN") === "VERIFIED");
+      const notVerified = SELLER_DOC_TYPES.filter(
+        (d) =>
+          isMandatory(d, { isFoodBusiness: row.sellsFood }) &&
+          status.get(d) !== "VERIFIED" &&
+          !(identityVerified && (d === "GSTIN" || d === "PAN")),
+      );
       const licence = wizardRegistered ? mandatoryLicenceFor(row.shop.shopType) : null;
       // FSSAI is a seller document, counted above.
       const licenceMissing =
@@ -290,6 +295,8 @@ async function followUpShop(
     if (grace === null && shop.documentsDueAt && shop.documentsDueAt.getTime() > now.getTime()) return "WAITING";
     const reason = fssaiDeadline
       ? `FSSAI licence not uploaded by ${formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, grace!))}, the date set when the shop was approved without it. Missing: ${labels}.`
+      : grace && c.wizardRegistered && shop.documentsPromisedAt
+      ? `Shop documents promised at registration not uploaded by ${formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, grace))}: ${labels}.`
       : grace
       ? `Shop documents not submitted within ${rule.graceDays} days of approval without them: ${labels}.`
       : `Shop documents not submitted after ${max} reminders: ${labels}.`;
@@ -335,7 +342,9 @@ async function followUpShop(
       maxReminders: grace ? "" : ` of ${max}`,
       documents: labels,
       deadline: grace
-        ? `Your shop went live before its documents; they are due by ${graceLabel}.`
+        ? c.wizardRegistered && shop.documentsPromisedAt && !fssaiDeadline
+          ? `You promised to upload them when you registered your shop; they are due by ${graceLabel}.`
+          : `Your shop went live before its documents; they are due by ${graceLabel}.`
         : shop.documentsDueAt
           ? `You promised to provide them by ${documentsDueLabel(shop.documentsDueAt)}.`
           : "",

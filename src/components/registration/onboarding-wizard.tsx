@@ -12,7 +12,7 @@ import { ShopCategoryPicker, type PickerCategory } from "@/components/shop-categ
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
 import { useShopTypes } from "@/components/use-shop-types";
 import { tr, type Lang } from "@/lib/board/i18n";
-import { licenceGraceMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
+import { licenceNoticeMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
 import { PUJA_SHOP_TYPE_KEY } from "@/lib/puja";
 import { GST_DECLARATION_TEXT, SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
 import { SELLER_DOC_LABELS, type SellerDocType } from "@/lib/kyc/doc-formats";
@@ -139,7 +139,18 @@ export interface WizardState {
   membershipMonths: number;
   setup: { location: boolean; categories: boolean; products: boolean } | null;
   licenceGraceDays: number;
+  /** DF-08: the documents screen (FSSAI must-have, the rest on the owner's promise). */
+  documentsStep: DocumentsStepState | null;
   nextStep: Step;
+}
+
+interface DocumentsStepState {
+  fssaiNeeded: boolean;
+  promiseCovers: string[];
+  promisedBy: string | null;
+  promiseDays: number;
+  promiseDueLabel: string;
+  canContinue: boolean;
 }
 
 /**
@@ -293,14 +304,30 @@ interface ChecklistJson {
 }
 
 /**
- * Owner, 21-Nov-2026: after "Create my shop", an optional screen to upload FSSAI (food shops), the Shop
- * Act, Udyam and any licence — the same cards as My Shop → Upload documents. Nothing here is required:
- * a missing licence never stops the shop going live (DI-14); it is chased after go-live.
+ * Owner, 21-Nov-2026: after "Create my shop", the screen to upload FSSAI (food shops), the Shop Act,
+ * Udyam and any licence — the same cards as My Shop → Upload documents. DF-08 (owner, the same night):
+ * "PAN / GST and, if applicable, FSSAI are must-have; for the rest, the shop can go live with the
+ * owner's promise to upload them later". So a food shop uploads FSSAI here before paying, and any other
+ * mandatory document not uploaded is promised with the tick below (reminded on the 1st / 15th by e-mail,
+ * the shop suspended if they are still missing on the promised date).
  */
-function DocumentsStep({ shopId, busy, send }: { shopId: string; busy: boolean; send: (path: string) => Promise<boolean> }) {
+function DocumentsStep({
+  shopId,
+  step,
+  busy,
+  send,
+  refresh,
+}: {
+  shopId: string;
+  step: DocumentsStepState | null;
+  busy: boolean;
+  send: (path: string, body?: unknown) => Promise<boolean>;
+  refresh: () => Promise<void>;
+}) {
   const [checklist, setChecklist] = useState<ChecklistJson | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [version, setVersion] = useState(0);
+  const [promise, setPromise] = useState(false);
   useEffect(() => {
     let live = true;
     fetch(`/api/shops/${shopId}/documents`)
@@ -316,27 +343,70 @@ function DocumentsStep({ shopId, busy, send }: { shopId: string; busy: boolean; 
     };
   }, [shopId, version]);
   const items: PanelItem[] = (checklist?.items ?? []).map((item) => ({ ...item, latest: item.latest ? { ...item.latest } : null }));
+  const fssaiNeeded = step?.fssaiNeeded ?? false;
+  const covers = step?.promiseCovers ?? [];
+  const needsPromise = !fssaiNeeded && covers.length > 0 && !step?.promisedBy;
+  const canContinue = !fssaiNeeded && (step?.canContinue === true || (needsPromise && promise));
+  const list = covers.join(", ");
   return (
     <StepCard
-      title="Upload your documents (optional)"
-      intro="Add your FSSAI licence, Shop Act certificate, Udyam and any other licence now if you have them — a photo or PDF, read for you. You can also do it later from My Shop → Upload documents."
+      title="Upload your documents"
+      intro="Add your FSSAI licence, Shop Act certificate, Udyam and any other licence — a photo or PDF, read for you. A valid PAN or GST is already checked."
     >
-      {checklist?.fssaiRequired && !checklist.fssaiOnFile ? (
-        <Alert tone="warning" title="FSSAI licence">
-          Your shop sells food, so an FSSAI licence or registration is required by law. Your shop can still go live without it; please upload it
-          within the grace period, or the shop will be suspended.
+      {fssaiNeeded ? (
+        <Alert tone="warning" title="FSSAI licence required">
+          Your shop sells food, so an FSSAI licence or registration is required by law. Please upload it below to continue — your shop goes
+          live only once it is on file.
         </Alert>
       ) : null}
-      {loadFailed ? <Alert tone="info">Your documents could not be loaded just now. You can upload them later from My Shop → Upload documents.</Alert> : null}
-      {checklist && !checklist.enabled ? <Alert tone="info">Document upload is not available just now. You can add them later.</Alert> : null}
-      {checklist?.enabled ? <DocumentUploadPanel shopId={shopId} items={items} onChanged={() => setVersion((v) => v + 1)} /> : null}
+      {loadFailed ? <Alert tone="info">Your documents could not be loaded just now. Please reload the page and try again.</Alert> : null}
+      {checklist && !checklist.enabled ? <Alert tone="info">Document upload is not available just now. Please try again in a little while.</Alert> : null}
+      {checklist?.enabled ? (
+        <DocumentUploadPanel
+          shopId={shopId}
+          items={items}
+          onChanged={() => {
+            setVersion((v) => v + 1);
+            void refresh();
+          }}
+        />
+      ) : null}
       {!checklist && !loadFailed ? <p className="text-sm text-ink-500">Loading your documents…</p> : null}
+      {step?.promisedBy ? (
+        <p className="text-sm text-ink-700" data-testid="documents-promised">
+          You promised to upload your remaining documents by <strong>{step.promisedBy}</strong>. We will remind you by e-mail on the 1st and 15th
+          of each month; if they are still missing on that date, your shop will be suspended.
+        </p>
+      ) : null}
+      {needsPromise ? (
+        <div className="space-y-1 rounded-lg border border-[var(--gk-line)] bg-white p-3" data-testid="documents-promise">
+          <p className="text-sm text-ink-700">
+            Not uploaded yet: <strong>{list}</strong>. Your shop can go live without {covers.length > 1 ? "them" : "it"} if you promise to upload{" "}
+            {covers.length > 1 ? "them" : "it"} later.
+          </p>
+          <label className="flex items-start gap-3 text-sm text-ink-700">
+            <input
+              type="checkbox"
+              className="mt-1 h-5 w-5 shrink-0"
+              checked={promise}
+              onChange={(e) => setPromise(e.target.checked)}
+              data-testid="documents-promise-tick"
+            />
+            <span>
+              I will upload {list} within {step?.promiseDays ?? 90} days (by {step?.promiseDueLabel}). I understand GoKesari will remind me by e-mail
+              and my shop will be suspended if {covers.length > 1 ? "they are" : "it is"} not uploaded by then.
+            </span>
+          </label>
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2" data-testid="documents-step-actions">
-        <Button type="button" disabled={busy} onClick={() => void send("/api/shops/registration-draft/documents-step")} data-testid="documents-step-continue">
+        <Button
+          type="button"
+          disabled={busy || !canContinue}
+          onClick={() => void send("/api/shops/registration-draft/documents-step", needsPromise ? { promise } : {})}
+          data-testid="documents-step-continue"
+        >
           Continue to payment
-        </Button>
-        <Button type="button" variant="ghost" disabled={busy} onClick={() => void send("/api/shops/registration-draft/documents-step")} data-testid="documents-step-later">
-          Upload later
         </Button>
       </div>
     </StepCard>
@@ -455,6 +525,13 @@ export function OnboardingWizard({
     return true;
   }
 
+  /** Reads the wizard again without moving the page (an upload on the documents screen, DF-08). */
+  async function reloadState() {
+    const response = await fetch("/api/shops/registration-draft").catch(() => null);
+    const next = response?.ok ? ((await response.json().catch(() => null)) as WizardState | null) : null;
+    if (next) setState(next);
+  }
+
   /** Reads the wizard again after a change made outside its own routes (the starter shelf). */
   async function refresh() {
     const response = await fetch("/api/shops/registration-draft").catch(() => null);
@@ -500,7 +577,7 @@ export function OnboardingWizard({
         <ShopStep state={state} busy={busy} fields={fields} send={send} changeEmail={() => setViewing("EMAIL")} back={back("PIN")} lang={lang} />
       ) : null}
       {step === "REVIEW" && state ? <ReviewStep state={state} busy={busy} send={send} goTo={setViewing} /> : null}
-      {step === "DOCUMENTS" && state?.shop ? <DocumentsStep shopId={state.shop.id} busy={busy} send={send} /> : null}
+      {step === "DOCUMENTS" && state?.shop ? <DocumentsStep shopId={state.shop.id} step={state.documentsStep} busy={busy} send={send} refresh={reloadState} /> : null}
       {step === "PAYMENT" && state?.shop ? (
         <StepCard title="Pay the registration fee" intro="Pay by UPI or card. Your shop goes live as soon as the payment is confirmed.">
           <p className="text-sm text-ink-700">
@@ -1075,7 +1152,7 @@ function ShopStep({
         </div>
         {licence ? (
           <div data-testid="licence-grace-notice">
-            <Alert tone="warning">{tr(licenceGraceMessage(tr(licence.label, lang), state.licenceGraceDays), lang)}</Alert>
+            <Alert tone="warning">{tr(licenceNoticeMessage(licence, tr(licence.label, lang), state.licenceGraceDays), lang)}</Alert>
           </div>
         ) : null}
         {state.email.shop ? (

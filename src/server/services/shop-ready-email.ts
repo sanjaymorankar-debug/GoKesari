@@ -16,7 +16,6 @@ import { dealers, shopAttributions, shopLegalDocuments, type Shop } from "@/serv
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { notify } from "./notifications";
 import { getRule } from "./settings";
-import { fssaiStatus } from "./document-uploads";
 import { isDocumentsLaterShop, isWizardRegisteredShop } from "./shop-onboarding";
 import { loadShopTypeRegistry } from "./shop-types";
 
@@ -26,16 +25,20 @@ function siteUrl(path: string): string {
 }
 
 /**
- * DI-14 (owner, 08-Nov-2026): a shop type with a mandatory licence (FSSAI for food, drug licence,
- * medical or professional registration) goes live without it; the owner has
- * shopDocumentFollowUp.graceDays (90) to upload it. Once per shop (dedupe key).
+ * DI-14 (owner, 08-Nov-2026): a shop type with a mandatory licence (drug licence, medical or
+ * professional registration) goes live without it; the owner has shopDocumentFollowUp.graceDays (90)
+ * to upload it — since DF-08 (21-Nov-2026) on the owner's promise, whose date applies when later.
+ * Not FSSAI any more (DF-08): a food shop goes live only with its licence on file, or on an admin's
+ * waiver, which sends its own notice (shops.ts). Once per shop (dedupe key).
  */
 async function sendLicenceGraceNotice(shop: Shop): Promise<void> {
   await loadShopTypeRegistry();
   const licence = mandatoryLicenceFor(shop.shopType);
-  if (!licence) return;
+  if (!licence || licence.docType === "FSSAI") return;
   const { graceDays } = await getRule("shopDocumentFollowUp");
   const zone = getEnv().APP_TIMEZONE;
+  const graceEnd = addDays(todayIn(zone), graceDays);
+  const promised = shop.documentsDueAt ? todayIn(zone, shop.documentsDueAt) : null;
   await notify({
     userId: shop.ownerId,
     type: NOTIFICATION_TYPES.SHOP_LICENCE_GRACE_NOTICE,
@@ -43,10 +46,9 @@ async function sendLicenceGraceNotice(shop: Shop): Promise<void> {
       shopName: shop.name,
       graceDays,
       message: licenceGraceMessage(licence.label.en, graceDays).en,
-      dueDate: formatDisplayDate(addDays(todayIn(zone), graceDays)),
+      dueDate: formatDisplayDate(promised && promised > graceEnd ? promised : graceEnd),
     },
-    // The FSSAI licence file is uploaded on Upload documents (the verification page takes the number only).
-    actionUrl: licence.docType === "FSSAI" ? `/shop/documents?shop=${shop.id}` : "/shop/legal-documents",
+    actionUrl: "/shop/legal-documents",
     dedupeKey: `shop-licence-grace:${shop.id}`,
     mandatory: true,
   });
@@ -62,23 +64,22 @@ export async function sendLicenceGraceNoticeIfMissing(shop: Shop): Promise<void>
     if (!(await isWizardRegisteredShop(shop.id))) return;
     await loadShopTypeRegistry();
     const licence = mandatoryLicenceFor(shop.shopType);
-    if (!licence) return;
+    // FSSAI is on file before a food shop goes live (DF-08); an admin's waiver sends its own notice.
+    if (!licence || licence.docType === "FSSAI") return;
     const onFile =
-      licence.docType === "FSSAI"
-        ? (await fssaiStatus(shop)).onFile
-        : (
-            await db
-              .select({ id: shopLegalDocuments.id })
-              .from(shopLegalDocuments)
-              .where(
-                and(
-                  eq(shopLegalDocuments.shopId, shop.id),
-                  eq(shopLegalDocuments.docType, licence.docType),
-                  inArray(shopLegalDocuments.status, ["SUBMITTED", "APPROVED"]),
-                ),
-              )
-              .limit(1)
-          ).length > 0;
+      (
+        await db
+          .select({ id: shopLegalDocuments.id })
+          .from(shopLegalDocuments)
+          .where(
+            and(
+              eq(shopLegalDocuments.shopId, shop.id),
+              eq(shopLegalDocuments.docType, licence.docType),
+              inArray(shopLegalDocuments.status, ["SUBMITTED", "APPROVED"]),
+            ),
+          )
+          .limit(1)
+      ).length > 0;
     if (!onFile) await sendLicenceGraceNotice(shop);
   } catch (error) {
     console.error("[shop-ready] licence notice failed", shop.id, error instanceof Error ? error.message : error);
@@ -105,7 +106,8 @@ export async function sendReadyForProductUpload(shop: Shop): Promise<void> {
       actionUrl: "/shop/manage/products",
       dedupeKey: `shop-ready:${shop.id}`,
     });
-    await sendLicenceGraceNotice(shop);
+    // Only a wizard shop whose licence is still missing (a licence no longer stops other shops' approval).
+    await sendLicenceGraceNoticeIfMissing(shop);
     const [attributed] = await db
       .select({ userId: dealers.userId, isInternal: dealers.isInternal })
       .from(shopAttributions)

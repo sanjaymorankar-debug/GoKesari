@@ -8,21 +8,33 @@
  * "Verified" is a seller_verifications row with status VERIFIED. The mandatory list is
  * missingMandatoryDocuments' (PAN, GSTIN or the no-GST declaration, Shop Act, FSSAI for food).
  *
- * A shop registered through the onboarding wizard follows the later decision (29 Oct 2026, "follow
- * the brief", docs/shop-onboarding-wizard-2026-10/BRIEF_REDESIGN.md): it pays once its GSTIN or PAN
- * has been checked, and goes live on payment when that check VERIFIED it; the promise is not used there.
- * One registered with "upload documents later" (0120) pays without any, and goes live on payment.
+ * A shop registered through the onboarding wizard follows the owner's rule of 21-Nov-2026 (DF-08,
+ * docs/decision-log.md): "PAN / GST and, if applicable, FSSAI are must-have; for the rest, the shop
+ * can go live with the owner's promise to upload them later". It pays once its GSTIN or PAN has been
+ * checked, a food shop's FSSAI licence is on file (or with GoKesari's team), and every other mandatory
+ * document (Shop Act, a pharmacy's drug licence, a clinic's or professional's registration) is either
+ * on file or promised within shopDocumentFollowUp.promiseDays. It goes live on payment when the
+ * GSTIN / PAN and FSSAI checks VERIFIED them; the 1st / 15th follow-up chases what was promised and
+ * suspends the shop after the promised date.
+ * One registered with "upload documents later" (0120) pays without a GSTIN / PAN, and goes live on payment.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { formatDisplayDate, todayIn } from "@/lib/dates";
 import { conflict, forbidden, notFound } from "@/lib/errors";
-import { SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
+import { SELLER_DOC_LABELS, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
+import { mandatoryLicenceFor } from "@/lib/shop-licences";
 import { db, type DbClient } from "@/server/db";
-import { sellerVerifications, shops, type Shop, type UserRole } from "@/server/db/schema";
+import { sellerVerifications, shopLegalDocuments, shops, type Shop, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
 import { hasDocumentWaiver, isDocumentsLaterShop, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
+import { loadShopTypeRegistry } from "./shop-types";
+
+/** Sent by the owner and waiting for GoKesari's check: the owner's part is done. */
+const WITH_THE_TEAM = new Set(["PENDING", "MANUAL_REVIEW"]);
+/** A licence on the legal-documents page counts once it is submitted. */
+const LICENCE_ON_FILE = ["SUBMITTED", "APPROVED"] as const;
 
 const DAY_MS = 86_400_000;
 
@@ -44,6 +56,13 @@ export interface ShopDocumentGate {
   canPay: boolean;
   /** The promise may be given now: at least one verified document and something missing. */
   canPromise: boolean;
+  /**
+   * DF-08 (wizard shops): a food shop's FSSAI licence is not on file and not with the team — it must be
+   * uploaded before payment. Always false for other shops (their own gate lists FSSAI under `missing`).
+   */
+  fssaiNeeded: boolean;
+  /** What the promise covers (labels): the missing documents, or for a wizard shop those that may follow go-live. */
+  promiseCovers: string[];
 }
 
 export async function shopDocumentGate(
@@ -55,9 +74,10 @@ export async function shopDocumentGate(
     .from(sellerVerifications)
     .where(eq(sellerVerifications.shopId, shop.id));
   const verified = SELLER_DOC_TYPES.filter((d) => rows.some((r) => r.docType === d && r.status === "VERIFIED"));
-  // A wizard shop (owner decision 29 Oct 2026, "follow the brief"): the fee may be paid once its
-  // GSTIN — or PAN without one — has been checked. Approval then needs FSSAI too for a food shop; the
-  // Shop Act and other documents come after go-live. No promise is asked for.
+  const promised = shop.documentsPromisedAt !== null;
+  const waived = await hasDocumentWaiver(shop.id, client);
+  // A wizard shop (owner, 21-Nov-2026, DF-08): GSTIN or PAN checked, FSSAI on file for a food shop, and the
+  // rest on file or promised. The promise replaces DI-14's silent 90 days for everything but FSSAI.
   if (await isWizardRegisteredShop(shop.id, client)) {
     const missing = (await missingMandatoryDocuments(shop, client, { countDeferred: true })) as SellerDocType[];
     // The GSTIN or PAN was checked and not refused (verified, still being checked, or with the team; never the
@@ -65,21 +85,24 @@ export async function shopDocumentGate(
     const identityChecked = rows.some(
       (r) => (r.docType === "GSTIN" || r.docType === "PAN") && ["VERIFIED", "PENDING", "MANUAL_REVIEW"].includes(r.status) && r.errorCode !== "gst_declaration_review",
     );
+    // 0120: registered with "upload documents later" — the fee is paid without a GSTIN / PAN.
+    const identityOk = identityChecked || (await isDocumentsLaterShop(shop.id, client));
+    const fssaiNeeded = await wizardFssaiNeeded(shop, rows, client);
+    const covers = await wizardDocumentsAfterGoLive(shop, rows, client);
     return {
       verified,
-      missing,
+      missing: fssaiNeeded && !missing.includes("FSSAI") ? [...missing, "FSSAI"] : missing,
       inReview: [],
       promisedAt: shop.documentsPromisedAt,
       dueAt: shop.documentsDueAt,
-      waived: await hasDocumentWaiver(shop.id, client),
-      // 0120: registered with "upload documents later" — the fee is paid without them.
-      canPay: identityChecked || (await isDocumentsLaterShop(shop.id, client)),
-      canPromise: false,
+      waived,
+      canPay: waived || (identityOk && !fssaiNeeded && (covers.length === 0 || promised)),
+      canPromise: identityOk && covers.length > 0 && !promised,
+      fssaiNeeded,
+      promiseCovers: covers,
     };
   }
   const { missing, inReview } = splitMissing((await missingMandatoryDocuments(shop, client)) as SellerDocType[], rows);
-  const waived = await hasDocumentWaiver(shop.id, client);
-  const promised = shop.documentsPromisedAt !== null;
   return {
     verified,
     missing,
@@ -89,7 +112,60 @@ export async function shopDocumentGate(
     waived,
     canPay: waived || (verified.length > 0 && (missing.length === 0 || promised)),
     canPromise: verified.length > 0 && missing.length > 0 && !promised,
+    fssaiNeeded: false,
+    promiseCovers: missing.map((d) => SELLER_DOC_LABELS[d]),
   };
+}
+
+/**
+ * DF-08: a wizard food shop pays only once its FSSAI licence is on file (verified, or a valid licence
+ * uploaded), sent and waiting for GoKesari's check, or excused by an admin's FSSAI waiver. The approval
+ * itself still needs it on file (document-uploads.ts assertFssaiAllowsApproval), so a licence still with
+ * the team means the paid shop waits for an admin.
+ */
+async function wizardFssaiNeeded(
+  shop: Pick<Shop, "id" | "shopType">,
+  rows: { docType: string; status: string }[],
+  client: DbClient,
+): Promise<boolean> {
+  // Loaded on use: document-uploads.ts reaches shops.ts, which imports this file.
+  const { fssaiBlocksRegistration } = await import("./document-uploads");
+  if ((await fssaiBlocksRegistration(shop, client)) === null) return false;
+  return !rows.some((r) => r.docType === "FSSAI" && WITH_THE_TEAM.has(r.status));
+}
+
+/**
+ * DF-08: the documents a wizard shop may upload after going live, on the owner's promise — every
+ * mandatory document the 1st / 15th follow-up would chase (shop-document-follow-up.ts) except the
+ * must-haves: the GSTIN or PAN (either one is enough) and FSSAI. That is the Shop Act, and the shop
+ * type's own licence (a pharmacy's drug licence, a clinic's or professional's registration). Labels.
+ */
+export async function wizardDocumentsAfterGoLive(
+  shop: Pick<Shop, "id" | "shopType">,
+  rows: { docType: string; status: string }[],
+  client: DbClient = db,
+): Promise<string[]> {
+  const notGiven = (await missingMandatoryDocuments(shop, client)).filter(
+    (d) => d !== "FSSAI" && d !== "GSTIN" && d !== "PAN" && !rows.some((r) => r.docType === d && WITH_THE_TEAM.has(r.status)),
+  );
+  const out = notGiven.map((d) => SELLER_DOC_LABELS[d]);
+  await loadShopTypeRegistry();
+  const licence = mandatoryLicenceFor(shop.shopType);
+  if (licence && licence.docType !== "FSSAI") {
+    const [onFile] = await client
+      .select({ id: shopLegalDocuments.id })
+      .from(shopLegalDocuments)
+      .where(
+        and(
+          eq(shopLegalDocuments.shopId, shop.id),
+          eq(shopLegalDocuments.docType, licence.docType),
+          inArray(shopLegalDocuments.status, [...LICENCE_ON_FILE]),
+        ),
+      )
+      .limit(1);
+    if (!onFile) out.push(licence.label.en);
+  }
+  return out;
 }
 
 /**
@@ -117,6 +193,19 @@ export async function assertDocumentsAllowPayment(shop: Shop): Promise<void> {
   const gate = await shopDocumentGate(shop);
   if (gate.canPay) return;
   if (await isWizardRegisteredShop(shop.id)) {
+    if (gate.fssaiNeeded && !gate.missing.some((d) => d === "GSTIN" || d === "PAN")) {
+      throw conflict("Your shop sells food, so an FSSAI licence is required by law. Please upload your FSSAI licence before paying the registration fee.", {
+        reason: "FSSAI_REQUIRED",
+        missing: gate.missing,
+      });
+    }
+    if (!gate.fssaiNeeded && gate.canPromise) {
+      const { promiseDays } = await getRule("shopDocumentFollowUp");
+      throw conflict(
+        `Please upload ${gate.promiseCovers.join(", ")}, or confirm that you will upload ${gate.promiseCovers.length > 1 ? "them" : "it"} within ${promiseDays} days, before paying the registration fee.`,
+        { reason: "DOCUMENTS_PROMISE_NEEDED", missing: gate.promiseCovers },
+      );
+    }
     throw conflict("A valid PAN or GST is required to register. Please get your GSTIN or PAN verified before paying the registration fee.", {
       reason: "IDENTITY_NOT_VERIFIED",
       missing: gate.missing,
@@ -143,10 +232,15 @@ export async function setDocumentsPromise(tx: DbClient, shopId: string, at: Date
 }
 
 /**
- * The owner ticks "I will provide all relevant documents within 30 days" (Add my shop → fee
- * page). Needs one verified document; given once (a second tick keeps the first date).
+ * The owner ticks "I will provide all relevant documents within <promiseDays> days" (Add my shop →
+ * fee page, or — DF-08 — the signup wizard's documents screen). Needs one verified document (a wizard
+ * shop: its GSTIN or PAN checked); given once (a second tick keeps the first date).
  */
-export async function promiseShopDocuments(shopId: string, actor: { id: string; role: UserRole }): Promise<ShopDocumentGate> {
+export async function promiseShopDocuments(
+  shopId: string,
+  actor: { id: string; role: UserRole },
+  source: "REGISTRATION_FEE_PAGE" | "SIGNUP_WIZARD" = "REGISTRATION_FEE_PAGE",
+): Promise<ShopDocumentGate> {
   return db.transaction(async (tx) => {
     const [shop] = await tx.select().from(shops).where(eq(shops.id, shopId)).for("update");
     if (!shop || shop.deletedAt) throw notFound("Shop");
@@ -154,10 +248,10 @@ export async function promiseShopDocuments(shopId: string, actor: { id: string; 
     if (shop.status !== "PENDING_APPROVAL") throw conflict("This shop's registration is no longer waiting.");
     const gate = await shopDocumentGate(shop, tx);
     if (gate.promisedAt) return gate;
-    if (gate.verified.length === 0) {
+    if (gate.promiseCovers.length === 0) return gate;
+    if (!gate.canPromise) {
       throw conflict("Please get at least one of your documents verified (for example your PAN) first.", { reason: "NO_VERIFIED_DOCUMENT" });
     }
-    if (gate.missing.length === 0) return gate;
     const { promisedAt, dueAt } = await setDocumentsPromise(tx, shop.id);
     await recordAudit(
       {
@@ -166,10 +260,10 @@ export async function promiseShopDocuments(shopId: string, actor: { id: string; 
         action: AUDIT_ACTIONS.SHOP_DOCUMENTS_PROMISED,
         entityType: "shop",
         entityId: shop.id,
-        newValue: { missing: gate.missing, dueAt: dueAt.toISOString(), source: "REGISTRATION_FEE_PAGE" },
+        newValue: { missing: gate.promiseCovers, dueAt: dueAt.toISOString(), source },
       },
       tx,
     );
-    return { ...gate, promisedAt, dueAt, canPay: true, canPromise: false };
+    return shopDocumentGate({ ...shop, documentsPromisedAt: promisedAt, documentsDueAt: dueAt }, tx);
   });
 }
