@@ -35,6 +35,8 @@ interface Allocation {
   renewals: number;
   isTest: boolean;
   bookingId: string;
+  kycDueAtIst?: string | null;
+  kycOverdue?: boolean;
 }
 interface Overview {
   me: { role: string };
@@ -331,7 +333,14 @@ function AllocationTable({ rows, isAdmin, act, ask }: { rows: Allocation[]; isAd
             </td>
             <td>{a.slotNo}</td>
             <td>{a.ownerName}</td>
-            <td>{a.status}</td>
+            <td>
+              {a.status}
+              {a.kycDueAtIst ? (
+                <span className={`ml-1 block text-xs font-semibold ${a.kycOverdue ? "text-red-700" : "text-amber-700"}`} data-testid={`alloc-kyc-${a.id}`}>
+                  {a.kycOverdue ? `KYC overdue since ${a.kycDueAtIst} — refund the booking to free the zone, or approve the dealer` : `Awaiting KYC (not live) · due ${a.kycDueAtIst}`}
+                </span>
+              ) : null}
+            </td>
             <td>{a.activatedAtIst}</td>
             <td>{a.expiresAtIst}</td>
             <td>{rupees(a.feePaise)}</td>

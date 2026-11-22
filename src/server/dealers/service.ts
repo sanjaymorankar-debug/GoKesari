@@ -51,6 +51,7 @@ import {
   type Dealer,
   type DealerSalesperson,
   type UserRole,
+  franchiseZones,
 } from "@/server/db/schema";
 import { verifyRegistrationOtp, sendRegistrationOtp } from "@/server/registration/otp";
 import { bankCheckConfig, bankCheckDecision, callCashfreeBav } from "@/server/services/bank-account-check";
@@ -190,6 +191,8 @@ export interface DealerView {
   territories: string[];
   /** The same areas by name ("Kothrud", "Pune"), in the same order. */
   territoryNames: string[];
+  /** Free dealer's working zone (franchise zone code), or null. */
+  preferredZoneId: string | null;
   requirements: { docType: DealerDocType; label: string; required: boolean; status: "MISSING" | "SUBMITTED" | "ACCEPTED" | "REJECTED" }[];
   documents: DealerDocumentView[];
   codes: { id: string; code: string; kind: string; status: string; salespersonId: string | null; createdAt: Date }[];
@@ -261,6 +264,7 @@ export async function dealerView(dealer: Dealer, client: DbClient = db): Promise
     },
     territories,
     territoryNames: territories.map((c) => names.get(c) ?? c),
+    preferredZoneId: dealer.preferredZoneId ?? null,
     requirements: requirements.map((r) => ({
       docType: r.docType,
       label: DEALER_DOC_LABELS[r.docType],
@@ -296,6 +300,8 @@ export interface DealerApplicationInput {
   /** geo_areas codes (district, taluka/city or locality). */
   territories: string[];
   bank?: { holderName: string; accountNumber: string; ifsc: string } | null;
+  /** Free dealer's working zone from Book a franchise zone (22-Nov-2026); undefined keeps the saved one, null clears it. */
+  preferredZoneId?: string | null;
 }
 
 const EDITABLE: readonly DealerStatus[] = ["DRAFT", "REJECTED"];
@@ -362,6 +368,14 @@ export async function saveApplication(input: DealerApplicationInput, actor: Deal
   const mobileE164 = mobileRaw ? `+91${mobileRaw}` : saved?.mobileE164;
   if (!mobileE164) throw validationFailed("Enter a 10-digit Indian mobile number.", { fields: { mobile: "10 digits." } });
   const panHash = pan ? panBlindIndex(pan) : null;
+  let preferredZoneId: string | null | undefined = undefined;
+  if (input.preferredZoneId !== undefined) {
+    preferredZoneId = input.preferredZoneId?.trim().toUpperCase() || null;
+    if (preferredZoneId) {
+      const [zone] = await db.select({ id: franchiseZones.zoneId }).from(franchiseZones).where(and(eq(franchiseZones.zoneId, preferredZoneId), eq(franchiseZones.isTest, false)));
+      if (!zone) throw validationFailed("Unknown franchise zone.", { fields: { preferredZoneId: "Choose a zone from Book a franchise zone." } });
+    }
+  }
 
   if (panHash) {
     const [taken] = await db
@@ -414,6 +428,7 @@ export async function saveApplication(input: DealerApplicationInput, actor: Deal
             bankCheckRef: null,
           }
         : {}),
+      ...(preferredZoneId !== undefined ? { preferredZoneId } : {}),
       status: "DRAFT" as const,
       updatedAt: new Date(),
     };
@@ -616,6 +631,7 @@ export async function checkDealerBank(dealerId: string, actor: DealerActor): Pro
     entityId: dealerId,
     newValue: { result: outcome.result, decided: decision.decided, verified: decision.verified, score: decision.score, referenceId: outcome.referenceId },
   });
+  if (row.bankStatus === "VERIFIED") await franchiseGoLive(dealerId);
   return row;
 }
 
@@ -859,7 +875,15 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
   // Commission (step 5): a suspended or terminated dealer's open entries wait for an admin; reactivation releases them.
   if (decision.action === "SUSPEND" || decision.action === "TERMINATE") await holdDealerCommission(dealerId, true, actor);
   if (decision.action === "REACTIVATE") await holdDealerCommission(dealerId, false, actor);
+  // Pay first, KYC after (22-Nov-2026): a franchise he paid for goes live once his KYC and bank are approved.
+  if (decision.action === "APPROVE" || decision.action === "REACTIVATE") await franchiseGoLive(dealerId);
   return result;
+}
+
+/** Lazy import: the franchise booking service imports dealer code, so this avoids an import cycle. */
+async function franchiseGoLive(dealerId: string): Promise<void> {
+  const { goLiveAfterKyc } = await import("@/server/franchise/booking");
+  await goLiveAfterKyc(dealerId).catch((e) => console.error("[dealers] franchise go-live failed", dealerId, e));
 }
 
 /** ADMIN only: replace the dealer's own code (or an employee's), keeping history. */

@@ -13,7 +13,7 @@ import { sendEmail } from "@/server/email/transport";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
-import { releaseExpiredHolds } from "./booking";
+import { releaseExpiredHolds, sweepFranchiseKyc } from "./booking";
 import { closeAllocationCodes } from "./codes";
 import { calculateFranchiseMonth, lockFranchiseMonth, prevMonth } from "./commission";
 import { emailStatements } from "./statements";
@@ -203,6 +203,37 @@ export async function sendDigest(now: Date, config: FranchiseConfig): Promise<bo
 }
 
 /** The every-5-minutes franchise job. A no-op apart from cheap indexed queries when nothing is due. */
+/**
+ * Pay first, KYC after (owner 22-Nov-2026): zones whose owner finished KYC go live; owners are reminded 7 days and
+ * 1 day before the 30 days end; after that the admins (franchise CC list) are told once a day that the booking is
+ * overdue — refund it to free the zone (Admin → Franchise → bookings), or give him more time.
+ */
+async function kycSweep(now: Date, config: FranchiseConfig): Promise<{ live: number; waiting: number; reminded: number; overdue: number }> {
+  const { live, waiting } = await sweepFranchiseKyc(now);
+  const today = istDate(now);
+  let reminded = 0;
+  const overdue: typeof waiting = [];
+  for (const w of waiting) {
+    if (w.daysLeft <= 0) {
+      overdue.push(w);
+      continue;
+    }
+    if (w.daysLeft !== 7 && w.daysLeft !== 1) continue;
+    const [owner] = await db.select({ userId: dealers.userId }).from(dealers).where(eq(dealers.id, w.ownerDealerId));
+    if (!owner?.userId) continue;
+    const id = await claim({ allocationId: w.id, kind: `KYC_DUE_${w.daysLeft}`, dueOn: today, channel: "IN_APP", recipient: owner.userId });
+    if (!id) continue;
+    await notify({ userId: owner.userId, type: NOTIFICATION_TYPES.FRANCHISE_NOTICE, vars: { title: "Finish your KYC to go live", message: `Zone ${w.zoneId} is paid for and waiting for your dealer KYC and bank details — ${w.daysLeft === 1 ? "1 day" : `${w.daysLeft} days`} left (by ${formatIst(w.dueAt)}).` }, actionUrl: "/dealer/apply", channels: ["PUSH", "SMS", "WHATSAPP"], dedupeKey: `franchise:kyc-due:${w.id}:${w.daysLeft}` });
+    await settle(id, "SENT");
+    reminded++;
+  }
+  if (overdue.length) {
+    const lines = overdue.map((w) => `${w.zoneId} — booking ${w.bookingId}, KYC was due ${formatIst(w.dueAt)}`);
+    await emailAll(null, "KYC_OVERDUE", today, `Franchise: ${overdue.length} paid zone(s) past the 30-day KYC limit`, `These franchise zones were paid for but the owner's KYC is still not approved after 30 days:\n\n${lines.join("\n")}\n\nRefund the booking to free the zone (Admin → Franchise → Bookings), or approve the dealer if the KYC is now complete.\n${SITE()}/admin/franchise`, config);
+  }
+  return { live, waiting: waiting.length, reminded, overdue: overdue.length };
+}
+
 export async function runFranchiseJob(real: Date = new Date()): Promise<Record<string, unknown>> {
   const { config } = await franchiseConfig();
   const now = franchiseNow(config, real);
@@ -210,6 +241,7 @@ export async function runFranchiseJob(real: Date = new Date()): Promise<Record<s
   out.holdsReleased = await releaseExpiredHolds(db, now);
   // §5.6: scheduled zone status changes due now, and reservations past their expiry back to Available.
   out.zoneStatus = await runZoneStatusJobs(real).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+  out.kyc = await kycSweep(now, config).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
   out.expired = await expireAreas(now, config);
   out.reminded = await sendReminders(now, config);
   out.digest = await sendDigest(now, config);

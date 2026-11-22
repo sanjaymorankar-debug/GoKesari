@@ -40,9 +40,21 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
         </Alert>
       ) : null}
       {d.status.missing.length && d.status.hasDealer ? <Alert tone="warning">Before you can pay: {d.status.missing.join(", ")}.</Alert> : null}
+      {d.areas.some((a) => a.kycDueAtIst) ? (
+        <Alert tone="warning" title="Finish your KYC to go live" data-testid="franchise-kyc-due">
+          {d.areas
+            .filter((a) => a.kycDueAtIst)
+            .map((a) => a.zoneId)
+            .join(", ")}{" "}
+          {d.areas.filter((a) => a.kycDueAtIst).length === 1 ? "is" : "are"} paid and booked for you. Still needed: {d.status.kycMissing.join(", ") || "GoKesari's approval"} — by {d.areas.find((a) => a.kycDueAtIst)?.kycDueAtIst}. Your franchise code, team shops and commission start once approved.{" "}
+          <Link className="font-semibold underline" href="/dealer/apply">
+            Finish KYC
+          </Link>
+        </Alert>
+      ) : null}
       {justPaid ? (
         <Alert tone={justPaid.status === "PAID" ? "success" : justPaid.status === "PAYMENT_PENDING" ? "info" : "warning"} title={justPaid.status === "PAID" ? "Payment confirmed" : justPaid.status === "PAYMENT_PENDING" ? "Payment being verified" : "Booking not paid"}>
-          {justPaid.status === "PAID" ? `Areas ${justPaid.zones.join(", ")} are active. ` : justPaid.status === "PAYMENT_PENDING" ? "We activate your areas as soon as the bank confirms the payment — refresh in a minute. " : `${justPaid.failureReason ?? "The reservation ended"}. You can book again. `}
+          {justPaid.status === "PAID" ? (d.areas.some((a) => a.kycDueAtIst && justPaid.zones.includes(a.zoneId)) ? `Areas ${justPaid.zones.join(", ")} are booked for you — finish your KYC to go live. ` : `Areas ${justPaid.zones.join(", ")} are active. `) : justPaid.status === "PAYMENT_PENDING" ? "We activate your areas as soon as the bank confirms the payment — refresh in a minute. " : `${justPaid.failureReason ?? "The reservation ended"}. You can book again. `}
           {justPaid.status === "PAID" ? <Link className="font-semibold underline" href={`/franchise/my/receipt/${justPaid.id}`}>Receipt</Link> : null}
         </Alert>
       ) : null}
@@ -82,7 +94,7 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded bg-ink-900 px-2 py-0.5 text-sm font-bold text-white">{a.zoneId}</span>
               <span className="font-semibold text-ink-900">{a.zoneName}</span>
-              <Badge tone={TONE[a.status] ?? "neutral"}>{a.statusLabel}</Badge>
+              {a.kycDueAtIst ? <Badge tone="warning">Booked · awaiting KYC</Badge> : <Badge tone={TONE[a.status] ?? "neutral"}>{a.statusLabel}</Badge>}
               <Badge tone="neutral">{a.tier.charAt(0) + a.tier.slice(1).toLowerCase()}</Badge>
               {a.launchOffer ? <Badge tone="info">Launch offer</Badge> : null}
             </div>
