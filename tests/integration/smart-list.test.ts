@@ -13,6 +13,7 @@ import { featureFlags, productLocalNames, shoppingListScanPages, shoppingListSca
 import { getCart } from "@/server/services/cart";
 import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { scanShoppingList, sweepExpiredScanPhotos } from "@/server/services/smart-list/scan";
+import { smartShoppingStats } from "@/server/services/smart-list/stats";
 import { compareSavedWishlist, getWishlist, orderFromShop, saveWishlist } from "@/server/services/smart-list/wishlist";
 import { createCategory, createProduct, createShop, createShopProduct, createUser, resetDatabase } from "../helpers/fixtures";
 
@@ -180,5 +181,23 @@ describe("compare and order", () => {
     expect(items.find((i) => i.productId === sugar.id)?.userEdited).toBe(false);
     expect(items.find((i) => i.nameEn === "Rice")?.userEdited).toBe(true);
     void customer;
+  });
+});
+
+describe("dashboard", () => {
+  it("counts scans per IST day and AI match accuracy from saved scanned lists", async () => {
+    const w = await world();
+    aiAnswer.value = { readable: true, unreadable_reason: null, handwritten: true, languages: ["mr"], is_bill: false, lines: [line("साखर १ किलो", "Sugar", "साखर", 1, "kg")] };
+    const scan = await scanShoppingList(w.customer.id, [{ bytes: await photo(), contentType: "image/png" }], "mr");
+    await saveWishlist(w.customer.id, {
+      scanId: scan.scanId,
+      items: [
+        { nameEn: "Sugar", productId: w.sugar.id, aiProductId: w.sugar.id, matchConfidence: 90, quantityAmount: 1000, quantityUnit: "g" },
+        { nameEn: "Milk", productId: w.milk.id, aiProductId: w.rice.id, matchConfidence: 60, quantityAmount: 1000, quantityUnit: "ml" },
+      ],
+    });
+    const stats = await smartShoppingStats(7);
+    expect(stats.scans.reduce((s, d) => s + d.scans, 0)).toBe(1);
+    expect(stats.accuracy).toMatchObject({ aiMatched: 2, kept: 1, accuracyPct: 50 });
   });
 });

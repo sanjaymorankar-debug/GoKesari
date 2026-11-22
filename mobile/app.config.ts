@@ -86,6 +86,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/health", // docs/health: My Health — records, prescriptions, doctors, medicines, home care, equipment
   "/franchise", // 1.11.0, docs/franchise: Pune franchise offer, zone booking, zone pages (1.12.0), my franchise
   "/rx", // docs/health: prescription verification QR (/rx/verify/<token>)
+  "/wishlist", // 1.13.0, docs/smart-shopping-2026-11: scan my shopping list, wishlists, shop price comparison
 ];
 
 /**
@@ -175,7 +176,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   // 1.8.0: card, UPI (the phone's UPI apps) and wallet payments through Cashfree's own mobile SDK
   // (react-native-cashfree-pg-sdk) when the website asks for it (src/cashfree.ts); the website
   // still confirms every payment with its server. Older builds keep Cashfree's web checkout.
-  version: "1.12.0",
+  version: "1.13.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -184,7 +185,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "13",
+    buildNumber: "14",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -195,15 +196,18 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
         "GoKesari opens your photos when you choose a picture to upload, such as a product picture or a document like a police verification form.",
       NSPhotoLibraryAddUsageDescription: "GoKesari saves a picture to your photos when you ask it to.",
       // 1.3.0: voice search in the header search (the page's Web Speech API, in English, Hindi or Marathi).
-      NSMicrophoneUsageDescription: "GoKesari listens only while you tap the microphone in search, to search by voice.",
-      NSSpeechRecognitionUsageDescription: "GoKesari turns what you say into a search when you tap the microphone in search.",
+      // 1.13.0: also "say the price and stock" when a shop adds a product by photo (docs/smart-shopping-2026-11).
+      NSMicrophoneUsageDescription:
+        "GoKesari listens only while you tap a microphone button — to search by voice, or to say a product's price and stock when you add it to your shop.",
+      NSSpeechRecognitionUsageDescription:
+        "GoKesari turns what you say into text when you tap a microphone button: a search, or a product's price and stock.",
       // 1.8.0: the UPI apps Cashfree's checkout may open (pay by PhonePe, Google Pay, Paytm, BHIM …).
       LSApplicationQueriesSchemes: UPI_APP_SCHEMES,
     },
   },
   android: {
     package: variant.appId,
-    versionCode: 13,
+    versionCode: 14,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",
@@ -220,8 +224,10 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
     // the first time a page wants the camera. Notifications (Android 13+)
     // come from expo-notifications. Drawing over other apps is only for
     // Expo's development menu; pages never record audio.
-    permissions: ["android.permission.CAMERA"],
-    blockedPermissions: ["android.permission.RECORD_AUDIO", "android.permission.SYSTEM_ALERT_WINDOW"],
+    // 1.13.0: RECORD_AUDIO for the phone's speech recogniser (src/speech.ts) — used only while the user taps a
+    // microphone button; nothing is recorded or kept. Location for Nearby / the shop price comparison: expo-location.
+    permissions: ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"],
+    blockedPermissions: ["android.permission.SYSTEM_ALERT_WINDOW"],
     intentFilters: [
       {
         action: "VIEW",
@@ -236,6 +242,15 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     "expo-web-browser",
+    // 1.13.0: speech to text for pages (src/speech.ts).
+    [
+      "expo-speech-recognition",
+      {
+        microphonePermission: "GoKesari listens only while you tap a microphone button — to search by voice, or to say a product's price and stock.",
+        speechRecognitionPermission: "GoKesari turns what you say into text when you tap a microphone button.",
+        androidSpeechServicePackages: ["com.google.android.googlequicksearchbox"],
+      },
+    ],
     "expo-sharing",
     [
       "expo-notifications",

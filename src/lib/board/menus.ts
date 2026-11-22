@@ -518,6 +518,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "dashboard", label: L("Dashboard", "डैशबोर्ड", "डॅशबोर्ड"), icon: "chart-line", href: "/admin/dashboard", permission: REPORTS },
       { key: "analytics", label: L("Analytics", "विश्लेषण", "विश्लेषण"), icon: "file-chart-column", href: "/admin/analytics", permission: REPORTS },
+      // docs/smart-shopping-2026-11: list scans, AI match accuracy and cost, products added by photo, WhatsApp delivery.
+      { key: "smartShopping", label: L("Smart shopping", "स्मार्ट शॉपिंग", "स्मार्ट खरेदी"), icon: "sparkles", href: "/admin/smart-shopping", permission: REPORTS },
       { key: "orders", label: L("Orders", "ऑर्डर", "ऑर्डर"), icon: "package", href: "/admin/orders", count: "liveOrders", permission: PERMISSIONS.ORDER_VIEW_ANY },
       { key: "history", label: L("History", "इतिहास", "इतिहास"), icon: "history", href: "/admin/status-changes", permission: AUDIT },
       { key: "risk", label: L("Risk", "जोखिम", "धोका"), icon: "triangle-alert", href: "/admin/risk", count: "openRisk", permission: PERMISSIONS.RISK_REVIEW },
@@ -604,6 +606,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "dashboard", label: L("Dashboard", "डैशबोर्ड", "डॅशबोर्ड"), icon: "chart-line", href: "/admin/dashboard", permission: REPORTS },
       { key: "analytics", label: L("Analytics", "विश्लेषण", "विश्लेषण"), icon: "file-chart-column", href: "/admin/analytics", permission: REPORTS },
+      // docs/smart-shopping-2026-11: list scans, AI match accuracy and cost, products added by photo, WhatsApp delivery.
+      { key: "smartShopping", label: L("Smart shopping", "स्मार्ट शॉपिंग", "स्मार्ट खरेदी"), icon: "sparkles", href: "/admin/smart-shopping", permission: REPORTS },
       { key: "history", label: L("Status history", "स्थिति इतिहास", "स्थिती इतिहास"), icon: "history", href: "/admin/status-changes", permission: AUDIT },
       { key: "risk", label: L("Risk", "जोखिम", "धोका"), icon: "triangle-alert", href: "/admin/risk", count: "openRisk", permission: PERMISSIONS.RISK_REVIEW },
       { key: "ratings", label: L("Ratings", "रेटिंग", "रेटिंग"), icon: "star", href: "/admin/ratings", permission: PERMISSIONS.RATING_MODERATE },
