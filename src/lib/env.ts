@@ -259,6 +259,12 @@ const serverEnvSchema = z.object({
    */
   PERMANENT_ADMIN_EMAILS: z.string().optional(),
 
+  /**
+   * docs/rbac §3.1: the Super Admin. While fewer than two admins are active, this account alone may
+   * approve a four-eye request; each such approval is marked "single-admin" and e-mailed here.
+   */
+  SUPER_ADMIN_EMAIL: z.string().trim().toLowerCase().default("ceo@agtci.com"),
+
   // Deliveries generated after this local time roll to the next day.
   SUBSCRIPTION_CUTOFF_HOUR: z.coerce.number().int().min(0).max(23).default(20),
 

@@ -14,6 +14,9 @@ import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { userRoleEnum } from "@/server/db/schema";
 import { getUserPrivileges, updateUserPrivileges } from "@/server/services/users";
+import { fourEyeAdminOn, requestFourEye, FOUR_EYE_TYPES } from "@/server/approvals";
+import { forbidden } from "@/lib/errors";
+
 
 export const dynamic = "force-dynamic";
 
@@ -32,5 +35,19 @@ export const PATCH = route(async (request: NextRequest, context: RouteContext<{ 
   const actor = await requirePermission(PERMISSIONS.USER_SET_ROLE);
   const { id } = await context.params;
   const body = await parseBody(request, schema);
+  // docs/rbac: with rbac_v2_four_eye_admin on, a second admin approves the change first.
+  if (await fourEyeAdminOn()) {
+    if (id === actor.id) throw forbidden("You cannot change your own privileges.");
+    return ok(
+      await requestFourEye(FOUR_EYE_TYPES.USER_PRIVILEGES_SET, actor, {
+        subjectType: "user",
+        subjectId: id,
+        title: `Set privileges: active ${body.activeRole}; holds ${body.heldRoles.join(", ") || "customer only"}`,
+        reason: "Privileges change",
+        payload: { userId: id, activeRole: body.activeRole, heldRoles: body.heldRoles },
+      }),
+      202,
+    );
+  }
   return ok(await updateUserPrivileges(id, body, actor));
 });

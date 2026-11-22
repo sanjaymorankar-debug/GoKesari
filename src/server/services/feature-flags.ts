@@ -70,6 +70,12 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   smart_list_scan_enabled: "Scan my shopping list (photo → wishlist → compare shops)",
   shop_photo_listing_enabled: "Add product by photo + voice (shop owners)",
   whatsapp_shop_orders_enabled: "New orders on the shop owner's WhatsApp",
+  rbac_v2_staff_roles: "Staff roles: CA, Accountant, Support and Operations boards",
+  rbac_v2_four_eye_admin: "Two-admin approval for user, role, suspension and flag changes",
+  rbac_v2_accounting: "Accounting: journal entries, period close, rate proposals",
+  rbac_v2_support: "Support desk: manager queue and Support Users",
+  rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
+  rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -113,6 +119,14 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "Shop owners add a product from 1–4 photos plus price/stock by voice or typing; AI fills the details, the master catalogue is checked first (no duplicates) and new products go to admin review as today.",
   whatsapp_shop_orders_enabled:
     "Each new order is sent to the shop's verified WhatsApp numbers with Accept / Reject buttons; the first action wins. Needs the Meta WhatsApp Cloud API keys and approved templates (rule whatsappShopOrders). Each shop also switches it on in its WhatsApp settings.",
+  rbac_v2_staff_roles:
+    "docs/rbac: the staff board at /staff for the CA, Accountant, Support Manager, Support User, Operations Manager and Operations User roles. Off: those roles see the site as a customer (the CA keeps its statutory pages). Limit it to some roles with the role scope.",
+  rbac_v2_four_eye_admin:
+    "docs/rbac: role changes, suspensions, reactivations and flag changes made by one admin wait for a different admin to approve (Admin → Approvals). While fewer than two admins are active, the Super Admin may approve alone; each such approval is marked and e-mailed. Emergency suspension still applies at once and must be confirmed within 24 hours. Off: every admin acts alone, as today.",
+  rbac_v2_accounting: "docs/rbac Phase 3: Accountant drafts → CA approves journal entries; periods; Accountant → CA → Admin rate changes. Existing rate screens are unchanged.",
+  rbac_v2_support: "docs/rbac Phase 4: the Support Manager's queue and the Support User's assigned work.",
+  rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
+  rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",
 };
 
 export interface FeatureFlagView {
@@ -120,6 +134,8 @@ export interface FeatureFlagView {
   enabled: boolean;
   /** NULL = every district. */
   districtCodes: string[] | null;
+  /** docs/rbac: NULL = every role. */
+  roleScope?: string[] | null;
   updatedAt: Date | null;
 }
 
@@ -159,7 +175,7 @@ async function readFlags(): Promise<FlagMap> {
     const rows = await db.select().from(featureFlags);
     for (const row of rows) {
       if ((FEATURE_FLAG_KEYS as readonly string[]).includes(row.key)) {
-        out[row.key] = { key: row.key, enabled: row.enabled, districtCodes: row.districtCodes ?? null, updatedAt: row.updatedAt };
+        out[row.key] = { key: row.key, enabled: row.enabled, districtCodes: row.districtCodes ?? null, roleScope: row.roleScope ?? null, updatedAt: row.updatedAt };
       }
     }
   } catch (error) {
@@ -242,6 +258,74 @@ export async function enabledFeatureKeysForShop(shop: string | { pincode: string
 /** Error for a route of a feature that is switched off: 404, so the site looks as it did before. */
 export function featureNotAvailable(key: FeatureFlagKey): AppError {
   return new AppError("NOT_FOUND", "This feature is not available.", { reason: "FEATURE_NOT_AVAILABLE", feature: key });
+}
+
+/** docs/rbac: is the flag on for this role? Off, or on with a role scope that does not name the role → false. */
+export function flagCoversRole(flag: Pick<FeatureFlagView, "enabled" | "roleScope">, role: UserRole): boolean {
+  if (!flag.enabled) return false;
+  if (flag.roleScope == null) return true;
+  return flag.roleScope.includes(role);
+}
+
+export async function isFeatureEnabledForRole(key: FeatureFlagKey, role: UserRole): Promise<boolean> {
+  return flagCoversRole(await getFeatureFlag(key), role);
+}
+
+/** Throws "not available" unless the flag is on for this role. */
+export async function requireFeatureForRole(key: FeatureFlagKey, role: UserRole): Promise<void> {
+  if (!(await isFeatureEnabledForRole(key, role))) throw featureNotAvailable(key);
+}
+
+/**
+ * docs/rbac: limit a flag to some roles (NULL = every role). ADMIN only, reason required, logged in
+ * feature_flag_changes and the audit log like any other flag change.
+ */
+export async function setFeatureFlagRoleScope(
+  key: FeatureFlagKey,
+  roleScope: UserRole[] | null,
+  reason: string,
+  actor: { id: string; role: UserRole; email?: string | null },
+): Promise<{ changed: boolean }> {
+  if (actor.role !== "ADMIN") throw forbidden("Only an admin can change feature flags.");
+  if (!(FEATURE_FLAG_KEYS as readonly string[]).includes(key)) throw validationFailed("Unknown feature flag.");
+  const why = reason.trim();
+  if (why.length < 5) throw validationFailed("Say why you are changing this flag.", { fields: { reason: "Give a reason (at least 5 characters)." } });
+  const next = roleScope === null ? null : [...new Set(roleScope)].sort();
+  if (next !== null && next.length === 0) throw validationFailed("Choose at least one role, or every role.");
+  const changed = await db.transaction(async (tx) => {
+    await tx.insert(featureFlags).values({ key, enabled: false }).onConflictDoNothing();
+    const [current] = await tx.select().from(featureFlags).where(eq(featureFlags.key, key)).for("update");
+    const before = current.roleScope ?? null;
+    if (JSON.stringify(before) === JSON.stringify(next)) return false;
+    const now = new Date();
+    await tx.update(featureFlags).set({ roleScope: next, updatedBy: actor.id, updatedAt: now }).where(eq(featureFlags.key, key));
+    const state = { enabled: current.enabled, districtCodes: current.districtCodes ?? null };
+    await tx.insert(featureFlagChanges).values({
+      flagKey: key,
+      oldValue: { ...state, roleScope: before } as typeof state,
+      newValue: { ...state, roleScope: next } as typeof state,
+      reason: why,
+      changedBy: actor.id,
+      changedByEmail: actor.email ?? null,
+      changedByRole: actor.role,
+      changedAt: now,
+    });
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.FEATURE_FLAG_CHANGED,
+        entityType: "feature_flag",
+        entityId: key,
+        previousValue: { roleScope: before },
+        newValue: { roleScope: next, reason: why },
+      },
+      tx,
+    );
+    return true;
+  });
+  if (changed) clearFeatureFlagCache();
+  return { changed };
 }
 
 /** Throws "not available" unless the flag is on (for the district, when given). */
