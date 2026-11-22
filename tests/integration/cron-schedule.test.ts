@@ -49,6 +49,8 @@ describe("schedule", () => {
         "smart-list-photo-retention",
         // docs/smart-shopping-2026-11 (Feature 2): add-by-photo photos past the retention days (daily).
         "photo-listing-purge",
+        // docs/rbac: rate activations, change-request reminders / expiry, ticket SLA alerts (hourly; no-op while flags are off).
+        "rbac-v2",
       ].sort(),
     );
   });

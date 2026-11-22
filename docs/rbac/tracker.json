@@ -177,7 +177,7 @@
     "production": "Not Started",
     "productionAt": "",
     "flag": "rbac_v2_operations (OFF)",
-    "notes": "Built by a parallel session; merged into feature/rbac-v2-phases-3-7. Local 22/22 Phase 6, 68/68 rbac-v2; migration 0175 additive; decisions D6-01..08 in docs/rbac/06-operations.md; open: PDF export (Excel built)."
+    "notes": "Built by a parallel session; merged into feature/rbac-v2-phases-3-7. Local 22/22 Phase 6, 68/68 rbac-v2; migration 0174 additive; decisions D6-01..08 in docs/rbac/06-operations.md; Excel + PDF export built 22-Nov 23.20 IST."
   },
   {
     "phase": "7",

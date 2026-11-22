@@ -1,5 +1,5 @@
 /**
- * RBAC v2 Phase 6 — Operations (docs/rbac/06-operations.md; drizzle/0175_rbac_v2_operations.sql).
+ * RBAC v2 Phase 6 — Operations (docs/rbac/06-operations.md; drizzle/0174_rbac_v2_operations.sql).
  *
  *   ops_zone_assignments   which Operations User works which franchise zone (ended, never deleted)
  *   ops_tasks              onboarding / follow-up tasks an Operations Manager assigns

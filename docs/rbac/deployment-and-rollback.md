@@ -8,10 +8,9 @@ All times IST. Follows CLAUDE.md: staging through the staging queue, production 
 | PR | Branch | Content | Migrations |
 |---|---|---|---|
 | #485 | `feature/rbac-unified-roles` | Phase 1 assessment, Phase 2 foundation | 0170 |
-| (next) | `feature/rbac-v2-phases-3-7` | Phases 3, 4, 5, 7, documents, staff teams | 0171, 0172, 0173 |
-| (other session) | `feature/rbac-v2-operations` | Phase 6 Operations | 0175 (number agreed) |
+| #487 | `feature/rbac-v2-phases-3-7` | Phases 3–7 (Phase 6 built by a parallel session and merged in), documents, staff teams | 0171, 0172, 0173, 0174 |
 
-Order: #485 → staging-verified → label the Phases 3–7 PR → staging-verified → Phase 6 PR. Production: each in its own
+Order: #485 → staging-verified → label #487 → staging-verified. Production: each in its own
 23.00 IST window, never two in one window, after `scripts/release/post-deploy-check.sh https://gokesari.com` passes for
 the previous one.
 
@@ -38,7 +37,7 @@ assigned by an admin, Admin → Approvals and Admin → Staff teams exist (empty
    cache time. No redeploy. With four-eye on, switching a flag off needs a second admin (or the Super Admin alone in
    bootstrap).
 2. **Revert the PR** (staging, then main in a release window). New tables are left unused.
-3. **Drop the data** (only if required, export first): `scripts/rollback-0173.sql`, `rollback-0172.sql`,
+3. **Drop the data** (only if required, export first): `scripts/rollback-0174.sql`, `rollback-0173.sql`, `rollback-0172.sql`,
    `rollback-0171.sql`, `rollback-0170.sql`, newest first. The five `user_role` enum values cannot be dropped in
    PostgreSQL; move any account holding one back to its previous role first, then they are inert.
 

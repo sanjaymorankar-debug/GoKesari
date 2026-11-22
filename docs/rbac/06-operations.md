@@ -57,9 +57,9 @@ Tests: `tests/integration/rbac-v2-operations.test.ts` (22 tests) covers:
 - the day and week report, the Excel and PDF exports, the PDF table layout, and the IST week bounds;
 - the Operations User dashboard scope.
 
-Local run on 22-Nov-2026 at 23.20 IST, on a fresh database migrated 0001–0175: **68/68 passed** across all five RBAC v2 test files. Phase 6 has 22 tests, including the team-scope tests. With the PDF export (23.20 IST): **69/69**, 23 of them for Phase 6.
+Local run on 22-Nov-2026 at 23.20 IST, on a fresh database migrated 0001–0174: **68/68 passed** across all five RBAC v2 test files. Phase 6 has 22 tests, including the team-scope tests. With the PDF export (23.20 IST): **69/69**, 23 of them for Phase 6.
 
-## Database (`drizzle/0175_rbac_v2_operations.sql`) — all Additive
+## Database (`drizzle/0174_rbac_v2_operations.sql`) — all Additive
 
 | Change | Type |
 |---|---|
@@ -70,7 +70,7 @@ Local run on 22-Nov-2026 at 23.20 IST, on a fresh database migrated 0001–0175:
 
 No foreign keys to users, shops or zones (single-database rule: links are checked in the service). No existing table, column or row is changed. Safe to re-run.
 
-**Migration order.** Drizzle applies a migration only if its journal `when` is later than the last one applied. 0175 uses `when = 1793267500000`. The other session's 0171–0174 must either land on a database first, or carry a smaller `when` and be merged before this PR. When this branch is rebased, check that 0175's `when` is the largest in the journal.
+**Migration order.** Drizzle applies a migration only if its journal `when` is later than the last one applied. 0174 uses `when = 1793267500000`. The other session's 0171–0174 must either land on a database first, or carry a smaller `when` and be merged before this PR. When this branch is rebased, check that 0174's `when` is the largest in the journal.
 
 ## Decisions (made instead of stopping; brief §0.2)
 
@@ -96,4 +96,4 @@ Each step is the fallback if the one before does not resolve it:
 
 1. **Switch the flag off.** Turn off `rbac_v2_operations` (or narrow its role scope). Every Operations API answers "not available" and the screens redirect.
 2. **Revert the code.** Revert the PR. The four tables are then unused.
-3. **Drop the tables.** Run `scripts/rollback-0175.sql` after exporting `ops_task_events` if its history must be kept. This drops the four tables and the trigger function.
+3. **Drop the tables.** Run `scripts/rollback-0174.sql` after exporting `ops_task_events` if its history must be kept. This drops the four tables and the trigger function.

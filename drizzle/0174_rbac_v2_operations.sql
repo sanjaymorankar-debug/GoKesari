@@ -5,7 +5,7 @@
 --   * ops_customer_assists   a customer an Operations User is helping to register
 -- Users, shops and zones are referenced without foreign keys (the service checks the links).
 -- Everything here is used only while feature flag rbac_v2_operations (0170, seeded OFF) is on.
--- Safe to re-run. Rollback: scripts/rollback-0175.sql.
+-- Safe to re-run. Rollback: scripts/rollback-0174.sql.
 CREATE TABLE IF NOT EXISTS "ops_zone_assignments" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "user_id" uuid NOT NULL,

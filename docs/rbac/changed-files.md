@@ -1,6 +1,6 @@
 # RBAC v2 — changed files
 
-Generated 22-Nov-2026 23.06 IST from `git diff --name-status c068411f..HEAD` on `feature/rbac-v2-phases-3-7` (Phases 1–7, documents; staging base c068411f). **A** = new file, **M** = changed file.
+Generated 22-Nov-2026 23.56 IST from `git diff --name-status c068411f..HEAD` on `feature/rbac-v2-phases-3-7` (Phases 1–7, documents; staging base c068411f). **A** = new file, **M** = changed file.
 
 | Status | File |
 |---|---|
@@ -135,5 +135,5 @@ Generated 22-Nov-2026 23.06 IST from `git diff --name-status c068411f..HEAD` on 
 | M | `tests/unit/tile-board.test.ts` |
 
 ```
- 130 files changed, 11908 insertions(+), 20 deletions(-)
+ 130 files changed, 12088 insertions(+), 20 deletions(-)
 ```
