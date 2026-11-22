@@ -8,11 +8,14 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { validationFailed } from "@/lib/errors";
+
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requireRole } from "@/server/authz/guards";
 import { FEATURE_FLAG_KEYS } from "@/server/db/schema";
 import { getFeatureFlags, listFeatureFlagChanges, setFeatureFlag } from "@/server/services/feature-flags";
 import { listDistricts } from "@/server/services/geo-areas";
+import { fourEyeAdminOn, requestFourEye, FOUR_EYE_TYPES } from "@/server/approvals";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +39,21 @@ export const GET = route(async () => {
 export const PUT = route(async (request: NextRequest) => {
   const admin = await requireRole("ADMIN");
   const body = await parseBody(request, putSchema);
+  // docs/rbac: with rbac_v2_four_eye_admin on, a second admin approves flag changes first. The
+  // four-eye flag itself is included: switching it off also needs a second admin.
+  if (await fourEyeAdminOn()) {
+    if (body.reason.trim().length < 5) throw validationFailed("Say why you are changing this flag.", { fields: { reason: "Give a reason (at least 5 characters)." } });
+    return ok(
+      await requestFourEye(FOUR_EYE_TYPES.FEATURE_FLAG_SET, admin, {
+        subjectType: "feature_flag",
+        subjectId: body.key,
+        title: `${body.enabled ? "Switch on" : "Switch off"} ${body.key}`,
+        reason: body.reason,
+        payload: { key: body.key, enabled: body.enabled, districtCodes: body.districtCodes },
+      }),
+      202,
+    );
+  }
   const result = await setFeatureFlag(body.key, { enabled: body.enabled, districtCodes: body.districtCodes }, body.reason, admin);
   const [last] = await listFeatureFlagChanges({ key: body.key, limit: 1 });
   return ok({ ...result, lastChange: last ?? null });

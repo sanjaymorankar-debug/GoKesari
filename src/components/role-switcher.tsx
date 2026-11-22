@@ -18,6 +18,12 @@ export const ROLE_LABEL: Record<string, string> = {
   SOCIETY_ADMIN: "Society admin",
   OPERATOR_LIMITED: "Operator (limited)", // batch-2026-10 WS-D
   DEALER: "Dealer", // docs/dealer-programme
+  CA: "CA",
+  ACCOUNTANT: "Accountant", // docs/rbac
+  SUPPORT_MANAGER: "Support manager",
+  SUPPORT_USER: "Support",
+  OPERATIONS_MANAGER: "Operations manager",
+  OPERATIONS_USER: "Operations",
 };
 
 const ROLE_HOME: Record<string, string> = {
@@ -29,6 +35,13 @@ const ROLE_HOME: Record<string, string> = {
   SOCIETY_ADMIN: "/society",
   OPERATOR_LIMITED: "/operator", // batch-2026-10 WS-D
   DEALER: "/dealer", // docs/dealer-programme
+  // docs/rbac: RBAC v2 staff roles share one tile board that shows each role its own area.
+  CA: "/staff",
+  ACCOUNTANT: "/staff",
+  SUPPORT_MANAGER: "/staff",
+  SUPPORT_USER: "/staff",
+  OPERATIONS_MANAGER: "/staff",
+  OPERATIONS_USER: "/staff",
 };
 
 /** Header control to switch the active role; shown only to users holding more than one. */

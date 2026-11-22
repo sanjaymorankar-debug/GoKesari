@@ -69,7 +69,7 @@ export interface OperatorActor {
 }
 
 /** The roles that work here. ADMIN sees every onboarded shop; OPERATOR_LIMITED only their own. */
-const WORKS_HERE: readonly UserRole[] = ["OPERATOR_LIMITED", "ADMIN"];
+const WORKS_HERE: readonly UserRole[] = ["OPERATOR_LIMITED", "OPERATIONS_USER", "ADMIN"]; // docs/rbac: Operations User reuses this flow, own shops only
 
 function assertRole(actor: OperatorActor): void {
   if (!WORKS_HERE.includes(actor.role)) throw forbidden("Only an Operator (Limited) can onboard shops here.");

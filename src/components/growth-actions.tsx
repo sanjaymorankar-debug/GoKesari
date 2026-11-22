@@ -26,7 +26,8 @@ function useSend() {
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error?.message ?? "That did not work.");
-      setNotice(success);
+      // docs/rbac: a change waiting for a second admin says so instead of claiming success.
+      setNotice(payload?.pendingApproval ? (payload.message ?? "Sent for approval.") : success);
       router.refresh();
       return payload;
     } catch (caught) {

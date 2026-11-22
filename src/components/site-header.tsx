@@ -20,6 +20,9 @@ import { formatPaiseCompact } from "@/lib/money";
 import type { UserRole } from "@/server/db/schema";
 import { signOutAction } from "@/server/sign-out-action";
 
+/** docs/rbac: RBAC v2 staff roles whose home is the staff board at /staff. */
+const STAFF_BOARD_ROLES: readonly UserRole[] = ["CA", "ACCOUNTANT", "SUPPORT_MANAGER", "SUPPORT_USER", "OPERATIONS_MANAGER", "OPERATIONS_USER"];
+
 interface Props {
   lang: Lang;
   user: { id: string; name: string | null; email: string; role: UserRole } | null;
@@ -144,6 +147,8 @@ export function SiteHeader({
           ? { href: BOARD_HOME.operator, label: UI.operatorBoard, icon: "layout-grid" }
           : role === "OPERATOR_LIMITED" // batch-2026-10 WS-D: the Operator-Limited board
             ? { href: "/operator", label: UI.operatorBoard, icon: "layout-grid" }
+            : role && STAFF_BOARD_ROLES.includes(role) // docs/rbac: RBAC v2 staff board
+            ? { href: "/staff", label: UI.operatorBoard, icon: "layout-grid" }
             : isRider
             ? { href: "/gig/orders", label: UI.riderHome, icon: "bike" }
             : null;

@@ -11,6 +11,9 @@ import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { userRoleEnum } from "@/server/db/schema";
 import { listRoleGrants, revokeRole } from "@/server/services/roles";
+import { fourEyeAdminOn, requestFourEye, FOUR_EYE_TYPES } from "@/server/approvals";
+import { forbidden } from "@/lib/errors";
+
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +29,20 @@ export const DELETE = route(async (request: NextRequest, context: RouteContext<{
   const actor = await requirePermission(PERMISSIONS.USER_SET_ROLE);
   const { id } = await context.params;
   const { role } = parseQuery(request, schema);
+  // docs/rbac: with rbac_v2_four_eye_admin on, a second admin approves the change first.
+  if (await fourEyeAdminOn()) {
+    if (id === actor.id) throw forbidden("You cannot change your own roles.");
+    return ok(
+      await requestFourEye(FOUR_EYE_TYPES.USER_ROLE_REVOKE, actor, {
+        subjectType: "user",
+        subjectId: id,
+        title: `Remove role ${role}`,
+        reason: `Role ${role} removed`,
+        payload: { userId: id, role },
+      }),
+      202,
+    );
+  }
   await revokeRole(id, role, actor);
   return ok(await listRoleGrants(id));
 });
