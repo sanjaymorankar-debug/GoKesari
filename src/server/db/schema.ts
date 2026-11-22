@@ -12764,4 +12764,5 @@ export const consultReceiptCounters = pgTable(
 export * from "./health-schema";
 export * from "./franchise-schema";
 export * from "./smart-shopping-schema";
+export * from "./shop-photo-listing-schema";
 /* <<< GoKesari Health */
