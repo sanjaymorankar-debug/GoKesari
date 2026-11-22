@@ -26,7 +26,10 @@ export type BridgeMessageType =
   | "downloadFailed"
   | "push.getToken"
   // 1.8.0: a Cashfree payment with Cashfree's mobile SDK (cashfree.ts); the reply is "verify" or an error.
-  | "cashfree.checkout";
+  | "cashfree.checkout"
+  // 1.13.0: the phone's speech recogniser for pages (speech.ts) — reply { transcript, confidence }.
+  | "speech.listen"
+  | "speech.stop";
 
 /** What the page sent, after the token and origin checks in App.tsx. */
 export interface BridgeMessage {

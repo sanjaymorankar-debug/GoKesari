@@ -25,7 +25,10 @@ export type FeatureFlagKey =
   | "zoho_connector"
   | "odoo_connector"
   | "ondc_mode"
-  | "shop_welcome_kit_admin_send_enabled";
+  | "shop_welcome_kit_admin_send_enabled"
+  | "smart_list_scan_enabled"
+  | "shop_photo_listing_enabled"
+  | "whatsapp_shop_orders_enabled";
 
 interface FlagValue {
   enabled: boolean;

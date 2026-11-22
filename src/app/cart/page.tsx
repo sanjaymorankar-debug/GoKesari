@@ -24,6 +24,8 @@ import { needsSignupReferralCode } from "@/server/services/customer-signup-refer
 import { getBoardLang } from "@/server/board-lang";
 import { SaveCartAsList } from "@/components/purchase-lists/save-cart-as-list";
 import { listPurchaseLists } from "@/server/services/purchase-lists";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { ScanListTile } from "@/components/smart-list/scan-list-tile";
 
 export const metadata = { title: "Cart" };
 export const dynamic = "force-dynamic";
@@ -79,6 +81,8 @@ export default async function CartPage() {
   const needsReferralCode = cart.groups.length > 0 && (await needsSignupReferralCode(user.id));
   // docs/purchase-lists-2026-10: "Save as a list" offers the customer's own lists.
   const purchaseLists = cart.groups.length > 0 ? await listPurchaseLists(user.id) : [];
+  // docs/smart-shopping-2026-11: "Scan my shopping list" in the cart too.
+  const [scanList, lang] = await Promise.all([isFeatureEnabled("smart_list_scan_enabled").catch(() => false), getBoardLang()]);
 
   return (
     <>
@@ -86,6 +90,11 @@ export default async function CartPage() {
         title="Your cart"
         description="Items are grouped by shop — each shop becomes its own order."
       />
+      {scanList ? (
+        <div className="mb-4">
+          <ScanListTile lang={lang} compact />
+        </div>
+      ) : null}
       {bankPrompt ? <BankAccountPrompt status={bankPrompt} href="/profile/bank-account" purpose="refunds" /> : null}
       {needsReferralCode ? (
         <div className="mb-4" data-testid="cart-referral-needed">

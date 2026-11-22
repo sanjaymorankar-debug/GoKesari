@@ -243,6 +243,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "accounts", label: L("Bills & GST", "बिल और GST", "बिले आणि GST"), icon: "receipt", href: "/shop/accounts" },
       // docs/product-import-2026-10: many products and their stock from one Excel/CSV file.
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/shop/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_OWN },
+      // docs/smart-shopping-2026-11 (Feature 2): photos + spoken price/stock → AI fills the product. Only while its flag is on.
+      { key: "addByPhoto", label: L("Add product by photo", "फ़ोटो से उत्पाद जोड़ें", "फोटोने उत्पादन जोडा"), short: L("Add by photo", "फ़ोटो से जोड़ें", "फोटोने जोडा"), icon: "images", href: "/shop/photo-listing", feature: "shop_photo_listing_enabled" },
     ],
     more: [
       { key: "scanBill", label: L("Scan supplier bill", "सप्लायर बिल स्कैन करें", "पुरवठादाराचे बिल स्कॅन करा"), icon: "images", href: "/shop/accounts/capture?mode=scan" },
@@ -348,6 +350,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       // docs/dealer-programme (GKS-SP-001): paid help — product upload, price update, general support. Only while that flag is on.
       { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/shop/support-services", feature: "paid_support_services_enabled" },
       { key: "cancellationFee", label: L("Cancellation fee", "रद्द करने का शुल्क", "रद्द शुल्क"), icon: "receipt", href: "/shop/settings/cancellation-fee", permission: PERMISSIONS.SHOP_CANCELLATION_FEE_MANAGE_OWN },
+      // docs/smart-shopping-2026-11 (feature 3): new orders on the owner's WhatsApp. Only while the flag is on.
+      { key: "whatsappOrders", label: L("Orders on WhatsApp", "व्हाट्सऐप पर ऑर्डर", "व्हॉट्सॲपवर ऑर्डर"), icon: "message-square", href: "/shop/settings/whatsapp", feature: "whatsapp_shop_orders_enabled" },
     ],
   },
   {
@@ -465,6 +469,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
       { key: "productBrowser", label: L("Product browser", "प्रोडक्ट ब्राउज़र", "उत्पादन ब्राउझर"), icon: "search", href: "/admin/product-browser", permission: PERMISSIONS.PMD_VIEW }, // batch-2026-10 WS-D
+      // docs/smart-shopping-2026-11 (Feature 2): products added by photo and how often owners corrected the AI.
+      { key: "photoListings", label: L("Added by photo (AI accuracy)", "फ़ोटो से जोड़े गए (AI सटीकता)", "फोटोने जोडलेली (AI अचूकता)"), short: L("Added by photo", "फ़ोटो से जोड़े", "फोटोने जोडलेली"), icon: "images", href: "/admin/photo-listing", permission: PERMISSIONS.PRODUCT_APPROVE },
     ],
   },
   {
@@ -518,6 +524,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "dashboard", label: L("Dashboard", "डैशबोर्ड", "डॅशबोर्ड"), icon: "chart-line", href: "/admin/dashboard", permission: REPORTS },
       { key: "analytics", label: L("Analytics", "विश्लेषण", "विश्लेषण"), icon: "file-chart-column", href: "/admin/analytics", permission: REPORTS },
+      // docs/smart-shopping-2026-11: list scans, AI match accuracy and cost, products added by photo, WhatsApp delivery.
+      { key: "smartShopping", label: L("Smart shopping", "स्मार्ट शॉपिंग", "स्मार्ट खरेदी"), icon: "sparkles", href: "/admin/smart-shopping", permission: REPORTS },
       { key: "orders", label: L("Orders", "ऑर्डर", "ऑर्डर"), icon: "package", href: "/admin/orders", count: "liveOrders", permission: PERMISSIONS.ORDER_VIEW_ANY },
       { key: "history", label: L("History", "इतिहास", "इतिहास"), icon: "history", href: "/admin/status-changes", permission: AUDIT },
       { key: "risk", label: L("Risk", "जोखिम", "धोका"), icon: "triangle-alert", href: "/admin/risk", count: "openRisk", permission: PERMISSIONS.RISK_REVIEW },
@@ -543,6 +551,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "productGst", label: L("Product GST rates", "उत्पाद जीएसटी दरें", "उत्पाद जीएसटी दर"), icon: "receipt", href: "/admin/product-gst", permission: PERMISSIONS.GST_CONFIG_MANAGE },
       { key: "integrations", label: L("Accounting sync", "अकाउंटिंग सिंक", "अकाउंटिंग सिंक"), icon: "database", href: "/admin/integrations", permission: PERMISSIONS.INTEGRATION_VIEW_ANY },
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      // docs/smart-shopping-2026-11 (feature 3): the WhatsApp message log and delivery figures. Only while the flag is on.
+      { key: "whatsappMessages", label: L("WhatsApp messages", "व्हाट्सऐप संदेश", "व्हॉट्सॲप संदेश"), icon: "message-square", href: "/admin/whatsapp-messages", permission: PERMISSIONS.ORDER_VIEW_ANY, feature: "whatsapp_shop_orders_enabled" },
       // docs/nearby-referral-2026-10, feature 2: Mandatory / Optional referral code — admin only.
       { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
       // docs/dealer-programme: the programme's on/off switches, per district — admin only.
@@ -604,12 +614,15 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "dashboard", label: L("Dashboard", "डैशबोर्ड", "डॅशबोर्ड"), icon: "chart-line", href: "/admin/dashboard", permission: REPORTS },
       { key: "analytics", label: L("Analytics", "विश्लेषण", "विश्लेषण"), icon: "file-chart-column", href: "/admin/analytics", permission: REPORTS },
+      // docs/smart-shopping-2026-11: list scans, AI match accuracy and cost, products added by photo, WhatsApp delivery.
+      { key: "smartShopping", label: L("Smart shopping", "स्मार्ट शॉपिंग", "स्मार्ट खरेदी"), icon: "sparkles", href: "/admin/smart-shopping", permission: REPORTS },
       { key: "history", label: L("Status history", "स्थिति इतिहास", "स्थिती इतिहास"), icon: "history", href: "/admin/status-changes", permission: AUDIT },
       { key: "risk", label: L("Risk", "जोखिम", "धोका"), icon: "triangle-alert", href: "/admin/risk", count: "openRisk", permission: PERMISSIONS.RISK_REVIEW },
       { key: "ratings", label: L("Ratings", "रेटिंग", "रेटिंग"), icon: "star", href: "/admin/ratings", permission: PERMISSIONS.RATING_MODERATE },
       { key: "campaigns", label: L("Campaigns", "अभियान", "मोहिमा"), icon: "megaphone", href: "/admin/campaigns", count: "submittedCampaigns", permission: PERMISSIONS.MARKETING_APPROVE },
       { key: "integrations", label: L("Accounting sync", "अकाउंटिंग सिंक", "अकाउंटिंग सिंक"), icon: "database", href: "/admin/integrations", permission: PERMISSIONS.INTEGRATION_VIEW_ANY },
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      { key: "whatsappMessages", label: L("WhatsApp messages", "व्हाट्सऐप संदेश", "व्हॉट्सॲप संदेश"), icon: "message-square", href: "/admin/whatsapp-messages", permission: PERMISSIONS.ORDER_VIEW_ANY, feature: "whatsapp_shop_orders_enabled" },
       { key: "figures", label: L("Key figures", "मुख्य आँकड़े", "मुख्य आकडे"), icon: "chart-line", href: "/admin/console/overview", permission: STAFF },
       { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
       { key: "homeBanners", label: L("Home banners", "होम बैनर", "होम बॅनर"), icon: "images", href: "/admin/home-banners", permission: PERMISSIONS.HOME_BANNER_MANAGE }, // docs/homepage-uiux-2026-10
