@@ -1219,6 +1219,13 @@
       "when": 1793267100000,
       "tag": "0173_rbac_v2_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1793267500000,
+      "tag": "0175_rbac_v2_operations",
+      "breakpoints": true
     }
   ]
 }
