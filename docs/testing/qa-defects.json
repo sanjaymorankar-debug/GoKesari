@@ -1847,7 +1847,8 @@
       "actual": "GET /api/cod/eligibility (customer gk-lc14) → {openOrders: 2, maxOpenOrders: 2, allowed: false}; the two open COD orders are older than the 50 orders the customer's pages list and are not on the E2E shop's open tabs. The customer has 71 open orders on E2E Four Features Bakery (about 60 READY since 24–31 Oct whose rider searches stopped). Wallet ₹975 at 15.07 IST, ₹10 by 16.29 IST (the run's wallet orders): 32 checks blocked 'wallet too low', and TC-UX-002 (×2, mobile) fails because the cart then shows 'Add money to wallet' instead of 'Pay from wallet'. No saved rider (gk-rider) or limited-operator (gk-oplim) session: 39 checks blocked; the sign-in codes could not be read in this session (no Gmail access).",
       "expected": "A test customer with no open COD orders and a wallet top-up before each run; stale orders closed; all seven staging sessions signed in.",
       "fix": "Test data / ops: close or deliver the stale orders (and the two open COD orders) of gk-lc14, top up its wallet (staging test top-up), sign gk-rider and gk-oplim in (skill gokesari-qa-signin). Test: TC-UX-002 should block, not fail, when the wallet is below the cart total.",
-      "status": "Open"
+      "status": "Open",
+      "retest": "22-Nov-2026 18.21-18.26 IST on staging (docs/testing/qa-runs/2026-11-22-staging-rider-returns-support.json): still open. TC-FLD-089 desktop and phone blocked: checkout refused, HTTP 409 'You already have 2 cash-on-delivery orders on the way'; the two orders are not in the 25 the customer's order list returns."
     },
     {
       "id": "E-17",
@@ -2796,7 +2797,7 @@
       "fix": "#445 (5852a2ea): clickWrite() waits for the answer of a write click and clicks again after Retry-After on the proxy's 429; every write click in orders-returns.spec.ts uses it; returns a check sends to the rider are cancelled as operations in afterEach when the check fails or is blocked. Not a product defect. Note for the product: images served under /api count towards the per-IP API limit, and a 429 shows the generic 'That did not work.' on the return card.",
       "status": "Fixed - retest passed",
       "fixedIn": "#445",
-      "retest": "21-Nov-2026 07.42-07.47 IST on staging with 5852a2ea (docs/testing/qa-runs/2026-11-21-staging-rider-fix-retest.json): the returns file passes 44 of 46 rows (desktop in full, TC-RET-013 / TC-RET-022 included; the other 2 blocked only by customer 1's wallet); no return left with the rider."
+      "retest": "21-Nov-2026 07.42-07.47 IST on staging with 5852a2ea (docs/testing/qa-runs/2026-11-21-staging-rider-fix-retest.json): the returns file passes 44 of 46 rows (desktop in full, TC-RET-013 / TC-RET-022 included; the other 2 blocked only by customer 1's wallet); no return left with the rider. 22-Nov-2026 18.27-18.42 IST on staging with 99074595 (docs/testing/qa-runs/2026-11-22-staging-rider-returns-support.json): the returns file passes 46 of 46 rows, desktop and phone; no return left with the rider."
     }
   ]
 }
