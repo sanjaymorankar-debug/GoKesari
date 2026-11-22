@@ -12,12 +12,13 @@ import { ShopCategoryPicker, type PickerCategory } from "@/components/shop-categ
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
 import { useShopTypes } from "@/components/use-shop-types";
 import { tr, type Lang } from "@/lib/board/i18n";
-import { licenceNoticeMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
+import { documentNoticeMessage, licenceNoticeMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
 import { PUJA_SHOP_TYPE_KEY } from "@/lib/puja";
 import { GST_DECLARATION_TEXT, SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
 import { SELLER_DOC_LABELS, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { formatRupeesIndian, turnoverSlab, turnoverSlabLabel, type TurnoverFeeRule } from "@/lib/registration-fee";
 import { DocumentUploadPanel, type PanelItem } from "@/components/document-upload-panel";
+import { LegalDocumentsPanel, type LegalDocCard } from "@/components/legal-documents-panel";
 import { DocumentScan } from "./document-scan";
 import { StarterShelf } from "./starter-shelf";
 
@@ -139,6 +140,8 @@ export interface WizardState {
   membershipMonths: number;
   setup: { location: boolean; categories: boolean; products: boolean } | null;
   licenceGraceDays: number;
+  /** DF-09: the documents each shop type needs, from the admin's rules (shop-type screen notice). */
+  documentNotices?: Record<string, { label: string; level: "MUST_HAVE" | "PROMISE" }[]>;
   /** DF-08: the documents screen (FSSAI must-have, the rest on the owner's promise). */
   documentsStep: DocumentsStepState | null;
   nextStep: Step;
@@ -146,6 +149,10 @@ export interface WizardState {
 
 interface DocumentsStepState {
   fssaiNeeded: boolean;
+  /** DF-09: every must-have document not on file (labels), FSSAI included. */
+  mustHave?: string[];
+  /** DF-09: documents an admin added for this kind of shop. */
+  extraDocuments?: LegalDocCard[];
   promiseCovers: string[];
   promisedBy: string | null;
   promiseDays: number;
@@ -344,10 +351,15 @@ function DocumentsStep({
   }, [shopId, version]);
   const items: PanelItem[] = (checklist?.items ?? []).map((item) => ({ ...item, latest: item.latest ? { ...item.latest } : null }));
   const fssaiNeeded = step?.fssaiNeeded ?? false;
+  // DF-09: the admin's must-haves for this kind of shop (FSSAI for food by default).
+  const mustHave = step?.mustHave ?? (fssaiNeeded ? ["FSSAI licence"] : []);
+  const otherMustHave = mustHave.filter((label) => !/FSSAI/i.test(label));
+  const blocked = fssaiNeeded || mustHave.length > 0;
   const covers = step?.promiseCovers ?? [];
-  const needsPromise = !fssaiNeeded && covers.length > 0 && !step?.promisedBy;
-  const canContinue = !fssaiNeeded && (step?.canContinue === true || (needsPromise && promise));
+  const needsPromise = !blocked && covers.length > 0 && !step?.promisedBy;
+  const canContinue = !blocked && (step?.canContinue === true || (needsPromise && promise));
   const list = covers.join(", ");
+  const extra = step?.extraDocuments ?? [];
   return (
     <StepCard
       title="Upload your documents"
@@ -357,6 +369,12 @@ function DocumentsStep({
         <Alert tone="warning" title="FSSAI licence required">
           Your shop sells food, so an FSSAI licence or registration is required by law. Please upload it below to continue — your shop goes
           live only once it is on file.
+        </Alert>
+      ) : null}
+      {otherMustHave.length > 0 ? (
+        <Alert tone="warning" title="Required before you pay" data-testid="documents-must-have">
+          {otherMustHave.join(", ")} {otherMustHave.length > 1 ? "are" : "is"} required by law for your type of shop. Please upload{" "}
+          {otherMustHave.length > 1 ? "them" : "it"} below to continue.
         </Alert>
       ) : null}
       {loadFailed ? <Alert tone="info">Your documents could not be loaded just now. Please reload the page and try again.</Alert> : null}
@@ -372,6 +390,12 @@ function DocumentsStep({
         />
       ) : null}
       {!checklist && !loadFailed ? <p className="text-sm text-ink-500">Loading your documents…</p> : null}
+      {extra.length > 0 ? (
+        <div className="space-y-2" data-testid="documents-extra">
+          <h3 className="text-sm font-semibold text-ink-900">More documents for your type of shop</h3>
+          <LegalDocumentsPanel shopId={shopId} documents={extra} onSubmitted={() => void refresh()} />
+        </div>
+      ) : null}
       {step?.promisedBy ? (
         <p className="text-sm text-ink-700" data-testid="documents-promised">
           You promised to upload your remaining documents by <strong>{step.promisedBy}</strong>. We will remind you by e-mail on the 1st and 15th
@@ -1111,6 +1135,8 @@ function ShopStep({
   const blank = (v: string) => (v.trim() ? v.trim() : null);
 
   const licence = form.shopType ? mandatoryLicenceFor(form.shopType) : null;
+  // DF-09: what the admin's rules ask of this shop type (the fixed licence list when the server sends none).
+  const notices = form.shopType ? (state.documentNotices?.[form.shopType] ?? []) : [];
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -1150,7 +1176,15 @@ function ShopStep({
             </select>
           </Field>
         </div>
-        {licence ? (
+        {notices.length > 0 ? (
+          <div className="space-y-2" data-testid="licence-grace-notice">
+            {notices.map((n) => (
+              <Alert key={n.label} tone="warning">
+                {tr(documentNoticeMessage(licence && n.label === licence.label.en ? tr(licence.label, lang) : n.label, n.level, state.licenceGraceDays), lang)}
+              </Alert>
+            ))}
+          </div>
+        ) : licence && !state.documentNotices ? (
           <div data-testid="licence-grace-notice">
             <Alert tone="warning">{tr(licenceNoticeMessage(licence, tr(licence.label, lang), state.licenceGraceDays), lang)}</Alert>
           </div>

@@ -400,6 +400,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "documents", label: L("Legal documents", "कानूनी दस्तावेज़", "कायदेशीर कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
+      // DF-09 (owner, 22-Nov-2026): which documents each kind of shop needs (admin edits, operators see).
+      { key: "documentRules", label: L("Document rules", "दस्तावेज़ नियम", "कागदपत्र नियम"), icon: "sliders-horizontal", href: "/admin/shop-documents", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "uploads", label: L("Document uploads", "दस्तावेज़ अपलोड", "कागदपत्र अपलोड"), icon: "file-text", href: "/admin/document-uploads", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "compliance", label: L("Compliance & GST/PAN", "अनुपालन व जीएसटी/पैन", "अनुपालन व जीएसटी/पॅन"), icon: "scroll-text", href: "/admin/console/compliance", permission: COMPLIANCE },
       { key: "registrations", label: L("Registrations", "पंजीकरण", "नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },

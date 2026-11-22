@@ -48,3 +48,16 @@ export function licenceGraceMessage(licence: string, graceDays: number): Text {
     `या प्रकारच्या दुकानासाठी ${licence} अनिवार्य आहे. तुमचे दुकान आता लाइव्ह होऊ शकते, आणि ते अपलोड करण्यासाठी तुमच्याकडे ${graceDays} दिवसांचा अवधी आहे. अन्यथा तुमचे दुकान निलंबित केले जाईल.`,
   );
 }
+
+/**
+ * DF-09 (owner, 22-Nov-2026): the shop-type screen's notice for a document the admin's rules ask for —
+ * a must-have is uploaded before the fee is paid; anything else may follow go-live on the promise.
+ */
+export function documentNoticeMessage(label: string, level: "MUST_HAVE" | "PROMISE", graceDays: number): Text {
+  if (level === "PROMISE") return licenceGraceMessage(label, graceDays);
+  return L(
+    `${label} is mandatory for this type of shop. You will upload it before paying the registration fee; your shop goes live once it is on file.`,
+    `इस प्रकार की दुकान के लिए ${label} अनिवार्य है। पंजीकरण शुल्क का भुगतान करने से पहले आप इसे अपलोड करेंगे; यह जमा होने के बाद आपकी दुकान लाइव होगी।`,
+    `या प्रकारच्या दुकानासाठी ${label} अनिवार्य आहे. नोंदणी शुल्क भरण्यापूर्वी तुम्ही ते अपलोड कराल; ते जमा झाल्यावर तुमचे दुकान लाइव्ह होईल.`,
+  );
+}

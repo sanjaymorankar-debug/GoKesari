@@ -24,6 +24,11 @@ export const AUDIT_ACTIONS = {
   SHOP_APPROVED_WITHOUT_DOCUMENTS: "shop.approved_without_documents",
   /** 0159 (owner request 21-Nov-2026): an admin approved a food shop without its FSSAI licence; due date recorded. */
   SHOP_APPROVED_WITHOUT_FSSAI: "shop.approved_without_fssai",
+  /** DF-09 (owner, 22-Nov-2026; 0163): an admin set, changed or removed a shop document rule, or added / changed a document. */
+  SHOP_DOCUMENT_RULE_SAVED: "shop_document_rule.saved",
+  SHOP_DOCUMENT_RULE_REMOVED: "shop_document_rule.removed",
+  SHOP_DOCUMENT_TYPE_ADDED: "shop_document_type.added",
+  SHOP_DOCUMENT_TYPE_UPDATED: "shop_document_type.updated",
   SHOP_DOCUMENTS_REMINDED: "shop.documents_reminded",
   SHOP_DOCUMENTS_PROMISED: "shop.documents_promised", // 0115: "I will provide all relevant documents within 30 days"
   SHOP_DOCUMENTS_FOLLOW_UP: "shop.documents_follow_up", // 0115: 1st / 15th reminder, or suspension after the last

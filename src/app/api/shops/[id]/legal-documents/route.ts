@@ -5,7 +5,8 @@
  *   GET   → what the shop must hold, each document's state and deadline
  *   POST  multipart: docType (FSSAI | DRUG_LICENCE | MEDICAL_REGISTRATION),
  *         number, expiryDate (FSSAI, drug licence), issuingCouncil (medical
- *         registration), file (PDF / JPEG / PNG / WebP, ≤ 5 MB, checked from the bytes)
+ *         registration), file (PDF / JPEG / PNG / WebP, ≤ 5 MB, checked from the bytes);
+ *         DF-09: customKey (`DOC:…`, docType OTHER_LICENCE) for a document an admin added
  */
 import type { NextRequest } from "next/server";
 
@@ -37,7 +38,10 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   if (typeof docType !== "string" || !(LEGAL_DOC_KEYS as readonly string[]).includes(docType)) {
     throw validationFailed("Choose which document you are uploading.");
   }
-  if (typeof number !== "string" || !number.trim()) {
+  // DF-09: a document an admin added may not have a number (the service checks it against the admin's list).
+  const customKey = form?.get("customKey");
+  const custom = typeof customKey === "string" && customKey.trim() ? customKey.trim() : null;
+  if (typeof number !== "string" || (!number.trim() && !custom)) {
     throw validationFailed("Enter the number printed on the document.", { fields: { number: "Required." } });
   }
   if (!(file instanceof File)) throw validationFailed("Attach a copy of the document.", { fields: { file: "Required." } });
@@ -54,6 +58,7 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
       expiryDate: text("expiryDate"),
       issuingCouncil: text("issuingCouncil"),
       licenceName: text("licenceName"),
+      customKey: custom,
       file: Buffer.from(await file.arrayBuffer()),
       actor: user,
     }),

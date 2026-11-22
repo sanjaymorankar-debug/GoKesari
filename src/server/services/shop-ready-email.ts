@@ -6,17 +6,19 @@
  * and direct links to add products. The dealer the shop is counted for is told
  * too.
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { addDays, formatDisplayDate, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
-import { licenceGraceMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
+import { listJoin } from "@/lib/shop-document-rules";
+import { licenceGraceMessage } from "@/lib/shop-licences";
 import { db } from "@/server/db";
-import { dealers, shopAttributions, shopLegalDocuments, type Shop } from "@/server/db/schema";
+import { dealers, shopAttributions, type Shop } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { notify } from "./notifications";
 import { getRule } from "./settings";
 import { isDocumentsLaterShop, isWizardRegisteredShop } from "./shop-onboarding";
+import { documentRequirementsFor, requirementsOnFile } from "./shop-document-rules";
 import { loadShopTypeRegistry } from "./shop-types";
 
 function siteUrl(path: string): string {
@@ -29,12 +31,11 @@ function siteUrl(path: string): string {
  * professional registration) goes live without it; the owner has shopDocumentFollowUp.graceDays (90)
  * to upload it — since DF-08 (21-Nov-2026) on the owner's promise, whose date applies when later.
  * Not FSSAI any more (DF-08): a food shop goes live only with its licence on file, or on an admin's
- * waiver, which sends its own notice (shops.ts). Once per shop (dedupe key).
+ * waiver, which sends its own notice (shops.ts). DF-09 (22-Nov-2026): the licences are the admin's
+ * rules — the licences and admin-added documents set to "on the promise" for the shop's type.
+ * Once per shop (dedupe key).
  */
-async function sendLicenceGraceNotice(shop: Shop): Promise<void> {
-  await loadShopTypeRegistry();
-  const licence = mandatoryLicenceFor(shop.shopType);
-  if (!licence || licence.docType === "FSSAI") return;
+async function sendLicenceGraceNotice(shop: Shop, labels: string[]): Promise<void> {
   const { graceDays } = await getRule("shopDocumentFollowUp");
   const zone = getEnv().APP_TIMEZONE;
   const graceEnd = addDays(todayIn(zone), graceDays);
@@ -45,7 +46,7 @@ async function sendLicenceGraceNotice(shop: Shop): Promise<void> {
     vars: {
       shopName: shop.name,
       graceDays,
-      message: licenceGraceMessage(licence.label.en, graceDays).en,
+      message: licenceGraceMessage(listJoin(labels), graceDays).en,
       dueDate: formatDisplayDate(promised && promised > graceEnd ? promised : graceEnd),
     },
     actionUrl: "/shop/legal-documents",
@@ -63,24 +64,12 @@ export async function sendLicenceGraceNoticeIfMissing(shop: Shop): Promise<void>
   try {
     if (!(await isWizardRegisteredShop(shop.id))) return;
     await loadShopTypeRegistry();
-    const licence = mandatoryLicenceFor(shop.shopType);
-    // FSSAI is on file before a food shop goes live (DF-08); an admin's waiver sends its own notice.
-    if (!licence || licence.docType === "FSSAI") return;
-    const onFile =
-      (
-        await db
-          .select({ id: shopLegalDocuments.id })
-          .from(shopLegalDocuments)
-          .where(
-            and(
-              eq(shopLegalDocuments.shopId, shop.id),
-              eq(shopLegalDocuments.docType, licence.docType),
-              inArray(shopLegalDocuments.status, ["SUBMITTED", "APPROVED"]),
-            ),
-          )
-          .limit(1)
-      ).length > 0;
-    if (!onFile) await sendLicenceGraceNotice(shop);
+    // FSSAI is on file before a food shop goes live (DF-08); an admin's waiver sends its own notice. Shop
+    // Act and Udyam are seller documents with their own reminders.
+    const requirements = (await documentRequirementsFor(shop)).filter((r) => r.kind !== "seller" && r.level === "PROMISE");
+    if (requirements.length === 0) return;
+    const missing = (await requirementsOnFile(shop, db, { requirements })).filter((r) => !r.onFile).map((r) => r.label);
+    if (missing.length > 0) await sendLicenceGraceNotice(shop, missing);
   } catch (error) {
     console.error("[shop-ready] licence notice failed", shop.id, error instanceof Error ? error.message : error);
   }

@@ -95,6 +95,16 @@ export default async function ShopsMissingDocumentsPage({ searchParams }: { sear
                           {SELLER_DOC_LABELS[d]} waiting for our check
                         </Badge>
                       ))}
+                      {r.missingLicences.map((label) => (
+                        <Badge key={label} tone="danger">
+                          {label} missing
+                        </Badge>
+                      ))}
+                      {r.upcoming.map((u) => (
+                        <Badge key={u.label} tone="warning">
+                          {u.label} due {documentsDueLabel(u.dueAt)}
+                        </Badge>
+                      ))}
                       {r.shop.documentsDueAt ? (
                         <Badge tone={overdue ? "danger" : "warning"}>
                           {overdue ? "promise overdue since" : "promised by"} {documentsDueLabel(r.shop.documentsDueAt)}

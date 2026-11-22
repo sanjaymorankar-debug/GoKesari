@@ -43,7 +43,7 @@ import { POST as emailRoute } from "@/app/api/shops/registration-draft/email/rou
 import { POST as referralRoute } from "@/app/api/shops/registration-draft/referral/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
-import { notifications, platformSettings, shopCategories, shopFssaiWaivers, shopRegistrationDrafts, shops } from "@/server/db/schema";
+import { auditLogs, notifications, platformSettings, shopCategories, shopFssaiWaivers, shopLegalDocuments, shopRegistrationDrafts, shops } from "@/server/db/schema";
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
@@ -51,7 +51,16 @@ import { findLikelyDuplicate } from "@/server/dealers/attribution";
 import { finishFeeCapture } from "@/server/services/operator-limited";
 import { promiseShopDocuments } from "@/server/services/shop-document-gate";
 import { approveShop } from "@/server/services/shops";
-import { getDocumentChecklist } from "@/server/services/document-uploads";
+import { fssaiBlocksRegistration, getDocumentChecklist } from "@/server/services/document-uploads";
+import { submitLegalDocument } from "@/server/services/legal-documents";
+import {
+  addShopDocumentType,
+  documentRequirementsFor,
+  getDocumentRulesAdmin,
+  removeDocumentRule,
+  saveDocumentRule,
+  updateShopDocumentType,
+} from "@/server/services/shop-document-rules";
 import { startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
 import { setRegistrationFee } from "@/server/services/registration-fees";
 import { setReferralSetting } from "@/server/services/referral-settings";
@@ -386,6 +395,143 @@ describe("DF-08 (owner, 21-Nov-2026 night): GST/PAN and FSSAI are must-have; the
     const notices = await db.select().from(notifications).where(eq(notifications.type, "shop.licence_grace_notice"));
     expect(notices).toHaveLength(1);
     expect(notices[0].body).toContain("grace period of 30 days");
+  });
+});
+
+describe("DF-09 (owner, 22-Nov-2026): the admin decides which documents each kind of shop needs", () => {
+  const PDF = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+  let adminActor: { id: string; role: "ADMIN" };
+  beforeEach(async () => {
+    // As shipped: the FSSAI-for-food switch on.
+    await db.delete(platformSettings).where(eq(platformSettings.key, "documentUpload"));
+    clearRuleCache();
+    adminActor = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
+  });
+
+  async function shopAtDocuments(shopType = "GENERAL_TRADING") {
+    await verifyGstin(gstinFor("ABCPK5678L"));
+    await saveDraftAddress({ actor: owner, address: ADDRESS });
+    await saveDraftLocation({ actor: owner, ...PIN });
+    await saveDraftDetails({ actor: owner, details: shopFields({ shopType }) });
+    return submitDraftForPayment({ actor: owner });
+  }
+
+  it("Shop Act made optional for all shops: nothing to promise, the owner goes on to payment", async () => {
+    await saveDocumentRule({ docKey: "SHOP_ACT", scope: "ALL", level: "OPTIONAL" }, adminActor);
+    const submitted = await shopAtDocuments();
+    expect(submitted.documentsStep).toMatchObject({ mustHave: [], promiseCovers: [], canContinue: true });
+    const checklist = await getDocumentChecklist(submitted.shop!.id, owner);
+    expect(checklist.items.find((i) => i.docType === "SHOP_ACT")?.requirement).toBe("optional");
+    expect((await finishDraftDocumentsStep({ actor: owner })).nextStep).toBe("PAYMENT");
+  });
+
+  it("Fire NOC made must-have for one shop type: uploaded before paying, never promised; the shop then goes live", async () => {
+    await saveDocumentRule({ docKey: "FIRE_NOC", scope: "TYPE:GENERAL_TRADING", level: "MUST_HAVE" }, adminActor);
+    const submitted = await shopAtDocuments();
+    const shopId = submitted.shop!.id;
+    expect(submitted.documentsStep).toMatchObject({ fssaiNeeded: false, mustHave: ["Fire NOC"], canContinue: false });
+    const checklist = await getDocumentChecklist(shopId, owner);
+    expect(checklist.items.find((i) => i.docType === "FIRE_NOC")?.requirement).toBe("required");
+    await expect(finishDraftDocumentsStep({ actor: owner, promise: true })).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: "DOCUMENTS_REQUIRED", missing: ["Fire NOC"] },
+    });
+    await expect(startRegistrationFeeCheckout(shopId, owner)).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "DOCUMENTS_REQUIRED" } });
+    await submitLegalDocument({ shopId, docType: "FIRE_NOC", number: "PMC/FIRE/2026/1234", file: PDF, actor: owner });
+    const after = await finishDraftDocumentsStep({ actor: owner, promise: true });
+    expect(after).toMatchObject({ nextStep: "PAYMENT", documentsStep: { mustHave: [] } });
+    await payInSandbox(shopId);
+    expect(await shopRow(shopId)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
+    // Another shop type is not asked for it.
+    const other = await documentRequirementsFor({ id: shopId, shopType: "BAKERY" });
+    expect(other.map((r) => r.key)).not.toContain("FIRE_NOC");
+  });
+
+  it("an admin adds a document the law requires: shops of that type promise it, or upload it on its own form", async () => {
+    const type = await addShopDocumentType(
+      { label: "Pollution control NOC", lawNote: "State Pollution Control Board consent to operate", needsNumber: false, needsExpiry: false, needsAuthority: true },
+      adminActor,
+    );
+    expect(type.key).toBe("DOC:POLLUTION-CONTROL-NOC");
+    const submitted = await shopAtDocuments();
+    const shopId = submitted.shop!.id;
+    // No rule yet: not asked.
+    expect(submitted.documentsStep!.promiseCovers).not.toContain("Pollution control NOC");
+    await saveDocumentRule({ docKey: type.key, scope: "TYPE:GENERAL_TRADING", level: "PROMISE" }, adminActor);
+    let view = (await getWizardDraft(owner))!;
+    expect(view.documentsStep!.promiseCovers).toEqual(["Shop Act (Shops & Establishments) certificate", "Pollution control NOC"]);
+    expect(view.documentsStep!.extraDocuments).toEqual([
+      expect.objectContaining({ customKey: type.key, label: "Pollution control NOC", state: "MISSING", level: "PROMISE", customNeeds: { number: false, expiry: false, authority: true } }),
+    ]);
+    // It asks for the issuing authority; the number is optional for this one.
+    await expect(
+      submitLegalDocument({ shopId, docType: "OTHER_LICENCE", number: "", customKey: type.key, file: PDF, actor: owner }),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED", details: { fields: { issuingCouncil: expect.any(String) } } });
+    const uploaded = await submitLegalDocument({ shopId, docType: "OTHER_LICENCE", number: "", issuingCouncil: "MPCB Pune", customKey: type.key, file: PDF, actor: owner });
+    expect(uploaded).toMatchObject({ docType: "OTHER_LICENCE", label: "Pollution control NOC", state: "SUBMITTED", numberMasked: null });
+    view = (await getWizardDraft(owner))!;
+    expect(view.documentsStep!.promiseCovers).toEqual(["Shop Act (Shops & Establishments) certificate"]);
+    expect(view.documentsStep!.extraDocuments[0]).toMatchObject({ state: "SUBMITTED" });
+    // Switched off: no longer asked; what was uploaded stays.
+    await updateShopDocumentType(type.key, { status: "INACTIVE" }, adminActor);
+    expect((await documentRequirementsFor({ id: shopId, shopType: "GENERAL_TRADING" })).map((r) => r.key)).not.toContain(type.key);
+  });
+
+  it("FSSAI on the promise for one food type: such a shop pays with FSSAI promised, and approval does not wait for it", async () => {
+    await saveDocumentRule({ docKey: "FSSAI", scope: "TYPE:DAIRY", level: "PROMISE" }, adminActor);
+    const submitted = await shopAtDocuments("DAIRY");
+    const shopId = submitted.shop!.id;
+    expect(submitted.documentsStep).toMatchObject({ fssaiNeeded: false, mustHave: [] });
+    expect(submitted.documentsStep!.promiseCovers).toEqual(expect.arrayContaining(["FSSAI licence", "Shop Act (Shops & Establishments) certificate"]));
+    expect(await fssaiBlocksRegistration(await shopRow(shopId))).toBeNull();
+    expect((await finishDraftDocumentsStep({ actor: owner, promise: true })).nextStep).toBe("PAYMENT");
+    await payInSandbox(shopId);
+    expect(await shopRow(shopId)).toMatchObject({ status: "APPROVED" });
+  });
+
+  it("a paid shop missing an admin must-have is refused a plain Approve; Approve without documents covers it", async () => {
+    const submitted = await shopAtDocuments();
+    const shopId = submitted.shop!.id;
+    await saveDocumentRule({ docKey: "TRADE_LICENCE", scope: "ALL", level: "MUST_HAVE" }, adminActor);
+    await db.update(shops).set({ feePaymentStatus: "PAID", registrationFeePaise: 0 }).where(eq(shops.id, shopId));
+    await expect(approveShop(shopId, { classification: "GREEN" }, adminActor)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { mustHaveDocuments: ["Trade licence (municipal)"] },
+    });
+    const approved = await approveShop(shopId, { classification: "GREEN" }, adminActor, { waiveFssai: { reason: "Trade licence applied for; owner will upload" } });
+    expect(approved.status).toBe("APPROVED");
+    expect(await db.select().from(shopFssaiWaivers).where(eq(shopFssaiWaivers.shopId, shopId))).toHaveLength(1);
+    // Not a food shop: no FSSAI row is made for it.
+    expect(await db.select().from(shopLegalDocuments).where(eq(shopLegalDocuments.shopId, shopId))).toHaveLength(0);
+  });
+
+  it("only an admin changes the rules; raising a document gives shops already live the days given; every change is audited", async () => {
+    const operatorActor = { id: (await createUser({ role: "OPERATOR" })).id, role: "OPERATOR" as const };
+    await expect(saveDocumentRule({ docKey: "FIRE_NOC", scope: "ALL", level: "PROMISE" }, operatorActor)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      addShopDocumentType({ label: "Explosives licence", lawNote: "Explosives Act 1884", needsNumber: true, needsExpiry: true, needsAuthority: false }, operatorActor),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(saveDocumentRule({ docKey: "NOT_A_DOC", scope: "ALL", level: "PROMISE" }, adminActor)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(saveDocumentRule({ docKey: "FIRE_NOC", scope: "TYPE:NO_SUCH_TYPE", level: "PROMISE" }, adminActor)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(saveDocumentRule({ docKey: "FIRE_NOC", scope: "everyone", level: "PROMISE" }, adminActor)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(
+      addShopDocumentType({ label: "Fire NOC", lawNote: "Already in the list", needsNumber: true, needsExpiry: false, needsAuthority: false }, adminActor),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const saved = await saveDocumentRule({ docKey: "FIRE_NOC", scope: "ALL", level: "PROMISE", liveShopDays: 60 }, adminActor);
+    const days = (saved.liveShopsDueAt!.getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(59.9);
+    expect(days).toBeLessThan(60.1);
+    // PROMISE → MUST_HAVE keeps the date; back to OPTIONAL and up again starts a new one.
+    const raised = await saveDocumentRule({ docKey: "FIRE_NOC", scope: "ALL", level: "MUST_HAVE", liveShopDays: 200 }, adminActor);
+    expect(raised.liveShopsDueAt).toEqual(saved.liveShopsDueAt);
+    const admin = await getDocumentRulesAdmin();
+    expect(admin.documents.find((d) => d.key === "FIRE_NOC")!.rules).toEqual([expect.objectContaining({ scope: "ALL", scopeLabel: "All shops", level: "MUST_HAVE" })]);
+    expect(admin.documents.find((d) => d.key === "FSSAI")!.rules).toEqual([expect.objectContaining({ scope: "FOOD", level: "MUST_HAVE" })]);
+    await removeDocumentRule(raised.id, adminActor);
+    expect((await getDocumentRulesAdmin()).documents.find((d) => d.key === "FIRE_NOC")!.rules).toEqual([]);
+    const audits = await db.select().from(auditLogs).where(eq(auditLogs.entityType, "shop_document_rule"));
+    expect(audits.map((a) => a.action).sort()).toEqual(["shop_document_rule.removed", "shop_document_rule.saved", "shop_document_rule.saved"]);
   });
 });
 

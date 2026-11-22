@@ -10965,6 +10965,56 @@ export const shopFssaiWaivers = pgTable(
 );
 export type ShopFssaiWaiver = typeof shopFssaiWaivers.$inferSelect;
 
+/**
+ * Shop document rules (owner, 22-Nov-2026, DF-09; migration 0163): documents an admin added because
+ * the law requires them ("Pollution control NOC", …), on top of the built-in ones. A shop uploads one
+ * as an "Other licence" in shop_legal_documents with licence_key = this key (`DOC:…`, never renamed).
+ * created_by is a platform user: no foreign key (seller and customer tables have none between them).
+ */
+export const shopDocumentTypes = pgTable(
+  "shop_document_types",
+  {
+    key: text("key").primaryKey(),
+    label: text("label").notNull(),
+    labelHi: text("label_hi"),
+    labelMr: text("label_mr"),
+    /** The law or reason, shown to the owner and to reviewers. */
+    lawNote: text("law_note").notNull(),
+    needsNumber: boolean("needs_number").notNull().default(true),
+    needsExpiry: boolean("needs_expiry").notNull().default(false),
+    needsAuthority: boolean("needs_authority").notNull().default(false),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("shop_document_types_label_uq").on(sql`lower(${t.label})`)],
+);
+export type ShopDocumentType = typeof shopDocumentTypes.$inferSelect;
+
+/**
+ * Which documents each kind of shop needs, and how (src/lib/shop-document-rules.ts): one row per
+ * document and scope (ALL, FOOD or TYPE:<shop type>). No row for a shop: the document is not asked.
+ * live_shops_due_at: set when an admin makes a document needed (or raises it from optional) — a shop
+ * already live is not suspended for it before then. updated_by: no foreign key, as above.
+ */
+export const shopDocumentRules = pgTable(
+  "shop_document_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    docKey: text("doc_key").notNull(),
+    scope: text("scope").notNull(),
+    level: text("level", { enum: ["MUST_HAVE", "PROMISE", "OPTIONAL"] }).notNull(),
+    liveShopsDueAt: timestamp("live_shops_due_at", { withTimezone: true }),
+    note: text("note"),
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("shop_document_rules_doc_scope_uq").on(t.docKey, t.scope)],
+);
+export type ShopDocumentRule = typeof shopDocumentRules.$inferSelect;
+
 export const DRAFT_CHECK_STATUSES = ["NOT_SUBMITTED", "PENDING", "VERIFIED", "FAILED", "EXPIRED", "MANUAL_REVIEW"] as const;
 export type DraftCheckStatus = (typeof DRAFT_CHECK_STATUSES)[number];
 

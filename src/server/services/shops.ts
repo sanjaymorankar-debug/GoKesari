@@ -65,6 +65,8 @@ import { queueShopWelcomeKit } from "@/server/shop-banner/welcome-kit";
 import { assertFssaiAllowsApproval, fssaiStatus } from "./document-uploads";
 import { shopSellsFood } from "./seller-verification";
 import { activeFssaiWaiver, recordFssaiWaiver } from "./fssai-waiver";
+import { missingMustHaveDocuments } from "./shop-document-rules";
+import { listJoin } from "@/lib/shop-document-rules";
 import { assertLegalDocsAllowApproval } from "./legal-documents";
 import { emitEvent } from "@/server/events/emit";
 import {
@@ -1062,11 +1064,13 @@ function approveShopTransaction(
     // Approve without FSSAI (admin only): recorded only when the shop sells food and no valid
     // licence is on file; with one on file the approval goes ahead as usual.
     if (waiveFssai && (actor.role !== "ADMIN" || !actor.id)) {
-      throw forbidden("Only an admin can approve a shop without its FSSAI licence.");
+      throw forbidden("Only an admin can approve a shop without its must-have documents.");
     }
     // DF-08 (owner, 21-Nov-2026 night): FSSAI is a must-have for a wizard shop too, so the admin's waiver
     // (due in documentUpload.fssaiWaiverDays) is the only way such a shop goes live without it.
     const fssaiMissing = waiveFssai ? (await shopSellsFood(shop)) && !(await fssaiStatus(shop, tx)).onFile : false;
+    // DF-09 (owner, 22-Nov-2026): the same waiver covers whatever else the admin made must-have for this kind of shop.
+    const mustHaveMissing = waiveFssai ? await missingMustHaveDocuments(shop, tx) : [];
     let documentsWaiver = waiveDocuments;
     // A shop whose only unverified seller document is its FSSAI licence waits in KYC_PENDING (FSSAI
     // is a seller document there): the FSSAI waiver covers that too, as "Approve without documents"
@@ -1124,9 +1128,21 @@ function approveShopTransaction(
     const blocker = await onboardingApprovalBlocker(shop, tx);
     if (blocker) throw conflict(blocker, { lifecycleStatus: shop.lifecycleStatus });
     assertRegistrationFeeSettled(shop);
-    if (waiveFssai && fssaiMissing) await recordFssaiWaiver(tx, shop, waiveFssai.reason, actor);
+    if (waiveFssai && (fssaiMissing || mustHaveMissing.length > 0)) {
+      await recordFssaiWaiver(tx, shop, waiveFssai.reason, actor, new Date(), { fssai: fssaiMissing });
+    }
     // An FSSAI waiver still running (this approval's or an earlier one): its due date follows instead.
     const fssaiWaived = (await activeFssaiWaiver(shop.id, tx)) !== null;
+    // DF-09: the admin's other must-have documents for this kind of shop are on file, or waived as above.
+    if (!fssaiWaived) {
+      const missingMust = await missingMustHaveDocuments(shop, tx);
+      if (missingMust.length > 0) {
+        throw conflict(
+          `This shop needs its ${listJoin(missingMust)} uploaded before it can go live. An admin can still approve it with "Approve without documents".`,
+          { mustHaveDocuments: missingMust },
+        );
+      }
+    }
     // Mandatory legal documents (FSSAI / drug licence / medical registration) are submitted.
     await assertLegalDocsAllowApproval(shop, tx, { waived: fssaiWaived ? ["FSSAI"] : [] });
     // Task 3 (docs/document-upload-2026-10): a food shop needs a valid FSSAI licence on file.

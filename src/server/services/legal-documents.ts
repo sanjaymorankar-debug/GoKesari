@@ -67,8 +67,9 @@ import { detectDocumentFile, shopSellsFood } from "./seller-verification";
 import { getRule } from "./settings";
 import { upsertRow } from "@/server/db/upsert";
 import { isDoctorGroup } from "@/lib/health/specialties";
-import { mandatoryLicenceFor } from "@/lib/shop-licences";
 import { isWizardRegisteredShop } from "./shop-onboarding";
+import type { DocumentLevel } from "@/lib/shop-document-rules";
+import { documentRequirementsFor, getShopDocumentType, type ShopDocumentRequirement } from "./shop-document-rules";
 
 interface Actor {
   id: string;
@@ -206,6 +207,13 @@ export interface LegalDocView {
   blocking: boolean;
   expiringSoon: boolean;
   files: { id: string; contentType: string; createdAt: string }[];
+  /** DF-09: how the admin's rules ask for it (null: the legalDocuments rule alone). */
+  level?: DocumentLevel | null;
+  /** DF-09: a document an admin added (`DOC:…`), uploaded as an Other licence under this key. */
+  customKey?: string | null;
+  /** DF-09, admin-added documents: the law behind it, and what the form asks for. */
+  lawNote?: string | null;
+  customNeeds?: { number: boolean; expiry: boolean; authority: boolean } | null;
 }
 
 export interface ShopLegalStatus {
@@ -267,20 +275,38 @@ export async function getShopLegalStatus(shopId: string): Promise<ShopLegalStatu
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
   const rule = await getRule("legalDocuments");
-  // A wizard shop's licence is uploaded here even with the rule off (FSSAI goes through Verification).
-  const licence = (await isWizardRegisteredShop(shop.id)) ? mandatoryLicenceFor(shop.shopType) : null;
-  const ownLicence = licence && licence.docType !== "FSSAI" ? licence : null;
-  if (!rule.enabled && !ownLicence) return { enabled: false, shopId, shopName: shop.name, documents: [], additional: [], restricted: false, graceUntil: null };
+  // DF-09 (owner, 22-Nov-2026): the admin's rules name the licences a shop needs (must-have or on the
+  // promise) and the documents an admin added; these are uploaded here even with the rule off (FSSAI goes
+  // through Verification). The legalDocuments rule, when on, adds its own and its order block.
+  const ruled = await documentRequirementsFor(shop);
+  const ruledLicences = ruled.filter((r) => r.kind === "legal" && r.level !== "OPTIONAL");
+  const custom = ruled.filter((r) => r.kind === "custom");
+  if (!rule.enabled && ruledLicences.length === 0 && custom.length === 0) {
+    return { enabled: false, shopId, shopName: shop.name, documents: [], additional: [], restricted: false, graceUntil: null };
+  }
 
-  const required = rule.enabled ? await requiredLegalDocTypes(shop) : [ownLicence!.docType];
+  const fromRule = rule.enabled ? await requiredLegalDocTypes(shop) : [];
+  const required = [...new Set([...fromRule, ...ruledLicences.map((r) => r.key as LegalDocType)])];
   const all = await ensureRows(shop, required);
-  const rows = all.filter((r) => required.includes(r.docType));
-  const optional = all.filter((r) => !required.includes(r.docType) && r.status !== "NOT_SUBMITTED");
-  const files = await filesFor([...rows, ...optional].map((r) => r.id));
-  const documents = rows
+  const rows = all.filter((r) => required.includes(r.docType) && r.licenceKey === "");
+  const customKeys = new Set(custom.map((c) => c.key));
+  const optional = all.filter((r) => !(required.includes(r.docType) && r.licenceKey === "") && !customKeys.has(r.licenceKey) && r.status !== "NOT_SUBMITTED");
+  const customRows = all.filter((r) => r.docType === "OTHER_LICENCE" && customKeys.has(r.licenceKey));
+  const files = await filesFor([...rows, ...optional, ...customRows].map((r) => r.id));
+  const levelOf = (key: string) => ruled.find((r) => r.key === key)?.level ?? null;
+  const documents: LegalDocView[] = rows
     .sort((a, b) => required.indexOf(a.docType) - required.indexOf(b.docType))
-    .map((row) => toView(row, evaluateLegalDoc(row, rule), files.get(row.id) ?? []))
-    .map((view) => (view.docType === ownLicence?.docType ? { ...view, label: ownLicence.label.en } : view));
+    .map((row) => {
+      const view = toView(row, evaluateLegalDoc(row, rule), files.get(row.id) ?? []);
+      const own = ruledLicences.find((r) => r.key === row.docType);
+      if (fromRule.includes(row.docType)) return { ...view, label: own?.label ?? view.label, level: levelOf(row.docType) };
+      // Not under the legalDocuments rule: it never blocks orders; the follow-up chases it instead, and a shop
+      // already live when the admin made it needed has until the rule's date.
+      const dates = [view.deadline, own?.liveShopsDueAt?.toISOString() ?? null].filter((d): d is string => Boolean(d)).sort();
+      const outstanding = view.state === "MISSING" || view.state === "REJECTED" || view.state === "EXPIRED";
+      return { ...view, label: own?.label ?? view.label, level: levelOf(row.docType), blocking: false, deadline: outstanding ? (dates.at(-1) ?? null) : null };
+    });
+  documents.push(...customDocumentViews(custom, customRows, files, rule));
   // Not required, so never blocking and never a deadline, whatever its state.
   const additional = optional.map((row) => ({
     ...toView(row, evaluateLegalDoc(row, rule), files.get(row.id) ?? []),
@@ -297,6 +323,62 @@ export async function getShopLegalStatus(shopId: string): Promise<ShopLegalStatu
     restricted: documents.some((d) => d.blocking),
     graceUntil: pending.map((d) => d.deadline!).sort()[0] ?? null,
   };
+}
+
+/** DF-09: the cards of the documents an admin added (missing ones as empty cards). Never blocking: the follow-up chases them. */
+function customDocumentViews(
+  custom: ShopDocumentRequirement[],
+  customRows: ShopLegalDocument[],
+  files: Map<string, LegalDocView["files"]>,
+  rule: { graceDays: number; expiryReminderDays: number },
+): LegalDocView[] {
+  return custom.map((req) => {
+    const row = customRows.find((r) => r.licenceKey === req.key);
+    const base: LegalDocView = row
+      ? toView(row, evaluateLegalDoc(row, rule), files.get(row.id) ?? [])
+      : {
+          id: null,
+          docType: "OTHER_LICENCE",
+          label: req.label,
+          licenceName: req.label,
+          state: "MISSING",
+          numberMasked: null,
+          issuingCouncil: null,
+          expiryDate: null,
+          rejectionReason: null,
+          submittedAt: null,
+          reviewedAt: null,
+          deadline: null,
+          blocking: false,
+          expiringSoon: false,
+          files: [],
+        };
+    return {
+      ...base,
+      label: req.label,
+      blocking: false,
+      deadline: null,
+      level: req.level,
+      customKey: req.key,
+      lawNote: req.custom?.lawNote ?? null,
+      customNeeds: req.custom ? { number: req.custom.needsNumber, expiry: req.custom.needsExpiry, authority: req.custom.needsAuthority } : null,
+    };
+  });
+}
+
+/**
+ * DF-09: the documents an admin added that this shop needs, read-only (no register rows are made, no
+ * notice is sent) — the signup documents screen.
+ */
+export async function getCustomDocumentViews(shop: Pick<Shop, "id" | "shopType">): Promise<LegalDocView[]> {
+  const custom = (await documentRequirementsFor(shop)).filter((r) => r.kind === "custom");
+  if (custom.length === 0) return [];
+  const rows = await db
+    .select()
+    .from(shopLegalDocuments)
+    .where(and(eq(shopLegalDocuments.shopId, shop.id), eq(shopLegalDocuments.docType, "OTHER_LICENCE"), inArray(shopLegalDocuments.licenceKey, custom.map((c) => c.key))));
+  const files = await filesFor(rows.map((r) => r.id));
+  return customDocumentViews(custom, rows, files, await getRule("legalDocuments"));
 }
 
 function listLabels(labels: string[]): string {
@@ -383,6 +465,8 @@ export interface SubmitLegalDocInput {
   issuingCouncil?: string | null;
   /** OTHER_LICENCE: the licence's name (required there, ignored for the other types). */
   licenceName?: string | null;
+  /** DF-09: a document an admin added (`DOC:…`); its name and what it asks for come from the admin's list. */
+  customKey?: string | null;
   file: Buffer;
   actor: Actor;
 }
@@ -392,10 +476,18 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
   if (!shop || shop.deletedAt) throw notFound("Shop");
   if (shop.ownerId !== input.actor.id && !isLegalDocReviewer(input.actor)) throw forbidden("This shop does not belong to you.");
 
-  const needs = LEGAL_DOC_NEEDS[input.docType];
+  // DF-09: an admin-added document is an Other licence under its own key, with the admin's name for it.
+  const customType = input.customKey ? await getShopDocumentType(input.customKey) : null;
+  if (input.customKey && (!customType || customType.status !== "ACTIVE")) throw notFound("Document");
+  if (customType && input.docType !== "OTHER_LICENCE") throw validationFailed("Choose which document you are uploading.");
+  const needs = customType
+    ? { expiry: customType.needsExpiry, council: false, authority: customType.needsAuthority, licenceName: false, numberHint: "" }
+    : LEGAL_DOC_NEEDS[input.docType];
   const fields: Record<string, string> = {};
-  const parsed = parseLegalDocNumber(input.docType, input.number);
-  if (!parsed.ok) fields.number = parsed.error;
+  const numberGiven = input.number.trim() !== "";
+  const numberNeeded = !customType || customType.needsNumber || numberGiven;
+  const parsed = numberNeeded ? parseLegalDocNumber(input.docType, input.number) : null;
+  if (parsed && !parsed.ok) fields.number = parsed.error;
   let expiryDate: string | null = null;
   // Required for FSSAI and the drug licence; kept (and reminded about) wherever else it is given.
   if (needs.expiry || input.expiryDate) {
@@ -407,13 +499,17 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
   if (needs.council) {
     council = (input.issuingCouncil ?? "").trim().replace(/\s+/g, " ");
     if (council.length < 3 || council.length > 120) fields.issuingCouncil = "Enter the council that issued the registration.";
-  } else if (needs.authority && input.issuingCouncil?.trim()) {
-    council = input.issuingCouncil.trim().replace(/\s+/g, " ");
+  } else if (needs.authority && (input.issuingCouncil?.trim() || customType)) {
+    // An admin-added document that asks for the issuing authority needs it; the optional licences may give it.
+    council = (input.issuingCouncil ?? "").trim().replace(/\s+/g, " ");
     if (council.length < 3 || council.length > 120) fields.issuingCouncil = "Enter the authority that issued the licence (3–120 characters).";
   }
   let licenceName: string | null = null;
   let licenceKey = "";
-  if (needs.licenceName) {
+  if (customType) {
+    licenceName = customType.label;
+    licenceKey = customType.key;
+  } else if (needs.licenceName) {
     const checked = checkLicenceName(input.licenceName);
     if (checked.ok) {
       licenceName = checked.name;
@@ -433,8 +529,8 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
   const row = await db.transaction(async (tx) => {
     const values = {
       status: "SUBMITTED" as const,
-      numberEncrypted: encryptSecret(parsed.ok ? parsed.normalized : ""),
-      numberLast4: parsed.ok ? parsed.last4 : null,
+      numberEncrypted: parsed?.ok ? encryptSecret(parsed.normalized) : null,
+      numberLast4: parsed?.ok ? parsed.last4 : null,
       issuingCouncil: council,
       licenceName,
       expiryDate,
