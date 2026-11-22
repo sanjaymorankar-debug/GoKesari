@@ -285,6 +285,10 @@ export const franchiseAllocations = pgTable("franchise_allocations", {
   configVersion: integer("config_version").notNull(),
   launchOffer: boolean("launch_offer").notNull().default(false),
   launchSeq: integer("launch_seq"),
+  /** Paid before the owner's KYC (22-Nov-2026): the zone is his but not live (no code, team shops or commission) until KYC and bank are approved; overdue after this. */
+  kycDueAt: ts("kyc_due_at"),
+  /** When a franchise paid before KYC went live. */
+  kycClearedAt: ts("kyc_cleared_at"),
   endedAt: ts("ended_at"),
   endReason: text("end_reason"),
   isTest: boolean("is_test").notNull().default(false),

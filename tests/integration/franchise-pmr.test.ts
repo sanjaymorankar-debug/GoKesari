@@ -50,17 +50,19 @@ import {
   shopAttributions,
   shops,
   type DealerSalesperson,
+  franchiseCodes,
 } from "@/server/db/schema";
 import { reverseShopCommission, setCommissionSettings } from "@/server/dealers/commission";
 import { addMoveDocument, cancelMoveRequest, createMoveRequest, decideMoveRequest, missingDocuments } from "@/server/dealers/referral-moves";
-import { addSalesperson, setSalespersonStatus, transferMemberToDealer } from "@/server/dealers/service";
+import { addSalesperson, saveApplication, setSalespersonStatus, transferMemberToDealer } from "@/server/dealers/service";
 import { leadAddsAgent, setDealerCommissionModel } from "@/server/dealers/tiered";
-import { acceptFranchiseAgreement, cancelReservation, onFranchiseFeeCaptured, onFranchiseFeeEnded, refundBooking, releaseExpiredHolds, reserveZones, setAllocationStatus, startRenewal } from "@/server/franchise/booking";
+import { acceptFranchiseAgreement, cancelReservation, goLiveAfterKyc, onFranchiseFeeCaptured, ownerStatusForUser, previewCart, startFranchiseBuyer, sweepFranchiseKyc, onFranchiseFeeEnded, refundBooking, releaseExpiredHolds, reserveZones, setAllocationStatus, startRenewal } from "@/server/franchise/booking";
 import { assertFranchiseCodeOpen } from "@/server/franchise/codes";
 import { calculateAllocationMonth, calculateFranchiseMonth, lockFranchiseMonth, prevMonth } from "@/server/franchise/commission";
 import { createCoupon, type CouponInput } from "@/server/franchise/coupons";
 import { franchiseConfig, saveFranchiseConfig } from "@/server/franchise/config";
 import { expireAreas, sendReminders } from "@/server/franchise/jobs";
+import { franchiseModelFor } from "@/server/franchise/model";
 import { emailStatements, statementData, statementPdf } from "@/server/franchise/statements";
 import { changeZoneStatus, correctShopArea, importZoneBusiness, listAreas, publishFees, remapArea, runZoneStatusJobs, setShopArea, setZoneMaxOwners, suggestAreas, zoneView, zoneViews } from "@/server/franchise/zones";
 import type { PaymentIntentRow } from "@/server/db/schema";
@@ -220,7 +222,7 @@ describe("zones and the area master (§5.1)", () => {
     expect(all.filter((z) => z.zoneSetCode === "MUM")).toHaveLength(38);
     expect(all.filter((z) => z.zoneSetCode === "NSK")).toHaveLength(11);
     expect(zones.map((z) => z.zoneId)).toEqual(Array.from({ length: 50 }, (_, i) => `GKZ-PUN-${String(i + 1).padStart(2, "0")}`));
-    expect(zones[1]).toMatchObject({ clusterNo: 2, name: "Peth East", region: "Central", civicBody: "PMC" });
+    expect(zones[1]).toMatchObject({ clusterNo: 2, name: "Pune – Peth East", region: "Central", civicBody: "PMC" }); // city prefix: owner 22-Nov-2026
     const areas = await listAreas({ zoneSetCode: "PUN" });
     expect(areas).toHaveLength(196);
     expect(areas.filter((a) => a.zoneId)).toHaveLength(189);
@@ -862,3 +864,111 @@ describe("referral moves: add / move a referral code with consent letters and a 
     expect(fsa).toMatchObject({ ownerDealerId: y.dealer.id, status: "ACTIVE" });
   });
 });
+
+describe("free dealership or paid franchise (owner 22-Nov-2026): pay first, KYC after", () => {
+  /** A signed-in user with no dealer account at all. */
+  async function newcomer() {
+    const user = await createUser({ role: "CUSTOMER" });
+    return { user, actor: { id: user.id, role: "CUSTOMER" as const, email: user.email } };
+  }
+  const pan = () => `ABCDE${String(Math.floor(1000 + Math.random() * 8999))}F`;
+
+  it("every zone name starts with its city; the codes stay as they were", async () => {
+    const views = await zoneViews();
+    const pune = views.filter((z) => z.zoneId.startsWith("GKZ-PUN-"));
+    expect(pune.length).toBeGreaterThan(0);
+    expect(pune.every((z) => z.name.startsWith("Pune – "))).toBe(true);
+    expect(views.find((z) => z.zoneId === Z3)?.name).toBe("Pune – Shivajinagar–Deccan");
+    for (const z of views.filter((v) => !v.zoneId.startsWith("GKZ-PUN-"))) expect(z.name).toMatch(/^(Mumbai|Nashik) – /);
+  });
+
+  it("a newcomer sees the price, gives name + mobile + PAN, pays; the zone is his but not live: no code, no commission, KYC due in 30 days", async () => {
+    const n = await newcomer();
+    expect((await ownerStatusForUser(n.user.id)).missing).toEqual(["your name, mobile and PAN"]);
+    const priced = await previewCart(n.actor, { zoneIds: [Z7] });
+    expect(priced.problems).toEqual([]);
+    expect(priced.totalPaise).toBeGreaterThan(0);
+    await expect(previewCart(n.actor, { zoneIds: [Z7], couponCode: "ANY" })).rejects.toThrow(/name, mobile and PAN first/);
+
+    await expect(startFranchiseBuyer(n.actor, { name: "A", mobile: "123", pan: "BAD" })).rejects.toThrow(/check your details/);
+    const d = await startFranchiseBuyer(n.actor, { name: "Ravi Patil", mobile: "+91 98765 43210", pan: pan() });
+    expect(d).toMatchObject({ status: "DRAFT", legalName: "Ravi Patil", mobileE164: "+919876543210", dealerType: "INDIVIDUAL" });
+    const s = await ownerStatusForUser(n.user.id);
+    expect(s.missing).toEqual([]);
+    expect(s.kycMissing).toEqual(["dealer account approval (KYC documents)", "a verified bank account"]);
+
+    await acceptFranchiseAgreement(n.actor, FRANCHISE_AGREEMENT_VERSION, { ipAddress: "127.0.0.1", userAgent: "vitest" });
+    const r = await reserveZones(n.actor, { zoneIds: [Z7] });
+    const before = Date.now();
+    await capture(r.booking.id);
+    const [a] = await allocs(r.booking.id);
+    expect(a.status).toBe("ACTIVE");
+    expect(a.kycDueAt).not.toBeNull();
+    expect(Math.round((a.kycDueAt!.getTime() - before) / 86_400_000)).toBe(30);
+    expect(await db.select().from(franchiseCodes).where(eq(franchiseCodes.allocationId, a.id))).toHaveLength(0);
+    // Not yet live: his own shop in the zone is not Model B (no franchise commission).
+    expect(await franchiseModelFor(db, d.id, (await signedShopIn(Z7)).id)).toBeNull();
+    // KYC not complete: going live does nothing.
+    expect(await goLiveAfterKyc(d.id)).toEqual([]);
+
+    // Approved with a verified bank → live: code issued, kyc cleared, commission from now.
+    await db.update(dealers).set({ status: "APPROVED", bankStatus: "VERIFIED" }).where(eq(dealers.id, d.id));
+    expect(await goLiveAfterKyc(d.id)).toEqual([Z7]);
+    const [live] = await allocs(r.booking.id);
+    expect(live.kycDueAt).toBeNull();
+    expect(live.kycClearedAt).not.toBeNull();
+    expect(await db.select().from(franchiseCodes).where(eq(franchiseCodes.allocationId, a.id))).toHaveLength(1);
+    expect(await goLiveAfterKyc(d.id)).toEqual([]); // idempotent
+  });
+
+  it("an approved dealer with KYC done goes live at payment as before", async () => {
+    const o = await dealer();
+    const r = await book(o, [Z3]);
+    const [a] = await allocs(r.booking.id);
+    expect(a.kycDueAt).toBeNull();
+    expect(await db.select().from(franchiseCodes).where(eq(franchiseCodes.allocationId, a.id))).toHaveLength(1);
+  });
+
+  it("the same PAN on another account is refused; a closed account cannot buy", async () => {
+    const p = pan();
+    const a = await newcomer();
+    await startFranchiseBuyer(a.actor, { name: "First Owner", mobile: "9876500001", pan: p });
+    const b = await newcomer();
+    await expect(startFranchiseBuyer(b.actor, { name: "Second", mobile: "9876500002", pan: p })).rejects.toThrow(/already registered/);
+    const c = await newcomer();
+    const dc = await startFranchiseBuyer(c.actor, { name: "Closed One", mobile: "9876500003", pan: pan() });
+    await db.update(dealers).set({ status: "REJECTED" }).where(eq(dealers.id, dc.id));
+    expect((await ownerStatusForUser(c.user.id)).missing[0]).toMatch(/open dealer account/);
+    await expect(reserveZones(c.actor, { zoneIds: [Z7] })).rejects.toThrow(/Before paying/);
+  });
+
+  it("the KYC sweep lists franchises still waiting with days left (overdue at 0 or less)", async () => {
+    const n = await newcomer();
+    const d = await startFranchiseBuyer(n.actor, { name: "Late Owner", mobile: "9876500004", pan: pan() });
+    await acceptFranchiseAgreement(n.actor, FRANCHISE_AGREEMENT_VERSION, { ipAddress: "127.0.0.1", userAgent: "vitest" });
+    const r = await reserveZones(n.actor, { zoneIds: [Z47] });
+    await capture(r.booking.id);
+    const soon = await sweepFranchiseKyc(new Date());
+    expect(soon.waiting.find((w) => w.ownerDealerId === d.id)?.daysLeft).toBe(30);
+    const late = await sweepFranchiseKyc(new Date(Date.now() + 31 * 86_400_000));
+    expect(late.waiting.find((w) => w.ownerDealerId === d.id)?.daysLeft).toBeLessThanOrEqual(0);
+  });
+
+  it("free dealership: the dealer application keeps the chosen working zone; an unknown zone is refused", async () => {
+    const u = await createUser({ role: "CUSTOMER" });
+    const input = { legalName: "Free Dealer", contactName: "F Dealer", dealerType: "INDIVIDUAL", mobile: "9800000222", addressLine1: "FC Road", city: "Pune", pincode: "411004", territories: ["MH"] } as never;
+    const d = await saveApplication({ ...(input as object), preferredZoneId: Z7.toLowerCase() } as never, { id: u.id, role: "CUSTOMER", email: u.email });
+    expect(d.preferredZoneId).toBe(Z7);
+    const kept = await saveApplication(input, { id: u.id, role: "CUSTOMER", email: u.email });
+    expect(kept.preferredZoneId).toBe(Z7);
+    await expect(saveApplication({ ...(input as object), preferredZoneId: "GKZ-PUN-999" } as never, { id: u.id, role: "CUSTOMER", email: u.email })).rejects.toThrow(/Unknown franchise zone/);
+  });
+});
+
+/** A bare shop placed in the zone's first area (for the Model B check). */
+async function signedShopIn(zoneId: string) {
+  const shopOwner = await createUser({ role: "SHOP_OWNER" });
+  const shop = await createShop(shopOwner.id, { name: `Z ${Math.random().toString(36).slice(2, 7)}`, status: "PENDING_APPROVAL", shopType: "GENERAL_TRADING" as never });
+  await db.transaction(async (tx) => setShopArea(tx, shop.id, await areaId(AREA[zoneId]), { source: "REGISTRATION" }));
+  return shop;
+}

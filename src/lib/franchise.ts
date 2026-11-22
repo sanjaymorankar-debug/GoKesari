@@ -488,13 +488,14 @@ export function polygonsFromGeoJson(input: unknown): { zoneId: string; polygon: 
 /** New franchise / Model A codes (brief §2.2, §3.2): prefix + 6 characters of the referral-code alphabet. */
 export const PREFIXED_CODE = /^GK[DTAF]-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/;
 
-export const FRANCHISE_AGREEMENT_VERSION = "2026-11-20";
+export const FRANCHISE_AGREEMENT_VERSION = "2026-11-22";
 
 export const FRANCHISE_AGREEMENT_TEXT = [
-  "GoKesari Territory Franchise — responsibilities and rules (version 2026-11-20).",
+  "GoKesari Territory Franchise — responsibilities and rules (version 2026-11-22).",
   "The franchise fee (₹1,50,000 per area per 12 months plus GST during the launch offer) is paid 100% in advance, online only, and is non-refundable, subject to applicable law.",
   "Each area is valid for 12 months from the verified payment. Renewal is manual, at the fee then in force, from 30 days before expiry until 23:59:59 IST on the expiry day; it is never charged automatically. After expiry the area ends, the franchise code stops working for new shops in it, and the slot is released to anyone.",
-  "Earnings: 25% of each activated shop's registration fee (excluding GST) registered with my franchise code, and 25% of GoKesari's actual order commission (2% of order value) on completed orders of those shops, plus a performance bonus of 0 to 5 percentage points published by GoKesari. Recurring commission on shops already registered continues until the tail end (end of year 3 from the first activation), then stops. Payout on the 5th of each month after TDS, with a statement. Figures shown by GoKesari are illustrations, not guaranteed income.",
+  "Earnings: one-time, on each activated shop's registration fee (excluding GST): 25% on shops I register myself with my franchise code, and 4% / 3% on shops my team registers in my area (one / two levels below me). Recurring: 20% of GoKesari's actual order commission on completed orders of my area's shops, plus a performance bonus of 0 to 5 percentage points published by GoKesari. These are the rates in force today; GoKesari publishes the current rates on the franchise page and a change applies from the next month. Recurring commission on shops already registered continues until the tail end (end of year 3 from the first activation), then stops. Payout on the 5th of each month after TDS, with a statement. Figures shown by GoKesari are illustrations, not guaranteed income.",
+  "Paying before my dealer KYC is approved: the area is booked for me at payment, but it goes live — my franchise code, my team's shops and commission — only once GoKesari approves my dealer KYC and bank account. If they are not complete within 30 days of the payment, GoKesari may refund the fee and release the area.",
   "My responsibilities: onboard shops (GST/PAN, licences, bank details, fee paid in the app only); set shops up (products, prices, photos, stock, orders, wallet, delivery, QR sticker); give first-line support and raise tickets to GoKesari within 24 hours; visit inactive shops; hire, train and pay my own field team; promote GoKesari only with approved material.",
   "I must not: collect money outside the app or in cash, charge shops any extra fee, promise earnings or returns, change GoKesari prices, commit anything on GoKesari's behalf, or use misleading material.",
   "GoKesari provides the platform, payments, training, marketing material, the dashboard, second-level support, monthly statements and the payout on the 5th.",

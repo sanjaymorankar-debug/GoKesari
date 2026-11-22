@@ -35,6 +35,7 @@ const schema = z.object({
   state: z.string().max(60).nullish(),
   territories: z.array(z.string().max(48)).max(50),
   bank: z.object({ holderName: z.string().max(200), accountNumber: z.string().max(30), ifsc: z.string().max(20) }).nullish(),
+  preferredZoneId: z.string().max(30).nullable().optional(),
 });
 
 export const GET = route(async () => {
