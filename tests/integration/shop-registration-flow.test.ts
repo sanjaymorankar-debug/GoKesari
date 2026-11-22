@@ -49,6 +49,7 @@ import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
 import { findLikelyDuplicate } from "@/server/dealers/attribution";
 import { finishFeeCapture } from "@/server/services/operator-limited";
+import { promiseShopDocuments } from "@/server/services/shop-document-gate";
 import { approveShop } from "@/server/services/shops";
 import { getDocumentChecklist } from "@/server/services/document-uploads";
 import { startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
@@ -67,6 +68,7 @@ import {
   saveDraftDetails,
   saveDraftLocation,
   saveDraftOwner,
+  submitDraftDocument,
   submitDraftForPayment,
   type DraftShopDetails,
 } from "@/server/services/shop-registration-wizard";
@@ -134,6 +136,8 @@ const lastCodeTo = (email: string) => {
 };
 
 async function payInSandbox(shopId: string) {
+  // DF-08: the documents screen's promise for what may follow go-live (Shop Act, licences).
+  await promiseShopDocuments(shopId, owner, "SIGNUP_WIZARD").catch(() => undefined);
   const checkout = await startRegistrationFeeCheckout(shopId, owner);
   await simulateSandboxCheckout({ ref: checkout.intentId, viewerId: owner.id, outcome: "SUCCESS" });
   await finishFeeCapture(shopId, checkout.intentId);
@@ -266,7 +270,7 @@ describe("Flow 1 with a GSTIN", () => {
     const submitted = await submitDraftForPayment({ actor: owner });
     const shopId = submitted.shop!.id;
     expect(submitted.nextStep).toBe("DOCUMENTS");
-    expect(await finishDraftDocumentsStep({ actor: owner })).toMatchObject({ nextStep: "PAYMENT" });
+    expect(await finishDraftDocumentsStep({ actor: owner, promise: true })).toMatchObject({ nextStep: "PAYMENT" });
     // The pin placed before payment is on the shop.
     expect(await shopRow(shopId)).toMatchObject({ status: "PENDING_APPROVAL", latitude: expect.stringMatching(/^18\.53/) });
 
@@ -295,7 +299,8 @@ describe("Flow 1 with a GSTIN", () => {
     expect(await shopRow(view.shop!.id)).toMatchObject({ email: "orders@kirana.example" });
   });
 
-  it("a food shop goes live without its FSSAI and is told it has 90 days (DI-14)", async () => {
+  it("with the FSSAI rule switched off (Admin → Rules), a food shop is not held for it and gets no FSSAI grace notice", async () => {
+    // resetDatabase switches documentUpload.fssaiMandatoryForFood off for older tests.
     await verifyGstin(gstinFor("ABCPK5678L"));
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
@@ -304,72 +309,83 @@ describe("Flow 1 with a GSTIN", () => {
     const submitted = await submitDraftForPayment({ actor: owner });
     await payInSandbox(submitted.shop!.id);
     expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
-    const [notice] = await db.select().from(notifications).where(eq(notifications.type, "shop.licence_grace_notice"));
-    expect(notice.body).toContain("FSSAI licence is mandatory for this type of shop");
-    expect(notice.body).toContain("grace period of 90 days");
-    expect(notice.body).toContain("Otherwise, your shop will be suspended.");
+    // DF-08: FSSAI is never "due within 90 days" any more.
+    expect(await db.select().from(notifications).where(eq(notifications.type, "shop.licence_grace_notice"))).toHaveLength(0);
   });
 });
 
-describe("DI-14 with the FSSAI rule on, as shipped (D-151, confirmed by the owner 21-Nov-2026)", () => {
+describe("DF-08 (owner, 21-Nov-2026 night): GST/PAN and FSSAI are must-have; the rest on the owner's promise", () => {
   beforeEach(async () => {
-    // resetDatabase switches documentUpload.fssaiMandatoryForFood off for older tests; here it is on.
+    // resetDatabase switches documentUpload.fssaiMandatoryForFood off for older tests; here it is on, as shipped.
     await db.delete(platformSettings).where(eq(platformSettings.key, "documentUpload"));
     clearRuleCache();
   });
 
-  it("a food shop with no FSSAI licence goes live on payment and is told it has 90 days", async () => {
+  async function dairyAtDocuments(opts: { fssai?: string } = {}) {
     await verifyGstin(gstinFor("ABCPK5678L"));
+    if (opts.fssai) await submitDraftDocument({ actor: owner, docType: "FSSAI", number: opts.fssai, consentGiven: true });
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
     await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
-    const submitted = await submitDraftForPayment({ actor: owner });
-    await payInSandbox(submitted.shop!.id);
-    expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED" });
-    const [notice] = await db.select().from(notifications).where(eq(notifications.type, "shop.licence_grace_notice"));
-    expect(notice.body).toContain("grace period of 90 days");
-    expect(notice.actionUrl).toBe(`/shop/documents?shop=${submitted.shop!.id}`);
-  });
+    return submitDraftForPayment({ actor: owner });
+  }
 
-  it("after Create my shop, an optional documents screen offers FSSAI and the other licences before payment (owner, 21-Nov-2026)", async () => {
-    await verifyGstin(gstinFor("ABCPK5678L"));
-    await saveDraftAddress({ actor: owner, address: ADDRESS });
-    await saveDraftLocation({ actor: owner, ...PIN });
-    await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
-    const submitted = await submitDraftForPayment({ actor: owner });
-    expect(submitted.nextStep).toBe("DOCUMENTS");
-    // The screen shows the owner's own upload cards for the new shop.
-    const checklist = await getDocumentChecklist(submitted.shop!.id, owner);
-    expect(checklist.fssaiRequired).toBe(true);
-    const types = checklist.items.map((i) => i.docType);
-    expect(types).toEqual(expect.arrayContaining(["FSSAI", "SHOP_ACT", "UDYAM", "TRADE_LICENCE", "OTHER_LICENCE"]));
-    // "Upload later" (nothing uploaded) moves on to payment; the shop still goes live on payment.
-    expect(await finishDraftDocumentsStep({ actor: owner })).toMatchObject({ nextStep: "PAYMENT" });
-    await payInSandbox(submitted.shop!.id);
-    expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED" });
-  });
-
-  it("one still held for review is approved by an admin without any FSSAI override, and gets the 90-day notice", async () => {
-    await verifyGstin(gstinFor("ABCPK5678L"));
-    await saveDraftAddress({ actor: owner, address: ADDRESS });
-    await saveDraftLocation({ actor: owner, ...PIN });
-    await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
-    const submitted = await submitDraftForPayment({ actor: owner });
+  it("a food shop without its FSSAI licence cannot leave the documents screen or pay", async () => {
+    const submitted = await dairyAtDocuments();
     const shopId = submitted.shop!.id;
-    // As a shop held before this fix: paid, still waiting.
-    await db.update(shops).set({ feePaymentStatus: "PAID", registrationFeePaise: 0 }).where(eq(shops.id, shopId));
+    expect(submitted).toMatchObject({ nextStep: "DOCUMENTS", documentsStep: { fssaiNeeded: true, canContinue: false } });
+    expect(submitted.documentsStep!.promiseCovers).toContain("Shop Act (Shops & Establishments) certificate");
+    // The screen shows the owner's own upload cards for the new shop, FSSAI required.
+    const checklist = await getDocumentChecklist(shopId, owner);
+    expect(checklist.fssaiRequired).toBe(true);
+    expect(checklist.items.map((i) => i.docType)).toEqual(expect.arrayContaining(["FSSAI", "SHOP_ACT", "UDYAM", "TRADE_LICENCE", "OTHER_LICENCE"]));
+    await expect(finishDraftDocumentsStep({ actor: owner, promise: true })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "FSSAI_REQUIRED" } });
+    expect((await getWizardDraft(owner))!.nextStep).toBe("DOCUMENTS");
+    // Nor straight to the checkout, even with the promise given.
+    await promiseShopDocuments(shopId, owner, "SIGNUP_WIZARD");
+    await expect(startRegistrationFeeCheckout(shopId, owner)).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "FSSAI_REQUIRED" } });
     expect(await shopRow(shopId)).toMatchObject({ status: "PENDING_APPROVAL" });
+  });
 
+  it("with FSSAI verified, the Shop Act is promised on the screen; the shop pays and goes live with the promise on record", async () => {
+    const submitted = await dairyAtDocuments({ fssai: "11521998000123" });
+    const shopId = submitted.shop!.id;
+    expect(submitted).toMatchObject({ nextStep: "DOCUMENTS", documentsStep: { fssaiNeeded: false, canContinue: false, promisedBy: null, promiseDays: 90 } });
+    // Without the tick the screen asks for it.
+    await expect(finishDraftDocumentsStep({ actor: owner })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "DOCUMENTS_PROMISE_NEEDED" } });
+    await expect(startRegistrationFeeCheckout(shopId, owner)).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "DOCUMENTS_PROMISE_NEEDED" } });
+    const after = await finishDraftDocumentsStep({ actor: owner, promise: true });
+    expect(after).toMatchObject({ nextStep: "PAYMENT", documentsStep: { canContinue: true } });
+    expect(after.documentsStep!.promisedBy).toBeTruthy();
+    const promised = await shopRow(shopId);
+    expect(promised.documentsDueAt!.getTime() - promised.documentsPromisedAt!.getTime()).toBe(90 * 86_400_000);
+    await payInSandbox(shopId);
+    expect(await shopRow(shopId)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
+    // FSSAI was on file: no grace notice for it.
+    expect(await db.select().from(notifications).where(eq(notifications.type, "shop.licence_grace_notice"))).toHaveLength(0);
+  });
+
+  it("a paid food shop still without FSSAI is not approved on a plain Approve; the admin's Approve without documents gives 30 days", async () => {
+    const submitted = await dairyAtDocuments();
+    const shopId = submitted.shop!.id;
+    // As a shop held before this rule: paid, still waiting.
+    await db.update(shops).set({ feePaymentStatus: "PAID", registrationFeePaise: 0 }).where(eq(shops.id, shopId));
     const admin = await createUser({ role: "ADMIN" });
-    // A 30-day FSSAI override is not recorded for a wizard shop: DI-14's 90 days apply.
+    await expect(approveShop(shopId, { classification: "GREEN" }, { id: admin.id, role: "ADMIN" })).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { fssaiRequired: true },
+    });
     const approved = await approveShop(shopId, { classification: "GREEN" }, { id: admin.id, role: "ADMIN" }, {
-      waiveFssai: { reason: "Should be ignored for a wizard shop" },
+      waiveFssai: { reason: "Owner sent the licence by e-mail; uploading it" },
     });
     expect(approved.status).toBe("APPROVED");
-    expect(await db.select().from(shopFssaiWaivers)).toHaveLength(0);
+    const [waiver] = await db.select().from(shopFssaiWaivers);
+    expect(waiver).toBeTruthy();
+    expect(waiver.dueAt.getTime() - Date.now()).toBeGreaterThan(29 * 86_400_000);
+    // The owner hears the waiver's 30 days, never a 90-day FSSAI grace.
     const notices = await db.select().from(notifications).where(eq(notifications.type, "shop.licence_grace_notice"));
     expect(notices).toHaveLength(1);
-    expect(notices[0].body).toContain("grace period of 90 days");
+    expect(notices[0].body).toContain("grace period of 30 days");
   });
 });
 

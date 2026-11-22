@@ -16,6 +16,7 @@ import { getRule } from "@/server/services/settings";
 import { shopDocumentGate } from "@/server/services/shop-document-gate";
 import { listShopsForOwner } from "@/server/services/shops";
 import { wizardContinuePath } from "@/server/services/shop-registration-wizard";
+import { isWizardRegisteredShop } from "@/server/services/shop-onboarding";
 
 export const metadata = { title: "Registration fee" };
 export const dynamic = "force-dynamic";
@@ -63,6 +64,8 @@ export default async function RegistrationFeePage({
   const returned = typeof params.intent === "string";
   const documentsHref = `/shop/documents?shop=${shop.id}`;
   const [gate, followUp, membership] = await Promise.all([shopDocumentGate(shop), getRule("shopDocumentFollowUp"), getRule("shopMembership")]);
+  // DF-08: a wizard shop whose documents still hold the fee (FSSAI, or the promise) finishes them on the wizard's documents screen.
+  if (due > 0 && !gate.canPay && shop.status === "PENDING_APPROVAL" && (await isWizardRegisteredShop(shop.id))) redirect("/shop/register");
   const dateIn = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
 
   return (

@@ -170,6 +170,8 @@ async function walkToReview(opts: { shopType?: string; fssai?: string | false; u
 
 /** The owner pays through the sandbox gateway; the webhook's after-commit step runs. */
 async function payInSandbox(shopId: string, outcome: "SUCCESS" | "FAILURE" = "SUCCESS") {
+  // DF-08: the documents screen's promise for what may follow go-live (Shop Act, licences).
+  await promiseShopDocuments(shopId, owner, "SIGNUP_WIZARD").catch(() => undefined);
   const checkout = await startRegistrationFeeCheckout(shopId, owner);
   await simulateSandboxCheckout({ ref: checkout.intentId, viewerId: owner.id, outcome });
   if (outcome === "SUCCESS") await finishFeeCapture(shopId, checkout.intentId);
@@ -293,7 +295,7 @@ describe("a food shop must give its FSSAI, and goes live only once it is verifie
     expect(await shopRow(view.shop!.id)).toMatchObject({ status: "APPROVED", fssaiLicenseNumber: FSSAI, shopActNumber: null });
   });
 
-  it("a dairy whose FSSAI check is still pending goes live after payment (DI-14)", async () => {
+  it("a dairy whose FSSAI check is still pending goes live after payment while the FSSAI rule is off (this file's default)", async () => {
     await walkToReview({ shopType: "DAIRY", udyam: false, fssai: "11521998009999" });
     const view = await submitDraftForPayment({ actor: owner });
     expect(view.documents).toMatchObject({ missing: [], needsTeamApproval: false });
@@ -308,14 +310,16 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
     const submitted = await submitDraftForPayment({ actor: owner });
     // Owner, 21-Nov-2026: the optional documents screen comes first; "Continue to payment" moves on.
     expect(submitted).toMatchObject({ status: "SUBMITTED", nextStep: "DOCUMENTS", shop: { status: "PENDING_APPROVAL", feePaymentStatus: "PENDING" } });
-    expect(await finishDraftDocumentsStep({ actor: owner })).toMatchObject({ nextStep: "PAYMENT" });
+    expect(await finishDraftDocumentsStep({ actor: owner, promise: true })).toMatchObject({ nextStep: "PAYMENT" });
     expect(submitted.shop!.feeDuePaise).toBeGreaterThan(0);
     const shopId = submitted.shop!.id;
 
     const shop = await shopRow(shopId);
     expect(shop).toMatchObject({ ownerId: owner.id, name: "Test Seller Mart", pincode: "411001", latitude: "18.5308000", gstStatus: "REGISTERED", shopActNumber: null });
     expect(shop.gstin).toBe(gstinFor(COMPANY_PAN));
-    expect(shop.documentsPromisedAt).toBeNull();
+    // DF-08: the Shop Act was not uploaded, so the owner promised it on the documents screen (90 days).
+    expect(shop.documentsPromisedAt).not.toBeNull();
+    expect(shop.documentsDueAt!.getTime() - shop.documentsPromisedAt!.getTime()).toBe(90 * 86_400_000);
     // KYC complete on the GSTIN alone: only the fee is outstanding.
     expect(shop.lifecycleStatus).toBe("PAYMENT_PENDING");
 
@@ -385,14 +389,14 @@ describe("pending admin approval", () => {
     const { shop } = await submitDraftForPayment({ actor: owner });
     expect(await shopRow(shop!.id)).toMatchObject({ status: "PENDING_APPROVAL", feePaymentStatus: "PENDING" });
     expect((await getWizardDraft(owner))!.nextStep).toBe("DOCUMENTS");
-    await finishDraftDocumentsStep({ actor: owner }); // "Upload later"
+    await finishDraftDocumentsStep({ actor: owner, promise: true }); // "Upload later"
     expect((await getWizardDraft(owner))!.nextStep).toBe("PAYMENT");
   });
 
   it("a failed payment leaves the shop pending at the payment step; a retry that succeeds makes it live", async () => {
     await walkToReview();
     const { shop } = await submitDraftForPayment({ actor: owner });
-    await finishDraftDocumentsStep({ actor: owner });
+    await finishDraftDocumentsStep({ actor: owner, promise: true });
     expect((await getWizardDraft(owner))!.shop!.lastPaymentFailed).toBe(false);
     await payInSandbox(shop!.id, "FAILURE");
     expect((await shopRow(shop!.id)).status).toBe("PENDING_APPROVAL");
@@ -407,6 +411,7 @@ describe("pending admin approval", () => {
   it("the payment step asks the gateway only about an attempt still open", async () => {
     await walkToReview();
     const { shop } = await submitDraftForPayment({ actor: owner });
+    await finishDraftDocumentsStep({ actor: owner, promise: true });
     expect(await refreshLatestRegistrationFeeAttempt(shop!.id, owner.id)).toBe(false);
     await startRegistrationFeeCheckout(shop!.id, owner);
     expect(await refreshLatestRegistrationFeeAttempt(shop!.id, owner.id)).toBe(true);

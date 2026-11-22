@@ -1,11 +1,12 @@
 /**
  * SC-39 — a PAN-only shop with a mandatory licence: grace, reminder,
- * suspension (owner brief 08-Nov-2026; DI-12, DI-14, KYC-SBX):
+ * suspension (owner brief 08-Nov-2026; DI-12, DI-14, KYC-SBX; DF-08):
  *   the owner registers with the PAN and the "not GST-registered" declaration,
- *   picks a food shop type and reads the FSSAI 90-day notice, pays and goes
- *   live; gets the grace e-mail and a follow-up reminder; the grace ends and
- *   the follow-up run suspends the shop; admins are told and a customer sees
- *   the shop is not taking orders.
+ *   picks a pharmacy and reads the drug-licence 90-day notice, promises the
+ *   licence on the documents screen (DF-08: FSSAI no longer has a grace, so
+ *   the scenario uses a pharmacy), pays and goes live; gets the grace e-mail
+ *   and a follow-up reminder; the grace ends and the follow-up run suspends
+ *   the shop; admins are told and a customer sees it is not taking orders.
  *
  * Local tier: a fresh owner, the mock KYC provider (PAN), the sandbox fee
  * page, the local mail catcher, and the daily cron with rule
@@ -36,7 +37,7 @@ import { expect, need, qa } from "../lib/record";
 import { pageFor, shopRow } from "../lib/sellers-helpers";
 import { world } from "../lib/world";
 
-qa("SC-39", "PAN-only food shop: FSSAI 90-day notice → paid and live → grace e-mail and a reminder → grace over → suspended automatically, admins told, customers see it is not taking orders", async ({ browser }) => {
+qa("SC-39", "PAN-only pharmacy: drug-licence 90-day notice → promised, paid and live → grace e-mail and a reminder → grace over → suspended automatically, admins told, customers see it is not taking orders", async ({ browser }) => {
   const notes: string[] = [];
   // 1. PAN with the declaration and consent.
   const d = await startDraft("sc39", { route: "PAN" });
@@ -44,22 +45,22 @@ qa("SC-39", "PAN-only food shop: FSSAI 90-day notice → paid and live → grace
   const view = await addressAndPin(d);
   const graceDays = view.licenceGraceDays;
 
-  // 2. The food shop type shows the FSSAI notice on the screen.
+  // 2. The pharmacy shop type shows the drug-licence notice on the screen.
   const { context, page } = await pageFor(browser, d.owner);
   try {
     await page.goto("/shop/register");
     await expect(page.getByRole("heading", { name: "Contact and shop details" })).toBeVisible();
-    await page.getByTestId("shop-type").selectOption("BAKERY");
-    await expect(page.getByTestId("licence-grace-notice")).toContainText(licenceNotice("FSSAI licence", graceDays));
+    await page.getByTestId("shop-type").selectOption("PHARMACY");
+    await expect(page.getByTestId("licence-grace-notice")).toContainText(licenceNotice("Drug licence", graceDays));
   } finally {
     await context.close();
   }
-  await shopDetails(d, { name: shopName("Sc39 Bakers"), shopType: "BAKERY" });
+  await shopDetails(d, { name: shopName("Sc39 Chemists"), shopType: "PHARMACY" });
   const shop = await createShop(d);
   const since = Date.now() - 2_000;
   await payFee(browser, d.owner, shop.shopId, "pay");
   await expectLive(shop.shopId);
-  notes.push(`"${shop.shopName}" (PAN only, BAKERY) live without FSSAI`);
+  notes.push(`"${shop.shopName}" (PAN only, PHARMACY) live on the promise, without its drug licence`);
 
   // 3. The grace e-mail, then a reminder from the follow-up.
   const mail = await mailMatching(d.owner.email, since, /^Upload your licence within/);
@@ -70,7 +71,7 @@ qa("SC-39", "PAN-only food shop: FSSAI 90-day notice → paid and live → grace
     const at = new Date(Date.now() - 2_000);
     await runFollowUp();
     const [reminder] = await noticesOf(d.owner.id, "shop.documents_follow_up", at, 10_000);
-    expect(reminder?.body).toContain("FSSAI licence / registration");
+    expect(reminder?.body).toContain("Drug licence");
     expect(reminder?.body).toContain("your shop will be suspended automatically. We will remind you every 15 days until then.");
     notes.push(`grace e-mail due ${displayDate(istDate(graceDays))}; "${reminder?.title}"`);
   });

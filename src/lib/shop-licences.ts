@@ -27,6 +27,19 @@ export function mandatoryLicenceFor(shopType: string): MandatoryLicence | null {
   return null;
 }
 
+/**
+ * The shop-type screen's notice. Owner, 21-Nov-2026 night (DF-08): FSSAI is a must-have — uploaded
+ * before the fee is paid; any other mandatory licence may follow go-live on the owner's promise.
+ */
+export function licenceNoticeMessage(licence: MandatoryLicence, label: string, graceDays: number): Text {
+  if (licence.docType !== "FSSAI") return licenceGraceMessage(label, graceDays);
+  return L(
+    `${label} is mandatory for this type of shop. You will upload it before paying the registration fee; your shop goes live once it is on file.`,
+    `इस प्रकार की दुकान के लिए ${label} अनिवार्य है। पंजीकरण शुल्क का भुगतान करने से पहले आप इसे अपलोड करेंगे; यह जमा होने के बाद आपकी दुकान लाइव होगी।`,
+    `या प्रकारच्या दुकानासाठी ${label} अनिवार्य आहे. नोंदणी शुल्क भरण्यापूर्वी तुम्ही ते अपलोड कराल; ते जमा झाल्यावर तुमचे दुकान लाइव्ह होईल.`,
+  );
+}
+
 /** The same words on the shop-type screen and in the e-mail. */
 export function licenceGraceMessage(licence: string, graceDays: number): Text {
   return L(

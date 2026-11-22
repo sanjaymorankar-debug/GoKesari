@@ -470,7 +470,7 @@ const LICENCES: [string, string | null][] = [
   ["STATIONERY_STORE", null],
 ];
 
-qa("TC-ONB-080", "the shop type decides the mandatory licence: the 90-day grace notice for food, pharmacy, clinics and professional offices; none for a general store", async ({ browser }) => {
+qa("TC-ONB-080", "the shop type decides the mandatory licence: FSSAI before payment for food (DF-08), the 90-day grace notice for pharmacy, clinics and professional offices; none for a general store", async ({ browser }) => {
   const d = await startDraft("onb080");
   const view = await addressAndPin(d);
   const { context, page } = await pageFor(browser, d.owner);
@@ -493,19 +493,24 @@ qa("TC-ONB-080", "the shop type decides the mandatory licence: the 90-day grace 
     await context.close();
   }
   return `${view.licenceGraceDays} days — ${seen.join("; ")}`;
-}, { ...local, partial: "'Go-live is never blocked' is the next check (a food shop paid without its FSSAI)" });
+}, { ...local, partial: "the FSSAI hold is the next check (DF-08)" });
 
-qa(["TC-ONB-080", "TC-ONB-081"], "a food shop goes live without its FSSAI licence and is e-mailed 'Upload your licence within 90 days — <shop>' with the due date", async ({ browser }) => {
+qa(["TC-ONB-080", "TC-ONB-081"], "a food shop cannot pay without its FSSAI licence (DF-08); with it on file it goes live and gets no 90-day FSSAI e-mail", async ({ browser }) => {
+  // Held: no FSSAI on the documents screen.
+  const d = await startDraft("onb081-food");
+  await addressAndPin(d);
+  await shopDetails(d, { name: shopName("Onb Bakers"), shopType: "BAKERY" });
+  const created = await wizardStep(d.ctx, "submit", undefined, "create the shop");
+  expect(created.nextStep).toBe("DOCUMENTS");
+  const held = await call(d.ctx, "POST", "/api/shops/registration-draft/documents-step", { promise: true });
+  expect(held.status, "no FSSAI: the documents screen does not go on").toBe(409);
+  expect(held.body.error.message).toContain("FSSAI licence is required by law");
+  // With the FSSAI number verified (mock vendor) it pays and goes live, with no FSSAI grace e-mail.
   const since = Date.now() - 2_000;
-  const shop = await liveShop(browser, "onb081-food", { shop: { name: shopName("Onb Bakers"), shopType: "BAKERY" } });
-  const graceDays = (await ruleOf("shopDocumentFollowUp")).value.graceDays as number;
-  const due = displayDate(istDate(graceDays));
-  const mail = await mailMatching(shop.owner.email, since, /^Upload your licence within/);
-  expect(mail?.subject).toBe(`Upload your licence within ${graceDays} days — ${shop.shopName}${MAIL_SUFFIX}`);
-  // The same words in the app (the e-mail body is the same template text).
-  const [notice] = await noticesOf(shop.owner.id, "shop.licence_grace_notice", new Date(since), 10_000);
-  expect(notice?.body).toBe(`${licenceNotice("FSSAI licence", graceDays)} Please upload it on GoKesari by ${due}. We will remind you every 15 days until then.`);
-  return `"${shop.shopName}" (BAKERY) live without FSSAI; e-mail "${mail?.subject}", due ${due}`;
+  const shop = await liveShop(browser, "onb081-food-ok", { shop: { name: shopName("Onb Sweets"), shopType: "BAKERY" }, fssai: "11521998000123" });
+  const notices = await noticesOf(shop.owner.id, "shop.licence_grace_notice", new Date(since), 3_000);
+  expect(notices, "no 'upload within 90 days' for FSSAI").toHaveLength(0);
+  return `held without FSSAI (409); "${shop.shopName}" (BAKERY) live with FSSAI, no grace e-mail`;
 }, local);
 
 qa("TC-ONB-081", "the grace e-mail of another licence type: a pharmacy is e-mailed the drug-licence notice with the due date = go-live date + grace days", async ({ browser }) => {

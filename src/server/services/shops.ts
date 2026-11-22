@@ -54,7 +54,7 @@ import { applyShopCategories } from "./shop-categories";
 import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateBp } from "./registration-fee-coupons";
 import { assertShopType, isKnownShopType } from "./shop-types";
 import { getRule } from "./settings";
-import { getShopOnboarding, isWizardRegisteredShop, missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { getShopOnboarding, missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
 import { documentsDueLabel } from "./shop-document-gate";
 import { formatDisplayDate, todayIn } from "@/lib/dates";
 import { licenceGraceMessage } from "@/lib/shop-licences";
@@ -1064,10 +1064,9 @@ function approveShopTransaction(
     if (waiveFssai && (actor.role !== "ADMIN" || !actor.id)) {
       throw forbidden("Only an admin can approve a shop without its FSSAI licence.");
     }
-    // A wizard shop needs no FSSAI waiver: it goes live anyway with DI-14's 90 days (a waiver would cut them to 30).
-    const fssaiMissing = waiveFssai
-      ? (await shopSellsFood(shop)) && !(await fssaiStatus(shop, tx)).onFile && !(await isWizardRegisteredShop(shop.id, tx))
-      : false;
+    // DF-08 (owner, 21-Nov-2026 night): FSSAI is a must-have for a wizard shop too, so the admin's waiver
+    // (due in documentUpload.fssaiWaiverDays) is the only way such a shop goes live without it.
+    const fssaiMissing = waiveFssai ? (await shopSellsFood(shop)) && !(await fssaiStatus(shop, tx)).onFile : false;
     let documentsWaiver = waiveDocuments;
     // A shop whose only unverified seller document is its FSSAI licence waits in KYC_PENDING (FSSAI
     // is a seller document there): the FSSAI waiver covers that too, as "Approve without documents"

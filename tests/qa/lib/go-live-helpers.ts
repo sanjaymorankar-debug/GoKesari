@@ -222,9 +222,13 @@ export async function shopDetails(d: Draft, shop: ShopInput): Promise<WizardView
 }
 
 /** "Create my shop and pay": the shop is created, PENDING_APPROVAL, with its fee due. */
-export async function createShop(d: Draft): Promise<{ shopId: string; shopName: string; feeDuePaise: number; view: WizardView }> {
-  const view = await wizardStep(d.ctx, "submit", undefined, "create the shop");
+export async function createShop(d: Draft, opts: { fssai?: string } = {}): Promise<{ shopId: string; shopName: string; feeDuePaise: number; view: WizardView }> {
+  // DF-08 (owner, 21-Nov-2026): a food shop gives its FSSAI licence before payment.
+  if (opts.fssai) await wizardStep(d.ctx, "documents", { docType: "FSSAI", number: opts.fssai, consent: true }, "the FSSAI number");
+  let view = await wizardStep(d.ctx, "submit", undefined, "create the shop");
   const shop = need(view.shop, "the shop the wizard created");
+  // The documents screen (DF-07 / DF-08): the owner promises what is not uploaded (the Shop Act, a licence).
+  if (view.nextStep === "DOCUMENTS") view = await wizardStep(d.ctx, "documents-step", { promise: true }, "promise the remaining documents");
   expect(view.nextStep, "a fee is due: the payment step").toBe("PAYMENT");
   d.view = view;
   return { shopId: shop.id, shopName: shop.name, feeDuePaise: shop.feeDuePaise, view };
@@ -246,12 +250,12 @@ export interface UnpaidShop extends Draft {
 }
 
 /** A wizard shop created and not paid yet (a fresh owner, or `opts.owner`). */
-export async function unpaidShop(label: string, opts: { route?: "GSTIN" | "PAN"; pan?: string; gstin?: string; code?: string | null; owner?: Account; shop?: Partial<ShopInput>; place?: Place } = {}): Promise<UnpaidShop> {
+export async function unpaidShop(label: string, opts: { route?: "GSTIN" | "PAN"; pan?: string; gstin?: string; code?: string | null; owner?: Account; shop?: Partial<ShopInput>; place?: Place; fssai?: string } = {}): Promise<UnpaidShop> {
   const d = await startDraft(label, opts);
   const place = opts.place ?? homePlace();
   await addressAndPin(d, place);
   await shopDetails(d, { name: opts.shop?.name ?? shopName(label), ...opts.shop });
-  const created = await createShop(d);
+  const created = await createShop(d, { fssai: opts.fssai });
   expect(created.feeDuePaise, "a registration fee is due (rule registrationFeeByTurnover)").toBeGreaterThan(0);
   return { ...d, ...created, place };
 }
@@ -487,6 +491,10 @@ export function displayDate(iso: string): string {
 
 /** The licence notice of the shop-type screen and the e-mail (lib/shop-licences.ts). */
 export function licenceNotice(licence: string, graceDays: number): string {
+  // DF-08 (owner, 21-Nov-2026): FSSAI is uploaded before payment; other licences may follow go-live.
+  if (licence === "FSSAI licence") {
+    return `${licence} is mandatory for this type of shop. You will upload it before paying the registration fee; your shop goes live once it is on file.`;
+  }
   return `${licence} is mandatory for this type of shop. Your shop can go live now, and you have a grace period of ${graceDays} days to upload it. Otherwise, your shop will be suspended.`;
 }
 
