@@ -561,6 +561,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "featureFlags", label: L("Feature flags", "फ़ीचर फ़्लैग", "फीचर फ्लॅग"), icon: "toggle-right", href: "/admin/feature-flags", permission: ADMIN_ONLY },
       // docs/rbac: the two-admin approval queue (roles, suspensions, reactivations, flags).
       { key: "approvals", label: L("Approvals", "स्वीकृतियाँ", "मंजुरी"), icon: "badge-check", href: "/admin/approvals", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
+      { key: "staffTeams", label: L("Staff teams", "स्टाफ टीमें", "कर्मचारी टीम"), icon: "users", href: "/admin/staff-teams", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
       { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
       { key: "homeBanners", label: L("Home banners", "होम बैनर", "होम बॅनर"), icon: "images", href: "/admin/home-banners", permission: PERMISSIONS.HOME_BANNER_MANAGE }, // docs/homepage-uiux-2026-10
     ],
