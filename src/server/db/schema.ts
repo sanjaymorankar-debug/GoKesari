@@ -10824,6 +10824,9 @@ export const shopAttributions = pgTable(
     note: text("note"),
     /** 0107: when the shop reached the ACTIVATED milestone (counted for the dealer's rating). */
     activatedAt: timestamp("activated_at", { withTimezone: true }),
+    /** Referral move (owner, 22-Nov-2026): the moment the shop joined this team by an approved admin move — who earns
+     * is worked out at this time instead of the shop's registration date. Null: not moved. */
+    placementAt: timestamp("placement_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -10963,7 +10966,7 @@ export const shopFssaiWaivers = pgTable(
 export type ShopFssaiWaiver = typeof shopFssaiWaivers.$inferSelect;
 
 /**
- * Shop document rules (owner, 22-Nov-2026, DF-09; migration 0162): documents an admin added because
+ * Shop document rules (owner, 22-Nov-2026, DF-09; migration 0163): documents an admin added because
  * the law requires them ("Pollution control NOC", …), on top of the built-in ones. A shop uploads one
  * as an "Other licence" in shop_legal_documents with licence_key = this key (`DOC:…`, never renamed).
  * created_by is a platform user: no foreign key (seller and customer tables have none between them).
@@ -11770,6 +11773,69 @@ export const dealerAgreementAcceptances = pgTable(
   (t) => [index("dealer_agreement_acceptances_payee_idx").on(t.dealerId, t.memberId, t.acceptedAt)],
 );
 export type DealerAgreementAcceptance = typeof dealerAgreementAcceptances.$inferSelect;
+
+/**
+ * Referral moves (owner, 22-Nov-2026; src/server/dealers/referral-moves.ts). An admin asks to add / move a shop's
+ * referral code (SHOPS) or to move a team member with his code and his shops to another dealer's team (MEMBER), with
+ * signed consent letters; a different admin approves. Commission earned before the move stays where it was earned.
+ */
+export const REFERRAL_MOVE_KINDS = ["SHOPS", "MEMBER"] as const;
+export const REFERRAL_MOVE_STATUSES = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"] as const;
+export const REFERRAL_MOVE_DOC_KINDS = ["SHOP_OWNER_CONSENT", "FROM_DEALER_CONSENT", "TO_DEALER_CONSENT", "MEMBER_CONSENT", "OTHER"] as const;
+export const referralMoveRequests = pgTable(
+  "referral_move_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind", { enum: REFERRAL_MOVE_KINDS }).notNull(),
+    shopIds: jsonb("shop_ids").$type<string[]>().notNull().default([]),
+    memberId: uuid("member_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    /** SHOPS: the dealer(s) the shops were with when asked, per shop (null = no referral code yet). */
+    fromDealers: jsonb("from_dealers").$type<Record<string, string | null>>().notNull().default({}),
+    fromDealerId: uuid("from_dealer_id").references(() => dealers.id, { onDelete: "restrict" }),
+    toDealerId: uuid("to_dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    /** SHOPS: whose code the shops get (null = the new dealer's own code). MEMBER: the team lead he joins under (null = reports to the dealer). */
+    toMemberId: uuid("to_member_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
+    reason: text("reason").notNull(),
+    status: text("status", { enum: REFERRAL_MOVE_STATUSES }).notNull().default("PENDING"),
+    requestedBy: uuid("requested_by")
+      .notNull()
+      .references(() => users.id),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    /** What the approval changed (shops moved, new member id, codes). */
+    result: jsonb("result").$type<Record<string, unknown>>(),
+  },
+  (t) => [index("referral_move_requests_status_idx").on(t.status, t.requestedAt)],
+);
+export type ReferralMoveRequest = typeof referralMoveRequests.$inferSelect;
+
+export const referralMoveDocuments = pgTable(
+  "referral_move_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => referralMoveRequests.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: REFERRAL_MOVE_DOC_KINDS }).notNull(),
+    /** SHOP_OWNER_CONSENT: the shop it is for. */
+    shopId: uuid("shop_id"),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    /** Encrypted like dealer documents (pan-crypto encryptBytes). */
+    content: bytea("content").notNull(),
+    uploadedBy: uuid("uploaded_by")
+      .notNull()
+      .references(() => users.id),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("referral_move_documents_request_idx").on(t.requestId)],
+);
+export type ReferralMoveDocument = typeof referralMoveDocuments.$inferSelect;
 
 /** TIERED (0136): a team member asks for a sub-agent; only an admin approves (agents never appoint one themselves). */
 export const dealerTeamRequests = pgTable(

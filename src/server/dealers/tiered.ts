@@ -229,7 +229,7 @@ interface Placement {
 }
 
 /** Who earns on a shop signed by `signerId` (null: the main dealer), at `at`. */
-async function placementFor(tx: DbClient, dealerId: string, signerId: string | null, at: Date): Promise<Placement> {
+export async function placementFor(tx: DbClient, dealerId: string, signerId: string | null, at: Date): Promise<Placement> {
   if (!signerId) return { direct: null, lead: null, mainOverride: false, development: null };
   const [direct] = await tx.select().from(dealerSalespeople).where(and(eq(dealerSalespeople.id, signerId), eq(dealerSalespeople.dealerId, dealerId)));
   if (!direct) return { direct: null, lead: null, mainOverride: false, development: null };
@@ -464,7 +464,8 @@ export async function accrueTieredActivation(
       const fee = feeBasePaise(shop);
       if (fee <= 0) return null;
       // Gap report A9: who earns follows the team on the shop's registration date.
-      const place = await placementFor(tx, dealerId, salespersonId, shop.createdAt);
+      // Referral move (22-Nov-2026): a moved shop's earners are worked out at the move, not at registration.
+      const place = await placementFor(tx, dealerId, salespersonId, attribution.placementAt ?? shop.createdAt);
       const rates = tierRatesFor(dealer, rule);
       const adj = bonusOn ? ratingAdjustmentBp(dealer.rating, dealer.ratingStepBp ?? settings.ratingStepBp) : 0;
       // Franchise brief 21-Nov-2026 §3: Model B when the dealer holds an active franchise in the shop's zone. Agent and

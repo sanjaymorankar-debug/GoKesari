@@ -8,7 +8,7 @@
 -- (live_shops_due_at) before the follow-up may suspend them for it.
 -- created_by / updated_by are platform users: no foreign keys (seller and customer tables have none
 -- between them).
--- Additive only. Rollback: scripts/rollback-0162.sql.
+-- Additive only. Rollback: scripts/rollback-0163.sql.
 CREATE TABLE IF NOT EXISTS "shop_document_types" (
 	"key" text PRIMARY KEY NOT NULL,
 	"label" text NOT NULL,

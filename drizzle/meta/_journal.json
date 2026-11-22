@@ -1140,7 +1140,14 @@
       "idx": 162,
       "version": "7",
       "when": 1793266000000,
-      "tag": "0162_shop_document_rules",
+      "tag": "0162_referral_moves",
+      "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1793266100000,
+      "tag": "0163_shop_document_rules",
       "breakpoints": true
     }
   ]

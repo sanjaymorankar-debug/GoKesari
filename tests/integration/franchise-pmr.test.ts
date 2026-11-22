@@ -19,6 +19,7 @@ import { AGENT_AGREEMENT_VERSION } from "@/lib/dealer-tiers";
 import { FRANCHISE_AGREEMENT_VERSION, istMonthBounds } from "@/lib/franchise";
 import { db } from "@/server/db";
 import {
+  dealerCodes,
   dealerCommissionLedger,
   dealerCommissionMonths,
   dealerSalespeople,
@@ -37,18 +38,21 @@ import {
   franchiseMonthlySnapshots,
   franchiseNotificationLog,
   franchiseShopAttributions,
+  franchiseShopTeamPeriods,
   franchiseZoneBoundaries,
   franchiseZoneBusiness,
   franchiseZoneFeeVersions,
   franchiseZoneStatusHistory,
   franchiseZones,
   orders,
+  referralCodes,
   sellerVerifications,
   shopAttributions,
   shops,
   type DealerSalesperson,
 } from "@/server/db/schema";
 import { reverseShopCommission, setCommissionSettings } from "@/server/dealers/commission";
+import { addMoveDocument, cancelMoveRequest, createMoveRequest, decideMoveRequest, missingDocuments } from "@/server/dealers/referral-moves";
 import { addSalesperson, setSalespersonStatus, transferMemberToDealer } from "@/server/dealers/service";
 import { leadAddsAgent, setDealerCommissionModel } from "@/server/dealers/tiered";
 import { acceptFranchiseAgreement, cancelReservation, onFranchiseFeeCaptured, onFranchiseFeeEnded, refundBooking, releaseExpiredHolds, reserveZones, setAllocationStatus, startRenewal } from "@/server/franchise/booking";
@@ -85,6 +89,7 @@ beforeEach(async () => {
   await db.delete(franchiseNotificationLog);
   await db.delete(franchiseCalcRuns);
   await db.delete(franchiseMonthlySnapshots);
+  await db.delete(franchiseShopTeamPeriods);
   await db.delete(franchiseCouponRedemptions);
   await db.delete(franchiseCouponAssignments);
   await db.delete(franchiseCoupons);
@@ -737,5 +742,123 @@ describe("team rules", () => {
     await expect(transferMemberToDealer(v.id, b.dealer.id, "moving teams", a.actor)).rejects.toThrow(/Only an admin/);
     const moved = await transferMemberToDealer(v.id, b.dealer.id, "asked to join Dealer B", admin);
     expect(moved.code).toMatch(/^GKA-/);
+  });
+});
+
+/* ================================================================ referral moves (owner, 22-Nov-2026) */
+
+describe("referral moves: add / move a referral code with consent letters and a second admin's approval", () => {
+  const pdf = (n: string) => ({ name: `${n}.pdf`, bytes: Buffer.from(`%PDF-1.4 consent ${n}`) });
+  let admin2: { id: string; role: "ADMIN" };
+  beforeEach(async () => {
+    const u = await createUser({ role: "ADMIN" });
+    admin2 = { id: u.id, role: "ADMIN" };
+  });
+  const codeOf = async (memberId: string) => (await db.select().from(dealerCodes).where(eq(dealerCodes.salespersonId, memberId)))[0];
+
+  it("adds a code to a shop that had none: the requester cannot decide, approval needs the consents, a second admin approves", async () => {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, { name: "No code shop", status: "APPROVED" });
+    const b = await dealer("Receiver");
+    const ag = await member(b.dealer.id, "Receiver agent", "AGENT");
+    const r = await createMoveRequest({ kind: "SHOPS", shopIds: [shop.id], toDealerId: b.dealer.id, toMemberId: ag.id, reason: "shop owner forgot the code at sign-up" }, admin);
+    await expect(createMoveRequest({ kind: "SHOPS", shopIds: [shop.id], toDealerId: b.dealer.id, reason: "a second request for it" }, admin2)).rejects.toThrow(/waiting for approval/);
+    await expect(decideMoveRequest(r.id, { approve: true, note: "looks fine" }, admin)).rejects.toThrow(/different admin/);
+    expect((await missingDocuments(r)).map((m) => m.kind)).toEqual(["SHOP_OWNER_CONSENT", "TO_DEALER_CONSENT"]); // no old dealer → no old consent
+    await expect(decideMoveRequest(r.id, { approve: true, note: "looks fine" }, admin2)).rejects.toThrow(/missing consent letters/);
+    await expect(addMoveDocument(r.id, { kind: "SHOP_OWNER_CONSENT", shopId: null, ...pdf("x") }, admin)).rejects.toThrow(/Choose which shop/);
+    await expect(addMoveDocument(r.id, { kind: "TO_DEALER_CONSENT", name: "a.txt", bytes: Buffer.from("hello") }, admin)).rejects.toThrow(/PDF, JPEG/);
+    await addMoveDocument(r.id, { kind: "SHOP_OWNER_CONSENT", shopId: shop.id, ...pdf("owner") }, admin);
+    await addMoveDocument(r.id, { kind: "TO_DEALER_CONSENT", ...pdf("receiver") }, admin);
+    const done = await decideMoveRequest(r.id, { approve: true, note: "consents checked" }, admin2);
+    expect(done).toMatchObject({ status: "APPROVED", decidedBy: admin2.id });
+    const [a] = await db.select().from(shopAttributions).where(eq(shopAttributions.shopId, shop.id));
+    expect(a).toMatchObject({ dealerId: b.dealer.id, salespersonId: ag.id, source: "ADMIN", status: "ACTIVE" });
+    expect(a.placementAt).toBeTruthy();
+    const [s] = await db.select().from(shops).where(eq(shops.id, shop.id));
+    expect(s.referralCodeId).toBe((await codeOf(ag.id)).referralCodeId);
+    await expect(decideMoveRequest(r.id, { approve: false, note: "too late" }, admin2)).rejects.toThrow(/already been decided/);
+  });
+
+  it("reject and cancel: only the requester cancels; a rejected request changes nothing", async () => {
+    const a = await dealer("Keeper");
+    const b = await dealer("Taker");
+    const shop = await signed(a.dealer.id, null, 100_000, AREA[Z47]);
+    const r1 = await createMoveRequest({ kind: "SHOPS", shopIds: [shop.id], toDealerId: b.dealer.id, reason: "owner asked to change dealer" }, admin);
+    await expect(cancelMoveRequest(r1.id, "not needed", admin2)).rejects.toThrow(/Only the admin who raised/);
+    expect((await cancelMoveRequest(r1.id, "not needed", admin)).status).toBe("CANCELLED");
+    const r2 = await createMoveRequest({ kind: "SHOPS", shopIds: [shop.id], toDealerId: b.dealer.id, reason: "owner asked to change dealer" }, admin);
+    expect((await missingDocuments(r2)).map((m) => m.kind)).toEqual(["SHOP_OWNER_CONSENT", "FROM_DEALER_CONSENT", "TO_DEALER_CONSENT"]);
+    expect((await decideMoveRequest(r2.id, { approve: false, note: "no consent from Keeper" }, admin2)).status).toBe("REJECTED");
+    expect((await db.select().from(shopAttributions).where(eq(shopAttributions.shopId, shop.id)))[0].dealerId).toBe(a.dealer.id);
+  });
+
+  it("moving a shop between two franchise teams in a zone: one-time stays with the old team, recurring splits at the move", async () => {
+    const x = await dealer("Franchise X");
+    const y = await dealer("Franchise Y");
+    const rx = await book(x, [Z7]);
+    const ry = await book(y, [Z7]);
+    const ax = await member(x.dealer.id, "X agent", "AGENT");
+    const ay = await member(y.dealer.id, "Y agent", "AGENT");
+    const shop = await signed(x.dealer.id, ax.id, 100_000, AREA[Z7]);
+    const oneTime = await split(shop.id);
+    expect(oneTime).toEqual([`DIRECT_1:${ax.name}:20000`, "OVERRIDE_MAIN:TOP:4000"]);
+    const before = await deliver(shop.id, 10_000_000); // ₹1,00,000 before the move
+    expect(before.id).toBeTruthy();
+
+    const r = await createMoveRequest({ kind: "SHOPS", shopIds: [shop.id], toDealerId: y.dealer.id, toMemberId: ay.id, reason: "shop owner works with Y's agent" }, admin);
+    await addMoveDocument(r.id, { kind: "SHOP_OWNER_CONSENT", shopId: shop.id, ...pdf("owner") }, admin);
+    await addMoveDocument(r.id, { kind: "FROM_DEALER_CONSENT", ...pdf("x") }, admin);
+    await addMoveDocument(r.id, { kind: "TO_DEALER_CONSENT", ...pdf("y") }, admin);
+    await new Promise((r) => setTimeout(r, 20));
+    const at = new Date(); // after the first delivery, before the second
+    await decideMoveRequest(r.id, { approve: true, note: "all three consents signed", at }, admin2);
+    await deliver(shop.id, 5_000_000); // ₹50,000 after the move
+
+    expect(await split(shop.id)).toEqual(oneTime); // earned one-time stays where it was earned
+    const [plan] = await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, shop.id));
+    expect(plan).toMatchObject({ dealerId: y.dealer.id, directMemberId: ay.id }); // renewals and unearned parts: new team
+    const [att] = await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, shop.id));
+    expect(att).toMatchObject({ ownerDealerId: y.dealer.id, status: "ACTIVE" });
+    expect(att.attachedFrom?.getTime()).toBe(at.getTime());
+    const [period] = await db.select().from(franchiseShopTeamPeriods).where(eq(franchiseShopTeamPeriods.shopId, shop.id));
+    expect(period).toMatchObject({ ownerDealerId: x.dealer.id, zoneId: Z7 });
+
+    const [aX] = await allocs(rx.booking.id);
+    const [aY] = await allocs(ry.booking.id);
+    const cX = await calculateAllocationMonth(db, aX, thisMonth());
+    const cY = await calculateAllocationMonth(db, aY, thisMonth());
+    expect([cX.result.recurringPaise, cY.result.recurringPaise]).toEqual([40_000, 20_000]); // 20% × 2% × ₹1,00,000 / ₹50,000
+  });
+
+  it("moving a team member: he keeps his own code, his shops come along, his earned commission stays", async () => {
+    const a = await dealer("Old team");
+    const y = await dealer("New franchise");
+    await book(y, [Z7]);
+    const lead = await member(y.dealer.id, "Y lead", "TEAM_LEAD");
+    const v = await member(a.dealer.id, "Mover agent", "AGENT");
+    const shop = await signed(a.dealer.id, v.id, 100_000, AREA[Z7]);
+    const earned = await split(shop.id);
+    const oldCode = await codeOf(v.id);
+    const [{ code }] = await db.select({ code: referralCodes.code }).from(referralCodes).where(eq(referralCodes.id, oldCode.referralCodeId));
+
+    const r = await createMoveRequest({ kind: "MEMBER", memberId: v.id, toDealerId: y.dealer.id, toMemberId: lead.id, reason: "agent joins Y's franchise team" }, admin);
+    expect((await missingDocuments(r)).map((m) => m.kind)).toEqual(["MEMBER_CONSENT", "FROM_DEALER_CONSENT", "TO_DEALER_CONSENT"]);
+    for (const kind of ["MEMBER_CONSENT", "FROM_DEALER_CONSENT", "TO_DEALER_CONSENT"] as const) await addMoveDocument(r.id, { kind, ...pdf(kind) }, admin);
+    const done = await decideMoveRequest(r.id, { approve: true, note: "consents signed by all three" }, admin2);
+    const res = done.result as { newMemberId: string; keptCode: string };
+    expect(res.keptCode).toBe(code);
+
+    const [moved] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, res.newMemberId));
+    expect(moved).toMatchObject({ dealerId: y.dealer.id, parentId: lead.id, status: "ACTIVE" });
+    const [kept] = await db.select().from(dealerCodes).where(eq(dealerCodes.referralCodeId, oldCode.referralCodeId));
+    expect(kept).toMatchObject({ dealerId: y.dealer.id, salespersonId: res.newMemberId, status: "ACTIVE" });
+    const others = await db.select().from(dealerCodes).where(and(eq(dealerCodes.salespersonId, res.newMemberId), eq(dealerCodes.status, "ACTIVE")));
+    expect(others).toHaveLength(1); // the code made for the new place is retired
+    const [att] = await db.select().from(shopAttributions).where(eq(shopAttributions.shopId, shop.id));
+    expect(att).toMatchObject({ dealerId: y.dealer.id, salespersonId: res.newMemberId, source: "ADMIN" });
+    expect(await split(shop.id)).toEqual(earned);
+    const [fsa] = await db.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.shopId, shop.id));
+    expect(fsa).toMatchObject({ ownerDealerId: y.dealer.id, status: "ACTIVE" });
   });
 });

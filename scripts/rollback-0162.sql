@@ -1,9 +1,9 @@
--- Rollback for 0162_shop_document_rules (DF-09, admin document rules).
--- Before running: deploy the previous release's code, then delete the 0162 row from
--- drizzle.__drizzle_migrations.
--- Documents shops uploaded for an admin-added document stay in shop_legal_documents as
--- "Other licence" rows (licence_key 'DOC:…'); only the rules and the document list go.
-BEGIN;
-DROP TABLE IF EXISTS "shop_document_rules";
-DROP TABLE IF EXISTS "shop_document_types";
-COMMIT;
+-- Rollback for 0162_referral_moves (referral moves, owner 22-Nov-2026; src/server/dealers/referral-moves.ts).
+-- Before running: deploy the previous release's code, export the move requests and their consent letters if they
+-- matter, then delete the 0162 row from drizzle.__drizzle_migrations. Run before rollback-0157.sql.
+-- Moves already applied stay applied (shop attributions, plans and codes are not put back).
+DROP TABLE IF EXISTS "referral_move_documents";
+DROP TABLE IF EXISTS "referral_move_requests";
+DROP TABLE IF EXISTS "franchise_shop_team_periods";
+ALTER TABLE IF EXISTS "franchise_shop_attributions" DROP COLUMN IF EXISTS "attached_from";
+ALTER TABLE IF EXISTS "shop_attributions" DROP COLUMN IF EXISTS "placement_at";

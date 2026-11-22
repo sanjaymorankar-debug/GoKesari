@@ -155,7 +155,7 @@ export async function resetDatabase(): Promise<void> {
         INSERT INTO platform_settings (key, value) VALUES ('documentUpload', '{"fssaiMandatoryForFood": false}'::jsonb)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       `);
-      // DF-09 (0162): the shop document rules back to the seeded ones (they reference no user, so the
+      // DF-09 (0163): the shop document rules back to the seeded ones (they reference no user, so the
       // TRUNCATE above leaves a test's own rules and documents behind). Without the migration's
       // "live shops: 90 days from the release" date on the licence rows, so tests on fixed dates
       // do not move with the clock; tests of that date set it themselves.
