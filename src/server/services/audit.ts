@@ -19,6 +19,12 @@ export const AUDIT_ACTIONS = {
   APPROVAL_APPLIED: "approval.applied",
   APPROVAL_SINGLE_ADMIN: "approval.single_admin",
   USER_EMERGENCY_SUSPENDED: "user.emergency_suspended",
+  FIN_PERIOD_CLOSED: "fin_period.closed",
+  FIN_PERIOD_REOPENED: "fin_period.reopened",
+  JOURNAL_DRAFTED: "fin_journal.drafted",
+  JOURNAL_POSTED: "fin_journal.posted",
+  RATE_PROPOSED: "rate_proposal.submitted",
+  RATE_ACTIVATED: "rate_proposal.activated",
   SHOP_REGISTERED: "shop.registered",
   /** docs/shop-onboarding-wizard-2026-10: a GSTIN / PAN checked in the onboarding wizard, before the shop exists. Masked numbers only. */
   SHOP_REGISTRATION_DRAFT_CHECKED: "shop_registration_draft.checked",

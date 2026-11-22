@@ -9,7 +9,8 @@
  * Users and shops are not referenced by foreign key (the service checks those links).
  * Re-exported by schema.ts.
  */
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigint, boolean, date, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const APPROVAL_STATUSES = [
   "PENDING",
@@ -125,3 +126,95 @@ export const approvalDecisions = pgTable(
   (t) => [index("approval_decisions_request_idx").on(t.requestId, t.createdAt)],
 );
 export type ApprovalDecision = typeof approvalDecisions.$inferSelect;
+
+/* ======================================================== Phase 3: accounting (0171) */
+
+export const finPeriods = pgTable("fin_periods", {
+  /** YYYY-MM. */
+  code: text("code").primaryKey(),
+  startsOn: date("starts_on", { mode: "string" }).notNull(),
+  endsOn: date("ends_on", { mode: "string" }).notNull(),
+  status: text("status", { enum: ["OPEN", "CLOSED"] }).notNull().default("OPEN"),
+  closedBy: uuid("closed_by"),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  reopenedBy: uuid("reopened_by"),
+  reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+  note: text("note"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type FinPeriod = typeof finPeriods.$inferSelect;
+
+export const JOURNAL_STATUSES = ["DRAFT", "SUBMITTED", "POSTED", "REJECTED", "REVERSED"] as const;
+export type JournalStatus = (typeof JOURNAL_STATUSES)[number];
+
+/** A POSTED entry is never edited (DB trigger fin_journal_entries_guard); it is corrected by a reversing entry. */
+export const finJournalEntries = pgTable(
+  "fin_journal_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entryNumber: text("entry_number").notNull().default(sql`('JE-' || lpad(nextval('fin_journal_entry_number_seq')::text, 6, '0'))`),
+    entryDate: date("entry_date", { mode: "string" }).notNull(),
+    periodCode: text("period_code").notNull(),
+    narration: text("narration").notNull(),
+    status: text("status", { enum: JOURNAL_STATUSES }).notNull().default("DRAFT"),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull().default(0),
+    preparedBy: uuid("prepared_by").notNull(),
+    approvalRequestId: uuid("approval_request_id"),
+    postedBy: uuid("posted_by"),
+    postedAt: timestamp("posted_at", { withTimezone: true }),
+    reversesEntryId: uuid("reverses_entry_id"),
+    reversedByEntryId: uuid("reversed_by_entry_id"),
+    rejectionComment: text("rejection_comment"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("fin_journal_entries_period_idx").on(t.periodCode, t.status)],
+);
+export type FinJournalEntry = typeof finJournalEntries.$inferSelect;
+
+export const finJournalLines = pgTable(
+  "fin_journal_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entryId: uuid("entry_id")
+      .notNull()
+      .references(() => finJournalEntries.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    accountCode: text("account_code").notNull(),
+    accountName: text("account_name").notNull(),
+    debitPaise: bigint("debit_paise", { mode: "number" }).notNull().default(0),
+    creditPaise: bigint("credit_paise", { mode: "number" }).notNull().default(0),
+    memo: text("memo"),
+  },
+  (t) => [index("fin_journal_lines_entry_idx").on(t.entryId, t.position)],
+);
+export type FinJournalLine = typeof finJournalLines.$inferSelect;
+
+export const RATE_KINDS = ["COMMISSION", "REGISTRATION_FEE", "DELIVERY_CHARGE"] as const;
+export type RateKind = (typeof RATE_KINDS)[number];
+export const RATE_PROPOSAL_STATUSES = ["PENDING_CA", "PENDING_ADMIN", "SCHEDULED", "ACTIVATED", "REJECTED", "CANCELLED", "FAILED"] as const;
+
+export const rateChangeProposals = pgTable(
+  "rate_change_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    rateKind: text("rate_kind", { enum: RATE_KINDS }).notNull(),
+    /** COMMISSION: DEFAULT | SHOP_TYPE | SHOP. */
+    scope: text("scope"),
+    /** The shop type or shop id for a scoped commission. */
+    scopeKey: text("scope_key"),
+    currentValue: jsonb("current_value").$type<unknown>(),
+    proposedValue: jsonb("proposed_value").$type<Record<string, unknown>>().notNull(),
+    effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull(),
+    reason: text("reason").notNull(),
+    status: text("status", { enum: RATE_PROPOSAL_STATUSES }).notNull().default("PENDING_CA"),
+    approvalRequestId: uuid("approval_request_id"),
+    proposedBy: uuid("proposed_by").notNull(),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    applyError: text("apply_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("rate_change_proposals_status_idx").on(t.status, t.effectiveAt)],
+);
+export type RateChangeProposal = typeof rateChangeProposals.$inferSelect;

@@ -35,9 +35,11 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
     permission: [PERMISSIONS.JOURNAL_PREPARE, PERMISSIONS.JOURNAL_APPROVE],
     feature: "rbac_v2_accounting",
     items: [
-      { key: "journals", label: L("Journal entries", "जर्नल प्रविष्टियाँ", "जर्नल नोंदी"), short: L("Journals", "जर्नल", "जर्नल"), icon: "scroll-text", href: "/staff/accounting/journals", permission: [PERMISSIONS.JOURNAL_PREPARE, PERMISSIONS.JOURNAL_APPROVE], feature: "rbac_v2_accounting" },
-      { key: "periods", label: L("Periods", "अवधि", "कालावधी"), icon: "calendar-days", href: "/staff/accounting/periods", permission: [PERMISSIONS.FIN_PERIOD_CLOSE, PERMISSIONS.JOURNAL_PREPARE], feature: "rbac_v2_accounting" },
-      { key: "rates", label: L("Rate changes", "दर परिवर्तन", "दर बदल"), short: L("Rates", "दरें", "दर"), icon: "badge-percent", href: "/staff/accounting/rates", permission: [PERMISSIONS.RATE_PROPOSE, PERMISSIONS.RATE_APPROVE], feature: "rbac_v2_accounting" },
+      { key: "journals", label: L("Journal entries", "जर्नल प्रविष्टियाँ", "जर्नल नोंदी"), short: L("Journals", "जर्नल", "जर्नल"), icon: "scroll-text", href: "/staff/accounting?tab=journals", permission: [PERMISSIONS.JOURNAL_PREPARE, PERMISSIONS.JOURNAL_APPROVE], feature: "rbac_v2_accounting" },
+      { key: "periods", label: L("Periods", "अवधि", "कालावधी"), icon: "calendar-days", href: "/staff/accounting?tab=periods", permission: [PERMISSIONS.FIN_PERIOD_CLOSE, PERMISSIONS.JOURNAL_PREPARE], feature: "rbac_v2_accounting" },
+      { key: "approve", label: L("To approve", "स्वीकृति हेतु", "मंजुरीसाठी"), icon: "badge-check", href: "/staff/accounting?tab=approvals", permission: PERMISSIONS.JOURNAL_APPROVE, feature: "rbac_v2_accounting" },
+      { key: "tb", label: L("Trial balance", "ट्रायल बैलेंस", "ट्रायल बॅलन्स"), short: L("Trial bal.", "ट्रायल", "ट्रायल"), icon: "file-chart-column", href: "/staff/accounting?tab=tb", permission: [PERMISSIONS.JOURNAL_PREPARE, PERMISSIONS.JOURNAL_APPROVE], feature: "rbac_v2_accounting" },
+      { key: "rates", label: L("Rate changes", "दर परिवर्तन", "दर बदल"), short: L("Rates", "दरें", "दर"), icon: "badge-percent", href: "/staff/accounting?tab=rates", permission: [PERMISSIONS.RATE_PROPOSE, PERMISSIONS.RATE_APPROVE], feature: "rbac_v2_accounting" },
     ],
   },
   /* ------------------------------------------------------------- Support */

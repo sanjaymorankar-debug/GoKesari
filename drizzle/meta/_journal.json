@@ -1198,6 +1198,13 @@
       "when": 1793266800000,
       "tag": "0170_rbac_v2_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1793266900000,
+      "tag": "0171_rbac_v2_accounting",
+      "breakpoints": true
     }
   ]
 }

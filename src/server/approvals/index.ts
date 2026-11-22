@@ -3,6 +3,8 @@
  * registered before a request is decided.
  */
 import "./admin-actions";
+import "@/server/rbac-accounting/journals"; // Phase 3 handlers: JOURNAL_ENTRY, JOURNAL_ENTRY_HIGH_VALUE
+import "@/server/rbac-accounting/rates"; // Phase 3 handler: RATE_CHANGE
 
 export * from "./engine";
 export {
