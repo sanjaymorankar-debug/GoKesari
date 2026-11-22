@@ -1123,6 +1123,13 @@
       "breakpoints": true
     },
     {
+      "idx": 160,
+      "version": "7",
+      "when": 1793265800000,
+      "tag": "0160_franchise_two_models",
+      "breakpoints": true
+    },
+    {
       "idx": 162,
       "version": "7",
       "when": 1793266000000,

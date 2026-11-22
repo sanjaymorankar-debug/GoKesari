@@ -14,7 +14,7 @@
  * the jobs themselves run for real: the daily cron and the month close.
  * Online fees run through the local SANDBOX gateway page and its signed webhook.
  */
-import type { Browser, Page } from "@playwright/test";
+import { test, type Browser, type Page } from "@playwright/test";
 
 import { as, pageAs } from "../lib/actors";
 import { withFlags } from "../lib/billing-v2-helpers";
@@ -55,6 +55,7 @@ import {
   territoryRow,
   withCommission,
 } from "../lib/dealer-territory-helpers";
+
 import { db } from "../lib/db";
 import { withRules } from "../lib/finance-helpers";
 import { anonymous, call, expectStatus, RUN, stash, unstash } from "../lib/http";
@@ -62,6 +63,10 @@ import { intentRows, postSandboxWebhook } from "../lib/money-helpers";
 import { abandon, listingOf, placeSimple } from "../lib/orders-helpers";
 import { blocked, expect, need, qa } from "../lib/record";
 import { approvedShopOfNewOwner, ctxFor, freshAccount, pageFor, type Account } from "../lib/sellers-helpers";
+
+// Owner, 21-Nov-2026: a territory and a franchise are the same thing. The territory rule is retired (off, and
+// refused in Admin → Settings) and its admin page redirects to Admin → Franchise; franchise checks cover this now.
+test.skip(true, "Retired 21-Nov-2026: territories are sold as franchise zones (TC-TERR-*)");
 
 const local = { tier: "local" as const, timeout: 300_000 };
 const DAY = 86_400_000;

@@ -207,12 +207,14 @@ export interface OneTimeRates {
   dealerSelfBp: number;
   dealerOverrideBp: number;
   dealerSecondOverrideBp: number;
-  /** Franchise owner: own shop, override on every team shop. */
+  /** Franchise owner (owner, 21-Nov-2026: the same 20/4/3 flow as the free dealer, own shop 25%): own shop, override
+   * one level up (the signer reports to the owner), second override two levels up (an agent under a team lead). */
   ownerSelfBp: number;
   ownerOverrideBp: number;
+  ownerSecondOverrideBp: number;
 }
 
-export const DEFAULT_ONE_TIME_RATES: OneTimeRates = { memberDirectBp: 2000, leadOverrideBp: 400, dealerSelfBp: 2000, dealerOverrideBp: 400, dealerSecondOverrideBp: 300, ownerSelfBp: 2500, ownerOverrideBp: 500 };
+export const DEFAULT_ONE_TIME_RATES: OneTimeRates = { memberDirectBp: 2000, leadOverrideBp: 400, dealerSelfBp: 2000, dealerOverrideBp: 400, dealerSecondOverrideBp: 300, ownerSelfBp: 2500, ownerOverrideBp: 400, ownerSecondOverrideBp: 300 };
 
 /** The split of one shop's fee (excl. GST) by case (§3.1, §3.2). Amounts in paise, rounded per person. */
 export function oneTimeSplit(caseCode: CaseCode, feePaise: number, r: OneTimeRates = DEFAULT_ONE_TIME_RATES): { direct: number; lead: number; top: number; directBp: number; leadBp: number; topBp: number } {
@@ -224,7 +226,7 @@ export function oneTimeSplit(caseCode: CaseCode, feePaise: number, r: OneTimeRat
     return { direct: 0, lead: 0, top: bp(topBp), directBp: 0, leadBp: 0, topBp };
   }
   const leadBp = n === 3 ? r.leadOverrideBp : 0;
-  const topBp = b ? r.ownerOverrideBp : n === 3 ? r.dealerSecondOverrideBp : r.dealerOverrideBp;
+  const topBp = b ? (n === 3 ? r.ownerSecondOverrideBp : r.ownerOverrideBp) : n === 3 ? r.dealerSecondOverrideBp : r.dealerOverrideBp;
   return { direct: bp(r.memberDirectBp), lead: bp(leadBp), top: bp(topBp), directBp: r.memberDirectBp, leadBp, topBp };
 }
 
@@ -233,7 +235,7 @@ export function parityProblems(r: OneTimeRates): string[] {
   const out: string[] = [];
   if (r.ownerSelfBp < r.dealerSelfBp) out.push(`The franchise owner's own-shop rate (${r.ownerSelfBp / 100}%) cannot be lower than the free dealer's (${r.dealerSelfBp / 100}%).`);
   if (r.ownerOverrideBp < r.dealerOverrideBp) out.push(`The franchise owner's override (${r.ownerOverrideBp / 100}%) cannot be lower than the free dealer's override (${r.dealerOverrideBp / 100}%).`);
-  if (r.ownerOverrideBp < r.dealerSecondOverrideBp) out.push(`The franchise owner's override (${r.ownerOverrideBp / 100}%) cannot be lower than the free dealer's second override (${r.dealerSecondOverrideBp / 100}%).`);
-  if (r.memberDirectBp + r.leadOverrideBp + r.ownerOverrideBp > 10_000) out.push("Agent, team lead and owner rates together cannot pass 100% of the fee.");
+  if (r.ownerSecondOverrideBp < r.dealerSecondOverrideBp) out.push(`The franchise owner's second override (${r.ownerSecondOverrideBp / 100}%) cannot be lower than the free dealer's second override (${r.dealerSecondOverrideBp / 100}%).`);
+  if (r.memberDirectBp + r.leadOverrideBp + r.ownerSecondOverrideBp > 10_000) out.push("Agent, team lead and owner rates together cannot pass 100% of the fee.");
   return out;
 }

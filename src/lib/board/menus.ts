@@ -397,10 +397,6 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "verified", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "suspensions", label: L("Suspensions", "निलंबन", "निलंबन"), icon: "lock", href: "/admin/suspensions", count: "activeSuspensions", permission: PERMISSIONS.SHOP_SUSPEND },
       { key: "grade", label: L("Grade", "ग्रेड", "श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
-      // docs/consult-booking-2026-11: consultant verification, bookings, categories and commission, policies, reports.
-      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
-      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
-      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
     more: [
       { key: "documents", label: L("Legal documents", "कानूनी दस्तावेज़", "कायदेशीर कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
@@ -452,8 +448,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "shop", label: L("Shop", "दुकान", "दुकान"), icon: "store", href: "/admin/shop-categories", count: "shopCategoryCount", permission: PERMISSIONS.CATEGORY_MANAGE },
       { key: "product", label: L("Product", "उत्पाद", "उत्पादन"), icon: "list-tree", href: "/product-categories", count: "productCategories", permission: PERMISSIONS.CATALOGUE_BROWSE },
-      // docs/puja-samagri-2026-11: puja master catalogue, review queue, festivals, configuration.
-      { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/admin/puja", permission: PERMISSIONS.PRODUCT_MANAGE },
+      // Owner, 21-Nov-2026: Categories is only Shop and Product. Puja Samagri, Consultants and Health open from
+      // the Shop categories page (SHOP_TYPE_MODULES); Puja's catalogue is also linked from Product categories.
     ],
   },
   {
@@ -574,10 +570,6 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "documents", label: L("Documents", "दस्तावेज़", "कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "photoChecks", label: L("Photo checks", "फ़ोटो जाँच", "फोटो तपासणी"), icon: "images", href: "/admin/image-moderation", count: "pendingImages", permission: PERMISSIONS.PRODUCT_MANAGE },
       { key: "grade", label: L("Quality grade", "गुणवत्ता ग्रेड", "गुणवत्ता श्रेणी"), icon: "shield-check", href: "/admin/console/shops#approved-shops", permission: PERMISSIONS.SHOP_SET_CLASSIFICATION },
-      // docs/consult-booking-2026-11: operators run consultant onboarding and bookings with admins.
-      { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE },
-      // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
-      { key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE },
     ],
     more: [
       { key: "verification", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
@@ -673,16 +665,39 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "mrp", label: L("MRP", "एमआरपी", "एमआरपी"), icon: "tag", href: "/admin/mrp", count: "mrpCorrections", permission: PERMISSIONS.PRODUCT_MRP_MANAGE },
       // batch-2026-10 WS-A: "Ref. prices" removed — F1.4.3 dropped.
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
-      // docs/puja-samagri-2026-11: puja master catalogue, review queue, festivals, configuration.
-      { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/admin/puja", permission: PERMISSIONS.PRODUCT_MANAGE },
+      // Owner, 21-Nov-2026: as on the admin Categories hub, Shop and Product categories are on the board and
+      // Puja Samagri, Consultants and Health open from the Shop categories page (SHOP_TYPE_MODULES).
+      { key: "shopCategories", label: L("Shop categories", "दुकान श्रेणियाँ", "दुकान वर्ग"), icon: "store", href: "/admin/shop-categories", permission: PERMISSIONS.CATEGORY_MANAGE },
+      { key: "productCategories", label: L("Product categories", "उत्पाद श्रेणियाँ", "उत्पादन वर्ग"), icon: "list-tree", href: "/product-categories", permission: PERMISSIONS.CATALOGUE_BROWSE },
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
-      { key: "shopCategories", label: L("Shop categories", "दुकान श्रेणियाँ", "दुकान वर्ग"), icon: "store", href: "/admin/shop-categories", permission: PERMISSIONS.CATEGORY_MANAGE },
       { key: "shopTypes", label: L("Shop types", "दुकान के प्रकार", "दुकानाचे प्रकार"), icon: "store", href: "/admin/shop-types", permission: PERMISSIONS.CATEGORY_MANAGE },
-      { key: "productCategories", label: L("Product categories", "उत्पाद श्रेणियाँ", "उत्पादन वर्ग"), icon: "list-tree", href: "/product-categories", permission: PERMISSIONS.CATALOGUE_BROWSE },
       { key: "productBrowser", label: L("Product browser", "प्रोडक्ट ब्राउज़र", "उत्पादन ब्राउझर"), icon: "search", href: "/admin/product-browser", permission: PERMISSIONS.PMD_VIEW }, // batch-2026-10 WS-D
     ],
+  },
+];
+
+/**
+ * Shop types that come with their own admin page (owner, 21-Nov-2026). They are kinds of shop, so they
+ * open from the Shop categories page (Categories → Shop), not as separate tiles; their product categories
+ * already sit in the one product category list. Each page checks access again.
+ */
+export const SHOP_TYPE_MODULES: readonly (BoardItem & { note: Text })[] = [
+  // docs/puja-samagri-2026-11: puja master catalogue, review queue, festivals, configuration.
+  {
+    key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), icon: "sparkles", href: "/admin/puja", permission: PERMISSIONS.PRODUCT_MANAGE,
+    note: L("Catalogue, review queue, festivals, settings", "कैटलॉग, समीक्षा कतार, त्योहार, सेटिंग्स", "कॅटलॉग, पुनरावलोकन रांग, सण, सेटिंग्ज"),
+  },
+  // docs/consult-booking-2026-11: consultant verification, bookings, categories and commission, policies, reports.
+  {
+    key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/admin/consult", permission: PERMISSIONS.CONSULT_MANAGE,
+    note: L("Verification, bookings, categories and commission, reports", "सत्यापन, बुकिंग, श्रेणियाँ व कमीशन, रिपोर्ट", "पडताळणी, बुकिंग, वर्ग व कमिशन, अहवाल"),
+  },
+  // GoKesari Health (docs/health/): provider verification, drug master, lists, Prime plans, reports, access logs (metadata only).
+  {
+    key: "health", label: L("Health", "स्वास्थ्य", "आरोग्य"), icon: "shield-check", href: "/admin/health", permission: PERMISSIONS.HEALTH_MANAGE,
+    note: L("Doctors, care providers and stores, medicine lists, Prime, reports", "डॉक्टर, केयर प्रदाता व स्टोर, दवा सूची, प्राइम, रिपोर्ट", "डॉक्टर, केअर प्रदाते व स्टोअर, औषध यादी, प्राइम, अहवाल"),
   },
 ];
 
@@ -803,6 +818,7 @@ export function allDefinedHrefs(): string[] {
   const items: BoardItem[] = [
     ...Object.values(MENUS).flatMap((menus) => menus.flatMap((m) => [m, ...m.items, ...(m.more ?? [])])),
     ...Object.values(DO_NOW).flat(),
+    ...SHOP_TYPE_MODULES,
   ];
   return [
     ...items.flatMap((i) => [i.href, ...(i.fallbackHref ? [i.fallbackHref] : [])]),

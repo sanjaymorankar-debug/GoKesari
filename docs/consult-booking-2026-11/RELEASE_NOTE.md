@@ -23,7 +23,7 @@ languages, registration certificate, slot length, buffer, people per slot), week
 day, leave, holidays, blocked or extra hours, and services (duration, free / fixed / advance, modes, one-to-one /
 team / group, GST).
 
-**For GoKesari staff.** Admin → Shops → Consultants: certificate and profile verification, every booking with
+**For GoKesari staff.** Admin → Categories → Shop categories → Consultants (operators: Catalogue → Shop categories → Consultants): certificate and profile verification, every booking with
 filters, refunds and disputes (help-desk tickets), staff cancellation with full refund, categories with
 commission % (default 2%) and required registration, policy templates, and reports (bookings, revenue,
 commission, top categories, areas and consultants). Operators onboard consultants with the owner's consent

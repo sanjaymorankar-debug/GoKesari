@@ -92,9 +92,9 @@ describe("one-time cases (§3.3) on the default fees", () => {
     A3: [200, 40, 30],
     A4: [200, 0, 40],
     B1: [0, 0, 250],
-    B2: [200, 0, 50],
-    B3: [200, 40, 50],
-    B4: [200, 0, 50],
+    B2: [200, 0, 40],
+    B3: [200, 40, 30],
+    B4: [200, 0, 40],
   };
   for (const [c, [direct, lead, top]] of Object.entries(table) as [CaseCode, [number, number, number]][]) {
     it(`${c}: retail ₹1,000 and wholesale ₹2,500`, () => {
@@ -104,9 +104,9 @@ describe("one-time cases (§3.3) on the default fees", () => {
       expect([w.direct, w.lead, w.top].map((p) => p / 100)).toEqual([direct * 2.5, lead * 2.5, top * 2.5]);
     });
   }
-  it("totals: A3 ₹270 / ₹675, B3 ₹290 / ₹725", () => {
+  it("totals: A3 and B3 both ₹270 / ₹675 (owner, 21-Nov-2026: the same 20/4/3 flow)", () => {
     const t = (c: CaseCode, fee: number) => Object.values(oneTimeSplit(c, fee, R)).slice(0, 3).reduce((s, v) => s + v, 0) / 100;
-    expect([t("A3", 100_000), t("A3", 250_000), t("B3", 100_000), t("B3", 250_000)]).toEqual([270, 675, 290, 725]);
+    expect([t("A3", 100_000), t("A3", 250_000), t("B3", 100_000), t("B3", 250_000)]).toEqual([270, 675, 270, 675]);
   });
   it("who registered → the case", () => {
     expect(caseOf("A", null, false)).toBe("A1");
@@ -121,6 +121,7 @@ describe("parity (§3.4)", () => {
     expect(parityProblems(R)).toEqual([]);
     expect(parityProblems({ ...R, ownerSelfBp: 1900 })[0]).toMatch(/own-shop rate/);
     expect(parityProblems({ ...R, ownerOverrideBp: 300 })[0]).toMatch(/override/);
+    expect(parityProblems({ ...R, ownerSecondOverrideBp: 200 })[0]).toMatch(/second override/);
     expect(parityProblems({ ...R, dealerOverrideBp: 600 })[0]).toMatch(/cannot be lower/);
   });
 });
