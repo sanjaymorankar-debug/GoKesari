@@ -10583,6 +10583,8 @@ export const dealers = pgTable(
     /** The agent agreement (src/lib/dealer-tiers.ts) the main dealer accepted for TIERED earnings. */
     tierAgreementVersion: text("tier_agreement_version"),
     tierAgreementAcceptedAt: timestamp("tier_agreement_accepted_at", { withTimezone: true }),
+    /** A free dealer's working zone, chosen on Book a franchise zone (22-Nov-2026); no ownership. */
+    preferredZoneId: text("preferred_zone_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

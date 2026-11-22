@@ -79,7 +79,12 @@ export function prevMonth(month: string): string {
 const ENDED = new Set(["TERMINATED", "CANCELLED"]);
 /** When the franchise stops being active: termination / cancellation, else its expiry. */
 const activeEnd = (a: FranchiseAllocation) => (ENDED.has(a.status) ? a.endedAt : a.expiresAt);
-const isActiveAt = (a: FranchiseAllocation, t: number) => a.status !== "CANCELLED" && !!a.activatedAt && a.activatedAt.getTime() <= t && (activeEnd(a)?.getTime() ?? 0) > t;
+/** When the franchise started earning: never while it waits for the owner's KYC (paid first, 22-Nov-2026), else from going live. */
+export const liveFrom = (a: Pick<FranchiseAllocation, "activatedAt" | "kycDueAt" | "kycClearedAt">): Date | null => (a.kycDueAt ? null : (a.kycClearedAt ?? a.activatedAt));
+const isActiveAt = (a: FranchiseAllocation, t: number) => {
+  const from = liveFrom(a);
+  return a.status !== "CANCELLED" && !!from && from.getTime() <= t && (activeEnd(a)?.getTime() ?? 0) > t;
+};
 /** The tail (§4.2): after a lapse, own-team shops keep earning until tailEndAt (terminated / voided: none). */
 const inTailAt = (a: FranchiseAllocation, t: number) => !ENDED.has(a.status) && !!a.expiresAt && !!a.tailEndAt && a.expiresAt.getTime() <= t && a.tailEndAt.getTime() > t;
 
@@ -103,7 +108,7 @@ interface ZoneContext {
 }
 
 async function zoneContext(client: DbClient, zoneId: string, splitMode: FranchiseConfig["recurringSplitMode"]): Promise<ZoneContext> {
-  const allocations = (await client.select().from(franchiseAllocations).where(eq(franchiseAllocations.zoneId, zoneId))).filter((a) => !!a.activatedAt && a.status !== "CANCELLED");
+  const allocations = (await client.select().from(franchiseAllocations).where(eq(franchiseAllocations.zoneId, zoneId))).filter((a) => !!liveFrom(a) && a.status !== "CANCELLED");
   const team = new Map<string, TeamPeriod[]>();
   const addPeriod = (shopId: string, p: TeamPeriod) => team.set(shopId, [...(team.get(shopId) ?? []), p]);
   for (const r of await client.select().from(franchiseShopAttributions).where(and(eq(franchiseShopAttributions.zoneId, zoneId), eq(franchiseShopAttributions.status, "ACTIVE")))) {
@@ -300,7 +305,7 @@ async function earningAllocations(client: DbClient, month: string): Promise<Fran
   const { start, end } = istMonthBounds(month);
   const rows = await client.select().from(franchiseAllocations).where(and(eq(franchiseAllocations.isTest, false), sql`${franchiseAllocations.activatedAt} < ${end.toISOString()}::timestamptz`));
   return rows.filter((a) => {
-    if (a.status === "CANCELLED") return false;
+    if (a.status === "CANCELLED" || !liveFrom(a)) return false;
     const stop = ENDED.has(a.status) ? a.endedAt : (a.tailEndAt ?? a.expiresAt);
     return !stop || stop.getTime() >= start.getTime();
   });

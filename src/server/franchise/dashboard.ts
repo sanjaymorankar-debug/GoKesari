@@ -49,13 +49,15 @@ export interface OwnerArea {
   otherOwners: number;
   launchOffer: boolean;
   shops: number;
+  /** Paid before KYC (22-Nov-2026): not live until KYC and bank are approved, by this time (IST); null when live. */
+  kycDueAtIst: string | null;
 }
 
 /** The owner's franchise page. Null when the user has no dealer account. */
 export async function ownerDashboard(userId: string) {
   const status = await ownerStatusForUser(userId);
   const offer = await offerView();
-  if (!status.dealer) return { status: { hasDealer: false, missing: status.missing, agreementAccepted: false }, offer, areas: [], bookings: [], shops: [], money: null, codes: [], rating: null, violations: [], live: [], statements: [], totals: null };
+  if (!status.dealer) return { status: { hasDealer: false, missing: status.missing, kycMissing: status.kycMissing, agreementAccepted: false }, offer, areas: [], bookings: [], shops: [], money: null, codes: [], rating: null, violations: [], live: [], statements: [], totals: null };
   const dealer = status.dealer;
   const { config } = await franchiseConfig();
   const now = franchiseNow(config);
@@ -89,6 +91,7 @@ export async function ownerDashboard(userId: string) {
       otherOwners: await otherOwnersInZone(a.zoneId, dealer.id),
       launchOffer: a.launchOffer,
       shops: shopCounts.get(a.id) ?? 0,
+      kycDueAtIst: a.kycDueAt ? formatIst(a.kycDueAt) : null,
     });
   }
   const bookings = await db.select().from(franchiseBookings).where(eq(franchiseBookings.ownerDealerId, dealer.id)).orderBy(desc(franchiseBookings.createdAt)).limit(20);
@@ -137,7 +140,7 @@ export async function ownerDashboard(userId: string) {
   const nextPayoutMonth = istDate(now).slice(8, 10) > "05" ? nextMonth(month) : month;
   const violations = await db.select().from(franchiseComplianceViolations).where(eq(franchiseComplianceViolations.ownerDealerId, dealer.id)).orderBy(desc(franchiseComplianceViolations.createdAt));
   return {
-    status: { hasDealer: true, dealerName: dealer.legalName, dealerStatus: dealer.status, missing: status.missing, agreementAccepted: status.agreementAccepted },
+    status: { hasDealer: true, dealerName: dealer.legalName, dealerStatus: dealer.status, missing: status.missing, kycMissing: status.kycMissing, agreementAccepted: status.agreementAccepted },
     offer,
     areas,
     bookings: bookings.map((b) => ({
@@ -207,6 +210,9 @@ export interface AdminAllocationRow {
   renewals: number;
   isTest: boolean;
   bookingId: string;
+  /** Paid before KYC: not live until approved; overdue (refund to free the zone) after this (IST). Null when live. */
+  kycDueAtIst: string | null;
+  kycOverdue: boolean;
 }
 
 export async function adminAllocations(filter: { zoneId?: string; status?: string } = {}): Promise<AdminAllocationRow[]> {
@@ -234,6 +240,8 @@ export async function adminAllocations(filter: { zoneId?: string; status?: strin
     daysLeft: a.expiresAt ? daysBetween(istDate(now), istDate(a.expiresAt)) : null,
     tailEndAtIst: formatIst(a.tailEndAt),
     feePaise: a.feePaise,
+    kycDueAtIst: a.kycDueAt ? formatIst(a.kycDueAt) : null,
+    kycOverdue: !!a.kycDueAt && a.kycDueAt.getTime() <= now.getTime(),
     launchOffer: a.launchOffer,
     launchSeq: a.launchSeq,
     renewals: a.renewalCount,
