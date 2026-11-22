@@ -10996,7 +10996,7 @@ export type ShopDocumentType = typeof shopDocumentTypes.$inferSelect;
 
 /**
  * Which documents each kind of shop needs, and how (src/lib/shop-document-rules.ts): one row per
- * document and scope (ALL, FOOD or TYPE:<shop type>). No row for a shop: the document is not asked.
+ * document and scope (ALL, FOOD, DOCTOR — migration 0165 — or TYPE:<shop type>). No row for a shop: the document is not asked.
  * live_shops_due_at: set when an admin makes a document needed (or raises it from optional) — a shop
  * already live is not suspended for it before then. updated_by: no foreign key, as above.
  */

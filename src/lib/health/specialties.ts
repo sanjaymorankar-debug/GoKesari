@@ -51,16 +51,18 @@ export function healthGroupName(key: string | null | undefined): string | null {
 
 /**
  * The groups whose practitioners are doctors (owner, 22-Nov-2026: "require it for every doctor category"):
- * a shop in any of their shop categories needs a medical registration (rule legalDocuments). Therapy
- * (physiotherapists, speech therapists, dietitians) and Diagnostics (labs, scan centres) are not doctors.
+ * a shop in any of their shop categories needs a medical registration (rule legalDocuments, and the
+ * admin's document rules' "Doctors" scope, H-52). Therapy (physiotherapists, speech therapists,
+ * dietitians) and Diagnostics (labs, scan centres) are not doctors.
  */
 export const DOCTOR_GROUP_KEYS = ["general", "specialists", "women-child", "dental", "eye-ent", "mind", "ayush", "animal"] as const satisfies readonly HealthGroupKey[];
 
-const DOCTOR_GROUP_NAMES: ReadonlySet<string> = new Set(HEALTH_SPECIALTY_GROUPS.filter((g) => (DOCTOR_GROUP_KEYS as readonly string[]).includes(g.key)).map((g) => g.name));
+/** The stored `group_name` of every doctor group (the server's "is this shop a doctor" query matches on these). */
+export const DOCTOR_GROUP_NAMES: readonly string[] = HEALTH_SPECIALTY_GROUPS.filter((g) => (DOCTOR_GROUP_KEYS as readonly string[]).includes(g.key)).map((g) => g.name);
 
 /** A stored `group_name` of a doctor group ("Health — Dental" → true, "Health — Therapy" → false). */
 export function isDoctorGroup(groupName: string | null | undefined): boolean {
-  return groupName != null && DOCTOR_GROUP_NAMES.has(groupName);
+  return groupName != null && DOCTOR_GROUP_NAMES.includes(groupName);
 }
 
 export interface HealthSpecialty {
