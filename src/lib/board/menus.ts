@@ -276,6 +276,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "edit", label: L("Edit", "बदलें", "बदला"), icon: "tag", href: "/shop/prices" },
       { key: "excel", label: L("Excel", "एक्सेल", "एक्सेल"), icon: "file-spreadsheet", href: "/shop/prices#excel-upload" },
       { key: "requests", label: L("Requests", "अनुरोध", "विनंत्या"), icon: "clock", href: "/shop/prices#price-requests", count: "shopPriceRequests", urgent: true },
+      // docs/rbac Phase 5: changes GoKesari support proposed, waiting for the owner (only while the flag is on).
+      { key: "changes", label: L("Pending changes", "लंबित बदलाव", "प्रलंबित बदल"), short: L("Changes", "बदलाव", "बदल"), icon: "badge-check", href: "/shop/changes", permission: PERMISSIONS.SHOP_CHANGE_DECIDE_OWN, feature: "rbac_v2_shop_change_requests" },
     ],
   },
   {

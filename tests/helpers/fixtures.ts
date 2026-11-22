@@ -66,6 +66,7 @@ const RESET_TABLES = [
   "fin_journal_entries",
   "fin_periods",
   "rate_change_proposals",
+  "staff_team_members",
   // Mailbox rotation (0158): per-mailbox send counts, no foreign keys.
   "email_mailbox_sends",
   // docs/billing: GoKesari's delivery-invoice series has no foreign key for the cascade to follow.

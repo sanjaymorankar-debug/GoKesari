@@ -11,5 +11,11 @@ export async function runRbacV2Sweep(): Promise<Record<string, unknown>> {
   if (await isFeatureEnabled("rbac_v2_accounting")) {
     out.rates = await (await import("@/server/rbac-accounting/rates")).activateDueRateProposals();
   }
+  if (await isFeatureEnabled("rbac_v2_shop_change_requests")) {
+    out.changeRequests = await (await import("@/server/rbac-support/change-requests")).sweepShopChangeRequests();
+  }
+  if (await isFeatureEnabled("rbac_v2_support")) {
+    out.supportDesk = await (await import("@/server/rbac-support/desk")).sweepSupportDesk();
+  }
   return out;
 }

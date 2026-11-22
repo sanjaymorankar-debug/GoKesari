@@ -10,7 +10,7 @@
  * Re-exported by schema.ts.
  */
 import { sql } from "drizzle-orm";
-import { bigint, boolean, date, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, customType, date, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const APPROVAL_STATUSES = [
   "PENDING",
@@ -218,3 +218,104 @@ export const rateChangeProposals = pgTable(
   (t) => [index("rate_change_proposals_status_idx").on(t.status, t.effectiveAt)],
 );
 export type RateChangeProposal = typeof rateChangeProposals.$inferSelect;
+
+/* ============================================ Phases 4–5: teams, shop MRP history (0172) */
+
+export const STAFF_TEAMS = ["SUPPORT", "OPERATIONS"] as const;
+export type StaffTeam = (typeof STAFF_TEAMS)[number];
+
+/** Which manager a Support / Operations staff member reports to (one active team row per member and team). */
+export const staffTeamMembers = pgTable(
+  "staff_team_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    team: text("team", { enum: STAFF_TEAMS }).notNull(),
+    managerUserId: uuid("manager_user_id").notNull(),
+    memberUserId: uuid("member_user_id").notNull(),
+    active: boolean("active").notNull().default(true),
+    addedBy: uuid("added_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (t) => [index("staff_team_members_manager_idx").on(t.managerUserId, t.team)],
+);
+export type StaffTeamMember = typeof staffTeamMembers.$inferSelect;
+
+/** Append-only (trigger shop_mrp_history_append_only): every change of a shop's own MRP. */
+export const shopMrpHistory = pgTable(
+  "shop_mrp_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull(),
+    shopProductId: uuid("shop_product_id").notNull(),
+    previousMrpPaise: bigint("previous_mrp_paise", { mode: "number" }),
+    newMrpPaise: bigint("new_mrp_paise", { mode: "number" }).notNull(),
+    changedBy: uuid("changed_by"),
+    source: text("source", { enum: ["OWNER", "CHANGE_REQUEST", "ADMIN"] }).notNull(),
+    approvalRequestId: uuid("approval_request_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shop_mrp_history_product_idx").on(t.shopProductId, t.createdAt)],
+);
+
+/* ======================================================== Documents (0173) */
+
+export const STAFF_DOC_TYPES = [
+  "GST_CERTIFICATE",
+  "PAN",
+  "SHOP_ACT",
+  "FSSAI",
+  "DRUG_LICENCE",
+  "OTHER_LICENCE",
+  "PRODUCT_CATALOGUE",
+  "PRODUCT_IMAGE",
+  "SPECIFICATION",
+  "PRICE_LIST",
+  "SHOP_PHOTO",
+  "AGREEMENT",
+  "CERTIFICATE",
+  "OTHER",
+] as const;
+export type StaffDocType = (typeof STAFF_DOC_TYPES)[number];
+
+export const staffDocuments = pgTable(
+  "staff_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull(),
+    shopProductId: uuid("shop_product_id"),
+    docType: text("doc_type", { enum: STAFF_DOC_TYPES }).notNull(),
+    title: text("title").notNull(),
+    currentVersion: integer("current_version").notNull().default(1),
+    verificationStatus: text("verification_status", { enum: ["UNVERIFIED", "VERIFIED", "REJECTED"] }).notNull().default("UNVERIFIED"),
+    verifiedBy: uuid("verified_by"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    ticketId: uuid("ticket_id"),
+    status: text("status", { enum: ["ACTIVE", "DELETED"] }).notNull().default("ACTIVE"),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedBy: uuid("deleted_by"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("staff_documents_shop_idx").on(t.shopId, t.status)],
+);
+export type StaffDocument = typeof staffDocuments.$inferSelect;
+
+const bytea = customType<{ data: Buffer; default: false }>({ dataType: () => "bytea" });
+
+/** A version is never changed (trigger staff_document_versions_immutable): a new upload is a new version. */
+export const staffDocumentVersions = pgTable("staff_document_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  documentId: uuid("document_id")
+    .notNull()
+    .references(() => staffDocuments.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  filename: text("filename").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  sha256: text("sha256").notNull(),
+  data: bytea("data").notNull(),
+  uploadedBy: uuid("uploaded_by").notNull(),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type StaffDocumentVersion = typeof staffDocumentVersions.$inferSelect;

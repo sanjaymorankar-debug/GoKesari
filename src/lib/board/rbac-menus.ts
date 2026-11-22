@@ -49,16 +49,16 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "tickets", label: L("All tickets", "सभी टिकट", "सर्व तिकिटे"), short: L("Tickets", "टिकट", "तिकिटे"), icon: "ticket", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE },
       { key: "disputes", label: L("Disputes", "विवाद", "वाद"), icon: "scale", href: "/admin/disputes", permission: PERMISSIONS.DISPUTE_MANAGE },
-      { key: "team", label: L("Team workload", "टीम कार्यभार", "टीम कामभार"), short: L("Team", "टीम", "टीम"), icon: "users", href: "/staff/support/team", permission: PERMISSIONS.SUPPORT_QUEUE_MANAGE, feature: "rbac_v2_support" },
+      { key: "team", label: L("Team workload", "टीम कार्यभार", "टीम कामभार"), short: L("Team", "टीम", "टीम"), icon: "users", href: "/staff/support?tab=dashboard", permission: PERMISSIONS.SUPPORT_QUEUE_MANAGE, feature: "rbac_v2_support" },
     ],
   },
   {
-    key: "myWork", label: L("My work", "मेरा काम", "माझे काम"), icon: "clipboard-check", tone: "teal", href: "/staff/support/mine",
+    key: "myWork", label: L("My work", "मेरा काम", "माझे काम"), icon: "clipboard-check", tone: "teal", href: "/staff/support?tab=mine",
     permission: PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED,
     feature: "rbac_v2_support",
     items: [
-      { key: "tickets", label: L("My tickets", "मेरे टिकट", "माझी तिकिटे"), short: L("Tickets", "टिकट", "तिकिटे"), icon: "ticket", href: "/staff/support/mine", permission: PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED, feature: "rbac_v2_support" },
-      { key: "changes", label: L("Changes sent to owners", "मालिकों को भेजे बदलाव", "मालकांना पाठवलेले बदल"), short: L("Changes", "बदलाव", "बदल"), icon: "history", href: "/staff/support/changes", permission: PERMISSIONS.SHOP_CHANGE_PROPOSE, feature: "rbac_v2_shop_change_requests" },
+      { key: "tickets", label: L("My tickets", "मेरे टिकट", "माझी तिकिटे"), short: L("Tickets", "टिकट", "तिकिटे"), icon: "ticket", href: "/staff/support?tab=mine", permission: PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED, feature: "rbac_v2_support" },
+      { key: "changes", label: L("Changes sent to owners", "मालिकों को भेजे बदलाव", "मालकांना पाठवलेले बदल"), short: L("Changes", "बदलाव", "बदल"), icon: "history", href: "/staff/support?tab=mine", permission: PERMISSIONS.SHOP_CHANGE_PROPOSE, feature: "rbac_v2_shop_change_requests" },
     ],
   },
   /* ---------------------------------------------------------- Operations */
@@ -83,6 +83,10 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
   {
     key: "help", label: L("Raise a ticket", "टिकट बनाएँ", "तिकीट करा"), short: L("Help", "सहायता", "मदत"), icon: "life-buoy", tone: "pink", href: "/support",
     permission: PERMISSIONS.SUPPORT_TICKET_RAISE,
-    items: [{ key: "raise", label: L("My tickets", "मेरे टिकट", "माझी तिकिटे"), icon: "ticket", href: "/support", permission: PERMISSIONS.SUPPORT_TICKET_RAISE }],
+    items: [
+      { key: "raise", label: L("Raise to Support", "सहायता को भेजें", "सहाय्याकडे पाठवा"), short: L("Raise", "भेजें", "पाठवा"), icon: "ticket", href: "/staff/support?tab=raise", permission: PERMISSIONS.SUPPORT_TICKET_RAISE, feature: "rbac_v2_support" },
+      { key: "raised", label: L("Raised by me", "मेरे भेजे", "मी पाठवलेली"), short: L("Raised", "भेजे", "पाठवलेली"), icon: "history", href: "/staff/support?tab=raised", permission: PERMISSIONS.SUPPORT_TICKET_RAISE, feature: "rbac_v2_support" },
+      { key: "mine", label: L("My help tickets", "मेरे टिकट", "माझी तिकिटे"), short: L("Tickets", "टिकट", "तिकिटे"), icon: "life-buoy", href: "/support", permission: PERMISSIONS.SUPPORT_TICKET_RAISE },
+    ],
   },
 ];

@@ -1205,6 +1205,20 @@
       "when": 1793266900000,
       "tag": "0171_rbac_v2_accounting",
       "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1793267000000,
+      "tag": "0172_rbac_v2_support_changes",
+      "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1793267100000,
+      "tag": "0173_rbac_v2_documents",
+      "breakpoints": true
     }
   ]
 }

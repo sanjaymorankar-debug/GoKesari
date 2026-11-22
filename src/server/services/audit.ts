@@ -25,6 +25,11 @@ export const AUDIT_ACTIONS = {
   JOURNAL_POSTED: "fin_journal.posted",
   RATE_PROPOSED: "rate_proposal.submitted",
   RATE_ACTIVATED: "rate_proposal.activated",
+  STAFF_TEAM_CHANGED: "staff_team.changed",
+  STAFF_DOCUMENT_UPLOADED: "staff_document.uploaded",
+  STAFF_DOCUMENT_LINK: "staff_document.link_issued",
+  STAFF_DOCUMENT_VERIFIED: "staff_document.verified",
+  STAFF_DOCUMENT_DELETED: "staff_document.deleted",
   SHOP_REGISTERED: "shop.registered",
   /** docs/shop-onboarding-wizard-2026-10: a GSTIN / PAN checked in the onboarding wizard, before the shop exists. Masked numbers only. */
   SHOP_REGISTRATION_DRAFT_CHECKED: "shop_registration_draft.checked",
