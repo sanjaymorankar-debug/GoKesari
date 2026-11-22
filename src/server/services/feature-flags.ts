@@ -66,6 +66,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   zoho_connector: "Zoho Books connector",
   odoo_connector: "Odoo connector",
   ondc_mode: "ONDC seller-side mode",
+  shop_logo_upload_enabled: "Shop logo upload (shop owners)",
   shop_welcome_kit_admin_send_enabled: "Send welcome kit to existing shops",
   smart_list_scan_enabled: "Scan my shopping list (photo → wishlist → compare shops)",
   shop_photo_listing_enabled: "Add product by photo + voice (shop owners)",
@@ -105,6 +106,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   zoho_connector: "Two-way sync with Zoho Books over its API (OAuth per shop).",
   odoo_connector: "Two-way sync with Odoo over its API.",
   ondc_mode: "GoKesari as the seller-side app on ONDC: TCS when GoKesari releases the payment (Circular 194/06/2023).",
+  shop_logo_upload_enabled:
+    "docs/delta CF-011 (D-144): shop owners upload or remove their shop logo (JPEG, PNG or WebP) under My Shop → Open or close the shop, hours and contact. The logo shows on the shop card. Off: no upload box; a logo set before stays.",
   shop_welcome_kit_admin_send_enabled:
     "Admin → Shops → Send welcome kit: e-mail the welcome kit (the shop's two printable QR banners) to shops that went live before it existed — one shop, or every live shop of a city or district (preview first). Each shop gets it once, ever. New shops get it automatically whether this is on or off. Tell the owner before a bulk run on gokesari.com.",
   smart_list_scan_enabled:
