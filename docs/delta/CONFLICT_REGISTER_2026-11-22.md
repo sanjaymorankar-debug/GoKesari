@@ -180,9 +180,9 @@ later run, and only as you approve it.
 | Estimated Effort | 2–3 |
 | Dependent Features Held | None |
 | Mobile Impact | Yes |
-| **Owner Decision** | |
-| **Owner Feedback** | |
-| **Target Release** | |
+| **Owner Decision** | Approve A (owner, 22-Nov-2026 ≈23.05 IST) |
+| **Owner Feedback** | Not built: a new C2 conflict was found (its migration collides with RBAC v2 migrations 0170–0175 in flight). Options A1/A2/A3 in DELTA_BUILD_2026-11-22.md |
+| **Target Release** | Owner to choose A1 (after RBAC migrations land) or A2 |
 
 ## CF-007: Onboarding WP6: referral help by PIN code
 
@@ -300,9 +300,9 @@ later run, and only as you approve it.
 | Estimated Effort | 1 |
 | Dependent Features Held | None |
 | Mobile Impact | Yes |
-| **Owner Decision** | |
-| **Owner Feedback** | |
-| **Target Release** | |
+| **Owner Decision** | Approve A (owner, 22-Nov-2026 ≈23.05 IST) |
+| **Owner Feedback** | Built as COMPLETED: flag `shop_logo_upload_enabled` OFF; see docs/delta/DELTA_BUILD_2026-11-22.md |
+| **Target Release** | Staging queue; production with the flag OFF in a 23.00 window |
 
 ## CF-012: Shop Product Setup validation changes
 
