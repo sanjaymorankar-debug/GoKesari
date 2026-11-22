@@ -1170,6 +1170,13 @@
       "when": 1793266400000,
       "tag": "0166_dealer_online_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1793266500000,
+      "tag": "0167_smart_shopping",
+      "breakpoints": true
     }
   ]
 }

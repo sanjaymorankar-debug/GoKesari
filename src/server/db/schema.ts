@@ -10414,6 +10414,10 @@ export const FEATURE_FLAG_KEYS = [
   "ondc_mode",
   // docs/shop-welcome-kit-2026-11: admins send the welcome kit to shops that were live before it (one shop or by city / district). No migration: a missing row is OFF.
   "shop_welcome_kit_admin_send_enabled",
+  // docs/smart-shopping-2026-11 (0167–0169): photo shopping list, add product by photo, WhatsApp orders. Missing row = OFF.
+  "smart_list_scan_enabled",
+  "shop_photo_listing_enabled",
+  "whatsapp_shop_orders_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -12759,4 +12763,5 @@ export const consultReceiptCounters = pgTable(
 /* >>> GoKesari Health (docs/health/; drizzle/0153_health.sql) */
 export * from "./health-schema";
 export * from "./franchise-schema";
+export * from "./smart-shopping-schema";
 /* <<< GoKesari Health */

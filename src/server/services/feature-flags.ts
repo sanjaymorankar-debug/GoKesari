@@ -67,6 +67,9 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   odoo_connector: "Odoo connector",
   ondc_mode: "ONDC seller-side mode",
   shop_welcome_kit_admin_send_enabled: "Send welcome kit to existing shops",
+  smart_list_scan_enabled: "Scan my shopping list (photo → wishlist → compare shops)",
+  shop_photo_listing_enabled: "Add product by photo + voice (shop owners)",
+  whatsapp_shop_orders_enabled: "New orders on the shop owner's WhatsApp",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -104,6 +107,12 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   ondc_mode: "GoKesari as the seller-side app on ONDC: TCS when GoKesari releases the payment (Circular 194/06/2023).",
   shop_welcome_kit_admin_send_enabled:
     "Admin → Shops → Send welcome kit: e-mail the welcome kit (the shop's two printable QR banners) to shops that went live before it existed — one shop, or every live shop of a city or district (preview first). Each shop gets it once, ever. New shops get it automatically whether this is on or off. Tell the owner before a bulk run on gokesari.com.",
+  smart_list_scan_enabled:
+    "Customers photograph a handwritten or printed shopping list; AI reads it (any Indian language), the customer checks the wishlist, compares nearby shops' prices and orders from one shop. Provider, radius and photo retention: rule smartShopping. Needs an AI key on the server.",
+  shop_photo_listing_enabled:
+    "Shop owners add a product from 1–4 photos plus price/stock by voice or typing; AI fills the details, the master catalogue is checked first (no duplicates) and new products go to admin review as today.",
+  whatsapp_shop_orders_enabled:
+    "Each new order is sent to the shop's verified WhatsApp numbers with Accept / Reject buttons; the first action wins. Needs the Meta WhatsApp Cloud API keys and approved templates (rule whatsappShopOrders). Each shop also switches it on in its WhatsApp settings.",
 };
 
 export interface FeatureFlagView {

@@ -1864,6 +1864,64 @@ export const RULES = {
     },
   },
   /* <<< billing v2 */
+  /* >>> docs/smart-shopping-2026-11: photo shopping list, add product by photo, WhatsApp orders */
+  smartShopping: {
+    description:
+      "Photo shopping list → wishlist → shop price comparison (customers) and Add product by photo (shop owners). AI reading of photos goes through the provider named here; photos are kept privately and deleted after the retention period.",
+    schema: z.object({
+      /** Which AI vision provider reads photos. "off" disables both features' AI step. */
+      aiProvider: z.enum(["claude", "off"]),
+      /** Empty = the code default model of the provider. */
+      aiModel: z.string().max(80),
+      /** Price comparison radius around the customer, km. */
+      comparisonRadiusKm: z.number().min(0.5).max(50),
+      /** At most this many shops are compared (nearest first). */
+      maxShopsCompared: int(2, 40),
+      /** List and product photos are deleted this many days after upload. */
+      photoRetentionDays: int(1, 365),
+      /** AI reads per user per day (list scans + product photos + voice parses). */
+      aiCallsPerUserPerDay: int(1, 500),
+      /** A matched product below this confidence (0–100) is highlighted for the user to check. */
+      lowConfidenceBelow: int(0, 100),
+      maxPagesPerScan: int(1, 10),
+      maxPhotosPerProduct: int(1, 4),
+      maxUploadMb: int(1, 25),
+    }),
+    defaults: {
+      aiProvider: "claude",
+      aiModel: "",
+      comparisonRadiusKm: 3,
+      maxShopsCompared: 15,
+      photoRetentionDays: 30,
+      aiCallsPerUserPerDay: 40,
+      lowConfidenceBelow: 75,
+      maxPagesPerScan: 6,
+      maxPhotosPerProduct: 4,
+      maxUploadMb: 10,
+    },
+  },
+  whatsappShopOrders: {
+    description:
+      "New orders sent to the shop owner's WhatsApp (Meta WhatsApp Business Cloud API) with Accept / Reject buttons, and status follow-ups. Template names must match templates approved in Meta Business Manager. Per-shop on/off is in the shop's WhatsApp settings.",
+    schema: z.object({
+      newOrderTemplate: z.string().max(120),
+      statusUpdateTemplate: z.string().max(120),
+      testMessageTemplate: z.string().max(120),
+      templateLanguage: z.string().max(10),
+      maxStaffNumbers: int(0, 10),
+      /** If a WhatsApp send fails, also send in-app, SMS and e-mail. */
+      fallbackOnFailure: z.boolean(),
+    }),
+    defaults: {
+      newOrderTemplate: "gk_new_order",
+      statusUpdateTemplate: "gk_order_update",
+      testMessageTemplate: "gk_number_check",
+      templateLanguage: "en",
+      maxStaffNumbers: 3,
+      fallbackOnFailure: true,
+    },
+  },
+  /* <<< smart-shopping */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;
