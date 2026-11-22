@@ -116,7 +116,7 @@ export async function shopsMissingDocuments(
         shopType: shops.shopType,
       },
       sellsFood: sql<boolean>`shop_sells_food(${shops.id}, ${shops.shopType}::text)`,
-      isDoctor: shopIsDoctorSql(shops.id),
+      isDoctor: shopIsDoctorSql(),
     })
     .from(shops)
     .where(and(inArray(shops.status, statuses), isNull(shops.deletedAt)))

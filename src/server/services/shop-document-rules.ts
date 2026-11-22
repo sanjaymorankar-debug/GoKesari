@@ -133,8 +133,11 @@ export function requirementsFromRuleSet(set: DocumentRuleSet, shopType: string, 
  * H-52) — General & family, Specialists, Women & child, Dental, Eye & ENT, Mind, AYUSH or Animal care;
  * not Therapy or Diagnostics. Matches on the group, so a specialty an admin adds to one of them counts.
  */
-export function shopIsDoctorSql(shopId: SQL | typeof shops.id | string): SQL<boolean> {
-  return sql<boolean>`exists (select 1 from shop_category_mapping m join shop_categories c on c.id = m.category_id where m.shop_id = ${shopId} and c.group_name in ${[...DOCTOR_GROUP_NAMES]})`;
+export function shopIsDoctorSql(shopId?: string): SQL<boolean> {
+  // Without an id: the "shops" row of the outer query. Written out in full because drizzle leaves a
+  // single-table select's columns unqualified, and "id" alone is ambiguous inside the subquery.
+  const shop = shopId === undefined ? sql.raw(`"shops"."id"`) : sql`${shopId}`;
+  return sql<boolean>`exists (select 1 from shop_category_mapping m join shop_categories c on c.id = m.category_id where m.shop_id = ${shop} and c.group_name in ${[...DOCTOR_GROUP_NAMES]})`;
 }
 
 async function traitsOf(shop: Pick<Shop, "id" | "shopType">, client: DbClient): Promise<{ sellsFood: boolean; isDoctor: boolean }> {
