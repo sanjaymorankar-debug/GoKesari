@@ -230,6 +230,8 @@ export const DAILY: readonly Job[] = [
   // docs/billing: compliance reminders, s.9(5) invoice catch-up, books posting, statements, GST link reminders,
   // credit-note IRNs — a no-op while billing_v2 is off.
   { name: "billing-daily", run: async () => (await import("@/server/tax/daily")).runBillingDaily() },
+  // docs/smart-shopping-2026-11: list photos are deleted after rule smartShopping.photoRetentionDays.
+  { name: "smart-list-photo-retention", run: async () => (await import("@/server/services/smart-list/scan")).sweepExpiredScanPhotos() },
 ];
 
 /** The jobs of an every-minute run at `now`. */
