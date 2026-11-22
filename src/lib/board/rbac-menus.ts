@@ -72,12 +72,15 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
     ],
   },
   {
-    key: "ops", label: L("Operations team", "ऑपरेशंस टीम", "ऑपरेशन्स टीम"), short: L("Operations", "ऑपरेशंस", "ऑपरेशन्स"), icon: "map", tone: "amber", href: "/staff/ops",
+    key: "ops", label: L("Operations team", "ऑपरेशंस टीम", "ऑपरेशन्स टीम"), short: L("Operations", "ऑपरेशंस", "ऑपरेशन्स"), icon: "map", tone: "amber", href: "/staff/operations",
     permission: [PERMISSIONS.OPS_TEAM_MANAGE, PERMISSIONS.OPS_TASK_WORK_OWN],
     feature: "rbac_v2_operations",
     items: [
-      { key: "tasks", label: L("Tasks", "कार्य", "कामे"), icon: "clipboard-check", href: "/staff/ops/tasks", permission: [PERMISSIONS.OPS_TEAM_MANAGE, PERMISSIONS.OPS_TASK_WORK_OWN], feature: "rbac_v2_operations" },
-      { key: "reports", label: L("Onboarding reports", "ऑनबोर्डिंग रिपोर्ट", "ऑनबोर्डिंग अहवाल"), short: L("Reports", "रिपोर्ट", "अहवाल"), icon: "file-chart-column", href: "/staff/ops/reports", permission: PERMISSIONS.OPS_REPORT_VIEW, feature: "rbac_v2_operations" },
+      { key: "today", label: L("My day", "मेरा दिन", "माझा दिवस"), icon: "clipboard-check", href: "/staff/operations?tab=today", permission: PERMISSIONS.OPS_TASK_WORK_OWN, feature: "rbac_v2_operations" },
+      { key: "tasks", label: L("Tasks", "कार्य", "कामे"), icon: "clipboard-check", href: "/staff/operations?tab=tasks", permission: [PERMISSIONS.OPS_TEAM_MANAGE, PERMISSIONS.OPS_TASK_WORK_OWN], feature: "rbac_v2_operations" },
+      { key: "team", label: L("Team & zones", "टीम और ज़ोन", "टीम आणि झोन"), short: L("Team", "टीम", "टीम"), icon: "users", href: "/staff/operations?tab=team", permission: PERMISSIONS.OPS_TEAM_MANAGE, feature: "rbac_v2_operations" },
+      { key: "reports", label: L("Onboarding reports", "ऑनबोर्डिंग रिपोर्ट", "ऑनबोर्डिंग अहवाल"), short: L("Reports", "रिपोर्ट", "अहवाल"), icon: "file-chart-column", href: "/staff/operations?tab=reports", permission: PERMISSIONS.OPS_REPORT_VIEW, feature: "rbac_v2_operations" },
+      { key: "customers", label: L("Customers", "ग्राहक", "ग्राहक"), icon: "user-plus", href: "/staff/operations?tab=customers", permission: [PERMISSIONS.OPS_TEAM_MANAGE, PERMISSIONS.CUSTOMER_ONBOARD_ASSIST], feature: "rbac_v2_operations" },
     ],
   },
   {

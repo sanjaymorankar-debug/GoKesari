@@ -2,6 +2,8 @@
  * RBAC v2 Phase 4/7: staff tickets. GET ?view=mine (Support User: assigned to me) | raised (tickets I raised);
  * POST raises a ticket about a shop (Operations, Support, admin) — it lands in the Support Manager's queue.
  */
+// Phase 6 registers the Operations-task lookup (registerOpsTaskLookup) used to scope handover tickets.
+import "@/server/rbac-operations";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 

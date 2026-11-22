@@ -170,14 +170,14 @@
   {
     "phase": "6",
     "feature": "Operations: tasks, zones, customer assists, daily / weekly reports (Excel / PDF)",
-    "development": "Pending",
-    "devAt": "",
+    "development": "Completed",
+    "devAt": "22-Nov-2026 23.20",
     "testServer": "Not Started",
     "testServerAt": "",
     "production": "Not Started",
     "productionAt": "",
-    "flag": "rbac_v2_operations",
-    "notes": "Being built by a parallel session (branch feature/rbac-v2-operations, migration 0175)."
+    "flag": "rbac_v2_operations (OFF)",
+    "notes": "Built by a parallel session; merged into feature/rbac-v2-phases-3-7. Local 22/22 Phase 6, 68/68 rbac-v2; migration 0175 additive; decisions D6-01..08 in docs/rbac/06-operations.md; open: PDF export (Excel built)."
   },
   {
     "phase": "7",
@@ -189,7 +189,7 @@
     "production": "Not Started",
     "productionAt": "",
     "flag": "rbac_v2_operations + rbac_v2_support",
-    "notes": "Local: tests passed (ops raises, manager assigns, owner approves → resolved, ops confirms → closed). Ops-task link needs Phase 6's registerOpsTaskLookup."
+    "notes": "Local: tests passed (ops raises, manager assigns, owner approves → resolved, ops confirms → closed). Ops-task lookup registered by Phase 6."
   },
   {
     "phase": "7+",

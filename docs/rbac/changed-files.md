@@ -1,17 +1,24 @@
 # RBAC v2 — changed files
 
-Generated 22-Nov-2026 22.58 IST from `git diff --stat c068411f..HEAD` on `feature/rbac-v2-phases-3-7` (staging base c068411f, PR #482). New files are marked **A**, changed files **M**.
+Generated 22-Nov-2026 23.06 IST from `git diff --name-status c068411f..HEAD` on `feature/rbac-v2-phases-3-7` (Phases 1–7, documents; staging base c068411f). **A** = new file, **M** = changed file.
 
 | Status | File |
 |---|---|
 | A | `docs/rbac/01-assessment.md` |
 | A | `docs/rbac/02-phase2-foundation.md` |
+| A | `docs/rbac/03-phase3-accounting.md` |
+| A | `docs/rbac/04-support-and-change-requests.md` |
+| A | `docs/rbac/05-documents.md` |
+| A | `docs/rbac/06-operations.md` |
 | A | `docs/rbac/README.md` |
+| A | `docs/rbac/database-and-api.md` |
+| A | `docs/rbac/deployment-and-rollback.md` |
 | A | `docs/rbac/tracker.json` |
 | A | `drizzle/0170_rbac_v2_foundation.sql` |
 | A | `drizzle/0171_rbac_v2_accounting.sql` |
 | A | `drizzle/0172_rbac_v2_support_changes.sql` |
 | A | `drizzle/0173_rbac_v2_documents.sql` |
+| A | `drizzle/0175_rbac_v2_operations.sql` |
 | M | `drizzle/meta/_journal.json` |
 | M | `mobile/app.config.ts` |
 | A | `scripts/rbac/build-tracker.ts` |
@@ -19,6 +26,7 @@ Generated 22-Nov-2026 22.58 IST from `git diff --stat c068411f..HEAD` on `featur
 | A | `scripts/rollback-0171.sql` |
 | A | `scripts/rollback-0172.sql` |
 | A | `scripts/rollback-0173.sql` |
+| A | `scripts/rollback-0175.sql` |
 | A | `src/app/admin/approvals/page.tsx` |
 | A | `src/app/admin/staff-teams/page.tsx` |
 | M | `src/app/admin/support/[id]/page.tsx` |
@@ -46,6 +54,12 @@ Generated 22-Nov-2026 22.58 IST from `git diff --stat c068411f..HEAD` on `featur
 | A | `src/app/api/staff/documents/file/route.ts` |
 | A | `src/app/api/staff/documents/route.ts` |
 | A | `src/app/api/staff/master-data/route.ts` |
+| A | `src/app/api/staff/operations/customers/route.ts` |
+| A | `src/app/api/staff/operations/reports/route.ts` |
+| A | `src/app/api/staff/operations/shops/route.ts` |
+| A | `src/app/api/staff/operations/tasks/[id]/route.ts` |
+| A | `src/app/api/staff/operations/tasks/route.ts` |
+| A | `src/app/api/staff/operations/team/route.ts` |
 | A | `src/app/api/staff/shops/[id]/changes/bulk/route.ts` |
 | A | `src/app/api/staff/shops/[id]/changes/route.ts` |
 | A | `src/app/api/staff/shops/[id]/changes/template/route.ts` |
@@ -62,6 +76,8 @@ Generated 22-Nov-2026 22.58 IST from `git diff --stat c068411f..HEAD` on `featur
 | M | `src/app/operator/page.tsx` |
 | A | `src/app/shop/changes/page.tsx` |
 | A | `src/app/staff/accounting/page.tsx` |
+| A | `src/app/staff/operations/page.tsx` |
+| A | `src/app/staff/operations/tasks/[id]/page.tsx` |
 | A | `src/app/staff/page.tsx` |
 | A | `src/app/staff/support/page.tsx` |
 | A | `src/app/staff/support/shop/[shopId]/page.tsx` |
@@ -75,6 +91,7 @@ Generated 22-Nov-2026 22.58 IST from `git diff --stat c068411f..HEAD` on `featur
 | M | `src/components/site-header.tsx` |
 | A | `src/components/staff-teams-admin.tsx` |
 | A | `src/components/staff/accounting-desk.tsx` |
+| A | `src/components/staff/operations-desk.tsx` |
 | A | `src/components/staff/support-desk.tsx` |
 | M | `src/lib/board/menus.ts` |
 | A | `src/lib/board/rbac-menus.ts` |
@@ -87,12 +104,19 @@ Generated 22-Nov-2026 22.58 IST from `git diff --stat c068411f..HEAD` on `featur
 | M | `src/server/authz/permissions.ts` |
 | M | `src/server/config/rules.ts` |
 | M | `src/server/cron/schedule.ts` |
+| A | `src/server/db/ops-schema.ts` |
 | A | `src/server/db/rbac-schema.ts` |
 | M | `src/server/db/schema.ts` |
+| M | `src/server/notifications/templates.ts` |
 | M | `src/server/notifications/types.ts` |
 | A | `src/server/rbac-accounting/journals.ts` |
 | A | `src/server/rbac-accounting/rates.ts` |
 | A | `src/server/rbac-accounting/schemas.ts` |
+| A | `src/server/rbac-operations/access.ts` |
+| A | `src/server/rbac-operations/assists.ts` |
+| A | `src/server/rbac-operations/index.ts` |
+| A | `src/server/rbac-operations/reports.ts` |
+| A | `src/server/rbac-operations/tasks.ts` |
 | A | `src/server/rbac-support/bulk.ts` |
 | A | `src/server/rbac-support/change-requests.ts` |
 | A | `src/server/rbac-support/desk.ts` |
@@ -105,10 +129,11 @@ Generated 22-Nov-2026 22.58 IST from `git diff --stat c068411f..HEAD` on `featur
 | M | `tests/helpers/fixtures.ts` |
 | A | `tests/integration/rbac-v2-accounting.test.ts` |
 | A | `tests/integration/rbac-v2-documents.test.ts` |
+| A | `tests/integration/rbac-v2-operations.test.ts` |
 | A | `tests/integration/rbac-v2-support.test.ts` |
 | A | `tests/integration/rbac-v2.test.ts` |
 | M | `tests/unit/tile-board.test.ts` |
 
 ```
- 104 files changed, 8201 insertions(+), 20 deletions(-)
+ 130 files changed, 11908 insertions(+), 20 deletions(-)
 ```

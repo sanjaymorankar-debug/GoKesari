@@ -23,8 +23,8 @@ The owner's brief was received 22-Nov-2026 at 21.56 IST. All times below are IST
 | 3 | Accounting: journals, periods, rate proposals (Accountant → CA → Admin) | Completed 22-Nov 22.59 | Not Started | Not Started |
 | 4 | Support: Manager queue + dashboard, Support User assigned work, bulk price list | Completed 22-Nov 22.59 | Not Started | Not Started |
 | 5 | Shop-owner change requests (per item, reminders, expiry, superseded) | Completed 22-Nov 22.59 | Not Started | Not Started |
-| 6 | Operations: tasks, zones, customer assists, daily / weekly reports | In Progress (parallel session, branch feature/rbac-v2-operations) | Not Started | Not Started |
-| 7 | Operations → Support handover and traceability | Completed 22-Nov 22.59 (task link waits for Phase 6) | Not Started | Not Started |
+| 6 | Operations: tasks, zones, customer assists, daily / weekly reports ([06-operations.md](06-operations.md)) | Completed 22-Nov 23.20 (parallel session, merged) | Not Started | Not Started |
+| 7 | Operations → Support handover and traceability | Completed 22-Nov 22.59 | Not Started | Not Started |
 | 7+ | Document management (§9) | Completed 22-Nov 22.59 | Not Started | Not Started |
 | 8 | Mobile parity (WebView: path prefixes; APK build) | Completed 22-Nov 22.59 | Not Started | Not Started |
 | 9 | Regression, Test → Production, reports | Pending | Not Started | Not Started |
