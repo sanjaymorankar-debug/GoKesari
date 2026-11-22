@@ -497,6 +497,7 @@ export const TEMPLATES: Record<string, Template> = {
   [T.HEALTH_VERIFICATION]: t("Health profile verification", "{{text}}"),
   [T.HEALTH_BREAK_GLASS]: t("Emergency access to a health record", "{{text}}"),
   /* <<< GoKesari Health */
+  [T.SHOP_WHATSAPP_FAILED]: t("WhatsApp alert not delivered — {{orderNumber}}", "{{text}}"),
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */

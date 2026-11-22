@@ -212,7 +212,32 @@ const serverEnvSchema = z.object({
    * DLT for SMS, Meta Cloud API for WhatsApp) are added when chosen.
    */
   SMS_PROVIDER: z.enum(["none", "mock"]).default("none"),
-  WHATSAPP_PROVIDER: z.enum(["none", "mock"]).default("none"),
+  /**
+   * `meta` (docs/smart-shopping-2026-11/FEATURE3_WHATSAPP_ORDERS.md): the
+   * Meta WhatsApp Business Cloud API, used by the shop-order alerts (flag
+   * whatsapp_shop_orders_enabled). It needs the META_WA_* keys below; with any
+   * missing, the feature stays dormant and says why (whatsappMetaConfigProblem).
+   * General notifications do not go out on WhatsApp in this mode (they would
+   * need their own approved templates): their WhatsApp copies are skipped.
+   */
+  WHATSAPP_PROVIDER: z.enum(["none", "mock", "meta"]).default("none"),
+  /** Meta → WhatsApp → API setup: a permanent System User access token (never a 24-hour test token in production). */
+  META_WA_ACCESS_TOKEN: z.string().optional(),
+  /** The sending number's Phone number ID (not the phone number itself). */
+  META_WA_PHONE_NUMBER_ID: z.string().optional(),
+  /** The Meta app's App secret: webhook bodies are signed with it (X-Hub-Signature-256). */
+  META_WA_APP_SECRET: z.string().optional(),
+  /** Any string we choose; Meta sends it back when the webhook URL is registered (GET hub.verify_token). */
+  META_WA_VERIFY_TOKEN: z.string().optional(),
+  /** Graph API version, e.g. v23.0. */
+  META_WA_API_VERSION: z.string().default("v23.0"),
+  /**
+   * Test site only (owner, 22 Nov 2026): every WhatsApp message goes to this
+   * one number instead (test.gokesari.com: +919175193009), the intended
+   * number named in the log. gokesari.com refuses to send WhatsApp at all
+   * while it is set (whatsappMetaConfigProblem). Empty = off.
+   */
+  WHATSAPP_TEST_RECIPIENT: z.string().trim().optional(),
   GSP_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
 
   // Shared bearer token guarding the daily-order cron endpoint.
@@ -501,6 +526,30 @@ export function messagingConfigProblem(env: ServerEnv = getEnv()): string | null
   const isProductionHost = host === prodHost || host === `www.${prodHost}`;
   if (isProductionHost && (env.SMS_PROVIDER === "mock" || env.WHATSAPP_PROVIDER === "mock")) {
     return "SMS_PROVIDER / WHATSAPP_PROVIDER=mock is not allowed on the production site.";
+  }
+  return null;
+}
+
+/**
+ * Why the Meta WhatsApp provider must not send with these settings, or null
+ * (docs/smart-shopping-2026-11/FEATURE3_WHATSAPP_ORDERS.md). Keys come from
+ * the environment only. The production site refuses to send while a test
+ * recipient is set, so a staging setting copied to gokesari.com can never
+ * send every shop's orders to one test phone.
+ */
+export function whatsappMetaConfigProblem(env: ServerEnv = getEnv()): string | null {
+  if (env.WHATSAPP_PROVIDER !== "meta") return `WHATSAPP_PROVIDER is "${env.WHATSAPP_PROVIDER}", not "meta".`;
+  const missing = (["META_WA_ACCESS_TOKEN", "META_WA_PHONE_NUMBER_ID", "META_WA_APP_SECRET"] as const).filter((key) => !env[key]?.trim());
+  if (missing.length > 0) return `Missing ${missing.join(", ")}.`;
+  // Checked here rather than in the schema, so a mistyped value switches WhatsApp off instead of stopping the site.
+  if (!/^\d{5,30}$/.test(env.META_WA_PHONE_NUMBER_ID!.trim())) return "META_WA_PHONE_NUMBER_ID must be the numeric Phone number ID from Meta → WhatsApp → API setup.";
+  if (!/^v\d+\.\d+$/.test(env.META_WA_API_VERSION.trim())) return `META_WA_API_VERSION "${env.META_WA_API_VERSION}" should look like v23.0.`;
+  const testRecipient = env.WHATSAPP_TEST_RECIPIENT?.trim();
+  if (testRecipient && !/^\+?[1-9]\d{9,14}$/.test(testRecipient.replace(/[\s-]/g, ""))) {
+    return "WHATSAPP_TEST_RECIPIENT must be a full number with country code, e.g. +919175193009.";
+  }
+  if (testRecipient && isProductionSite(env)) {
+    return "WHATSAPP_TEST_RECIPIENT is set on the production site: WhatsApp is refused until it is removed.";
   }
   return null;
 }

@@ -169,6 +169,8 @@ export const EVERY_MINUTE: readonly Job[] = [
       ...(await (await import("@/server/services/notifications")).deliverPending()),
       // Onboarding Phase 2 (WP4): notices that came due (e.g. registration reminders, set by the owner's own steps).
       scheduled: await (await import("@/server/services/scheduled-notices")).deliverDueScheduledNotices(),
+      // docs/smart-shopping-2026-11 (feature 3): shop WhatsApp alerts still queued (normally sent seconds after commit).
+      whatsapp: await (await import("@/server/whatsapp/shop-orders/dispatch")).dispatchWhatsAppQueue(),
     }),
   },
   { name: "broadcast-dispatch", run: async () => (await import("@/server/services/broadcasts")).dispatchBroadcasts() },
