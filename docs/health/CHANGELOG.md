@@ -2,6 +2,12 @@
 
 Times IST.
 
+## 22-Nov-2026 — Medical registration for every doctor category (owner)
+
+- Rule `legalDocuments`: a shop in any shop category of a Health doctor group (General & family, Specialists,
+  Women & child, Dental, Eye & ENT, Mind, AYUSH, Animal care) needs a medical registration, not only
+  Doctor / Clinic. Therapy and Diagnostics are not included. Acts while the rule is on (H-51).
+
 ## 21-Nov-2026 — Health specialties (owner)
 
 Owner, 21-Nov-2026 ~23.30 IST: "all various medical practitioners should come under Shops → Health → all types of

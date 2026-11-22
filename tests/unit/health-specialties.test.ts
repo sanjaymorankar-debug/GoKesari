@@ -7,7 +7,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { HEALTH_GROUP_PREFIX, HEALTH_SPECIALTIES, HEALTH_SPECIALTY_GROUPS, healthGroupName, healthGroupOf, OTHER_HEALTH_GROUP, plainWordsFor } from "@/lib/health/specialties";
+import { DOCTOR_GROUP_KEYS, HEALTH_GROUP_PREFIX, HEALTH_SPECIALTIES, HEALTH_SPECIALTY_GROUPS, healthGroupName, healthGroupOf, isDoctorGroup, OTHER_HEALTH_GROUP, plainWordsFor } from "@/lib/health/specialties";
 import { SYMPTOM_SPECIALTIES, specialtiesForSymptom } from "@/lib/health/symptoms";
 
 const drizzle = (file: string) => readFileSync(path.join(process.cwd(), "drizzle", file), "utf8");
@@ -31,6 +31,14 @@ describe("Health specialty groups", () => {
 
   it("cover the agreed subcategories in the agreed order", () => {
     expect(HEALTH_SPECIALTY_GROUPS.map((g) => g.short)).toEqual(["General & family", "Specialists", "Women & child", "Dental", "Eye & ENT", "Mind", "Therapy", "AYUSH", "Diagnostics", "Animal care"]);
+  });
+
+  it("need a medical registration for every doctor group, not Therapy or Diagnostics (owner, 22-Nov-2026)", () => {
+    expect(HEALTH_SPECIALTY_GROUPS.filter((g) => isDoctorGroup(g.name)).map((g) => g.key)).toEqual([...DOCTOR_GROUP_KEYS]);
+    expect(isDoctorGroup("Health — Therapy")).toBe(false);
+    expect(isDoctorGroup("Health — Diagnostics")).toBe(false);
+    expect(isDoctorGroup("Medical — doctors and clinics")).toBe(false);
+    expect(isDoctorGroup(null)).toBe(false);
   });
 
   it("each have at least one specialty", () => {
