@@ -36,6 +36,10 @@ export default async function SmartShoppingDashboard({ searchParams }: { searchP
           </a>
         ))}
       </div>
+      <div className="mb-4 flex flex-wrap gap-2 text-sm">
+        <a href="/admin/photo-listing" className="rounded-xl border bg-white px-3 py-2 font-semibold">Products added by photo →</a>
+        <a href="/admin/whatsapp-messages" className="rounded-xl border bg-white px-3 py-2 font-semibold">WhatsApp delivery stats →</a>
+      </div>
       <div className="mb-6 grid gap-3 sm:grid-cols-4" data-testid="smart-kpis">
         <Card className="p-4">
           <div className="text-xs uppercase text-ink-500">List scans</div>
