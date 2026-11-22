@@ -218,13 +218,13 @@
   {
     "phase": "9",
     "feature": "Regression, Test → Production deployment and verification, final reports",
-    "development": "Pending",
-    "devAt": "",
+    "development": "In Progress",
+    "devAt": "22-Nov-2026 23.56",
     "testServer": "Not Started",
     "testServerAt": "",
     "production": "Not Started",
     "productionAt": "",
     "flag": "—",
-    "notes": ""
+    "notes": "CI full suite on #487 (3883ef9b): 4,097 / 4,099; 2 consistency failures fixed (567a22fc), local fresh-DB 78/78. Staging and production runs pending deploys. Report: docs/rbac/testing-report.md."
   }
 ]
