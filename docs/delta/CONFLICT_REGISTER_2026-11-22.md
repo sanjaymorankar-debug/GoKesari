@@ -180,9 +180,9 @@ later run, and only as you approve it.
 | Estimated Effort | 2–3 |
 | Dependent Features Held | None |
 | Mobile Impact | Yes |
-| **Owner Decision** | Approve A (owner, 22-Nov-2026 ≈23.05 IST) |
+| **Owner Decision** | Approve A (22-Nov ≈23.05 IST); then **A1** (22-Nov ≈23.12 IST): build after the RBAC v2 migrations 0170–0175 are on staging |
 | **Owner Feedback** | Not built: a new C2 conflict was found (its migration collides with RBAC v2 migrations 0170–0175 in flight). Options A1/A2/A3 in DELTA_BUILD_2026-11-22.md |
-| **Target Release** | Owner to choose A1 (after RBAC migrations land) or A2 |
+| **Target Release** | After RBAC v2 Phases 2–7 are staging-verified; then the staging queue, then a 23.00 window with the flag OFF |
 
 ## CF-007: Onboarding WP6: referral help by PIN code
 
