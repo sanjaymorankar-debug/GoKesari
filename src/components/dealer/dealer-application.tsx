@@ -31,6 +31,8 @@ interface Props {
   areas: { code: string; name: string; parent: string | null }[];
   agreementVersion: string;
   smsAvailable: boolean;
+  /** The franchise zone he chose to work in free (Book a franchise zone → Free dealership), with its name. */
+  workZone?: { id: string; name: string } | null;
 }
 
 const EDITABLE = ["DRAFT", "REJECTED"];
@@ -41,7 +43,7 @@ const EDITABLE = ["DRAFT", "REJECTED"];
  * agreement and submit. PAN and the account number are typed in again only
  * when they change — the saved ones are shown masked.
  */
-export function DealerApplication({ dealer, requirements, areas, agreementVersion, smsAvailable }: Props) {
+export function DealerApplication({ dealer, requirements, areas, agreementVersion, smsAvailable, workZone = null }: Props) {
   const router = useRouter();
   const editable = !dealer || EDITABLE.includes(dealer.status);
   const [form, setForm] = useState({
@@ -109,6 +111,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
       city: form.city,
       pincode: form.pincode,
       territories,
+      ...(workZone ? { preferredZoneId: workZone.id } : {}),
       bank: form.bankAccountNumber.trim()
         ? { holderName: form.bankHolderName, accountNumber: form.bankAccountNumber, ifsc: form.bankIfsc }
         : null,
@@ -142,6 +145,15 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
           <span className="text-sm font-semibold text-ink-900">Application:</span>
           <Badge tone={dealer.status === "APPROVED" ? "success" : dealer.status === "REJECTED" ? "danger" : "warning"}>{dealer.statusLabel}</Badge>
           {dealer.statusReason ? <span className="text-sm text-ink-700">Reason: {dealer.statusReason}</span> : null}
+        </Card>
+      ) : null}
+
+      {workZone ? (
+        <Card className="space-y-1 p-4" data-testid="dealer-work-zone">
+          <p className="text-sm font-semibold text-ink-900">
+            Free dealership · working zone {workZone.name} ({workZone.id})
+          </p>
+          <p className="text-xs text-ink-600">No fee and no zone ownership: you earn the one-time commission on the shops you and your team register. Saved with your application. Want to own the zone instead? <a className="underline" href={`/franchise/book?zones=${encodeURIComponent(workZone.id)}&join=paid`}>Buy it as a franchise</a>.</p>
         </Card>
       ) : null}
 

@@ -44,6 +44,8 @@ import type { PaymentIntentRef } from "@/server/payments/intents";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
 import { gstOn, type CartLine } from "@/lib/franchise-zones";
+import { isPanEncryptionConfigured } from "@/lib/env";
+import { encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
 import { franchiseConfig, franchiseConfigAt, franchiseNow, type FranchiseConfig } from "./config";
 import { closeAllocationCodes, ensureAllocationCode } from "./codes";
 import { checkCoupon, extendHold, holdRedemption, markRedemptionUsed, releaseRedemption } from "./coupons";
@@ -60,32 +62,124 @@ export const AGREEMENT_SHA256 = createHash("sha256").update(FRANCHISE_AGREEMENT_
 
 export interface OwnerStatus {
   dealer: Dealer | null;
-  /** What still blocks paying (brief §4.5 step 2: KYC + PAN + bank verified before payment). */
+  /** What still blocks paying. Since 22-Nov-2026 (owner: "pay first, KYC after") only a dealer account with a PAN. */
   missing: string[];
+  /** What is still needed before a paid franchise goes live (KYC approval, bank) — finished after paying, within 30 days. */
+  kycMissing: string[];
   agreementAccepted: boolean;
+}
+
+/** A paid franchise waits for KYC this long before the admin sees it as overdue (refund and free the zone). */
+export const KYC_DAYS_AFTER_PAYMENT = 30;
+
+const CLOSED_DEALER: readonly string[] = ["REJECTED", "SUSPENDED", "TERMINATED"];
+
+/** What a dealer still needs before his paid franchise goes live (empty = KYC complete). */
+export function kycMissingFor(dealer: Pick<Dealer, "status" | "panHash" | "bankStatus">): string[] {
+  const missing: string[] = [];
+  if (dealer.status !== "APPROVED") missing.push("dealer account approval (KYC documents)");
+  if (!dealer.panHash) missing.push("PAN");
+  if (dealer.bankStatus !== "VERIFIED") missing.push("a verified bank account");
+  return missing;
 }
 
 export async function ownerStatusForUser(userId: string, client: DbClient = db): Promise<OwnerStatus> {
   const [dealer] = await client.select().from(dealers).where(eq(dealers.userId, userId));
-  if (!dealer) return { dealer: null, missing: ["a GoKesari dealer account (apply free at /dealer/apply)"], agreementAccepted: false };
+  if (!dealer) return { dealer: null, missing: ["your name, mobile and PAN"], kycMissing: kycMissingFor({ status: "DRAFT", panHash: null, bankStatus: "NOT_PROVIDED" }), agreementAccepted: false };
   const missing: string[] = [];
-  if (dealer.status !== "APPROVED") missing.push("dealer account approval (KYC)");
-  if (!dealer.panHash) missing.push("PAN");
-  if (dealer.bankStatus !== "VERIFIED") missing.push("a verified bank account");
   if (dealer.isInternal) missing.push("a real dealer account (GoKesari Direct cannot book)");
+  if (CLOSED_DEALER.includes(dealer.status)) missing.push(`an open dealer account (yours is ${dealer.status.toLowerCase()})`);
+  if (!dealer.panHash) missing.push("PAN");
   const [acc] = await client
     .select({ id: franchiseAgreementAcceptances.id })
     .from(franchiseAgreementAcceptances)
     .where(and(eq(franchiseAgreementAcceptances.ownerDealerId, dealer.id), eq(franchiseAgreementAcceptances.version, FRANCHISE_AGREEMENT_VERSION), eq(franchiseAgreementAcceptances.textSha256, AGREEMENT_SHA256)))
     .limit(1);
-  return { dealer, missing, agreementAccepted: !!acc };
+  return { dealer, missing, kycMissing: kycMissingFor(dealer), agreementAccepted: !!acc };
 }
 
 async function requireOwner(actor: Actor, client: DbClient = db): Promise<Dealer> {
   const s = await ownerStatusForUser(actor.id, client);
-  if (!s.dealer) throw forbidden("Register as a GoKesari dealer first (free) — then you can book franchise areas.");
+  if (!s.dealer) throw forbidden("Give your name, mobile and PAN first — then you can pay for franchise zones.");
   if (s.missing.length) throw forbidden(`Before paying, complete: ${s.missing.join(", ")}.`);
   return s.dealer;
+}
+
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+
+/**
+ * Paid franchise, pay first (owner 22-Nov-2026): the smallest dealer account a buyer needs to pay — name, mobile
+ * and PAN, saved as a DRAFT dealer application he completes after paying (/dealer/apply). An existing open
+ * application only gets the PAN added when it has none.
+ */
+export async function startFranchiseBuyer(actor: Actor & { email: string | null }, input: { name: string; mobile: string; pan: string }): Promise<Dealer> {
+  if (!isPanEncryptionConfigured()) throw conflict("Franchise payments are not available on this site yet (secure storage is not set up).");
+  const name = input.name.replace(/\s+/g, " ").trim().slice(0, 120);
+  const mobile = input.mobile.replace(/\D/g, "").replace(/^(91|0)(?=\d{10}$)/, "");
+  const pan = input.pan.replace(/\s/g, "").toUpperCase();
+  const fields: Record<string, string> = {};
+  if (name.length < 3) fields.name = "Your full name.";
+  if (!/^[6-9]\d{9}$/.test(mobile)) fields.mobile = "A 10-digit Indian mobile number.";
+  if (!PAN_RE.test(pan)) fields.pan = "PAN like ABCDE1234F.";
+  if (Object.keys(fields).length) throw validationFailed("Please check your details.", { fields });
+  const panHash = panBlindIndex(pan);
+  const [taken] = await db.select({ id: dealers.id, userId: dealers.userId }).from(dealers).where(and(eq(dealers.panHash, panHash), ne(dealers.status, "REJECTED"))).limit(1);
+  if (taken && taken.userId !== actor.id) throw conflict("A dealer with this PAN is already registered. Sign in with that account.");
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(dealers).where(eq(dealers.userId, actor.id)).for("update");
+    const now = new Date();
+    let dealer: Dealer;
+    if (existing) {
+      if (existing.isInternal || CLOSED_DEALER.includes(existing.status)) throw conflict("This dealer account cannot book franchise zones.");
+      if (existing.panHash) return existing;
+      [dealer] = await tx.update(dealers).set({ panEnc: encryptSecret(pan), panHash, panLast4: pan.slice(-4), updatedAt: now }).where(eq(dealers.id, existing.id)).returning();
+    } else {
+      [dealer] = await tx
+        .insert(dealers)
+        .values({ userId: actor.id, legalName: name, contactName: name, dealerType: "INDIVIDUAL", mobileE164: `+91${mobile}`, email: actor.email, emailVerifiedAt: actor.email ? now : null, panEnc: encryptSecret(pan), panHash, panLast4: pan.slice(-4), status: "DRAFT", source: "APPLICATION" })
+        .returning();
+    }
+    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_APPLICATION_SAVED, entityType: "dealer", entityId: dealer.id, previousValue: existing ? { panGiven: false } : null, newValue: { status: dealer.status, via: "franchise_pay_first", panLast4: pan.slice(-4) } }, tx);
+    return dealer;
+  });
+}
+
+/**
+ * A franchise paid before KYC goes live once the owner's KYC and bank are approved: his franchise code, his team's
+ * earlier shops in the zone (upgrade), and commission from now. Called on the admin's approval, on the bank check and
+ * by the daily job; idempotent. Returns the zones that went live.
+ */
+export async function goLiveAfterKyc(ownerDealerId: string, client: DbClient = db): Promise<string[]> {
+  const [dealer] = await client.select().from(dealers).where(eq(dealers.id, ownerDealerId));
+  if (!dealer || kycMissingFor(dealer).length) return [];
+  const waiting = await client.select().from(franchiseAllocations).where(and(eq(franchiseAllocations.ownerDealerId, ownerDealerId), isNotNull(franchiseAllocations.kycDueAt), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"])));
+  if (!waiting.length) return [];
+  const now = new Date();
+  const live: string[] = [];
+  for (const a of waiting) {
+    await client.update(franchiseAllocations).set({ kycDueAt: null, kycClearedAt: now, updatedAt: now }).where(eq(franchiseAllocations.id, a.id));
+    await ensureAllocationCode(client, a);
+    await attachUpgradeShops(client, { ...a, activatedAt: now });
+    live.push(a.zoneId);
+  }
+  await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "dealer", entityId: ownerDealerId, newValue: { liveAfterKyc: live, at: now.toISOString() } }, client);
+  // A caller inside a transaction tells the owner itself after the commit (no side effects inside db.transaction).
+  if (client === db)
+    await tellOwner(ownerDealerId, "Your franchise is live", `KYC approved — ${live.join(", ")} ${live.length === 1 ? "is" : "are"} live. Your franchise code is on your franchise page.`, `franchise-live:${ownerDealerId}:${live.join(",")}`).catch((e) => console.error("[franchise] live notice failed", ownerDealerId, e));
+  return live;
+}
+
+/** Hourly (franchise job): franchises whose KYC is now complete go live; returns those still waiting, with days left. */
+export async function sweepFranchiseKyc(now = new Date()): Promise<{ live: number; waiting: { id: string; zoneId: string; bookingId: string; ownerDealerId: string; dueAt: Date; daysLeft: number }[] }> {
+  const owners = await db.selectDistinct({ id: franchiseAllocations.ownerDealerId }).from(franchiseAllocations).where(and(isNotNull(franchiseAllocations.kycDueAt), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"])));
+  let live = 0;
+  for (const o of owners) live += (await goLiveAfterKyc(o.id)).length;
+  const rows = await db
+    .select({ id: franchiseAllocations.id, zoneId: franchiseAllocations.zoneId, bookingId: franchiseAllocations.bookingId, ownerDealerId: franchiseAllocations.ownerDealerId, dueAt: franchiseAllocations.kycDueAt })
+    .from(franchiseAllocations)
+    .where(and(isNotNull(franchiseAllocations.kycDueAt), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"]), eq(franchiseAllocations.isTest, false)));
+  const waiting = rows.map((r) => ({ ...r, dueAt: r.dueAt!, daysLeft: Math.ceil((r.dueAt!.getTime() - now.getTime()) / 86_400_000) }));
+  return { live, waiting };
 }
 
 /** Clickwrap (brief §4.5 step 4): version, text hash, IP and device are stored. */
@@ -278,7 +372,11 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
 
 /** Checks a coupon against a cart before reserving (the cart page's "Apply"): the discount per zone and the totals. */
 export async function previewCart(actor: Actor, input: { zoneIds: string[]; couponCode?: string | null }) {
-  const owner = await requireOwner(actor);
+  // A new buyer may see the price before giving his details (pay first, 22-Nov-2026); a closed account may not.
+  const status = await ownerStatusForUser(actor.id);
+  if (status.dealer && status.missing.some((m) => m !== "PAN")) throw forbidden(`Before paying, complete: ${status.missing.join(", ")}.`);
+  const owner = { id: status.dealer?.id ?? "" };
+  if (input.couponCode?.trim() && !status.dealer) throw validationFailed("Give your name, mobile and PAN first, then apply the coupon.");
   const { config } = await franchiseConfig();
   const zoneIds = [...new Set(input.zoneIds.map((z) => z.trim().toUpperCase()))].filter(Boolean);
   const views = await zoneViews({ zoneIds });
@@ -439,6 +537,10 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
     const expiresAt = allocationExpiry(now, months);
     const tail = tailEndAt({ chainStartAt: now, expiresAt, mode: config.tailMode, tailYears: config.tailYears });
     const counts = booking.launchOffer && !booking.isTest ? await launchCounts(client, now) : null;
+    // Pay first, KYC after (owner 22-Nov-2026): without approved KYC + bank the zone is his but not live yet.
+    const [ownerRow] = await client.select().from(dealers).where(eq(dealers.id, booking.ownerDealerId));
+    const kycPending = !ownerRow || kycMissingFor(ownerRow).length > 0;
+    const kycDueAt = kycPending ? new Date(now.getTime() + KYC_DAYS_AFTER_PAYMENT * 86_400_000) : null;
     let seq = counts?.areas ?? 0;
     const activated: string[] = [];
     const lost: string[] = [];
@@ -460,12 +562,14 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
       seq += 1;
       await client
         .update(franchiseAllocations)
-        .set({ status: "ACTIVE", holdExpiresAt: null, activatedAt: now, periodStart: now, expiresAt, tailEndAt: tail, launchSeq: booking.launchOffer && !booking.isTest ? seq : null, updatedAt: now })
+        .set({ status: "ACTIVE", holdExpiresAt: null, activatedAt: now, periodStart: now, expiresAt, tailEndAt: tail, launchSeq: booking.launchOffer && !booking.isTest ? seq : null, kycDueAt, updatedAt: now })
         .where(eq(franchiseAllocations.id, a.id));
-      // One franchise code per owner per franchise (an alias of his own code; closed at expiry).
-      await ensureAllocationCode(client, a);
-      // §7: an upgrade from the free dealership — his team's earlier shops in this zone attach for recurring.
-      await attachUpgradeShops(client, { ...a, activatedAt: now });
+      if (!kycPending) {
+        // One franchise code per owner per franchise (an alias of his own code; closed at expiry).
+        await ensureAllocationCode(client, a);
+        // §7: an upgrade from the free dealership — his team's earlier shops in this zone attach for recurring.
+        await attachUpgradeShops(client, { ...a, activatedAt: now });
+      }
       // A zone Reserved for this dealer is his now: back to Available (Sold Out if every slot is taken).
       await client.update(franchiseZones).set({ status: "AVAILABLE", reservedForDealerId: null, reservedUntil: null, statusReason: "Reserved dealer bought the zone", updatedAt: now }).where(and(eq(franchiseZones.zoneId, a.zoneId), eq(franchiseZones.status, "RESERVED"), eq(franchiseZones.reservedForDealerId, a.ownerDealerId)));
       activated.push(a.zoneId);
@@ -475,7 +579,7 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
     if (counts) await maybeCloseLaunch(client, config, now);
     for (const zoneId of activated) notices.push(() => syncSoldOut(zoneId));
     await recordAudit(
-      { action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { activated, lost, activatedAt: now.toISOString(), expiresAt: expiresAt.toISOString(), tailEndAt: tail.toISOString(), intentId: intent.id, launchOffer: booking.launchOffer } },
+      { action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { activated, lost, kycDueAt: kycDueAt?.toISOString() ?? null, activatedAt: now.toISOString(), expiresAt: expiresAt.toISOString(), tailEndAt: tail.toISOString(), intentId: intent.id, launchOffer: booking.launchOffer } },
       client,
     );
     if (lost.length) await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { problem: "slot_lost_after_late_payment", zones: lost, refundDuePaise: Math.round((booking.totalPaise * lost.length) / booking.areaCount) } }, client);
@@ -483,7 +587,9 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
       tellOwner(
         booking.ownerDealerId,
         "Franchise booking confirmed",
-        `Paid ${rupees(booking.totalPaise)}. Active: ${activated.join(", ") || "none"} until ${formatIst(expiresAt)}.${lost.length ? ` ${lost.join(", ")} could not be held (a refund is being arranged).` : ""} Your franchise code and receipt are on your franchise page.`,
+        kycPending
+          ? `Paid ${rupees(booking.totalPaise)}. ${activated.join(", ") || "none"} ${activated.length === 1 ? "is" : "are"} booked for you until ${formatIst(expiresAt)}.${lost.length ? ` ${lost.join(", ")} could not be held (a refund is being arranged).` : ""} Finish your dealer KYC and bank details by ${formatIst(kycDueAt!)} (/dealer/apply) — your franchise goes live as soon as they are approved.`
+          : `Paid ${rupees(booking.totalPaise)}. Active: ${activated.join(", ") || "none"} until ${formatIst(expiresAt)}.${lost.length ? ` ${lost.join(", ")} could not be held (a refund is being arranged).` : ""} Your franchise code and receipt are on your franchise page.`,
         `franchise-paid:${booking.id}`,
       ),
     );

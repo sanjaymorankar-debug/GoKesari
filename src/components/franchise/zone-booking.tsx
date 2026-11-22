@@ -32,9 +32,18 @@ interface Props {
   offer: OfferView;
   signedIn: boolean;
   dealerId: string | null;
-  owner: { missing: string[]; agreementAccepted: boolean; hasDealer: boolean } | null;
+  owner: { missing: string[]; kycMissing: string[]; agreementAccepted: boolean; hasDealer: boolean; hasPan: boolean } | null;
   agreement: { version: string; text: string[] };
+  /** Current rates (basis points): free dealership one-time, franchise one-time and recurring. */
+  rates: { freeSelfBp: number; freeOverrideBp: number; freeSecondBp: number; ownerSelfBp: number; ownerOverrideBp: number; ownerSecondBp: number; recurringBp: number };
+  /** Days a paid buyer has to finish KYC after paying. */
+  kycDays: number;
+  /** Zones to start with (back from signing in: ?zones=…). */
+  initialZones?: string[];
+  initialJoin?: "free" | "paid" | null;
 }
+
+const pct = (bp: number) => `${(bp / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}%`;
 
 interface CartLine {
   zoneId: string;
@@ -71,7 +80,7 @@ function buyable(z: ZoneView, dealerId: string | null, allowProvisional: boolean
  * fee filters; select zones → the server-priced cart (fee, tier, coupon, GST, total) → rules (clickwrap) → reserve
  * (15-minute hold) and pay 100% online. Every amount shown comes from the server.
  */
-export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, agreement }: Props) {
+export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, agreement, rates, kycDays, initialZones = [], initialJoin = null }: Props) {
   const [region, setRegion] = useState("ALL");
   const [tier, setTier] = useState<ZoneTier | "ALL">("ALL");
   const [slots, setSlots] = useState<"any" | "available" | "1">("any");
@@ -79,8 +88,11 @@ export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, a
   const [feeMax, setFeeMax] = useState("");
   const [q, setQ] = useState("");
   const [view, setView] = useState<"list" | "map">("list");
-  const [cart, setCart] = useState<string[]>([]);
-  const [step, setStep] = useState<"choose" | "summary">("choose");
+  const [cart, setCart] = useState<string[]>(initialZones);
+  // Back from signing in with ?zones=…: straight to the payment summary (paid) or to the choice.
+  const [step, setStep] = useState<"choose" | "join" | "summary">(initialZones.length ? (initialJoin === "paid" && signedIn ? "summary" : "join") : "choose");
+  const [workZone, setWorkZone] = useState<string>(initialZones[0] ?? "");
+  const [buyer, setBuyer] = useState({ name: "", mobile: "", pan: "" });
   const [coupon, setCoupon] = useState("");
   const [priced, setPriced] = useState<CartView | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
@@ -125,6 +137,25 @@ export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, a
     return payload as CartView;
   }
 
+  // Landing on the summary (back from signing in): price the cart once.
+  const firstPricing = useRef(false);
+  useEffect(() => {
+    if (firstPricing.current || initialJoin !== "paid" || !signedIn || !initialZones.length) return;
+    firstPricing.current = true;
+    fetch("/api/franchise/cart", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ zoneIds: initialZones, couponCode: null }) })
+      .then(async (res) => ({ ok: res.ok, payload: await res.json().catch(() => null) }))
+      .then(({ ok, payload }) => (ok ? setPriced(payload as CartView) : setError(payload?.error?.message ?? "The cart could not be priced. Please try again.")))
+      .catch(() => setError("The cart could not be priced. Please try again."));
+  }, [initialJoin, signedIn, initialZones]);
+
+  /** Where to send a signed-out visitor so he comes back to this choice. */
+  const signInFor = (join: "free" | "paid") => `/signin?callbackUrl=${encodeURIComponent(`/franchise/book?zones=${cart.join(",")}&join=${join}`)}`;
+  const freeHref = (zoneId: string) => {
+    const apply = `/dealer/apply?zone=${encodeURIComponent(zoneId)}`;
+    return signedIn ? apply : `/signin?callbackUrl=${encodeURIComponent(apply)}`;
+  };
+  const blocked = owner?.missing.filter((m) => m !== "PAN" && !m.startsWith("your name")) ?? [];
+
   async function openSummary() {
     setError(null);
     setStep("summary");
@@ -150,6 +181,15 @@ export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, a
     setError(null);
     try {
       if (!accepted) throw new Error("Please read and accept the responsibilities and rules.");
+      // Pay first, KYC after (22-Nov-2026): a buyer without a dealer account (or PAN) gives name, mobile and PAN.
+      if (!owner?.hasPan) {
+        const b = await fetch("/api/franchise/buyer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(buyer) });
+        const bp = await b.json().catch(() => null);
+        if (!b.ok) {
+          const fields = bp?.error?.details?.fields as Record<string, string> | undefined;
+          throw new Error(fields ? Object.values(fields).join(" ") : (bp?.error?.message ?? "Your details could not be saved."));
+        }
+      }
       if (!owner?.agreementAccepted) {
         const r = await fetch("/api/franchise/agreement", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: agreement.version }) });
         if (!r.ok) throw new Error((await r.json().catch(() => null))?.error?.message ?? "The rules could not be accepted.");
@@ -253,6 +293,30 @@ export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, a
         <p className="text-sm text-ink-700">
           {offer.launch.open ? `Launch offer for the first ${offer.launch.placesTotal} franchise dealers: ${offer.launch.placesLeft} places left.` : ""} Each franchise runs {offer.validityMonths} months from the verified payment, at the fee you pay now. Your slots are held for {offer.holdMinutes} minutes while you pay; zones are assigned only after the payment succeeds.
         </p>
+        {!owner?.hasPan ? (
+          <div className="space-y-2 rounded-lg border border-cream-200 p-3" data-testid="franchise-buyer">
+            <p className="text-sm font-semibold text-ink-900">Your details (for the receipt and your dealer account)</p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <label className="text-sm text-ink-700">
+                Full name
+                <input className={`${inputClass} mt-1`} value={buyer.name} onChange={(e) => setBuyer({ ...buyer, name: e.target.value })} autoComplete="name" maxLength={120} data-testid="buyer-name" />
+              </label>
+              <label className="text-sm text-ink-700">
+                Mobile
+                <input className={`${inputClass} mt-1`} value={buyer.mobile} onChange={(e) => setBuyer({ ...buyer, mobile: e.target.value.replace(/[^\d+ ]/g, "") })} inputMode="tel" autoComplete="tel" maxLength={14} placeholder="10 digits" data-testid="buyer-mobile" />
+              </label>
+              <label className="text-sm text-ink-700">
+                PAN
+                <input className={`${inputClass} mt-1 uppercase`} value={buyer.pan} onChange={(e) => setBuyer({ ...buyer, pan: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} maxLength={10} placeholder="ABCDE1234F" data-testid="buyer-pan" />
+              </label>
+            </div>
+          </div>
+        ) : null}
+        {owner?.kycMissing.length !== 0 ? (
+          <Alert tone="info" title="Pay now, finish KYC after">
+            Your zones are booked for you as soon as the payment succeeds. Within {kycDays} days, finish your dealer KYC on <a className="font-semibold underline" href="/dealer/apply">your dealer page</a> (documents and bank account). Your franchise goes live — your franchise code, your team&apos;s shops and your commission — once GoKesari approves them. Not finished in {kycDays} days: GoKesari may refund the fee and free the zone.
+          </Alert>
+        ) : null}
         <details className="rounded-lg border border-cream-200 p-3 text-sm text-ink-700" open>
           <summary className="cursor-pointer font-semibold">Responsibilities and rules (version {agreement.version})</summary>
           <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -267,14 +331,88 @@ export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, a
         </label>
         {error ? <Alert tone="danger">{error}</Alert> : null}
         <div className="flex flex-wrap gap-2">
-          <Button onClick={reserveAndPay} disabled={busy || !accepted || !priced || !!priced.problems.length} data-testid="franchise-pay">
+          <Button onClick={reserveAndPay} disabled={busy || !accepted || !priced || !!priced.problems.length || (!owner?.hasPan && (!buyer.name.trim() || !buyer.mobile.trim() || buyer.pan.length !== 10))} data-testid="franchise-pay">
             {busy ? "Please wait…" : priced ? `Reserve and pay ${rupees(priced.totalPaise)}` : "Pricing…"}
           </Button>
-          <Button variant="secondary" onClick={() => setStep("choose")} disabled={busy}>
-            Back to zones
+          <Button variant="secondary" onClick={() => setStep("join")} disabled={busy}>
+            Back
           </Button>
         </div>
       </Card>
+    );
+  }
+
+  if (step === "join") {
+    const chosenFee = chosen.reduce((sum, z) => sum + (z.feePaise ?? 0), 0);
+    return (
+      <div className="space-y-4" data-testid="franchise-join">
+        <div>
+          <h2 className="text-lg font-bold text-ink-900">How do you want to work in {chosen.length === 1 ? chosen[0].name : `these ${chosen.length} zones`}?</h2>
+          <p className="text-sm text-ink-600">{chosen.map((z) => z.zoneId).join(", ")}</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Card className="flex flex-col gap-3 p-4" data-testid="join-free">
+            <div>
+              <Badge tone="success">No fee</Badge>
+              <h3 className="mt-2 text-lg font-bold text-ink-900">Free dealership</h3>
+            </div>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-ink-700">
+              <li>Register shops in your zone and build a team.</li>
+              <li>
+                One-time commission on each shop&apos;s registration fee: <strong>{pct(rates.freeSelfBp)}</strong> on shops you register, <strong>{pct(rates.freeOverrideBp)}</strong> and <strong>{pct(rates.freeSecondBp)}</strong> on your team&apos;s shops.
+              </li>
+              <li>No zone ownership and no monthly share. If a franchise later owns the zone, you can join that franchise&apos;s team.</li>
+            </ul>
+            {chosen.length > 1 ? (
+              <label className="text-sm text-ink-700">
+                Your working zone
+                <select className={`${inputClass} mt-1`} value={workZone || chosen[0].zoneId} onChange={(e) => setWorkZone(e.target.value)} data-testid="join-free-zone">
+                  {chosen.map((z) => (
+                    <option key={z.zoneId} value={z.zoneId}>
+                      {z.zoneId} · {z.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <a className="mt-auto inline-flex min-h-10 items-center justify-center rounded-lg border border-kesari-600 px-4 text-sm font-semibold text-kesari-800 hover:bg-kesari-50" href={freeHref(chosen.some((z) => z.zoneId === workZone) ? workZone : chosen[0].zoneId)} data-testid="join-free-go">
+              Apply free as a dealer
+            </a>
+          </Card>
+          <Card className="flex flex-col gap-3 p-4 ring-2 ring-kesari-500" data-testid="join-paid">
+            <div>
+              <Badge tone="info">{offer.launch.open ? "Launch offer" : "Annual fee"}</Badge>
+              <h3 className="mt-2 text-lg font-bold text-ink-900">Franchise (paid)</h3>
+              <p className="text-xl font-bold text-kesari-800">
+                {rupees(chosenFee)} <span className="text-sm font-normal text-ink-600">a year + GST for {chosen.length === 1 ? "this zone" : `${chosen.length} zones`}</span>
+              </p>
+            </div>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-ink-700">
+              <li>You own the zone (at most {offer.maxOwnersPerZone} franchises a zone) for {offer.validityMonths} months.</li>
+              <li>
+                One-time: <strong>{pct(rates.ownerSelfBp)}</strong> on shops you register yourself; <strong>{pct(rates.ownerOverrideBp)}</strong> / <strong>{pct(rates.ownerSecondBp)}</strong> on your team&apos;s shops.
+              </li>
+              <li>
+                Every month: <strong>{pct(rates.recurringBp)}</strong> of GoKesari&apos;s commission on orders from your zone&apos;s shops.
+              </li>
+              <li>Pay online now; finish your KYC within {kycDays} days to go live.</li>
+            </ul>
+            {blocked.length ? <Alert tone="warning">This account cannot buy a franchise: {blocked.join(", ")}.</Alert> : null}
+            {signedIn ? (
+              <Button className="mt-auto" onClick={openSummary} disabled={!canBook || !!blocked.length} data-testid="join-paid-go">
+                Continue to payment
+              </Button>
+            ) : (
+              <a className="mt-auto inline-flex min-h-10 items-center justify-center rounded-lg bg-kesari-600 px-4 text-sm font-semibold text-white hover:bg-kesari-700" href={signInFor("paid")} data-testid="join-paid-signin">
+                Sign in to pay
+              </a>
+            )}
+          </Card>
+        </div>
+        <Button variant="secondary" onClick={() => setStep("choose")}>
+          Back to zones
+        </Button>
+      </div>
     );
   }
 
@@ -285,12 +423,7 @@ export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, a
           You can still browse the zones. WhatsApp or call +91 91751 93009 to register your interest.
         </Alert>
       ) : null}
-      {canBook && !signedIn ? <Alert tone="info">Sign in to reserve zones. You can browse without signing in.</Alert> : null}
-      {canBook && signedIn && owner && owner.missing.length ? (
-        <Alert tone="warning" title="Before you can pay">
-          Complete: {owner.missing.join(", ")}. {owner.hasDealer ? "Open your dealer page to finish KYC, PAN and the bank check." : <a className="font-semibold underline" href="/dealer/apply">Apply free as a dealer first.</a>}
-        </Alert>
-      ) : null}
+      {canBook ? <Alert tone="info">Select a zone, then choose: work in it free as a dealer, or own it as a franchise (pay online, KYC after).</Alert> : null}
 
       <div className="flex flex-wrap gap-2" aria-label="Tiers">
         {facets.tiers.map((t) => (
@@ -365,7 +498,15 @@ export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, a
               <Button variant="secondary" size="sm" onClick={() => setCart([])}>
                 Clear
               </Button>
-              <Button size="sm" disabled={!signedIn || !canBook || !!owner?.missing.length} onClick={openSummary} data-testid="franchise-continue">
+              <Button
+                size="sm"
+                disabled={!canBook}
+                onClick={() => {
+                  setWorkZone(cart[0]);
+                  setStep("join");
+                }}
+                data-testid="franchise-continue"
+              >
                 Continue
               </Button>
             </div>

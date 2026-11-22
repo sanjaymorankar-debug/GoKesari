@@ -2,7 +2,8 @@
  * Which commission model a shop falls under (final brief 21-Nov-2026 §3, §6, §7) — small and import-free of the
  * dealer modules so the dealer code can call it without a cycle.
  *
- *   Model B: the shop's dealer (its code's top person) holds an active franchise in the shop's zone at the time.
+ *   Model B: the shop's dealer (its code's top person) holds an active franchise in the shop's zone at the time
+ *            (not one still waiting for his KYC after paying — 22-Nov-2026).
  *   Model A: everything else — including a franchise owner's shop outside his paid zones, and a free team's shop
  *            inside someone else's paid zone (that shop still attaches to the zone's franchise for recurring).
  */
@@ -29,7 +30,7 @@ export async function franchiseModelFor(client: DbClient, dealerId: string, shop
   const [a] = await client
     .select()
     .from(franchiseAllocations)
-    .where(and(eq(franchiseAllocations.ownerDealerId, dealerId), eq(franchiseAllocations.zoneId, zoneId), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"]), eq(franchiseAllocations.isTest, false), lte(franchiseAllocations.activatedAt, at), gt(franchiseAllocations.expiresAt, at)))
+    .where(and(eq(franchiseAllocations.ownerDealerId, dealerId), eq(franchiseAllocations.zoneId, zoneId), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"]), isNull(franchiseAllocations.kycDueAt), eq(franchiseAllocations.isTest, false), lte(franchiseAllocations.activatedAt, at), gt(franchiseAllocations.expiresAt, at)))
     .limit(1);
   if (a) return a;
   // The hidden QA test zone (admin end-to-end check) counts too.
@@ -46,7 +47,7 @@ export async function hasActiveFranchise(client: DbClient, dealerId: string, at:
   const [a] = await client
     .select({ id: franchiseAllocations.id })
     .from(franchiseAllocations)
-    .where(and(eq(franchiseAllocations.ownerDealerId, dealerId), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"]), gt(franchiseAllocations.expiresAt, at)))
+    .where(and(eq(franchiseAllocations.ownerDealerId, dealerId), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"]), isNull(franchiseAllocations.kycDueAt), gt(franchiseAllocations.expiresAt, at)))
     .limit(1);
   return !!a;
 }
