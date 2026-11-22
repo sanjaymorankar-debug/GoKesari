@@ -1,0 +1,571 @@
+[
+  {
+    "file": "01-mr-printed.jpg",
+    "synthetic": true,
+    "lang": "mr",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Milk",
+        "amount": 2000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Sugar",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Rice",
+        "amount": 5000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Wheat",
+        "amount": 2000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Cooking oil",
+        "amount": 1000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Soap",
+        "amount": 4,
+        "unit": "piece"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "02-hi-printed.jpg",
+    "synthetic": true,
+    "lang": "hi",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Milk",
+        "amount": 2000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Sugar",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Rice",
+        "amount": 5000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Wheat",
+        "amount": 2000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Cooking oil",
+        "amount": 1000,
+        "unit": "ml"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "03-en-handwriting-font.jpg",
+    "synthetic": true,
+    "lang": "en",
+    "kind": "script-font",
+    "items": [
+      {
+        "nameEn": "Milk",
+        "amount": 2000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Sugar",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Rice",
+        "amount": 5000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Wheat",
+        "amount": 2000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Cooking oil",
+        "amount": 1000,
+        "unit": "ml"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "04-gu-printed.jpg",
+    "synthetic": true,
+    "lang": "gu",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Milk",
+        "amount": 2000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Sugar",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Rice",
+        "amount": 5000,
+        "unit": "g"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "05-mixed-mr-en.jpg",
+    "synthetic": true,
+    "lang": "mr+en",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Butter",
+        "amount": 500,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Poha",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Biscuits",
+        "amount": 2,
+        "unit": "pack"
+      },
+      {
+        "nameEn": "Onion",
+        "amount": 2000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Eggs",
+        "amount": 12,
+        "unit": "piece"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "06-mr-fractions.jpg",
+    "synthetic": true,
+    "lang": "mr",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Ghee",
+        "amount": 500,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Cumin",
+        "amount": 250,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Milk",
+        "amount": 1500,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Toor dal",
+        "amount": 2000,
+        "unit": "g"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "07-hi-words.jpg",
+    "synthetic": true,
+    "lang": "hi",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Tea",
+        "amount": 500,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Wheat flour",
+        "amount": 1500,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Eggs",
+        "amount": 12,
+        "unit": "piece"
+      },
+      {
+        "nameEn": "Soap",
+        "amount": 2,
+        "unit": "piece"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "08-mr-blurry.jpg",
+    "synthetic": true,
+    "lang": "mr",
+    "kind": "printed-blur",
+    "items": [
+      {
+        "nameEn": "Milk",
+        "amount": 2000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Sugar",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Rice",
+        "amount": 5000,
+        "unit": "g"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "09-mr-dark.jpg",
+    "synthetic": true,
+    "lang": "mr",
+    "kind": "printed-lowlight",
+    "items": [
+      {
+        "nameEn": "Milk",
+        "amount": 2000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Sugar",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Rice",
+        "amount": 5000,
+        "unit": "g"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "10-en-rotated.jpg",
+    "synthetic": true,
+    "lang": "en",
+    "kind": "printed-rotated",
+    "items": [
+      {
+        "nameEn": "Bread",
+        "amount": 1,
+        "unit": "piece"
+      },
+      {
+        "nameEn": "Eggs",
+        "amount": 12,
+        "unit": "piece"
+      },
+      {
+        "nameEn": "Butter",
+        "amount": 500,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Milk",
+        "amount": 1000,
+        "unit": "ml"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "11-unreadable.jpg",
+    "synthetic": true,
+    "lang": "mr",
+    "kind": "unreadable",
+    "items": [],
+    "expectUnreadable": true
+  },
+  {
+    "file": "12-bill.jpg",
+    "synthetic": true,
+    "lang": "en",
+    "kind": "bill",
+    "items": [
+      {
+        "nameEn": "Sugar",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Tea",
+        "amount": 250,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Toor dal",
+        "amount": 1000,
+        "unit": "g"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "13-mr-long.jpg",
+    "synthetic": true,
+    "lang": "mr",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Milk",
+        "amount": 2000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Sugar",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Rice",
+        "amount": 5000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Wheat",
+        "amount": 2000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Cooking oil",
+        "amount": 1000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Soap",
+        "amount": 4,
+        "unit": "piece"
+      },
+      {
+        "nameEn": "Poha",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Onion",
+        "amount": 2000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Potato",
+        "amount": 3000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Salt",
+        "amount": 1,
+        "unit": "pack"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "14-hi-mixed-en.jpg",
+    "synthetic": true,
+    "lang": "hi+en",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Detergent",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Toothpaste",
+        "amount": 2,
+        "unit": "piece"
+      },
+      {
+        "nameEn": "Noodles",
+        "amount": 4,
+        "unit": "pack"
+      },
+      {
+        "nameEn": "Curd",
+        "amount": 500,
+        "unit": "g"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "15-en-printed.jpg",
+    "synthetic": true,
+    "lang": "en",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Cooking oil",
+        "amount": 1000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Rice",
+        "amount": 5000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Wheat flour",
+        "amount": 10000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Salt",
+        "amount": 1000,
+        "unit": "g"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "16-gu-mixed.jpg",
+    "synthetic": true,
+    "lang": "gu+en",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Sugar",
+        "amount": 2000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Tea",
+        "amount": 250,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Milk",
+        "amount": 1000,
+        "unit": "ml"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "17-mr-dark-blur.jpg",
+    "synthetic": true,
+    "lang": "mr",
+    "kind": "printed-lowlight-blur",
+    "items": [
+      {
+        "nameEn": "Cooking oil",
+        "amount": 1000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Soap",
+        "amount": 4,
+        "unit": "piece"
+      },
+      {
+        "nameEn": "Poha",
+        "amount": 1000,
+        "unit": "g"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "18-hi-numbers-words.jpg",
+    "synthetic": true,
+    "lang": "hi",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Rice",
+        "amount": 5000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Milk",
+        "amount": 2000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Banana",
+        "amount": 12,
+        "unit": "piece"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "19-mr-brands.jpg",
+    "synthetic": true,
+    "lang": "mr",
+    "kind": "printed",
+    "items": [
+      {
+        "nameEn": "Milk",
+        "amount": 2000,
+        "unit": "ml"
+      },
+      {
+        "nameEn": "Salt",
+        "amount": 1,
+        "unit": "pack"
+      },
+      {
+        "nameEn": "Biscuits",
+        "amount": 3,
+        "unit": "pack"
+      }
+    ],
+    "expectUnreadable": false
+  },
+  {
+    "file": "20-en-script-rotated.jpg",
+    "synthetic": true,
+    "lang": "en",
+    "kind": "script-font-rotated",
+    "items": [
+      {
+        "nameEn": "Tomato",
+        "amount": 1000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Onion",
+        "amount": 2000,
+        "unit": "g"
+      },
+      {
+        "nameEn": "Potato",
+        "amount": 3000,
+        "unit": "g"
+      }
+    ],
+    "expectUnreadable": false
+  }
+]
