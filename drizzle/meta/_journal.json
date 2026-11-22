@@ -1121,6 +1121,13 @@
       "when": 1793265700000,
       "tag": "0159_shop_fssai_waivers",
       "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1793266000000,
+      "tag": "0162_shop_document_rules",
+      "breakpoints": true
     }
   ]
 }

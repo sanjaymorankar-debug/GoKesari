@@ -17,24 +17,23 @@
  * GSTIN / PAN and FSSAI checks VERIFIED them; the 1st / 15th follow-up chases what was promised and
  * suspends the shop after the promised date.
  * One registered with "upload documents later" (0120) pays without a GSTIN / PAN, and goes live on payment.
+ *
+ * DF-09 (owner, 22-Nov-2026): which documents are must-have, which may follow on the promise, and which
+ * are optional is now the admin's choice, per document and shop type (shop-document-rules.ts). The
+ * seeded rules are DF-08's; GSTIN or PAN stays a must-have outside those rules.
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { formatDisplayDate, todayIn } from "@/lib/dates";
 import { conflict, forbidden, notFound } from "@/lib/errors";
 import { SELLER_DOC_LABELS, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
-import { mandatoryLicenceFor } from "@/lib/shop-licences";
+import { listJoin } from "@/lib/shop-document-rules";
 import { db, type DbClient } from "@/server/db";
-import { sellerVerifications, shopLegalDocuments, shops, type Shop, type UserRole } from "@/server/db/schema";
+import { sellerVerifications, shops, type Shop, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
 import { hasDocumentWaiver, isDocumentsLaterShop, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
-import { loadShopTypeRegistry } from "./shop-types";
-
-/** Sent by the owner and waiting for GoKesari's check: the owner's part is done. */
-const WITH_THE_TEAM = new Set(["PENDING", "MANUAL_REVIEW"]);
-/** A licence on the legal-documents page counts once it is submitted. */
-const LICENCE_ON_FILE = ["SUBMITTED", "APPROVED"] as const;
+import { requirementsOnFile, type RequirementOnFile } from "./shop-document-rules";
 
 const DAY_MS = 86_400_000;
 
@@ -61,6 +60,11 @@ export interface ShopDocumentGate {
    * uploaded before payment. Always false for other shops (their own gate lists FSSAI under `missing`).
    */
   fssaiNeeded: boolean;
+  /**
+   * DF-09 (wizard shops): the must-have documents (admin rules) not on file and not with the team, FSSAI
+   * included — all uploaded before payment. Labels. Empty for other shops.
+   */
+  mustHave: string[];
   /** What the promise covers (labels): the missing documents, or for a wizard shop those that may follow go-live. */
   promiseCovers: string[];
 }
@@ -87,8 +91,10 @@ export async function shopDocumentGate(
     );
     // 0120: registered with "upload documents later" — the fee is paid without a GSTIN / PAN.
     const identityOk = identityChecked || (await isDocumentsLaterShop(shop.id, client));
-    const fssaiNeeded = await wizardFssaiNeeded(shop, rows, client);
-    const covers = await wizardDocumentsAfterGoLive(shop, rows, client);
+    const docs = await requirementsOnFile(shop, client);
+    const mustHaveDocs = await wizardMustHaveMissing(shop, docs, client);
+    const fssaiNeeded = mustHaveDocs.some((d) => d.key === "FSSAI");
+    const covers = wizardDocumentsAfterGoLive(docs);
     return {
       verified,
       missing: fssaiNeeded && !missing.includes("FSSAI") ? [...missing, "FSSAI"] : missing,
@@ -96,9 +102,10 @@ export async function shopDocumentGate(
       promisedAt: shop.documentsPromisedAt,
       dueAt: shop.documentsDueAt,
       waived,
-      canPay: waived || (identityOk && !fssaiNeeded && (covers.length === 0 || promised)),
+      canPay: waived || (identityOk && mustHaveDocs.length === 0 && (covers.length === 0 || promised)),
       canPromise: identityOk && covers.length > 0 && !promised,
       fssaiNeeded,
+      mustHave: mustHaveDocs.map((d) => d.label),
       promiseCovers: covers,
     };
   }
@@ -113,59 +120,39 @@ export async function shopDocumentGate(
     canPay: waived || (verified.length > 0 && (missing.length === 0 || promised)),
     canPromise: verified.length > 0 && missing.length > 0 && !promised,
     fssaiNeeded: false,
+    mustHave: [],
     promiseCovers: missing.map((d) => SELLER_DOC_LABELS[d]),
   };
 }
 
 /**
- * DF-08: a wizard food shop pays only once its FSSAI licence is on file (verified, or a valid licence
- * uploaded), sent and waiting for GoKesari's check, or excused by an admin's FSSAI waiver. The approval
- * itself still needs it on file (document-uploads.ts assertFssaiAllowsApproval), so a licence still with
- * the team means the paid shop waits for an admin.
+ * DF-09: the must-have documents (the admin's rules; DF-08's FSSAI for food shops by default) a wizard
+ * shop has not given: not on file and not with GoKesari's team. FSSAI keeps its own test
+ * (document-uploads.ts fssaiBlocksRegistration, which an admin's waiver lifts); the approval itself still
+ * needs FSSAI on file (assertFssaiAllowsApproval), so a licence still with the team means the paid shop
+ * waits for an admin.
  */
-async function wizardFssaiNeeded(
-  shop: Pick<Shop, "id" | "shopType">,
-  rows: { docType: string; status: string }[],
-  client: DbClient,
-): Promise<boolean> {
-  // Loaded on use: document-uploads.ts reaches shops.ts, which imports this file.
-  const { fssaiBlocksRegistration } = await import("./document-uploads");
-  if ((await fssaiBlocksRegistration(shop, client)) === null) return false;
-  return !rows.some((r) => r.docType === "FSSAI" && WITH_THE_TEAM.has(r.status));
+async function wizardMustHaveMissing(shop: Pick<Shop, "id" | "shopType">, docs: RequirementOnFile[], client: DbClient): Promise<RequirementOnFile[]> {
+  const out: RequirementOnFile[] = [];
+  for (const doc of docs) {
+    if (doc.level !== "MUST_HAVE" || doc.onFile) continue;
+    if (doc.key === "FSSAI") {
+      // Loaded on use: document-uploads.ts reaches shops.ts, which imports this file.
+      const { fssaiBlocksRegistration } = await import("./document-uploads");
+      if ((await fssaiBlocksRegistration(shop, client)) === null) continue;
+    }
+    out.push(doc);
+  }
+  return out;
 }
 
 /**
- * DF-08: the documents a wizard shop may upload after going live, on the owner's promise — every
- * mandatory document the 1st / 15th follow-up would chase (shop-document-follow-up.ts) except the
- * must-haves: the GSTIN or PAN (either one is enough) and FSSAI. That is the Shop Act, and the shop
- * type's own licence (a pharmacy's drug licence, a clinic's or professional's registration). Labels.
+ * DF-08 / DF-09: the documents a wizard shop may upload after going live, on the owner's promise — those
+ * the admin's rules set to PROMISE (by default the Shop Act, a pharmacy's drug licence, a clinic's or
+ * professional's registration) that are not on file and not with the team. Labels.
  */
-export async function wizardDocumentsAfterGoLive(
-  shop: Pick<Shop, "id" | "shopType">,
-  rows: { docType: string; status: string }[],
-  client: DbClient = db,
-): Promise<string[]> {
-  const notGiven = (await missingMandatoryDocuments(shop, client)).filter(
-    (d) => d !== "FSSAI" && d !== "GSTIN" && d !== "PAN" && !rows.some((r) => r.docType === d && WITH_THE_TEAM.has(r.status)),
-  );
-  const out = notGiven.map((d) => SELLER_DOC_LABELS[d]);
-  await loadShopTypeRegistry();
-  const licence = mandatoryLicenceFor(shop.shopType);
-  if (licence && licence.docType !== "FSSAI") {
-    const [onFile] = await client
-      .select({ id: shopLegalDocuments.id })
-      .from(shopLegalDocuments)
-      .where(
-        and(
-          eq(shopLegalDocuments.shopId, shop.id),
-          eq(shopLegalDocuments.docType, licence.docType),
-          inArray(shopLegalDocuments.status, [...LICENCE_ON_FILE]),
-        ),
-      )
-      .limit(1);
-    if (!onFile) out.push(licence.label.en);
-  }
-  return out;
+export function wizardDocumentsAfterGoLive(docs: RequirementOnFile[]): string[] {
+  return docs.filter((d) => d.level === "PROMISE" && !d.onFile).map((d) => d.label);
 }
 
 /**
@@ -193,13 +180,10 @@ export async function assertDocumentsAllowPayment(shop: Shop): Promise<void> {
   const gate = await shopDocumentGate(shop);
   if (gate.canPay) return;
   if (await isWizardRegisteredShop(shop.id)) {
-    if (gate.fssaiNeeded && !gate.missing.some((d) => d === "GSTIN" || d === "PAN")) {
-      throw conflict("Your shop sells food, so an FSSAI licence is required by law. Please upload your FSSAI licence before paying the registration fee.", {
-        reason: "FSSAI_REQUIRED",
-        missing: gate.missing,
-      });
+    if (gate.mustHave.length > 0 && !gate.missing.some((d) => d === "GSTIN" || d === "PAN")) {
+      throw mustHaveConflict(gate);
     }
-    if (!gate.fssaiNeeded && gate.canPromise) {
+    if (gate.mustHave.length === 0 && gate.canPromise) {
       const { promiseDays } = await getRule("shopDocumentFollowUp");
       throw conflict(
         `Please upload ${gate.promiseCovers.join(", ")}, or confirm that you will upload ${gate.promiseCovers.length > 1 ? "them" : "it"} within ${promiseDays} days, before paying the registration fee.`,
@@ -220,6 +204,23 @@ export async function assertDocumentsAllowPayment(shop: Shop): Promise<void> {
   throw conflict(
     "Some documents are not verified yet. Verify them, or tick \"I will provide all relevant documents within 30 days\", before paying the registration fee.",
     { reason: "DOCUMENTS_MISSING", missing: gate.missing },
+  );
+}
+
+/**
+ * The must-have documents are missing (wizard shops). FSSAI alone keeps its own words and reason
+ * (FSSAI_REQUIRED); any other must-have (DF-09) is DOCUMENTS_REQUIRED.
+ */
+export function mustHaveConflict(gate: Pick<ShopDocumentGate, "mustHave" | "fssaiNeeded" | "missing">) {
+  if (gate.fssaiNeeded && gate.mustHave.length === 1) {
+    return conflict("Your shop sells food, so an FSSAI licence is required by law. Please upload your FSSAI licence before paying the registration fee.", {
+      reason: "FSSAI_REQUIRED",
+      missing: gate.missing,
+    });
+  }
+  return conflict(
+    `${listJoin(gate.mustHave)} ${gate.mustHave.length > 1 ? "are" : "is"} required by law for your type of shop. Please upload ${gate.mustHave.length > 1 ? "them" : "it"} before paying the registration fee.`,
+    { reason: "DOCUMENTS_REQUIRED", missing: gate.mustHave },
   );
 }
 

@@ -60,6 +60,8 @@ export interface AdminShop {
    * refused until one is uploaded, or an admin approves without it (owner request 21-Nov-2026).
    */
   fssaiNeeded?: "missing" | "expired" | null;
+  /** DF-09: other documents the admin made must-have for this shop type, not on file (labels). */
+  mustHaveMissing?: string[];
 }
 
 const dueLabel = (iso: string) =>
@@ -250,8 +252,10 @@ function PendingShopRow({
   const fssaiState = shop.fssaiNeeded ?? null;
   // "Approve without documents" (admin, with a reason): unverified seller documents, or — owner
   // 21-Nov-2026 — a food shop held only for its FSSAI licence (then due within fssaiWaiverDays).
+  // DF-09: the admin's other must-have documents for this shop type are waived the same way.
+  const mustHave = shop.mustHaveMissing ?? [];
   const canWaive =
-    canWaiveDocuments && ((approvalGateOn && stage === "KYC_PENDING") || (fssaiState !== null && canWaiveFssai));
+    canWaiveDocuments && ((approvalGateOn && stage === "KYC_PENDING") || ((fssaiState !== null || mustHave.length > 0) && canWaiveFssai));
   // An admin or operator approves a promised shop after inspecting it; the 1st / 15th reminders follow.
   const canAcceptPromise = approvalGateOn && stage === "KYC_PENDING" && shop.documentsPromisedAt !== null;
   const [acceptingPromise, setAcceptingPromise] = useState(false);
@@ -261,7 +265,8 @@ function PendingShopRow({
   // Owner request 21-Nov-2026: an admin approves a food shop without its FSSAI licence, due in fssaiWaiverDays.
   // DF-08 (21-Nov-2026 night): a wizard food shop needs it too — no 90-day grace for FSSAI any more.
   const fssaiNeeded = fssaiState;
-  const waivedDocuments = [...shop.missingDocuments.filter((d) => !/FSSAI/i.test(d)), ...(fssaiNeeded ? ["FSSAI licence"] : [])];
+  const waivedDocuments = [...shop.missingDocuments.filter((d) => !/FSSAI/i.test(d)), ...(fssaiNeeded ? ["FSSAI licence"] : []), ...mustHave];
+  const mustHaveWaiver = fssaiNeeded !== null || mustHave.length > 0;
   // A document the owner sent to GoKesari is uploaded for them (FSSAI, or anything still missing).
   const uploadHref = `/admin/shops/${shop.id}/documents`;
   const showUpload = canUploadDocuments && (fssaiState !== null || stage === "KYC_PENDING");
@@ -325,6 +330,11 @@ function PendingShopRow({
             {fssaiNeeded ? (
               <Badge tone="danger">{fssaiNeeded === "expired" ? "FSSAI licence expired" : "FSSAI licence missing"}</Badge>
             ) : null}
+            {mustHave.map((label) => (
+              <Badge key={label} tone="danger">
+                {label} missing
+              </Badge>
+            ))}
             <PromiseBadge shop={shop} />
             <FeeBadge shop={shop} />
           </div>
@@ -344,6 +354,14 @@ function PendingShopRow({
               <span className="font-medium">FSSAI: </span>
               {fssaiNeeded === "expired" ? "the licence on file has expired." : "no valid licence on file."}{" "}
               {canUploadDocuments ? "Upload the copy the owner sent you" : "The owner uploads it on My Shop → Upload documents"}
+              {canWaiveFssai ? `, or use Approve without documents — the owner then has ${fssaiWaiverDays} days to upload it.` : "."}
+            </p>
+          ) : null}
+          {mustHave.length > 0 && canApprove ? (
+            <p className="mt-1 text-sm text-ink-700" data-testid="must-have-needed">
+              <span className="font-medium">Must-have for this shop type: </span>
+              {mustHave.join(", ")} not uploaded.{" "}
+              {canUploadDocuments ? "Upload the copy the owner sent you" : "The owner uploads it on My Shop → Legal documents"}
               {canWaiveFssai ? `, or use Approve without documents — the owner then has ${fssaiWaiverDays} days to upload it.` : "."}
             </p>
           ) : null}
@@ -551,8 +569,8 @@ function PendingShopRow({
             Approve {shop.name} as {classification === "KESARI" ? "Kesari" : "Green"} without verified documents (
             {waivedDocuments.join(", ")}). The shop goes live now; your name and reason are recorded. The
             registration fee is still checked.
-            {fssaiNeeded
-              ? ` The owner must upload a valid FSSAI licence within ${fssaiWaiverDays} days (by ${fssaiDueLabel}); they are reminded on the 1st and 15th, and the shop is suspended automatically if it is still missing then.`
+            {mustHaveWaiver
+              ? ` The owner must upload ${[...(fssaiNeeded ? ["a valid FSSAI licence"] : []), ...mustHave].join(", ")} within ${fssaiWaiverDays} days (by ${fssaiDueLabel}); they are reminded on the 1st and 15th, and the shop is suspended automatically if ${fssaiNeeded && mustHave.length === 0 ? "it is" : "anything is"} still missing then.`
               : ""}
           </p>
           <div className="flex gap-2">
@@ -570,7 +588,7 @@ function PendingShopRow({
                 act("approve", {
                   classification,
                   waiveDocuments: { reason: waiveReason },
-                  ...(fssaiNeeded && canWaiveFssai ? { waiveFssai: { reason: waiveReason } } : {}),
+                  ...(mustHaveWaiver && canWaiveFssai ? { waiveFssai: { reason: waiveReason } } : {}),
                 })
               }
             >

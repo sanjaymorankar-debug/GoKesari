@@ -48,6 +48,7 @@ import { listRolesForUsers } from "@/server/services/roles";
 import { getRegistrationFeeReport } from "@/server/services/shop-payments";
 import { countShopsByLifecycle, getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
 import { fssaiBlocksRegistration, fssaiStatus } from "@/server/services/document-uploads";
+import { missingMustHaveDocuments } from "@/server/services/shop-document-rules";
 import { getRule } from "@/server/services/settings";
 import { listShopsByStatus, searchShopsAdmin } from "@/server/services/shops";
 import { countSubscriptionsByStatus } from "@/server/services/subscriptions";
@@ -127,11 +128,17 @@ export default async function AdminConsoleSectionPage({
           }),
         ),
       );
+      // DF-09 (owner, 22-Nov-2026): any other document the admin made must-have for the shop's type.
+      const mustHaveMissing = new Map(await Promise.all(pending.map(async (s) => [s.id, await missingMustHaveDocuments(s)] as const)));
       return (
         <>
           {header}
           <ShopApprovalPanel
-            pending={pending.map((s) => ({ ...serialiseShop(s, onboarding.get(s.id)), fssaiNeeded: fssaiNeeded.get(s.id) ?? null }))}
+            pending={pending.map((s) => ({
+              ...serialiseShop(s, onboarding.get(s.id)),
+              fssaiNeeded: fssaiNeeded.get(s.id) ?? null,
+              mustHaveMissing: mustHaveMissing.get(s.id) ?? [],
+            }))}
             approved={approved.map((s) => serialiseShop(s))}
             approvalGateOn={statusModelsRule.enforceTransitions}
             canApprove={can(user.role, PERMISSIONS.SHOP_APPROVE)}
