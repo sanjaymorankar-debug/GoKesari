@@ -15,7 +15,9 @@ import { auditLogs, featureFlags, notifications, shops, staffTeamMembers, users,
 import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import {
   assignZone,
+  buildOpsReportPdf,
   buildOpsReportWorkbook,
+  pdfTable,
   createCustomerAssist,
   createOpsTask,
   endZoneAssignment,
@@ -382,6 +384,28 @@ describe("Operations Manager monitoring", () => {
     expect(wb.worksheets.map((w) => w.name)).toEqual(
       expect.arrayContaining(["Activity by user", "Activity by zone", "Shops by zone", "Shops by dealer", "Shops by team lead", "Shops by agent", "Customers"]),
     );
+
+    // The same report as a printable PDF (brief §5.4 "Excel/PDF").
+    const pdf = await buildOpsReportPdf(manager, { period: "day" });
+    expect(pdf.filename).toMatch(/^gokesari-operations-day-\d{4}-\d{2}-\d{2}\.pdf$/);
+    const text = pdf.buffer.toString("latin1");
+    expect(text.startsWith("%PDF-")).toBe(true);
+    for (const heading of ["GOKESARI OPERATIONS REPORT", "ACTIVITY BY OPERATIONS USER", "ACTIVITY BY ZONE", "SHOPS BY ZONE", "SHOPS BY DEALER", "SHOPS BY TEAM LEAD", "SHOPS BY AGENT", "CUSTOMERS BY ZONE"]) {
+      expect(text).toContain(heading);
+    }
+    expect(text).toContain("Arun Ops");
+    expect(text).toContain("Shivneri Traders");
+    expect(text).toContain("Lata Lead");
+    await expect(buildOpsReportPdf(opsA)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("lays out PDF tables in fixed-width columns and shortens long names", () => {
+    const lines = pdfTable("Zone", ["Total", "New"], [{ label: "A very long zone name that will not fit in the column", values: [12, 3] }], 40);
+    expect(lines[0]).toEqual({ text: `${"Zone".padEnd(24)}   Total     New`, bold: true });
+    expect(lines[1].text).toHaveLength(40);
+    expect(lines[1].text.endsWith("      12       3")).toBe(true);
+    expect(lines[1].text).toContain("~");
+    expect(pdfTable("Zone", ["Total"], [], 40)[1].text).toBe("  (none)");
   });
 
   it("works out IST days and Monday-to-Sunday weeks", () => {

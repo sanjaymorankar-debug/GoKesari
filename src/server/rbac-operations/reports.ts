@@ -7,6 +7,7 @@
  *                                 by source (referral, dealer code, Operations-assisted, direct), by zone
  *   getOpsActivityReport          a day or a week (IST) per Operations User and per zone
  *   buildOpsReportWorkbook        all three as one Excel file
+ *   buildOpsReportPdf             the same as a printable A4 PDF
  *
  * Read-only and computed from live data when asked (no snapshot table, no cron). All dates are IST.
  * Shop statuses as reported:
@@ -20,6 +21,7 @@ import ExcelJS from "exceljs";
 import { sql, type SQL } from "drizzle-orm";
 
 import { formatIst } from "@/lib/franchise";
+import { PDF_LINE_WIDTH, textPdf, type PdfLine } from "@/lib/pdf";
 import { db } from "@/server/db";
 import { requireOps, type OpsActor } from "./access";
 import { syncAssistRegistrations } from "./assists";
@@ -408,4 +410,119 @@ export async function buildOpsReportWorkbook(
   info.addRow([`Generated: ${activity.generatedAt}`]);
   const buffer = Buffer.from(await wb.xlsx.writeBuffer());
   return { filename: `gokesari-operations-${activity.period}-${activity.from}.xlsx`, buffer };
+}
+
+/* ------------------------------------------------------------------ PDF */
+
+/** Short column heads that fit the A4 text page (src/lib/pdf.ts, ~95 characters a line). */
+const ACTIVITY_PDF_HEADS: [(typeof ACTIVITY_KEYS)[number], string][] = [
+  ["shopsContacted", "Contact"],
+  ["shopsRegistered", "Regd"],
+  ["shopsVerified", "Verif"],
+  ["shopsActivated", "Activ"],
+  ["customersOnboarded", "Cust"],
+  ["followUps", "F-ups"],
+  ["tasksDone", "Done"],
+  ["pendingRegistrations", "Pend"],
+  ["unresolved", "Overdue"],
+];
+const SHOP_PDF_HEADS: [ShopCountKey, string][] = [
+  ["total", "Total"],
+  ["new", "New"],
+  ["pending", "Pend"],
+  ["underVerification", "Verif"],
+  ["autoApproved", "Auto"],
+  ["manuallyApproved", "Manual"],
+  ["rejected", "Rej"],
+  ["active", "Active"],
+  ["inactive", "Inact"],
+];
+
+/** A fixed-width table: label column, then right-aligned number columns. */
+export function pdfTable(label: string, heads: string[], rows: { label: string; values: number[] }[], width = PDF_LINE_WIDTH): PdfLine[] {
+  const col = 8;
+  const labelWidth = Math.max(10, width - heads.length * col);
+  const fit = (s: string) => (s.length > labelWidth - 1 ? `${s.slice(0, labelWidth - 2)}~` : s).padEnd(labelWidth);
+  const out: PdfLine[] = [{ text: fit(label) + heads.map((h) => h.padStart(col)).join(""), bold: true }];
+  for (const r of rows) out.push({ text: fit(r.label) + r.values.map((v) => String(v).padStart(col)).join("") });
+  if (rows.length === 0) out.push({ text: "  (none)" });
+  return out;
+}
+
+/**
+ * The same report as the Excel file, as a printable A4 PDF (owner's brief §5.4: "Excel/PDF").
+ * Plain text in built-in Courier (src/lib/pdf.ts): no fonts embedded, no library. Breakdown tables
+ * show the top 25 rows each; the Excel file has every row.
+ */
+export async function buildOpsReportPdf(
+  actor: OpsActor,
+  options: { period?: "day" | "week"; date?: string; days?: number } = {},
+): Promise<{ filename: string; buffer: Buffer }> {
+  await requireOps(actor, "report");
+  const [activity, shops, customers] = await Promise.all([
+    getOpsActivityReport(actor, options),
+    getShopOnboardingMonitor(actor, { days: options.days }),
+    getCustomerOnboardingMonitor(actor),
+  ]);
+  const W = PDF_LINE_WIDTH;
+  const out: PdfLine[] = [];
+  const add = (text = "", bold = false) => out.push({ text, bold });
+  const section = (title: string, lines: PdfLine[]) => {
+    add();
+    add(title, true);
+    out.push(...lines);
+  };
+  const actRows = (rows: OpsActivityRow[]) => rows.map((r) => ({ label: r.label, values: ACTIVITY_PDF_HEADS.map(([k]) => r[k]) }));
+  const shopRows = (rows: ShopBreakdownRow[]) => rows.slice(0, 25).map((r) => ({ label: r.label, values: SHOP_PDF_HEADS.map(([k]) => r.counts[k]) }));
+  const more = (rows: unknown[]) => (rows.length > 25 ? [{ text: `  ... ${rows.length - 25} more rows in the Excel download` }] : []);
+  const period = activity.from === activity.to ? activity.from : `${activity.from} to ${activity.to}`;
+
+  add("GOKESARI OPERATIONS REPORT", true);
+  add(`${activity.period === "day" ? "Day" : "Week (Mon-Sun)"}: ${period} (IST)   Generated: ${activity.generatedAt}`);
+  add(`Shops "New" = registered in the last ${shops.days} days.`);
+  add("-".repeat(W));
+
+  const activityHeads = ACTIVITY_PDF_HEADS.map(([, h]) => h);
+  section("ACTIVITY BY OPERATIONS USER", [
+    ...pdfTable("Operations User", activityHeads, [...actRows(activity.byUser), { label: "TOTAL", values: ACTIVITY_PDF_HEADS.map(([k]) => activity.totals[k]) }]),
+  ]);
+  section("ACTIVITY BY ZONE", pdfTable("Zone", activityHeads, actRows(activity.byZone)));
+  add("Contact = shops contacted, Regd = registered, Verif = verified, Activ = activated,");
+  add("Cust = customers onboarded, F-ups = follow-ups, Done = tasks done,");
+  add("Pend = registrations pending now, Overdue = overdue tasks now.");
+
+  const shopHeads = SHOP_PDF_HEADS.map(([, h]) => h);
+  section("SHOPS", pdfTable("", shopHeads, [{ label: "All shops", values: SHOP_PDF_HEADS.map(([k]) => shops.totals[k]) }]));
+  section("SHOPS BY ZONE", [...pdfTable("Zone", shopHeads, shopRows(shops.byZone)), ...more(shops.byZone)]);
+  section("SHOPS BY DEALER", [...pdfTable("Dealer", shopHeads, shopRows(shops.byDealer)), ...more(shops.byDealer)]);
+  section("SHOPS BY TEAM LEAD", [...pdfTable("Team lead", shopHeads, shopRows(shops.byTeamLead)), ...more(shops.byTeamLead)]);
+  section("SHOPS BY AGENT", [...pdfTable("Agent", shopHeads, shopRows(shops.byAgent)), ...more(shops.byAgent)]);
+  add("Pend = documents or fee outstanding, Verif = waiting for a decision, Auto = auto-approved,");
+  add("Manual = approved by a person, Rej = rejected, Inact = suspended or inactive now.");
+  section("SHOPS, LAST 14 DAYS (IST)", pdfTable("Day", ["Regd", "Activ"], shops.daily.map((d) => ({ label: d.day, values: [d.registered, d.activated] })), 40));
+  section("SHOPS, LAST 8 WEEKS (IST)", pdfTable("Week starting", ["Regd", "Activ"], shops.weekly.map((d) => ({ label: d.weekStarting, values: [d.registered, d.activated] })), 40));
+
+  section(
+    "CUSTOMERS",
+    pdfTable(
+      "Measure",
+      ["Count"],
+      [
+        { label: "Total", values: [customers.total] },
+        { label: "New today", values: [customers.newToday] },
+        { label: "New this week", values: [customers.newThisWeek] },
+        { label: "Active (order in 90 days)", values: [customers.active] },
+        { label: "Inactive", values: [customers.inactive] },
+        ...customers.bySource.map((s) => ({ label: `Source: ${s.source.replace("_", " ").toLowerCase()}`, values: [s.total] })),
+      ],
+      48,
+    ),
+  );
+  section(
+    "CUSTOMERS BY ZONE",
+    [...pdfTable("Zone", ["Total", "Week"], customers.byZone.slice(0, 25).map((z) => ({ label: z.label, values: [z.total, z.newThisWeek] })), 56), ...more(customers.byZone)],
+  );
+
+  const filename = `gokesari-operations-${activity.period}-${activity.from}.pdf`;
+  return { filename, buffer: textPdf(out, { title: `GoKesari Operations report ${period}` }) };
 }

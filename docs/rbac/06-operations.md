@@ -21,6 +21,7 @@ Everything here sits behind the flag **`rbac_v2_operations`**. Migration 0170 se
 | Customer onboarding monitor: total, new today, new this week, active and inactive; by source (Operations-assisted, dealer code, referral, direct) and by zone | Operations Manager | `getCustomerOnboardingMonitor`; `GET …/reports?kind=customers` |
 | Daily and weekly report: shops contacted, registered, verified and activated; customers onboarded; follow-ups; tasks done; pending registrations; overdue tasks. Per Operations User and per zone, in IST days and Monday-to-Sunday weeks. | Operations Manager | `getOpsActivityReport`; `GET …/reports?kind=activity` |
 | Excel download of all of the above (11 sheets) | Operations Manager | `buildOpsReportWorkbook`; `GET …/reports?kind=excel` |
+| PDF download of the same report: A4, printable, plain text in built-in Courier through the existing `src/lib/pdf.ts` (no new library). Breakdown tables show the top 25 rows; the Excel file has every row. Added 22-Nov 23.20 IST. | Operations Manager | `buildOpsReportPdf`; `GET …/reports?kind=pdf`; "Download PDF" on the Reports tab |
 | Screens: one Theme 1 tile page per role, with tabs. Manager tabs: Overview, Tasks, Team & zones, Reports, Customers. User tabs: Today, My tasks, Customers. Plus a task page. | both | `src/app/staff/operations/**`, `src/components/staff/operations-desk.tsx` |
 | For Phase 7 (other session): `getOpsTask(id)` returns `{ id, assigneeUserId, shopId }`. `src/server/rbac-operations/index.ts` registers it with `registerOpsTaskLookup` (rbac-support/desk.ts) when the module loads. The task page links to `/staff/support?tab=raise&shopId=…&opsTaskId=…` when `rbac_v2_support` is on for the viewer. | — | `src/server/rbac-operations/tasks.ts` |
 
@@ -53,10 +54,10 @@ Tests: `tests/integration/rbac-v2-operations.test.ts` (22 tests) covers:
 - zones;
 - assist linking by e-mail and by mobile, and no claim on an existing account;
 - the monitors and their breakdowns;
-- the day and week report, the Excel export, and the IST week bounds;
+- the day and week report, the Excel and PDF exports, the PDF table layout, and the IST week bounds;
 - the Operations User dashboard scope.
 
-Local run on 22-Nov-2026 at 23.20 IST, on a fresh database migrated 0001–0175: **68/68 passed** across all five RBAC v2 test files. Phase 6 has 22 tests, including the team-scope tests.
+Local run on 22-Nov-2026 at 23.20 IST, on a fresh database migrated 0001–0175: **68/68 passed** across all five RBAC v2 test files. Phase 6 has 22 tests, including the team-scope tests. With the PDF export (23.20 IST): **69/69**, 23 of them for Phase 6.
 
 ## Database (`drizzle/0175_rbac_v2_operations.sql`) — all Additive
 
@@ -79,14 +80,13 @@ No foreign keys to users, shops or zones (single-database rule: links are checke
 | D6-02 | 22-Nov 22.45 | **Customer onboarding with OTP.** The login mechanism is not touched (brief §0.3). The customer signs in on their own phone with GoKesari's normal e-mailed code. The assist is then linked to an account whose e-mail or mobile matches and that was created after the assist. No account is created and no message is sent from the Operations screens. The link is made when assists are read (lists, dashboard, reports), so there is no sign-up hook and no cron. |
 | D6-03 | 22-Nov 22.45 | **Report status definitions.** "Under verification" = pending approval with documents and fee done (lifecycle VERIFIED). "Pending" = documents or fee still outstanding. "Auto-approved" = `auto_approved_at` set. "Manually approved" = approved by a person. A customer is "active" if they placed an order in the last 90 days. A customer's zone comes from the franchise zone of their default (else latest) address pincode. |
 | D6-04 | 22-Nov 22.45 | **"Shops contacted".** These are distinct shops on tasks the user acted on in the period. There is no separate call log; a follow-up event counts as a follow-up call. |
-| D6-05 | 22-Nov 22.45 | **Reports are computed live when asked.** No snapshot table and no cron (brief §5.4: "event-driven, not a fixed cron where avoidable"). **PDF is not built.** The Excel export covers the same data. A PDF download is listed as open. |
+| D6-05 | 22-Nov 22.45 | **Reports are computed live when asked.** No snapshot table and no cron (brief §5.4: "event-driven, not a fixed cron where avoidable"). Excel and PDF downloads are both built (PDF added 22-Nov 23.20). |
 | D6-06 | 22-Nov 22.45 | **Audit.** The task history (`ops_task_events`, append-only) and the zone rows (ended, never deleted) are this phase's audit trail. No new `AUDIT_ACTIONS` were added, which keeps `services/audit.ts` free of a merge clash with the other session. |
 | D6-07 | 22-Nov 22.45 | **Menus.** The screens live under `/staff/operations`, as agreed with the main RBAC session. That session edits the "ops" tile in `src/lib/board/rbac-menus.ts`. |
 | D6-08 | 22-Nov 22.45 | **Mobile.** The Android app already opens `/staff/*` in the app (Phase 2, `mobile/app.config.ts`), and iOS opens every path. `/staff/operations` therefore works in both apps with no app change, from the next APK build for Android. GPS and photo capture during shop onboarding stay with the existing `/operator` onboarding flow. Phase 6 adds no camera or location code. |
 
 ## Open items
 
-- **PDF export** of the Operations report (Excel is built).
 - **Menu tile.** The other session updates the "ops" tile in `rbac-menus.ts` to point at `/staff/operations` (D6-07).
 - **Testing on test.gokesari.com and on gokesari.com.** Both are Not Started. The PR goes into the staging queue after PR #485 is staging-verified, as agreed.
 

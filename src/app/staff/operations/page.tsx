@@ -341,6 +341,12 @@ export default async function OperationsPage({ searchParams }: { searchParams: P
           >
             Download Excel
           </a>
+          <a
+            className="inline-flex min-h-11 items-center rounded-lg border border-kesari-600 px-4 text-sm font-medium text-kesari-800 hover:bg-kesari-50"
+            href={`/api/staff/operations/reports?kind=pdf&period=${period}&date=${from}&days=${days}`}
+          >
+            Download PDF
+          </a>
         </form>
         <Card className="overflow-x-auto p-3">
           <h3 className="mb-1 font-semibold">
