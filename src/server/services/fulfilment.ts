@@ -60,11 +60,15 @@ export async function acceptOrder(orderId: string, actor: Actor): Promise<Order>
   return updateOrderStatus(orderId, "ACCEPTED", actor, "Accepted by shop");
 }
 
-/** Shop declines the whole order — a shop-privileged cancel with a full refund and restock. */
-export async function rejectOrder(orderId: string, actor: Actor, reason: string): Promise<Order> {
+/**
+ * Shop declines the whole order — a shop-privileged cancel with a full refund and restock.
+ * `onlyIfStatus` (WhatsApp Reject, docs/smart-shopping-2026-11): reject only if the order is still in
+ * that status, checked under the row lock, so a Reject tap can never cancel an order someone already accepted.
+ */
+export async function rejectOrder(orderId: string, actor: Actor, reason: string, options: { onlyIfStatus?: OrderStatus } = {}): Promise<Order> {
   const trimmed = reason.trim();
   if (!trimmed) throw validationFailed("Tell the customer why the order is being rejected.");
-  return cancelOrder(orderId, actor, `Rejected by shop: ${trimmed}`);
+  return cancelOrder(orderId, actor, `Rejected by shop: ${trimmed}`, options.onlyIfStatus ? { onlyIfStatus: options.onlyIfStatus } : {});
 }
 
 /** ACCEPTED → PREPARING (picking starts). */

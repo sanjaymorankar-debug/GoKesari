@@ -10,6 +10,11 @@
  * Interakt), implement `WhatsAppProvider` in a new file next to this one with
  * Meta-approved message templates, add its mode to WHATSAPP_PROVIDER in
  * src/lib/env.ts and route sendText() to it. Nothing else changes.
+ *
+ * 22 Nov 2026: whatsapp-meta.ts implements it for the Meta Cloud API
+ * (WHATSAPP_PROVIDER=meta). Only the shop-order alerts use it so far
+ * (docs/smart-shopping-2026-11/FEATURE3_WHATSAPP_ORDERS.md); general
+ * notifications still skip WhatsApp until they have approved templates.
  */
 import { MessagingUnavailableError, sendText, textChannelMode } from "@/server/messaging/sms-whatsapp";
 

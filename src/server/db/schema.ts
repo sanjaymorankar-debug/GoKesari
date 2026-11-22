@@ -12765,4 +12765,5 @@ export * from "./health-schema";
 export * from "./franchise-schema";
 export * from "./smart-shopping-schema";
 export * from "./shop-photo-listing-schema";
+export * from "./whatsapp-shop-orders-schema";
 /* <<< GoKesari Health */

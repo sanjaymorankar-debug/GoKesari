@@ -14,7 +14,9 @@
  *      after commit;
  *   d) leaves a failed send in notification_deliveries (the outbox) with its
  *      attempt count, for the notification-retry job — N attempts, then
- *      support is alerted (notifications.ts).
+ *      support is alerted (notifications.ts);
+ *   e) queues the shop's WhatsApp order alerts (whatsapp_messages), sent after
+ *      commit (server/whatsapp/shop-orders; flag whatsapp_shop_orders_enabled).
  *
  * Idempotent: an `idempotencyKey` makes the whole event happen at most once
  * (a sweep that runs twice, a retried request), and every notification
@@ -27,6 +29,7 @@ import { canMove, type MachineKind, type MachineStatus } from "@/lib/state-machi
 import { db, type DbClient } from "@/server/db";
 import { domainEvents, type UserRole } from "@/server/db/schema";
 import { notify } from "@/server/services/notifications";
+import { queueShopWhatsAppForEvent } from "@/server/whatsapp/shop-orders/queue";
 import { EVENTS, type EventMessage, type EventPayload, type EventType } from "./catalog";
 import { listAudienceUserIds, type Audience } from "./recipients";
 
@@ -105,6 +108,9 @@ export async function emitEvent<T extends EventType>(
   if (notified > 0) {
     await client.update(domainEvents).set({ notified }).where(eq(domainEvents.id, row.id));
   }
+  // docs/smart-shopping-2026-11 (feature 3): new orders and status follow-ups on the shop's WhatsApp —
+  // queued here in this transaction (whatsapp_messages), sent after commit. Never throws; a no-op while off.
+  await queueShopWhatsAppForEvent(input.type, input.payload, row.id, input.actor?.role ?? null, client);
   return { eventId: row.id, duplicate: false, notified };
 }
 

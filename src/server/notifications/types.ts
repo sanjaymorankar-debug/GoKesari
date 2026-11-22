@@ -457,6 +457,11 @@ export const NOTIFICATION_TYPES = {
   HEALTH_BREAK_GLASS: "health.break_glass",
   /* <<< GoKesari Health */
   //
+  /* >>> WhatsApp shop orders (docs/smart-shopping-2026-11/FEATURE3_WHATSAPP_ORDERS.md) */
+  /** To the shop owner: a WhatsApp order alert could not be delivered — in-app, SMS and e-mail instead. */
+  SHOP_WHATSAPP_FAILED: "shop.whatsapp_failed",
+  /* <<< WhatsApp shop orders */
+  //
 } as const;
 
 export type NotificationType =

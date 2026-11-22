@@ -350,6 +350,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       // docs/dealer-programme (GKS-SP-001): paid help — product upload, price update, general support. Only while that flag is on.
       { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/shop/support-services", feature: "paid_support_services_enabled" },
       { key: "cancellationFee", label: L("Cancellation fee", "रद्द करने का शुल्क", "रद्द शुल्क"), icon: "receipt", href: "/shop/settings/cancellation-fee", permission: PERMISSIONS.SHOP_CANCELLATION_FEE_MANAGE_OWN },
+      // docs/smart-shopping-2026-11 (feature 3): new orders on the owner's WhatsApp. Only while the flag is on.
+      { key: "whatsappOrders", label: L("Orders on WhatsApp", "व्हाट्सऐप पर ऑर्डर", "व्हॉट्सॲपवर ऑर्डर"), icon: "message-square", href: "/shop/settings/whatsapp", feature: "whatsapp_shop_orders_enabled" },
     ],
   },
   {
@@ -549,6 +551,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "productGst", label: L("Product GST rates", "उत्पाद जीएसटी दरें", "उत्पाद जीएसटी दर"), icon: "receipt", href: "/admin/product-gst", permission: PERMISSIONS.GST_CONFIG_MANAGE },
       { key: "integrations", label: L("Accounting sync", "अकाउंटिंग सिंक", "अकाउंटिंग सिंक"), icon: "database", href: "/admin/integrations", permission: PERMISSIONS.INTEGRATION_VIEW_ANY },
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      // docs/smart-shopping-2026-11 (feature 3): the WhatsApp message log and delivery figures. Only while the flag is on.
+      { key: "whatsappMessages", label: L("WhatsApp messages", "व्हाट्सऐप संदेश", "व्हॉट्सॲप संदेश"), icon: "message-square", href: "/admin/whatsapp-messages", permission: PERMISSIONS.ORDER_VIEW_ANY, feature: "whatsapp_shop_orders_enabled" },
       // docs/nearby-referral-2026-10, feature 2: Mandatory / Optional referral code — admin only.
       { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
       // docs/dealer-programme: the programme's on/off switches, per district — admin only.
@@ -618,6 +622,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "campaigns", label: L("Campaigns", "अभियान", "मोहिमा"), icon: "megaphone", href: "/admin/campaigns", count: "submittedCampaigns", permission: PERMISSIONS.MARKETING_APPROVE },
       { key: "integrations", label: L("Accounting sync", "अकाउंटिंग सिंक", "अकाउंटिंग सिंक"), icon: "database", href: "/admin/integrations", permission: PERMISSIONS.INTEGRATION_VIEW_ANY },
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      { key: "whatsappMessages", label: L("WhatsApp messages", "व्हाट्सऐप संदेश", "व्हॉट्सॲप संदेश"), icon: "message-square", href: "/admin/whatsapp-messages", permission: PERMISSIONS.ORDER_VIEW_ANY, feature: "whatsapp_shop_orders_enabled" },
       { key: "figures", label: L("Key figures", "मुख्य आँकड़े", "मुख्य आकडे"), icon: "chart-line", href: "/admin/console/overview", permission: STAFF },
       { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
       { key: "homeBanners", label: L("Home banners", "होम बैनर", "होम बॅनर"), icon: "images", href: "/admin/home-banners", permission: PERMISSIONS.HOME_BANNER_MANAGE }, // docs/homepage-uiux-2026-10
