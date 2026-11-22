@@ -1149,6 +1149,13 @@
       "when": 1793266100000,
       "tag": "0163_shop_document_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1793266300000,
+      "tag": "0165_doctor_document_scope",
+      "breakpoints": true
     }
   ]
 }

@@ -21,6 +21,8 @@ import {
   notificationPreferences,
   notifications,
   sellerVerifications,
+  shopCategories,
+  shopCategoryMapping,
   shopDocumentReminders,
   shopDocumentRules,
   shopDocumentWaivers,
@@ -61,6 +63,13 @@ async function setStatus(shopId: string, docType: "PAN" | "GSTIN" | "SHOP_ACT" |
     values: { shopId, docType, status },
     set: { status },
   });
+}
+
+/** Puts the shop in exactly this shop category (by slug). */
+async function inCategory(shopId: string, slug: string) {
+  const [category] = await db.select().from(shopCategories).where(eq(shopCategories.slug, slug));
+  await db.delete(shopCategoryMapping).where(eq(shopCategoryMapping.shopId, shopId));
+  await db.insert(shopCategoryMapping).values({ shopId, categoryId: category.id });
 }
 
 /** A live general shop with only its PAN verified: GSTIN and Shop Act are missing. */
@@ -263,6 +272,32 @@ describe("the 1st / 15th follow-up", () => {
     expect(await shopsMissingDocuments()).toHaveLength(0);
     await db.update(shops).set({ shopType: "PHARMACY" }).where(eq(shops.id, shop.id));
     expect((await shopsMissingDocuments())[0]).toMatchObject({ missing: [], missingLicences: ["Drug licence"], wizardRegistered: false });
+  });
+
+  it("a shop in a doctor category is chased for its medical registration with the documents rule off; therapists and labs are not (owner, 22-Nov-2026, H-52)", async () => {
+    const { shop } = await liveShopMissingDocuments();
+    await verifySellerDocuments(shop.id, ["GSTIN", "SHOP_ACT"]);
+    for (const slug of ["physiotherapist", "diagnostic-lab-pathology"]) {
+      await inCategory(shop.id, slug);
+      expect(await shopsMissingDocuments(), slug).toHaveLength(0);
+    }
+    for (const slug of ["cardiologist", "dentist", "ayurveda", "veterinarian"]) {
+      await inCategory(shop.id, slug);
+      expect((await shopsMissingDocuments())[0], slug).toMatchObject({ missing: [], missingLicences: ["Medical registration"] });
+    }
+    // Shops already live when the rule came get its date (0165: 90 days from the release).
+    const due = new Date("2099-01-31T00:00:00Z");
+    await db
+      .update(shopDocumentRules)
+      .set({ liveShopsDueAt: due })
+      .where(and(eq(shopDocumentRules.docKey, "MEDICAL_REGISTRATION"), eq(shopDocumentRules.scope, "DOCTOR")));
+    expect((await shopsMissingDocuments())[0]).toMatchObject({ missingLicences: [], upcoming: [{ label: "Medical registration", dueAt: due }] });
+    // The admin may give the "Doctors" scope rules of its own, or make the registration optional.
+    await saveDocumentRule({ docKey: "FIRE_NOC", scope: "DOCTOR", level: "PROMISE" }, admin);
+    expect((await shopsMissingDocuments())[0].upcoming.map((u) => u.label)).toEqual(["Medical registration", "Fire NOC"]);
+    await saveDocumentRule({ docKey: "MEDICAL_REGISTRATION", scope: "DOCTOR", level: "OPTIONAL" }, admin);
+    await saveDocumentRule({ docKey: "FIRE_NOC", scope: "DOCTOR", level: "OPTIONAL" }, admin);
+    expect(await shopsMissingDocuments()).toHaveLength(0);
   });
 
   it("a shop approved with a waiver has 3 months from its latest waiver; a new waiver gives 3 more", async () => {

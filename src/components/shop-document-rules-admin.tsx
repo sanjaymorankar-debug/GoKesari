@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
-import { DOCUMENT_LEVEL_HINTS, DOCUMENT_LEVEL_LABELS, DOCUMENT_LEVELS, type DocumentLevel } from "@/lib/shop-document-rules";
+import { DOCTOR_SCOPE_LABEL, DOCUMENT_LEVEL_HINTS, DOCUMENT_LEVEL_LABELS, DOCUMENT_LEVELS, type DocumentLevel } from "@/lib/shop-document-rules";
 
 export interface DocumentRulesView {
   documents: {
@@ -88,8 +88,9 @@ export function ShopDocumentRulesAdmin({ isAdmin, initial }: { isAdmin: boolean;
             </li>
           ))}
           <li>
-            A rule for one shop type wins over the &quot;Shops that sell food&quot; rule, which wins over the &quot;All shops&quot; rule. A
-            document with no rule for a shop is not asked of it.
+            A rule for one shop type wins over the &quot;Doctors&quot; rule, then the &quot;Shops that sell food&quot; rule, then the &quot;All
+            shops&quot; rule. &quot;Doctors&quot; means a shop in any Health doctor category (not Therapy or Diagnostics). A document with no
+            rule for a shop is not asked of it.
           </li>
           <li>
             When you make a document needed, shops already live get the days you give (default {view.promiseDays}) before they can be
@@ -122,6 +123,7 @@ function DocumentCard({ doc, view, isAdmin, busy, run }: { doc: DocumentRulesVie
   const scopes = [
     { value: "ALL", label: "All shops" },
     { value: "FOOD", label: "Shops that sell food" },
+    { value: "DOCTOR", label: DOCTOR_SCOPE_LABEL },
     ...view.shopTypes.map((t) => ({ value: `TYPE:${t.key}`, label: t.label })),
   ].filter((s) => !used.has(s.value));
   const [scope, setScope] = useState(scopes[0]?.value ?? "");

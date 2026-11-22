@@ -11,8 +11,9 @@
  *   PROMISE   — the shop goes live once the owner promises to upload it within promiseDays; the
  *               1st / 15th follow-up reminds them and suspends the shop after the due date;
  *   OPTIONAL  — offered as an upload, never asked for, never chased.
- * A rule's scope is every shop (ALL), every shop that sells food (FOOD), or one shop type; the most
- * specific one wins (src/lib/shop-document-rules.ts pickRule). No rule: the document is not asked.
+ * A rule's scope is every shop (ALL), every shop that sells food (FOOD), every doctor — a shop in a
+ * Health doctor category (DOCTOR, owner 22-Nov-2026, H-52) — or one shop type; the most specific one
+ * wins (src/lib/shop-document-rules.ts pickRule). No rule: the document is not asked.
  *
  * GSTIN or PAN is not here: it stays a must-have for every shop (DF-08).
  *
@@ -21,9 +22,10 @@
  *
  * Only an admin changes the rules; operators see them. Every change is audited.
  */
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql, type SQL } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { DOCTOR_GROUP_NAMES } from "@/lib/health/specialties";
 import {
   BUILT_IN_RULE_DOCUMENTS,
   customDocKeyFromLabel,
@@ -99,17 +101,20 @@ function builtInLabel(key: string, fallback: string, shopType: string): string {
   return fallback;
 }
 
-/** Every document the rules ask of a shop of this type (none for "not asked"). Pure: the set is loaded once. */
-export function requirementsFromRuleSet(set: DocumentRuleSet, shopType: string, sellsFood: boolean): ShopDocumentRequirement[] {
+/**
+ * Every document the rules ask of a shop of this type (none for "not asked"). Pure: the set is loaded once.
+ * isDoctor: the shop is in a Health doctor category (shopIsDoctorSql).
+ */
+export function requirementsFromRuleSet(set: DocumentRuleSet, shopType: string, sellsFood: boolean, isDoctor = false): ShopDocumentRequirement[] {
   const out: ShopDocumentRequirement[] = [];
   for (const doc of BUILT_IN_RULE_DOCUMENTS) {
-    const rule = pickRule(set.rules, doc.key, shopType, sellsFood);
+    const rule = pickRule(set.rules, doc.key, shopType, sellsFood, isDoctor);
     if (!rule) continue;
     const level = doc.key === "FSSAI" && rule.level === "MUST_HAVE" && !set.fssaiMustHaveSwitch ? "PROMISE" : rule.level;
     out.push({ key: doc.key, label: builtInLabel(doc.key, doc.label, shopType), kind: doc.kind, level, liveShopsDueAt: rule.liveShopsDueAt, custom: null });
   }
   for (const type of set.types) {
-    const rule = pickRule(set.rules, type.key, shopType, sellsFood);
+    const rule = pickRule(set.rules, type.key, shopType, sellsFood, isDoctor);
     if (!rule) continue;
     out.push({
       key: type.key,
@@ -123,20 +128,34 @@ export function requirementsFromRuleSet(set: DocumentRuleSet, shopType: string, 
   return out;
 }
 
-async function sellsFoodOf(shop: Pick<Shop, "id" | "shopType">, client: DbClient): Promise<boolean> {
-  const [row] = await client.select({ food: sql<boolean>`shop_sells_food(${shop.id}, ${shop.shopType}::text)` }).from(shops).where(eq(shops.id, shop.id));
-  return row?.food ?? false;
+/**
+ * The shop is a doctor: one of its shop categories is in a Health doctor group (owner, 22-Nov-2026,
+ * H-52) — General & family, Specialists, Women & child, Dental, Eye & ENT, Mind, AYUSH or Animal care;
+ * not Therapy or Diagnostics. Matches on the group, so a specialty an admin adds to one of them counts.
+ */
+export function shopIsDoctorSql(shopId: SQL | typeof shops.id | string): SQL<boolean> {
+  return sql<boolean>`exists (select 1 from shop_category_mapping m join shop_categories c on c.id = m.category_id where m.shop_id = ${shopId} and c.group_name in ${[...DOCTOR_GROUP_NAMES]})`;
+}
+
+async function traitsOf(shop: Pick<Shop, "id" | "shopType">, client: DbClient): Promise<{ sellsFood: boolean; isDoctor: boolean }> {
+  const [row] = await client
+    .select({ food: sql<boolean>`shop_sells_food(${shop.id}, ${shop.shopType}::text)`, doctor: shopIsDoctorSql(shop.id) })
+    .from(shops)
+    .where(eq(shops.id, shop.id));
+  return { sellsFood: row?.food ?? false, isDoctor: row?.doctor ?? false };
 }
 
 /** The documents this shop needs, from the admin's rules. */
 export async function documentRequirementsFor(
   shop: Pick<Shop, "id" | "shopType">,
   client: DbClient = db,
-  options: { sellsFood?: boolean; set?: DocumentRuleSet } = {},
+  options: { sellsFood?: boolean; isDoctor?: boolean; set?: DocumentRuleSet } = {},
 ): Promise<ShopDocumentRequirement[]> {
   const set = options.set ?? (await loadDocumentRuleSet(client));
-  const sellsFood = options.sellsFood ?? (await sellsFoodOf(shop, client));
-  return requirementsFromRuleSet(set, shop.shopType, sellsFood);
+  const traits = options.sellsFood !== undefined && options.isDoctor !== undefined ? null : await traitsOf(shop, client);
+  const sellsFood = options.sellsFood ?? traits!.sellsFood;
+  const isDoctor = options.isDoctor ?? traits!.isDoctor;
+  return requirementsFromRuleSet(set, shop.shopType, sellsFood, isDoctor);
 }
 
 /* ======================================================= what is on file */

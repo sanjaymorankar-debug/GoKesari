@@ -254,6 +254,19 @@ describe("a shop already live", () => {
     }
   });
 
+  it("with the rule off, a doctor category is still asked for its medical registration, on the promise, never blocking orders (owner, 22-Nov-2026, H-52)", async () => {
+    for (const category of ["cardiologist", "dentist", "ayurveda", "veterinarian"]) {
+      const { shop } = await sellableShop({ shopType: "HARDWARE_STORE", category });
+      const status = await getShopLegalStatus(shop.id);
+      expect(status.documents.map((d) => [d.docType, d.level, d.blocking]), category).toEqual([["MEDICAL_REGISTRATION", "PROMISE", false]]);
+      expect(status.restricted).toBe(false);
+    }
+    for (const category of ["physiotherapist", "diagnostic-lab-pathology"]) {
+      const { shop } = await sellableShop({ shopType: "HARDWARE_STORE", category });
+      expect((await getShopLegalStatus(shop.id)).documents, category).toHaveLength(0);
+    }
+  });
+
   it("a non-food, non-medical shop needs nothing", async () => {
     await enable();
     const { shop } = await sellableShop({ shopType: "HARDWARE_STORE" });
