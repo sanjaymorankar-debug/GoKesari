@@ -21,6 +21,12 @@
  * (PENDING / MANUAL_REVIEW, the "not GST-registered" declaration included) is the team's to
  * finish, not the owner's, so it is not chased. Once nothing is chased the count starts again.
  *
+ * DF-09 (owner, 22-Nov-2026): what is chased beyond the GSTIN / PAN is the admin's choice
+ * (shop-document-rules.ts): every document the rules make must-have or "on the promise" for the shop's
+ * type — Shop Act, FSSAI for food, a pharmacy's drug licence, a clinic's registration, and any document
+ * an admin added — and nothing set to optional. When an admin makes a document needed after a shop went
+ * live, that shop is reminded but not suspended for it before the rule's date (live_shops_due_at).
+ *
  * Runs from the daily cron (05:00 IST) and does nothing on other days. A second run on the same
  * day sends nothing more: one reminder row per shop per day (shop_document_reminders), and the
  * e-mail is written once per shop and day (dedupe key) after that row is committed.
@@ -30,7 +36,6 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { addDays, formatDisplayDate, todayIn, type IsoDate } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { SELLER_DOC_LABELS, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
-import { mandatoryLicenceFor } from "@/lib/shop-licences";
 import type { RuleValue } from "@/server/config/rules";
 import { db } from "@/server/db";
 import { sellerVerifications, shopDocumentReminders, shopDocumentWaivers, shopLegalDocuments, shopRegistrationDrafts, shops, users, type Shop } from "@/server/db/schema";
@@ -42,6 +47,7 @@ import { notify } from "./notifications";
 import { isMandatory } from "./seller-verification-checks";
 import { getRule } from "./settings";
 import { documentsDueLabel } from "./shop-document-gate";
+import { loadDocumentRuleSet, requirementsFromRuleSet } from "./shop-document-rules";
 import { suspendShopWithPolicy } from "./shop-suspension";
 
 /** The owner sent it and it waits for GoKesari's check: not chased. */
@@ -66,8 +72,17 @@ export interface ShopMissingDocuments {
   shop: Pick<Shop, "id" | "name" | "registrationNumber" | "ownerId" | "ownerName" | "phone" | "city" | "status" | "approvedAt" | "documentsPromisedAt" | "documentsDueAt" | "shopType">;
   /** Documents the owner has to provide. */
   missing: SellerDocType[];
-  /** A wizard shop's drug licence or professional registration, not uploaded yet (labels). */
+  /** Licences and admin-added documents the rules need, not uploaded yet (labels). */
   missingLicences: string[];
+  /**
+   * DF-09: documents made needed after the shop went live, whose date (the rule's live_shops_due_at) has
+   * not come: reminded, never a reason to suspend before then.
+   */
+  upcoming: { label: string; dueAt: Date }[];
+  /** Must-have documents among the missing ones (labels): an admin's waiver due date applies to them. */
+  mustHaveMissing: string[];
+  /** DF-09: the latest rule date (live_shops_due_at, passed) among the documents due now, if any. */
+  ruleDueAt: Date | null;
   /** Registered through the wizard: graceDays from going live, however many reminders that is. */
   wizardRegistered: boolean;
   /** Documents waiting for GoKesari's check. */
@@ -106,6 +121,7 @@ export async function shopsMissingDocuments(
     .where(and(inArray(shops.status, statuses), isNull(shops.deletedAt)))
     .orderBy(shops.name);
 
+  const ruleSet = await loadDocumentRuleSet();
   const out: ShopMissingDocuments[] = [];
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
@@ -120,7 +136,7 @@ export async function shopsMissingDocuments(
         .from(shopDocumentReminders)
         .where(inArray(shopDocumentReminders.shopId, ids)),
       db
-        .select({ shopId: shopLegalDocuments.shopId, docType: shopLegalDocuments.docType, status: shopLegalDocuments.status })
+        .select({ shopId: shopLegalDocuments.shopId, docType: shopLegalDocuments.docType, licenceKey: shopLegalDocuments.licenceKey, status: shopLegalDocuments.status })
         .from(shopLegalDocuments)
         .where(inArray(shopLegalDocuments.shopId, ids)),
       db
@@ -134,23 +150,50 @@ export async function shopsMissingDocuments(
       const wizardRegistered = wizardShops.has(row.shop.id);
       // DF-08 (owner, 21-Nov-2026): "PAN / GST" — a wizard shop with either one verified is not chased for the other.
       const identityVerified = wizardRegistered && (status.get("GSTIN") === "VERIFIED" || status.get("PAN") === "VERIFIED");
-      const notVerified = SELLER_DOC_TYPES.filter(
+      const identity = SELLER_DOC_TYPES.filter(
         (d) =>
+          (d === "GSTIN" || d === "PAN") &&
           isMandatory(d, { isFoodBusiness: row.sellsFood }) &&
           status.get(d) !== "VERIFIED" &&
-          !(identityVerified && (d === "GSTIN" || d === "PAN")),
+          !identityVerified,
       );
-      const licence = wizardRegistered ? mandatoryLicenceFor(row.shop.shopType) : null;
-      // FSSAI is a seller document, counted above.
-      const licenceMissing =
-        licence && licence.docType !== "FSSAI" && !licences.some((l) => l.shopId === row.shop.id && l.docType === licence.docType && (l.status === "SUBMITTED" || l.status === "APPROVED"));
-      if (notVerified.length === 0 && !licenceMissing) continue;
+      // DF-09: everything else from the admin's rules (optional documents are never chased).
+      const needed = requirementsFromRuleSet(ruleSet, row.shop.shopType, row.sellsFood).filter((r) => r.level !== "OPTIONAL");
+      const sellerNeeded = needed.filter((r) => r.kind === "seller" && status.get(r.key as SellerDocType) !== "VERIFIED");
+      const shopLicences = licences.filter((l) => l.shopId === row.shop.id);
+      const licenceNeeded = needed.filter(
+        (r) =>
+          r.kind !== "seller" &&
+          !shopLicences.some(
+            (l) =>
+              (r.kind === "custom" ? l.docType === "OTHER_LICENCE" && l.licenceKey === r.key : l.docType === r.key && l.licenceKey === "") &&
+              (l.status === "SUBMITTED" || l.status === "APPROVED"),
+          ),
+      );
+      const later = (r: { liveShopsDueAt: Date | null }) => r.liveShopsDueAt !== null && r.liveShopsDueAt.getTime() > now;
+      const notVerified: SellerDocType[] = [...identity, ...sellerNeeded.filter((r) => !later(r)).map((r) => r.key as SellerDocType)];
+      const licencesDue = licenceNeeded.filter((r) => !later(r));
+      const upcoming = [...sellerNeeded, ...licenceNeeded]
+        .filter((r) => later(r) && !(r.kind === "seller" && WITH_THE_TEAM.has(status.get(r.key as SellerDocType) ?? "")))
+        .map((r) => ({ label: r.kind === "seller" ? SELLER_DOC_LABELS[r.key as SellerDocType] : r.label, dueAt: r.liveShopsDueAt! }));
+      if (notVerified.length === 0 && licencesDue.length === 0 && upcoming.length === 0) continue;
       const sent = reminders.filter((r) => r.shopId === row.shop.id).map((r) => String(r.sentOn)).sort();
+      const missing = notVerified.filter((d) => !WITH_THE_TEAM.has(status.get(d) ?? ""));
+      const mustHaveMissing = [
+        ...sellerNeeded.filter((r) => r.level === "MUST_HAVE" && missing.includes(r.key as SellerDocType)).map((r) => SELLER_DOC_LABELS[r.key as SellerDocType]),
+        ...licencesDue.filter((r) => r.level === "MUST_HAVE").map((r) => r.label),
+      ];
+      const ruleDates = [...sellerNeeded, ...licenceNeeded]
+        .filter((r) => r.liveShopsDueAt !== null && !later(r))
+        .map((r) => r.liveShopsDueAt!.getTime());
       out.push({
         shop: row.shop,
-        missing: notVerified.filter((d) => !WITH_THE_TEAM.has(status.get(d) ?? "")),
+        ruleDueAt: ruleDates.length > 0 ? new Date(Math.max(...ruleDates)) : null,
+        missing,
         withTeam: notVerified.filter((d) => WITH_THE_TEAM.has(status.get(d) ?? "")),
-        missingLicences: licenceMissing ? [licence.label.en] : [],
+        missingLicences: licencesDue.map((r) => r.label),
+        upcoming,
+        mustHaveMissing,
         wizardRegistered,
         remindersSent: sent.length,
         lastReminderOn: sent.at(-1) ?? null,
@@ -179,8 +222,8 @@ export async function runShopDocumentFollowUp(
   if (!rule.enabled || !rule.reminderDaysOfMonth.includes(Number(today.slice(8, 10)))) return result;
   result.acting = true;
 
-  const candidates = await shopsMissingDocuments();
-  const isChased = (c: ShopMissingDocuments) => c.missing.length > 0 || c.missingLicences.length > 0;
+  const candidates = await shopsMissingDocuments({ now });
+  const isChased = (c: ShopMissingDocuments) => c.missing.length > 0 || c.missingLicences.length > 0 || c.upcoming.length > 0;
   const chased = new Set(candidates.filter(isChased).map((c) => c.shop.id));
   // Documents complete (or only with the team), or the shop no longer live: the count starts again.
   const counted = await db.selectDistinct({ shopId: shopDocumentReminders.shopId }).from(shopDocumentReminders);
@@ -198,10 +241,17 @@ export async function runShopDocumentFollowUp(
     result.checked += 1;
     try {
       let grace = graceUntil(c.shop, lastWaiver.get(c.shop.id) ?? null, rule.graceDays, c.wizardRegistered);
-      // Approved without its FSSAI licence: the waiver's due date, when sooner, unless a licence is on file now.
+      // Approved without its must-have documents (FSSAI, or what else the admin made must-have): the waiver's
+      // due date, when sooner — unless FSSAI was the only one and a valid licence is on file now.
       const due = fssaiDue.get(c.shop.id);
       let fssaiDeadline = false;
-      if (due && c.missing.includes("FSSAI") && (grace === null || due.getTime() < grace.getTime()) && !(await fssaiStatus(c.shop)).onFile) {
+      const onlyFssai = c.mustHaveMissing.length === 1 && c.missing.includes("FSSAI");
+      if (
+        due &&
+        c.mustHaveMissing.length > 0 &&
+        (grace === null || due.getTime() < grace.getTime()) &&
+        !(onlyFssai && (await fssaiStatus(c.shop)).onFile)
+      ) {
         grace = due;
         fssaiDeadline = true;
       }
@@ -275,6 +325,46 @@ async function tellStaffOfSuspension(shop: ShopMissingDocuments["shop"], documen
   }
 }
 
+/**
+ * DF-09: a live shop whose only missing documents were made needed after it went live, before their
+ * date: it is reminded on each reminder day (the count does not matter) and never suspended for them
+ * before the date.
+ */
+async function remindUpcoming(c: ShopMissingDocuments, today: IsoDate): Promise<"REMINDED" | "DONE_TODAY"> {
+  const { shop } = c;
+  const reminderNo = c.remindersSent + 1;
+  const [row] = await db
+    .insert(shopDocumentReminders)
+    .values({ shopId: shop.id, sentOn: today, reminderNo, missingDocTypes: c.upcoming.map((u) => u.label) })
+    .onConflictDoNothing()
+    .returning({ id: shopDocumentReminders.id });
+  if (!row) return "DONE_TODAY";
+  const first = [...c.upcoming].sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime())[0];
+  const dueLabel = formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, first.dueAt));
+  await notify({
+    userId: shop.ownerId,
+    type: NOTIFICATION_TYPES.SHOP_DOCUMENTS_FOLLOW_UP,
+    vars: {
+      shopName: shop.name,
+      reminderNo,
+      maxReminders: "",
+      documents: c.upcoming.map((u) => `${u.label} (by ${formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, u.dueAt))})`).join(", "),
+      deadline: `GoKesari now needs ${c.upcoming.length > 1 ? "these documents" : "this document"} from shops like yours, as the law requires. Please upload ${c.upcoming.length > 1 ? "them" : "it"} by ${dueLabel}.`,
+      warning: `If ${c.upcoming.length > 1 ? "they are" : "it is"} still missing on ${dueLabel}, your shop will be suspended automatically. We will remind you every 15 days until then.`,
+    },
+    actionUrl: "/shop/legal-documents",
+    dedupeKey: `shop-documents-follow-up:${shop.id}:${today}`,
+    mandatory: true,
+  });
+  await recordAudit({
+    action: AUDIT_ACTIONS.SHOP_DOCUMENTS_FOLLOW_UP,
+    entityType: "shop",
+    entityId: shop.id,
+    newValue: { outcome: "REMINDED", reminderNo, upcoming: c.upcoming.map((u) => ({ label: u.label, dueAt: u.dueAt.toISOString() })), day: today },
+  });
+  return "REMINDED";
+}
+
 async function followUpShop(
   c: ShopMissingDocuments,
   today: IsoDate,
@@ -289,6 +379,9 @@ async function followUpShop(
   const labels = [...c.missing.map((d) => SELLER_DOC_LABELS[d]), ...c.missingLicences].join(", ");
   const max = rule.remindersBeforeSuspension;
   const graceOver = grace !== null && grace.getTime() <= now.getTime();
+  // DF-09: only documents made needed after the shop went live, and their date has not come.
+  const onlyUpcoming = c.missing.length === 0 && c.missingLicences.length === 0;
+  if (onlyUpcoming) return remindUpcoming(c, today);
 
   if (graceOver || (grace === null && c.remindersSent >= max)) {
     // A promise is kept until its date, whatever the reminders say.
@@ -299,6 +392,8 @@ async function followUpShop(
       ? `Shop documents promised at registration not uploaded by ${formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, grace))}: ${labels}.`
       : grace
       ? `Shop documents not submitted within ${rule.graceDays} days of approval without them: ${labels}.`
+      : c.ruleDueAt
+      ? `Shop documents needed for this type of shop not uploaded by ${formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, c.ruleDueAt))}: ${labels}.`
       : `Shop documents not submitted after ${max} reminders: ${labels}.`;
     await suspendShopWithPolicy(
       shop.id,
@@ -325,7 +420,7 @@ async function followUpShop(
   // The row first (committed), then the e-mail: a re-run the same day finds the row and sends nothing.
   const [row] = await db
     .insert(shopDocumentReminders)
-    .values({ shopId: shop.id, sentOn: today, reminderNo, missingDocTypes: [...c.missing, ...c.missingLicences] })
+    .values({ shopId: shop.id, sentOn: today, reminderNo, missingDocTypes: [...c.missing, ...c.missingLicences, ...c.upcoming.map((u) => u.label)] })
     .onConflictDoNothing()
     .returning({ id: shopDocumentReminders.id });
   if (!row) return "DONE_TODAY";
@@ -340,7 +435,7 @@ async function followUpShop(
       shopName: shop.name,
       reminderNo,
       maxReminders: grace ? "" : ` of ${max}`,
-      documents: labels,
+      documents: [labels, ...c.upcoming.map((u) => `${u.label} (by ${formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, u.dueAt))})`)].filter(Boolean).join(", "),
       deadline: grace
         ? c.wizardRegistered && shop.documentsPromisedAt && !fssaiDeadline
           ? `You promised to upload them when you registered your shop; they are due by ${graceLabel}.`

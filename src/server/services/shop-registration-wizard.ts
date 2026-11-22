@@ -73,6 +73,7 @@ import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { decryptSecret, docBlindIndex, encryptSecret } from "@/lib/pan-crypto";
 import { isPlaceholderEmail } from "@/lib/placeholder-email";
 import type { TurnoverFeeRule } from "@/lib/registration-fee";
+import { listJoin } from "@/lib/shop-document-rules";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -97,6 +98,7 @@ import { isReferralRequired } from "./referral-settings";
 import { looksLikeShopCode, shopReferralRule } from "./shop-referrals";
 import { latestRegistrationFeeAttempt, registrationFeeDue } from "./registration-fee-payment";
 import { documentsDueLabel, promiseShopDocuments, shopDocumentGate } from "./shop-document-gate";
+import { getCustomDocumentViews, type LegalDocView } from "./legal-documents";
 import { applyDocumentChecks, type ShopFacts } from "./seller-verification-checks";
 import {
   importRegistrationCheck,
@@ -122,7 +124,8 @@ import {
   type ShopRegistrationDraftView,
 } from "./shop-registration-draft";
 import { checkRegistrationDuplicate } from "./shop-duplicates";
-import { assertShopType, loadShopTypeRegistry } from "./shop-types";
+import { assertShopType, listShopTypes, loadShopTypeRegistry } from "./shop-types";
+import { loadDocumentRuleSet, requirementsFromRuleSet } from "./shop-document-rules";
 
 import { autoApproveShopIfReady, registerShop } from "./shops";
 
@@ -257,6 +260,11 @@ export interface WizardView extends ShopRegistrationDraftView {
   /** Days a licence may follow after going live (rule shopDocumentFollowUp). */
   licenceGraceDays: number;
   /**
+   * DF-09: the licences and admin-added documents each shop type needs (the admin's rules, FSSAI included;
+   * Shop Act and Udyam are on the documents screen), for the shop-type screen's notice. Keyed by shop type.
+   */
+  documentNotices: Record<string, { label: string; level: "MUST_HAVE" | "PROMISE" }[]>;
+  /**
    * DF-08 (owner, 21-Nov-2026 night): the documents screen once the shop exists and the fee is due.
    * FSSAI is a must-have for a food shop; the other mandatory documents may follow go-live on the
    * owner's promise (within promiseDays, reminded on the 1st / 15th, suspended after the date).
@@ -268,6 +276,10 @@ export interface WizardView extends ShopRegistrationDraftView {
 export interface WizardDocumentsStep {
   /** A food shop whose FSSAI licence is not on file (nor with the team): upload it to go on. */
   fssaiNeeded: boolean;
+  /** DF-09: every must-have document (the admin's rules) not on file nor with the team, FSSAI included (labels). */
+  mustHave: string[];
+  /** DF-09: documents an admin added for this kind of shop, uploaded on their own form (legal-documents.ts). */
+  extraDocuments: LegalDocView[];
   /** Mandatory documents not given yet that may follow go-live on the promise (labels). */
   promiseCovers: string[];
   /** The promise was given: its due date ("19 Feb 2027"). */
@@ -465,10 +477,24 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     feeRule,
     membershipMonths,
     licenceGraceDays: (await getRule("shopDocumentFollowUp")).graceDays,
+    documentNotices: await documentNoticesByShopType(),
     documentsStep,
     setup,
     nextStep,
   };
+}
+
+/** DF-09: the shop-type screen's licence notice for every active shop type, from the admin's rules. */
+async function documentNoticesByShopType(): Promise<WizardView["documentNotices"]> {
+  const [set, types] = await Promise.all([loadDocumentRuleSet(), listShopTypes()]);
+  const out: WizardView["documentNotices"] = {};
+  for (const type of types) {
+    const notices = requirementsFromRuleSet(set, type.key, type.isFood)
+      .filter((r) => (r.kind !== "seller" || r.key === "FSSAI") && r.level !== "OPTIONAL")
+      .map((r) => ({ label: r.label, level: r.level as "MUST_HAVE" | "PROMISE" }));
+    if (notices.length > 0) out[type.key] = notices;
+  }
+  return out;
 }
 
 /** DF-08: what the documents screen needs from the shop's own documents gate (shop-document-gate.ts). */
@@ -477,6 +503,8 @@ async function documentsStepOf(shop: Shop): Promise<WizardDocumentsStep> {
   const { promiseDays } = await getRule("shopDocumentFollowUp");
   return {
     fssaiNeeded: gate.fssaiNeeded,
+    mustHave: gate.mustHave,
+    extraDocuments: await getCustomDocumentViews(shop),
     promiseCovers: gate.promisedAt ? [] : gate.promiseCovers,
     promisedBy: gate.dueAt ? documentsDueLabel(gate.dueAt) : null,
     promiseDays,
@@ -718,10 +746,17 @@ export async function finishDraftDocumentsStep(input: { actor: Actor; promise?: 
   const [shopRow] = await db.select().from(shops).where(eq(shops.id, pending.shopId));
   if (shopRow && shopRow.status === "PENDING_APPROVAL" && registrationFeeDue(shopRow) > 0) {
     let gate = await shopDocumentGate(shopRow);
-    if (gate.fssaiNeeded) {
+    if (gate.fssaiNeeded && gate.mustHave.length === 1) {
       throw conflict("Your shop sells food, so an FSSAI licence is required by law. Please upload your FSSAI licence to continue.", {
         reason: "FSSAI_REQUIRED",
         fields: { fssai: "Upload your FSSAI licence." },
+      });
+    }
+    // DF-09: whatever else the admin made a must-have for this kind of shop.
+    if (gate.mustHave.length > 0) {
+      throw conflict(`${listJoin(gate.mustHave)} ${gate.mustHave.length > 1 ? "are" : "is"} required by law for your type of shop. Please upload ${gate.mustHave.length > 1 ? "them" : "it"} to continue.`, {
+        reason: "DOCUMENTS_REQUIRED",
+        missing: gate.mustHave,
       });
     }
     if (!gate.canPay && gate.canPromise) {

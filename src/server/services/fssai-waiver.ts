@@ -13,6 +13,9 @@
  * The licence itself can be uploaded by the owner (My Shop → Upload documents), or by an admin or
  * operator from the approval queue when the owner sends it to GoKesari.
  *
+ * DF-09 (owner, 22-Nov-2026): the same waiver ("Approve without documents") covers any other document
+ * the admin made must-have for the shop's type; the due date and the follow-up are the same.
+ *
  * Kept apart from shop_document_waivers: a row there makes the shop KYC-complete and lifts the
  * "documents later" payout hold, which an FSSAI waiver must not do.
  */
@@ -64,8 +67,10 @@ export async function recordFssaiWaiver(
   reason: string,
   actor: { id: string | null; role: UserRole | null },
   now: Date = new Date(),
+  /** DF-09: the waiver also covers the admin's other must-have documents; `fssai: false` when FSSAI is not among them. */
+  options: { fssai?: boolean } = {},
 ): Promise<ShopFssaiWaiver> {
-  if (actor.role !== "ADMIN" || !actor.id) throw forbidden("Only an admin can approve a shop without its FSSAI licence.");
+  if (actor.role !== "ADMIN" || !actor.id) throw forbidden("Only an admin can approve a shop without its must-have documents.");
   const { fssaiWaiverDays } = await getRule("documentUpload");
   const dueAt = new Date(now.getTime() + fssaiWaiverDays * DAY_MS);
   const [waiver] = await tx
@@ -74,8 +79,8 @@ export async function recordFssaiWaiver(
     .returning();
   // The legal-documents register (when rule legalDocuments is on) reads a missing licence's
   // deadline from grace_until: give it the same date, so orders are not refused before it.
-  await tx.insert(shopLegalDocuments).values({ shopId: shop.id, docType: "FSSAI", graceUntil: dueAt }).onConflictDoNothing();
-  await tx
+  if (options.fssai !== false) await tx.insert(shopLegalDocuments).values({ shopId: shop.id, docType: "FSSAI", graceUntil: dueAt }).onConflictDoNothing();
+  if (options.fssai !== false) await tx
     .update(shopLegalDocuments)
     .set({ graceUntil: dueAt, updatedAt: now })
     .where(

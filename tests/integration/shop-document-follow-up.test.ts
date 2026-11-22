@@ -22,6 +22,7 @@ import {
   notifications,
   sellerVerifications,
   shopDocumentReminders,
+  shopDocumentRules,
   shopDocumentWaivers,
   shopRegistrationDrafts,
   shops,
@@ -30,6 +31,7 @@ import { clearRuleCache, setRule } from "@/server/services/settings";
 import { promiseShopDocuments } from "@/server/services/shop-document-gate";
 import { nextFollowUpDay, runShopDocumentFollowUp, shopsMissingDocuments } from "@/server/services/shop-document-follow-up";
 import { approveShop, autoApproveShopIfReady } from "@/server/services/shops";
+import { saveDocumentRule } from "@/server/services/shop-document-rules";
 import { upsertRow } from "@/server/db/upsert";
 import { createShop, createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
 
@@ -232,6 +234,35 @@ describe("the 1st / 15th follow-up", () => {
     expect((await shopRow(shop.id)).status).toBe("SUSPENDED");
     const [suspended] = await noticesOf(owner.id, "shop.suspended");
     expect(suspended.body).toMatch(/Shop documents promised at registration not uploaded by 30 Jan 2027: Shop Act/);
+  });
+
+  it("a document an admin makes needed after a shop went live: reminded until the rule's date, not suspended before it (DF-09)", async () => {
+    const { owner, shop } = await liveShopMissingDocuments();
+    await verifySellerDocuments(shop.id, ["GSTIN", "SHOP_ACT"]);
+    expect(await shopsMissingDocuments()).toHaveLength(0);
+    const rule = await saveDocumentRule({ docKey: "FIRE_NOC", scope: "TYPE:GENERAL_TRADING", level: "PROMISE" }, admin);
+    await db.update(shopDocumentRules).set({ liveShopsDueAt: new Date("2027-01-31T00:00:00Z") }).where(eq(shopDocumentRules.id, rule.id));
+    for (const day of ["2026-12-01", "2026-12-15", "2027-01-01", "2027-01-15"]) {
+      expect(await runShopDocumentFollowUp(day, new Date(`${day}T00:30:00Z`))).toMatchObject({ reminded: 1, suspended: 0 });
+    }
+    expect((await shopRow(shop.id)).status).toBe("APPROVED");
+    const [first] = await noticesOf(owner.id, "shop.documents_follow_up");
+    expect(first.body).toContain("Fire NOC (by 31 Jan 2027)");
+    expect(first.body).toMatch(/If it is still missing on 31 Jan 2027, your shop will be suspended automatically/);
+    expect(await runShopDocumentFollowUp("2027-02-01", new Date("2027-02-01T00:30:00Z"))).toMatchObject({ suspended: 1, reminded: 0 });
+    expect((await shopRow(shop.id)).status).toBe("SUSPENDED");
+    const [suspended] = await noticesOf(owner.id, "shop.suspended");
+    expect(suspended.body).toMatch(/Shop documents needed for this type of shop not uploaded by 31 Jan 2027: Fire NOC/);
+  });
+
+  it("a document made optional is no longer chased; a pharmacy registered before the wizard is chased for its drug licence (DF-09)", async () => {
+    const { shop } = await liveShopMissingDocuments();
+    await verifySellerDocuments(shop.id, ["GSTIN"]);
+    expect((await shopsMissingDocuments())[0].missing).toEqual(["SHOP_ACT"]);
+    await saveDocumentRule({ docKey: "SHOP_ACT", scope: "ALL", level: "OPTIONAL" }, admin);
+    expect(await shopsMissingDocuments()).toHaveLength(0);
+    await db.update(shops).set({ shopType: "PHARMACY" }).where(eq(shops.id, shop.id));
+    expect((await shopsMissingDocuments())[0]).toMatchObject({ missing: [], missingLicences: ["Drug licence"], wizardRegistered: false });
   });
 
   it("a shop approved with a waiver has 3 months from its latest waiver; a new waiver gives 3 more", async () => {

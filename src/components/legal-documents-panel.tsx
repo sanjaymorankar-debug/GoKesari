@@ -13,6 +13,7 @@ import {
   type LegalDocKey,
   type LegalDocState,
 } from "@/lib/legal-documents";
+import type { DocumentLevel } from "@/lib/shop-document-rules";
 
 export interface LegalDocCard {
   id: string | null;
@@ -27,6 +28,12 @@ export interface LegalDocCard {
   blocking: boolean;
   expiringSoon: boolean;
   files: { id: string; contentType: string; createdAt: string }[];
+  /** DF-09: how the admin's rules ask for it. */
+  level?: DocumentLevel | null;
+  /** DF-09: a document an admin added (`DOC:…`). */
+  customKey?: string | null;
+  lawNote?: string | null;
+  customNeeds?: { number: boolean; expiry: boolean; authority: boolean } | null;
 }
 
 const STATE_TONES: Record<LegalDocState, "success" | "info" | "warning" | "danger"> = {
@@ -49,19 +56,40 @@ const dateLabel = (iso: string) =>
  * form (number, expiry date or issuing council, and a copy). The server
  * repeats every check.
  */
-export function LegalDocumentsPanel({ shopId, documents }: { shopId: string; documents: LegalDocCard[] }) {
+export function LegalDocumentsPanel({
+  shopId,
+  documents,
+  onSubmitted,
+}: {
+  shopId: string;
+  documents: LegalDocCard[];
+  /** Called after an upload instead of refreshing the page (the signup wizard reloads its own state). */
+  onSubmitted?: () => void;
+}) {
   return (
     <div className="space-y-4" id="legal-documents">
       {documents.map((doc) => (
-        <LegalDocCardView key={doc.docType} shopId={shopId} doc={doc} />
+        <LegalDocCardView key={doc.customKey ?? doc.docType} shopId={shopId} doc={doc} onSubmitted={onSubmitted} />
       ))}
     </div>
   );
 }
 
-function LegalDocCardView({ shopId, doc }: { shopId: string; doc: LegalDocCard }) {
+const LEVEL_BADGES: Record<DocumentLevel, { label: string; tone: "danger" | "warning" | "info" }> = {
+  MUST_HAVE: { label: "Required before going live", tone: "danger" },
+  PROMISE: { label: "Required", tone: "warning" },
+  OPTIONAL: { label: "Optional", tone: "info" },
+};
+
+function LegalDocCardView({ shopId, doc, onSubmitted }: { shopId: string; doc: LegalDocCard; onSubmitted?: () => void }) {
   const router = useRouter();
-  const needs = LEGAL_DOC_NEEDS[doc.docType];
+  // DF-09: an admin-added document asks for what the admin chose.
+  const custom = doc.customKey ? (doc.customNeeds ?? { number: true, expiry: false, authority: false }) : null;
+  const needs = custom
+    ? { expiry: custom.expiry, council: false, authority: custom.authority, numberHint: custom.number ? "As printed on the document" : "If the document has a number" }
+    : LEGAL_DOC_NEEDS[doc.docType];
+  const numberRequired = custom ? custom.number : true;
+  const [authority, setAuthority] = useState("");
   const [open, setOpen] = useState(doc.state === "MISSING" || doc.state === "REJECTED" || doc.state === "EXPIRED");
   const [number, setNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
@@ -74,6 +102,7 @@ function LegalDocCardView({ shopId, doc }: { shopId: string; doc: LegalDocCard }
   const [notice, setNotice] = useState<string | null>(null);
 
   const numberCheck = number.trim() ? parseLegalDocNumber(doc.docType, number) : null;
+  const testId = doc.customKey ? `legal-doc-${doc.customKey.slice(4).toLowerCase()}` : `legal-doc-${doc.docType}`;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -84,8 +113,10 @@ function LegalDocCardView({ shopId, doc }: { shopId: string; doc: LegalDocCard }
     const form = new FormData();
     form.set("docType", doc.docType);
     form.set("number", number);
+    if (doc.customKey) form.set("customKey", doc.customKey);
     if (needs.expiry) form.set("expiryDate", expiryDate);
     if (needs.council) form.set("issuingCouncil", council === "Other" ? otherCouncil : council);
+    else if (custom?.authority) form.set("issuingCouncil", authority);
     if (file) form.set("file", file);
     try {
       const response = await fetch(`/api/shops/${shopId}/legal-documents`, { method: "POST", body: form });
@@ -98,7 +129,8 @@ function LegalDocCardView({ shopId, doc }: { shopId: string; doc: LegalDocCard }
       setOpen(false);
       setNumber("");
       setFile(null);
-      router.refresh();
+      if (onSubmitted) onSubmitted();
+      else router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not upload the document.");
     } finally {
@@ -107,13 +139,16 @@ function LegalDocCardView({ shopId, doc }: { shopId: string; doc: LegalDocCard }
   }
 
   return (
-    <Card className="p-5" data-testid={`legal-doc-${doc.docType}`}>
+    <Card className="p-5" data-testid={testId}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-base font-semibold text-ink-900">{doc.label}</h2>
-          <p className="text-xs text-ink-500">Required for: {LEGAL_DOC_WHO[doc.docType]}</p>
+          <p className="text-xs text-ink-500">{doc.customKey ? doc.lawNote : `Required for: ${LEGAL_DOC_WHO[doc.docType]}`}</p>
         </div>
-        <Badge tone={STATE_TONES[doc.state]}>{LEGAL_DOC_STATE_LABELS[doc.state]}</Badge>
+        <div className="flex flex-wrap gap-1">
+          {doc.level ? <Badge tone={LEVEL_BADGES[doc.level].tone}>{LEVEL_BADGES[doc.level].label}</Badge> : null}
+          <Badge tone={STATE_TONES[doc.state]}>{LEGAL_DOC_STATE_LABELS[doc.state]}</Badge>
+        </div>
       </div>
 
       <dl className="mt-3 grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
@@ -176,17 +211,22 @@ function LegalDocCardView({ shopId, doc }: { shopId: string; doc: LegalDocCard }
         </div>
       ) : (
         <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={submit}>
-          <Field label={`${doc.label} number`} hint={needs.numberHint} error={fieldErrors.number ?? (numberCheck && !numberCheck.ok ? numberCheck.error : undefined)}>
+          <Field label={`${doc.label} number${numberRequired ? "" : " (if any)"}`} hint={needs.numberHint} error={fieldErrors.number ?? (numberCheck && !numberCheck.ok ? numberCheck.error : undefined)}>
             <input
               className={inputClass}
               value={number}
               onChange={(e) => setNumber(e.target.value)}
               inputMode={doc.docType === "FSSAI" ? "numeric" : "text"}
               maxLength={40}
-              required
+              required={numberRequired}
               aria-label={`${doc.label} number`}
             />
           </Field>
+          {custom?.authority ? (
+            <Field label="Issued by" hint="The office or authority that issued it" error={fieldErrors.issuingCouncil}>
+              <input className={inputClass} value={authority} onChange={(e) => setAuthority(e.target.value)} maxLength={120} required aria-label="Issued by" />
+            </Field>
+          ) : null}
           {needs.expiry ? (
             <Field label="Expiry date" error={fieldErrors.expiryDate}>
               <input className={inputClass} type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} required aria-label="Expiry date" />
@@ -218,7 +258,7 @@ function LegalDocCardView({ shopId, doc }: { shopId: string; doc: LegalDocCard }
             />
           </Field>
           <div className="flex items-end gap-2 sm:col-span-2">
-            <Button type="submit" disabled={busy || !file || !number.trim() || (numberCheck != null && !numberCheck.ok)}>
+            <Button type="submit" disabled={busy || !file || (numberRequired && !number.trim()) || (numberCheck != null && !numberCheck.ok)}>
               {busy ? "Uploading…" : "Submit for review"}
             </Button>
             {doc.state !== "MISSING" ? (

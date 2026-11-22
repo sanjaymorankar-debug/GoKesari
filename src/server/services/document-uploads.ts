@@ -68,11 +68,12 @@ import { legalDocLabel, requiredLegalDocTypes, submitLegalDocument } from "./leg
 import {
   detectDocumentFile,
   getShopVerificationSummary,
-  shopSellsFood,
   submitSellerDocument,
   uploadShopActCertificate,
 } from "./seller-verification";
 import { getRule } from "./settings";
+import { documentRequirementsFor } from "./shop-document-rules";
+import { isBuiltInRuleDocKey } from "@/lib/shop-document-rules";
 
 export interface Actor {
   id: string;
@@ -196,6 +197,13 @@ export async function getDocumentChecklist(shopId: string, actor: Actor): Promis
     .orderBy(desc(sellerDocumentUploads.createdAt));
   const sellsFood = summary.isFoodBusiness;
   const fssai = await fssaiStatus(shop);
+  // DF-09 (owner, 22-Nov-2026): the admin's rules say which of these this kind of shop needs.
+  const ruled = await documentRequirementsFor(shop, db, { sellsFood });
+  const ruledRequirement = (docType: string): ChecklistRequirement | null | undefined => {
+    if (!isBuiltInRuleDocKey(docType)) return undefined;
+    const req = ruled.find((r) => r.key === docType);
+    return req ? (req.level === "OPTIONAL" ? "optional" : "required") : null;
+  };
 
   const items: ChecklistItem[] = [];
   for (const docType of UPLOAD_DOC_TYPES) {
@@ -245,12 +253,22 @@ export async function getDocumentChecklist(shopId: string, actor: Actor): Promis
     const awaitingReview = latestRow?.status === "EXTRACTED";
     if (docType === "FSSAI") {
       // Only food shops (or shops the legal-documents rule names) are asked for FSSAI at all.
-      if (!sellsFood && !legalRequired.includes("FSSAI") && !awaitingReview) continue;
+      if (!sellsFood && !legalRequired.includes("FSSAI") && !ruled.some((r) => r.key === "FSSAI") && !awaitingReview) continue;
       if (sellsFood && rule.fssaiMandatoryForFood) requirement = "required";
       done = fssai.onFile;
       validUntil = fssai.validUntil ?? validUntil;
     }
     if ((docType === "UDYAM" || awaitingReview) && !requirement) requirement = "optional";
+    // DF-09: the admin's rule decides (a legalDocuments-rule requirement, when that rule is on, stays required).
+    const byRule = ruledRequirement(docType);
+    if (byRule !== undefined) {
+      const legalRuleNeeds = legalRule.enabled && (legalRequired as readonly string[]).includes(docType);
+      if (byRule === "required" || legalRuleNeeds) requirement = "required";
+      else if (byRule === "optional") requirement = "optional";
+      else if (isAdditionalLicence(docType)) requirement = "optional";
+      else if (!awaitingReview) continue;
+      else requirement = "optional";
+    }
     if (!requirement) continue;
     items.push({
       docType,
@@ -268,7 +286,7 @@ export async function getDocumentChecklist(shopId: string, actor: Actor): Promis
     shop: { id: shop.id, name: shop.name, sellsFood },
     items,
     missing: items.filter((i) => i.requirement !== "optional" && !i.done).map((i) => i.docType),
-    fssaiRequired: sellsFood && rule.fssaiMandatoryForFood,
+    fssaiRequired: rule.fssaiMandatoryForFood && ruled.some((r) => r.key === "FSSAI" && r.level === "MUST_HAVE"),
     fssaiOnFile: fssai.onFile,
     enabled: rule.enabled,
   };
@@ -691,11 +709,17 @@ export async function fssaiStatus(shop: Pick<Shop, "id">, client: DbClient = db)
 export const FSSAI_REQUIRED_MESSAGE =
   "A shop that sells food needs a valid FSSAI licence or registration before registration can be completed. Upload it on My Shop → Upload documents.";
 
-/** Task 3: food shops cannot complete registration (approval / profile completion) without a valid FSSAI licence. */
+/**
+ * Task 3: food shops cannot complete registration (approval / profile completion) without a valid FSSAI
+ * licence. DF-09 (owner, 22-Nov-2026): "food shops" is the admin's FSSAI rule — must-have for every shop
+ * that sells food by default; an admin may make it must-have for another shop type, or let a type follow
+ * on the promise (then it does not block here; the follow-up chases it).
+ */
 export async function fssaiBlocksRegistration(shop: Pick<Shop, "id" | "shopType">, client: DbClient = db): Promise<string | null> {
   const rule = await getRule("documentUpload");
   if (!rule.fssaiMandatoryForFood) return null;
-  if (!(await shopSellsFood(shop))) return null;
+  const fssai = (await documentRequirementsFor(shop, client)).find((r) => r.key === "FSSAI");
+  if (fssai?.level !== "MUST_HAVE") return null;
   const status = await fssaiStatus(shop, client);
   if (status.onFile) return null;
   // Owner request 21-Nov-2026 (fssai-waiver.ts): an admin approved it without the licence; it is due later.
