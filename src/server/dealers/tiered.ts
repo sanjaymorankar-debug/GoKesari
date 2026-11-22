@@ -468,13 +468,15 @@ export async function accrueTieredActivation(
       const rates = tierRatesFor(dealer, rule);
       const adj = bonusOn ? ratingAdjustmentBp(dealer.rating, dealer.ratingStepBp ?? settings.ratingStepBp) : 0;
       // Franchise brief 21-Nov-2026 §3: Model B when the dealer holds an active franchise in the shop's zone. Agent and
-      // team-lead rates are the same in both models (parity); only the top person's differ (owner 25% / 5%).
+      // team-lead rates are the same in both models (parity); only the top person's own-shop rate differs (owner 25%).
       const { franchiseModelFor } = await import("@/server/franchise/model");
       const franchise = await franchiseModelFor(tx, dealerId, shop.id, now);
       const owner = franchise ? (await (await import("@/server/franchise/config")).franchiseConfigAt(now, tx)).config : null;
       // Model A (owner, 21-Nov-2026): a signer reporting to the main dealer directly (an agent with no active lead,
       // or a team lead) puts the main dealer one level up — the first override (4%), not the second (3%).
-      const mainOverrideBp = owner ? owner.ownerOverrideBp : rule.overrideByDistance === true && place.direct && !place.lead ? rates.leadOverrideBp : rates.mainOverrideBp;
+      // Model B (owner, 21-Nov-2026 evening): the same 20/4/3 flow — the owner gets 4% one level up, 3% two levels up.
+      const oneLevelUp = !!place.direct && !place.lead;
+      const mainOverrideBp = owner ? (oneLevelUp ? owner.ownerOverrideBp : owner.ownerSecondOverrideBp) : rule.overrideByDistance === true && oneLevelUp ? rates.leadOverrideBp : rates.mainOverrideBp;
       const directBp = owner && !place.direct ? owner.ownerSelfBp : rates.directBp;
       const caseCode = caseOf(owner ? "B" : "A", place.direct ? { role: place.direct.teamRole === "TEAM_LEAD" ? "TEAM_LEAD" : "AGENT" } : null, !!place.lead);
       [plan] = await tx

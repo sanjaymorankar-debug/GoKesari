@@ -7,7 +7,7 @@
  *   coupons (%, cap, flat split, scope, private, limits, minimum, first purchase, launch only, renewal only, GST on
  *   the discounted amount, released on failure and refund, rejection messages, commission unaffected)
  *   the 8 cases A1–A4 / B1–B4 on ₹1,000 and ₹2,500 · parity · free team in a paid zone (no owner override, attached
- *   for recurring, 2-owner split, attaches to a later franchise) · recurring 25% of 2% · upgrade Free → Paid
+ *   for recurring, 2-owner split, attaches to a later franchise) · recurring 20% of 2% · upgrade Free → Paid
  *   tail and transfer of free-team shops · reminders with the renewal fee · month lock, statement · Model A team rules
  */
 import { randomUUID } from "node:crypto";
@@ -514,9 +514,9 @@ describe("coupons on franchise fees", () => {
 /* ================================================================ one-time commission (§3) */
 
 describe("one-time commission: cases A1–A4 and B1–B4, GoKesari pays everyone directly", () => {
-  for (const [fee, a, tl, d4, d3, own25, own5] of [
-    [100_000, 20_000, 4000, 4000, 3000, 25_000, 5000],
-    [250_000, 50_000, 10_000, 10_000, 7500, 62_500, 12_500],
+  for (const [fee, a, tl, d4, d3, own25] of [
+    [100_000, 20_000, 4000, 4000, 3000, 25_000],
+    [250_000, 50_000, 10_000, 10_000, 7500, 62_500],
   ] as const) {
     it(`₹${(fee / 100).toLocaleString("en-IN")} shop: amounts exactly as §3.3`, async () => {
       // Model A: a free dealer and his team, shops anywhere.
@@ -536,9 +536,9 @@ describe("one-time commission: cases A1–A4 and B1–B4, GoKesari pays everyone
       const ounder = await member(o.dealer.id, `OUnder ${fee}`, "AGENT", olead.id);
       const b1 = await signed(o.dealer.id, null, fee, AREA[Z3]);
       expect(await split(b1.id)).toEqual([`DIRECT_1:TOP:${own25}`]);
-      expect(await split((await signed(o.dealer.id, odirect.id, fee, AREA[Z3])).id)).toEqual([`DIRECT_1:${odirect.name}:${a}`, `OVERRIDE_MAIN:TOP:${own5}`].sort());
-      expect(await split((await signed(o.dealer.id, ounder.id, fee, AREA[Z3])).id)).toEqual([`DIRECT_1:${ounder.name}:${a}`, `OVERRIDE_LEAD:${olead.name}:${tl}`, `OVERRIDE_MAIN:TOP:${own5}`].sort());
-      expect(await split((await signed(o.dealer.id, olead.id, fee, AREA[Z3])).id)).toEqual([`DIRECT_1:${olead.name}:${a}`, `OVERRIDE_MAIN:TOP:${own5}`].sort());
+      expect(await split((await signed(o.dealer.id, odirect.id, fee, AREA[Z3])).id)).toEqual([`DIRECT_1:${odirect.name}:${a}`, `OVERRIDE_MAIN:TOP:${d4}`].sort());
+      expect(await split((await signed(o.dealer.id, ounder.id, fee, AREA[Z3])).id)).toEqual([`DIRECT_1:${ounder.name}:${a}`, `OVERRIDE_LEAD:${olead.name}:${tl}`, `OVERRIDE_MAIN:TOP:${d3}`].sort());
+      expect(await split((await signed(o.dealer.id, olead.id, fee, AREA[Z3])).id)).toEqual([`DIRECT_1:${olead.name}:${a}`, `OVERRIDE_MAIN:TOP:${d4}`].sort());
       const [plan] = await db.select().from(dealerTierShopPlans).where(eq(dealerTierShopPlans.shopId, b1.id));
       expect(plan).toMatchObject({ model: "B", caseCode: "B1", franchiseZoneId: Z3 });
       // The owner's own shop outside his paid zone follows Model A (§7).
@@ -549,13 +549,14 @@ describe("one-time commission: cases A1–A4 and B1–B4, GoKesari pays everyone
   it("parity: one agent and one team-lead rate for both models; owner rates can never go below the free dealer's", async () => {
     await expect(saveFranchiseConfig({ ownerSelfBp: 1500 }, { reason: "lower owner (test)" }, admin)).rejects.toThrow(/cannot be lower/);
     await expect(saveFranchiseConfig({ ownerOverrideBp: 300 }, { reason: "lower owner (test)" }, admin)).rejects.toThrow(/cannot be lower/);
+    await expect(saveFranchiseConfig({ ownerSecondOverrideBp: 200 }, { reason: "lower owner (test)" }, admin)).rejects.toThrow(/cannot be lower/);
     await expect(setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, leadOverrideBp: 600 }, admin)).rejects.toThrow(/cannot be lower/);
     await setRule("dealerTieredCommission", { ...RULES.dealerTieredCommission.defaults, enabled: true, directBp: 1800 }, admin);
     clearRuleCache();
     const o = await dealer();
     await book(o, [Z3]);
     const ag = await member(o.dealer.id, "Parity agent", "AGENT");
-    expect(await split((await signed(o.dealer.id, ag.id, 100_000, AREA[Z3])).id)).toEqual([`DIRECT_1:${ag.name}:18000`, "OVERRIDE_MAIN:TOP:5000"]);
+    expect(await split((await signed(o.dealer.id, ag.id, 100_000, AREA[Z3])).id)).toEqual([`DIRECT_1:${ag.name}:18000`, "OVERRIDE_MAIN:TOP:4000"]);
   });
 
   it("a refunded shop reverses every person's commission (both models)", async () => {
@@ -574,7 +575,7 @@ describe("one-time commission: cases A1–A4 and B1–B4, GoKesari pays everyone
 /* ================================================================ free teams in a paid zone, recurring, upgrade, tail (§4, §6, §7) */
 
 describe("recurring commission and zone attachment", () => {
-  it("a free team's shop in a paid zone: normal Model A commission, no owner override, attached to the franchise for recurring (25% of 2%)", async () => {
+  it("a free team's shop in a paid zone: normal Model A commission, no owner override, attached to the franchise for recurring (20% of 2%)", async () => {
     const o = await dealer("Zone owner");
     const r = await book(o, [Z3]);
     const free = await dealer("Free team");
@@ -585,7 +586,7 @@ describe("recurring commission and zone attachment", () => {
     const [a] = await allocs(r.booking.id);
     const c = await calculateAllocationMonth(db, a, thisMonth());
     expect(c.newShopIds).toEqual([shop.id]);
-    expect(c.result).toMatchObject({ baselinePaise: 0, commissionRateBp: 2500, recurringPaise: 50_000 }); // 25% × 2% × ₹1,00,000
+    expect(c.result).toMatchObject({ baselinePaise: 0, commissionRateBp: 2000, recurringPaise: 40_000 }); // 20% × 2% × ₹1,00,000
   });
 
   it("two active franchises in the zone: a free shop's recurring is split 50/50; a zone with no franchise attaches to the next one sold", async () => {
@@ -601,7 +602,7 @@ describe("recurring commission and zone attachment", () => {
     const [ay] = await allocs(ry.booking.id);
     const cx = await calculateAllocationMonth(db, ax, thisMonth());
     const cy = await calculateAllocationMonth(db, ay, thisMonth());
-    expect([cx.result.recurringPaise, cy.result.recurringPaise]).toEqual([25_000, 25_000]);
+    expect([cx.result.recurringPaise, cy.result.recurringPaise]).toEqual([20_000, 20_000]);
   });
 
   it("orders cancelled / refunded in the month are netted; bonus counts only shops attached at the month's start", async () => {
@@ -612,7 +613,7 @@ describe("recurring commission and zone attachment", () => {
     await db.insert(financialAdjustments).values({ type: "REFUND_SHOP", party: "SHOP", status: "PENDING", shopId: shop.id, orderId: order.id, amountPaise: -4_000_000, customerRefundPaise: 4_000_000, reason: "refund (test)", idempotencyKey: `t-${order.id}` });
     const [a] = await allocs(r.booking.id);
     const c = await calculateAllocationMonth(db, a, thisMonth());
-    expect(c.result).toMatchObject({ openingShops: 0, newShops: 1, recurringPaise: 30_000 }); // ₹60,000 net × 2% × 25%
+    expect(c.result).toMatchObject({ openingShops: 0, newShops: 1, recurringPaise: 24_000 }); // ₹60,000 net × 2% × 20%
   });
 
   it("upgrade Free → Paid: the team keeps its rates; earlier shops in the zone attach for recurring; new shops there follow Model B", async () => {
@@ -625,7 +626,7 @@ describe("recurring commission and zone attachment", () => {
     expect(att).toMatchObject({ origin: "UPGRADE", ownerDealerId: d.dealer.id, zoneId: Z7 });
     expect(await split(before.id)).toEqual([`DIRECT_1:${ag.name}:20000`, "OVERRIDE_MAIN:TOP:4000"]); // unchanged
     const after = await signed(d.dealer.id, ag.id, 100_000, AREA[Z7]);
-    expect(await split(after.id)).toEqual([`DIRECT_1:${ag.name}:20000`, "OVERRIDE_MAIN:TOP:5000"]);
+    expect(await split(after.id)).toEqual([`DIRECT_1:${ag.name}:20000`, "OVERRIDE_MAIN:TOP:4000"]);
   });
 
   it("tail: after the owner stops renewing, his own team's shops keep earning for 2 years; free-team shops move to the next active owner", async () => {
@@ -650,7 +651,7 @@ describe("recurring commission and zone attachment", () => {
     const cx = await calculateAllocationMonth(db, ax2, thisMonth());
     const cy = await calculateAllocationMonth(db, ay, thisMonth());
     expect(cx.lines.map((l) => l.shopId)).toEqual([own.id]);
-    expect(cx.result).toMatchObject({ bonusBp: 0, recurringPaise: 50_000 });
+    expect(cx.result).toMatchObject({ bonusBp: 0, recurringPaise: 40_000 });
     expect(cy.lines.map((l) => l.shopId)).toEqual([freeShop.id]);
   });
 });
@@ -674,12 +675,12 @@ describe("month end, statements and reminders", () => {
     await db.execute(sql`update order_financials set delivered_at = ${inPrev.toISOString()}::timestamptz where order_id = ${order.id}`);
     expect(await calculateFranchiseMonth(prev)).toMatchObject({ calculated: 1 });
     let [snap] = await db.select().from(franchiseMonthlySnapshots).where(eq(franchiseMonthlySnapshots.allocationId, a.id));
-    expect(snap).toMatchObject({ status: "DRAFT", newShops: 1, recurringPaise: 50_000 });
+    expect(snap).toMatchObject({ status: "DRAFT", newShops: 1, recurringPaise: 40_000 });
     expect(await lockFranchiseMonth(prev, admin)).toMatchObject({ locked: 1 });
     [snap] = await db.select().from(franchiseMonthlySnapshots).where(eq(franchiseMonthlySnapshots.allocationId, a.id));
     expect(snap.status).toBe("LOCKED");
     const lines = (await db.select().from(dealerCommissionLedger).where(and(eq(dealerCommissionLedger.shopId, shop.id), eq(dealerCommissionLedger.entryType, "RECURRING_BASE"))));
-    expect(lines.map((e) => [e.amountPaise, e.franchiseZoneId])).toEqual([[50_000, Z3]]);
+    expect(lines.map((e) => [e.amountPaise, e.franchiseZoneId])).toEqual([[40_000, Z3]]);
     expect(await calculateFranchiseMonth(prev)).toMatchObject({ calculated: 0, locked: 1 });
     expect(statementPdf(await statementData(snap.id)).subarray(0, 5).toString()).toBe("%PDF-");
     await emailStatements(prev, ["ceo@agtci.com"]);

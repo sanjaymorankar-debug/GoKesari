@@ -377,8 +377,9 @@ function AllocationTable({ rows, isAdmin, act, ask }: { rows: Allocation[]; isAd
 
 const BONUS_FIELDS: { key: string; label: string; unit: "paise" | "bp" | "count" }[] = [
   { key: "ownerSelfBp", label: "Franchise owner's own shop (% of registration fee excl. GST)", unit: "bp" },
-  { key: "ownerOverrideBp", label: "Franchise owner's override on each team shop (%)", unit: "bp" },
-  { key: "recurringBaseBp", label: "Recurring base share (% of GoKesari's commission)", unit: "bp" },
+  { key: "ownerOverrideBp", label: "Franchise owner's override, one level up — agent or team lead reporting to the owner (%)", unit: "bp" },
+  { key: "ownerSecondOverrideBp", label: "Franchise owner's second override, two levels up — agent under a team lead (%)", unit: "bp" },
+  { key: "recurringBaseBp", label: "Recurring share (% of GoKesari's order commission)", unit: "bp" },
   { key: "gokesariCommissionBp", label: "GoKesari order commission (%)", unit: "bp" },
   { key: "monthlyShopTarget", label: "Monthly shop registration target", unit: "count" },
   { key: "expectedBusinessPerShopPaise", label: "Expected business per shop per month (₹)", unit: "paise" },
@@ -408,7 +409,7 @@ function BonusSettingsForm({ data, isAdmin, act }: { data: Overview; isAdmin: bo
       <h2 className="font-bold text-ink-900">Commission and bonus settings</h2>
       <p className="text-xs text-ink-600">Admin only. A change applies from the next calendar month (IST), never to the current one, and is logged with who changed it and the old and new value.</p>
       <p className="text-xs text-ink-600">
-        Parity rule: the agent&apos;s direct % and the team lead&apos;s override % are one field each, used by both models (Admin → Settings → rule dealerTieredCommission). The franchise owner&apos;s rates can never be lower than the free dealer&apos;s (own shop 20%, override 4%, second override 3%) — a lower value is refused.
+        Parity rule: the agent&apos;s direct % and the team lead&apos;s override % are one field each, used by both models (Admin → Settings → rule dealerTieredCommission). Free dealership (no upfront fee, one-time only) rates are edited in Admin → Dealer tiers. The franchise owner&apos;s rates here can never be lower than the free dealer&apos;s matching rate (own shop, override, second override) — a lower value is refused.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {BONUS_FIELDS.map((f) => (
