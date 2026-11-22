@@ -2,6 +2,30 @@
 
 Times IST.
 
+## 22-Nov-2026 — Medical registration for every doctor category (owner)
+
+- Rule `legalDocuments`: a shop in any shop category of a Health doctor group (General & family, Specialists,
+  Women & child, Dental, Eye & ENT, Mind, AYUSH, Animal care) needs a medical registration, not only
+  Doctor / Clinic. Therapy and Diagnostics are not included. Acts while the rule is on (H-51).
+
+## 21-Nov-2026 — Health specialties (owner)
+
+Owner, 21-Nov-2026 ~23.30 IST: "all various medical practitioners should come under Shops → Health → all types of
+doctor specialists", with subcategories for better search.
+
+- **One grouped list** (`src/lib/health/specialties.ts`): General & family, Specialists, Women & child, Dental,
+  Eye & ENT, Mind, Therapy, AYUSH, Diagnostics, Animal care.
+- **Migration 0161** (`drizzle/0161_health_specialties.sql`, rollback `scripts/rollback-0161.sql`): the built-in
+  medical shop categories and consultant categories move into those groups (only while they still carry their seeded
+  group), and the missing specialties are added to both: cardiologist, neurologist, diabetologist, gastroenterologist,
+  pulmonologist, nephrologist, urologist, oncologist, general surgeon, orthodontist, psychiatrist, speech therapist,
+  dietitian, Unani, Siddha, naturopathy, diagnostic lab, scan centre. Nothing renamed or removed; Home care untouched.
+- **Find a doctor**: group chips, then the specialties of that group with plain words ("Cardiologist · Heart");
+  `?group=` filter; words typed in the search box ("heart", "kidney stone", "anxiety") also find the specialists;
+  more symptom chips.
+- **Admin Health → Specialties** tab (admins and operators): each group with its bookable specialties and its
+  registration categories; the Health card on Shop categories opens it.
+
 ## 20-Nov-2026 — first release (branch `feat/gokesari-health`, on top of consultant appointments #425)
 
 Owner brief received 10.51. Built 11.00 – 12.40.

@@ -70,8 +70,12 @@ describe("seeded categories", () => {
     );
     expect(byName.get("Chartered Accountant (CA)")).toBe("Finance and legal");
     expect(byName.get("Advocate / Lawyer")).toBe("Finance and legal");
-    expect(byName.get("Dentist")).toBe("Medical — doctors and clinics");
-    expect(byName.get("Dermatologist")).toBe("Medical — doctors and clinics");
+    // Health specialties (0161, owner 21-Nov-2026): medical practitioners sit in the Health groups.
+    expect(byName.get("Dentist")).toBe("Health — Dental");
+    expect(byName.get("Dermatologist")).toBe("Health — Specialists");
+    expect(byName.get("Doctor / Clinic")).toBe("Health — General & family doctors");
+    expect(byName.get("Nephrologist")).toBe("Health — Specialists");
+    expect(byName.get("Orthodontist")).toBe("Health — Dental");
     expect(byName.get("IT / Software Consultant")).toBe("Consulting and services");
     // The existing shop categories keep no group: "Shops and stores" in the picker.
     expect(byName.has("Dairy Shop")).toBe(true);

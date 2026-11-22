@@ -4,7 +4,7 @@
  *
  * GET ?view=
  *   providers&kind=DOCTOR|CARE&status&q · documents&member · stores&kind=PHARMACY|EQUIPMENT&status&q · legal&shopId
- *   drugs&q · careCategories · equipment · settings · report&granularity&from&to
+ *   drugs&q · careCategories · specialties · equipment · settings · report&granularity&from&to
  *   accessLog&from&to&action&role&patientId · audit&from&to · dataRequests&status&kind
  * POST { action, … }:
  *   decideProvider {kind, profileId, decision, note, memberIds} · police {memberId, status}
@@ -35,6 +35,7 @@ import {
   healthAuditList,
   healthReport,
   healthSettingsView,
+  healthSpecialties,
   listDataRequests,
   listEquipmentMaster,
   providerQueue,
@@ -74,6 +75,8 @@ export const GET = route(async (request: NextRequest) => {
       return ok({ drugs: await listDrugs(user, q.q ?? "", 300), stats: await drugMasterStats(user) });
     case "careCategories":
       return ok({ categories: await careCategories(user) });
+    case "specialties":
+      return ok({ groups: await healthSpecialties(user) });
     case "equipment":
       return ok({ items: await listEquipmentMaster(user) });
     case "settings":

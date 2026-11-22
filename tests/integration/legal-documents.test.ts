@@ -241,6 +241,19 @@ describe("a shop already live", () => {
     expect(ok.body).toMatchObject({ issuingCouncil: "Maharashtra Medical Council", expiryDate: null, state: "SUBMITTED" });
   });
 
+  it("every Health doctor category needs a medical registration; therapists and labs do not (owner, 22-Nov-2026)", async () => {
+    await enable();
+    // A specialty 0161 added, one it moved into a Health group, AYUSH and animal care.
+    for (const category of ["cardiologist", "dentist", "ayurveda", "veterinarian"]) {
+      const { shop } = await sellableShop({ shopType: "HARDWARE_STORE", category });
+      expect((await getShopLegalStatus(shop.id)).documents.map((d) => d.docType), category).toEqual(["MEDICAL_REGISTRATION"]);
+    }
+    for (const category of ["physiotherapist", "diagnostic-lab-pathology"]) {
+      const { shop } = await sellableShop({ shopType: "HARDWARE_STORE", category });
+      expect((await getShopLegalStatus(shop.id)).documents, category).toHaveLength(0);
+    }
+  });
+
   it("a non-food, non-medical shop needs nothing", async () => {
     await enable();
     const { shop } = await sellableShop({ shopType: "HARDWARE_STORE" });

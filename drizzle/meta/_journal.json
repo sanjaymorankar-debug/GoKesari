@@ -1128,6 +1128,13 @@
       "when": 1793265800000,
       "tag": "0160_franchise_two_models",
       "breakpoints": true
+    },
+    {
+      "idx": 161,
+      "version": "7",
+      "when": 1793265900000,
+      "tag": "0161_health_specialties",
+      "breakpoints": true
     }
   ]
 }

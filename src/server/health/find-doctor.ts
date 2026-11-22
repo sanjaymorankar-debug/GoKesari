@@ -22,6 +22,7 @@ import { nextFreeSlot } from "@/lib/consult/slots";
 import { addDays, istAt, istDateKey } from "@/lib/consult/time";
 import { directionsUrl, formatDistance } from "@/lib/geo/nearby";
 import { PRIME_TIER_LABELS, type PrimeTier } from "@/lib/health/constants";
+import { HEALTH_SPECIALTY_GROUPS, healthGroupName } from "@/lib/health/specialties";
 import { specialtiesForSymptom } from "@/lib/health/symptoms";
 import { db } from "@/server/db";
 import { consultCategories, consultMemberCategories, consultMembers, consultProfiles, consultServices, healthDoctorProfiles, shops, type ConsultMember, type ConsultProfile, type ConsultService } from "@/server/db/schema";
@@ -43,6 +44,8 @@ const flag = z
 export const doctorSearchInput = z.object({
   q: z.string().trim().max(80).optional(),
   specialty: z.string().trim().max(80).optional(),
+  /** A Health group key (src/lib/health/specialties.ts), "other" for medical categories outside them. Ignored with a specialty. */
+  group: z.string().trim().max(40).optional(),
   symptom: z.string().trim().max(80).optional(),
   area: z.string().trim().max(80).optional(),
   lat: z.coerce.number().min(-90).max(90).optional(),
@@ -107,9 +110,10 @@ export function doctorName(fullName: string): string {
   return /^dr\.?\s/i.test(fullName.trim()) ? fullName.trim() : `Dr ${fullName.trim()}`;
 }
 
-export async function doctorCategories(): Promise<{ slug: string; name: string }[]> {
+/** The specialties offered on "Find a doctor", with the Health group each is listed under. */
+export async function doctorCategories(): Promise<{ slug: string; name: string; groupName: string }[]> {
   return db
-    .select({ slug: consultCategories.slug, name: consultCategories.name })
+    .select({ slug: consultCategories.slug, name: consultCategories.name, groupName: consultCategories.groupName })
     .from(consultCategories)
     .where(and(eq(consultCategories.status, "ACTIVE"), eq(consultCategories.requiredDoc, "MEDICAL_REGISTRATION")))
     .orderBy(consultCategories.sortOrder, consultCategories.name);
@@ -152,6 +156,12 @@ export async function searchDoctors(
   const specialties = input.specialty ? [input.specialty] : symptomSpecialties;
   // A symptom we cannot map is searched as text.
   const text = input.q ?? (input.symptom && !symptomSpecialties.length ? input.symptom : undefined);
+  // Plain words typed in the search box ("heart", "kidney stone") also find the matching specialists.
+  const textSpecialties = input.q ? specialtiesForSymptom(input.q) : [];
+  // Health group (owner, 21-Nov-2026): the subcategory picked before a specialty.
+  const healthGroups = HEALTH_SPECIALTY_GROUPS.map((g) => g.name);
+  const group = !specialties.length && input.group ? (input.group === "other" ? "other" : healthGroupName(input.group)) : null;
+  const groupCondition = group === "other" ? sql` AND c.group_name NOT IN ${healthGroups}` : group ? sql` AND c.group_name = ${group}` : sql``;
 
   const filters: SQL[] = [
     eq(consultMembers.status, "ACTIVE"),
@@ -159,13 +169,15 @@ export async function searchDoctors(
     sql`${consultProfiles.status} = 'LIVE' AND ${consultProfiles.verification} = 'VERIFIED' AND ${shops.status} = 'APPROVED' AND ${shops.deletedAt} IS NULL`,
     specialties.length
       ? sql`EXISTS (SELECT 1 FROM consult_member_categories mc JOIN consult_categories c ON c.id = mc.category_id WHERE mc.member_id = ${consultMembers.id} AND c.required_doc = 'MEDICAL_REGISTRATION' AND (c.slug IN ${specialties} OR c.id::text IN ${specialties}))`
-      : sql`EXISTS (SELECT 1 FROM consult_member_categories mc JOIN consult_categories c ON c.id = mc.category_id WHERE mc.member_id = ${consultMembers.id} AND c.required_doc = 'MEDICAL_REGISTRATION')`,
+      : sql`EXISTS (SELECT 1 FROM consult_member_categories mc JOIN consult_categories c ON c.id = mc.category_id WHERE mc.member_id = ${consultMembers.id} AND c.required_doc = 'MEDICAL_REGISTRATION'${groupCondition})`,
   ];
   if (text) {
     const like = likeOf(text);
     filters.push(sql`(${consultMembers.name} ILIKE ${like} OR ${healthDoctorProfiles.fullName} ILIKE ${like} OR ${consultProfiles.displayName} ILIKE ${like} OR ${shops.name} ILIKE ${like}
       OR ${healthDoctorProfiles.qualifications} ILIKE ${like} OR array_to_string(${healthDoctorProfiles.specialties}, ' ') ILIKE ${like}
-      OR EXISTS (SELECT 1 FROM consult_member_categories mc JOIN consult_categories c ON c.id = mc.category_id WHERE mc.member_id = ${consultMembers.id} AND c.name ILIKE ${like}))`);
+      OR EXISTS (SELECT 1 FROM consult_member_categories mc JOIN consult_categories c ON c.id = mc.category_id WHERE mc.member_id = ${consultMembers.id} AND c.name ILIKE ${like})${
+        textSpecialties.length ? sql` OR EXISTS (SELECT 1 FROM consult_member_categories mc JOIN consult_categories c ON c.id = mc.category_id WHERE mc.member_id = ${consultMembers.id} AND c.slug IN ${textSpecialties})` : sql``
+      })`);
   }
   if (input.area) {
     const like = likeOf(input.area);
@@ -211,7 +223,7 @@ export async function searchDoctors(
       .limit(200)
   ).map((r) => ({ ...r, lat: r.lat == null ? null : Number(r.lat), lng: r.lng == null ? null : Number(r.lng), distanceKm: r.distanceKm == null ? null : Number(r.distanceKm) }));
 
-  let cards = await toCards(rows, { origin, radiusKm, mode: input.mode ?? null, specialties, text: text ?? null, now });
+  let cards = await toCards(rows, { origin, radiusKm, mode: input.mode ?? null, specialties: specialties.length ? specialties : textSpecialties, text: text ?? null, now });
   if (input.available === "today") cards = cards.filter((c) => c.availableToday);
   if (input.available === "week") cards = cards.filter((c) => c.nextSlot && new Date(c.nextSlot).getTime() < now.getTime() + 7 * 86_400_000);
   // Launch mode (primeForAll): everyone has the Prime features, so the "Prime" filter narrows nothing.
