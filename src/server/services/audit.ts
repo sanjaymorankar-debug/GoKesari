@@ -436,6 +436,9 @@ export const AUDIT_ACTIONS = {
   FRANCHISE_ALLOCATION_CHANGED: "franchise.allocation_changed", // 0157: activated, renewed, suspended, terminated, expired
   FRANCHISE_CODE_CHANGED: "franchise.code_changed", // 0157: GKF code issued / closed
   FRANCHISE_ATTRIBUTION_CHANGED: "franchise.attribution_changed", // 0157: shop attributed / held / reversed
+  REFERRAL_MOVE_REQUESTED: "referral_move.requested", // 0162: an admin asks to add / move a referral code (shops or a team member)
+  REFERRAL_MOVE_DOCUMENT: "referral_move.document", // 0162: a consent letter uploaded to a move request
+  REFERRAL_MOVE_DECIDED: "referral_move.decided", // 0162: a second admin approved (and the move applied), rejected, or the request was cancelled
   FRANCHISE_COMMISSION: "franchise.commission", // 0157: one-time and monthly entries written, reversed
   FRANCHISE_VIOLATION_RECORDED: "franchise.violation_recorded", // 0157: warning / record / suspension / termination
   FRANCHISE_AGREEMENT_ACCEPTED: "franchise.agreement_accepted", // 0157: clickwrap with version and IP

@@ -26,6 +26,7 @@ import {
   franchiseMonthlySnapshots,
   franchiseShopAttributionHistory,
   franchiseShopAttributions,
+  franchiseShopTeamPeriods,
   referralCodes,
   type FranchiseAllocation,
   type UserRole,
@@ -82,11 +83,19 @@ const isActiveAt = (a: FranchiseAllocation, t: number) => a.status !== "CANCELLE
 /** The tail (§4.2): after a lapse, own-team shops keep earning until tailEndAt (terminated / voided: none). */
 const inTailAt = (a: FranchiseAllocation, t: number) => !ENDED.has(a.status) && !!a.expiresAt && !!a.tailEndAt && a.expiresAt.getTime() <= t && a.tailEndAt.getTime() > t;
 
+interface TeamPeriod {
+  allocationId: string;
+  ownerDealerId: string;
+  from: number;
+  to: number;
+}
+
 interface ZoneContext {
   zoneId: string;
   allocations: FranchiseAllocation[];
-  /** Own-team shops → their franchise (ACTIVE attributions only). */
-  team: Map<string, { allocationId: string; ownerDealerId: string }>;
+  /** Own-team shops → their franchise over time: the ACTIVE attribution (from attachedFrom) and, after a referral move
+   * (22-Nov-2026), the earlier attachments from franchise_shop_team_periods. [from, to) in ms. */
+  team: Map<string, TeamPeriod[]>;
   /** Shop and owner points for the "nearest owner" split. */
   shopPoint: Map<string, LatLng>;
   ownerPoint: Map<string, LatLng>;
@@ -95,9 +104,14 @@ interface ZoneContext {
 
 async function zoneContext(client: DbClient, zoneId: string, splitMode: FranchiseConfig["recurringSplitMode"]): Promise<ZoneContext> {
   const allocations = (await client.select().from(franchiseAllocations).where(eq(franchiseAllocations.zoneId, zoneId))).filter((a) => !!a.activatedAt && a.status !== "CANCELLED");
-  const team = new Map(
-    (await client.select().from(franchiseShopAttributions).where(and(eq(franchiseShopAttributions.zoneId, zoneId), eq(franchiseShopAttributions.status, "ACTIVE")))).map((r) => [r.shopId, { allocationId: r.allocationId, ownerDealerId: r.ownerDealerId }]),
-  );
+  const team = new Map<string, TeamPeriod[]>();
+  const addPeriod = (shopId: string, p: TeamPeriod) => team.set(shopId, [...(team.get(shopId) ?? []), p]);
+  for (const r of await client.select().from(franchiseShopAttributions).where(and(eq(franchiseShopAttributions.zoneId, zoneId), eq(franchiseShopAttributions.status, "ACTIVE")))) {
+    addPeriod(r.shopId, { allocationId: r.allocationId, ownerDealerId: r.ownerDealerId, from: r.attachedFrom?.getTime() ?? -Infinity, to: Infinity });
+  }
+  for (const r of await client.select().from(franchiseShopTeamPeriods).where(eq(franchiseShopTeamPeriods.zoneId, zoneId))) {
+    addPeriod(r.shopId, { allocationId: r.allocationId, ownerDealerId: r.ownerDealerId, from: r.validFrom?.getTime() ?? -Infinity, to: r.validTo.getTime() });
+  }
   const shopPoint = new Map<string, LatLng>();
   const ownerPoint = new Map<string, LatLng>();
   if (splitMode === "nearest") {
@@ -120,7 +134,7 @@ async function zoneContext(client: DbClient, zoneId: string, splitMode: Franchis
 
 /** The franchises earning on `shopId` at `t` and their shares (summing to 1, or nothing). */
 export function earnersAt(ctx: ZoneContext, shopId: string, t: number): { allocationId: string; share: number }[] {
-  const own = ctx.team.get(shopId);
+  const own = ctx.team.get(shopId)?.find((p) => p.from <= t && t < p.to);
   if (own) {
     const a = ctx.allocations.find((x) => x.id === own.allocationId);
     if (a && (isActiveAt(a, t) || inTailAt(a, t))) return [{ allocationId: a.id, share: 1 }];
