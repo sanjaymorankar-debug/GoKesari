@@ -28,7 +28,14 @@ export type FeatureFlagKey =
   | "shop_welcome_kit_admin_send_enabled"
   | "smart_list_scan_enabled"
   | "shop_photo_listing_enabled"
-  | "whatsapp_shop_orders_enabled";
+  | "whatsapp_shop_orders_enabled"
+  // docs/rbac (0170)
+  | "rbac_v2_staff_roles"
+  | "rbac_v2_four_eye_admin"
+  | "rbac_v2_accounting"
+  | "rbac_v2_support"
+  | "rbac_v2_shop_change_requests"
+  | "rbac_v2_operations";
 
 interface FlagValue {
   enabled: boolean;
@@ -111,6 +118,13 @@ export function FeatureFlagsPanel({
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.error?.message ?? "Could not save the flag.");
+      // docs/rbac: with two-admin approval on, the flag changes only when a second admin approves.
+      if (payload?.pendingApproval) {
+        setDrafts((current) => ({ ...current, [key]: saved[key] }));
+        setReasons((current) => ({ ...current, [key]: "" }));
+        setMessage({ key, tone: "ok", text: payload.message ?? "Sent for approval." });
+        return;
+      }
       const value = { enabled: payload.flag.enabled, districtCodes: payload.flag.districtCodes };
       setSaved((current) => ({ ...current, [key]: value }));
       setDrafts((current) => ({ ...current, [key]: value }));

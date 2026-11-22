@@ -21,7 +21,7 @@ export default async function OperatorConsultPage() {
   if (!user) redirect("/signin");
   if (!(await consultEnabled())) notFound();
   if (!can(user.role, PERMISSIONS.CONSULT_ONBOARD)) redirect("/");
-  if (user.role !== "OPERATOR_LIMITED") redirect("/admin/consult");
+  if (user.role !== "OPERATOR_LIMITED" && user.role !== "OPERATIONS_USER") redirect("/admin/consult"); // docs/rbac
   const shops = await setupShopsFor(user);
   return (
     <div className="mx-auto max-w-3xl">

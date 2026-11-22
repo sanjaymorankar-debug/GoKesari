@@ -12,7 +12,36 @@ import { forbidden, notFound, unauthenticated } from "@/lib/errors";
 import { auth } from "@/server/auth";
 import { db } from "@/server/db";
 import { shops, subscriptions, type UserRole } from "@/server/db/schema";
+import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { can, type Permission } from "./permissions";
+
+/**
+ * docs/rbac §11: every refused permission check is logged. Fire-and-forget (recordAudit never
+ * throws), so the refusal the caller sees is unchanged. At most DENIAL_LOG_CAP rows per user per
+ * minute, so a page polling a forbidden endpoint cannot flood the audit log.
+ */
+const DENIAL_LOG_CAP = 20;
+const denialWindow = new Map<string, { minute: number; count: number }>();
+
+export function logDenied(user: Pick<AuthenticatedUser, "id" | "role">, needed: string, kind: "permission" | "role" | "shop"): void {
+  const minute = Math.floor(Date.now() / 60_000);
+  const seen = denialWindow.get(user.id);
+  if (seen && seen.minute === minute) {
+    if (seen.count >= DENIAL_LOG_CAP) return;
+    seen.count += 1;
+  } else {
+    if (denialWindow.size > 5_000) denialWindow.clear();
+    denialWindow.set(user.id, { minute, count: 1 });
+  }
+  void recordAudit({
+    actorId: user.id,
+    actorRole: user.role,
+    action: AUDIT_ACTIONS.AUTHZ_DENIED,
+    entityType: kind,
+    entityId: needed.slice(0, 200),
+    newValue: { needed, kind },
+  });
+}
 
 export interface AuthenticatedUser {
   id: string;
@@ -52,6 +81,7 @@ export async function requirePermission(
 ): Promise<AuthenticatedUser> {
   const user = await requireUser();
   if (!can(user.role, permission)) {
+    logDenied(user, permission, "permission");
     throw forbidden("You do not have permission to perform this action.");
   }
   return user;
@@ -62,6 +92,7 @@ export async function requireAnyPermission(
 ): Promise<AuthenticatedUser> {
   const user = await requireUser();
   if (!permissions.some((p) => can(user.role, p))) {
+    logDenied(user, permissions.join("|"), "permission");
     throw forbidden("You do not have permission to perform this action.");
   }
   return user;
@@ -72,6 +103,7 @@ export async function requireRole(
 ): Promise<AuthenticatedUser> {
   const user = await requireUser();
   if (!roles.includes(user.role)) {
+    logDenied(user, roles.join("|"), "role");
     throw forbidden("You do not have access to this area.");
   }
   return user;
@@ -101,6 +133,7 @@ export async function requireShopAccess(
   if (can(user.role, options.anyPermission)) {
     return { user, isPrivileged: true };
   }
+  logDenied(user, `${options.anyPermission}@shop:${shopId}`, "shop");
   throw forbidden("This shop does not belong to you.");
 }
 

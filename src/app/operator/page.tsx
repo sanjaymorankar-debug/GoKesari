@@ -24,7 +24,8 @@ const TITLE = L("Shop onboarding", "दुकान ऑनबोर्डिं�
  */
 export default async function OperatorPage() {
   const user = await getCurrentUser();
-  if (user?.role !== "OPERATOR_LIMITED") redirect("/admin");
+  // docs/rbac: the Operations User reuses this onboarding board (own shops only).
+  if (user?.role !== "OPERATOR_LIMITED" && user?.role !== "OPERATIONS_USER") redirect("/admin");
 
   const [lang, header, counts] = await Promise.all([getBoardLang(), getBoardHeaderData(user), operatorLimitedBoardCounts(user)]);
   const menus = visibleMenus(OPERATOR_LIMITED_MENUS, user.role);
