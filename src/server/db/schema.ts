@@ -10648,6 +10648,33 @@ export const dealerDocuments = pgTable(
 );
 export type DealerDocument = typeof dealerDocuments.$inferSelect;
 
+/**
+ * A dealer document checked online (drizzle/0166, 22-Nov-2026): the latest check per document type. number_key
+ * is the PAN blind index or the GSTIN, so a check counts only while the dealer keeps that number.
+ */
+export const dealerVerifications = pgTable(
+  "dealer_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    docType: text("doc_type", { enum: ["PAN", "GSTIN"] }).notNull(),
+    numberKey: text("number_key").notNull(),
+    status: text("status", { enum: ["VERIFIED", "NAME_MISMATCH", "FAILED", "PENDING"] }).notNull(),
+    matchedName: text("matched_name"),
+    nameScore: smallint("name_score"),
+    errorCode: text("error_code"),
+    provider: text("provider").notNull(),
+    providerRef: text("provider_ref"),
+    details: jsonb("details").$type<{ address?: string | null; stateCode?: string | null; pincode?: string | null; docStatus?: string | null }>().notNull().default({}),
+    checkedBy: uuid("checked_by"),
+    checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("dealer_verifications_dealer_doc_uq").on(t.dealerId, t.docType)],
+);
+export type DealerVerification = typeof dealerVerifications.$inferSelect;
+
 /** Areas a dealer works in. Never exclusive: several dealers may share a locality. */
 export const dealerTerritories = pgTable(
   "dealer_territories",
