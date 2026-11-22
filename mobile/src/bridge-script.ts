@@ -265,7 +265,13 @@ export function buildBridgeScript({ siteOrigin, token, platform, version, scheme
     openDigiLocker: function (url) { return request("digilocker.open", { url: String(url) }); },
     getPushToken: function () { return request("push.getToken", {}); },
     // 1.8.0: what this build can do, so the website uses a feature only when the app has it.
-    capabilities: ["cashfree-native-checkout"],
+    // 1.13.0: "speech-recognition" — listen({ lang: "mr-IN" }) uses the phone's recogniser (speech.ts).
+    capabilities: ["cashfree-native-checkout", "speech-recognition"],
+    listen: function (options) {
+      options = options || {};
+      return request("speech.listen", { lang: text(options.lang), maxSeconds: Number(options.maxSeconds) || 12 });
+    },
+    stopListening: function () { return request("speech.stop", {}); },
     cashfreeCheckout: function (options) {
       options = options || {};
       return request("cashfree.checkout", {

@@ -1,6 +1,6 @@
 {
   "name": "gokesari-mobile",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "main": "index.ts",
   "dependencies": {
     "cashfree-pg-api-contract": "2.2.0",
@@ -14,6 +14,7 @@
     "expo-notifications": "~57.0.23",
     "expo-print": "~57.0.2",
     "expo-sharing": "~57.0.22",
+    "expo-speech-recognition": "57.1.1",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.4",

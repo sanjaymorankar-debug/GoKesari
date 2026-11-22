@@ -124,6 +124,12 @@ export const userRoleEnum = pgEnum("user_role", [
   "OPERATOR_LIMITED", // batch-2026-10 WS-D (F8.4.2: onboards shops for their owners; own shops only)
   "DEALER", // docs/dealer-programme (0101): authorised dealers and their salespeople; own records only
   "CA", // gap report D4 (0140): the Chartered Accountant — TDS settings and reports, read-only payouts
+  // docs/rbac (0170, RBAC v2): internal staff roles. Additive enum values; each area is behind an rbac_v2_* flag.
+  "ACCOUNTANT", // maker for journal entries and rate proposals; the CA is the checker
+  "SUPPORT_MANAGER", // owns the support queue and the Support team
+  "SUPPORT_USER", // works assigned tickets and shops; proposes changes the shop owner approves
+  "OPERATIONS_MANAGER", // owns shop / customer onboarding and the Operations team
+  "OPERATIONS_USER", // field and digital onboarding (OPERATOR_LIMITED's work plus tasks, zones, customer assists)
 ]);
 
 /**
@@ -10414,6 +10420,17 @@ export const FEATURE_FLAG_KEYS = [
   "ondc_mode",
   // docs/shop-welcome-kit-2026-11: admins send the welcome kit to shops that were live before it (one shop or by city / district). No migration: a missing row is OFF.
   "shop_welcome_kit_admin_send_enabled",
+  // docs/smart-shopping-2026-11 (0167–0169): photo shopping list, add product by photo, WhatsApp orders. Missing row = OFF.
+  "smart_list_scan_enabled",
+  "shop_photo_listing_enabled",
+  "whatsapp_shop_orders_enabled",
+  // docs/rbac (0170): RBAC v2, one switch per area; a flag's role_scope limits it to some roles. Missing row = OFF.
+  "rbac_v2_staff_roles",
+  "rbac_v2_four_eye_admin",
+  "rbac_v2_accounting",
+  "rbac_v2_support",
+  "rbac_v2_shop_change_requests",
+  "rbac_v2_operations",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -10422,6 +10439,8 @@ export const featureFlags = pgTable("feature_flags", {
   enabled: boolean("enabled").notNull().default(false),
   /** geo_areas codes of DISTRICT rows (seller database: no foreign key). NULL = every district. */
   districtCodes: text("district_codes").array(),
+  /** docs/rbac (0170): roles the flag is on for. NULL = every role. */
+  roleScope: text("role_scope").array(),
   updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -12759,4 +12778,8 @@ export const consultReceiptCounters = pgTable(
 /* >>> GoKesari Health (docs/health/; drizzle/0153_health.sql) */
 export * from "./health-schema";
 export * from "./franchise-schema";
+export * from "./smart-shopping-schema";
+export * from "./shop-photo-listing-schema";
+export * from "./whatsapp-shop-orders-schema";
+export * from "./rbac-schema"; // docs/rbac (0170)
 /* <<< GoKesari Health */

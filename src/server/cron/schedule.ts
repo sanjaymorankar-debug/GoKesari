@@ -169,6 +169,8 @@ export const EVERY_MINUTE: readonly Job[] = [
       ...(await (await import("@/server/services/notifications")).deliverPending()),
       // Onboarding Phase 2 (WP4): notices that came due (e.g. registration reminders, set by the owner's own steps).
       scheduled: await (await import("@/server/services/scheduled-notices")).deliverDueScheduledNotices(),
+      // docs/smart-shopping-2026-11 (feature 3): shop WhatsApp alerts still queued (normally sent seconds after commit).
+      whatsapp: await (await import("@/server/whatsapp/shop-orders/dispatch")).dispatchWhatsAppQueue(),
     }),
   },
   { name: "broadcast-dispatch", run: async () => (await import("@/server/services/broadcasts")).dispatchBroadcasts() },
@@ -230,6 +232,10 @@ export const DAILY: readonly Job[] = [
   // docs/billing: compliance reminders, s.9(5) invoice catch-up, books posting, statements, GST link reminders,
   // credit-note IRNs — a no-op while billing_v2 is off.
   { name: "billing-daily", run: async () => (await import("@/server/tax/daily")).runBillingDaily() },
+  // docs/smart-shopping-2026-11: list photos are deleted after rule smartShopping.photoRetentionDays.
+  { name: "smart-list-photo-retention", run: async () => (await import("@/server/services/smart-list/scan")).sweepExpiredScanPhotos() },
+  // docs/smart-shopping-2026-11 (Feature 2): add-by-photo photos not used for a product, after rule smartShopping.photoRetentionDays.
+  { name: "photo-listing-purge", run: async () => (await import("@/server/services/shop-photo-listing")).purgeExpiredPhotoListingPhotos() },
 ];
 
 /** The jobs of an every-minute run at `now`. */

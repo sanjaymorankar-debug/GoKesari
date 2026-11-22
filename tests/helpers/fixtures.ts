@@ -60,6 +60,9 @@ function pgErrorCode(error: unknown): string | undefined {
  */
 /** The tables resetDatabase() names; TRUNCATE … CASCADE reaches the rest through foreign keys. */
 const RESET_TABLES = [
+  // docs/rbac (0170): the approval engine has no foreign keys to users (TRUNCATE is not blocked by the
+  // append-only trigger on approval_decisions, which guards UPDATE / DELETE only).
+  "approval_requests",
   // Mailbox rotation (0158): per-mailbox send counts, no foreign keys.
   "email_mailbox_sends",
   // docs/billing: GoKesari's delivery-invoice series has no foreign key for the cascade to follow.

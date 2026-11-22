@@ -7,6 +7,8 @@ import type { UserRole } from "@/server/db/schema";
 import type { BoardHeaderData } from "@/server/board-header-data";
 import type { CustomerBoardData } from "@/server/board-data";
 
+import { ScanListTile } from "@/components/smart-list/scan-list-tile";
+
 import { BoardHeader } from "./board-header";
 import { BuyAgainList } from "./buy-again";
 import { Icon, type IconName } from "./icons";
@@ -20,6 +22,8 @@ interface Props {
   timeZone: string;
   /** An invite code waiting to be applied (arrived through a friend's link). */
   referralCode?: string | null;
+  /** docs/smart-shopping-2026-11: the "Scan my shopping list" tile (flag smart_list_scan_enabled). */
+  scanList?: boolean;
 }
 
 function cutoffText(hour: number): string {
@@ -32,7 +36,7 @@ function cutoffText(hour: number): string {
  * screens add the "Buy again" panel beside the tiles and a live footer line
  * on each tile.
  */
-export function CustomerBoard({ lang, user, header, data, timeZone, referralCode }: Props) {
+export function CustomerBoard({ lang, user, header, data, timeZone, referralCode, scanList }: Props) {
   const signedIn = Boolean(user);
   const menus = visibleMenus(CUSTOMER_MENUS, user?.role ?? "CUSTOMER", {
     subscriptionId: data.subscriptionId,
@@ -81,6 +85,7 @@ export function CustomerBoard({ lang, user, header, data, timeZone, referralCode
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-1.5 px-2 pb-0 pt-2 sm:px-3 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(22rem,27rem)] lg:gap-5 lg:px-6 lg:py-4">
         <div className="flex min-w-0 flex-1 flex-col gap-1.5 lg:gap-3">
+          {scanList ? <ScanListTile lang={lang} compact /> : null}
           <form action="/search" role="search" className="lg:hidden">
             <label className="flex h-12 items-center gap-2 rounded-2xl border-2 border-[var(--gk-line)] bg-white px-3 focus-within:border-kesari-600">
               <Icon name="search" size={18} className="shrink-0 text-ink-600" />

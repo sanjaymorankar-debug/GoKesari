@@ -1,5 +1,26 @@
 # GoKesari app — release notes
 
+## 1.13.0 (Android versionCode 14, iPhone build 14) — 22 Nov 2026
+
+Smart shopping (owner brief 22 Nov 2026 18.23 IST; docs/smart-shopping-2026-11 at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Scan your handwritten shopping list — in Marathi, Hindi, English or other
+> Indian languages — and we turn it into a wishlist, compare prices at shops
+> near you and let you pick the shop. Shop owners can add a product from a
+> photo and say its price and stock.
+
+Changes in the app itself:
+- Speech to text for pages (src/speech.ts, expo-speech-recognition 57.1.1): Android's WebView has no
+  Web Speech API, so pages ask the app ("speech.listen", capability "speech-recognition") for
+  Marathi / Hindi / English voice input. Android now asks for the microphone (RECORD_AUDIO), only
+  when the user taps a microphone button; nothing is recorded or kept. iPhone texts updated.
+- `/wishlist` pages open in the app (App Links prefix added).
+- Camera, gallery and location already worked in pages (1.2.0, 1.4.0); nothing else native changed.
+- The in-app update check offers 1.13.0 once `MOBILE_APP_ANDROID_LATEST` / `MOBILE_APP_IOS_LATEST` are
+  set to 1.13.0 on the server after the store release.
+
 ## 1.12.0 (Android versionCode 13, iPhone build 13) — 21 Nov 2026
 
 GoKesari franchise zones and commission chart (owner's final brief, 21 Nov 2026 08.06 IST; docs/franchise).

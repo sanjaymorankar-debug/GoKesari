@@ -11,6 +11,14 @@ import { db, type DbClient } from "@/server/db";
 import { auditLogs, type UserRole } from "@/server/db/schema";
 
 export const AUDIT_ACTIONS = {
+  /** docs/rbac: a signed-in user was refused by a permission or role guard (one row per refusal, rate-capped). */
+  AUTHZ_DENIED: "authz.denied",
+  /** docs/rbac: generic approval engine — submitted, approved, rejected, cancelled, applied, expired. */
+  APPROVAL_SUBMITTED: "approval.submitted",
+  APPROVAL_DECIDED: "approval.decided",
+  APPROVAL_APPLIED: "approval.applied",
+  APPROVAL_SINGLE_ADMIN: "approval.single_admin",
+  USER_EMERGENCY_SUSPENDED: "user.emergency_suspended",
   SHOP_REGISTERED: "shop.registered",
   /** docs/shop-onboarding-wizard-2026-10: a GSTIN / PAN checked in the onboarding wizard, before the shop exists. Masked numbers only. */
   SHOP_REGISTRATION_DRAFT_CHECKED: "shop_registration_draft.checked",

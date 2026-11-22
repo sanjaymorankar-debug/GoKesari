@@ -39,6 +39,7 @@ import {
   type BridgeMessage,
 } from "./bridge";
 import { watchForUpdates } from "./app-update";
+import { listen, stopListening } from "./speech";
 import { buildBridgeScript } from "./bridge-script";
 import { runCashfreeCheckout } from "./cashfree";
 import { parseCashfreeCheckoutRequest } from "./cashfree-request";
@@ -276,7 +277,13 @@ function Shell() {
         switch (message.type) {
           case "hello":
             watches.current?.stopAll();
+            stopListening();
             return;
+          case "speech.listen":
+            return reply(await listen(message));
+          case "speech.stop":
+            stopListening();
+            return reply(true);
           case "share":
             await share(message);
             return reply(true);

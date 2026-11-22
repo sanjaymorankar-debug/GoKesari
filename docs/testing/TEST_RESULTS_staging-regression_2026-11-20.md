@@ -132,6 +132,44 @@ After the run, every QA order of the morning was delivered or refunded and the r
 
 The 8 returns still shown as Approved on `/admin/returns` (RT-95AB5CDB and others) date from earlier runs. They hold no rider pickup and were left as they are.
 
+## Full rider, returns and support re-run (22-Nov-2026, 18.21 to 18.42 IST)
+
+On your request, the **whole** rider delivery file (`orders-delivery`, 20 cases), then the returns and support
+files, on desktop and phone. The suite was staging's head **99074595**. Record:
+`docs/testing/qa-runs/2026-11-22-staging-rider-returns-support.json`.
+
+**First attempt (21-Nov 10.27 IST), not counted.** The Mac lost its internet connection at about 10.30 IST
+(`getaddrinfo ENOTFOUND test.gokesari.com`, `ERR_INTERNET_DISCONNECTED`), so every check after that failed
+before it reached the site. That run was not collected. Its return RT-42749AED was left with the rider
+("rider en route") and was cancelled as operations at 18.20 IST on 22-Nov, before this run.
+
+**Before the run (18.20 IST).** Wallets: customer 1 ₹4,522, shop A ₹4,435.52, shop B ₹5,000. The rider was
+approved, online, ready and free. No open QA order.
+
+**Result: 100 rows, 94 pass, 0 fail, 6 blocked.**
+
+| File | Cases | Rows | Pass | Blocked |
+|---|---|---|---|---|
+| Rider delivery (`orders-delivery`) | 20 | 31 | 26 | 5 |
+| Returns (`orders-returns`) | 24 | 46 | 46 | 0 |
+| Support (`orders-support`) | 15 | 23 | 22 | 1 |
+
+The blocked rows are test data or by design, not product faults:
+- **TC-FLD-089** (desktop and phone, cash on delivery): checkout refused with HTTP 409 "You already have 2
+  cash-on-delivery orders on the way". Customer 1 is at the open-COD limit with two old orders (E-16, open).
+- **TC-DEL-018, TC-DEL-024:** need a second staging rider session (`staging-rider2`), which does not exist.
+- **TC-DSP-015:** needs shop B's owner session (`staging-shopB`), which does not exist.
+- **TC-FLD-103:** by design; the shop contact page has no message field.
+
+In the register the only change is **TC-DEL-007** (delivered with the customer's code): Pass (partial) →
+Pass. Every other case in the three files keeps its status, now confirmed by this run. E-41's fix held:
+the returns file passed 46 of 46 rows, and no return was left with the rider.
+
+**After the run.** No QA order is open: the customer's latest 25 orders, all from this run, are 15 delivered
+and 10 refunded. The rider holds nothing; its two "failed" rows are ended attempts from the failed-drop checks.
+No return waits on a pickup. Wallets: customer 1 **₹1,027.50** (the run used ₹3,494.50), shop A ₹4,279.54,
+shop B ₹5,000.
+
 ## Territory dealers and team leads (new, local server)
 
 36 new cases (TC-TERR-001 … 026, TC-TIER-033 … 042) and journeys SC-48 / SC-49, automated as local-tier
@@ -162,7 +200,11 @@ On staging itself, the territory rule was switched on at 08.30 IST by another se
      (Cashfree sandbox, UPI testsuccess@gocash, order `topup_1795236809678_9bcd2e47`). Customer 1 now has
      **₹6,188.50**, about one run like this morning's (two passes of the returns file used ₹5,008), as long
      as no other session orders with the account (E-37).
+   - After the full re-run of 22-Nov (above), customer 1 has **₹1,027.50**. A full run used ₹3,494.50, so the
+     next one needs another top-up, and only on your OK.
 3. **D-157 and D-158** before territory dealers are released.
+4. **Cash-on-delivery checks (E-16):** customer 1 still has two old open COD orders, so TC-FLD-089 and the
+   TC-COD-001 / 002 stay blocked or failing until those orders are closed or a fresh test customer is used.
 
 Done since the morning: the staging queue paused by #422 (issue #424) went on after #428 fixed the test
 harness (12.35 IST); customer 1's wallet was topped up and the checks re-run (above).

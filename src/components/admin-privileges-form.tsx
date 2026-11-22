@@ -35,6 +35,12 @@ const ROLE_ORDER: readonly UserRole[] = [
   "OPERATOR_LIMITED", // batch-2026-10 WS-D
   "DEALER", // docs/dealer-programme
   "CA", // gap report D4: Chartered Accountant
+  // docs/rbac: RBAC v2 staff roles
+  "OPERATIONS_USER",
+  "SUPPORT_USER",
+  "ACCOUNTANT",
+  "OPERATIONS_MANAGER",
+  "SUPPORT_MANAGER",
   "OPERATOR",
   "ADMIN",
 ];
@@ -54,6 +60,11 @@ const ROLE_LABELS: Record<UserRole, string> = {
   OPERATOR_LIMITED: "Operator (Limited)", // batch-2026-10 WS-D
   DEALER: "Dealer", // docs/dealer-programme
   CA: "Chartered Accountant", // gap report D4
+  ACCOUNTANT: "Accountant", // docs/rbac
+  SUPPORT_MANAGER: "Support Manager",
+  SUPPORT_USER: "Support User",
+  OPERATIONS_MANAGER: "Operations Manager",
+  OPERATIONS_USER: "Operations User",
 };
 
 const label = (role: UserRole) => ROLE_LABELS[role] ?? role;
@@ -111,10 +122,15 @@ export function AdminPrivilegesForm({
       confirmLabel: "Yes, save privileges",
     }),
     onSave: async () => {
-      await postJson(`/api/users/${userId}/privileges`, "PATCH", {
+      const result = await postJson<{ pendingApproval?: boolean; message?: string }>(`/api/users/${userId}/privileges`, "PATCH", {
         activeRole: draft.activeRole,
         heldRoles: draft.heldRoles,
       });
+      // docs/rbac: with two-admin approval on, nothing changes until a second admin approves.
+      if (result?.pendingApproval) {
+        setDraft(baseline);
+        return result.message ?? "Sent for approval by a second admin.";
+      }
       setBaseline(draft);
       router.refresh();
       return `Privileges updated for ${userName}`;

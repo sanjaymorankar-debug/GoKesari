@@ -18,6 +18,7 @@ import { canApplyReferralCode } from "@/server/services/customer-referrals";
 import { listLiveBanners } from "@/server/services/home-banners";
 import { nearbyOfferCounts, popularInArea } from "@/server/services/home-discovery";
 import { listNearbyShops } from "@/server/services/serviceability";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { getRule } from "@/server/services/settings";
 import { searchShops } from "@/server/services/shops";
 
@@ -40,7 +41,8 @@ export default async function HomePageRoute() {
   // Reads start together rather than one after another: each one is a round trip
   // to the database in Singapore (performance check, 29 Oct 2026). The account
   // reads are only wasted when rule `homeDiscovery` is off.
-  const [location, showReferral, lang, header, rule, [buyAgainRows, activeOrder, subscriptionId, cartCount]] = await Promise.all([
+  const [scanList, location, showReferral, lang, header, rule, [buyAgainRows, activeOrder, subscriptionId, cartCount]] = await Promise.all([
+    isFeatureEnabled("smart_list_scan_enabled").catch(() => false),
     getCustomerLocation(user?.id),
     user && referralCode ? canApplyReferralCode(user.id).catch(() => false) : false,
     getBoardLang(),
@@ -61,6 +63,7 @@ export default async function HomePageRoute() {
         data={board}
         timeZone={getEnv().APP_TIMEZONE}
         referralCode={showReferral ? referralCode : null}
+        scanList={scanList}
       />
     );
   }
@@ -123,6 +126,7 @@ export default async function HomePageRoute() {
     buyAgain,
     popular: { scope: popular.scope, items: popularTiles },
     referralCode: showReferral && referralCode ? referralCode : null,
+    scanList,
   };
 
   return (

@@ -7,8 +7,9 @@
  *          read codes and links at /admin/test-messages — test site and
  *          development only, refused on gokesari.com.
  *
- * A real vendor (MSG91 with DLT templates for SMS, Meta Cloud API or a BSP
- * for WhatsApp) is added as another mode here; callers do not change.
+ * A real vendor (MSG91 with DLT templates for SMS) is added as another mode
+ * here; callers do not change. WhatsApp's Meta Cloud API mode is used only by
+ * the shop-order alerts (notifications/providers/whatsapp-meta.ts).
  */
 import { getEnv, messagingConfigProblem } from "@/lib/env";
 import { db } from "@/server/db";
@@ -21,7 +22,10 @@ export class MessagingUnavailableError extends Error {}
 export function textChannelMode(channel: TextChannel): "none" | "mock" {
   const env = getEnv();
   if (messagingConfigProblem(env)) return "none";
-  return channel === "SMS" ? env.SMS_PROVIDER : env.WHATSAPP_PROVIDER;
+  if (channel === "SMS") return env.SMS_PROVIDER;
+  // WHATSAPP_PROVIDER=meta serves only the shop-order alerts (server/whatsapp/shop-orders, approved
+  // templates); a general notification has no approved template, so its WhatsApp copy is skipped.
+  return env.WHATSAPP_PROVIDER === "mock" ? "mock" : "none";
 }
 
 export function isTextChannelAvailable(channel: TextChannel): boolean {

@@ -10,6 +10,8 @@
  */
 import Link from "next/link";
 
+import { ScanListTile } from "@/components/smart-list/scan-list-tile";
+
 import { Icon, type IconName } from "@/components/board/icons";
 import { ShopGrid, type GridShop } from "@/components/shop-grid";
 import { formatCount } from "@/lib/board/format";
@@ -35,6 +37,8 @@ export interface HomePageData {
   buyAgain: ProductTile[];
   popular: { scope: "area" | "city" | "platform" | "catalogue"; items: ProductTile[] };
   referralCode: string | null;
+  /** docs/smart-shopping-2026-11: show the "Scan my shopping list" tile (flag smart_list_scan_enabled). */
+  scanList?: boolean;
 }
 
 function SectionHeading({ id, title, href, linkLabel }: { id: string; title: string; href?: string; linkLabel?: string }) {
@@ -150,6 +154,7 @@ export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNa
       <h1 className="sr-only">GoKesari — {tr(HOME.shopsNearYou, lang)}</h1>
 
       <div className="mx-auto w-full max-w-[1600px] space-y-6 px-3 pb-6 pt-3 sm:px-4 lg:space-y-8 lg:px-6 lg:pt-5">
+        {data.scanList ? <ScanListTile lang={lang} /> : null}
         {data.referralCode ? (
           <Link href="/refer" data-testid="home-invite" className="flex min-h-12 items-center gap-3 rounded-2xl border-2 border-kesari-600 bg-white px-3 text-sm font-bold text-ink-900">
             <Icon name="gift" size={20} className="shrink-0 text-kesari-700" />

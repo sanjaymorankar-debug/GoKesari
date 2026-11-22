@@ -364,6 +364,48 @@ export const PERMISSIONS = {
   /** Emergency ("break-glass") read of a patient's clinical record, with a reason; every use is logged and the patient is told. */
   HEALTH_BREAK_GLASS: "health:break_glass",
   /* <<< GoKesari Health */
+  /* >>> RBAC v2 (docs/rbac): staff roles, four-eye approvals, accounting, support, operations */
+  /** See and decide four-eye requests raised by another admin (never one's own). */
+  APPROVAL_DECIDE_ADMIN: "approval:decide:admin",
+  /** See every approval request of every type. */
+  APPROVAL_VIEW_ANY: "approval:view:any",
+  /** The staff tile board at /staff (every RBAC v2 role). */
+  STAFF_BOARD: "staff:board",
+  /** See the members and workload of one's own team (Support / Operations managers). */
+  STAFF_TEAM_VIEW: "staff-team:view",
+  /** Accountant: draft journal entries and submit them to the CA. */
+  JOURNAL_PREPARE: "journal:prepare",
+  /** CA: approve or reject journal entries (never one's own). */
+  JOURNAL_APPROVE: "journal:approve",
+  /** CA: close and reopen financial periods. */
+  FIN_PERIOD_CLOSE: "fin-period:close",
+  /** Accountant: propose a commission / fee / charge rate change. */
+  RATE_PROPOSE: "rate-proposal:submit",
+  /** CA: approve or reject a rate proposal. */
+  RATE_APPROVE: "rate-proposal:approve",
+  /** Admin: activate a CA-approved rate with an effective date. */
+  RATE_ACTIVATE: "rate-proposal:activate",
+  /** Support Manager: run the support queue — assign, reassign, priority, due dates, close. */
+  SUPPORT_QUEUE_MANAGE: "support-queue:manage",
+  /** Support User: work the tickets and shops assigned to them. */
+  SUPPORT_TICKET_WORK_ASSIGNED: "support-ticket:work:assigned",
+  /** Support User: propose shop / product / price / MRP changes that the shop owner approves. */
+  SHOP_CHANGE_PROPOSE: "shop-change:propose",
+  /** Shop owner: approve or reject proposed changes to own shop, item by item. */
+  SHOP_CHANGE_DECIDE_OWN: "shop-change:decide:own",
+  /** Support User: ask an admin to correct master product data (never written directly). */
+  MASTER_DATA_CORRECTION_PROPOSE: "master-data-correction:propose",
+  /** See a shop's purchase cost. Granted to no role by default. */
+  SHOP_COST_VIEW: "shop-cost:view",
+  /** Operations Manager: assign tasks and zones, review the team. */
+  OPS_TEAM_MANAGE: "ops-team:manage",
+  /** Operations Manager: onboarding reports by zone, dealer, team lead, agent; export. */
+  OPS_REPORT_VIEW: "ops-report:view",
+  /** Operations User: work own tasks and follow-ups. */
+  OPS_TASK_WORK_OWN: "ops-task:work:own",
+  /** Operations User: help a customer register (the customer confirms by OTP). */
+  CUSTOMER_ONBOARD_ASSIST: "customer-onboard:assist",
+  /* <<< RBAC v2 */
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -409,6 +451,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.REPORT_VIEW_SHOP,
   // The owner's veto over operator-proposed prices (§2.4).
   PERMISSIONS.PRICE_REQUEST_DECIDE_OWN,
+  PERMISSIONS.SHOP_CHANGE_DECIDE_OWN, // RBAC v2: Support-proposed changes wait for the owner
   PERMISSIONS.EXCEL_UPLOAD_OWN,
   PERMISSIONS.PAYMENT_VIEW_OWN,
   PERMISSIONS.DELIVERY_ORDER_ASSIGN_SHOP,
@@ -574,7 +617,67 @@ const CA_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.STATUTORY_MANAGE,
   PERMISSIONS.COMMISSION_TDS_MANAGE,
   PERMISSIONS.DEALER_PAYOUTS_READ,
+  // RBAC v2 (docs/rbac), additive: financial oversight and the checker side of accounting.
+  PERMISSIONS.SUPPORT_TICKET_RAISE,
+  PERMISSIONS.STAFF_BOARD,
+  PERMISSIONS.FINANCE_VIEW,
+  PERMISSIONS.PAYMENT_VIEW_ANY,
+  PERMISSIONS.JOURNAL_APPROVE,
+  PERMISSIONS.FIN_PERIOD_CLOSE,
+  PERMISSIONS.RATE_APPROVE,
 ];
+
+/* >>> RBAC v2 (docs/rbac/01-assessment.md §3). Staff roles get personal shopping only, plus their own area. */
+const STAFF_PERSONAL_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.ORDER_PLACE,
+  PERMISSIONS.ORDER_VIEW_OWN,
+  PERMISSIONS.ORDER_CANCEL_OWN,
+  PERMISSIONS.WALLET_VIEW_OWN,
+  PERMISSIONS.WALLET_TOPUP_OWN,
+  PERMISSIONS.SUBSCRIPTION_MANAGE_OWN,
+  PERMISSIONS.SUPPORT_TICKET_RAISE,
+  PERMISSIONS.STAFF_BOARD,
+];
+
+const ACCOUNTANT_PERMISSIONS: readonly Permission[] = [
+  ...STAFF_PERSONAL_PERMISSIONS,
+  PERMISSIONS.FINANCE_VIEW,
+  PERMISSIONS.PAYMENT_VIEW_ANY,
+  PERMISSIONS.DEALER_PAYOUTS_READ,
+  PERMISSIONS.JOURNAL_PREPARE,
+  PERMISSIONS.RATE_PROPOSE,
+  // Deliberately absent: FINANCE_MANAGE, FINANCE_PREPARE (settlement drafts stay admin), JOURNAL_APPROVE,
+  // FIN_PERIOD_CLOSE, RATE_APPROVE, RATE_ACTIVATE — the Accountant is the maker, never the checker.
+];
+
+const SUPPORT_MANAGER_PERMISSIONS: readonly Permission[] = [
+  ...STAFF_PERSONAL_PERMISSIONS,
+  PERMISSIONS.SUPPORT_TICKET_MANAGE,
+  PERMISSIONS.SUPPORT_QUEUE_MANAGE,
+  PERMISSIONS.STAFF_TEAM_VIEW,
+  PERMISSIONS.GRIEVANCE_MANAGE,
+  PERMISSIONS.DISPUTE_MANAGE,
+  PERMISSIONS.CATALOGUE_BROWSE,
+  // Deliberately absent: SHOP_UPDATE_ANY, SHOP_PRODUCT_MANAGE_ANY, ORDER_REFUND, USER_SET_ROLE.
+];
+
+const SUPPORT_USER_PERMISSIONS: readonly Permission[] = [
+  ...STAFF_PERSONAL_PERMISSIONS,
+  PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED,
+  PERMISSIONS.SHOP_CHANGE_PROPOSE,
+  PERMISSIONS.MASTER_DATA_CORRECTION_PROPOSE,
+  PERMISSIONS.CATALOGUE_BROWSE,
+  // Deliberately absent: SUPPORT_TICKET_MANAGE (sees every ticket), SHOP_UPDATE_ANY and
+  // SHOP_PRODUCT_MANAGE_ANY (direct writes), PRODUCT_MRP_MANAGE (master MRP), SHOP_COST_VIEW.
+];
+
+const OPERATIONS_MANAGER_PERMISSIONS: readonly Permission[] = [
+  ...STAFF_PERSONAL_PERMISSIONS,
+  PERMISSIONS.OPS_TEAM_MANAGE,
+  PERMISSIONS.OPS_REPORT_VIEW,
+  PERMISSIONS.STAFF_TEAM_VIEW,
+];
+/* <<< RBAC v2 */
 
 const OPERATOR_LIMITED_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.CONSULT_ONBOARD, // consultant appointments: only for the shops the operator onboarded (checked in src/server/consult)
@@ -586,6 +689,17 @@ const OPERATOR_LIMITED_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.SUBSCRIPTION_MANAGE_OWN,
   PERMISSIONS.OPERATOR_LIMITED_ONBOARD,
   PERMISSIONS.OPERATOR_LIMITED_VERIFY_DOCS,
+];
+
+/** RBAC v2: OPERATOR_LIMITED's onboarding work, plus tasks, zones and customer assists. */
+const OPERATIONS_USER_PERMISSIONS: readonly Permission[] = [
+  ...OPERATOR_LIMITED_PERMISSIONS,
+  PERMISSIONS.SUPPORT_TICKET_RAISE,
+  PERMISSIONS.STAFF_BOARD,
+  PERMISSIONS.OPS_TASK_WORK_OWN,
+  PERMISSIONS.CUSTOMER_ONBOARD_ASSIST,
+  // Deliberately absent: SHOP_UPDATE_ANY, SHOP_GST_PAN_VERIFY, PRODUCT_MRP_MANAGE — approved sensitive
+  // shop data is changed through a ticket to Support, never by Operations.
 ];
 
 export const ROLE_PERMISSIONS: Readonly<
@@ -600,6 +714,11 @@ export const ROLE_PERMISSIONS: Readonly<
   OPERATOR_LIMITED: OPERATOR_LIMITED_PERMISSIONS, // batch-2026-10 WS-D
   DEALER: DEALER_PERMISSIONS, // docs/dealer-programme
   CA: CA_PERMISSIONS, // gap report D4
+  ACCOUNTANT: ACCOUNTANT_PERMISSIONS, // docs/rbac
+  SUPPORT_MANAGER: SUPPORT_MANAGER_PERMISSIONS,
+  SUPPORT_USER: SUPPORT_USER_PERMISSIONS,
+  OPERATIONS_MANAGER: OPERATIONS_MANAGER_PERMISSIONS,
+  OPERATIONS_USER: OPERATIONS_USER_PERMISSIONS,
 };
 
 const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
@@ -612,6 +731,11 @@ const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
   OPERATOR_LIMITED: new Set(OPERATOR_LIMITED_PERMISSIONS), // batch-2026-10 WS-D
   DEALER: new Set(DEALER_PERMISSIONS), // docs/dealer-programme
   CA: new Set(CA_PERMISSIONS), // gap report D4
+  ACCOUNTANT: new Set(ACCOUNTANT_PERMISSIONS), // docs/rbac
+  SUPPORT_MANAGER: new Set(SUPPORT_MANAGER_PERMISSIONS),
+  SUPPORT_USER: new Set(SUPPORT_USER_PERMISSIONS),
+  OPERATIONS_MANAGER: new Set(OPERATIONS_MANAGER_PERMISSIONS),
+  OPERATIONS_USER: new Set(OPERATIONS_USER_PERMISSIONS),
 };
 
 export function can(role: UserRole, permission: Permission): boolean {
@@ -639,6 +763,11 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   OPERATOR_LIMITED: "Operator (Limited)", // batch-2026-10 WS-D
   DEALER: "Dealer", // docs/dealer-programme
   CA: "Chartered Accountant", // gap report D4
+  ACCOUNTANT: "Accountant", // docs/rbac
+  SUPPORT_MANAGER: "Support Manager",
+  SUPPORT_USER: "Support User",
+  OPERATIONS_MANAGER: "Operations Manager",
+  OPERATIONS_USER: "Operations User",
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
@@ -803,4 +932,26 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.CONSULT_ONBOARD]: "Set up the booking profile, team, services, hours and map pin of a consultant the user onboarded",
   [PERMISSIONS.HEALTH_MANAGE]: "GoKesari Health administration: provider verification, drug master, care and equipment lists, Prime plans and pricing, reports and access logs (metadata only)",
   [PERMISSIONS.HEALTH_BREAK_GLASS]: "Emergency read of a patient's clinical record with a stated reason (logged and shown to the patient)",
+  /* >>> RBAC v2 (docs/rbac) */
+  [PERMISSIONS.APPROVAL_DECIDE_ADMIN]: "Approve or reject another admin's request (user, role, suspension, flag changes); never one's own",
+  [PERMISSIONS.APPROVAL_VIEW_ANY]: "See every approval request of every type",
+  [PERMISSIONS.STAFF_BOARD]: "Open the staff tile board for one's role",
+  [PERMISSIONS.STAFF_TEAM_VIEW]: "See the members and workload of one's own team",
+  [PERMISSIONS.JOURNAL_PREPARE]: "Draft journal entries and submit them to the CA",
+  [PERMISSIONS.JOURNAL_APPROVE]: "Approve or reject journal entries prepared by someone else",
+  [PERMISSIONS.FIN_PERIOD_CLOSE]: "Close and reopen financial periods",
+  [PERMISSIONS.RATE_PROPOSE]: "Propose a commission, fee or charge rate change",
+  [PERMISSIONS.RATE_APPROVE]: "Approve or reject a proposed rate change",
+  [PERMISSIONS.RATE_ACTIVATE]: "Activate an approved rate change with an effective date",
+  [PERMISSIONS.SUPPORT_QUEUE_MANAGE]: "Run the support queue: assign, reassign, priority, due dates, close and reopen",
+  [PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED]: "Work the tickets and shops assigned to oneself",
+  [PERMISSIONS.SHOP_CHANGE_PROPOSE]: "Propose shop, product, price or MRP changes for the shop owner to approve",
+  [PERMISSIONS.SHOP_CHANGE_DECIDE_OWN]: "Approve or reject proposed changes to one's own shop, item by item",
+  [PERMISSIONS.MASTER_DATA_CORRECTION_PROPOSE]: "Ask an admin to correct master product data",
+  [PERMISSIONS.SHOP_COST_VIEW]: "See a shop's purchase cost",
+  [PERMISSIONS.OPS_TEAM_MANAGE]: "Assign onboarding tasks and zones and review the Operations team",
+  [PERMISSIONS.OPS_REPORT_VIEW]: "See and export onboarding reports by zone, dealer, team lead and agent",
+  [PERMISSIONS.OPS_TASK_WORK_OWN]: "Work one's own onboarding tasks and follow-ups",
+  [PERMISSIONS.CUSTOMER_ONBOARD_ASSIST]: "Help a customer register (the customer confirms by OTP)",
+  /* <<< RBAC v2 */
 };
