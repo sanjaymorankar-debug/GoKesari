@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { AssistForm, AssistStatusButtons, EndZoneButton, TaskComposer, ZoneAssigner } from "@/components/staff/operations-desk";
+import { AssistForm, AssistStatusButtons, EndZoneButton, TaskComposer, TeamMemberButton, ZoneAssigner } from "@/components/staff/operations-desk";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { formatIst } from "@/lib/franchise";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -15,6 +15,7 @@ import {
   listCustomerAssists,
   listOpsTasks,
   listOpsTeam,
+  listUnteamedOpsUsers,
   listZones,
   istPeriod,
   type OpsTaskView,
@@ -245,37 +246,59 @@ export default async function OperationsPage({ searchParams }: { searchParams: P
       </div>
     );
   } else if (tab === "team") {
-    const [team, zones] = await Promise.all([listOpsTeam(user), listZones(user)]);
+    const isAdmin = user.role === "ADMIN";
+    const [team, zones, unteamed] = await Promise.all([listOpsTeam(user), listZones(user), listUnteamedOpsUsers(user)]);
     const zoneOpts = zones.map((z) => ({ zoneId: z.zoneId, name: `${z.name} (${z.region})` }));
-    body =
-      team.length === 0 ? (
-        <EmptyState title="No Operations Users yet" description="An admin gives the Operations User role from Users." />
-      ) : (
-        <ul className="grid gap-2">
-          {team.map((m) => (
-            <li key={m.id}>
-              <Card className="grid gap-2 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold">{m.name ?? m.email}</span>
-                  {m.status !== "ACTIVE" ? <Badge tone="warning">{m.status}</Badge> : null}
-                  <span className="text-sm text-ink-600">
-                    {m.openTasks} open · {m.overdueTasks} overdue · {m.doneLast7Days} done in 7 days
-                  </span>
-                  <Link className="text-sm text-kesari-800 hover:underline" href={`?tab=tasks&assignee=${m.id}`}>
-                    tasks
-                  </Link>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {m.zones.map((z) => (
-                    <EndZoneButton key={z.assignmentId} assignmentId={z.assignmentId} label={z.zoneName ?? z.zoneId} />
-                  ))}
-                  {m.status === "ACTIVE" ? <ZoneAssigner userId={m.id} zones={zoneOpts.filter((z) => !m.zones.some((x) => x.zoneId === z.zoneId))} /> : null}
-                </div>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      );
+    body = (
+      <div className="grid gap-3">
+        {team.length === 0 ? (
+          <EmptyState
+            title={isAdmin ? "No Operations Users yet" : "Your team is empty"}
+            description={isAdmin ? "An admin gives the Operations User role from Users." : "Add Operations Users to your team below."}
+          />
+        ) : (
+          <ul className="grid gap-2">
+            {team.map((m) => (
+              <li key={m.id}>
+                <Card className="grid gap-2 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{m.name ?? m.email}</span>
+                    {m.status !== "ACTIVE" ? <Badge tone="warning">{m.status}</Badge> : null}
+                    <span className="text-sm text-ink-600">
+                      {m.openTasks} open · {m.overdueTasks} overdue · {m.doneLast7Days} done in 7 days
+                    </span>
+                    <Link className="text-sm text-kesari-800 hover:underline" href={`?tab=tasks&assignee=${m.id}`}>
+                      tasks
+                    </Link>
+                    {!isAdmin ? <TeamMemberButton managerUserId={user.id} memberUserId={m.id} mode="remove" /> : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {m.zones.map((z) => (
+                      <EndZoneButton key={z.assignmentId} assignmentId={z.assignmentId} label={z.zoneName ?? z.zoneId} />
+                    ))}
+                    {m.status === "ACTIVE" ? <ZoneAssigner userId={m.id} zones={zoneOpts.filter((z) => !m.zones.some((x) => x.zoneId === z.zoneId))} /> : null}
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
+        {unteamed.length ? (
+          <Card className="grid gap-2 p-3">
+            <h2 className="font-semibold">Operations Users not in a team</h2>
+            <ul className="grid gap-1">
+              {unteamed.map((u) => (
+                <li key={u.id} className="flex flex-wrap items-center gap-2 text-sm">
+                  <span>{u.name ?? u.email}</span>
+                  {!isAdmin ? <TeamMemberButton managerUserId={user.id} memberUserId={u.id} mode="add" /> : null}
+                </li>
+              ))}
+            </ul>
+            {isAdmin ? <p className="text-xs text-ink-600">An Operations Manager adds them to their own team here.</p> : null}
+          </Card>
+        ) : null}
+      </div>
+    );
   } else if (tab === "reports") {
     const period = sp.period === "week" ? "week" : "day";
     const days = Math.min(365, Math.max(1, Number(sp.days) || 30));

@@ -31,7 +31,7 @@ import {
   type OpsTaskStatus,
 } from "@/server/db/ops-schema";
 import { franchiseZones } from "@/server/db/franchise-schema";
-import { shops, users } from "@/server/db/schema";
+import { shops, staffTeamMembers, users } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { notify } from "@/server/services/notifications";
 import { denyNotOwn, isOpsManager, requireOps, type OpsActor } from "./access";
@@ -50,23 +50,47 @@ export interface OpsTeamMember {
 }
 
 /**
- * The Operations team. Until the shared staff_team_members table (Phase 4 / migration 0172) is
- * merged, an Operations Manager's team is every active OPERATIONS_USER (decisions-log D6-01).
+ * Whose work a manager sees (brief §11 data scope). ADMIN: everyone (null). Operations Manager: the
+ * active members of their own OPERATIONS team (staff_team_members, migration 0172; the manager or an
+ * admin adds members). Anyone else: nobody.
  */
-async function teamUserIds(): Promise<string[]> {
+export async function managedUserIds(actor: OpsActor): Promise<string[] | null> {
+  if (actor.role === "ADMIN") return null;
+  if (!isOpsManager(actor)) return [];
   const rows = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(and(eq(users.role, "OPERATIONS_USER"), eq(users.status, "ACTIVE"), isNull(users.deletedAt)));
+    .select({ id: staffTeamMembers.memberUserId })
+    .from(staffTeamMembers)
+    .where(and(eq(staffTeamMembers.team, "OPERATIONS"), eq(staffTeamMembers.managerUserId, actor.id), eq(staffTeamMembers.active, true)));
   return rows.map((r) => r.id);
+}
+
+const inScope = (scope: string[] | null, userId: string) => scope === null || scope.includes(userId);
+
+/** Operations Users not yet in any Operations team (a manager can add them to theirs). */
+export async function listUnteamedOpsUsers(actor: OpsActor): Promise<{ id: string; name: string | null; email: string }[]> {
+  await requireOps(actor, "manage");
+  return db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(
+      and(
+        eq(users.role, "OPERATIONS_USER"),
+        eq(users.status, "ACTIVE"),
+        isNull(users.deletedAt),
+        sql`not exists (select 1 from staff_team_members m where m.member_user_id = ${users.id} and m.team = 'OPERATIONS' and m.active)`,
+      ),
+    )
+    .orderBy(asc(users.name));
 }
 
 export async function listOpsTeam(actor: OpsActor): Promise<OpsTeamMember[]> {
   await requireOps(actor, "manage");
+  const scope = await managedUserIds(actor);
+  if (scope !== null && scope.length === 0) return [];
   const members = await db
     .select({ id: users.id, name: users.name, email: users.email, status: users.status })
     .from(users)
-    .where(and(eq(users.role, "OPERATIONS_USER"), isNull(users.deletedAt)))
+    .where(and(eq(users.role, "OPERATIONS_USER"), isNull(users.deletedAt), scope ? inArray(users.id, scope) : undefined))
     .orderBy(asc(users.name));
   if (members.length === 0) return [];
   const ids = members.map((m) => m.id);
@@ -97,7 +121,8 @@ export async function listOpsTeam(actor: OpsActor): Promise<OpsTeamMember[]> {
   }));
 }
 
-async function assertOpsUser(userId: string): Promise<{ id: string; name: string | null; email: string }> {
+/** The user must be an active Operations User in the actor's team (any, for an admin). */
+async function assertOpsUser(actor: OpsActor, userId: string): Promise<{ id: string; name: string | null; email: string }> {
   const [u] = await db
     .select({ id: users.id, name: users.name, email: users.email, role: users.role, status: users.status, deletedAt: users.deletedAt })
     .from(users)
@@ -105,6 +130,7 @@ async function assertOpsUser(userId: string): Promise<{ id: string; name: string
   if (!u || u.deletedAt) throw notFound("Operations User");
   if (u.role !== "OPERATIONS_USER") throw validationFailed("Tasks and zones can be given only to an Operations User.");
   if (u.status !== "ACTIVE") throw validationFailed("This Operations User is not active.");
+  if (!inScope(await managedUserIds(actor), userId)) denyNotOwn(actor, "team");
   return u;
 }
 
@@ -121,7 +147,7 @@ export async function listZones(actor: OpsActor): Promise<{ zoneId: string; name
 
 export async function assignZone(actor: OpsActor, input: { userId: string; zoneId: string; reason?: string | null }): Promise<{ id: string }> {
   await requireOps(actor, "manage");
-  await assertOpsUser(input.userId);
+  await assertOpsUser(actor, input.userId);
   const [zone] = await db.select({ zoneId: franchiseZones.zoneId }).from(franchiseZones).where(eq(franchiseZones.zoneId, input.zoneId));
   if (!zone) throw notFound("Zone");
   const [existing] = await db
@@ -139,6 +165,9 @@ export async function assignZone(actor: OpsActor, input: { userId: string; zoneI
 /** Ends a zone assignment (kept as history; never deleted). */
 export async function endZoneAssignment(actor: OpsActor, assignmentId: string): Promise<void> {
   await requireOps(actor, "manage");
+  const [row] = await db.select({ userId: opsZoneAssignments.userId }).from(opsZoneAssignments).where(eq(opsZoneAssignments.id, assignmentId));
+  if (!row) throw notFound("Zone assignment");
+  if (!inScope(await managedUserIds(actor), row.userId)) denyNotOwn(actor, "team");
   const updated = await db
     .update(opsZoneAssignments)
     .set({ active: false, endedAt: new Date(), endedBy: actor.id })
@@ -150,7 +179,7 @@ export async function endZoneAssignment(actor: OpsActor, assignmentId: string): 
 /** The zones an Operations User works (their own, or any user's for a manager). */
 export async function zonesOf(actor: OpsActor, userId = actor.id): Promise<string[]> {
   await requireOps(actor, "manage", "work");
-  if (userId !== actor.id && !isOpsManager(actor)) denyNotOwn(actor, "zones");
+  if (userId !== actor.id && (!isOpsManager(actor) || !inScope(await managedUserIds(actor), userId))) denyNotOwn(actor, "zones");
   const rows = await db
     .select({ zoneId: opsZoneAssignments.zoneId })
     .from(opsZoneAssignments)
@@ -208,7 +237,7 @@ export async function createOpsTask(actor: OpsActor, input: CreateOpsTaskInput):
   if (input.priority && !OPS_TASK_PRIORITIES.includes(input.priority)) throw validationFailed("Unknown priority.");
   const title = input.title.trim();
   if (title.length < 3) throw validationFailed("Give the task a title.");
-  await assertOpsUser(input.assigneeUserId);
+  await assertOpsUser(actor, input.assigneeUserId);
   if (input.shopId) {
     const [shop] = await db.select({ id: shops.id }).from(shops).where(eq(shops.id, input.shopId));
     if (!shop) throw notFound("Shop");
@@ -251,7 +280,9 @@ async function loadTask(id: string): Promise<OpsTask> {
 async function readableTask(actor: OpsActor, id: string): Promise<OpsTask> {
   await requireOps(actor, "manage", "work");
   const task = await loadTask(id);
-  if (!isOpsManager(actor) && task.assigneeUserId !== actor.id) denyNotOwn(actor, "task");
+  if (task.assigneeUserId === actor.id) return task;
+  if (!isOpsManager(actor)) denyNotOwn(actor, "task");
+  if (task.createdBy !== actor.id && !inScope(await managedUserIds(actor), task.assigneeUserId)) denyNotOwn(actor, "task");
   return task;
 }
 
@@ -268,7 +299,11 @@ export async function listOpsTasks(
   await requireOps(actor, "manage", "work");
   const conds = [];
   if (!isOpsManager(actor)) conds.push(eq(opsTasks.assigneeUserId, actor.id));
-  else if (filter.assigneeUserId) conds.push(eq(opsTasks.assigneeUserId, filter.assigneeUserId));
+  else {
+    const scope = await managedUserIds(actor);
+    if (scope !== null) conds.push(or(eq(opsTasks.createdBy, actor.id), scope.length ? inArray(opsTasks.assigneeUserId, scope) : sql`false`)!);
+    if (filter.assigneeUserId) conds.push(eq(opsTasks.assigneeUserId, filter.assigneeUserId));
+  }
   if (filter.shopId) conds.push(eq(opsTasks.shopId, filter.shopId));
   const status = filter.status ?? "ACTIVE";
   if (status === "ACTIVE") conds.push(inArray(opsTasks.status, ["OPEN", "IN_PROGRESS"]));
@@ -330,7 +365,7 @@ export async function reassignOpsTask(actor: OpsActor, id: string, input: { assi
   const task = await loadTask(id);
   if (task.status === "DONE" || task.status === "CANCELLED") throw conflict("A finished task cannot be reassigned. Reopen it first.");
   if (task.assigneeUserId === input.assigneeUserId) throw conflict("The task is already assigned to this user.");
-  await assertOpsUser(input.assigneeUserId);
+  await assertOpsUser(actor, input.assigneeUserId);
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(opsTasks)
@@ -498,4 +533,3 @@ export async function searchShopsForOps(actor: OpsActor, q: string): Promise<{ i
     .limit(20);
 }
 
-export { teamUserIds };

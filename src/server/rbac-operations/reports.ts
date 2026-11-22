@@ -23,6 +23,7 @@ import { formatIst } from "@/lib/franchise";
 import { db } from "@/server/db";
 import { requireOps, type OpsActor } from "./access";
 import { syncAssistRegistrations } from "./assists";
+import { managedUserIds } from "./tasks";
 
 type Raw = Record<string, unknown>;
 const n = (v: unknown) => Number(v ?? 0);
@@ -268,11 +269,13 @@ export async function getOpsActivityReport(actor: OpsActor, options: { period?: 
   await syncAssistRegistrations();
   const period = options.period ?? "day";
   const { from, to } = istPeriod(period, options.date);
+  const scope = await managedUserIds(actor); // an Operations Manager reports on their own team
   // [from, to] as IST calendar dates; compared on the IST date of each timestamp.
   const inRange = (col: SQL) => sql`(${col} at time zone 'Asia/Kolkata')::date between ${from}::date and ${to}::date`;
   const rows = (await db.execute(sql`
     with people as (
       select u.id, u.name from users u where u.role = 'OPERATIONS_USER' and u.deleted_at is null
+        and ${scope === null ? sql`true` : scope.length ? sql`u.id in ${scope}` : sql`false`}
     ),
     per_user as (
       select p.id::text as k, coalesce(p.name, '—') as label,

@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { db } from "@/server/db";
 import { opsTaskEvents } from "@/server/db/ops-schema";
-import { auditLogs, featureFlags, notifications, shops, users, type UserRole } from "@/server/db/schema";
+import { auditLogs, featureFlags, notifications, shops, staffTeamMembers, users, type UserRole } from "@/server/db/schema";
 import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import {
   assignZone,
@@ -29,6 +29,7 @@ import {
   listCustomerAssists,
   listOpsTasks,
   listOpsTeam,
+  listUnteamedOpsUsers,
   reassignOpsTask,
   updateCustomerAssist,
   updateOpsTask,
@@ -66,7 +67,13 @@ beforeEach(async () => {
   opsA = actor(await createUser({ role: "OPERATIONS_USER", name: "Arun Ops" }));
   opsB = actor(await createUser({ role: "OPERATIONS_USER", name: "Bina Ops" }));
   admin = actor(await createUser({ role: "ADMIN", name: "Admin" }));
+  await joinTeam(manager, opsA);
+  await joinTeam(manager, opsB);
 });
+
+async function joinTeam(mgr: OpsActor, member: OpsActor) {
+  await db.insert(staffTeamMembers).values({ team: "OPERATIONS", managerUserId: mgr.id, memberUserId: member.id, addedBy: mgr.id });
+}
 
 describe("flag and permission boundaries", () => {
   it("is not available to anyone while rbac_v2_operations is off", async () => {
@@ -182,6 +189,40 @@ describe("tasks", () => {
     const del = await db.delete(opsTaskEvents).where(eq(opsTaskEvents.taskId, task.id)).catch(why);
     expect(upd).toMatch(/append-only/);
     expect(del).toMatch(/append-only/);
+  });
+});
+
+describe("team scope (staff_team_members)", () => {
+  it("keeps an Operations Manager to their own team; an admin sees everyone", async () => {
+    const other = actor(await createUser({ role: "OPERATIONS_MANAGER", name: "Other Manager" }));
+    const opsC = actor(await createUser({ role: "OPERATIONS_USER", name: "Chetan Ops" }));
+    await joinTeam(other, opsC);
+    const theirs = await createOpsTask(other, { kind: "OTHER", title: "Other team's task", assigneeUserId: opsC.id });
+    const mine = await createOpsTask(manager, { kind: "OTHER", title: "My team's task", assigneeUserId: opsA.id });
+    // Not across teams: assign, read, cancel, zones, assists, team list, activity report.
+    await expect(createOpsTask(manager, { kind: "OTHER", title: "Poach", assigneeUserId: opsC.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(getOpsTaskDetail(manager, theirs.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(updateOpsTask(manager, theirs.id, { action: "CANCEL", note: "x" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(reassignOpsTask(manager, mine.id, { assigneeUserId: opsC.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(assignZone(manager, { userId: opsC.id, zoneId: ZONE })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const cAssist = await createCustomerAssist(opsC, { customerName: "C's customer", contactEmail: "c1@test.local" });
+    await expect(updateCustomerAssist(manager, cAssist.id, { status: "DROPPED" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await listCustomerAssists(manager)).map((a) => a.id)).not.toContain(cAssist.id);
+    expect((await listOpsTasks(manager, { status: "ALL" })).map((t) => t.id)).toEqual([mine.id]);
+    expect((await listOpsTeam(manager)).map((m) => m.id).sort()).toEqual([opsA.id, opsB.id].sort());
+    expect((await getOpsActivityReport(manager)).byUser.map((r) => r.key)).not.toContain(opsC.id);
+    // The admin sees and acts across teams.
+    expect((await listOpsTasks(admin, { status: "ALL" })).length).toBe(2);
+    expect((await listOpsTeam(admin)).length).toBe(3);
+    await updateOpsTask(admin, theirs.id, { action: "CANCEL", note: "Admin tidy-up" });
+  });
+
+  it("lists Operations Users not yet in a team, and a manager with no team sees nobody", async () => {
+    const loner = await createUser({ role: "OPERATIONS_USER", name: "New Joiner" });
+    const fresh = actor(await createUser({ role: "OPERATIONS_MANAGER", name: "Fresh Manager" }));
+    expect((await listUnteamedOpsUsers(fresh)).map((u) => u.id)).toEqual([loner.id]);
+    expect(await listOpsTeam(fresh)).toEqual([]);
+    expect(await listOpsTasks(fresh)).toEqual([]);
   });
 });
 

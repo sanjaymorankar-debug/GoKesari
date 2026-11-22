@@ -11,7 +11,7 @@
  * once the profile is filled in). The link is made when the assists are read (lists, dashboard,
  * reports) — no change to the sign-up code and no cron.
  */
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
 import { normalizeEmail } from "@/lib/contact";
@@ -19,6 +19,9 @@ import { db } from "@/server/db";
 import { opsCustomerAssists, type OpsAssistStatus, type OpsCustomerAssist } from "@/server/db/ops-schema";
 import { users } from "@/server/db/schema";
 import { denyNotOwn, isOpsManager, requireOps, type OpsActor } from "./access";
+import { managedUserIds } from "./tasks";
+
+const inScope = (scope: string[] | null, userId: string) => scope === null || scope.includes(userId);
 
 const PINCODE = /^[1-9][0-9]{5}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -82,7 +85,7 @@ export async function updateCustomerAssist(
   await requireOps(actor, "assist", "manage");
   const [assist] = await db.select().from(opsCustomerAssists).where(eq(opsCustomerAssists.id, id));
   if (!assist) throw notFound("Customer");
-  if (assist.opsUserId !== actor.id && !isOpsManager(actor)) denyNotOwn(actor, "assist");
+  if (assist.opsUserId !== actor.id && !(isOpsManager(actor) && inScope(await managedUserIds(actor), assist.opsUserId))) denyNotOwn(actor, "assist");
   if (input.status && (assist.status === "REGISTERED" || assist.status === "PROFILE_COMPLETE")) {
     throw validationFailed("This customer has already registered.");
   }
@@ -139,7 +142,11 @@ export async function listCustomerAssists(actor: OpsActor, filter: { opsUserId?:
   await syncAssistRegistrations();
   const conds = [];
   if (!isOpsManager(actor)) conds.push(eq(opsCustomerAssists.opsUserId, actor.id));
-  else if (filter.opsUserId) conds.push(eq(opsCustomerAssists.opsUserId, filter.opsUserId));
+  else {
+    const scope = await managedUserIds(actor);
+    if (scope !== null) conds.push(scope.length ? inArray(opsCustomerAssists.opsUserId, scope) : sql`false`);
+    if (filter.opsUserId) conds.push(eq(opsCustomerAssists.opsUserId, filter.opsUserId));
+  }
   if (filter.open) conds.push(sql`${opsCustomerAssists.status} in ('ENQUIRY','INVITED')`);
   const rows = await db
     .select({ a: opsCustomerAssists, opsUserName: users.name })

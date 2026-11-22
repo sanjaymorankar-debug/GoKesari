@@ -1,6 +1,6 @@
 # Phase 6 — Operations (built 22-Nov-2026, IST)
 
-Owner's brief §5 (Operations Manager) and §6 (Operations User). This phase was built in its own session, split off from the main RBAC session at 22.40 IST by agreement. The branch is `feature/rbac-v2-operations`, cut from Phase 2 (`feature/rbac-unified-roles`).
+Owner's brief §5 (Operations Manager) and §6 (Operations User). This phase was built in its own session, split off from the main RBAC session at 22.40 IST by agreement. The branch is `feature/rbac-v2-operations`, rebased at 23.10 IST onto the main session's `feature/rbac-v2-phases-3-7` (Phases 3, 4, 5, 7; migrations 0171–0173).
 
 Everything here sits behind the flag **`rbac_v2_operations`**. Migration 0170 seeds it **OFF**, and it can be limited to some roles with `feature_flags.role_scope`. While it is off, every API in this phase answers "not available", the `/staff/operations` screens send the viewer back to `/staff`, and the rest of the site behaves as before.
 
@@ -22,7 +22,7 @@ Everything here sits behind the flag **`rbac_v2_operations`**. Migration 0170 se
 | Daily and weekly report: shops contacted, registered, verified and activated; customers onboarded; follow-ups; tasks done; pending registrations; overdue tasks. Per Operations User and per zone, in IST days and Monday-to-Sunday weeks. | Operations Manager | `getOpsActivityReport`; `GET …/reports?kind=activity` |
 | Excel download of all of the above (11 sheets) | Operations Manager | `buildOpsReportWorkbook`; `GET …/reports?kind=excel` |
 | Screens: one Theme 1 tile page per role, with tabs. Manager tabs: Overview, Tasks, Team & zones, Reports, Customers. User tabs: Today, My tasks, Customers. Plus a task page. | both | `src/app/staff/operations/**`, `src/components/staff/operations-desk.tsx` |
-| For Phase 7 (other session): `getOpsTask(id)` returns `{ id, assigneeUserId, shopId }`. The task page also links to `/support?new=1&shopId=…&opsTaskId=…` when `rbac_v2_support` is on for the viewer. | — | `src/server/rbac-operations/tasks.ts` |
+| For Phase 7 (other session): `getOpsTask(id)` returns `{ id, assigneeUserId, shopId }`. `src/server/rbac-operations/index.ts` registers it with `registerOpsTaskLookup` (rbac-support/desk.ts) when the module loads. The task page links to `/staff/support?tab=raise&shopId=…&opsTaskId=…` when `rbac_v2_support` is on for the viewer. | — | `src/server/rbac-operations/tasks.ts` |
 
 Shop onboarding itself is **unchanged**. An Operations User registers shops through the existing `/operator` flow (`operator-limited.ts`, Phase 2 `WORKS_HERE`), with the owner's consent code. Auto-approval on GST/PAN plus payment runs exactly as before. Phase 6 only reads shops (`onboarded_by_user_id`, status, lifecycle, `auto_approved_at`) and points tasks at them.
 
@@ -41,9 +41,9 @@ Shop onboarding itself is **unchanged**. An Operations User registers shops thro
    | assist | `customer-onboard:assist` | Operations User |
 
    A refusal is audit-logged as `authz.denied`, through the Phase 2 `logDenied`.
-3. **Data scope.** An Operations User reads and works only tasks assigned to them, and only customer assists they recorded. Shop search covers only shops they onboarded. Reaching for anyone else's record is refused and logged.
+3. **Data scope.** An Operations Manager sees only their own team (`staff_team_members`); an admin sees everyone. An Operations User reads and works only tasks assigned to them, and only customer assists they recorded. Shop search covers only shops they onboarded. Reaching for anyone else's record is refused and logged.
 
-Tests: `tests/integration/rbac-v2-operations.test.ts` (20 tests) covers:
+Tests: `tests/integration/rbac-v2-operations.test.ts` (22 tests) covers:
 - the flag off, and a role-scoped flag;
 - refusals for the Customer, Support User and Accountant roles, and for an Operations User reaching manager functions;
 - own-task scope;
@@ -56,7 +56,7 @@ Tests: `tests/integration/rbac-v2-operations.test.ts` (20 tests) covers:
 - the day and week report, the Excel export, and the IST week bounds;
 - the Operations User dashboard scope.
 
-Local run on 22-Nov-2026 at 22.58 IST: **39/39 passed**, together with Phase 2's 19 tests.
+Local run on 22-Nov-2026 at 23.20 IST, on a fresh database migrated 0001–0175: **68/68 passed** across all five RBAC v2 test files. Phase 6 has 22 tests, including the team-scope tests.
 
 ## Database (`drizzle/0175_rbac_v2_operations.sql`) — all Additive
 
@@ -75,7 +75,7 @@ No foreign keys to users, shops or zones (single-database rule: links are checke
 
 | ID | Time (IST) | Decision |
 |---|---|---|
-| D6-01 | 22-Nov 22.45 | **Operations team.** Until the shared `staff_team_members` table (other session, 0172) is merged, "the team" is every active Operations User. Each manager sees all Operations Users. Switching to `staff_team_members` is a change to `listOpsTeam` only. |
+| D6-01 | 22-Nov 23.15 | **Operations team.** It uses the shared `staff_team_members` table (0172, team `OPERATIONS`). An Operations Manager sees, assigns, reports on and changes only their own team's members, tasks, zones and customer assists. An admin sees everyone. The Team tab lets a manager add an Operations User who is in no team yet, or remove one, through `/api/staff/teams`. Tests cover the cross-team refusals. |
 | D6-02 | 22-Nov 22.45 | **Customer onboarding with OTP.** The login mechanism is not touched (brief §0.3). The customer signs in on their own phone with GoKesari's normal e-mailed code. The assist is then linked to an account whose e-mail or mobile matches and that was created after the assist. No account is created and no message is sent from the Operations screens. The link is made when assists are read (lists, dashboard, reports), so there is no sign-up hook and no cron. |
 | D6-03 | 22-Nov 22.45 | **Report status definitions.** "Under verification" = pending approval with documents and fee done (lifecycle VERIFIED). "Pending" = documents or fee still outstanding. "Auto-approved" = `auto_approved_at` set. "Manually approved" = approved by a person. A customer is "active" if they placed an order in the last 90 days. A customer's zone comes from the franchise zone of their default (else latest) address pincode. |
 | D6-04 | 22-Nov 22.45 | **"Shops contacted".** These are distinct shops on tasks the user acted on in the period. There is no separate call log; a follow-up event counts as a follow-up call. |
@@ -87,7 +87,6 @@ No foreign keys to users, shops or zones (single-database rule: links are checke
 ## Open items
 
 - **PDF export** of the Operations report (Excel is built).
-- **Real team membership** from `staff_team_members` (D6-01), once 0172 is merged.
 - **Menu tile.** The other session updates the "ops" tile in `rbac-menus.ts` to point at `/staff/operations` (D6-07).
 - **Testing on test.gokesari.com and on gokesari.com.** Both are Not Started. The PR goes into the staging queue after PR #485 is staging-verified, as agreed.
 

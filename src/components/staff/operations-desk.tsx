@@ -307,7 +307,7 @@ export function TaskActions({
       {supportEnabled && shopId && canWork ? (
         <Link
           className="text-sm font-semibold text-kesari-800 hover:underline"
-          href={`/support?new=1&shopId=${encodeURIComponent(shopId)}&opsTaskId=${encodeURIComponent(taskId)}`}
+          href={`/staff/support?tab=raise&shopId=${encodeURIComponent(shopId)}&opsTaskId=${encodeURIComponent(taskId)}`}
         >
           Raise a support ticket for this shop →
         </Link>
@@ -354,6 +354,32 @@ export function EndZoneButton({ assignmentId, label }: { assignmentId: string; l
       >
         remove
       </button>
+      {note}
+    </span>
+  );
+}
+
+/** Operations Manager: add an Operations User to their own team, or take one out (shared staff_team_members). */
+export function TeamMemberButton({ managerUserId, memberUserId, mode }: { managerUserId: string; memberUserId: string; mode: "add" | "remove" }) {
+  const { busy, run, note } = useAction();
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Button
+        size="sm"
+        variant={mode === "add" ? "secondary" : "ghost"}
+        disabled={busy}
+        onClick={() =>
+          run(
+            () =>
+              mode === "add"
+                ? send("/api/staff/teams", "POST", { team: "OPERATIONS", managerUserId, memberUserId })
+                : send(`/api/staff/teams?team=OPERATIONS&memberId=${memberUserId}`, "DELETE"),
+            mode === "add" ? "Added to your team." : "Taken out of your team.",
+          )
+        }
+      >
+        {mode === "add" ? "Add to my team" : "Remove from team"}
+      </Button>
       {note}
     </span>
   );
