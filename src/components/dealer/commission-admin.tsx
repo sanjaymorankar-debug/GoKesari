@@ -559,7 +559,7 @@ export function CommissionAdmin({
           ) : null}
 
           <h2 className="pt-2 text-base font-bold">Payouts</h2>
-          <p className="text-sm text-ink-700">A payout gathers a dealer&apos;s approved commission (less any reversal). Pay it by bank transfer, then record the reference here.</p>
+          <p className="text-sm text-ink-700">A payout gathers a dealer&apos;s approved commission (less any reversal). A second admin approves it; then pay it by bank transfer and record the reference here.</p>
           {isAdmin ? (
             <div className="flex flex-wrap gap-2">
               {[...new Map(ledger.filter((e) => e.status === "APPROVED" && !e.payoutBatchId).map((e) => [e.dealerId, e.dealerName])).entries()].map(([id, name]) => (
@@ -570,9 +570,9 @@ export function CommissionAdmin({
             </div>
           ) : null}
           <p className="flex flex-wrap gap-3 text-sm" data-testid="payout-reports">
-            {(["summary", "lines", "pending", "failed"] as const).map((r) => (
+            {(["summary", "lines", "pending", "failed", "notready", "tdscatchup"] as const).map((r) => (
               <span key={r}>
-                {{ summary: "Payout summary", lines: "Ledger lines", pending: "Pending payees", failed: "Failed transfers" }[r]}:{" "}
+                {{ summary: "Payout summary", lines: "Ledger lines", pending: "Pending payees", failed: "Failed transfers", notready: "Payees not ready to be paid", tdscatchup: "TDS catch-up (dry run)" }[r]}:{" "}
                 <a className="underline" href={`/api/admin/dealer-payout-reports?report=${r}&format=csv`}>
                   CSV
                 </a>{" "}
@@ -612,16 +612,20 @@ export function CommissionAdmin({
                         Retry transfer
                       </Button>
                     ) : null}
-                    <Button
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => {
-                        const ref = window.prompt("Bank / UTR reference of the transfer:");
-                        if (ref) void post({ action: "payoutPaid", batchId: p.id, reference: ref }, "Payout recorded as paid.", false);
-                      }}
-                    >
-                      Mark paid
-                    </Button>
+                    {p.status !== "DRAFT" ? (
+                      <Button
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => {
+                          const ref = window.prompt("Bank / UTR reference of the transfer:");
+                          if (ref) void post({ action: "payoutPaid", batchId: p.id, reference: ref }, "Payout recorded as paid.", false);
+                        }}
+                      >
+                        Mark paid
+                      </Button>
+                    ) : (
+                      <span className="self-center text-xs text-ink-500">Paid once another admin approves it</span>
+                    )}
                     <Button size="sm" variant="ghost" disabled={busy} onClick={() => post({ action: "cancelPayout", batchId: p.id }, "Payout cancelled.", false)}>
                       Cancel
                     </Button>
