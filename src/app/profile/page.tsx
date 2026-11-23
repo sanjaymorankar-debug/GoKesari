@@ -27,7 +27,6 @@ import { listAddresses } from "@/server/services/addresses";
 import { getProfile } from "@/server/services/profile";
 import { customerBankPrompt } from "@/server/services/bank-accounts";
 import { BANK_STATUS_LABELS } from "@/lib/bank-accounts";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
 
 export const metadata = { title: "My Profile" };
 export const dynamic = "force-dynamic";

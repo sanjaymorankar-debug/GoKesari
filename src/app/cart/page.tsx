@@ -140,14 +140,12 @@ export default async function CartPage({ searchParams }: { searchParams?: Promis
   // docs/purchase-lists-2026-10: "Save as a list" offers the customer's own lists.
   const purchaseLists = cart.groups.length > 0 ? await listPurchaseLists(user.id) : [];
   // docs/smart-shopping-2026-11: "Scan my shopping list" in the cart too.
-  const [scanList, lang, guestCheckoutOn] = await Promise.all([
+  const [scanList, guestCheckoutOn] = await Promise.all([
     isFeatureEnabled("smart_list_scan_enabled").catch(() => false),
-    getBoardLang(),
     isGuestCheckoutOn(),
   ]);
   // docs/guest-checkout-2026-11: /cart?guest=1 is where a guest lands right after verifying.
   const justVerified = (await searchParams)?.guest === "1";
-  const scanList = await isFeatureEnabled("smart_list_scan_enabled").catch(() => false);
 
   return (
     <>
