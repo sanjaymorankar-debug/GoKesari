@@ -39,7 +39,8 @@ export type FeatureFlagKey =
   | "rbac_v2_support"
   | "rbac_v2_shop_change_requests"
   | "rbac_v2_operations"
-  | "dealer_platform_four_eye";
+  | "dealer_platform_four_eye"
+  | "whatsapp_customer_enabled";
 
 interface FlagValue {
   enabled: boolean;

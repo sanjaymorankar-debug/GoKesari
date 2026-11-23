@@ -19,6 +19,7 @@ export const dynamic = "force-dynamic";
 const CONSENT_LABELS: Record<ConsentType, string> = {
   TERMS_AND_PRIVACY: "Terms & privacy policy",
   MARKETING_COMMUNICATIONS: "Marketing communications",
+  WHATSAPP_NOTIFICATIONS: "WhatsApp updates",
 };
 
 const DECISIONS = [

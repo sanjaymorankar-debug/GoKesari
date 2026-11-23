@@ -563,6 +563,8 @@ export const grievanceCategoryEnum = pgEnum("grievance_category", [
 export const consentTypeEnum = pgEnum("consent_type", [
   "TERMS_AND_PRIVACY",
   "MARKETING_COMMUNICATIONS",
+  // docs/customer-whatsapp-2026-11 (0188): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
+  "WHATSAPP_NOTIFICATIONS",
 ]);
 
 /* ------------------------------------------------- auth (Auth.js managed) */
@@ -4757,6 +4759,8 @@ export const userConsents = pgTable(
     /** false = a withdrawal (DPDPA §6(4)). Every existing row was a grant. */
     granted: boolean("granted").notNull().default(true),
     ipAddress: text("ip_address"),
+    /** docs/customer-whatsapp-2026-11 (0188): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
+    source: text("source"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -10488,6 +10492,8 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_operations",
   // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
   "dealer_platform_four_eye",
+  // docs/customer-whatsapp-2026-11 (0188): customer updates and shopping on WhatsApp (Meta Cloud API, or the mock outbox).
+  "whatsapp_customer_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -12974,5 +12980,6 @@ export * from "./franchise-schema";
 export * from "./smart-shopping-schema";
 export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
+export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 /* <<< GoKesari Health */

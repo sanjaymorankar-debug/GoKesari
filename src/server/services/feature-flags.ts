@@ -80,6 +80,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
   dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
+  whatsapp_customer_enabled: "Customer updates and shopping on WhatsApp",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -138,6 +139,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
   rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",
   dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
+  whatsapp_customer_enabled:
+    "docs/customer-whatsapp-2026-11: customers opt in to WhatsApp updates on My Profile (or by sending START; STOP opts out). Order placed / accepted, payment received, status changes, out for delivery, delivered, cancelled, refund issued and subscription renewal reminders go out as the approved templates named in rule whatsappCustomer (which must also be enabled). Customers can also search, pick, set a quantity and get a signed checkout link by chat. Needs the Meta keys (WHATSAPP_PROVIDER=meta); on the test site WHATSAPP_PROVIDER=mock writes every message to Admin → Test messages instead. Off: nothing changes.",
 };
 
 export interface FeatureFlagView {
