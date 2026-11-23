@@ -56,7 +56,7 @@ export function ShopLogoUpload({ shopId, initialLogoUrl }: { shopId: string; ini
   }
 
   return (
-    <Card>
+    <Card className="p-4" data-testid="shop-logo-upload">
       <h2 className="text-lg font-semibold text-ink-900">Shop logo</h2>
       <p className="mt-1 text-sm text-ink-600">A square JPEG, PNG or WebP picture works best. Customers see it on your shop card.</p>
       <div className="mt-4 flex flex-wrap items-center gap-4">
