@@ -1,9 +1,12 @@
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { formatDisplayDate } from "@/lib/dates";
 import { formatQuantity, MILLI_PER_UNIT } from "@/lib/money";
+import { formatShortDate } from "@/lib/dates";
 import { copiesLabel, scheduleLabel } from "@/lib/periodicals";
+import { slotLabel } from "@/lib/subscription-plans";
 import { subscriptionStatusLabel, subscriptionStatusTone } from "@/lib/subscription-status-view";
 import type { ShopSubscriber } from "@/server/services/newspaper-subscriptions";
+import type { PrepSheet } from "@/server/services/subscription-plans";
 
 /** A subscriber is "new" for this many days after subscribing. */
 const NEW_FOR_DAYS = 3;
@@ -31,10 +34,11 @@ export function ShopSubscribers({ subscribers, now = new Date() }: { subscribers
   const byItem = new Map<string, { name: string; count: number; milli: number; unit: string; isPeriodical: boolean }>();
   for (const s of subscribers) {
     if (s.status === "PAUSED") continue;
-    const current = byItem.get(s.productName) ?? { name: s.productName, count: 0, milli: 0, unit: s.unit, isPeriodical: s.isPeriodical };
+    const name = s.plan?.name ?? s.productName;
+    const current = byItem.get(name) ?? { name, count: 0, milli: 0, unit: s.unit, isPeriodical: s.isPeriodical };
     current.count += 1;
     current.milli += s.quantityMilli;
-    byItem.set(s.productName, current);
+    byItem.set(name, current);
   }
   const customers = new Set(subscribers.map((s) => `${s.customerName}|${s.address ?? ""}`)).size;
   const newSince = now.getTime() - NEW_FOR_DAYS * 24 * 60 * 60 * 1000;
@@ -73,7 +77,8 @@ export function ShopSubscribers({ subscribers, now = new Date() }: { subscribers
                 ) : null}
               </p>
               <p className="text-sm text-ink-700">
-                {s.productName} · {amount(s)} · {scheduleLabel(s)}
+                {s.plan ? `${s.plan.name} (${s.productName})` : s.productName} · {amount(s)} · {scheduleLabel(s)}
+                {s.plan ? ` · ${slotLabel(s.plan.slot, s.plan.slotWindow)}` : ""}
               </p>
               <p className="text-sm text-ink-600">{s.address ?? "No delivery address yet"}</p>
               <p className="text-xs text-ink-500">
@@ -90,5 +95,61 @@ export function ShopSubscribers({ subscribers, now = new Date() }: { subscribers
         ))}
       </Card>
     </div>
+  );
+}
+
+/**
+ * The shop's prep sheet (docs/subscription-plans-2026-11): for each plan (or
+ * product without a plan) and each of the next days, how many deliveries and
+ * how much in all — what the kitchen, dairy or paper round must get ready.
+ */
+export function PrepSheetTable({ sheet }: { sheet: PrepSheet }) {
+  if (sheet.rows.length === 0) return null;
+  const qty = (row: PrepSheet["rows"][number], milli: number) =>
+    row.isPeriodical ? copiesLabel(milli / MILLI_PER_UNIT) : formatQuantity(milli, row.unit);
+  return (
+    <Card className="overflow-x-auto p-0" data-testid="prep-sheet">
+      <table className="w-full min-w-[36rem] text-sm">
+        <caption className="px-4 pb-1 pt-4 text-left">
+          <span className="block text-lg font-semibold text-ink-900">Next {sheet.dates.length} days — what to prepare</span>
+          <span className="block text-xs font-normal text-ink-600">Deliveries and total quantity per plan, after skips, pauses and one-day changes.</span>
+        </caption>
+        <thead>
+          <tr className="border-b border-cream-200 text-left text-xs text-ink-500">
+            <th scope="col" className="px-4 py-2 font-medium">Plan / item</th>
+            {sheet.dates.map((d) => (
+              <th key={d} scope="col" className="px-2 py-2 text-right font-medium">
+                {formatShortDate(d)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sheet.rows.map((row) => (
+            <tr key={row.key} className="border-b border-cream-100 last:border-0">
+              <th scope="row" className="px-4 py-2 text-left font-medium text-ink-900">
+                {row.label}
+                {row.slot ? <span className="block text-xs font-normal text-ink-500">{slotLabel(row.slot, row.slotWindow)}</span> : null}
+              </th>
+              {sheet.dates.map((d) => {
+                const cell = row.days[d];
+                return (
+                  <td key={d} className="px-2 py-2 text-right tabular-nums">
+                    {cell.deliveries === 0 ? (
+                      <span className="text-ink-400">—</span>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-ink-900">{cell.deliveries}</span>
+                        <span className="block text-xs text-ink-500">{qty(row, cell.quantityMilli)}</span>
+                      </>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
   );
 }

@@ -22,7 +22,7 @@ import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { getEnv } from "@/lib/env";
 import { formatPaise, lineTotalPaise } from "@/lib/money";
 import { db } from "@/server/db";
-import { shopProducts, subscriptionDailyOverrides, subscriptions, wallets, type Subscription, type UserRole } from "@/server/db/schema";
+import { shopProducts, subscriptionDailyOverrides, subscriptionPlans, subscriptions, wallets, type Subscription, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getRule } from "./settings";
@@ -114,9 +114,11 @@ export async function firstUncoveredDeliveryDate(
   const wallet = await db.query.wallets.findFirst({ where: eq(wallets.userId, userId) });
   const balance = wallet?.balancePaise ?? 0;
   const subs = await db
-    .select({ sub: subscriptions, price: shopProducts.onlinePricePaise })
+    // docs/subscription-plans-2026-11: a plan subscription costs the plan's price.
+    .select({ sub: subscriptions, price: sql<number | null>`coalesce(${subscriptionPlans.pricePaise}, ${shopProducts.onlinePricePaise})`.mapWith((v: unknown) => (v == null ? null : Number(v))) })
     .from(subscriptions)
     .innerJoin(shopProducts, eq(shopProducts.id, subscriptions.shopProductId))
+    .leftJoin(subscriptionPlans, eq(subscriptionPlans.id, subscriptions.planId))
     .where(and(eq(subscriptions.userId, userId), inArray(subscriptions.status, [...LIVE])));
   if (subs.length === 0) return null;
   const overrides = await db
