@@ -196,6 +196,8 @@ export const HOURLY: readonly Job[] = [
   { name: "rider-monthly-payout", run: riderMonthlyPayout },
   // Gap report C4: failed dealer commission transfers whose backoff has passed (a no-op while dealerAutoPayout is off).
   { name: "dealer-payout-retries", run: async () => (await import("@/server/dealers/auto-payout")).retryDueDealerPayouts() },
+  // docs/rbac: scheduled rate activations, change-request reminders / expiry, ticket SLA (no-ops while the flags are off).
+  { name: "rbac-v2", run: async () => (await import("@/server/rbac-v2/sweep")).runRbacV2Sweep() },
   {
     name: "auth-housekeeping",
     run: async () => ({

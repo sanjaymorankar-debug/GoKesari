@@ -9209,6 +9209,13 @@ export const supportTickets = pgTable(
     resolveBreachedAt: timestamp("resolve_breached_at", { withTimezone: true }),
     reopenCount: integer("reopen_count").notNull().default(0),
     resolutionNote: text("resolution_note"),
+    /* docs/rbac (0172): the Support Manager who owns the ticket, the brief's side statuses (the status CHECK is
+     * unchanged), and the traceability links (change request, Operations task). All nullable. */
+    managerUserId: uuid("manager_user_id"),
+    subStatus: text("sub_status", { enum: ["PENDING_INFORMATION", "ON_HOLD", "REJECTED"] }),
+    changeRequestId: uuid("change_request_id"),
+    opsTaskId: uuid("ops_task_id"),
+    raisedByStaff: boolean("raised_by_staff"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

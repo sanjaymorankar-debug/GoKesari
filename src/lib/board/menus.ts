@@ -276,6 +276,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "edit", label: L("Edit", "बदलें", "बदला"), icon: "tag", href: "/shop/prices" },
       { key: "excel", label: L("Excel", "एक्सेल", "एक्सेल"), icon: "file-spreadsheet", href: "/shop/prices#excel-upload" },
       { key: "requests", label: L("Requests", "अनुरोध", "विनंत्या"), icon: "clock", href: "/shop/prices#price-requests", count: "shopPriceRequests", urgent: true },
+      // docs/rbac Phase 5: changes GoKesari support proposed, waiting for the owner (only while the flag is on).
+      { key: "changes", label: L("Pending changes", "लंबित बदलाव", "प्रलंबित बदल"), short: L("Changes", "बदलाव", "बदल"), icon: "badge-check", href: "/shop/changes", permission: PERMISSIONS.SHOP_CHANGE_DECIDE_OWN, feature: "rbac_v2_shop_change_requests" },
     ],
   },
   {
@@ -559,6 +561,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "featureFlags", label: L("Feature flags", "फ़ीचर फ़्लैग", "फीचर फ्लॅग"), icon: "toggle-right", href: "/admin/feature-flags", permission: ADMIN_ONLY },
       // docs/rbac: the two-admin approval queue (roles, suspensions, reactivations, flags).
       { key: "approvals", label: L("Approvals", "स्वीकृतियाँ", "मंजुरी"), icon: "badge-check", href: "/admin/approvals", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
+      { key: "staffTeams", label: L("Staff teams", "स्टाफ टीमें", "कर्मचारी टीम"), icon: "users", href: "/admin/staff-teams", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
       { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
       { key: "homeBanners", label: L("Home banners", "होम बैनर", "होम बॅनर"), icon: "images", href: "/admin/home-banners", permission: PERMISSIONS.HOME_BANNER_MANAGE }, // docs/homepage-uiux-2026-10
     ],

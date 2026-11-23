@@ -1198,6 +1198,41 @@
       "when": 1793266800000,
       "tag": "0170_rbac_v2_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1793266900000,
+      "tag": "0171_rbac_v2_accounting",
+      "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1793267000000,
+      "tag": "0172_rbac_v2_support_changes",
+      "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1793267100000,
+      "tag": "0173_rbac_v2_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1793267500000,
+      "tag": "0174_rbac_v2_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1793268000000,
+      "tag": "0175_rbac_v2_bank_reconciliation",
+      "breakpoints": true
     }
   ]
 }

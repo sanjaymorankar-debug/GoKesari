@@ -35,9 +35,12 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
     permission: [PERMISSIONS.JOURNAL_PREPARE, PERMISSIONS.JOURNAL_APPROVE],
     feature: "rbac_v2_accounting",
     items: [
-      { key: "journals", label: L("Journal entries", "जर्नल प्रविष्टियाँ", "जर्नल नोंदी"), short: L("Journals", "जर्नल", "जर्नल"), icon: "scroll-text", href: "/staff/accounting/journals", permission: [PERMISSIONS.JOURNAL_PREPARE, PERMISSIONS.JOURNAL_APPROVE], feature: "rbac_v2_accounting" },
-      { key: "periods", label: L("Periods", "अवधि", "कालावधी"), icon: "calendar-days", href: "/staff/accounting/periods", permission: [PERMISSIONS.FIN_PERIOD_CLOSE, PERMISSIONS.JOURNAL_PREPARE], feature: "rbac_v2_accounting" },
-      { key: "rates", label: L("Rate changes", "दर परिवर्तन", "दर बदल"), short: L("Rates", "दरें", "दर"), icon: "badge-percent", href: "/staff/accounting/rates", permission: [PERMISSIONS.RATE_PROPOSE, PERMISSIONS.RATE_APPROVE], feature: "rbac_v2_accounting" },
+      { key: "journals", label: L("Journal entries", "जर्नल प्रविष्टियाँ", "जर्नल नोंदी"), short: L("Journals", "जर्नल", "जर्नल"), icon: "scroll-text", href: "/staff/accounting?tab=journals", permission: [PERMISSIONS.JOURNAL_PREPARE, PERMISSIONS.JOURNAL_APPROVE], feature: "rbac_v2_accounting" },
+      { key: "periods", label: L("Periods", "अवधि", "कालावधी"), icon: "calendar-days", href: "/staff/accounting?tab=periods", permission: [PERMISSIONS.FIN_PERIOD_CLOSE, PERMISSIONS.JOURNAL_PREPARE], feature: "rbac_v2_accounting" },
+      { key: "approve", label: L("To approve", "स्वीकृति हेतु", "मंजुरीसाठी"), icon: "badge-check", href: "/staff/accounting?tab=approvals", permission: PERMISSIONS.JOURNAL_APPROVE, feature: "rbac_v2_accounting" },
+      { key: "tb", label: L("Trial balance", "ट्रायल बैलेंस", "ट्रायल बॅलन्स"), short: L("Trial bal.", "ट्रायल", "ट्रायल"), icon: "file-chart-column", href: "/staff/accounting?tab=tb", permission: [PERMISSIONS.JOURNAL_PREPARE, PERMISSIONS.JOURNAL_APPROVE], feature: "rbac_v2_accounting" },
+      { key: "rates", label: L("Rate changes", "दर परिवर्तन", "दर बदल"), short: L("Rates", "दरें", "दर"), icon: "badge-percent", href: "/staff/accounting?tab=rates", permission: [PERMISSIONS.RATE_PROPOSE, PERMISSIONS.RATE_APPROVE], feature: "rbac_v2_accounting" },
+      { key: "bank", label: L("Bank reconciliation", "बैंक मिलान", "बँक जुळवणी"), short: L("Bank", "बैंक", "बँक"), icon: "landmark", href: "/staff/accounting?tab=bank", permission: [PERMISSIONS.BANK_RECON_PREPARE, PERMISSIONS.BANK_RECON_SIGNOFF], feature: "rbac_v2_accounting" },
     ],
   },
   /* ------------------------------------------------------------- Support */
@@ -47,16 +50,16 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "tickets", label: L("All tickets", "सभी टिकट", "सर्व तिकिटे"), short: L("Tickets", "टिकट", "तिकिटे"), icon: "ticket", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE },
       { key: "disputes", label: L("Disputes", "विवाद", "वाद"), icon: "scale", href: "/admin/disputes", permission: PERMISSIONS.DISPUTE_MANAGE },
-      { key: "team", label: L("Team workload", "टीम कार्यभार", "टीम कामभार"), short: L("Team", "टीम", "टीम"), icon: "users", href: "/staff/support/team", permission: PERMISSIONS.SUPPORT_QUEUE_MANAGE, feature: "rbac_v2_support" },
+      { key: "team", label: L("Team workload", "टीम कार्यभार", "टीम कामभार"), short: L("Team", "टीम", "टीम"), icon: "users", href: "/staff/support?tab=dashboard", permission: PERMISSIONS.SUPPORT_QUEUE_MANAGE, feature: "rbac_v2_support" },
     ],
   },
   {
-    key: "myWork", label: L("My work", "मेरा काम", "माझे काम"), icon: "clipboard-check", tone: "teal", href: "/staff/support/mine",
+    key: "myWork", label: L("My work", "मेरा काम", "माझे काम"), icon: "clipboard-check", tone: "teal", href: "/staff/support?tab=mine",
     permission: PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED,
     feature: "rbac_v2_support",
     items: [
-      { key: "tickets", label: L("My tickets", "मेरे टिकट", "माझी तिकिटे"), short: L("Tickets", "टिकट", "तिकिटे"), icon: "ticket", href: "/staff/support/mine", permission: PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED, feature: "rbac_v2_support" },
-      { key: "changes", label: L("Changes sent to owners", "मालिकों को भेजे बदलाव", "मालकांना पाठवलेले बदल"), short: L("Changes", "बदलाव", "बदल"), icon: "history", href: "/staff/support/changes", permission: PERMISSIONS.SHOP_CHANGE_PROPOSE, feature: "rbac_v2_shop_change_requests" },
+      { key: "tickets", label: L("My tickets", "मेरे टिकट", "माझी तिकिटे"), short: L("Tickets", "टिकट", "तिकिटे"), icon: "ticket", href: "/staff/support?tab=mine", permission: PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED, feature: "rbac_v2_support" },
+      { key: "changes", label: L("Changes sent to owners", "मालिकों को भेजे बदलाव", "मालकांना पाठवलेले बदल"), short: L("Changes", "बदलाव", "बदल"), icon: "history", href: "/staff/support?tab=mine", permission: PERMISSIONS.SHOP_CHANGE_PROPOSE, feature: "rbac_v2_shop_change_requests" },
     ],
   },
   /* ---------------------------------------------------------- Operations */
@@ -70,17 +73,24 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
     ],
   },
   {
-    key: "ops", label: L("Operations team", "ऑपरेशंस टीम", "ऑपरेशन्स टीम"), short: L("Operations", "ऑपरेशंस", "ऑपरेशन्स"), icon: "map", tone: "amber", href: "/staff/ops",
+    key: "ops", label: L("Operations team", "ऑपरेशंस टीम", "ऑपरेशन्स टीम"), short: L("Operations", "ऑपरेशंस", "ऑपरेशन्स"), icon: "map", tone: "amber", href: "/staff/operations",
     permission: [PERMISSIONS.OPS_TEAM_MANAGE, PERMISSIONS.OPS_TASK_WORK_OWN],
     feature: "rbac_v2_operations",
     items: [
-      { key: "tasks", label: L("Tasks", "कार्य", "कामे"), icon: "clipboard-check", href: "/staff/ops/tasks", permission: [PERMISSIONS.OPS_TEAM_MANAGE, PERMISSIONS.OPS_TASK_WORK_OWN], feature: "rbac_v2_operations" },
-      { key: "reports", label: L("Onboarding reports", "ऑनबोर्डिंग रिपोर्ट", "ऑनबोर्डिंग अहवाल"), short: L("Reports", "रिपोर्ट", "अहवाल"), icon: "file-chart-column", href: "/staff/ops/reports", permission: PERMISSIONS.OPS_REPORT_VIEW, feature: "rbac_v2_operations" },
+      { key: "today", label: L("My day", "मेरा दिन", "माझा दिवस"), icon: "clipboard-check", href: "/staff/operations?tab=today", permission: PERMISSIONS.OPS_TASK_WORK_OWN, feature: "rbac_v2_operations" },
+      { key: "tasks", label: L("Tasks", "कार्य", "कामे"), icon: "clipboard-check", href: "/staff/operations?tab=tasks", permission: [PERMISSIONS.OPS_TEAM_MANAGE, PERMISSIONS.OPS_TASK_WORK_OWN], feature: "rbac_v2_operations" },
+      { key: "team", label: L("Team & zones", "टीम और ज़ोन", "टीम आणि झोन"), short: L("Team", "टीम", "टीम"), icon: "users", href: "/staff/operations?tab=team", permission: PERMISSIONS.OPS_TEAM_MANAGE, feature: "rbac_v2_operations" },
+      { key: "reports", label: L("Onboarding reports", "ऑनबोर्डिंग रिपोर्ट", "ऑनबोर्डिंग अहवाल"), short: L("Reports", "रिपोर्ट", "अहवाल"), icon: "file-chart-column", href: "/staff/operations?tab=reports", permission: PERMISSIONS.OPS_REPORT_VIEW, feature: "rbac_v2_operations" },
+      { key: "customers", label: L("Customers", "ग्राहक", "ग्राहक"), icon: "user-plus", href: "/staff/operations?tab=customers", permission: [PERMISSIONS.OPS_TEAM_MANAGE, PERMISSIONS.CUSTOMER_ONBOARD_ASSIST], feature: "rbac_v2_operations" },
     ],
   },
   {
     key: "help", label: L("Raise a ticket", "टिकट बनाएँ", "तिकीट करा"), short: L("Help", "सहायता", "मदत"), icon: "life-buoy", tone: "pink", href: "/support",
     permission: PERMISSIONS.SUPPORT_TICKET_RAISE,
-    items: [{ key: "raise", label: L("My tickets", "मेरे टिकट", "माझी तिकिटे"), icon: "ticket", href: "/support", permission: PERMISSIONS.SUPPORT_TICKET_RAISE }],
+    items: [
+      { key: "raise", label: L("Raise to Support", "सहायता को भेजें", "सहाय्याकडे पाठवा"), short: L("Raise", "भेजें", "पाठवा"), icon: "ticket", href: "/staff/support?tab=raise", permission: PERMISSIONS.SUPPORT_TICKET_RAISE, feature: "rbac_v2_support" },
+      { key: "raised", label: L("Raised by me", "मेरे भेजे", "मी पाठवलेली"), short: L("Raised", "भेजे", "पाठवलेली"), icon: "history", href: "/staff/support?tab=raised", permission: PERMISSIONS.SUPPORT_TICKET_RAISE, feature: "rbac_v2_support" },
+      { key: "mine", label: L("My help tickets", "मेरे टिकट", "माझी तिकिटे"), short: L("Tickets", "टिकट", "तिकिटे"), icon: "life-buoy", href: "/support", permission: PERMISSIONS.SUPPORT_TICKET_RAISE },
+    ],
   },
 ];
