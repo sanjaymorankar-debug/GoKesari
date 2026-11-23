@@ -913,7 +913,7 @@ export const RULES = {
     description:
       "Dealer commission payouts (gap report Part C), every model: one payout per PAN per month — a person who earns in two roles is paid once. Every payee — dealer, franchise owner and team member — is paid only with a PAN and a verified bank account (and, TIERED, the agent agreement) while enforcePayeeChecks is on (the default); otherwise the month's amount is held and carried to the next month, and with reminderEnabled the payee is told at the month's close (app and e-mail) what is missing. A payout is paid only once a second admin has approved it. Team members are checked even with enforcePayeeChecks off. A net below minPayoutPaise is carried forward too (0 = no minimum, as before).",
     schema: z.object({ enforcePayeeChecks: z.boolean(), minPayoutPaise: int(0, 10_000_000), reminderEnabled: z.boolean() }),
-    // Checks on for every payee (23-Nov-2026; migration 0182 sets the stored value too).
+    // Checks on for every payee (23-Nov-2026; migration 0183 sets the stored value too).
     // Owner to set the minimum (₹100 suggested, as riders).
     defaults: { enforcePayeeChecks: true, minPayoutPaise: 0, reminderEnabled: true },
   },

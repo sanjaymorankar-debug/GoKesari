@@ -13,6 +13,7 @@ import { getEnv } from "@/lib/env";
 import { MILLI_PER_UNIT } from "@/lib/money";
 import { subscriptionQuantityMax, subscriptionQuantityStep } from "@/lib/subscription-quantity";
 import { scheduleLabel } from "@/lib/periodicals";
+import { slotLabel } from "@/lib/subscription-plans";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import {
@@ -59,7 +60,7 @@ export default async function SubscriptionDetailPage({
     <>
       <PageHeader
         title={subscription.productName}
-        description={`${subscription.quantityMilli / MILLI_PER_UNIT} ${subscription.unit} · ${subscription.frequency === "MONTHLY" ? scheduleLabel(subscription) : subscription.frequency.toLowerCase()} · from ${subscription.shopName}`}
+        description={`${subscription.quantityMilli / MILLI_PER_UNIT} ${subscription.unit} · ${subscription.frequency === "MONTHLY" ? scheduleLabel(subscription) : subscription.frequency.toLowerCase()} · from ${subscription.shopName}${subscription.plan ? ` · plan "${subscription.plan.name}", ${slotLabel(subscription.plan.slot, subscription.plan.slotWindow)}` : ""}`}
         action={
           <Link
             href="/subscriptions"
