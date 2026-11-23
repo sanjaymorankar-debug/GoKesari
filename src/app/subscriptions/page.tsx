@@ -19,6 +19,7 @@ import { formatDisplayDate } from "@/lib/dates";
 import { MILLI_PER_UNIT, lineTotalPaise } from "@/lib/money";
 import { subscriptionStatusLabel, subscriptionStatusTone } from "@/lib/subscription-status-view";
 import { scheduleLabel } from "@/lib/periodicals";
+import { slotLabel } from "@/lib/subscription-plans";
 import { getCurrentUser } from "@/server/authz/guards";
 import {
   getWalletForecast,
@@ -77,11 +78,13 @@ export default async function SubscriptionsPage({
         description="Recurring deliveries paid from your wallet."
         action={
           <div className="flex flex-wrap gap-2">
+            {/* docs/subscription-plans-2026-11: meals, milk, newspapers… from shops near you */}
+            <LinkButton href="/subscriptions/plans">Subscription plans</LinkButton>
             {/* docs/newspaper-subscriptions-2026-11 */}
             <LinkButton href="/subscriptions/newspapers" variant="secondary">
               Newspapers &amp; magazines
             </LinkButton>
-            <LinkButton href="/category/DAIRY">Browse products</LinkButton>
+            <LinkButton href="/category/DAIRY" variant="secondary">Browse products</LinkButton>
           </div>
         }
       />
@@ -136,7 +139,7 @@ export default async function SubscriptionsPage({
           description={tr(HOME.subscriptionsEmptyText, lang)}
           action={<LinkButton href="/shops?type=DAIRY">{tr(HOME.findDairy, lang)}</LinkButton>}
           secondaryAction={
-            <LinkButton href="/category/DAIRY" variant="secondary">
+            <LinkButton href="/subscriptions/plans" variant="secondary">
               Find something to subscribe to
             </LinkButton>
           }
@@ -156,7 +159,13 @@ export default async function SubscriptionsPage({
                     {subscriptionStatusLabel(s.status, s.renewalReason)}
                   </Badge>
                   <Badge>{s.frequency === "MONTHLY" ? scheduleLabel(s) : s.frequency.toLowerCase()}</Badge>
+                  {s.plan ? <Badge tone="info">{slotLabel(s.plan.slot, s.plan.slotWindow)}</Badge> : null}
                 </div>
+                {s.plan ? (
+                  <p className="text-xs font-medium text-ink-600" data-testid="subscription-plan-name">
+                    Plan: {s.plan.name}
+                  </p>
+                ) : null}
 
                 <h2 className="text-lg font-semibold text-ink-900">
                   {s.productName}

@@ -13,14 +13,15 @@ import { eq, inArray } from "drizzle-orm";
 import { formatDisplayDate, type IsoDate } from "@/lib/dates";
 import { formatQuantity, MILLI_PER_UNIT } from "@/lib/money";
 import { copiesLabel, scheduleLabel } from "@/lib/periodicals";
+import { slotLabel, type PlanSlot } from "@/lib/subscription-plans";
 import { db } from "@/server/db";
-import { addresses, periodicalTitles, products, shopProducts, shops, users, type Subscription } from "@/server/db/schema";
+import { addresses, periodicalTitles, products, shopProducts, shops, subscriptionPlans, users, type Subscription } from "@/server/db/schema";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 
 type NoticeSubscription = Pick<
   Subscription,
   "id" | "userId" | "shopId" | "shopProductId" | "addressId" | "quantityMilli" | "frequency" | "weekdays" | "monthDays" | "startDate" | "bundleId"
->;
+> & { planId?: string | null };
 
 /** "The Hindu (1 copy, every day)" / "Cow Milk (2 L, every day)". */
 export function describeSubscriptionLine(line: {
@@ -31,10 +32,14 @@ export function describeSubscriptionLine(line: {
   frequency: Subscription["frequency"];
   weekdays: number[];
   monthDays: number[];
+  /** The plan it was taken on (docs/subscription-plans-2026-11): its name leads, its slot follows. */
+  plan?: { name: string; slot: PlanSlot; slotWindow: string | null } | null;
 }): string {
   const amount = line.isPeriodical ? copiesLabel(line.quantityMilli / MILLI_PER_UNIT) : formatQuantity(line.quantityMilli, line.unit);
   const when = scheduleLabel({ frequency: line.frequency, weekdays: line.weekdays, monthDays: line.monthDays });
-  return `${line.productName} (${amount}, ${when === "Every day" ? "every day" : when})`;
+  const parts = [amount, when === "Every day" ? "every day" : when];
+  if (line.plan) parts.push(slotLabel(line.plan.slot, line.plan.slotWindow));
+  return `${line.plan?.name ?? line.productName} (${parts.join(", ")})`;
 }
 
 /** Tells each shop owner about the new subscriptions to their shop. All of `subs` share one customer. */
@@ -53,6 +58,14 @@ export async function notifyShopOfNewSubscriptions(subs: NoticeSubscription[]): 
       .leftJoin(periodicalTitles, eq(periodicalTitles.productId, products.id))
       .where(inArray(shopProducts.id, [...new Set(subs.map((s) => s.shopProductId))]));
     const lineOf = new Map(lines.map((l) => [l.shopProductId, l]));
+    const planIds = [...new Set(subs.map((s) => s.planId).filter((id): id is string => Boolean(id)))];
+    const plans = planIds.length
+      ? await db
+          .select({ id: subscriptionPlans.id, name: subscriptionPlans.name, slot: subscriptionPlans.slot, slotWindow: subscriptionPlans.slotWindow })
+          .from(subscriptionPlans)
+          .where(inArray(subscriptionPlans.id, planIds))
+      : [];
+    const planOf = new Map(plans.map((p) => [p.id, p]));
 
     const [customer] = await db.select({ name: users.name }).from(users).where(eq(users.id, subs[0].userId)).limit(1);
     const addressId = subs.find((s) => s.addressId)?.addressId ?? null;
@@ -80,6 +93,7 @@ export async function notifyShopOfNewSubscriptions(subs: NoticeSubscription[]): 
           frequency: sub.frequency,
           weekdays: sub.weekdays,
           monthDays: sub.monthDays ?? [],
+          plan: sub.planId ? (planOf.get(sub.planId) ?? null) : null,
         });
       });
       const startDate = shopSubs.map((s) => s.startDate).sort()[0] as IsoDate;

@@ -18,7 +18,8 @@ import { SHOP_LOGO_FLAG } from "@/lib/delta/shop-logo";
 import { ShopProductManager } from "@/components/shop-product-manager";
 import { ShopSettingsForm } from "@/components/shop-settings-form";
 import { ShopStatusPanel, type ShopOpenState } from "@/components/shop-status-panel";
-import { ShopSubscribers } from "@/components/shop-subscribers";
+import { PrepSheetTable, ShopSubscribers } from "@/components/shop-subscribers";
+import { ShopPlansManager } from "@/components/shop-plans-manager";
 import { ShopWalletBanner } from "@/components/shop-wallet-banner";
 import { DeliveryStatusBadge, SubscriptionDeliveryList } from "@/components/subscription-delivery-list";
 import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
@@ -50,6 +51,7 @@ import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { listShopProducts, suggestProductsForShop } from "@/server/services/catalogue";
 import { getShopDashboard } from "@/server/services/dashboards";
 import { listSubscribersForShop } from "@/server/services/newspaper-subscriptions";
+import { listShopPlans, planPrepSheet } from "@/server/services/subscription-plans";
 import { getMaskedPan } from "@/server/services/gst-pan-verification";
 import { getShopLegalStatus } from "@/server/services/legal-documents";
 import { listOrdersForShop } from "@/server/services/orders";
@@ -87,6 +89,8 @@ const SECTIONS = {
   registration: "Registration and fee",
   // docs/newspaper-subscriptions-2026-11: everyone subscribed to this shop (newspapers, milk, bread).
   subscribers: "Subscribers",
+  // docs/subscription-plans-2026-11: make any product a plan — daily meals, milk, newspapers.
+  "subscription-plans": "Subscription plans",
 } as const;
 
 type SectionKey = keyof typeof SECTIONS;
@@ -332,8 +336,36 @@ export default async function ShopManagePage({
       );
     }
 
+    case "subscription-plans": {
+      const [plans, listings] = await Promise.all([listShopPlans(shop.id), listShopProducts(shop.id)]);
+      return (
+        <>
+          {header}
+          <p className="mb-4 text-sm text-ink-600">
+            Offer any of your products on subscription — daily breakfast, lunch or dinner, morning milk, a newspaper,
+            flowers, water. Customers near you find your plans on your shop page and under Subscription plans; you get a
+            notice for every new subscriber, and the{" "}
+            <Link href="/shop/manage/subscribers" className="font-medium text-kesari-700 hover:underline">
+              Subscribers
+            </Link>{" "}
+            page shows what to prepare each day.
+          </p>
+          <ShopPlansManager
+            shopId={shop.id}
+            plans={plans}
+            listings={listings.map((l) => ({
+              shopProductId: l.id,
+              name: l.product.name,
+              unit: l.product.unit,
+              onlinePricePaise: l.onlinePricePaise,
+            }))}
+          />
+        </>
+      );
+    }
+
     case "subscribers": {
-      const subscribers = await listSubscribersForShop(shop.id);
+      const [subscribers, prepSheet] = await Promise.all([listSubscribersForShop(shop.id), planPrepSheet(shop.id)]);
       return (
         <>
           {header}
@@ -345,7 +377,15 @@ export default async function ShopManagePage({
             </Link>
             .
           </p>
+          <div className="mb-6">
+            <PrepSheetTable sheet={prepSheet} />
+          </div>
           <ShopSubscribers subscribers={subscribers} />
+          <p className="mt-6 text-sm">
+            <Link href="/shop/manage/subscription-plans" className="font-medium text-kesari-700 hover:underline">
+              Your subscription plans →
+            </Link>
+          </p>
         </>
       );
     }
