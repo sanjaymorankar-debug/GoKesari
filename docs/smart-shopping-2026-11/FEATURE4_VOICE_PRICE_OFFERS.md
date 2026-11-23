@@ -44,6 +44,8 @@ Products group → more → "Change price or offer by voice".
 |---|---|
 | New price above MRP | refused (Legal Metrology) |
 | New price more than `bigDropWarnPercent` (50%) below today's | warning; the owner can still say yes |
+| New price more than `bigRiseWarnTimes` (3×) today's | warning; the owner can still say yes. Catches "9000" said for "90" when the product has no MRP (owner, 23-Nov) |
+| Offer on a product with no selling price | refused: say the price with the offer ("price 40 rupees and 10 percent off") (owner, 23-Nov) |
 | Percent off outside 1–90, or rupees off ≥ the price | refused |
 | "Buy 1 get 1 free" | explained as not available yet: say a percent or rupees off instead |
 | Product not in this shop | "add it first" (scanned barcode) or "not found, try another name" |
