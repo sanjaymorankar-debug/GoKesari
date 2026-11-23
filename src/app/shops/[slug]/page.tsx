@@ -247,6 +247,7 @@ export default async function ShopPage({
           ) : (
             <PageHeader title={activeCategory} />
           )}
+          <ProductGrid lang={lang} products={products} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} />
           <ProductGrid products={products} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} favourites={await favouritesOn()} />
           <Pager
             lang={lang}

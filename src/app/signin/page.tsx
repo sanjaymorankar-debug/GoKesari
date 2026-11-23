@@ -9,6 +9,7 @@ import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
 import { isMobileAppUserAgent } from "@/lib/mobile-app";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { OTP_TICKET_PROVIDER_ID, signIn } from "@/server/auth";
 import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
 import { emailMode } from "@/server/email/transport";
@@ -47,6 +48,7 @@ export default async function SignInPage({
   const inMobileApp = isMobileAppUserAgent((await headers()).get("user-agent"));
   const emailEnabled = emailSignInMode(env) !== "disabled" && !inMobileApp;
   const query = await searchParams;
+  const lang = await getBoardLang();
   const checkEmail = Boolean(query["check-email"]);
   // Auth.js sends AccessDenied when the signIn callback refuses: a suspended or closed account.
   const accessDenied = query.error === "AccessDenied";
@@ -142,7 +144,7 @@ export default async function SignInPage({
         )}
 
         {otpEmailAvailable ? (
-          <OtpLoginForm verify={verifyLoginCode} />
+          <OtpLoginForm verify={verifyLoginCode} lang={lang} />
         ) : (
           <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             Sign-in codes cannot be emailed: set <code>AUTH_EMAIL_FROM</code> and <code>AUTH_EMAIL_SERVER</code>.

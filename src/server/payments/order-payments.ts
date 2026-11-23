@@ -363,6 +363,9 @@ async function confirmPaidOrder(order: Order, intent: PaymentIntentRef, tx: DbCl
       type: NOTIFICATION_TYPES.ORDER_CONFIRMED,
       title: "Order confirmed",
       body: `Your order ${order.orderNumber} from ${shopRow?.name ?? "the shop"} is confirmed.`,
+      // Module 6: Hindi / Marathi for a customer who chose it (needs the shop name); English unchanged.
+      vars: { orderNumber: order.orderNumber, shopName: shopRow?.name ?? null },
+      lang: "auto",
       actionUrl: "/orders",
       dedupeKey: `order-confirmed:${order.id}`,
       // TC-SPI-004: the e-mail lists the lines, fees, discount and total, as for a wallet order.

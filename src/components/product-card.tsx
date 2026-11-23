@@ -15,6 +15,33 @@ import { discountPercent } from "@/lib/price-rules";
 import { cartQuantityStep, formatStock, quantityToMilli, roundStock, type ProductKind } from "@/lib/stock-quantity";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
 import type { CartLineQuantity, CartSummary } from "@/server/services/cart";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang } from "@/lib/board/i18n";
+
+/** Module 6 (docs/hindi-marathi-2026-11): the product tile's wording. Names, units and prices stay as they are. */
+const T = {
+  addFailed: L("Could not add to cart.", "कार्ट में नहीं जुड़ सका।", "कार्टमध्ये जोडता आले नाही."),
+  updateFailed: L("Could not update your cart.", "आपका कार्ट अपडेट नहीं हो सका।", "तुमचे कार्ट अपडेट करता आले नाही."),
+  kmAway: L("{km} km away", "{km} किमी दूर", "{km} किमी दूर"),
+  online: L(" online", " ऑनलाइन", " ऑनलाइन"),
+  off: L("{n}% off", "{n}% छूट", "{n}% सूट"),
+  inShop: L("in shop", "दुकान में", "दुकानात"),
+  priceOnRequest: L("Price on request", "दाम पूछने पर", "किंमत विचारल्यावर"),
+  compareN: L("Compare {n} prices", "{n} दाम मिलाएँ", "{n} दर तुलना करा"),
+  compareOthers: L("Compare prices at other shops →", "दूसरी दुकानों के दाम मिलाएँ →", "इतर दुकानांचे दर तुलना करा →"),
+  added: L("Added ✓", "जुड़ गया ✓", "जोडले ✓"),
+  decreaseInCart: L("Decrease quantity of {name} in cart", "कार्ट में {name} की मात्रा कम करें", "कार्टमधील {name} चे प्रमाण कमी करा"),
+  increaseInCart: L("Increase quantity of {name} in cart", "कार्ट में {name} की मात्रा बढ़ाएँ", "कार्टमधील {name} चे प्रमाण वाढवा"),
+  removeFromCart: L("Remove {name} from cart", "{name} को कार्ट से हटाएँ", "{name} कार्टमधून काढा"),
+  remove: L("Remove", "हटाएँ", "काढा"),
+  decreaseToAdd: L("Decrease quantity of {name} to add", "जोड़ने के लिए {name} की मात्रा कम करें", "जोडण्यासाठी {name} चे प्रमाण कमी करा"),
+  increaseToAdd: L("Increase quantity of {name} to add", "जोड़ने के लिए {name} की मात्रा बढ़ाएँ", "जोडण्यासाठी {name} चे प्रमाण वाढवा"),
+  addToCart: L("Add to cart", "कार्ट में जोड़ें", "कार्टमध्ये जोडा"),
+  askShop: L("Ask shop", "दुकान से पूछें", "दुकानाला विचारा"),
+  inShopOnly: L("In-shop only", "सिर्फ़ दुकान में", "फक्त दुकानात"),
+  unavailable: L("Unavailable", "उपलब्ध नहीं", "उपलब्ध नाही"),
+  subscribe: L("Subscribe", "सब्सक्राइब करें", "सदस्यता घ्या"),
+} as const;
 
 export interface ProductCardData {
   shopProductId: string;
@@ -71,9 +98,12 @@ export function ProductCard({
   product,
   signedIn,
   cartLine = null,
+  lang = "en",
 }: {
   product: ProductCardData;
   signedIn: boolean;
+  /** Module 6: the tile's language (product and shop names stay as entered). */
+  lang?: Lang;
   /** This product's line in the viewer's cart when the page was rendered. */
   cartLine?: CartLineQuantity | null;
 }) {
@@ -140,7 +170,7 @@ export function ProductCard({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        setError(payload?.error?.message ?? failure);
+        setError(errorText(payload?.error?.message ?? failure, lang, payload?.error?.code));
         return false;
       }
       const found = (payload as CartSummary | null)?.groups
@@ -150,7 +180,7 @@ export function ProductCard({
       startTransition(() => router.refresh());
       return true;
     } catch {
-      setError(failure);
+      setError(errorText(failure, lang));
       return false;
     } finally {
       setBusy(false);
@@ -177,7 +207,7 @@ export function ProductCard({
     const added = await updateCart(
       "/api/cart",
       { method: "POST", body: JSON.stringify({ shopProductId: product.shopProductId, quantity }) },
-      "Could not add to cart.",
+      lang === "en" ? "Could not add to cart." : tr(T.addFailed, lang),
     );
     if (added) {
       setQuantity(1);
@@ -196,7 +226,7 @@ export function ProductCard({
     void updateCart(
       `/api/cart/items/${line.cartItemId}`,
       { method: "PATCH", body: JSON.stringify({ quantity: next }) },
-      "Could not update your cart.",
+      lang === "en" ? "Could not update your cart." : tr(T.updateFailed, lang),
     );
   }
 
@@ -265,7 +295,7 @@ export function ProductCard({
       </div>
 
       {product.distanceKm != null && product.shopName ? (
-        <p className="mb-2 text-xs text-ink-500">{product.distanceKm} km away</p>
+        <p className="mb-2 text-xs text-ink-500">{tr(T.kmAway, lang).replace("{km}", String(product.distanceKm))}</p>
       ) : null}
 
       <div className="mt-auto">
@@ -288,23 +318,23 @@ export function ProductCard({
               <span className="text-sm font-normal text-ink-600">
                 {" "}
                 {priceUnitLabel(product.unit)}
-                {product.offlinePricePaise != null && product.offlinePricePaise !== product.onlinePricePaise ? " online" : ""}
+                {product.offlinePricePaise != null && product.offlinePricePaise !== product.onlinePricePaise ? tr(T.online, lang) : ""}
               </span>
             </span>
           ) : null}
           {percentOff != null ? (
             <span className="text-xs font-semibold text-leaf-700" data-testid="product-discount">
-              {percentOff}% off
+              {tr(T.off, lang).replace("{n}", String(percentOff))}
             </span>
           ) : null}
           {product.offlinePricePaise != null &&
           product.offlinePricePaise !== product.onlinePricePaise ? (
             <span className="text-xs text-ink-500">
-              <Money paise={product.offlinePricePaise} /> in shop
+              <Money paise={product.offlinePricePaise} /> {tr(T.inShop, lang)}
             </span>
           ) : null}
           {product.onlinePricePaise == null && product.offlinePricePaise == null ? (
-            <span className="text-sm font-medium text-ink-700">Price on request</span>
+            <span className="text-sm font-medium text-ink-700">{tr(T.priceOnRequest, lang)}</span>
           ) : null}
         </div>
         {product.offerTitle ? (
@@ -319,14 +349,14 @@ export function ProductCard({
             data-testid="compare-n-prices"
             className="mt-1.5 inline-flex min-h-9 items-center gap-1 self-start rounded-full bg-indigo-50 px-2.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100"
           >
-            <span aria-hidden>⚖</span> Compare {product.compareCount} prices
+            <span aria-hidden>⚖</span> {tr(T.compareN, lang).replace("{n}", String(product.compareCount))}
           </Link>
         ) : product.productId ? (
           <Link prefetch={false}
             href={`/products/${product.productId}`}
             className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-kesari-700 hover:underline"
           >
-            Compare prices at other shops →
+            {tr(T.compareOthers, lang)}
           </Link>
         ) : null}
 
@@ -342,7 +372,7 @@ export function ProductCard({
           {justAdded ? (
             <div className="flex">
               <Button size="sm" disabled className="flex-1">
-                Added ✓
+                {tr(T.added, lang)}
               </Button>
             </div>
           ) : shownLine ? (
@@ -353,6 +383,8 @@ export function ProductCard({
                   variant="secondary"
                   className="tap-target [--tap-h:36px] [--tap-w:36px]"
                   disabled={disabled}
+                  aria-label={tr(T.decreaseInCart, lang).replace("{name}", product.productName)}
+                  onClick={() => setCartQuantity(Math.max(0, roundStock(line.quantity - step)))}
                   aria-label={`Decrease quantity of ${product.productName} in cart`}
                   onClick={() => setCartQuantity(Math.max(0, roundStock(shownLine.quantity - step)))}
                 >
@@ -365,6 +397,9 @@ export function ProductCard({
                   size="sm"
                   variant="secondary"
                   className="tap-target [--tap-h:36px] [--tap-w:36px]"
+                  disabled={disabled || roundStock(line.quantity + step) > maxQuantity}
+                  aria-label={tr(T.increaseInCart, lang).replace("{name}", product.productName)}
+                  onClick={() => setCartQuantity(roundStock(line.quantity + step))}
                   disabled={disabled || roundStock(shownLine.quantity + step) > maxQuantity}
                   aria-label={`Increase quantity of ${product.productName} in cart`}
                   onClick={() => setCartQuantity(roundStock(shownLine.quantity + step))}
@@ -377,10 +412,10 @@ export function ProductCard({
                 variant="secondary"
                 className="tap-target hidden [--tap-h:36px] sm:inline-flex"
                 disabled={disabled}
-                aria-label={`Remove ${product.productName} from cart`}
+                aria-label={tr(T.removeFromCart, lang).replace("{name}", product.productName)}
                 onClick={() => setCartQuantity(0)}
               >
-                Remove
+                {tr(T.remove, lang)}
               </Button>
             </div>
           ) : (
@@ -394,7 +429,7 @@ export function ProductCard({
                       variant="secondary"
                       className="tap-target [--tap-h:36px] [--tap-w:36px]"
                       disabled={disabled || quantity <= step}
-                      aria-label={`Decrease quantity of ${product.productName} to add`}
+                      aria-label={tr(T.decreaseToAdd, lang).replace("{name}", product.productName)}
                       onClick={() => setQuantity(Math.max(step, roundStock(quantity - step)))}
                     >
                       −
@@ -407,7 +442,7 @@ export function ProductCard({
                       variant="secondary"
                       className="tap-target [--tap-h:36px] [--tap-w:36px]"
                       disabled={disabled || roundStock(quantity + step) > maxQuantity}
-                      aria-label={`Increase quantity of ${product.productName} to add`}
+                      aria-label={tr(T.increaseToAdd, lang).replace("{name}", product.productName)}
                       onClick={() => setQuantity(Math.min(maxQuantity, roundStock(quantity + step)))}
                     >
                       +
@@ -419,16 +454,16 @@ export function ProductCard({
                     disabled={disabled}
                     className="tap-target flex-1 [--tap-h:36px]"
                   >
-                    Add to cart
+                    {tr(T.addToCart, lang)}
                   </Button>
                 </>
               ) : (
                 <Button size="sm" variant="secondary" disabled className="flex-1">
                   {product.onlinePricePaise == null && product.offlinePricePaise == null
-                    ? "Ask shop"
+                    ? tr(T.askShop, lang)
                     : product.offlineSaleEnabled && !product.onlineSaleEnabled
-                      ? "In-shop only"
-                      : "Unavailable"}
+                      ? tr(T.inShopOnly, lang)
+                      : tr(T.unavailable, lang)}
                 </Button>
               )}
             </div>
@@ -443,7 +478,7 @@ export function ProductCard({
               }
               className="tap-target w-full [--tap-h:36px]"
             >
-              Subscribe
+              {tr(T.subscribe, lang)}
             </Button>
           ) : null}
 
