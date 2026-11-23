@@ -1275,6 +1275,13 @@
       "when": 1793269100000,
       "tag": "0181_dealer_platform_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "7",
+      "when": 1793269282000,
+      "tag": "0182_brand_barcode_favourites",
+      "breakpoints": true
     }
   ]
 }

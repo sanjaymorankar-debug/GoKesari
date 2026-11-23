@@ -14,6 +14,7 @@ import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limi
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { getCustomerLocation } from "@/server/location";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { serviceableShopIds } from "@/server/services/serviceability";
 import { SUGGEST_MAX_CHARS, suggest } from "@/server/services/search-suggest";
 
@@ -42,7 +43,9 @@ export const GET = route(async (request: NextRequest) => {
   const { q } = parseQuery(request, querySchema);
   const location = await getCustomerLocation(user?.id).catch(() => null);
   const nearby = location ? await nearbyFor(location).catch(() => undefined) : undefined;
-  const result = await suggest(q.slice(0, SUGGEST_MAX_CHARS), { lang: await getBoardLang(), nearby });
+  // docs/search-brand-barcode-favourites-2026-11: a "Brands" group only while the flag is on.
+  const brands = await isFeatureEnabled("brand_barcode_favourites_enabled").catch(() => false);
+  const result = await suggest(q.slice(0, SUGGEST_MAX_CHARS), { lang: await getBoardLang(), nearby, brands });
   const response = ok(result);
   response.headers.set("Cache-Control", "private, max-age=30");
   return response;

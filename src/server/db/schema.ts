@@ -10442,6 +10442,32 @@ export type PurchaseListItem = typeof purchaseListItems.$inferSelect;
 
 /* <<< end purchase lists */
 
+/* >>> favourites (docs/search-brand-barcode-favourites-2026-11, 0182) */
+
+/**
+ * A customer's saved catalogue products (the heart on a product card). Not the smart-list "wishlist".
+ * product_id points at `products` with no foreign key (catalogue side): the service checks it exists.
+ */
+export const favourites = pgTable(
+  "favourites",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** products.id (no foreign key). */
+    productId: uuid("product_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: "favourites_pkey", columns: [t.userId, t.productId] }),
+    index("favourites_user_created_idx").on(t.userId, t.createdAt),
+    index("favourites_product_idx").on(t.productId),
+  ],
+);
+export type Favourite = typeof favourites.$inferSelect;
+
+/* <<< end favourites */
+
 /* >>> dealer programme (docs/dealer-programme) */
 
 /** Admin-controlled feature flags (0102). Seeded OFF; read live by services/feature-flags.ts. */
@@ -10488,6 +10514,8 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_operations",
   // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
   "dealer_platform_four_eye",
+  // docs/search-brand-barcode-favourites-2026-11 (0182): brand search, customer barcode search, favourites.
+  "brand_barcode_favourites_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 

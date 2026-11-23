@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { FavouriteHeart } from "@/components/favourites/favourite-heart";
 import { AddToListButton } from "@/components/purchase-lists/add-to-list-button";
 import { SafeImage } from "@/components/safe-image";
 import { categoryEmoji, priceUnitLabel } from "@/lib/board/product-look";
@@ -50,6 +51,11 @@ export interface ProductCardData {
   detailsHref?: string;
   /** The master MRP: struck through, with "x% off", when the price is below it (TC-CAT-008). */
   mrpPaise?: number | null;
+  /**
+   * docs/search-brand-barcode-favourites-2026-11: the catalogue product the heart saves. Set only while
+   * the flag brand_barcode_favourites_enabled is on — without it the card has no heart.
+   */
+  favouriteProductId?: string;
 }
 
 /**
@@ -184,13 +190,26 @@ export function ProductCard({
           </p>
         </div>
       ) : null}
-      <SafeImage
-        src={product.imageUrl}
-        size="medium"
-        alt={product.productName}
-        fallbackEmoji={categoryEmoji(product.categoryName, product.productName)}
-        className="mb-2 h-24 w-full rounded-lg bg-cream-100 object-cover sm:mb-3 sm:h-32"
-      />
+      {product.favouriteProductId ? (
+        <div className="relative">
+          <SafeImage
+            src={product.imageUrl}
+            size="medium"
+            alt={product.productName}
+            fallbackEmoji={categoryEmoji(product.categoryName, product.productName)}
+            className="mb-2 h-24 w-full rounded-lg bg-cream-100 object-cover sm:mb-3 sm:h-32"
+          />
+          <FavouriteHeart productId={product.favouriteProductId} productName={product.productName} signedIn={signedIn} className="absolute right-1 top-1" />
+        </div>
+      ) : (
+        <SafeImage
+          src={product.imageUrl}
+          size="medium"
+          alt={product.productName}
+          fallbackEmoji={categoryEmoji(product.categoryName, product.productName)}
+          className="mb-2 h-24 w-full rounded-lg bg-cream-100 object-cover sm:mb-3 sm:h-32"
+        />
+      )}
       <div className="mb-2 flex flex-col items-start gap-1 sm:flex-row sm:justify-between sm:gap-2">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-ink-900">

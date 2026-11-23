@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { Pager, paginate } from "@/components/board/list-tabs";
 import { ProductGrid } from "@/components/product-grid";
+import { favouritesOn } from "@/server/services/favourites-flag";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { listShopTypes } from "@/server/services/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -67,7 +68,7 @@ export default async function CategoryPage({
       ) : (
         <>
           {/* Six at a time (three rows on a phone): pages instead of one long list. */}
-          <ProductGrid products={page.rows} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} />
+          <ProductGrid products={page.rows} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} favourites={await favouritesOn()} />
           <Pager lang={lang} page={page.page} pageCount={page.pageCount} hrefFor={(n) => `/category/${type}?page=${n}`} />
         </>
       )}

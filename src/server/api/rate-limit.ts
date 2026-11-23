@@ -66,6 +66,13 @@ export const RATE_LIMITS = {
    * cannot walk the catalogue through it.
    */
   SEARCH_SUGGEST: { limit: 120, windowMs: 60_000 },
+  /**
+   * docs/search-brand-barcode-favourites-2026-11: a customer's barcode lookup (public). A person scans
+   * a few packs a minute; a script walking GTIN ranges is stopped.
+   */
+  BARCODE_LOOKUP: { limit: 30, windowMs: 60_000 },
+  /** docs/search-brand-barcode-favourites-2026-11: hearts toggled, and the guest merge at sign-in. */
+  FAVOURITES: { limit: 120, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 /**
