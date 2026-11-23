@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { useGuestCart, useGuestCartEnabled } from "@/components/guest-cart/guest-cart-context";
 import { AddToListButton } from "@/components/purchase-lists/add-to-list-button";
 import { SafeImage } from "@/components/safe-image";
 import { categoryEmoji, priceUnitLabel } from "@/lib/board/product-look";
 import { formatQuantity } from "@/lib/money";
+import { addToGuestCart, guestCartRefusal, setGuestCartQuantity } from "@/lib/guest-cart";
 import { discountPercent } from "@/lib/price-rules";
 import { cartQuantityStep, formatStock, quantityToMilli, roundStock, type ProductKind } from "@/lib/stock-quantity";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
@@ -85,6 +87,16 @@ export function ProductCard({
     setLine(cartLine);
   }
   const [justAdded, setJustAdded] = useState(false);
+  // docs/guest-cart-2026-11: a signed-out shopper's cart is kept in the browser (flag guest_cart_enabled).
+  const guestCartOn = useGuestCartEnabled();
+  const guestCart = !signedIn && guestCartOn;
+  const guestCartState = useGuestCart(guestCart);
+  const guestLine = guestCart ? guestCartState.lines.find((l) => l.shopProductId === product.shopProductId) : undefined;
+  const shownLine: CartLineQuantity | null = guestCart
+    ? guestLine
+      ? { cartItemId: guestLine.shopProductId, quantity: guestLine.quantity }
+      : null
+    : line;
 
   const outOfStock = product.trackInventory && product.onlineStock <= 0;
   const canBuyOnline =
@@ -140,6 +152,18 @@ export function ProductCard({
   }
 
   async function addToCart() {
+    if (guestCart) {
+      setError(null);
+      const change = addToGuestCart(product.shopProductId, quantity);
+      if (!change.ok) {
+        setError(guestCartRefusal(change.reason));
+        return;
+      }
+      setQuantity(1);
+      setJustAdded(true);
+      setTimeout(() => setJustAdded(false), 1500);
+      return;
+    }
     if (!signedIn) {
       router.push("/signin");
       return;
@@ -158,6 +182,10 @@ export function ProductCard({
 
   /** Sets the line's quantity; 0 removes it (PATCH /api/cart/items/:id). */
   function setCartQuantity(next: number) {
+    if (guestCart) {
+      setGuestCartQuantity(product.shopProductId, next);
+      return;
+    }
     if (!line) return;
     void updateCart(
       `/api/cart/items/${line.cartItemId}`,
@@ -298,7 +326,7 @@ export function ProductCard({
                 Added ✓
               </Button>
             </div>
-          ) : line ? (
+          ) : shownLine ? (
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1">
                 <Button
@@ -307,20 +335,20 @@ export function ProductCard({
                   className="tap-target [--tap-h:36px] [--tap-w:36px]"
                   disabled={disabled}
                   aria-label={`Decrease quantity of ${product.productName} in cart`}
-                  onClick={() => setCartQuantity(Math.max(0, roundStock(line.quantity - step)))}
+                  onClick={() => setCartQuantity(Math.max(0, roundStock(shownLine.quantity - step)))}
                 >
                   −
                 </Button>
                 <span className={`${loose ? "min-w-8 px-1" : "w-8"} text-center text-sm font-medium tabular-nums`} aria-live="polite">
-                  {shown(line.quantity)}
+                  {shown(shownLine.quantity)}
                 </span>
                 <Button
                   size="sm"
                   variant="secondary"
                   className="tap-target [--tap-h:36px] [--tap-w:36px]"
-                  disabled={disabled || roundStock(line.quantity + step) > maxQuantity}
+                  disabled={disabled || roundStock(shownLine.quantity + step) > maxQuantity}
                   aria-label={`Increase quantity of ${product.productName} in cart`}
-                  onClick={() => setCartQuantity(roundStock(line.quantity + step))}
+                  onClick={() => setCartQuantity(roundStock(shownLine.quantity + step))}
                 >
                   +
                 </Button>

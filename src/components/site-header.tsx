@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { AutoLocate } from "@/components/auto-locate";
+import { useGuestCart, useGuestCartEnabled } from "@/components/guest-cart/guest-cart-context";
+import { guestCartItemCount } from "@/lib/guest-cart";
 import { LanguageSwitch } from "@/components/board/board-header";
 import { Icon, type IconName } from "@/components/board/icons";
 import { LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker";
@@ -99,7 +101,7 @@ export function SiteHeader({
   lang,
   user,
   roles = [],
-  cartCount,
+  cartCount: accountCartCount,
   balancePaise,
   unreadCount,
   locationLabel,
@@ -108,6 +110,10 @@ export function SiteHeader({
   referralLinks = [],
 }: Props) {
   const pathname = usePathname();
+  // docs/guest-cart-2026-11: a guest's cart lives in the browser; the badge counts it there.
+  const guestCartOn = useGuestCartEnabled();
+  const guestCart = useGuestCart(guestCartOn && !user);
+  const cartCount = guestCartOn && !user ? guestCartItemCount(guestCart) : accountCartCount;
   const [locationOpen, setLocationOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);

@@ -19,6 +19,8 @@ import { Icon, type IconName } from "@/components/board/icons";
 import { formatRupees } from "@/lib/board/format";
 import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
 import { HOME } from "@/lib/home-i18n";
+import { useGuestCart, useGuestCartEnabled } from "@/components/guest-cart/guest-cart-context";
+import { guestCartItemCount } from "@/lib/guest-cart";
 
 /** Pages that get the bottom navigation (a path equal to one, or under it). */
 const SHOPPING_PATHS = [
@@ -53,7 +55,7 @@ export function showsShoppingNav(pathname: string): boolean {
 export function MobileShopNav({
   lang,
   signedIn,
-  cartCount,
+  cartCount: accountCartCount,
   cartTotalPaise,
 }: {
   lang: Lang;
@@ -63,6 +65,10 @@ export function MobileShopNav({
   cartTotalPaise: number | null;
 }) {
   const pathname = usePathname();
+  // docs/guest-cart-2026-11: a guest's cart is counted in the browser (no total until the cart page prices it).
+  const guestCartOn = useGuestCartEnabled() && !signedIn;
+  const guestCart = useGuestCart(guestCartOn);
+  const cartCount = guestCartOn ? guestCartItemCount(guestCart) : accountCartCount;
   if (!showsShoppingNav(pathname)) return null;
 
   const items: { key: string; href: string; label: string; icon: IconName; active: boolean }[] = [
@@ -72,7 +78,7 @@ export function MobileShopNav({
     { key: "orders", href: signedIn ? "/orders" : "/signin", label: tr(HOME.orders, lang), icon: "package", active: pathname.startsWith("/orders") },
     { key: "account", href: signedIn ? "/profile" : "/signin", label: tr(HOME.account, lang), icon: "user", active: pathname.startsWith("/profile") },
   ];
-  const showCart = cartCount > 0 && signedIn;
+  const showCart = cartCount > 0 && (signedIn || guestCartOn);
 
   return (
     <>
