@@ -114,6 +114,21 @@ change, so no version or build bump is needed. Store publishing stays BLOCKED.
 2. After `staging-verified`: Admin → Feature flags on test.gokesari.com → `shop_logo_upload_enabled` ON (staging only), then upload a logo as the staging shop owner.
 3. Rollback: switch the flag off (the card disappears and the API answers 404). Logos already uploaded stay, as `logoUrl` values. Full rollback: revert the PR; there is no database change.
 
+## Reuse by the dealer / franchise module (owner, 23-Nov-2026 ≈09.25 IST: "integrate this with dealer module")
+
+`ShopLogoUpload` now takes optional `endpoint`, `heading` and `hint`. Without them the shop pages are unchanged. With them, another module points the same card at its own route. The route must take a multipart `file` on POST, clear the logo on DELETE and answer `{ logoUrl }`.
+
+Hand-over to the "GoKesari Pune PMR franchise dealer module" session (its dealer-dashboard phase, P6):
+
+- `dealers` has no logo column. A dealer logo needs a new migration numbered after the RBAC range (0170–0175), with a rollback script.
+- Copy the `/api/shops/[id]/logo` pattern into a dealer route (for example `/api/dealer/[id]/logo`) under the dealer's own guard and flag: `saveImage` → `recordAudit IMAGE_UPLOADED {purpose: "DEALER_LOGO"}` → update the column.
+- Render `<ShopLogoUpload shopId={dealer.id} initialLogoUrl={dealer.logoUrl} endpoint={…} heading="Dealer logo" hint="…" />`.
+
+| Test ID | Check | Result | Time (IST) |
+|---|---|---|---|
+| DT-11-07 | Card default text unchanged; custom heading/hint shown (unit, `delta-logo-upload-reuse`) | Pass | 23-Nov 09.22 |
+| DT-11-01..06 | Logo API suite re-run on staging code (with RBAC 0170 migrated) | Pass | 23-Nov 09.22 |
+
 ## CF-006: Delta Build Register (23-Nov-2026)
 
 **Owner decisions:** "Approve A" (22-Nov ≈23.05 IST), "A1" (22-Nov ≈23.12 IST), and "Go ahead with CF-006 after #487" (23-Nov ≈09.28 IST). #487 (RBAC v2 0171–0175) was staging-verified at 11.43 IST. CF-006 was then rebased on origin/staging (52d62755) and given the next free migration number, **0176**. The dealer platform PR renumbers its migrations after it, as agreed with that session.

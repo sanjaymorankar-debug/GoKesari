@@ -72,6 +72,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   smart_list_scan_enabled: "Scan my shopping list (photo → wishlist → compare shops)",
   shop_photo_listing_enabled: "Add product by photo + voice (shop owners)",
   whatsapp_shop_orders_enabled: "New orders on the shop owner's WhatsApp",
+  voice_price_assistant_enabled: "Change prices and offers by voice (shop owners)",
   rbac_v2_staff_roles: "Staff roles: CA, Accountant, Support and Operations boards",
   rbac_v2_four_eye_admin: "Two-admin approval for user, role, suspension and flag changes",
   rbac_v2_accounting: "Accounting: journal entries, period close, rate proposals",
@@ -125,6 +126,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "Shop owners add a product from 1–4 photos plus price/stock by voice or typing; AI fills the details, the master catalogue is checked first (no duplicates) and new products go to admin review as today.",
   whatsapp_shop_orders_enabled:
     "Each new order is sent to the shop's verified WhatsApp numbers with Accept / Reject buttons; the first action wins. Needs the Meta WhatsApp Cloud API keys and approved templates (rule whatsappShopOrders). Each shop also switches it on in its WhatsApp settings.",
+  voice_price_assistant_enabled:
+    "Shop owners say or type a product (or scan its barcode) and the new price or offer, in any Indian language; GoKesari shows what it understood and publishes only after the owner says yes. Default offer length: rule voicePriceAssistant. AI (rule smartShopping) is used only when the built-in reader cannot follow the sentence.",
   rbac_v2_staff_roles:
     "docs/rbac: the staff board at /staff for the CA, Accountant, Support Manager, Support User, Operations Manager and Operations User roles. Off: those roles see the site as a customer (the CA keeps its statutory pages). Limit it to some roles with the role scope.",
   rbac_v2_four_eye_admin:

@@ -10469,6 +10469,8 @@ export const FEATURE_FLAG_KEYS = [
   "smart_list_scan_enabled",
   "shop_photo_listing_enabled",
   "whatsapp_shop_orders_enabled",
+  // docs/smart-shopping-2026-11 FEATURE4: shop owner changes prices and offers by voice. Missing row = OFF.
+  "voice_price_assistant_enabled",
   // docs/rbac (0170): RBAC v2, one switch per area; a flag's role_scope limits it to some roles. Missing row = OFF.
   "rbac_v2_staff_roles",
   "rbac_v2_four_eye_admin",

@@ -18,7 +18,7 @@ export const aiUsageLog = pgTable(
   "ai_usage_log",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** LIST_SCAN | PRODUCT_PHOTO | VOICE_PARSE | WHATSAPP_INTENT */
+    /** LIST_SCAN | PRODUCT_PHOTO | VOICE_PARSE | WHATSAPP_INTENT | VOICE_COMMAND */
     feature: text("feature").notNull(),
     userId: uuid("user_id").notNull(),
     shopId: uuid("shop_id"),

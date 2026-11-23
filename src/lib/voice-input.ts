@@ -5,7 +5,7 @@
  * Languages: mr-IN, hi-IN, en-IN (and other Indian locales the recogniser supports). Browser only.
  */
 
-export type VoiceLang = "mr-IN" | "hi-IN" | "en-IN" | "gu-IN";
+export type VoiceLang = "mr-IN" | "hi-IN" | "en-IN" | "gu-IN" | "kn-IN" | "ta-IN" | "te-IN" | "bn-IN" | "ur-IN" | "ml-IN" | "pa-IN";
 
 interface AppSpeechBridge {
   capabilities?: string[];
