@@ -18,6 +18,7 @@ import {
   listFees,
   setRegistrationFee,
 } from "@/server/services/registration-fees";
+import { fourEyeAdminOn, requestFourEye, FOUR_EYE_TYPES } from "@/server/approvals";
 
 const schema = z.object({
   // TC-FLD-112: a named ceiling (₹10,00,000), not ₹10 crore.
@@ -43,5 +44,18 @@ export const GET = route(async () => {
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.REGISTRATION_FEE_MANAGE);
   const body = await parseBody(request, schema);
+  // docs/rbac: with rbac_v2_four_eye_admin on, a second admin approves a fee change first.
+  if (await fourEyeAdminOn()) {
+    return ok(
+      await requestFourEye(FOUR_EYE_TYPES.REGISTRATION_FEE_SET, user, {
+        subjectType: "registration_fee",
+        subjectId: "default",
+        title: `Registration fee → ₹${(body.amountPaise / 100).toFixed(2)}${body.effectiveFrom ? ` from ${body.effectiveFrom}` : ""}`,
+        reason: body.reason?.trim() || "Registration fee change",
+        payload: body,
+      }),
+      202,
+    );
+  }
   return ok(await setRegistrationFee(body, user), 201);
 });

@@ -15,13 +15,15 @@ export const dynamic = "force-dynamic";
 export default async function HelpDeskTicketPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  if (!can(user.role, PERMISSIONS.SUPPORT_TICKET_MANAGE)) redirect("/");
+  // docs/rbac Phase 4: a Support User opens the tickets assigned to them (getTicketDetail refuses any other).
+  const supportUser = !can(user.role, PERMISSIONS.SUPPORT_TICKET_MANAGE) && can(user.role, PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED);
+  if (!can(user.role, PERMISSIONS.SUPPORT_TICKET_MANAGE) && !supportUser) redirect("/");
   const { id } = await params;
   const detail = await getTicketDetail(id, user).catch((error) => {
     if (error instanceof AppError) notFound();
     throw error;
   });
-  const [canned, staff] = await Promise.all([listCannedReplies(user), listAssignableStaff()]);
+  const [canned, staff] = await Promise.all([listCannedReplies(user), supportUser ? Promise.resolve([]) : listAssignableStaff()]);
   return (
     <>
       <PageHeader title={detail.ticket.subject} description={<Link href="/admin/support" className="underline">← Help desk</Link>} />

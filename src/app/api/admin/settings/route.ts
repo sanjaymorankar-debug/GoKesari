@@ -14,6 +14,7 @@ import { RULES, type RuleKey } from "@/server/config/rules";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requireRole } from "@/server/authz/guards";
 import { listRules, resetRule, setRule } from "@/server/services/settings";
+import { fourEyeAdminOn, requestFourEye, FOUR_EYE_TYPES } from "@/server/approvals";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,19 @@ export const PUT = route(async (request: NextRequest) => {
   // Owner, 21-Nov-2026: a territory and a franchise are the same thing — territories are sold and paid only as
   // franchise zones (Admin → Franchise), so the older territory rule cannot be switched back on (no double recurring).
   if (body.key === "territoryDealer" && body.value.enabled === true) throw validationFailed("Territories are now franchise zones: sell and manage them in Admin → Franchise.");
+  // docs/rbac: with rbac_v2_four_eye_admin on, a second admin approves rule changes (thresholds, fees, charges) first.
+  if (await fourEyeAdminOn()) {
+    return ok(
+      await requestFourEye(FOUR_EYE_TYPES.RULE_SET, admin, {
+        subjectType: "rule",
+        subjectId: body.key,
+        title: `Change setting ${body.key}`,
+        reason: `Setting ${body.key} changed`,
+        payload: { key: body.key, value: body.value },
+      }),
+      202,
+    );
+  }
   return ok({ key: body.key, value: await setRule(body.key as RuleKey, body.value, admin) });
 });
 
@@ -38,6 +52,12 @@ export const DELETE = route(async (request: NextRequest) => {
   const admin = await requireRole("ADMIN");
   const key = new URL(request.url).searchParams.get("key");
   if (!key || !(key in RULES)) throw validationFailed("Unknown setting.");
+  if (await fourEyeAdminOn()) {
+    return ok(
+      await requestFourEye(FOUR_EYE_TYPES.RULE_RESET, admin, { subjectType: "rule", subjectId: key, title: `Reset setting ${key} to defaults`, reason: `Setting ${key} reset`, payload: { key } }),
+      202,
+    );
+  }
   await resetRule(key as RuleKey, admin);
   return ok({ key, reset: true });
 });

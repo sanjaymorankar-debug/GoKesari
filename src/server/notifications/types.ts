@@ -462,6 +462,20 @@ export const NOTIFICATION_TYPES = {
   SHOP_WHATSAPP_FAILED: "shop.whatsapp_failed",
   /* <<< WhatsApp shop orders */
   //
+  /* >>> RBAC v2 (docs/rbac) */
+  /** To the shop owner: Support proposed changes to the shop or its products, waiting for approval. */
+  SHOP_CHANGE_REQUESTED: "shop.change_requested",
+  /** To the shop owner: reminder (24 h, 72 h) of a change request still waiting. */
+  SHOP_CHANGE_REMINDER: "shop.change_reminder",
+  /** To staff: an approval request waits for you (CA, admin). */
+  STAFF_APPROVAL_PENDING: "staff.approval_pending",
+  /** To the Support User: the owner decided (approved, partly approved, rejected), or it expired / was superseded. */
+  STAFF_CHANGE_DECIDED: "staff.change_decided",
+  /** To staff: a ticket was assigned to you, or a ticket you raised moved on. */
+  STAFF_TICKET_UPDATE: "staff.ticket_update",
+  /** To an Operations User: a task was assigned to you. */
+  STAFF_TASK_ASSIGNED: "staff.task_assigned",
+  /* <<< RBAC v2 */
 } as const;
 
 export type NotificationType =

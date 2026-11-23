@@ -14,6 +14,10 @@ import { AppError, validationFailed } from "@/lib/errors";
 import { FEATURE_FLAG_KEYS, type FeatureFlagKey, type UserRole } from "@/server/db/schema";
 import { isFeatureEnabled, setFeatureFlag, setFeatureFlagRoleScope } from "@/server/services/feature-flags";
 import { revokeRole } from "@/server/services/roles";
+import { resetRule, setRule } from "@/server/services/settings";
+import { setCommissionRate } from "@/server/services/finance";
+import { setRegistrationFee } from "@/server/services/registration-fees";
+import type { RuleKey } from "@/server/config/rules";
 import { reinstateUser, setUserRole, suspendUser, updateUserPrivileges } from "@/server/services/users";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { registerApprovalHandler, submitApproval, type ApprovalActor, type ApplyContext } from "./engine";
@@ -26,6 +30,11 @@ export const FOUR_EYE_TYPES = {
   USER_SUSPEND_CONFIRM: "USER_SUSPEND_CONFIRM",
   FEATURE_FLAG_SET: "FEATURE_FLAG_SET",
   FEATURE_FLAG_ROLE_SCOPE_SET: "FEATURE_FLAG_ROLE_SCOPE_SET",
+  // Sensitive configuration (brief §3.1): business rules (thresholds), commission rates, registration fee.
+  RULE_SET: "RULE_SET",
+  RULE_RESET: "RULE_RESET",
+  COMMISSION_RATE_SET: "COMMISSION_RATE_SET",
+  REGISTRATION_FEE_SET: "REGISTRATION_FEE_SET",
 } as const;
 
 /** Emergency suspensions must be confirmed by a second admin within this many hours. */
@@ -119,6 +128,41 @@ registerApprovalHandler({
       `${context.request.reason} (approved by a second admin)`,
       requester(context),
     );
+  },
+});
+
+registerApprovalHandler({
+  type: FOUR_EYE_TYPES.RULE_SET,
+  checker: "ADMIN",
+  async apply(context) {
+    const p = context.request.payload;
+    await setRule(str(p.key, "key") as RuleKey, p.value, requester(context));
+  },
+});
+
+registerApprovalHandler({
+  type: FOUR_EYE_TYPES.RULE_RESET,
+  checker: "ADMIN",
+  async apply(context) {
+    await resetRule(str(context.request.payload.key, "key") as RuleKey, requester(context));
+  },
+});
+
+registerApprovalHandler({
+  type: FOUR_EYE_TYPES.COMMISSION_RATE_SET,
+  checker: "ADMIN",
+  async apply(context) {
+    const p = context.request.payload as unknown as Parameters<typeof setCommissionRate>[0];
+    await setCommissionRate(p, requester(context));
+  },
+});
+
+registerApprovalHandler({
+  type: FOUR_EYE_TYPES.REGISTRATION_FEE_SET,
+  checker: "ADMIN",
+  async apply(context) {
+    const p = context.request.payload as unknown as Parameters<typeof setRegistrationFee>[0];
+    await setRegistrationFee(p, requester(context));
   },
 });
 

@@ -125,7 +125,7 @@ export function AdminPrivilegesForm({
       const result = await postJson<{ pendingApproval?: boolean; message?: string }>(`/api/users/${userId}/privileges`, "PATCH", {
         activeRole: draft.activeRole,
         heldRoles: draft.heldRoles,
-      });
+      }, { allowPending: true });
       // docs/rbac: with two-admin approval on, nothing changes until a second admin approves.
       if (result?.pendingApproval) {
         setDraft(baseline);

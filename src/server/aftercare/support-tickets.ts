@@ -99,6 +99,8 @@ async function shopOwnerOf(shopId: string | null, client: DbClient = db): Promis
 
 export async function ticketAccess(ticket: SupportTicket, actor: Actor, client: DbClient = db): Promise<TicketAccess | null> {
   if (isSupportStaff(actor.role)) return "STAFF";
+  // docs/rbac Phase 4: a Support User works as staff on the tickets assigned to them, and only those.
+  if (ticket.assignedToUserId === actor.id && can(actor.role, PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED)) return "STAFF";
   if (ticket.requesterId && ticket.requesterId === actor.id) return "REQUESTER";
   if (ticket.status === "AWAITING_SHOP" && ticket.shopId && (await shopOwnerOf(ticket.shopId, client)) === actor.id) return "SHOP";
   return null;
@@ -149,7 +151,7 @@ export function slaFor(ticket: Pick<SupportTicket, "acknowledgeBy" | "resolveBy"
   };
 }
 
-async function appendEvent(
+export async function appendEvent(
   tx: DbClient,
   ticketId: string,
   input: { kind: string; from?: string | null; to?: string | null; actor: SystemActor; note?: string | null; isPublic?: boolean },
@@ -212,7 +214,7 @@ async function syncGrievance(tx: DbClient, ticket: SupportTicket, to: TicketStat
  * The one way a ticket's status changes: checked against the state machine,
  * timestamped, logged, mirrored to a linked grievance and announced.
  */
-async function moveTicket(
+export async function moveTicket(
   tx: DbClient,
   ticket: SupportTicket,
   to: TicketStatus,
@@ -306,7 +308,7 @@ function validateTicketInput(input: CreateTicketInput) {
   if (Object.keys(fields).length) throw validationFailed("Please check the highlighted fields.", { fields });
 }
 
-async function slaDeadlines(receivedAt: Date) {
+export async function slaDeadlines(receivedAt: Date) {
   const rule = await getRule("helpdesk");
   return {
     acknowledgeBy: new Date(receivedAt.getTime() + rule.acknowledgeWithinHours * HOUR),
@@ -314,7 +316,7 @@ async function slaDeadlines(receivedAt: Date) {
   };
 }
 
-async function announceCreated(tx: DbClient, ticket: SupportTicket, actor: SystemActor, requesterLabel: string, fromGrievance = false) {
+export async function announceCreated(tx: DbClient, ticket: SupportTicket, actor: SystemActor, requesterLabel: string, fromGrievance = false) {
   await emitEvent(
     {
       type: "support_ticket.created",
@@ -739,7 +741,10 @@ export async function assignTicket(ticketId: string, assigneeId: string | null, 
     const { ticket } = await loadForActor(tx, ticketId, actor, true);
     if (assigneeId) {
       const [user] = await tx.select({ role: users.role }).from(users).where(eq(users.id, assigneeId));
-      if (!user || !isSupportStaff(user.role)) throw validationFailed("Assign the ticket to an operator or administrator.");
+      // docs/rbac Phase 4: Support Users (assigned work only) can be assignees too.
+      if (!user || !(isSupportStaff(user.role) || can(user.role, PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED))) {
+        throw validationFailed("Assign the ticket to a support team member, an operator or an administrator.");
+      }
     }
     let [updated] = await tx
       .update(supportTickets)
@@ -988,7 +993,7 @@ function assertCannedManager(actor: Actor) {
 }
 
 export async function listCannedReplies(actor: Actor, options: { includeInactive?: boolean } = {}): Promise<SupportCannedReply[]> {
-  if (!isSupportStaff(actor.role)) throw forbidden("Only support can use canned replies.");
+  if (!isSupportStaff(actor.role) && !can(actor.role, PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED)) throw forbidden("Only support can use canned replies.");
   return db
     .select()
     .from(supportCannedReplies)
@@ -1045,10 +1050,11 @@ export async function listAssignableStaff(): Promise<{ id: string; label: string
   const rows = await db
     .select({ id: users.id, name: users.name, email: users.email, role: users.role })
     .from(users)
-    .where(inArray(users.role, ["OPERATOR", "ADMIN"]))
+    .where(inArray(users.role, ["OPERATOR", "ADMIN", "SUPPORT_MANAGER", "SUPPORT_USER"]))
     .orderBy(asc(users.name))
     .limit(200);
-  return rows.map((u) => ({ id: u.id, label: `${u.name ?? u.email} (${u.role === "ADMIN" ? "admin" : "operator"})` }));
+  const label: Partial<Record<UserRole, string>> = { ADMIN: "admin", OPERATOR: "operator", SUPPORT_MANAGER: "support manager", SUPPORT_USER: "support" };
+  return rows.map((u) => ({ id: u.id, label: `${u.name ?? u.email} (${label[u.role] ?? u.role})` }));
 }
 
 /* ------------------------------------------------------------- SLA job */
