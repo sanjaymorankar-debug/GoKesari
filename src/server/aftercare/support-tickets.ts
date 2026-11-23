@@ -55,6 +55,7 @@ import {
   supportTicketEvents,
   supportTicketMessages,
   supportTickets,
+  userRoleGrants,
   users,
   type Grievance,
   type GrievanceStatus,
@@ -67,6 +68,7 @@ import { detectImage } from "@/server/services/image-store";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { getLiveDisputesForOrders } from "@/server/services/disputes";
 import { getRule } from "@/server/services/settings";
+import { listUserRoles } from "@/server/services/roles";
 
 export interface Actor {
   id: string;
@@ -742,7 +744,9 @@ export async function assignTicket(ticketId: string, assigneeId: string | null, 
     if (assigneeId) {
       const [user] = await tx.select({ role: users.role }).from(users).where(eq(users.id, assigneeId));
       // docs/rbac Phase 4: Support Users (assigned work only) can be assignees too.
-      if (!user || !(isSupportStaff(user.role) || can(user.role, PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED))) {
+      // Any role the person holds counts, not only the one they are acting in now.
+      const held = user ? [user.role, ...(await listUserRoles(assigneeId, tx))] : [];
+      if (!held.some((r) => isSupportStaff(r) || can(r, PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED))) {
         throw validationFailed("Assign the ticket to a support team member, an operator or an administrator.");
       }
     }
@@ -1047,14 +1051,20 @@ export async function deleteCannedReply(id: string, actor: Actor): Promise<void>
 
 /** Operators and admins a ticket can be assigned to. */
 export async function listAssignableStaff(): Promise<{ id: string; label: string }[]> {
+  const assignable: UserRole[] = ["OPERATOR", "ADMIN", "SUPPORT_MANAGER", "SUPPORT_USER"];
+  // Acting in one of these roles now, or holding one as an active grant.
+  const granted = db
+    .select({ userId: userRoleGrants.userId })
+    .from(userRoleGrants)
+    .where(and(inArray(userRoleGrants.role, assignable), eq(userRoleGrants.status, "ACTIVE")));
   const rows = await db
     .select({ id: users.id, name: users.name, email: users.email, role: users.role })
     .from(users)
-    .where(inArray(users.role, ["OPERATOR", "ADMIN", "SUPPORT_MANAGER", "SUPPORT_USER"]))
+    .where(and(isNull(users.deletedAt), or(inArray(users.role, assignable), inArray(users.id, granted))))
     .orderBy(asc(users.name))
     .limit(200);
   const label: Partial<Record<UserRole, string>> = { ADMIN: "admin", OPERATOR: "operator", SUPPORT_MANAGER: "support manager", SUPPORT_USER: "support" };
-  return rows.map((u) => ({ id: u.id, label: `${u.name ?? u.email} (${label[u.role] ?? u.role})` }));
+  return rows.map((u) => ({ id: u.id, label: `${u.name ?? u.email} (${label[u.role] ?? "staff"})` }));
 }
 
 /* ------------------------------------------------------------- SLA job */

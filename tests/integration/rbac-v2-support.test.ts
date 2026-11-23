@@ -19,7 +19,7 @@ import {
   supportTickets,
 } from "@/server/db/schema";
 import { decideApproval, getApproval } from "@/server/approvals";
-import { getTicketDetail } from "@/server/aftercare/support-tickets";
+import { assignTicket, getTicketDetail, listAssignableStaff } from "@/server/aftercare/support-tickets";
 import { checkBulkFile, proposeBulkFile } from "@/server/rbac-support/bulk";
 import { proposeMasterDataCorrection, proposeShopChanges, sweepShopChangeRequests } from "@/server/rbac-support/change-requests";
 import { addTeamMember, confirmResolution, managerUpdateTicket, raiseStaffTicket, supportDashboard } from "@/server/rbac-support/desk";
@@ -243,6 +243,18 @@ describe("staff teams", () => {
     expect(row.managerUserId).toBe(multi.id);
     const plain = await createUser({ role: "OPERATIONS_USER" });
     await expect(addTeamMember("SUPPORT", plain.id, other.id, w.admin)).rejects.toThrow(/must hold the SUPPORT_MANAGER/);
+  });
+
+  it("a ticket can be assigned to someone who holds Support User as a grant while acting as Operations User", async () => {
+    const w = await world();
+    const t = await assignedTicket(w);
+    const multi = await createUser({ role: "OPERATIONS_USER" });
+    await grantRole(multi.id, "SUPPORT_USER", { source: "ADMIN", grantedBy: w.admin.id });
+    const moved = await assignTicket(t.id, multi.id, w.admin);
+    expect(moved.assignedToUserId).toBe(multi.id);
+    expect((await listAssignableStaff()).some((s) => s.id === multi.id)).toBe(true);
+    const plainOps = await createUser({ role: "OPERATIONS_USER" });
+    await expect(assignTicket(t.id, plainOps.id, w.admin)).rejects.toThrow(/Assign the ticket to a support team member/);
   });
 });
 
