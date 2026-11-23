@@ -1,0 +1,63 @@
+{
+ "run": {
+  "target": "staging",
+  "host": "test.gokesari.com",
+  "label": "retest-d159-d161",
+  "note": "23-Nov-2026 23.04-23.08 IST on test.gokesari.com (d9cef71e): retest of D-159 (#484), D-160 (#496) and D-161 (#490) by hand, as a guest and as the staging test shop owner. All three pass. The Bread price changed by the D-160 test was restored to ₹40.",
+  "suiteCommit": "83c4ef8b",
+  "startedAt": "2026-11-23T17:34:00.000Z",
+  "finishedAt": "2026-11-23T17:38:00.000Z",
+  "cases": 3,
+  "rows": 3,
+  "totals": {
+   "pass": 3,
+   "fail": 0,
+   "blocked": 0,
+   "skipped": 0
+  }
+ },
+ "results": [
+  {
+   "id": "TC-SMART-001",
+   "title": "guest /wishlist and /wishlist/scan go to sign-in",
+   "status": "pass",
+   "detail": "D-159 retest: signed out, GET /wishlist → 307 /signin?next=/wishlist and /wishlist/scan → 307 /signin?next=/wishlist/scan (was 404); staging d9cef71e",
+   "tier": "hand",
+   "project": "manual",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "docs/testing/qa-runs (retest 23-Nov-2026)",
+   "test": "TC-SMART-001 (retest)",
+   "at": "2026-11-23T17:34:00.000Z",
+   "durationMs": 0
+  },
+  {
+   "id": "TC-VPA-016",
+   "title": "the message after publishing shows the old and the new price",
+   "status": "pass",
+   "detail": "D-160 retest as the staging test shop owner: \"Bread price 43 rupees\" → read-back \"₹40 → ₹43\"; after yes (apply 200) the message reads \"Published: Bread · 1 piece · price ₹40 → ₹43\" (hi and mr the same; was \"₹42 → ₹42\"). Price put back to ₹40 straight after (\"₹43 → ₹40\"). Staging d9cef71e",
+   "tier": "hand",
+   "project": "manual",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "docs/testing/qa-runs (retest 23-Nov-2026)",
+   "test": "TC-VPA-016 (retest)",
+   "at": "2026-11-23T17:37:00.000Z",
+   "durationMs": 0
+  },
+  {
+   "id": "TC-LOGO-009",
+   "title": "the shop logo card has inner padding at desktop and phone width",
+   "status": "pass",
+   "detail": "D-161 retest on /shop/manage/hours as the test shop owner: card padding 16px, content inset 17px at 1280 and 375 px, no sideways scroll; screenshots docs/testing/retest-2026-11-23/logo-card-1280.png and -375.png. Staging d9cef71e",
+   "tier": "hand",
+   "project": "manual",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "docs/testing/qa-runs (retest 23-Nov-2026)",
+   "test": "TC-LOGO-009 (retest)",
+   "at": "2026-11-23T17:38:00.000Z",
+   "durationMs": 0
+  }
+ ]
+}

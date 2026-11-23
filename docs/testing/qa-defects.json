@@ -2811,9 +2811,9 @@
       "actual": "/wishlist and /wishlist/scan answered 404 to a signed-out visitor",
       "expected": "a guest is sent to /signin (protected page)",
       "fix": "PR #484: the session is checked before the feature flag",
-      "status": "Fixed (re-test pending)",
+      "status": "Fixed - retest passed",
       "fixedIn": "#484",
-      "retest": ""
+      "retest": "docs/testing/qa-runs/2026-11-23-staging-retest-d159-d161.json, staging 23-Nov-2026 23.04 IST: guest /wishlist and /wishlist/scan → 307 to sign-in. Pass"
     },
     {
       "id": "D-160",
@@ -2826,9 +2826,9 @@
       "actual": "the read-back message showed ₹42 → ₹42",
       "expected": "the read-back shows the current price and the new price",
       "fix": "PR #496, merged into staging 23-Nov 18.28 IST",
-      "status": "Fixed (re-test pending)",
+      "status": "Fixed - retest passed",
       "fixedIn": "#496",
-      "retest": ""
+      "retest": "docs/testing/qa-runs/2026-11-23-staging-retest-d159-d161.json, staging 23-Nov-2026 23.07 IST: published message \"₹40 → ₹43\". Pass"
     },
     {
       "id": "D-161",
@@ -2841,9 +2841,9 @@
       "actual": "the logo card content touched its border",
       "expected": "the card has the normal inner padding at 1280 and 375 px",
       "fix": "PR #490",
-      "status": "Fixed (re-test pending)",
+      "status": "Fixed - retest passed",
       "fixedIn": "#490",
-      "retest": ""
+      "retest": "docs/testing/qa-runs/2026-11-23-staging-retest-d159-d161.json, staging 23-Nov-2026 23.08 IST: padding 16px at 1280 and 375 px, no sideways scroll. Pass"
     }
   ]
 }
