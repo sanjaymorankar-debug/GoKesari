@@ -1279,43 +1279,43 @@
     {
       "idx": 182,
       "version": "7",
-      "when": 1793269282000,
+      "when": 1793269101000,
       "tag": "0182_brand_barcode_favourites",
       "breakpoints": true
     },
     {
       "idx": 183,
       "version": "7",
-      "when": 1793269283000,
+      "when": 1793269102000,
       "tag": "0183_account_self_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "7",
+      "when": 1793269103000,
+      "tag": "0184_guest_checkout",
+      "breakpoints": true
+    },
+    {
+      "idx": 185,
+      "version": "7",
+      "when": 1793269104000,
+      "tag": "0185_customer_whatsapp",
+      "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1793269105000,
+      "tag": "0186_users_preferred_lang",
       "breakpoints": true
     },
     {
       "idx": 187,
       "version": "7",
-      "when": 1793269287000,
-      "tag": "0187_guest_checkout",
-      "breakpoints": true
-    },
-    {
-      "idx": 188,
-      "version": "7",
-      "when": 1793269288000,
-      "tag": "0188_customer_whatsapp",
-      "breakpoints": true
-    },
-    {
-      "idx": 189,
-      "version": "7",
-      "when": 1793269289000,
-      "tag": "0189_users_preferred_lang",
-      "breakpoints": true
-    },
-    {
-      "idx": 190,
-      "version": "7",
-      "when": 1793269290000,
-      "tag": "0190_onboarding_waves_2_3",
+      "when": 1793269106000,
+      "tag": "0187_onboarding_waves_2_3",
       "breakpoints": true
     }
   ]

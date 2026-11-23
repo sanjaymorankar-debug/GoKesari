@@ -563,7 +563,7 @@ export const grievanceCategoryEnum = pgEnum("grievance_category", [
 export const consentTypeEnum = pgEnum("consent_type", [
   "TERMS_AND_PRIVACY",
   "MARKETING_COMMUNICATIONS",
-  // docs/customer-whatsapp-2026-11 (0188): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
+  // docs/customer-whatsapp-2026-11 (0185): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
   "WHATSAPP_NOTIFICATIONS",
 ]);
 
@@ -595,14 +595,14 @@ export const users = pgTable(
      */
     emailPlaceholder: boolean("email_placeholder").notNull().default(false),
     /**
-     * docs/guest-checkout-2026-11 (0187): the account was created by guest
+     * docs/guest-checkout-2026-11 (0184): the account was created by guest
      * checkout (contact + one-time code at the cart, no sign-up form). It is a
      * normal customer account in every other way; the flag only adds the
      * "track without signing in" link to its order e-mails.
      */
     guestCreated: boolean("guest_created").notNull().default(false),
     /**
-     * Module 6 (migration 0189): language last chosen on the EN / हिं / मरा
+     * Module 6 (migration 0186): language last chosen on the EN / हिं / मरा
      * switch — "en", "hi" or "mr"; null = never chosen (English). The gk_lang
      * cookie wins; this is the fallback on a new device and the language of
      * the person's in-app / e-mail notifications.
@@ -655,7 +655,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0187 guest checkout */, "ACCOUNT_DELETE" /* 0183 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -4773,7 +4773,7 @@ export const userConsents = pgTable(
     /** false = a withdrawal (DPDPA §6(4)). Every existing row was a grant. */
     granted: boolean("granted").notNull().default(true),
     ipAddress: text("ip_address"),
-    /** docs/customer-whatsapp-2026-11 (0188): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
+    /** docs/customer-whatsapp-2026-11 (0185): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
     source: text("source"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -10564,17 +10564,17 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_operations",
   // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
   "dealer_platform_four_eye",
-  // docs/customer-whatsapp-2026-11 (0188): customer updates and shopping on WhatsApp (Meta Cloud API, or the mock outbox).
+  // docs/customer-whatsapp-2026-11 (0185): customer updates and shopping on WhatsApp (Meta Cloud API, or the mock outbox).
   "whatsapp_customer_enabled",
   // docs/search-brand-barcode-favourites-2026-11 (0182): brand search, customer barcode search, favourites.
   "brand_barcode_favourites_enabled",
-  // docs/onboarding-waves-2-3-2026-11 (0190): onboarding Phase 2 Waves 2–3 (WP6, WP7, WP10). Seeded OFF.
+  // docs/onboarding-waves-2-3-2026-11 (0187): onboarding Phase 2 Waves 2–3 (WP6, WP7, WP10). Seeded OFF.
   "onboarding_referral_by_pin_enabled",
   "onboarding_assisted_mode_enabled",
   "onboarding_scan_first_enabled",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
-  // docs/guest-checkout-2026-11 (0187): checkout as a guest (contact + code), tracking links, best-shop panel,
+  // docs/guest-checkout-2026-11 (0184): checkout as a guest (contact + code), tracking links, best-shop panel,
   // group timeline and the admin order-group reconciliation. Needs guest_cart_enabled ON too. Seeded OFF.
   "guest_checkout_enabled",
   // docs/account-deletion-2026-11 (0183): customers delete their own account from My Profile. Off: no section, APIs answer 404.
@@ -11431,7 +11431,7 @@ export const shopRegistrationDrafts = pgTable(
     documentsLater: boolean("documents_later"),
 
     /**
-     * 0190 (onboarding WP7, one assisted mode): the dealer, dealer employee or operator who fills in the
+     * 0187 (onboarding WP7, one assisted mode): the dealer, dealer employee or operator who fills in the
      * wizard for the owner under a valid owner-consent session (dealer_assisted_sessions or
      * shop_onboarding_sessions, `assisted_session_id`). Null: the owner registers alone. Core tables:
      * no foreign keys; checked in services/assisted-onboarding.ts.

@@ -619,10 +619,10 @@ export const AUDIT_ACTIONS = {
   HEALTH_CARE_PROVIDER: "health.care_provider",
   HEALTH_EQUIPMENT_STORE: "health.equipment_store",
   /* <<< GoKesari Health */
-  /* docs/guest-checkout-2026-11 (0187) */
+  /* docs/guest-checkout-2026-11 (0184) */
   GUEST_CHECKOUT_VERIFIED: "guest_checkout.verified",
   GUEST_TRACKING_LOOKUP: "guest_checkout.tracking_lookup",
-  // docs/customer-whatsapp-2026-11 (0188): an admin re-queued a failed WhatsApp message; a simulated inbound chat message (test site).
+  // docs/customer-whatsapp-2026-11 (0185): an admin re-queued a failed WhatsApp message; a simulated inbound chat message (test site).
   WHATSAPP_MESSAGE_RETRIED: "whatsapp_message.retried",
   WHATSAPP_INBOUND_SIMULATED: "whatsapp_inbound.simulated",
 } as const;

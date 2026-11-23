@@ -98,7 +98,7 @@ export async function dispatchWhatsAppQueue(options: { limit?: number } = {}): P
   return tally;
 }
 
-/** Kinds the shop-order switches govern, and the customer ones (0188). */
+/** Kinds the shop-order switches govern, and the customer ones (0185). */
 export const SHOP_KINDS: WhatsAppMessageKind[] = ["NEW_ORDER", "STATUS_UPDATE", "NUMBER_CHECK", "REPLY"];
 export const CUSTOMER_KINDS: WhatsAppMessageKind[] = ["CUSTOMER_NOTIFICATION", "CUSTOMER_REPLY"];
 /** Kinds an admin may send again after a failure: the template messages (a reply belongs to its moment). */

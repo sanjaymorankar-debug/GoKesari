@@ -47,7 +47,7 @@ export const EMAIL_IN_USE = "This email address is already used by another accou
 /** SHOP_EMAIL (0120): the shop registration's email, when it is not the account's own. */
 /** RIDER_BANK_CHANGE / RIDER_WITHDRAWAL (0124): a delivery partner confirms a bank change or a withdrawal. */
 /** ACCOUNT_DELETE (0183): a signed-in person confirms deleting their own account. */
-/** GUEST_MOBILE / ORDER_TRACK (0187): guest checkout's mobile check and tracking look-up. */
+/** GUEST_MOBILE / ORDER_TRACK (0184): guest checkout's mobile check and tracking look-up. */
 type OtpPurpose =
   | "LOGIN"
   | "EMAIL_CHANGE"
@@ -783,7 +783,7 @@ export async function verifyAccountActionOtp(input: {
   await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, actorId: input.userId, ip: input.ip ?? null, otpId: otp.id, purpose: input.purpose });
 }
 
-/* ------------------------------------------ guest checkout (0187) */
+/* ------------------------------------------ guest checkout (0184) */
 
 /**
  * docs/guest-checkout-2026-11: can a guest's mobile number be proven with an SMS code right now? Only

@@ -9,7 +9,7 @@
 -- * whatsapp_cart_links: the cart snapshot behind a signed, short-lived, single-use checkout link.
 -- * feature flag whatsapp_customer_enabled (OFF). Rule whatsappCustomer (code default enabled:false).
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0188.sql (enum values cannot be dropped; unused, inert).
+-- Additive and safe to re-run. Rollback: scripts/rollback-0185.sql (enum values cannot be dropped; unused, inert).
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = 'consent_type' AND n.nspname = 'public') THEN

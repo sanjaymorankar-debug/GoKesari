@@ -7,7 +7,7 @@
 -- * feature flags onboarding_referral_by_pin_enabled (WP6), onboarding_assisted_mode_enabled (WP7),
 --   onboarding_scan_first_enabled (WP10), all OFF.
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0190.sql (drops the three columns, their index and
+-- Additive and safe to re-run. Rollback: scripts/rollback-0187.sql (drops the three columns, their index and
 -- check, and the three flag rows; run only after deploying code without them).
 ALTER TABLE "shop_registration_drafts" ADD COLUMN IF NOT EXISTS "assisted_by_user_id" uuid;
 --> statement-breakpoint

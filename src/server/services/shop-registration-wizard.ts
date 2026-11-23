@@ -643,7 +643,7 @@ export async function answerDraftReferral(input: { actor: Actor; referralCode: s
   const oneCode = (await shopReferralRule()).enabled;
   const draft = await db.transaction(async (tx) => {
     const locked = await lockOpenDraft(tx, input.actor.id);
-    // Onboarding WP7 (0190): a helper's code is locked onto an assisted draft (set only while onboarding_assisted_mode_enabled is on).
+    // Onboarding WP7 (0187): a helper's code is locked onto an assisted draft (set only while onboarding_assisted_mode_enabled is on).
     if (locked.assistedByUserId && locked.referralCode && locked.referralCode !== code) {
       throw conflict(`This registration is assisted with referral code ${locked.referralCode}; it cannot be changed.`, {
         reason: "REFERRAL_CODE_LOCKED",

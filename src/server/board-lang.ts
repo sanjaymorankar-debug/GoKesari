@@ -5,7 +5,7 @@ import { LANG_COOKIE, parseLang, type Lang } from "@/lib/board/i18n";
 
 /**
  * The signed-in person's saved language (users.preferred_lang, migration
- * 0189), or null when signed out, never chosen or unreadable. Cached for one
+ * 0186), or null when signed out, never chosen or unreadable. Cached for one
  * server render. Imported lazily so pages that never need it (the cookie is
  * set) do not pull the session in.
  */

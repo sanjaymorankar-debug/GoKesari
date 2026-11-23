@@ -26,7 +26,7 @@ const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" 
 export const WHATSAPP_CONTACT_STATUSES = ["UNCHECKED", "CHECKING", "ACTIVE", "NOT_ON_WHATSAPP"] as const;
 export type WhatsAppContactStatus = (typeof WHATSAPP_CONTACT_STATUSES)[number];
 
-/** CUSTOMER_* (0188, docs/customer-whatsapp-2026-11): template updates to customers and chat replies to them. */
+/** CUSTOMER_* (0185, docs/customer-whatsapp-2026-11): template updates to customers and chat replies to them. */
 export const WHATSAPP_MESSAGE_KINDS = ["NEW_ORDER", "STATUS_UPDATE", "NUMBER_CHECK", "REPLY", "CUSTOMER_NOTIFICATION", "CUSTOMER_REPLY"] as const;
 export type WhatsAppMessageKind = (typeof WHATSAPP_MESSAGE_KINDS)[number];
 
@@ -78,7 +78,7 @@ export const whatsappMessages = pgTable(
     shopId: uuid("shop_id"),
     orderId: uuid("order_id"),
     contactId: uuid("contact_id"),
-    /** 0188: the customer a CUSTOMER_* message is for (no foreign key; the service checks it). */
+    /** 0185: the customer a CUSTOMER_* message is for (no foreign key; the service checks it). */
     userId: uuid("user_id"),
     kind: text("kind", { enum: WHATSAPP_MESSAGE_KINDS }).notNull(),
     /** The domain event that queued it (order.placed, order.assigned …), if any. */

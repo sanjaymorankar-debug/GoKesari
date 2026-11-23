@@ -1,6 +1,6 @@
 # Module 6: Hindi and Marathi for inner pages (23-Nov-2026)
 
-Branch `feat/m6-hindi-marathi`, migration **0189**. No feature flag: the language switch (EN / हिं / मरा) is the
+Branch `feat/m6-hindi-marathi`, migration **0186**. No feature flag: the language switch (EN / हिं / मरा) is the
 control. With English selected, every screen and every notification reads exactly as before.
 
 ## What already existed
@@ -26,13 +26,13 @@ control. With English selected, every screen and every notification reads exactl
      `INSUFFICIENT_BALANCE`, `OUT_OF_STOCK`, `PAYMENT_VERIFICATION_FAILED` and `INTERNAL`.
    - Screens call `errorText(message, lang, code)` when they display an error. The server's strings and codes are
      unchanged. An unknown message stays in English rather than being guessed.
-3. **Saved language** (migration `drizzle/0189_users_preferred_lang.sql`):
+3. **Saved language** (migration `drizzle/0186_users_preferred_lang.sql`):
    - Adds `users.preferred_lang`, a text column that allows `NULL`, `en`, `hi` or `mr` (enforced by a CHECK constraint).
    - `setLanguageAction` also saves the choice for a signed-in person.
    - `getBoardLang()` checks the cookie first, then `preferred_lang`, then falls back to English. A new phone opens in
      the person's language.
    - Helpers are in `src/server/preferred-lang.ts`.
-   - Rollback: `scripts/rollback-0189.sql`.
+   - Rollback: `scripts/rollback-0186.sql`.
 4. **Notifications** (`src/server/notifications/templates.ts`, `src/server/services/notifications.ts`):
    - `notify()` takes an optional `lang`. With `"auto"` it uses the person's `preferred_lang`.
    - Hindi and Marathi wording exists for these events: order placed or confirmed, accepted, out for delivery,
@@ -97,9 +97,9 @@ The owner should name one Hindi and one Marathi reviewer. Points to look at firs
 - **Deploy order:** the migration must be applied before this code is deployed. The Drizzle `users` model now
   includes `preferred_lang`, so any full `users` select fails on a database without it. The staging queue applies
   migrations first.
-- **Migration numbering:** migrations 0182–0188 belong to other modules. Until they are merged,
+- **Migration numbering:** migrations 0182–0185 belong to other modules. Until they are merged,
   `tests/unit/migration-journal.test.ts` fails its "numbers the entries 0, 1, 2, …" check because the journal jumps
-  from 0181 to 0189. It passes once the other modules are merged in order.
+  from 0181 to 0186. It passes once the other modules are merged in order.
 - **Side effects of the language switch:**
   - The starter shelf reloads when the language changes, which drops unsaved price edits on it.
   - The pickup-QR camera restarts when the language changes.

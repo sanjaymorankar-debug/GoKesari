@@ -1,6 +1,6 @@
--- Rollback for 0188_customer_whatsapp (customer WhatsApp; docs/customer-whatsapp-2026-11/README.md).
+-- Rollback for 0185_customer_whatsapp (customer WhatsApp; docs/customer-whatsapp-2026-11/README.md).
 -- Before running: switch whatsapp_customer_enabled off, deploy the previous release's code, then run this and
--- delete the 0188 row of the migrations journal. The enum value WHATSAPP_NOTIFICATIONS stays (PostgreSQL cannot
+-- delete the 0185 row of the migrations journal. The enum value WHATSAPP_NOTIFICATIONS stays (PostgreSQL cannot
 -- drop it); unused it is inert. Consent rows of that type are kept as the DPDPA record (not deleted).
 DROP TABLE IF EXISTS "whatsapp_cart_links";
 DROP TABLE IF EXISTS "whatsapp_customer_sessions";
