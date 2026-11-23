@@ -1534,6 +1534,17 @@ export async function cancelOrder(
 
     return updated;
   });
+  // docs/hdms-2026-11: a delivery partner booked for the order is cancelled with the partner once the
+  // cancellation has committed (an outside call never runs inside the transaction). Never throws.
+  {
+    const { cancelLiveBookingForCancelledOrder } = await import("@/server/delivery/bookings");
+    const order = result as { userId?: string };
+    await cancelLiveBookingForCancelledOrder(
+      orderId,
+      !actor ? "SYSTEM" : actor.id === order.userId ? "CUSTOMER" : actor.role === "ADMIN" || actor.role === "OPERATOR" ? "ADMIN" : "SHOP",
+      reason,
+    );
+  }
   // Batch integration (WS-A × WS-C): a refund to the original payment method is
   // sent to the gateway as soon as the cancellation has committed, whoever
   // cancelled (shop, operator or customer). Idempotent; the payments-reconcile
