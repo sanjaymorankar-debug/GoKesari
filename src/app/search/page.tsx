@@ -161,8 +161,7 @@ export default async function SearchPage({
             ]}
           />
           {tab === "products" ? (
-            <ProductGrid lang={lang} products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compareCounts={compareCounts} />
-            <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compareCounts={compareCounts} favourites={bbf} />
+            <ProductGrid lang={lang} products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compareCounts={compareCounts} favourites={bbf} />
           ) : (
             <ShopGrid shops={shopPage.rows} />
           )}

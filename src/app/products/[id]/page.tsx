@@ -25,7 +25,6 @@ import { listShopsForOwner } from "@/server/services/shops";
 import { eq } from "drizzle-orm";
 import { priceUnitLabel } from "@/lib/board/product-look";
 import { L, tr } from "@/lib/board/i18n";
-import { getBoardLang } from "@/server/board-lang";
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +80,6 @@ export default async function ProductComparePage({
   const { shop: shopSlug } = await searchParams;
 
   const user = await getCurrentUser();
-  const lang = await getBoardLang();
   const location = await getCustomerLocation(user?.id);
   const [offers, distances, cartLines, favourites, lang] = await Promise.all([
     listStorefrontProducts({ productId: id, limit: 100 }),
@@ -161,7 +159,6 @@ export default async function ProductComparePage({
         description={tr(offers.length === 1 ? T.soldBy : T.soldByMany, lang)
           .replace("{category}", product.categoryName)
           .replace("{n}", String(offers.length))}
-        description={`${product.categoryName} · sold by ${offers.length} shop${offers.length === 1 ? "" : "s"}`}
         action={favourites ? <FavouriteHeart productId={id} productName={product.productName} signedIn={Boolean(user)} lang={lang} size="md" /> : undefined}
       />
 

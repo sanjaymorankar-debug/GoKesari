@@ -97,8 +97,7 @@ export default async function RootLayout({
           .catch(() => []),
       ])
     : null;
-  const [signedInState, location, lang, homeDiscovery, barcodeScan] = await Promise.all([
-  const [signedInState, location, lang, homeDiscovery, guestCartEnabled] = await Promise.all([
+  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled] = await Promise.all([
     signedIn,
     // The same location every page filters by (cookie, else the default address).
     getCustomerLocation(user?.id).catch(() => null),

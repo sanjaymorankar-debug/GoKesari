@@ -73,6 +73,7 @@ export const RATE_LIMITS = {
   BARCODE_LOOKUP: { limit: 30, windowMs: 60_000 },
   /** docs/search-brand-barcode-favourites-2026-11: hearts toggled, and the guest merge at sign-in. */
   FAVOURITES: { limit: 120, windowMs: 60_000 },
+  /**
    * docs/onboarding-waves-2-3-2026-11 (WP6): "find a referral code near this PIN". Each answer lists
    * dealers' codes (and, signed in, phones), so a script must not walk every PIN: a few PINs a minute.
    */

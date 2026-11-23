@@ -384,8 +384,6 @@ export function ProductCard({
                   className="tap-target [--tap-h:36px] [--tap-w:36px]"
                   disabled={disabled}
                   aria-label={tr(T.decreaseInCart, lang).replace("{name}", product.productName)}
-                  onClick={() => setCartQuantity(Math.max(0, roundStock(line.quantity - step)))}
-                  aria-label={`Decrease quantity of ${product.productName} in cart`}
                   onClick={() => setCartQuantity(Math.max(0, roundStock(shownLine.quantity - step)))}
                 >
                   −
@@ -397,11 +395,8 @@ export function ProductCard({
                   size="sm"
                   variant="secondary"
                   className="tap-target [--tap-h:36px] [--tap-w:36px]"
-                  disabled={disabled || roundStock(line.quantity + step) > maxQuantity}
-                  aria-label={tr(T.increaseInCart, lang).replace("{name}", product.productName)}
-                  onClick={() => setCartQuantity(roundStock(line.quantity + step))}
                   disabled={disabled || roundStock(shownLine.quantity + step) > maxQuantity}
-                  aria-label={`Increase quantity of ${product.productName} in cart`}
+                  aria-label={tr(T.increaseInCart, lang).replace("{name}", product.productName)}
                   onClick={() => setCartQuantity(roundStock(shownLine.quantity + step))}
                 >
                   +
