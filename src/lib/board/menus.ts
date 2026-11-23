@@ -247,6 +247,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "addByPhoto", label: L("Add product by photo", "फ़ोटो से उत्पाद जोड़ें", "फोटोने उत्पादन जोडा"), short: L("Add by photo", "फ़ोटो से जोड़ें", "फोटोने जोडा"), icon: "images", href: "/shop/photo-listing", feature: "shop_photo_listing_enabled" },
     ],
     more: [
+      // docs/smart-shopping-2026-11 (Feature 4): say the product and the new price or offer, confirm, publish. Only while its flag is on.
+      { key: "voicePrice", label: L("Change price or offer by voice", "आवाज़ से कीमत या ऑफ़र बदलें", "आवाजाने किंमत किंवा ऑफर बदला"), short: L("Price by voice", "आवाज़ से कीमत", "आवाजाने किंमत"), icon: "mic", href: "/shop/voice-price", feature: "voice_price_assistant_enabled" },
       { key: "scanBill", label: L("Scan supplier bill", "सप्लायर बिल स्कैन करें", "पुरवठादाराचे बिल स्कॅन करा"), icon: "images", href: "/shop/accounts/capture?mode=scan" },
       { key: "stockBook", label: L("Stock ledger & value", "स्टॉक खाता और मूल्य", "साठा खाते आणि मूल्य"), icon: "boxes", href: "/shop/accounts/stock" },
     ],

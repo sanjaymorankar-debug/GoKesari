@@ -29,6 +29,7 @@ export type FeatureFlagKey =
   | "smart_list_scan_enabled"
   | "shop_photo_listing_enabled"
   | "whatsapp_shop_orders_enabled"
+  | "voice_price_assistant_enabled"
   // docs/rbac (0170)
   | "rbac_v2_staff_roles"
   | "rbac_v2_four_eye_admin"

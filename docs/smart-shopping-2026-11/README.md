@@ -9,8 +9,9 @@ Three features on one shared base:
 | 1 | Photo shopping list → wishlist → shop price comparison | Customer | `smart_list_scan_enabled` | this file |
 | 2 | Photo + voice → product listing | Shop owner | `shop_photo_listing_enabled` | [FEATURE2_PRODUCT_BY_PHOTO.md](FEATURE2_PRODUCT_BY_PHOTO.md) |
 | 3 | New orders on the shop owner's WhatsApp | Shop owner | `whatsapp_shop_orders_enabled` | [FEATURE3_WHATSAPP_ORDERS.md](FEATURE3_WHATSAPP_ORDERS.md) |
+| 4 | Change price or offer by voice (23-Nov) | Shop owner | `voice_price_assistant_enabled` | [FEATURE4_VOICE_PRICE_OFFERS.md](FEATURE4_VOICE_PRICE_OFFERS.md) |
 
-All three flags are off until an admin switches them on (a missing row is OFF).
+All four flags are off until an admin switches them on (a missing row is OFF).
 
 **Correction to the brief.** The brief says seller and customer data are in separate databases. That
 stopped being true in Nov 2026: both sites have one database (CLAUDE.md). Seller and customer tables still

@@ -17,6 +17,8 @@ const AI = "Blocked: ANTHROPIC_API_KEY not set on this site";
 const META = "Blocked: Meta WhatsApp keys + approved templates";
 const TEST_STATE = process.env.TRACKER_TEST ?? PENDING;
 const PROD_STATE = process.env.TRACKER_PROD ?? PENDING;
+const F4_TEST = process.env.TRACKER_F4_TEST ?? "In staging queue (PR #491)";
+const F4_PROD = process.env.TRACKER_F4_PROD ?? "Not deployed";
 
 const rows: Row[] = [
   // Shared
@@ -64,6 +66,16 @@ const rows: Row[] = [
   { id: "F3.7", feature: "F3", sub: "Fallback in-app + SMS + e-mail on failure; message log for admin/operator", status: "Done", local: L, test: TEST_STATE, prod: PROD_STATE, when: NOW, where: "/admin/whatsapp-messages" },
   { id: "F3.8", feature: "F3", sub: "TEST sends only to +91 91751 93009; PROD to real numbers", status: "Done", local: L, test: "Needs WHATSAPP_TEST_RECIPIENT set on TEST", prod: PROD_STATE, when: NOW, where: "WHATSAPP_TEST_RECIPIENT" },
   { id: "F3.9", feature: "F3", sub: "Feature flag; pending Meta items listed", status: "Done", local: L, test: TEST_STATE, prod: PROD_STATE, when: NOW, where: "FEATURE3_WHATSAPP_ORDERS.md" },
+  // Feature 4 — change price or offer by voice (owner request 23-Nov-2026)
+  { id: "F4.1", feature: "F4 Voice price & offer", sub: "Page /shop/voice-price + shop board tile (Products → more); flag voice_price_assistant_enabled; rule voicePriceAssistant", status: "Done", local: L, test: F4_TEST, prod: F4_PROD, when: NOW, where: "src/app/shop/voice-price, menus.ts" },
+  { id: "F4.2", feature: "F4", sub: "Speak in 9 languages (mr, hi, en, gu, kn, ta, te, bn, ur) on phone or browser; type; scan barcode", status: "Done", local: L, test: F4_TEST, prod: F4_PROD, when: NOW, where: "voice-price-assistant.tsx, lib/voice-input" },
+  { id: "F4.3", feature: "F4", sub: "Built-in reader: price, % / ₹ off, until weekday / days / week, yes/no; Hindi + Marathi number words 1–100; Hinglish", status: "Done", local: L, test: F4_TEST, prod: F4_PROD, when: NOW, where: "lib/voice-command-parse.ts, lib/number-words-in.ts" },
+  { id: "F4.4", feature: "F4", sub: "Product match in the shop's own listings: fuzzy, local names, Devanagari → Latin skeleton, pack size, barcode; choose when unsure", status: "Done", local: L, test: F4_TEST, prod: F4_PROD, when: NOW, where: "services/voice-price-assistant.ts" },
+  { id: "F4.5", feature: "F4", sub: "AI fallback for other languages / dialects / loose phrasing (VOICE_COMMAND), logged with cost", status: "Blocked", reason: "Code done; needs ANTHROPIC_API_KEY on TEST/PROD (built-in reader works without it)", local: "Built (AI mocked in tests)", test: AI, prod: AI, when: NOW, where: "services/voice-price-assistant.ts" },
+  { id: "F4.6", feature: "F4", sub: "Shows and reads back what was understood (en/hi/mr); publishes only after Yes / “हो / हाँ”", status: "Done", local: L, test: F4_TEST, prod: F4_PROD, when: NOW, where: "voice-price-assistant.tsx" },
+  { id: "F4.7", feature: "F4", sub: "Publish: price via setShopPrices (history), offer via shop offers (audited); MRP, 1–90%, ₹ off < price, stale price, owner only", status: "Done", local: L, test: F4_TEST, prod: F4_PROD, when: NOW, where: "applyVoiceCommand" },
+  { id: "F4.8", feature: "F4", sub: "Buy-X-get-Y offers; several products in one sentence", status: "Not started", reason: "Shop offers support % and ₹ off only; owner to decide if needed", local: "—", test: "—", prod: "—", when: NOW, where: "—" },
+  { id: "F4.9", feature: "F4", sub: "Browser test with the flag on (shop owner, real phone)", status: "Not started", reason: "Owner tests later; flag is off", local: "—", test: "Pending owner", prod: "Pending owner", when: NOW, where: "—" },
   // Admin
   { id: "AD.1", feature: "Admin / Operator", sub: "Settings: radius, AI provider, photo retention, WhatsApp per shop, templates", status: "Done", local: L, test: TEST_STATE, prod: PROD_STATE, when: NOW, where: "Rules smartShopping / whatsappShopOrders; shop WhatsApp page" },
   { id: "AD.2", feature: "Admin / Operator", sub: "Dashboards: scans/day, OCR match accuracy, products by photo, WhatsApp stats", status: "Done", local: L, test: TEST_STATE, prod: PROD_STATE, when: NOW, where: "/admin/smart-shopping, /admin/photo-listing, /admin/whatsapp-messages" },
