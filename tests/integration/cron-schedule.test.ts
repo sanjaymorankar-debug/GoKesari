@@ -45,7 +45,7 @@ describe("schedule", () => {
         "franchise",
         // docs/dealer-platform phase 4: scheduled scheme launches (every 5 minutes).
         "dealer-scheme-launches",
-        "payments-reconcile", "payout-cycle", "payout-retries", "pmd-ingest", "purchase-list-reminders", "push-receipts",
+        "payments-reconcile", "payout-cycle", "payout-reconcile", "payout-retries", "pmd-ingest", "purchase-list-reminders", "push-receipts",
         "rider-monthly-payout", "risk-rules", "seller-verification", "shop-document-follow-up", "timeout-sweep",
         // docs/smart-shopping-2026-11: list photos deleted after the retention days (daily).
         "smart-list-photo-retention",
