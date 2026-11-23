@@ -8,6 +8,7 @@ import "@/server/rbac-accounting/rates"; // Phase 3 handler: RATE_CHANGE
 import "@/server/rbac-accounting/bank-reconciliation"; // Phase 3 handler: BANK_RECONCILIATION
 import "@/server/rbac-support/change-requests"; // Phase 5 handlers: SHOP_CHANGE, MASTER_DATA_CORRECTION
 import "@/server/rbac-support/documents"; // documents: DOCUMENT_DELETE (two admins)
+import "./dealer-platform"; // docs/dealer-platform: scheme publish / status, dealer scheme change, franchise refund
 
 export * from "./engine";
 export {
@@ -18,3 +19,4 @@ export {
   requestFourEye,
   type PendingApprovalResponse,
 } from "./admin-actions";
+export { DEALER_FOUR_EYE_TYPES, dealerFourEyeOn, requestDealerApproval } from "./dealer-platform";

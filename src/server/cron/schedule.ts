@@ -183,6 +183,8 @@ export const EVERY_MINUTE: readonly Job[] = [
   // 0157 franchise (docs/franchise): holds released, areas expired, reminders from 10:00 IST, the 09:00 IST digest,
   // and the month before calculated on the 1st from 02:00 IST. Each send is logged once, so a late run catches up.
   { name: "franchise", everyMinutes: 5, run: async () => (await import("@/server/franchise/jobs")).runFranchiseJob() },
+  // docs/dealer-platform phase 4: scheme versions scheduled to launch are published when their time comes.
+  { name: "dealer-scheme-launches", everyMinutes: 5, run: async () => (await import("@/server/dealers/scheme-admin")).runScheduledSchemeLaunches() },
   { name: "pmd-ingest", run: pmdIngest },
 ];
 

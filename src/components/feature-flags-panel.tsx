@@ -25,6 +25,7 @@ export type FeatureFlagKey =
   | "zoho_connector"
   | "odoo_connector"
   | "ondc_mode"
+  | "society_rider_join_requests_enabled"
   | "shop_logo_upload_enabled"
   | "shop_welcome_kit_admin_send_enabled"
   | "smart_list_scan_enabled"
@@ -37,7 +38,8 @@ export type FeatureFlagKey =
   | "rbac_v2_accounting"
   | "rbac_v2_support"
   | "rbac_v2_shop_change_requests"
-  | "rbac_v2_operations";
+  | "rbac_v2_operations"
+  | "dealer_platform_four_eye";
 
 interface FlagValue {
   enabled: boolean;

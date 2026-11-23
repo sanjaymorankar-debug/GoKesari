@@ -17,6 +17,8 @@ import { getSocietyDashboard } from "@/server/services/societies";
 import { searchShops } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
 import { riderDisplayId, uploadedPhotoId } from "@/server/services/rider-files";
+import { SocietyJoinRequestsPanel } from "@/components/delta/society-join";
+import { joinRequestsEnabledFor, listSocietyJoinRequests } from "@/server/services/delta/society-join-requests";
 
 export const metadata = { title: "Society dashboard" };
 export const dynamic = "force-dynamic";
@@ -43,6 +45,8 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
   // C2: an unverified society cannot list riders (the server refuses it too).
   const ridersLocked = society.status !== "VERIFIED" && (await getRule("societyRiders")).requireVerifiedSociety;
   const partnerIds = new Set(partnerShops.map((s) => s.shopId));
+  // docs/delta CF-006: riders asking to join, only while the flag is on for this society's district.
+  const joinRequests = (await joinRequestsEnabledFor(society)) ? await listSocietyJoinRequests(society.id, user) : null;
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -146,6 +150,12 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
           </Card>
         )}
       </Section>
+
+      {joinRequests ? (
+        <Section title={`Riders asking to join (${joinRequests.length})`}>
+          <SocietyJoinRequestsPanel requests={joinRequests} canDecide={isAdmin} />
+        </Section>
+      ) : null}
 
       <Section title="Shops for our residents">
         {partnerShops.length === 0 ? (

@@ -66,6 +66,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   zoho_connector: "Zoho Books connector",
   odoo_connector: "Odoo connector",
   ondc_mode: "ONDC seller-side mode",
+  society_rider_join_requests_enabled: "Riders ask to join a society",
   shop_logo_upload_enabled: "Shop logo upload (shop owners)",
   shop_welcome_kit_admin_send_enabled: "Send welcome kit to existing shops",
   smart_list_scan_enabled: "Scan my shopping list (photo → wishlist → compare shops)",
@@ -78,6 +79,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_support: "Support desk: manager queue and Support Users",
   rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
+  dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -113,6 +115,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   zoho_connector: "Two-way sync with Zoho Books over its API (OAuth per shop).",
   odoo_connector: "Two-way sync with Odoo over its API.",
   ondc_mode: "GoKesari as the seller-side app on ONDC: TCS when GoKesari releases the payment (Circular 194/06/2023).",
+  society_rider_join_requests_enabled:
+    "docs/delta CF-006: an approved rider asks to join a verified society's authorised rider list (Delivery partner → Societies); the society admin approves or declines on the society page. Approval lists the rider exactly as adding them by mobile number does. Checked by the society's district. Off: no page or list, the API answers 404; riders already listed stay listed.",
   shop_logo_upload_enabled:
     "docs/delta CF-011 (D-144): shop owners upload or remove their shop logo (JPEG, PNG or WebP) under My Shop → Open or close the shop, hours and contact. The logo shows on the shop card. Off: no upload box; a logo set before stays.",
   shop_welcome_kit_admin_send_enabled:
@@ -133,6 +137,7 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   rbac_v2_support: "docs/rbac Phase 4: the Support Manager's queue and the Support User's assigned work.",
   rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
   rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",
+  dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
 };
 
 export interface FeatureFlagView {

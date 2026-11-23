@@ -23,6 +23,7 @@
  * row per closed month; inserting it is the guard that makes the close run once,
  * whoever starts it (the daily job, or an admin's "close now").
  */
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { addDays, todayIn, type IsoDate } from "@/lib/dates";
@@ -111,7 +112,7 @@ export interface MonthCloseResult {
  * refused; a month already closed is reported, not closed again.
  */
 export async function closeCommissionMonth(month: string, actor: Actor | null, now: Date = new Date()): Promise<MonthCloseResult> {
-  if (actor && actor.role !== "ADMIN") throw forbidden("Only an admin can close a commission month.");
+  if (actor && actor.role !== "ADMIN" && !can(actor.role, PERMISSIONS.DEALER_PAYOUT_APPROVE)) throw forbidden("Only an admin can close a commission month.");
   assertMonth(month);
   const { start, end } = monthBounds(month);
   if (end.getTime() > now.getTime()) throw conflict(`${monthLabel(month)} is not over yet.`);
@@ -130,6 +131,8 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
     const development = await accrueDevelopmentBonuses(tx, month, start, end, actor);
     // ...and (0151) each territory dealer's share of GoKesari's commission on the month's orders in his territory.
     const territory = await accrueTerritoryIncome(tx, month, start, end, actor);
+    // ...and (docs/dealer-platform phase 3) every scheme dealer's monthly commission from his scheme's terms.
+    const scheme = await (await import("./scheme-calculator")).accrueSchemeRecurring(tx, month, start, end, actor);
 
     // 1. The month's earned accruals, approved first when the setting says so.
     let autoApproved: string[] = [];
@@ -244,7 +247,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
         action: AUDIT_ACTIONS.DEALER_COMMISSION_MONTH_CLOSED,
         entityType: "dealer_commission_month",
         entityId: month,
-        newValue: { month, payouts: payouts.length, totalPaise, carried, autoApproved: autoApproved.length, targetBonuses: bonuses.length, developmentBonuses: development.filter((d) => d.amountPaise > 0).length, territoryEntries: territory.length },
+        newValue: { month, payouts: payouts.length, totalPaise, carried, autoApproved: autoApproved.length, targetBonuses: bonuses.length, developmentBonuses: development.filter((d) => d.amountPaise > 0).length, territoryEntries: territory.length, schemeMonthlyEntries: scheme.length },
       },
       tx,
     );

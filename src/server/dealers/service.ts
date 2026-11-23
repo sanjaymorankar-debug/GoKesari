@@ -21,6 +21,7 @@
  *
  * Every route also needs the dealer_programme_enabled flag (requireFeature).
  */
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import {
@@ -609,7 +610,11 @@ export async function uploadDealerDocument(
  * approval), every required document uploaded, the agreement accepted, and at
  * least one area in a district where the dealer programme is on.
  */
-export async function submitApplication(actor: DealerActor, acceptAgreementVersion: string, options: { smsAvailable: boolean }): Promise<Dealer> {
+export async function submitApplication(
+  actor: DealerActor,
+  acceptAgreementVersion: string,
+  options: { smsAvailable: boolean; termsHash?: string | null; ipAddress?: string | null; userAgent?: string | null },
+): Promise<Dealer> {
   const dealer = await getDealerForUser(actor.id);
   if (!dealer) throw validationFailed("Save your application first.");
   if (dealer.status !== "DRAFT") throw conflict("Only a draft application can be submitted.");
@@ -635,6 +640,10 @@ export async function submitApplication(actor: DealerActor, acceptAgreementVersi
   }
   return db.transaction(async (tx) => {
     const now = new Date();
+    // docs/dealer-platform phase 2: the chosen scheme (paid if it has a charge) and his acceptance of its terms.
+    const { acceptSchemeOnSubmit } = await import("./scheme-registration");
+    // A paid franchise owner is on the Territory Franchise scheme already (his zone booking took the terms).
+    const scheme = view.franchiseZones.length ? null : await acceptSchemeOnSubmit(dealer, { termsHash: options.termsHash, ipAddress: options.ipAddress, userAgent: options.userAgent, actorId: actor.id }, tx);
     const [row] = await tx
       .update(dealers)
       .set({ status: "PENDING", submittedAt: now, agreementVersion: DEALER_AGREEMENT_VERSION, agreementAcceptedAt: now, statusReason: null, updatedAt: now })
@@ -648,7 +657,7 @@ export async function submitApplication(actor: DealerActor, acceptAgreementVersi
         action: AUDIT_ACTIONS.DEALER_APPLICATION_SUBMITTED,
         entityType: "dealer",
         entityId: dealer.id,
-        newValue: { agreementVersion: DEALER_AGREEMENT_VERSION, mobileVerified: dealer.mobileVerifiedAt !== null },
+        newValue: { agreementVersion: DEALER_AGREEMENT_VERSION, mobileVerified: dealer.mobileVerifiedAt !== null, scheme: scheme ? { code: scheme.code, version: scheme.version, termsHash: scheme.termsHash } : null },
       },
       tx,
     );
@@ -728,7 +737,7 @@ export async function listDealers(filter: { status?: DealerStatus | "ALL"; q?: s
 
 /** ADMIN only: accept or reject one document (a rejection needs a note, sent to the dealer). */
 export async function reviewDealerDocument(documentId: string, decision: "ACCEPTED" | "REJECTED", note: string | null, actor: DealerActor): Promise<void> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can review dealer documents.");
+  if (actor.role !== "ADMIN" && !can(actor.role, PERMISSIONS.DEALER_APPROVE)) throw forbidden("Only an admin can review dealer documents.");
   const why = clean(note, 500);
   if (decision === "REJECTED" && !why) throw validationFailed("Say why the document is rejected.", { fields: { note: "Required." } });
   await db.transaction(async (tx) => {
@@ -827,7 +836,11 @@ async function salespeopleCodes(dealerId: string, client: DbClient, onlyActivePe
  * everything but approval; the dealer is notified.
  */
 export async function decideDealer(dealerId: string, decision: DealerDecision, actor: DealerActor): Promise<{ dealer: Dealer; code: string | null }> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can approve, reject, suspend or terminate dealers.");
+  // docs/dealer-platform phase 6: approve / reject — DEALER_APPROVE; suspend / reactivate / terminate — DEALER_SUSPEND;
+  // a Regional Admin only in his regions (checked below, once the dealer is read).
+  const { requireDealerPermission, requireDealerInScope } = await import("./staff-access");
+  requireDealerPermission(actor, decision.action === "APPROVE" || decision.action === "REJECT" ? PERMISSIONS.DEALER_APPROVE : PERMISSIONS.DEALER_SUSPEND, "decide dealers");
+  if (actor.role === "REGIONAL_ADMIN") await requireDealerInScope(actor, await getDealer(dealerId));
   const reason = decision.action === "APPROVE" ? null : clean(decision.reason, 500);
   if (decision.action !== "APPROVE" && (!reason || reason.length < 5)) throw validationFailed("Give the reason (it is sent to the dealer).", { fields: { reason: "Required." } });
 
@@ -879,6 +892,8 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
         existing?.code ??
         (await issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: () => prefixedCode("GKD"), label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId }, actor)).code;
       if (dealer.userId) await grantRole(dealer.userId, "DEALER", { source: "ADMIN", grantedBy: actor.id, activateIfCustomer: true }, tx);
+      // docs/dealer-platform phase 2: onto the scheme version he chose and accepted.
+      await (await import("./scheme-registration")).assignOnApproval(dealer, actor.id, tx);
     } else if (decision.action === "REJECT") {
       to = "REJECTED";
     } else if (decision.action === "SUSPEND") {
@@ -935,6 +950,8 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
     await revokeRole(userId, "DEALER", { id: actor.id, role: actor.role }).catch(() => undefined);
   }
   // Commission (step 5): a suspended or terminated dealer's open entries wait for an admin; reactivation releases them.
+  // docs/dealer-platform phase 2: a paid joining charge goes back when the application is rejected (after the commit).
+  if (decision.action === "REJECT") await (await import("./scheme-registration")).refundJoiningFeeOnRejection(dealerId, reason ?? "application rejected", actor);
   if (decision.action === "SUSPEND" || decision.action === "TERMINATE") await holdDealerCommission(dealerId, true, actor);
   if (decision.action === "REACTIVATE") await holdDealerCommission(dealerId, false, actor);
   // Pay first, KYC after (22-Nov-2026): a franchise he paid for goes live once his KYC and bank are approved.
@@ -1231,7 +1248,7 @@ export async function dealerAccountEmail(dealer: Dealer): Promise<string | null>
  * already earned stays where it was earned. Audited on both dealers.
  */
 export async function transferMemberToDealer(memberId: string, toDealerId: string, reason: string, actor: DealerActor): Promise<SalespersonView> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can move a person to another dealer.");
+  if (actor.role !== "ADMIN" && !can(actor.role, PERMISSIONS.DEALER_REASSIGN)) throw forbidden("Only an admin can move a person to another dealer.");
   const why = clean(reason, 300);
   if (!why || why.length < 5) throw validationFailed("Say why the person moves.", { fields: { reason: "Required." } });
   const [member] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId));

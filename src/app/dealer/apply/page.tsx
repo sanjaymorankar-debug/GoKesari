@@ -11,6 +11,8 @@ import { db } from "@/server/db";
 import { franchiseZones } from "@/server/db/schema";
 import { smsAvailable } from "@/server/dealers/http";
 import { bankCheckAvailable } from "@/server/dealers/online-verify";
+import { applicationCustomFields } from "@/server/dealers/custom-fields";
+import { chosenScheme, joiningChargeView, offeredSchemes } from "@/server/dealers/scheme-registration";
 import { dealerView, documentRequirements, getDealerForUser } from "@/server/dealers/service";
 import { getFeatureFlag } from "@/server/services/feature-flags";
 import { openAreasFor } from "@/server/services/geo-areas";
@@ -38,13 +40,23 @@ export default async function DealerApplyPage({ searchParams }: { searchParams: 
   const view = dealer ? await dealerView(dealer) : null;
   // Free dealership chosen on Book a franchise zone (22-Nov-2026): the zone he will work in, saved with the application.
   const zoneId = zoneParam ?? dealer?.preferredZoneId ?? null;
+  // docs/dealer-platform phase 2: schemes to choose (not for a paid franchise owner, whose zone is his scheme).
+  const scheme =
+    view?.franchiseZones.length
+      ? null
+      : {
+          schemes: await offeredSchemes(),
+          chosenVersionId: dealer ? ((await chosenScheme(dealer))?.versionId ?? null) : null,
+          charge: dealer ? await joiningChargeView(dealer) : null,
+          questions: dealer ? await applicationCustomFields(dealer) : null,
+        };
   const [zone] = zoneId ? await db.select({ id: franchiseZones.zoneId, name: franchiseZones.name }).from(franchiseZones).where(and(eq(franchiseZones.zoneId, zoneId), eq(franchiseZones.isTest, false))) : [];
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <PageHeader
         title="Become a GoKesari dealer"
-        description="Authorised dealers bring shops onto GoKesari with their own team and earn a commission for every shop that goes live. Fill in your details, verify your mobile, verify your documents online or upload them, and submit; our team reviews every application."
+        description="Authorised dealers bring shops onto GoKesari and earn commission on every shop that goes live. Choose your scheme, fill in your details, verify your mobile, verify your documents online or upload them, and submit; our team reviews every application."
       />
       <DealerApplication
         dealer={view as ApplicationDealer | null}
@@ -54,6 +66,7 @@ export default async function DealerApplyPage({ searchParams }: { searchParams: 
         smsAvailable={smsAvailable()}
         workZone={view?.franchiseZones.length ? null : (zone ?? null)}
         bankCheckAvailable={bankCheckAvailable()}
+        scheme={scheme ? JSON.parse(JSON.stringify(scheme)) : null}
       />
       {view?.status === "TERMINATED" ? (
         <p className="mt-4 text-sm text-ink-700">

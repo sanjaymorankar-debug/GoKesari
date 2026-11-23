@@ -116,6 +116,16 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
+    // Dealer platform roles (0181): a table and a flag row.
+    await sql.unsafe(readFileSync("scripts/rollback-0181.sql", "utf8"));
+    // Dealer custom fields (0180): a column on dealers and a table pointing at them.
+    await sql.unsafe(readFileSync("scripts/rollback-0180.sql", "utf8"));
+    // Dealer scheme commission (0179): columns on the ledger pointing at scheme assignments.
+    await sql.unsafe(readFileSync("scripts/rollback-0179.sql", "utf8"));
+    // Dealer scheme registration (0178): tables pointing at dealers and scheme versions.
+    await sql.unsafe(readFileSync("scripts/rollback-0178.sql", "utf8"));
+    // Dealer schemes (0177): tables pointing at dealers, triggers on dealers and franchise_allocations.
+    await sql.unsafe(readFileSync("scripts/rollback-0177.sql", "utf8"));
     // Dealer online verification (0166): a table pointing at dealers.
     await sql.unsafe(readFileSync("scripts/rollback-0166.sql", "utf8"));
     // Franchise free or paid (0164): columns on dealers and franchise_allocations, zone names.
