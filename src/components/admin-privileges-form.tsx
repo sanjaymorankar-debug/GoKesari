@@ -41,6 +41,13 @@ const ROLE_ORDER: readonly UserRole[] = [
   "ACCOUNTANT",
   "OPERATIONS_MANAGER",
   "SUPPORT_MANAGER",
+  // docs/dealer-platform (0181): dealership & franchise staff roles
+  "READ_ONLY",
+  "AUDITOR",
+  "REGIONAL_ADMIN",
+  "DEALERSHIP_MANAGER",
+  "FINANCE_ADMIN",
+  "BUSINESS_ADMIN",
   "OPERATOR",
   "ADMIN",
 ];
@@ -65,6 +72,12 @@ const ROLE_LABELS: Record<UserRole, string> = {
   SUPPORT_USER: "Support User",
   OPERATIONS_MANAGER: "Operations Manager",
   OPERATIONS_USER: "Operations User",
+  BUSINESS_ADMIN: "Business Admin", // docs/dealer-platform
+  DEALERSHIP_MANAGER: "Dealership Manager",
+  FINANCE_ADMIN: "Finance Admin",
+  REGIONAL_ADMIN: "Regional Admin",
+  AUDITOR: "Auditor",
+  READ_ONLY: "Read-only",
 };
 
 const label = (role: UserRole) => ROLE_LABELS[role] ?? role;

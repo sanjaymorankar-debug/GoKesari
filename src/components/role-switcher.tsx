@@ -24,6 +24,13 @@ export const ROLE_LABEL: Record<string, string> = {
   SUPPORT_USER: "Support",
   OPERATIONS_MANAGER: "Operations manager",
   OPERATIONS_USER: "Operations",
+  // docs/dealer-platform (0181)
+  BUSINESS_ADMIN: "Business admin",
+  DEALERSHIP_MANAGER: "Dealership manager",
+  FINANCE_ADMIN: "Finance admin",
+  REGIONAL_ADMIN: "Regional admin",
+  AUDITOR: "Auditor",
+  READ_ONLY: "Read-only",
 };
 
 const ROLE_HOME: Record<string, string> = {
@@ -42,6 +49,13 @@ const ROLE_HOME: Record<string, string> = {
   SUPPORT_USER: "/staff",
   OPERATIONS_MANAGER: "/staff",
   OPERATIONS_USER: "/staff",
+  // docs/dealer-platform (0181): the dealership & franchise roles land on the dealer platform dashboard.
+  BUSINESS_ADMIN: "/admin/dealers/dashboard",
+  DEALERSHIP_MANAGER: "/admin/dealers/dashboard",
+  FINANCE_ADMIN: "/admin/dealers/dashboard",
+  REGIONAL_ADMIN: "/admin/dealers/dashboard",
+  AUDITOR: "/admin/dealers/dashboard",
+  READ_ONLY: "/admin/dealers/dashboard",
 };
 
 /** Header control to switch the active role; shown only to users holding more than one. */

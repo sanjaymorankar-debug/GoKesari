@@ -430,6 +430,14 @@ export const AUDIT_ACTIONS = {
   DEALER_BANK_REVEALED: "dealer.bank_revealed", // docs/dealer-programme
   DEALER_BANK_CHECKED: "dealer.bank_checked", // docs/dealer-programme
   DEALER_DOCUMENT_CHECKED_ONLINE: "dealer.document_checked_online", // docs/dealer-programme/ONLINE_VERIFICATION.md
+  // docs/dealer-platform (23-Nov-2026): schemes, registration by scheme, scheme changes, scheme commission.
+  DEALER_SCHEME_CHOSEN: "dealer.scheme_chosen",
+  DEALER_JOINING_FEE_CHANGED: "dealer.joining_fee_changed",
+  DEALER_SCHEME_CHANGED: "dealer.scheme_changed",
+  SCHEME_CREATED: "dealer_scheme.created",
+  SCHEME_VERSION_SAVED: "dealer_scheme.version_saved",
+  SCHEME_VERSION_PUBLISHED: "dealer_scheme.version_published",
+  SCHEME_STATUS_CHANGED: "dealer_scheme.status_changed",
   DEALER_CODE_ISSUED: "dealer.code_issued", // docs/dealer-programme
   DEALER_CODE_STATUS_CHANGED: "dealer.code_status_changed", // docs/dealer-programme
   DEALER_CODE_REPLACED: "dealer.code_replaced", // docs/dealer-programme

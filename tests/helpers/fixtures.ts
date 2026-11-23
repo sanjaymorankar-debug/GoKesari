@@ -4,6 +4,7 @@
  * Builds real rows in the real test database so tests exercise the same
  * constraints and locking behaviour as production.
  */
+import { resetSchemes } from "./schemes";
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
@@ -180,6 +181,9 @@ export async function resetDatabase(): Promise<void> {
           ('MEDICAL_REGISTRATION', 'TYPE:PROFESSIONAL_OFFICE', 'PROMISE'),
           ('MEDICAL_REGISTRATION', 'DOCTOR', 'PROMISE')
       `);
+      // docs/dealer-platform: Free Dealership v1 (the existing commission models) for new dealers, as before 0179;
+      // scheme tests call resetSchemes() for the production state.
+      await resetSchemes(["FREE"], { freeVersion: 1 });
       clearRuleCache();
       // TRUNCATE users … CASCADE also empties feature_flags (updated_by references users).
       clearFeatureFlagCache();
