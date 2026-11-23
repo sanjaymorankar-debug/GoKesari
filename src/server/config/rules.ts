@@ -1512,6 +1512,24 @@ export const RULES = {
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  rbacV2: {
+    description:
+      "RBAC v2 (docs/rbac). highValueJournalPaise: a journal entry of this total or more needs a CA and then an admin (default ₹50,000). Change requests sent to a shop owner are reminded after reminderHours (24 and 72) and expire after expiryDays (nothing is applied on expiry). Ticket SLA due times by priority are slaHoursByPriority. A Support Manager confirms a resolved Operations ticket when the Operations User has not after confirmHours.",
+    schema: z.object({
+      highValueJournalPaise: int(100, 10_000_000_000),
+      reminderHours: z.array(int(1, 720)).min(1).max(5),
+      expiryDays: int(1, 90),
+      slaHoursByPriority: z.object({ LOW: int(1, 720), NORMAL: int(1, 720), HIGH: int(1, 720), URGENT: int(1, 720) }),
+      confirmHours: int(1, 720),
+    }),
+    defaults: {
+      highValueJournalPaise: 5_000_000,
+      reminderHours: [24, 72],
+      expiryDays: 7,
+      slaHoursByPriority: { LOW: 120, NORMAL: 48, HIGH: 24, URGENT: 4 },
+      confirmHours: 48,
+    },
+  },
   operatorLimited: {
     description:
       "Operator-Limited shop onboarding (F8.4.2). An Operator-Limited user onboards a shop for its owner only after the owner reads back the code emailed to them: the verified code is good for consentValidMinutes. The registration fee is paid online — a payment link emailed to the owner (valid paymentLinkExpiryHours) or in session. A fee that fails or whose link expires leaves the shop PENDING_APPROVAL for an administrator, who is told at once.",

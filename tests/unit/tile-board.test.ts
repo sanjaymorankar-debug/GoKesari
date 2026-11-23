@@ -223,7 +223,8 @@ describe("menu definitions", () => {
     // Both moved out of Shops (21-Nov-2026), then off the board: with Puja Samagri they open from the Shop
     // categories page (SHOP_TYPE_MODULES), so admin -3 and operator -3 (owner, 21-Nov-2026).
     // Add product by photo (docs/smart-shopping-2026-11, Feature 2): shop +1, Inventory → "Add product by photo" (flagged).
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(48);
+    // RBAC v2 (docs/rbac, Phase 5): shop +1, Price updates → "Pending changes" (flagged rbac_v2_shop_change_requests).
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(49);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
     // Consultant appointments and Puja Samagri: admin +1 and operator +1 each; 21-Nov-2026 (owner): Categories is
     // only Shop and Product, so Puja Samagri, Consultants and Health leave the board (admin -3, operator -3) and
