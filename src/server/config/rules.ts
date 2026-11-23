@@ -1929,12 +1929,15 @@ export const RULES = {
       defaultOfferDays: int(1, 90),
       /** A new price this much lower than today's (percent) gets a "check the price" warning before confirming. */
       bigDropWarnPercent: int(10, 95),
+      /** A new price more than this many times today's gets a "check the price" warning (catches "9000" for "90" when there is no MRP). */
+      bigRiseWarnTimes: int(2, 20),
       /** A spoken product name is taken without asking when its match score is at least this (0–100). */
       autoPickScore: int(30, 100),
     }),
     defaults: {
       defaultOfferDays: 7,
       bigDropWarnPercent: 50,
+      bigRiseWarnTimes: 3,
       autoPickScore: 60,
     },
   },

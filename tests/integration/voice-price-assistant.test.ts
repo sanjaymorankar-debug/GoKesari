@@ -135,6 +135,7 @@ describe("with the flag on", () => {
 
     const r = await applyVoiceCommand(shopId, actor(), { shopProductId: milk.listingId, newPricePaise: 5800, offer: null, expectedPricePaise: 5600 }, NOW);
     expect(r.pricePaise).toBe(5800);
+    expect(r.summary.en).toContain("₹56 → ₹58");
     const [after] = await db.select().from(shopProducts).where(eq(shopProducts.id, milk.listingId));
     expect(Number(after.onlinePricePaise)).toBe(5800);
     expect(Number(after.offlinePricePaise)).toBe(5800);
@@ -185,6 +186,38 @@ describe("with the flag on", () => {
     const big = await interpretVoiceCommand(shopId, actor(), { text: "Amul Taaza 95 percent off" }, NOW);
     expect(big.issues.map((i) => i.code)).toContain("PERCENT_RANGE");
     expect(big.canPublish).toBe(false);
+  });
+
+  it("a big rise warns (no MRP to stop it) but can still be published; 2× does not warn", async () => {
+    const rise = await interpretVoiceCommand(shopId, actor(), { text: "साखर 200 रुपये" }, NOW);
+    expect(rise.issues.find((i) => i.code === "BIG_RISE")?.blocking).toBe(false);
+    expect(rise.issues.find((i) => i.code === "BIG_RISE")?.message.en).toContain("₹45");
+    expect(rise.canPublish).toBe(true);
+    const ok = await interpretVoiceCommand(shopId, actor(), { text: "साखर 90 रुपये" }, NOW);
+    expect(ok.issues.map((i) => i.code)).not.toContain("BIG_RISE");
+  });
+
+  it("an offer on a product with no selling price is refused, unless a price is said with it", async () => {
+    const cat = await createCategory({ name: "Ice cream" });
+    const p = await createProduct(cat.id, { name: "Cassatta" });
+    const listingId = (
+      await createShopProduct(shopId, p.id, { onlinePricePaise: null, offlinePricePaise: null, onlineSaleEnabled: false, offlineSaleEnabled: false })
+    ).id;
+    const offerOnly = await interpretVoiceCommand(shopId, actor(), { text: "Cassatta 5 rupees off for 3 days" }, NOW);
+    expect(offerOnly.chosen?.shopProductId).toBe(listingId);
+    expect(offerOnly.issues.find((i) => i.code === "NO_PRICE_FOR_OFFER")?.blocking).toBe(true);
+    expect(offerOnly.canPublish).toBe(false);
+    await expect(
+      applyVoiceCommand(
+        shopId,
+        actor(),
+        { shopProductId: listingId, newPricePaise: null, offer: { discountType: "FLAT", percent: null, flatPaise: 500, endsAt: new Date("2026-11-25T18:29:59.999Z") }, expectedPricePaise: null },
+        NOW,
+      ),
+    ).rejects.toThrow(/no selling price/);
+    const withPrice = await interpretVoiceCommand(shopId, actor(), { text: "Cassatta 60 रुपये और 5 रुपये छूट" }, NOW);
+    expect(withPrice.issues.map((i) => i.code)).not.toContain("NO_PRICE_FOR_OFFER");
+    expect(withPrice.canPublish).toBe(true);
   });
 
   it("unsure which product → candidates, then picked by id", async () => {
