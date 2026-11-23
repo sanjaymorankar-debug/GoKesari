@@ -22,7 +22,7 @@ import { formatQuantity } from "@/lib/money";
 import { customerCancellableStatuses } from "@/lib/order-cancellation";
 import { DISPUTE_STATUS_LABELS } from "@/lib/dispute-states";
 import { isTrackableOrderStatus } from "@/lib/tracking";
-import { tr, UI } from "@/lib/board/i18n";
+import { L, tr, UI } from "@/lib/board/i18n";
 import { CUSTOMER_MENUS } from "@/lib/board/menus";
 import { IN_PROGRESS_ORDER_STATUSES, pickTab } from "@/lib/board/status-groups";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -39,7 +39,7 @@ import { listOrdersForUser } from "@/server/services/orders";
 import { platformInvoiceLabel, platformInvoicesForOrders } from "@/server/tax/delivery-invoice";
 import { listMyRatingsByOrder } from "@/server/services/ratings";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
-import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
+import { proofPhotosForOrders, signaturesForOrders } from "@/server/services/delivery-proofs";
 import { getRule } from "@/server/services/settings";
 import { getBuyerFulfilmentViews } from "@/server/services/fulfilment-options";
 import { OrderFulfilmentCard } from "@/components/order-fulfilment-card";
@@ -56,6 +56,12 @@ const DELIVERY_STATUS_LABELS: Record<string, string> = {
 
 /** An order without a fulfilment plan is a GoKesari delivery; a plan says so explicitly. */
 const byGoKesariRider = (plan?: { option: string }) => (plan?.option ?? "GOKESARI_PARTNER") === "GOKESARI_PARTNER";
+
+/** Module 4: the link to the customer's signature at the door, with the time it was taken (IST). */
+const SIGNATURE_LINK = L("Signature at delivery", "डिलीवरी पर हस्ताक्षर", "डिलिव्हरीवेळी स्वाक्षरी");
+function formatProofTime(at: Date): string {
+  return at.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" });
+}
 
 export const metadata = { title: "My Orders" };
 export const dynamic = "force-dynamic";
@@ -104,7 +110,7 @@ export default async function OrdersPage({
   const fulfilmentPlans = await getBuyerFulfilmentViews(orders.map((o) => o.id), user);
   // NEW-007: delivery photo and invoice links on delivered orders.
   const deliveredIds = orders.filter((o) => o.status === "DELIVERED").map((o) => o.id);
-  const [proofPhotos, invoicingRule, cancellationRule, afterPackingRule, invoiceKinds, gokesariInvoices] = await Promise.all([
+  const [proofPhotos, invoicingRule, cancellationRule, afterPackingRule, invoiceKinds, gokesariInvoices, signatures] = await Promise.all([
     proofPhotosForOrders(deliveredIds),
     getRule("invoicing"),
     getRule("cancellation"),
@@ -112,6 +118,8 @@ export default async function OrdersPage({
     // Billing v2 (QA D-112, D-113): the invoice's own kind, and GoKesari's s.9(5) invoices.
     invoiceKindsForOrders(deliveredIds),
     platformInvoicesForOrders(deliveredIds),
+    // Module 4: the customer's signature at the door (rule deliveryProof.signatureEnabled).
+    signaturesForOrders(deliveredIds),
   ]);
   // TC-ORD-008: the server's own D10 rule (lib/order-cancellation.ts) — before
   // packing by rule `cancellation`, after packing for the fee (WS-C), and after
@@ -244,7 +252,7 @@ export default async function OrdersPage({
                 })}
                 {order.deliveryDate && !order.scheduledSlotStart ? ` · for ${order.deliveryDate}` : ""}
               </p>
-              {order.status === "DELIVERED" && (invoicingRule.enabled || proofPhotos.has(order.id) || gokesariInvoices.has(order.id)) ? (
+              {order.status === "DELIVERED" && (invoicingRule.enabled || proofPhotos.has(order.id) || gokesariInvoices.has(order.id) || signatures.has(order.id)) ? (
                 <p className="mt-1 flex flex-wrap gap-3 text-xs" data-testid="order-documents">
                   {invoicingRule.enabled ? (
                     <a href={`/api/orders/${order.id}/invoice`} className="font-medium text-kesari-700 hover:underline">
@@ -259,6 +267,11 @@ export default async function OrdersPage({
                   {proofPhotos.has(order.id) ? (
                     <a href={proofPhotos.get(order.id)!.url} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline">
                       Photo at delivery
+                    </a>
+                  ) : null}
+                  {signatures.has(order.id) ? (
+                    <a href={signatures.get(order.id)!.url} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline" data-testid="order-signature">
+                      {tr(SIGNATURE_LINK, lang)} · {formatProofTime(signatures.get(order.id)!.takenAt)}
                     </a>
                   ) : null}
                 </p>

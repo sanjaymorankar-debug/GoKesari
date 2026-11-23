@@ -7,6 +7,8 @@ import { Alert, Button, Card, Money } from "@/components/ui";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
 import { shrinkImage } from "@/components/image-uploader";
 import { PickupQrScanner } from "@/components/pickup-qr-scanner";
+import { SignaturePad, hasInk, signatureToPngBlob, type SignatureStroke } from "@/components/signature-pad";
+import { FAILURE_REASON_CODES, FAILURE_REASON_LABELS, type FailureReasonCode } from "@/lib/delivery/failure-reasons";
 
 export interface ActiveDelivery {
   id: string;
@@ -22,6 +24,14 @@ export interface ActiveDelivery {
   proofUploaded?: boolean;
   /** Gig worker flow (feature 9): the optional photo at pickup has been added. */
   pickupPhotoUploaded?: boolean;
+  /** Module 4 (rule deliveryProof): the customer-signature step is shown / needed, and whether one is in. */
+  signatureEnabled?: boolean;
+  signatureRequired?: boolean;
+  signatureUploaded?: boolean;
+  /** Module 4: send the phone's position with "delivered" / "failed" (nothing when location is refused). */
+  captureGps?: boolean;
+  /** Module 4: pick the failed-delivery reason from the fixed list. */
+  failureReasonList?: boolean;
   shopName: string;
   shopAddress: string;
   customerAddress: string | null;
@@ -52,6 +62,41 @@ export interface ActiveDelivery {
   drop?: { label: string; navigationUrl: string | null; notes: string | null; precise: boolean };
   /** Society gate arrangement, for society deliveries. */
   gate?: { entryMode: string; contactName: string | null; contactPhone: string | null } | null;
+}
+
+/**
+ * Module 4: the phone's current position for "delivered" / "failed", or null —
+ * never throws and never blocks the action for long (location refused, no
+ * fix within a few seconds: the action goes ahead without it).
+ */
+export function currentPositionOrNull(
+  timeoutMs = 6_000,
+): Promise<{ latitude: number; longitude: number; accuracyM: number } | null> {
+  if (typeof navigator === "undefined" || !("geolocation" in navigator)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value: { latitude: number; longitude: number; accuracyM: number } | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs + 500);
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (position) =>
+          finish({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracyM: Math.round(position.coords.accuracy),
+          }),
+        () => finish(null),
+        { timeout: timeoutMs, maximumAge: 30_000, enableHighAccuracy: true },
+      );
+    } catch {
+      finish(null);
+    }
+  });
 }
 
 const GATE_MODE_LABEL: Record<string, string> = {
@@ -411,6 +456,7 @@ export function DeliveryPartnerDashboard({
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [failReason, setFailReason] = useState("");
+  const [failCode, setFailCode] = useState<FailureReasonCode | "">("");
   const [showFail, setShowFail] = useState(false);
   const [cashCollected, setCashCollected] = useState(false);
   const onDelivery = activeDelivery?.status === "PICKED_UP";
@@ -536,10 +582,13 @@ export function DeliveryPartnerDashboard({
     setBusy(true);
     setError(null);
     try {
+      // Module 4 (rule deliveryProof.captureGps): where the drop was confirmed or failed, when the phone allows it.
+      const position =
+        activeDelivery.captureGps && (action === "deliver" || action === "fail") ? await currentPositionOrNull() : null;
       const response = await fetch(`/api/delivery-orders/${activeDelivery.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, ...extra }),
+        body: JSON.stringify({ action, ...extra, ...(position ?? {}) }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -548,6 +597,7 @@ export function DeliveryPartnerDashboard({
       }
       setCode("");
       setFailReason("");
+      setFailCode("");
       setShowFail(false);
       setCashCollected(false);
       router.refresh();
@@ -830,6 +880,16 @@ export function DeliveryPartnerDashboard({
                     uploaded={Boolean(activeDelivery.proofUploaded)}
                   />
                 ) : null}
+                {activeDelivery.signatureEnabled ? (
+                  <div className="w-full">
+                    <DeliverySignatureCapture
+                      deliveryOrderId={activeDelivery.id}
+                      uploaded={Boolean(activeDelivery.signatureUploaded)}
+                      required={Boolean(activeDelivery.signatureRequired)}
+                      captureGps={Boolean(activeDelivery.captureGps)}
+                    />
+                  </div>
+                ) : null}
                 {activeDelivery.cashToCollectPaise != null ? (
                   <label className="flex items-center gap-2 text-sm text-ink-700">
                     <input
@@ -846,7 +906,8 @@ export function DeliveryPartnerDashboard({
                     busy ||
                     (activeDelivery.needsDeliveryOtp && code.length !== 4) ||
                     (activeDelivery.cashToCollectPaise != null && !cashCollected) ||
-                    (Boolean(activeDelivery.proofRequired) && !activeDelivery.proofUploaded)
+                    (Boolean(activeDelivery.proofRequired) && !activeDelivery.proofUploaded) ||
+                    (Boolean(activeDelivery.signatureRequired) && !activeDelivery.signatureUploaded)
                   }
                   onClick={() => act("deliver", { otp: code, cashCollected })}
                 >
@@ -861,7 +922,39 @@ export function DeliveryPartnerDashboard({
             ) : null}
           </div>
 
-          {showFail ? (
+          {showFail && activeDelivery.failureReasonList ? (
+            <fieldset className="mt-3 space-y-2" data-testid="fail-reason-list">
+              <legend className="text-sm font-medium text-ink-700">Why could the order not be delivered?</legend>
+              {FAILURE_REASON_CODES.map((reasonCode) => (
+                <label key={reasonCode} className="flex items-center gap-2 text-sm text-ink-700">
+                  <input
+                    type="radio"
+                    name="fail-reason"
+                    value={reasonCode}
+                    checked={failCode === reasonCode}
+                    onChange={() => setFailCode(reasonCode)}
+                  />
+                  {FAILURE_REASON_LABELS[reasonCode]}
+                </label>
+              ))}
+              <input
+                className="w-full rounded-lg border border-cream-200 px-3 py-2 text-sm"
+                placeholder={failCode === "OTHER" ? "What happened? (required)" : "Add a note (optional)"}
+                value={failReason}
+                maxLength={280}
+                onChange={(e) => setFailReason(e.target.value)}
+                aria-label="Note about the failed delivery"
+              />
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={busy || !failCode || (failCode === "OTHER" && failReason.trim().length < 3)}
+                onClick={() => act("fail", { reasonCode: failCode, ...(failReason.trim() ? { reason: failReason } : {}) })}
+              >
+                Report failed delivery
+              </Button>
+            </fieldset>
+          ) : showFail ? (
             <div className="mt-3 flex flex-wrap gap-2">
               <input
                 className="min-w-0 flex-1 rounded-lg border border-cream-200 px-3 py-2 text-sm"
@@ -1092,6 +1185,108 @@ function DeliveryProofCapture({
         />
       </label>
       {busy ? <p className="text-xs text-ink-500">Uploading…</p> : null}
+      {error ? <p className="text-xs text-red-700">{error}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Module 4 (rule deliveryProof.signatureEnabled): the customer signs on the
+ * rider's phone before "Mark delivered". Uploaded as a PNG through the proof
+ * endpoint (kind SIGNATURE, optional signer name) — stored privately like the
+ * photo and checked again on the server.
+ */
+function DeliverySignatureCapture({
+  deliveryOrderId,
+  uploaded,
+  required,
+  captureGps,
+}: {
+  deliveryOrderId: string;
+  uploaded: boolean;
+  required: boolean;
+  captureGps: boolean;
+}) {
+  const router = useRouter();
+  const [strokes, setStrokes] = useState<SignatureStroke[]>([]);
+  const [signerName, setSignerName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(!uploaded);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const png = await signatureToPngBlob(strokes);
+      if (!png) {
+        setError("Ask the customer to sign in the box first.");
+        return;
+      }
+      const body = new FormData();
+      body.append("file", png, "signature.png");
+      body.append("kind", "SIGNATURE");
+      if (signerName.trim()) body.append("signerName", signerName.trim());
+      const position = captureGps ? await currentPositionOrNull() : null;
+      if (position) {
+        body.append("latitude", String(position.latitude));
+        body.append("longitude", String(position.longitude));
+      }
+      const response = await fetch(`/api/delivery-orders/${deliveryOrderId}/proof`, { method: "POST", body });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        setError(payload?.error?.message ?? "Could not save the signature.");
+        return;
+      }
+      setStrokes([]);
+      setOpen(false);
+      router.refresh();
+    } catch {
+      setError("Could not save the signature. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="delivery-signature">
+        <span className="font-medium text-ink-700">Customer signature added ✓</span>
+        <button type="button" className="text-sm text-kesari-700 underline" onClick={() => setOpen(true)}>
+          Sign again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-cream-200 p-3" data-testid="delivery-signature">
+      <SignaturePad
+        value={strokes}
+        onChange={setStrokes}
+        disabled={busy}
+        label={required ? "Customer signature (required)" : "Customer signature (optional)"}
+      />
+      <label className="block text-sm text-ink-700">
+        Name of the person signing (optional)
+        <input
+          className="mt-1 w-full rounded-lg border border-cream-200 px-3 py-2 text-sm"
+          value={signerName}
+          maxLength={80}
+          autoComplete="off"
+          onChange={(e) => setSignerName(e.target.value)}
+        />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" disabled={busy || !hasInk(strokes)} onClick={() => void save()}>
+          {busy ? "Saving…" : "Save signature"}
+        </Button>
+        {uploaded ? (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => setOpen(false)}>
+            Keep the saved signature
+          </Button>
+        ) : null}
+      </div>
       {error ? <p className="text-xs text-red-700">{error}</p> : null}
     </div>
   );

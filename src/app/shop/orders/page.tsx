@@ -14,7 +14,7 @@ import { getDeliveryOrdersForOrders, getRiderSearchStatus } from "@/server/servi
 import { listShopProducts } from "@/server/services/catalogue";
 import { listOrdersForShop } from "@/server/services/orders";
 import { listShopsForOwner } from "@/server/services/shops";
-import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
+import { proofPhotosForOrders, signaturesForOrders } from "@/server/services/delivery-proofs";
 import { invoiceKindsForOrders, orderInvoiceLabel } from "@/server/services/invoices";
 import { getRule } from "@/server/services/settings";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
@@ -75,7 +75,12 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
   // NEW-007: invoice and delivery-photo links on delivered orders.
   const delivered = orders.filter((o) => o.status === "DELIVERED").map((o) => o.id);
   // QA D-121: invoiceKinds names the link by the document issued (a shop outside GST issues a bill of supply).
-  const [proofPhotos, invoicingRule, invoiceKinds] = await Promise.all([proofPhotosForOrders(delivered), getRule("invoicing"), invoiceKindsForOrders(delivered)]);
+  const [proofPhotos, invoicingRule, invoiceKinds, signatures] = await Promise.all([
+    proofPhotosForOrders(delivered),
+    getRule("invoicing"),
+    invoiceKindsForOrders(delivered),
+    signaturesForOrders(delivered), // Module 4: the customer's signature at the door
+  ]);
   // Only READY orders of a delivering shop are waiting for a rider.
   const searchByOrder = new Map(
     shop.deliveryAvailable
@@ -136,6 +141,8 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
             invoiceUrl: o.status === "DELIVERED" && invoicingRule.enabled ? `/api/orders/${o.id}/invoice` : null,
             invoiceLabel: orderInvoiceLabel(invoiceKinds.get(o.id)),
             proofPhotoUrl: proofPhotos.get(o.id)?.url ?? null,
+            signatureUrl: signatures.get(o.id)?.url ?? null,
+            signatureAt: signatures.get(o.id)?.takenAt.toISOString() ?? null,
             scheduledSlot:
               o.scheduledSlotStart && o.scheduledSlotEnd
                 ? { start: o.scheduledSlotStart.toISOString(), end: o.scheduledSlotEnd.toISOString() }

@@ -43,6 +43,69 @@ export interface NavigationView {
   googleMapsUrl: string;
   settings: { offRouteMeters: number; rerouteCooldownSeconds: number; voiceDefaultOn: boolean; trackingPingSeconds: number };
   dropStarted: boolean;
+  /** Module 4 (rule riderNavigation.multiStop): the batched trip's stops in order; absent on a single delivery. */
+  trip?: NavigationTripView | null;
+}
+
+export interface NavigationTripView {
+  stops: {
+    kind: "PICKUP" | "DROP";
+    deliveryOrderId: string;
+    orderNumber: string;
+    label: string;
+    done: boolean;
+    current: boolean;
+    eta: string | null;
+    late: boolean;
+  }[];
+  nextStop: { deliveryOrderId: string; kind: "PICKUP" | "DROP"; orderNumber: string; label: string } | null;
+}
+
+/**
+ * Module 4: the trip's stops in order, this route's stop marked, and "Next
+ * stop" when the trip's next stop belongs to another order (the route always
+ * goes to one stop at a time — no waypoints are sent to the routing service).
+ */
+export function TripStopList({ trip, deliveryOrderId, leg }: { trip: NavigationTripView; deliveryOrderId: string; leg: "TO_SHOP" | "TO_CUSTOMER" }) {
+  const thisKind = leg === "TO_SHOP" ? "PICKUP" : "DROP";
+  const next = trip.nextStop;
+  const nextIsElsewhere = next != null && !(next.deliveryOrderId === deliveryOrderId && next.kind === thisKind);
+  return (
+    <Card className="p-4" data-testid="trip-stops">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Stops on this trip</p>
+      <ol className="space-y-1 text-sm">
+        {trip.stops.map((s, i) => {
+          const here = s.deliveryOrderId === deliveryOrderId && s.kind === thisKind;
+          return (
+            <li
+              key={`${s.kind}-${s.deliveryOrderId}`}
+              className={s.done ? "text-ink-400 line-through" : here ? "font-semibold text-ink-900" : "text-ink-700"}
+              aria-current={here ? "step" : undefined}
+            >
+              {i + 1}. {s.kind === "PICKUP" ? "Pick up" : "Drop"} · Order {s.orderNumber} — {s.label}
+              {s.done ? " ✓" : ""}
+              {!s.done && s.eta ? (
+                <span className={`text-xs ${s.late ? "text-red-700" : "text-ink-500"}`} suppressHydrationWarning>
+                  {" "}
+                  · about {new Date(s.eta).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
+                  {s.late ? " (late)" : ""}
+                </span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+      {next && nextIsElsewhere ? (
+        <Link
+          href={`/delivery-partner/navigate/${next.deliveryOrderId}`}
+          className="mt-3 inline-flex items-center rounded-lg bg-kesari-600 px-3 py-2 text-sm font-medium text-white"
+          data-testid="next-stop"
+        >
+          Next stop: {next.kind === "PICKUP" ? "pick up" : "drop"} order {next.orderNumber}
+        </Link>
+      ) : null}
+    </Card>
+  );
 }
 
 const ARROWS: Record<string, string> = {
@@ -321,6 +384,10 @@ export function RiderNavigation({ initial }: { initial: NavigationView }) {
           Back to my delivery
         </Link>
       </div>
+
+      {nav.trip && nav.trip.stops.length > 1 ? (
+        <TripStopList trip={nav.trip} deliveryOrderId={nav.deliveryOrderId} leg={nav.leg} />
+      ) : null}
 
       {steps.length > 0 ? (
         <Card className="p-4">

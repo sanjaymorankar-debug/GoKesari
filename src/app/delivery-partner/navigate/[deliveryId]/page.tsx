@@ -6,7 +6,7 @@ import { Alert, PageHeader } from "@/components/ui";
 import { AppError } from "@/lib/errors";
 import { getCurrentUser } from "@/server/authz/guards";
 import { PERMISSIONS, can } from "@/server/authz/permissions";
-import { getDeliveryNavigation, isRiderNavigationEnabled } from "@/server/services/rider-navigation";
+import { getDeliveryNavigation, getNavigationTrip, isRiderNavigationEnabled } from "@/server/services/rider-navigation";
 
 export const metadata = { title: "Navigation" };
 export const dynamic = "force-dynamic";
@@ -32,10 +32,17 @@ export default async function RiderNavigationPage({ params }: { params: Promise<
   }
 
   let nav;
+  let nextStopId: string | null = null;
   try {
     nav = await getDeliveryNavigation(deliveryId, user.id);
   } catch (error) {
     if (error instanceof AppError && (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")) notFound();
+    // Module 4 (rule riderNavigation.multiStop): this stop is done — go on to the trip's next stop.
+    if (error instanceof AppError && error.code === "CONFLICT") {
+      const trip = await getNavigationTrip(user.id);
+      if (trip?.nextStop && trip.nextStop.deliveryOrderId !== deliveryId) nextStopId = trip.nextStop.deliveryOrderId;
+    }
+    if (nextStopId) redirect(`/delivery-partner/navigate/${nextStopId}`);
     const message = error instanceof AppError ? error.message : "Navigation could not be loaded.";
     return (
       <div className="mx-auto max-w-2xl space-y-3">

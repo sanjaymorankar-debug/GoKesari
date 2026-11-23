@@ -1275,6 +1275,13 @@
       "when": 1793269100000,
       "tag": "0181_dealer_platform_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1793269286000,
+      "tag": "0186_delivery_signature_gps",
+      "breakpoints": true
     }
   ]
 }
