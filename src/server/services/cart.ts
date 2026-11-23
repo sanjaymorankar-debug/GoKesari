@@ -157,6 +157,12 @@ export async function addToCart(
   shopProductId: string,
   quantity = 1,
 ): Promise<CartSummary> {
+  await addCartLine(userId, shopProductId, quantity);
+  return getCart(userId);
+}
+
+/** addToCart without the priced cart afterwards (the guest-cart merge adds many lines, then reads once). */
+export async function addCartLine(userId: string, shopProductId: string, quantity: number): Promise<void> {
   assertQuantityInRange(quantity, false);
 
   await db.transaction(async (tx) => {
@@ -191,8 +197,6 @@ export async function addToCart(
         .values({ cartId: cart.id, shopProductId, quantity: desiredQuantity });
     }
   });
-
-  return getCart(userId);
 }
 
 export async function setCartItemQuantity(
