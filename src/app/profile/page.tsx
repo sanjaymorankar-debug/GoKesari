@@ -95,18 +95,17 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   ]);
   const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null;
   // Bank accounts (docs/four-features-2026-10): refunds-to-bank account and its verification.
-  const [bankStatus, lang] = await Promise.all([customerBankPrompt(user.id, "profile"), getBoardLang()]);
-  // docs/customer-whatsapp-2026-11: the WhatsApp updates switch, only while flag whatsapp_customer_enabled is on.
-  const whatsapp =
-    tab === "notifications" && (await isFeatureEnabled(CUSTOMER_WHATSAPP_FLAG))
-      ? { consent: await getWhatsAppConsentStatus(user.id), hasVerifiedPhone: Boolean(await verifiedPhoneOf(user.id)) }
-      : null;
   const [bankStatus, lang, selfDeletion] = await Promise.all([
     customerBankPrompt(user.id, "profile"),
     getBoardLang(),
     // docs/account-deletion-2026-11: the "Delete my account" section, only with its flag on.
     isFeatureEnabled("account_self_deletion_enabled"),
   ]);
+  // docs/customer-whatsapp-2026-11: the WhatsApp updates switch, only while flag whatsapp_customer_enabled is on.
+  const whatsapp =
+    tab === "notifications" && (await isFeatureEnabled(CUSTOMER_WHATSAPP_FLAG))
+      ? { consent: await getWhatsAppConsentStatus(user.id), hasVerifiedPhone: Boolean(await verifiedPhoneOf(user.id)) }
+      : null;
 
   const notePage = paginate(notifications, query.page, 5);
   const tabLabel: Record<ProfileTab, string> = {

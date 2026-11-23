@@ -90,6 +90,8 @@ const APP_LINK_PATH_PREFIXES = [
   "/wishlist", // 1.13.0, docs/smart-shopping-2026-11: scan my shopping list, wishlists, shop price comparison
   "/brand", // docs/search-brand-barcode-favourites-2026-11: a brand's products near the customer
   "/favourites", // docs/search-brand-barcode-favourites-2026-11: the customer's favourites list
+  "/wa", // docs/customer-whatsapp-2026-11: cart links sent on WhatsApp (/wa/cart)
+  "/track", // docs/guest-checkout-2026-11: order tracking without sign-in (/track, /track/<token>)
 ];
 
 /**
