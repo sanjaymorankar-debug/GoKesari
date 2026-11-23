@@ -1298,6 +1298,13 @@
       "breakpoints": true
     },
     {
+      "idx": 184,
+      "version": "7",
+      "when": 1793269284000,
+      "tag": "0184_shop_membership_renewal",
+      "breakpoints": true
+    },
+    {
       "idx": 185,
       "version": "7",
       "when": 1793269104000,

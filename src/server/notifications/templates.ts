@@ -143,6 +143,11 @@ export const TEMPLATES: Record<string, Template> = {
     "Submit your shop documents — reminder {{reminderNo}}{{maxReminders}}",
     "{{shopName}} is live, but these documents are still missing: {{documents}}. {{deadline}} Upload them on GoKesari so we can verify them. {{warning}}",
   ),
+  [T.SHOP_MEMBERSHIP_RENEWAL_DUE]: t("{{headline}} — {{shopName}}", "{{message}} Renew it on GoKesari: Shop → Registration and fee → Renew now."),
+  [T.SHOP_MEMBERSHIP_RENEWED]: t(
+    "Membership renewed — {{shopName}}",
+    "We received {{amount}} for {{shopName}}'s yearly membership. It is now valid until {{validUntil}}. Receipt {{reference}}.",
+  ),
   [T.SHOP_STAFF_ADDED]: t(
     "You can now edit a shop's products",
     "{{ownerName}} added you to {{shopName}}: you can add and change its product photos and descriptions.",

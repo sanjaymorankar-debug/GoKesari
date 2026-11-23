@@ -1239,9 +1239,41 @@ export const RULES = {
   },
   shopMembership: {
     description:
-      "Shop membership (D-69). Recording a registration fee or renewal payment extends the shop's membership by periodMonths (from the end of the current one, or from the payment when that has passed). When enabled, a shop whose membership ended more than graceDays ago is not online: customers see it as not taking orders and cannot check out from it, until a renewal is recorded. Shops with no end date (every shop registered before this rule, and shops that never paid a fee) are never affected. reminderDays: the owner's shop page warns this many days before the end.",
-    schema: z.object({ enabled: z.boolean(), periodMonths: int(1, 60), graceDays: int(0, 90), reminderDays: int(0, 90) }),
-    defaults: { enabled: true, periodMonths: 12, graceDays: 15, reminderDays: 30 },
+      "Shop membership (D-69). Recording a registration fee or renewal payment extends the shop's membership by periodMonths (from the end of the current one, or from the payment when that has passed). When enabled, a shop whose membership ended more than graceDays ago is not online: customers see it as not taking orders and cannot check out from it, until a renewal is recorded. Shops with no end date (every shop registered before this rule, and shops that never paid a fee) are never affected. reminderDays: the owner's shop page warns this many days before the end. Renewal (0184, docs/shop-membership-renewal-2026-11): a period is added only once its fee is fully paid (part payments wait; a refund or reversal that leaves the fee unpaid takes the period back). renewalFeePaise: the renewal base fee before GST (0 = the shop's own registration base fee, without its coupon; a shop registered before the fee breakdown was kept renews at its registration total). addGst: GST on top at the PLATFORM_FEE_GST rate for REGISTRATION_FEE. renewalCheckoutEnabled (default off): the owner can pay online from renewalWindowDays before the end (switching it off stops new checkouts only). remindersEnabled (default off): in-app and e-mail reminders reminderDays, 7 and 1 day(s) before the end, on the day and when the grace ends. exemptShopTypes / exemptCategorySlugs, and the per-shop exemption (Admin → Shop memberships): never closed for a lapsed membership and not reminded. Switching enabled off closes nobody.",
+    schema: z.object({
+      enabled: z.boolean(),
+      periodMonths: int(1, 60),
+      graceDays: int(0, 90),
+      reminderDays: int(0, 90),
+      /* >>> 0184 shop membership renewal (docs/shop-membership-renewal-2026-11) */
+      /** 0: the shop's own registration base fee (without its coupon); more than 0: this base fee for every shop. Before GST. */
+      renewalFeePaise: int(0, 100_000_000),
+      /** GST added on the renewal fee at the PLATFORM_FEE_GST rate for REGISTRATION_FEE (as on the registration fee). */
+      addGst: z.boolean(),
+      /** The owner can pay the renewal online (Shop → Registration → Renew now). Off: no new checkout starts. */
+      renewalCheckoutEnabled: z.boolean(),
+      /** Daily reminders (in-app + e-mail) before and after the end. Off: none are sent. */
+      remindersEnabled: z.boolean(),
+      /** Renew now opens this many days before the end (and at any time after it). */
+      renewalWindowDays: int(0, 365),
+      /** Never closed for a lapsed membership and not reminded: these shop types / shop category slugs. */
+      exemptShopTypes: z.array(z.string().max(60)).max(50),
+      exemptCategorySlugs: z.array(z.string().max(80)).max(100),
+      /* <<< 0184 */
+    }),
+    defaults: {
+      enabled: true,
+      periodMonths: 12,
+      graceDays: 15,
+      reminderDays: 30,
+      renewalFeePaise: 0,
+      addGst: true,
+      renewalCheckoutEnabled: false,
+      remindersEnabled: false,
+      renewalWindowDays: 30,
+      exemptShopTypes: [],
+      exemptCategorySlugs: [],
+    },
   },
   bankAccounts: {
     description:

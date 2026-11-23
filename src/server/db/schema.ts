@@ -920,6 +920,15 @@ export const shops = pgTable(
      * Past it (plus rule shopMembership.graceDays) the shop is not online. Null: no end date.
      */
     membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
+    /**
+     * 0184 (docs/shop-membership-renewal-2026-11): an admin exempted this shop from the yearly membership —
+     * never closed for a lapsed membership and not reminded. Audited (shop.membership_exemption_changed).
+     */
+    membershipExempt: boolean("membership_exempt").notNull().default(false),
+    membershipExemptReason: text("membership_exempt_reason"),
+    /** No foreign key: users are customer-side. */
+    membershipExemptSetBy: uuid("membership_exempt_set_by"),
+    membershipExemptSetAt: timestamp("membership_exempt_set_at", { withTimezone: true }),
     /** D-69: the owner closed the shop permanently (status INACTIVE). No foreign key: users are customer-side. */
     closedAt: timestamp("closed_at", { withTimezone: true }),
     closedBy: uuid("closed_by"),
@@ -4300,6 +4309,46 @@ export const shopPayments = pgTable(
     check("shop_payments_amount_non_zero", sql`${t.amountPaise} <> 0`),
   ],
 );
+
+/**
+ * 0184 (docs/shop-membership-renewal-2026-11): one row each time a fully paid fee (registration or renewal)
+ * extended a shop's membership — the renewal history, and what a refund or reversal rolls back (voided_at).
+ * LEGACY: what an existing shop had paid when this table was added (never rolled back).
+ */
+export const shopMembershipPeriods = pgTable(
+  "shop_membership_periods",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id),
+    kind: text("kind", { enum: ["REGISTRATION", "RENEWAL", "LEGACY"] }).notNull(),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    /** shops.membership_valid_until before this period: restored when the period is rolled back while it is the latest. */
+    previousValidUntil: timestamp("previous_valid_until", { withTimezone: true }),
+    /** The fee this period consumed from the shop's fee payments (GST included). */
+    feePaise: bigint("fee_paise", { mode: "number" }).notNull().default(0),
+    basePaise: bigint("base_paise", { mode: "number" }),
+    gstRateBp: integer("gst_rate_bp"),
+    gstPaise: bigint("gst_paise", { mode: "number" }),
+    /** The payment that completed the fee. */
+    shopPaymentId: uuid("shop_payment_id").references(() => shopPayments.id),
+    paymentIntentId: uuid("payment_intent_id"),
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    voidReason: text("void_reason"),
+    voidedByPaymentId: uuid("voided_by_payment_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_membership_periods_shop_idx").on(t.shopId, t.createdAt),
+    uniqueIndex("shop_membership_periods_payment_uq").on(t.shopPaymentId).where(sql`${t.voidedAt} IS NULL AND ${t.shopPaymentId} IS NOT NULL`),
+    check("shop_membership_periods_kind", sql`${t.kind} IN ('REGISTRATION', 'RENEWAL', 'LEGACY')`),
+    check("shop_membership_periods_fee", sql`${t.feePaise} >= 0`),
+    check("shop_membership_periods_dates", sql`${t.periodEnd} >= ${t.periodStart}`),
+  ],
+);
+export type ShopMembershipPeriod = typeof shopMembershipPeriods.$inferSelect;
 
 /* -------------------------------------------------- excel bulk uploads */
 
@@ -8838,7 +8887,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL"] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),

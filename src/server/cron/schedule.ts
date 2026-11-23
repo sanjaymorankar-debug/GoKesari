@@ -233,6 +233,8 @@ export const DAILY: readonly Job[] = [
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
   // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.
   { name: "shop-document-follow-up", run: async () => (await import("@/server/services/shop-document-follow-up")).runShopDocumentFollowUp() },
+  // docs/shop-membership-renewal-2026-11: yearly membership reminders (before the end, on the day, grace end) — a no-op while rule shopMembership.remindersEnabled is off.
+  { name: "shop-membership-reminders", run: async () => (await import("@/server/services/shop-membership-renewal")).runMembershipRenewalReminders() },
   // docs/billing: compliance reminders, s.9(5) invoice catch-up, books posting, statements, GST link reminders,
   // credit-note IRNs — a no-op while billing_v2 is off.
   { name: "billing-daily", run: async () => (await import("@/server/tax/daily")).runBillingDaily() },
