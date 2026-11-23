@@ -1291,6 +1291,13 @@
       "breakpoints": true
     },
     {
+      "idx": 188,
+      "version": "7",
+      "when": 1793269288000,
+      "tag": "0188_customer_whatsapp",
+      "breakpoints": true
+    },
+    {
       "idx": 189,
       "version": "7",
       "when": 1793269289000,

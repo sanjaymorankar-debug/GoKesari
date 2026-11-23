@@ -619,6 +619,9 @@ export const AUDIT_ACTIONS = {
   HEALTH_CARE_PROVIDER: "health.care_provider",
   HEALTH_EQUIPMENT_STORE: "health.equipment_store",
   /* <<< GoKesari Health */
+  // docs/customer-whatsapp-2026-11 (0188): an admin re-queued a failed WhatsApp message; a simulated inbound chat message (test site).
+  WHATSAPP_MESSAGE_RETRIED: "whatsapp_message.retried",
+  WHATSAPP_INBOUND_SIMULATED: "whatsapp_inbound.simulated",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

@@ -55,6 +55,7 @@ import {
   type NotificationDelivery,
   type UserRole,
 } from "@/server/db/schema";
+import { queueCustomerWhatsAppForNotification } from "@/server/whatsapp/customer/notify-hook";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
 
@@ -172,6 +173,24 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
     for (const channel of OUTBOUND_CHANNELS) if (prefs.get(`${category}:${channel}`) === true) wanted.add(channel);
     // batch-2026-10 WS-F: push is on by default for app users in the rule's categories (rule push; off → unchanged).
     if (!wanted.has("PUSH") && (await pushOnByDefault(input.userId, category, client))) wanted.add("PUSH");
+
+    // docs/customer-whatsapp-2026-11: a customer update may also go out as a WhatsApp template (flag
+    // whatsapp_customer_enabled, rule whatsappCustomer, consent). A no-op for anything else or while off.
+    const viaWhatsAppTemplate = await queueCustomerWhatsAppForNotification(
+      {
+        userId: input.userId,
+        type: input.type,
+        title,
+        body,
+        actionUrl: input.actionUrl ?? null,
+        dedupeKey: input.dedupeKey ?? null,
+        notificationId,
+        whatsappPreference: prefs.get(`${category}:WHATSAPP`),
+      },
+      client,
+    );
+    // The template copy replaces the plain WhatsApp text copy, so nobody gets it twice.
+    if (viaWhatsAppTemplate) wanted.delete("WHATSAPP");
 
     const outbound = [...wanted].filter((channel) => enabled(channel, wanted.has(channel)));
     if (outbound.length > 0) {

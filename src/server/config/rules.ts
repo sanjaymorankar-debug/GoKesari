@@ -1939,6 +1939,56 @@ export const RULES = {
       fallbackOnFailure: true,
     },
   },
+  whatsappCustomer: {
+    description:
+      "Customer updates and shopping on WhatsApp (docs/customer-whatsapp-2026-11; flag whatsapp_customer_enabled). `enabled` switches the template updates on; each update type names its Meta-approved template (empty = not sent on WhatsApp). Every template takes three body parameters: {{1}} title, {{2}} message, {{3}} link. Sent only to customers who opted in (My Profile, or START on WhatsApp).",
+    schema: z.object({
+      /** Template updates (order, payment, delivery, refund, renewal). The chat works whenever the flag is on. */
+      enabled: z.boolean(),
+      templateLanguage: z.string().max(10),
+      templates: z.object({
+        ORDER_PLACED: z.string().max(120),
+        ORDER_CONFIRMED: z.string().max(120),
+        PAYMENT_RECEIVED: z.string().max(120),
+        ORDER_STATUS: z.string().max(120),
+        OUT_FOR_DELIVERY: z.string().max(120),
+        DELIVERED: z.string().max(120),
+        CANCELLED: z.string().max(120),
+        REFUND_ISSUED: z.string().max(120),
+        SUBSCRIPTION_RENEWAL: z.string().max(120),
+      }),
+      /** Chat: inbound messages per phone per minute; above it the bot answers once and then stays quiet. */
+      rateLimitPerMinute: int(1, 120),
+      /** Chat: a session (results, cart) is forgotten this long after the last message. */
+      sessionTtlMinutes: int(5, 1440),
+      /** Chat: the checkout link works this long, once. */
+      checkoutLinkTtlMinutes: int(5, 1440),
+      /** Chat: search results offered per search (WhatsApp lists show at most 10). */
+      maxResults: int(1, 10),
+      /** Chat: the largest quantity one line may have. */
+      maxQuantity: int(1, 100),
+    }),
+    defaults: {
+      enabled: false,
+      templateLanguage: "en",
+      templates: {
+        ORDER_PLACED: "gk_cust_order_placed",
+        ORDER_CONFIRMED: "gk_cust_order_confirmed",
+        PAYMENT_RECEIVED: "gk_cust_payment_received",
+        ORDER_STATUS: "gk_cust_order_status",
+        OUT_FOR_DELIVERY: "gk_cust_out_for_delivery",
+        DELIVERED: "gk_cust_delivered",
+        CANCELLED: "gk_cust_order_cancelled",
+        REFUND_ISSUED: "gk_cust_refund_issued",
+        SUBSCRIPTION_RENEWAL: "gk_cust_subscription_renewal",
+      },
+      rateLimitPerMinute: 20,
+      sessionTtlMinutes: 60,
+      checkoutLinkTtlMinutes: 30,
+      maxResults: 5,
+      maxQuantity: 20,
+    },
+  },
   voicePriceAssistant: {
     description:
       "Shop owners change prices and offers by voice (docs/smart-shopping-2026-11/FEATURE4_VOICE_PRICE_OFFERS.md). GoKesari shows what it understood and publishes only after the owner confirms.",

@@ -6,6 +6,7 @@ import { PhoneLinkForm } from "@/components/phone-link-form";
 import { EmailChangeForm, ProfileDetailsForm } from "@/components/profile-forms";
 import type { GenderValue } from "@/components/profile-setup";
 import { MarketingConsentToggle } from "@/components/marketing-consent-toggle";
+import { WhatsAppConsentToggle } from "@/components/whatsapp-consent-toggle";
 import { HashRedirect } from "@/components/board/hash-redirect";
 import { Icon } from "@/components/board/icons";
 import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
@@ -17,6 +18,9 @@ import { getBoardLang } from "@/server/board-lang";
 import { ROLE_LABELS } from "@/server/authz/permissions";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getMarketingConsentStatus } from "@/server/services/consents";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { CUSTOMER_WHATSAPP_FLAG } from "@/server/whatsapp/customer/config";
+import { getWhatsAppConsentStatus, verifiedPhoneOf } from "@/server/whatsapp/customer/consent";
 import { getPreferenceMatrix, listNotifications } from "@/server/services/notifications";
 import { signOut } from "@/server/auth";
 import { listAddresses } from "@/server/services/addresses";
@@ -91,6 +95,12 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   ]);
   const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null;
   // Bank accounts (docs/four-features-2026-10): refunds-to-bank account and its verification.
+  const [bankStatus, lang] = await Promise.all([customerBankPrompt(user.id, "profile"), getBoardLang()]);
+  // docs/customer-whatsapp-2026-11: the WhatsApp updates switch, only while flag whatsapp_customer_enabled is on.
+  const whatsapp =
+    tab === "notifications" && (await isFeatureEnabled(CUSTOMER_WHATSAPP_FLAG))
+      ? { consent: await getWhatsAppConsentStatus(user.id), hasVerifiedPhone: Boolean(await verifiedPhoneOf(user.id)) }
+      : null;
   const [bankStatus, lang, selfDeletion] = await Promise.all([
     customerBankPrompt(user.id, "profile"),
     getBoardLang(),
@@ -233,6 +243,16 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
 
       {tab === "notifications" ? (
         <>
+      {whatsapp ? (
+        <Card className="mb-6 p-6">
+          <WhatsAppConsentToggle
+            initialGranted={whatsapp.consent.granted}
+            lastChangedAt={whatsapp.consent.lastChangedAt}
+            hasVerifiedPhone={whatsapp.hasVerifiedPhone}
+            lang={lang}
+          />
+        </Card>
+      ) : null}
       <div className="mb-6">
         <NotificationPreferences initial={preferences} />
       </div>
