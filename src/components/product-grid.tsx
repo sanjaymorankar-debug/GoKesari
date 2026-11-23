@@ -10,6 +10,7 @@ export function ProductGrid({
   distances,
   compare = true,
   compareCounts,
+  favourites = false,
 }: {
   /** F8: a product may carry a live shop offer's price and title. */
   products: (Awaited<ReturnType<typeof listStorefrontProducts>>[number] & {
@@ -29,6 +30,11 @@ export function ProductGrid({
   compare?: boolean;
   /** docs/homepage-uiux-2026-10 (F4): productId → nearby shops selling it; "Compare N prices" from 2. */
   compareCounts?: ReadonlyMap<string, number>;
+  /**
+   * docs/search-brand-barcode-favourites-2026-11: a heart on each card. Pass the flag
+   * brand_barcode_favourites_enabled (read by the page); off or absent, the cards are as before.
+   */
+  favourites?: boolean;
 }) {
   return (
     // Phones: two products a row (it was one, so a category ran to 13 screens).
@@ -66,6 +72,7 @@ export function ProductGrid({
             shortDescription: p.shortDescription ?? null,
             detailsHref: `/products/${p.productId}?shop=${encodeURIComponent(p.shopSlug)}`,
             mrpPaise: p.mrpPaise ?? null,
+            ...(favourites ? { favouriteProductId: p.productId } : {}),
           }}
         />
       ))}

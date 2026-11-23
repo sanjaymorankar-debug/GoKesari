@@ -4,6 +4,9 @@ import { notFound } from "next/navigation";
 import { MrpDisputeForm } from "@/components/mrp-dispute-form";
 import { SafeImage } from "@/components/safe-image";
 import { ProductGrid } from "@/components/product-grid";
+import { FavouriteHeart } from "@/components/favourites/favourite-heart";
+import { getBoardLang } from "@/server/board-lang";
+import { favouritesOn } from "@/server/services/favourites-flag";
 import { Badge, Card, EmptyState, Money, PageHeader, Section } from "@/components/ui";
 import { formatQuantity, lineTotalPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -47,10 +50,13 @@ export default async function ProductComparePage({
 
   const user = await getCurrentUser();
   const location = await getCustomerLocation(user?.id);
-  const [offers, distances, cartLines] = await Promise.all([
+  const [offers, distances, cartLines, favourites, lang] = await Promise.all([
     listStorefrontProducts({ productId: id, limit: 100 }),
     location ? serviceableShopIds(location) : Promise.resolve(undefined),
     user ? getCartLineQuantities(user.id) : null,
+    // docs/search-brand-barcode-favourites-2026-11: the heart (flag brand_barcode_favourites_enabled).
+    favouritesOn(),
+    getBoardLang(),
   ]);
   if (offers.length === 0) notFound();
 
@@ -120,6 +126,7 @@ export default async function ProductComparePage({
       <PageHeader
         title={product.productName}
         description={`${product.categoryName} · sold by ${offers.length} shop${offers.length === 1 ? "" : "s"}`}
+        action={favourites ? <FavouriteHeart productId={id} productName={product.productName} signedIn={Boolean(user)} lang={lang} size="md" /> : undefined}
       />
 
       <div className="mb-4 flex gap-3 overflow-x-auto" data-testid="product-gallery">

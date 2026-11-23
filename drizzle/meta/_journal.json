@@ -1277,6 +1277,13 @@
       "breakpoints": true
     },
     {
+      "idx": 182,
+      "version": "7",
+      "when": 1793269282000,
+      "tag": "0182_brand_barcode_favourites",
+      "breakpoints": true
+    },
+    {
       "idx": 183,
       "version": "7",
       "when": 1793269283000,
