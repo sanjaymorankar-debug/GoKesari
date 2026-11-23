@@ -5,6 +5,7 @@
  * code takes zone rows FOR UPDATE in Zone ID order so a multi-zone cart never deadlocks, and the whole cart is
  * all-or-nothing. Every amount is computed here from the zone fees and config in force, never from the client.
  */
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { createHash } from "node:crypto";
 
 import { and, asc, desc, eq, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
@@ -724,7 +725,7 @@ export async function attachUpgradeShops(client: DbClient, allocation: Pick<Fran
  * coupon use released and the zones' Sold Out status re-checked. The money itself is refunded in the gateway.
  */
 export async function refundBooking(bookingId: string, reason: string, actor: Actor): Promise<void> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can refund a franchise booking.");
+  if (actor.role !== "ADMIN" && !can(actor.role, PERMISSIONS.DEALER_REFUND)) throw forbidden("Only an admin can refund a franchise booking.");
   if (reason.trim().length < 5) throw validationFailed("Give a reason of at least 5 characters.");
   const zones = await db.transaction(async (tx) => {
     const [b] = await tx.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId)).for("update");
@@ -748,7 +749,7 @@ export async function refundBooking(bookingId: string, reason: string, actor: Ac
 /* ============================================================= admin: suspend / terminate / void */
 
 export async function setAllocationStatus(allocationId: string, to: "SUSPENDED" | "ACTIVE" | "TERMINATED" | "CANCELLED", reason: string, actor: Actor): Promise<FranchiseAllocation> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can change an allocation.");
+  if (actor.role !== "ADMIN" && !can(actor.role, PERMISSIONS.DEALER_TERRITORY_ALLOCATE)) throw forbidden("Only an admin can change an allocation.");
   if (reason.trim().length < 5) throw validationFailed("Give a reason of at least 5 characters.");
   return db.transaction(async (tx) => {
     const [a] = await tx.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, allocationId)).for("update");

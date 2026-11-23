@@ -17,6 +17,7 @@
  * trading orders, renewals), and recurring franchise commission on orders delivered from then on (the old attachment
  * is kept as a closed period in franchise_shop_team_periods).
  */
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed, AppError } from "@/lib/errors";
@@ -61,7 +62,7 @@ export const MOVE_DOC_LABELS: Record<MoveDocKind, string> = {
 const MAX_SHOPS = 50;
 
 const requireAdmin = (actor: MoveActor) => {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can move referral codes.");
+  if (actor.role !== "ADMIN" && !can(actor.role, PERMISSIONS.DEALER_REASSIGN)) throw forbidden("Only an admin can move referral codes.");
 };
 
 const cleanReason = (reason: string, min = 10) => {

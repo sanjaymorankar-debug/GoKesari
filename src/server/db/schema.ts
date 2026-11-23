@@ -42,6 +42,7 @@ import {
   VOUCHER_TYPES,
 } from "@/lib/accounts/constants";
 import type { ShopTypeKey } from "@/lib/shop-types";
+import { SCHEME_ASSIGNMENT_SOURCES, SCHEME_ASSIGNMENT_STATUSES, SCHEME_CATEGORIES, SCHEME_STATUSES, SCHEME_VERSION_STATUSES, type SchemeTerms } from "@/lib/dealer-schemes";
 import { DEALER_BANK_STATUSES, DEALER_CODE_KINDS, DEALER_CODE_STATUSES, DEALER_DOC_TYPES, DEALER_STATUSES, DEALER_TYPES } from "@/lib/dealers";
 import { TERRITORY_FEE_METHODS, TERRITORY_FEE_STATUSES, TERRITORY_STATUSES } from "@/lib/territory-dealers";
 import {
@@ -130,6 +131,13 @@ export const userRoleEnum = pgEnum("user_role", [
   "SUPPORT_USER", // works assigned tickets and shops; proposes changes the shop owner approves
   "OPERATIONS_MANAGER", // owns shop / customer onboarding and the Operations team
   "OPERATIONS_USER", // field and digital onboarding (OPERATOR_LIMITED's work plus tasks, zones, customer assists)
+  // docs/dealer-platform (0181): dealership & franchise staff roles (owner decision D9; assigned by an admin).
+  "BUSINESS_ADMIN", // schemes, dealers, territories, commission rules
+  "DEALERSHIP_MANAGER", // dealer approvals, territory allocation, scheme drafts
+  "FINANCE_ADMIN", // payouts, settlements, refunds, commission adjustments
+  "REGIONAL_ADMIN", // dealer approvals and suspensions in his own states / districts
+  "AUDITOR", // reads everything dealer-related, the audit log included
+  "READ_ONLY", // reads the dealer platform's screens
 ]);
 
 /**
@@ -5253,6 +5261,40 @@ export const societyShops = pgTable(
   (t) => [uniqueIndex("society_shops_unique").on(t.societyId, t.shopId)],
 );
 
+/**
+ * docs/delta CF-006: a rider asks to join a society's authorised rider list; the society ADMIN
+ * approves (approval lists the rider through the existing addSocietyRider) or declines. Behind the
+ * flag society_rider_join_requests_enabled. One PENDING request per society and rider.
+ */
+export const societyJoinRequests = pgTable(
+  "society_join_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    societyId: uuid("society_id")
+      .notNull()
+      .references(() => societies.id, { onDelete: "cascade" }),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["PENDING", "APPROVED", "DECLINED", "WITHDRAWN"] }).notNull().default("PENDING"),
+    /** The rider's note to the society, e.g. "I deliver in this area every evening". */
+    message: text("message"),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("society_join_requests_one_pending")
+      .on(t.societyId, t.deliveryPartnerId)
+      .where(sql`${t.status} = 'PENDING'`),
+    index("society_join_requests_society_idx").on(t.societyId, t.status),
+    index("society_join_requests_partner_idx").on(t.deliveryPartnerId),
+  ],
+);
+export type SocietyJoinRequest = typeof societyJoinRequests.$inferSelect;
+
 /* ============================================================ ratings (Phase 2)
  * GS-059 shop rating, GS-060 rider rating. One row per (order, target): a
  * customer rates the shop and, when a platform rider delivered, the rider —
@@ -8731,7 +8773,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE"] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -10425,6 +10467,8 @@ export const FEATURE_FLAG_KEYS = [
   "zoho_connector",
   "odoo_connector",
   "ondc_mode",
+  // docs/delta CF-006: riders ask to join a society's rider list; the society admin approves. Off: no page, API answers 404.
+  "society_rider_join_requests_enabled",
   // docs/delta CF-011 (D-144): shop owners upload a logo file on their shop pages. No migration: a missing row is OFF.
   "shop_logo_upload_enabled",
   // docs/shop-welcome-kit-2026-11: admins send the welcome kit to shops that were live before it (one shop or by city / district). No migration: a missing row is OFF.
@@ -10442,6 +10486,8 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_support",
   "rbac_v2_shop_change_requests",
   "rbac_v2_operations",
+  // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
+  "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
 ] as const;
@@ -10617,6 +10663,12 @@ export const dealers = pgTable(
     tierAgreementAcceptedAt: timestamp("tier_agreement_accepted_at", { withTimezone: true }),
     /** A free dealer's working zone, chosen on Book a franchise zone (22-Nov-2026); no ownership. */
     preferredZoneId: text("preferred_zone_id"),
+    /** 0177: the dealer's own logo (uploaded through /api/dealer/logo; CF-011 reuse). */
+    logoUrl: text("logo_url"),
+    /** 0178: the scheme version chosen on the application (assigned on approval). */
+    requestedVersionId: uuid("requested_version_id"),
+    /** 0180: answers to the scheme's custom fields (field key → value). */
+    customValues: jsonb("custom_values").$type<Record<string, string | number | boolean | string[] | null>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -10706,6 +10758,133 @@ export const dealerVerifications = pgTable(
   (t) => [uniqueIndex("dealer_verifications_dealer_doc_uq").on(t.dealerId, t.docType)],
 );
 export type DealerVerification = typeof dealerVerifications.$inferSelect;
+
+/**
+ * Dealership & Franchise Platform phase 1 (0177; docs/dealer-platform/): commercial schemes, their versioned terms
+ * (src/lib/dealer-schemes.ts) and each dealer's scheme over time. Published terms and assignment history are
+ * protected by database triggers; new dealers and franchise payments are assigned by triggers too.
+ */
+export const dealerSchemes = pgTable("dealer_schemes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  category: text("category", { enum: SCHEME_CATEGORIES }).notNull(),
+  status: text("status", { enum: SCHEME_STATUSES }).notNull().default("DRAFT"),
+  sortOrder: integer("sort_order").notNull().default(100),
+  launchAt: timestamp("launch_at", { withTimezone: true }),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("dealer_schemes_code_uq").on(t.code)]);
+export type DealerScheme = typeof dealerSchemes.$inferSelect;
+
+export const dealerSchemeVersions = pgTable("dealer_scheme_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  schemeId: uuid("scheme_id").notNull().references(() => dealerSchemes.id),
+  version: integer("version").notNull(),
+  status: text("status", { enum: SCHEME_VERSION_STATUSES }).notNull().default("DRAFT"),
+  label: text("label"),
+  terms: jsonb("terms").$type<SchemeTerms>().notNull(),
+  /** SHA-256 of the stored terms (set by the database). */
+  termsHash: text("terms_hash").notNull().default(""),
+  changeReason: text("change_reason"),
+  effectiveFrom: timestamp("effective_from", { withTimezone: true }),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  publishedBy: uuid("published_by"),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("dealer_scheme_versions_scheme_version_uq").on(t.schemeId, t.version),
+  uniqueIndex("dealer_scheme_versions_one_published_uq").on(t.schemeId).where(sql`${t.status} = 'PUBLISHED'`),
+]);
+export type DealerSchemeVersion = typeof dealerSchemeVersions.$inferSelect;
+
+export const dealerSchemeAssignments = pgTable("dealer_scheme_assignments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  dealerId: uuid("dealer_id").notNull().references(() => dealers.id),
+  schemeId: uuid("scheme_id").notNull().references(() => dealerSchemes.id),
+  versionId: uuid("version_id").notNull().references(() => dealerSchemeVersions.id),
+  status: text("status", { enum: SCHEME_ASSIGNMENT_STATUSES }).notNull().default("ACTIVE"),
+  source: text("source", { enum: SCHEME_ASSIGNMENT_SOURCES }).notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  endReason: text("end_reason"),
+  /** A copy of the version's terms when the dealer was put on it. */
+  acceptedTerms: jsonb("accepted_terms").$type<SchemeTerms>().notNull(),
+  termsHash: text("terms_hash").notNull().default(""),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  acceptedIp: text("accepted_ip"),
+  acceptedUserAgent: text("accepted_user_agent"),
+  previousAssignmentId: uuid("previous_assignment_id"),
+  reason: text("reason"),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("dealer_scheme_assignments_one_active_uq").on(t.dealerId).where(sql`${t.status} = 'ACTIVE'`),
+  index("dealer_scheme_assignments_dealer_idx").on(t.dealerId, t.startsAt),
+  index("dealer_scheme_assignments_version_idx").on(t.versionId),
+]);
+export type DealerSchemeAssignment = typeof dealerSchemeAssignments.$inferSelect;
+
+/** 0178: each acceptance of a scheme version's terms (append-only). */
+export const dealerSchemeAcceptances = pgTable("dealer_scheme_acceptances", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  dealerId: uuid("dealer_id").notNull().references(() => dealers.id),
+  versionId: uuid("version_id").notNull().references(() => dealerSchemeVersions.id),
+  termsHash: text("terms_hash").notNull(),
+  context: text("context", { enum: ["APPLICATION", "UPGRADE", "DOWNGRADE", "CHANGE"] }).notNull(),
+  acceptedBy: uuid("accepted_by"),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+}, (t) => [index("dealer_scheme_acceptances_dealer_idx").on(t.dealerId, t.acceptedAt)]);
+export type DealerSchemeAcceptance = typeof dealerSchemeAcceptances.$inferSelect;
+
+/** 0178: the joining charge of a paid scheme, paid online (purpose DEALER_JOINING_FEE). */
+export const dealerJoiningPayments = pgTable("dealer_joining_payments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  dealerId: uuid("dealer_id").notNull().references(() => dealers.id),
+  versionId: uuid("version_id").notNull().references(() => dealerSchemeVersions.id),
+  basePaise: bigint("base_paise", { mode: "number" }).notNull(),
+  gstRateBp: integer("gst_rate_bp").notNull(),
+  gstPaise: bigint("gst_paise", { mode: "number" }).notNull(),
+  totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+  status: text("status", { enum: ["PENDING", "PAID", "CANCELLED", "REFUND_PENDING", "REFUNDED"] }).notNull().default("PENDING"),
+  paymentIntentId: uuid("payment_intent_id"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  refundId: uuid("refund_id"),
+  refundReason: text("refund_reason"),
+  refundedAt: timestamp("refunded_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("dealer_joining_payments_open_uq").on(t.dealerId, t.versionId).where(sql`${t.status} IN ('PENDING', 'PAID')`),
+  uniqueIndex("dealer_joining_payments_intent_uq").on(t.paymentIntentId).where(sql`${t.paymentIntentId} IS NOT NULL`),
+]);
+export type DealerJoiningPayment = typeof dealerJoiningPayments.$inferSelect;
+
+/** 0180: files for FILE-type custom fields (encrypted like dealer documents; the latest per field counts). */
+export const dealerCustomFiles = pgTable("dealer_custom_files", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  dealerId: uuid("dealer_id").notNull().references(() => dealers.id, { onDelete: "cascade" }),
+  fieldKey: text("field_key").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  content: bytea("content").notNull(),
+  uploadedBy: uuid("uploaded_by"),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("dealer_custom_files_dealer_idx").on(t.dealerId, t.fieldKey, t.uploadedAt)]);
+export type DealerCustomFile = typeof dealerCustomFiles.$inferSelect;
+
+/** 0181: the states / districts (geo_areas codes) a Regional Admin works in. */
+export const staffRegionScopes = pgTable("staff_region_scopes", {
+  userId: uuid("user_id").primaryKey(),
+  areaCodes: text("area_codes").array().notNull().default(sql`'{}'::text[]`),
+  updatedBy: uuid("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /** Areas a dealer works in. Never exclusive: several dealers may share a locality. */
 export const dealerTerritories = pgTable(
@@ -11487,6 +11666,9 @@ export const dealerCommissionLedger = pgTable(
     kind: text("kind", { enum: ["ACCRUAL", "REVERSAL", "ADJUSTMENT"] }).notNull().default("ACCRUAL"),
     /** 0136: what the entry is for (one statement line per type). BASE: the standard model. */
     entryType: text("entry_type", { enum: COMMISSION_ENTRY_TYPES }).notNull().default("BASE"),
+    /** 0179: the scheme assignment and component this line was calculated from (scheme calculator). */
+    schemeAssignmentId: uuid("scheme_assignment_id"),
+    schemeComponentId: text("scheme_component_id"),
     /** 0136: who is paid — a team member; null = the dealer (main dealer) itself. */
     payeeMemberId: uuid("payee_member_id").references(() => dealerSalespeople.id, { onDelete: "restrict" }),
     /** 0136: the payee's level in the network (1 main dealer, 2, 3); null for BASE entries. */

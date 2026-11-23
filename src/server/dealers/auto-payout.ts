@@ -14,6 +14,7 @@
  * The SANDBOX provider never runs on gokesari.com (the adapter refuses there).
  * Every step is audited; the payee is told when it is paid or fails.
  */
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
 
 import { conflict, forbidden, notFound } from "@/lib/errors";
@@ -71,7 +72,7 @@ async function payeeUser(b: Pick<DealerPayoutBatch, "dealerId" | "memberId">): P
  * is sent to the bank at once.
  */
 export async function approvePayoutBatch(batchId: string, actor: Actor): Promise<DealerPayoutBatch> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can approve payouts.");
+  if (actor.role !== "ADMIN" && !can(actor.role, PERMISSIONS.DEALER_PAYOUT_APPROVE)) throw forbidden("Only an admin can approve payouts.");
   const approved = await db.transaction(async (tx) => {
     const [b] = await tx.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId)).for("update");
     if (!b) throw notFound("Payout");
@@ -237,7 +238,7 @@ export async function retryDueDealerPayouts(now: Date = new Date()): Promise<{ r
 
 /** ADMIN: finance's decision on a payout flagged for review — send again now. */
 export async function retryFlaggedPayout(batchId: string, actor: Actor): Promise<DealerPayoutBatch> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can retry payouts.");
+  if (actor.role !== "ADMIN" && !can(actor.role, PERMISSIONS.DEALER_PAYOUT_APPROVE)) throw forbidden("Only an admin can retry payouts.");
   const [b] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId));
   if (!b || b.status !== "FAILED") throw conflict("Only a failed payout can be retried.");
   await db.update(dealerPayoutBatches).set({ needsReview: false }).where(eq(dealerPayoutBatches.id, batchId));
@@ -251,7 +252,7 @@ export async function retryFlaggedPayout(batchId: string, actor: Actor): Promise
  * numbers are revealed, so the download is audited.
  */
 export async function dealerBankFile(actor: Actor): Promise<{ csv: string; count: number }> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can download the bank file.");
+  if (actor.role !== "ADMIN" && !can(actor.role, PERMISSIONS.DEALER_PAYOUT_APPROVE)) throw forbidden("Only an admin can download the bank file.");
   const rows = await db
     .select()
     .from(dealerPayoutBatches)
