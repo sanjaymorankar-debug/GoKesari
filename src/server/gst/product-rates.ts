@@ -9,14 +9,15 @@
  * change that must start on a future date, use the dated HSN table at
  * /admin/gst-config. Every change is audited with the admin's reason.
  */
-import { and, asc, eq, ilike, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { notFound, validationFailed } from "@/lib/errors";
-import { db } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import { products, shopProducts, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { getRule } from "@/server/services/settings";
+import type { LineTaxClass } from "@/server/tax/order-snapshot";
 import { hsnFallbackRate } from "./rules";
 
 /** GST rates in use in India (percent) — the only rates the editor accepts (TC-FLD-078). */
@@ -158,4 +159,50 @@ export async function setProductGst(productId: string, input: ProductGstInput, a
     );
     return updated;
   });
+}
+
+/**
+ * Each listing's GST classification on a date, found the way the shop's
+ * invoice finds it: the listing's own HSN / rate / cess, then the master
+ * product's, then the dated HSN table (longest prefix). gstRateBp null = no
+ * rate anywhere (invoicing.defaultGstRateBp is NOT applied here: an unknown
+ * rate stays unknown). Used by checkout's tax snapshot and the payout cycle.
+ */
+export async function resolveListingTaxClasses(
+  shopProductIds: string[],
+  at: Date = new Date(),
+  client: DbClient = db,
+): Promise<Map<string, LineTaxClass>> {
+  const out = new Map<string, LineTaxClass>();
+  const ids = [...new Set(shopProductIds)];
+  if (ids.length === 0) return out;
+  const rows = await client
+    .select({
+      id: shopProducts.id,
+      shopHsn: shopProducts.hsnCode,
+      shopRate: shopProducts.gstRateBp,
+      shopCess: shopProducts.cessBp,
+      hsn: products.hsnCode,
+      rate: products.gstRateBp,
+    })
+    .from(shopProducts)
+    .leftJoin(products, eq(products.id, shopProducts.productId))
+    .where(inArray(shopProducts.id, ids));
+  const byHsn = new Map<string, Awaited<ReturnType<typeof hsnFallbackRate>>>();
+  const hsnRate = async (code: string | null) => {
+    if (!code) return null;
+    if (!byHsn.has(code)) byHsn.set(code, await hsnFallbackRate(code, at, client));
+    return byHsn.get(code) ?? null;
+  };
+  for (const r of rows) {
+    const hsnCode = r.shopHsn ?? r.hsn ?? null;
+    const own = r.shopRate ?? r.rate ?? null;
+    const table = own == null || r.shopCess == null ? await hsnRate(hsnCode) : null;
+    out.set(r.id, {
+      hsnCode,
+      gstRateBp: own ?? table?.rateBp ?? null,
+      cessBp: r.shopCess ?? table?.cessBp ?? 0,
+    });
+  }
+  return out;
 }

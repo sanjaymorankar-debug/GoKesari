@@ -2068,8 +2068,19 @@ export const orders = pgTable(
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
       .default(0),
+    /**
+     * Tax charged ON TOP of the item prices. Always 0: GoKesari prices already
+     * include GST, so adding tax here would charge it twice. The GST included in
+     * the prices is taxIncludedPaise (informational, never part of the total).
+     */
     taxPaise: bigint("tax_paise", { mode: "number" }).notNull().default(0),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /**
+     * GST (and cess) INCLUDED in the goods' prices, summed from the lines'
+     * taxPaise at checkout (migration 0182). Never added to totalPaise. Null
+     * when not recorded (orders before 0182, or a line with no known rate).
+     */
+    taxIncludedPaise: bigint("tax_included_paise", { mode: "number" }),
     /** Set once the wallet deduction has actually completed. */
     paidAt: timestamp("paid_at", { withTimezone: true }),
     deliveryDate: date("delivery_date"),
@@ -2176,6 +2187,18 @@ export const orderItems = pgTable(
     lineTotalPaise: bigint("line_total_paise", { mode: "number" }).notNull(),
     /** D-91: the product's MRP when it was sold (products.mrp_paise); null when it had none (loose goods). */
     mrpPaise: bigint("mrp_paise", { mode: "number" }),
+    /*
+     * Tax snapshot at checkout (migration 0182; null on older orders). The line's
+     * classification when it was ordered (listing → master product → dated HSN
+     * table) and the GST + cess INCLUDED in lineTotalPaise: taxable + tax = line
+     * total. A shop that charges no GST records taxable = line total, tax = 0.
+     * gstRateBp null = no rate was known (taxable / tax null too).
+     */
+    hsnCode: text("hsn_code"),
+    gstRateBp: integer("gst_rate_bp"),
+    cessBp: integer("cess_bp"),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }),
+    taxPaise: bigint("tax_paise", { mode: "number" }),
     /* ------------------------------------------ fulfilment (Slice 3) —
      * the original snapshot above is never rewritten; a substitute is
      * recorded alongside it so the order keeps its history. */

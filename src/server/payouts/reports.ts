@@ -121,15 +121,22 @@ export async function buildTdsReport(period: string): Promise<StatutoryReport> {
 }
 
 export async function exportStatutoryReport(
-  type: "tcs" | "tds" | "gstr1",
+  type: "tcs" | "tds" | "gstr1" | "gstr8",
   period: string,
   actor: { id: string; role: UserRole },
 ): Promise<StatutoryReport> {
   let report: StatutoryReport;
+  let warnings: string[] | undefined;
   if (type === "gstr1") {
     const { buildPlatformGstr1 } = await import("@/server/platform-invoices/service");
     const g = await buildPlatformGstr1(period);
     report = { json: g.json, csv: g.csv, rows: g.counts.invoices + g.counts.notes, checksum: g.checksum };
+  } else if (type === "gstr8") {
+    // GSTR-8 in the portal's shape, for a manual upload (tax/statements.ts).
+    const { gstr8Export } = await import("@/server/tax/statements");
+    const g = await gstr8Export(period);
+    warnings = g.warnings;
+    report = { json: g.json as unknown as Record<string, unknown>, csv: g.csv, rows: g.rows, checksum: createHash("sha256").update(JSON.stringify(g.json)).digest("hex") };
   } else {
     report = type === "tcs" ? await buildTcsReport(period) : await buildTdsReport(period);
   }
@@ -139,7 +146,7 @@ export async function exportStatutoryReport(
     action: AUDIT_ACTIONS.STATUTORY_REPORT_EXPORTED,
     entityType: "statutory_report",
     entityId: null,
-    newValue: { type, period, rows: report.rows, checksum: report.checksum },
+    newValue: { type, period, rows: report.rows, checksum: report.checksum, ...(warnings?.length ? { warnings } : {}) },
   });
   return report;
 }
