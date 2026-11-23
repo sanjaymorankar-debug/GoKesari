@@ -1,0 +1,40 @@
+{
+ "version": "2.0",
+ "versionDay": "23-Nov-2026",
+ "versionShort": "23-Nov",
+ "workbookDay": "23-Nov-2026",
+ "workbookShort": "23-Nov",
+ "workbookFile": "GOKESARI_MANUAL_TEST_WORKBOOK_2026-11-23.xlsx",
+ "overrides": 36,
+ "lastModuleLabel": "Staff roles (RBAC v2)",
+ "featuresOverride": 409,
+ "deckRevisions": [
+  {"version": "1.0", "day": "20-Nov-2026", "change": "First issue: units 4.1 and 4.3 taught on our own product, built on the manual test workbook of 20-Nov (1,048 cases, 290 scenarios, 47 journeys, 137 defects). 29 slides."},
+  {"version": "2.0", "day": "23-Nov-2026", "change": "Every count brought up to the workbook of 23-Nov (version 2.0: 1,631 cases, 383 scenarios, 63 journeys) and the defect log (186). Three new slides: this history, what is new since v1.0 (472 cases for 14 features on staging 20 to 23 Nov) and how to test a feature behind a flag. Next steps are now for Cycle 2. 32 slides."}
+ ],
+ "groups": [
+  {"group": "Puja Samagri shop type (#427, #437)", "what": "Catalogue of 499 items, owner and admin screens, /puja storefront, price on confirmation · admin switch, ON · 55 cases"},
+  {"group": "Admin menu, banner wording, mailbox rotation (#463, #464, #448, #451)", "what": "Categories = Shop + Product only; new banner label; e-mail from code1…10, 90 per mailbox a day · no flag · 21 cases"},
+  {"group": "Shop documents and FSSAI; Health specialties (#458, #460, #466, #467, #471, #475, #477)", "what": "FSSAI must-have for food, other documents on a 90-day promise, admin document rules, Cashfree FSSAI check, doctors' registration · business rules · 71 cases"},
+  {"group": "Franchise zones (#446, #465, #469, #476, #479)", "what": "99 zones, ₹1.5 L launch fee + GST, free dealer or paid franchise, pay first and KYC in 30 days, 20/4/3 and 20% recurring · Booking open · 70 cases"},
+  {"group": "Referral moves; dealership platform (#470, #503)", "what": "Second admin approves code and member moves; scheme engine, builder, calculator, new roles · four-eye flag OFF · 85 cases"},
+  {"group": "Smart shopping (#482, #484)", "what": "Photo shopping list and shop compare, add product by photo + voice, WhatsApp orders · three flags OFF; AI and WhatsApp keys not set (Blocked) · 40 cases"},
+  {"group": "Voice price assistant; shop logo; society join requests (#489–#492, #496–#498)", "what": "Price and offer by voice, nothing changes until 'yes'; logo upload; riders ask to join a society · voice and logo ON on staging, society OFF · 50 cases"},
+  {"group": "Staff roles and back office, RBAC v2 (#485, #487, #493, #500)", "what": "Five staff roles, approvals, two-admin rule, accounting, support desk, shop change requests, operations · six flags ON on staging, OFF on gokesari.com · 80 cases"}
+ ],
+ "groupsNote": "Also corrected: 36 older cases (23 territory cases retired because territory = franchise; 6 onboarding cases for the FSSAI rule; consultant menu; logo limits; standard dealer). 119 results other sessions already recorded for these cases are listed in docs/testing/manual/evidence-2026-11-23.json, and 75 places where the code looks wrong or differs from the brief in code-check-2026-11-23.json: read them before running the group.",
+ "flagRules": [
+  ["1. Know the flag", "Preconditions name it (e.g. voice_price_assistant_enabled) and say whether it is on or off on test.gokesari.com today"],
+  ["2. Test it off first", "Run the case that checks the feature is hidden or refused while the flag is off (menu tile gone, API 404 or 403)"],
+  ["3. Ask for it to be switched on", "An admin switches it on staging only (with two admins if four-eye is on); never on gokesari.com"],
+  ["4. Run the functions", "P0 first: money, access, state changes; then P1 and P2; phone layout where there is a screen"],
+  ["5. Record the flag state", "Write 'flag on' or 'flag off' in Build / release on every result row, with the evidence ID"],
+  ["6. Hand it back", "Ask for the flag to be put back as it was; note it in the Execution Log"]
+ ],
+ "nextSteps": [
+  "1. Open GOKESARI_MANUAL_TEST_WORKBOOK_2026-11-23.xlsx (version 2.0) and fill the Cover (build, cycle, tester)",
+  "2. Run Preflight TC-PRE-001 to 012, then P0 cases module by module, then the 99 new P0 cases",
+  "3. Re-run the 42 defects waiting for retest; log new defects with evidence",
+  "4. Hold an FTR on the 472 new cases (read code-check-2026-11-23.json first); check exit criteria and sign off"
+ ]
+}

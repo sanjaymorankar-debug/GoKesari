@@ -92,7 +92,7 @@ export const healthDoctorProfiles = health.table("doctor_profiles", {
   signatureType: text("signature_type"),
   stampImage: bytea("stamp_image"),
   stampType: text("stamp_type"),
-  /** Staff checked the registration against the NMC / State Medical Council register (0182). */
+  /** Staff checked the registration against the NMC / State Medical Council register (0183). */
   registryCheckedAt: ts("registry_checked_at"),
   registryCheckedBy: uuid("registry_checked_by"),
   registryCheckNote: text("registry_check_note"),
@@ -206,7 +206,7 @@ export const healthDrugMaster = health.table("drug_master", {
   teleList: text("tele_list").notNull().default("PROHIBITED"),
   onlineSaleAllowed: boolean("online_sale_allowed").notNull().default(false),
   status: text("status").notNull().default("ACTIVE"),
-  /** Pharmacist review (0182): when, by whom (name + registration no.), note. */
+  /** Pharmacist review (0183): when, by whom (name + registration no.), note. */
   reviewedAt: ts("reviewed_at"),
   reviewedBy: text("reviewed_by"),
   reviewNote: text("review_note"),

@@ -8,6 +8,9 @@ import { NavigationFeedback } from "@/components/board/navigation-feedback";
 import { OfflineBanner } from "@/components/board/offline-banner";
 import { MobileShopNav } from "@/components/home/mobile-shop-nav";
 import { RememberReturnTo } from "@/components/remember-return-to";
+import { GuestCartMerge } from "@/components/guest-cart/guest-cart-merge";
+import { GuestCartProvider } from "@/components/guest-cart/guest-cart-context";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { parseStoreLink } from "@/lib/app-install";
@@ -93,13 +96,16 @@ export default async function RootLayout({
           .catch(() => []),
       ])
     : null;
-  const [signedInState, location, lang, homeDiscovery] = await Promise.all([
+  const [signedInState, location, lang, homeDiscovery, guestCartEnabled] = await Promise.all([
     signedIn,
     // The same location every page filters by (cookie, else the default address).
     getCustomerLocation(user?.id).catch(() => null),
     getBoardLang(),
     // docs/homepage-uiux-2026-10: phones' bottom navigation and floating cart bar (rule homeDiscovery).
     homeDiscoveryRule,
+    // docs/guest-cart-2026-11: guests fill a browser cart (sign-in at Place order); signed-in users
+    // need it only to move a guest cart left in this browser into their account cart.
+    isFeatureEnabled("guest_cart_enabled").catch(() => false),
   ]);
   const [cart, balancePaise, unread, roles, addresses, staffShops, referralLinks] = signedInState ?? [
     { count: 0, totalPaise: null },
@@ -116,6 +122,7 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-cream-50">
+        <GuestCartProvider enabled={guestCartEnabled && !user}>
         {/* docs/app-install-2026-10: holds Chrome's install event until the install prompt mounts. */}
         <script dangerouslySetInnerHTML={{ __html: INSTALL_EVENT_CATCHER }} />
         <OfflineBanner lang={lang} />
@@ -156,6 +163,8 @@ export default async function RootLayout({
         />
         <AppUpdatePrompt lang={lang} />
         {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} /> : null}
+        {guestCartEnabled && user ? <GuestCartMerge /> : null}
+        </GuestCartProvider>
       </body>
     </html>
   );

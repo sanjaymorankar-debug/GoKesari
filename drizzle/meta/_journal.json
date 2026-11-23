@@ -1279,8 +1279,15 @@
     {
       "idx": 182,
       "version": "7",
-      "when": 1793269104000,
-      "tag": "0182_health_prescribing_safeguards",
+      "when": 1793269200000,
+      "tag": "0182_subscription_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "7",
+      "when": 1793269300000,
+      "tag": "0183_health_prescribing_safeguards",
       "breakpoints": true
     }
   ]

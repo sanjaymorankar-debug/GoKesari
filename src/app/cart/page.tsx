@@ -26,13 +26,24 @@ import { SaveCartAsList } from "@/components/purchase-lists/save-cart-as-list";
 import { listPurchaseLists } from "@/server/services/purchase-lists";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { ScanListTile } from "@/components/smart-list/scan-list-tile";
+import { GuestCartView } from "@/components/guest-cart/guest-cart-view";
 
 export const metadata = { title: "Cart" };
 export const dynamic = "force-dynamic";
 
 export default async function CartPage() {
   const user = await getCurrentUser();
-  if (!user) redirect("/signin");
+  if (!user) {
+    // docs/guest-cart-2026-11: with guest_cart_enabled on, a guest sees the cart kept in their browser
+    // and is asked to sign in only at "Place order". Off: sign in first, as before.
+    if (!(await isFeatureEnabled("guest_cart_enabled").catch(() => false))) redirect("/signin");
+    return (
+      <>
+        <PageHeader title="Your cart" description="Items are grouped by shop — each shop becomes its own order." />
+        <GuestCartView lang={await getBoardLang()} />
+      </>
+    );
+  }
 
   const canOrderB2B = can(user.role, PERMISSIONS.ORDER_PLACE_B2B);
   const [cart, wallet, addresses, ownedShops, codEligibility, [account]] = await Promise.all([

@@ -30,6 +30,16 @@ const arg = (name: string, dflt: string) =>
 const DATE = arg("--date", new Date().toISOString().slice(0, 10));
 const OUT = arg("--out", join("docs", "testing", "manual", `GOKESARI_MANUAL_TEST_WORKBOOK_${DATE}.xlsx`));
 const MANUAL_DIR = join("docs", "testing", "manual");
+/**
+ * Versions of the workbook (docs/testing/manual/revisions.json): one entry per issue, oldest first.
+ * The Cover shows the last one as the Version and all of them as the Revision history.
+ */
+interface Revision {
+  version: string;
+  date: string;
+  change: string;
+}
+const REVISIONS: Revision[] = JSON.parse(readFileSync(join(MANUAL_DIR, "revisions.json"), "utf8"));
 
 interface Case {
   id: string;
@@ -104,6 +114,9 @@ function originOf(text: string | undefined): Pick<Case, "origin" | "status" | "r
 const planCases = readJson<(Case & { source?: string })[]>(join("tests", "qa", "catalog", "cases.json")).map((c) => ({
   ...c,
   ...originOf(c.source),
+  // A case retired by a later decision says so in its Expected result ("Not applicable since <day>: …"); it starts
+  // Not Applicable, like a planned one, so it never counts as not run (e.g. TC-TERR-*, territory = franchise, 23-Nov-2026).
+  ...(/^Not applicable since/i.test(c.expected) ? { status: "Not Applicable", remarks: `Retired: ${c.expected}` } : {}),
 }));
 const planJourneys = readJson<Journey[]>(join("tests", "qa", "catalog", "scenarios.json")).map((j) => ({
   ...j,
@@ -1125,7 +1138,7 @@ async function main() {
   const docRows: Array<[string, ExcelJS.CellValue, boolean?]> = [
     ["Document ID", `GK-QA-MTW-${DATE.replace(/-/g, "")}`],
     ["Document type", "Test specification and test execution record (manual)"],
-    ["Version", "1.0 (draft)", true],
+    ["Version", `${REVISIONS.at(-1)?.version ?? "1.0"} (${fmtDate(REVISIONS.at(-1)?.date ?? DATE)})`, true],
     ["Status", "Draft - ready for Cycle 1", true],
     ["Prepared on", `${fmtDate(DATE)}, ${nowIst} IST`],
     ["Prepared by", "GoKesari QA (drafted with Claude Code)", true],
@@ -1148,13 +1161,13 @@ async function main() {
     cr + 1,
     ["Version", "Date", "Author", "Change", "", ""],
     [
-      ["1.0", fmtDate(DATE), "GoKesari QA", `First issue: ${scenarios.length} test scenarios, ${cases.length} test cases, ${journeys.length} end-to-end scenarios, execution and evidence template`, "", ""],
+      ...REVISIONS.map((r) => [r.version, fmtDate(r.date), "GoKesari QA", r.change, "", ""]),
       ["", "", "", "", "", ""],
       ["", "", "", "", "", ""],
     ],
     { inputCols: [0, 1, 2, 3] },
   );
-  for (let r = cr - 3; r < cr; r++) wsCover.mergeCells(r, 4, r, 6);
+  for (let r = cr - (REVISIONS.length + 2); r < cr; r++) wsCover.mergeCells(r, 4, r, 6);
   cr++;
   section(wsCover, cr, "What is in this workbook");
   const contents: Array<[string, string]> = [
