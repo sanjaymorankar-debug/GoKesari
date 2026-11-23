@@ -161,6 +161,9 @@ export const PUBLIC_PAGES = new Set([
   "/dealer/commission-chart",
   // Owner, 21-Nov-2026 09.20 IST: the app is installed from the website until the stores are ready.
   "/app",
+  // docs/guest-cart-2026-11 (owner, 23-Nov-2026): with guest_cart_enabled on, a guest's cart (kept in the browser)
+  // opens here and sign-in is asked only at "Place order"; off, the page sends a guest to sign-in as before.
+  "/cart",
 ]);
 
 /**
@@ -171,6 +174,7 @@ export const PUBLIC_PAGES = new Set([
  */
 export const PUBLIC_WRITES: Record<string, string> = {
   "/api/location": "the shopper's delivery location (a cookie), for guests too",
+  "/api/cart/preview": "prices a guest's browser cart (docs/guest-cart-2026-11): reads only, nothing saved; 404 while guest_cart_enabled is off",
   "/api/otp/request": "asks for a sign-in code",
   "/api/grievances": "the public grievance form (Consumer Protection rules)",
   "/api/shop-registrations": "shop self-registration starts signed out, proven by a mobile code",

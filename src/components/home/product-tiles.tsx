@@ -13,6 +13,8 @@ import { useState, useTransition } from "react";
 import clsx from "clsx";
 
 import { Icon } from "@/components/board/icons";
+import { useGuestCartEnabled } from "@/components/guest-cart/guest-cart-context";
+import { addToGuestCart, guestCartRefusal } from "@/lib/guest-cart";
 import { formatRupees } from "@/lib/board/format";
 import { tr, UI, type Lang } from "@/lib/board/i18n";
 import { priceUnitLabel } from "@/lib/board/product-look";
@@ -37,8 +39,18 @@ export function ProductTiles({ lang, items, signedIn, testId }: { lang: Lang; it
   const [busy, setBusy] = useState<string | null>(null);
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  // docs/guest-cart-2026-11: a signed-out shopper adds to the browser cart when guest_cart_enabled is on.
+  const guestCartOn = useGuestCartEnabled();
+  const guestCart = !signedIn && guestCartOn;
 
   async function add(id: string) {
+    if (guestCart) {
+      setError(null);
+      const change = addToGuestCart(id, 1);
+      if (!change.ok) setError(guestCartRefusal(change.reason));
+      else setAdded((prev) => new Set(prev).add(id));
+      return;
+    }
     if (!signedIn) {
       router.push("/signin");
       return;
