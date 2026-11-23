@@ -601,6 +601,7 @@ export const users = pgTable(
      * "track without signing in" link to its order e-mails.
      */
     guestCreated: boolean("guest_created").notNull().default(false),
+    /**
      * Module 6 (migration 0189): language last chosen on the EN / हिं / मरा
      * switch — "en", "hi" or "mr"; null = never chosen (English). The gk_lang
      * cookie wins; this is the fallback on a new device and the language of
