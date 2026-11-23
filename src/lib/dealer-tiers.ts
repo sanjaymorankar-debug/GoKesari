@@ -40,6 +40,11 @@ export const COMMISSION_ENTRY_TYPES = [
   "ONE_TIME_FRANCHISE",
   "RECURRING_BASE",
   "RECURRING_BONUS",
+  // 0179 dealer platform (docs/dealer-platform): lines calculated from a dealer's scheme terms.
+  "SCHEME_ONE_TIME",
+  "SCHEME_TEAM",
+  "SCHEME_RECURRING",
+  "SCHEME_BONUS",
 ] as const;
 export type CommissionEntryType = (typeof COMMISSION_ENTRY_TYPES)[number];
 
@@ -56,6 +61,10 @@ export const COMMISSION_ENTRY_TYPE_LABELS: Record<CommissionEntryType, string> =
   ONE_TIME_FRANCHISE: "Franchise — one-time (25% of shop fee)",
   RECURRING_BASE: "Franchise — monthly share of GoKesari commission",
   RECURRING_BONUS: "Franchise — performance bonus",
+  SCHEME_ONE_TIME: "Scheme — one-time commission",
+  SCHEME_TEAM: "Scheme — team commission",
+  SCHEME_RECURRING: "Scheme — monthly commission",
+  SCHEME_BONUS: "Scheme — bonus",
 };
 
 /** Short names for the statement's "line per type" (direct-1, direct-2, override, renewal, development, bonus). */
@@ -71,6 +80,9 @@ export const STATEMENT_LINES: { key: string; label: string; types: CommissionEnt
   { key: "franchise-one-time", label: "Franchise one-time (25%)", types: ["ONE_TIME_FRANCHISE"] },
   { key: "franchise-recurring", label: "Franchise monthly share", types: ["RECURRING_BASE"] },
   { key: "franchise-bonus", label: "Franchise performance bonus", types: ["RECURRING_BONUS"] },
+  { key: "scheme-one-time", label: "Scheme one-time", types: ["SCHEME_ONE_TIME"] },
+  { key: "scheme-team", label: "Scheme team commission", types: ["SCHEME_TEAM"] },
+  { key: "scheme-monthly", label: "Scheme monthly", types: ["SCHEME_RECURRING", "SCHEME_BONUS"] },
 ];
 
 export const TIER_PLAN_STATUSES = ["PENDING", "TRADING", "LAPSED", "REVERSED"] as const;

@@ -24,4 +24,5 @@ export const PAYMENT_ENDED_HANDLERS: Partial<Record<PaymentPurpose, EndedHandler
   HEALTH_PRIME: async (intent, to, client) => (await import("@/server/health/prime")).onPrimePaymentEnded(intent, to, client),
   // Franchise area booking: a failed or expired payment releases the reserved slots (docs/franchise).
   FRANCHISE_FEE: async (intent, to, client) => (await import("@/server/franchise/booking")).onFranchiseFeeEnded(intent, to, client),
+  DEALER_JOINING_FEE: async (intent, to, client) => (await import("@/server/dealers/scheme-registration")).onJoiningFeeEnded(intent, to, client),
 };

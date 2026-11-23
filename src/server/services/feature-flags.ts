@@ -79,6 +79,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_support: "Support desk: manager queue and Support Users",
   rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
+  dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -136,6 +137,7 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   rbac_v2_support: "docs/rbac Phase 4: the Support Manager's queue and the Support User's assigned work.",
   rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
   rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",
+  dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
 };
 
 export interface FeatureFlagView {

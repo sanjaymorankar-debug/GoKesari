@@ -38,7 +38,8 @@ export type FeatureFlagKey =
   | "rbac_v2_accounting"
   | "rbac_v2_support"
   | "rbac_v2_shop_change_requests"
-  | "rbac_v2_operations";
+  | "rbac_v2_operations"
+  | "dealer_platform_four_eye";
 
 interface FlagValue {
   enabled: boolean;

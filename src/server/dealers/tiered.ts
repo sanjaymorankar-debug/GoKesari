@@ -424,6 +424,10 @@ const ENTRY_WORDS: Record<CommissionEntryType, string> = {
   ONE_TIME_FRANCHISE: "franchise one-time commission",
   RECURRING_BASE: "franchise monthly share",
   RECURRING_BONUS: "franchise performance bonus",
+  SCHEME_ONE_TIME: "scheme one-time commission",
+  SCHEME_TEAM: "scheme team commission",
+  SCHEME_RECURRING: "scheme monthly commission",
+  SCHEME_BONUS: "scheme bonus",
 };
 
 /* ============================================================= activation */

@@ -1240,6 +1240,41 @@
       "when": 1793268600000,
       "tag": "0176_society_join_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 177,
+      "version": "7",
+      "when": 1793268700000,
+      "tag": "0177_dealer_schemes",
+      "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "7",
+      "when": 1793268800000,
+      "tag": "0178_dealer_scheme_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
+      "when": 1793268900000,
+      "tag": "0179_dealer_scheme_commission",
+      "breakpoints": true
+    },
+    {
+      "idx": 180,
+      "version": "7",
+      "when": 1793269000000,
+      "tag": "0180_dealer_custom_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 181,
+      "version": "7",
+      "when": 1793269100000,
+      "tag": "0181_dealer_platform_roles",
+      "breakpoints": true
     }
   ]
 }

@@ -55,4 +55,9 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   // A franchise booking (new areas or a renewal) paid online: the allocations become ACTIVE in the capture transaction.
   FRANCHISE_FEE: async (intent, client, afterCommit) => (await import("@/server/franchise/booking")).onFranchiseFeeCaptured(intent, client, afterCommit),
   /* <<< franchise area booking */
+  //
+  /* >>> dealer platform (docs/dealer-platform) */
+  // A paid scheme's joining charge: marked paid in the capture transaction; the applicant then submits.
+  DEALER_JOINING_FEE: async (intent, client) => (await import("@/server/dealers/scheme-registration")).onJoiningFeeCaptured(intent, client),
+  /* <<< dealer platform */
 };
