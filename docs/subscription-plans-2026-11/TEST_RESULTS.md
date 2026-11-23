@@ -8,7 +8,7 @@ Local PostgreSQL databases made for this work only (`gk_plans_test`, `gk_plans_f
 
 | Suite | Result |
 |---|---|
-| `tests/unit/subscription-plans.test.ts` — plan settings, schedule fitted to a plan, labels, term end dates | 11 / 11 pass |
+| `tests/unit/subscription-plans.test.ts` — plan settings, schedule fitted to a plan, labels, term end dates | 10 / 10 pass |
 | `tests/integration/subscription-plans.test.ts` — plans, nearby search, subscribing within the rules, plan price on Monday not Sunday, subscription-only listing, off / removed plans, prep sheet, API routes and access | 11 / 11 pass |
 | Existing subscription suites (engine, states, schedule, newspapers, periodicals) | pass — 95 tests across the 7 subscription files |
 | `tile-board`, `seller-central` (menu counts and groups) | pass |
