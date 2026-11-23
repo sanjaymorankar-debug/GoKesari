@@ -134,6 +134,10 @@ export const AUDIT_ACTIONS = {
   /** SM-004 */
   SUBSCRIPTION_ACTIVATED: "subscription.activated",
   SUBSCRIPTION_RENEWED: "subscription.renewed",
+  /** docs/subscription-plans-2026-11: a shop's subscription plans. */
+  SUBSCRIPTION_PLAN_CREATED: "subscription_plan.created",
+  SUBSCRIPTION_PLAN_UPDATED: "subscription_plan.updated",
+  SUBSCRIPTION_PLAN_REMOVED: "subscription_plan.removed",
   /** NEW-007 */
   ORDER_AUTO_CANCELLED: "order.auto_cancelled_acceptance_timeout",
   /** Event layer: the accept-by time passed and support was alerted (shopAcceptance.onTimeout = ESCALATE). */

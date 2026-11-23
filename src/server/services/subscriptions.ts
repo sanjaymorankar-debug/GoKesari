@@ -35,6 +35,7 @@ import {
   sortedUnique,
   type SubscriptionFrequency,
 } from "@/lib/periodicals";
+import { fitScheduleToPlan, termEndDate } from "@/lib/subscription-plans";
 import { db, type DbClient } from "@/server/db";
 import {
   addresses,
@@ -50,10 +51,12 @@ import {
   subscriptionDailyOverrides,
   subscriptionEvents,
   subscriptionOrders,
+  subscriptionPlans,
   subscriptions,
   wallets,
   type Address,
   type Subscription,
+  type SubscriptionPlan,
   type SubscriptionDailyOverride,
   type UserRole,
 } from "@/server/db/schema";
@@ -210,6 +213,10 @@ export interface CreateSubscriptionInput {
   addressId?: string | null;
   /** SM-004: save as DRAFT — nothing is scheduled or charged until activated. */
   draft?: boolean;
+  /** The shop's plan it is taken on (docs/subscription-plans-2026-11). */
+  planId?: string | null;
+  /** A plan with fixed terms: the chosen length in days (sets the end date). */
+  termDays?: number | null;
 }
 
 export async function createSubscription(
@@ -218,9 +225,28 @@ export async function createSubscription(
   if (!Number.isInteger(input.quantityMilli) || input.quantityMilli <= 0) {
     throw validationFailed("Quantity must be a positive amount.");
   }
-  const frequency = input.frequency ?? "DAILY";
-  const schedule = normaliseSchedule(frequency, input.weekdays, input.monthDays);
-  const row = await assertSubscribable(input.shopProductId, input.quantityMilli);
+  let frequency = input.frequency ?? "DAILY";
+  let schedule = normaliseSchedule(frequency, input.weekdays, input.monthDays);
+  let endDate = input.endDate ?? null;
+  const plan = input.planId ? await loadLivePlan(input.planId) : null;
+  if (plan) {
+    if (plan.shopProductId !== input.shopProductId) throw validationFailed("This plan is for another product.");
+    const fitted = fitPlanSchedule(plan, frequency, schedule);
+    frequency = fitted.frequency;
+    schedule = { weekdays: fitted.weekdays, monthDays: fitted.monthDays };
+    const earliest = addDays(todayIn(getEnv().APP_TIMEZONE), plan.leadDays);
+    if (input.startDate < earliest) {
+      throw validationFailed(`This plan can start on ${earliest} at the earliest.`);
+    }
+    if (plan.termDays.length > 0) {
+      if (!input.termDays || !plan.termDays.includes(input.termDays)) {
+        throw validationFailed(`Choose a plan length: ${plan.termDays.join(", ")} days.`);
+      }
+      endDate = termEndDate(input.startDate, input.termDays) as IsoDate;
+    }
+  }
+  if (endDate && endDate < input.startDate) throw validationFailed("The end date must be on or after the start date.");
+  const row = await assertSubscribable(input.shopProductId, input.quantityMilli, plan);
   assertQuantityOnStep(input.quantityMilli, row.product);
   if (input.addressId) await assertOwnAddress(input.userId, input.addressId);
   if (!input.draft) await assertSignupReferralForFirstOrder(input.userId);
@@ -236,8 +262,9 @@ export async function createSubscription(
       frequency,
       weekdays: schedule.weekdays,
       monthDays: schedule.monthDays,
+      planId: plan?.id ?? null,
       startDate: input.startDate,
-      endDate: input.endDate ?? null,
+      endDate,
       status: input.draft ? "DRAFT" : "ACTIVE",
       statusActorId: input.userId,
     })
@@ -399,6 +426,44 @@ export async function createSubscriptionGroup(input: CreateSubscriptionGroupInpu
 }
 
 /**
+ * A plan a new subscription may be taken on: not removed, and switched on.
+ * (A running subscription keeps its plan even after the shop turns it off.)
+ */
+async function loadLivePlan(planId: string): Promise<SubscriptionPlan> {
+  const plan = await db.query.subscriptionPlans.findFirst({
+    where: and(eq(subscriptionPlans.id, planId), isNull(subscriptionPlans.deletedAt)),
+  });
+  if (!plan) throw notFound("Subscription plan");
+  if (!plan.isActive) throw conflict("This plan is not taking new subscribers.");
+  return plan;
+}
+
+/** The subscription's plan, whatever its state (null for a subscription without one). */
+async function planOf(planId: string | null | undefined): Promise<SubscriptionPlan | null> {
+  if (!planId) return null;
+  return (await db.query.subscriptionPlans.findFirst({ where: eq(subscriptionPlans.id, planId) })) ?? null;
+}
+
+/** The customer's schedule fitted to the plan's serving days and allowed frequencies, or a 422. */
+function fitPlanSchedule(
+  plan: Pick<SubscriptionPlan, "allowedFrequencies" | "serviceDays">,
+  frequency: SubscriptionFrequency,
+  schedule: { weekdays: number[]; monthDays: number[] },
+): { frequency: SubscriptionFrequency; weekdays: number[]; monthDays: number[] } {
+  const fitted = fitScheduleToPlan({ frequency, ...schedule }, plan);
+  if ("problem" in fitted) throw validationFailed(fitted.problem);
+  return fitted.schedule;
+}
+
+/** The price per unit a subscription is charged: the plan's subscriber price, else the listing's online price. */
+export function subscriptionUnitPrice(
+  plan: Pick<SubscriptionPlan, "pricePaise"> | null | undefined,
+  listing: { onlinePricePaise: number | null },
+): number | null {
+  return plan?.pricePaise ?? listing.onlinePricePaise;
+}
+
+/**
  * The frequency's days, checked and tidied: WEEKLY keeps its weekdays, MONTHLY
  * its days of the month (1–28), DAILY neither. Refuses an unusable schedule
  * with the same words the subscription pages show.
@@ -420,9 +485,12 @@ export function normaliseSchedule(
 
 /**
  * The product checks a new or activated subscription must pass: subscribable,
- * and online-purchasable right now (stock is checked per delivery).
+ * and online-purchasable right now (stock is checked per delivery). Taken on
+ * a shop's plan, any listing of that shop qualifies — the plan is the shop's
+ * say-so — and a subscription-only listing (not on sale for one-off orders)
+ * is purchasable at the plan's price.
  */
-async function assertSubscribable(shopProductId: string, quantityMilli: number) {
+async function assertSubscribable(shopProductId: string, quantityMilli: number, plan: SubscriptionPlan | null = null) {
   const [row] = await db
     .select({ sp: shopProducts, product: products, shopStatus: shops.status })
     .from(shopProducts)
@@ -432,7 +500,11 @@ async function assertSubscribable(shopProductId: string, quantityMilli: number) 
     .limit(1);
   if (!row) throw notFound("Product");
 
-  if (!row.product.subscribable) {
+  if (plan) {
+    if (plan.shopId !== row.sp.shopId || plan.shopProductId !== row.sp.id) {
+      throw validationFailed("This plan is for another product.");
+    }
+  } else if (!row.product.subscribable) {
     throw validationFailed("This product is not available for subscription.");
   }
   // A subscription is a promise of repeated online purchases, so the product
@@ -446,8 +518,8 @@ async function assertSubscribable(shopProductId: string, quantityMilli: number) 
         shopStatus: row.shopStatus,
         isActive: row.sp.isActive,
         isAvailable: row.sp.isAvailable,
-        onlineSaleEnabled: row.sp.onlineSaleEnabled,
-        onlinePricePaise: row.sp.onlinePricePaise,
+        onlineSaleEnabled: plan ? true : row.sp.onlineSaleEnabled,
+        onlinePricePaise: subscriptionUnitPrice(plan, row.sp),
         trackInventory: false, // stock is checked per delivery, not at signup
         onlineStock: 0,
       },
@@ -508,7 +580,11 @@ export async function activateSubscription(
   const current = await getSubscription(subscriptionId);
   if (!current) throw notFound("Subscription");
   if (current.status !== "DRAFT") throw conflict("Only a draft subscription can be activated.");
-  const row = await assertSubscribable(current.shopProductId, current.quantityMilli);
+  const row = await assertSubscribable(
+    current.shopProductId,
+    current.quantityMilli,
+    current.planId ? await loadLivePlan(current.planId) : null,
+  );
   await assertSignupReferralForFirstOrder(current.userId);
 
   const today = todayIn(getEnv().APP_TIMEZONE);
@@ -583,15 +659,23 @@ export async function updateSubscription(
     assertQuantityOnStep(patch.quantityMilli ?? current.quantityMilli, await productOf(patch.shopProductId ?? current.shopProductId));
   }
   if (patch.addressId) await assertOwnAddress(current.userId, patch.addressId);
-  // A schedule change is checked as a whole: the new (or current) frequency with its days.
-  const scheduleChange =
-    patch.frequency !== undefined || patch.weekdays !== undefined || patch.monthDays !== undefined
-      ? normaliseSchedule(
-          patch.frequency ?? current.frequency,
-          patch.weekdays ?? current.weekdays,
-          patch.monthDays ?? current.monthDays,
-        )
-      : null;
+  const plan = await planOf(current.planId);
+  if (plan && patch.shopProductId && patch.shopProductId !== current.shopProductId) {
+    throw validationFailed("A plan subscription stays on its plan's product. Cancel it and take another plan instead.");
+  }
+  // A schedule change is checked as a whole: the new (or current) frequency with its days,
+  // and on a plan, against the plan's serving days and allowed frequencies.
+  let scheduleChange: { weekdays: number[]; monthDays: number[] } | null = null;
+  let newFrequency = patch.frequency;
+  if (patch.frequency !== undefined || patch.weekdays !== undefined || patch.monthDays !== undefined) {
+    const frequency = patch.frequency ?? current.frequency;
+    scheduleChange = normaliseSchedule(frequency, patch.weekdays ?? current.weekdays, patch.monthDays ?? current.monthDays);
+    if (plan) {
+      const fitted = fitPlanSchedule(plan, frequency, scheduleChange);
+      newFrequency = fitted.frequency;
+      scheduleChange = { weekdays: fitted.weekdays, monthDays: fitted.monthDays };
+    }
+  }
 
   const [updated] = await db
     .update(subscriptions)
@@ -600,7 +684,7 @@ export async function updateSubscription(
         ? { quantityMilli: patch.quantityMilli }
         : {}),
       ...(patch.shopProductId ? { shopProductId: patch.shopProductId } : {}),
-      ...(patch.frequency ? { frequency: patch.frequency } : {}),
+      ...(newFrequency ? { frequency: newFrequency } : {}),
       ...(scheduleChange ? { weekdays: scheduleChange.weekdays, monthDays: scheduleChange.monthDays } : {}),
       ...(patch.addressId !== undefined ? { addressId: patch.addressId } : {}),
       ...(patch.endDate !== undefined ? { endDate: patch.endDate } : {}),
@@ -968,6 +1052,8 @@ export interface SubscriptionDetail extends Subscription {
   currentUnitPricePaise: number | null;
   /** A newspaper or magazine — counted in copies (docs/newspaper-subscriptions-2026-11). */
   isPeriodical: boolean;
+  /** The shop's plan it was taken on (docs/subscription-plans-2026-11), or null. */
+  plan: Pick<SubscriptionPlan, "id" | "name" | "kind" | "slot" | "slotWindow" | "pricePaise"> | null;
 }
 
 export async function listSubscriptionsForUser(
@@ -980,12 +1066,21 @@ export async function listSubscriptionsForUser(
       sp: shopProducts,
       shop: shops,
       periodical: periodicalTitles.productId,
+      plan: {
+        id: subscriptionPlans.id,
+        name: subscriptionPlans.name,
+        kind: subscriptionPlans.kind,
+        slot: subscriptionPlans.slot,
+        slotWindow: subscriptionPlans.slotWindow,
+        pricePaise: subscriptionPlans.pricePaise,
+      },
     })
     .from(subscriptions)
     .innerJoin(shopProducts, eq(subscriptions.shopProductId, shopProducts.id))
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(shops, eq(subscriptions.shopId, shops.id))
     .leftJoin(periodicalTitles, eq(periodicalTitles.productId, products.id))
+    .leftJoin(subscriptionPlans, eq(subscriptionPlans.id, subscriptions.planId))
     .where(eq(subscriptions.userId, userId))
     .orderBy(asc(subscriptions.createdAt));
 
@@ -996,8 +1091,9 @@ export async function listSubscriptionsForUser(
     unitSizeMilli: r.product.unitSizeMilli,
     shopName: r.shop.name,
     shopSlug: r.shop.slug,
-    currentUnitPricePaise: r.sp.onlinePricePaise,
+    currentUnitPricePaise: subscriptionUnitPrice(r.plan?.id ? r.plan : null, r.sp),
     isPeriodical: Boolean(r.periodical),
+    plan: r.plan?.id ? r.plan : null,
   }));
 }
 
@@ -1011,12 +1107,21 @@ export async function getSubscriptionDetail(
       sp: shopProducts,
       shop: shops,
       periodical: periodicalTitles.productId,
+      plan: {
+        id: subscriptionPlans.id,
+        name: subscriptionPlans.name,
+        kind: subscriptionPlans.kind,
+        slot: subscriptionPlans.slot,
+        slotWindow: subscriptionPlans.slotWindow,
+        pricePaise: subscriptionPlans.pricePaise,
+      },
     })
     .from(subscriptions)
     .innerJoin(shopProducts, eq(subscriptions.shopProductId, shopProducts.id))
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(shops, eq(subscriptions.shopId, shops.id))
     .leftJoin(periodicalTitles, eq(periodicalTitles.productId, products.id))
+    .leftJoin(subscriptionPlans, eq(subscriptionPlans.id, subscriptions.planId))
     .where(eq(subscriptions.id, subscriptionId))
     .limit(1);
   if (!row) return undefined;
@@ -1028,8 +1133,9 @@ export async function getSubscriptionDetail(
     unitSizeMilli: row.product.unitSizeMilli,
     shopName: row.shop.name,
     shopSlug: row.shop.slug,
-    currentUnitPricePaise: row.sp.onlinePricePaise,
+    currentUnitPricePaise: subscriptionUnitPrice(row.plan?.id ? row.plan : null, row.sp),
     isPeriodical: Boolean(row.periodical),
+    plan: row.plan?.id ? row.plan : null,
   };
 }
 
@@ -1135,12 +1241,13 @@ export async function getCostPreview(
   frequency: SubscriptionFrequency = "DAILY",
   weekdays: number[] = [],
   monthDays: number[] = [],
+  planId: string | null = null,
 ): Promise<CostPreview> {
   const sp = await db.query.shopProducts.findFirst({
     where: eq(shopProducts.id, shopProductId),
   });
   if (!sp) throw notFound("Product");
-  const price = sp.onlinePricePaise ?? 0;
+  const price = subscriptionUnitPrice(await planOf(planId), sp) ?? 0;
 
   const perDelivery = price > 0 ? lineTotalPaise(price, quantityMilli) : 0;
   const deliveryDaysIn30 = deliveriesIn30Days({ frequency, weekdays, monthDays });
@@ -1406,6 +1513,9 @@ async function generateOneDelivery(
     .where(eq(shopProducts.id, subscription.shopProductId))
     .limit(1);
   if (!row) return "UNAVAILABLE";
+  // docs/subscription-plans-2026-11: a plan subscription is charged the plan's
+  // price and delivers a subscription-only listing too.
+  const plan = await planOf(subscription.planId);
 
   // Whole units of a packaged good (rounded up); exactly the amount of a loose one (0.5 L of a 1 L listing, D-95).
   const unitsNeeded = milliToStockUnits(resolution.quantityMilli, row.product.unitSizeMilli, row.product.kind, "ceil");
@@ -1414,8 +1524,8 @@ async function generateOneDelivery(
       shopStatus: row.shop.status,
       isActive: row.sp.isActive,
       isAvailable: row.sp.isAvailable,
-      onlineSaleEnabled: row.sp.onlineSaleEnabled,
-      onlinePricePaise: row.sp.onlinePricePaise,
+      onlineSaleEnabled: plan ? true : row.sp.onlineSaleEnabled,
+      onlinePricePaise: subscriptionUnitPrice(plan, row.sp),
       trackInventory: row.sp.trackInventory,
       onlineStock: row.sp.onlineStock,
     },
@@ -1451,7 +1561,7 @@ async function generateOneDelivery(
 
   // Price is read now, at generation time, and snapshotted into the order —
   // this is what makes a later price change affect only future orders (§34).
-  const unitPricePaise = row.sp.onlinePricePaise!;
+  const unitPricePaise = subscriptionUnitPrice(plan, row.sp)!;
   const totalPaise = lineTotalPaise(unitPricePaise, resolution.quantityMilli);
   const idempotencyKey = `subscription:${subscription.id}:${date}`;
 

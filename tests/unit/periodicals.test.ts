@@ -119,6 +119,8 @@ describe("scheduleProblem, scheduleLabel, deliveriesIn30Days", () => {
     expect(scheduleLabel({ frequency: "DAILY" })).toBe("Every day");
     expect(scheduleLabel({ frequency: "WEEKLY", weekdays: [7] })).toBe("Sun");
     expect(scheduleLabel({ frequency: "WEEKLY", weekdays: [4, 1] })).toBe("Mon, Thu");
+    expect(scheduleLabel({ frequency: "WEEKLY", weekdays: [6, 1, 2, 3, 4, 5] })).toBe("Mon–Sat");
+    expect(scheduleLabel({ frequency: "WEEKLY", weekdays: [6, 7] })).toBe("Sat, Sun");
     expect(scheduleLabel({ frequency: "MONTHLY", monthDays: [1] })).toBe("1st of the month");
     expect(scheduleLabel({ frequency: "MONTHLY", monthDays: [15, 1] })).toBe("1st and 15th of the month");
     expect(scheduleLabel({ frequency: "MONTHLY", monthDays: [2, 3, 22] })).toBe("2nd, 3rd and 22nd of the month");
