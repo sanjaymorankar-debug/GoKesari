@@ -7,10 +7,10 @@
  * behind, the shop is closed to customers the same way as a shop that paused
  * its orders (serviceability.ts walletOrderGate / withWalletGate) until a
  * renewal is recorded. A shop with no end date is never affected, nor is an
- * exempt shop (0184: the per-shop exemption, or rule exemptShopTypes /
+ * exempt shop (0189: the per-shop exemption, or rule exemptShopTypes /
  * exemptCategorySlugs).
  *
- * 0184 (docs/shop-membership-renewal-2026-11): every extension is a row in
+ * 0189 (docs/shop-membership-renewal-2026-11): every extension is a row in
  * shop_membership_periods. The fee payments of a shop (REGISTRATION_FEE,
  * RENEWAL, and the REFUND / REVERSAL rows that correct them) form one pool;
  * each period consumes its fee from it. A part payment opens no period (it
@@ -49,7 +49,7 @@ export interface MembershipExemptionRule {
   exemptCategorySlugs?: readonly string[];
 }
 
-/** 0184: exempt by the admin's per-shop switch, its shop type, or one of its shop categories. */
+/** 0189: exempt by the admin's per-shop switch, its shop type, or one of its shop categories. */
 export function isMembershipExempt(
   shop: { membershipExempt?: boolean | null; shopType?: string | null },
   rule: MembershipExemptionRule,
@@ -333,7 +333,7 @@ export async function settleMembershipAfterPayment(
 /**
  * After a REFUND, or a REVERSAL of a fee payment (in the correcting transaction): while the pool no
  * longer pays for the periods, the latest ones are voided and the membership end goes back with them.
- * LEGACY periods (before 0184) are never taken back. Returns the voided periods.
+ * LEGACY periods (before 0189) are never taken back. Returns the voided periods.
  */
 export async function rollBackUnpaidMembershipPeriods(tx: DbClient, shopId: string, correctionPaymentId: string, reason: string): Promise<ShopMembershipPeriod[]> {
   const [shop] = await tx.select({ until: shops.membershipValidUntil }).from(shops).where(eq(shops.id, shopId)).for("update");

@@ -654,7 +654,7 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
       note: `Self-registration fee, order ${payment.gatewayOrderId}${payment.gateway === "MOCK" ? " (test payment)" : ""}`,
       recordedBy: owner.id,
     }).returning({ id: shopPayments.id });
-    // D-69: the fee is paid in full here; 0184: the period is recorded against it.
+    // D-69: the fee is paid in full here; 0189: the period is recorded against it.
     await extendMembership(tx, shop.id, now, { kind: "REGISTRATION", feePaise: reg.feePaise, shopPaymentId: feeRow.id });
     // No code (referral_required_shop OPTIONAL): nothing to redeem; payment alone approves the shop.
     if (reg.referralCodeId) {

@@ -921,7 +921,7 @@ export const shops = pgTable(
      */
     membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
     /**
-     * 0184 (docs/shop-membership-renewal-2026-11): an admin exempted this shop from the yearly membership —
+     * 0189 (docs/shop-membership-renewal-2026-11): an admin exempted this shop from the yearly membership —
      * never closed for a lapsed membership and not reminded. Audited (shop.membership_exemption_changed).
      */
     membershipExempt: boolean("membership_exempt").notNull().default(false),
@@ -4311,7 +4311,7 @@ export const shopPayments = pgTable(
 );
 
 /**
- * 0184 (docs/shop-membership-renewal-2026-11): one row each time a fully paid fee (registration or renewal)
+ * 0189 (docs/shop-membership-renewal-2026-11): one row each time a fully paid fee (registration or renewal)
  * extended a shop's membership — the renewal history, and what a refund or reversal rolls back (voided_at).
  * LEGACY: what an existing shop had paid when this table was added (never rolled back).
  */

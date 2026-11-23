@@ -10,9 +10,9 @@ export const NOTIFICATION_TYPES = {
    * missing, reminder N of 3, then automatic suspension. Sent even when shop e-mails are off.
    */
   SHOP_DOCUMENTS_FOLLOW_UP: "shop.documents_follow_up",
-  /** 0184: to the shop owner — the yearly membership ends soon / ended / its grace ends (rule shopMembership.remindersEnabled). */
+  /** 0189: to the shop owner — the yearly membership ends soon / ended / its grace ends (rule shopMembership.remindersEnabled). */
   SHOP_MEMBERSHIP_RENEWAL_DUE: "shop.membership_renewal_due",
-  /** 0184: to the shop owner — the renewal was paid and the membership extended. */
+  /** 0189: to the shop owner — the renewal was paid and the membership extended. */
   SHOP_MEMBERSHIP_RENEWED: "shop.membership_renewed",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",

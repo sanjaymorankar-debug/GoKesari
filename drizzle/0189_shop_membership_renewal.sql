@@ -10,7 +10,7 @@
 --   before this release are not counted again towards the next renewal.
 -- * Renewal reminders are deduplicated on the existing notifications.dedupe_key (no new table).
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0184.sql.
+-- Additive and safe to re-run. Rollback: scripts/rollback-0189.sql.
 ALTER TABLE "shops" ADD COLUMN IF NOT EXISTS "membership_exempt" boolean NOT NULL DEFAULT false;
 --> statement-breakpoint
 ALTER TABLE "shops" ADD COLUMN IF NOT EXISTS "membership_exempt_reason" text;

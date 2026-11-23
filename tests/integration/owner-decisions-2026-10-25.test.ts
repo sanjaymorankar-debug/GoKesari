@@ -147,7 +147,7 @@ describe("D-69: the owner closes the shop, and an unrenewed membership is not on
   it("a fee or renewal sets the membership; past its end plus the grace days the shop is not online until renewed", async () => {
     const admin = await createUser({ role: "ADMIN" });
     const owner = await createUser({ role: "SHOP_OWNER" });
-    // 0184: a period opens only once its fee is fully paid — the fee here is the ₹999 paid below.
+    // 0189: a period opens only once its fee is fully paid — the fee here is the ₹999 paid below.
     const shop = await createShop(owner.id, { status: "APPROVED", registrationFeePaise: 99_900 });
     const asAdmin = { id: admin.id, role: "ADMIN" as const };
     expect((await withWalletGate([shop]))[0].ordersPaused).toBe(false); // no end date: never affected

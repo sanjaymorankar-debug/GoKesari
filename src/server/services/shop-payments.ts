@@ -118,7 +118,7 @@ export interface RecordPaymentInput {
   paidAt?: Date;
   note?: string | null;
   receiptUrl?: string | null;
-  /** 0184: an online renewal's fee quote (the period's fee and its GST) and its payment intent. */
+  /** 0189: an online renewal's fee quote (the period's fee and its GST) and its payment intent. */
   membership?: { quote?: RenewalQuote | null; paymentIntentId?: string | null };
 }
 
@@ -204,7 +204,7 @@ export async function recordPayment(
       .returning();
 
     const settlement = await recomputeShopSettlement(tx, shop.id);
-    // D-69: a registration fee or renewal extends the membership — 0184: only once the period's fee is
+    // D-69: a registration fee or renewal extends the membership — 0189: only once the period's fee is
     // fully paid (a part payment waits for the rest); a refund that leaves periods unpaid takes them back.
     let membership: MembershipSettlement | null = null;
     if (input.paymentType === "REGISTRATION_FEE" || input.paymentType === "RENEWAL") {
@@ -294,7 +294,7 @@ export async function reversePayment(
       .returning();
 
     const settlement = await recomputeShopSettlement(tx, original.shopId);
-    // 0184: reversing a fee payment takes back the membership period(s) it no longer pays for.
+    // 0189: reversing a fee payment takes back the membership period(s) it no longer pays for.
     if (original.paymentType === "REGISTRATION_FEE" || original.paymentType === "RENEWAL") {
       await rollBackUnpaidMembershipPeriods(tx, original.shopId, reversal.id, `reversal ${reversal.reference}: ${reason}`);
     }

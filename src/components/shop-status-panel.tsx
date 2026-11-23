@@ -42,7 +42,7 @@ export function ShopStatusPanel({ view }: { view: ShopStatusView }) {
   const s = STATE_TEXT[view.state];
   const m = view.membership;
   const enforced = m.enforced !== false;
-  // 0184: the renewal is paid on the Registration page (Renew now), not on the old payments list.
+  // 0189: the renewal is paid on the Registration page (Renew now), not on the old payments list.
   const renewHref = "/shop/manage/registration#membership";
 
   async function send(url: string, method: "PATCH" | "POST", body: unknown): Promise<boolean> {
