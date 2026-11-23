@@ -24,6 +24,7 @@ import {
   type SubscriptionSchedule,
 } from "@/lib/periodicals";
 import { notFound, validationFailed } from "@/lib/errors";
+import type { PlanSlot } from "@/lib/subscription-plans";
 import { db } from "@/server/db";
 import {
   addresses,
@@ -31,6 +32,7 @@ import {
   productCategories,
   products,
   shopProducts,
+  subscriptionPlans,
   subscriptions,
   users,
   type Subscription,
@@ -327,6 +329,8 @@ export interface ShopSubscriber {
   nextDeliveryDate: IsoDate | null;
   address: string | null;
   createdAt: Date;
+  /** The plan it was taken on (docs/subscription-plans-2026-11), or null. */
+  plan: { name: string; slot: PlanSlot; slotWindow: string | null } | null;
 }
 
 /** Statuses the vendor's subscriber list shows: everything still running, paused included. */
@@ -345,6 +349,9 @@ export async function listSubscribersForShop(shopId: string, options: { limit?: 
       area: addresses.area,
       city: addresses.city,
       pincode: addresses.pincode,
+      planName: subscriptionPlans.name,
+      planSlot: subscriptionPlans.slot,
+      planSlotWindow: subscriptionPlans.slotWindow,
     })
     .from(subscriptions)
     .innerJoin(users, eq(users.id, subscriptions.userId))
@@ -352,6 +359,7 @@ export async function listSubscribersForShop(shopId: string, options: { limit?: 
     .innerJoin(products, eq(products.id, shopProducts.productId))
     .leftJoin(periodicalTitles, eq(periodicalTitles.productId, products.id))
     .leftJoin(addresses, eq(addresses.id, subscriptions.addressId))
+    .leftJoin(subscriptionPlans, eq(subscriptionPlans.id, subscriptions.planId))
     .where(and(eq(subscriptions.shopId, shopId), inArray(subscriptions.status, [...SUBSCRIBER_STATUSES])))
     .orderBy(desc(subscriptions.createdAt), asc(products.name))
     .limit(Math.min(options.limit ?? 500, 1000));
@@ -375,5 +383,6 @@ export async function listSubscribersForShop(shopId: string, options: { limit?: 
     nextDeliveryDate: r.sub.nextDeliveryDate,
     address: r.line1 ? [r.line1, r.area, r.city, r.pincode].filter(Boolean).join(", ") : null,
     createdAt: r.sub.createdAt,
+    plan: r.planName && r.planSlot ? { name: r.planName, slot: r.planSlot, slotWindow: r.planSlotWindow } : null,
   }));
 }
