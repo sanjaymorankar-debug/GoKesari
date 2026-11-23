@@ -13,5 +13,10 @@
   "version": "2.0",
   "date": "2026-11-23",
   "change": "472 cases, 70 scenarios and 11 journeys (SC-53 to SC-63) for the features on staging 20 to 23 Nov: Puja Samagri, admin menu, banner wording, mailbox rotation, shop documents and FSSAI, Health specialties, franchise zones, referral moves, dealership platform, smart shopping, voice price assistant, shop logo, society join requests, staff roles (RBAC v2). 36 older cases corrected (territory cases retired: territory = franchise); journey SC-39 moved to a pharmacy. Now 383 scenarios, 1,631 cases, 63 journeys."
+ },
+ {
+  "version": "2.1",
+  "date": "2026-11-23",
+  "change": "Results of the P0 run of the 23-Nov cases on test.gokesari.com (23.31-23.58 IST): of the 99 new P0 cases 11 pass, 22 pass in part, 1 fails (TC-STAFF-059, D-160, fixed in PR #520), 5 are blocked by missing staging data and 60 wait for an owner decision or access (reasons in Remarks). Defects D-159 to D-161 logged; TC-VPA-002 corrected."
  }
 ]
