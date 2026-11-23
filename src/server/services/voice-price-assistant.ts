@@ -73,6 +73,8 @@ export type IssueCode =
   | "NOT_LISTED"
   | "ABOVE_MRP"
   | "BIG_DROP"
+  | "BIG_RISE"
+  | "NO_PRICE_FOR_OFFER"
   | "PERCENT_RANGE"
   | "FLAT_TOO_BIG"
   | "BUY_GET_FREE"
@@ -361,6 +363,10 @@ export async function interpretVoiceCommand(shopId: string, actor: VoiceActor, i
   if (chosen && newPricePaise !== null && chosen.pricePaise != null && newPricePaise < chosen.pricePaise * (1 - rule.bigDropWarnPercent / 100)) {
     issues.push(issue("BIG_DROP", false, formatPaiseCompact(chosen.pricePaise)));
   }
+  // No MRP means no ceiling, so a slip ("9000" for "90") is caught here instead (owner, 23-Nov).
+  if (chosen && newPricePaise !== null && chosen.pricePaise != null && newPricePaise > chosen.pricePaise * rule.bigRiseWarnTimes) {
+    issues.push(issue("BIG_RISE", false, formatPaiseCompact(chosen.pricePaise)));
+  }
 
   const base = newPricePaise ?? chosen?.pricePaise ?? null;
   let proposedOffer: ProposedOffer | null = null;
@@ -374,6 +380,8 @@ export async function interpretVoiceCommand(shopId: string, actor: VoiceActor, i
       startsAt: now.toISOString(),
       endsAt: endsAt.toISOString(),
     };
+    // An offer on a product with no selling price does nothing for customers (owner, 23-Nov): say a price with it.
+    if (chosen && base === null) issues.push(issue("NO_PRICE_FOR_OFFER", true));
     if (offer.type === "PERCENT" && (offer.percent < 1 || offer.percent > 90)) issues.push(issue("PERCENT_RANGE", true));
     if (offer.type === "FLAT" && base !== null && offer.flatPaise >= base) issues.push(issue("FLAT_TOO_BIG", true, formatPaiseCompact(base)));
     if (base !== null) {
@@ -444,6 +452,7 @@ export async function applyVoiceCommand(shopId: string, actor: VoiceActor, input
   const base = input.newPricePaise ?? listing.pricePaise;
   if (input.offer) {
     const o = input.offer;
+    if (base === null) throw validationFailed("This product has no selling price yet. Say the price with the offer.");
     if (o.discountType === "PERCENT" && !o.percent) throw validationFailed("Percent off must be between 1 and 90.");
     if (o.discountType === "FLAT" && !o.flatPaise) throw validationFailed("Enter the amount off each item.");
     if (o.discountType === "FLAT" && base !== null && o.flatPaise! >= base) throw validationFailed("The rupees off must be less than the price.");
@@ -582,6 +591,16 @@ function issue(code: IssueCode, blocking: boolean, value = ""): VoiceIssue {
       en: `The price can't be more than the MRP (${value}).`,
       hi: `कीमत MRP (${value}) से ज़्यादा नहीं हो सकती।`,
       mr: `किंमत MRP (${value}) पेक्षा जास्त असू शकत नाही.`,
+    },
+    BIG_RISE: {
+      en: `That is much higher than today's price (${value}). Please check before saying yes.`,
+      hi: `यह आज की कीमत (${value}) से बहुत ज़्यादा है। “हाँ” कहने से पहले जाँच लें।`,
+      mr: `हे आजच्या किमतीपेक्षा (${value}) खूप जास्त आहे. “हो” म्हणण्याआधी तपासा.`,
+    },
+    NO_PRICE_FOR_OFFER: {
+      en: "This product has no selling price yet. Say the price with the offer, for example “price 40 rupees and 10 percent off”.",
+      hi: "इस उत्पाद की अभी कोई बिक्री कीमत नहीं है। ऑफ़र के साथ कीमत भी बोलें, जैसे “कीमत 40 रुपये और 10 प्रतिशत छूट”।",
+      mr: "या उत्पादनाची अजून विक्री किंमत नाही. ऑफरसोबत किंमतही सांगा, उदा. “किंमत 40 रुपये आणि 10 टक्के सूट”.",
     },
     BIG_DROP: {
       en: `That is much lower than today's price (${value}). Please check before saying yes.`,
