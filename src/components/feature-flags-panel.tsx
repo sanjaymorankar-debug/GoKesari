@@ -37,7 +37,9 @@ export type FeatureFlagKey =
   | "rbac_v2_accounting"
   | "rbac_v2_support"
   | "rbac_v2_shop_change_requests"
-  | "rbac_v2_operations";
+  | "rbac_v2_operations"
+  // docs/guest-cart-2026-11
+  | "guest_cart_enabled";
 
 interface FlagValue {
   enabled: boolean;
