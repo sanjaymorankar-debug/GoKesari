@@ -483,7 +483,8 @@ export async function applyVoiceCommand(shopId: string, actor: VoiceActor, input
     text: input.text ?? "",
     productText: null,
     candidates: [],
-    chosen: after,
+    // The listing as it was before the change, so the message reads "₹56 → ₹58", not "₹58 → ₹58".
+    chosen: listing,
     newPricePaise: input.newPricePaise,
     offer: input.offer
       ? { discountType: input.offer.discountType, percent: input.offer.percent, flatPaise: input.offer.flatPaise, startsAt: now.toISOString(), endsAt: input.offer.endsAt.toISOString() }
