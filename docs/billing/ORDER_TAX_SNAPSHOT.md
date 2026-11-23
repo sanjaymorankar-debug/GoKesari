@@ -1,4 +1,4 @@
-# Order tax snapshot (migration 0184)
+# Order tax snapshot (migration 0182)
 
 GoKesari prices include GST. From this release, checkout records the GST
 included in each order line, so invoices, statements and the payout cycle read
@@ -20,7 +20,7 @@ the classification that applied when the order was placed.
 - Cess is included only while rule `invoicing.applyCess` is on (as on invoices).
 - The split uses the same maths as the invoice (`tax/split.ts`), so the parts
   always add up to the line total.
-- Orders placed before 0184, and orders made outside checkout (subscriptions),
+- Orders placed before 0182, and orders made outside checkout (subscriptions),
   keep null.
 
 ## What does not change
@@ -57,4 +57,4 @@ the classification that applied when the order was placed.
 Nothing here switches on invoicing, billing v2, the TCS / TDS engines or
 payouts, and no statutory rate changes.
 
-Rollback: `scripts/rollback-0184.sql` (after deploying the previous release).
+Rollback: `scripts/rollback-0182.sql` (after deploying the previous release).

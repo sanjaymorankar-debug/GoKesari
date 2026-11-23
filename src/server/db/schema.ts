@@ -2077,8 +2077,8 @@ export const orders = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /**
      * GST (and cess) INCLUDED in the goods' prices, summed from the lines'
-     * taxPaise at checkout (migration 0184). Never added to totalPaise. Null
-     * when not recorded (orders before 0184, or a line with no known rate).
+     * taxPaise at checkout (migration 0182). Never added to totalPaise. Null
+     * when not recorded (orders before 0182, or a line with no known rate).
      */
     taxIncludedPaise: bigint("tax_included_paise", { mode: "number" }),
     /** Set once the wallet deduction has actually completed. */
@@ -2188,7 +2188,7 @@ export const orderItems = pgTable(
     /** D-91: the product's MRP when it was sold (products.mrp_paise); null when it had none (loose goods). */
     mrpPaise: bigint("mrp_paise", { mode: "number" }),
     /*
-     * Tax snapshot at checkout (migration 0184; null on older orders). The line's
+     * Tax snapshot at checkout (migration 0182; null on older orders). The line's
      * classification when it was ordered (listing → master product → dated HSN
      * table) and the GST + cess INCLUDED in lineTotalPaise: taxable + tax = line
      * total. A shop that charges no GST records taxable = line total, tax = 0.
