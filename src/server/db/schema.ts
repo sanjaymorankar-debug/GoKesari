@@ -10425,6 +10425,8 @@ export const FEATURE_FLAG_KEYS = [
   "zoho_connector",
   "odoo_connector",
   "ondc_mode",
+  // docs/delta CF-011 (D-144): shop owners upload a logo file on their shop pages. No migration: a missing row is OFF.
+  "shop_logo_upload_enabled",
   // docs/shop-welcome-kit-2026-11: admins send the welcome kit to shops that were live before it (one shop or by city / district). No migration: a missing row is OFF.
   "shop_welcome_kit_admin_send_enabled",
   // docs/smart-shopping-2026-11 (0167–0169): photo shopping list, add product by photo, WhatsApp orders. Missing row = OFF.

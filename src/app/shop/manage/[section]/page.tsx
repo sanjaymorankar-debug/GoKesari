@@ -13,6 +13,8 @@ import { ShopDashboardView } from "@/components/shop-dashboard";
 import { GstRegistrationType } from "@/components/billing/gst-registration-type";
 import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
 import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
+import { ShopLogoUpload } from "@/components/delta/shop-logo-upload";
+import { SHOP_LOGO_FLAG } from "@/lib/delta/shop-logo";
 import { ShopProductManager } from "@/components/shop-product-manager";
 import { ShopSettingsForm } from "@/components/shop-settings-form";
 import { ShopStatusPanel, type ShopOpenState } from "@/components/shop-status-panel";
@@ -452,6 +454,12 @@ export default async function ShopManagePage({
           <div className="mb-8">
             <ShopCustomerContactForm shopId={shop.id} initial={{ contactPhone: shop.contactPhone, whatsappNumber: shop.whatsappNumber }} />
           </div>
+          {/* docs/delta CF-011 (D-144): logo upload, only while the flag is on for this shop. */}
+          {(await isFeatureEnabledForShop(SHOP_LOGO_FLAG, shop)) ? (
+            <div className="mb-8">
+              <ShopLogoUpload shopId={shop.id} initialLogoUrl={shop.logoUrl} />
+            </div>
+          ) : null}
         </>
       );
     }

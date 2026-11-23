@@ -13,10 +13,10 @@ export const metadata = { title: "Compare shop prices" };
 export const dynamic = "force-dynamic";
 
 export default async function CompareWishlistPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ pending?: string }> }) {
-  if (!(await isFeatureEnabled("smart_list_scan_enabled"))) notFound();
   const user = await getCurrentUser();
   const { id } = await params;
   if (!user) redirect(`/signin?next=/wishlist/${id}/compare`);
+  if (!(await isFeatureEnabled("smart_list_scan_enabled"))) notFound();
   const list = await getWishlist(user.id, id).catch(() => null);
   if (!list) notFound();
   const [lang, location] = await Promise.all([getBoardLang(), getCustomerLocation(user.id)]);

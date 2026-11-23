@@ -16,10 +16,10 @@ export const dynamic = "force-dynamic";
 const STATUS: Record<string, string> = { IN_CART: "In cart", ORDERED: "Ordered", NOT_ORDERED: "Not ordered" };
 
 export default async function WishlistPage({ params }: { params: Promise<{ id: string }> }) {
-  if (!(await isFeatureEnabled("smart_list_scan_enabled"))) notFound();
   const user = await getCurrentUser();
   const { id } = await params;
   if (!user) redirect(`/signin?next=/wishlist/${id}`);
+  if (!(await isFeatureEnabled("smart_list_scan_enabled"))) notFound();
   const list = await getWishlist(user.id, id).catch(() => null);
   if (!list) notFound();
   const [lang, rule] = await Promise.all([getBoardLang(), getRule("smartShopping")]);

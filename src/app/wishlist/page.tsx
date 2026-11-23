@@ -13,9 +13,9 @@ export const dynamic = "force-dynamic";
 
 /** docs/smart-shopping-2026-11: the customer's saved wishlists (from photo lists), to reuse or re-order. */
 export default async function WishlistsPage() {
-  if (!(await isFeatureEnabled("smart_list_scan_enabled"))) notFound();
   const user = await getCurrentUser();
   if (!user) redirect("/signin?next=/wishlist");
+  if (!(await isFeatureEnabled("smart_list_scan_enabled"))) notFound();
   const [lists, lang] = await Promise.all([listWishlists(user.id), getBoardLang()]);
   return (
     <>

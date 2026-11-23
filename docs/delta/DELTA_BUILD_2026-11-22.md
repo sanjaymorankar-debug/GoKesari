@@ -1,0 +1,115 @@
+# Delta build: owner-approved conflict features (22-Nov-2026)
+
+**Owner decision (chat, 22-Nov-2026 ≈23.05 IST):** "Approve A for CF-006 and CF-011, build them."
+**Branch:** `feat/delta-society-join-logo-2026-11-22` from origin/staging `c34ef9e8`. All times IST.
+
+| Conflict | Feature | Outcome |
+|---|---|---|
+| CF-011 | D-144: shop logo upload (Option A: on the shop's own pages, after onboarding) | **COMPLETED**: built, additive, flag `shop_logo_upload_enabled` OFF |
+| CF-006 | Society: riders ask to join a society (Option A: new table, rider page, society-admin approval) | **CONFLICT-HOLD again**: a new conflict was found before any code was written (see below) |
+
+## CF-006: why it was stopped
+
+Option A needs a new table, so it needs a migration. The migration journal must
+number its entries 0, 1, 2 … and give each a later timestamp
+(`tests/unit/migration-journal.test.ts`). Drizzle's migrator **silently skips**
+any migration older than the newest one a database has already recorded (D-99,
+24-Oct). Numbers 0170–0175 are already taken by RBAC v2 work that is still in
+flight:
+
+| Migration | Where |
+|---|---|
+| 0170 | PR #485 (staging queue) |
+| 0171–0173 | `feature/rbac-v2-phases-3-7` |
+| 0175 | `feature/rbac-v2-operations` |
+
+A CF-006 migration added now would either reuse one of those numbers, or land
+on staging before them, after which their migrations would be skipped on
+test.gokesari.com. This is a **C2 (ongoing work)** conflict. Following the delta
+rules, no code, branch commit, migration or test was created for CF-006.
+
+**Owner decision (chat, 22-Nov-2026 ≈23.12 IST): A1.** CF-006 is built once migrations 0170–0175 are on origin/staging.
+
+**Options that were offered**
+
+- **A1 (recommended):** build CF-006 as soon as the RBAC migrations (0170–0175) are on staging. It then takes the next free number. About 2–3 dev-days; no change to the RBAC work.
+- **A2:** build it now as the next number after 0175 and hold the PR until the RBAC PRs merge.
+- **A3:** a version with no migration (store requests in an existing table). Not recommended, because no existing table fits: `society_riders` has no PENDING state, and `society_members` is for residents.
+
+## CF-011: Delta Build Register
+
+| Item | Value |
+|---|---|
+| Flag | `shop_logo_upload_enabled`: OFF (no row is seeded; a missing row is OFF) |
+| API | `POST /api/shops/[id]/logo` (multipart `file`) and `DELETE /api/shops/[id]/logo` |
+| Who | The shop's owner or staff with shop access (`requireShopAccess`, as `PATCH /api/shops/[id]`) |
+| Checks | Same as every upload (`saveImage`): real type from the bytes (JPEG/PNG/WebP), size and pixel limits (rule `images`); 10 uploads per 10 minutes per user |
+| Write | The existing `updateShop(id, { logoUrl })`, the same writer as the settings API |
+| Screen | My Shop → "Open or close the shop, hours and contact" (`/shop/manage/hours`): a "Shop logo" card, shown only while the flag is on for the shop's district |
+| Audit | `IMAGE_UPLOADED` with `purpose: SHOP_LOGO` and the shop id |
+| Not changed | The onboarding wizard, `PATCH /api/shops/[id]`, image serving, shop cards |
+
+New files:
+
+- `src/app/api/shops/[id]/logo/route.ts`
+- `src/components/delta/shop-logo-upload.tsx`
+- `src/lib/delta/shop-logo.ts`
+- `tests/integration/delta-shop-logo-upload.test.ts`
+- `docs/delta/DELTA_BUILD_2026-11-22.md`
+
+## Wiring Register (existing files; only added lines)
+
+| File | Added | Deleted | Why |
+|---|---|---|---|
+| `src/server/db/schema.ts` | 2 | 0 | Flag key in `FEATURE_FLAG_KEYS` (after `ondc_mode`, away from the RBAC v2 additions at the end of the list) |
+| `src/server/services/feature-flags.ts` | 3 | 0 | Flag label and hint for Admin → Feature flags |
+| `src/components/feature-flags-panel.tsx` | 1 | 0 | The panel's own copy of the key list |
+| `src/app/shop/manage/[section]/page.tsx` | 8 | 0 | Import plus the card, rendered only when the flag is on |
+
+## Zero-deletion proof
+
+```
+$ git diff --numstat origin/staging...HEAD   (existing files)
+8	0	src/app/shop/manage/[section]/page.tsx
+1	0	src/components/feature-flags-panel.tsx
+2	0	src/server/db/schema.ts
+3	0	src/server/services/feature-flags.ts
+```
+
+No migration and no rollback script: nothing in the database changes. Rollback = flag off, or revert the PR.
+
+## Tests (local PostgreSQL 18, database `gk_delta_test`)
+
+| Test ID | Feature | Env | Command | Result | Time (IST) |
+|---|---|---|---|---|---|
+| DT-11-01 | Flag OFF: upload/remove refused (404), nothing stored | Local | `vitest run tests/integration/delta-shop-logo-upload.test.ts` | Pass | 22-Nov 23.08 |
+| DT-11-02 | Flag ON: owner uploads; logo set to `/api/images/<id>` | Local | same | Pass | 22-Nov 23.08 |
+| DT-11-03 | Not an image: refused (422), old logo kept | Local | same | Pass | 22-Nov 23.08 |
+| DT-11-04 | Another owner refused | Local | same | Pass | 22-Nov 23.08 |
+| DT-11-05 | Remove logo | Local | same | Pass | 22-Nov 23.08 |
+| DT-11-06 | Existing `PATCH /api/shops/[id]` still sets logoUrl | Local | same | Pass | 22-Nov 23.08 |
+| DT-REG-01 | Flag order, photo listing and migration journal suites | Local | `vitest run` (4 files, 30 tests) | Pass | 22-Nov 23.09 |
+| DT-REG-02 | Full regression | Local | `vitest run` (317 files, 4037 tests) | 4033 pass, 4 fail: local Postgres connection timeouts while another session's suite ran on the same server. Re-run: `qa-2026-10-24-auth-fixes` Pass; `migrate-on-build` (3) still times out locally (its child process cannot connect to this Mac's Postgres); unrelated to this change (no migration or build-script change); passes in staging CI at the base commit c34ef9e8; the PR's CI re-runs it | 22-Nov 23.09 – 23-Nov 00.50 |
+| DT-TC | Typecheck and lint | Local | `npm run typecheck`, `eslint` on changed files | Pass | 22-Nov 23.05 |
+| DT-STG-01 | Flags-OFF smoke on test.gokesari.com | Test | Staging queue (CI, deploy, post-deploy check, guest QA), PR #489 | Pass (staging-verified) | 23-Nov 02.38 |
+| DT-STG-02a | Owner OK (chat, 23-Nov ≈08.05): flag ON on staging only | Test | admin `PUT /api/admin/feature-flags` {enabled:true, districtCodes:null} | Pass: 200, change logged (old OFF → new ON, reason given) | 23-Nov 08.12 |
+| DT-STG-02b | Card shows on `/shop/manage/hours` (1280 and 375 px) | Test | Playwright, staging shop-owner session | Pass: card visible, no page errors, no sideways scroll at 375 px | 23-Nov 08.12 |
+| DT-STG-02c | Owner uploads a 512×512 PNG | Test | same | Pass: 201, logo `/api/images/<id>` served 200 image/jpeg, shown after reload, "Logo saved." | 23-Nov 08.12 |
+| DT-STG-02d | Remove logo (the staging shop had none, so it was left as before) | Test | same | Pass: "Logo removed." | 23-Nov 08.12 |
+| DT-STG-02e | Guest upload refused | Test | `POST /api/shops/<id>/logo` with no session | Pass: 401 | 23-Nov 08.12 |
+| DT-STG-03 | Look of the card | Test | screenshot | **Defect D-CF011-01** (minor): the card had no inner padding (text against the border). Fixed in the follow-up PR (`p-4`, as the contact card) | 23-Nov 08.15 |
+| DT-PROD | Read-only smoke | Prod | n/a | Not Run: awaiting deployment authorization | n/a |
+
+**Staging flag state:** `shop_logo_upload_enabled` is **ON, every district, on test.gokesari.com only** (since 23-Nov 08.12 IST, owner OK). Production: no row, OFF.
+
+## Mobile (G.1)
+
+The Android/iOS apps are a WebView, and `/shop` is already in the app's path
+prefixes (`mobile/app.config.ts`). The new card appears in the app with no app
+change, so no version or build bump is needed. Store publishing stays BLOCKED.
+
+## Staging deployment and rollback
+
+1. The PR goes into `staging` with `ready-for-staging`; the staging queue merges, deploys and checks it with the flag OFF.
+2. After `staging-verified`: Admin → Feature flags on test.gokesari.com → `shop_logo_upload_enabled` ON (staging only), then upload a logo as the staging shop owner.
+3. Rollback: switch the flag off (the card disappears and the API answers 404). Logos already uploaded stay, as `logoUrl` values. Full rollback: revert the PR; there is no database change.
