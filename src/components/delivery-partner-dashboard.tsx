@@ -101,11 +101,6 @@ export function currentPositionOrNull(
   });
 }
 
-const GATE_MODE_LABEL: Record<string, string> = {
-  OPEN: "Open entry",
-  CALL_RESIDENT: "Security calls the resident before letting you in",
-  PRE_APPROVAL: "Resident pre-approves the rider at the gate",
-  DROP_AT_GATE: "Hand the order over at the gate",
 const GATE_MODE_LABEL: Record<string, Text> = {
   OPEN: L("Open entry", "खुला प्रवेश", "मुक्त प्रवेश"),
   CALL_RESIDENT: L(

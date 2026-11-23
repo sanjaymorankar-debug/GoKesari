@@ -22,7 +22,6 @@ import { formatQuantity } from "@/lib/money";
 import { customerCancellableStatuses } from "@/lib/order-cancellation";
 import { DISPUTE_STATUS_LABELS } from "@/lib/dispute-states";
 import { isTrackableOrderStatus } from "@/lib/tracking";
-import { L, tr, UI } from "@/lib/board/i18n";
 import { L, tr, UI, type Text } from "@/lib/board/i18n";
 import { CUSTOMER_MENUS } from "@/lib/board/menus";
 import { IN_PROGRESS_ORDER_STATUSES, pickTab } from "@/lib/board/status-groups";

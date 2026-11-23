@@ -59,7 +59,6 @@ export default async function RiderNavigationPage({ params }: { params: Promise<
       if (trip?.nextStop && trip.nextStop.deliveryOrderId !== deliveryId) nextStopId = trip.nextStop.deliveryOrderId;
     }
     if (nextStopId) redirect(`/delivery-partner/navigate/${nextStopId}`);
-    const message = error instanceof AppError ? error.message : "Navigation could not be loaded.";
     const message = error instanceof AppError ? errorText(error.message, lang, error.code) : tr(T.loadFailed, lang);
     return (
       <div className="mx-auto max-w-2xl space-y-3">

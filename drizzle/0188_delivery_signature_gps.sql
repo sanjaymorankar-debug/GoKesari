@@ -10,7 +10,7 @@
 -- * No feature-flag row: every behaviour is behind rule deliveryProof / riderNavigation fields whose
 --   code defaults are off (signatureEnabled, signatureRequired, captureGps, failureReasons, multiStop).
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0186.sql (delete SIGNATURE proof rows first).
+-- Additive and safe to re-run. Rollback: scripts/rollback-0188.sql (delete SIGNATURE proof rows first).
 ALTER TABLE "delivery_proofs" DROP CONSTRAINT IF EXISTS "delivery_proofs_kind_check";--> statement-breakpoint
 ALTER TABLE "delivery_proofs" ADD CONSTRAINT "delivery_proofs_kind_check" CHECK ("kind" IN ('PICKUP', 'DELIVERY', 'SIGNATURE'));--> statement-breakpoint
 ALTER TABLE "delivery_proofs" ADD COLUMN IF NOT EXISTS "signer_name" text;--> statement-breakpoint
