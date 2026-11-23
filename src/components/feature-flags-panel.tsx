@@ -40,6 +40,10 @@ export type FeatureFlagKey =
   | "rbac_v2_shop_change_requests"
   | "rbac_v2_operations"
   | "dealer_platform_four_eye"
+  // docs/onboarding-waves-2-3-2026-11 (0190)
+  | "onboarding_referral_by_pin_enabled"
+  | "onboarding_assisted_mode_enabled"
+  | "onboarding_scan_first_enabled"
   // docs/guest-cart-2026-11
   | "guest_cart_enabled"
   // docs/account-deletion-2026-11 (0183)

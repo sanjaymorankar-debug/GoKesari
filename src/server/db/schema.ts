@@ -10520,6 +10520,10 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_operations",
   // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
   "dealer_platform_four_eye",
+  // docs/onboarding-waves-2-3-2026-11 (0190): onboarding Phase 2 Waves 2–3 (WP6, WP7, WP10). Seeded OFF.
+  "onboarding_referral_by_pin_enabled",
+  "onboarding_assisted_mode_enabled",
+  "onboarding_scan_first_enabled",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
   // docs/account-deletion-2026-11 (0183): customers delete their own account from My Profile. Off: no section, APIs answer 404.
@@ -11375,6 +11379,16 @@ export const shopRegistrationDrafts = pgTable(
     /** 0120: "Do you have your documents handy?" — false: checked now; true: uploaded after go-live; null: not asked. */
     documentsLater: boolean("documents_later"),
 
+    /**
+     * 0190 (onboarding WP7, one assisted mode): the dealer, dealer employee or operator who fills in the
+     * wizard for the owner under a valid owner-consent session (dealer_assisted_sessions or
+     * shop_onboarding_sessions, `assisted_session_id`). Null: the owner registers alone. Core tables:
+     * no foreign keys; checked in services/assisted-onboarding.ts.
+     */
+    assistedByUserId: uuid("assisted_by_user_id"),
+    assistedRole: text("assisted_role", { enum: ["DEALER", "DEALER_EMPLOYEE", "OPERATOR"] }),
+    assistedSessionId: uuid("assisted_session_id"),
+
     /** Set when the wizard creates the shop from this draft. */
     shopId: uuid("shop_id").references((): AnyPgColumn => shops.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -11385,6 +11399,8 @@ export const shopRegistrationDrafts = pgTable(
     index("shop_registration_drafts_gstin_hash_idx").on(t.gstinHash).where(sql`${t.gstinHash} IS NOT NULL`),
     index("shop_registration_drafts_status_idx").on(t.status, t.updatedAt),
     index("shop_registration_drafts_shop_idx").on(t.shopId).where(sql`${t.shopId} IS NOT NULL`),
+    index("shop_registration_drafts_assisted_idx").on(t.assistedByUserId, t.updatedAt).where(sql`${t.assistedByUserId} IS NOT NULL`),
+    check("shop_registration_drafts_assisted_role", sql`${t.assistedRole} IS NULL OR ${t.assistedRole} in ('DEALER', 'DEALER_EMPLOYEE', 'OPERATOR')`),
     check("shop_registration_drafts_status", sql`${t.status} in ('OPEN', 'SUBMITTED', 'COMPLETED', 'ABANDONED')`),
     check("shop_registration_drafts_route", sql`${t.route} IS NULL OR ${t.route} in ('GSTIN', 'PAN_ONLY')`),
   ],

@@ -66,6 +66,11 @@ export const RATE_LIMITS = {
    * cannot walk the catalogue through it.
    */
   SEARCH_SUGGEST: { limit: 120, windowMs: 60_000 },
+  /**
+   * docs/onboarding-waves-2-3-2026-11 (WP6): "find a referral code near this PIN". Each answer lists
+   * dealers' codes (and, signed in, phones), so a script must not walk every PIN: a few PINs a minute.
+   */
+  REFERRAL_BY_PIN: { limit: 10, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 /**
