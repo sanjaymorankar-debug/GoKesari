@@ -80,6 +80,9 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
   dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
+  onboarding_referral_by_pin_enabled: "Shop registration: find a referral code by PIN code",
+  onboarding_assisted_mode_enabled: "Shop registration: dealer / operator fills in the wizard for the owner",
+  onboarding_scan_first_enabled: "Shop registration: open the document scan first on phones",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -138,6 +141,12 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
   rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",
   dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
+  onboarding_referral_by_pin_enabled:
+    "docs/onboarding-waves-2-3-2026-11 (WP6): on the wizard's first screen an owner without a referral code types the shop's PIN code and sees the approved dealers who cover that area (closest area first), with their active code to tap and use; the dealer's phone is shown only to a signed-in user. Rate-limited. Off: the panel is hidden and GET /api/referral-codes/by-pincode answers 404.",
+  onboarding_assisted_mode_enabled:
+    "docs/onboarding-waves-2-3-2026-11 (WP7): a dealer, dealer employee or operator who holds a valid owner-consent session (the owner's one-time code) fills in the registration wizard for the owner. The draft records who helped, the helper's referral code is locked onto it and the owner pays the fee by a link / QR on their own phone. Every assisted step is in the audit log. Off: the wizard is the owner's alone, as today; the dealer and operator flat forms are unchanged either way.",
+  onboarding_scan_first_enabled:
+    "docs/onboarding-waves-2-3-2026-11 (WP10): on a phone the wizard's Verify screen opens the GST / PAN photo scan first and loads the reading model in the background. Typing the number stays one tap away. Off: the scan stays folded as today.",
 };
 
 export interface FeatureFlagView {

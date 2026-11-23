@@ -39,7 +39,11 @@ export type FeatureFlagKey =
   | "rbac_v2_support"
   | "rbac_v2_shop_change_requests"
   | "rbac_v2_operations"
-  | "dealer_platform_four_eye";
+  | "dealer_platform_four_eye"
+  // docs/onboarding-waves-2-3-2026-11 (0190)
+  | "onboarding_referral_by_pin_enabled"
+  | "onboarding_assisted_mode_enabled"
+  | "onboarding_scan_first_enabled";
 
 interface FlagValue {
   enabled: boolean;

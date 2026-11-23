@@ -446,6 +446,7 @@ export const AUDIT_ACTIONS = {
   DEALER_ATTRIBUTION_CHANGED: "dealer.attribution_changed", // docs/dealer-programme
   DEALER_LEAD_SAVED: "dealer.lead_saved", // docs/dealer-programme
   DEALER_ASSISTED_STEP: "dealer.assisted_registration", // docs/dealer-programme
+  ONBOARDING_ASSISTED_STEP: "onboarding.assisted_step", // docs/onboarding-waves-2-3-2026-11 (WP7)
   DEALER_DISPUTE_SAVED: "dealer.dispute_saved", // docs/dealer-programme
   DEALER_COMMISSION_SETTINGS_CHANGED: "dealer.commission_settings_changed", // docs/dealer-programme
   DEALER_COMMISSION_RULE_CHANGED: "dealer.commission_rule_changed", // docs/dealer-programme
