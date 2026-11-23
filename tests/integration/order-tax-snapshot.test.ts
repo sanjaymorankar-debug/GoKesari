@@ -1,5 +1,5 @@
 /**
- * Tax snapshot at checkout (migration 0182): each order line records its HSN,
+ * Tax snapshot at checkout (migration 0184): each order line records its HSN,
  * GST rate and the GST included in its price; the order records the total
  * included GST without changing what the customer pays. The invoice reads the
  * snapshot first, and the payout cycle's TCS base is the value without GST.

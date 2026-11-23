@@ -1,5 +1,5 @@
 /**
- * The GST included in an order's lines, recorded at checkout (migration 0182).
+ * The GST included in an order's lines, recorded at checkout (migration 0184).
  *
  * GoKesari prices include GST, so nothing here changes what the customer
  * pays: each line's price is split into its taxable value and the GST (+ cess)
@@ -87,7 +87,7 @@ export interface PayoutTaxItem {
   fulfilmentStatus: string;
   lineTotalPaise: number;
   substituteLineTotalPaise: number | null;
-  /** Snapshot (null on orders before 0182). */
+  /** Snapshot (null on orders before 0184). */
   taxablePaise: number | null;
   gstRateBp: number | null;
   cessBp: number | null;
