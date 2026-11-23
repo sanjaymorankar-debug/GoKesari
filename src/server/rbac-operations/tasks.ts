@@ -34,6 +34,7 @@ import { franchiseZones } from "@/server/db/franchise-schema";
 import { shops, staffTeamMembers, users } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { notify } from "@/server/services/notifications";
+import { listUserRoles } from "@/server/services/roles";
 import { denyNotOwn, isOpsManager, requireOps, type OpsActor } from "./access";
 
 /* ------------------------------------------------------------------ team */
@@ -128,7 +129,7 @@ async function assertOpsUser(actor: OpsActor, userId: string): Promise<{ id: str
     .from(users)
     .where(eq(users.id, userId));
   if (!u || u.deletedAt) throw notFound("Operations User");
-  if (u.role !== "OPERATIONS_USER") throw validationFailed("Tasks and zones can be given only to an Operations User.");
+  if (u.role !== "OPERATIONS_USER" && !(await listUserRoles(userId)).includes("OPERATIONS_USER")) throw validationFailed("Tasks and zones can be given only to an Operations User.");
   if (u.status !== "ACTIVE") throw validationFailed("This Operations User is not active.");
   if (!inScope(await managedUserIds(actor), userId)) denyNotOwn(actor, "team");
   return u;

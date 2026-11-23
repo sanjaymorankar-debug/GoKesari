@@ -13,6 +13,7 @@ import { db } from "@/server/db";
 import { opsTaskEvents } from "@/server/db/ops-schema";
 import { auditLogs, featureFlags, notifications, shops, staffTeamMembers, users, type UserRole } from "@/server/db/schema";
 import { clearFeatureFlagCache } from "@/server/services/feature-flags";
+import { grantRole } from "@/server/services/roles";
 import {
   assignZone,
   buildOpsReportPdf,
@@ -76,6 +77,19 @@ beforeEach(async () => {
 async function joinTeam(mgr: OpsActor, member: OpsActor) {
   await db.insert(staffTeamMembers).values({ team: "OPERATIONS", managerUserId: mgr.id, memberUserId: member.id, addedBy: mgr.id });
 }
+
+describe("multi-role staff", () => {
+  it("a task can go to someone who holds Operations User as a grant while acting in another role", async () => {
+    const multi = actor(await createUser({ role: "SUPPORT_USER", name: "Dev Multi" }));
+    await grantRole(multi.id, "OPERATIONS_USER", { source: "ADMIN", grantedBy: admin.id });
+    await joinTeam(manager, multi);
+    const task = await createOpsTask(manager, { kind: "OTHER", title: "Visit the shop", assigneeUserId: multi.id });
+    expect(task.assigneeUserId).toBe(multi.id);
+    const plain = actor(await createUser({ role: "SUPPORT_USER", name: "Plain Support" }));
+    await joinTeam(manager, plain);
+    await expect(createOpsTask(manager, { kind: "OTHER", title: "Nope", assigneeUserId: plain.id })).rejects.toThrow(/only to an Operations User/);
+  });
+});
 
 describe("flag and permission boundaries", () => {
   it("is not available to anyone while rbac_v2_operations is off", async () => {
