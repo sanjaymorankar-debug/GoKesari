@@ -1233,6 +1233,13 @@
       "when": 1793268000000,
       "tag": "0175_rbac_v2_bank_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1793268600000,
+      "tag": "0176_society_join_requests",
+      "breakpoints": true
     }
   ]
 }
