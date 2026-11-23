@@ -181,7 +181,7 @@ later run, and only as you approve it.
 | Dependent Features Held | None |
 | Mobile Impact | Yes |
 | **Owner Decision** | Approve A (22-Nov ≈23.05 IST); then **A1** (22-Nov ≈23.12 IST): build after the RBAC v2 migrations 0170–0175 are on staging |
-| **Owner Feedback** | Not built: a new C2 conflict was found (its migration collides with RBAC v2 migrations 0170–0175 in flight). Options A1/A2/A3 in DELTA_BUILD_2026-11-22.md |
+| **Owner Feedback** | Not built: a new C2 conflict was found (its migration collides with RBAC v2 migrations 0170–0175 in flight). Options A1/A2/A3 in DELTA_BUILD_2026-11-22.md. **23-Nov-2026: built** (A1) once #487 was staging-verified at 11.43 IST; migration 0176, flag OFF; owner: "Go ahead with CF-006 after #487" |
 | **Target Release** | After RBAC v2 Phases 2–7 are staging-verified; then the staging queue, then a 23.00 window with the flag OFF |
 
 ## CF-007: Onboarding WP6: referral help by PIN code
