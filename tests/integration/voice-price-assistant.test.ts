@@ -135,6 +135,7 @@ describe("with the flag on", () => {
 
     const r = await applyVoiceCommand(shopId, actor(), { shopProductId: milk.listingId, newPricePaise: 5800, offer: null, expectedPricePaise: 5600 }, NOW);
     expect(r.pricePaise).toBe(5800);
+    expect(r.summary.en).toContain("₹56 → ₹58");
     const [after] = await db.select().from(shopProducts).where(eq(shopProducts.id, milk.listingId));
     expect(Number(after.onlinePricePaise)).toBe(5800);
     expect(Number(after.offlinePricePaise)).toBe(5800);
