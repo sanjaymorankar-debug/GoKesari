@@ -2798,6 +2798,52 @@
       "status": "Fixed - retest passed",
       "fixedIn": "#445",
       "retest": "21-Nov-2026 07.42-07.47 IST on staging with 5852a2ea (docs/testing/qa-runs/2026-11-21-staging-rider-fix-retest.json): the returns file passes 44 of 46 rows (desktop in full, TC-RET-013 / TC-RET-022 included; the other 2 blocked only by customer 1's wallet); no return left with the rider. 22-Nov-2026 18.27-18.42 IST on staging with 99074595 (docs/testing/qa-runs/2026-11-22-staging-rider-returns-support.json): the returns file passes 46 of 46 rows, desktop and phone; no return left with the rider."
+    },
+    {
+      "id": "D-159",
+      "title": "Smart shopping: a guest opening /wishlist or /wishlist/scan got 404 instead of the sign-in page",
+      "cases": [
+        "TC-SMART-001",
+        "TC-RBAC-002"
+      ],
+      "severity": "Medium",
+      "found": "staging queue guest QA on PR #482, 22-Nov-2026 22.07 IST",
+      "actual": "/wishlist and /wishlist/scan answered 404 to a signed-out visitor",
+      "expected": "a guest is sent to /signin (protected page)",
+      "fix": "PR #484: the session is checked before the feature flag",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "#484",
+      "retest": ""
+    },
+    {
+      "id": "D-160",
+      "title": "Voice price assistant: the confirmation showed the old price as the new one (\"₹42 → ₹42\")",
+      "cases": [
+        "TC-VPA-016"
+      ],
+      "severity": "Medium",
+      "found": "staging hand test VP-19, 23-Nov-2026 14.53 IST (VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md)",
+      "actual": "the read-back message showed ₹42 → ₹42",
+      "expected": "the read-back shows the current price and the new price",
+      "fix": "PR #496, merged into staging 23-Nov 18.28 IST",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "#496",
+      "retest": ""
+    },
+    {
+      "id": "D-161",
+      "title": "Shop logo: the logo card had no inner padding (D-CF011-01)",
+      "cases": [
+        "TC-LOGO-009"
+      ],
+      "severity": "Low",
+      "found": "staging hand test DT-STG-03, 23-Nov-2026 08.15 IST (docs/delta/DELTA_BUILD_2026-11-22.md)",
+      "actual": "the logo card content touched its border",
+      "expected": "the card has the normal inner padding at 1280 and 375 px",
+      "fix": "PR #490",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "#490",
+      "retest": ""
     }
   ]
 }
