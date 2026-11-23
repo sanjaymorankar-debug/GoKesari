@@ -52,7 +52,9 @@ NODE_MAJOR=24
 NODE_BIN=/usr/bin/node
 
 # Builds (plan section 3, "Builds (gk-build)"): one at a time on the server.
-BUILD_MEM=7G
+# 7G → 9G on 23-Nov-2026: the staging build of dc732c3 hit 7G (next build ~3 GB + type checker ~3.9 GB)
+# and was killed. The server has 16 GB; sites + Postgres use about 4 GB, and builds run one at a time.
+BUILD_MEM=9G
 # next build needs more than Node's default heap (about 2 GB here): it ran out at 2 GB on
 # 17-Nov-2026, and the type check at 3.5 GB. Hostinger's builds had a larger NODE_OPTIONS heap. Builds only; the sites keep
 # the default.

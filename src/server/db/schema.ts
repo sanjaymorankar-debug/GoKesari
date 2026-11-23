@@ -65,6 +65,7 @@ import {
 } from "@/lib/product-import";
 import { SUBSCRIPTION_DELIVERY_STATUSES } from "@/lib/subscription-deliveries";
 import { PERIODICAL_KINDS, PERIODICAL_PUBLICATIONS } from "@/lib/periodicals";
+import { PLAN_KINDS, PLAN_SLOTS } from "@/lib/subscription-plans";
 import {
   CONSULT_BOOKING_KINDS,
   CONSULT_BOOKING_STATUSES,
@@ -3776,6 +3777,60 @@ export const voucherUploadItems = pgTable(
   ],
 );
 
+/* ------------------------------------------------- subscription plans */
+
+/**
+ * A shop's offer to deliver one of its products on repeat (docs/subscription-plans-2026-11):
+ * a tiffin kitchen's "Veg lunch thali", a dairy's "Morning milk 1 L", a paper
+ * agent's "Times of India". Kind and slot help customers find it; serving
+ * days, allowed frequencies, fixed terms and lead days bound what a customer
+ * may choose; an optional subscriber price replaces the listing's online
+ * price for plan subscriptions. Soft-deleted (`deleted_at`): subscriptions
+ * keep pointing at it.
+ */
+export const subscriptionPlans = pgTable(
+  "subscription_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    shopProductId: uuid("shop_product_id")
+      .notNull()
+      .references(() => shopProducts.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    kind: text("kind", { enum: PLAN_KINDS }).notNull().default("OTHER"),
+    slot: text("slot", { enum: PLAN_SLOTS }).notNull().default("ANYTIME"),
+    /** The shop's own window, e.g. "12:30–2 pm"; null = the slot's usual window. */
+    slotWindow: text("slot_window"),
+    /** ISO weekdays the plan is delivered (1 Mon … 7 Sun). */
+    serviceDays: jsonb("service_days").$type<number[]>().notNull().default([1, 2, 3, 4, 5, 6, 7]),
+    /** Which schedules a customer may choose: DAILY, WEEKLY, MONTHLY. */
+    allowedFrequencies: jsonb("allowed_frequencies").$type<("DAILY" | "WEEKLY" | "MONTHLY")[]>().notNull().default(["DAILY", "WEEKLY"]),
+    /** Subscriber price per unit; null = the listing's online price. */
+    pricePaise: bigint("price_paise", { mode: "number" }),
+    /** Fixed lengths in days the customer picks from; empty = open-ended. */
+    termDays: jsonb("term_days").$type<number[]>().notNull().default([]),
+    /** Earliest first delivery = today + lead days. */
+    leadDays: integer("lead_days").notNull().default(1),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("subscription_plans_shop_idx").on(t.shopId),
+    index("subscription_plans_kind_idx").on(t.kind),
+    uniqueIndex("subscription_plans_shop_name_live_unique")
+      .on(t.shopId, sql`lower(${t.name})`)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check("subscription_plans_price_positive", sql`${t.pricePaise} IS NULL OR ${t.pricePaise} > 0`),
+    check("subscription_plans_lead_days", sql`${t.leadDays} BETWEEN 0 AND 30`),
+  ],
+);
+
 /* --------------------------------------------------------- subscriptions */
 
 export const subscriptions = pgTable(
@@ -3804,6 +3859,12 @@ export const subscriptions = pgTable(
      * one vendor in one go). Null for a subscription made on its own.
      */
     bundleId: uuid("bundle_id"),
+    /**
+     * The shop's plan this subscription was taken on (docs/subscription-plans-2026-11);
+     * null for a catalogue "subscribable" product taken the old way. No foreign
+     * key (seller and customer tables are linked in the service, CLAUDE.md).
+     */
+    planId: uuid("plan_id"),
     startDate: date("start_date").notNull(),
     endDate: date("end_date"),
     nextDeliveryDate: date("next_delivery_date"),
@@ -3836,6 +3897,7 @@ export const subscriptions = pgTable(
     index("subscriptions_status_idx").on(t.status),
     index("subscriptions_next_delivery_idx").on(t.nextDeliveryDate),
     index("subscriptions_bundle_idx").on(t.bundleId),
+    index("subscriptions_plan_idx").on(t.planId),
     check("subscriptions_quantity_positive", sql`${t.quantityMilli} > 0`),
     check(
       "subscriptions_pause_window_valid",
@@ -6243,6 +6305,7 @@ export type SubscriptionDailyOverride =
 export type SubscriptionOrder = typeof subscriptionOrders.$inferSelect;
 export type SubscriptionDelivery = typeof subscriptionDeliveries.$inferSelect;
 export type PeriodicalTitle = typeof periodicalTitles.$inferSelect;
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Address = typeof addresses.$inferSelect;
 export type DeliveryPartner = typeof deliveryPartners.$inferSelect;
@@ -9765,7 +9828,7 @@ export const payoutItems = pgTable(
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
     provider: text("provider"),
     providerRef: text("provider_ref"),
-    /** 0182: the id the provider knows the current attempt by, saved before the request is sent. */
+    /** 0183: the id the provider knows the current attempt by, saved before the request is sent. */
     providerTransferId: text("provider_transfer_id"),
     /** Bank reference of the transfer — recorded for every payment. */
     utr: text("utr"),
@@ -9815,7 +9878,7 @@ export const payoutEvents = pgTable(
 export type PayoutEvent = typeof payoutEvents.$inferSelect;
 
 /**
- * 0182: a correctly signed payout webhook that matched no payout yet (shop item, rider transfer or dealer
+ * 0183: a correctly signed payout webhook that matched no payout yet (shop item, rider transfer or dealer
  * payout). It is answered 409 so the provider delivers it again; matched_at is set once it is applied.
  */
 export const payoutWebhookParked = pgTable(
@@ -11643,9 +11706,9 @@ export const dealerPayoutBatches = pgTable(
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     provider: text("provider"),
     providerRef: text("provider_ref"),
-    /** 0182: the id the provider knows the current attempt by, saved before the request is sent. */
+    /** 0183: the id the provider knows the current attempt by, saved before the request is sent. */
     providerTransferId: text("provider_transfer_id"),
-    /** 0182: when the current attempt was sent. */
+    /** 0183: when the current attempt was sent. */
     sentAt: timestamp("sent_at", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(0),
     nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
@@ -12402,7 +12465,7 @@ export const riderBankTransfers = pgTable(
     /** Retries used up (or the bank returned it): finance decides — retry or release. */
     needsReview: boolean("needs_review").notNull().default(false),
     providerRef: text("provider_ref"),
-    /** 0182: the id the provider knows the current attempt by, saved before the request is sent. */
+    /** 0183: the id the provider knows the current attempt by, saved before the request is sent. */
     providerTransferId: text("provider_transfer_id"),
     utr: text("utr"),
     failureReason: text("failure_reason"),

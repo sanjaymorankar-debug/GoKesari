@@ -151,6 +151,13 @@ const nextConfig: NextConfig = {
   },
   // next/image optimisation would occupy Node processes on Hostinger; serve images as-is.
   images: { unoptimized: true },
+  // Our server's build agent (scripts/vps-app/bin/gk-deploy) is the only build that sets
+  // GK_BUILD_VERSION, and it builds only commits whose CI already ran `npm run typecheck`
+  // (staging queue, release PRs). Next's own type check there is the same check a second time,
+  // and it is what crossed the 7 GB build limit: staging build of dc732c3 killed by the
+  // out-of-memory guard in "Running TypeScript", 23-Nov-2026 14.51 IST (the checker alone
+  // ~3.9 GB beside next build's ~3 GB). Local and CI builds still type-check.
+  typescript: { ignoreBuildErrors: Boolean(process.env.GK_BUILD_VERSION) },
   // Hostinger installs production dependencies only, so `typescript` is absent
   // when the build starts and Next never reads the "@/*" paths in tsconfig.json.
   // Declaring the alias here keeps webpack resolving "@/..." either way.
