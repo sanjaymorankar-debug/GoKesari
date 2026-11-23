@@ -14,6 +14,7 @@
  *   metre → piece, one piece = one metre (the catalogue has no length unit; the word is kept)
  *   custom ("जुडी", "bundle") → piece, one piece = one of that unit (the word is kept)
  */
+import { indianNumberWord } from "@/lib/number-words-in";
 import { asciiDigits, numberFromWord, unitFromWord, type BaseUnit } from "./qty-words";
 import type { ProductUnit } from "./product-units";
 
@@ -149,7 +150,7 @@ function wordNumber(token: string): number | null {
     if (n !== null && n >= 1 && n <= 9) return n * 100;
   }
   if (EXTRA_NUMBERS[token] !== undefined) return EXTRA_NUMBERS[token];
-  return numberFromWord(token);
+  return numberFromWord(token) ?? indianNumberWord(token);
 }
 
 const isDigits = (t: string) => /^\d+(\.\d+)?$/.test(t);
@@ -500,3 +501,9 @@ export function toListingQuantities(
 export function priceAboveMrp(pricePaise: number | null, mrpPaise: number | null): boolean {
   return pricePaise !== null && mrpPaise !== null && mrpPaise > 0 && pricePaise > mrpPaise;
 }
+
+/* ------------------------------------------------------------ shared with lib/voice-command-parse */
+
+export type { NumberAt };
+/** The tokenizer and number reader above, for the shop owner's voice price / offer commands. */
+export { tokenize as tokenizeSpoken, numbersIn as numbersInTokens, RUPEE_WORDS };
