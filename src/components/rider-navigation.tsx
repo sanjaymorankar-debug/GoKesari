@@ -21,6 +21,7 @@ import {
   useLocationHeartbeat,
 } from "@/components/delivery-partner-dashboard";
 import { Alert, Button, Card } from "@/components/ui";
+import { L, tr, type Lang, type Text } from "@/lib/board/i18n";
 import { isMapsAvailable, loadGoogleMaps } from "@/lib/geo/provider";
 import {
   decodePolyline,
@@ -148,14 +149,61 @@ function SvgRouteMap({ points, position, destination }: { points: LatLng[]; posi
 
 const noSubscribe = () => () => {};
 
-export function RiderNavigation({ initial }: { initial: NavigationView }) {
+/**
+ * Screen wording (Module 6, docs/hindi-marathi-2026-11/). Turn instructions come from the
+ * routing service and the voice prompts stay English (en-IN voice).
+ */
+const T = {
+  gpsNeeded: L("Location permission is needed for navigation.", "रास्ता दिखाने के लिए लोकेशन की अनुमति चाहिए।", "मार्ग दाखवण्यासाठी लोकेशनची परवानगी हवी."),
+  gpsWaiting: L("Waiting for your location…", "आपकी लोकेशन का इंतज़ार…", "तुमच्या लोकेशनची वाट पाहत आहे…"),
+  gpsBlockedHere: L("Location is blocked here.", "यहाँ लोकेशन बंद है।", "इथे लोकेशन बंद आहे."),
+  serverOffline: L(
+    "You are offline on the server — go online on your dashboard to keep sharing your location.",
+    "सर्वर पर आप ऑफ़लाइन हैं — लोकेशन शेयर करते रहने के लिए डैशबोर्ड पर ऑनलाइन हों।",
+    "सर्व्हरवर तुम्ही ऑफलाइन आहात — लोकेशन शेअर करत राहण्यासाठी डॅशबोर्डवर ऑनलाइन व्हा.",
+  ),
+  deliveryOver: L(
+    "This delivery is over — head back to your dashboard.",
+    "यह डिलीवरी पूरी हो गई — डैशबोर्ड पर लौटें।",
+    "ही डिलिव्हरी संपली — डॅशबोर्डवर परत जा.",
+  ),
+  toShop: L("To the shop", "दुकान की ओर", "दुकानाकडे"),
+  toCustomer: L("To the customer", "ग्राहक की ओर", "ग्राहकाकडे"),
+  order: L("Order {n}", "ऑर्डर {n}", "ऑर्डर {n}"),
+  inDist: L("in {d}", "{d} में", "{d} मध्ये"),
+  eta: L(
+    "{d} to go · about {m} min · arrive around {t}",
+    "{d} बाकी · लगभग {m} min · लगभग {t} पहुँचेंगे",
+    "{d} बाकी · सुमारे {m} min · सुमारे {t} ला पोहोचाल",
+  ),
+  rerouting: L("Off route — finding a new route…", "रास्ते से हट गए — नया रास्ता ढूँढ रहे हैं…", "मार्ग चुकला — नवीन मार्ग शोधत आहे…"),
+  offRoute: L("Off route", "रास्ते से हट गए", "मार्ग चुकला"),
+  straightLine: L(
+    "Straight-line guide — follow the roads, or open Google Maps for turn-by-turn.",
+    "सीधी रेखा वाला अनुमान — सड़कों के हिसाब से चलें, या कदम-दर-कदम रास्ते के लिए Google Maps खोलें।",
+    "सरळ रेषेचा अंदाज — रस्त्यांनुसार चला, किंवा टप्प्याटप्प्याने मार्गासाठी Google Maps उघडा.",
+  ),
+  openMaps: L("Open in Google Maps", "Google Maps में खोलें", "Google Maps मध्ये उघडा"),
+  voiceOn: L("Voice on", "आवाज़ चालू", "आवाज चालू"),
+  voiceOff: L("Voice off", "आवाज़ बंद", "आवाज बंद"),
+  back: L("Back to my delivery", "मेरी डिलीवरी पर वापस", "माझ्या डिलिव्हरीवर परत"),
+  route: L("Route", "रास्ता", "मार्ग"),
+  noGeo: L("Location is not available on this device.", "इस डिवाइस पर लोकेशन उपलब्ध नहीं है।", "या डिव्हाइसवर लोकेशन उपलब्ध नाही."),
+  blocked: L(
+    "Location is blocked — live tracking for the customer won't update.",
+    "लोकेशन बंद है — ग्राहक के लिए लाइव ट्रैकिंग अपडेट नहीं होगी।",
+    "लोकेशन बंद आहे — ग्राहकासाठी थेट ट्रॅकिंग अपडेट होणार नाही.",
+  ),
+} as const;
+
+export function RiderNavigation({ initial, lang = "en" }: { initial: NavigationView; lang?: Lang }) {
   const [nav, setNav] = useState(initial);
   const [position, setPosition] = useState<LatLng | null>(null);
-  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [gpsError, setGpsError] = useState<Text | null>(null);
   const [voiceOn, setVoiceOn] = useState(initial.settings.voiceDefaultOn);
   const [rerouting, setRerouting] = useState(false);
   const [pingMs, setPingMs] = useState(initial.settings.trackingPingSeconds * 1000);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Text | null>(null);
   // Wall clock of the latest fix — the arrival time is worked out from it, not read during render.
   const [clock, setClock] = useState(() => Date.now());
   const geoSupported = useSyncExternalStore(noSubscribe, () => "geolocation" in navigator, () => true);
@@ -181,12 +229,12 @@ export function RiderNavigation({ initial }: { initial: NavigationView }) {
           setClock(Date.now());
           setGpsError(null);
         },
-        (err) => setGpsError(err.code === err.PERMISSION_DENIED ? "Location permission is needed for navigation." : "Waiting for your location…"),
+        (err) => setGpsError(err.code === err.PERMISSION_DENIED ? T.gpsNeeded : T.gpsWaiting),
         { enableHighAccuracy: true, maximumAge: 5_000, timeout: 20_000 },
       );
     } catch {
       // Embedded WebView / Permissions-Policy: report it asynchronously, like a denied permission.
-      queueMicrotask(() => setGpsError("Location is blocked here."));
+      queueMicrotask(() => setGpsError(T.gpsBlockedHere));
     }
     return () => {
       if (id !== null) navigator.geolocation.clearWatch(id);
@@ -197,11 +245,11 @@ export function RiderNavigation({ initial }: { initial: NavigationView }) {
   const locationIssue = useLocationHeartbeat(
     true,
     nav.dropStarted ? pingMs : nav.status === "PICKED_UP" ? HEARTBEAT_ON_DELIVERY_MS : HEARTBEAT_IDLE_MS,
-    () => setNotice("You are offline on the server — go online on your dashboard to keep sharing your location."),
+    () => setNotice(T.serverOffline),
     nav.dropStarted ? `/api/delivery-orders/${nav.deliveryOrderId}/location` : RIDER_LOCATION_URL,
     (reply) => {
       if (typeof reply.nextPingSeconds === "number") setPingMs(reply.nextPingSeconds * 1000);
-      if (reply.sharing === false) setNotice("This delivery is over — head back to your dashboard.");
+      if (reply.sharing === false) setNotice(T.deliveryOver);
     },
   );
 
@@ -271,7 +319,7 @@ export function RiderNavigation({ initial }: { initial: NavigationView }) {
     <div className="space-y-4" data-testid="rider-navigation">
       <Card className="p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-kesari-600">
-          {nav.leg === "TO_SHOP" ? "To the shop" : "To the customer"} · Order {nav.orderNumber}
+          {tr(nav.leg === "TO_SHOP" ? T.toShop : T.toCustomer, lang)} · {tr(T.order, lang).replace("{n}", nav.orderNumber)}
         </p>
         <p className="mt-1 text-sm text-ink-600">{nav.destination.label}</p>
         {step ? (
@@ -281,18 +329,21 @@ export function RiderNavigation({ initial }: { initial: NavigationView }) {
             </span>
             <div>
               <p className="text-lg font-semibold text-ink-900">{step.instruction}</p>
-              {step.maneuver !== "arrive" ? <p className="text-sm text-ink-600">in {formatDistance(toStep)}</p> : null}
+              {step.maneuver !== "arrive" ? <p className="text-sm text-ink-600">{tr(T.inDist, lang).replace("{d}", formatDistance(toStep))}</p> : null}
             </div>
           </div>
         ) : null}
         <p className="mt-3 text-sm text-ink-700" data-testid="nav-eta" suppressHydrationWarning>
-          {formatDistance(remaining)} to go · about {Math.max(1, Math.round(etaSeconds / 60))} min · arrive around {arrival}
+          {tr(T.eta, lang)
+            .replace("{d}", formatDistance(remaining))
+            .replace("{m}", String(Math.max(1, Math.round(etaSeconds / 60))))
+            .replace("{t}", arrival)}
         </p>
         {offRoute ? (
-          <p className="mt-1 text-sm font-medium text-red-700">{rerouting ? "Off route — finding a new route…" : "Off route"}</p>
+          <p className="mt-1 text-sm font-medium text-red-700">{tr(rerouting ? T.rerouting : T.offRoute, lang)}</p>
         ) : null}
         {nav.route.provider === "straight_line" || nav.route.provider === "mock" ? (
-          <p className="mt-1 text-xs text-ink-500">Straight-line guide — follow the roads, or open Google Maps for turn-by-turn.</p>
+          <p className="mt-1 text-xs text-ink-500">{tr(T.straightLine, lang)}</p>
         ) : null}
       </Card>
 
@@ -310,21 +361,21 @@ export function RiderNavigation({ initial }: { initial: NavigationView }) {
           className="inline-flex items-center rounded-lg border border-cream-200 bg-white px-3 py-2 text-sm font-medium text-ink-900"
           data-testid="open-google-maps"
         >
-          Open in Google Maps
+          {tr(T.openMaps, lang)}
         </a>
         {voiceSupported ? (
           <Button size="sm" variant="secondary" onClick={() => setVoiceOn((v) => !v)} aria-pressed={voiceOn}>
-            {voiceOn ? "Voice on" : "Voice off"}
+            {tr(voiceOn ? T.voiceOn : T.voiceOff, lang)}
           </Button>
         ) : null}
         <Link href="/delivery-partner" className="inline-flex items-center px-3 py-2 text-sm font-medium text-kesari-700 underline">
-          Back to my delivery
+          {tr(T.back, lang)}
         </Link>
       </div>
 
       {steps.length > 0 ? (
         <Card className="p-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Route</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">{tr(T.route, lang)}</p>
           <ol className="space-y-1 text-sm">
             {steps.map((s, i) => (
               <li key={i} className={i === stepIndex ? "font-semibold text-ink-900" : i < stepIndex ? "text-ink-400" : "text-ink-600"}>
@@ -336,10 +387,10 @@ export function RiderNavigation({ initial }: { initial: NavigationView }) {
         </Card>
       ) : null}
 
-      {!geoSupported ? <Alert tone="warning">Location is not available on this device.</Alert> : null}
-      {gpsError ? <Alert tone="warning">{gpsError}</Alert> : null}
-      {locationIssue === "blocked" ? <Alert tone="warning">Location is blocked — live tracking for the customer won&apos;t update.</Alert> : null}
-      {notice ? <Alert tone="info">{notice}</Alert> : null}
+      {!geoSupported ? <Alert tone="warning">{tr(T.noGeo, lang)}</Alert> : null}
+      {gpsError ? <Alert tone="warning">{tr(gpsError, lang)}</Alert> : null}
+      {locationIssue === "blocked" ? <Alert tone="warning">{tr(T.blocked, lang)}</Alert> : null}
+      {notice ? <Alert tone="info">{tr(notice, lang)}</Alert> : null}
     </div>
   );
 }
