@@ -40,6 +40,8 @@ export type FeatureFlagKey =
   | "rbac_v2_shop_change_requests"
   | "rbac_v2_operations"
   | "dealer_platform_four_eye"
+  // docs/shop-staff-roles-2026-11 (0185)
+  | "shop_staff_roles_enabled"
   | "whatsapp_customer_enabled"
   // docs/search-brand-barcode-favourites-2026-11 (0182)
   | "brand_barcode_favourites_enabled"

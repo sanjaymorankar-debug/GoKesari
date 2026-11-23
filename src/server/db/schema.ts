@@ -4453,18 +4453,36 @@ export const shopStaff = pgTable(
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    // Null only for an invitation to an e-mail address with no account yet (Module 10, 0185).
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     scope: text("scope", { enum: ["CATALOGUE"] }).notNull().default("CATALOGUE"),
-    status: text("status", { enum: ["ACTIVE", "REVOKED"] }).notNull().default("ACTIVE"),
+    // Module 10 (0185): INVITED and SUSPENDED added; only ACTIVE grants anything.
+    status: text("status", { enum: ["INVITED", "ACTIVE", "SUSPENDED", "REVOKED"] }).notNull().default("ACTIVE"),
     addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
     addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
     revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "set null" }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /* Module 10 (0185, docs/shop-staff-roles-2026-11): role + extra permissions (src/lib/shop-staff/permissions.ts). */
+    role: text("role").notNull().default("CATALOGUE_MANAGER"),
+    permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`),
+    inviteEmail: text("invite_email"),
+    inviteTokenHash: text("invite_token_hash"),
+    inviteExpiresAt: timestamp("invite_expires_at", { withTimezone: true }),
+    invitedBy: uuid("invited_by").references(() => users.id, { onDelete: "set null" }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    suspendedBy: uuid("suspended_by").references(() => users.id, { onDelete: "set null" }),
+    roleChangedAt: timestamp("role_changed_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("shop_staff_one_active").on(t.shopId, t.userId).where(sql`${t.status} = 'ACTIVE'`),
+    uniqueIndex("shop_staff_one_open")
+      .on(t.shopId, t.userId)
+      .where(sql`${t.status} IN ('INVITED', 'ACTIVE', 'SUSPENDED') AND ${t.userId} IS NOT NULL`),
+    uniqueIndex("shop_staff_one_open_email")
+      .on(t.shopId, sql`lower(${t.inviteEmail})`)
+      .where(sql`${t.status} = 'INVITED' AND ${t.userId} IS NULL`),
+    uniqueIndex("shop_staff_invite_token_idx").on(t.inviteTokenHash).where(sql`${t.inviteTokenHash} IS NOT NULL`),
     index("shop_staff_user_idx").on(t.userId),
   ],
 );
@@ -10628,6 +10646,8 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_operations",
   // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
   "dealer_platform_four_eye",
+  // docs/shop-staff-roles-2026-11 (0185): shop staff roles, permissions and invitations. Off: staff stay catalogue-only.
+  "shop_staff_roles_enabled",
   // docs/customer-whatsapp-2026-11 (0185): customer updates and shopping on WhatsApp (Meta Cloud API, or the mock outbox).
   "whatsapp_customer_enabled",
   // docs/search-brand-barcode-favourites-2026-11 (0182): brand search, customer barcode search, favourites.
