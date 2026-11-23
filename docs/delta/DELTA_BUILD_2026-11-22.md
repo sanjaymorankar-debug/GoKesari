@@ -91,9 +91,16 @@ No migration and no rollback script: nothing in the database changes. Rollback =
 | DT-REG-01 | Flag order, photo listing and migration journal suites | Local | `vitest run` (4 files, 30 tests) | Pass | 22-Nov 23.09 |
 | DT-REG-02 | Full regression | Local | `vitest run` (317 files, 4037 tests) | 4033 pass, 4 fail: local Postgres connection timeouts while another session's suite ran on the same server. Re-run: `qa-2026-10-24-auth-fixes` Pass; `migrate-on-build` (3) still times out locally (its child process cannot connect to this Mac's Postgres); unrelated to this change (no migration or build-script change); passes in staging CI at the base commit c34ef9e8; the PR's CI re-runs it | 22-Nov 23.09 – 23-Nov 00.50 |
 | DT-TC | Typecheck and lint | Local | `npm run typecheck`, `eslint` on changed files | Pass | 22-Nov 23.05 |
-| DT-STG-01 | Flags-OFF smoke on test.gokesari.com | Test | Staging queue (CI, deploy, post-deploy check, guest QA) | Not Run (queued) | n/a |
-| DT-STG-02 | Flag ON in staging only: upload a logo as the staging shop owner | Test | manual / QA | Not Run: after staging-verified | n/a |
+| DT-STG-01 | Flags-OFF smoke on test.gokesari.com | Test | Staging queue (CI, deploy, post-deploy check, guest QA), PR #489 | Pass (staging-verified) | 23-Nov 02.38 |
+| DT-STG-02a | Owner OK (chat, 23-Nov ≈08.05): flag ON on staging only | Test | admin `PUT /api/admin/feature-flags` {enabled:true, districtCodes:null} | Pass: 200, change logged (old OFF → new ON, reason given) | 23-Nov 08.12 |
+| DT-STG-02b | Card shows on `/shop/manage/hours` (1280 and 375 px) | Test | Playwright, staging shop-owner session | Pass: card visible, no page errors, no sideways scroll at 375 px | 23-Nov 08.12 |
+| DT-STG-02c | Owner uploads a 512×512 PNG | Test | same | Pass: 201, logo `/api/images/<id>` served 200 image/jpeg, shown after reload, "Logo saved." | 23-Nov 08.12 |
+| DT-STG-02d | Remove logo (the staging shop had none, so it was left as before) | Test | same | Pass: "Logo removed." | 23-Nov 08.12 |
+| DT-STG-02e | Guest upload refused | Test | `POST /api/shops/<id>/logo` with no session | Pass: 401 | 23-Nov 08.12 |
+| DT-STG-03 | Look of the card | Test | screenshot | **Defect D-CF011-01** (minor): the card had no inner padding (text against the border). Fixed in the follow-up PR (`p-4`, as the contact card) | 23-Nov 08.15 |
 | DT-PROD | Read-only smoke | Prod | n/a | Not Run: awaiting deployment authorization | n/a |
+
+**Staging flag state:** `shop_logo_upload_enabled` is **ON, every district, on test.gokesari.com only** (since 23-Nov 08.12 IST, owner OK). Production: no row, OFF.
 
 ## Mobile (G.1)
 
