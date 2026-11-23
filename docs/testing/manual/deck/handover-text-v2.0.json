@@ -1,0 +1,25 @@
+{
+ "note": "Words and register figures for the QA engagement hand-over deck v2.0 (23-Nov-2026). Counts not in facts.json: migrations = drizzle/*.sql files; automated = register 'Automation' = Automated; integrationFiles = tests/integration/**/*.test.ts; staging = register 'Staging' column of the 1,631 cases (runs collected up to 22-Nov); newNotAutomated = the 472 new cases minus the 13 Puja checks already automated.",
+ "migrations": 182,
+ "automated": 1062,
+ "integrationFiles": 231,
+ "notRunRule": 515,
+ "newNotAutomated": 459,
+ "staging": [["Pass", 152], ["Pass (partial)", 255], ["Not run (rule)", 515], ["Blocked", 68], ["Fail", 8], ["Manual only", 50], ["Not run yet", 583]],
+ "historyWidths": [1.3, 1.9, 8.9],
+ "featureWidths": [3.7, 5.6, 2.8],
+ "revisions": [
+  {"version": "1.0", "day": "20-Nov-2026", "change": "First issue: hand-over of the 20-Nov workbook (1,048 cases, 290 scenarios, 47 journeys), the automated suite (822 checks), the test organisation, tools, the one-click target, the rules and the first six weeks. 29 slides."},
+  {"version": "2.0", "day": "23-Nov-2026", "change": "Counts brought up to workbook 2.0 and the register of 23-Nov (1,631 cases, 383 scenarios, 63 journeys, 1,062 automated checks, 186 defects, 42 retests waiting). New slides: this history (2) and the features to test that reached staging after v1.0 (7: 472 cases). Gap chart, team pages, tools and the six-week plan updated. 31 slides."}
+ ],
+ "features": [
+  ["Puja Samagri (#427, #437)", "499-item catalogue in three languages, owner and admin screens, /puja storefront, price on confirmation", "Admin switch ON · 55"],
+  ["Admin menu, banner wording, mailbox rotation (#463, #464, #448, #451)", "Categories = Shop + Product; new banner label; e-mail from 10 mailboxes, 90 each a day", "No flag · 21"],
+  ["Shop documents and FSSAI; Health specialties (#458, #460, #466, #467, #471, #475, #477)", "FSSAI must-have for food, 90-day promise for the rest, admin document rules, Cashfree FSSAI check, doctors' registration, specialties", "Business rules · 71"],
+  ["Franchise zones (#446, #465, #469, #476, #479)", "99 zones, ₹1.5 L launch fee + GST, free dealer or paid franchise, pay first and KYC in 30 days, 20/4/3 + 20% recurring", "Booking open · 70"],
+  ["Referral moves; dealership platform (#470, #503)", "Two-admin code and member moves; schemes, builder, calculator, joining charge, new staff roles", "Four-eye flag OFF · 85"],
+  ["Smart shopping (#482, #484)", "Photo shopping list and shop compare, add product by photo + voice, WhatsApp orders to shops", "3 flags OFF, keys not set · 40"],
+  ["Voice price; shop logo; society joins (#489–#492, #496–#498)", "Price and offer by voice, nothing changes until 'yes'; logo upload; riders ask to join a society", "Voice, logo ON; society OFF · 50"],
+  ["Staff roles, RBAC v2 (#485, #487, #493, #500)", "Five staff roles, approvals, two-admin rule, accounting, support desk, shop change requests, operations", "6 flags ON (staging only) · 80"]
+ ]
+}

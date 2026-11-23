@@ -16,6 +16,7 @@ added cases to the plan, so this update writes them.
 | Older cases corrected | | **36** (+ journey SC-39) |
 | Manual test workbook | 1.1, `GOKESARI_MANUAL_TEST_WORKBOOK_2026-11-20.xlsx` | **2.0**, `GOKESARI_MANUAL_TEST_WORKBOOK_2026-11-23.xlsx` |
 | Testing-team training deck | 1.0 (29 slides) | **2.0**, `GoKesari_Testing_Techniques_Training_v2.0_2026-11-23.pptx` (32 slides) |
+| QA engagement hand-over deck (testing partner) | 1.0 (29 slides) | **2.0**, `GoKesari_QA_Engagement_Owner_Handover_v2.0_2026-11-23.pptx` (31 slides) |
 
 The new cases split as 99 P0, 240 P1, 117 P2 and 16 P3. Every Expected result was written from the code on
 staging: routes, labels, messages, HTTP codes and amounts. Where the code differs from the pull request or
@@ -98,5 +99,5 @@ These are not logged as defects until a test run confirms them. All 75 notes are
 | Cases added | `docs/testing/manual/cases-added-2026-11-23.json` |
 | Master test register | `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx` |
 | Manual test workbook 2.0 | `docs/testing/manual/GOKESARI_MANUAL_TEST_WORKBOOK_2026-11-23.xlsx` (versions in `revisions.json`) |
-| Training deck 2.0 and how it is built | `docs/testing/manual/deck/` |
+| Training deck 2.0 and hand-over deck 2.0, and how they are built | `docs/testing/manual/deck/` |
 | Owner's copies | `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking/` |

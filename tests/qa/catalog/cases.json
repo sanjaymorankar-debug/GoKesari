@@ -21038,8 +21038,8 @@
   "method": "UI+API",
   "preconditions": "Signed out on test.gokesari.com. Flag `voice_price_assistant_enabled` ON (ON for every district on staging since 23-Nov-2026 14.48 IST, off on production).",
   "steps": "1. Open /shop/voice-price\n2. POST /api/shops/<bakery id>/voice-price/interpret and …/apply without a session",
-  "expected": "1 → redirect to /signin?next=/shop/voice-price. 2 → 401 for both; nothing is read or changed.",
-  "source": "Added 23-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-VPA-01; docs/testing/manual/README.md)"
+  "expected": "1 → redirect to /signin (the way back to /shop/voice-price is kept in the gk_return_to cookie, decision D-23, as on every Seller Central page). 2 → 401 for both; nothing is read or changed.",
+  "source": "Added 23-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-VPA-01; docs/testing/manual/README.md); Corrected 23-Nov-2026: a guest is sent to plain /signin with the gk_return_to cookie (D-23), found by the P0 run"
  },
  {
   "id": "TC-VPA-003",

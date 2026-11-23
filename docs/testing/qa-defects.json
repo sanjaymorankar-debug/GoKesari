@@ -2801,6 +2801,48 @@
     },
     {
       "id": "D-159",
+      "title": "Referral moves: searching shops by name matches every shop, so the shop looked for can drop out of the 20 results",
+      "cases": [
+        "TC-REFM-006"
+      ],
+      "severity": "Medium",
+      "found": "23-Nov-2026 23.35 IST, test.gokesari.com, while automating TC-REFM-015 (P0 run of the 23-Nov cases); PR #470.",
+      "actual": "GET /api/admin/referral-moves/shops?q=Asmy answers 200 with 20 shops, none of them named Asmy; the real shop 'Asmy test2' is cut off by the limit of 20. q=Asmy test2 gives 14 shops, only one of them Asmy. searchShopsForMove (src/server/dealers/referral-moves.ts) ORs the name match with shops.phone like '%' || <digits of the search> || '%'; a search without digits becomes like '%%', which matches every shop with a phone.",
+      "expected": "TC-REFM-006: a name search lists the shops whose name matches; a phone search lists the shop with that number.",
+      "fix": "Not fixed. Add the phone condition only when the search has enough digits (e.g. 4 or more); otherwise match the name only.",
+      "status": "Open"
+    },
+    {
+      "id": "D-160",
+      "title": "Help desk: a Support User's ticket page offers 'Assigned to' / 'Save assignment' and 'Escalate', which the server refuses",
+      "cases": [
+        "TC-STAFF-059"
+      ],
+      "severity": "Medium",
+      "found": "23-Nov-2026 23.43 IST and 23.47 IST, test.gokesari.com, P0 run (gk-oplim acting as SUPPORT_USER); PR #487.",
+      "actual": "/admin/support/{id} for an assigned ticket shows the 'Work this ticket' card with an 'Assigned to' select (only 'Nobody') and 'Save assignment'; PATCH /api/support/tickets/{id} {action:'assign'} answers 404 'Ticket was not found.' The card was drawn for any viewer with STAFF access (ticket-thread.tsx: staff && can.manage), while assignTicket and escalateTicket allow only support staff who manage the queue.",
+      "expected": "TC-STAFF-059: the assigned ticket opens without an assignee picker.",
+      "fix": "PR #520: the ticket detail returns can.assign / can.escalate (true only for support manager, operator, admin) and the page shows the two controls only then; integration test in tests/integration/rbac-v2-support.test.ts.",
+      "status": "Fixed (re-test pending)",
+      "fixedIn": "PR #520"
+    },
+    {
+      "id": "D-161",
+      "title": "Voice price assistant (and add product by photo): without ?shopId the page works on the owner's newest shop, not the shop chosen in Seller Central",
+      "cases": [
+        "TC-VPA-015",
+        "TC-VPA-019",
+        "TC-SMART-026"
+      ],
+      "severity": "Medium",
+      "found": "23-Nov-2026 23.32-23.35 IST, test.gokesari.com, P0 run (shop A's owner, who also owns 'QA Welcome pune 1646'); PR #491.",
+      "actual": "The board tile links to /shop/voice-price without a shopId. With 'E2E Four Features Bakery' chosen in the header's shop switcher, the page reads 'QA Welcome pune 1646 — Say the product…', and POST …/voice-price/interpret 'Bread price 42 rupees' answers 200 '“bread” is not among your shop's products.' resolveCatalogueShop (src/server/services/shop-staff.ts) falls back to the newest owned shop and ignores the gk_shop cookie; /shop/photo-listing uses the same resolver. An owner with several shops could publish a price or an offer in the wrong shop.",
+      "expected": "The page works on the shop chosen in Seller Central (the gk_shop cookie), like the other /shop pages; the shop's name shown is that shop.",
+      "fix": "Not fixed. Let resolveCatalogueShop use the selected shop (gk_shop) before falling back, or pass ?shopId from the board tile.",
+      "status": "Open"
+    },
+    {
+      "id": "D-162",
       "title": "Smart shopping: a guest opening /wishlist or /wishlist/scan got 404 instead of the sign-in page",
       "cases": [
         "TC-SMART-001",
@@ -2816,7 +2858,7 @@
       "retest": "docs/testing/qa-runs/2026-11-23-staging-retest-d159-d161.json, staging 23-Nov-2026 23.04 IST: guest /wishlist and /wishlist/scan → 307 to sign-in. Pass"
     },
     {
-      "id": "D-160",
+      "id": "D-163",
       "title": "Voice price assistant: the confirmation showed the old price as the new one (\"₹42 → ₹42\")",
       "cases": [
         "TC-VPA-016"
@@ -2831,7 +2873,7 @@
       "retest": "docs/testing/qa-runs/2026-11-23-staging-retest-d159-d161.json, staging 23-Nov-2026 23.07 IST: published message \"₹40 → ₹43\". Pass"
     },
     {
-      "id": "D-161",
+      "id": "D-164",
       "title": "Shop logo: the logo card had no inner padding (D-CF011-01)",
       "cases": [
         "TC-LOGO-009"
