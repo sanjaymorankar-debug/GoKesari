@@ -112,7 +112,7 @@ export const mockAdapter: DeliveryProviderAdapter = {
       etaMinutes: Math.max(2, 20 - stage * 5),
     };
   },
-  async cancel(ctx, _externalRef: string): Promise<{ cancelled: boolean; feePaise?: number }> {
+  async cancel(ctx): Promise<{ cancelled: boolean; feePaise?: number }> {
     await simulate("cancel", ctx);
     if (behaviour.refuseCancel) return { cancelled: false };
     return { cancelled: true, feePaise: 0 };

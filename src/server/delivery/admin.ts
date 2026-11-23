@@ -326,7 +326,9 @@ export async function bookingDetail(bookingId: string) {
   return { ...row, events, runs, quotes };
 }
 
-export async function deliveryDashboard(since: Date) {
+/** Figures for the last `days` days. */
+export async function deliveryDashboard(days: number) {
+  const since = new Date(Date.now() - days * 86_400_000);
   const byStatus = await db
     .select({ status: deliveryBookings.status, n: count() })
     .from(deliveryBookings)
@@ -352,7 +354,9 @@ export async function deliveryDashboard(since: Date) {
   return { byStatus, byProvider, runs };
 }
 
-export async function integrationHealth(since: Date) {
+/** API call figures for the last `hours` hours. */
+export async function integrationHealth(hours: number) {
+  const since = new Date(Date.now() - hours * 3_600_000);
   const rows = await db
     .select({
       provider: deliveryApiLogs.providerCode,
