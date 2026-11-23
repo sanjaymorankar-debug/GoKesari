@@ -18,6 +18,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatShopTime } from "@/lib/shop-hours";
 import { milliToStockUnits } from "@/lib/stock-quantity";
+import { guestTrackingLinkFor } from "@/server/guest-checkout/tracking";
 import { db, type DbClient } from "@/server/db";
 import {
   orderGroups,
@@ -347,6 +348,8 @@ async function confirmPaidOrder(order: Order, intent: PaymentIntentRef, tx: DbCl
     tx,
   );
   // The same notices checkout sends for a wallet-paid order (orders.ts).
+  // docs/guest-checkout-2026-11: null unless guest checkout is on and the account was made by it.
+  const guestTrackLink = await guestTrackingLinkFor(order.userId);
   const items = await tx
     .select({
       id: orderItems.id,
@@ -363,6 +366,8 @@ async function confirmPaidOrder(order: Order, intent: PaymentIntentRef, tx: DbCl
       type: NOTIFICATION_TYPES.ORDER_CONFIRMED,
       title: "Order confirmed",
       body: `Your order ${order.orderNumber} from ${shopRow?.name ?? "the shop"} is confirmed.`,
+      // docs/guest-checkout-2026-11: a guest-created account's e-mail links to tracking without sign-in.
+      actionUrl: guestTrackLink ? guestTrackLink({ orderId: order.id, orderGroupId: order.orderGroupId ?? null }) : "/orders",
       // Module 6: Hindi / Marathi for a customer who chose it (needs the shop name); English unchanged.
       vars: { orderNumber: order.orderNumber, shopName: shopRow?.name ?? null },
       lang: "auto",

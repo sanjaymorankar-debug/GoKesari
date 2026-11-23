@@ -7,6 +7,9 @@ import { L, tr } from "@/lib/board/i18n";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { getOrderGroupForUser } from "@/server/services/order-groups";
+import { OrderGroupTimeline } from "@/components/guest-checkout/order-group-timeline";
+import { isGuestCheckoutOn, timelineForOrders } from "@/server/guest-checkout/tracking";
+import type { ChildStatus } from "@/server/guest-checkout/timeline";
 
 export const metadata = { title: "Order" };
 export const dynamic = "force-dynamic";
@@ -43,6 +46,10 @@ export default async function OrderGroupPage({
     throw error;
   });
   if (!group) notFound();
+  // docs/guest-checkout-2026-11: the combined timeline across the shop orders (flag guest_checkout_enabled).
+  const timeline = (await isGuestCheckoutOn())
+    ? await timelineForOrders(group.orders.map((o) => ({ id: o.id, shopName: o.shopName, status: o.status as ChildStatus })))
+    : null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -55,6 +62,7 @@ export default async function OrderGroupPage({
           {tr(T.placedText, lang).replace("{n}", group.reference)}
         </Alert>
       ) : null}
+      {timeline ? <OrderGroupTimeline timeline={timeline} /> : null}
       <div className="space-y-3">
         {group.orders.map((o) => (
           <Card key={o.id} className="flex items-center justify-between gap-3 p-4" data-testid="sub-order">

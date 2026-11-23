@@ -595,6 +595,12 @@ export const users = pgTable(
      */
     emailPlaceholder: boolean("email_placeholder").notNull().default(false),
     /**
+     * docs/guest-checkout-2026-11 (0187): the account was created by guest
+     * checkout (contact + one-time code at the cart, no sign-up form). It is a
+     * normal customer account in every other way; the flag only adds the
+     * "track without signing in" link to its order e-mails.
+     */
+    guestCreated: boolean("guest_created").notNull().default(false),
      * Module 6 (migration 0189): language last chosen on the EN / हिं / मरा
      * switch — "en", "hi" or "mr"; null = never chosen (English). The gk_lang
      * cookie wins; this is the fallback on a new device and the language of
@@ -648,6 +654,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0187 guest checkout */] }).notNull().default("LOGIN"),
     purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "ACCOUNT_DELETE" /* 0183 */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
@@ -10567,6 +10574,9 @@ export const FEATURE_FLAG_KEYS = [
   "onboarding_scan_first_enabled",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
+  // docs/guest-checkout-2026-11 (0187): checkout as a guest (contact + code), tracking links, best-shop panel,
+  // group timeline and the admin order-group reconciliation. Needs guest_cart_enabled ON too. Seeded OFF.
+  "guest_checkout_enabled",
   // docs/account-deletion-2026-11 (0183): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
 ] as const;

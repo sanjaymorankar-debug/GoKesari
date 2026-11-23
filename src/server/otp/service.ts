@@ -46,6 +46,7 @@ export const EMAIL_IN_USE = "This email address is already used by another accou
 /** batch-2026-10 WS-D: SHOP_ONBOARDING_CONSENT — a shop owner authorises an operator to onboard their shop. */
 /** SHOP_EMAIL (0120): the shop registration's email, when it is not the account's own. */
 /** RIDER_BANK_CHANGE / RIDER_WITHDRAWAL (0124): a delivery partner confirms a bank change or a withdrawal. */
+type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT" | "SHOP_EMAIL" | "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL" | "GUEST_MOBILE" | "ORDER_TRACK";
 /** ACCOUNT_DELETE (0183): a signed-in person confirms deleting their own account. */
 type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT" | "SHOP_EMAIL" | "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL" | "ACCOUNT_DELETE";
 type RenderedEmail = { subject: string; text: string; html: string };
@@ -771,4 +772,56 @@ export async function verifyAccountActionOtp(input: {
   const email = parseEmail(input.email);
   const otp = await consumeCode({ email, purpose: input.purpose, code: input.code, ip: input.ip ?? null, userId: input.userId });
   await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, actorId: input.userId, ip: input.ip ?? null, otpId: otp.id, purpose: input.purpose });
+}
+
+/* ------------------------------------------ guest checkout (0187) */
+
+/**
+ * docs/guest-checkout-2026-11: can a guest's mobile number be proven with an SMS code right now? Only
+ * when SMS_PROVIDER is set and rule otp.smsEnabled is on — the mock outbox on the test site
+ * (codes at /admin/test-messages). No real SMS vendor / DLT template exists yet, so on the live
+ * site this is false and the number is saved unverified, exactly as e-mail sign-in does today.
+ */
+export async function guestMobileCodesAvailable(): Promise<boolean> {
+  return (await getOtpProvider("SMS")) !== null;
+}
+
+/**
+ * Guest checkout: a code by SMS to `mobile`, keyed by the guest's e-mail (codes are looked up by
+ * e-mail) and bound to the number. Same hashing, expiry, attempt cap, cooldown and audit as sign-in.
+ */
+export async function requestGuestMobileOtp(input: {
+  email: string;
+  mobile: string;
+  ip?: string | null;
+}): Promise<{ resendAfterSeconds: number; expiryMinutes: number }> {
+  const email = parseEmail(input.email);
+  const mobile = parseMobile(input.mobile);
+  return issueCode({ email, purpose: "GUEST_MOBILE", userId: null, phoneE164: mobile.e164, ip: input.ip ?? null, bySms: true });
+}
+
+/** Checks and consumes the guest's mobile code; throws the standard OTP_INVALID on any failure. Returns the E.164 number. */
+export async function verifyGuestMobileOtp(input: { email: string; mobile: string; code: string; ip?: string | null }): Promise<string> {
+  const email = parseEmail(input.email);
+  const parsed = parseIndianMobile(input.mobile);
+  if (!parsed.ok) throw validationFailed(OTP_INVALID);
+  const otp = await consumeCode({ email, purpose: "GUEST_MOBILE", code: input.code, ip: input.ip ?? null, phoneE164: parsed.e164 });
+  await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, phoneE164: parsed.e164, ip: input.ip ?? null, otpId: otp.id, purpose: "GUEST_MOBILE" });
+  return parsed.e164;
+}
+
+/**
+ * Guest order tracking by e-mail: a code to the e-mail of the account that placed the order. The
+ * caller has already checked the reference belongs to that e-mail, and answers the same either way.
+ */
+export async function requestOrderTrackOtp(input: { email: string; userId: string; ip?: string | null }): Promise<void> {
+  const email = parseEmail(input.email);
+  await issueCode({ email, purpose: "ORDER_TRACK", userId: input.userId, phoneE164: null, ip: input.ip ?? null });
+}
+
+/** Checks and consumes a tracking code for `email`, bound to the account; throws OTP_INVALID on any failure. */
+export async function verifyOrderTrackOtp(input: { email: string; userId: string; code: string; ip?: string | null }): Promise<void> {
+  const email = parseEmail(input.email);
+  const otp = await consumeCode({ email, purpose: "ORDER_TRACK", code: input.code, ip: input.ip ?? null, userId: input.userId });
+  await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, actorId: input.userId, ip: input.ip ?? null, otpId: otp.id, purpose: "ORDER_TRACK" });
 }

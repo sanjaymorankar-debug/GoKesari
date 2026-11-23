@@ -1291,6 +1291,13 @@
       "breakpoints": true
     },
     {
+      "idx": 187,
+      "version": "7",
+      "when": 1793269287000,
+      "tag": "0187_guest_checkout",
+      "breakpoints": true
+    },
+    {
       "idx": 188,
       "version": "7",
       "when": 1793269288000,

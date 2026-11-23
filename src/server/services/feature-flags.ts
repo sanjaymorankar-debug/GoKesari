@@ -86,6 +86,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   onboarding_assisted_mode_enabled: "Shop registration: dealer / operator fills in the wizard for the owner",
   onboarding_scan_first_enabled: "Shop registration: open the document scan first on phones",
   guest_cart_enabled: "Guests can fill a cart; sign-in only at Place order",
+  guest_checkout_enabled: "Guest checkout: order with a one-time code, track without signing in",
   account_self_deletion_enabled: "Self-service account deletion from My Profile",
 };
 
@@ -157,6 +158,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/onboarding-waves-2-3-2026-11 (WP10): on a phone the wizard's Verify screen opens the GST / PAN photo scan first and loads the reading model in the background. Typing the number stays one tap away. Off: the scan stays folded as today.",
   guest_cart_enabled:
     "docs/guest-cart-2026-11 (owner, 23-Nov-2026): a shopper who is not signed in can tap Add to cart and open the cart. The guest cart is kept only in their browser (up to 50 items, 7 days); nothing is saved on the server. Place order asks them to sign in, then moves the items into their account cart (quantities added, capped at stock) and returns to checkout. Off: Add to cart asks for sign-in first, as before.",
+  guest_checkout_enabled:
+    "docs/guest-checkout-2026-11: needs guest_cart_enabled ON too. A guest checks out from the cart with name, mobile, e-mail and address and a one-time code (e-mail; plus a mobile code where SMS is set up — mock on the test site). That makes a normal customer account (marked guest-created), signs them in and continues to the usual payment choice. Adds: tracking links without sign-in (/track), the combined timeline on multi-shop orders, the \"Best shop for this cart\" panel and Admin → Payments → Order-group reconciliation. Off: the site behaves as before.",
   account_self_deletion_enabled: "docs/account-deletion-2026-11: a signed-in person deletes their own account (My Profile → Delete my account) after the checks pass and an emailed code. Personal details are anonymised; orders, invoices, payments and ledgers are kept for legal retention. Off: the section is hidden and the APIs answer 404.",
 };
 

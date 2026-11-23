@@ -65,6 +65,7 @@ import { reserveSlot, slotFullError } from "./delivery-slots";
 import { reserveScheduledSlot } from "./scheduled-slots";
 import { acceptByFor } from "./shop-acceptance";
 import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
+import { guestTrackingLinkFor } from "@/server/guest-checkout/tracking";
 import { quoteCoupon, redeemCouponForOrder } from "./coupons";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
 import { rewardReferralOnDelivery } from "./customer-referrals";
@@ -485,6 +486,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       ? await getOrCreateOrderGroup(input.userId, input.requestId)
       : null;
 
+  // docs/guest-checkout-2026-11: null unless guest_checkout_enabled is on and the account was made by guest checkout.
+  const guestTrackLink = await guestTrackingLinkFor(input.userId);
+
   // One transaction per shop: a problem with one shop's order must not roll back
   // a sibling shop's successful order.
   for (const group of purchasableGroups) {
@@ -798,6 +802,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
             type: NOTIFICATION_TYPES.ORDER_CONFIRMED,
             title: "Order confirmed",
             body: `Your order ${orderRow.orderNumber} from ${shopRow.name} is confirmed.`,
+            // docs/guest-checkout-2026-11: a guest-created account's e-mail links to tracking without sign-in.
+            actionUrl: guestTrackLink ? guestTrackLink({ orderId: orderRow.id, orderGroupId: orderGroup?.id ?? null }) : `/orders`,
             // Module 6: Hindi / Marathi for a customer who chose it; English text above unchanged.
             vars: { orderNumber: orderRow.orderNumber, shopName: shopRow.name },
             lang: "auto",
