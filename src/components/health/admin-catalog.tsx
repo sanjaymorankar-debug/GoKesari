@@ -176,6 +176,15 @@ export function DrugMaster({ post }: { post: Post }) {
             <button type="button" className="min-h-10 self-start text-xs font-bold text-kesari-800 underline" onClick={() => downloadText("drug-master-sample.csv", SAMPLE_DRUGS)} data-testid="health-drug-sample">
               Download a sample file
             </button>
+            <button
+              type="button"
+              className="min-h-10 self-start text-xs font-bold text-kesari-800 underline"
+              onClick={async () => downloadText("drug-master-review.csv", (await api<{ csv: string }>(`${ADMIN_API}?view=drugsCsv`)).csv)}
+              data-testid="health-drug-review-sheet"
+            >
+              Download the review sheet (all medicines)
+            </button>
+            <p className="text-xs text-ink-600">The pharmacist corrects schedule, tele_list and online sale and fills reviewed_by (name and registration number); importing the same file marks those rows reviewed. schedule and tele_list are required on every row.</p>
           </div>
           <div className="flex flex-col gap-1 text-sm">
             <label className="font-semibold" htmlFor="health-icd-csv">
