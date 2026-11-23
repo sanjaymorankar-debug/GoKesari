@@ -385,6 +385,10 @@ export const PERMISSIONS = {
   RATE_APPROVE: "rate-proposal:approve",
   /** Admin: activate a CA-approved rate with an effective date. */
   RATE_ACTIVATE: "rate-proposal:activate",
+  /** Accountant: import bank statements, match their lines to payouts and journals, submit to the CA. */
+  BANK_RECON_PREPARE: "bank-recon:prepare",
+  /** CA: sign off (or send back) a reconciled bank statement prepared by someone else. */
+  BANK_RECON_SIGNOFF: "bank-recon:signoff",
   /** Support Manager: run the support queue — assign, reassign, priority, due dates, close. */
   SUPPORT_QUEUE_MANAGE: "support-queue:manage",
   /** Support User: work the tickets and shops assigned to them. */
@@ -625,6 +629,7 @@ const CA_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.JOURNAL_APPROVE,
   PERMISSIONS.FIN_PERIOD_CLOSE,
   PERMISSIONS.RATE_APPROVE,
+  PERMISSIONS.BANK_RECON_SIGNOFF,
 ];
 
 /* >>> RBAC v2 (docs/rbac/01-assessment.md §3). Staff roles get personal shopping only, plus their own area. */
@@ -646,6 +651,7 @@ const ACCOUNTANT_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.DEALER_PAYOUTS_READ,
   PERMISSIONS.JOURNAL_PREPARE,
   PERMISSIONS.RATE_PROPOSE,
+  PERMISSIONS.BANK_RECON_PREPARE,
   // Deliberately absent: FINANCE_MANAGE, FINANCE_PREPARE (settlement drafts stay admin), JOURNAL_APPROVE,
   // FIN_PERIOD_CLOSE, RATE_APPROVE, RATE_ACTIVATE — the Accountant is the maker, never the checker.
 ];
@@ -943,6 +949,8 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.RATE_PROPOSE]: "Propose a commission, fee or charge rate change",
   [PERMISSIONS.RATE_APPROVE]: "Approve or reject a proposed rate change",
   [PERMISSIONS.RATE_ACTIVATE]: "Activate an approved rate change with an effective date",
+  [PERMISSIONS.BANK_RECON_PREPARE]: "Import bank statements and match their lines to payouts, refunds and journal entries",
+  [PERMISSIONS.BANK_RECON_SIGNOFF]: "Sign off a reconciled bank statement prepared by someone else",
   [PERMISSIONS.SUPPORT_QUEUE_MANAGE]: "Run the support queue: assign, reassign, priority, due dates, close and reopen",
   [PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED]: "Work the tickets and shops assigned to oneself",
   [PERMISSIONS.SHOP_CHANGE_PROPOSE]: "Propose shop, product, price or MRP changes for the shop owner to approve",

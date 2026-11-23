@@ -258,7 +258,13 @@ function ConfirmDialog({
  * Field-level 422s are joined so a validation failure names the problem rather
  * than saying "that did not work".
  */
-export async function postJson<T = unknown>(url: string, method: "POST" | "PATCH" | "PUT" | "DELETE", body?: unknown): Promise<T> {
+export async function postJson<T = unknown>(
+  url: string,
+  method: "POST" | "PATCH" | "PUT" | "DELETE",
+  body?: unknown,
+  /** allowPending: the caller reads a 202 `{ pendingApproval }` answer itself (docs/rbac). */
+  options: { allowPending?: boolean } = {},
+): Promise<T> {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -278,5 +284,11 @@ export async function postJson<T = unknown>(url: string, method: "POST" | "PATCH
         "Could not save your changes. Please try again.",
     );
   }
+  // docs/rbac: with two-admin approval on, the change was recorded for a second admin, not applied. Callers that
+  // know about it read `pendingApproval` themselves; for the rest this keeps the form unsaved and says why.
+  if (response.status === 202 && payload?.pendingApproval && !options.allowPending) {
+    throw new Error(payload.message ?? "Sent for approval. A different admin must approve this first.");
+  }
   return payload as T;
 }
+

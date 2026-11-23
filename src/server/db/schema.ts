@@ -9209,6 +9209,13 @@ export const supportTickets = pgTable(
     resolveBreachedAt: timestamp("resolve_breached_at", { withTimezone: true }),
     reopenCount: integer("reopen_count").notNull().default(0),
     resolutionNote: text("resolution_note"),
+    /* docs/rbac (0172): the Support Manager who owns the ticket, the brief's side statuses (the status CHECK is
+     * unchanged), and the traceability links (change request, Operations task). All nullable. */
+    managerUserId: uuid("manager_user_id"),
+    subStatus: text("sub_status", { enum: ["PENDING_INFORMATION", "ON_HOLD", "REJECTED"] }),
+    changeRequestId: uuid("change_request_id"),
+    opsTaskId: uuid("ops_task_id"),
+    raisedByStaff: boolean("raised_by_staff"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -10418,6 +10425,8 @@ export const FEATURE_FLAG_KEYS = [
   "zoho_connector",
   "odoo_connector",
   "ondc_mode",
+  // docs/delta CF-011 (D-144): shop owners upload a logo file on their shop pages. No migration: a missing row is OFF.
+  "shop_logo_upload_enabled",
   // docs/shop-welcome-kit-2026-11: admins send the welcome kit to shops that were live before it (one shop or by city / district). No migration: a missing row is OFF.
   "shop_welcome_kit_admin_send_enabled",
   // docs/smart-shopping-2026-11 (0167–0169): photo shopping list, add product by photo, WhatsApp orders. Missing row = OFF.

@@ -4,6 +4,7 @@
  * The rows are the source of truth in docs/rbac/tracker.json; this only renders them.
  */
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import ExcelJS from "exceljs";
 
 interface Row {
@@ -21,7 +22,7 @@ interface Row {
 
 const out = process.argv[2];
 if (!out) throw new Error("Usage: tsx scripts/rbac/build-tracker.ts <out.xlsx>");
-const rows = JSON.parse(readFileSync(new URL("../../docs/rbac/tracker.json", import.meta.url), "utf8")) as Row[];
+const rows = JSON.parse(readFileSync(path.join(__dirname, "../../docs/rbac/tracker.json"), "utf8")) as Row[];
 
 const wb = new ExcelJS.Workbook();
 const ws = wb.addWorksheet("RBAC v2 tracker", { views: [{ state: "frozen", ySplit: 1 }] });
@@ -50,5 +51,4 @@ for (const r of rows) {
   colour(row.getCell("testServer"), r.testServer === "Passed", r.testServer === "Failed" || r.testServer === "Blocked");
   colour(row.getCell("production"), r.production === "Passed", r.production === "Failed" || r.production === "Blocked");
 }
-await wb.xlsx.writeFile(out);
-console.log(`Wrote ${rows.length} rows to ${out}`);
+void wb.xlsx.writeFile(out).then(() => console.log(`Wrote ${rows.length} rows to ${out}`));
