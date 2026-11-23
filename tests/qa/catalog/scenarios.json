@@ -307,12 +307,12 @@
  },
  {
   "id": "SC-39",
-  "title": "PAN-only shop with a mandatory licence: grace, reminder, suspension",
-  "features": "DI-12, DI-14, KYC-SBX",
+  "title": "PAN-only pharmacy with a licence on the promise: notice, reminder, suspension",
+  "features": "DI-12, DI-14, KYC-SBX, DOC-06, DOC-07",
   "priority": "P1",
-  "journey": "1. Register with PAN, declaration and consent; pick a food shop type\n2. Read the FSSAI 90-day grace notice; pay; shop goes live\n3. Receive the grace e-mail and a 15-day reminder\n4. Let the grace end; the follow-up run suspends the shop\n5. Customer opens the shop page",
+  "journey": "1. Register with PAN, declaration and consent; pick a pharmacy shop type\n2. Read the drug-licence 90-day notice; tick the promise on the documents screen; pay; shop goes live\n3. Receive the grace e-mail and a follow-up reminder\n4. Let the grace end; the follow-up run suspends the shop\n5. Customer opens the shop page",
   "expected": "Go-live not blocked; e-mails sent with the right dates; automatic suspension with admin notice; customers see the shop is not taking orders.",
-  "preconditions": "New test user, a staging-verifiable PAN (may be Blocked by defect D2), food shop type; grace shortened with the developer.",
+  "preconditions": "New test user, a staging-verifiable PAN (may be Blocked by defect D2), pharmacy shop type; grace shortened with the developer. A food shop no longer fits this journey: FSSAI is must-have before paying since DF-08 (PR #467, TC-DOC-020, TC-DOC-021).",
   "origin": "Added 20-Nov-2026"
  },
  {
@@ -444,5 +444,115 @@
   "expected": "One welcome e-mail with the English and the local-language banner (PDFs attached); the Marketing downloads match; the QR opens <site>/shops/<slug>.",
   "preconditions": "PAYMENT_GATEWAY=SANDBOX; e-mail delivery configured.",
   "origin": "Added 20-Nov-2026"
+ },
+ {
+  "id": "SC-53",
+  "title": "Puja Samagri shop from registration to first delivered order, with the staff side, the welcome kit and the mailbox pool",
+  "features": "PUJA-02, PUJA-04, PUJA-05, PUJA-08, PUJA-09, PUJA-10, PUJA-12, ADMNAV-02, WKIT-02, MAILPOOL-01",
+  "priority": "P0",
+  "journey": "1. Admin: Categories → Shop → “Shop types with their own setup” → “Puja Samagri” → “Festivals”; creates “Diwali puja kits” (now to tomorrow, IST, home banner)\n2. New user registers a shop of type “Puja Samagri & Temple Supplies” in Pune and pays the fee\n3. The welcome e-mail arrives in testing@gokesari.com with the English and Marathi banners; email_mailbox_sends shows its SENT row\n4. At “7. Add your products” the owner keeps Kapur, Phool & Patte and Ready Puja Kits and takes them at stock 100\n5. The owner creates an own product “Pooja Chunni <run>” (confirming past close names)\n6. Operator: Catalogue → Shop categories → “Puja Samagri” → “Review queue”; approves it\n7. Customer opens /puja in मराठी, sees the festival banner with kits first, searches “कापूर”\n8. Customer asks the price of a loose flower; owner sets ₹60 on “Price requests”\n9. Customer orders a kapur pack and the flower, pays online (sandbox); shop packs; rider delivers with the OTP\n10. Customer places a wallet order and cancels it before packing",
+  "expected": "Shop live after payment; one welcome e-mail, sent from a pool mailbox, whose banners carry “Everything For Everyone, Everywhere” / “सर्वांसाठी सर्व काही, सर्वत्र” and “आपले दुकान आता ऑनलाइन”. The three categories listed at stock 100 (loose items waiting for a price). The own product listed at once, then in the master after approval (“Your product was approved”). Marathi search and kits-first work; the flower is sold at the confirmed ₹60; order 1 DELIVERED with the OTP and stock down; order 2 refunded in full to the wallet with its stock back. Staff reached every page without Shops-menu tiles.",
+  "preconditions": "test.gokesari.com; a new test user and a staging-verifiable GSTIN; Puja Samagri type ON; the fee paid on the sandbox page; a customer at the shop's PIN with Cashfree sandbox data (UPI testsuccess@gocash) and wallet balance; admin, operator and a rider; EMAIL_POOL set and staging mail redirected to testing@gokesari.com; read-only database access.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-54",
+  "title": "Food shop signup under DF-08: FSSAI before payment, Shop Act on the promise, staff upload for a second owner",
+  "features": "DOC-04, DOC-05, DOC-06, DOC-07, DOC-02",
+  "priority": "P0",
+  "journey": "1. Owner A verifies the GSTIN, address, map pin and shop details for a Bakery and reads the FSSAI notice\n2. Clicks “Create my shop and pay”: “Upload your documents” holds the payment until FSSAI is uploaded\n3. Uploads the FSSAI certificate (checked with Cashfree sandbox), ticks the promise for the Shop Act and pays\n4. The shop goes live; no 90-day FSSAI e-mail; on the next reminder day the reminder names only the promised Shop Act\n5. Owner A uploads the Shop Act; the next run sends nothing\n6. Owner B (Dairy Shop) stops at “Upload your documents” and sends the FSSAI licence to GoKesari\n7. The admin uploads it on /admin/shops/<B>/documents with the on-behalf consent\n8. Owner B's screen goes on; B promises the Shop Act, pays and goes live",
+  "expected": "Neither food shop can pay without FSSAI (FSSAI_REQUIRED on the screen and at checkout). A goes live with FSSAI on file and the promise recorded (due + 90 days), gets no FSSAI grace e-mail, is reminded only for the Shop Act with the promise wording, and the reminders stop once it is uploaded. B is unblocked by the staff upload, recorded under the admin, and goes live on payment.",
+  "preconditions": "Two new test users; staging-verifiable GSTINs and referral codes; shop types Bakery and Dairy Shop; test FSSAI certificates with the Cashfree sandbox number 10121002000677 and a future expiry; Sandbox payment (“Pay (success)” while PAYMENT_GATEWAY=SANDBOX); the staging admin; developer help to trigger the follow-up on a reminder day.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-55",
+  "title": "A doctor joins GoKesari Health: medical registration on the promise, found by group and plain words",
+  "features": "DOC-12, DOC-07, HLT-14, HLT-15, HLT-16",
+  "priority": "P1",
+  "journey": "1. The doctor registers a Consultant / Professional Firm (appointments) shop in the wizard, promises the Shop Act and pays\n2. On “7. What does your shop sell?” picks Cardiologist under Health — Specialists\n3. Legal documents shows “Medical registration” (Required, Upload by 20 Feb 2027); Shops missing documents lists it as due\n4. The doctor uploads the registration with the council and sets up the Cardiologist booking profile\n5. The operator verifies the doctor in Admin → Health → Verification\n6. The admin opens Health → Specialties: Cardiologist counts the doctor and the shop\n7. The customer opens Find a doctor → Specialists → “Cardiologist · Heart”, then types “heart”, and books",
+  "expected": "The medical registration is asked by the Doctors rule with legalDocuments off, never blocks orders, and stops being chased once submitted. The Specialties tab counts the new doctor and shop. The customer finds the verified cardiologist through the group chip, the specialty chip and plain words; an unverified doctor never appears.",
+  "preconditions": "Rules health and consultBooking ON; rule legalDocuments OFF; a new test user with a staging-verifiable GSTIN or PAN; a test medical registration certificate; the staging admin and operator; the staging customer.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-56",
+  "title": "Buy a franchise zone with pay-first KYC and earn on the first team shop",
+  "features": "FRN-02, FRN-04, FRN-05, FRN-06, FRN-08, FRN-11, FRN-12, FRN-13, FRN-15",
+  "priority": "P0",
+  "journey": "1. Guest opens /franchise/book, selects GKZ-PUN-17 “Pune – Koregaon Park–Mundhwa”, taps Continue and “Sign in to pay”\n2. Signs in and lands on the priced cart (₹1,50,000 + GST ₹27,000 = ₹1,77,000); gives name, mobile and PAN, accepts the rules (2026-11-22), reserves and pays\n3. /franchise/my shows “Booked · awaiting KYC” with the 30-day due date; no franchise code yet\n4. Opens /dealer/apply: the zone is his working area; verifies PAN and GSTIN online, the bank with the bank, the mobile; accepts the agreement and submits\n5. Admin approves the application; the franchise goes live and a GKF- code is issued\n6. The owner adds an agent on /dealer; the agent registers a shop with his code at PIN 411036 (area Mundhwa), pays the ₹999 fee; admin approves\n7. One-time commission: agent ₹199.80, owner ₹39.96 (case B2)\n8. A customer orders ₹10,000 from the shop; it is delivered\n9. The owner's live month shows rate 20.0% and ₹40 recurring; after month end the month is locked and paid on the 5th",
+  "expected": "The zone is his from the payment but earns only after KYC; every amount comes from the server; B2 one-time and 20%-of-2% recurring are paid by GoKesari directly to each person; no screen shows another owner's data.",
+  "preconditions": "New test user without a dealer account; owner-agreed test PAN / GSTIN; Cashfree sandbox bank-verification test data; staging payment page or Cashfree sandbox; admin account; flag dealer_programme_enabled ON; a customer at PIN 411036; nothing sold yet in GKZ-PUN-17.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-57",
+  "title": "Free dealership in a zone, then upgrade to a paid franchise; a free team keeps working in the paid zone",
+  "features": "FRN-04, FRN-05, FRN-07, FRN-11, FRN-12, FRN-13",
+  "priority": "P1",
+  "journey": "1. User selects GKZ-PUN-29 and chooses “Free dealership”; /dealer/apply?zone=GKZ-PUN-29 saves it as his working zone; he applies and is approved\n2. His agent registers a shop in Sahakar Nagar (GKZ-PUN-29) and it is approved: case A2 — agent ₹199.80, dealer ₹39.96\n3. On /dealer he taps “Upgrade to Paid Franchise”, books GKZ-PUN-29 with coupon QA10 (₹1,59,300) and pays; it is live at once\n4. His earlier team shop attaches to the franchise (UPGRADE); a new team shop is case B2 — agent ₹199.80, owner ₹39.96\n5. The other free dealer's agent registers a shop in Balaji Nagar (GKZ-PUN-29): case A2 for that team, no one-time to the owner\n6. Orders are delivered from all three shops; the month is calculated and locked",
+  "expected": "No shop is paid twice; shops registered before the upgrade keep their Model A plans; from going live the owner earns 20% of GoKesari's 2% on his own-team shops and on the free team's shop in his zone (he is its only owner).",
+  "preconditions": "Test user without a dealer account; a second approved free dealer with an agent; coupon QA10; staging payment page or Cashfree sandbox; admin; flag dealer_programme_enabled ON.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-58",
+  "title": "Referral moves: a shop and a team member change franchise team with consent letters and a second admin",
+  "features": "REFM-01, REFM-02, REFM-03, REFM-04, REFM-05, REFM-06",
+  "priority": "P1",
+  "journey": "1. Admin A opens Admin → Dealers → Referral moves, finds SH and raises a request to move it to Y's agent with a reason\n2. Admin A raises a member request moving G1 under Y's team lead\n3. Admin A uploads the shop owner's, X's and Y's letters (and G1's, X's, Y's for the member)\n4. Admin A tries to approve: refused; Admin B approves both\n5. Orders are delivered from SH after the move; the month is calculated\n6. Read the ledger, the team periods, G1's code and the audit log",
+  "expected": "Requests wait for letters and a different admin; on approval SH has Y's agent's code and G1 keeps his own code with his shops in Y's team; earned one-time commission stays with X's team; X's recurring covers orders before the move and Y's after it; every step is audited.",
+  "preconditions": "On test.gokesari.com: dealer_programme_enabled ON; Admin A and Admin B (two staging admins); a staging franchise zone Z (not the admin test zone) with paid franchises of dealers X and Y (sandbox); X's agent signed an activated shop SH in Z with orders delivered; agent G1 of X with his own code and a shop; dummy signed consent PDFs.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-59",
+  "title": "New Business Partner dealer: choose, pay, get approved, earn one-time and monthly, change scheme",
+  "features": "DPLT-02, DPLT-03, DPLT-04, DPLT-05, DPLT-09, DPLT-12",
+  "priority": "P0",
+  "journey": "1. New user opens /dealer/apply, saves details, compares schemes and chooses Business Partner\n2. Pays ₹12,980 on the sandbox page, accepts the agreement and the scheme's terms, submits\n3. Admin approves: GKD code, assignment Business Partner v1\n4. A shop registers with the code, pays and is approved\n5. ₹1,00,000 of orders are delivered; the month is closed\n6. The dealer opens /dealer: scheme card and earnings; then moves to Free Dealership\n7. Admin opens the dealer dashboard and the dealer's Scheme history",
+  "expected": "Payment counted only on the sandbox confirmation; acceptance recorded with the terms' fingerprint; ₹249.75 one-time at shop approval and ₹300 monthly (15% of ₹2,000) at the month close, paid with the month's payout; the downgrade applies at once without changing earned lines; the dashboard counts the dealer under Business Partner and the ₹11,000 joining charge in platform revenue until the change.",
+  "preconditions": "On test.gokesari.com after PR #503 (migrations 0177–0181); dealer_programme_enabled ON; dealer_platform_four_eye OFF; sandbox gateway (test payment page); a new test user; a shop owner test account to register a ₹999-slab shop with the dealer's code; orders delivered from that shop in the month; month close by the developer or “Close <Month YYYY> now”.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-60",
+  "title": "Photo shopping list to delivered orders from two shops",
+  "features": "SMART-01, SMART-02, SMART-03, SMART-04, SMART-05, SMART-10",
+  "priority": "P0",
+  "journey": "1. Customer taps “Scan my shopping list” on the home page and photographs a 2-page handwritten Marathi list\n2. Fixes one low-confidence product and one quantity, names the list and taps “Save & compare shop prices”\n3. Sorts by Lowest total, opens “Compare item by item” and taps “Order from this shop” on the cheapest shop\n4. Goes to the cart and pays\n5. The shop gets the order on WhatsApp and taps Accept\n6. The shop packs; the rider picks up and delivers with the customer's OTP\n7. Customer taps “Order the N not-ordered items from another shop”, orders them from the second shop and pays\n8. After 30 days the list photo is purged",
+  "expected": "Items and quantities read correctly; the wishlist is saved with its photo; only shops within 3 km are compared with correct pack maths, totals and delivery options; the cart holds exactly the available items at the compared prices and any change is reported; each shop's order runs through payment, acceptance (WhatsApp Accept equals the app's), delivery and settlement unchanged; the not-ordered items are bought from the second shop; the photo is deleted and the wishlist stays.",
+  "preconditions": "test.gokesari.com with flags smart_list_scan_enabled (and whatsapp_shop_orders_enabled for step 5) ON; ANTHROPIC_API_KEY set (Blocked until the owner adds it) and the Meta WhatsApp set-up for step 5. Staging customer with a Pune location and wallet balance or Cashfree sandbox data (card 4111 1111 1111 1111, OTP 111000); two shops within 3 km that sell different items of the list; an approved online rider.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-61",
+  "title": "Shop owner's new tools: logo, product by photo, price and offer by voice — then a sale",
+  "features": "CF-011, SMART-07, SMART-08, VPA-01, VPA-02, VPA-04, VPA-05, VPA-06",
+  "priority": "P1",
+  "journey": "1. Owner opens My Shop → Open / close, hours and uploads a square shop logo\n2. Inventory → Add product by photo: photographs a packed product's front, back, label and barcode and taps Read photos\n3. Types or says “₹60 per litre, 50 bottles”, checks the read-back, uses the catalogue match (or adds it new) and taps Publish to my shop\n4. Inventory → Change price or offer by voice: says “<product> 10 टक्के सूट रविवार पर्यंत”, checks what GoKesari understood and taps Yes, publish\n5. Says “<product> price 9000 rupees”, sees the big-rise warning and taps “No, change it”\n6. Customer opens the shop: sees the logo on the shop card, the new product and the offer price; orders and pays by wallet\n7. Owner stops the offer in Marketing → Offers",
+  "expected": "The logo shows on the shop card; the product is live in the shop (a new product waits for admin review for other shops) with the per-bottle price, stock in the stock ledger and photos through the photo pipeline; the voice offer is a normal shop offer ending Sunday 23.59 IST and the customer pays 10% less until it is stopped; the 9000 price is warned and never published; every change has its price-history or audit row and nothing changes without the owner's Yes.",
+  "preconditions": "test.gokesari.com with shop_logo_upload_enabled and voice_price_assistant_enabled ON (as on 23-Nov-2026) and shop_photo_listing_enabled ON for the shop's district; ANTHROPIC_API_KEY for the photo read (Blocked until set). Staging shop owner; a customer in the shop's area with wallet balance.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-62",
+  "title": "Accountant to CA: journal, bank reconciliation and a rate change through to activation",
+  "features": "RBV2-08, RBV2-10, RBV2-09, RBV2-05",
+  "priority": "P0",
+  "journey": "1. Accountant drafts a ₹1.00 journal (Dr 1010 QA bank / Cr 4990 QA income) and submits it to the CA\n2. Accountant tries to approve it; the CA approves it in To approve\n3. Accountant checks the statement file, then imports and matches it\n4. Matches the ₹1.00 credit to the posted journal and excludes the ₹0.50 charge with a reason\n5. Submits the statement; the CA signs it off\n6. Downloads the reconciliation CSV and tries to delete the statement\n7. Accountant proposes a default commission change effective now; the CA approves; the admin activates it on Admin → Approvals\n8. Trial balance and Admin → Finance are checked",
+  "expected": "Self-approval refused (403); the journal is POSTED by the CA; the statement BS-… is RECONCILED and final (delete → 409); the CSV downloads; the rate is ACTIVATED only after the CA and the admin and the default commission changes through the existing setter; the trial balance has debits = credits; every step is audited.",
+  "preconditions": "test.gokesari.com; flag `rbac_v2_accounting` ON; gk-ops acting as Accountant, gk-oplim acting as CA; an admin (and a second admin while `rbac_v2_four_eye_admin` is ON); a CSV statement with one ₹1.00 receipt and one ₹0.50 bank charge for a fresh account name such as “QA run … ••0000”.",
+  "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-63",
+  "title": "Operations task to Support to the shop owner and back: the handover closes",
+  "features": "RBV2-14, RBV2-15, RBV2-11, RBV2-12, RBV2-01",
+  "priority": "P1",
+  "journey": "1. Operations Manager assigns a Follow-up task on shop A to the Operations User\n2. Operations User starts it and raises a support ticket from the task\n3. Support Manager assigns the ticket to the same person, who holds Support User as a grant while acting as Operations User\n4. As Support User: open the shop workbench from My tickets, propose a description change and a price change, send to the owner\n5. Shop owner approves all on /shop/changes\n6. Operations User confirms the resolved ticket in Raised by me and marks the task Done with an outcome\n7. Admin reads the ticket, approval and task histories",
+  "expected": "The ticket is linked to the task; the assignment is accepted (PR #500); the ticket goes Awaiting Shop Owner → Resolved after the owner approves; the changes are live only after approval; the Operations User is told at each step; “Confirm and close” → Closed; the task is DONE; all three histories are complete and append-only.",
+  "preconditions": "Flags `rbac_v2_operations`, `rbac_v2_support` and `rbac_v2_shop_change_requests` ON; gk-ops (Operations Manager + Support Manager) and gk-oplim (Operations User + Support User) put in both teams on Admin → Staff teams; shop A and its owner's account.",
+  "origin": "Added 23-Nov-2026"
  }
 ]
