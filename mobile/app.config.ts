@@ -88,6 +88,8 @@ const APP_LINK_PATH_PREFIXES = [
   "/franchise", // 1.11.0, docs/franchise: Pune franchise offer, zone booking, zone pages (1.12.0), my franchise
   "/rx", // docs/health: prescription verification QR (/rx/verify/<token>)
   "/wishlist", // 1.13.0, docs/smart-shopping-2026-11: scan my shopping list, wishlists, shop price comparison
+  "/brand", // docs/search-brand-barcode-favourites-2026-11: a brand's products near the customer
+  "/favourites", // docs/search-brand-barcode-favourites-2026-11: the customer's favourites list
 ];
 
 /**

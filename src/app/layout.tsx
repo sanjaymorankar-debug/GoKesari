@@ -26,7 +26,6 @@ import { listShopsWhereStaff } from "@/server/services/shop-staff";
 import { getWalletByUserId } from "@/server/services/wallet";
 import { isSignupReferralAsked } from "@/server/services/customer-signup-referrals";
 import { getRule } from "@/server/services/settings";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
 import "./globals.css";
 
 export const metadata: Metadata = {
