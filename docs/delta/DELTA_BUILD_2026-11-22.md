@@ -6,7 +6,7 @@
 | Conflict | Feature | Outcome |
 |---|---|---|
 | CF-011 | D-144: shop logo upload (Option A: on the shop's own pages, after onboarding) | **COMPLETED**: built, additive, flag `shop_logo_upload_enabled` OFF |
-| CF-006 | Society: riders ask to join a society (Option A: new table, rider page, society-admin approval) | **CONFLICT-HOLD again**: a new conflict was found before any code was written (see below) |
+| CF-006 | Society: riders ask to join a society (Option A: new table, rider page, society-admin approval) | **BUILT 23-Nov-2026** after RBAC v2 (0170–0175) was staging-verified: migration 0176, flag `society_rider_join_requests_enabled` OFF (see "CF-006: Delta Build Register") |
 
 ## CF-006: why it was stopped
 
@@ -113,3 +113,46 @@ change, so no version or build bump is needed. Store publishing stays BLOCKED.
 1. The PR goes into `staging` with `ready-for-staging`; the staging queue merges, deploys and checks it with the flag OFF.
 2. After `staging-verified`: Admin → Feature flags on test.gokesari.com → `shop_logo_upload_enabled` ON (staging only), then upload a logo as the staging shop owner.
 3. Rollback: switch the flag off (the card disappears and the API answers 404). Logos already uploaded stay, as `logoUrl` values. Full rollback: revert the PR; there is no database change.
+
+## CF-006: Delta Build Register (23-Nov-2026)
+
+**Owner decisions:** "Approve A" (22-Nov ≈23.05 IST), "A1" (22-Nov ≈23.12 IST), and "Go ahead with CF-006 after #487" (23-Nov ≈09.28 IST). #487 (RBAC v2 0171–0175) was staging-verified at 11.43 IST. CF-006 was then rebased on origin/staging (52d62755) and given the next free migration number, **0176**. The dealer platform PR renumbers its migrations after it, as agreed with that session.
+
+Flag **`society_rider_join_requests_enabled`**: OFF by default (no row). Checked by the society's PIN-code district. While it is off, every new route answers 404 `FEATURE_NOT_AVAILABLE`, and the new page and links are hidden.
+
+| Item | File | Kind |
+|---|---|---|
+| Table `society_join_requests` (PENDING / APPROVED / DECLINED / WITHDRAWN, one pending request per rider per society) | `drizzle/0176_society_join_requests.sql`, journal idx 176 | new |
+| Rollback | `scripts/rollback-0176.sql` | new |
+| Service: ask, list mine, list for society (no phone numbers), decide (society ADMIN only; approval calls the existing `addSocietyRider`), withdraw | `src/server/services/delta/society-join-requests.ts` | new |
+| API: `POST/GET /api/societies/[id]/join-requests`, `PATCH /api/societies/join-requests/[requestId]`, `GET /api/societies/join-requests/mine` | `src/app/api/societies/…` | new |
+| Rider page "Societies" (search, ask, withdraw) | `src/app/delivery-partner/societies/page.tsx`, `src/components/delta/society-join.tsx` | new |
+| Society page: "Riders asking to join (n)" | `src/app/society/[id]/page.tsx` | +10 lines |
+| Rider dashboard link (approved riders, flag on) | `src/app/delivery-partner/page.tsx` | +11 lines |
+| Schema, flag key, label, panel type | `schema.ts` (+36), `feature-flags.ts` (+3), `feature-flags-panel.tsx` (+1) | added lines only |
+
+**Zero deletions:** `git diff --numstat` over existing `src/` files shows 61 lines added and 0 deleted. Existing behaviour is unchanged: the society admin still adds a rider by mobile number (tested).
+
+**Refusals:**
+- a rider who is not approved (403);
+- a society that is not verified (409);
+- a rider already listed (409);
+- a rider GoKesari blocked for the society (409);
+- a note over 300 characters (422);
+- an OPERATOR deciding (403);
+- another rider withdrawing (404);
+- deciding a request a second time (409).
+
+Notifications reuse `SOCIETY_MEMBERSHIP_REQUESTED/DECIDED` and are sent after the row is saved. Audit rows use `SOCIETY_RIDER_CHANGED` with entity type `society_join_request`.
+
+### CF-006 tests (local PostgreSQL, `gk_delta_test`, freshly migrated to 0176)
+
+| ID | Check | Result |
+|---|---|---|
+| DT-006-01 | `delta-society-join-requests.test.ts`: 7 cases (flag off 404; ask, repeat and notify; approve lists the rider; decline and withdraw; refusals; OPERATOR cannot decide; existing add-by-mobile unchanged) | Pass, 23-Nov 11.50 |
+| DT-006-02 | `society-rider-guard`, `society-memberships` and `migration-journal` (idx 176, later `when`) | Pass, 23-Nov 11.50 (22/22 with DT-006-01) |
+| DT-006-03 | `tsc --noEmit`, eslint on the changed files | Pass, 23-Nov 11.52 |
+| DT-006-04 | Full regression | 4,123 / 4,127 pass, 23-Nov 11.52–15.15. **4 failures in `migrate-on-build.test.ts`, all `CONNECT_TIMEOUT localhost:5432` / hook timeouts.** The local PostgreSQL was shared with another session's test run. A re-run at 15.20 still timed out locally (3 fail, 4 pass). This is the same local-only failure as DT-REG-02. The PR's CI runs it against a clean database and is the deciding result. |
+| DT-006-05 | Staging, flag OFF: new routes answer 404, rider and society pages unchanged | Not run yet (after the staging queue merges the PR) |
+
+**Staging and production:** the PR goes into the staging queue with `ready-for-staging`, and the flag stays OFF there unless the owner asks. On production the flag stays OFF and migration 0176 goes out with the joint logo + dealer release (production database migrate runs before the merge, DEPLOYMENT.md §4). Rollback: switch the flag off, then run `scripts/rollback-0176.sql`. Riders already approved stay on the society's rider list.
