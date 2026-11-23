@@ -1939,6 +1939,23 @@ export const RULES = {
       fallbackOnFailure: true,
     },
   },
+  voicePriceAssistant: {
+    description:
+      "Shop owners change prices and offers by voice (docs/smart-shopping-2026-11/FEATURE4_VOICE_PRICE_OFFERS.md). GoKesari shows what it understood and publishes only after the owner confirms.",
+    schema: z.object({
+      /** An offer said without an end ("10% off") runs this many days, today included. */
+      defaultOfferDays: int(1, 90),
+      /** A new price this much lower than today's (percent) gets a "check the price" warning before confirming. */
+      bigDropWarnPercent: int(10, 95),
+      /** A spoken product name is taken without asking when its match score is at least this (0–100). */
+      autoPickScore: int(30, 100),
+    }),
+    defaults: {
+      defaultOfferDays: 7,
+      bigDropWarnPercent: 50,
+      autoPickScore: 60,
+    },
+  },
   /* <<< smart-shopping */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 

@@ -22,7 +22,7 @@ import { aiUsageLog } from "@/server/db/schema";
 import { getRule } from "@/server/services/settings";
 import { claudeProvider } from "./providers/claude";
 
-export type AiFeature = "LIST_SCAN" | "PRODUCT_PHOTO" | "VOICE_PARSE" | "WHATSAPP_INTENT";
+export type AiFeature = "LIST_SCAN" | "PRODUCT_PHOTO" | "VOICE_PARSE" | "WHATSAPP_INTENT" | "VOICE_COMMAND";
 
 export interface AiImage {
   bytes: Buffer;
