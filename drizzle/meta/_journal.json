@@ -1305,13 +1305,6 @@
       "breakpoints": true
     },
     {
-      "idx": 185,
-      "version": "7",
-      "when": 1793269285000,
-      "tag": "0185_shop_staff_roles",
-      "breakpoints": true
-    },
-    {
       "idx": 186,
       "version": "7",
       "when": 1793269105000,
@@ -1337,6 +1330,13 @@
       "version": "7",
       "when": 1793269108000,
       "tag": "0189_shop_membership_renewal",
+      "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1793269109000,
+      "tag": "0190_shop_staff_roles",
       "breakpoints": true
     }
   ]

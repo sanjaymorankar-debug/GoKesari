@@ -4453,16 +4453,16 @@ export const shopStaff = pgTable(
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    // Null only for an invitation to an e-mail address with no account yet (Module 10, 0185).
+    // Null only for an invitation to an e-mail address with no account yet (Module 10, 0190).
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     scope: text("scope", { enum: ["CATALOGUE"] }).notNull().default("CATALOGUE"),
-    // Module 10 (0185): INVITED and SUSPENDED added; only ACTIVE grants anything.
+    // Module 10 (0190): INVITED and SUSPENDED added; only ACTIVE grants anything.
     status: text("status", { enum: ["INVITED", "ACTIVE", "SUSPENDED", "REVOKED"] }).notNull().default("ACTIVE"),
     addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
     addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
     revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "set null" }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    /* Module 10 (0185, docs/shop-staff-roles-2026-11): role + extra permissions (src/lib/shop-staff/permissions.ts). */
+    /* Module 10 (0190, docs/shop-staff-roles-2026-11): role + extra permissions (src/lib/shop-staff/permissions.ts). */
     role: text("role").notNull().default("CATALOGUE_MANAGER"),
     permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`),
     inviteEmail: text("invite_email"),
@@ -10646,7 +10646,7 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_operations",
   // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
   "dealer_platform_four_eye",
-  // docs/shop-staff-roles-2026-11 (0185): shop staff roles, permissions and invitations. Off: staff stay catalogue-only.
+  // docs/shop-staff-roles-2026-11 (0190): shop staff roles, permissions and invitations. Off: staff stay catalogue-only.
   "shop_staff_roles_enabled",
   // docs/customer-whatsapp-2026-11 (0185): customer updates and shopping on WhatsApp (Meta Cloud API, or the mock outbox).
   "whatsapp_customer_enabled",
