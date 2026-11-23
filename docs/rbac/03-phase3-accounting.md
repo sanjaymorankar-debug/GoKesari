@@ -42,7 +42,7 @@ The existing `runReconciliation` (payments ↔ orders ↔ settlements, `/admin/f
 
 - **Bank feeds**: statements are uploaded by hand; fetching them from the bank automatically needs a bank API agreement.
 - **Gateway settlement records**: GoKesari does not store Cashfree's settlement UTRs, so a settlement credit is matched to the Accountant's journal entry rather than automatically.
-- **Franchise fee and platform fee** as proposal kinds: the franchise fee lives in versioned `franchise_config_versions` with its own monthly-effective rule; no "platform fee" field exists. Both can be added as rate kinds calling their setters.
+- **Franchise fee**: out of scope here (owner, 23-Nov-2026) — the franchise / dealer module is handled in its own session. No "platform fee" field exists, so there is nothing to propose for it.
 - GST / TDS registers for the Accountant: today the CA's existing pages (`/admin/statutory`, `/admin/tds-commission`) and finance views (FINANCE_VIEW, now held by the Accountant and CA) serve them.
 
 ## API

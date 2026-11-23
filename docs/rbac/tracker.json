@@ -141,7 +141,7 @@
     "production": "Not Started",
     "productionAt": "",
     "flag": "rbac_v2_accounting",
-    "notes": "Local: 11 tests passed (maker/checker, high value CA→Admin, posted entries refused by DB, reversal nets to zero, period close, rate activation via existing setters). Bank-statement reconciliation and franchise/platform fee proposals are follow-ups."
+    "notes": "Local: 11 tests passed (maker/checker, high value CA→Admin, posted entries refused by DB, reversal nets to zero, period close, rate activation via existing setters). Bank-statement reconciliation built 23-Nov (row 3+). Franchise fee: separate franchise / dealer session (owner, 23-Nov)."
   },
   {
     "phase": "3+",

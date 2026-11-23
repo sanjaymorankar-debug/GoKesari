@@ -161,4 +161,4 @@ Full CI suite, R6:
 | Production run (gokesari.com) | After staging verification, in the 23.00 IST window, with designated test accounts only. Flags stay OFF unless the owner says otherwise. |
 | R8 CI re-run on 567a22fc | Running; Auto-fix watches it |
 | Manual / visual checks of the new screens on phone width (Tile Board one-screen rule) | With the test-server run |
-| Not built (recorded) | Franchise-fee / platform-fee proposals; virus scanner (Q9, needs a server package — owner); automatic bank feeds (needs a bank API agreement) |
+| Not built (recorded) | Virus scanner (Q9, needs a server package — owner); automatic bank feeds (needs a bank API agreement). Franchise items are handled by the separate franchise / dealer session (owner, 23-Nov). |
