@@ -81,6 +81,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
   dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
   guest_cart_enabled: "Guests can fill a cart; sign-in only at Place order",
+  guest_checkout_enabled: "Guest checkout: order with a one-time code, track without signing in",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -141,6 +142,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
   guest_cart_enabled:
     "docs/guest-cart-2026-11 (owner, 23-Nov-2026): a shopper who is not signed in can tap Add to cart and open the cart. The guest cart is kept only in their browser (up to 50 items, 7 days); nothing is saved on the server. Place order asks them to sign in, then moves the items into their account cart (quantities added, capped at stock) and returns to checkout. Off: Add to cart asks for sign-in first, as before.",
+  guest_checkout_enabled:
+    "docs/guest-checkout-2026-11: needs guest_cart_enabled ON too. A guest checks out from the cart with name, mobile, e-mail and address and a one-time code (e-mail; plus a mobile code where SMS is set up — mock on the test site). That makes a normal customer account (marked guest-created), signs them in and continues to the usual payment choice. Adds: tracking links without sign-in (/track), the combined timeline on multi-shop orders, the \"Best shop for this cart\" panel and Admin → Payments → Order-group reconciliation. Off: the site behaves as before.",
 };
 
 export interface FeatureFlagView {

@@ -614,6 +614,9 @@ export const AUDIT_ACTIONS = {
   HEALTH_CARE_PROVIDER: "health.care_provider",
   HEALTH_EQUIPMENT_STORE: "health.equipment_store",
   /* <<< GoKesari Health */
+  /* docs/guest-checkout-2026-11 (0187) */
+  GUEST_CHECKOUT_VERIFIED: "guest_checkout.verified",
+  GUEST_TRACKING_LOOKUP: "guest_checkout.tracking_lookup",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

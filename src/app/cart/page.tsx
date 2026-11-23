@@ -27,20 +27,33 @@ import { listPurchaseLists } from "@/server/services/purchase-lists";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { ScanListTile } from "@/components/smart-list/scan-list-tile";
 import { GuestCartView } from "@/components/guest-cart/guest-cart-view";
+import { CartShopRecommendation } from "@/components/guest-checkout/cart-shop-recommendation";
+import { isGuestCheckoutOn } from "@/server/guest-checkout/tracking";
 
 export const metadata = { title: "Cart" };
 export const dynamic = "force-dynamic";
 
-export default async function CartPage() {
+export default async function CartPage({ searchParams }: { searchParams?: Promise<{ guest?: string }> }) {
   const user = await getCurrentUser();
   if (!user) {
     // docs/guest-cart-2026-11: with guest_cart_enabled on, a guest sees the cart kept in their browser
     // and is asked to sign in only at "Place order". Off: sign in first, as before.
     if (!(await isFeatureEnabled("guest_cart_enabled").catch(() => false))) redirect("/signin");
+    // docs/guest-checkout-2026-11: with guest_checkout_enabled on too, the guest can also check out here
+    // (contact + one-time code) and sees the best-shop panel. The PIN code comes from the chosen location.
+    const guestLocation = (await isGuestCheckoutOn()) ? await getCustomerLocation(null) : undefined;
+    const guestCheckout =
+      guestLocation === undefined
+        ? null
+        : {
+            prefill: guestLocation
+              ? { pincode: guestLocation.pincode ?? null, area: null, latitude: guestLocation.latitude ?? null, longitude: guestLocation.longitude ?? null }
+              : null,
+          };
     return (
       <>
         <PageHeader title="Your cart" description="Items are grouped by shop — each shop becomes its own order." />
-        <GuestCartView lang={await getBoardLang()} />
+        <GuestCartView lang={await getBoardLang()} guestCheckout={guestCheckout} />
       </>
     );
   }
@@ -93,7 +106,13 @@ export default async function CartPage() {
   // docs/purchase-lists-2026-10: "Save as a list" offers the customer's own lists.
   const purchaseLists = cart.groups.length > 0 ? await listPurchaseLists(user.id) : [];
   // docs/smart-shopping-2026-11: "Scan my shopping list" in the cart too.
-  const [scanList, lang] = await Promise.all([isFeatureEnabled("smart_list_scan_enabled").catch(() => false), getBoardLang()]);
+  const [scanList, lang, guestCheckoutOn] = await Promise.all([
+    isFeatureEnabled("smart_list_scan_enabled").catch(() => false),
+    getBoardLang(),
+    isGuestCheckoutOn(),
+  ]);
+  // docs/guest-checkout-2026-11: /cart?guest=1 is where a guest lands right after verifying.
+  const justVerified = (await searchParams)?.guest === "1";
 
   return (
     <>
@@ -120,6 +139,16 @@ export default async function CartPage() {
       ) : null}
       {cart.groups.length > 0 ? (
         <SaveCartAsList lists={purchaseLists.map((l) => ({ id: l.id, name: l.name, kind: l.kind }))} />
+      ) : null}
+      {guestCheckoutOn && cart.groups.length > 0 ? (
+        <CartShopRecommendation lang={lang} cartKey={cart.groups.flatMap((g) => g.lines.map((l) => `${l.cartItemId}:${l.quantity}`)).join(",")} />
+      ) : null}
+      {guestCheckoutOn && justVerified ? (
+        <div className="mb-4">
+          <Alert tone="success" title="You are signed in">
+            Your address is saved. Choose how to pay below and place your order.
+          </Alert>
+        </div>
       ) : null}
       <CartView
         cart={cart}
