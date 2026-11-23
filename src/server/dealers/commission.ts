@@ -51,6 +51,7 @@
  * (checked here, not only in routes). Every change is audited with the old
  * value, the new value and the reason.
  */
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { and, asc, desc, eq, gte, inArray, isNull, like, lte, ne, or, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 
@@ -108,8 +109,14 @@ const WHOLESALE_TYPES = new Set(["WHOLESALE_STORE"]);
 export const DOCUMENTS_HOLD_NOTE = "held: shop approved without its documents — released when they are verified";
 const today = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * docs/dealer-platform phase 6: ADMIN, or the dealership role with the matching permission — payouts and the
+ * month close for Finance (DEALER_PAYOUT_APPROVE), everything else here for commission editors (DEALER_COMMISSION_EDIT).
+ */
 function requireAdmin(actor: Actor, what: string) {
-  if (actor.role !== "ADMIN") throw forbidden(`Only an admin can ${what}.`);
+  const payout = /payout/.test(what);
+  if (actor.role === "ADMIN" || can(actor.role, payout ? PERMISSIONS.DEALER_PAYOUT_APPROVE : PERMISSIONS.DEALER_COMMISSION_EDIT)) return;
+  throw forbidden(`Only an admin can ${what}.`);
 }
 
 function requireReason(reason: string | null | undefined, min = 5): string {
@@ -530,6 +537,15 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
   if (row.shop.status === "APPROVED") reached.push("ACTIVATED");
 
   const out: DealerCommissionEntry[] = [];
+  // docs/dealer-platform phase 3: a dealer whose scheme is calculated from its terms earns through the scheme
+  // calculator, once, at activation (a franchise zone's Model B still wins inside the zone).
+  const { accrueSchemeActivation, schemeCalculated } = await import("./scheme-calculator");
+  const onScheme = !franchise && !(await hasStandardCommission(db, shopId)) ? await schemeCalculated(row.a.dealerId) : null;
+  if (onScheme) {
+    if (reached.includes("ACTIVATED") && !feeWaived(row.shop)) {
+      out.push(...((await accrueSchemeActivation(row.shop, row.a.dealerId, row.a.salespersonId, feeBasePaise(row.shop), actor, { holdForDocuments: awaitingDocuments, documentsHoldNote: DOCUMENTS_HOLD_NOTE })) ?? []));
+    }
+  }
   // TIERED dealers (0136, rule dealerTieredCommission on): the network commission, part 1 at activation.
   const [dealerRow] = await db.select({ commissionModel: dealers.commissionModel }).from(dealers).where(eq(dealers.id, row.a.dealerId));
   // A shop that already earned on the standard model stays on it when its dealer moves to TIERED.
@@ -537,7 +553,7 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
   // Base % model: the whole commission is earned at activation; the other milestones earn nothing.
   const earning = tiered || settings.commissionModel === "BASE_PERCENT" ? reached.filter((m) => m === "ACTIVATED") : reached;
   // A waived fee earns the dealer nothing; the rating below still counts the shop.
-  for (const milestone of feeWaived(row.shop) ? [] : earning) {
+  for (const milestone of feeWaived(row.shop) || onScheme ? [] : earning) {
     const holdForDocuments = milestone === "ACTIVATED" && awaitingDocuments;
     out.push(
       ...(tiered

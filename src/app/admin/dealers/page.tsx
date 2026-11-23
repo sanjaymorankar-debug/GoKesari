@@ -5,6 +5,7 @@ import { AddDealerForm } from "@/components/dealer/add-dealer-form";
 import { Badge, PageHeader } from "@/components/ui";
 import { DEALER_STATUS_LABELS, DEALER_STATUSES, DEALER_TYPE_LABELS, type DealerStatus } from "@/lib/dealers";
 import { getCurrentUser } from "@/server/authz/guards";
+import { isDealerStaff } from "@/server/dealers/staff-access";
 import { DocRequirementsAdmin } from "@/components/dealer/doc-requirements-admin";
 import { dealersOverview } from "@/server/dealers/performance";
 import { listDealers, listDocumentRequirements } from "@/server/dealers/service";
@@ -31,7 +32,7 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
   if (!(await isFeatureEnabled("dealer_programme_enabled"))) notFound();
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  if (user.role !== "ADMIN" && user.role !== "OPERATOR") redirect("/");
+  if (!isDealerStaff(user.role)) redirect("/");
   const params = await searchParams;
   const status: DealerStatus | "ALL" =
     params.status === "ALL" ? "ALL" : (DEALER_STATUSES as readonly string[]).includes(params.status ?? "") ? (params.status as DealerStatus) : "PENDING";
@@ -48,6 +49,8 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
       </Link>
       <PageHeader title="Dealers" description="Applications waiting for approval, and every dealer. Only an admin approves, rejects, suspends or terminates; every decision is logged." />
       <p className="mb-3 text-sm">
+        <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/dashboard">Dashboard</Link> ·{" "}
+        <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/schemes">Schemes</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/commission">Commission, rating & payouts</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/franchise">Franchise (territories)</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/referral-moves">Referral moves</Link> ·{" "}

@@ -4,6 +4,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
+import { SchemeChooser, type ChooserCharge, type ChooserScheme } from "@/components/dealer/scheme-chooser";
+import { SchemeQuestions } from "@/components/dealer/scheme-questions";
+import type { CustomField, CustomValues } from "@/lib/dealer-schemes";
 import { DEALER_DOC_LABELS, DEALER_TYPE_LABELS, DEALER_TYPES, type DealerDocType, type DealerType } from "@/lib/dealers";
 
 export interface ApplicationDealer {
@@ -39,6 +42,14 @@ interface Props {
   workZone?: { id: string; name: string } | null;
   /** The bank account can be checked online on this site (Cashfree Verification keys set). */
   bankCheckAvailable?: boolean;
+  /** docs/dealer-platform phase 2: the schemes to choose from, his choice and its joining charge (null: franchise owner). */
+  scheme?: {
+    schemes: ChooserScheme[];
+    chosenVersionId: string | null;
+    charge: ChooserCharge | null;
+    /** Phase 5: the chosen scheme's own questions. */
+    questions?: { fields: CustomField[]; values: CustomValues; files: { id: string; fieldKey: string; fileName: string }[] } | null;
+  } | null;
 }
 
 /** Documents that can be checked online instead of uploaded, and what the check uses. */
@@ -56,7 +67,7 @@ const EDITABLE = ["DRAFT", "REJECTED"];
  * agreement and submit. PAN and the account number are typed in again only
  * when they change — the saved ones are shown masked.
  */
-export function DealerApplication({ dealer, requirements, areas, agreementVersion, smsAvailable, workZone = null, bankCheckAvailable = false }: Props) {
+export function DealerApplication({ dealer, requirements, areas, agreementVersion, smsAvailable, workZone = null, bankCheckAvailable = false, scheme = null }: Props) {
   const router = useRouter();
   const editable = !dealer || EDITABLE.includes(dealer.status);
   const [form, setForm] = useState({
@@ -167,6 +178,8 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
   const chosenState = pickedState ?? states.find((s) => territories.some((t) => t === s.code || t.startsWith(`${s.code}-`)))?.code ?? (states.length === 1 ? states[0].code : "");
   const districts = chosenState ? (byParent.get(chosenState) ?? []) : [];
   const ownedZones = dealer?.franchiseZones ?? [];
+  const chosenScheme = scheme?.schemes.find((x) => x.versionId === scheme.chosenVersionId) ?? null;
+  const unpaid = Boolean(scheme?.charge?.required && scheme.charge.status !== "PAID");
   const toggle = (code: string, on: boolean) => setTerritories((t) => (on ? [...t, code] : t.filter((c) => c !== code)));
 
   return (
@@ -180,6 +193,12 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
           {dealer.statusReason ? <span className="text-sm text-ink-700">Reason: {dealer.statusReason}</span> : null}
         </Card>
       ) : null}
+
+      {scheme && scheme.schemes.length ? (
+        // Before the first save there is no application to attach the choice to: the schemes are shown to compare.
+        <SchemeChooser schemes={scheme.schemes} chosenVersionId={scheme.chosenVersionId} charge={scheme.charge} editable={editable && Boolean(dealer)} />
+      ) : null}
+      {scheme?.questions && dealer ? <SchemeQuestions fields={scheme.questions.fields} values={scheme.questions.values} files={scheme.questions.files} editable={editable} /> : null}
 
       {workZone ? (
         <Card className="space-y-1 p-4" data-testid="dealer-work-zone">
@@ -429,15 +448,20 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
             recruit other dealers. Shop owners register and pay their own registration fee; you never collect money for GoKesari.
             GoKesari may suspend or end the authorisation as the agreement provides. (Agreement version {agreementVersion}.)
           </p>
+          {chosenScheme ? (
+            <p className="text-sm text-ink-700" data-testid="dealer-accept-scheme">
+              Your scheme: <span className="font-semibold">{chosenScheme.name}</span> (version {chosenScheme.version}). Its terms, shown above, are part of the agreement.
+            </p>
+          ) : null}
           <label className="flex min-h-11 items-center gap-2 text-sm">
-            <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} />I have read and accept the dealer agreement.
+            <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} />I have read and accept the dealer agreement{chosenScheme ? " and my scheme's terms" : ""}.
           </label>
           <Button
-            disabled={!accept || busy !== null}
+            disabled={!accept || busy !== null || unpaid}
             onClick={() =>
               send(
                 "/api/dealer/application/submit",
-                { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agreementVersion }) },
+                { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agreementVersion, termsHash: chosenScheme?.termsHash ?? null }) },
                 "submit",
                 "Application submitted. We will tell you when it is decided.",
               )

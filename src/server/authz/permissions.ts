@@ -351,6 +351,28 @@ export const PERMISSIONS = {
   /** Gap report D2 / D5: TDS certificates (lower / nil), challans and Form 16A on commission (admin and CA). */
   COMMISSION_TDS_MANAGE: "tds:commission:manage",
   /* <<< end dealer programme */
+  /* >>> dealer platform (docs/dealer-platform, 0181; owner decision D9) */
+  /** Read the dealer platform: dealers, schemes, dashboards, ledgers (no changes). */
+  DEALER_PLATFORM_VIEW: "dealer-platform:view",
+  /** Create schemes and edit draft versions. */
+  DEALER_SCHEME_EDIT: "dealer-scheme:edit",
+  /** Publish / schedule versions; suspend, reopen, expire, archive schemes. */
+  DEALER_SCHEME_PUBLISH: "dealer-scheme:publish",
+  /** Approve or reject dealer applications (a Regional Admin: in his regions only). */
+  DEALER_APPROVE: "dealer:approve",
+  /** Suspend, reactivate or terminate dealers. */
+  DEALER_SUSPEND: "dealer:suspend",
+  /** Move a dealer to another scheme; move codes, shops and team members between dealers. */
+  DEALER_REASSIGN: "dealer:reassign",
+  /** Franchise zones: allocation status, zone owners, coupons. */
+  DEALER_TERRITORY_ALLOCATE: "dealer-territory:allocate",
+  /** Commission rules and per-dealer rates; reverse, hold and release ledger lines. */
+  DEALER_COMMISSION_EDIT: "dealer-commission:edit",
+  /** Approve and pay dealer payouts; close the commission month. */
+  DEALER_PAYOUT_APPROVE: "dealer-payout:approve",
+  /** Refund a franchise booking or a joining charge. */
+  DEALER_REFUND: "dealer:refund",
+  /* <<< end dealer platform */
   //
   /* >>> consultant appointments (docs/consult-booking-2026-11) */
   /** Consultant categories, policy templates, profile verification, all bookings, refunds and reports (admin and operator). */
@@ -410,6 +432,7 @@ export const PERMISSIONS = {
   /** Operations User: help a customer register (the customer confirms by OTP). */
   CUSTOMER_ONBOARD_ASSIST: "customer-onboard:assist",
   /* <<< RBAC v2 */
+
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -685,6 +708,46 @@ const OPERATIONS_MANAGER_PERMISSIONS: readonly Permission[] = [
 ];
 /* <<< RBAC v2 */
 
+/* >>> dealer platform (docs/dealer-platform, 0181): staff roles for the dealership & franchise business */
+const DEALER_PLATFORM_READ: readonly Permission[] = [...STAFF_PERSONAL_PERMISSIONS, PERMISSIONS.DEALER_PLATFORM_VIEW, PERMISSIONS.DEALER_PAYOUTS_READ];
+
+const BUSINESS_ADMIN_PERMISSIONS: readonly Permission[] = [
+  ...DEALER_PLATFORM_READ,
+  PERMISSIONS.DEALER_SCHEME_EDIT,
+  PERMISSIONS.DEALER_SCHEME_PUBLISH,
+  PERMISSIONS.DEALER_APPROVE,
+  PERMISSIONS.DEALER_SUSPEND,
+  PERMISSIONS.DEALER_REASSIGN,
+  PERMISSIONS.DEALER_TERRITORY_ALLOCATE,
+  PERMISSIONS.DEALER_COMMISSION_EDIT,
+  // Deliberately absent: DEALER_PAYOUT_APPROVE, DEALER_REFUND (money leaves through Finance).
+];
+
+const DEALERSHIP_MANAGER_PERMISSIONS: readonly Permission[] = [
+  ...DEALER_PLATFORM_READ,
+  PERMISSIONS.DEALER_SCHEME_EDIT,
+  PERMISSIONS.DEALER_APPROVE,
+  PERMISSIONS.DEALER_SUSPEND,
+  PERMISSIONS.DEALER_TERRITORY_ALLOCATE,
+  // Deliberately absent: DEALER_SCHEME_PUBLISH (drafts only), commission, payouts, refunds.
+];
+
+const FINANCE_ADMIN_PERMISSIONS: readonly Permission[] = [
+  ...DEALER_PLATFORM_READ,
+  PERMISSIONS.DEALER_PAYOUT_APPROVE,
+  PERMISSIONS.DEALER_REFUND,
+  PERMISSIONS.DEALER_COMMISSION_EDIT,
+  PERMISSIONS.COMMISSION_TDS_MANAGE,
+  PERMISSIONS.FINANCE_VIEW,
+];
+
+const REGIONAL_ADMIN_PERMISSIONS: readonly Permission[] = [...DEALER_PLATFORM_READ, PERMISSIONS.DEALER_APPROVE, PERMISSIONS.DEALER_SUSPEND];
+
+const AUDITOR_PERMISSIONS: readonly Permission[] = [...DEALER_PLATFORM_READ, PERMISSIONS.AUDIT_LOG_VIEW, PERMISSIONS.FINANCE_VIEW];
+
+const READ_ONLY_PERMISSIONS: readonly Permission[] = DEALER_PLATFORM_READ;
+/* <<< dealer platform */
+
 const OPERATOR_LIMITED_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.CONSULT_ONBOARD, // consultant appointments: only for the shops the operator onboarded (checked in src/server/consult)
   PERMISSIONS.ORDER_PLACE,
@@ -725,6 +788,12 @@ export const ROLE_PERMISSIONS: Readonly<
   SUPPORT_USER: SUPPORT_USER_PERMISSIONS,
   OPERATIONS_MANAGER: OPERATIONS_MANAGER_PERMISSIONS,
   OPERATIONS_USER: OPERATIONS_USER_PERMISSIONS,
+  BUSINESS_ADMIN: BUSINESS_ADMIN_PERMISSIONS, // docs/dealer-platform
+  DEALERSHIP_MANAGER: DEALERSHIP_MANAGER_PERMISSIONS,
+  FINANCE_ADMIN: FINANCE_ADMIN_PERMISSIONS,
+  REGIONAL_ADMIN: REGIONAL_ADMIN_PERMISSIONS,
+  AUDITOR: AUDITOR_PERMISSIONS,
+  READ_ONLY: READ_ONLY_PERMISSIONS,
 };
 
 const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
@@ -742,6 +811,12 @@ const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
   SUPPORT_USER: new Set(SUPPORT_USER_PERMISSIONS),
   OPERATIONS_MANAGER: new Set(OPERATIONS_MANAGER_PERMISSIONS),
   OPERATIONS_USER: new Set(OPERATIONS_USER_PERMISSIONS),
+  BUSINESS_ADMIN: new Set(BUSINESS_ADMIN_PERMISSIONS), // docs/dealer-platform
+  DEALERSHIP_MANAGER: new Set(DEALERSHIP_MANAGER_PERMISSIONS),
+  FINANCE_ADMIN: new Set(FINANCE_ADMIN_PERMISSIONS),
+  REGIONAL_ADMIN: new Set(REGIONAL_ADMIN_PERMISSIONS),
+  AUDITOR: new Set(AUDITOR_PERMISSIONS),
+  READ_ONLY: new Set(READ_ONLY_PERMISSIONS),
 };
 
 export function can(role: UserRole, permission: Permission): boolean {
@@ -774,9 +849,25 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   SUPPORT_USER: "Support User",
   OPERATIONS_MANAGER: "Operations Manager",
   OPERATIONS_USER: "Operations User",
+  BUSINESS_ADMIN: "Business Admin", // docs/dealer-platform
+  DEALERSHIP_MANAGER: "Dealership Manager",
+  FINANCE_ADMIN: "Finance Admin",
+  REGIONAL_ADMIN: "Regional Admin",
+  AUDITOR: "Auditor",
+  READ_ONLY: "Read-only",
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
+  [PERMISSIONS.DEALER_PLATFORM_VIEW]: "Read dealers, schemes, dashboards and commission (no changes)",
+  [PERMISSIONS.DEALER_SCHEME_EDIT]: "Create dealer schemes and edit drafts",
+  [PERMISSIONS.DEALER_SCHEME_PUBLISH]: "Publish, schedule, suspend, expire or archive dealer schemes",
+  [PERMISSIONS.DEALER_APPROVE]: "Approve or reject dealer applications",
+  [PERMISSIONS.DEALER_SUSPEND]: "Suspend, reactivate or terminate dealers",
+  [PERMISSIONS.DEALER_REASSIGN]: "Move dealers between schemes; move codes, shops and team members",
+  [PERMISSIONS.DEALER_TERRITORY_ALLOCATE]: "Manage franchise zones and allocations",
+  [PERMISSIONS.DEALER_COMMISSION_EDIT]: "Change commission rules and rates; reverse, hold or release commission",
+  [PERMISSIONS.DEALER_PAYOUT_APPROVE]: "Approve and pay dealer payouts; close the commission month",
+  [PERMISSIONS.DEALER_REFUND]: "Refund franchise bookings and dealer joining charges",
   [PERMISSIONS.SHOP_CREATE]: "Submit a shop registration",
   [PERMISSIONS.SHOP_UPDATE_OWN]: "Edit own shop details",
   [PERMISSIONS.SHOP_UPDATE_ANY]: "Edit any shop's details",

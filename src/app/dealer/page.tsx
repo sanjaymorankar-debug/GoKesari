@@ -26,7 +26,13 @@ import { originFromHeaders } from "@/server/dealers/http";
 import { listDisputes } from "@/server/dealers/disputes";
 import { listLeads } from "@/server/dealers/leads";
 import { dealerView, getDealerForUser, listSalespeople } from "@/server/dealers/service";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { flagCoversShop, getFeatureFlag, isFeatureEnabled } from "@/server/services/feature-flags";
+import { currentDealerScheme } from "@/server/dealers/schemes";
+import { dealerSchemeCardData } from "@/server/dealers/scheme-portal";
+import { DealerSchemeCard } from "@/components/dealer/dealer-scheme-card";
+import { ShopLogoUpload } from "@/components/delta/shop-logo-upload";
+import { SHOP_LOGO_FLAG } from "@/lib/delta/shop-logo";
+import { describeCharge } from "@/lib/dealer-schemes";
 import { getRule } from "@/server/services/settings";
 import { listShopCategories } from "@/server/services/shop-categories";
 import { listShopTypes } from "@/server/services/shop-types";
@@ -53,6 +59,10 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
   }
   if (!dealer || dealer.status === "DRAFT" || dealer.status === "REJECTED") redirect("/dealer/apply");
   const view = await dealerView(dealer);
+  // Dealer platform phase 1: his scheme, and his logo card (CF-011 reuse; the logo flag, by his district).
+  const [scheme, logoOn] = await Promise.all([currentDealerScheme(dealer.id), getFeatureFlag(SHOP_LOGO_FLAG).then((f) => flagCoversShop(f, { pincode: dealer.pincode }))]);
+  // Phase 6: his scheme's card — validity, what it paid him, schemes he may move to.
+  const schemeCard = scheme && dealer.status === "APPROVED" ? await dealerSchemeCardData(dealer, scheme) : null;
 
   if (dealer.status !== "APPROVED") {
     return (
@@ -104,6 +114,16 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
         {dealer.agreementStart && dealer.agreementEnd ? <span>Agreement {dealer.agreementStart} to {dealer.agreementEnd}</span> : null}
         <Link className="underline" href="/dealer/apply">Your details</Link>
       </p>
+      {scheme ? (
+        <p className="text-sm text-ink-700" data-testid="dealer-my-scheme">
+          Your scheme: <span className="font-semibold">{scheme.schemeName}</span> (version {scheme.version}) · joining charge {describeCharge(scheme.terms.charge)}
+          {scheme.terms.validityMonths ? ` · ${scheme.terms.validityMonths} months` : ""}
+        </p>
+      ) : null}
+      {schemeCard ? <DealerSchemeCard {...JSON.parse(JSON.stringify(schemeCard))} /> : null}
+      {logoOn ? (
+        <ShopLogoUpload shopId={dealer.id} initialLogoUrl={dealer.logoUrl} endpoint="/api/dealer/logo" heading="Dealer logo" hint="A square JPEG, PNG or WebP picture works best. It is shown on your dealer profile." />
+      ) : null}
       <DealerBoard
         data={iso([performance])[0]}
         ratingText={rating.rating.toFixed(1)}
