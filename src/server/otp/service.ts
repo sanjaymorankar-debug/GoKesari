@@ -46,7 +46,8 @@ export const EMAIL_IN_USE = "This email address is already used by another accou
 /** batch-2026-10 WS-D: SHOP_ONBOARDING_CONSENT — a shop owner authorises an operator to onboard their shop. */
 /** SHOP_EMAIL (0120): the shop registration's email, when it is not the account's own. */
 /** RIDER_BANK_CHANGE / RIDER_WITHDRAWAL (0124): a delivery partner confirms a bank change or a withdrawal. */
-type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT" | "SHOP_EMAIL" | "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL";
+/** ACCOUNT_DELETE (0183): a signed-in person confirms deleting their own account. */
+type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT" | "SHOP_EMAIL" | "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL" | "ACCOUNT_DELETE";
 type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =
@@ -750,7 +751,7 @@ export async function verifyShopEmailOtp(input: { email: string; code: string; u
 export async function requestAccountActionOtp(input: {
   email: string;
   userId: string;
-  purpose: "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL";
+  purpose: "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL" | "ACCOUNT_DELETE";
   ip?: string | null;
   render: (code: string, expiryMinutes: number) => RenderedEmail;
 }): Promise<{ maskedEmail: string; resendAfterSeconds: number; expiryMinutes: number }> {
@@ -763,7 +764,7 @@ export async function requestAccountActionOtp(input: {
 export async function verifyAccountActionOtp(input: {
   email: string;
   userId: string;
-  purpose: "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL";
+  purpose: "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL" | "ACCOUNT_DELETE";
   code: string;
   ip?: string | null;
 }): Promise<void> {

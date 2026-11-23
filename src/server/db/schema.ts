@@ -639,7 +639,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "ACCOUNT_DELETE" /* 0183 */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -4766,6 +4766,38 @@ export const userConsents = pgTable(
     index("user_consents_type_idx").on(t.consentType),
   ],
 );
+
+/**
+ * docs/account-deletion-2026-11 (0183): a person asking to delete their own
+ * account. REQUESTED when the code is sent, BLOCKED when a check refused it
+ * (`blockers` lists why), COMPLETED once the account was anonymised. Kept after
+ * the account is gone as the record that the request was honoured. No foreign
+ * key to users: the row outlives the account's personal data.
+ */
+export const ACCOUNT_DELETION_STATUSES = ["REQUESTED", "BLOCKED", "COMPLETED", "CANCELLED"] as const;
+export type AccountDeletionStatus = (typeof ACCOUNT_DELETION_STATUSES)[number];
+
+export const accountDeletionRequests = pgTable(
+  "account_deletion_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    status: text("status", { enum: ACCOUNT_DELETION_STATUSES }).notNull().default("REQUESTED"),
+    /** What stood in the way at the last check: [{ code, message, count?, href? }]. */
+    blockers: jsonb("blockers").$type<{ code: string; message: string; count?: number; href?: string }[]>().notNull().default([]),
+    reason: text("reason"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+  },
+  (t) => [
+    index("account_deletion_requests_user_idx").on(t.userId, t.requestedAt),
+    index("account_deletion_requests_status_idx").on(t.status, t.requestedAt),
+    check("account_deletion_requests_status_check", sql`${t.status} IN ('REQUESTED', 'BLOCKED', 'COMPLETED', 'CANCELLED')`),
+  ],
+);
+export type AccountDeletionRequest = typeof accountDeletionRequests.$inferSelect;
 
 /* ----------------------------------------------------------- audit logs */
 
@@ -10488,6 +10520,8 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_operations",
   // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
   "dealer_platform_four_eye",
+  // docs/account-deletion-2026-11 (0183): customers delete their own account from My Profile. Off: no section, APIs answer 404.
+  "account_self_deletion_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 

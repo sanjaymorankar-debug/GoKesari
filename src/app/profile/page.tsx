@@ -23,6 +23,7 @@ import { listAddresses } from "@/server/services/addresses";
 import { getProfile } from "@/server/services/profile";
 import { customerBankPrompt } from "@/server/services/bank-accounts";
 import { BANK_STATUS_LABELS } from "@/lib/bank-accounts";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 
 export const metadata = { title: "My Profile" };
 export const dynamic = "force-dynamic";
@@ -49,7 +50,12 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   ]);
   const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null;
   // Bank accounts (docs/four-features-2026-10): refunds-to-bank account and its verification.
-  const [bankStatus, lang] = await Promise.all([customerBankPrompt(user.id, "profile"), getBoardLang()]);
+  const [bankStatus, lang, selfDeletion] = await Promise.all([
+    customerBankPrompt(user.id, "profile"),
+    getBoardLang(),
+    // docs/account-deletion-2026-11: the "Delete my account" section, only with its flag on.
+    isFeatureEnabled("account_self_deletion_enabled"),
+  ]);
 
   const notePage = paginate(notifications, query.page, 5);
   const tabLabel: Record<ProfileTab, string> = { details: "My details", notifications: "Notifications", offers: "Offers" };
@@ -156,6 +162,21 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           </button>
         </form>
       </Card>
+      {selfDeletion ? (
+        <Card className="mb-6 p-6" data-testid="profile-delete-account">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold text-ink-900">Delete my account</h2>
+              <p className="text-sm text-ink-500">
+                Removes your personal details for good. Order and payment records are kept as the law requires.
+              </p>
+            </div>
+            <Link href="/profile/delete" className="text-sm font-medium text-red-700 hover:underline">
+              Delete account →
+            </Link>
+          </div>
+        </Card>
+      ) : null}
         </>
       ) : null}
 

@@ -80,6 +80,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
   dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
+  account_self_deletion_enabled: "Self-service account deletion from My Profile",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -138,6 +139,7 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
   rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",
   dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
+  account_self_deletion_enabled: "docs/account-deletion-2026-11: a signed-in person deletes their own account (My Profile → Delete my account) after the checks pass and an emailed code. Personal details are anonymised; orders, invoices, payments and ledgers are kept for legal retention. Off: the section is hidden and the APIs answer 404.",
 };
 
 export interface FeatureFlagView {

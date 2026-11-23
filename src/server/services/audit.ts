@@ -388,6 +388,10 @@ export const AUDIT_ACTIONS = {
   PHONE_LINKED: "auth.phone_linked",
   PHONE_RELEASED: "auth.phone_released",
   EMAIL_CHANGED: "auth.email_changed",
+  // docs/account-deletion-2026-11 (0183): self-service account deletion.
+  ACCOUNT_DELETION_REQUESTED: "account.deletion_requested",
+  ACCOUNT_DELETION_BLOCKED: "account.deletion_blocked",
+  ACCOUNT_DELETED: "account.deleted",
   SIGNED_OUT: "auth.signed_out", // QA TC-AUTH-045: Sign out, recorded like a sign-in (auth.otp_verified)
   PROFILE_UPDATED: "user.profile_updated",
   /* ------------------------------------------------- docs/four-features-2026-10 */

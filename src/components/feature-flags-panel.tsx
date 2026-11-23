@@ -39,7 +39,9 @@ export type FeatureFlagKey =
   | "rbac_v2_support"
   | "rbac_v2_shop_change_requests"
   | "rbac_v2_operations"
-  | "dealer_platform_four_eye";
+  | "dealer_platform_four_eye"
+  // docs/account-deletion-2026-11 (0183)
+  | "account_self_deletion_enabled";
 
 interface FlagValue {
   enabled: boolean;
