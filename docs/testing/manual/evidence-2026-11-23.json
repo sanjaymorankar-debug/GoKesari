@@ -1,0 +1,958 @@
+{
+ "date": "2026-11-23",
+ "note": "Hand-test results other sessions already recorded for what the 23-Nov cases check (reports in Doc_GoKesari/Test_Cases_Tracking and docs/). For reference; the register still shows these cases as Not run until a run is collected.",
+ "results": [
+  {
+   "id": "TC-PUJA-001",
+   "result": "Pass",
+   "when": "20-Nov-2026 23.37 IST",
+   "site": "production",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-UI-01 (Prod) and PUJA-PRD-01",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-002",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.21 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-CUS-02 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-002",
+   "result": "Pass",
+   "when": "20-Nov-2026 23.37 IST",
+   "site": "production",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-CUS-01 / PUJA-CUS-02 (Prod): every page 200; 0 results, no puja listings yet (recorded as Pass (partial))",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-003",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.21 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-CUS-03 (Test site; that run used PIN 411030)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-003",
+   "result": "Pass",
+   "when": "20-Nov-2026 23.39 IST",
+   "site": "production",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-CUS-03 (Prod) and defect PUJA-D-07",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-004",
+   "result": "Pass",
+   "when": "20-Nov-2026 23.40 IST",
+   "site": "production",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-PRD-01 (15 puja APIs all 401 to a guest)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-010",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.18 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-OWN-01, PUJA-OWN-02, PUJA-OWN-03 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-011",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.18 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-OWN-05 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-012",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.18 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-OWN-07 (Test site; re-run 18.46 IST pass)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-013",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.18 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-ADM-01 (Test site; re-run 18.46 IST pass)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-014",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.21 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-CUS-01 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-015",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.18 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-CUS-06 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-016",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.20 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-CUS-04, PUJA-CUS-05 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-017",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.20 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-ADM-03, PUJA-ADM-04 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-018",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.21 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-UI-01 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-019",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.22 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-SEED-03, PUJA-SEED-04 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-019",
+   "result": "Pass",
+   "when": "20-Nov-2026 23.36 IST",
+   "site": "production",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-SEED-03, PUJA-SEED-04 (Prod, read-only database)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-020",
+   "result": "Pass",
+   "when": "20-Nov-2026 17.58 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-SEED-02 (Test site)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-030",
+   "result": "Pass",
+   "when": "20-Nov-2026 11.20 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-OWN-04 (integration test; not run on staging)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-040",
+   "result": "Pass",
+   "when": "20-Nov-2026 11.20 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-ADM-02 (Local: edit + MRP history)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-043",
+   "result": "Pass",
+   "when": "20-Nov-2026 18.22 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-ADM-02 (Test site: export 200 CSV, 501 rows, 19 columns)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-044",
+   "result": "Pass",
+   "when": "20-Nov-2026 11.20 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-ADM-02 (Local: import with row errors)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-047",
+   "result": "Pass",
+   "when": "20-Nov-2026 11.20 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-ADM-03 (Local: shop_sells_food false → true → false; dairy unchanged)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-050",
+   "result": "Pass",
+   "when": "20-Nov-2026 11.20 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/PUJA_SAMAGRI_TEST_REPORT_2026-11-20.md (= docs/puja-samagri-2026-11/TEST_REPORT.md) › PUJA-ADM-04 (Local: live collection, home banner, kits first)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-NTF-021",
+   "result": "Pass",
+   "when": "21-Nov-2026 12.13 IST",
+   "site": "staging",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/EMAIL_MAILBOX_ROTATION_TEST_RESULTS_2026-11-21.md › rows 12–13",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-NTF-021",
+   "result": "Pass",
+   "when": "21-Nov-2026 13.00 IST",
+   "site": "production",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/EMAIL_MAILBOX_ROTATION_TEST_RESULTS_2026-11-21.md › row 15",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-NTF-023",
+   "result": "Pass",
+   "when": "21-Nov-2026 09.43 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/EMAIL_MAILBOX_ROTATION_TEST_RESULTS_2026-11-21.md › rows 2–3 (unit + integration)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-NTF-024",
+   "result": "Pass",
+   "when": "21-Nov-2026 09.43 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/EMAIL_MAILBOX_ROTATION_TEST_RESULTS_2026-11-21.md › row 4 (integration)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-NTF-025",
+   "result": "Pass",
+   "when": "21-Nov-2026 09.43 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/EMAIL_MAILBOX_ROTATION_TEST_RESULTS_2026-11-21.md › rows 5–6 (integration)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-NTF-026",
+   "result": "Pass",
+   "when": "21-Nov-2026 09.43 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/EMAIL_MAILBOX_ROTATION_TEST_RESULTS_2026-11-21.md › row 3 (integration: stops when all are full)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-NTF-027",
+   "result": "Pass",
+   "when": "21-Nov-2026 09.43 IST",
+   "site": "local",
+   "source": "Doc_GoKesari/Test_Cases_Tracking/EMAIL_MAILBOX_ROTATION_TEST_RESULTS_2026-11-21.md › row 1 (unit: parsing, order, duplicates and unusable entries skipped, no password in logs)",
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-FRN-003",
+   "result": "Pass",
+   "when": "21-Nov-2026 11.28 IST",
+   "site": "production",
+   "source": "Test_Cases_Tracking/FRANCHISE_TESTING_REPORT_2026-11-21.md §0.6 — “Launch fee: GKZ-PUN-02 sells at ₹1,50,000, regular rate ₹2,26,000 shown, for sale”",
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-005",
+   "result": "Pass",
+   "when": "21-Nov-2026 11.28 IST",
+   "site": "production",
+   "source": "Test_Cases_Tracking/FRANCHISE_TESTING_REPORT_2026-11-21.md §0.6 — “Zones API: 99 zones (Pune 50, Mumbai (Konkan) 38, Nashik 11), all Available; booking open; launch places 25”",
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-009",
+   "result": "Pass",
+   "when": "21-Nov-2026 11.25 IST",
+   "site": "production",
+   "source": "Test_Cases_Tracking/FRANCHISE_TESTING_REPORT_2026-11-21.md §0.6 — /app/download/android 200, application/vnd.android.package-archive (app 1.12.0); /app 200 at 11.28 IST",
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-008",
+   "result": "Pass",
+   "when": "22-Nov-2026 19.08 IST",
+   "site": "staging",
+   "source": "PR #479 staging-queue comment (verified 22-Nov-2026 07.08 PM IST): guest QA tier passed — TC-RBAC-002 / TC-SEC-001 sweep every signed-in page and every session-protected write API, incl. /franchise/my, /admin/franchise and /api/franchise/*",
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-066",
+   "result": "Pass",
+   "when": "22-Nov-2026 10.12 IST",
+   "site": "staging",
+   "source": "PR #469 staging-queue comment: guest QA tier passed after the fix for the 22-Nov 02.34 IST failure (TC-RBAC-002: /admin/dealers/territories → 307 /admin/franchise for a guest)",
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-051",
+   "result": "Pass",
+   "when": "21-Nov-2026 08.55 IST",
+   "site": "local",
+   "source": "docs/testing/franchise-pmr/TESTING_REPORT.md §0.2 — tests/unit/franchise-zones.test.ts 21/21 (tier boundaries ±10% / 10.1%, rounding)",
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-SMART-001",
+   "result": "Fail",
+   "when": "22-Nov-2026 22.07 IST",
+   "site": "staging",
+   "source": "PR #484 body: staging-queue guest QA on #482 — /wishlist and /wishlist/scan answered 404 to a guest (TC-RBAC-002 / TC-AUTH-033); fixed by #484 (session checked before the flag), retest needed",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SMART-039",
+   "result": "Pass",
+   "when": "22-Nov-2026 19.40 IST",
+   "site": "local",
+   "source": "docs/smart-shopping-2026-11/GOKESARI_SMART_SHOPPING_TRACKER_2026-11-23.xlsx row QA.3 (double tap and two numbers at once covered by whatsapp-shop-orders.test.ts, Meta mocked, 19 pass) and PR #482 test section",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-002",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking/VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-03 (guest interpret 401)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-003",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-04 (customer interpret 403)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-004",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-02 (page opens for the shop owner, 200); finding 3: the page opens the owner's newest shop, ?shopId= needed",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-005",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-05 (साखर 10 टक्के सूट रविवार पर्यंत → 10% off until Sun 29-Nov, Marathi read-back)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-006",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-06 (Amul butter price 260 rupees → ₹260)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-007",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-11 (Toned Milk ka rate 30 kar do → ₹30)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-011",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-08 (Parle G / Maggi / rice not in the shop, message in en/hi/mr)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-012",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-09 (ब्रेड finds Bread)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-013",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-10 (CHOOSE_PRODUCT with bread, Bread, Mik bread, WHITE BREAD)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-015",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-12 (Bread ₹40 → ₹42 online and in-store, 4200; restored to 4000)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-016",
+   "result": "Fail",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-19 (message showed “₹42 → ₹42”); fixed in PR #496, merged into staging 23-Nov 18.28 IST, retest needed",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-017",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-13 (stale price → 409 “it is now ₹42, say it again”)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-019",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-14 (10% offer to 29-Nov 23.59 IST, customers pay ₹36, shown in Marketing → Offers; stopped after the test)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-020",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-07 (Parle G 2 rupees off for 3 days → ₹2 off; report wording “ends 3 days later”, code ends 23.59 IST on the third day counting today)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-022",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-18 (Bread price 10 rupees → BIG_DROP warning, owner can still say yes)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-024",
+   "result": "Pass",
+   "when": "23-Nov-2026 14.53 IST",
+   "site": "staging",
+   "source": "VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md, VP-15 (95% refused), VP-16 (₹50 off on ₹40 refused), VP-17 (buy 1 get 1 free explained as not available)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-LOGO-001",
+   "result": "Pass",
+   "when": "22-Nov-2026 23.08 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-11-01 (flag OFF: upload / remove refused 404, nothing stored)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-LOGO-002",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.12 IST",
+   "site": "staging",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-STG-02c (512 × 512 PNG uploaded: 201, /api/images/<id> served, shown after reload, “Logo saved.”)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-LOGO-003",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.12 IST",
+   "site": "staging",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-STG-02d (remove logo: “Logo removed.”)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-LOGO-004",
+   "result": "Pass",
+   "when": "22-Nov-2026 23.08 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-11-03 (not an image: 422, old logo kept) — other file checks not recorded",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-LOGO-006",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.12 IST",
+   "site": "staging",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-STG-02e (guest upload 401); DT-11-04 (another owner refused, local 22-Nov 23.08)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-LOGO-009",
+   "result": "Fail",
+   "when": "23-Nov-2026 08.15 IST",
+   "site": "staging",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-STG-03 defect D-CF011-01 (card had no inner padding; DT-STG-02b card visible at 1280 and 375 px, no sideways scroll, passed); fixed in PR #490, retest needed",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-LOGO-010",
+   "result": "Pass",
+   "when": "22-Nov-2026 23.08 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-11-06 (PATCH /api/shops/[id] still sets logoUrl)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-LOGO-011",
+   "result": "Pass",
+   "when": "23-Nov-2026 09.22 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-11-07 (card default text unchanged; custom heading / hint; unit test delta-logo-upload-reuse)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-018",
+   "result": "Pass",
+   "when": "23-Nov-2026 11.50 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-006-01 (delta-society-join-requests.test.ts: flag off 404); staging flag-off check DT-006-05 not run yet",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-020",
+   "result": "Pass",
+   "when": "23-Nov-2026 11.50 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-006-01 (ask, repeat and notify)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-021",
+   "result": "Pass",
+   "when": "23-Nov-2026 11.50 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-006-01 (refusals)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-022",
+   "result": "Pass",
+   "when": "23-Nov-2026 11.50 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-006-01 (decline and withdraw)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-024",
+   "result": "Pass",
+   "when": "23-Nov-2026 11.50 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-006-01 (approve lists the rider; existing add-by-mobile unchanged)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-025",
+   "result": "Pass",
+   "when": "23-Nov-2026 11.50 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-006-01 (decline and withdraw)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-026",
+   "result": "Pass",
+   "when": "23-Nov-2026 11.50 IST",
+   "site": "local",
+   "source": "docs/delta/DELTA_BUILD_2026-11-22.md, DT-006-01 (society OPERATOR cannot decide)",
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-STAFF-008",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 run S4 (scripts/rbac/staging-flows.mjs, 21/21): 7 role pages answered 200 with no application error",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-035",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 run S4: “Accountant cannot approve own journal” (403) and “journal posted by the CA” (₹1 QA journal, API)",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-046",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 run S4: preview (Check file) read 2 lines with no problems",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-048",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 run S4: same file twice refused (409) — staging checked this refusal only; the others are in the local R9 entry",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-050",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 runs S2/S4: credit matched to the posted journal, charge excluded, CA sign-off → RECONCILED (BS-000001 in S2), CSV downloads, reconciled statement cannot be deleted (409)",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-053",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 run S4: CA cannot import a statement (403); flag-off refusal is in the local R9 entry",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-055",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 runs S3/S4 and §3 D7: multi-role manager and member added to OPERATIONS and SUPPORT teams (failed in S1 11.43 before PR #493)",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-058",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 run S4 and §3 D8: ticket assigned to gk-oplim acting as Operations User (failed in S3 16.04 before PR #500)",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-074",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 run S4: task created by the Operations Manager, listed for the Operations User, started and closed with an outcome (API); notes, follow-up and history covered by the local suite",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-079",
+   "result": "Pass",
+   "when": "23-Nov-2026 18.00 IST",
+   "site": "staging",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 run S4: ticket raised by the Operations User linked to the task, Support User sees the assigned ticket, shop owner rejects the proposed change, Operations task closed",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-013",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 (every RBAC v2 suite) + §2 Phase 2 “Refused permission check → one authz.denied audit row” (service level; the 20-a-minute cap is not in the report)",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-016",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 2 “Role-scoped flags: off by default, scope limits roles, admin-only, change logged”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-019",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 2 “A non-admin checker is refused; a rejection needs a comment” and “Only the requester can cancel”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-020",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 2 “approval_decisions refuses UPDATE and DELETE”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-021",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 2 “A failed apply is recorded as FAILED with the reason”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-023",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 2 “Two-admin: self-approval blocked; a different admin approves; role applied; history SUBMIT → APPROVE → APPLY”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-029",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 2 “Bootstrap: the Super Admin approves alone while fewer than 2 admins are active; marked single-admin, audited, e-mailed”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-030",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 2 “Bootstrap switches off with a second admin, and never applies to another admin”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-032",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 2 “Emergency suspension applies at once; rejecting the confirmation lifts it”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-034",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 3 “An unbalanced entry is refused; a CA or Support User cannot prepare entries”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-036",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 3 “A rejected entry is corrected and resubmitted; a withdrawn one returns to draft” (service level — see code_check for the missing screen button)",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-037",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 3 “High value (≥ ₹50,000): CA, then a different admin” (service level; the stage-1 card wording is in code_check)",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-038",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 3 “DB refuses edit, line change and delete of a posted entry” and “Corrections only by reversal; the trial balance nets to zero”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-039",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 3 “Periods: only the CA closes; nothing is drafted, submitted or posted into a closed month; reopening needs a reason”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-042",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 3 “Rate proposal: commission activated only after CA + admin; untouched before”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-043",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 3 “A future commission is scheduled; the sweep activates it when due”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-047",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 bank reconciliation “Automatic: UTR + amount → matched; UTR with a different amount → suggestion only; same amount within 4 days → suggestion; a credit is never matched to a payout”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-048",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 bank reconciliation “Same file twice, overlapping dates for the same account, a full account number in the name → refused; another account may cover the same dates” and “A file with a bad row imports nothing”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-049",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 bank reconciliation “Manual: different amount refused; one record ↔ one line across statements; exclusion needs a reason; undo” and “a draft cannot be” matched",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-051",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 bank reconciliation sign-off refusals, “Refused when opening + credits − debits ≠ closing (₹10.00 gap found)” and “Withdraw → OPEN; deleting an open statement releases its matches; re-import matches again”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-052",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 bank reconciliation “Paid, not in bank: a payout recorded as paid in the dates but on no statement is listed; others are not”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-053",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 bank reconciliation “Accountant only; refused while rbac_v2_accounting is off”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-056",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phases 4/5/7 “Support Manager dashboard: workload per team member; refused to a Support User”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-059",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phases 4/5/7 “A Support User sees only tickets assigned to them; another Support User gets ‘not found’; no proposal without an assigned ticket; no manager actions”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-062",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phases 4/5/7 “Nothing changes until approved; per-item decision; the rejected item stays as it was; … ticket → In Progress” (service level)",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-063",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phases 4/5/7 “shop-only MRP history appended and append-only” and “All approved → ticket Resolved”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-066",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phases 4/5/7 “Superseded when the owner edits the same field; nothing applied from it”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-067",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phases 4/5/7 “Reminders at 24 h and 72 h, once each; expiry after 7 days → Pending Information, nothing applied, no late approval”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-068",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phases 4/5/7 “Bulk price list: good rows → one request with many items; bad rows reported with row numbers” and “Bulk: price above MRP is a row error”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-069",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phases 4/5/7 “Master data correction is decided by an admin only”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-070",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Documents “File type from the bytes (an .exe named .pdf is refused); versions kept; a new version resets verification; versions immutable”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-071",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Documents “Only people working on the shop (and its owner) see or add documents; verification by manager or admin only”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-072",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Documents “Download only through a valid, unexpired signed link (a tampered or expired link is refused)”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-073",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Documents “Deletion: never below admin; an admin's request needs a second admin; the versions are removed”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-075",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 6 tasks and team scope (own tasks only, only a manager cancels or reopens, cross-team refusals logged); the #500 grant case is in rbac-v2-operations per PR #500",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-076",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 6 “Zones and workload: zones are assigned, listed and ended with history kept; each member's workload is shown”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-077",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 6 customer assists (linked by e-mail or mobile; an existing account is not claimed; contact details validated)",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-078",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phase 6 reports (monitors, Excel export, PDF table layout, IST days and weeks) and “Operations User dashboard”",
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-080",
+   "result": "Pass",
+   "when": "23-Nov-2026 08.20 IST",
+   "site": "local",
+   "source": "RBAC_V2_TESTING_REPORT_2026-11-22.md §1 R9 + §2 Phases 4/5/7 “An Operations User raises tickets only for shops they work on” and “All approved → ticket Resolved; only the raiser (or a manager) confirms → Closed”",
+   "group": "E-rbac-v2"
+  }
+ ]
+}

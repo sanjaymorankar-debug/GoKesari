@@ -30,6 +30,10 @@
     },
     "shopB": {
       "email": "firstshop.gokesari@gmail.com"
+    },
+    "admin2": {
+      "email": "sanjaymorankar+gk-admin2@gmail.com",
+      "note": "Second staging admin (Admin B) for the four-eye cases; created 23-Nov-2026 at the owner's request; ADMIN role approved by a different admin. Staging only."
     }
   },
   "shops": {
