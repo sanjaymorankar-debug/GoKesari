@@ -1,11 +1,11 @@
 # RBAC v2 — Testing report
 
-Report date: 22-Nov-2026, 23.56 IST; bank reconciliation added 23-Nov-2026, 08.25 IST. All times are IST.
+Report date: 22-Nov-2026, 23.56 IST; bank reconciliation added 23-Nov-2026, 08.25 IST; test.gokesari.com run added 23-Nov-2026, 18.10 IST. All times are IST.
 
 | Server | Status |
 |---|---|
 | Local / CI | Done — results below |
-| test.gokesari.com | **Not Started.** The code is not on staging yet: #485 is queued in the staging queue and #487 waits for it. |
+| test.gokesari.com | **Passed** 23-Nov 18.00 — 21 / 21 role checks (S4), all six `rbac_v2_*` flags ON incl. four-eye. #485, #487, #493, #500 staging-verified. |
 | gokesari.com | **Not Started.** Production follows staging verification, in the 23.00 IST window. |
 
 ## 1. Runs
@@ -22,6 +22,10 @@ Report date: 22-Nov-2026, 23.56 IST; bank reconciliation added 23-Nov-2026, 08.2
 | R8 | pending | GitHub CI | #487 head 567a22fc | Full suite | Re-run triggered by the push; Auto-fix reports any failure |
 | R9 | 23-Nov 08.20 | Local, **fresh database** migrated 0001–0175 | bank reconciliation | `rbac-v2-bank-recon` (new) + every RBAC v2 suite, migration journal, tile board, cron schedule | **135 / 135 passed** (after 1 test-wording fix) |
 | R10 | 23-Nov 08.23 | Local | bank reconciliation | Regression: every other test file that uses permissions, menus, audit actions or the approval registry (18 files) | **332 / 332 passed** |
+| S1 | 23-Nov 11.43 | **test.gokesari.com** (staging 52d6275, #487) | `scripts/rbac/staging-flows.mjs`, staging test accounts with the new role grants | 7 role pages, journal maker-checker, bank reconciliation, operations task, handover to support, shop-owner decision | **12 / 15.** Bank import refused the test's account label (script used a 14-digit run tag — the 7-digit rule worked); D7 team rule; handover blocked by D7 |
+| S2 | 23-Nov 11.46 | test.gokesari.com | script label fixed | same | **16 / 18** — bank reconciliation passed end to end (BS-000001 RECONCILED); D7 still open on staging |
+| S3 | 23-Nov 16.04 | test.gokesari.com (dc732c3, #493) | same | same | **18 / 19** — operations task passed; D8 found (ticket assignee) |
+| S4 | 23-Nov 18.00 | test.gokesari.com (9f6bf57, #500) | same | same | **21 / 21 passed** |
 
 Also run at each step:
 - `tsc --noEmit`: clean.
@@ -152,12 +156,15 @@ Full CI suite, R6:
 | D4 | 22-Nov 23.51 | R6 (CI) | Migration journal must be contiguous; Phase 6 used 0175 (gap at 0174) | Renumbered to 0174 (`when` unchanged) | Fixed in 567a22fc; R7 passed |
 | D5 | 22-Nov 23.51 | R6 (CI) | Cron schedule test pins the job list; new hourly job `rbac-v2` | Added to the expected list | Fixed in 567a22fc; R7 passed |
 | D6 | 22-Nov 22.30–22.59 | eslint | `Date.now()` during server render (4 places), `window.location.href` assignment | Moved to server functions / `istToday()` / `location.assign` | Fixed |
+| D7 | 23-Nov 11.43 | S1 (staging) | Adding a person to a staff team checked only the role they were acting in, so multi-role staff were refused | `addTeamMember` accepts the active role or an active grant | Fixed in #493; verified S3 |
+| D8 | 23-Nov 16.04 | S3 (staging) | Same rule in ticket assignment, the assignee picker and operations task / zone assignment | `assignTicket`, `listAssignableStaff`, `assertOpsUser` accept a held role | Fixed in #500; verified S4 |
+| D9 | 23-Nov 14.51 | Staging deploy of #493 (infra) | Server build killed by the out-of-memory guard during Next.js "Running TypeScript" (build cap 7 GB) — not caused by the change | `gk-deploy now gokesari-staging` re-run 15.53, live 16.00, post-deploy check 5/5 | Worked around; production builds use the same cap — watch |
 
 ## 4. Open items
 
 | Item | Owner / next step |
 |---|---|
-| Test-server run (test.gokesari.com) | After #485 and #487 deploy. Owner approved all six flags ON on staging (22-Nov), four-eye included. Then signed-in QA with the staging test accounts given the new roles. |
+| Test-server run (test.gokesari.com) | **Done** 23-Nov 18.00 (S4, 21/21). Not covered by the script: document management screens and the Android / iOS app (manual pass). gk-ops Operator role restore submitted 18.05 for second-admin approval. |
 | Production run (gokesari.com) | After staging verification, in the 23.00 IST window, with designated test accounts only. Flags stay OFF unless the owner says otherwise. |
 | R8 CI re-run on 567a22fc | Running; Auto-fix watches it |
 | Manual / visual checks of the new screens on phone width (Tile Board one-screen rule) | With the test-server run |
