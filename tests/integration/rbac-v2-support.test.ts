@@ -24,6 +24,7 @@ import { checkBulkFile, proposeBulkFile } from "@/server/rbac-support/bulk";
 import { proposeMasterDataCorrection, proposeShopChanges, sweepShopChangeRequests } from "@/server/rbac-support/change-requests";
 import { addTeamMember, confirmResolution, managerUpdateTicket, raiseStaffTicket, supportDashboard } from "@/server/rbac-support/desk";
 import { clearFeatureFlagCache } from "@/server/services/feature-flags";
+import { grantRole } from "@/server/services/roles";
 import { createCategory, createProduct, createShop, createShopProduct, createUser, resetDatabase } from "../helpers/fixtures";
 
 vi.mock("@/server/email/transport", () => ({ sendEmail: vi.fn(async () => undefined) }));
@@ -228,6 +229,20 @@ describe("bulk price list", () => {
     const checked = await checkBulkFile(w.shop.id, Buffer.from(csv), "list.csv");
     expect(checked.items).toHaveLength(0);
     expect(checked.errors[0].message).toMatch(/above the MRP/);
+  });
+});
+
+describe("staff teams", () => {
+  it("accepts a manager or member who holds the role as a grant while acting in another role", async () => {
+    const w = await world();
+    const multi = await createUser({ role: "OPERATIONS_MANAGER" });
+    await grantRole(multi.id, "SUPPORT_MANAGER", { source: "ADMIN", grantedBy: w.admin.id });
+    const other = await createUser({ role: "OPERATIONS_USER" });
+    await grantRole(other.id, "SUPPORT_USER", { source: "ADMIN", grantedBy: w.admin.id });
+    const row = await addTeamMember("SUPPORT", multi.id, other.id, w.admin);
+    expect(row.managerUserId).toBe(multi.id);
+    const plain = await createUser({ role: "OPERATIONS_USER" });
+    await expect(addTeamMember("SUPPORT", plain.id, other.id, w.admin)).rejects.toThrow(/must hold the SUPPORT_MANAGER/);
   });
 });
 

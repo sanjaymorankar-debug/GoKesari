@@ -26,6 +26,7 @@ import { shops, staffTeamMembers, supportTickets, users, type StaffTeam, type Su
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { announceCreated, appendEvent, assignTicket, moveTicket, slaDeadlines } from "@/server/aftercare/support-tickets";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
+import { listUserRoles } from "@/server/services/roles";
 import { isFeatureEnabled, requireFeatureForRole } from "@/server/services/feature-flags";
 import { notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
@@ -109,17 +110,24 @@ export function briefStatusLabel(ticket: Pick<SupportTicket, "status" | "assigne
 const TEAM_MEMBER_ROLE: Record<StaffTeam, UserRole> = { SUPPORT: "SUPPORT_USER", OPERATIONS: "OPERATIONS_USER" };
 const TEAM_MANAGER_ROLE: Record<StaffTeam, UserRole> = { SUPPORT: "SUPPORT_MANAGER", OPERATIONS: "OPERATIONS_MANAGER" };
 
-async function roleOf(userId: string): Promise<UserRole | null> {
+/**
+ * Whether the user holds `role` — as the role they are acting in now, or as an
+ * active grant. A person with several roles (say Operations Manager and Support
+ * Manager) can be put on a team whichever role they happen to be using.
+ */
+async function holdsRole(userId: string, role: UserRole): Promise<boolean> {
   const [u] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
-  return u?.role ?? null;
+  if (!u) return false;
+  if (u.role === role) return true;
+  return (await listUserRoles(userId)).includes(role);
 }
 
 export async function addTeamMember(team: StaffTeam, managerUserId: string, memberUserId: string, actor: Actor) {
   if (actor.role !== "ADMIN" && !(actor.id === managerUserId && actor.role === TEAM_MANAGER_ROLE[team])) {
     throw forbidden("Only an admin or the team's own manager can change a team.");
   }
-  if ((await roleOf(managerUserId)) !== TEAM_MANAGER_ROLE[team]) throw validationFailed(`The manager must hold the ${TEAM_MANAGER_ROLE[team]} role.`);
-  if ((await roleOf(memberUserId)) !== TEAM_MEMBER_ROLE[team]) throw validationFailed(`The member must hold the ${TEAM_MEMBER_ROLE[team]} role.`);
+  if (!(await holdsRole(managerUserId, TEAM_MANAGER_ROLE[team]))) throw validationFailed(`The manager must hold the ${TEAM_MANAGER_ROLE[team]} role.`);
+  if (!(await holdsRole(memberUserId, TEAM_MEMBER_ROLE[team]))) throw validationFailed(`The member must hold the ${TEAM_MEMBER_ROLE[team]} role.`);
   return db.transaction(async (tx) => {
     await tx
       .update(staffTeamMembers)
