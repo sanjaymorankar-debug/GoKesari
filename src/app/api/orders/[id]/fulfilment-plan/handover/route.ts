@@ -14,7 +14,8 @@ import { z } from "zod";
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
-import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { requireUser } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { orders } from "@/server/db/schema";
@@ -39,7 +40,8 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   const { id } = await context.params;
   const order = await db.query.orders.findFirst({ where: eq(orders.id, id), columns: { id: true, shopId: true } });
   if (!order) throw notFound("Order");
-  const { user } = await requireShopAccess(order.shopId, { anyPermission: PERMISSIONS.ORDER_UPDATE_STATUS_ANY });
+  // Module 10: handing over / delivering is delivery.edit for staff.
+  const { user } = await requireShopPermission(order.shopId, "delivery.edit", { anyPermission: PERMISSIONS.ORDER_UPDATE_STATUS_ANY });
   enforceRateLimit(`fulfilment-handover:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
 

@@ -148,6 +148,14 @@ export const TEMPLATES: Record<string, Template> = {
     "{{ownerName}} added you to {{shopName}}: you can add and change its product photos and descriptions.",
   ),
   [T.SHOP_STAFF_REMOVED]: t("Shop access removed", "You can no longer edit product photos and descriptions for {{shopName}}.", false),
+  [T.SHOP_STAFF_INVITED]: t(
+    "You are invited to a shop's staff",
+    "{{ownerName}} invited you to {{shopName}} as {{roleLabel}}. Open the invitation to accept it.",
+  ),
+  [T.SHOP_STAFF_ROLE_CHANGED]: t("Your shop role changed", "Your role at {{shopName}} is now {{roleLabel}}.", false),
+  [T.SHOP_STAFF_SUSPENDED]: t("Shop access paused", "Your access to {{shopName}} is paused by the shop owner.", false),
+  [T.SHOP_STAFF_REACTIVATED]: t("Shop access restored", "Your access to {{shopName}} is restored ({{roleLabel}}).", false),
+  [T.SHOP_STAFF_INVITE_ACCEPTED]: t("Invitation accepted", "{{staffName}} joined {{shopName}} as {{roleLabel}}.", false),
   [T.SHOP_SELF_REGISTERED]: t(
     "Your shop is live on GoKesari",
     "{{shopName}} is approved — shop no. {{registrationNumber}}. Sign in with your mobile number {{mobile}} to complete your profile and add products. Fee receipt {{receiptNumber}}.",

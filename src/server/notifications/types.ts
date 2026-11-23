@@ -121,6 +121,14 @@ export const NOTIFICATION_TYPES = {
   /** To the person added: they may now edit a shop's product photos and descriptions. */
   SHOP_STAFF_ADDED: "shop.staff_added",
   SHOP_STAFF_REMOVED: "shop.staff_removed",
+  /** Module 10 (docs/shop-staff-roles-2026-11): an invitation to join a shop's staff with a role; accept on /shop/staff-access (or /staff-invite from the e-mailed link). */
+  SHOP_STAFF_INVITED: "shop.staff_invited",
+  /** To the person: their role in a shop changed, or their access was suspended / restored. */
+  SHOP_STAFF_ROLE_CHANGED: "shop.staff_role_changed",
+  SHOP_STAFF_SUSPENDED: "shop.staff_suspended",
+  SHOP_STAFF_REACTIVATED: "shop.staff_reactivated",
+  /** To the owner: a person accepted their invitation. */
+  SHOP_STAFF_INVITE_ACCEPTED: "shop.staff_invite_accepted",
   /** To the uploader: a bulk photo/description upload finished applying. */
   SHOP_MEDIA_IMPORT_FINISHED: "shop.media_import_finished",
   /** To the shop owner, and to the operator/admin who ran it: a bulk product upload finished (docs/product-import-2026-10). */

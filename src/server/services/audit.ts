@@ -70,6 +70,14 @@ export const AUDIT_ACTIONS = {
   SHOP_MEDIA_IMPORT_APPLIED: "shop_media_import.applied",
   SHOP_STAFF_ADDED: "shop_staff.added",
   SHOP_STAFF_REMOVED: "shop_staff.removed",
+  // Module 10 (docs/shop-staff-roles-2026-11): invitations, roles, suspension, and staff actions in a shop.
+  SHOP_STAFF_INVITED: "shop_staff.invited",
+  SHOP_STAFF_INVITE_ACCEPTED: "shop_staff.invite_accepted",
+  SHOP_STAFF_INVITE_CANCELLED: "shop_staff.invite_cancelled",
+  SHOP_STAFF_ROLE_CHANGED: "shop_staff.role_changed",
+  SHOP_STAFF_SUSPENDED: "shop_staff.suspended",
+  SHOP_STAFF_REACTIVATED: "shop_staff.reactivated",
+  SHOP_STAFF_ACTION: "shop_staff.action",
 
   /* ------------------------------ Module 2: accounting integration & GST */
   INTEGRATION_CONNECTED: "integration.connected",
