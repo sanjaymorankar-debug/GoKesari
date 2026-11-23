@@ -750,6 +750,8 @@ export async function issueRefund(returnId: string, actor: Actor): Promise<Retur
       type: NOTIFICATION_TYPES.RETURN_REFUND_INITIATED,
       title: "Refund started",
       body: `Your refund of ₹${(working.refundAmountPaise / 100).toFixed(2)} for return ${working.returnNumber} is being processed.`,
+      vars: { amount: `₹${(working.refundAmountPaise / 100).toFixed(2)}`, returnNumber: working.returnNumber },
+      lang: "auto",
       actionUrl: `/returns/${working.id}`,
     });
   }
@@ -793,6 +795,8 @@ export async function issueRefund(returnId: string, actor: Actor): Promise<Retur
     type: NOTIFICATION_TYPES.RETURN_REFUND_COMPLETED,
     title: "Refund completed",
     body: `₹${(completed.refundAmountPaise / 100).toFixed(2)} for return ${completed.returnNumber} is back in your wallet.`,
+    vars: { amount: `₹${(completed.refundAmountPaise / 100).toFixed(2)}`, returnNumber: completed.returnNumber },
+    lang: "auto",
     actionUrl: "/wallet",
     dedupeKey: `return-refund-completed:${completed.id}`,
   });

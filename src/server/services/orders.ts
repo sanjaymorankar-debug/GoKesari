@@ -798,6 +798,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
             type: NOTIFICATION_TYPES.ORDER_CONFIRMED,
             title: "Order confirmed",
             body: `Your order ${orderRow.orderNumber} from ${shopRow.name} is confirmed.`,
+            // Module 6: Hindi / Marathi for a customer who chose it; English text above unchanged.
+            vars: { orderNumber: orderRow.orderNumber, shopName: shopRow.name },
+            lang: "auto",
             actionUrl: `/orders`,
             // TC-SPI-004: the e-mail lists what was ordered and what it costs.
             emailDetail: orderConfirmedEmailRows({

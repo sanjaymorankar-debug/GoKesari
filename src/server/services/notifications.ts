@@ -34,11 +34,14 @@ import {
   OUTBOUND_CHANNELS,
   categoryOf,
   emailByDefault,
+  hasTranslation,
   renderEmail,
   renderTemplate,
+  renderTranslated,
   type CategoryKey,
   type Channel,
   type EmailDetailRow,
+  type NotificationLang,
   type OutboundChannel,
 } from "@/server/notifications/templates";
 import { NOTIFICATION_TYPES, type NotificationType } from "@/server/notifications/types";
@@ -89,6 +92,13 @@ export interface NotifyInput {
    * account depends on (the documents follow-up and the suspension it leads to, 29 Oct 2026).
    */
   mandatory?: boolean;
+  /**
+   * Module 6 (docs/hindi-marathi-2026-11/): write the in-app notice and e-mail in this
+   * language when the event has Hindi / Marathi wording and `vars` fill it. "auto" uses
+   * the person's saved language (users.preferred_lang). Omitted, or no translation: English,
+   * exactly as before.
+   */
+  lang?: NotificationLang | "auto";
 }
 
 /* -------------------------------------------------------------- preferences */
@@ -116,8 +126,11 @@ function channelEnabled(prefs: PrefMap, category: CategoryKey, channel: Channel,
 export async function notify(input: NotifyInput, client: DbClient = db): Promise<void> {
   try {
     const rendered = input.vars || !input.title || !input.body ? renderTemplate(input.type, input.vars ?? {}) : null;
-    const title = input.title ?? rendered?.title;
-    const body = input.body ?? rendered?.body;
+    const lang = await notificationLang(input, client);
+    const translated = renderTranslated(input.type, input.vars, lang);
+    const title = translated?.title ?? input.title ?? rendered?.title;
+    const body = translated?.body ?? input.body ?? rendered?.body;
+    const emailLang: NotificationLang = translated && lang ? lang : "en";
     if (!title || !body) {
       console.error("[notifications] no title/body and no template for", input.type);
       return;
@@ -163,9 +176,9 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
     const outbound = [...wanted].filter((channel) => enabled(channel, wanted.has(channel)));
     if (outbound.length > 0) {
       const rules = await getRule("notifications");
-      const short = renderEmail({ title, body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL });
+      const short = renderEmail({ title, body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL, lang: emailLang });
       const email = input.emailDetail?.length
-        ? renderEmail({ title, body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL, detail: input.emailDetail })
+        ? renderEmail({ title, body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL, detail: input.emailDetail, lang: emailLang })
         : short;
       await client.insert(notificationDeliveries).values(
         outbound.map((channel) => ({
@@ -188,6 +201,23 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
     // swallowing it would only fail that transaction's next statement.
     if (client !== db && isRetryableTransactionError(error)) throw error;
     console.error("[notifications] failed to deliver", input.type, error);
+  }
+}
+
+/**
+ * The language to write this notification in: the caller's choice, or for "auto" the
+ * person's saved language — looked up only when the event has a translation. Never throws.
+ */
+async function notificationLang(input: NotifyInput, client: DbClient): Promise<NotificationLang | null> {
+  if (!input.lang || input.lang === "en") return null;
+  if (!hasTranslation(input.type)) return null;
+  if (input.lang !== "auto") return input.lang;
+  try {
+    const [row] = await client.select({ lang: users.preferredLang }).from(users).where(eq(users.id, input.userId)).limit(1);
+    const saved = row?.lang;
+    return saved === "hi" || saved === "mr" ? saved : null;
+  } catch {
+    return null;
   }
 }
 

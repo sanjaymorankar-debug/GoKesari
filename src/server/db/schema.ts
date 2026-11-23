@@ -592,6 +592,13 @@ export const users = pgTable(
      * (sign-in codes go by SMS instead) until the owner adds a real one.
      */
     emailPlaceholder: boolean("email_placeholder").notNull().default(false),
+    /**
+     * Module 6 (migration 0189): language last chosen on the EN / हिं / मरा
+     * switch — "en", "hi" or "mr"; null = never chosen (English). The gk_lang
+     * cookie wins; this is the fallback on a new device and the language of
+     * the person's in-app / e-mail notifications.
+     */
+    preferredLang: text("preferred_lang"),
     // Role is server-owned. It is never read from a request body.
     role: userRoleEnum("role").notNull().default("CUSTOMER"),
     status: userStatusEnum("status").notNull().default("ACTIVE"),
