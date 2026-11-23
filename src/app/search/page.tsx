@@ -110,7 +110,7 @@ export default async function SearchPage({
             ]}
           />
           {tab === "products" ? (
-            <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compareCounts={compareCounts} />
+            <ProductGrid lang={lang} products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compareCounts={compareCounts} />
           ) : (
             <ShopGrid shops={shopPage.rows} />
           )}

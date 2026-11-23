@@ -680,7 +680,7 @@ export function OnboardingWizard({
           {state.details?.shopType === PUJA_SHOP_TYPE_KEY ? (
             <PujaCatalogueSetup shopId={state.shop.id} onDone={refresh} />
           ) : (
-            <StarterShelf shopId={state.shop.id} onDone={refresh} />
+            <StarterShelf shopId={state.shop.id} onDone={refresh} lang={lang} />
           )}
           <div className="grid gap-2 sm:grid-cols-2">
             <Link href="/shop/product-import" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-kesari-600 px-4 text-sm font-medium text-white">
@@ -821,7 +821,7 @@ function VerifyStep({
 
   return (
     <StepCard title={tr({ en: "Verify your business", hi: "अपने व्यवसाय का सत्यापन करें", mr: "तुमच्या व्यवसायाची पडताळणी करा" }, lang)}>
-      {requesting ? <ReferralRequestDialog prefill={{}} onClose={() => setRequesting(false)} /> : null}
+      {requesting ? <ReferralRequestDialog prefill={{}} onClose={() => setRequesting(false)} lang={lang} /> : null}
       <form onSubmit={verify} className="space-y-3">
         <Field
           label={referralRequired ? tr({ en: "Referral code", hi: "रेफ़रल कोड", mr: "रेफरल कोड" }, lang) : tr({ en: "Referral code (optional)", hi: "रेफ़रल कोड (वैकल्पिक)", mr: "रेफरल कोड (पर्यायी)" }, lang)}
@@ -892,6 +892,7 @@ function VerifyStep({
           {scanning ? (
             <div className="mt-2">
               <DocumentScan
+                lang={lang}
                 busy={busy}
                 onConfirm={(found) => {
                   const hit = found.find((f) => f.docType === (hasGst ? "GSTIN" : "PAN"));

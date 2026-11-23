@@ -5,6 +5,7 @@ import { MobilePromptDialog, ProfileSetupWizard, type GenderValue } from "@/comp
 import { REFERRAL_COOKIE } from "@/lib/customer-referrals";
 import { RETURN_TO_COOKIE, safeReturnPath } from "@/lib/return-to";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { needsSignupReferralCode, shouldAskSignupReferral } from "@/server/services/customer-signup-referrals";
 import { getProfile, nextOnboardingStep } from "@/server/services/profile";
 
@@ -29,11 +30,12 @@ export default async function OnboardingPage() {
   // registration asks for what it needs (name, mobile); the customer profile and the customer
   // referral code can wait — they must not send a new seller away from their registration.
   if (returnTo.startsWith("/shop/register")) redirect(returnTo);
+  const lang = await getBoardLang();
 
   if (step === "MOBILE") {
     return (
       <div className="mx-auto max-w-2xl py-8">
-        <MobilePromptDialog returnTo={returnTo} />
+        <MobilePromptDialog returnTo={returnTo} lang={lang} />
       </div>
     );
   }
@@ -47,6 +49,7 @@ export default async function OnboardingPage() {
     <div className="mx-auto max-w-2xl py-8">
       <ProfileSetupWizard
         returnTo={returnTo}
+        lang={lang}
         referral={askReferral ? { prefill, required: requireReferral } : null}
         initial={{
           name: profile.name ?? "",

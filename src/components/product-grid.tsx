@@ -1,6 +1,7 @@
 import { ProductCard } from "@/components/product-card";
 import type { CartLineQuantity } from "@/server/services/cart";
 import type { listStorefrontProducts } from "@/server/services/catalogue";
+import type { Lang } from "@/lib/board/i18n";
 
 /** Product cards grid shared by home, search, category, shop and product pages. */
 export function ProductGrid({
@@ -10,7 +11,10 @@ export function ProductGrid({
   distances,
   compare = true,
   compareCounts,
+  lang = "en",
 }: {
+  /** Module 6: the tiles' language. */
+  lang?: Lang;
   /** F8: a product may carry a live shop offer's price and title. */
   products: (Awaited<ReturnType<typeof listStorefrontProducts>>[number] & {
     offerPricePaise?: number | null;
@@ -37,6 +41,7 @@ export function ProductGrid({
         <ProductCard
           key={p.shopProductId}
           signedIn={signedIn}
+          lang={lang}
           cartLine={cartLines?.get(p.shopProductId) ?? null}
           product={{
             shopProductId: p.shopProductId,

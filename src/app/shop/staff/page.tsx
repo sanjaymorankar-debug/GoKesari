@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import { L, tr } from "@/lib/board/i18n";
+import { getBoardLang } from "@/server/board-lang";
 
 import { ShopStaffManager } from "@/components/shop-staff-manager";
 import { LinkButton, PageHeader } from "@/components/ui";
@@ -10,21 +12,31 @@ import { listShopsForOwner } from "@/server/services/shops";
 export const metadata = { title: "Shop staff" };
 export const dynamic = "force-dynamic";
 
+const T = {
+  title: L("Shop staff", "दुकान स्टाफ", "दुकान कर्मचारी"),
+  description: L(
+    "{shop} — people who may add and change your product photos and descriptions. Every change is recorded with who made it.",
+    "{shop} — वे लोग जो आपके उत्पादों की फ़ोटो और विवरण जोड़ और बदल सकते हैं। हर बदलाव किसने किया, यह दर्ज होता है।",
+    "{shop} — तुमच्या उत्पादनांचे फोटो आणि वर्णन जोडू व बदलू शकणारे लोक. प्रत्येक बदल कोणी केला हे नोंदवले जाते.",
+  ),
+  back: L("Back", "वापस", "मागे"),
+} as const;
+
 /** Module 1: the owner's list of people who may edit the shop's product photos and descriptions. */
 export default async function ShopStaffPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   const shop = await activeShop(await listShopsForOwner(user.id));
   if (!shop) redirect("/shop");
-  const staff = await listShopStaff(shop.id, user);
+  const [staff, lang] = await Promise.all([listShopStaff(shop.id, user), getBoardLang()]);
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
-        title="Shop staff"
-        description={`${shop.name} — people who may add and change your product photos and descriptions. Every change is recorded with who made it.`}
+        title={tr(T.title, lang)}
+        description={tr(T.description, lang).replace("{shop}", shop.name)}
         action={
           <LinkButton href="/shop/catalogue" variant="secondary">
-            Back
+            {tr(T.back, lang)}
           </LinkButton>
         }
       />

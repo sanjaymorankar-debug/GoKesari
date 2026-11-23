@@ -10,7 +10,7 @@ import { HashRedirect } from "@/components/board/hash-redirect";
 import { Icon } from "@/components/board/icons";
 import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
 import { Badge, Card, PageHeader } from "@/components/ui";
-import { tr, UI } from "@/lib/board/i18n";
+import { L, tr, UI } from "@/lib/board/i18n";
 import { pickTab } from "@/lib/board/status-groups";
 import { CUSTOMER_MENUS } from "@/lib/board/menus";
 import { getBoardLang } from "@/server/board-lang";
@@ -26,6 +26,47 @@ import { BANK_STATUS_LABELS } from "@/lib/bank-accounts";
 
 export const metadata = { title: "My Profile" };
 export const dynamic = "force-dynamic";
+
+/** Module 6 (docs/hindi-marathi-2026-11): My Profile's wording. */
+const T = {
+  title: L("My Profile", "मेरी प्रोफ़ाइल", "माझे प्रोफाइल"),
+  myDetails: L("My details", "मेरी जानकारी", "माझी माहिती"),
+  notifications: L("Notifications", "सूचनाएँ", "सूचना"),
+  offers: L("Offers", "ऑफ़र", "ऑफर"),
+  yourDetails: L("Your details", "आपकी जानकारी", "तुमची माहिती"),
+  loginContact: L("Login & contact", "लॉग इन और संपर्क", "लॉग इन आणि संपर्क"),
+  bankTitle: L("Bank account for refunds", "रिफंड के लिए बैंक खाता", "परताव्यासाठी बँक खाते"),
+  bankNone: L(
+    "Not added — needed for refunds to your bank (refunds normally go to your wallet).",
+    "नहीं जोड़ा — बैंक में रिफंड के लिए ज़रूरी (रिफंड आमतौर पर वॉलेट में जाता है)।",
+    "जोडलेले नाही — बँकेत परताव्यासाठी आवश्यक (परतावा साधारणपणे वॉलेटमध्ये जातो).",
+  ),
+  add: L("Add →", "जोड़ें →", "जोडा →"),
+  manage: L("Manage →", "संभालें →", "व्यवस्थापित करा →"),
+  verify: L("Verify →", "सत्यापित करें →", "पडताळा →"),
+  addresses: L("Delivery addresses", "डिलीवरी पते", "डिलिव्हरी पत्ते"),
+  addAddress: L("Add address →", "पता जोड़ें →", "पत्ता जोडा →"),
+  work: L("Work", "ऑफ़िस", "ऑफिस"),
+  home: L("Home", "घर", "घर"),
+  address: L("Address", "पता", "पत्ता"),
+  default: L(" · Default", " · मुख्य", " · मुख्य"),
+  geoTagged: L("Geo-tagged at {coords}", "नक्शे पर लगा: {coords}", "नकाशावर दाखवले: {coords}"),
+  notGeoTagged: L(
+    "Not geo-tagged yet — edit it to pin the location.",
+    "अभी नक्शे पर नहीं लगा — लोकेशन लगाने के लिए इसे बदलें।",
+    "अजून नकाशावर दाखवलेले नाही — ठिकाण दाखवण्यासाठी हा पत्ता बदला.",
+  ),
+  moreSaved: L("+ {n} more saved", "+ {n} और सहेजे गए", "+ आणखी {n} जतन केलेले"),
+  noAddress: L(
+    "No delivery address yet. You'll need one before your first delivery order.",
+    "अभी कोई डिलीवरी पता नहीं है। पहले डिलीवरी ऑर्डर से पहले एक पता चाहिए।",
+    "अजून डिलिव्हरीचा पत्ता नाही. पहिल्या डिलिव्हरी ऑर्डरपूर्वी एक पत्ता लागेल.",
+  ),
+  signOut: L("Sign out", "साइन आउट", "साइन आउट"),
+  nothingYet: L("Nothing yet.", "अभी कुछ नहीं।", "अजून काही नाही."),
+  new: L("new", "नया", "नवीन"),
+  offersTitle: L("Offers and promotions", "ऑफ़र और प्रचार", "ऑफर आणि जाहिराती"),
+} as const;
 
 const TABS = ["details", "notifications", "offers"] as const;
 type ProfileTab = (typeof TABS)[number];
@@ -52,13 +93,17 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   const [bankStatus, lang] = await Promise.all([customerBankPrompt(user.id, "profile"), getBoardLang()]);
 
   const notePage = paginate(notifications, query.page, 5);
-  const tabLabel: Record<ProfileTab, string> = { details: "My details", notifications: "Notifications", offers: "Offers" };
+  const tabLabel: Record<ProfileTab, string> = {
+    details: tr(T.myDetails, lang),
+    notifications: tr(T.notifications, lang),
+    offers: tr(T.offers, lang),
+  };
   const unreadNotes = notifications.filter((n) => !n.readAt).length;
 
   return (
     <div className="mx-auto max-w-2xl">
       <HashRedirect map={{ notifications: "/profile?tab=notifications" }} />
-      <PageHeader title="My Profile" />
+      <PageHeader title={tr(T.title, lang)} />
 
       {/* The board's Profile submenus, first on the page: one tap each. */}
       <nav aria-label={tr(UI.myProfile, lang)} className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="profile-quick-links">
@@ -75,7 +120,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       </nav>
 
       <ListTabs
-        label="My Profile"
+        label={tr(T.title, lang)}
         active={tab}
         tabs={TABS.map((t) => ({ key: t, label: tabLabel[t], href: `/profile?tab=${t}`, count: t === "notifications" ? unreadNotes : undefined }))}
       />
@@ -84,43 +129,44 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         <>
       <Card className="mb-6 p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-lg font-semibold text-ink-900">{profile.name ?? "Your details"}</p>
+          <p className="text-lg font-semibold text-ink-900">{profile.name ?? tr(T.yourDetails, lang)}</p>
           <Badge tone="info">{ROLE_LABELS[user.role]}</Badge>
         </div>
-        <ProfileDetailsForm initial={{ name: profile.name ?? "", gender: (profile.gender ?? "") as GenderValue | "" }} />
+        <ProfileDetailsForm lang={lang} initial={{ name: profile.name ?? "", gender: (profile.gender ?? "") as GenderValue | "" }} />
       </Card>
       <Card className="mb-6 grid gap-5 p-6">
-        <h2 className="text-base font-semibold text-ink-900">Login &amp; contact</h2>
+        <h2 className="text-base font-semibold text-ink-900">{tr(T.loginContact, lang)}</h2>
         <PhoneLinkForm current={profile.phoneE164} />
-        <EmailChangeForm current={profile.email} />
+        <EmailChangeForm current={profile.email} lang={lang} />
       </Card>
       {bankStatus ? (
         <Card className="mb-6 p-6" data-testid="profile-bank-account">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-base font-semibold text-ink-900">Bank account for refunds</h2>
+              <h2 className="text-base font-semibold text-ink-900">{tr(T.bankTitle, lang)}</h2>
               <p className="text-sm text-ink-500">
-                {bankStatus === "NONE" ? "Not added — needed for refunds to your bank (refunds normally go to your wallet)." : BANK_STATUS_LABELS[bankStatus]}
+                {bankStatus === "NONE" ? tr(T.bankNone, lang) : BANK_STATUS_LABELS[bankStatus]}
               </p>
             </div>
             <Link href="/profile/bank-account" className="text-sm font-medium text-kesari-600 hover:underline">
-              {bankStatus === "NONE" ? "Add →" : bankStatus === "VERIFIED" ? "Manage →" : "Verify →"}
+              {bankStatus === "NONE" ? tr(T.add, lang) : bankStatus === "VERIFIED" ? tr(T.manage, lang) : tr(T.verify, lang)}
             </Link>
           </div>
         </Card>
       ) : null}
       <Card className="mb-6 p-6">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink-900">Delivery addresses</h2>
+          <h2 className="text-base font-semibold text-ink-900">{tr(T.addresses, lang)}</h2>
           <Link href="/profile/addresses" className="text-sm font-medium text-kesari-600 hover:underline">
-            {addresses.length > 0 ? "Manage →" : "Add address →"}
+            {addresses.length > 0 ? tr(T.manage, lang) : tr(T.addAddress, lang)}
           </Link>
         </div>
         {defaultAddress ? (
           <div className="rounded-lg border border-cream-200 bg-cream-50 p-3 text-sm">
             <p className="font-medium text-ink-900">
-              {defaultAddress.label ?? (defaultAddress.addressType === "WORK" ? "Work" : defaultAddress.addressType === "HOME" ? "Home" : "Address")}
-              {defaultAddress.isDefault ? " · Default" : ""}
+              {defaultAddress.label ??
+                tr(defaultAddress.addressType === "WORK" ? T.work : defaultAddress.addressType === "HOME" ? T.home : T.address, lang)}
+              {defaultAddress.isDefault ? tr(T.default, lang) : ""}
             </p>
             <p className="text-ink-700">
               {defaultAddress.line1}
@@ -131,13 +177,18 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
             </p>
             <p className="mt-1 text-xs text-ink-500">
               {defaultAddress.latitude && defaultAddress.longitude
-                ? `Geo-tagged at ${Number(defaultAddress.latitude).toFixed(5)}, ${Number(defaultAddress.longitude).toFixed(5)}`
-                : "Not geo-tagged yet — edit it to pin the location."}
+                ? tr(T.geoTagged, lang).replace(
+                    "{coords}",
+                    `${Number(defaultAddress.latitude).toFixed(5)}, ${Number(defaultAddress.longitude).toFixed(5)}`,
+                  )
+                : tr(T.notGeoTagged, lang)}
             </p>
-            {addresses.length > 1 ? <p className="mt-1 text-xs text-ink-500">+ {addresses.length - 1} more saved</p> : null}
+            {addresses.length > 1 ? (
+              <p className="mt-1 text-xs text-ink-500">{tr(T.moreSaved, lang).replace("{n}", String(addresses.length - 1))}</p>
+            ) : null}
           </div>
         ) : (
-          <p className="text-sm text-ink-500">No delivery address yet. You&apos;ll need one before your first delivery order.</p>
+          <p className="text-sm text-ink-500">{tr(T.noAddress, lang)}</p>
         )}
       </Card>
       <Card className="mb-6 p-6">
@@ -152,7 +203,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
             type="submit"
             className="rounded-lg border border-cream-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100"
           >
-            Sign out
+            {tr(T.signOut, lang)}
           </button>
         </form>
       </Card>
@@ -166,10 +217,10 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       </div>
       <Card id="notifications" className="p-6">
         <h2 className="mb-3 text-base font-semibold text-ink-900">
-          Notifications
+          {tr(T.notifications, lang)}
         </h2>
         {notePage.rows.length === 0 ? (
-          <p className="text-sm text-ink-500">Nothing yet.</p>
+          <p className="text-sm text-ink-500">{tr(T.nothingYet, lang)}</p>
         ) : (
           <ul className="divide-y divide-cream-200">
             {notePage.rows.map((n) => (
@@ -179,7 +230,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                     <p className="text-sm font-medium text-ink-900">{n.title}</p>
                     <p className="text-sm text-ink-600">{n.body}</p>
                   </div>
-                  {!n.readAt ? <Badge tone="info">new</Badge> : null}
+                  {!n.readAt ? <Badge tone="info">{tr(T.new, lang)}</Badge> : null}
                 </div>
                 <p className="mt-1 text-xs text-ink-500">
                   {new Date(n.createdAt).toLocaleString("en-IN", {
@@ -200,7 +251,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       {tab === "offers" ? (
       <Card className="p-6">
         <h2 className="mb-3 text-base font-semibold text-ink-900">
-          Offers and promotions
+          {tr(T.offersTitle, lang)}
         </h2>
         <MarketingConsentToggle
           initialGranted={marketingConsent.granted}
