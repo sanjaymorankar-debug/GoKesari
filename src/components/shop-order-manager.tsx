@@ -156,6 +156,9 @@ export interface ShopOrderRow {
   /** QA D-121: "Tax invoice", "Bill of supply" or "Invoice" (not issued yet), from orderInvoiceLabel. */
   invoiceLabel?: string;
   proofPhotoUrl?: string | null;
+  /** Module 4: the customer's signature at the door and when it was taken (ISO). */
+  signatureUrl?: string | null;
+  signatureAt?: string | null;
   /** Fulfilment options (docs/four-features-2026-10): the order's pickup / delivery plan. */
   fulfilmentPlan?: PlannerPlan | null;
   /** The order has a delivery address (own delivery and GoKesari need one). */
@@ -352,7 +355,7 @@ function OrderRow({
         </p>
       ) : null}
 
-      {order.invoiceUrl || order.proofPhotoUrl ? (
+      {order.invoiceUrl || order.proofPhotoUrl || order.signatureUrl ? (
         <p className="mt-2 flex flex-wrap gap-3 text-xs">
           {order.invoiceUrl ? (
             <a href={order.invoiceUrl} className="font-medium text-kesari-700 hover:underline">
@@ -362,6 +365,14 @@ function OrderRow({
           {order.proofPhotoUrl ? (
             <a href={order.proofPhotoUrl} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline">
               {tr(T.photo, lang)}
+            </a>
+          ) : null}
+          {order.signatureUrl ? (
+            <a href={order.signatureUrl} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline" data-testid="shop-order-signature">
+              Signature at delivery
+              {order.signatureAt
+                ? ` · ${new Date(order.signatureAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}`
+                : ""}
             </a>
           ) : null}
         </p>

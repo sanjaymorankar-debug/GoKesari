@@ -337,11 +337,19 @@ export const RULES = {
   },
   deliveryProof: {
     description:
-      "Photo proof of delivery (NEW-007). Off: a rider marks an order delivered with the customer's code, as before. On: the rider must also take or upload a photo at the door (JPEG, PNG or WebP, within the image size limit) before the order can be marked delivered. The photo is shown to the customer, the shop and operations only. An operator's override is unchanged.",
+      "Photo proof of delivery (NEW-007). Off: a rider marks an order delivered with the customer's code, as before. On: the rider must also take or upload a photo at the door (JPEG, PNG or WebP, within the image size limit) before the order can be marked delivered. The photo is shown to the customer, the shop and operations only. An operator's override is unchanged. Module 4 (23-Nov-2026), all off by default: signatureEnabled shows a 'Customer signature' pad on the rider's screen before 'Mark delivered' (stored privately like the photo, with an optional signer name, shown with its time next to the photo); signatureRequired (only with signatureEnabled) refuses 'Mark delivered' until a signature is in. captureGps records the rider's position (with permission; nothing when refused) when an order is delivered or reported failed, shown to operations only. failureReasons gives the rider a fixed list of failed-delivery reasons (customer not available, wrong address, refused, phone unreachable, other + note) instead of free text; old free-text reports keep working.",
     schema: z.object({
       photoRequired: z.boolean(),
+      /** Module 4: show the customer-signature pad on the rider's screen. */
+      signatureEnabled: z.boolean(),
+      /** Module 4: with signatureEnabled, a signature is needed before "Mark delivered". */
+      signatureRequired: z.boolean(),
+      /** Module 4: record the rider's GPS position at delivery / failure (operations only). */
+      captureGps: z.boolean(),
+      /** Module 4: the rider picks a failed-delivery reason from a fixed list. */
+      failureReasons: z.boolean(),
     }),
-    defaults: { photoRequired: false },
+    defaults: { photoRequired: false, signatureEnabled: false, signatureRequired: false, captureGps: false, failureReasons: false },
   },
   invoicing: {
     description:
@@ -1400,7 +1408,7 @@ export const RULES = {
   },
   riderNavigation: {
     description:
-      "In-app turn-by-turn navigation for riders (F4.2.2). Off (default): riders get the \"Navigate\" links that open Google Maps, as before. On: the rider's delivery has an in-app navigation screen — the route to the shop, then to the customer (the customer's exact location only after pickup), next turn, remaining distance and time, voice prompts (voiceDefaultOn), and a fresh route when the rider is more than offRouteMeters off it (at most once per rerouteCooldownSeconds). provider: mock (straight line, for testing/offline), google (Routes API with GOOGLE_MAPS_SERVER_API_KEY) or osrm (an OSRM-compatible server at osrmBaseUrl). Routes are cached for cacheSeconds; a provider failure falls back to the straight-line route. \"Open in Google Maps\" always stays available.",
+      "In-app turn-by-turn navigation for riders (F4.2.2). Off (default): riders get the \"Navigate\" links that open Google Maps, as before. On: the rider's delivery has an in-app navigation screen — the route to the shop, then to the customer (the customer's exact location only after pickup), next turn, remaining distance and time, voice prompts (voiceDefaultOn), and a fresh route when the rider is more than offRouteMeters off it (at most once per rerouteCooldownSeconds). provider: mock (straight line, for testing/offline), google (Routes API with GOOGLE_MAPS_SERVER_API_KEY) or osrm (an OSRM-compatible server at osrmBaseUrl). Routes are cached for cacheSeconds; a provider failure falls back to the straight-line route. \"Open in Google Maps\" always stays available. multiStop (Module 4, off by default): when the rider carries a batched trip (rule batching), the screen lists the trip's stops in order and offers \"Next stop\" after each one is done; the route goes to the next stop (none of the providers is sent waypoints).",
     schema: z.object({
       enabled: z.boolean(),
       provider: z.enum(["mock", "google", "osrm"]),
@@ -1410,8 +1418,11 @@ export const RULES = {
       voiceDefaultOn: z.boolean(),
       cacheSeconds: int(0, 3600),
       timeoutMs: int(500, 10_000),
+      /** Module 4: on a batched trip (rule batching), show the ordered stop list and a "Next stop" link. */
+      multiStop: z.boolean(),
     }),
     defaults: {
+      multiStop: false,
       enabled: false,
       provider: "mock",
       osrmBaseUrl: "https://router.project-osrm.org",

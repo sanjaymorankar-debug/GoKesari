@@ -22,6 +22,7 @@ import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { parseCoordinates } from "@/lib/geo/haversine";
+import { composeFailureReason, type FailureReasonCode } from "@/lib/delivery/failure-reasons";
 import { db, type DbClient } from "@/server/db";
 import {
   deliveryOfferBroadcasts,
@@ -54,7 +55,7 @@ import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
 import { emitEvent } from "@/server/events/emit";
 import type { DeliveryEventPayload } from "@/server/events/catalog";
-import { assertDeliveryProof, hasDeliveryProof, isDeliveryProofRequired } from "./delivery-proofs";
+import { assertDeliveryProof, hasDeliveryProof, isDeliveryProofRequired, signatureRules, validPosition } from "./delivery-proofs";
 import { checkBatchCompatibility, joinTrip, loadRiderMembers, nextTripDeliveryId, toMember } from "./delivery-trips";
 import { getRoute } from "./routing";
 import { scheduledDispatchFrom } from "./scheduled-slots";
@@ -789,6 +790,31 @@ export async function markPickedUp(
   });
 }
 
+/** Module 4: the rider's phone position sent with "delivered" / "failed". */
+export interface RiderPosition {
+  latitude: number;
+  longitude: number;
+  accuracyM?: number | null;
+}
+
+/**
+ * The position to store, or null: only while rule deliveryProof.captureGps is
+ * on, and only a finite, in-range point (accuracy rounded, at most 100 km).
+ */
+export async function gpsToKeep(
+  position: RiderPosition | null | undefined,
+  rule?: { captureGps: boolean },
+): Promise<{ latitude: number; longitude: number; accuracyM: number | null } | null> {
+  if (!position) return null;
+  const captureGps = (rule ?? (await getRule("deliveryProof"))).captureGps;
+  if (!captureGps) return null;
+  const point = validPosition(position);
+  if (!point) return null;
+  const acc = position.accuracyM;
+  const accuracyM = acc != null && Number.isFinite(acc) && acc >= 0 ? Math.min(Math.round(acc), 100_000) : null;
+  return { ...point, accuracyM };
+}
+
 /**
  * DEF-04 fix — same one-transaction shape as markPickedUp, see above; earnings
  * are credited inside it too, so a rolled-back delivery can never leave a
@@ -808,6 +834,8 @@ export async function markDelivered(
   otp?: string,
   /** GS-030: the rider confirms the cash was collected — required for a COD order. */
   cashCollected?: boolean,
+  /** Module 4: the rider's position at the door; kept only while rule deliveryProof.captureGps is on. */
+  position?: RiderPosition | null,
 ): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id); // ownership check
   if (row.status === "DELIVERED") return row; // double submit: already done, nothing more to charge
@@ -822,6 +850,7 @@ export async function markDelivered(
   }
   const withCode = row.status === "PICKED_UP" && needsDeliveryCode(row);
   if (withCode) await checkDeliveryCode(row, otp, actor);
+  const gps = await gpsToKeep(position);
 
   return db.transaction(async (tx) => {
     const [updated] = await tx
@@ -834,6 +863,9 @@ export async function markDelivered(
         deliveryOtpHash: null,
         deliveryOtp: null,
         deliveryOtpUsedAt: withCode ? new Date() : null,
+        ...(gps
+          ? { deliveredLatitude: gps.latitude, deliveredLongitude: gps.longitude, deliveredAccuracyM: gps.accuracyM }
+          : {}),
         updatedAt: new Date(),
       })
       .where(
@@ -883,7 +915,7 @@ export async function markDelivered(
         action: AUDIT_ACTIONS.DELIVERY_ORDER_DELIVERED,
         entityType: "delivery_order",
         entityId: deliveryOrderId,
-        newValue: { status: "DELIVERED" },
+        newValue: { status: "DELIVERED", ...(gps ? { gps: true } : {}) },
       },
       tx,
     );
@@ -1086,11 +1118,20 @@ export async function markArrivedAtCustomer(deliveryOrderId: string, actor: Acto
 export async function markDeliveryFailed(
   deliveryOrderId: string,
   actor: Actor,
-  reason: string,
+  reason: string | null | undefined,
+  /**
+   * Module 4: reasonCode — a reason from the fixed list (rule
+   * deliveryProof.failureReasons; ignored while it is off), with `reason` as
+   * the optional note. position — kept only while deliveryProof.captureGps is on.
+   */
+  opts: { reasonCode?: FailureReasonCode | null; position?: RiderPosition | null } = {},
 ): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id);
-  const trimmed = reason.trim();
-  if (!trimmed) throw validationFailed("Say why the delivery could not be completed.");
+  const proofRule = await getRule("deliveryProof");
+  const composed = composeFailureReason(proofRule.failureReasons ? opts.reasonCode : null, reason);
+  if (!composed.ok) throw validationFailed(composed.message);
+  const trimmed = composed.text;
+  const gps = await gpsToKeep(opts.position, proofRule);
 
   const result = await db.transaction(async (tx) => {
     const [updated] = await tx
@@ -1099,6 +1140,8 @@ export async function markDeliveryFailed(
         status: "FAILED",
         failedAt: new Date(),
         failureReason: trimmed,
+        ...(composed.code ? { failureReasonCode: composed.code } : {}),
+        ...(gps ? { failedLatitude: gps.latitude, failedLongitude: gps.longitude } : {}),
         // The customer's code dies with the drop.
         deliveryOtpHash: null,
         deliveryOtp: null,
@@ -1130,7 +1173,12 @@ export async function markDeliveryFailed(
         action: AUDIT_ACTIONS.DELIVERY_ORDER_FAILED,
         entityType: "delivery_order",
         entityId: deliveryOrderId,
-        newValue: { status: "FAILED", reason: trimmed },
+        newValue: {
+          status: "FAILED",
+          reason: trimmed,
+          ...(composed.code ? { reasonCode: composed.code } : {}),
+          ...(gps ? { gps: true } : {}),
+        },
       },
       tx,
     );
@@ -1970,6 +2018,14 @@ export interface ActiveDeliveryDetail extends RiderDeliveryView {
   proofUploaded: boolean;
   /** Gig worker flow (feature 9): the optional pickup photo was added. */
   pickupPhotoUploaded: boolean;
+  /** Module 4 (rule deliveryProof): the signature pad is shown / a signature is needed, and whether one is in. */
+  signatureEnabled: boolean;
+  signatureRequired: boolean;
+  signatureUploaded: boolean;
+  /** Module 4: send the phone's position with "delivered" / "failed". */
+  captureGps: boolean;
+  /** Module 4: pick the failed-delivery reason from the fixed list. */
+  failureReasonList: boolean;
   shopName: string;
   shopAddress: string;
   customerAddress: string | null;
@@ -1993,6 +2049,24 @@ export interface ActiveDeliveryDetail extends RiderDeliveryView {
 function navigationUrl(lat: number | null, lng: number | null, addressText: string): string | null {
   const destination = lat != null && lng != null ? `${lat},${lng}` : addressText ? encodeURIComponent(addressText) : null;
   return destination ? `https://www.google.com/maps/dir/?api=1&destination=${destination}` : null;
+}
+
+/** Module 4: what the rider's screen shows for signature, GPS and the reason list (all off by default). */
+async function module4RiderFlags(deliveryOrderId: string): Promise<{
+  signatureEnabled: boolean;
+  signatureRequired: boolean;
+  signatureUploaded: boolean;
+  captureGps: boolean;
+  failureReasonList: boolean;
+}> {
+  const [signature, rule] = await Promise.all([signatureRules(), getRule("deliveryProof")]);
+  return {
+    signatureEnabled: signature.enabled,
+    signatureRequired: signature.required,
+    signatureUploaded: signature.enabled ? await hasDeliveryProof(deliveryOrderId, "SIGNATURE") : false,
+    captureGps: rule.captureGps,
+    failureReasonList: rule.failureReasons,
+  };
 }
 
 /** Enriched view for the delivery-partner dashboard — pickup/drop details a rider needs, with navigation links. */
@@ -2055,6 +2129,7 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
     proofRequired: await isDeliveryProofRequired(),
     proofUploaded: await hasDeliveryProof(active.id),
     pickupPhotoUploaded: await hasDeliveryProof(active.id, "PICKUP"),
+    ...(await module4RiderFlags(active.id)),
     shopName: row.shopName,
     shopAddress,
     customerAddress,

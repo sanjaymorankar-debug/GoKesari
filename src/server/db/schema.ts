@@ -2321,6 +2321,16 @@ export const deliveryOrders = pgTable(
     arrivedAtCustomerAt: timestamp("arrived_at_customer_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
     failureReason: text("failure_reason"),
+    /** 0186 (Module 4, rule deliveryProof.failureReasons): the reason picked from the fixed list; null for free text. */
+    failureReasonCode: text("failure_reason_code", {
+      enum: ["CUSTOMER_NOT_AVAILABLE", "WRONG_ADDRESS", "REFUSED", "PHONE_UNREACHABLE", "OTHER"],
+    }),
+    /** 0186 (Module 4, rule deliveryProof.captureGps): the rider's position when marking delivered / failed. Operations only. */
+    deliveredLatitude: doublePrecision("delivered_latitude"),
+    deliveredLongitude: doublePrecision("delivered_longitude"),
+    deliveredAccuracyM: integer("delivered_accuracy_m"),
+    failedLatitude: doublePrecision("failed_latitude"),
+    failedLongitude: doublePrecision("failed_longitude"),
     /** How delivery was confirmed: CUSTOMER_OTP, or OPERATOR_OVERRIDE (proof note required). */
     deliveryConfirmation: text("delivery_confirmation"),
     proofNote: text("proof_note"),
@@ -2378,8 +2388,13 @@ export const deliveryProofs = pgTable(
     storedImageId: uuid("stored_image_id")
       .notNull()
       .references(() => storedImages.id, { onDelete: "restrict" }),
-    /** 0121 (feature 9): the optional photo at pickup, or the photo at the door. */
-    kind: text("kind", { enum: ["PICKUP", "DELIVERY"] }).notNull().default("DELIVERY"),
+    /** 0121 (feature 9): the optional photo at pickup, or the photo at the door; 0186 (Module 4): the customer's signature. */
+    kind: text("kind", { enum: ["PICKUP", "DELIVERY", "SIGNATURE"] }).notNull().default("DELIVERY"),
+    /** 0186: who signed (optional, SIGNATURE only). */
+    signerName: text("signer_name"),
+    /** 0186 (rule deliveryProof.captureGps): where the photo / signature was taken. Operations only. */
+    latitude: doublePrecision("latitude"),
+    longitude: doublePrecision("longitude"),
     uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
