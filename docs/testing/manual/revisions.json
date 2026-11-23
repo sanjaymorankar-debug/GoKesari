@@ -1,0 +1,17 @@
+[
+ {
+  "version": "1.0",
+  "date": "2026-11-20",
+  "change": "First issue (01.42 IST): 290 test scenarios, 1,048 test cases, 47 end-to-end scenarios; execution, evidence and defect templates."
+ },
+ {
+  "version": "1.1",
+  "date": "2026-11-22",
+  "change": "Territory dealers, team leads, newspapers, consultant appointments, GoKesari Health and the shop welcome kit added on 20-Nov (313 scenarios, 1,159 cases, 52 journeys); automated results refreshed 21-Nov and 22-Nov."
+ },
+ {
+  "version": "2.0",
+  "date": "2026-11-23",
+  "change": "472 cases, 70 scenarios and 11 journeys (SC-53 to SC-63) for the features on staging 20 to 23 Nov: Puja Samagri, admin menu, banner wording, mailbox rotation, shop documents and FSSAI, Health specialties, franchise zones, referral moves, dealership platform, smart shopping, voice price assistant, shop logo, society join requests, staff roles (RBAC v2). 36 older cases corrected (territory cases retired: territory = franchise); journey SC-39 moved to a pharmacy. Now 383 scenarios, 1,631 cases, 63 journeys."
+ }
+]

@@ -2,10 +2,27 @@
 
 The workbook a person fills in while testing **test.gokesari.com** by hand:
 every test scenario and test case, with columns for the actual result, status,
-defect and evidence, and a live summary. Built 20-Nov-2026.
+defect and evidence, and a live summary. First built 20-Nov-2026; **version 2.0 of 23-Nov-2026**
+(`GOKESARI_MANUAL_TEST_WORKBOOK_2026-11-23.xlsx`: 383 scenarios, 1,631 cases, 63 journeys).
 
-Owner's copy: `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking/GOKESARI_MANUAL_TEST_WORKBOOK_2026-11-20.xlsx`
-(with an `Evidence/` folder next to it for screenshots and recordings).
+Owner's copy: `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking/GOKESARI_MANUAL_TEST_WORKBOOK_2026-11-23.xlsx`
+(with an `Evidence/` folder next to it for screenshots and recordings). The 20-Nov file (version 1.1)
+stays there unchanged.
+
+## Versions
+
+Each issue of the workbook has a version on its Cover sheet and a line in the Revision history, both
+read from [`revisions.json`](revisions.json); the file name carries the build date. A major version
+(2.0) adds cases or changes what is tested; a minor one (1.1) refreshes results or wording. To issue a
+new version: add a line to `revisions.json`, then rebuild with `--date <today>`. The training deck for
+the testing team follows the same scheme: [`deck/`](deck/) (`GoKesari_Testing_Techniques_Training_v<version>_<date>.pptx`,
+version history on slide 2).
+
+| Version | Date | Workbook |
+|---|---|---|
+| 1.0 | 20-Nov-2026 | First issue: 290 scenarios, 1,048 cases, 47 journeys |
+| 1.1 | 22-Nov-2026 | 313 scenarios, 1,159 cases, 52 journeys (dealers, newspapers, consultants, Health, welcome kit) |
+| 2.0 | 23-Nov-2026 | 383 scenarios, 1,631 cases, 63 journeys: features on staging 20 to 23 Nov (below) |
 
 ## Structure (ISO/IEC/IEEE 29119-3)
 
@@ -15,20 +32,20 @@ Owner's copy: `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking/GOKESARI_
 | How to use | — | Legend (amber = fill in), status and severity definitions, evidence rules and naming, worked example rows |
 | Test Plan | Test plan | Scope, approach, environment, test accounts, test data, entry / exit / suspension criteria, risks, roles |
 | Summary | Test status report | Live counts overall, by module, by priority; E2E; defects by severity; exit criteria Met / Not met |
-| Test Scenarios | Test design specification (test conditions) | 313 scenarios (TS-…), each with its TC IDs and a live status |
-| Test Cases | Test case specification + test procedure | 1,159 cases (TC-…): steps, data, expected; amber result and evidence columns |
-| E2E Scenarios | Test procedure (journeys) | 52 end-to-end journeys (SC-01 … SC-51, SC-WKIT-01) |
+| Test Scenarios | Test design specification (test conditions) | 383 scenarios (TS-…), each with its TC IDs and a live status |
+| Test Cases | Test case specification + test procedure | 1,631 cases (TC-…): steps, data, expected; amber result and evidence columns |
+| E2E Scenarios | Test procedure (journeys) | 63 end-to-end journeys (SC-01 … SC-63) |
 | Execution Log | Test execution log | One row per run of a case, re-runs and retests included |
 | Evidence Register | Test execution evidence | One row per evidence file, with a clickable link |
 | Defect Log | Incident report | Severity, steps, expected / actual, evidence, fix reference, retest |
-| Traceability | Requirements traceability | 312 features / decisions → scenarios → cases → live coverage status |
+| Traceability | Requirements traceability | 409 features / decisions → scenarios → cases → live coverage status |
 | Sign-off | Test completion report | Results, risks, Go / No-go recommendation, approvals |
 
 ## Where the content comes from
 
 | Source | What |
 |---|---|
-| `tests/qa/catalog/cases.json`, `scenarios.json` | The plan, exported from `test-cases.xlsx`: 1,159 cases and 52 journeys — the 875 cases and 37 journeys of 08-Nov-2026 plus everything added on 20-Nov-2026 (below) |
+| `tests/qa/catalog/cases.json`, `scenarios.json` | The plan, exported from `test-cases.xlsx`: 1,631 cases and 63 journeys — the 875 cases and 37 journeys of 08-Nov-2026 plus everything added on 20-Nov-2026 and 23-Nov-2026 (below) |
 | `test-scenarios.json` (here) | Grouping of the cases into 313 test scenarios (TS-PRE-01 …; TS-…-12 onwards, TS-TERR-01 … 05, TS-SUB-07, TS-CON-01 … 08, TS-HLT-01 … 07 and TS-WKIT-01 for the 20-Nov cases) |
 | `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx` | Automation status and latest automated staging result (grey reference columns) |
 | `test-cases.xlsx` → Coverage | Feature list for the Traceability sheet |
@@ -111,10 +128,32 @@ Also on staging on 20-Nov-2026, added to the plan by their own PRs:
   so this builder stopped ("cases without a scenario"); the 9 scenarios were copied in
   from the two files, each with the cases that name it.
 
+## Added on 23-Nov-2026 (version 2.0)
+
+Record: `cases-added-2026-11-23.json` (472 cases, 70 scenarios, 11 journeys SC-53 … SC-63, 97 features,
+36 overrides). The features, their functions and the main code findings are in
+[`FEATURES_AND_CASES_2026-11-23.md`](FEATURES_AND_CASES_2026-11-23.md). In short:
+
+- **Features on staging 20 to 23 Nov that had no cases** (PRs #427 … #503): Puja Samagri (TC-PUJA), admin
+  menu (TC-ADM-023 …), banner wording (TC-WKIT-014 …), mailbox rotation (TC-NTF-021 …), shop documents and
+  FSSAI (TC-DOC), Health specialties (TC-HLT-033 …), franchise zones (TC-FRN), referral moves (TC-REFM),
+  dealership platform (TC-DPLT), smart shopping (TC-SMART), voice price assistant (TC-VPA), shop logo
+  (TC-LOGO), society join requests (TC-SOC-018 …), staff roles RBAC v2 (TC-STAFF).
+- Written by reading each PR and the code on `origin/staging` (d9cef71e); where the code differs from the
+  PR or the brief, the case follows the code and the note is in `code-check-2026-11-23.json` (75).
+  Results other sessions already recorded for these cases: `evidence-2026-11-23.json` (119).
+- **Overrides:** the territory cases (TC-TERR-003 … 024, 026 retired: territory = franchise, 21-Nov; a case
+  whose Expected result starts "Not applicable since" starts Not Applicable in the workbook), the FSSAI
+  onboarding cases (DF-08), TC-CON-019 / 020, TC-CAT-093, TC-TIER-010. Journey SC-39 now uses a pharmacy.
+- The welcome-kit journey is **SC-52** in the plan as well (fix #431 had renamed it in the catalog only).
+- Added with `python3 scripts/qa/plan_workbook.py add-json docs/testing/manual/cases-added-2026-11-23.json`,
+  exported with `scripts/qa/export-cases.ts`, and declared as manual in
+  `tests/qa/signed-in/features-2026-11-23.spec.ts` until they are automated.
+
 ## Rebuild
 
 ```bash
-node --import tsx scripts/qa/build-manual-workbook.ts --date 2026-11-20
+node --import tsx scripts/qa/build-manual-workbook.ts --date 2026-11-23
 ```
 
 (`npx tsx` also works outside the Claude sandbox.) Rebuilding gives an **empty**
