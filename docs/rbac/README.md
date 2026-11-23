@@ -21,6 +21,7 @@ The owner's brief was received 22-Nov-2026 at 21.56 IST. All times below are IST
 | 1 | Existing code assessment | Completed 22-Nov 22.10 | n/a | n/a |
 | 2 | Roles, permission matrix, denied logging, role-scoped flags, approval engine, two-Admin approval + bootstrap rule, emergency suspension, Admin → Approvals, staff board | Completed 22-Nov 22.50 (PR into staging) | Not Started | Not Started |
 | 3 | Accounting: journals, periods, rate proposals (Accountant → CA → Admin) | Completed 22-Nov 22.59 | Not Started | Not Started |
+| 3+ | Bank reconciliation: import statements, match by UTR + amount, exclude with reason, CA sign-off | Completed 23-Nov 08.25 | Not Started | Not Started |
 | 4 | Support: Manager queue + dashboard, Support User assigned work, bulk price list | Completed 22-Nov 22.59 | Not Started | Not Started |
 | 5 | Shop-owner change requests (per item, reminders, expiry, superseded) | Completed 22-Nov 22.59 | Not Started | Not Started |
 | 6 | Operations: tasks, zones, customer assists, daily / weekly reports ([06-operations.md](06-operations.md)) | Completed 22-Nov 23.20 (parallel session, merged) | Not Started | Not Started |

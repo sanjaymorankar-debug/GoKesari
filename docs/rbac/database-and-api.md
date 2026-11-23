@@ -15,6 +15,8 @@ Every change is **Additive**: new tables, new enum values, new nullable columns,
 | 0172 | `support_tickets` + `manager_user_id`, `sub_status` (with a CHECK on this new column only), `change_request_id`, `ops_task_id`, `raised_by_staff` (all nullable) + index `support_tickets_assignee_live_idx` | Additive | `rollback-0172.sql` |
 | 0172 | `shop_mrp_history` (append-only trigger; FK to `shops`, cascade) | Additive | `rollback-0172.sql` |
 | 0173 | `staff_documents`, `staff_document_versions` (trigger blocks UPDATE) | Additive | `rollback-0173.sql` |
+| 0174 | Operations tables (see [06-operations.md](06-operations.md)) | Additive | `rollback-0174.sql` |
+| 0175 | `fin_bank_statements` (sequence `fin_bank_statement_number_seq`, guard trigger), `fin_bank_statement_lines` (guard trigger; unique index: one record ↔ one matched line) | Additive | `rollback-0175.sql` |
 | rule (no migration) | `rbacV2`: `highValueJournalPaise`, `reminderHours`, `expiryDays`, `slaHoursByPriority`, `confirmHours` | Additive (defaults in code) | — |
 
 **Foreign keys.** Users are never referenced by foreign key from the new tables, and seller ↔ customer links are checked in the services, as the project rules require. The only foreign keys are:
@@ -63,6 +65,7 @@ Every change is **Additive**: new tables, new enum values, new nullable columns,
 - `user.emergency_suspended`
 - `fin_period.closed`, `fin_period.reopened`
 - `fin_journal.drafted`, `fin_journal.posted`
+- `fin_bank_statement.imported`, `fin_bank_statement.deleted`, `fin_bank_statement.reconciled`, `fin_bank_line.matched`, `fin_bank_line.unmatched`, `fin_bank_line.excluded`
 - `rate_proposal.submitted`, `rate_proposal.activated`
 - `staff_team.changed`
 - `staff_document.uploaded`, `staff_document.link_issued`, `staff_document.verified`, `staff_document.deleted`

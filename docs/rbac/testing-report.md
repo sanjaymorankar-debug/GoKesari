@@ -1,6 +1,6 @@
 # RBAC v2 — Testing report
 
-Report date: 22-Nov-2026, 23.56 IST. All times are IST.
+Report date: 22-Nov-2026, 23.56 IST; bank reconciliation added 23-Nov-2026, 08.25 IST. All times are IST.
 
 | Server | Status |
 |---|---|
@@ -20,6 +20,8 @@ Report date: 22-Nov-2026, 23.56 IST. All times are IST.
 | R6 | 22-Nov 23.13 → 23.51 | **GitHub CI** (Postgres 16, full suite) | #487 head 3883ef9b (Phases 1–7 + documents) | **All 321 files, 4,099 tests** | **4,097 passed, 2 failed** (see §3) |
 | R7 | 22-Nov 23.55 | Local, **fresh database** migrated 0001–0174 | 567a22fc (fixes for R6) | Both R6 failures + every RBAC v2 suite (7 files) | **78 / 78 passed** |
 | R8 | pending | GitHub CI | #487 head 567a22fc | Full suite | Re-run triggered by the push; Auto-fix reports any failure |
+| R9 | 23-Nov 08.20 | Local, **fresh database** migrated 0001–0175 | bank reconciliation | `rbac-v2-bank-recon` (new) + every RBAC v2 suite, migration journal, tile board, cron schedule | **135 / 135 passed** (after 1 test-wording fix) |
+| R10 | 23-Nov 08.23 | Local | bank reconciliation | Regression: every other test file that uses permissions, menus, audit actions or the approval registry (18 files) | **332 / 332 passed** |
 
 Also run at each step:
 - `tsc --noEmit`: clean.
@@ -68,6 +70,25 @@ Also run at each step:
 | Delivery charge goes through rule `shopWallet`; a rejection leaves it unchanged | Pass |
 | Only an Accountant proposes rates | Pass |
 | Four-eye on a commission change by one admin | Pass |
+
+### Phase 3+ — bank reconciliation (`tests/integration/rbac-v2-bank-recon.test.ts`, 14 cases)
+
+| Case | Result |
+|---|---|
+| Dates (DD/MM/YY, DD-MM-YYYY, DD-Mon-YYYY, D Mon YYYY, ISO; 31/02 refused), amounts (Indian grouping, ₹, brackets, Dr/Cr), UTR found in a narration | Pass |
+| HDFC-style file: header found under the account details, footer skipped, opening / closing balance; a broken running balance is warned | Pass |
+| Newest-first statement put in date order; one Amount column with Dr/Cr; bad rows reported by row number | Pass |
+| Excel statement with real date cells (ICICI layout) | Pass |
+| Accountant only; refused while `rbac_v2_accounting` is off | Pass |
+| Automatic: UTR + amount → matched; UTR with a different amount → suggestion only; same amount within 4 days → suggestion; a credit is never matched to a payout | Pass |
+| Same file twice, overlapping dates for the same account, a full account number in the name → refused; another account may cover the same dates | Pass |
+| A file with a bad row imports nothing | Pass |
+| Manual: different amount refused; one record ↔ one line across statements; exclusion needs a reason; undo | Pass |
+| Money received matched to a posted journal entry (a draft cannot be); suggestion after the journal is posted | Pass |
+| "Paid, not in bank": a payout recorded as paid in the dates but on no statement is listed; others are not | Pass |
+| Sign-off: refused with an unmatched line; locked while with the CA; only a CA decides; rejection needs a reason and reopens it; approval → RECONCILED; DB refuses edits and deletion afterwards | Pass |
+| Refused when opening + credits − debits ≠ closing (₹10.00 gap found) | Pass |
+| Withdraw → OPEN; deleting an open statement releases its matches; re-import matches again | Pass |
 
 ### Phases 4, 5, 7 — support desk, change requests, handover (`tests/integration/rbac-v2-support.test.ts`)
 
@@ -140,4 +161,4 @@ Full CI suite, R6:
 | Production run (gokesari.com) | After staging verification, in the 23.00 IST window, with designated test accounts only. Flags stay OFF unless the owner says otherwise. |
 | R8 CI re-run on 567a22fc | Running; Auto-fix watches it |
 | Manual / visual checks of the new screens on phone width (Tile Board one-screen rule) | With the test-server run |
-| Not built (recorded) | Bank-statement reconciliation; franchise-fee / platform-fee proposals; virus scanner (Q9, needs a server package — owner) |
+| Not built (recorded) | Franchise-fee / platform-fee proposals; virus scanner (Q9, needs a server package — owner); automatic bank feeds (needs a bank API agreement) |

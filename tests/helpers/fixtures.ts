@@ -63,6 +63,7 @@ const RESET_TABLES = [
   // docs/rbac (0170): the approval engine has no foreign keys to users (TRUNCATE is not blocked by the
   // append-only trigger on approval_decisions, which guards UPDATE / DELETE only).
   "approval_requests",
+  "fin_bank_statements",
   "fin_journal_entries",
   "fin_periods",
   "rate_change_proposals",

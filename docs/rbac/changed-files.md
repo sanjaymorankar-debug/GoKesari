@@ -1,6 +1,6 @@
 # RBAC v2 — changed files
 
-Generated 22-Nov-2026 23.56 IST from `git diff --name-status c068411f..HEAD` on `feature/rbac-v2-phases-3-7` (Phases 1–7, documents; staging base c068411f). **A** = new file, **M** = changed file.
+Generated 23-Nov-2026 08.25 IST from `git diff --name-status c068411f..HEAD` on `feature/rbac-v2-phases-3-7` (Phases 1–7, documents, bank reconciliation; staging base c068411f). **A** = new file, **M** = changed file.
 
 | Status | File |
 |---|---|
@@ -11,14 +11,17 @@ Generated 22-Nov-2026 23.56 IST from `git diff --name-status c068411f..HEAD` on 
 | A | `docs/rbac/05-documents.md` |
 | A | `docs/rbac/06-operations.md` |
 | A | `docs/rbac/README.md` |
+| A | `docs/rbac/changed-files.md` |
 | A | `docs/rbac/database-and-api.md` |
 | A | `docs/rbac/deployment-and-rollback.md` |
+| A | `docs/rbac/testing-report.md` |
 | A | `docs/rbac/tracker.json` |
 | A | `drizzle/0170_rbac_v2_foundation.sql` |
 | A | `drizzle/0171_rbac_v2_accounting.sql` |
 | A | `drizzle/0172_rbac_v2_support_changes.sql` |
 | A | `drizzle/0173_rbac_v2_documents.sql` |
-| A | `drizzle/0175_rbac_v2_operations.sql` |
+| A | `drizzle/0174_rbac_v2_operations.sql` |
+| A | `drizzle/0175_rbac_v2_bank_reconciliation.sql` |
 | M | `drizzle/meta/_journal.json` |
 | M | `mobile/app.config.ts` |
 | A | `scripts/rbac/build-tracker.ts` |
@@ -26,6 +29,7 @@ Generated 22-Nov-2026 23.56 IST from `git diff --name-status c068411f..HEAD` on 
 | A | `scripts/rollback-0171.sql` |
 | A | `scripts/rollback-0172.sql` |
 | A | `scripts/rollback-0173.sql` |
+| A | `scripts/rollback-0174.sql` |
 | A | `scripts/rollback-0175.sql` |
 | A | `src/app/admin/approvals/page.tsx` |
 | A | `src/app/admin/staff-teams/page.tsx` |
@@ -38,6 +42,13 @@ Generated 22-Nov-2026 23.56 IST from `git diff --name-status c068411f..HEAD` on 
 | A | `src/app/api/approvals/route.ts` |
 | M | `src/app/api/finance/commission-rates/route.ts` |
 | M | `src/app/api/registration-fees/route.ts` |
+| A | `src/app/api/staff/accounting/bank-lines/[id]/route.ts` |
+| A | `src/app/api/staff/accounting/bank-statements/[id]/auto-match/route.ts` |
+| A | `src/app/api/staff/accounting/bank-statements/[id]/route.ts` |
+| A | `src/app/api/staff/accounting/bank-statements/[id]/submit/route.ts` |
+| A | `src/app/api/staff/accounting/bank-statements/[id]/unrecorded/route.ts` |
+| A | `src/app/api/staff/accounting/bank-statements/[id]/withdraw/route.ts` |
+| A | `src/app/api/staff/accounting/bank-statements/route.ts` |
 | A | `src/app/api/staff/accounting/journals/[id]/reverse/route.ts` |
 | A | `src/app/api/staff/accounting/journals/[id]/route.ts` |
 | A | `src/app/api/staff/accounting/journals/[id]/submit/route.ts` |
@@ -91,6 +102,7 @@ Generated 22-Nov-2026 23.56 IST from `git diff --name-status c068411f..HEAD` on 
 | M | `src/components/site-header.tsx` |
 | A | `src/components/staff-teams-admin.tsx` |
 | A | `src/components/staff/accounting-desk.tsx` |
+| A | `src/components/staff/bank-recon-desk.tsx` |
 | A | `src/components/staff/operations-desk.tsx` |
 | A | `src/components/staff/support-desk.tsx` |
 | M | `src/lib/board/menus.ts` |
@@ -109,6 +121,8 @@ Generated 22-Nov-2026 23.56 IST from `git diff --name-status c068411f..HEAD` on 
 | M | `src/server/db/schema.ts` |
 | M | `src/server/notifications/templates.ts` |
 | M | `src/server/notifications/types.ts` |
+| A | `src/server/rbac-accounting/bank-reconciliation.ts` |
+| A | `src/server/rbac-accounting/bank-statement-file.ts` |
 | A | `src/server/rbac-accounting/journals.ts` |
 | A | `src/server/rbac-accounting/rates.ts` |
 | A | `src/server/rbac-accounting/schemas.ts` |
@@ -127,7 +141,9 @@ Generated 22-Nov-2026 23.56 IST from `git diff --name-status c068411f..HEAD` on 
 | M | `src/server/services/feature-flags.ts` |
 | M | `src/server/services/operator-limited.ts` |
 | M | `tests/helpers/fixtures.ts` |
+| M | `tests/integration/cron-schedule.test.ts` |
 | A | `tests/integration/rbac-v2-accounting.test.ts` |
+| A | `tests/integration/rbac-v2-bank-recon.test.ts` |
 | A | `tests/integration/rbac-v2-documents.test.ts` |
 | A | `tests/integration/rbac-v2-operations.test.ts` |
 | A | `tests/integration/rbac-v2-support.test.ts` |
@@ -135,5 +151,5 @@ Generated 22-Nov-2026 23.56 IST from `git diff --name-status c068411f..HEAD` on 
 | M | `tests/unit/tile-board.test.ts` |
 
 ```
- 130 files changed, 12088 insertions(+), 20 deletions(-)
+ 145 files changed, 14599 insertions(+), 20 deletions(-)
 ```

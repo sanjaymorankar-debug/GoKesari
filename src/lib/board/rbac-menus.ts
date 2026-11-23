@@ -40,6 +40,7 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
       { key: "approve", label: L("To approve", "स्वीकृति हेतु", "मंजुरीसाठी"), icon: "badge-check", href: "/staff/accounting?tab=approvals", permission: PERMISSIONS.JOURNAL_APPROVE, feature: "rbac_v2_accounting" },
       { key: "tb", label: L("Trial balance", "ट्रायल बैलेंस", "ट्रायल बॅलन्स"), short: L("Trial bal.", "ट्रायल", "ट्रायल"), icon: "file-chart-column", href: "/staff/accounting?tab=tb", permission: [PERMISSIONS.JOURNAL_PREPARE, PERMISSIONS.JOURNAL_APPROVE], feature: "rbac_v2_accounting" },
       { key: "rates", label: L("Rate changes", "दर परिवर्तन", "दर बदल"), short: L("Rates", "दरें", "दर"), icon: "badge-percent", href: "/staff/accounting?tab=rates", permission: [PERMISSIONS.RATE_PROPOSE, PERMISSIONS.RATE_APPROVE], feature: "rbac_v2_accounting" },
+      { key: "bank", label: L("Bank reconciliation", "बैंक मिलान", "बँक जुळवणी"), short: L("Bank", "बैंक", "बँक"), icon: "landmark", href: "/staff/accounting?tab=bank", permission: [PERMISSIONS.BANK_RECON_PREPARE, PERMISSIONS.BANK_RECON_SIGNOFF], feature: "rbac_v2_accounting" },
     ],
   },
   /* ------------------------------------------------------------- Support */

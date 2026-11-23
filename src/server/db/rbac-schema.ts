@@ -219,6 +219,83 @@ export const rateChangeProposals = pgTable(
 );
 export type RateChangeProposal = typeof rateChangeProposals.$inferSelect;
 
+/* ============================================= Phase 3 follow-up: bank reconciliation (0175) */
+
+export const BANK_STATEMENT_STATUSES = ["OPEN", "SUBMITTED", "RECONCILED"] as const;
+export type BankStatementStatus = (typeof BANK_STATEMENT_STATUSES)[number];
+export const BANK_LINE_STATUSES = ["UNMATCHED", "MATCHED", "EXCLUDED"] as const;
+export type BankLineStatus = (typeof BANK_LINE_STATUSES)[number];
+/** What a bank line can be matched to (each an existing record, only read). */
+export const BANK_MATCH_KINDS = ["SHOP_PAYOUT", "SHOP_SETTLEMENT", "RIDER_PAYOUT", "RIDER_TRANSFER", "DEALER_PAYOUT", "BANK_REFUND", "JOURNAL"] as const;
+export type BankMatchKind = (typeof BANK_MATCH_KINDS)[number];
+
+export interface BankLineSuggestion {
+  kind: BankMatchKind;
+  id: string;
+  label: string;
+  amountPaise: number;
+  why: string;
+}
+
+/** A RECONCILED statement is final (DB trigger fin_bank_statements_guard); lines change only while OPEN. */
+export const finBankStatements = pgTable(
+  "fin_bank_statements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    statementNumber: text("statement_number").notNull().default(sql`('BS-' || lpad(nextval('fin_bank_statement_number_seq')::text, 6, '0'))`),
+    /** The bank account as people know it, e.g. "HDFC current ••1234" (never the full account number). */
+    accountLabel: text("account_label").notNull(),
+    periodFrom: date("period_from", { mode: "string" }).notNull(),
+    periodTo: date("period_to", { mode: "string" }).notNull(),
+    openingBalancePaise: bigint("opening_balance_paise", { mode: "number" }),
+    closingBalancePaise: bigint("closing_balance_paise", { mode: "number" }),
+    totalDebitPaise: bigint("total_debit_paise", { mode: "number" }).notNull().default(0),
+    totalCreditPaise: bigint("total_credit_paise", { mode: "number" }).notNull().default(0),
+    lineCount: integer("line_count").notNull().default(0),
+    fileName: text("file_name").notNull(),
+    fileSha256: text("file_sha256").notNull(),
+    warnings: jsonb("warnings").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    status: text("status", { enum: BANK_STATEMENT_STATUSES }).notNull().default("OPEN"),
+    uploadedBy: uuid("uploaded_by").notNull(),
+    approvalRequestId: uuid("approval_request_id"),
+    signedOffBy: uuid("signed_off_by"),
+    signedOffAt: timestamp("signed_off_at", { withTimezone: true }),
+    rejectionComment: text("rejection_comment"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("fin_bank_statements_account_idx").on(t.accountLabel, t.periodFrom)],
+);
+export type FinBankStatement = typeof finBankStatements.$inferSelect;
+
+export const finBankStatementLines = pgTable(
+  "fin_bank_statement_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    statementId: uuid("statement_id")
+      .notNull()
+      .references(() => finBankStatements.id, { onDelete: "cascade" }),
+    lineNo: integer("line_no").notNull(),
+    txnDate: date("txn_date", { mode: "string" }).notNull(),
+    valueDate: date("value_date", { mode: "string" }),
+    description: text("description").notNull().default(""),
+    reference: text("reference"),
+    debitPaise: bigint("debit_paise", { mode: "number" }).notNull().default(0),
+    creditPaise: bigint("credit_paise", { mode: "number" }).notNull().default(0),
+    balancePaise: bigint("balance_paise", { mode: "number" }),
+    status: text("status", { enum: BANK_LINE_STATUSES }).notNull().default("UNMATCHED"),
+    matchKind: text("match_kind", { enum: BANK_MATCH_KINDS }),
+    matchId: uuid("match_id"),
+    matchMethod: text("match_method", { enum: ["AUTO", "MANUAL"] }),
+    matchedBy: uuid("matched_by"),
+    matchedAt: timestamp("matched_at", { withTimezone: true }),
+    note: text("note"),
+    suggestion: jsonb("suggestion").$type<BankLineSuggestion | null>(),
+  },
+  (t) => [index("fin_bank_statement_lines_status_idx").on(t.statementId, t.status)],
+);
+export type FinBankStatementLine = typeof finBankStatementLines.$inferSelect;
+
 /* ============================================ Phases 4–5: teams, shop MRP history (0172) */
 
 export const STAFF_TEAMS = ["SUPPORT", "OPERATIONS"] as const;

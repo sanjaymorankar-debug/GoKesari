@@ -144,6 +144,18 @@
     "notes": "Local: 11 tests passed (maker/checker, high value CA→Admin, posted entries refused by DB, reversal nets to zero, period close, rate activation via existing setters). Bank-statement reconciliation and franchise/platform fee proposals are follow-ups."
   },
   {
+    "phase": "3+",
+    "feature": "Bank-statement reconciliation: CSV/Excel import (HDFC/ICICI/SBI layouts), auto-match by UTR + amount, suggestions, manual match / exclude, 'paid, not in bank' list, Accountant → CA sign-off",
+    "development": "Completed",
+    "devAt": "23-Nov-2026 08.25",
+    "testServer": "Not Started",
+    "testServerAt": "",
+    "production": "Not Started",
+    "productionAt": "",
+    "flag": "rbac_v2_accounting",
+    "notes": "Migration 0175 (additive). Local: 14 new tests + 135 RBAC v2 / 332 regression passed. Reads payouts/refunds/journals only, never writes them."
+  },
+  {
     "phase": "4",
     "feature": "Support Manager queue + dashboard, Support User assigned work, priority SLA, teams, bulk price list (template, row errors, error report)",
     "development": "Completed",
