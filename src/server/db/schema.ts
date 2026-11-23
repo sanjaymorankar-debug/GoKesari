@@ -5253,6 +5253,40 @@ export const societyShops = pgTable(
   (t) => [uniqueIndex("society_shops_unique").on(t.societyId, t.shopId)],
 );
 
+/**
+ * docs/delta CF-006: a rider asks to join a society's authorised rider list; the society ADMIN
+ * approves (approval lists the rider through the existing addSocietyRider) or declines. Behind the
+ * flag society_rider_join_requests_enabled. One PENDING request per society and rider.
+ */
+export const societyJoinRequests = pgTable(
+  "society_join_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    societyId: uuid("society_id")
+      .notNull()
+      .references(() => societies.id, { onDelete: "cascade" }),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["PENDING", "APPROVED", "DECLINED", "WITHDRAWN"] }).notNull().default("PENDING"),
+    /** The rider's note to the society, e.g. "I deliver in this area every evening". */
+    message: text("message"),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("society_join_requests_one_pending")
+      .on(t.societyId, t.deliveryPartnerId)
+      .where(sql`${t.status} = 'PENDING'`),
+    index("society_join_requests_society_idx").on(t.societyId, t.status),
+    index("society_join_requests_partner_idx").on(t.deliveryPartnerId),
+  ],
+);
+export type SocietyJoinRequest = typeof societyJoinRequests.$inferSelect;
+
 /* ============================================================ ratings (Phase 2)
  * GS-059 shop rating, GS-060 rider rating. One row per (order, target): a
  * customer rates the shop and, when a platform rider delivered, the rider —
@@ -9209,6 +9243,13 @@ export const supportTickets = pgTable(
     resolveBreachedAt: timestamp("resolve_breached_at", { withTimezone: true }),
     reopenCount: integer("reopen_count").notNull().default(0),
     resolutionNote: text("resolution_note"),
+    /* docs/rbac (0172): the Support Manager who owns the ticket, the brief's side statuses (the status CHECK is
+     * unchanged), and the traceability links (change request, Operations task). All nullable. */
+    managerUserId: uuid("manager_user_id"),
+    subStatus: text("sub_status", { enum: ["PENDING_INFORMATION", "ON_HOLD", "REJECTED"] }),
+    changeRequestId: uuid("change_request_id"),
+    opsTaskId: uuid("ops_task_id"),
+    raisedByStaff: boolean("raised_by_staff"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -10418,6 +10459,10 @@ export const FEATURE_FLAG_KEYS = [
   "zoho_connector",
   "odoo_connector",
   "ondc_mode",
+  // docs/delta CF-006: riders ask to join a society's rider list; the society admin approves. Off: no page, API answers 404.
+  "society_rider_join_requests_enabled",
+  // docs/delta CF-011 (D-144): shop owners upload a logo file on their shop pages. No migration: a missing row is OFF.
+  "shop_logo_upload_enabled",
   // docs/shop-welcome-kit-2026-11: admins send the welcome kit to shops that were live before it (one shop or by city / district). No migration: a missing row is OFF.
   "shop_welcome_kit_admin_send_enabled",
   // docs/smart-shopping-2026-11 (0167–0169): photo shopping list, add product by photo, WhatsApp orders. Missing row = OFF.

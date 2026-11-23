@@ -26,6 +26,8 @@ import { RiderBroadcastOffers } from "@/components/rider-broadcast-offers";
 import { getRiderBroadcastSettings } from "@/server/services/dispatch-broadcast";
 import { isRiderNavigationEnabled } from "@/server/services/rider-navigation";
 import { getRule } from "@/server/services/settings";
+import { SOCIETY_JOIN_FLAG } from "@/server/services/delta/society-join-requests";
+import { getFeatureFlag } from "@/server/services/feature-flags";
 
 /** "45 seconds" / "1 minute" / "3 minutes" — the offer window from the rules. */
 function offerWindowText(seconds: number): string {
@@ -108,10 +110,19 @@ export default async function DeliveryPartnerStatusPage() {
     listMyBackgroundDocs(user.id),
     getAvailabilityGate(partner),
   ]);
+  // docs/delta CF-006: link to "Join a society" while the flag is on.
+  const societyJoinOn = partner.status === "APPROVED" && (await getFeatureFlag(SOCIETY_JOIN_FLAG)).enabled;
 
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title="My Delivery Partner Application" />
+      {societyJoinOn ? (
+        <p className="-mt-4 mb-4 text-sm">
+          <a className="font-medium text-kesari-700 underline" href="/delivery-partner/societies">
+            Join a housing society&apos;s rider list
+          </a>
+        </p>
+      ) : null}
 
       <Card className="mb-6 p-6">
         <div className="mb-3 flex items-center gap-2">

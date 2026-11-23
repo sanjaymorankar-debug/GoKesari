@@ -25,6 +25,8 @@ export type FeatureFlagKey =
   | "zoho_connector"
   | "odoo_connector"
   | "ondc_mode"
+  | "society_rider_join_requests_enabled"
+  | "shop_logo_upload_enabled"
   | "shop_welcome_kit_admin_send_enabled"
   | "smart_list_scan_enabled"
   | "shop_photo_listing_enabled"

@@ -67,6 +67,8 @@ export interface ApprovalHandler {
   apply(context: ApplyContext): Promise<void>;
   /** Optional: what happens when the request is rejected (e.g. lift an emergency suspension). */
   onRejected?(request: ApprovalRequest, decidedBy: ApprovalActor): Promise<void>;
+  /** Optional: CA_THEN_ADMIN stage 1 approved, now waiting for an admin. */
+  onAdvanced?(request: ApprovalRequest, decidedBy: ApprovalActor): Promise<void>;
 }
 
 const handlers = new Map<string, ApprovalHandler>();
@@ -332,7 +334,10 @@ export async function decideApproval(input: DecideApprovalInput): Promise<Decide
     return { request, approvedItems, final: true };
   });
 
-  if (!outcome.final) return { request: outcome.request, applied: false, applyError: null, singleAdmin };
+  if (!outcome.final) {
+    if (handler.onAdvanced) await handler.onAdvanced(outcome.request, input.actor);
+    return { request: outcome.request, applied: false, applyError: null, singleAdmin };
+  }
 
   if (singleAdmin) await notifySingleAdminApproval(outcome.request, input.actor);
 
