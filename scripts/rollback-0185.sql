@@ -1,5 +1,5 @@
--- Rollback of drizzle/0184_hdms_delivery.sql. Switch hdms_enabled off first.
--- Drops only what 0184 added. Export delivery_bookings / delivery_events / delivery_settlements first if they
+-- Rollback of drizzle/0185_hdms_delivery.sql. Switch hdms_enabled off first.
+-- Drops only what 0185 added. Export delivery_bookings / delivery_events / delivery_settlements first if they
 -- hold real deliveries: orders, delivery_orders, rider and wallet tables are never touched.
 DROP TABLE IF EXISTS "delivery_reconciliation_lines";
 DROP TABLE IF EXISTS "delivery_settlements";
