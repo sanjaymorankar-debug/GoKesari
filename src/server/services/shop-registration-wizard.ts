@@ -358,7 +358,9 @@ const settled = (row: ShopRegistrationDraftCheck | undefined) => Boolean(row?.nu
 
 function detailsOf(draft: ShopRegistrationDraft): DraftShopDetails | null {
   const d = draft.details as Partial<DraftShopDetails> | null;
-  return d && typeof d.shopType === "string" ? (d as DraftShopDetails) : null;
+  // Saved by the shop-details step (name and type together). Since 25-Nov-2026 the type alone is chosen
+  // earlier, on its own step, so the name tells the two apart.
+  return d && typeof d.shopType === "string" && typeof d.name === "string" ? (d as DraftShopDetails) : null;
 }
 
 async function isFoodShopType(shopType: string | undefined): Promise<boolean> {
