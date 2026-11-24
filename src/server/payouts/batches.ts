@@ -43,6 +43,7 @@ import { periodLabel, type SystemOrActor } from "./cycle";
 import { getPayoutProvider } from "./providers";
 import { buildSandboxWebhook } from "./providers/sandbox";
 import { PayoutProviderError, type PayoutProvider, type PayoutWebhookEvent } from "./types";
+import { queuePosting, shopPayoutPosting } from "@/server/rbac-accounting/auto-post";
 
 interface Actor {
   id: string;
@@ -354,6 +355,8 @@ async function applyItemOutcome(itemId: string, outcome: Outcome, actor: SystemO
         outcome.markedBy ?? null,
         tx,
       );
+      // docs/tax-register/BOOKS.md: GoKesari's posting for this payment (flag auto_journals).
+      await queuePosting(shopPayoutPosting({ id: item.id, shopName: shop?.name ?? "shop", amountPaise: item.amountPaise, breakdown: item.breakdown as Record<string, number>, paidAt: new Date(), utr: outcome.utr }), tx);
       const topUp = -(item.breakdown.WALLET_TOPUP ?? 0);
       if (topUp > 0) {
         await applyShopWalletEntry(

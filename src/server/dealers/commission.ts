@@ -93,6 +93,7 @@ import { computeCommissionTds, payeeTypeFor, tdsBlock, type CommissionTds } from
 import { deferredReviewDocTypes, hasDocumentWaiver, missingMandatoryDocuments } from "@/server/services/shop-onboarding";
 import { COMMISSION_ENTRY_TYPE_LABELS, type CommissionEntryType } from "@/lib/dealer-tiers";
 import { AGREEMENT_HOLD_NOTE, accrueTieredActivation, agreementAccepted, hasStandardCommission, isTieredDealer, lockShopCommission, reversePlan, tellReversal } from "./tiered";
+import { commissionPosting, queuePosting } from "@/server/rbac-accounting/auto-post";
 
 interface Actor {
   id: string;
@@ -1077,6 +1078,7 @@ export async function markPayoutPaid(batchId: string, paymentReference: string, 
       },
       tx,
     );
+    await queuePosting(commissionPosting({ sourceType: "dealer_payout_batches", id: batchId, payee: b.memberId ? "team member" : "dealer", grossPaise: b.totalPaise, tdsPaise: b.tdsPaise, paidAt: now, reference: ref }), tx);
     return paid;
   });
   const [payee] = batch.memberId

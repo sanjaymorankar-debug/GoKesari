@@ -61,6 +61,7 @@ import { postLedger } from "@/server/services/finance";
 import { notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { computeTds, financialYearBounds, type TdsResult } from "./rules";
+import { queuePosting, riderPosting } from "@/server/rbac-accounting/auto-post";
 
 export interface SystemOrActor {
   id: string | null;
@@ -492,6 +493,7 @@ export async function applyOutcome(transferId: string, outcome: Outcome, actor: 
           actor.id,
           tx,
         );
+        await queuePosting(riderPosting({ sourceType: "rider_bank_transfers", id: t.id, riderName: `partner ${t.deliveryPartnerId.slice(0, 8)}`, grossPaise: t.grossPaise, tdsPaise: t.tdsPaise, feePaise: t.feePaise, netPaise: t.netPaise, paidAt: now, reference: outcome.utr }), tx);
         notices.push({
           type: NOTIFICATION_TYPES.RIDER_PAYOUT_PAID,
           dedupeKey: `rider-transfer:${t.id}:paid`,

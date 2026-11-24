@@ -10564,6 +10564,8 @@ export const FEATURE_FLAG_KEYS = [
   "tax_register",
   // docs/tax-register (0184): TDS / TCS withheld on every payout path. Missing row = OFF.
   "payout_deductions",
+  // docs/tax-register (0185): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
+  "auto_journals",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
