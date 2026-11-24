@@ -1,6 +1,11 @@
--- Rollback for 0187_sms_two_factor (SMS sign-in code flags, checkout step-up column).
--- Before running: deploy the previous release's code. Then delete the 0187 row.
-DELETE FROM "feature_flag_changes" WHERE "flag_key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DELETE FROM "feature_flags" WHERE "key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DROP INDEX IF EXISTS "login_otps_user_purpose_consumed_idx";
-ALTER TABLE "login_otps" DROP COLUMN IF EXISTS "step_up_request_id";
+-- Rollback for 0187_tax_register (docs/tax-register/README.md).
+-- Before running: deploy the previous release's code, then delete the 0187 row from
+-- drizzle.__drizzle_migrations. Change requests, approvals and CA items are lost: export them first.
+-- Settings already changed through the register keep their values (they live in their own tables).
+BEGIN;
+DROP TABLE IF EXISTS "ca_action_item_notes";
+DROP TABLE IF EXISTS "ca_action_items";
+DROP TABLE IF EXISTS "tax_param_approvals";
+DROP TABLE IF EXISTS "tax_change_requests";
+DELETE FROM "feature_flags" WHERE "key" = 'tax_register';
+COMMIT;

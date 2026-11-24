@@ -222,8 +222,13 @@ const isProduction = () => (process.env.APP_BASE_URL ?? process.env.NEXTAUTH_URL
  * Saves a new version effective at `effectiveFrom` (default now). Only an admin; maxOwnersPerZone only
  * by a super-admin; the test clock never on production. Audited with the reason.
  */
-export async function saveFranchiseConfig(patch: Partial<FranchiseConfig>, input: { reason: string; effectiveFrom?: Date }, actor: Actor): Promise<VersionedConfig> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can change the franchise settings.");
+export async function saveFranchiseConfig(
+  patch: Partial<FranchiseConfig>,
+  input: { reason: string; effectiveFrom?: Date; /** docs/tax-register: the CA applies an approved GST change. */ viaTaxRegister?: boolean },
+  actor: Actor,
+): Promise<VersionedConfig> {
+  const taxRegisterGst = input.viaTaxRegister === true && actor.role === "CA" && Object.keys(patch).every((k) => k === "gstRateBp");
+  if (actor.role !== "ADMIN" && !taxRegisterGst) throw forbidden("Only an admin can change the franchise settings.");
   const reason = input.reason.trim();
   if (reason.length < 5) throw validationFailed("Give a reason of at least 5 characters.");
   const current = await franchiseConfig();
