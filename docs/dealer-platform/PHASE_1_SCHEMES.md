@@ -3,20 +3,23 @@
 Owner brief "Unified Dealership & Franchise Management Platform" (23-Nov-2026). Gap analysis:
 [GAP_ANALYSIS_2026-11-23.md](GAP_ANALYSIS_2026-11-23.md). Owner, 09.20 IST: **"Yes, use defaults"** for decisions D1–D10.
 
-## Decisions in force (defaults accepted)
+## Decisions in force (owner's answers, 25-Nov-2026)
 
-| # | Decision |
-|---|---|
-| D1 | Free Dealership for new dealers: 20% one-time on the shop registration fee + 5% of GoKesari's commission monthly for 12 months; no team commission |
-| D2 | Business Partner ₹11,000 (25% / 15%) and Growth Partner ₹21,000 (30% / 25% + team 4% / 3%) at the brief's rates; the rule "a dealer rate may not exceed the franchise owner's" is lifted when the calculator ships |
-| D3 | 18% GST added on top: ₹12,980 and ₹24,780 |
-| D4 | Up to 2 franchise owners per zone (unchanged) |
-| D5 | Current zones kept (there is no metro / rural rule in the code) |
-| D6 | Monthly commission basis: GoKesari's commission (2%) on the dealer's own shops; 5% of it = 0.1% of delivered sales |
-| D7 | Business / Growth Partner monthly commission: 12 months, renewable |
-| D8 | Existing dealers move onto Free Dealership with their current terms frozen (version 1); no re-registration |
-| D9 | New admin roles created; the owner assigns people later (phase 6) |
-| D10 | Each phase through the staging queue, then production once verified |
+The defaults below were accepted on 23-Nov-2026 at 09.20 IST. On 25-Nov-2026 (about 01.30 IST) the owner
+answered each one again; migration 0190 applies the changes on both sites.
+
+| # | Decision (25-Nov-2026) | Was (23-Nov default) |
+|---|---|---|
+| D1 | **Free Dealership: 20% one-time on the shop registration fee, no monthly commission** (version 3). Dealers who joined on version 2 move to version 3 | 20% + 5% of GoKesari's commission monthly for 12 months |
+| D2 | **Business Partner and Growth Partner stay switched off** (suspended, no new applicants). The admin can publish them again in Admin → Dealer schemes | Open at the brief's rates |
+| D3 | Yes: when they open, 18% GST is added on top (₹12,980 and ₹24,780) | Same |
+| D4 | No change: up to 2 franchise owners per zone | Same |
+| D5 | No change: current zones; no metro / rural rule | Same |
+| D6 | Off: no monthly commission on dealerships (follows D1 and D2) | 5% of GoKesari's 2% = 0.1% of delivered sales |
+| D7 | Off: no monthly commission duration needed while Business / Growth are off | 12 months, renewable |
+| D8 | Yes: existing dealers stay on Free Dealership version 1, their current terms | Same |
+| D9 | Later: the owner assigns people to the new admin roles | Same |
+| D10 | OK: through the staging queue, then production | Same |
 
 ## What phase 1 adds
 
