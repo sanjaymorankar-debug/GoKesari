@@ -9,7 +9,8 @@
 import { describe, expect, it } from "vitest";
 
 import { formatBp, isShopReferralCode } from "@/lib/dealer-tiers";
-import { financialYearBounds, renewalBasePaise, tdsForPayout, tierAmounts, tierRatesFor } from "@/server/dealers/tiered";
+import { financialYearBounds, renewalBasePaise, tierAmounts, tierRatesFor } from "@/server/dealers/tiered";
+import { deduction } from "@/server/tax/commission-tds";
 import { shopReferralDiscount } from "@/server/services/shop-referrals";
 
 const RATES = { directBp: 2000, leadOverrideBp: 500, mainOverrideBp: 300, firstPartBp: 6000 };
@@ -77,23 +78,48 @@ describe("renewal commission is figured before GST", () => {
   });
 });
 
-describe("TDS on payouts (rule dealerPayoutTds)", () => {
-  const rule = { rateBp: 200, thresholdPaise: 2_000_000 };
-  it("off → nothing deducted", () => {
-    expect(tdsForPayout({ grossPaise: 5_000_000, yearGrossBeforePaise: 0, yearTdsBeforePaise: 0, enabled: false, ...rule })).toBe(0);
+describe("TDS on payouts (deduction, the rows in Admin → TDS on commission)", () => {
+  type Row = { rateBp: number; thresholdPaise: number; mode: "CATCH_UP" | "EXCESS_ONLY" };
+  const catchUp: Row = { rateBp: 200, thresholdPaise: 2_000_000, mode: "CATCH_UP" };
+  const excess: Row = { ...catchUp, mode: "EXCESS_ONLY" };
+  const noPan: Row = { rateBp: 2000, thresholdPaise: 0, mode: "CATCH_UP" };
+  const d = (grossPaise: number, yearGrossBeforePaise: number, yearTdsBeforePaise: number, rate: Row = catchUp, certificate: { rateBp: number; limitPaise: number | null } | null = null) =>
+    deduction({ grossPaise, yearGrossBeforePaise, yearTdsBeforePaise, rate, certificate });
+  it("below ₹20,000 in the year → nothing", () => {
+    expect(d(1_500_000, 400_000, 0)).toBe(0);
   });
-  it("on, below ₹20,000 in the year → nothing", () => {
-    expect(tdsForPayout({ grossPaise: 1_500_000, yearGrossBeforePaise: 400_000, yearTdsBeforePaise: 0, enabled: true, ...rule })).toBe(0);
+  it("exactly at ₹20,000 → nothing", () => {
+    expect(d(1_000_000, 1_000_000, 0)).toBe(0);
   });
-  it("the payout that passes ₹20,000 deducts 2% on the whole year (catch-up)", () => {
+  it("the payout that passes ₹20,000 deducts 2% on the whole year (CATCH_UP)", () => {
     // ₹15,000 earlier without TDS + ₹10,000 now = ₹25,000 → 2% = ₹500.
-    expect(tdsForPayout({ grossPaise: 1_000_000, yearGrossBeforePaise: 1_500_000, yearTdsBeforePaise: 0, enabled: true, ...rule })).toBe(50_000);
+    expect(d(1_000_000, 1_500_000, 0)).toBe(50_000);
+  });
+  it("EXCESS_ONLY: only the part above ₹20,000", () => {
+    // ₹25,000 − ₹20,000 = ₹5,000 → 2% = ₹100.
+    expect(d(1_000_000, 1_500_000, 0, excess)).toBe(10_000);
   });
   it("after that, 2% of each payout", () => {
-    expect(tdsForPayout({ grossPaise: 1_000_000, yearGrossBeforePaise: 2_500_000, yearTdsBeforePaise: 50_000, enabled: true, ...rule })).toBe(20_000);
+    expect(d(1_000_000, 2_500_000, 50_000)).toBe(20_000);
+  });
+  it("catch-up across three zero-TDS months: the fourth payout takes the year's TDS", () => {
+    // Three months of ₹8,000 paid with no TDS (rule off), then ₹8,000 with it on: ₹32,000 × 2% = ₹640.
+    expect(d(800_000, 2_400_000, 0)).toBe(64_000);
   });
   it("never more than the payout itself", () => {
-    expect(tdsForPayout({ grossPaise: 10_000, yearGrossBeforePaise: 10_000_000, yearTdsBeforePaise: 0, enabled: true, ...rule })).toBe(10_000);
+    expect(d(10_000, 10_000_000, 0)).toBe(10_000);
+  });
+  it("no PAN: 20% from the first rupee", () => {
+    expect(d(100_000, 0, 0, noPan)).toBe(20_000);
+  });
+  it("a certificate's rate up to its limit, the normal rate above it", () => {
+    // Nil certificate up to ₹30,000; ₹25,000 earlier → ₹5,000 at 0% and ₹5,000 at 2% = ₹100.
+    expect(d(1_000_000, 2_500_000, 0, catchUp, { rateBp: 0, limitPaise: 3_000_000 })).toBe(10_000);
+    expect(d(1_000_000, 0, 0, catchUp, { rateBp: 100, limitPaise: null })).toBe(10_000);
+  });
+  it("nothing on a zero or negative payout", () => {
+    expect(d(0, 5_000_000, 0)).toBe(0);
+    expect(d(-500, 5_000_000, 0)).toBe(0);
   });
   it("the financial year runs April to March in IST", () => {
     const { start, end } = financialYearBounds(new Date("2027-03-31T18:45:00Z")); // 00.15 IST on 1 Apr 2027
