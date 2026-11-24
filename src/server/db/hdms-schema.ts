@@ -1,5 +1,5 @@
 /**
- * Hyperlocal Delivery Management System (docs/hdms-2026-11; drizzle/0185_hdms_delivery.sql).
+ * Hyperlocal Delivery Management System (docs/hdms-2026-11; drizzle/0186_hdms_delivery.sql).
  *
  * Extends the existing delivery stack (delivery_partners, delivery_orders, shop_delivery_staff,
  * rider searches) with external providers, zones, pricing rules, bookings across every channel,

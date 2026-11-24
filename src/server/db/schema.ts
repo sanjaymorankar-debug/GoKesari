@@ -7114,7 +7114,7 @@ export const shopDeliveryStaff = pgTable(
     phoneE164: text("phone_e164").notNull(),
     isActive: boolean("is_active").notNull().default(true),
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
-    /** docs/hdms-2026-11 (0185): on duty today; ID proof (last 4 digits only, image in stored_images). */
+    /** docs/hdms-2026-11 (0186): on duty today; ID proof (last 4 digits only, image in stored_images). */
     isAvailable: boolean("is_available").notNull().default(true),
     vehicleType: text("vehicle_type"),
     idDocumentType: text("id_document_type"),
@@ -10583,7 +10583,7 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
-  // docs/hdms-2026-11 (0185): delivery allocation engine + external delivery partners. Missing row = OFF.
+  // docs/hdms-2026-11 (0186): delivery allocation engine + external delivery partners. Missing row = OFF.
   "hdms_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
@@ -13072,5 +13072,5 @@ export * from "./smart-shopping-schema";
 export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
-export * from "./hdms-schema"; // docs/hdms-2026-11 (0185)
+export * from "./hdms-schema"; // docs/hdms-2026-11 (0186)
 /* <<< GoKesari Health */

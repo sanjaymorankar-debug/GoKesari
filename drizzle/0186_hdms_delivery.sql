@@ -2,7 +2,7 @@
 -- Additive and safe to re-run. Nothing existing is renamed or dropped. Flag hdms_enabled (allocation engine
 -- and external delivery partners) is OFF while its row is missing. The customer's checkout fee is unchanged.
 -- Seller-side tables (shops, products) are not referenced by foreign key; the service checks those links.
--- Rollback: scripts/rollback-0185.sql.
+-- Rollback: scripts/rollback-0186.sql.
 
 -- 1. Provider master (Shadowfax, Pidge, Porter, Borzo; MOCK = in-process sandbox simulator for staging/tests).
 CREATE TABLE IF NOT EXISTS "delivery_providers" (

@@ -311,7 +311,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
         </fieldset>
         )}
 
-        <h3 className="pt-2 text-sm font-semibold text-ink-900">Bank account for your commission</h3>
+        <h3 id="bank" className="scroll-mt-20 pt-2 text-sm font-semibold text-ink-900">Bank account for your commission</h3>
         {dealer?.bank.accountMasked ? (
           <p className="text-sm text-ink-700">
             Saved: {dealer.bank.accountMasked} ({dealer.bank.ifsc}) — {dealer.bank.status.toLowerCase().replace("_", " ")}
@@ -370,7 +370,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
       ) : null}
 
       {dealer ? (
-        <Card className="space-y-3 p-4">
+        <Card id="documents" className="scroll-mt-20 space-y-3 p-4">
           <h2 className="text-base font-bold text-ink-900">3. Documents</h2>
           <p className="text-xs text-ink-500">
             Verify online where offered (no upload needed once verified), or upload: PDF, JPEG, PNG or WebP, up to 5 MB each. Stored encrypted; only GoKesari&apos;s
