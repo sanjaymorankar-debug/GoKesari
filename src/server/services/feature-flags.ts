@@ -81,6 +81,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
   dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
   guest_cart_enabled: "Guests can fill a cart; sign-in only at Place order",
+  payment_settlement_states: "Online payments: reconciled and chargeback states",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -141,6 +142,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
   guest_cart_enabled:
     "docs/guest-cart-2026-11 (owner, 23-Nov-2026): a shopper who is not signed in can tap Add to cart and open the cart. The guest cart is kept only in their browser (up to 50 items, 7 days); nothing is saved on the server. Place order asks them to sign in, then moves the items into their account cart (quantities added, capped at stock) and returns to checkout. Off: Add to cart asks for sign-in first, as before.",
+  payment_settlement_states:
+    "docs/payment-settlement-states-2026-11.md (PAY-SM): the payments job asks the gateway about each paid online payment and marks it Reconciled when the gateway confirms the same amount; a dispute / chargeback webhook marks the payment Chargeback, records the amount, reason and respond-by date in Admin → Payments → Chargebacks and alerts the admins. Timing: rule paymentSettlement. Off: nothing is marked and dispute webhooks are only logged, as before.",
 };
 
 export interface FeatureFlagView {

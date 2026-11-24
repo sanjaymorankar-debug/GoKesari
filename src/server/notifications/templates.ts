@@ -302,6 +302,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{amount}} for {{reference}} has been refunded to your original payment method. Banks usually take 5–7 working days to show it.",
   ),
   [T.SUPPORT_PAYMENT_ATTENTION]: t("Payment needs attention", "{{reference}}: {{problem}}", false),
+  [T.ADMIN_PAYMENT_CHARGEBACK]: t(
+    "Chargeback: {{outcome}}",
+    "{{reference}}: {{amount}} disputed by the customer's bank ({{reason}}). Respond by {{respondBy}}.",
+    false,
+  ),
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */

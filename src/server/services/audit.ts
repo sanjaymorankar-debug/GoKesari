@@ -553,6 +553,8 @@ export const AUDIT_ACTIONS = {
   PAYMENT_WEBHOOK_REJECTED: "payment.webhook_rejected", // batch-2026-10 WS-A
   PAYMENT_REFUND_REQUESTED: "payment.refund_requested", // batch-2026-10 WS-A
   PAYMENT_REFUND_SETTLED: "payment.refund_settled", // batch-2026-10 WS-A
+  PAYMENT_SETTLEMENT_STATE_CHANGED: "payment.settlement_state_changed", // PAY-SM
+  PAYMENT_CHARGEBACK_RECORDED: "payment.chargeback_recorded", // PAY-SM
   OTP_PURGED: "auth.otp_purged", // batch-2026-10 WS-A
   /* ---------------------- rider bank payouts (docs/gig-bank-payouts-2026-10) */
   RIDER_BANK_ACCOUNT_REAUTH: "rider_bank.reauthenticated",

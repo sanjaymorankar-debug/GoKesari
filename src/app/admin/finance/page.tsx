@@ -400,7 +400,14 @@ export default async function FinancePage({
                   <ul className="list-disc pl-5 text-xs text-ink-600">
                     {trace.onlinePayments.map((p) => (
                       <li key={p.id}>
-                        {p.gateway} · {p.status} · <Money paise={p.amountPaise} />
+                        {p.gateway} · {p.status}
+                        {p.settlementState ? (
+                          <span data-testid="order-trace-settlement" className={p.settlementState === "CHARGEBACK" ? "font-semibold text-red-700" : undefined}>
+                            {" "}
+                            · {p.settlementState === "CHARGEBACK" ? <a href="/admin/payments/chargebacks">CHARGEBACK</a> : p.settlementState}
+                          </span>
+                        ) : null}{" "}
+                        · <Money paise={p.amountPaise} />
                         {p.refundedPaise > 0 ? <> (refunded <Money paise={p.refundedPaise} />)</> : null} · ref{" "}
                         {p.gatewayPaymentId ?? p.gatewayOrderId ?? p.merchantOrderId}
                         <span className="block">

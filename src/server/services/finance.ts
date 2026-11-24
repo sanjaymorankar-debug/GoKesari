@@ -1923,6 +1923,8 @@ async function onlinePaymentsForOrder(order: { id: string; orderGroupId: string 
     purpose: i.purpose,
     gateway: i.gateway,
     status: i.status,
+    /** PAY-SM: RECONCILED / CHARGEBACK, or null while not confirmed. */
+    settlementState: i.settlementState,
     amountPaise: i.amountPaise,
     refundedPaise: i.refundedPaise,
     method: i.method,

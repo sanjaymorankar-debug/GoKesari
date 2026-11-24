@@ -82,7 +82,11 @@ export async function paymentsReconcile() {
   const bankChecks = await (await import("@/server/services/bank-accounts"))
     .sweepBankVerifications()
     .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-  return { ...payments, orderRefunds, cashfreeTopUps, registrationFees, bankChecks };
+  // PAY-SM: paid payments confirmed with the gateway (RECONCILED); a no-op while flag payment_settlement_states is off.
+  const settlement = await (await import("@/server/payments/settlement"))
+    .runSettlementReconciliation()
+    .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  return { ...payments, orderRefunds, cashfreeTopUps, registrationFees, bankChecks, settlement };
 }
 
 /** Help-desk deadlines (acknowledge / resolve, auto-close) and refund retries. */
