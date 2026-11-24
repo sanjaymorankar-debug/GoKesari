@@ -121,8 +121,14 @@ describe("flag and permission boundaries", () => {
     await expect(listOpsTeam(opsA)).rejects.toMatchObject({ code: "FORBIDDEN" });
     // An Operations Manager does not work tasks as an assignee or see Operations User screens.
     await expect(getOpsUserDashboard(manager)).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await new Promise((r) => setTimeout(r, 50)); // logDenied writes after the refusal
-    const denied = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "authz.denied"), eq(auditLogs.actorId, opsA.id)));
+    // logDenied writes after the refusal, without awaiting (void recordAudit): wait for the rows
+    // rather than a fixed 50 ms, which a loaded CI runner can outlast (#509's CI saw 1 of 4).
+    let denied: (typeof auditLogs.$inferSelect)[] = [];
+    for (let waited = 0; waited <= 3000; waited += 50) {
+      denied = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "authz.denied"), eq(auditLogs.actorId, opsA.id)));
+      if (denied.length >= 4) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     expect(denied.length).toBeGreaterThanOrEqual(4);
   });
 });

@@ -119,7 +119,12 @@ export function scheduleLabel(schedule: Pick<SubscriptionSchedule, "frequency"> 
   const monthDays = schedule.monthDays ?? [];
   if (schedule.frequency === "DAILY" || (schedule.frequency === "WEEKLY" && weekdays.length === 7)) return "Every day";
   if (schedule.frequency === "WEEKLY") {
-    return sortedUnique(weekdays).map((d) => WEEKDAY_SHORT[d - 1] ?? String(d)).join(", ");
+    const days = sortedUnique(weekdays);
+    // Three or more days in a row read as a range: "Mon–Sat".
+    if (days.length > 2 && days.every((d, i) => i === 0 || d === days[i - 1] + 1)) {
+      return `${WEEKDAY_SHORT[days[0] - 1]}–${WEEKDAY_SHORT[days[days.length - 1] - 1]}`;
+    }
+    return days.map((d) => WEEKDAY_SHORT[d - 1] ?? String(d)).join(", ");
   }
   const days = sortedUnique(monthDays).map(ordinal);
   if (days.length === 0) return "Monthly";

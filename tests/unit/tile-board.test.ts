@@ -174,7 +174,8 @@ describe("permission filtering", () => {
     // 20: Orders → "My lists" (docs/purchase-lists-2026-10). 21: Subscriptions → "Newspapers" (docs/newspaper-subscriptions-2026-11).
     // 23: Shops → "Consultants", Orders → "Appointments" (docs/consult-booking-2026-11).
     // 25: Shops → "Doctors", Profile → "My Health" (docs/health/; no 7th tile — one screen on a phone).
-    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(25);
+    // 26: Subscriptions → "Plans" (docs/subscription-plans-2026-11).
+    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(26);
   });
 
   it("treats a list of permissions as any-of", () => {
@@ -224,7 +225,8 @@ describe("menu definitions", () => {
     // categories page (SHOP_TYPE_MODULES), so admin -3 and operator -3 (owner, 21-Nov-2026).
     // Add product by photo (docs/smart-shopping-2026-11, Feature 2): shop +1, Inventory → "Add product by photo" (flagged).
     // RBAC v2 (docs/rbac, Phase 5): shop +1, Price updates → "Pending changes" (flagged rbac_v2_shop_change_requests).
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(49);
+    // Subscription plans (docs/subscription-plans-2026-11): shop +1, Product categories → "Subscription plans".
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(50);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
     // Consultant appointments and Puja Samagri: admin +1 and operator +1 each; 21-Nov-2026 (owner): Categories is
     // only Shop and Product, so Puja Samagri, Consultants and Health leave the board (admin -3, operator -3) and
