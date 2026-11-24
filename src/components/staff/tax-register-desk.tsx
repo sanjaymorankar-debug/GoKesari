@@ -258,7 +258,7 @@ function ProposeForm({ ruleFields }: { ruleFields: Record<string, string[]> }) {
         <div className="grid gap-2 sm:grid-cols-2">
           <select className={inputClass} value={f.key ?? ""} onChange={set("key")} aria-label="Statutory key">
             <option value="">Statutory key…</option>
-            {["GST_TCS_SEC52", "IT_TDS_194O", "GST_S95_RESTAURANT", "GST_S95_LOCAL_DELIVERY", "UNREGISTERED_SELLER_RULES", "PLATFORM_FEE_GST"].map((k) => <option key={k} value={k}>{k}</option>)}
+            {["GST_TCS_SEC52", "IT_TDS_194O", "GST_S95_RESTAURANT", "GST_S95_LOCAL_DELIVERY", "UNREGISTERED_SELLER_RULES", "PLATFORM_FEE_GST", "IT_TDS_194H", "IT_TDS_194J"].map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
           <input className={inputClass} placeholder="Label" value={f.label ?? ""} onChange={set("label")} />
           <input className={inputClass} placeholder="Rate % (empty = none)" value={f.rate ?? ""} onChange={set("rate")} inputMode="decimal" />

@@ -77,6 +77,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_four_eye_admin: "Two-admin approval for user, role, suspension and flag changes",
   rbac_v2_accounting: "Accounting: journal entries, period close, rate proposals",
   tax_register: "Tax register: Accountant proposes, CA approves tax settings",
+  payout_deductions: "TDS / TCS withheld on every payout (riders, referrals, services)",
   rbac_v2_support: "Support desk: manager queue and Support Users",
   rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
@@ -138,6 +139,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   rbac_v2_accounting: "docs/rbac Phase 3: Accountant drafts → CA approves journal entries; periods; Accountant → CA → Admin rate changes. Existing rate screens are unchanged.",
   tax_register:
     "docs/tax-register: the Accountant proposes changes to tax settings (statutory TCS / TDS rows, TDS on commission, GST rules, HSN rates, product GST, tax fields of the settings) and answers questions for the CA; the CA approves (never their own) and the change is applied. On: those settings are changed only through the register (direct edits on the admin screens are refused). Off: the register screens work, and the admin screens edit directly as today.",
+  payout_deductions:
+    "docs/tax-register/PAYOUT_DEDUCTIONS.md: weekly rider payouts deduct TDS s.194C (rule riderPayouts), referral commissions deduct TDS s.194H (statutory row IT_TDS_194H) when paid, and the payout cycle deducts TDS s.194-O (and TCS where the CA's row covers services) on appointment, rental and prescription earnings. Shops are then paid only through the payout cycle (the weekly shop settlement refuses). On gokesari.com a deduction whose rate the CA has not approved holds the payout. Off: as before.",
   rbac_v2_support: "docs/rbac Phase 4: the Support Manager's queue and the Support User's assigned work.",
   rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
   rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",
