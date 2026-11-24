@@ -1,5 +1,5 @@
--- Rollback for 0184_payout_transfer_ids (payouts transfer ids and parked webhooks).
--- Before running: deploy the previous release's code. Then delete the 0184 row.
+-- Rollback for 0185_payout_transfer_ids (payouts transfer ids and parked webhooks).
+-- Before running: deploy the previous release's code. Then delete the 0185 row.
 DROP TABLE IF EXISTS "payout_webhook_parked";
 DROP INDEX IF EXISTS "dealer_payout_batches_provider_transfer_id_unique";
 DROP INDEX IF EXISTS "rider_bank_transfers_provider_transfer_id_unique";

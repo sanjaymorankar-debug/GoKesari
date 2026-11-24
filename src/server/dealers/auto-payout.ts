@@ -252,7 +252,7 @@ export async function applyDealerPayoutOutcome(batchId: string, outcome: Outcome
 
 /**
  * The payout providers' signed webhook for a dealer payout (after shop payouts and rider transfers):
- * by the provider's reference, then by the attempt's transfer id saved before sending (0184), then
+ * by the provider's reference, then by the attempt's transfer id saved before sending (0185), then
  * by our id. "WAIT": the payout is being sent and its reference is not known yet — deliver again later.
  */
 export async function findDealerPayoutForEvent(event: PayoutWebhookEvent): Promise<DealerPayoutBatch | "WAIT" | null> {

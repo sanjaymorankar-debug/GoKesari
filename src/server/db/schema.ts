@@ -9851,7 +9851,7 @@ export const payoutItems = pgTable(
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
     provider: text("provider"),
     providerRef: text("provider_ref"),
-    /** 0184: the id the provider knows the current attempt by, saved before the request is sent. */
+    /** 0185: the id the provider knows the current attempt by, saved before the request is sent. */
     providerTransferId: text("provider_transfer_id"),
     /** Bank reference of the transfer — recorded for every payment. */
     utr: text("utr"),
@@ -9901,7 +9901,7 @@ export const payoutEvents = pgTable(
 export type PayoutEvent = typeof payoutEvents.$inferSelect;
 
 /**
- * 0184: a correctly signed payout webhook that matched no payout yet (shop item, rider transfer or dealer
+ * 0185: a correctly signed payout webhook that matched no payout yet (shop item, rider transfer or dealer
  * payout). It is answered 409 so the provider delivers it again; matched_at is set once it is applied.
  */
 export const payoutWebhookParked = pgTable(
@@ -11729,9 +11729,9 @@ export const dealerPayoutBatches = pgTable(
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     provider: text("provider"),
     providerRef: text("provider_ref"),
-    /** 0184: the id the provider knows the current attempt by, saved before the request is sent. */
+    /** 0185: the id the provider knows the current attempt by, saved before the request is sent. */
     providerTransferId: text("provider_transfer_id"),
-    /** 0184: when the current attempt was sent. */
+    /** 0185: when the current attempt was sent. */
     sentAt: timestamp("sent_at", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(0),
     nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
@@ -12488,7 +12488,7 @@ export const riderBankTransfers = pgTable(
     /** Retries used up (or the bank returned it): finance decides — retry or release. */
     needsReview: boolean("needs_review").notNull().default(false),
     providerRef: text("provider_ref"),
-    /** 0184: the id the provider knows the current attempt by, saved before the request is sent. */
+    /** 0185: the id the provider knows the current attempt by, saved before the request is sent. */
     providerTransferId: text("provider_transfer_id"),
     utr: text("utr"),
     failureReason: text("failure_reason"),
