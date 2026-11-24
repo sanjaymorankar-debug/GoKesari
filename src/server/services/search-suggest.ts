@@ -16,6 +16,7 @@ import { likePattern } from "@/lib/like-pattern";
 import { SHOP_TYPES } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import { productCategories, products, searchQueries, shopProducts, shops } from "@/server/db/schema";
+import { searchPublicBrands } from "./brands";
 import { storefrontLive } from "./catalogue";
 import { shopCarriesProductCategory } from "./product-categories";
 
@@ -45,11 +46,20 @@ export interface CategorySuggestion {
   label: string;
   href: string;
 }
+/** docs/search-brand-barcode-favourites-2026-11: a brand whose name matches, linking to its page. */
+export interface BrandSuggestion {
+  slug: string;
+  name: string;
+  productCount: number;
+  href: string;
+}
 export interface Suggestions {
   query: string;
   products: ProductSuggestion[];
   shops: ShopSuggestion[];
   categories: CategorySuggestion[];
+  /** Only while the flag brand_barcode_favourites_enabled is on (the key is absent otherwise). */
+  brands?: BrandSuggestion[];
 }
 
 /** Lower-case, single-spaced, trimmed and cut to the column limit — the form searches are stored and compared in. */
@@ -87,9 +97,12 @@ export function matchCategories(query: string, lang: Lang, limit = 4): CategoryS
  * Suggestions for what the visitor has typed so far. `nearby` is the shops
  * serving their location (id → km), when they have one.
  */
-export async function suggest(rawQuery: string, options: { lang: Lang; nearby?: ReadonlyMap<string, number | null> }): Promise<Suggestions> {
+export async function suggest(
+  rawQuery: string,
+  options: { lang: Lang; nearby?: ReadonlyMap<string, number | null>; brands?: boolean },
+): Promise<Suggestions> {
   const query = rawQuery.replace(/\s+/g, " ").trim().slice(0, SUGGEST_MAX_CHARS);
-  const empty: Suggestions = { query, products: [], shops: [], categories: [] };
+  const empty: Suggestions = { query, products: [], shops: [], categories: [], ...(options.brands ? { brands: [] } : {}) };
   if (query.length < SUGGEST_MIN_CHARS) return empty;
   const pattern = likePattern(query);
   const lower = query.toLowerCase();
@@ -98,7 +111,7 @@ export async function suggest(rawQuery: string, options: { lang: Lang; nearby?: 
     ? sql<number>`count(distinct ${shopProducts.shopId}) filter (where ${inArray(shopProducts.shopId, nearbyIds)})::int`
     : sql<number>`0::int`;
 
-  const [productRows, shopRows, categoryRows] = await Promise.all([
+  const [productRows, shopRows, categoryRows, brandRows] = await Promise.all([
     db
       .select({
         productId: products.id,
@@ -145,6 +158,8 @@ export async function suggest(rawQuery: string, options: { lang: Lang; nearby?: 
       .where(and(eq(productCategories.isActive, true), isNull(productCategories.deletedAt), ilike(productCategories.name, pattern)))
       .orderBy(asc(productCategories.sortOrder), asc(productCategories.name))
       .limit(4),
+    // A failed brand read drops the group, never the suggestions.
+    options.brands ? searchPublicBrands(query, 3).catch(() => []) : Promise.resolve(null),
   ]);
 
   const km = (id: string) => options.nearby?.get(id) ?? null;
@@ -173,6 +188,9 @@ export async function suggest(rawQuery: string, options: { lang: Lang; nearby?: 
     })),
     shops: shopList,
     categories,
+    ...(brandRows
+      ? { brands: brandRows.map((b) => ({ slug: b.slug, name: b.name, productCount: b.productCount, href: `/brand/${encodeURIComponent(b.slug)}` })) }
+      : {}),
   };
 }
 

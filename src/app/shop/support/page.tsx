@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import { L, tr } from "@/lib/board/i18n";
+import { getBoardLang } from "@/server/board-lang";
 
 import { TicketForm } from "@/components/aftercare/ticket-form";
 import { TicketList, toRowView } from "@/components/aftercare/ticket-views";
@@ -14,6 +16,25 @@ import { listShopsForOwner } from "@/server/services/shops";
 export const metadata = { title: "Support tickets" };
 export const dynamic = "force-dynamic";
 
+const T = {
+  title: L("Support tickets", "सहायता टिकट", "मदत तिकिटे"),
+  description: L(
+    "{shop} — reply when support needs your input; raise a ticket about an order, a payout or anything else.",
+    "{shop} — सहायता टीम को आपकी जानकारी चाहिए तो जवाब दें; किसी ऑर्डर, पेआउट या किसी और बात पर टिकट बनाएँ।",
+    "{shop} — मदत टीमला तुमची माहिती हवी असल्यास उत्तर द्या; ऑर्डर, पेआउट किंवा इतर कशाबद्दलही तिकीट तयार करा.",
+  ),
+  waiting: L("Waiting for your reply", "आपके जवाब का इंतज़ार", "तुमच्या उत्तराची वाट"),
+  nothingWaiting: L("Nothing is waiting for you.", "आपके लिए कुछ बाकी नहीं है।", "तुमच्यासाठी काहीही बाकी नाही."),
+  nothingWaitingText: L(
+    "When support needs the shop's side of a customer's ticket, it appears here and you are notified.",
+    "जब सहायता टीम को किसी ग्राहक के टिकट पर दुकान की बात जाननी होगी, तो वह यहाँ दिखेगा और आपको सूचना मिलेगी।",
+    "ग्राहकाच्या तिकिटावर दुकानाची बाजू मदत टीमला हवी असेल तेव्हा ते इथे दिसेल आणि तुम्हाला सूचना मिळेल.",
+  ),
+  raised: L("Tickets you raised", "आपके बनाए टिकट", "तुम्ही तयार केलेली तिकिटे"),
+  noTickets: L("No tickets yet.", "अभी कोई टिकट नहीं।", "अजून तिकिटे नाहीत."),
+  raise: L("Raise a ticket", "टिकट बनाएँ", "तिकीट तयार करा"),
+} as const;
+
 /**
  * The shop owner's help desk (F6.3.3, batch-2026-10 WS-C): tickets about the
  * shop's orders where support is waiting for the shop's reply, the shop's
@@ -26,6 +47,7 @@ export default async function ShopSupportPage({ searchParams }: { searchParams: 
   if (shops.length === 0) redirect("/shop");
   const shop = await activeShop(shops);
   const [awaiting, mine, rule, params] = await Promise.all([listShopTickets(user), listMyTickets(user), getRule("helpdesk"), searchParams]);
+  const lang = await getBoardLang();
   // Raised from the shop's order screen: only an order of one of this owner's shops.
   const order =
     params.orderId && /^[0-9a-f-]{36}$/i.test(params.orderId)
@@ -35,23 +57,23 @@ export default async function ShopSupportPage({ searchParams }: { searchParams: 
 
   return (
     <>
-      <PageHeader title="Support tickets" description={`${shop.name} — reply when support needs your input; raise a ticket about an order, a payout or anything else.`} />
+      <PageHeader title={tr(T.title, lang)} description={tr(T.description, lang).replace("{shop}", shop.name)} />
       <section className="mb-6">
-        <h2 className="mb-3 text-lg font-semibold text-ink-900">Waiting for your reply</h2>
+        <h2 className="mb-3 text-lg font-semibold text-ink-900">{tr(T.waiting, lang)}</h2>
         <TicketList
           rows={awaiting.map(toRowView)}
           hrefBase="/shop/support"
-          emptyTitle="Nothing is waiting for you."
-          emptyDescription="When support needs the shop's side of a customer's ticket, it appears here and you are notified."
+          emptyTitle={tr(T.nothingWaiting, lang)}
+          emptyDescription={tr(T.nothingWaitingText, lang)}
         />
       </section>
       <section className="mb-6">
-        <h2 className="mb-3 text-lg font-semibold text-ink-900">Tickets you raised</h2>
-        <TicketList rows={mine.map(toRowView)} hrefBase="/support" emptyTitle="No tickets yet." />
+        <h2 className="mb-3 text-lg font-semibold text-ink-900">{tr(T.raised, lang)}</h2>
+        <TicketList rows={mine.map(toRowView)} hrefBase="/support" emptyTitle={tr(T.noTickets, lang)} />
       </section>
       {rule.enabled && can(user.role, PERMISSIONS.SUPPORT_TICKET_RAISE) ? (
         <section id="new">
-          <h2 className="mb-3 text-lg font-semibold text-ink-900">Raise a ticket</h2>
+          <h2 className="mb-3 text-lg font-semibold text-ink-900">{tr(T.raise, lang)}</h2>
           <TicketForm
             categories={["SHOP_PAYOUT", "ORDER", "DELIVERY", "CANCELLATION", "REFUND_PAYMENT", "ACCOUNT", "OTHER"]}
             orderId={ownOrder?.id ?? null}

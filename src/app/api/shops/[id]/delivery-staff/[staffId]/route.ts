@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { updateDeliveryStaff } from "@/server/services/fulfilment-options";
 
@@ -16,7 +16,7 @@ const schema = z.object({
 
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string; staffId: string }>) => {
   const { id, staffId } = await context.params;
-  const { user } = await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
+  const { user } = await requireShopPermission(id, "delivery.edit", { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
   enforceRateLimit(`delivery-staff:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
   return ok(await updateDeliveryStaff(id, staffId, body, user));

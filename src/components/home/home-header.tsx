@@ -32,10 +32,12 @@ export interface HomeHeaderProps extends AccountNavProps {
   cartCount: number;
   locationLabel: string | null;
   savedAddresses: { id: string; label: string }[];
+  /** docs/search-brand-barcode-favourites-2026-11: the search box's scan button (flag on). */
+  barcodeScan?: boolean;
 }
 
 export function HomeHeader(props: HomeHeaderProps) {
-  const { lang, user, unreadCount, cartCount, locationLabel, savedAddresses } = props;
+  const { lang, user, unreadCount, cartCount, locationLabel, savedAddresses, barcodeScan = false } = props;
   const [compact, setCompact] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
 
@@ -97,7 +99,7 @@ export function HomeHeader(props: HomeHeaderProps) {
           <Icon name="chevron-down" size={14} className="hidden shrink-0 text-kesari-700 min-[400px]:block" />
         </button>
 
-        <SearchBox lang={lang} signedIn={Boolean(user)} className="mx-auto hidden w-full max-w-2xl flex-1 lg:block" />
+        <SearchBox lang={lang} signedIn={Boolean(user)} barcodeScan={barcodeScan} className="mx-auto hidden w-full max-w-2xl flex-1 lg:block" />
 
         <span className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1.5">
           <span className="hidden lg:flex">
@@ -137,7 +139,7 @@ export function HomeHeader(props: HomeHeaderProps) {
         <BrandTagline className="text-xs" />
       </p>
       <div className="px-2 pb-2 sm:px-4 lg:hidden">
-        <SearchBox lang={lang} signedIn={Boolean(user)} size="lg" />
+        <SearchBox lang={lang} signedIn={Boolean(user)} barcodeScan={barcodeScan} size="lg" />
         {/* The tagline on phones and tablets too (the header row has no room for it below 1024 px). */}
         <p className={clsx("mt-1 text-center leading-tight", compact && "hidden")} data-testid="home-tagline-mobile">
           <BrandTagline className="text-xs" />

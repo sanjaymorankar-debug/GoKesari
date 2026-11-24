@@ -96,13 +96,15 @@ export default async function RootLayout({
           .catch(() => []),
       ])
     : null;
-  const [signedInState, location, lang, homeDiscovery, guestCartEnabled] = await Promise.all([
+  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled] = await Promise.all([
     signedIn,
     // The same location every page filters by (cookie, else the default address).
     getCustomerLocation(user?.id).catch(() => null),
     getBoardLang(),
     // docs/homepage-uiux-2026-10: phones' bottom navigation and floating cart bar (rule homeDiscovery).
     homeDiscoveryRule,
+    // docs/search-brand-barcode-favourites-2026-11: the barcode scan button in the header search.
+    isFeatureEnabled("brand_barcode_favourites_enabled").catch(() => false),
     // docs/guest-cart-2026-11: guests fill a browser cart (sign-in at Place order); signed-in users
     // need it only to move a guest cart left in this browser into their account cart.
     isFeatureEnabled("guest_cart_enabled").catch(() => false),
@@ -145,6 +147,7 @@ export default async function RootLayout({
           }))}
           helpsShops={staffShops.length > 0}
           referralLinks={referralLinks}
+          barcodeScan={barcodeScan}
         />
         <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
           {children}
