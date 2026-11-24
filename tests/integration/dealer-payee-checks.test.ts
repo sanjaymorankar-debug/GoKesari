@@ -6,7 +6,7 @@
  *   - a TDS override and the approval are made by two different admins
  *   - a PAN added mid-year: the earlier PAN-less payouts count towards the PAN's year
  *   - the reports of payees not ready and the TDS catch-up dry run
- *   - migration 0184 turns a stored `enforcePayeeChecks: false` on
+ *   - migration 0185 turns a stored `enforcePayeeChecks: false` on
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -219,10 +219,10 @@ describe("TDS per PAN", () => {
   });
 });
 
-describe("migration 0184", () => {
+describe("migration 0185", () => {
   it("turns a stored enforcePayeeChecks false on, keeps the other values, and logs it", async () => {
     await db.insert(platformSettings).values({ key: "dealerPayouts", value: { enforcePayeeChecks: false, minPayoutPaise: 10_000, reminderEnabled: false } });
-    const file = readFileSync(path.join(process.cwd(), "drizzle/0184_dealer_payee_checks_on.sql"), "utf8");
+    const file = readFileSync(path.join(process.cwd(), "drizzle/0185_dealer_payee_checks_on.sql"), "utf8");
     await db.execute(sql.raw(file));
     const [row] = await db.select().from(platformSettings).where(eq(platformSettings.key, "dealerPayouts"));
     expect(row.value).toEqual({ enforcePayeeChecks: true, minPayoutPaise: 10_000, reminderEnabled: false });

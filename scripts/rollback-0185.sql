@@ -1,7 +1,7 @@
--- Rollback for 0184_dealer_payee_checks_on (dealer payee checks).
--- Before running: deploy the previous release's code, then delete the 0184 row from
+-- Rollback for 0185_dealer_payee_checks_on (dealer payee checks).
+-- Before running: deploy the previous release's code, then delete the 0185 row from
 -- drizzle.__drizzle_migrations.
--- 0184 only stored dealerPayouts.enforcePayeeChecks = true; no table or column changed.
+-- 0185 only stored dealerPayouts.enforcePayeeChecks = true; no table or column changed.
 -- Rolling back stores false again (the same as Admin → Settings → dealerPayouts, audited).
 BEGIN;
 WITH "before" AS (
