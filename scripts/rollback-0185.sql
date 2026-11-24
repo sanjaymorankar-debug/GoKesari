@@ -1,10 +1,24 @@
--- Rollback for 0185_payout_transfer_ids (payouts transfer ids and parked webhooks).
--- Before running: deploy the previous release's code. Then delete the 0185 row.
-DROP TABLE IF EXISTS "payout_webhook_parked";
-DROP INDEX IF EXISTS "dealer_payout_batches_provider_transfer_id_unique";
-DROP INDEX IF EXISTS "rider_bank_transfers_provider_transfer_id_unique";
-DROP INDEX IF EXISTS "payout_items_provider_transfer_id_unique";
-ALTER TABLE "dealer_payout_batches" DROP COLUMN IF EXISTS "sent_at";
-ALTER TABLE "dealer_payout_batches" DROP COLUMN IF EXISTS "provider_transfer_id";
-ALTER TABLE "rider_bank_transfers" DROP COLUMN IF EXISTS "provider_transfer_id";
-ALTER TABLE "payout_items" DROP COLUMN IF EXISTS "provider_transfer_id";
+-- Rollback for 0185_dealer_payee_checks_on (dealer payee checks).
+-- Before running: deploy the previous release's code, then delete the 0185 row from
+-- drizzle.__drizzle_migrations.
+-- 0185 only stored dealerPayouts.enforcePayeeChecks = true; no table or column changed.
+-- Rolling back stores false again (the same as Admin → Settings → dealerPayouts, audited).
+BEGIN;
+WITH "before" AS (
+  SELECT "key", "value"
+  FROM "platform_settings"
+  WHERE "key" = 'dealerPayouts'
+    AND COALESCE(("value"->>'enforcePayeeChecks')::boolean, false) = true
+  FOR UPDATE
+), "changed" AS (
+  UPDATE "platform_settings" p
+  SET "value" = jsonb_set(p."value", '{enforcePayeeChecks}', 'false'::jsonb, true),
+      "updated_by" = NULL,
+      "updated_at" = now()
+  FROM "before" b
+  WHERE p."key" = b."key"
+  RETURNING b."value" AS "previous_value", p."value" AS "new_value"
+)
+INSERT INTO "audit_logs" ("action", "entity_type", "entity_id", "previous_value", "new_value")
+SELECT 'setting.changed', 'platform_setting', 'dealerPayouts', "previous_value", "new_value" FROM "changed";
+COMMIT;
