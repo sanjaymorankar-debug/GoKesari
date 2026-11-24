@@ -8859,7 +8859,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0187 PAY-2 */] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0188 PAY-2 */] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -10605,6 +10605,8 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
+  // docs/tax-register (0187): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
+  "tax_register",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13100,4 +13102,5 @@ export * from "./smart-shopping-schema";
 export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
+export * from "./tax-register-schema"; // docs/tax-register (0187)
 /* <<< GoKesari Health */
