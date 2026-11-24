@@ -3,7 +3,7 @@
 -- is applied through the setting's own service (statutory rows, TDS rows, GST rules, HSN rates,
 -- product GST, tax fields of the settings). Flag tax_register (OFF): with it on, those settings are
 -- changed only through the register. Users are not referenced by foreign key (service checks).
--- Additive only. Rollback: scripts/rollback-0183.sql
+-- Additive only. Rollback: scripts/rollback-0184.sql
 CREATE TABLE IF NOT EXISTS "tax_change_requests" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"kind" text NOT NULL,

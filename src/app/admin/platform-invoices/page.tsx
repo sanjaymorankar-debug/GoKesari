@@ -136,6 +136,11 @@ export default async function PlatformInvoicesPage({ searchParams }: { searchPar
                 <a className="inline-flex min-h-11 items-center font-medium text-kesari-700 underline" href={report("tcs", "json")}>JSON</a>
               </li>
               <li>
+                <p className="font-medium">GSTR-8 for manual upload (portal JSON; the same rows as CSV)</p>
+                <a className="mr-3 inline-flex min-h-11 items-center font-medium text-kesari-700 underline" href={report("gstr8", "csv")}>CSV</a>
+                <a className="inline-flex min-h-11 items-center font-medium text-kesari-700 underline" href={report("gstr8", "json")}>JSON</a>
+              </li>
+              <li>
                 <p className="font-medium">Income-tax TDS on e-commerce participants (s.194-O / s.393)</p>
                 <a className="mr-3 inline-flex min-h-11 items-center font-medium text-kesari-700 underline" href={report("tds", "csv")}>CSV</a>
                 <a className="inline-flex min-h-11 items-center font-medium text-kesari-700 underline" href={report("tds", "json")}>JSON</a>
