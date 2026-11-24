@@ -5575,6 +5575,9 @@ export const riderPayouts = pgTable(
     adjustmentsPaise: bigint("adjustments_paise", { mode: "number" }).notNull(),
     /** gross + adjustments — what is paid. */
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** docs/tax-register (0188): TDS s.194C withheld from this payout (amountPaise is what is paid, after it). */
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp"),
     ...payoutLifecycleColumns(),
   },
   (t) => [
@@ -6751,6 +6754,10 @@ export const referralCommissions = pgTable(
     commissionType: text("commission_type", { enum: COMMISSION_TYPES }).notNull(),
     commissionValue: integer("commission_value").notNull(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** docs/tax-register (0188): TDS s.194H withheld when paid; netPaise is what is paid. */
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp"),
+    netPaise: bigint("net_paise", { mode: "number" }),
     status: text("status", { enum: ["ACCRUED", "APPROVED", "PAID", "REVERSED"] }).notNull().default("ACCRUED"),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -7114,7 +7121,7 @@ export const shopDeliveryStaff = pgTable(
     phoneE164: text("phone_e164").notNull(),
     isActive: boolean("is_active").notNull().default(true),
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
-    /** docs/hdms-2026-11 (0188): on duty today; ID proof (last 4 digits only, image in stored_images). */
+    /** docs/hdms-2026-11 (0189): on duty today; ID proof (last 4 digits only, image in stored_images). */
     isAvailable: boolean("is_available").notNull().default(true),
     vehicleType: text("vehicle_type"),
     idDocumentType: text("id_document_type"),
@@ -10614,7 +10621,9 @@ export const FEATURE_FLAG_KEYS = [
   "guest_cart_enabled",
   // docs/tax-register (0187): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
   "tax_register",
-  // docs/hdms-2026-11 (0188): delivery allocation engine + external delivery partners. Missing row = OFF.
+  // docs/tax-register (0188): TDS / TCS withheld on every payout path. Missing row = OFF.
+  "payout_deductions",
+  // docs/hdms-2026-11 (0189): delivery allocation engine + external delivery partners. Missing row = OFF.
   "hdms_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
@@ -13112,5 +13121,5 @@ export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
-export * from "./hdms-schema"; // docs/hdms-2026-11 (0188)
+export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
 /* <<< GoKesari Health */

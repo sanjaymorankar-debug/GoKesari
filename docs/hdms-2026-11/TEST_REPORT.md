@@ -1,6 +1,6 @@
 # HDMS — test execution and defect report (23-Nov-2026)
 
-Run locally against real PostgreSQL 17 (Postgres.app, database `gk_hdms_test`, all migrations to 0188),
+Run locally against real PostgreSQL 17 (Postgres.app, database `gk_hdms_test`, all migrations to 0189),
 Node 24, vitest 4. Partner calls go to the in-process sandbox simulator (MOCK); no real delivery partner API
 is reachable or integrated. Screens checked by hand on a local dev server (`gk_hdms_dev`) as an admin.
 
@@ -37,7 +37,7 @@ is reachable or integrated. Screens checked by hand on a local dev server (`gk_h
 Also checked by hand (local dev server, admin): dashboard figures, active list, booking detail, simulate
 PICKED_UP → order PICKED_UP, simulate DELIVERED on a COD order → order DELIVERED through the existing
 completion path (no server errors), all 15 sections render (HTTP 200), phone width 375 px without page-level
-horizontal scroll. Migration 0188 re-run (no error, no duplicate seed rows); rollback script then re-apply.
+horizontal scroll. Migration 0189 re-run (no error, no duplicate seed rows); rollback script then re-apply.
 
 ## Regression
 
@@ -61,8 +61,8 @@ horizontal scroll. Migration 0188 re-run (no error, no duplicate seed rows); rol
 
 Risk R-1 (not a defect, documented): drizzle applies only migrations whose journal `when` is above the last one
 applied, and `tests/unit/migration-journal.test.ts` needs consecutive idx. Migration renumbered 0190 → 0183
-(23-Nov, after #503 reached staging with 0177–0181) → 0184 (24-Nov, after #512 took 0183) → 0185 (24-Nov, after #513 took 0184) → 0186 (24-Nov, after #517 took 0185) → 0187 (24-Nov, after #519 took 0186) → 0188 (24-Nov, after #523 took 0187). It is now idx 188,
-`when` 1793269800000.
+(23-Nov, after #503 reached staging with 0177–0181) → 0184 (24-Nov, after #512 took 0183) → 0185 (24-Nov, after #513 took 0184) → 0186 (24-Nov, after #517 took 0185) → 0187 (24-Nov, after #519 took 0186) → 0188 (24-Nov, after #523 took 0187) → 0189 (24-Nov, after #524 took 0188). It is now idx 189,
+`when` 1793269900000.
 
 D-07 | `cron-safety-net` expected the old list of sweep steps | Low (test) | HDMS adds the `partnerBookings` step | expected list updated | PASSED (local; CI re-run).
 

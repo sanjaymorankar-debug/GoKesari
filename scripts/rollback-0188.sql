@@ -1,23 +1,12 @@
--- Rollback of drizzle/0188_hdms_delivery.sql. Switch hdms_enabled off first.
--- Drops only what 0188 added. Export delivery_bookings / delivery_events / delivery_settlements first if they
--- hold real deliveries: orders, delivery_orders, rider and wallet tables are never touched.
-DROP TABLE IF EXISTS "delivery_reconciliation_lines";
-DROP TABLE IF EXISTS "delivery_settlements";
-DROP TABLE IF EXISTS "delivery_api_logs";
-DROP TABLE IF EXISTS "delivery_webhook_logs";
-DROP TABLE IF EXISTS "delivery_quotes";
-DROP TABLE IF EXISTS "delivery_allocation_runs";
-DROP TABLE IF EXISTS "delivery_events";
-DROP TABLE IF EXISTS "delivery_bookings";
-DROP TABLE IF EXISTS "delivery_pricing_rules";
-DROP TABLE IF EXISTS "delivery_zones";
-DROP TABLE IF EXISTS "delivery_providers";
-DROP TABLE IF EXISTS "product_delivery_attributes";
-ALTER TABLE "shop_delivery_staff" DROP CONSTRAINT IF EXISTS "shop_delivery_staff_kyc_status_chk";
-ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "kyc_status";
-ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "id_document_image_id";
-ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "id_document_last4";
-ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "id_document_type";
-ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "vehicle_type";
-ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "is_available";
-DELETE FROM "feature_flags" WHERE "key" = 'hdms_enabled';
+-- Rollback for 0188_payout_deductions (docs/tax-register/PAYOUT_DEDUCTIONS.md).
+-- Before running: deploy the previous release's code, then delete the 0188 row from
+-- drizzle.__drizzle_migrations. TDS already deducted stays recorded in the audit log only.
+BEGIN;
+ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_paise";
+ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_rate_bp";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_paise";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_rate_bp";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "net_paise";
+DELETE FROM "statutory_rates" WHERE "key" IN ('IT_TDS_194H', 'IT_TDS_194J') AND "effective_from" = '2026-04-01' AND NOT "confirmed_by_ca";
+DELETE FROM "feature_flags" WHERE "key" = 'payout_deductions';
+COMMIT;
