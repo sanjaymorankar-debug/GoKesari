@@ -400,7 +400,6 @@ export default async function ShopManagePage({
           <div id="products">
             <ShopProductManager
               shopId={shop.id}
-              department={shop.shopType}
               products={products.map((p) => ({
                 id: p.id,
                 productName: p.product.name,
