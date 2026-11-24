@@ -6,6 +6,7 @@ import { noContent, parseBody, route, type RouteContext } from "@/server/api/han
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { endHsnRate } from "@/server/gst/config";
+import { refuseDirectTaxEdit } from "@/server/tax-register/changes";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ export const PATCH = route(async (request: NextRequest, context: RouteContext<{ 
   const user = await requirePermission(PERMISSIONS.GST_CONFIG_MANAGE);
   const rateId = z.string().uuid().parse((await context.params).rateId);
   const { effectiveTo } = await parseBody(request, z.object({ effectiveTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }));
+  await refuseDirectTaxEdit("An HSN rate");
   await endHsnRate(rateId, effectiveTo, user);
   return noContent();
 });
