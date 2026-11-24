@@ -349,6 +349,12 @@ export function CartView({
     setBusy(false);
 
     if (!response.ok) {
+      // docs/identity-verification-2026-11: the one-time identity check first, then back to the cart.
+      const verifyUrl = payload?.error?.details?.needsIdentityVerification ? payload.error.details.verifyUrl : null;
+      if (typeof verifyUrl === "string" && verifyUrl.startsWith("/")) {
+        router.push(verifyUrl);
+        return;
+      }
       setError(payload?.error?.message ?? "Checkout failed. Please try again.");
       return;
     }

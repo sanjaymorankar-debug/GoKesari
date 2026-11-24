@@ -81,6 +81,8 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
   dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
   guest_cart_enabled: "Guests can fill a cart; sign-in only at Place order",
+  identity_verification_customers_enabled: "Customers: verify identity before first checkout",
+  identity_verification_shop_owners_enabled: "Shop owners: verify identity before going live / accepting orders",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -141,6 +143,10 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
   guest_cart_enabled:
     "docs/guest-cart-2026-11 (owner, 23-Nov-2026): a shopper who is not signed in can tap Add to cart and open the cart. The guest cart is kept only in their browser (up to 50 items, 7 days); nothing is saved on the server. Place order asks them to sign in, then moves the items into their account cart (quantities added, capped at stock) and returns to checkout. Off: Add to cart asks for sign-in first, as before.",
+  identity_verification_customers_enabled:
+    "docs/identity-verification-2026-11 (Admin → Identity verification): customers verify their identity once, before their first order — Aadhaar shared from DigiLocker through the licensed KYC provider, or PAN instead (Aadhaar is voluntary). Only the last four digits, the verified name, the method and the provider reference are kept. Legal advice is pending: keep off on gokesari.com until it is given. On test.gokesari.com the mock provider is always used. Off: no customer is asked or blocked; verifications already done are kept.",
+  identity_verification_shop_owners_enabled:
+    "docs/identity-verification-2026-11 (Admin → Identity verification): a new shop goes live only once its owner's identity is verified; an existing owner is asked at sign-in and has rule identityVerification.sellerGraceDays from the first time they are asked after this was switched on, then their shops take no new orders until they verify (orders already accepted are unaffected). Legal advice is pending. Off: no shop owner is asked or blocked, no banner; verifications already done are kept.",
 };
 
 export interface FeatureFlagView {

@@ -27,6 +27,8 @@ import { listPurchaseLists } from "@/server/services/purchase-lists";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { ScanListTile } from "@/components/smart-list/scan-list-tile";
 import { GuestCartView } from "@/components/guest-cart/guest-cart-view";
+import { VERIFY_IDENTITY_PATH } from "@/lib/kyc/identity";
+import { isIdentityVerificationOn, isIdentityVerified } from "@/server/services/identity-verification";
 
 export const metadata = { title: "Cart" };
 export const dynamic = "force-dynamic";
@@ -90,6 +92,8 @@ export default async function CartPage() {
   const bankPrompt = cart.groups.length > 0 ? await customerBankPrompt(user.id, "checkout") : null;
   // Mandatory referral code (rule customerSignupReferral.required): checkout refuses a first order without one.
   const needsReferralCode = cart.groups.length > 0 && (await needsSignupReferralCode(user.id));
+  // docs/identity-verification-2026-11 (flag on): checkout refuses a first order until the identity is verified.
+  const needsIdentity = cart.groups.length > 0 && (await isIdentityVerificationOn("CUSTOMER")) && !(await isIdentityVerified(user.id));
   // docs/purchase-lists-2026-10: "Save as a list" offers the customer's own lists.
   const purchaseLists = cart.groups.length > 0 ? await listPurchaseLists(user.id) : [];
   // docs/smart-shopping-2026-11: "Scan my shopping list" in the cart too.
@@ -115,6 +119,17 @@ export default async function CartPage() {
               My referral code
             </Link>
             .
+          </Alert>
+        </div>
+      ) : null}
+      {needsIdentity ? (
+        <div className="mb-4" data-testid="cart-identity-needed">
+          <Alert tone="warning" title="Verify your identity before your first order">
+            A one-time check with Aadhaar (DigiLocker) or your PAN —{" "}
+            <Link href={`${VERIFY_IDENTITY_PATH}?next=/cart`} className="font-medium underline">
+              verify now
+            </Link>
+            . You won&apos;t be asked again.
           </Alert>
         </div>
       ) : null}

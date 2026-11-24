@@ -111,6 +111,8 @@ export const NOTIFICATION_TYPES = {
   /* Gig worker flow (docs/gig-worker-2026-10). */
   /** To the partner: an admin decided their PAN or Aadhaar check by hand. */
   DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  /** docs/identity-verification-2026-11: to the customer / shop owner — their identity check finished or was decided by an admin. */
+  IDENTITY_VERIFICATION_DECIDED: "identity.verification_decided",
   /** To the partner: their police verification form or character certificate was approved or rejected. */
   DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
   /** To the customer and the shop: the delivered order is complete (push + SMS + in-app). */

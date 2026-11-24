@@ -36,7 +36,7 @@ export function MockDigilockerButtons({ session }: { session: string }) {
 
   return (
     <Card className="space-y-3 p-5">
-      <p className="text-sm text-ink-700">GoKesari asks to see your Aadhaar card, for delivery partner KYC.</p>
+      <p className="text-sm text-ink-700">GoKesari asks to see your Aadhaar card, to verify your identity (delivery partner KYC or the one-time identity check).</p>
       <div className="flex flex-col gap-2">
         {CHOICES.map((c) => (
           <Button key={c.decision} variant={c.variant} disabled={busy} onClick={() => void choose(c.decision)} data-testid={`mock-digilocker-${c.decision}`}>
