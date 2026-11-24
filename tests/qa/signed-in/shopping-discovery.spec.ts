@@ -228,9 +228,15 @@ qa(["TC-DISC-008", "TC-DISC-009"], "product page lists every shop selling it wit
   const { context, page } = await signedPage(browser, "customer");
   try {
     await open(page, `/search?q=${encodeURIComponent(a.name)}`);
-    await page.getByTestId("product-card").filter({ hasText: a.name }).first().getByRole("link", { name: /Compare/ }).click();
-    await page.waitForURL(new RegExp(`/(products/${a.productId}|search/compare)`));
+    // docs/price-comparison-off-2026-11: with flag local_price_comparison_enabled off (owner, 24-Nov-2026)
+    // cards carry no "Compare N prices" link and the product page lists shops nearest-first.
+    const compareLink = page.getByTestId("product-card").filter({ hasText: a.name }).first().getByRole("link", { name: /Compare/ });
+    if (await compareLink.count()) {
+      await compareLink.click();
+      await page.waitForURL(new RegExp(`/(products/${a.productId}|search/compare)`));
+    }
     if (!page.url().includes(`/products/${a.productId}`)) await open(page, `/products/${a.productId}`);
+    const mode = await page.getByTestId("price-comparison").getAttribute("data-mode");
     const rows = await comparisonRows(page);
     const rowA = rows.find((r) => r.shop === shopName("A"));
     const rowB = rows.find((r) => r.shop === shopName("B"));
@@ -240,6 +246,14 @@ qa(["TC-DISC-008", "TC-DISC-009"], "product page lists every shop selling it wit
     for (const [row, item] of [[rowA!, a], [rowB!, b]] as const) {
       expect(row.text).toMatch(/[\d.]+ km away · Delivers to you/);
       expect(row.text).toContain(`₹${item.pricePaise! / 100}`);
+    }
+    if (mode === "nearest") {
+      for (const row of rows) expect(row.text, "no price ranking while comparison is off").not.toContain("Lowest price");
+      const km = (r: { text: string }) => Number(/([\d.]+) km away/.exec(r.text)?.[1] ?? Number.POSITIVE_INFINITY);
+      const nearer = km(rowA!) <= km(rowB!) ? rowA! : rowB!;
+      const farther = nearer === rowA ? rowB! : rowA!;
+      if (km(rowA!) !== km(rowB!)) expect(rows.indexOf(nearer), "nearest first").toBeLessThan(rows.indexOf(farther));
+      return `comparison off: nearest-first, no 'Lowest price' — ${rows.map((r) => r.text.slice(0, 90)).join(" | ")}`;
     }
     const cheaper = a.pricePaise! <= b.pricePaise! ? rowA! : rowB!;
     const dearer = cheaper === rowA ? rowB! : rowA!;
@@ -404,7 +418,9 @@ qa("TC-DISC-022", "a PIN no shop delivers to: a clear 'no shops near this locati
     await open(page, "/");
     await expect(page.getByTestId("home-shops")).toContainText(/No shops near this location yet/i);
     await expect(page.getByTestId("home-shops").getByTestId("shop-card")).toHaveCount(0);
-    await open(page, "/search/compare");
+    const compare = await open(page, "/search/compare");
+    // docs/price-comparison-off-2026-11: the page is 404 while the comparison flag is off.
+    if (compare?.status() === 404) return "PIN 799001: home says 'No shops near this location yet…'; /search/compare is 404 (comparison off)";
     await expect(page.getByText("Nothing to compare yet.")).toBeVisible();
     return "PIN 799001: home says 'No shops near this location yet…', compare page 'Nothing to compare yet.'";
   } finally {

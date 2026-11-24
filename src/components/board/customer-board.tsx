@@ -24,6 +24,8 @@ interface Props {
   referralCode?: string | null;
   /** docs/smart-shopping-2026-11: the "Scan my shopping list" tile (flag smart_list_scan_enabled). */
   scanList?: boolean;
+  /** docs/price-comparison-off-2026-11: flag local_price_comparison_enabled. */
+  priceComparison?: boolean;
 }
 
 function cutoffText(hour: number): string {
@@ -36,11 +38,13 @@ function cutoffText(hour: number): string {
  * screens add the "Buy again" panel beside the tiles and a live footer line
  * on each tile.
  */
-export function CustomerBoard({ lang, user, header, data, timeZone, referralCode, scanList }: Props) {
+export function CustomerBoard({ lang, user, header, data, timeZone, referralCode, scanList, priceComparison = false }: Props) {
   const signedIn = Boolean(user);
   const menus = visibleMenus(CUSTOMER_MENUS, user?.role ?? "CUSTOMER", {
     subscriptionId: data.subscriptionId,
     activeOrderNumber: data.activeOrder?.orderNumber,
+    // docs/price-comparison-off-2026-11: "Compare prices" only while its flag is on.
+    features: priceComparison ? ["local_price_comparison_enabled"] : [],
   });
   const trackHref = data.activeOrder ? `/orders?tab=active#order-${encodeURIComponent(data.activeOrder.orderNumber)}` : "/orders?tab=active";
   const order = data.activeOrder;

@@ -18,6 +18,7 @@ import { PRICE_REFERENCES_DROPPED } from "@/lib/price-references-drop"; // batch
 import { galleryFor } from "@/server/services/product-images";
 import { effectiveDescriptions } from "@/lib/product-text";
 import { serviceableShopIds } from "@/server/services/serviceability";
+import { isLocalPriceComparisonEnabled } from "@/server/services/price-comparison";
 import { listShopsForOwner } from "@/server/services/shops";
 import { eq } from "drizzle-orm";
 import { priceUnitLabel } from "@/lib/board/product-look";
@@ -102,15 +103,22 @@ export default async function ProductComparePage({
       };
     });
   type Row = (typeof mapped)[number];
+  // docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026): with flag
+  // local_price_comparison_enabled off, shops are listed nearest-first with no price
+  // ranking and no "Lowest price" tag.
+  const priceComparison = await isLocalPriceComparisonEnabled();
   const rows = mapped.sort((a, b) => {
-      // Buyable and delivering to the customer first, then cheapest, then nearest.
+      // Buyable and delivering to the customer first, then (comparison on) cheapest, then nearest.
       const rank = (r: Row) => (r.buyable ? 0 : 2) + (r.deliversHere === false ? 1 : 0);
       if (rank(a) !== rank(b)) return rank(a) - rank(b);
-      const price = (r: Row) => r.offer.onlinePricePaise ?? Number.POSITIVE_INFINITY;
-      if (price(a) !== price(b)) return price(a) - price(b);
-      return (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY);
+      if (priceComparison) {
+        const price = (r: Row) => r.offer.onlinePricePaise ?? Number.POSITIVE_INFINITY;
+        if (price(a) !== price(b)) return price(a) - price(b);
+      }
+      const near = (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY);
+      return near !== 0 ? near : a.offer.shopName.localeCompare(b.offer.shopName);
     });
-  const lowest = rows.find((r) => r.buyable && r.deliversHere !== false)?.offer.onlinePricePaise ?? null;
+  const lowest = priceComparison ? (rows.find((r) => r.buyable && r.deliversHere !== false)?.offer.onlinePricePaise ?? null) : null;
   const purchasable = rows
     .filter((r) => r.buyable && r.deliversHere !== false)
     .map((r) => r.offer);
@@ -164,8 +172,8 @@ export default async function ProductComparePage({
         </p>
       ) : null}
 
-      <Section title="Compare prices">
-        <Card className="divide-y divide-cream-200" data-testid="price-comparison">
+      <Section title={priceComparison ? "Compare prices" : "Shops selling this"}>
+        <Card className="divide-y divide-cream-200" data-testid="price-comparison" data-mode={priceComparison ? "price" : "nearest"}>
           {rows.map(({ offer, buyable, deliversHere, distanceKm }) => (
             <div key={offer.shopProductId} className="flex flex-wrap items-center justify-between gap-3 p-4">
               <div className="min-w-0">

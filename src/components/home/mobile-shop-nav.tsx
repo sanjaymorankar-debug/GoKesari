@@ -57,12 +57,15 @@ export function MobileShopNav({
   signedIn,
   cartCount: accountCartCount,
   cartTotalPaise,
+  priceComparison = false,
 }: {
   lang: Lang;
   signedIn: boolean;
   cartCount: number;
   /** The cart's total as checkout would charge it; null when not known. */
   cartTotalPaise: number | null;
+  /** docs/price-comparison-off-2026-11: flag local_price_comparison_enabled — off hides the Compare tab. */
+  priceComparison?: boolean;
 }) {
   const pathname = usePathname();
   // docs/guest-cart-2026-11: a guest's cart is counted in the browser (no total until the cart page prices it).
@@ -74,7 +77,9 @@ export function MobileShopNav({
   const items: { key: string; href: string; label: string; icon: IconName; active: boolean }[] = [
     { key: "home", href: "/", label: tr(HOME.home, lang), icon: "house", active: pathname === "/" },
     { key: "categories", href: "/categories", label: tr(HOME.categories, lang), icon: "layout-grid", active: pathname.startsWith("/categor") },
-    { key: "compare", href: "/search/compare", label: tr(HOME.compare, lang), icon: "scale", active: pathname.startsWith("/search/compare") },
+    ...(priceComparison
+      ? [{ key: "compare", href: "/search/compare", label: tr(HOME.compare, lang), icon: "scale" as IconName, active: pathname.startsWith("/search/compare") }]
+      : []),
     { key: "orders", href: signedIn ? "/orders" : "/signin", label: tr(HOME.orders, lang), icon: "package", active: pathname.startsWith("/orders") },
     { key: "account", href: signedIn ? "/profile" : "/signin", label: tr(HOME.account, lang), icon: "user", active: pathname.startsWith("/profile") },
   ];
@@ -102,7 +107,7 @@ export function MobileShopNav({
           </div>
         ) : null}
         <nav aria-label={tr(HOME.mainNav, lang)} className="border-t border-[var(--gk-line)] bg-white pb-[env(safe-area-inset-bottom)]">
-          <ul className="mx-auto grid h-16 max-w-xl grid-cols-5">
+          <ul className={clsx("mx-auto grid h-16 max-w-xl", items.length === 5 ? "grid-cols-5" : "grid-cols-4")}>
             {items.map((item) => (
               <li key={item.key}>
                 <Link

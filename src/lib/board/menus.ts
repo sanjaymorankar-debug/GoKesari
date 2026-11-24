@@ -135,7 +135,7 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       // Mockup: "Favourites" — no favourites feature exists; nearest real destination.
       { key: "deliversHere", label: L("Delivers here", "यहाँ डिलीवरी", "इथे डिलिव्हरी"), short: { en: "Delivers" }, icon: "truck", href: "/shops?delivery=true", count: "deliveringShops" },
       // Was the "Compare prices near you" section under the old home page.
-      { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare" },
+      { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare", feature: "local_price_comparison_enabled" },
       // docs/consult-booking-2026-11: doctors, lawyers, CAs and other professionals near you, with free times.
       { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/consult" },
       // GoKesari Health (docs/health/): verified doctors near you (the board keeps 6 tiles — one screen on a phone).
