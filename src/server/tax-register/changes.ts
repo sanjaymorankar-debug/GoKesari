@@ -266,7 +266,7 @@ export async function resubmitTaxChange(id: string, input: ProposeInput, actor: 
   const d = await describe(body.kind, body.payload);
   const [row] = await db
     .update(taxChangeRequests)
-    .set({ targetKeys: d.targetKeys, title: d.title, payload: d.payload, currentValue: d.currentValue ?? null, reason: body.reason, legalReference: body.legalReference ?? null, status: "SUBMITTED", updatedAt: new Date() })
+    .set({ targetKeys: d.targetKeys, title: d.title, payload: d.payload, currentValue: d.currentValue ?? null, reason: body.reason, legalReference: body.legalReference ?? null, status: "SUBMITTED", decidedBy: null, decidedAt: null, updatedAt: new Date() })
     .where(and(eq(taxChangeRequests.id, id), eq(taxChangeRequests.status, "SENT_BACK")))
     .returning();
   if (!row) throw conflict("It changed meanwhile; reload and try again.");
@@ -281,7 +281,7 @@ export async function withdrawTaxChange(id: string, actor: Actor): Promise<TaxCh
   const [row] = await db
     .update(taxChangeRequests)
     .set({ status: "WITHDRAWN", updatedAt: new Date() })
-    .where(and(eq(taxChangeRequests.id, id), inArray(taxChangeRequests.status, ["SUBMITTED", "SENT_BACK", "APPLY_FAILED"])))
+    .where(and(eq(taxChangeRequests.id, id), or(inArray(taxChangeRequests.status, ["SENT_BACK", "APPLY_FAILED"]), and(eq(taxChangeRequests.status, "SUBMITTED"), isNull(taxChangeRequests.decidedAt)))))
     .returning();
   if (!row) throw conflict("Only a request not yet applied can be withdrawn.");
   await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.TAX_CHANGE, entityType: "tax_change_request", entityId: id, newValue: { event: "WITHDRAWN" } });
@@ -298,7 +298,7 @@ export async function sendBackTaxChange(id: string, note: string, actor: Actor):
   const [row] = await db
     .update(taxChangeRequests)
     .set({ status: "SENT_BACK", decidedBy: actor.id, decidedAt: new Date(), decisionNote: text, updatedAt: new Date() })
-    .where(and(eq(taxChangeRequests.id, id), inArray(taxChangeRequests.status, ["SUBMITTED", "APPLY_FAILED"])))
+    .where(and(eq(taxChangeRequests.id, id), or(and(eq(taxChangeRequests.status, "SUBMITTED"), isNull(taxChangeRequests.decidedAt)), eq(taxChangeRequests.status, "APPLY_FAILED"))))
     .returning();
   if (!row) throw conflict("Only a submitted request can be sent back.");
   await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.TAX_CHANGE, entityType: "tax_change_request", entityId: id, newValue: { event: "SENT_BACK", note: text } });
@@ -316,11 +316,12 @@ export async function approveTaxChange(id: string, actor: Actor, note?: string |
   const refusal = decisionRefusal(actor, current.proposedBy);
   if (refusal) throw forbidden(refusal);
   if (current.status !== "SUBMITTED" && current.status !== "APPLY_FAILED") throw conflict("Only a submitted request can be approved.");
-  // Claim it first, so two clicks cannot apply it twice.
+  // Claim it first, so two clicks cannot apply it twice: a SUBMITTED request not yet being
+  // decided (decided_at empty), or one that failed to apply. The claim marks it as being decided.
   const [claimed] = await db
     .update(taxChangeRequests)
-    .set({ decidedBy: actor.id, decidedAt: new Date(), decisionNote: note?.trim() || null, applyError: null, updatedAt: new Date() })
-    .where(and(eq(taxChangeRequests.id, id), eq(taxChangeRequests.status, current.status), eq(taxChangeRequests.updatedAt, current.updatedAt)))
+    .set({ status: "SUBMITTED", decidedBy: actor.id, decidedAt: new Date(), decisionNote: note?.trim() || null, applyError: null, updatedAt: new Date() })
+    .where(and(eq(taxChangeRequests.id, id), or(and(eq(taxChangeRequests.status, "SUBMITTED"), isNull(taxChangeRequests.decidedAt)), eq(taxChangeRequests.status, "APPLY_FAILED"))))
     .returning();
   if (!claimed) throw conflict("It changed meanwhile; reload and try again.");
   try {
