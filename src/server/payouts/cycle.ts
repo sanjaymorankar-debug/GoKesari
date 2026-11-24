@@ -255,7 +255,7 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
           .where(inArray(taxInvoices.orderId, orderIds))
       : [];
     const invoiceByOrder = new Map(invoices.map((i) => [i.orderId, i]));
-    // An order with no tax invoice: its lines (checkout tax snapshot, migration 0184) give the TCS / TDS
+    // An order with no tax invoice: its lines (checkout tax snapshot, migration 0185) give the TCS / TDS
     // base without GST. Today's classification is read only for lines with no usable snapshot.
     const uninvoiced = orderIds.filter((id) => !invoiceByOrder.has(id));
     const uninvoicedItems = uninvoiced.length

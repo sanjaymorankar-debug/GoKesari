@@ -267,7 +267,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   };
   for (const { item, hsn: masterHsn, gstRateBp: masterRate, shopHsn, shopGstRateBp, shopCessBp } of items) {
     if (item.fulfilmentStatus === "REMOVED") continue;
-    // The checkout snapshot first (migration 0184: the classification when the order was placed),
+    // The checkout snapshot first (migration 0185: the classification when the order was placed),
     // then today's: the shop's, the product's, the dated HSN table, then the rule default (marked).
     const snapshotRated = item.gstRateBp != null;
     const hsn = item.hsnCode ?? shopHsn ?? masterHsn;

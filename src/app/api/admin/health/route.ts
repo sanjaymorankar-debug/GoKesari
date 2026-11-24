@@ -4,11 +4,12 @@
  *
  * GET ?view=
  *   providers&kind=DOCTOR|CARE&status&q · documents&member · stores&kind=PHARMACY|EQUIPMENT&status&q · legal&shopId
- *   drugs&q · careCategories · specialties · equipment · settings · report&granularity&from&to
+ *   drugs&q · drugsCsv (pharmacist review sheet) · careCategories · specialties · equipment · settings · report&granularity&from&to
  *   accessLog&from&to&action&role&patientId · audit&from&to · dataRequests&status&kind
  * POST { action, … }:
  *   decideProvider {kind, profileId, decision, note, memberIds} · police {memberId, status}
  *   decideStore {kind, shopId, decision, note} · drug {drug} · importDrugs {csv} · importIcd {csv}
+ *   registryCheck {memberId, note}
  *   equipment {item} · deleteEquipment {id} · findPatient {q} · breakGlass {patientId, reason}
  *   dataRequest {id, decision, note}
  * Patient lookups go in POST bodies, never in the URL.
@@ -39,12 +40,13 @@ import {
   listDataRequests,
   listEquipmentMaster,
   providerQueue,
+  recordRegistryCheck,
   saveEquipmentMaster,
   setPoliceVerification,
   storeLegalStatus,
   storeQueue,
 } from "@/server/health/admin";
-import { importDrugsCsv, importIcdCsv, listDrugs, saveDrug } from "@/server/health/drugs";
+import { exportDrugsCsv, importDrugsCsv, importIcdCsv, listDrugs, saveDrug } from "@/server/health/drugs";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +75,8 @@ export const GET = route(async (request: NextRequest) => {
       return ok(await storeLegalStatus(String(q.shopId ?? ""), user));
     case "drugs":
       return ok({ drugs: await listDrugs(user, q.q ?? "", 300), stats: await drugMasterStats(user) });
+    case "drugsCsv":
+      return ok({ csv: await exportDrugsCsv(user) });
     case "careCategories":
       return ok({ categories: await careCategories(user) });
     case "specialties":
@@ -111,6 +115,8 @@ export const POST = route(async (request: NextRequest) => {
       return ok(await importDrugsCsv(csvOf(body.csv), user));
     case "importIcd":
       return ok(await importIcdCsv(csvOf(body.csv), user));
+    case "registryCheck":
+      return ok(await recordRegistryCheck(body, user));
     case "equipment":
       return ok({ item: await saveEquipmentMaster(body.item ?? {}, user) });
     case "deleteEquipment":

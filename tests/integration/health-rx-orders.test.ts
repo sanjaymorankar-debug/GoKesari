@@ -226,6 +226,38 @@ describe("choosing medicines and a store", () => {
   });
 });
 
+describe("online sale switches (rule health)", () => {
+  const healthRule = async (over: Record<string, unknown>) => {
+    await setRule("health", { ...RULES.health.defaults, enabled: true, freeListingManualApproval: false, ...over }, admin);
+    clearRuleCache();
+  };
+  const allowed = async (id: string) => (await rxOrderOptions({ prescriptionId: rxId }, customer)).items.find((i) => i.id === id)!.allowed;
+
+  it("sells only pharmacist-reviewed (or OTC) medicines online when onlineSaleOnlyReviewed is on", async () => {
+    // The drug master is seed data the reset keeps: set and clear the review mark here.
+    const amox = and(eq(healthDrugMaster.genericName, "Amoxicillin"), eq(healthDrugMaster.strength, "500 mg"));
+    await db.update(healthDrugMaster).set({ reviewedAt: null, reviewedBy: null }).where(amox);
+    try {
+      expect(await allowed(item.amox)).toBe(true);
+      await healthRule({ onlineSaleOnlyReviewed: true });
+      expect(await allowed(item.amox)).toBe(false);
+      expect(await allowed(item.para)).toBe(true); // OTC
+      await db.update(healthDrugMaster).set({ reviewedAt: new Date(), reviewedBy: "Neha Joshi, MSPC-1" }).where(amox);
+      expect(await allowed(item.amox)).toBe(true);
+    } finally {
+      await db.update(healthDrugMaster).set({ reviewedAt: null, reviewedBy: null }).where(amox);
+    }
+  });
+
+  it("keeps hand-typed medicines at the counter when onlineSaleFreeText is off", async () => {
+    await db.update(healthPrescriptionItems).set({ drugId: null }).where(eq(healthPrescriptionItems.id, item.amox));
+    expect(await allowed(item.amox)).toBe(true);
+    await healthRule({ onlineSaleFreeText: false });
+    expect(await allowed(item.amox)).toBe(false);
+    await expect(send({ items: [{ prescriptionItemId: item.amox, qty: 1 }] })).rejects.toThrow(/Not sold online/);
+  });
+});
+
 describe("pickup", () => {
   it("runs end to end: request, quote, approve (cash), pack, ready, pickup code, bill, settlement", async () => {
     const sent = await send();

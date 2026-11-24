@@ -1,5 +1,5 @@
 /**
- * The GST included in an order's lines, recorded at checkout (migration 0184).
+ * The GST included in an order's lines, recorded at checkout (migration 0185).
  *
  * GoKesari prices include GST, so nothing here changes what the customer
  * pays: each line's price is split into its taxable value and the GST (+ cess)
