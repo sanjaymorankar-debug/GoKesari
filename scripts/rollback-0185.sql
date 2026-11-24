@@ -1,12 +1,11 @@
--- Rollback for 0185_payout_deductions (docs/tax-register/PAYOUT_DEDUCTIONS.md).
+-- Rollback for 0185_tax_register (docs/tax-register/README.md).
 -- Before running: deploy the previous release's code, then delete the 0185 row from
--- drizzle.__drizzle_migrations. TDS already deducted stays recorded in the audit log only.
+-- drizzle.__drizzle_migrations. Change requests, approvals and CA items are lost: export them first.
+-- Settings already changed through the register keep their values (they live in their own tables).
 BEGIN;
-ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_paise";
-ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_rate_bp";
-ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_paise";
-ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_rate_bp";
-ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "net_paise";
-DELETE FROM "statutory_rates" WHERE "key" IN ('IT_TDS_194H', 'IT_TDS_194J') AND "effective_from" = '2026-04-01' AND NOT "confirmed_by_ca";
-DELETE FROM "feature_flags" WHERE "key" = 'payout_deductions';
+DROP TABLE IF EXISTS "ca_action_item_notes";
+DROP TABLE IF EXISTS "ca_action_items";
+DROP TABLE IF EXISTS "tax_param_approvals";
+DROP TABLE IF EXISTS "tax_change_requests";
+DELETE FROM "feature_flags" WHERE "key" = 'tax_register';
 COMMIT;

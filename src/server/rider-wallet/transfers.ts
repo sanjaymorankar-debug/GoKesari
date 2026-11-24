@@ -270,7 +270,7 @@ export async function riderTdsFor(
   const fy = financialYearBounds(new Date());
   // Weekly batches count too: everything credited to the rider this year that was not cancelled or reversed.
   const [paid] = await tx
-    // docs/tax-register (0185): a weekly payout's amount is after its own TDS, so add it back.
+    // docs/tax-register (0186): a weekly payout's amount is after its own TDS, so add it back.
     .select({ sum: sql<string>`coalesce(sum(${riderPayouts.amountPaise} + ${riderPayouts.tdsPaise}), 0)`, tds: sql<string>`coalesce(sum(${riderPayouts.tdsPaise}), 0)` })
     .from(riderPayouts)
     .where(

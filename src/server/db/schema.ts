@@ -5575,7 +5575,7 @@ export const riderPayouts = pgTable(
     adjustmentsPaise: bigint("adjustments_paise", { mode: "number" }).notNull(),
     /** gross + adjustments — what is paid. */
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
-    /** docs/tax-register (0185): TDS s.194C withheld from this payout (amountPaise is what is paid, after it). */
+    /** docs/tax-register (0186): TDS s.194C withheld from this payout (amountPaise is what is paid, after it). */
     tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
     tdsRateBp: integer("tds_rate_bp"),
     ...payoutLifecycleColumns(),
@@ -6754,7 +6754,7 @@ export const referralCommissions = pgTable(
     commissionType: text("commission_type", { enum: COMMISSION_TYPES }).notNull(),
     commissionValue: integer("commission_value").notNull(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
-    /** docs/tax-register (0185): TDS s.194H withheld when paid; netPaise is what is paid. */
+    /** docs/tax-register (0186): TDS s.194H withheld when paid; netPaise is what is paid. */
     tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
     tdsRateBp: integer("tds_rate_bp"),
     netPaise: bigint("net_paise", { mode: "number" }),
@@ -10583,9 +10583,9 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
-  // docs/tax-register (0184): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
+  // docs/tax-register (0185): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
   "tax_register",
-  // docs/tax-register (0185): TDS / TCS withheld on every payout path. Missing row = OFF.
+  // docs/tax-register (0186): TDS / TCS withheld on every payout path. Missing row = OFF.
   "payout_deductions",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
@@ -13074,5 +13074,5 @@ export * from "./smart-shopping-schema";
 export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
-export * from "./tax-register-schema"; // docs/tax-register (0184)
+export * from "./tax-register-schema"; // docs/tax-register (0185)
 /* <<< GoKesari Health */
