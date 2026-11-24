@@ -83,6 +83,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
   dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
   guest_cart_enabled: "Guests can fill a cart; sign-in only at Place order",
+  hdms_enabled: "Delivery management: allocation engine and delivery partners (Shadowfax, Pidge, Porter, Borzo)",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -147,6 +148,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
   guest_cart_enabled:
     "docs/guest-cart-2026-11 (owner, 23-Nov-2026): a shopper who is not signed in can tap Add to cart and open the cart. The guest cart is kept only in their browser (up to 50 items, 7 days); nothing is saved on the server. Place order asks them to sign in, then moves the items into their account cart (quantities added, capped at stock) and returns to checkout. Off: Add to cart asks for sign-in first, as before.",
+  hdms_enabled:
+    "docs/hdms-2026-11: when no shop rider or GoKesari rider takes a ready order, the allocation engine books an enabled delivery partner (Admin → Delivery management). Off: dispatch works exactly as before; the admin pages stay readable.",
 };
 
 export interface FeatureFlagView {
