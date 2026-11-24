@@ -43,6 +43,7 @@ export type FeatureFlagKey =
   // docs/guest-cart-2026-11
   | "guest_cart_enabled"
   | "tax_register"
+  | "payout_deductions"
   // docs/sms-2fa-2026-11
   | "sms_otp_signin_customers_enabled"
   | "sms_otp_signin_shop_owners_enabled";

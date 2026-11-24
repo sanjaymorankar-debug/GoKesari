@@ -1,6 +1,12 @@
--- Rollback for 0188_sms_two_factor (SMS sign-in code flags, checkout step-up column).
--- Before running: deploy the previous release's code. Then delete the 0188 row.
-DELETE FROM "feature_flag_changes" WHERE "flag_key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DELETE FROM "feature_flags" WHERE "key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DROP INDEX IF EXISTS "login_otps_user_purpose_consumed_idx";
-ALTER TABLE "login_otps" DROP COLUMN IF EXISTS "step_up_request_id";
+-- Rollback for 0188_payout_deductions (docs/tax-register/PAYOUT_DEDUCTIONS.md).
+-- Before running: deploy the previous release's code, then delete the 0188 row from
+-- drizzle.__drizzle_migrations. TDS already deducted stays recorded in the audit log only.
+BEGIN;
+ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_paise";
+ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_rate_bp";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_paise";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_rate_bp";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "net_paise";
+DELETE FROM "statutory_rates" WHERE "key" IN ('IT_TDS_194H', 'IT_TDS_194J') AND "effective_from" = '2026-04-01' AND NOT "confirmed_by_ca";
+DELETE FROM "feature_flags" WHERE "key" = 'payout_deductions';
+COMMIT;
