@@ -11,7 +11,7 @@
  * here; callers do not change. WhatsApp's Meta Cloud API mode is used only by
  * the shop-order alerts (notifications/providers/whatsapp-meta.ts).
  */
-import { getEnv, messagingConfigProblem } from "@/lib/env";
+import { getEnv, messagingConfigProblem, msg91ConfigProblem } from "@/lib/env";
 import { db } from "@/server/db";
 import { outboundTestMessages } from "@/server/db/schema";
 
@@ -22,10 +22,22 @@ export class MessagingUnavailableError extends Error {}
 export function textChannelMode(channel: TextChannel): "none" | "mock" {
   const env = getEnv();
   if (messagingConfigProblem(env)) return "none";
-  if (channel === "SMS") return env.SMS_PROVIDER;
+  // SMS_PROVIDER=msg91 sends DLT-approved one-time codes only (smsOtpMode below); general texts
+  // have no DLT template, so they are not sent in that mode.
+  if (channel === "SMS") return env.SMS_PROVIDER === "mock" ? "mock" : "none";
   // WHATSAPP_PROVIDER=meta serves only the shop-order alerts (server/whatsapp/shop-orders, approved
   // templates); a general notification has no approved template, so its WhatsApp copy is skipped.
   return env.WHATSAPP_PROVIDER === "mock" ? "mock" : "none";
+}
+
+/**
+ * docs/sms-2fa-2026-11: how one-time codes go by SMS — the mock outbox, MSG91
+ * (only with all its keys), or not at all.
+ */
+export function smsOtpMode(): "none" | "mock" | "msg91" {
+  const env = getEnv();
+  if (env.SMS_PROVIDER === "msg91") return msg91ConfigProblem(env) ? "none" : "msg91";
+  return textChannelMode("SMS");
 }
 
 export function isTextChannelAvailable(channel: TextChannel): boolean {

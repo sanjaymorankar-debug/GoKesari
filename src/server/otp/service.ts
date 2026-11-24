@@ -46,7 +46,8 @@ export const EMAIL_IN_USE = "This email address is already used by another accou
 /** batch-2026-10 WS-D: SHOP_ONBOARDING_CONSENT — a shop owner authorises an operator to onboard their shop. */
 /** SHOP_EMAIL (0120): the shop registration's email, when it is not the account's own. */
 /** RIDER_BANK_CHANGE / RIDER_WITHDRAWAL (0124): a delivery partner confirms a bank change or a withdrawal. */
-type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT" | "SHOP_EMAIL" | "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL";
+/** LOGIN_SMS / CHECKOUT (0187, docs/sms-2fa-2026-11): the SMS second factor at sign-in and the checkout step-up. */
+export type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT" | "SHOP_EMAIL" | "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL" | "LOGIN_SMS" | "CHECKOUT";
 type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =
@@ -107,7 +108,7 @@ async function findLiveUserByPhone(e164: string): Promise<User | undefined> {
   return row;
 }
 
-function auditOtp(
+export function auditOtp(
   action: AuditAction,
   details: { email: string; phoneE164?: string | null; actorId?: string | null; ip?: string | null } & Record<string, unknown>,
 ) {
@@ -129,7 +130,7 @@ function auditOtp(
  * Issues and emails a code. Throttled per destination email: a cooldown
  * between codes and a cap per window. Callers add a per-IP limit.
  */
-async function issueCode(input: {
+export async function issueCode(input: {
   email: string;
   purpose: OtpPurpose;
   userId: string | null;
@@ -160,7 +161,7 @@ async function issueCode(input: {
   }
   if (recent.length >= rules.maxResendsPerWindow) {
     await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { ...input, reason: "window_limit" });
-    throw new AppError("RATE_LIMITED", "Too many codes were requested for this email. Try again later.", {
+    throw new AppError("RATE_LIMITED", `Too many codes were requested for this ${input.bySms ? "account" : "email"}. Try again later.`, {
       retryAfterSeconds: rules.resendWindowMinutes * 60,
     });
   }
@@ -219,7 +220,10 @@ async function issueCode(input: {
     console.error("[otp] delivery failed", error);
     await db.update(loginOtps).set({ supersededAt: new Date() }).where(eq(loginOtps.id, id));
     await auditOtp(AUDIT_ACTIONS.OTP_FAILED, { ...input, reason: "delivery_failed", otpId: id });
-    throw new AppError("INTERNAL", "We could not send the email just now. Please try again in a minute.");
+    throw new AppError(
+      "INTERNAL",
+      input.bySms ? "We could not send the SMS just now. Please try again in a minute." : "We could not send the email just now. Please try again in a minute.",
+    );
   }
 
   await auditOtp(AUDIT_ACTIONS.OTP_REQUESTED, { ...input, purpose: input.purpose, otpId: id, known: Boolean(input.userId) });
@@ -259,7 +263,7 @@ async function enforceDbLimits(
  * Checks a code for `email` + `purpose` and consumes it. Every failure throws
  * the same message; the reason is audited.
  */
-async function consumeCode(input: {
+export async function consumeCode(input: {
   email: string;
   purpose: OtpPurpose;
   code: string;
@@ -488,7 +492,7 @@ export async function verifyLoginOtp(input: {
   return { user, isNewUser };
 }
 
-async function assertPhoneFree(e164: string, exceptUserId: string | null): Promise<void> {
+export async function assertPhoneFree(e164: string, exceptUserId: string | null): Promise<void> {
   const conditions = [eq(users.phoneE164, e164), isNull(users.deletedAt)];
   if (exceptUserId) conditions.push(ne(users.id, exceptUserId));
   const [taken] = await db.select({ id: users.id }).from(users).where(and(...conditions));

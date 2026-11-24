@@ -41,7 +41,10 @@ export type FeatureFlagKey =
   | "rbac_v2_operations"
   | "dealer_platform_four_eye"
   // docs/guest-cart-2026-11
-  | "guest_cart_enabled";
+  | "guest_cart_enabled"
+  // docs/sms-2fa-2026-11
+  | "sms_otp_signin_customers_enabled"
+  | "sms_otp_signin_shop_owners_enabled";
 
 interface FlagValue {
   enabled: boolean;

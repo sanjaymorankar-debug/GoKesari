@@ -640,7 +640,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "LOGIN_SMS", "CHECKOUT" /* 0187: SMS second factor, checkout step-up */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -649,6 +649,11 @@ export const loginOtps = pgTable(
     /** Set when the code was used, or when a newer code replaced it. */
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    /**
+     * 0187 (docs/sms-2fa-2026-11): a verified CHECKOUT code is a one-time pass for one order;
+     * the checkout request that used it. A retry of the same request may use it again.
+     */
+    stepUpRequestId: text("step_up_request_id"),
     ipAddress: text("ip_address"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -10605,6 +10610,10 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
+  // docs/sms-2fa-2026-11 (0187): sign-in needs an SMS code after the emailed one — one switch per audience
+  // (Admin → Sign-in security). Seeded OFF.
+  "sms_otp_signin_customers_enabled",
+  "sms_otp_signin_shop_owners_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 

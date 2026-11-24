@@ -29,7 +29,7 @@ import {
   type User as UserRecord,
   type UserRole,
 } from "@/server/db/schema";
-import { emailProvider } from "@/server/auth-email";
+import { EMAIL_PROVIDER_ID, emailProvider } from "@/server/auth-email";
 import { SESSION_MAX_AGE_SECONDS, endSession, readSession, startSession } from "@/server/auth-sessions";
 import { readLoginTicket } from "@/server/otp/service";
 import { recordConsent } from "@/server/services/consents";
@@ -159,13 +159,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     verifyRequest: "/signin?check-email=1",
   },
   callbacks: {
-    async signIn({ user }) {
+    async signIn({ user, account, email }) {
       if (!user.email) return false;
       const record = await db.query.users.findFirst({
         where: eq(users.email, user.email.toLowerCase()),
       });
       // Suspended or soft-deleted accounts cannot establish a session.
       if (record && record.status !== "ACTIVE") return false;
+      // docs/sms-2fa-2026-11: with the SMS second factor on, Google (and the emailed link, once it
+      // is opened) opens no session by itself — the browser goes to /signin/second-factor (loaded
+      // lazily: it needs request cookies).
+      const linkOpened = account?.provider === EMAIL_PROVIDER_ID && !email?.verificationRequest;
+      if (account?.provider === "google" || linkOpened) {
+        const { googleSecondFactorGate } = await import("@/server/otp/google-second-factor");
+        return googleSecondFactorGate(user.email);
+      }
       return true;
     },
 

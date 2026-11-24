@@ -232,7 +232,8 @@ describe("menu definitions", () => {
     // only Shop and Product, so Puja Samagri, Consultants and Health leave the board (admin -3, operator -3) and
     // operator Catalogue shows Shop categories and Product categories on the board (+2, from "more").
     // Smart shopping dashboard (docs/smart-shopping-2026-11): admin +1, Reports → "Smart shopping" (operator: under Order support → more).
-    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
+    // Sign-in security (docs/sms-2fa-2026-11): admin +1, Settings → "Sign-in security".
+    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(40);
     expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(28);
   });
 

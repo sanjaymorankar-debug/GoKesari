@@ -184,7 +184,7 @@ describe("providers", () => {
     expect(await getOtpProvider("SMS")).toBeNull();
     expect(phase2SmsOtpProvider).toBeInstanceOf(SmsOtpProvider);
     expect(phase2SmsOtpProvider.isAvailable()).toBe(false);
-    await expect(phase2SmsOtpProvider.send({ to: "+919800000000", code: "123456", expiryMinutes: 5 })).rejects.toThrow(/Phase 2/);
+    await expect(phase2SmsOtpProvider.send({ to: "+919800000000", code: "123456", expiryMinutes: 5 })).rejects.toThrow(/MSG91 is not set up/);
   });
 
   it("TC-B26-A-060 a mobile-only shop account gets its code by SMS only while the rule allows it", async () => {
