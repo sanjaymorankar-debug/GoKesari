@@ -15,6 +15,7 @@
  * suspension holds, duplicates and GoKesari Direct earning nothing, and the
  * programme off.
  */
+import { approvePayoutBatch } from "@/server/dealers/auto-payout";
 import { and, eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -61,6 +62,13 @@ import { call } from "../helpers/http";
 import { createCategory, createProduct, createShop, createShopProduct, createUser, resetDatabase } from "../helpers/fixtures";
 
 let admin: { id: string; email: string; name: string | null; role: "ADMIN" };
+
+/** Paying by hand needs a second admin's approval first (maker-checker). */
+let checker: { id: string; role: "ADMIN" };
+async function approveAndPay(batchId: string, reference: string) {
+  await approvePayoutBatch(batchId, checker);
+  return markPayoutPaid(batchId, reference, admin);
+}
 const TODAY = new Date().toISOString().slice(0, 10);
 
 function signIn(user: { id: string; email: string; name: string | null }, role: UserRole) {
@@ -86,6 +94,7 @@ beforeEach(async () => {
   state.session = null;
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, email: a.email, name: a.name, role: "ADMIN" };
+  checker = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
   // These tests cover the milestone rules model (fixed ₹ / % per milestone); the base % model is in dealer-base-commission.test.ts.
   await setCommissionSettings({ fixedBonusBase: "FEE", catalogueMinProducts: 1, branchEligible: false, commissionModel: "MILESTONE_RULES" }, "test defaults", admin);
   await db.execute(sql`delete from dealer_rating_slabs where min_shops not in (0, 200, 250, 500)`);
@@ -95,7 +104,7 @@ beforeEach(async () => {
 
 async function newDealer(name = "Shree Sai", over: Partial<typeof dealers.$inferInsert> = {}) {
   const user = await createUser({ role: "DEALER" });
-  const [dealer] = await db.insert(dealers).values({ userId: user.id, legalName: name, contactName: name, dealerType: "PROPRIETORSHIP", status: "APPROVED", ...over }).returning();
+  const [dealer] = await db.insert(dealers).values({ userId: user.id, legalName: name, contactName: name, dealerType: "PROPRIETORSHIP", status: "APPROVED", panHash: `pan-${user.id}`, bankStatus: "VERIFIED", ...over }).returning();
   return { user, dealer };
 }
 
@@ -214,7 +223,7 @@ describe("no cap, approval, payout, reversal (scenarios 44, 45, 46, 53)", () => 
     const batch = await createPayoutBatch(dealer.id, admin);
     expect(batch.totalPaise).toBe(40_000);
     await expect(markPayoutPaid(batch.id, "", admin)).rejects.toMatchObject({ status: 422 });
-    await markPayoutPaid(batch.id, "UTR-HDFC-0001", admin);
+    await approveAndPay(batch.id, "UTR-HDFC-0001");
     expect((await entries(shop.id)).every((r) => r.status === "PAID")).toBe(true);
     expect(await db.select().from(notifications).where(and(eq(notifications.userId, user.id), eq(notifications.type, "dealer.payout_paid")))).toHaveLength(1);
 

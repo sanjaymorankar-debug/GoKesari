@@ -9,6 +9,7 @@
  *   - the agent agreement hold; payouts per payee with PAN + verified bank; TDS on and off
  *   - monthly close per payee with target bonuses; standard dealers unchanged
  */
+import { approvePayoutBatch } from "@/server/dealers/auto-payout";
 import { and, eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -64,6 +65,13 @@ import { createOrder, createShop, createUser, resetDatabase } from "../helpers/f
 
 let admin: { id: string; role: "ADMIN" };
 
+/** Paying by hand needs a second admin's approval first (maker-checker). */
+let checker: { id: string; role: "ADMIN" };
+async function approveAndPay(batchId: string, reference: string) {
+  await approvePayoutBatch(batchId, checker);
+  return markPayoutPaid(batchId, reference, admin);
+}
+
 /**
  * Most tests below run the rule with a trading condition (20 / 5 / 3, 60% at activation, the rest at
  * 2 delivered orders, no monthly minimum for the development bonus), which stays configurable. The
@@ -103,6 +111,7 @@ beforeEach(async () => {
   await db.delete(dealerCommissionMonths);
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, role: "ADMIN" };
+  checker = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
   await setCommissionSettings(
     { catalogueMinProducts: 1, branchEligible: false, commissionModel: "BASE_PERCENT", basePercentBp: 4000, ratingStepBp: 100, autoApproveAtMonthEnd: true, payoutDayOfMonth: 5 },
     "test defaults",
@@ -656,7 +665,7 @@ describe("reversal takes back every level", () => {
     await approveEntries([d1.id], admin);
     const batch = await createPayoutBatch(dealer.id, admin, "agent payout", a.id);
     expect(batch).toMatchObject({ memberId: a.id, totalPaise: 59_988, tdsPaise: 0 });
-    await markPayoutPaid(batch.id, "UTR-AGENT-1", admin);
+    await approveAndPay(batch.id, "UTR-AGENT-1");
 
     await recordPayment({ shopId: shop.id, paymentType: "REFUND", amountPaise: 589_882, method: "ONLINE" }, admin);
     const rows = await ledger(shop.id);
@@ -694,6 +703,13 @@ describe("agent agreement, payee checks and TDS", () => {
     const [d1] = await ledger(shop.id);
     await approveEntries([d1.id], admin);
     const batch = await createPayoutBatch(dealer.id, admin, null, a.id);
+    // Not approvable (nor payable) without a verified bank account.
+    await expect(approvePayoutBatch(batch.id, checker)).rejects.toMatchObject({ details: { reason: "PAYEE_NOT_READY" } });
+    await expect(markPayoutPaid(batch.id, "UTR-1", admin)).rejects.toMatchObject({ details: { reason: "NOT_APPROVED" } });
+    await db.update(dealerSalespeople).set({ bankStatus: "VERIFIED" }).where(eq(dealerSalespeople.id, a.id));
+    await approvePayoutBatch(batch.id, checker);
+    // The bank check is redone when paying: unverified again after approval → refused.
+    await db.update(dealerSalespeople).set({ bankStatus: "PENDING" }).where(eq(dealerSalespeople.id, a.id));
     await expect(markPayoutPaid(batch.id, "UTR-1", admin)).rejects.toThrow(/bank account is not verified/);
     await db.update(dealerSalespeople).set({ bankStatus: "VERIFIED" }).where(eq(dealerSalespeople.id, a.id));
     await expect(markPayoutPaid(batch.id, "UTR-1", admin)).resolves.toMatchObject({ status: "PAID" });
@@ -705,7 +721,7 @@ describe("agent agreement, payee checks and TDS", () => {
     await approveEntries((await ledger(first.id)).map((r) => r.id), admin);
     const off = await createPayoutBatch(dealer.id, admin);
     expect(off).toMatchObject({ totalPaise: 119_988, tdsPaise: 0 });
-    await markPayoutPaid(off.id, "UTR-OFF", admin);
+    await approveAndPay(off.id, "UTR-OFF");
 
     await setRule("dealerPayoutTds", { enabled: true, rateBp: 200, annualThresholdPaise: 200_000 }, admin);
     clearRuleCache();

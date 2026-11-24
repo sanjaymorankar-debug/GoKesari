@@ -1,4 +1,4 @@
-# GoKesari's books (migration 0187, flag `auto_journals`)
+# GoKesari's books (migration 0188, flag `auto_journals`)
 
 When the flag is on, every payout that is paid queues a balanced **posting** in GoKesari's chart of accounts. The Accountant opens **Accounting → Auto postings** and does one of two things with each posting:
 - **Create journal draft:** the Accountant becomes the preparer and submits it to the CA as with any journal entry.
@@ -30,4 +30,4 @@ These are the figures for the challans (record them under Admin → TDS on commi
 
 Switch on `rbac_v2_accounting` (already on on staging) and then `auto_journals`.
 
-Rollback: `scripts/rollback-0187.sql`.
+Rollback: `scripts/rollback-0188.sql`.

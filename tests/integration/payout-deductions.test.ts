@@ -1,5 +1,5 @@
 /**
- * docs/tax-register/PAYOUT_DEDUCTIONS.md (0186): with flag payout_deductions on, weekly rider
+ * docs/tax-register/PAYOUT_DEDUCTIONS.md (0187): with flag payout_deductions on, weekly rider
  * payouts withhold TDS s.194C, and the weekly shop settlement refuses (shops go through the
  * payout cycle, which withholds TCS / TDS). Off: as before.
  */

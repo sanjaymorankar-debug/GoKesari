@@ -2,7 +2,7 @@
 -- (shop payout item, weekly shop settlement, rider payout or transfer, dealer / team commission,
 -- referral commission) queues a balanced posting — payables, bank, commission income, TCS / TDS
 -- payable by section, GST output on fees, s.9(5) GST. The Accountant turns it into a journal entry
--- draft (the CA approves it) or dismisses it. Additive only. Rollback: scripts/rollback-0187.sql
+-- draft (the CA approves it) or dismisses it. Additive only. Rollback: scripts/rollback-0188.sql
 CREATE TABLE IF NOT EXISTS "fin_auto_postings" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"source_type" text NOT NULL,
