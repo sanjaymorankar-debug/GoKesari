@@ -27,7 +27,7 @@ site, `mobile/`).
 | Auth | Auth.js (NextAuth v5): Google OAuth, plus an e-mailed sign-in code / link | Database-resolved role on every request (`src/server/auth.ts`). |
 | Validation | Zod v4 | Every external input parsed at the server boundary. |
 | Client state | Zustand (UI only) | Cart/wallet/subscription state is **server-owned**; Zustand holds ephemeral UI state only. |
-| Payments | Gateway chosen by `PAYMENT_GATEWAY`: **`CASHFREE` on gokesari.com** (since 19-Nov-2026), `SANDBOX` (the app's built-in test payment page) or Cashfree's sandbox on test.gokesari.com (Admin → Finance → Cashfree set-up shows the live value) | Server-side confirmation with the gateway's own API; webhook signature verification; the site refuses a gateway environment that does not match it ([docs/payments-gateway-2026-10.md](docs/payments-gateway-2026-10.md), [docs/payments-cashfree-audit-2026-11/](docs/payments-cashfree-audit-2026-11/README.md)). |
+| Payments | Gateway chosen by `PAYMENT_GATEWAY`: **`CASHFREE` on gokesari.com** (since 19-Nov-2026), **`SANDBOX` on test.gokesari.com** (the app's built-in test payment page; owner, 24-Nov-2026; Admin → Finance → Cashfree set-up shows the live value) | Server-side confirmation with the gateway's own API; webhook signature verification; the site refuses a gateway environment that does not match it ([docs/payments-gateway-2026-10.md](docs/payments-gateway-2026-10.md), [docs/payments-cashfree-audit-2026-11/](docs/payments-cashfree-audit-2026-11/README.md)). |
 | Tests | Vitest (unit + integration against real Postgres), Playwright (E2E and the QA suite in `tests/qa`) | Integration tests run real SQL so concurrency/idempotency claims are actually proven. |
 
 ### 1.1 Deviation: Drizzle instead of Prisma
@@ -257,6 +257,6 @@ payouts): `/api/cron/every-minute`, `/api/cron/hourly` and `/api/cron/daily`
    23.00 IST window, and each is followed by the Post-deploy check ([DEPLOYMENT.md §3](DEPLOYMENT.md)).
 
 **Per-site settings.** Each site's environment is in its env file on the server
-(`gk-site env …`). Test data only on staging (Cashfree sandbox, KYC sandbox keys, e-mail redirected
+(`gk-site env …`). Test data only on staging (`PAYMENT_GATEWAY=SANDBOX`, Cashfree sandbox keys, KYC sandbox keys, e-mail redirected
 to the testing inbox); live keys only on production. The app refuses a mismatched pairing for
 payments and KYC.

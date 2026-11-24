@@ -15,8 +15,8 @@ post-deploy checks passed (TEST_RESULTS §8). gokesari.com still takes order pay
 > server (`gk-site env set`, then `gk-deploy restart gokesari-prod`); the first live fee payment the same evening
 > was confirmed by Cashfree's webhook. Customer order checkout online also needs rule `onlinePayments.enabled`,
 > which is the owner's switch. test.gokesari.com uses Cashfree **sandbox** keys and test data only
-> ([cashfree-sandbox-test-data.md](../testing/cashfree-sandbox-test-data.md)); its order gateway (`SANDBOX` = the
-> app's built-in test page, or `CASHFREE` = the Cashfree sandbox checkout) is shown on `/admin/payments/cashfree`.
+> ([cashfree-sandbox-test-data.md](../testing/cashfree-sandbox-test-data.md)); its order gateway is `SANDBOX` (the
+> app's built-in test page; owner, 24-Nov-2026), shown on `/admin/payments/cashfree`.
 > Since 17-Nov-2026 both sites run on GoKesari's own server, so "the Hostinger environment" and "hPanel → Redeploy"
 > below now mean the server's `gk-site env` and `gk-deploy restart` ([scripts/vps-app/README.md](../../scripts/vps-app/README.md)).
 

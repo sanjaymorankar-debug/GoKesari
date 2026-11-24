@@ -15,8 +15,8 @@ default** (rule `onlinePayments.enabled = false`).
 > - **test.gokesari.com:** Cashfree **sandbox** keys only (`CASHFREE_ENV=sandbox`), with the test data in
 >   [testing/cashfree-sandbox-test-data.md](testing/cashfree-sandbox-test-data.md). With `PAYMENT_GATEWAY=SANDBOX`
 >   the fee and order payments open the app's built-in test page (`/orders/pay/sandbox/…`, "Pay (success)"); with
->   `PAYMENT_GATEWAY=CASHFREE` they open the Cashfree sandbox checkout (`/orders/pay/session/…`). Which one staging
->   runs is shown on `/admin/payments/cashfree` ("Order payments gateway").
+>   `PAYMENT_GATEWAY=CASHFREE` they would open the Cashfree sandbox checkout (`/orders/pay/session/…`). Staging runs
+>   **`SANDBOX`** (owner, 24-Nov-2026), shown on `/admin/payments/cashfree` ("Order payments gateway").
 > - Sandbox keys or test data are never used on gokesari.com (`cashfreeEnvProblem`, `src/lib/env.ts`).
 >
 > *Superseded (24-Nov-2026):* "Production stays OFF until (1) the gateway is chosen, (2) the merchant account is

@@ -60,8 +60,8 @@ CASHFREE_SECRET_KEY=<live secret key>
 CASHFREE_ENV=production
 # Gateway for online order payments. gokesari.com: CASHFREE (set 19-Nov-2026;
 # the default SANDBOX is refused in production, so unset means no online
-# payment). test.gokesari.com: SANDBOX (the app's built-in test payment page)
-# or CASHFREE with sandbox keys — never live keys.
+# payment). test.gokesari.com: SANDBOX (the app's built-in test payment page;
+# owner, 24-Nov-2026) — never live keys there.
 PAYMENT_GATEWAY=CASHFREE
 
 CRON_SECRET=<openssl rand -hex 32>
@@ -491,8 +491,8 @@ with Cashfree's own API (never from anything the client reports), and
 racing the browser callback cannot credit twice.
 
 Online **order** payments go through the gateway named by `PAYMENT_GATEWAY`
-(§2): `CASHFREE` on gokesari.com since 19-Nov-2026; `SANDBOX` or Cashfree
-sandbox on test.gokesari.com ([docs/payments-gateway-2026-10.md](docs/payments-gateway-2026-10.md)).
+(§2): `CASHFREE` on gokesari.com since 19-Nov-2026; `SANDBOX` (the built-in test
+payment page) on test.gokesari.com ([docs/payments-gateway-2026-10.md](docs/payments-gateway-2026-10.md)).
 Payment tests on staging use Cashfree sandbox test data only
 ([docs/testing/cashfree-sandbox-test-data.md](docs/testing/cashfree-sandbox-test-data.md));
 the pay step runs through the "Sandbox payment" workflow.
