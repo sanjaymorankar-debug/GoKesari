@@ -1,0 +1,81 @@
+{
+ "run": {
+  "target": "staging",
+  "host": "test.gokesari.com",
+  "label": "smart-shopping-manual",
+  "note": "Smart shopping: 4 cases that were declared manual, automated 25-Nov-2026 and run on test.gokesari.com (d418c07b) with all three smart-shopping flags off; reads and refused writes only",
+  "suiteCommit": "73e277fd",
+  "startedAt": "2026-11-24T21:11:27.852Z",
+  "finishedAt": "2026-11-24T21:11:59.916Z",
+  "cases": 4,
+  "rows": 4,
+  "totals": {
+   "pass": 4,
+   "fail": 0,
+   "blocked": 0,
+   "skipped": 0
+  }
+ },
+ "results": [
+  {
+   "id": "TC-SMART-002",
+   "title": "list scan switched off: no Scan tile on the home pages or in the cart, the wishlist pages are 404, and scan / save / compare / order answer 404 “This feature is not available.”",
+   "status": "pass",
+   "detail": "no tile on / and /cart; /wishlist and /wishlist/scan 404; scan 404, save 404, compare 404, order 404; GET wishlists still answers 200 (as the case notes)",
+   "partial": "The Tile Board and the discovery home are read as the customer's home page only; a wishlist saved while the flag was on does not exist on staging",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "tests/qa/signed-in/smart-shopping-2026-11-25.spec.ts",
+   "test": "TC-SMART-002 list scan switched off: no Scan tile on the home pages or in the cart, the wishlist pages are 404, and scan / save / compare / order answer 404 “This feature is not available.”",
+   "at": "2026-11-24T21:11:57.554Z",
+   "durationMs": 4477
+  },
+  {
+   "id": "TC-SMART-025",
+   "title": "Smart shopping dashboard: the header with the live rules, the period switch, the four cards, both tables and the links; the operator sees it; the customer is sent home",
+   "status": "pass",
+   "detail": "header with provider, radius and retention; 7 / 90 / 30 days switch; cards and both tables; links; operator sees it; customer sent away",
+   "partial": "Staging has no scans or AI calls yet, so only the empty figures (0, —, $0.00) are seen; the AI usage log's columns are not read (database)",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "tests/qa/signed-in/smart-shopping-2026-11-25.spec.ts",
+   "test": "TC-SMART-025 Smart shopping dashboard: the header with the live rules, the period switch, the four cards, both tables and the links; the operator sees it; the customer is sent home",
+   "at": "2026-11-24T21:11:27.852Z",
+   "durationMs": 3775
+  },
+  {
+   "id": "TC-SMART-033",
+   "title": "Products added by photo: the page and report work with the flag off; the shop owner is sent away and the report API answers 403",
+   "status": "pass",
+   "detail": "report API 200 (since, shots, unreadable, published…); page with every card and both lists while shop_photo_listing_enabled is off; shop owner sent away, API 403",
+   "partial": "Photo retention (deleting photos and discarding drafts after 30 days) needs the daily job on a back-dated clock",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "tests/qa/signed-in/smart-shopping-2026-11-25.spec.ts",
+   "test": "TC-SMART-033 Products added by photo: the page and report work with the flag off; the shop owner is sent away and the report API answers 403",
+   "at": "2026-11-24T21:11:30.087Z",
+   "durationMs": 2205
+  },
+  {
+   "id": "TC-SMART-034",
+   "title": "Orders on WhatsApp switched off: no tile under My Shop, the settings page is 404 and the API answers 404 “This feature is not available.”",
+   "status": "pass",
+   "detail": "no tile under My Shop; /shop/settings/whatsapp shows the not-found page (HTTP 200); API 404 “This feature is not available.”",
+   "partial": "The switched-on half (the page, the set-up note without Meta keys, the other owner's and the operator's 403) needs the flag on",
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "tests/qa/signed-in/smart-shopping-2026-11-25.spec.ts",
+   "test": "TC-SMART-034 Orders on WhatsApp switched off: no tile under My Shop, the settings page is 404 and the API answers 404 “This feature is not available.”",
+   "at": "2026-11-24T21:11:59.916Z",
+   "durationMs": 2329
+  }
+ ]
+}
