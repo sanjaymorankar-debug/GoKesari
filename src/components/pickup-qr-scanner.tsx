@@ -13,6 +13,52 @@ import jsQR from "jsqr";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { Alert, Button } from "@/components/ui";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang } from "@/lib/board/i18n";
+
+/** Module 6 (docs/hindi-marathi-2026-11/). */
+const T = {
+  errQr: L(
+    "That QR could not be used. Type the pickup code instead.",
+    "यह QR इस्तेमाल नहीं हो सका। इसकी जगह पिकअप कोड डालें।",
+    "हा QR वापरता आला नाही. त्याऐवजी पिकअप कोड टाका.",
+  ),
+  errServer: L(
+    "Could not reach the server. Check your connection, or type the pickup code.",
+    "सर्वर से संपर्क नहीं हो सका। इंटरनेट देखें, या पिकअप कोड डालें।",
+    "सर्व्हरशी संपर्क झाला नाही. इंटरनेट तपासा, किंवा पिकअप कोड टाका.",
+  ),
+  noCamera: L(
+    "This device's camera isn't available here. Type the pickup code from the shop instead.",
+    "इस डिवाइस का कैमरा यहाँ उपलब्ध नहीं है। इसकी जगह दुकान से मिला पिकअप कोड डालें।",
+    "या डिव्हाइसचा कॅमेरा इथे उपलब्ध नाही. त्याऐवजी दुकानाकडून मिळालेला पिकअप कोड टाका.",
+  ),
+  denied: L(
+    "Camera permission was refused. Allow the camera for this site (or the app), or type the pickup code instead.",
+    "कैमरे की अनुमति नहीं मिली। इस साइट (या ऐप) को कैमरे की अनुमति दें, या पिकअप कोड डालें।",
+    "कॅमेऱ्याची परवानगी नाकारली. या साइटला (किंवा ॲपला) कॅमेऱ्याची परवानगी द्या, किंवा पिकअप कोड टाका.",
+  ),
+  noStart: L(
+    "The camera could not be started. Type the pickup code from the shop instead.",
+    "कैमरा शुरू नहीं हो सका। इसकी जगह दुकान से मिला पिकअप कोड डालें।",
+    "कॅमेरा सुरू करता आला नाही. त्याऐवजी दुकानाकडून मिळालेला पिकअप कोड टाका.",
+  ),
+  confirmed: L("Pickup confirmed by QR ✓", "QR से पिकअप पक्का हुआ ✓", "QR ने पिकअप निश्चित झाले ✓"),
+  point: L(
+    "Point the camera at the QR on the order screen or packing slip.",
+    "कैमरे को ऑर्डर स्क्रीन या पैकिंग स्लिप पर बने QR की ओर करें।",
+    "कॅमेरा ऑर्डर स्क्रीन किंवा पॅकिंग स्लिपवरील QR कडे धरा.",
+  ),
+  cancel: L("Cancel scan", "स्कैन रद्द करें", "स्कॅन रद्द करा"),
+  checking: L("Checking…", "जाँच हो रही है…", "तपासत आहे…"),
+  scan: L("Scan pickup QR", "पिकअप QR स्कैन करें", "पिकअप QR स्कॅन करा"),
+  useCode: L("Use the pickup code", "पिकअप कोड इस्तेमाल करें", "पिकअप कोड वापरा"),
+  orType: L(
+    "Or type the 4-digit pickup code the shop gives you.",
+    "या दुकान से मिला 4 अंकों का पिकअप कोड डालें।",
+    "किंवा दुकानाने दिलेला 4 अंकी पिकअप कोड टाका.",
+  ),
+} as const;
 
 const SCAN_INTERVAL_MS = 250;
 const GPS_TIMEOUT_MS = 8_000;
@@ -32,7 +78,15 @@ function currentPosition(): Promise<{ latitude: number; longitude: number; accur
   });
 }
 
-export function PickupQrScanner({ deliveryOrderId, onPickedUp }: { deliveryOrderId: string; onPickedUp: () => void }) {
+export function PickupQrScanner({
+  deliveryOrderId,
+  onPickedUp,
+  lang = "en",
+}: {
+  deliveryOrderId: string;
+  onPickedUp: () => void;
+  lang?: Lang;
+}) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,10 +118,10 @@ export function PickupQrScanner({ deliveryOrderId, onPickedUp }: { deliveryOrder
           return;
         }
         const body = await res.json().catch(() => null);
-        setError(body?.error?.message ?? "That QR could not be used. Type the pickup code instead.");
+        setError(errorText(body?.error?.message ?? tr(T.errQr, lang), lang, body?.error?.code));
         setOpen(false);
       } catch {
-        setError("Could not reach the server. Check your connection, or type the pickup code.");
+        setError(tr(T.errServer, lang));
         setOpen(false);
       } finally {
         setBusy(false);
@@ -76,7 +130,7 @@ export function PickupQrScanner({ deliveryOrderId, onPickedUp }: { deliveryOrder
 
     async function start() {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setError("This device's camera isn't available here. Type the pickup code from the shop instead.");
+        setError(tr(T.noCamera, lang));
         setOpen(false);
         return;
       }
@@ -85,9 +139,7 @@ export function PickupQrScanner({ deliveryOrderId, onPickedUp }: { deliveryOrder
       } catch (err) {
         const denied = err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "SecurityError");
         setError(
-          denied
-            ? "Camera permission was refused. Allow the camera for this site (or the app), or type the pickup code instead."
-            : "The camera could not be started. Type the pickup code from the shop instead.",
+          denied ? tr(T.denied, lang) : tr(T.noStart, lang),
         );
         setOpen(false);
         return;
@@ -123,18 +175,18 @@ export function PickupQrScanner({ deliveryOrderId, onPickedUp }: { deliveryOrder
       if (timer) clearInterval(timer);
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, [open, deliveryOrderId]);
+  }, [open, deliveryOrderId, lang]);
 
-  if (done) return <p className="w-full text-sm text-leaf-800">Pickup confirmed by QR ✓</p>;
+  if (done) return <p className="w-full text-sm text-leaf-800">{tr(T.confirmed, lang)}</p>;
 
   return (
     <div className="w-full space-y-2" data-testid="pickup-qr-scanner">
       {open ? (
         <div className="space-y-2">
           <video ref={videoRef} className="aspect-square w-full max-w-xs rounded-lg bg-ink-900 object-cover" muted />
-          <p className="text-xs text-ink-500">Point the camera at the QR on the order screen or packing slip.</p>
+          <p className="text-xs text-ink-500">{tr(T.point, lang)}</p>
           <Button size="sm" variant="secondary" onClick={() => setOpen(false)}>
-            Cancel scan
+            {tr(T.cancel, lang)}
           </Button>
         </div>
       ) : (
@@ -146,15 +198,15 @@ export function PickupQrScanner({ deliveryOrderId, onPickedUp }: { deliveryOrder
             setOpen(true);
           }}
         >
-          {busy ? "Checking…" : "Scan pickup QR"}
+          {tr(busy ? T.checking : T.scan, lang)}
         </Button>
       )}
       {error ? (
-        <Alert tone="warning" title="Use the pickup code">
+        <Alert tone="warning" title={tr(T.useCode, lang)}>
           {error}
         </Alert>
       ) : (
-        <p className="text-xs text-ink-500">Or type the 4-digit pickup code the shop gives you.</p>
+        <p className="text-xs text-ink-500">{tr(T.orType, lang)}</p>
       )}
     </div>
   );

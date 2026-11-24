@@ -9,11 +9,15 @@ import { notFound, redirect } from "next/navigation";
 import { PaymentReturnStatus } from "@/components/payment-return-status";
 import { Card, PageHeader } from "@/components/ui";
 import { AppError } from "@/lib/errors";
+import { L, tr } from "@/lib/board/i18n";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { getPaymentStatusForCustomer } from "@/server/payments/order-payments";
 
 export const metadata = { title: "Payment" };
 export const dynamic = "force-dynamic";
+
+const PAYMENT = L("Payment", "भुगतान", "पेमेंट");
 
 export default async function PaymentReturnPage({ searchParams }: { searchParams: Promise<{ intent?: string }> }) {
   const user = await getCurrentUser();
@@ -27,11 +31,12 @@ export default async function PaymentReturnPage({ searchParams }: { searchParams
     if (error instanceof AppError && error.code === "NOT_FOUND") notFound();
     throw error;
   }
+  const lang = await getBoardLang();
   return (
     <div className="mx-auto max-w-lg px-4 py-6">
-      <PageHeader title="Payment" />
+      <PageHeader title={tr(PAYMENT, lang)} />
       <Card className="p-4">
-        <PaymentReturnStatus intentId={intent} initial={view} />
+        <PaymentReturnStatus intentId={intent} initial={view} lang={lang} />
       </Card>
     </div>
   );

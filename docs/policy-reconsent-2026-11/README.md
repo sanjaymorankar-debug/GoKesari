@@ -13,10 +13,10 @@ version"). With it off nobody is asked; the admin report still works.
 
 | Piece | Where |
 |---|---|
-| Versions per document (`terms`, `privacy-policy`, `seller-terms`) | table `policy_versions` (migration 0190), seeded with 2026-10-24 as a baseline that asks nobody |
+| Versions per document (`terms`, `privacy-policy`, `seller-terms`) | table `policy_versions` (migration 0200), seeded with 2026-10-24 as a baseline that asks nobody |
 | Acceptances (version, time, channel, IP, user agent), append-only | table `policy_acceptances` + audit `policy.accepted` |
 | Service | `src/server/services/policy-versions.ts` |
-| Re-consent page (blocking dialog over every page except `/legal/*`, `/signin`) | `src/components/policy-reconsent-gate.tsx`, rendered by `src/app/layout.tsx` |
+| Re-consent page (blocking dialog over every page except `/legal/*`, `/signin`, `/profile/delete`) | `src/components/policy-reconsent-gate.tsx`, rendered by `src/app/layout.tsx` |
 | Signed-in API (site and app) | `GET/POST /api/me/policy-consent` → `{ enabled, needsReconsent, pending[] }` |
 | Admin report and publishing | `/admin/policy-versions` (Settings hub → More), `GET/POST /api/admin/policy-versions` |
 | Wording in English, Hindi, Marathi | `src/lib/policy-reconsent.ts`; the change summary is entered per version in all three (Hindi / Marathi fall back to English) |
@@ -37,7 +37,9 @@ version"). With it off nobody is asked; the admin report still works.
 - **Stale page:** if an admin publishes a newer version while the dialog is
   open, accepting answers 409 and the page reloads with the new version.
 - **Declining:** the dialog offers "sign out"; there is no way past it without
-  accepting.
+  accepting. The account-deletion page (`/profile/delete`, when
+  `account_self_deletion_enabled` is on) stays open, so someone who will not
+  accept can still delete their account.
 - Only an `ADMIN` publishes (audited `policy_version.published`, reason
   required, versions only move forward, never edited). The report needs
   `consent:view` (operators and admins) and identifies nobody.
@@ -55,7 +57,7 @@ in `src/lib/legal-docs.ts`; keep it equal to the version published.
 
 ## Not covered / follow-ups
 
-- Account deletion (PR #518) does not yet remove `policy_acceptances` rows
+- Account deletion (#518, now on staging) does not remove `policy_acceptances` rows
   (no foreign key). Keeping them as evidence or deleting them is that PR's
   retention call.
 - The onboarding wizard does not show a seller-terms checkbox, so it does not

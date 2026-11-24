@@ -38,6 +38,8 @@ describe("policy re-consent helpers", () => {
     expect(reconsentExemptPath("/signin")).toBe(true);
     expect(reconsentExemptPath("/legalese")).toBe(false);
     expect(reconsentExemptPath("/shop")).toBe(false);
+    expect(reconsentExemptPath("/profile/delete")).toBe(true);
+    expect(reconsentExemptPath("/profile")).toBe(false);
   });
 
   it("accepts date versions only", () => {

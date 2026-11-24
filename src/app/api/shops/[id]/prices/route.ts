@@ -11,7 +11,7 @@ import { z } from "zod";
 import { MAX_PRICE_PAISE, PRICE_MAX_MESSAGE } from "@/lib/price-rules";
 import { forbidden } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { setShopPrices } from "@/server/services/catalogue";
 
@@ -31,7 +31,7 @@ const schema = z.object({
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
   z.string().uuid().parse(id);
-  const { user, isPrivileged } = await requireShopAccess(id, {
+  const { user, isPrivileged } = await requireShopPermission(id, "catalogue.edit", {
     anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
   });
   if (isPrivileged) throw forbidden("Only the shop owner can set this shop's prices here.");

@@ -74,10 +74,20 @@ export function channelFor(pathname: string | null | undefined, userAgent: strin
   return "WEB";
 }
 
-/** Pages the re-consent page never covers: the policies themselves must stay readable. */
+/**
+ * Pages the re-consent page never covers: the policies themselves must stay
+ * readable, and someone who will not accept may still delete their account
+ * (/profile/delete, docs/account-deletion-2026-11).
+ */
 export function reconsentExemptPath(pathname: string | null | undefined): boolean {
   const path = pathname ?? "";
-  return path === "/legal" || path.startsWith("/legal/") || path === "/grievance" || path.startsWith("/signin");
+  return (
+    path === "/legal" ||
+    path.startsWith("/legal/") ||
+    path === "/grievance" ||
+    path.startsWith("/signin") ||
+    path === "/profile/delete"
+  );
 }
 
 /** Version strings an admin may publish: a date like 2026-12-01, optionally with a suffix (2026-12-01b, 2026-12-01.1). */
