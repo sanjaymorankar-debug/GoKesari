@@ -61,6 +61,11 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   DEALER_JOINING_FEE: async (intent, client) => (await import("@/server/dealers/scheme-registration")).onJoiningFeeCaptured(intent, client),
   /* <<< dealer platform */
   //
+  /* >>> shop membership renewal (docs/shop-membership-renewal-2026-11) */
+  // The yearly membership renewal paid online: on the shop's ledger (RENEWAL, ONLINE) and the membership extended, in the capture transaction.
+  SHOP_MEMBERSHIP_RENEWAL: async (intent, client, afterCommit) => (await import("@/server/services/shop-membership-renewal")).onShopMembershipRenewalCaptured(intent, client, afterCommit),
+  /* <<< shop membership renewal */
+  //
   /* >>> PAY-2 top-ups via payment intents (docs/payments-topups-via-intents-2026-11) */
   // The payments row → SUCCESS and the wallet credit commit with the capture; the notice and voucher bonus run after it.
   WALLET_TOPUP: async (intent, client, afterCommit) => (await import("./topup-intents")).onTopUpCaptured(intent, client, afterCommit),

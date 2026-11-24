@@ -10,7 +10,8 @@ import { z } from "zod";
 import { MAX_STOCK_UNITS, STOCK_MAX_MESSAGE } from "@/lib/price-rules";
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { requireUser } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { shopProducts } from "@/server/db/schema";
@@ -32,8 +33,8 @@ export const PATCH = route(async (request: NextRequest, context: RouteContext<{ 
   const { id } = await context.params;
   const [row] = await db.select({ shopId: shopProducts.shopId }).from(shopProducts).where(eq(shopProducts.id, id));
   if (!row) throw notFound("Product");
-  const { user } = await requireShopAccess(row.shopId, { anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY });
-  const updated = await setStockThresholds(id, await parseBody(request, schema), user);
+  const { user, via } = await requireShopPermission(row.shopId, "inventory.edit", { anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY });
+  const updated = await setStockThresholds(id, await parseBody(request, schema), user, { staffAuthorised: via === "STAFF" });
   return ok({
     lowStockThreshold: updated.lowStockThreshold,
     reorderLevel: updated.reorderLevel,

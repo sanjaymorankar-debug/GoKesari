@@ -16,7 +16,8 @@ import { z } from "zod";
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
-import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { requireUser } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { FULFILMENT_OPTIONS, orders } from "@/server/db/schema";
@@ -31,15 +32,15 @@ const schema = z.object({
   markReady: z.boolean().optional(),
 });
 
-async function access(id: string) {
+async function access(id: string, permission: "orders.view" | "orders.edit") {
   const order = await db.query.orders.findFirst({ where: eq(orders.id, id), columns: { id: true, shopId: true } });
   if (!order) throw notFound("Order");
-  return requireShopAccess(order.shopId, { anyPermission: PERMISSIONS.ORDER_UPDATE_STATUS_ANY });
+  return requireShopPermission(order.shopId, permission, { anyPermission: PERMISSIONS.ORDER_UPDATE_STATUS_ANY });
 }
 
 export const GET = route(async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
-  await access(id);
+  await access(id, "orders.view");
   const [views, options] = await Promise.all([getShopFulfilmentViews([id]), plannerOptions()]);
   return ok({ plan: views.get(id) ?? null, ...options });
 });
@@ -48,7 +49,7 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
   await requireUser();
   const { id } = await context.params;
-  const { user } = await access(id);
+  const { user } = await access(id, "orders.edit");
   enforceRateLimit(`fulfilment-plan:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
   const result = await planFulfilment(id, body, user);

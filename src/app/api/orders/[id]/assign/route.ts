@@ -9,7 +9,8 @@ import { z } from "zod";
 
 import { forbidden, notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { requireUser } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { orders } from "@/server/db/schema";
@@ -42,7 +43,8 @@ export const POST = route(
     });
     if (!order) throw notFound("Order");
 
-    const { user, isPrivileged } = await requireShopAccess(order.shopId, {
+    // Module 10: staff need delivery.cancel to stop the search, delivery.create to start it.
+    const { user, isPrivileged } = await requireShopPermission(order.shopId, body.stop ? "delivery.cancel" : "delivery.create", {
       anyPermission: PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY,
     });
     // A shop owner (non-privileged) may only trigger the initial assignment,
@@ -68,6 +70,6 @@ export const GET = route(async (_request: NextRequest, context: RouteContext<{ i
   const { id } = await context.params;
   const order = await db.query.orders.findFirst({ where: eq(orders.id, id), columns: { id: true, shopId: true } });
   if (!order) throw notFound("Order");
-  await requireShopAccess(order.shopId, { anyPermission: PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY });
+  await requireShopPermission(order.shopId, "delivery.view", { anyPermission: PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY });
   return ok(await getRiderSearchStatus(id));
 });

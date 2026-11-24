@@ -21,6 +21,8 @@ import { Icon, type IconName } from "@/components/board/icons";
 import { LANG_TAG, tr, type Lang } from "@/lib/board/i18n";
 import { HOME } from "@/lib/home-i18n";
 import { appAllowsVoiceSearch } from "@/lib/mobile-app";
+import { BBF } from "@/lib/brand-barcode-favourites-i18n";
+import { BarcodeSearchButton } from "@/components/search/barcode-search";
 
 const RECENT_KEY = "gk_recent_searches";
 const MIN_CHARS = 2;
@@ -30,11 +32,13 @@ interface Suggestions {
   products: { productId: string; name: string; shopCount: number; nearbyCount: number; href: string }[];
   shops: { slug: string; name: string; area: string | null; city: string; distanceKm: number | null; href: string }[];
   categories: { key: string; label: string; href: string }[];
+  /** docs/search-brand-barcode-favourites-2026-11: present only while its flag is on. */
+  brands?: { slug: string; name: string; productCount: number; href: string }[];
 }
 
 interface Option {
   id: string;
-  group: "search" | "recent" | "trending" | "products" | "shops" | "categories";
+  group: "search" | "recent" | "trending" | "brands" | "products" | "shops" | "categories";
   label: string;
   detail?: string;
   href: string;
@@ -109,9 +113,12 @@ export function SearchBox({
   autoFocus = false,
   size = "md",
   className,
+  barcodeScan = false,
 }: {
   lang: Lang;
   signedIn: boolean;
+  /** docs/search-brand-barcode-favourites-2026-11: the scan button (flag brand_barcode_favourites_enabled). */
+  barcodeScan?: boolean;
   initialQuery?: string;
   autoFocus?: boolean;
   /** "lg": the home page's tall field; "md": the site header's. */
@@ -198,6 +205,15 @@ export function SearchBox({
     }
     const out: Option[] = [{ id: "search", group: "search", label: typed, href: `/search?q=${encodeURIComponent(typed)}`, icon: "search", query: typed }];
     if (suggestions && typed.length >= MIN_CHARS) {
+      for (const b of suggestions.brands ?? [])
+        out.push({
+          id: `b-${b.slug}`,
+          group: "brands",
+          label: b.name,
+          detail: `${b.productCount} ${tr(BBF.brandProducts, lang)}`,
+          href: b.href,
+          icon: "sparkles",
+        });
       for (const p of suggestions.products)
         out.push({
           id: `p-${p.productId}`,
@@ -301,6 +317,7 @@ export function SearchBox({
     search: null,
     recent: tr(HOME.recentSearches, lang),
     trending: tr(HOME.trending, lang),
+    brands: tr(BBF.brands, lang),
     products: tr(HOME.products, lang),
     shops: tr(HOME.shops, lang),
     categories: tr(HOME.categories, lang),
@@ -372,6 +389,7 @@ export function SearchBox({
               <Icon name="x" size={18} />
             </button>
           ) : null}
+          {barcodeScan ? <BarcodeSearchButton lang={lang} /> : null}
           {voiceSupported ? (
             <button
               type="button"
