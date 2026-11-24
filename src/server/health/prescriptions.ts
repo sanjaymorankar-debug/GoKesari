@@ -115,10 +115,45 @@ export interface RxWarning {
 
 /* ------------------------------------------------------------ checks */
 
+/** Schedule X and NDPS medicines: never prescribed by video / phone, whatever the tele list says. */
+const REMOTE_BLOCKED_SCHEDULES = new Set(["X", "NDPS"]);
+const TELE_RANK: Record<string, number> = { O: 0, A: 1, B: 2, PROHIBITED: 3 };
+
+type MasterMatch = { teleList: string; schedule: string; genericName: string };
+
 /**
- * Telemedicine Practice Guidelines 2020 (drug master tele_list): by video / phone a PROHIBITED medicine is
- * refused; a List B medicine is allowed only as a follow-up of an in-person consultation by this doctor.
- * Allergies and duplicates are warnings the doctor must acknowledge.
+ * Hand-typed medicines (no drug-master link) matched to the master by generic or brand name, case-insensitive.
+ * Several matches (strengths, brands) → the strictest teleconsultation list and schedule win.
+ */
+async function matchFreeText(names: string[], client: DbClient): Promise<Map<string, MasterMatch>> {
+  const keys = [...new Set(names.map((n) => n.toLowerCase().trim()).filter((n) => n.length >= 3))];
+  const out = new Map<string, MasterMatch>();
+  if (!keys.length) return out;
+  const rows = await client
+    .select({ genericName: healthDrugMaster.genericName, brandName: healthDrugMaster.brandName, teleList: healthDrugMaster.teleList, schedule: healthDrugMaster.schedule })
+    .from(healthDrugMaster)
+    .where(and(eq(healthDrugMaster.status, "ACTIVE"), sql`(lower(${healthDrugMaster.genericName}) in ${keys} or lower(coalesce(${healthDrugMaster.brandName}, '')) in ${keys})`));
+  for (const r of rows) {
+    for (const k of [r.genericName.toLowerCase(), (r.brandName ?? "").toLowerCase()]) {
+      if (!keys.includes(k)) continue;
+      const prev = out.get(k);
+      if (!prev) {
+        out.set(k, { teleList: r.teleList, schedule: r.schedule, genericName: r.genericName });
+        continue;
+      }
+      if ((TELE_RANK[r.teleList] ?? 3) > (TELE_RANK[prev.teleList] ?? 3)) prev.teleList = r.teleList;
+      if (REMOTE_BLOCKED_SCHEDULES.has(r.schedule)) prev.schedule = r.schedule;
+    }
+  }
+  return out;
+}
+
+/**
+ * Telemedicine Practice Guidelines 2020 (drug master tele_list): by video / phone a PROHIBITED medicine — and any
+ * Schedule X or NDPS medicine — is refused; a List B medicine is allowed only as a follow-up of an in-person
+ * consultation by this doctor. A hand-typed medicine is matched to the master by name and checked the same way;
+ * one that matches nothing is refused remotely (rule health.remoteFreeTextMedicines = REFUSE) or left as a warning
+ * (WARN). Allergies and duplicates are warnings the doctor must acknowledge.
  */
 export async function checkItems(c: Pick<HealthConsultation, "patientId" | "memberId" | "mode" | "id">, items: z.infer<typeof itemInput>[], client: DbClient = db): Promise<{ errors: string[]; warnings: RxWarning[]; resolved: (z.infer<typeof itemInput> & { teleList: string | null; rxRequired: boolean; quantity: number })[] }> {
   const errors: string[] = [];
@@ -127,6 +162,8 @@ export async function checkItems(c: Pick<HealthConsultation, "patientId" | "memb
   const drugIds = items.map((i) => i.drugId).filter((v): v is string => Boolean(v));
   const drugs = drugIds.length ? await client.select().from(healthDrugMaster).where(inArray(healthDrugMaster.id, drugIds)) : [];
   const remote = c.mode === "VIDEO" || c.mode === "PHONE";
+  const freeTextMode = remote ? (await getRule("health")).remoteFreeTextMedicines : "WARN";
+  const matches = remote ? await matchFreeText(items.filter((i) => !i.drugId).flatMap((i) => [i.genericName, i.brandName ?? ""]), client) : new Map<string, MasterMatch>();
   let inPersonBefore = false;
   if (remote) {
     const memberIds = await sameDoctorMemberIds(c.memberId, client);
@@ -143,11 +180,19 @@ export async function checkItems(c: Pick<HealthConsultation, "patientId" | "memb
     const line = idx + 1;
     const drug = item.drugId ? drugs.find((d) => d.id === item.drugId) : undefined;
     if (item.drugId && !drug) errors.push(`Line ${line}: that medicine is not in the drug master any more.`);
-    const teleList = drug?.teleList ?? null;
+    const match = !drug ? (matches.get(item.genericName.toLowerCase().trim()) ?? (item.brandName ? matches.get(item.brandName.toLowerCase().trim()) : undefined)) : undefined;
+    const teleList = drug?.teleList ?? match?.teleList ?? null;
+    const schedule = drug?.schedule ?? match?.schedule ?? null;
+    const shown = drug?.genericName ?? item.genericName;
+    const how = c.mode === "VIDEO" ? "video" : "phone";
     const generic = (drug?.genericName ?? item.genericName).toLowerCase();
-    if (remote && teleList === "PROHIBITED") errors.push(`Line ${line}: ${drug?.genericName ?? item.genericName} cannot be prescribed in a ${c.mode === "VIDEO" ? "video" : "phone"} consultation (Telemedicine Practice Guidelines: prohibited list).`);
-    if (remote && teleList === "B" && !inPersonBefore) errors.push(`Line ${line}: ${drug?.genericName ?? item.genericName} is List B — by teleconsultation only as a follow-up after an in-person visit with you.`);
-    if (remote && !drug) warnings.push({ line, kind: "NOT_IN_MASTER", message: `Line ${line}: ${item.genericName} is not in the drug master, so its teleconsultation list cannot be checked. Confirm it may be prescribed by ${c.mode === "VIDEO" ? "video" : "phone"}.` });
+    if (remote && schedule && REMOTE_BLOCKED_SCHEDULES.has(schedule)) errors.push(`Line ${line}: ${shown} (Schedule ${schedule}) cannot be prescribed in a ${how} consultation (Telemedicine Practice Guidelines: prohibited list).`);
+    else if (remote && teleList === "PROHIBITED") errors.push(`Line ${line}: ${shown} cannot be prescribed in a ${how} consultation (Telemedicine Practice Guidelines: prohibited list).`);
+    if (remote && teleList === "B" && !inPersonBefore) errors.push(`Line ${line}: ${shown} is List B — by teleconsultation only as a follow-up after an in-person visit with you.`);
+    if (remote && !drug && !match) {
+      if (freeTextMode === "REFUSE") errors.push(`Line ${line}: ${item.genericName} is not in the drug master, so it cannot be checked for a ${how} consultation. Pick it from the list, or prescribe it at an in-person visit.`);
+      else warnings.push({ line, kind: "NOT_IN_MASTER", message: `Line ${line}: ${item.genericName} is not in the drug master, so its teleconsultation list cannot be checked. Confirm it may be prescribed by ${how}.` });
+    }
     for (const a of allergies) {
       if (generic.includes(a) || a.includes(generic) || (item.brandName && item.brandName.toLowerCase().includes(a))) {
         warnings.push({ line, kind: "ALLERGY", message: `Line ${line}: the patient's recorded allergy "${a}" matches ${item.brandName ?? item.genericName}.` });
@@ -296,10 +341,18 @@ export interface IssuedPrescription {
   bookingCompleted: boolean;
 }
 
+/** With rule health.requireRegistryCheck on, staff must have recorded a register check of this doctor. */
+export async function requireRegistryChecked(memberId: string, client: DbClient = db): Promise<void> {
+  if (!(await getRule("health")).requireRegistryCheck) return;
+  const [dp] = await client.select({ checkedAt: healthDoctorProfiles.registryCheckedAt }).from(healthDoctorProfiles).where(eq(healthDoctorProfiles.memberId, memberId));
+  if (!dp?.checkedAt) throw forbidden("Prescriptions open once GoKesari has checked your medical registration with the council register. Please contact support.");
+}
+
 export async function issuePrescription(consultationId: string, raw: unknown, actor: HealthActor, now: Date = new Date()): Promise<IssuedPrescription> {
   const input = issueInput.parse(raw);
   const c = await loadConsultationForDoctor(consultationId, actor);
   const ctx = await requireVerifiedDoctor(c.memberId, actor);
+  await requireRegistryChecked(c.memberId);
   if (c.status !== "IN_PROGRESS") throw conflict("A prescription was already issued for this consultation. Use Amend to change it.");
   if (!input.items.length && !(c.diagnoses ?? []).length && !c.advice && !input.suggestions.length) throw validationFailed("Add at least a diagnosis, advice, a medicine or a suggestion.");
   const check = await checkItems(c, input.items);
@@ -486,6 +539,7 @@ export async function amendPrescription(prescriptionId: string, raw: unknown, ac
   const [old] = await db.select().from(healthPrescriptions).where(eq(healthPrescriptions.id, prescriptionId));
   if (!old) throw notFound("Prescription");
   await requireVerifiedDoctor(old.memberId, actor);
+  await requireRegistryChecked(old.memberId);
   if (old.status !== "ISSUED") throw conflict("Only the latest version can be amended.");
   const [c] = await db.select().from(healthConsultations).where(eq(healthConsultations.id, old.consultationId));
   const check = await checkItems(c, input.items);

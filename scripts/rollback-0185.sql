@@ -1,5 +1,5 @@
--- Rollback for 0184_tax_register (docs/tax-register/README.md).
--- Before running: deploy the previous release's code, then delete the 0184 row from
+-- Rollback for 0185_tax_register (docs/tax-register/README.md).
+-- Before running: deploy the previous release's code, then delete the 0185 row from
 -- drizzle.__drizzle_migrations. Change requests, approvals and CA items are lost: export them first.
 -- Settings already changed through the register keep their values (they live in their own tables).
 BEGIN;

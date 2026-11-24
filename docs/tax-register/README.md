@@ -1,4 +1,4 @@
-# Tax register (migration 0184, flag `tax_register`)
+# Tax register (migration 0185, flag `tax_register`)
 
 One place where the tax settings are kept under maker-checker. The **Accountant** proposes, and the **CA** approves (never their own proposal). Approved changes are applied at once through each setting's own service, so there is still one copy of every value.
 
@@ -57,4 +57,4 @@ New refs are added; existing refs are left as they are.
 
 ## Rollback
 
-`scripts/rollback-0184.sql`, after deploying the previous release. Values already changed through the register stay, since they live in their own tables.
+`scripts/rollback-0185.sql`, after deploying the previous release. Values already changed through the register stay, since they live in their own tables.
