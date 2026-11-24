@@ -1,4 +1,4 @@
-# Payout deductions (migration 0187, flag `payout_deductions`)
+# Payout deductions (migration 0188, flag `payout_deductions`)
 
 With the flag on, every payout path withholds its statutory deductions. The rates come from the tax register: the Accountant proposes them and the CA approves.
 
@@ -32,4 +32,4 @@ On test.gokesari.com these payments go ahead, so QA can run.
 2. Turn on rule `payouts` (payout cycle) for shops.
 3. Turn on flag `payout_deductions`.
 
-Rollback: `scripts/rollback-0187.sql`.
+Rollback: `scripts/rollback-0188.sql`.

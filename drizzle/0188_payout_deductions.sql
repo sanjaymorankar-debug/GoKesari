@@ -7,7 +7,7 @@
 --    paid through the payout cycle, which deducts TCS / TDS).
 -- New statutory rows IT_TDS_194H and IT_TDS_194J are added DISABLED and not confirmed by the CA:
 -- the CA confirms or changes them through the tax register before anything is deducted.
--- Additive only. Rollback: scripts/rollback-0187.sql
+-- Additive only. Rollback: scripts/rollback-0188.sql
 ALTER TABLE "rider_payouts" ADD COLUMN IF NOT EXISTS "tds_paise" bigint DEFAULT 0 NOT NULL;
 --> statement-breakpoint
 ALTER TABLE "rider_payouts" ADD COLUMN IF NOT EXISTS "tds_rate_bp" integer;
