@@ -41,7 +41,13 @@ horizontal scroll. Migration 0183 re-run (no error, no duplicate seed rows); rol
 
 ## Regression
 
-REGRESSION_RESULT_PLACEHOLDER
+- **GitHub CI, full suite (PR #525, commit ad8fc9e4, 24-Nov 05.52 IST):** 341 of 342 files and 4,369 of 4,370 tests passed.
+  The one failure was `cron-safety-net.test.ts` "timeout-sweep runs every part": that test lists the sweep's step names and did not yet include HDMS's new `partnerBookings` step. The sweep itself reported no errors. Fixed in 63354f3a (D-07).
+- **Local, after the fix (24-Nov 06.50 IST):** fresh PostgreSQL 18, all 184 migrations applied from scratch, files run one at a time. 8 files, 128 tests, all passed:
+  - `hdms-delivery`, `hdms-delivery-routes`, `hdms-engine`;
+  - `tile-board`, `migration-journal`, `cron-safety-net`;
+  - `delivery-assignment`, `fulfilment-options`.
+- **Local full suite: not used as evidence.** On 23-Nov night several sessions ran full suites against the same Postgres at once. Parallel files deadlocked on the shared TRUNCATE reset and hit 60 s timeouts. The Mac's Postgres then crashed and could not finish recovery, so it was replaced with a fresh cluster; the old data folder is kept as `var-18-crashed-2026-11-24`. GitHub CI is the reference full run.
 
 ## Defect register
 
@@ -57,6 +63,8 @@ Risk R-1 (not a defect, documented): drizzle applies only migrations whose journ
 applied, and `tests/unit/migration-journal.test.ts` needs consecutive idx. Migration renumbered 0190 → 0183
 (idx 183, `when` 1793269300000) on 23-Nov after #503 (0177–0181) reached staging; subscription plans #509 holds
 0182. This PR therefore needs #509 merged first; until then its CI journal test is red by design.
+
+D-07 | `cron-safety-net` expected the old list of sweep steps | Low (test) | HDMS adds the `partnerBookings` step | expected list updated | PASSED (local; CI re-run).
 
 D-06 | Admin / operator menu-count test failed (`tile-board.test.ts`) | Low (test) | the new Delivery management hub
 (+1 admin hub, +7 admin board items, +1 operator item) | counts updated with a dated note | PASSED (43/43).
