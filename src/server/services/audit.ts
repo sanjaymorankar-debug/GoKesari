@@ -239,6 +239,9 @@ export const AUDIT_ACTIONS = {
   SHOP_GST_SUBMITTED: "shop.gst_submitted",
   SHOP_GST_VERIFIED: "shop.gst_verified",
   SHOP_GST_REJECTED: "shop.gst_rejected",
+  /** Many GSTINs per shop (owner, 25-Nov-2026). */
+  SHOP_GST_REGISTRATION_ADDED: "shop.gst_registration_added",
+  SHOP_GST_REGISTRATION_REMOVED: "shop.gst_registration_removed",
   SHOP_PAN_SUBMITTED: "shop.pan_submitted",
   SHOP_PAN_VERIFIED: "shop.pan_verified",
   SHOP_PAN_REJECTED: "shop.pan_rejected",

@@ -150,6 +150,7 @@ const RESET_TABLES = [
   "seller_verification_files",
   "seller_verification_events",
   "seller_verifications",
+  "shop_gst_registrations",
   "shop_classification_history",
   "shops",
   "addresses",

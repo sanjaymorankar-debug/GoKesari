@@ -44,7 +44,7 @@ import {
   type ShopActNumber,
 } from "@/lib/shop-identity";
 import { db, type DbClient } from "@/server/db";
-import { sellerVerifications, shops, type Shop, type ShopStatus, type UserRole } from "@/server/db/schema";
+import { sellerVerifications, shopGstRegistrations, shops, type Shop, type ShopStatus, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
 export type DuplicateMatchReason = "SHOP_ACT" | "PAN" | "UDYAM" | "NAME_AND_PIN";
@@ -566,7 +566,23 @@ export async function gstinHeldByOtherOwner(gstin: string, ownerId: string, clie
       ),
     )
     .limit(1);
-  return row ?? null;
+  if (row) return row;
+  // Owner, 25-Nov-2026: a shop's extra GSTINs (a chain's other states) hold the number too.
+  const [extra] = await client
+    .select({ shopId: shopGstRegistrations.shopId })
+    .from(shopGstRegistrations)
+    .innerJoin(shops, eq(shops.id, shopGstRegistrations.shopId))
+    .where(
+      and(
+        liveShop,
+        ne(shops.ownerId, ownerId),
+        eq(shopGstRegistrations.gstinHash, hash),
+        isNull(shopGstRegistrations.removedAt),
+        sql`${shopGstRegistrations.status} IN (${sql.join(HOLDING.map((s) => sql`${s}`), sql`, `)})`,
+      ),
+    )
+    .limit(1);
+  return extra ?? null;
 }
 
 /** Another live shop (any owner) that uses this Shop Act licence (its matching key), or null. */
