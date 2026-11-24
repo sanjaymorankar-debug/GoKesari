@@ -51,6 +51,8 @@ export async function timeoutSweep() {
     riderSearchAlerts: await step("timeout-sweep", "rider-search-alerts", errors, async () => (await import("@/server/services/delivery-assignment")).alertOverdueRiderSearches()),
     returnPickups: await step("timeout-sweep", "return-pickups", errors, async () => (await import("@/server/services/return-pickups")).runReturnPickupSweep()),
     shopOpening: await step("timeout-sweep", "shop-opening", errors, async () => (await import("@/server/services/shop-opening")).sendShopOpeningAlerts()),
+    // docs/hdms-2026-11: delivery-partner bookings — status poll (webhooks are primary). Only while hdms_enabled is on.
+    partnerBookings: await step("timeout-sweep", "partner-bookings", errors, async () => (await import("@/server/delivery/sweep")).runPartnerBookingSweep()),
     errors,
   };
 }

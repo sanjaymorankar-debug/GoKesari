@@ -1329,7 +1329,14 @@
       "idx": 189,
       "version": "7",
       "when": 1793269900000,
-      "tag": "0189_payment_settlement_states",
+      "tag": "0189_hdms_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1793270000000,
+      "tag": "0190_payment_settlement_states",
       "breakpoints": true
     }
   ]
