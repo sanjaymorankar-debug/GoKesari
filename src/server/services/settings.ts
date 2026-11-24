@@ -93,6 +93,12 @@ export async function setRule<K extends RuleKey>(
       fields: Object.fromEntries(parsed.error.issues.map((i) => [i.path.join(".") || "_", i.message])),
     });
   }
+  // 23-Nov-2026: Cashfree Payouts is not chosen for any payout rule until its contract is verified (payouts/guard.ts).
+  if (key === "payouts" || key === "riderPayouts" || key === "dealerAutoPayout") {
+    const { payoutProviderRuleProblem } = await import("@/server/payouts/guard");
+    const problem = payoutProviderRuleProblem(String((parsed.data as { provider: string }).provider));
+    if (problem) throw validationFailed(problem, { fields: { provider: problem } });
+  }
   // Franchise brief 21-Nov-2026 §3.4: the agent / team-lead / free-dealer rates may never rise above the franchise
   // owner's matching rates (one field per role, used by both models).
   if (key === "dealerTieredCommission") {

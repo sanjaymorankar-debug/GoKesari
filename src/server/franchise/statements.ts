@@ -12,6 +12,7 @@ import { PdfDocument, mm, pdfSafe, type PdfPage } from "@/lib/health/pdf-writer"
 import { db } from "@/server/db";
 import { dealers, franchiseMonthlySnapshots, franchiseNotificationLog, franchiseZones, users, type FranchiseMonthlySnapshot, type UserRole } from "@/server/db/schema";
 import { sendEmail } from "@/server/email/transport";
+import { getRule } from "@/server/services/settings";
 import { configVersion } from "./config";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -24,6 +25,8 @@ export interface StatementData {
   expectedPerShopPaise: number;
   slotPaise: number;
   target: number;
+  /** Rule dealerPayoutTds: the statement mentions TDS only while it is deducted. */
+  tdsOn?: boolean;
 }
 
 export async function statementData(snapshotId: string): Promise<StatementData> {
@@ -35,7 +38,8 @@ export async function statementData(snapshotId: string): Promise<StatementData> 
     .where(eq(franchiseMonthlySnapshots.id, snapshotId));
   if (!row) throw notFound("Statement");
   const c = await configVersion(row.snap.configVersion);
-  return { ...row, expectedPerShopPaise: c.expectedBusinessPerShopPaise, slotPaise: c.businessSlotPaise, target: c.monthlyShopTarget };
+  const tdsOn = (await getRule("dealerPayoutTds")).enabled;
+  return { ...row, expectedPerShopPaise: c.expectedBusinessPerShopPaise, slotPaise: c.businessSlotPaise, target: c.monthlyShopTarget, tdsOn };
 }
 
 
@@ -61,9 +65,9 @@ export function statementLines(d: StatementData): [string, string][] {
     ["Recurring commission", rupees(s.recurringPaise)],
     ["Onboarding commission (new shops)", rupees(s.onboardingPaise)],
     ["Adjustments carried forward", rupees(s.adjustmentsPaise)],
-    ["Total payout (before TDS)", rupees(s.totalPayoutPaise)],
+    [d.tdsOn ? "Total payout (before TDS)" : "Total payout", rupees(s.totalPayoutPaise)],
     ["Next month's opening shops / baseline", `${s.nextOpeningShops} / ${rupees(s.nextOpeningShops * d.expectedPerShopPaise)}`],
-    ["Status", s.status === "LOCKED" ? `Locked ${formatIst(s.lockedAt)} — paid on the 5th after TDS` : `Draft (calculated ${formatIst(s.calculatedAt)})`],
+    ["Status", s.status === "LOCKED" ? `Locked ${formatIst(s.lockedAt)} — paid on the 5th${d.tdsOn ? " after TDS" : ""}` : `Draft (calculated ${formatIst(s.calculatedAt)})`],
   ];
 }
 
@@ -90,7 +94,7 @@ export function statementPdf(d: StatementData): Buffer {
     "How it is worked out: registration points = new shops above the target; business points = (opening shops' business - baseline) / slot, never",
     "negative; main points = base points / 100; bonus = 1% a main point, at most 5%; rate = 25% + bonus; rating = 5 + bonus %. Recurring = rate x 2% x",
     "delivered order value of all your shops (net of cancellations and refunds). Shops registered this month join the baseline next month.",
-    "All times IST. TDS is deducted at payout as shown on the payout advice.",
+    d.tdsOn ? "All times IST. TDS is deducted at payout as shown on the payout advice." : "All times IST. Any TDS that applies is shown on the payout advice.",
   ]) {
     page.text(left, y, pdfSafe(line), { size: 7.5, color: [0.35, 0.35, 0.35] });
     y -= mm(4);

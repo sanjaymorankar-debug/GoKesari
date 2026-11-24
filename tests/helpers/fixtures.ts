@@ -68,9 +68,16 @@ const RESET_TABLES = [
   "fin_journal_entries",
   "fin_periods",
   "rate_change_proposals",
+  // docs/tax-register (0183): no foreign keys to users.
+  "tax_change_requests",
+  "tax_param_approvals",
+  "ca_action_items",
+  "ca_action_item_notes",
   "staff_team_members",
   // Mailbox rotation (0158): per-mailbox send counts, no foreign keys.
   "email_mailbox_sends",
+  // 0186: payout webhooks waiting for their payout, no foreign keys.
+  "payout_webhook_parked",
   // docs/billing: GoKesari's delivery-invoice series has no foreign key for the cascade to follow.
   "platform_delivery_invoice_counters",
   // Onboarding Phase 2 (0147): scheduled notices have no foreign keys.

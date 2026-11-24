@@ -17,7 +17,8 @@ import { payeeTdsView } from "@/server/tax/commission-tds";
 import type { Dealer, DealerSalesperson } from "@/server/db/schema";
 import { AGENT_AGREEMENT_VERSION } from "@/lib/dealer-tiers";
 import { earningsByType, getMemberForUser, isTieredDealer, teamTree, tierRatesFor, tierRule, tradingProgress } from "@/server/dealers/tiered";
-import { applicableRates, commissionSummary, dealerRateView, getCommissionSettings, listLedger, ratingView } from "@/server/dealers/commission";
+import { applicableRates, commissionSummary, dealerRateView, getCommissionSettings, heldPayoutView, listLedger, ratingView } from "@/server/dealers/commission";
+import { PayoutHeldBanner } from "@/components/dealer/payout-held-banner";
 import { dealerMonthStatement, statementMonths } from "@/server/dealers/monthly-payout";
 import { Alert, Badge, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -102,7 +103,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
   const [months, commissionSettings, tiered] = await Promise.all([statementMonths(), getCommissionSettings(), isTieredDealer(dealer)]);
   const network = tiered ? await networkProps(dealer, null) : null;
   // 0151 territory dealers: his exclusive territories (shown once he has one).
-  const [territories, territoryRules] = await Promise.all([territoryViews(dealer.id), territoryRule()]);
+  const [territories, territoryRules, held] = await Promise.all([territoryViews(dealer.id), territoryRule(), heldPayoutView(dealer.id, null)]);
   const statements = await Promise.all(months.map((m) => dealerMonthStatement(dealer.id, m)));
   // Dates become ISO strings for the client component.
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
@@ -114,6 +115,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
         {dealer.agreementStart && dealer.agreementEnd ? <span>Agreement {dealer.agreementStart} to {dealer.agreementEnd}</span> : null}
         <Link className="underline" href="/dealer/apply">Your details</Link>
       </p>
+      {held ? <PayoutHeldBanner {...held} panHref="/dealer/apply#documents" bankHref="/dealer/apply#bank" /> : null}
       {scheme ? (
         <p className="text-sm text-ink-700" data-testid="dealer-my-scheme">
           Your scheme: <span className="font-semibold">{scheme.schemeName}</span> (version {scheme.version}) · joining charge {describeCharge(scheme.terms.charge)}
@@ -181,11 +183,12 @@ async function networkProps(dealer: Dealer, member: DealerSalesperson | null) {
 async function MemberPortal({ member, dealer, openStatement }: { member: DealerSalesperson; dealer: Dealer; openStatement: string | null }) {
   const origin = originFromHeaders(await headers());
   const code = await activeCodeFor(dealer.id, member.id);
-  const [network, months, commissionSettings] = await Promise.all([networkProps(dealer, member), statementMonths(), getCommissionSettings()]);
+  const [network, months, commissionSettings, held] = await Promise.all([networkProps(dealer, member), statementMonths(), getCommissionSettings(), heldPayoutView(dealer.id, member.id)]);
   const statements = await Promise.all(months.map((m) => dealerMonthStatement(dealer.id, m, member.id)));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
       <PageHeader title={member.name} description={`${member.teamRole === "TEAM_LEAD" ? "Team lead" : "Agent"} · ${dealer.legalName}`} action={<LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton>} />
+      {held ? <PayoutHeldBanner {...held} panHref="#payment-details" bankHref="#payment-details" /> : null}
       {code ? (
         <DealerPortal
           legalName={`${dealer.legalName}: ${member.name}`}

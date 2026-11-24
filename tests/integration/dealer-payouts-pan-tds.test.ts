@@ -257,9 +257,11 @@ describe("D1 / D3 / D2 / D4: dated TDS rows", () => {
     const batch = await createPayoutBatch(d.id, admin);
     expect(batch).toMatchObject({ tdsPaise: 1_000, tdsRateBp: 200, tdsFlag: "UNCONFIRMED_RATE" });
     expect(batch.tdsSection).toMatch(/194H/);
-    await expect(markPayoutPaid(batch.id, "UTR-1", admin)).rejects.toMatchObject({ details: { reason: "TDS_UNCONFIRMED" } });
+    await expect(markPayoutPaid(batch.id, "UTR-1", admin)).rejects.toMatchObject({ details: { reason: "NOT_APPROVED" } });
     await expect(approvePayoutBatch(batch.id, admin2)).rejects.toThrow(/not confirmed by the CA/);
     await overrideTdsBlock(batch.id, "owner asked to pay before the CA reply", admin);
+    // Two admins: one overrides, another approves; then it is paid.
+    await approvePayoutBatch(batch.id, admin2);
     await expect(markPayoutPaid(batch.id, "UTR-1", admin)).resolves.toMatchObject({ status: "PAID" });
 
     const ca = { id: (await createUser({ role: "CA" as never })).id, role: "CA" as const };
