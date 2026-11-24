@@ -1,5 +1,5 @@
 /**
- * docs/tax-register/BOOKS.md (0190): a paid payout queues a balanced posting (flag auto_journals);
+ * docs/tax-register/BOOKS.md (0200): a paid payout queues a balanced posting (flag auto_journals);
  * the Accountant turns it into a journal draft or dismisses it.
  */
 import { eq } from "drizzle-orm";

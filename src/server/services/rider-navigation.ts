@@ -7,6 +7,13 @@
  * Leg 1 (accepted, not yet picked up): rider → shop. Leg 2 (picked up): rider
  * → customer. The customer's exact location is used only from pickup — before
  * that the rider sees their area only (same privacy rule as the dashboard).
+ *
+ * Module 4 (rule riderNavigation.multiStop, off by default): when the rider
+ * carries a batched trip (rule batching), the view also lists the trip's
+ * stops in order (delivery-trips.ts getRiderTrip) and names the next one.
+ * None of the routing providers is sent waypoints: the route always goes to
+ * the next stop, and "Next stop" opens that stop's route once this one is
+ * done. Without a trip (or with the rule off) nothing changes.
  */
 import { eq } from "drizzle-orm";
 
@@ -16,6 +23,7 @@ import type { LatLng, NavRoute } from "@/lib/navigation/geometry";
 import { db } from "@/server/db";
 import { deliveryOrders, deliveryPartners, orders, shops } from "@/server/db/schema";
 import { getNavigationRoute } from "@/server/routing";
+import { getRiderTrip } from "./delivery-trips";
 import { getRule } from "./settings";
 
 export interface DeliveryNavigation {
@@ -37,6 +45,53 @@ export interface DeliveryNavigation {
   };
   /** The drop has started: location goes to the delivery's live-tracking endpoint. */
   dropStarted: boolean;
+  /** Module 4: the batched trip's stops (rule riderNavigation.multiStop); absent on a single delivery. */
+  trip?: NavigationTrip | null;
+}
+
+export interface NavigationTripStop {
+  kind: "PICKUP" | "DROP";
+  deliveryOrderId: string;
+  orderNumber: string;
+  label: string;
+  done: boolean;
+  current: boolean;
+  eta: string | null;
+  late: boolean;
+}
+
+export interface NavigationTrip {
+  stops: NavigationTripStop[];
+  /** The first stop not yet done — where "Next stop" leads; null when every stop is done. */
+  nextStop: NavigationTripStop | null;
+}
+
+/**
+ * Module 4: the rider's batched trip for the navigation screen, or null — rule
+ * riderNavigation.multiStop off, rule batching off, or the rider carries one
+ * order. Never throws (navigation keeps working without the list).
+ */
+export async function getNavigationTrip(userId: string): Promise<NavigationTrip | null> {
+  try {
+    const [nav, batching] = await Promise.all([getRule("riderNavigation"), getRule("batching")]);
+    if (!nav.multiStop || !batching.enabled) return null;
+    const trip = await getRiderTrip(userId);
+    if (!trip) return null;
+    const stops: NavigationTripStop[] = trip.stops.map((s) => ({
+      kind: s.kind,
+      deliveryOrderId: s.deliveryOrderId,
+      orderNumber: s.orderNumber,
+      label: s.label,
+      done: s.done,
+      current: s.current,
+      eta: s.eta,
+      late: s.late,
+    }));
+    return { stops, nextStop: stops.find((s) => s.current) ?? null };
+  } catch (error) {
+    console.error("[rider-navigation] trip lookup failed", error);
+    return null;
+  }
 }
 
 /** Same deep link as delivery-assignment.ts navigationUrl(). */
@@ -124,5 +179,6 @@ export async function getDeliveryNavigation(
       trackingPingSeconds: tracking.riderPingSeconds,
     },
     dropStarted: delivery.status === "PICKED_UP" && delivery.outForDeliveryAt != null,
+    trip: await getNavigationTrip(userId),
   };
 }

@@ -124,7 +124,7 @@ export const caActionItemNotes = pgTable(
 export type CaActionItemNote = typeof caActionItemNotes.$inferSelect;
 
 /**
- * docs/tax-register/BOOKS.md (0190): a balanced posting queued when a payout is paid, for the
+ * docs/tax-register/BOOKS.md (0200): a balanced posting queued when a payout is paid, for the
  * Accountant to turn into a journal entry draft (the CA approves it) or dismiss.
  */
 export const AUTO_POSTING_STATUSES = ["PENDING", "DRAFTED", "DISMISSED"] as const;

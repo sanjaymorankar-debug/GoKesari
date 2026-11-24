@@ -14,7 +14,8 @@ import {
 
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { requireUser } from "@/server/authz/guards";
+import { assertStaffAllows, requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { shopProducts, shops } from "@/server/db/schema";
@@ -44,6 +45,9 @@ const schema = z.object({
   expectedOnlineStock: z.number().min(0).optional(),
 });
 
+/** Module 10: fields an inventory manager may change without catalogue.edit. */
+const STOCK_FIELDS = new Set(["onlineStock", "offlineStock", "isAvailable"]);
+
 export const PATCH = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
     // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
@@ -61,11 +65,16 @@ export const PATCH = route(
       .limit(1);
     if (!existing) throw notFound("Product");
 
-    const { user } = await requireShopAccess(existing.shopId, {
+    // Module 10: staff with catalogue.edit or inventory.edit get past the door; which one the
+    // patch needs is decided once the body is read (stock and availability only → inventory.edit).
+    const access = await requireShopPermission(existing.shopId, ["catalogue.edit", "inventory.edit"], {
       anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
     });
+    const { user } = access;
 
     const { expectedOnlineStock, ...body } = await parseBody(request, schema);
+    const stockOnly = Object.keys(body).every((k) => STOCK_FIELDS.has(k));
+    assertStaffAllows(access, stockOnly ? "inventory.edit" : "catalogue.edit");
 
     /*
      * §7/§10 — a price change made by someone who is not the shop owner does
@@ -138,7 +147,7 @@ export const DELETE = route(
     });
     if (!existing) throw notFound("Product");
 
-    const { user } = await requireShopAccess(existing.shopId, {
+    const { user } = await requireShopPermission(existing.shopId, "catalogue.delete", {
       anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
     });
 

@@ -74,6 +74,14 @@ export const AUDIT_ACTIONS = {
   SHOP_MEDIA_IMPORT_APPLIED: "shop_media_import.applied",
   SHOP_STAFF_ADDED: "shop_staff.added",
   SHOP_STAFF_REMOVED: "shop_staff.removed",
+  // Module 10 (docs/shop-staff-roles-2026-11): invitations, roles, suspension, and staff actions in a shop.
+  SHOP_STAFF_INVITED: "shop_staff.invited",
+  SHOP_STAFF_INVITE_ACCEPTED: "shop_staff.invite_accepted",
+  SHOP_STAFF_INVITE_CANCELLED: "shop_staff.invite_cancelled",
+  SHOP_STAFF_ROLE_CHANGED: "shop_staff.role_changed",
+  SHOP_STAFF_SUSPENDED: "shop_staff.suspended",
+  SHOP_STAFF_REACTIVATED: "shop_staff.reactivated",
+  SHOP_STAFF_ACTION: "shop_staff.action",
 
   /* ------------------------------ Module 2: accounting integration & GST */
   INTEGRATION_CONNECTED: "integration.connected",
@@ -185,6 +193,13 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTRATION_UPDATED: "shop.registration_updated",
   SHOP_PAYMENT_RECORDED: "shop_payment.recorded",
   SHOP_PAYMENT_REVERSED: "shop_payment.reversed",
+  /* >>> 0197 shop membership renewal (docs/shop-membership-renewal-2026-11) */
+  SHOP_MEMBERSHIP_EXEMPTION_CHANGED: "shop.membership_exemption_changed",
+  SHOP_MEMBERSHIP_PERIOD_OPENED: "shop.membership_period_opened",
+  SHOP_MEMBERSHIP_PERIOD_VOIDED: "shop.membership_period_voided",
+  SHOP_MEMBERSHIP_RENEWAL_STARTED: "shop.membership_renewal_started",
+  SHOP_MEMBERSHIP_RENEWAL_PAID: "shop.membership_renewal_paid",
+  /* <<< 0189 */
   REFERRAL_CODE_CREATED: "referral_code.created",
   REFERRAL_CODE_UPDATED: "referral_code.updated",
   REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
@@ -396,6 +411,14 @@ export const AUDIT_ACTIONS = {
   PHONE_LINKED: "auth.phone_linked",
   PHONE_RELEASED: "auth.phone_released",
   EMAIL_CHANGED: "auth.email_changed",
+  // docs/account-deletion-2026-11 (0191): self-service account deletion.
+  ACCOUNT_DELETION_REQUESTED: "account.deletion_requested",
+  ACCOUNT_DELETION_BLOCKED: "account.deletion_blocked",
+  ACCOUNT_DELETED: "account.deleted",
+  // 0191 (owner 23-Nov-2026): 90-day cooling-off before the anonymisation.
+  ACCOUNT_DELETION_COOLING_OFF: "account.deletion_cooling_off",
+  ACCOUNT_DELETION_RESTORED: "account.deletion_restored",
+  ACCOUNT_DELETION_PURGE_BLOCKED: "account.deletion_purge_blocked",
   SIGNED_OUT: "auth.signed_out", // QA TC-AUTH-045: Sign out, recorded like a sign-in (auth.otp_verified)
   PROFILE_UPDATED: "user.profile_updated",
   /* ------------------------------------------------- docs/four-features-2026-10 */
@@ -454,6 +477,7 @@ export const AUDIT_ACTIONS = {
   DEALER_ATTRIBUTION_CHANGED: "dealer.attribution_changed", // docs/dealer-programme
   DEALER_LEAD_SAVED: "dealer.lead_saved", // docs/dealer-programme
   DEALER_ASSISTED_STEP: "dealer.assisted_registration", // docs/dealer-programme
+  ONBOARDING_ASSISTED_STEP: "onboarding.assisted_step", // docs/onboarding-waves-2-3-2026-11 (WP7)
   DEALER_DISPUTE_SAVED: "dealer.dispute_saved", // docs/dealer-programme
   DEALER_COMMISSION_SETTINGS_CHANGED: "dealer.commission_settings_changed", // docs/dealer-programme
   DEALER_COMMISSION_RULE_CHANGED: "dealer.commission_rule_changed", // docs/dealer-programme
@@ -622,6 +646,12 @@ export const AUDIT_ACTIONS = {
   HEALTH_CARE_PROVIDER: "health.care_provider",
   HEALTH_EQUIPMENT_STORE: "health.equipment_store",
   /* <<< GoKesari Health */
+  /* docs/guest-checkout-2026-11 (0192) */
+  GUEST_CHECKOUT_VERIFIED: "guest_checkout.verified",
+  GUEST_TRACKING_LOOKUP: "guest_checkout.tracking_lookup",
+  // docs/customer-whatsapp-2026-11 (0193): an admin re-queued a failed WhatsApp message; a simulated inbound chat message (test site).
+  WHATSAPP_MESSAGE_RETRIED: "whatsapp_message.retried",
+  WHATSAPP_INBOUND_SIMULATED: "whatsapp_inbound.simulated",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
