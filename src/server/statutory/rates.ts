@@ -21,6 +21,7 @@ import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { addDays, assertIsoDate, type IsoDate } from "@/lib/dates";
+import { isProductionSite } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
 import { statutoryRates, type StatutoryRate, type UserRole } from "@/server/db/schema";
@@ -218,15 +219,44 @@ export async function updateStatutoryRate(id: string, patch: z.infer<typeof stat
 
 /* ------------------------------------------------------- typed readers */
 
+export interface StatutoryReadOptions {
+  /** Override for tests; default: this is gokesari.com (isProductionSite). */
+  production?: boolean;
+}
+
+const warnedUnconfirmed = new Set<string>();
+
+/** True on gokesari.com only; test.gokesari.com and local builds keep using unconfirmed rows. */
+function onProductionSite(opts?: StatutoryReadOptions): boolean {
+  if (opts?.production !== undefined) return opts.production;
+  if (process.env.NODE_ENV !== "production") return false;
+  return isProductionSite();
+}
+
+/**
+ * On production a TCS / TDS row is used only once the CA has confirmed it
+ * (/admin/statutory); an unconfirmed row counts as "not in force" and is
+ * logged once per row per process. Test and local sites use it as before.
+ */
+function usableOnThisSite(row: StatutoryRate, opts?: StatutoryReadOptions): boolean {
+  if (row.confirmedByCa || !onProductionSite(opts)) return true;
+  if (!warnedUnconfirmed.has(row.id)) {
+    warnedUnconfirmed.add(row.id);
+    console.warn(`[statutory] ${row.key} row ${row.id} (from ${row.effectiveFrom}) is not confirmed by the CA; not applied on production.`);
+  }
+  return false;
+}
+
 export interface TcsSetting {
   rateBp: number;
   applyToUnregistered: boolean;
   rowId: string;
 }
 
-export async function tcsOn(day: IsoDate, resolve: StatutoryResolver): Promise<TcsSetting | null> {
+export async function tcsOn(day: IsoDate, resolve: StatutoryResolver, opts?: StatutoryReadOptions): Promise<TcsSetting | null> {
   const row = await resolve("GST_TCS_SEC52", day);
   if (!row || !row.enabled || row.rateBp == null) return null;
+  if (!usableOnThisSite(row, opts)) return null;
   return { rateBp: row.rateBp, applyToUnregistered: row.params.applyToUnregistered === true, rowId: row.id };
 }
 
@@ -239,9 +269,10 @@ export interface TdsSetting {
   rowId: string;
 }
 
-export async function tdsOn(day: IsoDate, resolve: StatutoryResolver): Promise<TdsSetting | null> {
+export async function tdsOn(day: IsoDate, resolve: StatutoryResolver, opts?: StatutoryReadOptions): Promise<TdsSetting | null> {
   const row = await resolve("IT_TDS_194O", day);
   if (!row || !row.enabled || row.rateBp == null) return null;
+  if (!usableOnThisSite(row, opts)) return null;
   const p = row.params;
   return {
     rateBp: row.rateBp,
