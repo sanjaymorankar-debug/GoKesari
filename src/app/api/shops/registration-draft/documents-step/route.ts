@@ -8,9 +8,9 @@
 import { z } from "zod";
 
 import { validationFailed } from "@/lib/errors";
-import { wizardActor } from "@/server/registration/wizard-actor";
 import { ok, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
+import { wizardActor } from "@/server/api/wizard-actor";
 import { finishDraftDocumentsStep } from "@/server/services/shop-registration-wizard";
 
 export const dynamic = "force-dynamic";

@@ -14,7 +14,8 @@ import {
 } from "@/lib/price-rules";
 
 import { ok, parseBody, parseQuery, route, type RouteContext } from "@/server/api/handler";
-import { getShopAccess, requireShopAccess } from "@/server/authz/guards";
+import { getShopAccess } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { createShopProduct, listShopProducts, listStorefrontProducts } from "@/server/services/catalogue";
 import { getPublicShopById } from "@/server/services/shops";
@@ -79,7 +80,7 @@ const schema = z
 export const POST = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
     const { id } = await context.params;
-    const { user } = await requireShopAccess(id, {
+    const { user } = await requireShopPermission(id, "catalogue.create", {
       anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
     });
     const body = await parseBody(request, schema);

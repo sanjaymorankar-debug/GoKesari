@@ -11,9 +11,9 @@ import { z } from "zod";
 import { MAX_ANNUAL_TURNOVER_RUPEES } from "@/lib/registration-fee";
 import { optionalText, requiredText } from "@/lib/shop-settings";
 import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
-import { wizardActor } from "@/server/registration/wizard-actor";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
+import { wizardActor } from "@/server/api/wizard-actor";
 import { saveDraftDetails } from "@/server/services/shop-registration-wizard";
 
 export const dynamic = "force-dynamic";

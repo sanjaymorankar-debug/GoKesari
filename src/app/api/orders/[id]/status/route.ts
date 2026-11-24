@@ -16,7 +16,8 @@ import { z } from "zod";
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { forbidden } from "@/lib/errors";
-import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { requireUser } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { orders } from "@/server/db/schema";
@@ -65,7 +66,8 @@ export const PATCH = route(
         throw forbidden("You do not have permission to cancel orders.");
       }
       if (!isOwnOrder) {
-        await requireShopAccess(order.shopId, {
+        // Module 10: the owner, operations, or (flag on) staff holding orders.cancel.
+        await requireShopPermission(order.shopId, "orders.cancel", {
           anyPermission: PERMISSIONS.ORDER_UPDATE_STATUS_ANY,
         });
       }
@@ -78,7 +80,7 @@ export const PATCH = route(
       );
     }
 
-    const { user } = await requireShopAccess(order.shopId, {
+    const { user } = await requireShopPermission(order.shopId, "orders.edit", {
       anyPermission: PERMISSIONS.ORDER_UPDATE_STATUS_ANY,
     });
     if (body.status === "DISPUTED" && !can(user.role, PERMISSIONS.ORDER_UPDATE_STATUS_ANY)) {

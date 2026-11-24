@@ -4,6 +4,9 @@ import { notFound } from "next/navigation";
 import { MrpDisputeForm } from "@/components/mrp-dispute-form";
 import { SafeImage } from "@/components/safe-image";
 import { ProductGrid } from "@/components/product-grid";
+import { FavouriteHeart } from "@/components/favourites/favourite-heart";
+import { getBoardLang } from "@/server/board-lang";
+import { favouritesOn } from "@/server/services/favourites-flag";
 import { Badge, Card, EmptyState, Money, PageHeader, Section } from "@/components/ui";
 import { formatQuantity, lineTotalPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -21,8 +24,39 @@ import { serviceableShopIds } from "@/server/services/serviceability";
 import { listShopsForOwner } from "@/server/services/shops";
 import { eq } from "drizzle-orm";
 import { priceUnitLabel } from "@/lib/board/product-look";
+import { L, tr } from "@/lib/board/i18n";
 
 export const dynamic = "force-dynamic";
+
+/** Module 6 (docs/hindi-marathi-2026-11): the product page's wording. Product and shop names stay as entered. */
+const T = {
+  soldBy: L("{category} · sold by {n} shop", "{category} · {n} दुकान बेचती है", "{category} · {n} दुकान विकते"),
+  soldByMany: L("{category} · sold by {n} shops", "{category} · {n} दुकानें बेचती हैं", "{category} · {n} दुकाने विकतात"),
+  about: L("About this product", "इस उत्पाद के बारे में", "या उत्पादनाबद्दल"),
+  fromShop: L(" — from {shop}", " — {shop} से", " — {shop} कडून"),
+  notVerified: L(" (not yet verified)", " (अभी सत्यापित नहीं)", " (अजून पडताळलेले नाही)"),
+  compare: L("Compare prices", "दाम मिलाएँ", "दर तुलना करा"),
+  kmAway: L("{km} km away · ", "{km} किमी दूर · ", "{km} किमी दूर · "),
+  noDelivery: L("Does not deliver to your location", "आपकी लोकेशन पर डिलीवरी नहीं करती", "तुमच्या ठिकाणी डिलिव्हरी करत नाही"),
+  delivers: L("Delivers to you", "आप तक डिलीवरी करती है", "तुमच्यापर्यंत डिलिव्हरी करते"),
+  chooseLocation: L("Choose a location to check delivery", "डिलीवरी जाँचने के लिए लोकेशन चुनें", "डिलिव्हरी तपासण्यासाठी ठिकाण निवडा"),
+  lowest: L("Lowest price", "सबसे कम दाम", "सर्वात कमी दर"),
+  notOnline: L("Not available online", "ऑनलाइन उपलब्ध नहीं", "ऑनलाइन उपलब्ध नाही"),
+  per: L("per", "प्रति", "प्रति"),
+  inShopOnly: L("In-shop price only", "सिर्फ़ दुकान का दाम", "फक्त दुकानातील किंमत"),
+  priceOnRequest: L("Price on request", "दाम पूछने पर", "किंमत विचारल्यावर"),
+  buyFrom: L("Buy from", "यहाँ से खरीदें", "येथून खरेदी करा"),
+  noShopTitle: L(
+    "No shop can deliver this to you online right now",
+    "अभी कोई दुकान यह आपको ऑनलाइन नहीं पहुँचा सकती",
+    "सध्या कोणतेही दुकान हे तुम्हाला ऑनलाइन पोहोचवू शकत नाही",
+  ),
+  noShopText: L(
+    "Try another location, or visit one of the shops above.",
+    "दूसरी लोकेशन आज़माएँ, या ऊपर की किसी दुकान पर जाएँ।",
+    "दुसरे ठिकाण वापरून पहा, किंवा वरील एखाद्या दुकानात जा.",
+  ),
+} as const;
 
 /**
  * "All shops selling this product" + local price comparison (GS-021/022).
@@ -47,10 +81,13 @@ export default async function ProductComparePage({
 
   const user = await getCurrentUser();
   const location = await getCustomerLocation(user?.id);
-  const [offers, distances, cartLines] = await Promise.all([
+  const [offers, distances, cartLines, favourites, lang] = await Promise.all([
     listStorefrontProducts({ productId: id, limit: 100 }),
     location ? serviceableShopIds(location) : Promise.resolve(undefined),
     user ? getCartLineQuantities(user.id) : null,
+    // docs/search-brand-barcode-favourites-2026-11: the heart (flag brand_barcode_favourites_enabled).
+    favouritesOn(),
+    getBoardLang(),
   ]);
   if (offers.length === 0) notFound();
 
@@ -119,7 +156,10 @@ export default async function ProductComparePage({
     <>
       <PageHeader
         title={product.productName}
-        description={`${product.categoryName} · sold by ${offers.length} shop${offers.length === 1 ? "" : "s"}`}
+        description={tr(offers.length === 1 ? T.soldBy : T.soldByMany, lang)
+          .replace("{category}", product.categoryName)
+          .replace("{n}", String(offers.length))}
+        action={favourites ? <FavouriteHeart productId={id} productName={product.productName} signedIn={Boolean(user)} lang={lang} size="md" /> : undefined}
       />
 
       <div className="mb-4 flex gap-3 overflow-x-auto" data-testid="product-gallery">
@@ -146,7 +186,8 @@ export default async function ProductComparePage({
       {about.longDescription ? (
         <Card className="mb-4 p-4" data-testid="product-description">
           <h2 className="text-sm font-semibold text-ink-900">
-            About this product{fromShop && about.longSource === "SHOP" ? ` — from ${fromShop.shopName}` : ""}
+            {tr(T.about, lang)}
+            {fromShop && about.longSource === "SHOP" ? tr(T.fromShop, lang).replace("{shop}", fromShop.shopName) : ""}
           </h2>
           <p className="mt-2 whitespace-pre-line text-sm text-ink-700">{about.longDescription}</p>
         </Card>
@@ -155,7 +196,7 @@ export default async function ProductComparePage({
       {master?.kind === "PACKAGED" && master.mrpPaise != null ? (
         <p className="mb-4 text-sm text-ink-600" data-testid="product-mrp">
           MRP <Money paise={master.mrpPaise} />
-          {master.verification === "VERIFIED" ? null : <span className="text-ink-500"> (not yet verified)</span>}
+          {master.verification === "VERIFIED" ? null : <span className="text-ink-500">{tr(T.notVerified, lang)}</span>}
           {ownShop ? (
             <span className="ml-3">
               <MrpDisputeForm productId={id} shopId={ownShop.id} />
@@ -164,7 +205,7 @@ export default async function ProductComparePage({
         </p>
       ) : null}
 
-      <Section title="Compare prices">
+      <Section title={tr(T.compare, lang)}>
         <Card className="divide-y divide-cream-200" data-testid="price-comparison">
           {rows.map(({ offer, buyable, deliversHere, distanceKm }) => (
             <div key={offer.shopProductId} className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -176,19 +217,19 @@ export default async function ProductComparePage({
                   {offer.shopName}
                 </Link>
                 <p className="text-xs text-ink-500">
-                  {distanceKm != null ? `${distanceKm} km away · ` : null}
+                  {distanceKm != null ? tr(T.kmAway, lang).replace("{km}", String(distanceKm)) : null}
                   {deliversHere === false
-                    ? "Does not deliver to your location"
+                    ? tr(T.noDelivery, lang)
                     : deliversHere
-                      ? "Delivers to you"
-                      : "Choose a location to check delivery"}
+                      ? tr(T.delivers, lang)
+                      : tr(T.chooseLocation, lang)}
                 </p>
               </div>
               <div className="flex items-center gap-3 text-right">
                 {buyable && lowest != null && offer.onlinePricePaise === lowest ? (
-                  <Badge tone="success">Lowest price</Badge>
+                  <Badge tone="success">{tr(T.lowest, lang)}</Badge>
                 ) : null}
-                {!buyable ? <Badge tone="warning">Not available online</Badge> : null}
+                {!buyable ? <Badge tone="warning">{tr(T.notOnline, lang)}</Badge> : null}
                 {offer.onlinePricePaise != null ? (
                   <div>
                     <p className="text-sm font-semibold text-ink-900">
@@ -197,15 +238,15 @@ export default async function ProductComparePage({
                     </p>
                     {packMilli !== 1000 ? (
                       <p className="text-xs text-ink-500">
-                        <Money paise={lineTotalPaise(offer.onlinePricePaise, packMilli)} /> per{" "}
+                        <Money paise={lineTotalPaise(offer.onlinePricePaise, packMilli)} /> {tr(T.per, lang)}{" "}
                         {formatQuantity(packMilli, offer.unit)}
                       </p>
                     ) : null}
                   </div>
                 ) : offer.offlinePricePaise != null ? (
-                  <p className="text-xs text-ink-500">In-shop price only</p>
+                  <p className="text-xs text-ink-500">{tr(T.inShopOnly, lang)}</p>
                 ) : (
-                  <p className="text-sm font-medium text-ink-700">Price on request</p>
+                  <p className="text-sm font-medium text-ink-700">{tr(T.priceOnRequest, lang)}</p>
                 )}
               </div>
             </div>
@@ -241,13 +282,13 @@ export default async function ProductComparePage({
       ) : null}
 
       {purchasable.length > 0 ? (
-        <Section title="Buy from">
-          <ProductGrid products={purchasable} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compare={false} />
+        <Section title={tr(T.buyFrom, lang)}>
+          <ProductGrid lang={lang} products={purchasable} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compare={false} />
         </Section>
       ) : (
         <EmptyState
-          title="No shop can deliver this to you online right now"
-          description="Try another location, or visit one of the shops above."
+          title={tr(T.noShopTitle, lang)}
+          description={tr(T.noShopText, lang)}
         />
       )}
     </>

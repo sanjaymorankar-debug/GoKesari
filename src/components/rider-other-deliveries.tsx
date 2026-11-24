@@ -9,6 +9,22 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Badge, Button, Card } from "@/components/ui";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang } from "@/lib/board/i18n";
+
+/** Module 6 (docs/hindi-marathi-2026-11/). */
+const T = {
+  errAction: L("Action failed.", "काम नहीं हो सका।", "कृती अयशस्वी झाली."),
+  title: L("Also assigned to you", "आपको यह भी दिया गया है", "तुम्हाला हेही दिले आहे"),
+  newOffer: L("New offer", "नया ऑफ़र", "नवीन ऑफर"),
+  accept: L("Accept", "स्वीकारें", "स्वीकारा"),
+  reject: L("Reject", "मना करें", "नाकारा"),
+  finishFirst: L(
+    "Finish your current delivery first; this one becomes your main card next.",
+    "पहले मौजूदा डिलीवरी पूरी करें; उसके बाद यह आपका मुख्य कार्ड बनेगा।",
+    "आधी सध्याची डिलिव्हरी पूर्ण करा; त्यानंतर हे तुमचे मुख्य कार्ड होईल.",
+  ),
+} as const;
 
 export interface OtherDelivery {
   id: string;
@@ -18,7 +34,7 @@ export interface OtherDelivery {
   distanceKm: string | null;
 }
 
-export function RiderOtherDeliveries({ deliveries }: { deliveries: OtherDelivery[] }) {
+export function RiderOtherDeliveries({ deliveries, lang = "en" }: { deliveries: OtherDelivery[]; lang?: Lang }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -35,28 +51,28 @@ export function RiderOtherDeliveries({ deliveries }: { deliveries: OtherDelivery
     setBusy(null);
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      return setError(body?.error?.message ?? "Action failed.");
+      return setError(errorText(body?.error?.message ?? tr(T.errAction, lang), lang, body?.error?.code));
     }
     router.refresh();
   }
 
   return (
     <Card className="mt-4 space-y-3 p-4" data-testid="rider-other-deliveries">
-      <p className="font-semibold text-ink-900">Also assigned to you</p>
+      <p className="font-semibold text-ink-900">{tr(T.title, lang)}</p>
       {deliveries.map((d) => (
         <div key={d.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-cream-200 pt-2 text-sm">
           <span>
-            <Badge tone={d.status === "OFFERED" ? "warning" : "info"}>{d.status === "OFFERED" ? "New offer" : d.status.toLowerCase().replace("_", " ")}</Badge>{" "}
+            <Badge tone={d.status === "OFFERED" ? "warning" : "info"}>{d.status === "OFFERED" ? tr(T.newOffer, lang) : d.status.toLowerCase().replace("_", " ")}</Badge>{" "}
             <strong>{d.orderNumber}</strong> · {d.shopName}
             {d.distanceKm ? ` · ~${Number(d.distanceKm).toFixed(1)} km` : ""}
           </span>
           {d.status === "OFFERED" ? (
             <span className="flex gap-2">
-              <Button size="sm" disabled={busy === d.id} onClick={() => act(d.id, "accept")}>Accept</Button>
-              <Button size="sm" variant="secondary" disabled={busy === d.id} onClick={() => act(d.id, "reject")}>Reject</Button>
+              <Button size="sm" disabled={busy === d.id} onClick={() => act(d.id, "accept")}>{tr(T.accept, lang)}</Button>
+              <Button size="sm" variant="secondary" disabled={busy === d.id} onClick={() => act(d.id, "reject")}>{tr(T.reject, lang)}</Button>
             </span>
           ) : (
-            <span className="text-xs text-ink-500">Finish your current delivery first; this one becomes your main card next.</span>
+            <span className="text-xs text-ink-500">{tr(T.finishFirst, lang)}</span>
           )}
         </div>
       ))}

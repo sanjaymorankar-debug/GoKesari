@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { L, tr } from "@/lib/board/i18n";
+import { getBoardLang } from "@/server/board-lang";
 import { redirect } from "next/navigation";
 
 import { BankAccountManager } from "@/components/bank-account-manager";
@@ -13,16 +15,26 @@ import { listShopsForOwner } from "@/server/services/shops";
 export const metadata = { title: "Payout bank account" };
 export const dynamic = "force-dynamic";
 
+const T = {
+  title: L("Payout bank account", "पेआउट बैंक खाता", "पेआउट बँक खाते"),
+  noShop: L("You haven't registered a shop yet", "आपने अभी कोई दुकान रजिस्टर नहीं की है", "तुम्ही अजून दुकान नोंदवलेले नाही"),
+  titleShop: L("Payout bank account — {shop}", "पेआउट बैंक खाता — {shop}", "पेआउट बँक खाते — {shop}"),
+  description: L("Where GoKesari pays your settlements.", "जहाँ GoKesari आपका सेटलमेंट भेजता है।", "जिथे GoKesari तुमचे सेटलमेंट पाठवते."),
+  finance: L("Finance →", "फ़ाइनेंस →", "फायनान्स →"),
+  onHold: L("Payouts are on hold", "पेआउट रुके हैं", "पेआउट थांबले आहेत"),
+  onHoldText: L("Settlements are paid only to a verified bank account.", "सेटलमेंट सिर्फ़ सत्यापित बैंक खाते में भेजा जाता है।", "सेटलमेंट फक्त पडताळलेल्या बँक खात्यात पाठवले जाते."),
+} as const;
+
 /** The shop's payout bank account (docs/four-features-2026-10, feature 3). */
 export default async function ShopBankAccountPage({ searchParams }: { searchParams: Promise<{ shop?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  const shops = await listShopsForOwner(user.id);
+  const [shops, lang] = await Promise.all([listShopsForOwner(user.id), getBoardLang()]);
   if (shops.length === 0) {
     return (
       <>
-        <PageHeader title="Payout bank account" />
-        <EmptyState title="You haven't registered a shop yet" />
+        <PageHeader title={tr(T.title, lang)} />
+        <EmptyState title={tr(T.noShop, lang)} />
       </>
     );
   }
@@ -33,16 +45,16 @@ export default async function ShopBankAccountPage({ searchParams }: { searchPara
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <PageHeader
-        title={`Payout bank account — ${shop.name}`}
-        description="Where GoKesari pays your settlements."
+        title={tr(T.titleShop, lang).replace("{shop}", shop.name)}
+        description={tr(T.description, lang)}
         action={
           <Link href="/shop/finance" className="text-sm font-medium text-kesari-600 hover:underline">
-            Finance →
+            {tr(T.finance, lang)}
           </Link>
         }
       />
       {rules.requireVerifiedForShopPayouts && account?.status !== "VERIFIED" ? (
-        <Alert tone="warning" title="Payouts are on hold">Settlements are paid only to a verified bank account.</Alert>
+        <Alert tone="warning" title={tr(T.onHold, lang)}>{tr(T.onHoldText, lang)}</Alert>
       ) : null}
       <BankAccountManager account={account} saveUrl={`/api/shops/${shop.id}/bank-account`} gateway={verificationGatewayMode()} purpose="payouts" bankCheck={bankCheck} />
     </div>

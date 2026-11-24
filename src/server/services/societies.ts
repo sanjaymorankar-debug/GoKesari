@@ -742,7 +742,8 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
       })
       .from(societyMembers)
       .innerJoin(users, eq(societyMembers.userId, users.id))
-      .where(and(eq(societyMembers.societyId, societyId), ne(societyMembers.status, "REMOVED")))
+      // docs/account-deletion-2026-11 (0199): an account hidden in its deletion cooling-off period is not shown.
+      .where(and(eq(societyMembers.societyId, societyId), ne(societyMembers.status, "REMOVED"), ne(users.status, "PENDING_DELETION")))
       .orderBy(societyMembers.status, societyMembers.createdAt),
     db
       .select({
@@ -759,7 +760,13 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
       })
       .from(societyRiders)
       .innerJoin(deliveryPartners, eq(societyRiders.deliveryPartnerId, deliveryPartners.id))
-      .where(eq(societyRiders.societyId, societyId))
+      // docs/account-deletion-2026-11 (0199): a rider whose account is hidden in its deletion cooling-off period is not shown.
+      .where(
+        and(
+          eq(societyRiders.societyId, societyId),
+          sql`NOT EXISTS (SELECT 1 FROM ${users} WHERE ${users.id} = ${deliveryPartners.userId} AND ${users.status} = 'PENDING_DELETION')`,
+        ),
+      )
       .orderBy(desc(societyRiders.preferred), deliveryPartners.fullName),
     db
       .select({ id: societyShops.id, shopId: shops.id, name: shops.name, status: societyShops.status, shopType: shops.shopType })
