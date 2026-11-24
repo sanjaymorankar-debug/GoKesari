@@ -229,7 +229,41 @@ function VerifiedFrom({ state }: { state: WizardState }) {
   );
 }
 
-const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+/**
+ * Owner, 25-Nov-2026: what the verified GST record says about the business — legal name, trade name,
+ * type and address — shown as soon as the GSTIN is verified, so the owner sees what was fetched.
+ */
+function VerifiedBusiness({ state }: { state: WizardState | null }) {
+  if (!state || state.route !== "GSTIN" || state.gstin?.status !== "VERIFIED") return null;
+  const p = state.prefill;
+  if (!p.legalName && !p.tradeName) return null;
+  const rows: [string, string | null][] = [
+    ["Business (legal) name", p.legalName],
+    ["Trade name", p.tradeName && p.tradeName !== p.legalName ? p.tradeName : null],
+    ["Business type", p.constitution],
+    ["Owner", p.ownerName],
+    ["Registered address", p.address],
+  ];
+  return (
+    <div className="rounded-lg border border-leaf-200 bg-leaf-50 p-3 text-sm" data-testid="verified-business">
+      <p className="mb-2 font-semibold text-leaf-800">✓ From your GST record</p>
+      <dl className="grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-[auto_1fr]">
+        {rows
+          .filter(([, value]) => value)
+          .map(([label, value]) => (
+            <div key={label} className="contents">
+              <dt className="text-ink-500">{label}</dt>
+              <dd className="font-medium text-ink-900" data-testid={`verified-business-${label.split(" ")[0].toLowerCase()}`}>
+                {value}
+              </dd>
+            </div>
+          ))}
+      </dl>
+    </div>
+  );
+}
+
+const GSTIN_PATTERN =/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const PAN_PATTERN = /^[A-Z]{5}\d{4}[A-Z]$/;
 
 /**
@@ -905,6 +939,7 @@ function VerifyStep({
       </form>
 
       <StatusLine check={check} />
+      {hasGst ? <VerifiedBusiness state={state} /> : null}
       {verified ? (
         <div className="flex justify-end">
           <Button type="button" size="lg" onClick={next} disabled={busy}>
@@ -931,6 +966,9 @@ function OwnerStep({ state, busy, fields, send, back }: { state: WizardState; bu
           : "Your record names no owner. Who owns or runs the shop?"
       }
     >
+      <div className="mb-3">
+        <VerifiedBusiness state={state} />
+      </div>
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -978,6 +1016,9 @@ function AddressStep({ state, busy, fields, send, back }: { state: WizardState; 
           : "Your record gave no address — enter your shop's address."
       }
     >
+      <div className="mb-3">
+        <VerifiedBusiness state={state} />
+      </div>
       {state.ownerName ? (
         <p className="text-sm text-ink-700" data-testid="owner-line">
           Owner: <strong>{state.ownerName}</strong>
