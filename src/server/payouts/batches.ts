@@ -12,10 +12,12 @@
  * Transfers go only to the shop's current VERIFIED bank account (₹1 check),
  * re-checked at execution. Provider webhooks are verified by signature and
  * applied once per event id (payout_events). Every paid item has a UTR.
+ * Each attempt's provider transfer id is saved before the request is sent
+ * (0186), so an early or late webhook and the reconcile job always find it.
  */
 import { createHash } from "node:crypto";
 
-import { and, asc, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
@@ -27,6 +29,7 @@ import {
   payoutCycles,
   payoutEvents,
   payoutItems,
+  payoutWebhookParked,
   shops,
   type BankAccount,
   type PayoutBatch,
@@ -40,6 +43,7 @@ import { postLedger } from "@/server/services/finance";
 import { getRule } from "@/server/services/settings";
 import { applyShopWalletEntry } from "@/server/services/shop-wallet";
 import { periodLabel, type SystemOrActor } from "./cycle";
+import { sendingPayoutProvider } from "./guard";
 import { getPayoutProvider } from "./providers";
 import { buildSandboxWebhook } from "./providers/sandbox";
 import { PayoutProviderError, type PayoutProvider, type PayoutWebhookEvent } from "./types";
@@ -171,10 +175,13 @@ function railFor(amountPaise: number, method: BankAccount["method"], rule: { tra
 
 function activeProvider(rule: { provider: string }): PayoutProvider {
   if (rule.provider === "BANK_FILE") throw conflict("Payouts are set to the bank file (rule payouts.provider = BANK_FILE): export the file and mark each payment paid with its UTR.");
-  const provider = getPayoutProvider(rule.provider);
-  if (!provider || !provider.isConfigured()) throw conflict(`The payout provider ${rule.provider} is not configured (keys missing, or the sandbox on the production site).`);
+  const provider = sendingPayoutProvider(rule.provider);
+  if (!provider) throw conflict(`The payout provider ${rule.provider} is not configured (keys missing, the sandbox on the production site, or Cashfree Payouts not yet verified).`);
   return provider;
 }
+
+/** The idempotency key of an item's current attempt (the provider transfer id is worked out from it). */
+const attemptKey = (item: Pick<PayoutItem, "idempotencyKey" | "attempts">) => `${item.idempotencyKey}:${item.attempts}`;
 
 /** Sends one item to the provider (one attempt). The caller has checked the batch. */
 async function sendItem(itemId: string, provider: PayoutProvider, actor: SystemOrActor): Promise<PayoutItem> {
@@ -193,9 +200,22 @@ async function sendItem(itemId: string, provider: PayoutProvider, actor: SystemO
       await logEvent(tx, { batchId: item.batchId, itemId: item.id, type: "ITEM_HELD", payload: { reason: "BANK_NOT_VERIFIED" }, actorId: actor.id });
       return { item: held, account: null };
     }
+    const attempts = item.attempts + 1;
+    // The attempt's transfer id is saved with the claim, before the request: a webhook that comes
+    // before createTransfer returns (or after a timeout) still finds this item.
     const [updated] = await tx
       .update(payoutItems)
-      .set({ status: "PROCESSING", attempts: item.attempts + 1, provider: provider.name, bankAccountId: account.id, nextAttemptAt: null, failureReason: null, updatedAt: new Date() })
+      .set({
+        status: "PROCESSING",
+        attempts,
+        provider: provider.name,
+        providerRef: null,
+        providerTransferId: provider.transferIdFor(attemptKey({ idempotencyKey: item.idempotencyKey, attempts })),
+        bankAccountId: account.id,
+        nextAttemptAt: null,
+        failureReason: null,
+        updatedAt: new Date(),
+      })
       .where(eq(payoutItems.id, item.id))
       .returning();
     return { item: updated, account };
@@ -205,14 +225,21 @@ async function sendItem(itemId: string, provider: PayoutProvider, actor: SystemO
     return current;
   }
   if (!claimed.account) return claimed.item;
-  const item = claimed.item;
+  return dispatchItem(claimed.item, claimed.account, provider, rule, actor);
+}
+
+/**
+ * Sends an item's current attempt (claimed: PROCESSING, transfer id saved). Also used by the
+ * reconcile job to send the same attempt again — same transfer id — when the provider never got it.
+ */
+async function dispatchItem(item: PayoutItem, account: BankAccount, provider: PayoutProvider, rule: Awaited<ReturnType<typeof getRule<"payouts">>>, actor: SystemOrActor): Promise<PayoutItem> {
   try {
     const result = await provider.createTransfer({
-      idempotencyKey: `${item.idempotencyKey}:${item.attempts}`,
+      idempotencyKey: attemptKey(item),
       referenceId: item.id,
       amountPaise: item.amountPaise,
-      mode: railFor(item.amountPaise, claimed.account.method, rule),
-      beneficiary: beneficiaryOf(claimed.account),
+      mode: railFor(item.amountPaise, account.method, rule),
+      beneficiary: beneficiaryOf(account),
       narration: narration(item),
       attempt: item.attempts,
     });
@@ -240,6 +267,25 @@ async function sendItem(itemId: string, provider: PayoutProvider, actor: SystemO
     return applyItemOutcome(item.id, { status: "FAILED", reason, source: provider.name }, actor);
   }
   const [after] = await db.select().from(payoutItems).where(eq(payoutItems.id, item.id));
+  return after;
+}
+
+/**
+ * Reconcile job: the provider has no transfer with this item's current transfer id (the request
+ * never reached it), so the same attempt is sent again with the same id — the provider can never
+ * pay it twice. Only for an item still PROCESSING whose account is still the verified one.
+ */
+export async function resendPayoutItem(itemId: string, actor: SystemOrActor): Promise<PayoutItem | null> {
+  const [item] = await db.select().from(payoutItems).where(eq(payoutItems.id, itemId));
+  if (!item || item.status !== "PROCESSING" || !item.provider || item.provider === "BANK_FILE" || !item.providerTransferId || item.providerRef) return null;
+  const provider = sendingPayoutProvider(item.provider);
+  if (!provider || provider.transferIdFor(attemptKey(item)) !== item.providerTransferId) return null;
+  const account = await verifiedAccount(item.shopId);
+  if (!account || account.id !== item.bankAccountId) return null;
+  await db.transaction((tx) => logEvent(tx, { batchId: item.batchId, itemId: item.id, source: provider.name, type: "TRANSFER_RESENT", payload: { attempt: item.attempts, transferId: item.providerTransferId }, actorId: actor.id }));
+  const rule = await getRule("payouts");
+  const after = await dispatchItem(item, account, provider, rule, actor);
+  await db.transaction((tx) => settleBatchStatus(item.batchId, tx));
   return after;
 }
 
@@ -294,8 +340,8 @@ export async function deliverSandboxWebhooks(batchId: string): Promise<number> {
 export async function retryFailedPayouts(options: { itemId?: string; actor: SystemOrActor; now?: Date }): Promise<number> {
   const rule = await getRule("payouts");
   if (rule.provider === "BANK_FILE") return 0;
-  const provider = getPayoutProvider(rule.provider);
-  if (!provider?.isConfigured()) return 0;
+  const provider = sendingPayoutProvider(rule.provider);
+  if (!provider) return 0;
   const due = await db
     .select({ item: payoutItems })
     .from(payoutItems)
@@ -331,7 +377,7 @@ type Outcome =
  * to the shop owner), FAILED (retry later or give up), REVERSED (carried
  * into the next cycle). Idempotent: a final state is never changed twice.
  */
-async function applyItemOutcome(itemId: string, outcome: Outcome, actor: SystemOrActor): Promise<PayoutItem> {
+export async function applyItemOutcome(itemId: string, outcome: Outcome, actor: SystemOrActor): Promise<PayoutItem> {
   const rule = await getRule("payouts");
   return db.transaction(async (tx) => {
     const [item] = await tx.select().from(payoutItems).where(eq(payoutItems.id, itemId)).for("update");
@@ -478,8 +524,14 @@ export interface WebhookResult {
 }
 
 /**
- * A provider's webhook: signature over the raw body first, then the event id
- * — a redelivered event is acknowledged and ignored — then the outcome.
+ * A provider's webhook: signature (and, for Cashfree, freshness) over the raw
+ * body first, then the event is matched to its payout — a shop payout item, a
+ * rider bank transfer or a dealer commission payout — by the provider's
+ * reference, by the transfer id we sent (saved before the request), or by our
+ * own id. Only a matched event is recorded in payout_events, after it is
+ * applied: a redelivered event is then acknowledged and ignored. An event that
+ * matches nothing yet is parked and answered 409, so the provider delivers it
+ * again (and the reconcile job replays it); it is never dropped as a duplicate.
  */
 export async function handlePayoutWebhook(providerParam: string, rawBody: string, headers: Headers): Promise<WebhookResult> {
   const provider = getPayoutProvider(providerParam);
@@ -495,33 +547,114 @@ export async function handlePayoutWebhook(providerParam: string, rawBody: string
   } catch {
     return { status: 400, body: { error: "Malformed webhook." } };
   }
+  return processPayoutEvent(provider.name, event);
+}
+
+type EventTarget =
+  | { kind: "SHOP"; item: PayoutItem }
+  | { kind: "RIDER"; transfer: import("@/server/db/schema").RiderBankTransfer }
+  | { kind: "DEALER"; batch: import("@/server/db/schema").DealerPayoutBatch }
+  | { kind: "WAIT"; reason: string };
+
+async function matchPayoutEvent(event: PayoutWebhookEvent): Promise<EventTarget | null> {
   const item = await findItemForEvent(event);
+  if (item) return { kind: "SHOP", item };
+  const transfer = await (await import("@/server/rider-wallet/transfers")).findRiderTransferForEvent(event);
+  if (transfer) return { kind: "RIDER", transfer };
+  const dealer = await (await import("@/server/dealers/auto-payout")).findDealerPayoutForEvent(event);
+  if (dealer === "WAIT") return { kind: "WAIT", reason: "The transfer is still being sent — deliver this event again later." };
+  if (dealer) return { kind: "DEALER", batch: dealer };
+  return null;
+}
+
+/** Applies a verified, parsed event (the webhook, or the reconcile job replaying a parked one). */
+export async function processPayoutEvent(source: string, event: PayoutWebhookEvent): Promise<WebhookResult> {
+  if (event.kind === "LOW_BALANCE" || event.kind === "OTHER") return handleAccountEvent(source, event);
+  const target = await matchPayoutEvent(event);
+  if (!target || target.kind === "WAIT") {
+    await parkEvent(source, event);
+    return { status: 409, body: { ok: false, retry: target?.reason ?? "No payout matches this event yet — deliver it again later." } };
+  }
+  const [seen] = await db.select({ id: payoutEvents.id }).from(payoutEvents).where(and(eq(payoutEvents.source, source), eq(payoutEvents.eventId, event.eventId)));
+  if (seen) {
+    await markParkedMatched(source, event.eventId);
+    return { status: 200, body: { ok: true, duplicate: true } };
+  }
+  if (event.status === "SUCCESS" && !event.utr) {
+    // A paid payout must carry a UTR. Not recorded: a later delivery (or the reconcile job) brings it.
+    await markParkedMatched(source, event.eventId);
+    return { status: 200, body: { ok: true, pending: "Success without a UTR — waiting for the bank reference." } };
+  }
+  let result: WebhookResult;
+  if (target.kind === "SHOP") result = await applyShopEvent(source, target.item, event);
+  else if (target.kind === "RIDER") result = await (await import("@/server/rider-wallet/transfers")).applyRiderTransferEvent(source, target.transfer, event);
+  else result = await (await import("@/server/dealers/auto-payout")).applyDealerPayoutEvent(source, target.batch, event);
+  // Recorded only once applied: a failure above leaves the event to be delivered again.
+  await db
+    .insert(payoutEvents)
+    .values({
+      batchId: target.kind === "SHOP" ? target.item.batchId : null,
+      itemId: target.kind === "SHOP" ? target.item.id : null,
+      source,
+      eventId: event.eventId,
+      type: `WEBHOOK_${event.status}`,
+      payload: { ...event.raw, gokesari: { target: target.kind, id: target.kind === "SHOP" ? target.item.id : target.kind === "RIDER" ? target.transfer.id : target.batch.id } },
+    })
+    .onConflictDoNothing();
+  await markParkedMatched(source, event.eventId);
+  return result;
+}
+
+async function applyShopEvent(source: string, item: PayoutItem, event: PayoutWebhookEvent): Promise<WebhookResult> {
+  const system = { id: null, role: null };
+  if (event.status === "SUCCESS") {
+    await applyItemOutcome(item.id, { status: "SUCCESS", utr: event.utr!.toUpperCase(), source }, system);
+  } else if (event.status === "FAILED" || (event.status === "REVERSED" && item.status !== "PAID")) {
+    // A return before we recorded the payment: the money is back, so it is a failed attempt.
+    await applyItemOutcome(item.id, { status: "FAILED", reason: event.failureReason ?? "The bank rejected the transfer.", source }, system);
+  } else if (event.status === "REVERSED") {
+    await applyItemOutcome(item.id, { status: "REVERSED", reason: event.failureReason ?? "The bank returned the transfer.", source }, system);
+  }
+  return { status: 200, body: { ok: true } };
+}
+
+/** Account notices (no payout): a low balance alerts the finance team once per event; others are noted. */
+async function handleAccountEvent(source: string, event: PayoutWebhookEvent): Promise<WebhookResult> {
   const [recorded] = await db
     .insert(payoutEvents)
-    .values({ batchId: item?.batchId ?? null, itemId: item?.id ?? null, source: provider.name, eventId: event.eventId, type: `WEBHOOK_${event.status}`, payload: event.raw })
+    .values({ source, eventId: event.eventId, type: event.kind === "LOW_BALANCE" ? "WEBHOOK_LOW_BALANCE" : "WEBHOOK_NOTICE", payload: event.raw })
     .onConflictDoNothing()
     .returning({ id: payoutEvents.id });
   if (!recorded) return { status: 200, body: { ok: true, duplicate: true } };
-  // docs/gig-bank-payouts-2026-10: no shop payout item — a rider bank transfer?
-  if (!item) {
-    const rider = await (await import("@/server/rider-wallet/transfers")).handleRiderTransferEvent(provider.name, event);
-    // Gap report C4: nor a rider transfer — a dealer commission payout (rule dealerAutoPayout)?
-    if (!rider.body.ignored) return rider;
-    return (await import("@/server/dealers/auto-payout")).handleDealerPayoutEvent(provider.name, event);
-  }
-  const system = { id: null, role: null };
-  if (event.status === "SUCCESS") {
-    if (!event.utr) {
-      // A paid item must carry a UTR: leave it in progress for finance to complete by hand.
-      return { status: 200, body: { ok: true, pending: "Success without a UTR — waiting for the bank reference." } };
-    }
-    await applyItemOutcome(item.id, { status: "SUCCESS", utr: event.utr.toUpperCase(), source: provider.name }, system);
-  } else if (event.status === "FAILED") {
-    await applyItemOutcome(item.id, { status: "FAILED", reason: event.failureReason ?? "The bank rejected the transfer.", source: provider.name }, system);
-  } else if (event.status === "REVERSED") {
-    await applyItemOutcome(item.id, { status: "REVERSED", reason: event.failureReason ?? "The bank returned the transfer.", source: provider.name }, system);
+  if (event.kind === "LOW_BALANCE") {
+    const data = (event.raw.data ?? {}) as Record<string, unknown>;
+    const balance = data.current_balance ?? data.balance ?? data.available_balance;
+    await emitEvent({
+      type: "payout.provider_low_balance",
+      subjectId: event.eventId,
+      actor: { id: null, role: null },
+      payload: { provider: source, balance: balance == null ? "unknown" : `₹${String(balance)}` },
+      idempotencyKey: `payout-low-balance:${source}:${event.eventId}`,
+    });
   }
   return { status: 200, body: { ok: true } };
+}
+
+async function parkEvent(source: string, event: PayoutWebhookEvent): Promise<void> {
+  await db
+    .insert(payoutWebhookParked)
+    .values({ source, eventId: event.eventId, providerRef: event.providerRef, transferId: event.transferId ?? null, status: event.status, payload: event as unknown as Record<string, unknown> })
+    .onConflictDoUpdate({
+      target: [payoutWebhookParked.source, payoutWebhookParked.eventId],
+      set: { deliveries: sql`${payoutWebhookParked.deliveries} + 1`, lastSeenAt: new Date() },
+    });
+}
+
+async function markParkedMatched(source: string, eventId: string): Promise<void> {
+  await db
+    .update(payoutWebhookParked)
+    .set({ matchedAt: new Date() })
+    .where(and(eq(payoutWebhookParked.source, source), eq(payoutWebhookParked.eventId, eventId), isNull(payoutWebhookParked.matchedAt)));
 }
 
 async function findItemForEvent(event: PayoutWebhookEvent): Promise<PayoutItem | null> {
@@ -529,7 +662,15 @@ async function findItemForEvent(event: PayoutWebhookEvent): Promise<PayoutItem |
     const [byRef] = await db.select().from(payoutItems).where(eq(payoutItems.providerRef, event.providerRef));
     if (byRef) return byRef;
   }
-  if (event.referenceId && /^[0-9a-f-]{36}$/i.test(event.referenceId)) {
+  if (event.transferId) {
+    // The attempt's transfer id, saved before the request was sent (0186).
+    const [byTransfer] = await db.select().from(payoutItems).where(eq(payoutItems.providerTransferId, event.transferId));
+    if (byTransfer) {
+      if (event.providerRef && !byTransfer.providerRef) await db.update(payoutItems).set({ providerRef: event.providerRef, updatedAt: new Date() }).where(eq(payoutItems.id, byTransfer.id));
+      return byTransfer;
+    }
+  }
+  if (event.referenceId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(event.referenceId)) {
     const [byId] = await db.select().from(payoutItems).where(eq(payoutItems.id, event.referenceId));
     if (byId) return byId;
   }

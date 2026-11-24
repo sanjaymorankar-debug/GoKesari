@@ -16,7 +16,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import { getEnv } from "@/lib/env";
 import { isProductionSite } from "@/server/services/bank-accounts";
-import type { PayoutProvider, PayoutWebhookEvent, TransferRequest, TransferResult } from "../types";
+import type { PayoutProvider, PayoutWebhookEvent, TransferRequest, TransferResult, TransferStatus } from "../types";
 
 export function sandboxWebhookSecret(): string {
   const env = getEnv();
@@ -41,16 +41,29 @@ export function sandboxUtr(providerRef: string): string {
 
 /** What the sandbox "bank" remembers about each transfer (in-process, for building webhooks). */
 const transfers = new Map<string, { request: TransferRequest; ok: boolean; reason: string | null }>();
+/** Our transfer id (the idempotency key) → the sandbox reference. */
+const byTransferId = new Map<string, string>();
 
 export const sandboxPayoutProvider: PayoutProvider = {
   name: "SANDBOX",
   isConfigured: () => !isProductionSite(),
+  transferIdFor: (idempotencyKey: string) => idempotencyKey,
   async createTransfer(request: TransferRequest): Promise<TransferResult> {
     if (isProductionSite()) throw new Error("The payout sandbox never runs on the production site.");
     const providerRef = sandboxRef(request.idempotencyKey);
     const outcome = sandboxOutcome(request.amountPaise, request.attempt);
     transfers.set(providerRef, { request, ...outcome });
+    byTransferId.set(request.idempotencyKey, providerRef);
     return { status: "PROCESSING", providerRef };
+  },
+  /** What the sandbox "bank" did with a transfer it was sent (in this process); NOT_FOUND otherwise. */
+  async getTransfer(transferId: string): Promise<TransferStatus> {
+    const providerRef = byTransferId.get(transferId);
+    const known = providerRef ? transfers.get(providerRef) : undefined;
+    if (!providerRef || !known) return { status: "NOT_FOUND", providerRef: null, utr: null, failureReason: null };
+    return known.ok
+      ? { status: "SUCCESS", providerRef, utr: sandboxUtr(providerRef), failureReason: null }
+      : { status: "FAILED", providerRef, utr: null, failureReason: known.reason };
   },
   verifyWebhook(rawBody: string, headers: Headers): boolean {
     const given = headers.get("x-sandbox-signature") ?? "";
@@ -69,6 +82,7 @@ export const sandboxPayoutProvider: PayoutProvider = {
       eventId: headers.get("x-sandbox-event-id") ?? `${body.transfer.id}:${body.event}`,
       providerRef: body.transfer.id,
       referenceId: body.transfer.reference_id,
+      kind: "TRANSFER",
       status,
       utr: body.transfer.utr ?? null,
       failureReason: body.transfer.failure_reason ?? null,

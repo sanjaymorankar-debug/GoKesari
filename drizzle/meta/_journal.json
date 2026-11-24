@@ -1308,21 +1308,28 @@
       "idx": 186,
       "version": "7",
       "when": 1793269600000,
-      "tag": "0186_tax_register",
+      "tag": "0186_payout_transfer_ids",
       "breakpoints": true
     },
     {
       "idx": 187,
       "version": "7",
       "when": 1793269700000,
-      "tag": "0187_payout_deductions",
+      "tag": "0187_tax_register",
       "breakpoints": true
     },
     {
       "idx": 188,
       "version": "7",
       "when": 1793269800000,
-      "tag": "0188_gokesari_books",
+      "tag": "0188_payout_deductions",
+      "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1793269900000,
+      "tag": "0189_gokesari_books",
       "breakpoints": true
     }
   ]
