@@ -24,7 +24,7 @@ A top-up started with the rule on has:
 |---|---|
 | `payments.gateway` | `INTENT` (the older Cashfree code skips these rows) |
 | `payments.gateway_order_id` | the intent's `merchant_order_id` (`gk_…`, which is also Cashfree's order id) |
-| `payment_intents.purpose` | `WALLET_TOPUP` or `SHOP_WALLET_TOPUP` (new, migration 0185) |
+| `payment_intents.purpose` | `WALLET_TOPUP` or `SHOP_WALLET_TOPUP` (new, migration 0186) |
 | `payment_intents.reference_id` | `payments.id` |
 | `payment_intents.idempotency_key` | `topup:<payments.id>` |
 
@@ -126,8 +126,8 @@ Steps:
 
 Switch the rule off. New top-ups go back to the older flow at once. Routed top-ups already open
 still finish through their intents, because the verify, webhook and reconcile branches key on
-`payments.gateway = 'INTENT'`, not on the rule. Migration 0185 only widens a CHECK constraint and
-stays. `scripts/rollback-0185-topup-intents.sql` narrows it again, and refuses while any top-up intent
+`payments.gateway = 'INTENT'`, not on the rule. Migration 0186 only widens a CHECK constraint and
+stays. `scripts/rollback-0186-topup-intents.sql` narrows it again, and refuses while any top-up intent
 exists.
 
 ## Behaviour differences to know about (rule on)
@@ -153,7 +153,7 @@ exists.
 | `src/server/services/shop-wallet.ts` | `creditShopWalletTopUp(input, client?)` |
 | `src/server/config/rules.ts` | rule `topupPaymentIntents` |
 | schema / `payment-intent-states.ts` / `intents.ts` | the two purposes |
-| `drizzle/0185_topup_payment_intents.sql` | purpose CHECK widened (dynamic, re-runnable) |
+| `drizzle/0186_topup_payment_intents.sql` | purpose CHECK widened (dynamic, re-runnable) |
 | wallet top-up routes and the two top-up components | `redirectUrl` |
 | `tests/integration/topup-payment-intents.test.ts` | 13 cases: rule off; rule on (create, webhook, redelivery, status lookup, failure, late capture, reconcile job, shop recharge); old URL (forward, body-is-only-a-trigger, forged signature, older top-up in flight) |
 

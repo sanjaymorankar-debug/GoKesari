@@ -15,6 +15,7 @@
  *   - admin "close now" (operator refused, a month not over refused), paying a
  *     monthly draft tells the dealer as before; payout day validated; programme off
  */
+import { approvePayoutBatch } from "@/server/dealers/auto-payout";
 import { and, eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -57,6 +58,13 @@ import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 let admin: { id: string; email: string; name: string | null; role: "ADMIN" };
 
+/** Paying by hand needs a second admin's approval first (maker-checker). */
+let checker: { id: string; role: "ADMIN" };
+async function approveAndPay(batchId: string, reference: string) {
+  await approvePayoutBatch(batchId, checker);
+  return markPayoutPaid(batchId, reference, admin);
+}
+
 /** 5 Oct 2026, 06:00 IST — the daily job's first run on the payout day. */
 const PAYOUT_DAY = new Date("2026-10-05T06:00:00+05:30");
 const SEPT = "2026-09";
@@ -86,6 +94,7 @@ beforeEach(async () => {
   state.session = null;
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, email: a.email, name: a.name, role: "ADMIN" };
+  checker = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
   // Payout tests: the fixed ₹ amounts of the milestone rules model (the base % model is in dealer-base-commission.test.ts).
   await setCommissionSettings(
     { fixedBonusBase: "FEE", catalogueMinProducts: 1, branchEligible: false, payoutDayOfMonth: 5, autoApproveAtMonthEnd: false, commissionModel: "MILESTONE_RULES" },
@@ -96,9 +105,10 @@ beforeEach(async () => {
   await setFeatureFlag("dealer_rating_bonus_enabled", { enabled: false, districtCodes: null }, "no bonus (test)", admin);
 });
 
-async function newDealer(name = "Shree Sai") {
+/** An approved dealer, ready to be paid (PAN and a verified bank account), unless `over` says otherwise. */
+async function newDealer(name = "Shree Sai", over: Partial<typeof dealers.$inferInsert> = {}) {
   const user = await createUser({ role: "DEALER" });
-  const [dealer] = await db.insert(dealers).values({ userId: user.id, legalName: name, contactName: name, dealerType: "PROPRIETORSHIP", status: "APPROVED" }).returning();
+  const [dealer] = await db.insert(dealers).values({ userId: user.id, legalName: name, contactName: name, dealerType: "PROPRIETORSHIP", status: "APPROVED", panHash: `pan-${user.id}`, bankStatus: "VERIFIED", ...over }).returning();
   return { user, dealer };
 }
 
@@ -216,7 +226,7 @@ describe("the daily job closes the month on the payout day, once", () => {
     await approveEntries([a.entry.id], admin);
     await closeCommissionMonth("2026-08", admin, new Date("2026-09-05T06:00:00+05:30"));
     const [aug] = await batchesOf(dealer.id);
-    await markPayoutPaid(aug.id, "UTR-AUG-001", admin);
+    await approveAndPay(aug.id, "UTR-AUG-001");
     // Reversed in September after it was paid: ₹100 owed back.
     await reverseEntry(a.entry.id, "fee refunded to the shop", admin);
     await db.update(dealerCommissionLedger).set({ createdAt: IN_SEPT }).where(eq(dealerCommissionLedger.kind, "REVERSAL"));
@@ -282,7 +292,7 @@ describe("the statement", () => {
     await approveEntries([a.entry.id], admin);
     await runMonthlyDealerPayout(PAYOUT_DAY);
     const [batch] = await batchesOf(dealer.id);
-    await markPayoutPaid(batch.id, "UTR-SEPT-0001", admin);
+    await approveAndPay(batch.id, "UTR-SEPT-0001");
     expect(await notices(user.id, "dealer.payout_paid")).toHaveLength(1);
     const s = await dealerMonthStatement(dealer.id, SEPT);
     expect(s.payout).toMatchObject({ status: "PAID", paymentReference: "UTR-SEPT-0001" });
