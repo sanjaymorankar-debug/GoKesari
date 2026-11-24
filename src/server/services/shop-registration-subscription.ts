@@ -585,6 +585,8 @@ export async function createRegistrationLink(
  * is PAID, any other active link of the shop is cancelled (the money is in).
  */
 export async function markRegistrationLinksPaid(tx: DbClient, shopId: string, intentId: string): Promise<void> {
+  // Links are created from payment intents, whose ids are UUIDs; anything else has no link.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(intentId)) return;
   await tx
     .update(shopRegistrationLinks)
     .set({ status: "PAID", endedAt: new Date(), endReason: "paid" })
