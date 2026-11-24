@@ -78,6 +78,7 @@ import { shopServiceability, societyPartnerShopIds, withWalletGate } from "./ser
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { assertFulfilmentAllowsStatus } from "./fulfilment-guards";
 import { assertLegalDocsAllowOrders } from "./legal-documents";
+import { assertSellerUndertakingAllowsOrders } from "./seller-undertaking";
 import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
@@ -1049,6 +1050,8 @@ export async function updateOrderStatus(
     if (order.status === "CONFIRMED" && (newStatus === "ACCEPTED" || newStatus === "PREPARING")) {
       await assertShopMayAcceptOrders(order.shopId, tx);
       await assertLegalDocsAllowOrders(order.shopId);
+      // docs/seller-undertaking-2026-11: no NEW order until the owner accepts the fresh-goods undertaking (flag on).
+      await assertSellerUndertakingAllowsOrders(order.shopId);
     }
 
     const [updated] = await tx

@@ -564,6 +564,10 @@ export const grievanceCategoryEnum = pgEnum("grievance_category", [
 export const consentTypeEnum = pgEnum("consent_type", [
   "TERMS_AND_PRIVACY",
   "MARKETING_COMMUNICATIONS",
+  // docs/seller-undertaking-2026-11 (0187): a shop owner's undertaking to supply only fresh, non-expired,
+  // compliant goods, and their acceptance of the Seller Terms — each with its own version.
+  "SELLER_GOODS_UNDERTAKING",
+  "SELLER_TERMS",
 ]);
 
 /* ------------------------------------------------- auth (Auth.js managed) */
@@ -4842,6 +4846,10 @@ export const userConsents = pgTable(
     /** false = a withdrawal (DPDPA §6(4)). Every existing row was a grant. */
     granted: boolean("granted").notNull().default(true),
     ipAddress: text("ip_address"),
+    /** 0187: the shop the consent was given for (seller consents); null for every other consent. No FK (kept on shop deletion as evidence). */
+    shopId: uuid("shop_id"),
+    /** 0187: the browser / app that recorded the consent, as evidence of the act; null on older rows. */
+    userAgent: text("user_agent"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -4849,6 +4857,8 @@ export const userConsents = pgTable(
   (t) => [
     index("user_consents_user_idx").on(t.userId),
     index("user_consents_type_idx").on(t.consentType),
+    // 0187: "latest consent of this type for this user" (seller undertaking gate, read on every Seller Central page).
+    index("user_consents_user_type_created_idx").on(t.userId, t.consentType, t.createdAt),
   ],
 );
 
@@ -10605,6 +10615,8 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
+  // docs/seller-undertaking-2026-11 (0187): shop owners accept the fresh-goods undertaking before using Seller Central / accepting new orders. Seeded OFF.
+  "seller_undertaking_gate_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 

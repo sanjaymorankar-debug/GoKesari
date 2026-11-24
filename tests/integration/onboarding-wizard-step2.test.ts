@@ -223,7 +223,7 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     await expect(doc("UDYAM", UDYAM)).rejects.toMatchObject({ code: "CONFLICT" });
 
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "STEP_OPEN", nextStep: "OWNER" } });
+    await expect(submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "STEP_OPEN", nextStep: "OWNER" } });
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
   });
 
@@ -290,14 +290,14 @@ describe("Udyam and FSSAI checks", () => {
 describe("a food shop must give its FSSAI, and goes live only once it is verified", () => {
   it("a dairy with GSTIN and FSSAI verified goes live after payment", async () => {
     await walkToReview({ shopType: "DAIRY", udyam: false });
-    const view = await submitDraftForPayment({ actor: owner });
+    const view = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     await payInSandbox(view.shop!.id);
     expect(await shopRow(view.shop!.id)).toMatchObject({ status: "APPROVED", fssaiLicenseNumber: FSSAI, shopActNumber: null });
   });
 
   it("a dairy whose FSSAI check is still pending goes live after payment while the FSSAI rule is off (this file's default)", async () => {
     await walkToReview({ shopType: "DAIRY", udyam: false, fssai: "11521998009999" });
-    const view = await submitDraftForPayment({ actor: owner });
+    const view = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     expect(view.documents).toMatchObject({ missing: [], needsTeamApproval: false });
     await payInSandbox(view.shop!.id);
     expect((await shopRow(view.shop!.id)).status).toBe("APPROVED");
@@ -307,7 +307,7 @@ describe("a food shop must give its FSSAI, and goes live only once it is verifie
 describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 2026, 'follow the brief')", () => {
   it("GSTIN verified + payment: copied to seller_verifications, live without the Shop Act, email sent, then map → categories → products", async () => {
     await walkToReview();
-    const submitted = await submitDraftForPayment({ actor: owner });
+    const submitted = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     // Owner, 21-Nov-2026: the optional documents screen comes first; "Continue to payment" moves on.
     expect(submitted).toMatchObject({ status: "SUBMITTED", nextStep: "DOCUMENTS", shop: { status: "PENDING_APPROVAL", feePaymentStatus: "PENDING" } });
     expect(await finishDraftDocumentsStep({ actor: owner, promise: true })).toMatchObject({ nextStep: "PAYMENT" });
@@ -338,7 +338,7 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
     expect(await db.select().from(shopDeferredDocumentReviews).where(eq(shopDeferredDocumentReviews.shopId, shopId))).toHaveLength(0);
 
     // Submitting again (a double tap) changes nothing.
-    expect((await submitDraftForPayment({ actor: owner })).shop!.id).toBe(shopId);
+    expect((await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true })).shop!.id).toBe(shopId);
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(1);
 
     await payInSandbox(shopId);
@@ -364,7 +364,7 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
   it("the no-GSTIN route: PAN verified + declaration + payment → live automatically", async () => {
     const view = await walkToReview({ pan: PROPRIETOR_PAN, udyam: false, fssai: false });
     expect(view.documents).toMatchObject({ missing: [], canSubmit: true, needsTeamApproval: false });
-    const submitted = await submitDraftForPayment({ actor: owner });
+    const submitted = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     const shopId = submitted.shop!.id;
     const rows = await verifications(shopId);
     expect(rows.find((r) => r.docType === "PAN")).toMatchObject({ status: "VERIFIED" });
@@ -376,7 +376,7 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
 
   it("two taps at once (two tabs) create one shop, and both get the payment step", async () => {
     await walkToReview();
-    const [a, b] = await Promise.all([submitDraftForPayment({ actor: owner }), submitDraftForPayment({ actor: owner })]);
+    const [a, b] = await Promise.all([submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true }), submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true })]);
     expect(a.shop!.id).toBe(b.shop!.id);
     expect([a.nextStep, b.nextStep]).toEqual(["DOCUMENTS", "DOCUMENTS"]);
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(1);
@@ -386,7 +386,7 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
 describe("pending admin approval", () => {
   it("no payment: the shop is created but waits at the payment step, pending — and gets no orders (not live)", async () => {
     await walkToReview();
-    const { shop } = await submitDraftForPayment({ actor: owner });
+    const { shop } = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     expect(await shopRow(shop!.id)).toMatchObject({ status: "PENDING_APPROVAL", feePaymentStatus: "PENDING" });
     expect((await getWizardDraft(owner))!.nextStep).toBe("DOCUMENTS");
     await finishDraftDocumentsStep({ actor: owner, promise: true }); // "Upload later"
@@ -395,7 +395,7 @@ describe("pending admin approval", () => {
 
   it("a failed payment leaves the shop pending at the payment step; a retry that succeeds makes it live", async () => {
     await walkToReview();
-    const { shop } = await submitDraftForPayment({ actor: owner });
+    const { shop } = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     await finishDraftDocumentsStep({ actor: owner, promise: true });
     expect((await getWizardDraft(owner))!.shop!.lastPaymentFailed).toBe(false);
     await payInSandbox(shop!.id, "FAILURE");
@@ -410,7 +410,7 @@ describe("pending admin approval", () => {
 
   it("the payment step asks the gateway only about an attempt still open", async () => {
     await walkToReview();
-    const { shop } = await submitDraftForPayment({ actor: owner });
+    const { shop } = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     await finishDraftDocumentsStep({ actor: owner, promise: true });
     expect(await refreshLatestRegistrationFeeAttempt(shop!.id, owner.id)).toBe(false);
     await startRegistrationFeeCheckout(shop!.id, owner);
@@ -431,7 +431,7 @@ describe("pending admin approval", () => {
   it("a PAN name that does not match on the no-GSTIN route goes to review: may pay, then waits for an admin", async () => {
     const view = await walkToReview({ pan: "ABCPK7777L", udyam: false, fssai: false, ownerName: "Ramesh Kulkarni" });
     expect(view.documents).toMatchObject({ canSubmit: true, missing: ["PAN"] });
-    const { shop } = await submitDraftForPayment({ actor: owner });
+    const { shop } = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     expect((await verifications(shop!.id)).find((r) => r.docType === "PAN")).toMatchObject({ status: "MANUAL_REVIEW", lastErrorCode: "name_mismatch" });
     await payInSandbox(shop!.id);
     expect((await shopRow(shop!.id)).status).toBe("PENDING_APPROVAL");
@@ -444,7 +444,7 @@ describe("a refusal comes before the screens are filled in, not at the last step
 
   it("a shop still waiting: the referral, GSTIN and PAN steps refuse at once and name what to do", async () => {
     await walkToReview();
-    const { shop } = await submitDraftForPayment({ actor: owner });
+    const { shop } = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     const refused = { code: "CONFLICT", message: expect.stringContaining("still has its registration fee to pay"), details: { reason: "REGISTRATION_PENDING", shopId: shop!.id } };
     await expect(answerDraftReferral({ actor: owner, referralCode: null })).rejects.toMatchObject(refused);
     await expect(submitDraftGstin({ gstin: otherGstin(), consentGiven: true, actor: owner })).rejects.toMatchObject(refused);
@@ -459,7 +459,7 @@ describe("a refusal comes before the screens are filled in, not at the last step
 
   it("the same name at the same PIN is refused on the shop step; another name goes on", async () => {
     await walkToReview();
-    const { shop } = await submitDraftForPayment({ actor: owner });
+    const { shop } = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     await payInSandbox(shop!.id);
     expect((await shopRow(shop!.id)).status).toBe("APPROVED");
 

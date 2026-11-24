@@ -363,6 +363,8 @@ export async function registerInWizard(page: Page, input: { code: string | null;
   await page.getByTestId("shop-continue").click();
 
   await expect(page.getByRole("heading", { name: "Payment", exact: true })).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId("accept-seller-terms").check();
+  await page.getByTestId("accept-seller-undertaking").check();
   await page.getByTestId("create-and-pay").click();
   await page.waitForURL((u) => u.pathname.startsWith("/orders/pay/sandbox") || !u.pathname.startsWith("/shop/register"), { timeout: 45_000 });
   sandboxPathOf(page.url());

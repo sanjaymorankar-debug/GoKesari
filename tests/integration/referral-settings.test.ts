@@ -255,7 +255,7 @@ async function selfRegister(referralCode: string | undefined) {
   const mobile = uniqueMobile();
   await sendRegistrationOtp(`+91${mobile}`, null);
   const otp = await latestCode(`+91${mobile}`);
-  return createRegistration({ shopName: `Sai Kirana ${++counter}`, mobile, referralCode, tierCode: "BASIC", otp, acceptTerms: true }, "127.0.0.1");
+  return createRegistration({ shopName: `Sai Kirana ${++counter}`, mobile, referralCode, tierCode: "BASIC", otp, acceptTerms: true, acceptUndertaking: true }, "127.0.0.1");
 }
 
 function webhook(orderId: string) {

@@ -19,6 +19,8 @@ export const dynamic = "force-dynamic";
 const CONSENT_LABELS: Record<ConsentType, string> = {
   TERMS_AND_PRIVACY: "Terms & privacy policy",
   MARKETING_COMMUNICATIONS: "Marketing communications",
+  SELLER_GOODS_UNDERTAKING: "Seller undertaking (fresh goods)",
+  SELLER_TERMS: "Seller Terms",
 };
 
 const DECISIONS = [
@@ -87,7 +89,7 @@ function SummaryCard({ summary, policyVersion }: { summary: ConsentTypeSummary; 
     <Card className="p-5">
       <h3 className="mb-3 text-sm font-semibold text-ink-900">{CONSENT_LABELS[summary.consentType]}</h3>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Count label={`current (${policyVersion})`} value={summary.current} />
+        <Count label={`current (${summary.currentVersion ?? policyVersion})`} value={summary.current} />
         <Count label="on an older version" value={summary.stale} tone={summary.stale > 0 ? "warning" : undefined} />
         <Count label="withdrawn" value={summary.withdrawn} tone={summary.withdrawn > 0 ? "warning" : undefined} />
         <Count label="no record" value={summary.never} tone={summary.never > 0 ? "danger" : undefined} />

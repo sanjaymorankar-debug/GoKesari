@@ -10,6 +10,7 @@ import { useState } from "react";
 
 import { ReferralRequestDialog } from "@/components/referral-request-dialog";
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
+import { SELLER_UNDERTAKING_PROMISE } from "@/lib/legal/seller-undertaking";
 
 interface Tier {
   code: string;
@@ -39,6 +40,7 @@ export function JoinForm({ initialCode, referralRequired = true }: { initialCode
   const [tier, setTier] = useState("");
   const [otp, setOtp] = useState("");
   const [terms, setTerms] = useState(false);
+  const [undertaking, setUndertaking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
@@ -68,7 +70,7 @@ export function JoinForm({ initialCode, referralRequired = true }: { initialCode
     setBusy(true);
     setError(null);
     try {
-      const created = await post("/api/shop-registrations", { shopName, mobile, referralCode: code, tierCode: tier, otp, acceptTerms: terms });
+      const created = await post("/api/shop-registrations", { shopName, mobile, referralCode: code, tierCode: tier, otp, acceptTerms: terms, acceptUndertaking: undertaking });
       router.push(`/shop/join/${created.token}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -142,7 +144,14 @@ export function JoinForm({ initialCode, referralRequired = true }: { initialCode
               <a href="/legal/privacy-policy" target="_blank" className="underline">Privacy Policy</a>.
             </span>
           </label>
-          <Button type="submit" disabled={busy || !tier || otp.trim().length < 4 || !terms} className="w-full">
+          <label className="flex items-start gap-2 text-sm text-ink-700">
+            <input type="checkbox" checked={undertaking} onChange={(e) => setUndertaking(e.target.checked)} className="mt-1" data-testid="accept-seller-undertaking" />
+            <span>
+              {SELLER_UNDERTAKING_PROMISE}{" "}
+              <a href="/legal/seller-terms#seller-undertaking" target="_blank" className="underline">Read the undertaking</a>.
+            </span>
+          </label>
+          <Button type="submit" disabled={busy || !tier || otp.trim().length < 4 || !terms || !undertaking} className="w-full">
             {busy ? "Saving…" : "Continue to payment"}
           </Button>
           <div className="flex justify-between text-xs">
