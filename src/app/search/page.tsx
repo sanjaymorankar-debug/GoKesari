@@ -16,6 +16,9 @@ import { listStorefrontProducts } from "@/server/services/catalogue";
 import { searchShops } from "@/server/services/shops";
 import { nearbyOfferCounts } from "@/server/services/home-discovery";
 import { recordSearch } from "@/server/services/search-suggest";
+import { getPublicBrandBySlug, searchPublicBrands, type PublicBrand } from "@/server/services/brands";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { BBF } from "@/lib/brand-barcode-favourites-i18n";
 import { tr } from "@/lib/board/i18n";
 import { HOME } from "@/lib/home-i18n";
 
@@ -30,21 +33,23 @@ export const dynamic = "force-dynamic";
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; all?: string; view?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; all?: string; view?: string; page?: string; brand?: string }>;
 }) {
-  const { q, all, view, page: pageParam } = await searchParams;
+  const { q, all, view, page: pageParam, brand: brandParam } = await searchParams;
   const query = (q ?? "").trim();
   const user = await getCurrentUser();
   const location = await getCustomerLocation(user?.id);
   const nearOnly = Boolean(location) && all !== "1";
 
   const lang = await getBoardLang();
+  // docs/search-brand-barcode-favourites-2026-11: brand names match, ?brand=<slug> filters, hearts, scan.
+  const bbf = await isFeatureEnabled("brand_barcode_favourites_enabled").catch(() => false);
   if (!query) {
     return (
       <>
         <PageHeader title={tr(HOME.submitSearch, lang)} />
         {/* docs/homepage-uiux-2026-10 (F2): the phone header's search icon lands here — the search with suggestions, recent and trending. */}
-        <SearchBox lang={lang} signedIn={Boolean(user)} size="lg" autoFocus className="mb-4" />
+        <SearchBox lang={lang} signedIn={Boolean(user)} size="lg" autoFocus className="mb-4" barcodeScan={bbf} />
         <EmptyState
           illustration={<EmptyIllustration name="search" />}
           title={tr(HOME.searchStartTitle, lang)}
@@ -60,8 +65,22 @@ export default async function SearchPage({
 
   const distances = location ? await serviceableShopIds(location) : undefined;
   const shopIds = nearOnly && distances ? [...distances.keys()] : undefined;
+  const [activeBrand, matchingBrands]: [PublicBrand | null, PublicBrand[]] = bbf
+    ? await Promise.all([
+        brandParam ? getPublicBrandBySlug(brandParam).catch(() => null) : Promise.resolve(null),
+        searchPublicBrands(query, 4).catch(() => []),
+      ])
+    : [null, []];
+  // With a brand chosen, the query may be the brand's own name: "amul" + brand Amul = every Amul product.
+  const brandOwnsQuery = activeBrand != null && activeBrand.name.toLowerCase().includes(query.toLowerCase());
   const [products, foundShops, cartLines] = await Promise.all([
-    listStorefrontProducts({ query, shopIds, limit: 40 }),
+    listStorefrontProducts({
+      query: brandOwnsQuery ? undefined : query,
+      shopIds,
+      limit: 40,
+      ...(bbf ? { matchBrands: true } : {}),
+      ...(activeBrand ? { brandId: activeBrand.id } : {}),
+    }),
     searchShops({ query, ids: shopIds, limit: 12 }),
     user ? getCartLineQuantities(user.id) : null,
   ]);
@@ -74,7 +93,8 @@ export default async function SearchPage({
   const tab = view === "shops" && shops.length > 0 ? "shops" : products.length > 0 ? "products" : "shops";
   const productPage = paginate(products, tab === "products" ? pageParam : 1, 6);
   const shopPage = paginate(shops, tab === "shops" ? pageParam : 1, 6);
-  const base = `/search?q=${encodeURIComponent(query)}${all === "1" ? "&all=1" : ""}`;
+  const base = `/search?q=${encodeURIComponent(query)}${all === "1" ? "&all=1" : ""}${activeBrand ? `&brand=${encodeURIComponent(activeBrand.slug)}` : ""}`;
+  const unfiltered = `/search?q=${encodeURIComponent(query)}${all === "1" ? "&all=1" : ""}`;
   // "Compare N prices" on cards sold by two or more shops near the customer (F4).
   const compareCounts = distances ? await nearbyOfferCounts(productPage.rows.map((p) => p.productId), [...distances.keys()]) : undefined;
 
@@ -97,6 +117,37 @@ export default async function SearchPage({
         </p>
       ) : null}
 
+      {bbf && (activeBrand || matchingBrands.length > 0) ? (
+        <nav aria-label={tr(BBF.brands, lang)} className="mb-4 flex flex-wrap items-center gap-2" data-testid="search-brand-chips">
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-600">{tr(BBF.brands, lang)}</span>
+          {activeBrand ? (
+            <>
+              <span className="inline-flex min-h-9 items-center rounded-full bg-kesari-700 px-3 text-sm font-semibold text-white" data-testid="search-brand-active">
+                {tr(BBF.onlyBrand, lang)} {activeBrand.name}
+              </span>
+              <Link prefetch={false} href={unfiltered} className="inline-flex min-h-9 items-center rounded-full border border-cream-200 bg-white px-3 text-sm font-semibold text-ink-800 hover:bg-cream-100">
+                {tr(BBF.allBrands, lang)}
+              </Link>
+              <Link prefetch={false} href={`/brand/${encodeURIComponent(activeBrand.slug)}`} className="inline-flex min-h-9 items-center text-sm font-semibold text-kesari-700 hover:underline">
+                {tr(BBF.brandPage, lang)}
+              </Link>
+            </>
+          ) : (
+            matchingBrands.map((b) => (
+              <Link
+                key={b.id}
+                prefetch={false}
+                href={`${unfiltered}&brand=${encodeURIComponent(b.slug)}`}
+                className="inline-flex min-h-9 items-center rounded-full border border-cream-200 bg-white px-3 text-sm font-semibold text-ink-800 hover:bg-cream-100"
+                data-testid="search-brand-chip"
+              >
+                {b.name}
+              </Link>
+            ))
+          )}
+        </nav>
+      ) : null}
+
       {products.length > 0 || shops.length > 0 ? (
         <>
           {/* Products or shops, six at a time: the results used to run to several phone screens. */}
@@ -110,7 +161,7 @@ export default async function SearchPage({
             ]}
           />
           {tab === "products" ? (
-            <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compareCounts={compareCounts} />
+            <ProductGrid lang={lang} products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compareCounts={compareCounts} favourites={bbf} />
           ) : (
             <ShopGrid shops={shopPage.rows} />
           )}

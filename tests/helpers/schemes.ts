@@ -2,7 +2,7 @@
  * docs/dealer-platform: puts the seeded dealer schemes back to their state after migrations 0177–0179 (the seed
  * versions are not linked to users, so resetDatabase() leaves a test's changes behind):
  *   Free v1 and v2 SUPERSEDED, Free v3 PUBLISHED (owner 25-Nov-2026: 20% one-time, no monthly), Business / Growth
- *   Partner v1 PUBLISHED when listed in `open` (production keeps them SUSPENDED: 0190),
+ *   Partner v1 PUBLISHED when listed in `open` (production keeps them SUSPENDED: 0200),
  *   Territory Franchise v1 PUBLISHED; versions a test added are removed (and any scheme a test created).
  * `open` limits which dealership schemes are open to new applicants (the others go back to drafts).
  * `freeVersion: 1` puts Free version 1 back as the one new dealers get (the state before 0179): resetDatabase()

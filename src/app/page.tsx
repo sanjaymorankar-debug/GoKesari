@@ -41,7 +41,7 @@ export default async function HomePageRoute() {
   // Reads start together rather than one after another: each one is a round trip
   // to the database in Singapore (performance check, 29 Oct 2026). The account
   // reads are only wasted when rule `homeDiscovery` is off.
-  const [scanList, location, showReferral, lang, header, rule, [buyAgainRows, activeOrder, subscriptionId, cartCount]] = await Promise.all([
+  const [scanList, location, showReferral, lang, header, rule, [buyAgainRows, activeOrder, subscriptionId, cartCount], brandBarcodeFavourites] = await Promise.all([
     isFeatureEnabled("smart_list_scan_enabled").catch(() => false),
     getCustomerLocation(user?.id),
     user && referralCode ? canApplyReferralCode(user.id).catch(() => false) : false,
@@ -51,6 +51,8 @@ export default async function HomePageRoute() {
     user
       ? Promise.all([getBuyAgain(user.id, 6), getActiveOrder(user.id), getFirstActiveSubscriptionId(user.id), getCartItemCount(user.id).catch(() => 0)])
       : ([undefined, undefined, undefined, 0] as const),
+    // docs/search-brand-barcode-favourites-2026-11: barcode scan in the search box, Orders → Favourites.
+    isFeatureEnabled("brand_barcode_favourites_enabled").catch(() => false),
   ]);
 
   if (!rule.enabled) {
@@ -64,6 +66,7 @@ export default async function HomePageRoute() {
         timeZone={getEnv().APP_TIMEZONE}
         referralCode={showReferral ? referralCode : null}
         scanList={scanList}
+        favourites={brandBarcodeFavourites}
       />
     );
   }
@@ -139,11 +142,16 @@ export default async function HomePageRoute() {
         roles: header.roles,
         balancePaise: header.balancePaise,
         extraLinks: header.extraLinks,
-        params: { subscriptionId, activeOrderNumber: activeOrder?.orderNumber },
+        params: {
+          subscriptionId,
+          activeOrderNumber: activeOrder?.orderNumber,
+          ...(brandBarcodeFavourites ? { features: ["brand_barcode_favourites_enabled"] } : {}),
+        },
         unreadCount: header.unread,
         cartCount,
         locationLabel: header.locationLabel,
         savedAddresses: header.savedAddresses,
+        barcodeScan: brandBarcodeFavourites,
       }}
     />
   );

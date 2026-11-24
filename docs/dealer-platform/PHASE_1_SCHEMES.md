@@ -6,7 +6,7 @@ Owner brief "Unified Dealership & Franchise Management Platform" (23-Nov-2026). 
 ## Decisions in force (owner's answers, 25-Nov-2026)
 
 The defaults below were accepted on 23-Nov-2026 at 09.20 IST. On 25-Nov-2026 (about 01.30 IST) the owner
-answered each one again; migration 0190 applies the changes on both sites.
+answered each one again; migration 0200 applies the changes on both sites.
 
 | # | Decision (25-Nov-2026) | Was (23-Nov default) |
 |---|---|---|

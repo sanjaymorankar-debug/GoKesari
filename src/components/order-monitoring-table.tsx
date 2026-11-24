@@ -24,7 +24,23 @@ export interface MonitoringRow {
   /** QA D-121: "Tax invoice", "Bill of supply" or "Invoice" (not issued yet), from orderInvoiceLabel. */
   invoiceLabel?: string;
   proofPhotoUrl?: string | null;
+  /** Module 4: when the door photo was taken (ISO). */
+  proofPhotoAt?: string | null;
+  /** Module 4: the customer's signature, its time (ISO) and the signer's name. */
+  signatureUrl?: string | null;
+  signatureAt?: string | null;
+  signerName?: string | null;
+  /** Module 4 (rule deliveryProof.captureGps): where the rider delivered / failed — operations only. */
+  deliveryGps?: {
+    delivered: { latitude: number; longitude: number; accuracyM: number | null } | null;
+    failed: { latitude: number; longitude: number } | null;
+  } | null;
 }
+
+const proofTime = (iso: string) =>
+  new Date(iso).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Kolkata" });
+const mapLink = (p: { latitude: number; longitude: number }) =>
+  `https://www.google.com/maps/search/?api=1&query=${p.latitude.toFixed(6)},${p.longitude.toFixed(6)}`;
 
 const LIVE_DELIVERY = new Set(["OFFERED", "ACCEPTED", "PICKED_UP"]);
 /** Keep in step with the header row below. */
@@ -143,7 +159,24 @@ export function OrderMonitoringTable({
                           <p className="text-xs text-gray-500">{order.deliveryStatus?.replace(/_/g, " ").toLowerCase()}</p>
                           {order.proofPhotoUrl ? (
                             <a href={order.proofPhotoUrl} target="_blank" rel="noreferrer" className="block text-xs text-kesari-700 hover:underline">
-                              Photo at delivery
+                              Photo at delivery{order.proofPhotoAt ? ` · ${proofTime(order.proofPhotoAt)}` : ""}
+                            </a>
+                          ) : null}
+                          {order.signatureUrl ? (
+                            <a href={order.signatureUrl} target="_blank" rel="noreferrer" className="block text-xs text-kesari-700 hover:underline" data-testid="admin-order-signature">
+                              Signature{order.signerName ? ` (${order.signerName})` : ""}
+                              {order.signatureAt ? ` · ${proofTime(order.signatureAt)}` : ""}
+                            </a>
+                          ) : null}
+                          {order.deliveryGps?.delivered ? (
+                            <a href={mapLink(order.deliveryGps.delivered)} target="_blank" rel="noreferrer" className="block text-xs text-ink-600 hover:underline" data-testid="admin-delivered-gps">
+                              Delivered at {order.deliveryGps.delivered.latitude.toFixed(5)}, {order.deliveryGps.delivered.longitude.toFixed(5)}
+                              {order.deliveryGps.delivered.accuracyM != null ? ` (±${order.deliveryGps.delivered.accuracyM} m)` : ""}
+                            </a>
+                          ) : null}
+                          {order.deliveryGps?.failed ? (
+                            <a href={mapLink(order.deliveryGps.failed)} target="_blank" rel="noreferrer" className="block text-xs text-ink-600 hover:underline" data-testid="admin-failed-gps">
+                              Failed at {order.deliveryGps.failed.latitude.toFixed(5)}, {order.deliveryGps.failed.longitude.toFixed(5)}
                             </a>
                           ) : null}
                           {order.tripId ? (
