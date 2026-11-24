@@ -75,6 +75,7 @@ import { issuePlatformInvoice, issuePlatformNote, platformInvoicingStatus, type 
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { commissionOn } from "@/server/services/finance";
 import { financialYearOf } from "@/server/services/invoices";
+import { isServiceEarning, payoutDeductionsOn } from "@/server/tax/payout-deductions";
 import { getRule } from "@/server/services/settings";
 import { getShopWalletBalance } from "@/server/services/shop-wallet";
 import { istDay, sec95RestaurantOn, statutoryResolver, tcsOn, tdsOn, unregisteredRulesOn } from "@/server/statutory/rates";
@@ -156,7 +157,7 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
   const existing = await loadCycle(window.start);
   if (existing) return { ...existing, created: false };
 
-  const [platform, invoicingRule, shopWalletRule] = await Promise.all([platformInvoicingStatus(), getRule("platformInvoicing"), getRule("shopWallet")]);
+  const [platform, invoicingRule, shopWalletRule, deductServices] = await Promise.all([platformInvoicingStatus(), getRule("platformInvoicing"), getRule("shopWallet"), payoutDeductionsOn()]);
   const actor = options.actor;
 
   const outcome = await db.transaction(async (tx) => {
@@ -449,6 +450,25 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
       const base = { shopId: a.shopId, sourceType: "financial_adjustments", sourceId: a.id, occurredOn: day };
       if (a.type !== "REFUND_SHOP") {
         push({ ...base, lineType: "ADJUSTMENT", description: `Adjustment: ${a.reason}`, amountPaise: a.amountPaise, meta: { type: a.type } });
+        // docs/tax-register (0184): service earnings (appointments, rentals, prescriptions) carry TDS
+        // s.194-O on the gross, and TCS only where the CA's TCS row covers services (params.applyToServices).
+        if (deductServices && isServiceEarning(a)) {
+          const shop = shopById.get(a.shopId)!;
+          const registered = isGstRegistered(shop);
+          const unregRules = await unregisteredRulesOn(day, resolve);
+          const tcs = await tcsOn(day, resolve);
+          const tcsRow = tcs ? await resolve("GST_TCS_SEC52", day) : null;
+          if (tcs && tcsRow?.params.applyToServices === true && (registered || tcs.applyToUnregistered || unregRules.tcsOnUnregistered)) {
+            const amount = pctOf(a.amountPaise, tcs.rateBp);
+            push({ ...base, lineType: "TCS", description: `GST TCS s.52 ${(tcs.rateBp / 100).toFixed(2)}% on service: ${a.reason}`, amountPaise: -amount, basePaise: a.amountPaise, rateBp: tcs.rateBp, meta: { service: true, supply: "INTRA", ...splitTax(amount, "INTRA"), statutoryRowId: tcs.rowId, taxableFrom: "SERVICE_GROSS" } });
+          }
+          const tds = await tdsOn(day, resolve);
+          if (tds && (registered || unregRules.tdsOnUnregistered)) {
+            const pan = shopPan(shop);
+            const rateBp = pan ? tds.rateBp : tds.noPanRateBp;
+            push({ ...base, lineType: "TDS", description: `TDS ${tds.sectionLabel} ${(rateBp / 100).toFixed(2)}%${pan ? "" : " (no PAN)"} on service: ${a.reason}`, amountPaise: -pctOf(a.amountPaise, rateBp), basePaise: a.amountPaise, rateBp, meta: { service: true, section: tds.sectionLabel, panAvailable: Boolean(pan), statutoryRowId: tds.rowId } });
+          }
+        }
         continue;
       }
       push({ ...base, lineType: "REFUND", description: `Refund to customer: ${a.reason}`, amountPaise: a.amountPaise, meta: { orderId: a.orderId, customerRefundPaise: a.customerRefundPaise } });

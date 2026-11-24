@@ -5552,6 +5552,9 @@ export const riderPayouts = pgTable(
     adjustmentsPaise: bigint("adjustments_paise", { mode: "number" }).notNull(),
     /** gross + adjustments — what is paid. */
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** docs/tax-register (0184): TDS s.194C withheld from this payout (amountPaise is what is paid, after it). */
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp"),
     ...payoutLifecycleColumns(),
   },
   (t) => [
@@ -6728,6 +6731,10 @@ export const referralCommissions = pgTable(
     commissionType: text("commission_type", { enum: COMMISSION_TYPES }).notNull(),
     commissionValue: integer("commission_value").notNull(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** docs/tax-register (0184): TDS s.194H withheld when paid; netPaise is what is paid. */
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp"),
+    netPaise: bigint("net_paise", { mode: "number" }),
     status: text("status", { enum: ["ACCRUED", "APPROVED", "PAID", "REVERSED"] }).notNull().default("ACCRUED"),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -10555,6 +10562,8 @@ export const FEATURE_FLAG_KEYS = [
   "guest_cart_enabled",
   // docs/tax-register (0183): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
   "tax_register",
+  // docs/tax-register (0184): TDS / TCS withheld on every payout path. Missing row = OFF.
+  "payout_deductions",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
