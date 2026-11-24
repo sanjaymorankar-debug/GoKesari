@@ -1,6 +1,6 @@
 # HDMS — test execution and defect report (23-Nov-2026)
 
-Run locally against real PostgreSQL 17 (Postgres.app, database `gk_hdms_test`, all migrations to 0190),
+Run locally against real PostgreSQL 17 (Postgres.app, database `gk_hdms_test`, all migrations to 0183),
 Node 24, vitest 4. Partner calls go to the in-process sandbox simulator (MOCK); no real delivery partner API
 is reachable or integrated. Screens checked by hand on a local dev server (`gk_hdms_dev`) as an admin.
 
@@ -37,7 +37,7 @@ is reachable or integrated. Screens checked by hand on a local dev server (`gk_h
 Also checked by hand (local dev server, admin): dashboard figures, active list, booking detail, simulate
 PICKED_UP → order PICKED_UP, simulate DELIVERED on a COD order → order DELIVERED through the existing
 completion path (no server errors), all 15 sections render (HTTP 200), phone width 375 px without page-level
-horizontal scroll. Migration 0190 re-run (no error, no duplicate seed rows); rollback script then re-apply.
+horizontal scroll. Migration 0183 re-run (no error, no duplicate seed rows); rollback script then re-apply.
 
 ## Regression
 
@@ -54,5 +54,9 @@ REGRESSION_RESULT_PLACEHOLDER
 | D-05 | Admin pages failed lint (`Date.now()` during render) | Low | time window computed in the component | moved into the read-model functions | PASSED |
 
 Risk R-1 (not a defect, documented): drizzle applies only migrations whose journal `when` is above the last one
-applied. 0190 uses 1793270000000; any branch merged later must use a higher value (the dealer-platform
-migrations 0177–0181 use lower ones — if PR #503 merges after this PR, its timestamps must be raised first).
+applied, and `tests/unit/migration-journal.test.ts` needs consecutive idx. Migration renumbered 0190 → 0183
+(idx 183, `when` 1793269300000) on 23-Nov after #503 (0177–0181) reached staging; subscription plans #509 holds
+0182. This PR therefore needs #509 merged first; until then its CI journal test is red by design.
+
+D-06 | Admin / operator menu-count test failed (`tile-board.test.ts`) | Low (test) | the new Delivery management hub
+(+1 admin hub, +7 admin board items, +1 operator item) | counts updated with a dated note | PASSED (43/43).

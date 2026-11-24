@@ -1,7 +1,7 @@
 # GoKesari Hyperlocal Delivery Management System (HDMS)
 
 Owner brief: 23-Nov-2026 ("Master development prompt — HDMS"). Branch `feat/hdms-delivery-2026-11-23`, cut
-from `origin/staging` at `616c59d0`. Migration `0190_hdms_delivery` (rollback `scripts/rollback-0190.sql`).
+from `origin/staging` at `616c59d0`. Migration `0183_hdms_delivery` (rollback `scripts/rollback-0183.sql`).
 Flag **`hdms_enabled`** (OFF while its row is missing — production and staging stay exactly as today until
 it is switched on in Admin → Settings → Feature flags).
 
@@ -82,7 +82,7 @@ OUT_FOR_DELIVERY; DELIVERED → DELIVERED; failed or cancelled before pickup →
 partner is tried (the same partner is not retried); failed after pickup → FAILED; RETURNED → RETURNED. Partner
 updates are recorded as the shop's (the shop handed the parcel over) with the partner and reference in the note.
 
-## 4. Database (migration 0190, additive, re-runnable)
+## 4. Database (migration 0183, additive, re-runnable)
 
 New tables: `delivery_providers` (seeded: SHADOWFAX, PIDGE, PORTER, BORZO — off, not integrated; MOCK —
 sandbox simulator, off), `delivery_zones` (seeded: Baner, Aundh, Balewadi, Wakad, Hinjawadi, Kharadi, Viman
@@ -97,7 +97,7 @@ one live booking per order; unique provider + reference; unique idempotency key)
 Not created (already covered): rider tables, rider documents, availability, assignments (`delivery_orders`),
 configuration (`platform_settings` rule `deliveryAllocation`).
 
-Journal `when` = 1793270000000, above every in-flight branch (dealer platform 0176–0181 end at 1793269100000).
+Journal idx 183, `when` = 1793269300000: after the dealer platform (0177–0181, last 1793269100000) and subscription plans (#509, 0182, 1793269200000). The journal test needs consecutive idx, so this PR merges after #509.
 **If another branch with a lower `when` merges after this one, its migrations would be skipped by drizzle — the
 later of the two must take a higher `when`.**
 
@@ -146,13 +146,13 @@ is listed in §11.
 
 ## 8. Deployment
 
-Staging: PR into `staging` labelled `ready-for-staging`; the staging queue runs CI, migration 0190, deploy,
+Staging: PR into `staging` labelled `ready-for-staging`; the staging queue runs CI, migration 0183, deploy,
 post-deploy check and guest QA. After it is verified, on staging: Admin → Delivery providers → Sandbox simulator
 → set a webhook secret, enable; switch `hdms_enabled` on; walk a ready order through (no rider online → partner
 booked → Simulate events). Production: only in the 23.00 IST release window, one release at a time
 (DEPLOYMENT.md §3), with `hdms_enabled` left **off** — production has no integrated partner to book, so the
 switch stays off until a real partner is integrated and approved. Rollback: switch the flag off (instant);
-code rollback through the normal redeploy; schema rollback `scripts/rollback-0190.sql` only after exporting
+code rollback through the normal redeploy; schema rollback `scripts/rollback-0183.sql` only after exporting
 partner bookings (it drops only HDMS tables and the 6 added columns).
 
 ## 11. Open items (owner / external)
