@@ -135,6 +135,13 @@ export function WalletView({
         return;
       }
 
+      // PAY-2: a top-up through a payment intent on a hosted page (e.g. the sandbox gateway).
+      // The payment return page shows the result; the wallet is credited server-side.
+      if (intent.redirectUrl && !intent.paymentSessionId) {
+        window.location.assign(intent.redirectUrl);
+        return;
+      }
+
       // Live gateway: open the actual Cashfree widget and wait for it to
       // close (payment completed or cancelled), then ask the server to
       // independently confirm with Cashfree whether it was actually paid.

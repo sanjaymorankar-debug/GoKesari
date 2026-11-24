@@ -34,7 +34,7 @@ import { getGatewayByName, parseGatewayName, sandboxAllowed } from "./gateway/re
 import type { GatewayOrderState, GatewayWebhookEvent, PaymentGateway } from "./gateway/types";
 import { flagPaymentForSupport, lockIntent, toIntentRef, transitionIntent, type IntentSource } from "./intent-store";
 import { getPaymentIntentRow, settleRefund, submitRefund } from "./intents";
-import { CAPTURED_HANDLERS } from "./purpose-handlers";
+import { CAPTURED_HANDLERS, LATE_CAPTURE_HANDLERS } from "./purpose-handlers";
 
 export type ApplyOutcome = "MOVED" | "NO_CHANGE" | "AMOUNT_MISMATCH" | "LATE_CAPTURE" | "NOT_FOUND";
 
@@ -91,6 +91,11 @@ export async function applyGatewayState(
 
     if (state.status === "CAPTURED") {
       if (row.status === "FAILED" || row.status === "EXPIRED") {
+        // PAY-2: a purpose that can still settle a late payment (a top-up is simply credited).
+        const late = LATE_CAPTURE_HANDLERS[row.purpose];
+        if (late && (await late(row, { amountPaise: state.amountPaise, gatewayPaymentId: state.gatewayPaymentId }, tx, (task) => void tasks.push(task)))) {
+          return { outcome: "LATE_CAPTURE" as const, status: row.status };
+        }
         // Money taken after we had given up on the attempt (and released the order).
         await flagPaymentForSupport(
           tx,

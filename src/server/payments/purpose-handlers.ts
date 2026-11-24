@@ -60,4 +60,28 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   // A paid scheme's joining charge: marked paid in the capture transaction; the applicant then submits.
   DEALER_JOINING_FEE: async (intent, client) => (await import("@/server/dealers/scheme-registration")).onJoiningFeeCaptured(intent, client),
   /* <<< dealer platform */
+  //
+  /* >>> PAY-2 top-ups via payment intents (docs/payments-topups-via-intents-2026-11) */
+  // The payments row → SUCCESS and the wallet credit commit with the capture; the notice and voucher bonus run after it.
+  WALLET_TOPUP: async (intent, client, afterCommit) => (await import("./topup-intents")).onTopUpCaptured(intent, client, afterCommit),
+  SHOP_WALLET_TOPUP: async (intent, client, afterCommit) => (await import("./topup-intents")).onTopUpCaptured(intent, client, afterCommit),
+  /* <<< PAY-2 */
+};
+
+/**
+ * PAY-2: money the gateway took after an attempt had FAILED / EXPIRED. Without
+ * an entry support is told (payment.attention) and nothing else happens; with
+ * one, the purpose may still settle it (a top-up is credited). Returns true
+ * when it did, so support is not alerted.
+ */
+export type LateCaptureHandler = (
+  intent: import("@/server/db/schema").PaymentIntentRow,
+  captured: { amountPaise: number; gatewayPaymentId: string | null },
+  client: DbClient,
+  afterCommit: AfterCommit,
+) => Promise<boolean>;
+
+export const LATE_CAPTURE_HANDLERS: Partial<Record<PaymentPurpose, LateCaptureHandler>> = {
+  WALLET_TOPUP: async (intent, captured, client, afterCommit) => (await import("./topup-intents")).onTopUpLateCapture(intent, captured, client, afterCommit),
+  SHOP_WALLET_TOPUP: async (intent, captured, client, afterCommit) => (await import("./topup-intents")).onTopUpLateCapture(intent, captured, client, afterCommit),
 };

@@ -48,6 +48,11 @@ export function ShopWalletTopUp({
     setNotice(null);
     try {
       const intent = await post(`/api/shops/${shopId}/wallet/topup`, { amountPaise });
+      if (intent.redirectUrl && !intent.paymentSessionId) {
+        // PAY-2: a recharge through a payment intent on a hosted page; the return page shows the result.
+        window.location.assign(intent.redirectUrl);
+        return;
+      }
       if (intent.mock) {
         await post("/api/dev/settle-topup", { gatewayOrderId: intent.gatewayOrderId });
       } else {
