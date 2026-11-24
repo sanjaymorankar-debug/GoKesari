@@ -89,6 +89,15 @@ export function browserCanRead(): boolean {
   );
 }
 
+/**
+ * Onboarding WP10 (scan-first): starts loading the reading model in the background so the first
+ * photo is read without the ~5 MB wait. Never throws; a failure just leaves the first read to load it.
+ */
+export function preloadBrowserOcr(): void {
+  if (!browserCanRead()) return;
+  void browserWorker().catch(() => undefined);
+}
+
 export async function readInBrowser(file: Blob): Promise<BrowserRead | null> {
   if (!file.type.startsWith("image/") || !browserCanRead()) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;

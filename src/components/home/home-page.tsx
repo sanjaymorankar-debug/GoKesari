@@ -137,7 +137,7 @@ function JoinCards({ lang }: { lang: Lang }) {
   );
 }
 
-export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNavProps & { unreadCount: number; cartCount: number; locationLabel: string | null; savedAddresses: { id: string; label: string }[] }; data: HomePageData }) {
+export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNavProps & { unreadCount: number; cartCount: number; locationLabel: string | null; savedAddresses: { id: string; label: string }[]; barcodeScan?: boolean }; data: HomePageData }) {
   const signedIn = Boolean(header.user);
   const popularTitle =
     data.popular.scope === "area"

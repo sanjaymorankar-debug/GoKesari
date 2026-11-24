@@ -243,6 +243,8 @@ export async function setStockThresholds(
     stockAlertsDisabled?: boolean;
   },
   actor: Actor,
+  /** Module 10: the route's requireShopPermission let this shop's staff member in (inventory.edit). */
+  options: { staffAuthorised?: boolean } = {},
 ): Promise<ShopProduct> {
   const current = await db.query.shopProducts.findFirst({
     where: and(eq(shopProducts.id, shopProductId), isNull(shopProducts.deletedAt)),
@@ -251,7 +253,7 @@ export async function setStockThresholds(
 
   const shop = await db.query.shops.findFirst({ where: (s, { eq: e }) => e(s.id, current.shopId) });
   if (!shop) throw notFound("Shop");
-  if (shop.ownerId !== actor.id && actor.role !== "ADMIN" && actor.role !== "OPERATOR") {
+  if (shop.ownerId !== actor.id && actor.role !== "ADMIN" && actor.role !== "OPERATOR" && !options.staffAuthorised) {
     throw forbidden("This shop does not belong to you.");
   }
 
@@ -511,10 +513,12 @@ export async function setShopStockDefaults(
   shopId: string,
   input: { lowStockThreshold?: number; reorderLevel?: number | null; reorderQuantity?: number | null },
   actor: Actor,
+  /** Module 10: the route's requireShopPermission let this shop's staff member in (inventory.edit). */
+  options: { staffAuthorised?: boolean } = {},
 ): Promise<void> {
   const shop = await db.query.shops.findFirst({ where: (s, { eq: e }) => e(s.id, shopId) });
   if (!shop) throw notFound("Shop");
-  if (shop.ownerId !== actor.id && actor.role !== "ADMIN" && actor.role !== "OPERATOR") {
+  if (shop.ownerId !== actor.id && actor.role !== "ADMIN" && actor.role !== "OPERATOR" && !options.staffAuthorised) {
     throw forbidden("This shop does not belong to you.");
   }
   if (input.lowStockThreshold != null && (!Number.isInteger(input.lowStockThreshold) || input.lowStockThreshold < 0)) {
