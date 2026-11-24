@@ -7203,6 +7203,13 @@ export const shopDeliveryStaff = pgTable(
     phoneE164: text("phone_e164").notNull(),
     isActive: boolean("is_active").notNull().default(true),
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    /** docs/hdms-2026-11 (0189): on duty today; ID proof (last 4 digits only, image in stored_images). */
+    isAvailable: boolean("is_available").notNull().default(true),
+    vehicleType: text("vehicle_type"),
+    idDocumentType: text("id_document_type"),
+    idDocumentLast4: text("id_document_last4"),
+    idDocumentImageId: uuid("id_document_image_id"),
+    kycStatus: text("kyc_status").$type<"NOT_SUBMITTED" | "SUBMITTED" | "VERIFIED" | "REJECTED">().notNull().default("NOT_SUBMITTED"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -10698,6 +10705,8 @@ export const FEATURE_FLAG_KEYS = [
   "tax_register",
   // docs/tax-register (0188): TDS / TCS withheld on every payout path. Missing row = OFF.
   "payout_deductions",
+  // docs/hdms-2026-11 (0189): delivery allocation engine + external delivery partners. Missing row = OFF.
+  "hdms_enabled",
   // docs/identity-verification-2026-11 (0187): one-time identity check (Aadhaar by DigiLocker or PAN), switched
   // separately for customers (first checkout) and shop owners (go-live, order acceptance, grace). Both seeded OFF.
   "identity_verification_customers_enabled",
@@ -13198,4 +13207,5 @@ export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
+export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
 /* <<< GoKesari Health */

@@ -211,7 +211,8 @@ describe("menu definitions", () => {
     expect(CUSTOMER_MENUS).toHaveLength(6);
     expect(CUSTOMER_CATEGORIES).toHaveLength(9);
     expect(SHOP_MENUS).toHaveLength(16);
-    expect(ADMIN_MENUS).toHaveLength(9);
+    // HDMS (docs/hdms-2026-11): admin +1, the "Delivery management" hub.
+    expect(ADMIN_MENUS).toHaveLength(10);
     // The brief's six operator menus plus "Catalogue", the one home for the catalogue tools operators already had.
     expect(OPERATOR_MENUS.map((m) => m.key)).toEqual(["onboarding", "orderSupport", "riders", "societies", "vouchers", "tickets", "catalogue"]);
     // Shop +2: Inventory → "Bills & GST" (docs/inventory-accounting-2026-10) and Bulk upload (Excel/CSV)
@@ -232,8 +233,10 @@ describe("menu definitions", () => {
     // only Shop and Product, so Puja Samagri, Consultants and Health leave the board (admin -3, operator -3) and
     // operator Catalogue shows Shop categories and Product categories on the board (+2, from "more").
     // Smart shopping dashboard (docs/smart-shopping-2026-11): admin +1, Reports → "Smart shopping" (operator: under Order support → more).
-    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
-    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(28);
+    // HDMS (docs/hdms-2026-11): admin +7, the Delivery management hub's board items (the rest under "more").
+    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(46);
+    // HDMS: operator +1, Riders → "Partner deliveries".
+    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(29);
   });
 
   it("keep every group to at most seven entries on the board (Hick's law)", () => {
