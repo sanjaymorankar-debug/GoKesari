@@ -92,6 +92,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/favourites", // docs/search-brand-barcode-favourites-2026-11: the customer's favourites list
   "/wa", // docs/customer-whatsapp-2026-11: cart links sent on WhatsApp (/wa/cart)
   "/track", // docs/guest-checkout-2026-11: order tracking without sign-in (/track, /track/<token>)
+  "/account", // docs/account-deletion-2026-11: restore an account during its 90-day cooling-off (/account/restore)
 ];
 
 /**
