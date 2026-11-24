@@ -83,6 +83,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
   dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
   guest_cart_enabled: "Guests can fill a cart; sign-in only at Place order",
+  hdms_enabled: "Delivery management: allocation engine and delivery partners (Shadowfax, Pidge, Porter, Borzo)",
   sms_otp_signin_customers_enabled: "Customers: email + SMS code at sign-in",
   sms_otp_signin_shop_owners_enabled: "Shop owners: email + SMS code at sign-in",
 };
@@ -149,6 +150,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
   guest_cart_enabled:
     "docs/guest-cart-2026-11 (owner, 23-Nov-2026): a shopper who is not signed in can tap Add to cart and open the cart. The guest cart is kept only in their browser (up to 50 items, 7 days); nothing is saved on the server. Place order asks them to sign in, then moves the items into their account cart (quantities added, capped at stock) and returns to checkout. Off: Add to cart asks for sign-in first, as before.",
+  hdms_enabled:
+    "docs/hdms-2026-11: when no shop rider or GoKesari rider takes a ready order, the allocation engine books an enabled delivery partner (Admin → Delivery management). Off: dispatch works exactly as before; the admin pages stay readable.",
   sms_otp_signin_customers_enabled:
     "docs/sms-2fa-2026-11 (Admin → Sign-in security): after the emailed code, a CUSTOMER account also enters a code sent by SMS to its mobile; an account without a verified mobile adds and verifies one then. Google and the emailed link ask for it too. Works only while SMS codes can be sent (SMS_PROVIDER=msg91 with the DLT keys, or mock on the test site, and rule otp.smsEnabled); otherwise sign-in stays email-only, so nobody is locked out. Off: email only at once; verified numbers stay verified. Keep OFF on gokesari.com until MSG91 and DLT are live.",
   sms_otp_signin_shop_owners_enabled:

@@ -1,6 +1,23 @@
--- Rollback for 0189_sms_two_factor (SMS sign-in code flags, checkout step-up column).
--- Before running: deploy the previous release's code. Then delete the 0189 row.
-DELETE FROM "feature_flag_changes" WHERE "flag_key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DELETE FROM "feature_flags" WHERE "key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DROP INDEX IF EXISTS "login_otps_user_purpose_consumed_idx";
-ALTER TABLE "login_otps" DROP COLUMN IF EXISTS "step_up_request_id";
+-- Rollback of drizzle/0189_hdms_delivery.sql. Switch hdms_enabled off first.
+-- Drops only what 0189 added. Export delivery_bookings / delivery_events / delivery_settlements first if they
+-- hold real deliveries: orders, delivery_orders, rider and wallet tables are never touched.
+DROP TABLE IF EXISTS "delivery_reconciliation_lines";
+DROP TABLE IF EXISTS "delivery_settlements";
+DROP TABLE IF EXISTS "delivery_api_logs";
+DROP TABLE IF EXISTS "delivery_webhook_logs";
+DROP TABLE IF EXISTS "delivery_quotes";
+DROP TABLE IF EXISTS "delivery_allocation_runs";
+DROP TABLE IF EXISTS "delivery_events";
+DROP TABLE IF EXISTS "delivery_bookings";
+DROP TABLE IF EXISTS "delivery_pricing_rules";
+DROP TABLE IF EXISTS "delivery_zones";
+DROP TABLE IF EXISTS "delivery_providers";
+DROP TABLE IF EXISTS "product_delivery_attributes";
+ALTER TABLE "shop_delivery_staff" DROP CONSTRAINT IF EXISTS "shop_delivery_staff_kyc_status_chk";
+ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "kyc_status";
+ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "id_document_image_id";
+ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "id_document_last4";
+ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "id_document_type";
+ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "vehicle_type";
+ALTER TABLE "shop_delivery_staff" DROP COLUMN IF EXISTS "is_available";
+DELETE FROM "feature_flags" WHERE "key" = 'hdms_enabled';
