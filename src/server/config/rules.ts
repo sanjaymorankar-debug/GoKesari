@@ -2066,6 +2066,50 @@ export const RULES = {
     },
   },
   /* <<< smart-shopping */
+  /* >>> hdms-2026-11 (delivery management) — add entries below this line only */
+  deliveryAllocation: {
+    description:
+      "Delivery allocation engine (docs/hdms-2026-11; needs flag hdms_enabled). Order of preference between the shop's own riders, GoKesari riders and external delivery partners; when to fall back to a partner; how quotes are compared (fee, ETA, reliability — never price alone); and the promised ETA by distance shown to customers. Partners are tried only if enabled in Admin → Delivery → Providers and their zone is active.",
+    schema: z.object({
+      /** Channels in order of preference. EXTERNAL means every enabled partner, ranked by score. */
+      channelOrder: z.array(z.enum(["SHOP_RIDER", "GOKESARI_RIDER", "EXTERNAL"])).min(1).max(3),
+      /** Book a partner after this many failed GoKesari rider attempts (0 = as soon as nobody is free). */
+      externalAfterRiderAttempts: int(0, 50),
+      /** Score weights (any scale; normalised). */
+      weightFee: z.number().min(0).max(100),
+      weightEta: z.number().min(0).max(100),
+      weightReliability: z.number().min(0).max(100),
+      /** A partner with reliability below this (percent) is skipped. */
+      minReliabilityPercent: int(0, 100),
+      /** How long to wait for all partner quotes (ms). */
+      quoteTimeoutMs: int(500, 30_000),
+      /** Circuit breaker: this many failures in a row stop calls to the partner for cooldownSeconds. */
+      circuitFailureThreshold: int(1, 50),
+      circuitCooldownSeconds: int(10, 3600),
+      /** Promised ETA bands by distance (km upper bound → minutes). Used when no better estimate is known. */
+      etaBands: z.array(z.object({ upToKm: z.number().min(0.5).max(50), minMinutes: int(5, 240), maxMinutes: int(5, 300) })).min(1).max(10),
+      /** Extra minutes on top of the shop's preparation time before pickup. */
+      pickupBufferMinutes: int(0, 60),
+    }),
+    defaults: {
+      channelOrder: ["SHOP_RIDER", "GOKESARI_RIDER", "EXTERNAL"],
+      externalAfterRiderAttempts: 3,
+      weightFee: 40,
+      weightEta: 40,
+      weightReliability: 20,
+      minReliabilityPercent: 60,
+      quoteTimeoutMs: 6000,
+      circuitFailureThreshold: 5,
+      circuitCooldownSeconds: 300,
+      etaBands: [
+        { upToKm: 2, minMinutes: 20, maxMinutes: 35 },
+        { upToKm: 4, minMinutes: 30, maxMinutes: 45 },
+        { upToKm: 6, minMinutes: 40, maxMinutes: 60 },
+      ],
+      pickupBufferMinutes: 5,
+    },
+  },
+  /* <<< hdms-2026-11 */
   accountDeletion: {
     description:
       "Self-service account deletion (docs/account-deletion-2026-11; owner 23-Nov-2026). coolingOffDays: after the person confirms, the account is hidden (cannot sign in except to restore it, not shown to anyone else; admins see it as \"Under cooling period\") and is anonymised by the daily job this many days later (90 = 3 months). retentionYears: how long each class of record that is kept after deletion must be held, as per law — Income-tax Act s.44AA + Rule 6F (books, 8 years from the end of the assessment year; TDS records), CGST Act s.36 (72 months from the annual return due date), the longer one applying; DPDP Act 2023 s.8(7) requires erasure once the purpose is served unless a law requires retention. Informational for now: no job purges retained records yet (needs owner / legal sign-off).",

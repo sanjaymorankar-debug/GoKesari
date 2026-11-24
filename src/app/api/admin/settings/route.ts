@@ -13,8 +13,10 @@ import { validationFailed } from "@/lib/errors";
 import { RULES, type RuleKey } from "@/server/config/rules";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requireRole } from "@/server/authz/guards";
-import { listRules, resetRule, setRule } from "@/server/services/settings";
+import { getRule, listRules, resetRule, setRule } from "@/server/services/settings";
 import { fourEyeAdminOn, requestFourEye, FOUR_EYE_TYPES } from "@/server/approvals";
+import { changedTaxFields, isTaxRuleKey } from "@/server/tax-register/rules";
+import { refuseDirectTaxEdit } from "@/server/tax-register/changes";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,11 @@ export const PUT = route(async (request: NextRequest) => {
   const body = await parseBody(request, putSchema);
   // Owner, 21-Nov-2026: a territory and a franchise are the same thing — territories are sold and paid only as
   // franchise zones (Admin → Franchise), so the older territory rule cannot be switched back on (no double recurring).
+  // docs/tax-register: with tax_register on, the tax fields of a setting change only through the register.
+  if (isTaxRuleKey(body.key)) {
+    const changed = changedTaxFields(body.key, (await getRule(body.key as RuleKey)) as Record<string, unknown>, body.value);
+    if (changed.length) await refuseDirectTaxEdit(`${body.key} (${changed.join(", ")})`);
+  }
   if (body.key === "territoryDealer" && body.value.enabled === true) throw validationFailed("Territories are now franchise zones: sell and manage them in Admin → Franchise.");
   // docs/rbac: with rbac_v2_four_eye_admin on, a second admin approves rule changes (thresholds, fees, charges) first.
   if (await fourEyeAdminOn()) {
@@ -52,6 +59,7 @@ export const DELETE = route(async (request: NextRequest) => {
   const admin = await requireRole("ADMIN");
   const key = new URL(request.url).searchParams.get("key");
   if (!key || !(key in RULES)) throw validationFailed("Unknown setting.");
+  if (isTaxRuleKey(key)) await refuseDirectTaxEdit(`Resetting ${key}`);
   if (await fourEyeAdminOn()) {
     return ok(
       await requestFourEye(FOUR_EYE_TYPES.RULE_RESET, admin, { subjectType: "rule", subjectId: key, title: `Reset setting ${key} to defaults`, reason: `Setting ${key} reset`, payload: { key } }),

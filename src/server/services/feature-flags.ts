@@ -76,6 +76,8 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_staff_roles: "Staff roles: CA, Accountant, Support and Operations boards",
   rbac_v2_four_eye_admin: "Two-admin approval for user, role, suspension and flag changes",
   rbac_v2_accounting: "Accounting: journal entries, period close, rate proposals",
+  tax_register: "Tax register: Accountant proposes, CA approves tax settings",
+  payout_deductions: "TDS / TCS withheld on every payout (riders, referrals, services)",
   rbac_v2_support: "Support desk: manager queue and Support Users",
   rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
@@ -87,6 +89,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   onboarding_assisted_mode_enabled: "Shop registration: dealer / operator fills in the wizard for the owner",
   onboarding_scan_first_enabled: "Shop registration: open the document scan first on phones",
   guest_cart_enabled: "Guests can fill a cart; sign-in only at Place order",
+  hdms_enabled: "Delivery management: allocation engine and delivery partners (Shadowfax, Pidge, Porter, Borzo)",
   guest_checkout_enabled: "Guest checkout: order with a one-time code, track without signing in",
   account_self_deletion_enabled: "Self-service account deletion from My Profile",
 };
@@ -143,6 +146,10 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   rbac_v2_four_eye_admin:
     "docs/rbac: role changes, suspensions, reactivations and flag changes made by one admin wait for a different admin to approve (Admin → Approvals). While fewer than two admins are active, the Super Admin may approve alone; each such approval is marked and e-mailed. Emergency suspension still applies at once and must be confirmed within 24 hours. Off: every admin acts alone, as today.",
   rbac_v2_accounting: "docs/rbac Phase 3: Accountant drafts → CA approves journal entries; periods; Accountant → CA → Admin rate changes. Existing rate screens are unchanged.",
+  tax_register:
+    "docs/tax-register: the Accountant proposes changes to tax settings (statutory TCS / TDS rows, TDS on commission, GST rules, HSN rates, product GST, tax fields of the settings) and answers questions for the CA; the CA approves (never their own) and the change is applied. On: those settings are changed only through the register (direct edits on the admin screens are refused). Off: the register screens work, and the admin screens edit directly as today.",
+  payout_deductions:
+    "docs/tax-register/PAYOUT_DEDUCTIONS.md: weekly rider payouts deduct TDS s.194C (rule riderPayouts), referral commissions deduct TDS s.194H (statutory row IT_TDS_194H) when paid, and the payout cycle deducts TDS s.194-O (and TCS where the CA's row covers services) on appointment, rental and prescription earnings. Shops are then paid only through the payout cycle (the weekly shop settlement refuses). On gokesari.com a deduction whose rate the CA has not approved holds the payout. Off: as before.",
   rbac_v2_support: "docs/rbac Phase 4: the Support Manager's queue and the Support User's assigned work.",
   rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
   rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",
@@ -161,6 +168,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/onboarding-waves-2-3-2026-11 (WP10): on a phone the wizard's Verify screen opens the GST / PAN photo scan first and loads the reading model in the background. Typing the number stays one tap away. Off: the scan stays folded as today.",
   guest_cart_enabled:
     "docs/guest-cart-2026-11 (owner, 23-Nov-2026): a shopper who is not signed in can tap Add to cart and open the cart. The guest cart is kept only in their browser (up to 50 items, 7 days); nothing is saved on the server. Place order asks them to sign in, then moves the items into their account cart (quantities added, capped at stock) and returns to checkout. Off: Add to cart asks for sign-in first, as before.",
+  hdms_enabled:
+    "docs/hdms-2026-11: when no shop rider or GoKesari rider takes a ready order, the allocation engine books an enabled delivery partner (Admin → Delivery management). Off: dispatch works exactly as before; the admin pages stay readable.",
   guest_checkout_enabled:
     "docs/guest-checkout-2026-11: needs guest_cart_enabled ON too. A guest checks out from the cart with name, mobile, e-mail and address and a one-time code (e-mail; plus a mobile code where SMS is set up — mock on the test site). That makes a normal customer account (marked guest-created), signs them in and continues to the usual payment choice. Adds: tracking links without sign-in (/track), the combined timeline on multi-shop orders, the \"Best shop for this cart\" panel and Admin → Payments → Order-group reconciliation. Off: the site behaves as before.",
   account_self_deletion_enabled: "docs/account-deletion-2026-11: a signed-in person deletes their own account (My Profile → Delete my account) after the checks pass and an emailed code. The account is hidden at once (signed out everywhere, not shown to anyone else; admins see it \"Under cooling period\" with the reason) and anonymised after the cooling-off period (rule accountDeletion.coolingOffDays, 90 days) by the daily job; signing in again with an emailed code during that time offers to restore it. Orders, invoices, payments and ledgers are kept for legal retention (rule accountDeletion.retentionYears). Off: the section is hidden and the APIs answer 404; accounts already in their cooling-off period can still be restored and are still purged when due.",

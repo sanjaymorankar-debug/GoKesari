@@ -117,8 +117,45 @@ function RiderMap({ latitude, longitude, lang = "en" }: { latitude: number; long
   return <div ref={mapDiv} className="h-64 w-full overflow-hidden rounded-lg bg-cream-100" data-testid="rider-map" />;
 }
 
+/** docs/hdms-2026-11: an order carried by a delivery partner. */
+interface PartnerTracking {
+  providerName: string;
+  status: string;
+  statusLabel: string;
+  etaAt: string | null;
+  riderName: string | null;
+  riderPhoneMasked: string | null;
+  trackingUrl: string | null;
+  riderLocation: { latitude: number; longitude: number; recordedAt: string } | null;
+  finished: boolean;
+}
+
+function PartnerTrackingCard({ partner, lang = "en" }: { partner: PartnerTracking; lang?: Lang }) {
+  const eta = partner.etaAt ? new Date(partner.etaAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }) : null;
+  return (
+    <div className="space-y-2" data-testid="partner-tracking">
+      <p className="text-sm text-ink-700">
+        Delivered by <span className="font-semibold">{partner.providerName}</span> · {partner.statusLabel}
+        {eta && !partner.finished ? <> · arriving around <span className="font-semibold">{eta}</span></> : null}
+      </p>
+      {partner.riderName ? (
+        <p className="text-sm text-ink-600">
+          Rider: {partner.riderName}
+          {partner.riderPhoneMasked ? ` (${partner.riderPhoneMasked})` : ""}
+        </p>
+      ) : null}
+      {partner.riderLocation && !partner.finished ? <RiderMap latitude={partner.riderLocation.latitude} longitude={partner.riderLocation.longitude} lang={lang} /> : null}
+      {partner.trackingUrl && !partner.finished ? (
+        <a className="text-sm font-medium text-kesari-600 hover:underline" href={partner.trackingUrl} target="_blank" rel="noopener noreferrer">
+          Track on {partner.providerName} →
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 export function LiveTrackingMap({ orderId, lang = "en" }: { orderId: string; lang?: Lang }) {
-  const [tracking, setTracking] = useState<OrderTracking | null>(null);
+  const [tracking, setTracking] = useState<(OrderTracking & { partner?: PartnerTracking | null }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -131,11 +168,11 @@ export function LiveTrackingMap({ orderId, lang = "en" }: { orderId: string; lan
       try {
         const response = await fetch(`/api/tracking/${orderId}`, { cache: "no-store" });
         if (response.ok) {
-          const data: OrderTracking = await response.json();
+          const data: OrderTracking & { partner?: PartnerTracking | null } = await response.json();
           if (cancelled) return;
           setTracking(data);
           setError(null);
-          keepPolling = data.stage !== "ENDED";
+          keepPolling = data.partner ? !data.partner.finished : data.stage !== "ENDED";
           if (data.pollSeconds) pollMs = data.pollSeconds * 1000;
         } else {
           const payload: { error?: { message?: string; code?: string } } | null = await response.json().catch(() => null);
@@ -177,7 +214,9 @@ export function LiveTrackingMap({ orderId, lang = "en" }: { orderId: string; lan
         <StatusBadge status={tracking.orderStatus} />
       </div>
 
-      {tracking.stage === "ENDED" ? (
+      {tracking.partner ? (
+        <PartnerTrackingCard partner={tracking.partner} lang={lang} />
+      ) : tracking.stage === "ENDED" ? (
         <p className="text-sm text-ink-600">{tr(T.ended, lang)}</p>
       ) : tracking.stage === "AWAITING_PICKUP" ? (
         <div className="space-y-1">

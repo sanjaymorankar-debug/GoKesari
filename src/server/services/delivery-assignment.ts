@@ -1452,6 +1452,8 @@ export async function dispatchReadyOrder(
   // first of them to accept (dispatch-broadcast.ts); never set when the
   // dispatchBroadcast rule is off.
   if (await openBroadcastFor(orderId)) return null;
+  // docs/hdms-2026-11: a delivery partner (Shadowfax, Pidge, ...) already carries this order.
+  if (await (await import("@/server/delivery/bookings")).hasLiveExternalBooking(orderId)) return null;
 
   const search = await ensureSearch(orderId, trigger, actor.id, rules);
   if (search.status !== "SEARCHING") return null; // finished: only a manual retry restarts it
@@ -1461,6 +1463,11 @@ export async function dispatchReadyOrder(
   if (stop) {
     await closeSearch(search.id, stop);
     await logAttempt(search, search.attempts, trigger, "STOPPED", { detail: STOP_MESSAGES[stop] });
+    // docs/hdms-2026-11: the rider search gave up — a delivery partner may still take it (flag hdms_enabled).
+    if (stop === "RETRY_LIMIT" || stop === "TIME_LIMIT") {
+      const booked = await (await import("@/server/delivery/allocation")).maybeBookPartnerAfterRiderSearch(orderId, search.attempts);
+      if (booked?.outcome === "BOOKED") return null;
+    }
     if (stop === "RETRY_LIMIT" || stop === "TIME_LIMIT" || stop === "WINDOW_EXPIRED") {
       await notify({
         userId: shop.ownerId,
@@ -1500,6 +1507,13 @@ export async function dispatchReadyOrder(
     const noRider = /No delivery partner|no verified location/i.test(message);
     await logAttempt(search, attemptNo, trigger, noRider ? "NO_RIDER" : "ERROR", { detail: message });
     if (!noRider) throw error;
+    // docs/hdms-2026-11: nobody free after `deliveryAllocation.externalAfterRiderAttempts` → book a delivery partner.
+    const booked = await (await import("@/server/delivery/allocation")).maybeBookPartnerAfterRiderSearch(orderId, attemptNo);
+    if (booked?.outcome === "BOOKED") {
+      await closeSearch(search.id, "RIDER_ACCEPTED");
+      await logAttempt(search, attemptNo, trigger, "STOPPED", { detail: booked.detail });
+      return null;
+    }
     if (attemptNo >= rules.notifyShopAfterAttempts) {
       await notify({
         userId: shop.ownerId,

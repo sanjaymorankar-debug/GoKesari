@@ -1,8 +1,11 @@
--- Rollback for 0187_brand_barcode_favourites (docs/search-brand-barcode-favourites-2026-11/).
--- Before running: switch the flag off (Admin → Feature flags), deploy the previous release's code, then
--- delete the 0187 row from drizzle.__drizzle_migrations. Dropping favourites deletes customers' saved
--- products: export the table first if they should be kept.
-DROP INDEX IF EXISTS "brands_name_trgm_idx";
-DROP TABLE IF EXISTS "favourites";
-DELETE FROM "feature_flags" WHERE "key" = 'brand_barcode_favourites_enabled';
-DELETE FROM "feature_flag_changes" WHERE "flag_key" = 'brand_barcode_favourites_enabled';
+-- Rollback for 0187_tax_register (docs/tax-register/README.md).
+-- Before running: deploy the previous release's code, then delete the 0187 row from
+-- drizzle.__drizzle_migrations. Change requests, approvals and CA items are lost: export them first.
+-- Settings already changed through the register keep their values (they live in their own tables).
+BEGIN;
+DROP TABLE IF EXISTS "ca_action_item_notes";
+DROP TABLE IF EXISTS "ca_action_items";
+DROP TABLE IF EXISTS "tax_param_approvals";
+DROP TABLE IF EXISTS "tax_change_requests";
+DELETE FROM "feature_flags" WHERE "key" = 'tax_register';
+COMMIT;

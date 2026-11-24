@@ -5729,6 +5729,9 @@ export const riderPayouts = pgTable(
     adjustmentsPaise: bigint("adjustments_paise", { mode: "number" }).notNull(),
     /** gross + adjustments — what is paid. */
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** docs/tax-register (0188): TDS s.194C withheld from this payout (amountPaise is what is paid, after it). */
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp"),
     ...payoutLifecycleColumns(),
   },
   (t) => [
@@ -6905,6 +6908,10 @@ export const referralCommissions = pgTable(
     commissionType: text("commission_type", { enum: COMMISSION_TYPES }).notNull(),
     commissionValue: integer("commission_value").notNull(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** docs/tax-register (0188): TDS s.194H withheld when paid; netPaise is what is paid. */
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp"),
+    netPaise: bigint("net_paise", { mode: "number" }),
     status: text("status", { enum: ["ACCRUED", "APPROVED", "PAID", "REVERSED"] }).notNull().default("ACCRUED"),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -7268,6 +7275,13 @@ export const shopDeliveryStaff = pgTable(
     phoneE164: text("phone_e164").notNull(),
     isActive: boolean("is_active").notNull().default(true),
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    /** docs/hdms-2026-11 (0189): on duty today; ID proof (last 4 digits only, image in stored_images). */
+    isAvailable: boolean("is_available").notNull().default(true),
+    vehicleType: text("vehicle_type"),
+    idDocumentType: text("id_document_type"),
+    idDocumentLast4: text("id_document_last4"),
+    idDocumentImageId: uuid("id_document_image_id"),
+    kycStatus: text("kyc_status").$type<"NOT_SUBMITTED" | "SUBMITTED" | "VERIFIED" | "REJECTED">().notNull().default("NOT_SUBMITTED"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -10795,6 +10809,12 @@ export const FEATURE_FLAG_KEYS = [
   "onboarding_scan_first_enabled",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
+  // docs/tax-register (0187): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
+  "tax_register",
+  // docs/tax-register (0188): TDS / TCS withheld on every payout path. Missing row = OFF.
+  "payout_deductions",
+  // docs/hdms-2026-11 (0189): delivery allocation engine + external delivery partners. Missing row = OFF.
+  "hdms_enabled",
   // docs/guest-checkout-2026-11 (0189): checkout as a guest (contact + code), tracking links, best-shop panel,
   // group timeline and the admin order-group reconciliation. Needs guest_cart_enabled ON too. Seeded OFF.
   "guest_checkout_enabled",
@@ -13308,4 +13328,6 @@ export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
+export * from "./tax-register-schema"; // docs/tax-register (0187)
+export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
 /* <<< GoKesari Health */

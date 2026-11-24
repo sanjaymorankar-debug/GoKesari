@@ -1,8 +1,12 @@
--- Rollback for 0188_account_self_deletion (Module 7; docs/account-deletion-2026-11/).
--- Before running: deploy the previous release's code, then delete the 0188 row from drizzle.__drizzle_migrations.
--- Accounts already deleted stay anonymised (status DELETED); that cannot be undone and is not touched here.
--- Dropping the table loses the record of honoured requests: export it first if it has rows
---   (\copy account_deletion_requests TO 'account_deletion_requests.csv' CSV HEADER).
-DROP TABLE IF EXISTS "account_deletion_requests";
-DELETE FROM "feature_flag_changes" WHERE "flag_key" = 'account_self_deletion_enabled';
-DELETE FROM "feature_flags" WHERE "key" = 'account_self_deletion_enabled';
+-- Rollback for 0188_payout_deductions (docs/tax-register/PAYOUT_DEDUCTIONS.md).
+-- Before running: deploy the previous release's code, then delete the 0188 row from
+-- drizzle.__drizzle_migrations. TDS already deducted stays recorded in the audit log only.
+BEGIN;
+ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_paise";
+ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_rate_bp";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_paise";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_rate_bp";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "net_paise";
+DELETE FROM "statutory_rates" WHERE "key" IN ('IT_TDS_194H', 'IT_TDS_194J') AND "effective_from" = '2026-04-01' AND NOT "confirmed_by_ca";
+DELETE FROM "feature_flags" WHERE "key" = 'payout_deductions';
+COMMIT;

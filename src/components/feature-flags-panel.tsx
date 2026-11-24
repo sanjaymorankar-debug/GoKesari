@@ -51,6 +51,9 @@ export type FeatureFlagKey =
   | "onboarding_scan_first_enabled"
   // docs/guest-cart-2026-11
   | "guest_cart_enabled"
+  | "tax_register"
+  | "payout_deductions"
+  | "hdms_enabled"
   // docs/guest-checkout-2026-11
   | "guest_checkout_enabled"
   // docs/account-deletion-2026-11 (0188)
