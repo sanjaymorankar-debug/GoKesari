@@ -9,6 +9,7 @@
  */
 import type { NextRequest } from "next/server";
 
+import { UPLOAD_REQUEST_LIMIT_BYTES, fileTooLargeMessage } from "@/lib/document-upload-limits";
 import { validationFailed } from "@/lib/errors";
 import { ok, route, type RouteContext } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
@@ -24,6 +25,11 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   const { id } = await context.params;
   const { user } = await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_GST_PAN_VERIFY });
   enforceRateLimit(`seller-document-read:${user.id}`, RATE_LIMITS.SELLER_DOCUMENT_READ);
+
+  // A body over the proxy's buffer reaches here cut short and its form cannot be read: say it is too big
+  // instead of "Attach the document" (D-165).
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (declared > UPLOAD_REQUEST_LIMIT_BYTES) throw validationFailed(fileTooLargeMessage(UPLOAD_REQUEST_LIMIT_BYTES));
 
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
