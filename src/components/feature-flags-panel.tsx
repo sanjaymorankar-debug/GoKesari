@@ -44,6 +44,7 @@ export type FeatureFlagKey =
   | "guest_cart_enabled"
   | "tax_register"
   | "payout_deductions"
+  | "hdms_enabled"
   | "policy_reconsent_enabled";
 
 interface FlagValue {

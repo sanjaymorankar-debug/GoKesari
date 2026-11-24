@@ -13,7 +13,7 @@ version"). With it off nobody is asked; the admin report still works.
 
 | Piece | Where |
 |---|---|
-| Versions per document (`terms`, `privacy-policy`, `seller-terms`) | table `policy_versions` (migration 0189), seeded with 2026-10-24 as a baseline that asks nobody |
+| Versions per document (`terms`, `privacy-policy`, `seller-terms`) | table `policy_versions` (migration 0190), seeded with 2026-10-24 as a baseline that asks nobody |
 | Acceptances (version, time, channel, IP, user agent), append-only | table `policy_acceptances` + audit `policy.accepted` |
 | Service | `src/server/services/policy-versions.ts` |
 | Re-consent page (blocking dialog over every page except `/legal/*`, `/signin`) | `src/components/policy-reconsent-gate.tsx`, rendered by `src/app/layout.tsx` |
