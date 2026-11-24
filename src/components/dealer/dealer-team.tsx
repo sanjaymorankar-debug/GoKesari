@@ -366,7 +366,7 @@ export function DealerTeam({
       )}
 
       {payee ? (
-        <section aria-label="Payment details" className="space-y-2">
+        <section id="payment-details" aria-label="Payment details" className="scroll-mt-20 space-y-2">
           <h3 className="text-sm font-bold text-ink-900">Your payment details</h3>
           <p className="text-sm text-ink-700">
             PAN {payee.panLast4 ? `••••${payee.panLast4}` : "not given"} · bank {payee.bankLast4 ? `••••${payee.bankLast4}` : "not given"}{" "}
