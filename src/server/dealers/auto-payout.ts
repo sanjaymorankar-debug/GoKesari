@@ -9,8 +9,9 @@
  *
  * The transfer is the net (gross − TDS) to the payee's verified bank account
  * (the dealer's, or the team member's) read at the time of sending. Paying by
- * hand (markPayoutPaid with the bank reference) stays available from DRAFT,
- * APPROVED and FAILED; a payout with the bank (PROCESSING) waits for its answer.
+ * hand (markPayoutPaid with the bank reference) stays available from APPROVED
+ * and FAILED — never from DRAFT, so a second admin always approves first; a
+ * payout with the bank (PROCESSING) waits for its answer.
  * The SANDBOX provider never runs on gokesari.com (the adapter refuses there).
  * Every step is audited; the payee is told when it is paid or fails.
  */
@@ -29,7 +30,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { tdsBlock } from "@/server/tax/commission-tds";
-import { OUTCOME_UNKNOWN, markPayoutPaid, payeeStatus, payoutOutcomeUnknown } from "./commission";
+import { OUTCOME_UNKNOWN, markPayoutPaid, payeeChecksApply, payeeStatus, payoutOutcomeUnknown, staleTds } from "./commission";
 
 interface Actor {
   id: string;
@@ -78,11 +79,14 @@ export async function approvePayoutBatch(batchId: string, actor: Actor): Promise
     if (!b) throw notFound("Payout");
     if (b.status !== "DRAFT") throw conflict("Only a draft payout can be approved.");
     if (b.createdBy === actor.id) throw conflict("The admin who drafted this payout cannot approve it — another admin approves (maker-checker).");
+    if (b.tdsOverrideBy && b.tdsOverrideBy === actor.id) throw conflict("The admin who overrode this payout's TDS cannot approve it — another admin approves.");
     const status = await payeeStatus(tx, b.dealerId, b.memberId);
-    // An automatic transfer needs the verified account in any case; paying by hand follows rule dealerPayouts.
-    if (status.missing.length && (b.memberId || (await getRule("dealerPayouts")).enforcePayeeChecks || (await getRule("dealerAutoPayout")).enabled)) throw conflict(`Cannot be approved yet: ${status.missing.join(", ")} missing.`, { reason: "PAYEE_NOT_READY" });
+    // An automatic transfer needs the verified account in any case; otherwise every payee is checked (rule dealerPayouts).
+    if (status.missing.length && ((await payeeChecksApply(b.memberId)) || (await getRule("dealerAutoPayout")).enabled)) throw conflict(`Cannot be approved yet: ${status.missing.join(", ")} missing.`, { reason: "PAYEE_NOT_READY" });
     const blocked = tdsBlock(b);
     if (blocked) throw conflict(`${blocked} An admin can override it with a reason.`, { reason: "TDS_UNCONFIRMED" });
+    const stale = await staleTds(tx, b);
+    if (stale) throw conflict(stale, { reason: "TDS_STALE" });
     const [row] = await tx
       .update(dealerPayoutBatches)
       .set({ status: "APPROVED", approvedBy: actor.id, approvedAt: new Date() })

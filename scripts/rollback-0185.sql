@@ -1,11 +1,24 @@
--- Rollback for 0185_tax_register (docs/tax-register/README.md).
+-- Rollback for 0185_dealer_payee_checks_on (dealer payee checks).
 -- Before running: deploy the previous release's code, then delete the 0185 row from
--- drizzle.__drizzle_migrations. Change requests, approvals and CA items are lost: export them first.
--- Settings already changed through the register keep their values (they live in their own tables).
+-- drizzle.__drizzle_migrations.
+-- 0185 only stored dealerPayouts.enforcePayeeChecks = true; no table or column changed.
+-- Rolling back stores false again (the same as Admin → Settings → dealerPayouts, audited).
 BEGIN;
-DROP TABLE IF EXISTS "ca_action_item_notes";
-DROP TABLE IF EXISTS "ca_action_items";
-DROP TABLE IF EXISTS "tax_param_approvals";
-DROP TABLE IF EXISTS "tax_change_requests";
-DELETE FROM "feature_flags" WHERE "key" = 'tax_register';
+WITH "before" AS (
+  SELECT "key", "value"
+  FROM "platform_settings"
+  WHERE "key" = 'dealerPayouts'
+    AND COALESCE(("value"->>'enforcePayeeChecks')::boolean, false) = true
+  FOR UPDATE
+), "changed" AS (
+  UPDATE "platform_settings" p
+  SET "value" = jsonb_set(p."value", '{enforcePayeeChecks}', 'false'::jsonb, true),
+      "updated_by" = NULL,
+      "updated_at" = now()
+  FROM "before" b
+  WHERE p."key" = b."key"
+  RETURNING b."value" AS "previous_value", p."value" AS "new_value"
+)
+INSERT INTO "audit_logs" ("action", "entity_type", "entity_id", "previous_value", "new_value")
+SELECT 'setting.changed', 'platform_setting', 'dealerPayouts', "previous_value", "new_value" FROM "changed";
 COMMIT;
