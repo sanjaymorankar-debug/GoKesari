@@ -24,8 +24,10 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
   },
   {
     key: "statutory", label: L("Tax and statutory", "कर और वैधानिक", "कर व वैधानिक"), short: L("Tax", "कर", "कर"), icon: "landmark", tone: "violet", href: "/admin/statutory",
-    permission: [PERMISSIONS.STATUTORY_MANAGE, PERMISSIONS.COMMISSION_TDS_MANAGE],
+    permission: [PERMISSIONS.STATUTORY_MANAGE, PERMISSIONS.COMMISSION_TDS_MANAGE, PERMISSIONS.TAX_PARAM_PROPOSE, PERMISSIONS.TAX_PARAM_APPROVE],
     items: [
+      { key: "register", label: L("Tax register", "कर रजिस्टर", "कर रजिस्टर"), short: L("Register", "रजिस्टर", "रजिस्टर"), icon: "badge-check", href: "/staff/tax", permission: [PERMISSIONS.TAX_PARAM_PROPOSE, PERMISSIONS.TAX_PARAM_APPROVE] },
+      { key: "caItems", label: L("CA questions", "CA प्रश्न", "CA प्रश्न"), short: L("CA items", "CA प्रश्न", "CA प्रश्न"), icon: "clipboard-check", href: "/staff/tax?tab=items", permission: [PERMISSIONS.TAX_PARAM_PROPOSE, PERMISSIONS.TAX_PARAM_APPROVE] },
       { key: "rates", label: L("Statutory rates", "वैधानिक दरें", "वैधानिक दर"), short: L("Rates", "दरें", "दर"), icon: "scale", href: "/admin/statutory", permission: PERMISSIONS.STATUTORY_MANAGE },
       { key: "tds", label: L("Commission TDS", "कमीशन TDS", "कमिशन TDS"), short: L("TDS", "TDS", "TDS"), icon: "receipt", href: "/admin/tds-commission", permission: PERMISSIONS.COMMISSION_TDS_MANAGE },
     ],
