@@ -4852,7 +4852,7 @@ export const userConsents = pgTable(
   ],
 );
 
-/* --------------------------------------------- policy re-consent (0186) */
+/* --------------------------------------------- policy re-consent (0187) */
 /** Policy documents a user accepts (docs/policy-reconsent-2026-11). Slugs match /legal/<slug>. */
 export const POLICY_DOCS = ["terms", "privacy-policy", "seller-terms"] as const;
 export type PolicyDoc = (typeof POLICY_DOCS)[number];
@@ -9917,6 +9917,8 @@ export const payoutItems = pgTable(
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
     provider: text("provider"),
     providerRef: text("provider_ref"),
+    /** 0186: the id the provider knows the current attempt by, saved before the request is sent. */
+    providerTransferId: text("provider_transfer_id"),
     /** Bank reference of the transfer — recorded for every payment. */
     utr: text("utr"),
     /** Sent to the provider so a retried request never pays twice. */
@@ -9934,6 +9936,7 @@ export const payoutItems = pgTable(
     uniqueIndex("payout_items_batch_shop_unique").on(t.batchId, t.shopId),
     uniqueIndex("payout_items_idempotency_unique").on(t.idempotencyKey),
     uniqueIndex("payout_items_utr_unique").on(t.utr).where(sql`${t.utr} IS NOT NULL`),
+    uniqueIndex("payout_items_provider_transfer_id_unique").on(t.providerTransferId).where(sql`${t.providerTransferId} IS NOT NULL`),
     index("payout_items_shop_idx").on(t.shopId, t.createdAt),
     index("payout_items_status_idx").on(t.status, t.nextAttemptAt),
   ],
@@ -9962,6 +9965,32 @@ export const payoutEvents = pgTable(
   ],
 );
 export type PayoutEvent = typeof payoutEvents.$inferSelect;
+
+/**
+ * 0186: a correctly signed payout webhook that matched no payout yet (shop item, rider transfer or dealer
+ * payout). It is answered 409 so the provider delivers it again; matched_at is set once it is applied.
+ */
+export const payoutWebhookParked = pgTable(
+  "payout_webhook_parked",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    source: text("source").notNull(),
+    eventId: text("event_id").notNull(),
+    providerRef: text("provider_ref"),
+    transferId: text("transfer_id"),
+    status: text("status").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    deliveries: integer("deliveries").notNull().default(1),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    matchedAt: timestamp("matched_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("payout_webhook_parked_source_event_unique").on(t.source, t.eventId),
+    index("payout_webhook_parked_open_idx").on(t.firstSeenAt).where(sql`${t.matchedAt} IS NULL`),
+  ],
+);
+export type PayoutWebhookParked = typeof payoutWebhookParked.$inferSelect;
 
 /*
  * F10.2.5 GoKesari's tax invoices to shops for its own fees (seller database:
@@ -10642,7 +10671,7 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
-  // docs/policy-reconsent-2026-11 (0186): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
+  // docs/policy-reconsent-2026-11 (0187): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
   "policy_reconsent_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
@@ -11768,6 +11797,10 @@ export const dealerPayoutBatches = pgTable(
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     provider: text("provider"),
     providerRef: text("provider_ref"),
+    /** 0186: the id the provider knows the current attempt by, saved before the request is sent. */
+    providerTransferId: text("provider_transfer_id"),
+    /** 0186: when the current attempt was sent. */
+    sentAt: timestamp("sent_at", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(0),
     nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
     needsReview: boolean("needs_review").notNull().default(false),
@@ -11786,6 +11819,7 @@ export const dealerPayoutBatches = pgTable(
     index("dealer_payout_batches_pan_idx").on(t.payeePanHash, t.periodMonth).where(sql`${t.payeePanHash} IS NOT NULL`),
     index("dealer_payout_batches_retry_idx").on(t.status, t.nextRetryAt),
     index("dealer_payout_batches_provider_ref_idx").on(t.providerRef).where(sql`${t.providerRef} IS NOT NULL`),
+    uniqueIndex("dealer_payout_batches_provider_transfer_id_unique").on(t.providerTransferId).where(sql`${t.providerTransferId} IS NOT NULL`),
     check("dealer_payout_batches_status", sql`${t.status} in ('DRAFT', 'APPROVED', 'PROCESSING', 'FAILED', 'PAID', 'CANCELLED')`),
     check("dealer_payout_batches_tds", sql`${t.tdsPaise} >= 0 AND ${t.tdsPaise} <= greatest(${t.totalPaise}, 0) AND ${t.tdsRateBp} BETWEEN 0 AND 10000`),
   ],
@@ -12522,6 +12556,8 @@ export const riderBankTransfers = pgTable(
     /** Retries used up (or the bank returned it): finance decides — retry or release. */
     needsReview: boolean("needs_review").notNull().default(false),
     providerRef: text("provider_ref"),
+    /** 0186: the id the provider knows the current attempt by, saved before the request is sent. */
+    providerTransferId: text("provider_transfer_id"),
     utr: text("utr"),
     failureReason: text("failure_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -12534,6 +12570,7 @@ export const riderBankTransfers = pgTable(
     index("rider_bank_transfers_partner_idx").on(t.deliveryPartnerId, t.createdAt),
     index("rider_bank_transfers_status_idx").on(t.status, t.nextRetryAt),
     index("rider_bank_transfers_provider_ref_idx").on(t.providerRef).where(sql`${t.providerRef} IS NOT NULL`),
+    uniqueIndex("rider_bank_transfers_provider_transfer_id_unique").on(t.providerTransferId).where(sql`${t.providerTransferId} IS NOT NULL`),
     check(
       "rider_bank_transfers_amounts",
       sql`${t.grossPaise} > 0 AND ${t.tdsPaise} >= 0 AND ${t.feePaise} >= 0 AND ${t.netPaise} = ${t.grossPaise} - ${t.tdsPaise} - ${t.feePaise} AND ${t.netPaise} > 0`,
