@@ -91,6 +91,23 @@ describe("Support User scope", () => {
     await expect(managerUpdateTicket(t.id, { priority: "LOW" }, w.su)).rejects.toThrow(/Support Manager/);
   });
 
+  it("TC-STAFF-059 the assigned ticket offers a Support User no assignment or escalation; the manager and admin keep them", async () => {
+    const w = await world();
+    const t = await assignedTicket(w);
+    const asSu = await getTicketDetail(t.id, w.su);
+    expect(asSu.access).toBe("STAFF");
+    expect(asSu.can.manage).toBe(true);
+    expect(asSu.can.assign).toBe(false);
+    expect(asSu.can.escalate).toBe(false);
+    // The server agrees: neither action is open to a Support User.
+    await expect(assignTicket(t.id, w.su2.id, w.su)).rejects.toThrow(/not found/i);
+    for (const staff of [w.manager, w.admin]) {
+      const view = await getTicketDetail(t.id, staff);
+      expect(view.can.assign).toBe(true);
+      expect(view.can.escalate).toBe(true);
+    }
+  });
+
   it("an Operations User raises tickets only for shops they work on", async () => {
     const w = await world();
     const otherOwner = await createUser({ role: "SHOP_OWNER" });

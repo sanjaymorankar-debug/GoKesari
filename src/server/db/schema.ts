@@ -4852,7 +4852,7 @@ export const userConsents = pgTable(
   ],
 );
 
-/* --------------------------------------------- policy re-consent (0187) */
+/* --------------------------------------------- policy re-consent (0188) */
 /** Policy documents a user accepts (docs/policy-reconsent-2026-11). Slugs match /legal/<slug>. */
 export const POLICY_DOCS = ["terms", "privacy-policy", "seller-terms"] as const;
 export type PolicyDoc = (typeof POLICY_DOCS)[number];
@@ -10671,7 +10671,9 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
-  // docs/policy-reconsent-2026-11 (0187): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
+  // docs/tax-register (0187): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
+  "tax_register",
+  // docs/policy-reconsent-2026-11 (0188): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
   "policy_reconsent_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
@@ -13168,4 +13170,5 @@ export * from "./smart-shopping-schema";
 export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
+export * from "./tax-register-schema"; // docs/tax-register (0187)
 /* <<< GoKesari Health */
