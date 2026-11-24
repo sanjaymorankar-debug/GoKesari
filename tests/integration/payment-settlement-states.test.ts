@@ -276,7 +276,7 @@ describe("CHARGEBACK", () => {
     expect(operatorNotes.map((n) => n.type)).not.toContain("support.payment_chargeback");
 
     const [view] = await listChargebacks();
-    expect(view).toMatchObject({ outcome: "OPEN", amountPaise: 25_000, intentAmountPaise: 25_000, description: "Order GK-1001" });
+    expect(view).toMatchObject({ outcome: "OPEN", overdue: false, amountPaise: 25_000, intentAmountPaise: 25_000, description: "Order GK-1001" });
   });
 
   it("PAYSM-08 a repeated event is ignored; a later outcome updates and alerts again; an older one changes nothing", async () => {

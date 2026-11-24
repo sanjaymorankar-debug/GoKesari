@@ -24,7 +24,6 @@ export default async function AdminChargebacksPage() {
   if (!can(user.role, PERMISSIONS.FINANCE_VIEW)) redirect("/");
   if (!(await isFeatureEnabled(SETTLEMENT_FLAG))) notFound();
   const rows = await listChargebacks();
-  const now = Date.now();
   return (
     <div className="space-y-4">
       <PageHeader
@@ -48,7 +47,7 @@ export default async function AdminChargebacksPage() {
             </thead>
             <tbody>
               {rows.map((c) => {
-                const overdue = c.outcome === "OPEN" && c.respondBy !== null && c.respondBy.getTime() < now;
+                const overdue = c.overdue;
                 return (
                   <tr key={c.id} className="border-t border-cream-200 align-top" data-testid="chargeback-row">
                     <td className="px-3 py-2">

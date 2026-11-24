@@ -346,10 +346,12 @@ export interface ChargebackView {
   gatewayOrderId: string | null;
   gatewayPaymentId: string | null;
   updatedAt: Date;
+  /** Still open and past its respond-by time. */
+  overdue: boolean;
 }
 
 /** Open disputes first (nearest deadline first), then the rest, newest first. */
-export async function listChargebacks(limit = 200): Promise<ChargebackView[]> {
+export async function listChargebacks(limit = 200, now: Date = new Date()): Promise<ChargebackView[]> {
   const rows = await db
     .select({ c: paymentChargebacks, i: paymentIntents })
     .from(paymentChargebacks)
@@ -377,6 +379,7 @@ export async function listChargebacks(limit = 200): Promise<ChargebackView[]> {
     gatewayOrderId: c.gatewayOrderId,
     gatewayPaymentId: c.gatewayPaymentId,
     updatedAt: c.updatedAt,
+    overdue: c.outcome === "OPEN" && c.respondBy !== null && c.respondBy.getTime() < now.getTime(),
   }));
 }
 
