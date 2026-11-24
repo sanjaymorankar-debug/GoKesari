@@ -13,6 +13,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useGuestCart } from "@/components/guest-cart/guest-cart-context";
+import { CartShopRecommendation } from "@/components/guest-checkout/cart-shop-recommendation";
+import { GuestCheckoutForm, type GuestCheckoutPrefill } from "@/components/guest-checkout/guest-checkout-form";
 import { EmptyIllustration } from "@/components/empty-illustrations";
 import { SafeImage } from "@/components/safe-image";
 import { Alert, Button, Card, EmptyState, LinkButton, Money } from "@/components/ui";
@@ -38,7 +40,11 @@ function returnToCartAfterSignIn(): void {
   }
 }
 
-export function GuestCartView({ lang }: { lang: Lang }) {
+/**
+ * docs/guest-checkout-2026-11: `guestCheckout` is set only while guest_checkout_enabled (and
+ * guest_cart_enabled) is on — then the cart also offers "Checkout as a guest" and the best-shop panel.
+ */
+export function GuestCartView({ lang, guestCheckout = null }: { lang: Lang; guestCheckout?: { prefill: GuestCheckoutPrefill | null } | null }) {
   const router = useRouter();
   const cart = useGuestCart(true);
   const key = linesKey(cart);
@@ -105,6 +111,7 @@ export function GuestCartView({ lang }: { lang: Lang }) {
 
   return (
     <div className="space-y-4" data-testid="guest-cart">
+      {guestCheckout && cart.lines.length > 0 ? <CartShopRecommendation lang={lang} guestLines={cart.lines} cartKey={key} /> : null}
       {error ? (
         <Alert tone="danger" title="Something went wrong">
           {error}
@@ -209,6 +216,7 @@ export function GuestCartView({ lang }: { lang: Lang }) {
           Your cart stays in this browser. After signing in you choose the address and pay — nothing is charged yet.
         </p>
       </Card>
+      {guestCheckout && data && data.groups.length > 0 ? <GuestCheckoutForm lang={lang} prefill={guestCheckout.prefill} /> : null}
     </div>
   );
 }

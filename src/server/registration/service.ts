@@ -644,7 +644,7 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
       .returning();
 
     const reference = await nextReference(tx);
-    await tx.insert(shopPayments).values({
+    const [feeRow] = await tx.insert(shopPayments).values({
       reference,
       shopId: shop.id,
       ownerId: owner.id,
@@ -656,8 +656,9 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
       paidAt: now,
       note: `Self-registration fee, order ${payment.gatewayOrderId}${payment.gateway === "MOCK" ? " (test payment)" : ""}`,
       recordedBy: owner.id,
-    });
-    await extendMembership(tx, shop.id, now); // D-69
+    }).returning({ id: shopPayments.id });
+    // D-69: the fee is paid in full here; 0189: the period is recorded against it.
+    await extendMembership(tx, shop.id, now, { kind: "REGISTRATION", feePaise: reg.feePaise, shopPaymentId: feeRow.id });
     // No code (referral_required_shop OPTIONAL): nothing to redeem; payment alone approves the shop.
     if (reg.referralCodeId) {
       await tx.insert(referralRedemptions).values({ referralCodeId: reg.referralCodeId, shopId: shop.id, registrationFeePaise: reg.feePaise, redeemedBy: owner.id });

@@ -88,6 +88,7 @@ describe("consent overview for operations (NAV-019)", () => {
       "SELLER_GOODS_UNDERTAKING",
       "SELLER_TERMS",
       "TERMS_AND_PRIVACY",
+      "WHATSAPP_NOTIFICATIONS",
     ]);
     for (const summary of overview.byType) {
       expect(summary).toMatchObject({ current: 0, stale: 0, withdrawn: 0, never: 2 });

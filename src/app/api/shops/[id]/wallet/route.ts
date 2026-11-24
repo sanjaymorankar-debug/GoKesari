@@ -8,7 +8,7 @@
 import type { NextRequest } from "next/server";
 
 import { ok, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { getShopWalletView } from "@/server/services/shop-wallet";
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export const GET = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
-  await requireShopAccess(id, { anyPermission: PERMISSIONS.FINANCE_VIEW });
+  await requireShopPermission(id, "billing.view", { anyPermission: PERMISSIONS.FINANCE_VIEW });
   const params = new URL(request.url).searchParams;
   const limit = Number(params.get("limit") ?? 50);
   const offset = Number(params.get("offset") ?? 0);

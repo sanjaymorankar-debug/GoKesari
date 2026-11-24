@@ -40,7 +40,7 @@ export default async function RegisterShopPage({
   }
 
   // Every read at once: each one is a round trip to the database.
-  const [firstRead, referralRequired, categories, dealerProgramme, lang] = await Promise.all([
+  const [firstRead, referralRequired, categories, dealerProgramme, lang, referralByPin, scanFirst] = await Promise.all([
     getWizardDraft(user),
     // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
     isReferralRequired("shop"),
@@ -49,6 +49,9 @@ export default async function RegisterShopPage({
     // docs/dealer-programme: the optional Employee ID / name field exists only while the programme is on.
     isFeatureEnabled("dealer_programme_enabled"),
     getBoardLang(),
+    // docs/onboarding-waves-2-3-2026-11: WP6 "find a code by PIN" and WP10 scan-first, both OFF by default.
+    isFeatureEnabled("onboarding_referral_by_pin_enabled"),
+    isFeatureEnabled("onboarding_scan_first_enabled"),
   ]);
   // Owner brief 08-Nov-2026: the step-by-step wizard is the only way to register a shop (the long
   // form and its flag shop_onboarding_wizard_enabled are retired).
@@ -83,6 +86,8 @@ export default async function RegisterShopPage({
           initialCategories={categories?.map((c) => ({ id: c.id, name: c.name, status: c.status, groupName: c.groupName }))}
           dealerProgramme={dealerProgramme}
           lang={lang}
+          referralByPin={referralByPin}
+          scanFirst={scanFirst}
         />
       )}
     </div>
