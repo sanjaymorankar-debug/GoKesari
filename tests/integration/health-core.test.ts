@@ -37,6 +37,7 @@ import { doctorStatus } from "@/server/health/access";
 import { checkInQrPayload, clinicDay, createHealthBooking, queuePosition } from "@/server/health/booking";
 import { accessLogFor, revokeConsent, setDoctorConsent } from "@/server/health/consent";
 import { checkInBooking, patientSummary, saveConsultationDraft, startConsultation } from "@/server/health/consultations";
+import { recordRegistryCheck } from "@/server/health/admin";
 import { saveDoctorProfile } from "@/server/health/doctors";
 import { subscribeHealth, type HealthLiveEvent } from "@/server/health/events";
 import { acceptHealthNotice, addFamilyMember, confirmFamilyLink, listFamily, updatePatientProfile } from "@/server/health/patients";
@@ -252,6 +253,38 @@ describe("consultation and e-prescription", () => {
     expect(ok.warnings[0].kind).toBe("ALLERGY");
     const [line] = await db.select().from(healthPrescriptionItems).where(eq(healthPrescriptionItems.prescriptionId, ok.prescription.id));
     expect(line.quantity).toBe(15);
+  });
+});
+
+describe("prescribing safeguards (rule health)", () => {
+  beforeEach(verifiedDoctor);
+
+  it("checks hand-typed medicines against the drug master by video, and refuses Schedule X / NDPS", async () => {
+    const { booking } = await patientWithBooking("VIDEO");
+    const c = await startConsultation({ memberId: doctorMemberId, bookingId: booking.id }, owner);
+    // Typed by hand, but it is an NDPS medicine in the master: refused remotely.
+    await expect(issuePrescription(c.id, { items: [{ genericName: "alprazolam", dose: "1 tablet", frequency: "0-0-1", durationDays: 5 }] }, owner)).rejects.toThrow(/Schedule NDPS/);
+    // Matches nothing in the master: refused by default (REFUSE) …
+    const unknown = { genericName: "Zyxomedicine", dose: "1 tablet", frequency: "1-0-1", durationDays: 5 };
+    await expect(issuePrescription(c.id, { items: [unknown] }, owner)).rejects.toThrow(/not in the drug master/);
+    // … and only a warning to confirm with WARN.
+    await setRule("health", { ...RULES.health.defaults, enabled: true, freeListingManualApproval: false, remoteFreeTextMedicines: "WARN" }, admin);
+    clearRuleCache();
+    await expect(issuePrescription(c.id, { items: [unknown] }, owner)).rejects.toThrow(/review the warnings/);
+    const ok = await issuePrescription(c.id, { items: [unknown], acknowledgeWarnings: true }, owner);
+    expect(ok.warnings[0].kind).toBe("NOT_IN_MASTER");
+  });
+
+  it("lets a doctor prescribe only after a recorded register check while requireRegistryCheck is on", async () => {
+    await setRule("health", { ...RULES.health.defaults, enabled: true, freeListingManualApproval: false, requireRegistryCheck: true }, admin);
+    clearRuleCache();
+    const { booking } = await patientWithBooking("IN_PERSON", soonStart());
+    const c = await startConsultation({ memberId: doctorMemberId, bookingId: booking.id }, owner);
+    await expect(issueBasic(c.id, {}, visitTime(booking.startsAt))).rejects.toThrow(/council register/);
+    await expect(recordRegistryCheck({ memberId: doctorMemberId, note: "short" }, admin)).rejects.toThrow();
+    await recordRegistryCheck({ memberId: doctorMemberId, note: "NMC IMR search 23-Nov: MMC-12345, Anil Mehta, MBBS — matches" }, admin);
+    const ok = await issueBasic(c.id, {}, visitTime(booking.startsAt));
+    expect(ok.prescription.status).toBe("ISSUED");
   });
 });
 
