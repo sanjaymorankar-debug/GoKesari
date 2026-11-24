@@ -1,5 +1,13 @@
 # Franchise zones: free dealership or paid franchise (22-Nov-2026)
 
+> **Status (24-Nov-2026):** live on gokesari.com since 22-Nov-2026 (release #478). Since the dealer scheme platform
+> went live (23-Nov-2026, release #511, migration 0179), a dealer who signs up on the **free** path starts on
+> **Free Dealership v2**: 20% of each shop's registration fee he registers himself and 5% of GoKesari's commission
+> on those shops monthly for 12 months, with no team commission. The one-time 20% / 4% / 3% team flow quoted below
+> is the TIERED model, which applies once an admin moves the dealer to TIERED (Admin → Dealers → Commission). The
+> paid path is unchanged (Territory Franchise scheme, amounts from Franchise settings). See
+> [../dealer-platform/README.md](../dealer-platform/README.md).
+
 ## The prompt (owner request, as drafted and confirmed)
 
 > On **Book a franchise zone** (`/franchise/book`):

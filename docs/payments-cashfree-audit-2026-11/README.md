@@ -9,6 +9,17 @@ and #364 (staging queue) were merged into `main` at 05:13 IST through release PR
 post-deploy checks passed (TEST_RESULTS §8). gokesari.com still takes order payments with
 `PAYMENT_GATEWAY=SANDBOX`; going live with Cashfree is the owner's list in OWNER_ACTIONS.md.
 
+> **Current state (24-Nov-2026):** gokesari.com runs `PAYMENT_GATEWAY=CASHFREE` with the live keys since
+> 19-Nov-2026 20.25 IST. The variable had never been set, so the site fell back to `SANDBOX`, which the production
+> guard refuses — the wizard's registration fee could not be paid until it was set. It was set on GoKesari's own
+> server (`gk-site env set`, then `gk-deploy restart gokesari-prod`); the first live fee payment the same evening
+> was confirmed by Cashfree's webhook. Customer order checkout online also needs rule `onlinePayments.enabled`,
+> which is the owner's switch. test.gokesari.com uses Cashfree **sandbox** keys and test data only
+> ([cashfree-sandbox-test-data.md](../testing/cashfree-sandbox-test-data.md)); its order gateway (`SANDBOX` = the
+> app's built-in test page, or `CASHFREE` = the Cashfree sandbox checkout) is shown on `/admin/payments/cashfree`.
+> Since 17-Nov-2026 both sites run on GoKesari's own server, so "the Hostinger environment" and "hPanel → Redeploy"
+> below now mean the server's `gk-site env` and `gk-deploy restart` ([scripts/vps-app/README.md](../../scripts/vps-app/README.md)).
+
 Read with: [TEST_RESULTS.md](TEST_RESULTS.md) (what was run, with ids and times),
 [OWNER_ACTIONS.md](OWNER_ACTIONS.md) (what only the owner can do: Cashfree dashboard,
 live ₹1 tests, app store builds), [docs/payments-gateway-2026-10.md](../payments-gateway-2026-10.md)
@@ -40,7 +51,7 @@ Four separate Cashfree integrations, each switched on differently:
 | Customer wallet top-up | `src/app/api/wallet/topup` → `services/payments.ts createTopUpOrder → createCashfreeOrder`; verify `api/wallet/verify` → `verifyAndCreditTopUp → cashfreeTopUpState`; webhook `api/webhooks/cashfree/route.ts → creditFromWebhook`; cron `reconcileCashfreeTopUps` (new) | `topup_<ms>_<hex>` | Get Payments for the order (never the browser) | both; MOCK without keys |
 | Shop-owner prepaid wallet top-up | `api/shops/[id]/wallet/topup` → `createShopWalletTopUpOrder`; verify `api/shops/[id]/wallet/verify` → `verifyShopWalletTopUp`; UI `components/shop-wallet-topup.tsx` | `shoptopup_…` | same as above; credit `shop-wallet.ts creditShopWalletTopUp` | both; rule `shopWallet.enabled` |
 | Shop self-registration fee (/shop/join) | `api/shop-registrations/[token]/pay` → `registration/service.ts startRegistrationPayment`; webhook → `processRegistrationPaymentEvent → approveRegistration` (auto-approval, owner account, receipt, wallet, commission); **new** `checkRegistrationPayment` (`api/shop-registrations/[token]/check-payment`) and cron `reconcileRegistrationPayments` | `reg_<ms>_<hex>` | signed webhook; now also Get Order + Payments | both; rule `selfRegistration.enabled` (default off). Fee = admin-set tier (`registration_fee_tiers`) |
-| "Add my shop" / wizard registration fee | `api/shops/[id]/registration-fee` → `services/registration-fee-payment.ts` (payment intent, purpose SHOP_REGISTRATION_FEE) → capture handler → `shops.ts autoApproveShopIfReady` / `gov-auto-approval.ts` | `gk_<uuid>` | Get Order on webhook, return and cron | `PAYMENT_GATEWAY` (SANDBOX on both sites today) |
+| "Add my shop" / wizard registration fee | `api/shops/[id]/registration-fee` → `services/registration-fee-payment.ts` (payment intent, purpose SHOP_REGISTRATION_FEE) → capture handler → `shops.ts autoApproveShopIfReady` / `gov-auto-approval.ts` | `gk_<uuid>` | Get Order on webhook, return and cron | `PAYMENT_GATEWAY` (7 Nov: SANDBOX on both sites; production CASHFREE since 19-Nov-2026) |
 | Customer order checkout (ONLINE) | `api/checkout` → `payments/order-payments.ts startOnlineCheckout → intents.ts createPaymentIntent → gateway/cashfree.ts createOrder`; page `/orders/pay/session/<id>` (`gateway-session-launcher.tsx`); webhook `api/webhooks/payments/[gateway]` → `processing.ts handlePaymentWebhook → applyGatewayState`; cron `runPaymentReconciliation` | `gk_<uuid>` | always `fetchOrder` (Get Order + Payments), amount compared | rule `onlinePayments.enabled` (default off) + `PAYMENT_GATEWAY` |
 | ₹1 bank-account check | `api/bank-account/verification` → `services/bank-accounts.ts startBankVerification` (`payment_methods: upi,dc,cc,nb`); confirm → `confirmBankVerification → settleAttempt → refundCashfree`; **new** cron `sweepBankVerifications` | `bankverify_…` | Get Payments | both; rule `bankAccounts` |
 | Admin ₹1 / ₹2 payment test (**new**) | `/admin/payments/cashfree` → `payments/cashfree-health.ts startCashfreeLiveTest / finishCashfreeLiveTest` | `gktest_<stamp>_<hex>` | Get Order + Payments, then refund | both (FINANCE_MANAGE) |

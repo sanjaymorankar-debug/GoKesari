@@ -9,7 +9,8 @@
 # Everything a customer, shop or rider does is handled by its event at once.
 # These three jobs cover only what no event can start: a deadline passing, a
 # retry after a failed send, a gateway reply that never came, a timed send, the
-# 05:00 subscription orders and the Saturday payout. What each job runs, and
+# 05:00 subscription orders and the payouts (shops weekly, riders and dealers
+# monthly). What each job runs, and
 # how often: docs/cron-schedule.md.
 #
 # Each run POSTs /api/cron/<job> with the CRON_SECRET bearer token. Every job is
@@ -56,5 +57,8 @@
 # re-create that site's three lines in hPanel in the same minute, so each job
 # runs in one place only.
 #
-# The old per-job endpoints (/api/cron/shop-acceptance, /notifications,
-# /delivery-dispatch, …) only answer 410; don't schedule them.
+# The old per-job endpoints (/api/cron/shop-acceptance, /timeout-sweep,
+# /daily-orders, …) still answer, for a manual run or a backfill
+# (docs/event-driven-2026-10/ROLLBACK.md). Don't schedule them next to the three
+# entry points above: each job would then run twice.
+# (Checked against src/server/cron/schedule.ts and src/app/api/cron/, 24-Nov-2026.)
