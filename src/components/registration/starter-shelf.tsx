@@ -6,6 +6,83 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 import { Alert, Button, inputClass } from "@/components/ui";
 import { PRODUCT_UNITS } from "@/lib/product-units";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang } from "@/lib/board/i18n";
+
+/** Module 6 (docs/hindi-marathi-2026-11): the starter-shelf wording. Product names and units stay as they are. */
+const T = {
+  loadFailed: L("Could not load the suggested products.", "सुझाए गए उत्पाद लोड नहीं हो सके।", "सुचवलेली उत्पादने लोड करता आली नाहीत."),
+  enterPrice: L("Enter a price for {name}, or untick it.", "{name} का दाम डालें, या उसका टिक हटाएँ।", "{name} ची किंमत टाका, किंवा त्याची टिक काढा."),
+  aboveMrp: L(
+    "{name}: the price cannot be above the MRP ({mrp}).",
+    "{name}: दाम MRP ({mrp}) से ज़्यादा नहीं हो सकता।",
+    "{name}: किंमत MRP ({mrp}) पेक्षा जास्त असू शकत नाही.",
+  ),
+  enterQty: L("Enter the quantity you have of {name}.", "{name} की आपके पास कितनी मात्रा है, डालें।", "{name} चे तुमच्याकडे किती प्रमाण आहे ते टाका."),
+  tickOne: L("Tick at least one product.", "कम से कम एक उत्पाद पर टिक करें।", "किमान एका उत्पादनावर टिक करा."),
+  publishFailed: L(
+    "Could not publish the products. Please try again.",
+    "उत्पाद प्रकाशित नहीं हो सके। फिर कोशिश करें।",
+    "उत्पादने प्रकाशित करता आली नाहीत. पुन्हा प्रयत्न करा.",
+  ),
+  lookupFailed: L(
+    "Could not look up the barcode. Please try again.",
+    "बारकोड नहीं ढूँढा जा सका। फिर कोशिश करें।",
+    "बारकोड शोधता आला नाही. पुन्हा प्रयत्न करा.",
+  ),
+  alreadyIn: L("{name} is already in your shop.", "{name} पहले से आपकी दुकान में है।", "{name} आधीच तुमच्या दुकानात आहे."),
+  awaiting: L(
+    "{name} is waiting for our team's approval — it can be listed once approved.",
+    "{name} हमारी टीम की मंज़ूरी का इंतज़ार कर रहा है — मंज़ूरी के बाद जोड़ा जा सकेगा।",
+    "{name} आमच्या टीमच्या मंजुरीची वाट पाहत आहे — मंजुरीनंतर जोडता येईल.",
+  ),
+  addedAtMrp: L("Added {name} at MRP {mrp}.", "{name} MRP {mrp} पर जोड़ा गया।", "{name} MRP {mrp} वर जोडले."),
+  addedSetPrice: L("Added {name} — set your price.", "{name} जोड़ा गया — अपना दाम डालें।", "{name} जोडले — तुमची किंमत टाका."),
+  enterName: L(
+    "Enter the product's name as printed on the pack.",
+    "पैक पर छपा उत्पाद का नाम डालें।",
+    "पॅकवर छापलेले उत्पादनाचे नाव टाका.",
+  ),
+  enterSelling: L("Enter your selling price.", "अपना बिक्री दाम डालें।", "तुमची विक्री किंमत टाका."),
+  addFailed: L("Could not add the product. Please try again.", "उत्पाद नहीं जुड़ सका। फिर कोशिश करें।", "उत्पादन जोडता आले नाही. पुन्हा प्रयत्न करा."),
+  sentToTeam: L(
+    "Sent to our team — it goes on sale in your shop once approved. We'll let you know.",
+    "हमारी टीम को भेजा गया — मंज़ूरी के बाद यह आपकी दुकान में बिकने लगेगा। हम आपको बताएँगे।",
+    "आमच्या टीमकडे पाठवले — मंजुरीनंतर हे तुमच्या दुकानात विक्रीला येईल. आम्ही तुम्हाला कळवू.",
+  ),
+  finding: L("Finding products for your shop…", "आपकी दुकान के लिए उत्पाद ढूँढ रहे हैं…", "तुमच्या दुकानासाठी उत्पादने शोधत आहे…"),
+  scan: L("📷 Scan a barcode", "📷 बारकोड स्कैन करें", "📷 बारकोड स्कॅन करा"),
+  notInCatalogue: L(
+    "is not in our catalogue yet. Add it — it goes on sale once our team approves it.",
+    "अभी हमारी सूची में नहीं है। इसे जोड़ें — टीम की मंज़ूरी के बाद यह बिकने लगेगा।",
+    "अजून आमच्या यादीत नाही. ते जोडा — टीमच्या मंजुरीनंतर ते विक्रीला येईल.",
+  ),
+  namePlaceholder: L("Name as printed on the pack", "पैक पर छपा नाम", "पॅकवर छापलेले नाव"),
+  productName: L("Product name", "उत्पाद का नाम", "उत्पादनाचे नाव"),
+  unit: L("Unit", "इकाई", "एकक"),
+  pricePlaceholder: L("Your price ₹", "आपका दाम ₹", "तुमची किंमत ₹"),
+  sellingPrice: L("Selling price", "बिक्री दाम", "विक्री किंमत"),
+  addProduct: L("Add product", "उत्पाद जोड़ें", "उत्पादन जोडा"),
+  cancel: L("Cancel", "रद्द करें", "रद्द करा"),
+  tickedOf: L(
+    "of {total} products ticked. Untick what you don't sell, and change the price or quantity where yours differs.",
+    "/ {total} उत्पादों पर टिक है। जो आप नहीं बेचते उनका टिक हटाएँ, और जहाँ आपका दाम या मात्रा अलग है वहाँ बदलें।",
+    "/ {total} उत्पादनांवर टिक आहे. जे तुम्ही विकत नाही त्यांची टिक काढा, आणि जिथे तुमची किंमत किंवा प्रमाण वेगळे आहे तिथे बदला.",
+  ),
+  priceForAll: L("Price for all: % below MRP", "सबका दाम: MRP से % कम", "सर्वांची किंमत: MRP पेक्षा % कमी"),
+  percentBelow: L("Percent below MRP", "MRP से कितने प्रतिशत कम", "MRP पेक्षा किती टक्के कमी"),
+  apply: L("Apply", "लगाएँ", "लावा"),
+  mrp: L(" · MRP {mrp}", " · MRP {mrp}", " · MRP {mrp}"),
+  loose: L(" · loose — set your price", " · खुला सामान — अपना दाम डालें", " · सुटा माल — तुमची किंमत टाका"),
+  price: L("Price ₹", "दाम ₹", "किंमत ₹"),
+  priceOf: L("Price of {name}", "{name} का दाम", "{name} ची किंमत"),
+  qty: L("Qty", "मात्रा", "प्रमाण"),
+  qtyOf: L("Quantity of {name}", "{name} की मात्रा", "{name} चे प्रमाण"),
+  publishing: L("Publishing…", "प्रकाशित हो रहा है…", "प्रकाशित होत आहे…"),
+  publish: L("Publish {n} products", "{n} उत्पाद प्रकाशित करें", "{n} उत्पादने प्रकाशित करा"),
+  or: L("Or", "या", "किंवा"),
+  upload: L("upload your own list from Excel", "Excel से अपनी सूची अपलोड करें", "Excel मधून तुमची यादी अपलोड करा"),
+} as const;
 
 /**
  * Step 8 of the registration — the starter shelf (onboarding Phase B, services/starter-shelf.ts):
@@ -34,7 +111,7 @@ interface Row {
 
 const rupees = (paise: number) => (paise / 100).toFixed(paise % 100 === 0 ? 0 : 2);
 
-export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () => Promise<void> }) {
+export function StarterShelf({ shopId, onDone, lang = "en" }: { shopId: string; onDone: () => Promise<void>; lang?: Lang }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [rows, setRows] = useState<Record<string, Row>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -54,7 +131,7 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
       const payload = await response?.json().catch(() => null);
       if (cancelled) return;
       if (!response?.ok || !payload) {
-        setLoadError(payload?.error?.message ?? "Could not load the suggested products.");
+        setLoadError(payload?.error?.message != null ? errorText(payload.error.message, lang, payload.error.code) : tr(T.loadFailed, lang));
         return;
       }
       const list: Item[] = payload.enabled ? payload.items : [];
@@ -73,7 +150,7 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
     return () => {
       cancelled = true;
     };
-  }, [shopId]);
+  }, [shopId, lang]);
 
   const ticked = useMemo(() => (items ?? []).filter((i) => rows[i.productId]?.ticked), [items, rows]);
   const set = (id: string, patch: Partial<Row>) => setRows((r) => ({ ...r, [id]: { ...r[id], ...patch } }));
@@ -97,12 +174,13 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
       const row = rows[i.productId];
       const price = Math.round(Number(row.price) * 100);
       const stock = Number(row.stock);
-      if (!Number.isFinite(price) || price < 1) return setError(`Enter a price for ${i.name}, or untick it.`);
-      if (i.mrpPaise != null && price > i.mrpPaise) return setError(`${i.name}: the price cannot be above the MRP (₹${rupees(i.mrpPaise)}).`);
-      if (!Number.isFinite(stock) || stock < 0) return setError(`Enter the quantity you have of ${i.name}.`);
+      if (!Number.isFinite(price) || price < 1) return setError(tr(T.enterPrice, lang).replace("{name}", i.name));
+      if (i.mrpPaise != null && price > i.mrpPaise)
+        return setError(tr(T.aboveMrp, lang).replace("{name}", i.name).replace("{mrp}", `₹${rupees(i.mrpPaise)}`));
+      if (!Number.isFinite(stock) || stock < 0) return setError(tr(T.enterQty, lang).replace("{name}", i.name));
       picks.push({ productId: i.productId, pricePaise: price, stock });
     }
-    if (picks.length === 0) return setError("Tick at least one product.");
+    if (picks.length === 0) return setError(tr(T.tickOne, lang));
     setBusy(true);
     const response = await fetch(`/api/shops/${shopId}/starter-shelf`, {
       method: "POST",
@@ -111,7 +189,8 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
     }).catch(() => null);
     const payload = await response?.json().catch(() => null);
     setBusy(false);
-    if (!response?.ok) return setError(payload?.error?.message ?? "Could not publish the products. Please try again.");
+    if (!response?.ok)
+      return setError(payload?.error?.message != null ? errorText(payload.error.message, lang, payload.error.code) : tr(T.publishFailed, lang));
     setFailed(payload.failed ?? []);
     if ((payload.added ?? 0) > 0) await onDone();
   }
@@ -124,27 +203,37 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
       setUnknown(null);
       const response = await fetch(`/api/shops/${shopId}/barcode-lookup?code=${encodeURIComponent(code)}`).catch(() => null);
       const payload = await response?.json().catch(() => null);
-      if (!response?.ok || !payload) return setScanNote({ tone: "danger", text: payload?.error?.message ?? "Could not look up the barcode. Please try again." });
+      if (!response?.ok || !payload)
+        return setScanNote({
+          tone: "danger",
+          text: payload?.error?.message != null ? errorText(payload.error.message, lang, payload.error.code) : tr(T.lookupFailed, lang),
+        });
       const match = payload.match as (Item & { approved: boolean; listed: boolean }) | null;
       if (!match) return setUnknown({ code: payload.code, name: "", unit: "piece", price: "" });
-      if (match.listed) return setScanNote({ tone: "info", text: `${match.name} is already in your shop.` });
-      if (!match.approved) return setScanNote({ tone: "warning", text: `${match.name} is waiting for our team's approval — it can be listed once approved.` });
+      if (match.listed) return setScanNote({ tone: "info", text: tr(T.alreadyIn, lang).replace("{name}", match.name) });
+      if (!match.approved) return setScanNote({ tone: "warning", text: tr(T.awaiting, lang).replace("{name}", match.name) });
       setItems((list) => [match, ...(list ?? []).filter((i) => i.productId !== match.productId)]);
       setRows((r) => ({
         ...r,
         [match.productId]: { ticked: match.mrpPaise != null, price: match.mrpPaise != null ? rupees(match.mrpPaise) : "", stock: defaultStock },
       }));
-      setScanNote({ tone: "success", text: `Added ${match.name}${match.mrpPaise != null ? ` at MRP ₹${rupees(match.mrpPaise)}` : " — set your price"}.` });
+      setScanNote({
+        tone: "success",
+        text:
+          match.mrpPaise != null
+            ? tr(T.addedAtMrp, lang).replace("{name}", match.name).replace("{mrp}", `₹${rupees(match.mrpPaise)}`)
+            : tr(T.addedSetPrice, lang).replace("{name}", match.name),
+      });
     },
-    [shopId, defaultStock],
+    [shopId, defaultStock, lang],
   );
 
   /** A barcode the catalogue does not know: a new product, on sale once our team approves it. */
   async function addUnknown() {
     if (!unknown) return;
     const price = Math.round(Number(unknown.price) * 100);
-    if (unknown.name.trim().length < 2) return setScanNote({ tone: "danger", text: "Enter the product's name as printed on the pack." });
-    if (!Number.isFinite(price) || price < 1) return setScanNote({ tone: "danger", text: "Enter your selling price." });
+    if (unknown.name.trim().length < 2) return setScanNote({ tone: "danger", text: tr(T.enterName, lang) });
+    if (!Number.isFinite(price) || price < 1) return setScanNote({ tone: "danger", text: tr(T.enterSelling, lang) });
     const response = await fetch("/api/products", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -161,13 +250,17 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
       }),
     }).catch(() => null);
     const payload = await response?.json().catch(() => null);
-    if (!response?.ok) return setScanNote({ tone: "danger", text: payload?.error?.message ?? "Could not add the product. Please try again." });
+    if (!response?.ok)
+      return setScanNote({
+        tone: "danger",
+        text: payload?.error?.message != null ? errorText(payload.error.message, lang, payload.error.code) : tr(T.addFailed, lang),
+      });
     setUnknown(null);
-    setScanNote({ tone: "success", text: "Sent to our team — it goes on sale in your shop once approved. We'll let you know." });
+    setScanNote({ tone: "success", text: tr(T.sentToTeam, lang) });
   }
 
   if (loadError) return <Alert tone="danger">{loadError}</Alert>;
-  if (!items) return <p className="text-sm text-ink-600">Finding products for your shop…</p>;
+  if (!items) return <p className="text-sm text-ink-600">{tr(T.finding, lang)}</p>;
 
   const scan = (
     <div className="space-y-2">
@@ -175,7 +268,7 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
         <BarcodeScanner onCode={(code) => void onCode(code)} onClose={() => setScanning(false)} />
       ) : (
         <Button type="button" variant="secondary" className="w-full" onClick={() => setScanning(true)} data-testid="shelf-scan">
-          📷 Scan a barcode
+          {tr(T.scan, lang)}
         </Button>
       )}
       {scanNote ? (
@@ -186,25 +279,25 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
       {unknown ? (
         <div className="space-y-2 rounded-xl border border-[var(--gk-line)] bg-cream-50 p-3" data-testid="shelf-new-product">
           <p className="text-sm text-ink-700">
-            <strong>{unknown.code}</strong> is not in our catalogue yet. Add it — it goes on sale once our team approves it.
+            <strong>{unknown.code}</strong> {tr(T.notInCatalogue, lang)}
           </p>
-          <input className={inputClass} placeholder="Name as printed on the pack" value={unknown.name} onChange={(e) => setUnknown({ ...unknown, name: e.target.value })} aria-label="Product name" />
+          <input className={inputClass} placeholder={tr(T.namePlaceholder, lang)} value={unknown.name} onChange={(e) => setUnknown({ ...unknown, name: e.target.value })} aria-label={tr(T.productName, lang)} />
           <div className="grid grid-cols-2 gap-2">
-            <select className={inputClass} value={unknown.unit} onChange={(e) => setUnknown({ ...unknown, unit: e.target.value })} aria-label="Unit">
+            <select className={inputClass} value={unknown.unit} onChange={(e) => setUnknown({ ...unknown, unit: e.target.value })} aria-label={tr(T.unit, lang)}>
               {PRODUCT_UNITS.map((u) => (
                 <option key={u} value={u}>
                   {u}
                 </option>
               ))}
             </select>
-            <input className={inputClass} inputMode="decimal" placeholder="Your price ₹" value={unknown.price} onChange={(e) => setUnknown({ ...unknown, price: e.target.value })} aria-label="Selling price" />
+            <input className={inputClass} inputMode="decimal" placeholder={tr(T.pricePlaceholder, lang)} value={unknown.price} onChange={(e) => setUnknown({ ...unknown, price: e.target.value })} aria-label={tr(T.sellingPrice, lang)} />
           </div>
           <div className="flex gap-2">
             <Button type="button" onClick={() => void addUnknown()}>
-              Add product
+              {tr(T.addProduct, lang)}
             </Button>
             <Button type="button" variant="ghost" onClick={() => setUnknown(null)}>
-              Cancel
+              {tr(T.cancel, lang)}
             </Button>
           </div>
         </div>
@@ -218,15 +311,15 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
     <div className="space-y-3" data-testid="starter-shelf">
       {scan}
       <p className="text-sm text-ink-700">
-        <strong>{ticked.length}</strong> of {items.length} products ticked. Untick what you don&apos;t sell, and change the price or quantity where yours differs.
+        <strong>{ticked.length}</strong> {tr(T.tickedOf, lang).replace("{total}", String(items.length))}
       </p>
       <div className="flex flex-wrap items-end gap-2 rounded-xl bg-cream-50 p-2">
         <label className="text-sm text-ink-700">
-          Price for all: % below MRP
-          <input className={`${inputClass} mt-1 w-24`} inputMode="numeric" value={discount} onChange={(e) => setDiscount(e.target.value)} aria-label="Percent below MRP" />
+          {tr(T.priceForAll, lang)}
+          <input className={`${inputClass} mt-1 w-24`} inputMode="numeric" value={discount} onChange={(e) => setDiscount(e.target.value)} aria-label={tr(T.percentBelow, lang)} />
         </label>
         <Button type="button" variant="secondary" onClick={applyDiscount}>
-          Apply
+          {tr(T.apply, lang)}
         </Button>
       </div>
       <ul className="max-h-[28rem] divide-y divide-cream-100 overflow-y-auto rounded-xl border border-[var(--gk-line)] bg-white">
@@ -245,28 +338,28 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
                   <span className="block truncate font-medium text-ink-900">{i.name}</span>
                   <span className="block text-xs text-ink-500">
                     {i.categoryName}
-                    {i.mrpPaise != null ? ` · MRP ₹${rupees(i.mrpPaise)}` : " · loose — set your price"}
+                    {i.mrpPaise != null ? tr(T.mrp, lang).replace("{mrp}", `₹${rupees(i.mrpPaise)}`) : tr(T.loose, lang)}
                   </span>
                 </span>
               </label>
               <label className="text-xs text-ink-600">
-                Price ₹
+                {tr(T.price, lang)}
                 <input
                   className={`${inputClass} mt-0.5 w-full`}
                   inputMode="decimal"
                   value={row?.price ?? ""}
                   onChange={(e) => set(i.productId, { price: e.target.value, ticked: true })}
-                  aria-label={`Price of ${i.name}`}
+                  aria-label={tr(T.priceOf, lang).replace("{name}", i.name)}
                 />
               </label>
               <label className="text-xs text-ink-600">
-                Qty ({i.unit})
+                {tr(T.qty, lang)} ({i.unit})
                 <input
                   className={`${inputClass} mt-0.5 w-full`}
                   inputMode="decimal"
                   value={row?.stock ?? ""}
                   onChange={(e) => set(i.productId, { stock: e.target.value })}
-                  aria-label={`Quantity of ${i.name}`}
+                  aria-label={tr(T.qtyOf, lang).replace("{name}", i.name)}
                 />
               </label>
               {why ? <p className="col-span-2 text-xs text-red-700 sm:col-span-3">{why}</p> : null}
@@ -276,12 +369,12 @@ export function StarterShelf({ shopId, onDone }: { shopId: string; onDone: () =>
       </ul>
       {error ? <Alert tone="danger">{error}</Alert> : null}
       <Button type="button" size="lg" className="w-full" disabled={busy || ticked.length === 0} onClick={() => void publish()} data-testid="starter-shelf-publish">
-        {busy ? "Publishing…" : `Publish ${ticked.length} products`}
+        {busy ? tr(T.publishing, lang) : tr(T.publish, lang).replace("{n}", String(ticked.length))}
       </Button>
       <p className="text-center text-sm text-ink-600">
-        Or{" "}
+        {tr(T.or, lang)}{" "}
         <Link href="/shop/product-import" className="font-medium text-kesari-700 underline">
-          upload your own list from Excel
+          {tr(T.upload, lang)}
         </Link>
       </p>
     </div>

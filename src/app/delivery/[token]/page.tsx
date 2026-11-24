@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { StaffDeliveryView } from "@/components/staff-delivery-view";
 import { AppError } from "@/lib/errors";
+import { getBoardLang } from "@/server/board-lang";
 import { getStaffLinkView } from "@/server/services/fulfilment-options";
 
 export const metadata = { title: "Delivery", robots: { index: false, follow: false } };
@@ -19,5 +20,6 @@ export default async function StaffDeliveryPage({ params }: { params: Promise<{ 
     throw error;
   });
   if (!view) notFound();
-  return <StaffDeliveryView token={token} initial={view} />;
+  const lang = await getBoardLang();
+  return <StaffDeliveryView token={token} initial={view} lang={lang} />;
 }

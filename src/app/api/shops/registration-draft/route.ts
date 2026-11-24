@@ -4,13 +4,15 @@
  * name and address filled from the GST record, the step to resume at and, once
  * the shop exists, its fee and status — or null.
  */
-import { wizardActor } from "@/server/registration/wizard-actor";
+import type { NextRequest } from "next/server";
+
 import { ok, route } from "@/server/api/handler";
+import { wizardActor } from "@/server/api/wizard-actor";
 import { getWizardDraft } from "@/server/services/shop-registration-wizard";
 
 export const dynamic = "force-dynamic";
 
-export const GET = route(async (request: Request) => {
+export const GET = route(async (request: NextRequest) => {
   const user = await wizardActor(request);
   return ok(await getWizardDraft(user));
 });

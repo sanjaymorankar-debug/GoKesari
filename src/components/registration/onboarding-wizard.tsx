@@ -20,6 +20,7 @@ import { formatRupeesIndian, turnoverSlab, turnoverSlabLabel, type TurnoverFeeRu
 import { DocumentUploadPanel, type PanelItem } from "@/components/document-upload-panel";
 import { LegalDocumentsPanel, type LegalDocCard } from "@/components/legal-documents-panel";
 import { DocumentScan } from "./document-scan";
+import { ReferralByPin } from "./referral-by-pin";
 import { StarterShelf } from "./starter-shelf";
 
 /**
@@ -583,6 +584,8 @@ export function OnboardingWizard({
   referralRequired = false,
   lang = "en",
   staffDraft = null,
+  referralByPin = false,
+  scanFirst = false,
 }: {
   initial: WizardState | null;
   initialCategories?: PickerCategory[];
@@ -594,6 +597,10 @@ export function OnboardingWizard({
   lang?: Lang;
   /** Owner, 25-Nov-2026: staff continuing this owner's registration (the draft's id); null on the owner's own page. */
   staffDraft?: string | null;
+  /** Onboarding WP6: flag onboarding_referral_by_pin_enabled — "No code? Find one near you". */
+  referralByPin?: boolean;
+  /** Onboarding WP10: flag onboarding_scan_first_enabled — the photo scan opens first on phones. */
+  scanFirst?: boolean;
 }) {
   const [state, setState] = useState<WizardState | null>(initial);
   // The owner may look back at a finished step; null = the step the server says is next.
@@ -682,6 +689,7 @@ export function OnboardingWizard({
           next={() => setViewing(state?.canContinue ? null : "IDENTITY")}
           lang={lang}
           staff={Boolean(staffDraft)}
+          referralByPin={referralByPin}
         />
       ) : null}
       {step === "IDENTITY" ? (
@@ -696,6 +704,7 @@ export function OnboardingWizard({
           next={() => setViewing(null)}
           lang={lang}
           staff={Boolean(staffDraft)}
+          scanFirst={scanFirst}
         />
       ) : null}
       {step === "EMAIL" && state ? <EmailStep state={state} busy={busy} fields={fields} send={send} back={back(state.status === "OPEN" && state.details ? "SHOP" : "IDENTITY")} /> : null}
@@ -798,7 +807,7 @@ export function OnboardingWizard({
           {state.details?.shopType === PUJA_SHOP_TYPE_KEY ? (
             <PujaCatalogueSetup shopId={state.shop.id} onDone={refresh} />
           ) : (
-            <StarterShelf shopId={state.shop.id} onDone={refresh} />
+            <StarterShelf shopId={state.shop.id} onDone={refresh} lang={lang} />
           )}
           <div className="grid gap-2 sm:grid-cols-2">
             <Link href="/shop/product-import" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-kesari-600 px-4 text-sm font-medium text-white">
@@ -878,6 +887,8 @@ function VerifyStep({
   lang,
   staff = false,
   mode = "identity",
+  referralByPin = false,
+  scanFirst = false,
 }: {
   state: WizardState | null;
   initialReferralCode: string | null;
@@ -893,6 +904,8 @@ function VerifyStep({
   staff?: boolean;
   /** Owner, 25-Nov-2026: the referral code is its own screen ("referral"), before GST / PAN ("identity"). */
   mode?: "referral" | "identity";
+  referralByPin?: boolean;
+  scanFirst?: boolean;
 }) {
   const [code, setCode] = useState(state?.referral.code ?? initialReferralCode ?? "");
   const [employeeId, setEmployeeId] = useState(state?.referral.employeeId ?? "");
@@ -906,6 +919,19 @@ function VerifyStep({
   // Owner, 25-Nov-2026: a verified number is shown with "Change GST / PAN"; the form opens only on that tap.
   const [changing, setChanging] = useState(false);
   const triedLink = useRef(false);
+
+  // Onboarding WP10 (flag onboarding_scan_first_enabled): on a phone the photo scan opens first and the
+  // reading model loads in the background. Decided after mount (the server cannot know the screen).
+  useEffect(() => {
+    if (!scanFirst || state?.canContinue) return;
+    if (typeof window === "undefined" || !window.matchMedia?.("(max-width: 767px), (pointer: coarse)").matches) return;
+    void import("@/lib/kyc/browser-ocr")
+      .then((m) => m.preloadBrowserOcr())
+      .catch(() => undefined)
+      .finally(() => setScanning(true));
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (triedLink.current || !initialReferralCode || state?.referral.answered) return;
@@ -958,7 +984,7 @@ function VerifyStep({
           : tr({ en: "Verify your business", hi: "अपने व्यवसाय का सत्यापन करें", mr: "तुमच्या व्यवसायाची पडताळणी करा" }, lang)
       }
     >
-      {requesting ? <ReferralRequestDialog prefill={{}} onClose={() => setRequesting(false)} /> : null}
+      {requesting ? <ReferralRequestDialog prefill={{}} onClose={() => setRequesting(false)} lang={lang} /> : null}
       {mode === "identity" && !showForm && state ? (
         <div className="space-y-2 rounded-xl border border-leaf-500 bg-leaf-50 p-3" data-testid="identity-verified">
           <p className="text-sm text-ink-800">
@@ -1016,6 +1042,9 @@ function VerifyStep({
             </button>
           </p>
         ) : null}
+        {referralByPin && !state?.referral.locked && !applied ? (
+          <ReferralByPin initialPin={state?.prefill.pincode ?? null} onUse={(found) => setCode(found)} lang={lang} />
+        ) : null}
         {dealerProgramme ? (
           <details className="text-sm text-ink-700" open={Boolean(employeeId)}>
             <summary className="cursor-pointer">{tr({ en: "Employee ID or name (optional)", hi: "कर्मचारी आईडी या नाम (वैकल्पिक)", mr: "कर्मचारी आयडी किंवा नाव (पर्यायी)" }, lang)}</summary>
@@ -1069,6 +1098,7 @@ function VerifyStep({
           {scanning ? (
             <div className="mt-2">
               <DocumentScan
+                lang={lang}
                 busy={busy}
                 onConfirm={(found) => {
                   const hit = found.find((f) => f.docType === (hasGst ? "GSTIN" : "PAN"));

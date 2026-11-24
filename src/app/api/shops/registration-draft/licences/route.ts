@@ -5,7 +5,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { wizardActor } from "@/server/registration/wizard-actor";
+import { wizardActor } from "@/server/api/wizard-actor";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { finishDraftLicences } from "@/server/services/shop-registration-wizard";

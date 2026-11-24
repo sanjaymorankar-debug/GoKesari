@@ -12,6 +12,7 @@ import {
   type ConsentTypeSummary,
 } from "@/server/services/consents";
 import { listUsers } from "@/server/services/users";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Consent record" };
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ export const dynamic = "force-dynamic";
 const CONSENT_LABELS: Record<ConsentType, string> = {
   TERMS_AND_PRIVACY: "Terms & privacy policy",
   MARKETING_COMMUNICATIONS: "Marketing communications",
+  WHATSAPP_NOTIFICATIONS: "WhatsApp updates",
 };
 
 const DECISIONS = [
@@ -127,7 +129,7 @@ export default async function ConsentsPage({
     user: params.user,
   };
 
-  const [overview, changes, matches, trail] = await Promise.all([
+  const [overview, changes, matches, trail, selfDeletion] = await Promise.all([
     getConsentOverview(),
     listConsentChanges({
       consentType: filters.consentType,
@@ -135,6 +137,8 @@ export default async function ConsentsPage({
     }),
     query ? listUsers({ query, limit: 20 }) : Promise.resolve([]),
     params.user ? getUserConsentTrail(params.user, user) : Promise.resolve(null),
+    // docs/account-deletion-2026-11: the link to the deletion requests, only with its flag on.
+    isFeatureEnabled("account_self_deletion_enabled"),
   ]);
 
   const filtered = Boolean(filters.consentType || filters.decision);
@@ -145,9 +149,16 @@ export default async function ConsentsPage({
         title="Consent record"
         description={`Current policy version ${overview.policyVersion}, across ${overview.liveUsers} live accounts. Consent is append-only — a withdrawal is a new row, never an edit. The IP address captured with each record is not shown here.`}
         action={
-          <LinkButton href="/admin/risk" variant="secondary">
-            Risk & fraud
-          </LinkButton>
+          <div className="flex flex-wrap gap-2">
+            {selfDeletion ? (
+              <LinkButton href="/admin/consents/account-deletions" variant="secondary">
+                Account deletions
+              </LinkButton>
+            ) : null}
+            <LinkButton href="/admin/risk" variant="secondary">
+              Risk & fraud
+            </LinkButton>
+          </div>
         }
       />
 
