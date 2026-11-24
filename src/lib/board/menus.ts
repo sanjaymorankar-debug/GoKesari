@@ -132,7 +132,7 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       // docs/nearby-referral-2026-10: shops near the device's real position (asks for location).
       { key: "nearby", label: L("Nearby", "पास में", "जवळची"), icon: "map-pin", href: "/shops/nearby", count: "nearbyShops" },
       { key: "openNow", label: L("Open now", "अभी खुली", "आता उघडी"), icon: "clock", href: "/shops?open=1", count: "openNowShops" },
-      // Mockup: "Favourites" — no favourites feature exists; nearest real destination.
+      // Mockup: "Favourites" — now under Orders → Favourites (docs/search-brand-barcode-favourites-2026-11, flag-gated).
       { key: "deliversHere", label: L("Delivers here", "यहाँ डिलीवरी", "इथे डिलिव्हरी"), short: { en: "Delivers" }, icon: "truck", href: "/shops?delivery=true", count: "deliveringShops" },
       // Was the "Compare prices near you" section under the old home page.
       { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare" },
@@ -150,6 +150,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "returns", label: L("Returns", "वापसी", "परतावा"), icon: "undo-2", href: "/returns", count: "openReturns", auth: true },
       // docs/purchase-lists-2026-10: weekly / monthly shopping and medicine lists, reordered in a few taps.
       { key: "lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या"), short: { en: "Lists" }, icon: "clipboard-check", href: "/lists", auth: true },
+      // docs/search-brand-barcode-favourites-2026-11: products saved with the heart (guests' stay in the browser). Only while its flag is on.
+      { key: "favourites", label: L("Favourites", "पसंदीदा", "आवडती"), icon: "heart", href: "/favourites", feature: "brand_barcode_favourites_enabled" },
       // docs/consult-booking-2026-11: the customer's consultant appointments.
       { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), short: { en: "Bookings" }, icon: "calendar-clock", href: "/consult/bookings", auth: true },
     ],
@@ -435,6 +437,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "welcomeKit", label: L("Send welcome kit", "वेलकम किट भेजें", "वेलकम किट पाठवा"), icon: "megaphone", href: "/admin/shops/welcome-kit", permission: ADMIN_ONLY, feature: "shop_welcome_kit_admin_send_enabled" },
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
+      // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },
   {
@@ -641,6 +645,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "onboardingFunnel", label: L("Onboarding funnel", "ऑनबोर्डिंग फ़नल", "ऑनबोर्डिंग फनेल"), icon: "chart-line", href: "/admin/onboarding-funnel", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
+      // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },
   {

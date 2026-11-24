@@ -20,7 +20,7 @@ whatever the dispute's outcome. The outcome (OPEN / WON / LOST / CLOSED) is kept
   the payment return page). Folding the new states into `status` would have changed all of them, and a
   refund after reconciling would have lost the RECONCILED marker. With a separate column, turning the flag
   off restores the old behaviour exactly.
-- **Migration 0190** (`drizzle/0190_payment_settlement_states.sql`) adds:
+- **Migration 0200** (`drizzle/0200_payment_settlement_states.sql`) adds:
   - on `payment_intents`: `settlement_state` (checked), `reconciled_at`, `settlement_checked_at` and
     `settlement_checks`;
   - a partial index over the job's work list;

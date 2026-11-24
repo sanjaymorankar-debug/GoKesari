@@ -5,6 +5,8 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { PendingShopChanges } from "@/components/shop/pending-shop-changes";
 import { DocumentsPanel, ShopWorkbench } from "@/components/staff/support-desk";
 import { Alert, PageHeader, Section } from "@/components/ui";
+import { L, tr } from "@/lib/board/i18n";
+import { getBoardLang } from "@/server/board-lang";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
@@ -17,6 +19,22 @@ import { isFeatureEnabledForRole } from "@/server/services/feature-flags";
 export const metadata = { title: "Shop workbench" };
 export const dynamic = "force-dynamic";
 
+/** Module 6: Hindi / Marathi for the page's own words (English unchanged). */
+const T = {
+  myTickets: L("← My tickets", "← मेरे टिकट", "← माझी तिकिटे"),
+  description: L(
+    "{owner} · {city} {pincode} · GSTIN {gstin} · FSSAI {fssai} · status {status}",
+    "{owner} · {city} {pincode} · GSTIN {gstin} · FSSAI {fssai} · स्थिति {status}",
+    "{owner} · {city} {pincode} · GSTIN {gstin} · FSSAI {fssai} · स्थिती {status}",
+  ),
+  notice: L(
+    "Nothing you change here is applied until the shop owner approves it. GSTIN / PAN change only through government verification; master product data through an admin.",
+    "यहाँ किया कोई भी बदलाव दुकान मालिक की मंज़ूरी के बाद ही लागू होगा। GSTIN / PAN सिर्फ़ सरकारी सत्यापन से बदलते हैं; मास्टर उत्पाद डेटा एडमिन के ज़रिए।",
+    "इथे केलेला कोणताही बदल दुकान मालकाच्या मंजुरीनंतरच लागू होईल. GSTIN / PAN फक्त सरकारी पडताळणीने बदलतात; मास्टर उत्पादन माहिती ॲडमिनमार्फत.",
+  ),
+  waiting: L("Waiting for the owner ({n})", "मालिक का इंतज़ार ({n})", "मालकाची वाट ({n})"),
+} as const;
+
 /**
  * RBAC v2 Phase 4/5: the Support User's workbench for one shop, opened from a ticket assigned to them. Shop data is
  * shown (bank details are never shown here; purchase cost is not part of it) and every edit becomes a change
@@ -28,6 +46,7 @@ export default async function ShopWorkbenchPage({ params, searchParams }: { para
   if (!can(user.role, PERMISSIONS.SHOP_CHANGE_PROPOSE) && !can(user.role, PERMISSIONS.SUPPORT_QUEUE_MANAGE)) redirect("/staff");
   if (!(await isFeatureEnabledForRole("rbac_v2_shop_change_requests", user.role))) redirect("/staff/support");
   const { shopId } = await params;
+  const lang = await getBoardLang();
   const ticketId = (await searchParams).ticket ?? null;
   if (!can(user.role, PERMISSIONS.SUPPORT_QUEUE_MANAGE) && user.role !== "ADMIN") {
     // A Support User sees only the shop of a ticket assigned to them (brief §3.5).
@@ -60,13 +79,19 @@ export default async function ShopWorkbenchPage({ params, searchParams }: { para
   return (
     <div className="mx-auto max-w-5xl">
       <Link href="/staff/support?tab=mine" className="mb-2 inline-flex min-h-11 items-center text-sm font-semibold text-kesari-800 hover:underline">
-        ← My tickets
+        {tr(T.myTickets, lang)}
       </Link>
       <PageHeader
         title={shop.name}
-        description={`${shop.ownerName ?? ""} · ${shop.city} ${shop.pincode} · GSTIN ${shop.gstin ?? "—"} · FSSAI ${shop.fssaiLicenseNumber ?? "—"} · status ${shop.status}`}
+        description={tr(T.description, lang)
+          .replace("{owner}", shop.ownerName ?? "")
+          .replace("{city}", String(shop.city))
+          .replace("{pincode}", String(shop.pincode))
+          .replace("{gstin}", shop.gstin ?? "—")
+          .replace("{fssai}", shop.fssaiLicenseNumber ?? "—")
+          .replace("{status}", shop.status)}
       />
-      <Alert tone="info">Nothing you change here is applied until the shop owner approves it. GSTIN / PAN change only through government verification; master product data through an admin.</Alert>
+      <Alert tone="info">{tr(T.notice, lang)}</Alert>
       <div className="mt-3">
         <ShopWorkbench
           shopId={shopId}
@@ -85,7 +110,7 @@ export default async function ShopWorkbenchPage({ params, searchParams }: { para
       <div className="mt-3">
         <DocumentsPanel shopId={shopId} ticketId={ticketId} docs={docs} types={[...STAFF_DOC_TYPES]} canVerify={can(user.role, PERMISSIONS.SUPPORT_QUEUE_MANAGE) || user.role === "ADMIN"} />
       </div>
-      <Section title={`Waiting for the owner (${pending.length})`}>
+      <Section title={tr(T.waiting, lang).replace("{n}", String(pending.length))}>
         <PendingShopChanges requests={pending} readOnly />
       </Section>
     </div>
