@@ -346,7 +346,13 @@ export async function walletCollectionFor(orderId: string, client: DbClient = db
     .select({ distanceKm: deliveryOrders.distanceKm, routeSource: deliveryOrders.routeSource })
     .from(deliveryOrders)
     .where(and(eq(deliveryOrders.orderId, orderId), eq(deliveryOrders.status, "DELIVERED")));
-  if (!riderDelivered) return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: 0, shopDeliveryDistanceM: null };
+  if (!riderDelivered) {
+    // docs/hdms-2026-11: a delivery partner delivered it — the shop pays its share under the pricing rule
+    // (Shop pays / Shared), never more than the delivery cost. No partner booking: nothing, as before.
+    const { partnerDeliveryShopCharge } = await import("@/server/delivery/charges");
+    const partner = await partnerDeliveryShopCharge(orderId, client);
+    return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: partner.chargePaise, shopDeliveryDistanceM: partner.distanceM };
+  }
   const charge = shopDeliveryChargeFor(riderDelivered, rules);
   return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: charge.chargePaise, shopDeliveryDistanceM: charge.distanceM };
 }

@@ -92,6 +92,12 @@ export interface DeliveryStaffView {
   name: string;
   phoneE164: string;
   isActive: boolean;
+  /** docs/hdms-2026-11: on duty, vehicle and ID proof (last 4 characters only). */
+  isAvailable: boolean;
+  vehicleType: string | null;
+  idDocumentType: string | null;
+  idDocumentLast4: string | null;
+  kycStatus: string;
 }
 
 const toStaffView = (row: ShopDeliveryStaff): DeliveryStaffView => ({
@@ -99,6 +105,11 @@ const toStaffView = (row: ShopDeliveryStaff): DeliveryStaffView => ({
   name: row.name,
   phoneE164: row.phoneE164,
   isActive: row.isActive,
+  isAvailable: row.isAvailable,
+  vehicleType: row.vehicleType,
+  idDocumentType: row.idDocumentType,
+  idDocumentLast4: row.idDocumentLast4,
+  kycStatus: row.kycStatus,
 });
 
 function parseStaffInput(input: { name: string; mobile: string }): { name: string; phoneE164: string } {
