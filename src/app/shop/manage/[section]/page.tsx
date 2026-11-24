@@ -1,4 +1,6 @@
 import { SectionTabs } from "@/components/board/section-tabs";
+import { RegistrationCard } from "@/components/seller/registration-status";
+import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -571,9 +573,11 @@ export default async function ShopManagePage({
       ]);
       const origin = originFromHeaders(await headers());
       const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+      const registrationView = await ownerRegistrationStatus(shop); // 0200
       return (
         <>
           {header}
+          <RegistrationCard view={registrationView} />
           <div className="mb-8">
             <MembershipRenewalCard
               view={{

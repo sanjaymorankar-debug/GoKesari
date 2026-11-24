@@ -19,7 +19,7 @@
  */
 import { randomUUID } from "node:crypto";
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { derivedTestSecret, getEnv, isProductionSite } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
@@ -167,6 +167,14 @@ export class SandboxGateway implements PaymentGateway {
       .onConflictDoNothing();
     const row = await loadOrder(gatewayOrderId);
     return { gatewayLinkId: gatewayOrderId, url: SandboxGateway.checkoutPath(input.merchantLinkId), expiresAt: row.expiresAt ?? input.expiresAt };
+  }
+
+  /** 0200: an unpaid sandbox link stops (reported EXPIRED, as Cashfree's cancelled link ends the payment). */
+  async cancelPaymentLink(gatewayLinkId: string): Promise<void> {
+    await db
+      .update(paymentSandboxOrders)
+      .set({ status: "EXPIRED", updatedAt: new Date() })
+      .where(and(eq(paymentSandboxOrders.gatewayOrderId, gatewayLinkId), inArray(paymentSandboxOrders.status, ["CREATED", "PENDING"])));
   }
 
   async refund(input: GatewayRefundInput): Promise<GatewayRefund> {

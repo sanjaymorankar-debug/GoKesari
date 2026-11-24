@@ -199,6 +199,13 @@ export const AUDIT_ACTIONS = {
   SHOP_MEMBERSHIP_PERIOD_VOIDED: "shop.membership_period_voided",
   SHOP_MEMBERSHIP_RENEWAL_STARTED: "shop.membership_renewal_started",
   SHOP_MEMBERSHIP_RENEWAL_PAID: "shop.membership_renewal_paid",
+  // 0200 registration subscription (docs/shop-registration-subscription-2026-11)
+  SHOP_REGISTRATION_REMINDER_SENT: "shop.registration_reminder_sent",
+  SHOP_REGISTRATION_LINK_CREATED: "shop.registration_link_created",
+  SHOP_REGISTRATION_LINK_CANCELLED: "shop.registration_link_cancelled",
+  SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",
+  SHOP_REGISTRATION_MARKED_PAID: "shop.registration_marked_paid",
+  SHOP_REGISTRATION_SETTINGS_CHANGED: "shop.registration_settings_changed",
   /* <<< 0189 */
   REFERRAL_CODE_CREATED: "referral_code.created",
   REFERRAL_CODE_UPDATED: "referral_code.updated",

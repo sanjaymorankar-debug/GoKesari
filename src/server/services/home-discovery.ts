@@ -15,6 +15,7 @@ import { db } from "@/server/db";
 import { orderItems, orders, products, shopProducts, shops } from "@/server/db/schema";
 import { shopCarriesProductCategory } from "./product-categories";
 import { serviceableShopIds } from "./serviceability";
+import { registrationListed } from "./shop-membership";
 
 export interface PopularItem {
   shopProductId: string;
@@ -41,6 +42,7 @@ function purchasable(): SQL {
   return and(
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
+    registrationListed, // 0200
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(shopProducts.isAvailable, true),

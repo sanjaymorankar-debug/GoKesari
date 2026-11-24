@@ -65,7 +65,7 @@ import { getRule } from "@/server/services/settings";
 import { referralCodeUses } from "@/server/services/referrals";
 import { isReferralRequired } from "@/server/services/referral-settings";
 import { nextReference } from "@/server/services/shop-payments";
-import { extendMembership } from "@/server/services/shop-membership";
+import { extendMembership, noteRegistrationPayment } from "@/server/services/shop-membership";
 import { getOrCreateShopWallet } from "@/server/services/shop-wallet";
 import { verifyRegistrationOtp } from "./otp";
 import { recordShopAttributionSafely } from "@/server/dealers/attribution";
@@ -656,6 +656,9 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
     }).returning({ id: shopPayments.id });
     // D-69: the fee is paid in full here; 0189: the period is recorded against it.
     await extendMembership(tx, shop.id, now, { kind: "REGISTRATION", feePaise: reg.feePaise, shopPaymentId: feeRow.id });
+    // 0200 registration subscription: 1 year from the payment, ACTIVE now (the job keeps it in step later).
+    await noteRegistrationPayment(tx, shop.id, { id: feeRow.id, paidAt: now, amountPaise: reg.feePaise }, now);
+    await tx.update(shops).set({ registrationStatus: "ACTIVE", registrationStatusAt: now }).where(eq(shops.id, shop.id));
     // No code (referral_required_shop OPTIONAL): nothing to redeem; payment alone approves the shop.
     if (reg.referralCodeId) {
       await tx.insert(referralRedemptions).values({ referralCodeId: reg.referralCodeId, shopId: shop.id, registrationFeePaise: reg.feePaise, redeemedBy: owner.id });

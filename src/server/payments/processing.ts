@@ -322,6 +322,9 @@ export async function runPaymentReconciliation(now: Date = new Date()): Promise<
       and(
         inArray(paymentIntents.status, [...LIVE_PAYMENT_INTENT_STATUSES]),
         or(lt(paymentIntents.createdAt, cutoff), lt(paymentIntents.expiresAt, now)),
+        // 0200: a payment link valid for days is not "stuck" while it lasts (no support flag after N checks);
+        // the registration reminder job checks open registration links itself, and this picks it up at expiry.
+        sql`not (${paymentIntents.mode} = 'LINK' and ${paymentIntents.expiresAt} > ${now} and ${paymentIntents.purpose} in ('SHOP_REGISTRATION_FEE', 'SHOP_MEMBERSHIP_RENEWAL'))`,
       ),
     )
     .orderBy(asc(paymentIntents.createdAt))

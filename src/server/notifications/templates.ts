@@ -144,6 +144,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{shopName}} is live, but these documents are still missing: {{documents}}. {{deadline}} Upload them on GoKesari so we can verify them. {{warning}}",
   ),
   [T.SHOP_MEMBERSHIP_RENEWAL_DUE]: t("{{headline}} — {{shopName}}", "{{message}} Renew it on GoKesari: Shop → Registration and fee → Renew now."),
+  // 0200 registration subscription: the text is built in English + Marathi by services/shop-registration-subscription.ts.
+  [T.SHOP_REGISTRATION_REMINDER]: t("{{title}}", "{{message}}"),
+  [T.SHOP_REGISTRATION_PAYMENT_LINK]: t("{{title}}", "{{message}}"),
+  [T.SHOP_REGISTRATION_EXPIRY_CHANGED]: t("{{title}}", "{{message}}"),
+  [T.SHOP_REGISTRATION_CONFIRMED]: t("{{title}}", "{{message}}"),
   [T.SHOP_MEMBERSHIP_RENEWED]: t(
     "Membership renewed — {{shopName}}",
     "We received {{amount}} for {{shopName}}'s yearly membership. It is now valid until {{validUntil}}. Receipt {{reference}}.",

@@ -31,6 +31,8 @@ interface Props {
   shops: { id: string; name: string }[];
   groups: ResolvedSellerGroup[];
   counts: Counts;
+  /** 0200: the registration subscription banner, shown at the top of every screen until paid. */
+  banner?: ReactNode;
   children: ReactNode;
 }
 
@@ -92,7 +94,7 @@ function useDismiss(ref: React.RefObject<HTMLElement | null>, open: boolean, clo
  * The site's shopping header (cart, deliver-to, wallet) and footer step aside
  * while it is on screen (globals.css, `[data-seller-central]`).
  */
-export function SellerShell({ lang, user, roles, unreadCount, shop, shops, groups, counts, children }: Props) {
+export function SellerShell({ lang, user, roles, unreadCount, shop, shops, groups, counts, banner, children }: Props) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -295,7 +297,10 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, shops, group
         ) : null}
 
         <div className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-7" data-testid="seller-content" data-seller-content>
-          <div className={clsx("mx-auto w-full", withNav ? "max-w-6xl" : "max-w-5xl")}>{children}</div>
+          <div className={clsx("mx-auto w-full", withNav ? "max-w-6xl" : "max-w-5xl")}>
+            {banner}
+            {children}
+          </div>
         </div>
       </div>
     </div>

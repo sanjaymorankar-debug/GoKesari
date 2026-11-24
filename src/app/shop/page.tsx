@@ -24,6 +24,8 @@ import { getShopSetupChecklist } from "@/server/services/shop-setup-checklist";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { registrationFeeDue } from "@/server/services/registration-fee-payment";
+import { RegistrationCard } from "@/components/seller/registration-status";
+import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
 import { listShopsForOwner } from "@/server/services/shops";
 
 export const metadata = { title: { absolute: "Seller Central · GoKesari" } };
@@ -91,6 +93,7 @@ export default async function ShopDashboardPage() {
     getShopSetupChecklist(shop).catch(() => null),
   ]);
 
+  const registration = shop.status === "REJECTED" || shop.status === "INACTIVE" ? null : await ownerRegistrationStatus(shop);
   const alerts = shopAlerts(lang, {
     status: shop.status,
     feeDue: registrationFeeDue(shop) > 0,
@@ -126,6 +129,8 @@ export default async function ShopDashboardPage() {
   return (
     <>
       <HashRedirect map={OLD_SECTIONS} />
+      {/* 0200: the Shop Registration card (status, dates, days left, amount due, Pay / Renew). */}
+      <RegistrationCard view={registration} />
       {/* Touch screens: the approved Tile Board, every menu on one screen. */}
       <div className="lg:hidden">
         <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: publicSlug }} data={board} alerts={boardAlerts} />

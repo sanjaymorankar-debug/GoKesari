@@ -16,6 +16,7 @@ import { shopCarriesProductCategory } from "./product-categories";
 import { serviceableShopIds } from "./serviceability";
 import { getRule } from "./settings";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
+import { registrationListed } from "./shop-membership";
 
 export interface ComparedPrice {
   shopProductId: string;
@@ -65,6 +66,7 @@ function comparableListing(shopIds: string[]): SQL {
     inArray(shopProducts.shopId, shopIds),
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
+    registrationListed, // 0200
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(shopProducts.isAvailable, true),

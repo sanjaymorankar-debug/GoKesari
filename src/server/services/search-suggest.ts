@@ -19,6 +19,7 @@ import { productCategories, products, searchQueries, shopProducts, shops } from 
 import { searchPublicBrands } from "./brands";
 import { storefrontLive } from "./catalogue";
 import { shopCarriesProductCategory } from "./product-categories";
+import { registrationListed } from "./shop-membership";
 
 export const SUGGEST_MIN_CHARS = 2;
 export const SUGGEST_MAX_CHARS = 60;
@@ -130,6 +131,7 @@ export async function suggest(
           or(ilike(products.name, pattern), sql`EXISTS (SELECT 1 FROM product_local_names pln WHERE pln.product_id = "products"."id" AND pln.search_text ILIKE ${pattern})`),
           eq(shops.status, "APPROVED"),
           isNull(shops.deletedAt),
+          registrationListed, // 0200
           eq(shopProducts.isActive, true),
           isNull(shopProducts.deletedAt),
           eq(products.isActive, true),
@@ -149,7 +151,7 @@ export async function suggest(
     db
       .select({ id: shops.id, slug: shops.slug, name: shops.name, area: shops.area, city: shops.city })
       .from(shops)
-      .where(and(eq(shops.status, "APPROVED"), isNull(shops.deletedAt), or(ilike(shops.name, pattern), ilike(shops.area, pattern))))
+      .where(and(eq(shops.status, "APPROVED"), isNull(shops.deletedAt), registrationListed, or(ilike(shops.name, pattern), ilike(shops.area, pattern))))
       .orderBy(asc(sql`position(${lower} in lower(${shops.name}))`), asc(shops.name))
       .limit(20),
     db

@@ -83,6 +83,7 @@ import {
   type RegistrationCandidate,
 } from "./shop-duplicates";
 import { checkCommissionMilestonesSafely } from "@/server/dealers/commission";
+import { registrationListed } from "./shop-membership";
 
 export interface RegisterShopInput {
   name: string;
@@ -1574,7 +1575,7 @@ export async function getPublicShopById(shopId: string): Promise<PublicShop | un
   const [shop] = await db
     .select(publicShopColumns)
     .from(shops)
-    .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), isNull(shops.deletedAt)))
+    .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), isNull(shops.deletedAt), registrationListed))
     .limit(1);
   return shop;
 }
@@ -1606,6 +1607,7 @@ export async function getPublicShopBySlug(
       eq(shops.slug, slug),
       eq(shops.status, "APPROVED"),
       isNull(shops.deletedAt),
+      registrationListed, // 0200: an expired registration hides the shop / QR page
     ),
   });
 }
@@ -1661,6 +1663,7 @@ export async function searchShops(
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
+    registrationListed, // 0200: expired registrations are not found
   ];
   if (filters.ids) conditions.push(inArray(shops.id, [...filters.ids]));
 

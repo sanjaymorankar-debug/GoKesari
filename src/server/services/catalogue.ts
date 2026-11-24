@@ -48,6 +48,7 @@ import {
   shopCarriesProductCategory,
 } from "./product-categories";
 import { checkCommissionMilestonesSafely } from "@/server/dealers/commission";
+import { registrationListed } from "./shop-membership";
 
 /* ------------------------------------------------------------ categories */
 
@@ -1220,6 +1221,7 @@ function storefrontConditions(options: StorefrontFilters) {
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
+    registrationListed, // 0200: an expired registration's listings are not shown
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(products.isActive, true),
