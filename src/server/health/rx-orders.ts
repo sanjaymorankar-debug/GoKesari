@@ -218,13 +218,19 @@ export interface OrderableItem {
 async function orderableItems(rx: HealthPrescription, client: DbClient = db): Promise<OrderableItem[]> {
   const items = await client.select().from(healthPrescriptionItems).where(eq(healthPrescriptionItems.prescriptionId, rx.id)).orderBy(asc(healthPrescriptionItems.lineNo));
   const drugIds = items.map((i) => i.drugId).filter((v): v is string => Boolean(v));
-  const drugs = drugIds.length ? await client.select({ id: healthDrugMaster.id, online: healthDrugMaster.onlineSaleAllowed, schedule: healthDrugMaster.schedule }).from(healthDrugMaster).where(inArray(healthDrugMaster.id, drugIds)) : [];
+  const drugs = drugIds.length ? await client.select({ id: healthDrugMaster.id, online: healthDrugMaster.onlineSaleAllowed, schedule: healthDrugMaster.schedule, reviewedAt: healthDrugMaster.reviewedAt }).from(healthDrugMaster).where(inArray(healthDrugMaster.id, drugIds)) : [];
+  const rule = await getRule("health");
   return items.map((i) => {
     const d = i.drugId ? drugs.find((x) => x.id === i.drugId) : null;
     const remaining = Math.max(0, i.quantity - i.dispensedQty);
     const restricted = Boolean(d && (!d.online || RESTRICTED_SCHEDULES.includes(d.schedule)));
+    // Hand-typed (not from the drug master): online only while health.onlineSaleFreeText is on (H-43).
+    const freeTextBlocked = !i.drugId && !rule.onlineSaleFreeText;
+    // Pharmacist review pending: with health.onlineSaleOnlyReviewed on, only reviewed or OTC medicines sell online.
+    const unreviewed = Boolean(d && rule.onlineSaleOnlyReviewed && !d.reviewedAt && d.schedule !== "OTC");
     let reason: string | null = null;
     if (restricted) reason = "Not sold online (restricted / Schedule X / NDPS medicine). Buy it at the counter with the original prescription.";
+    else if (freeTextBlocked || unreviewed) reason = "Not sold online yet. Buy it at the counter with the original prescription.";
     else if (remaining <= 0) reason = "Already supplied in full.";
     return {
       id: i.id,
@@ -240,7 +246,7 @@ async function orderableItems(rx: HealthPrescription, client: DbClient = db): Pr
       quantity: i.quantity,
       dispensedQty: i.dispensedQty,
       remaining,
-      restricted,
+      restricted: restricted || freeTextBlocked || unreviewed,
       allowed: reason === null,
       reason,
     };

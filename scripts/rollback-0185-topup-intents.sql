@@ -1,6 +1,6 @@
--- Rollback for 0184_topup_payment_intents (PAY-2, docs/payments-topups-via-intents-2026-11).
+-- Rollback for 0185_topup_payment_intents (PAY-2, docs/payments-topups-via-intents-2026-11).
 -- Before running: switch rule topupPaymentIntents off, wait until no top-up intent is live, deploy the
--- previous release's code, then delete the 0184 row from drizzle.__drizzle_migrations.
+-- previous release's code, then delete the 0185 row from drizzle.__drizzle_migrations.
 -- Refuses while any top-up intent exists: those rows would break the narrowed constraint. Their
 -- payments rows (gateway 'INTENT') are the wallet's record and must stay.
 BEGIN;
@@ -10,7 +10,7 @@ DECLARE
   vals text[];
 BEGIN
   IF EXISTS (SELECT 1 FROM payment_intents WHERE purpose IN ('WALLET_TOPUP', 'SHOP_WALLET_TOPUP')) THEN
-    RAISE EXCEPTION 'Top-up payment intents exist: keep 0184 (the code that reads them can be rolled back on its own)';
+    RAISE EXCEPTION 'Top-up payment intents exist: keep 0185 (the code that reads them can be rolled back on its own)';
   END IF;
   SELECT pg_get_constraintdef(c.oid) INTO def FROM pg_constraint c
   WHERE c.conname = 'payment_intents_purpose_check' AND c.conrelid = 'public.payment_intents'::regclass;
