@@ -4852,7 +4852,7 @@ export const userConsents = pgTable(
   ],
 );
 
-/* --------------------------------------------- policy re-consent (0185) */
+/* --------------------------------------------- policy re-consent (0186) */
 /** Policy documents a user accepts (docs/policy-reconsent-2026-11). Slugs match /legal/<slug>. */
 export const POLICY_DOCS = ["terms", "privacy-policy", "seller-terms"] as const;
 export type PolicyDoc = (typeof POLICY_DOCS)[number];
@@ -10642,7 +10642,7 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
-  // docs/policy-reconsent-2026-11 (0185): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
+  // docs/policy-reconsent-2026-11 (0186): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
   "policy_reconsent_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
