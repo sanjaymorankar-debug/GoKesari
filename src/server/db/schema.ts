@@ -4852,7 +4852,7 @@ export const userConsents = pgTable(
   ],
 );
 
-/* --------------------------------------------- policy re-consent (0188) */
+/* --------------------------------------------- policy re-consent (0189) */
 /** Policy documents a user accepts (docs/policy-reconsent-2026-11). Slugs match /legal/<slug>. */
 export const POLICY_DOCS = ["terms", "privacy-policy", "seller-terms"] as const;
 export type PolicyDoc = (typeof POLICY_DOCS)[number];
@@ -5641,6 +5641,9 @@ export const riderPayouts = pgTable(
     adjustmentsPaise: bigint("adjustments_paise", { mode: "number" }).notNull(),
     /** gross + adjustments — what is paid. */
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** docs/tax-register (0188): TDS s.194C withheld from this payout (amountPaise is what is paid, after it). */
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp"),
     ...payoutLifecycleColumns(),
   },
   (t) => [
@@ -6817,6 +6820,10 @@ export const referralCommissions = pgTable(
     commissionType: text("commission_type", { enum: COMMISSION_TYPES }).notNull(),
     commissionValue: integer("commission_value").notNull(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** docs/tax-register (0188): TDS s.194H withheld when paid; netPaise is what is paid. */
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp"),
+    netPaise: bigint("net_paise", { mode: "number" }),
     status: text("status", { enum: ["ACCRUED", "APPROVED", "PAID", "REVERSED"] }).notNull().default("ACCRUED"),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -10673,7 +10680,9 @@ export const FEATURE_FLAG_KEYS = [
   "guest_cart_enabled",
   // docs/tax-register (0187): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
   "tax_register",
-  // docs/policy-reconsent-2026-11 (0188): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
+  // docs/tax-register (0188): TDS / TCS withheld on every payout path. Missing row = OFF.
+  "payout_deductions",
+  // docs/policy-reconsent-2026-11 (0189): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
   "policy_reconsent_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];

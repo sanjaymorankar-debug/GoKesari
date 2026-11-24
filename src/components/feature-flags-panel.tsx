@@ -43,6 +43,7 @@ export type FeatureFlagKey =
   // docs/guest-cart-2026-11
   | "guest_cart_enabled"
   | "tax_register"
+  | "payout_deductions"
   | "policy_reconsent_enabled";
 
 interface FlagValue {

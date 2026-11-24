@@ -245,6 +245,11 @@ export default async function FinancePage({
                   <p className="text-xs text-ink-500">
                     Week from {p.periodStart} · {p.earningsCount} trips · earnings <Money paise={p.grossPaise} /> ·
                     adjustments <Money paise={p.adjustmentsPaise} />
+                    {p.tdsPaise > 0 ? (
+                      <>
+                        {" "}· TDS s.194C {p.tdsRateBp ? `${p.tdsRateBp / 100}% ` : ""}− <Money paise={p.tdsPaise} />
+                      </>
+                    ) : null}
                     {p.paymentReference ? ` · ref ${p.paymentReference}` : ""}
                     {p.failureReason ? ` · ${p.failureReason}` : ""}
                   </p>

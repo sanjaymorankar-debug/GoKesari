@@ -16,6 +16,7 @@
  *   GST_S95_LOCAL_DELIVERY   rateBp (disabled by default)
  *   UNREGISTERED_SELLER_RULES params.tcsOnUnregistered, tdsOnUnregistered, interStateAllowed
  *   PLATFORM_FEE_GST         params.rateBpByFeeType (GST on GoKesari's fees)
+ *   IT_TDS_194H / _194J      rateBp; params.noPanRateBp, annualThresholdPaise, singlePaymentThresholdPaise, sectionLabel
  */
 import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -34,6 +35,9 @@ export const STATUTORY_KEYS = [
   "GST_S95_LOCAL_DELIVERY",
   "UNREGISTERED_SELLER_RULES",
   "PLATFORM_FEE_GST",
+  // docs/tax-register (0188): seeded disabled, for the CA to confirm.
+  "IT_TDS_194H",
+  "IT_TDS_194J",
 ] as const;
 export type StatutoryKey = (typeof STATUTORY_KEYS)[number];
 
@@ -320,4 +324,32 @@ export async function platformFeeGstRateOn(feeType: string, day: IsoDate, resolv
   const byType = (row.params.rateBpByFeeType ?? {}) as Record<string, unknown>;
   const rate = byType[feeType];
   return typeof rate === "number" ? rate : (row.rateBp ?? 0);
+}
+
+/**
+ * docs/tax-register (0188): a TDS section row (194H, 194J) in the shape the shared calculator
+ * (rider-wallet/rules.ts computeTds) takes. Null when no row is in force or it is disabled.
+ * `confirmed`: the CA confirmed it — on gokesari.com an unconfirmed row holds the payment.
+ */
+export async function tdsSectionOn(
+  key: "IT_TDS_194H" | "IT_TDS_194J",
+  day: IsoDate,
+  resolve: StatutoryResolver,
+): Promise<{ rule: { tdsEnabled: boolean; tdsRatePanBp: number; tdsRateNoPanBp: number; singlePaymentThresholdPaise: number; annualThresholdPaise: number }; sectionLabel: string; rowId: string; confirmed: boolean } | null> {
+  const row = await resolve(key, day);
+  if (!row || !row.enabled || row.rateBp == null) return null;
+  const p = row.params;
+  const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+  return {
+    rule: {
+      tdsEnabled: true,
+      tdsRatePanBp: row.rateBp,
+      tdsRateNoPanBp: num(p.noPanRateBp, 2000),
+      annualThresholdPaise: num(p.annualThresholdPaise, 0),
+      singlePaymentThresholdPaise: num(p.singlePaymentThresholdPaise, num(p.annualThresholdPaise, 0)),
+    },
+    sectionLabel: typeof p.sectionLabel === "string" ? p.sectionLabel : key,
+    rowId: row.id,
+    confirmed: row.confirmedByCa,
+  };
 }
