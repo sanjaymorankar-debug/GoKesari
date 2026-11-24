@@ -153,6 +153,9 @@ export const userStatusEnum = pgEnum("user_status", [
   "ACTIVE",
   "SUSPENDED",
   "DELETED",
+  // docs/account-deletion-2026-11 (0191): the person asked to delete the account; hidden during the
+  // cooling-off period (rule accountDeletion.coolingOffDays), then anonymised to DELETED.
+  "PENDING_DELETION",
 ]);
 
 export const shopStatusEnum = pgEnum("shop_status", [
@@ -4873,8 +4876,14 @@ export const userConsents = pgTable(
  * (`blockers` lists why), COMPLETED once the account was anonymised. Kept after
  * the account is gone as the record that the request was honoured. No foreign
  * key to users: the row outlives the account's personal data.
+ *
+ * 0191 (owner 23-Nov-2026): confirming no longer anonymises at once. The request
+ * is COOLING_OFF until `purgeAfter` (rule accountDeletion.coolingOffDays, 90),
+ * the account is hidden (users.status PENDING_DELETION); the daily job then
+ * anonymises it (COMPLETED) or, if a blocker appeared, marks it BLOCKED. A
+ * restore (the person, or an admin) marks it CANCELLED.
  */
-export const ACCOUNT_DELETION_STATUSES = ["REQUESTED", "BLOCKED", "COMPLETED", "CANCELLED"] as const;
+export const ACCOUNT_DELETION_STATUSES = ["REQUESTED", "BLOCKED", "COOLING_OFF", "COMPLETED", "CANCELLED"] as const;
 export type AccountDeletionStatus = (typeof ACCOUNT_DELETION_STATUSES)[number];
 
 export const accountDeletionRequests = pgTable(
@@ -4890,11 +4899,24 @@ export const accountDeletionRequests = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
+    /** 0191: the reason picked from the list (ACCOUNT_DELETION_REASONS); `reason` holds the words. */
+    reasonCode: text("reason_code"),
+    /** 0191: when the account was hidden (the cooling-off began). */
+    coolingStartedAt: timestamp("cooling_started_at", { withTimezone: true }),
+    /** 0191: when the daily job anonymises the account. */
+    purgeAfter: timestamp("purge_after", { withTimezone: true }),
+    /** 0191: what was switched off when the account was hidden, switched back on a restore. */
+    hiddenState: jsonb("hidden_state").$type<{ riderStatuses?: { id: string; status: string }[] }>().notNull().default({}),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    /** The person themselves (restore at sign-in) or the admin who cancelled it. */
+    cancelledBy: uuid("cancelled_by"),
+    cancelNote: text("cancel_note"),
   },
   (t) => [
     index("account_deletion_requests_user_idx").on(t.userId, t.requestedAt),
     index("account_deletion_requests_status_idx").on(t.status, t.requestedAt),
-    check("account_deletion_requests_status_check", sql`${t.status} IN ('REQUESTED', 'BLOCKED', 'COMPLETED', 'CANCELLED')`),
+    index("account_deletion_requests_purge_idx").on(t.status, t.purgeAfter),
+    check("account_deletion_requests_status_check", sql`${t.status} IN ('REQUESTED', 'BLOCKED', 'COOLING_OFF', 'COMPLETED', 'CANCELLED')`),
   ],
 );
 export type AccountDeletionRequest = typeof accountDeletionRequests.$inferSelect;

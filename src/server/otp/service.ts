@@ -74,7 +74,16 @@ export type LoginOtpRequestResult =
 export interface VerifiedLogin {
   user: User;
   isNewUser: boolean;
+  /**
+   * docs/account-deletion-2026-11 (0191): the account is hidden in its deletion cooling-off
+   * period. Only returned to a caller that passed `allowPendingDeletion`; it must not open a
+   * session, only offer the restore screen.
+   */
+  pendingDeletion?: boolean;
 }
+
+/** An account hidden in its deletion cooling-off period: it gets a code only to restore itself. */
+const isPendingDeletion = (user: Pick<User, "status">) => user.status === "PENDING_DELETION";
 
 /* --------------------------------------------------------------- helpers */
 
@@ -369,7 +378,7 @@ export async function requestLoginOtp(input: {
     const owner = await findLiveUserByPhone(mobile.e164);
     const followUp = async () => {
       if (!owner) return;
-      if (owner.status !== "ACTIVE") {
+      if (owner.status !== "ACTIVE" && !isPendingDeletion(owner)) {
         await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email: owner.email, phoneE164: mobile.e164, ip, reason: "account_blocked" });
         return;
       }
@@ -394,7 +403,7 @@ export async function requestLoginOtp(input: {
   // accounts. Verifying links the number only if it is free.
   const phoneE164 = input.mobile?.trim() ? parseMobile(input.mobile).e164 : null;
   const owner = await findLiveUserByEmail(email);
-  if (owner && owner.status !== "ACTIVE") {
+  if (owner && owner.status !== "ACTIVE" && !isPendingDeletion(owner)) {
     const rules = await getRule("otp");
     await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email, phoneE164, ip, reason: "account_blocked" });
     return {
@@ -410,6 +419,9 @@ export async function requestLoginOtp(input: {
 
 const ACCOUNT_BLOCKED =
   "This account is suspended or closed, so it cannot sign in. If you think this is a mistake, contact us through the grievance form.";
+
+export const ACCOUNT_PENDING_DELETION =
+  "This account is scheduled for deletion. To restore it, sign in on the main Sign in page with the code we email you.";
 
 export const TERMS_REQUIRED =
   "To create your account, tick “I agree to the Terms & Conditions and Privacy Policy”, then press Sign in again with the same code.";
@@ -430,6 +442,12 @@ export async function verifyLoginOtp(input: {
    * (DPDPA §6); an existing account signing in again does not need it.
    */
   acceptedTerms?: boolean;
+  /**
+   * docs/account-deletion-2026-11 (0191): the sign-in page passes true so an account in its
+   * deletion cooling-off period comes back with `pendingDeletion` (for the restore screen)
+   * instead of being refused. Nothing is changed on such an account here.
+   */
+  allowPendingDeletion?: boolean;
 }): Promise<VerifiedLogin> {
   const ip = input.ip ?? null;
   const mobile = input.mobile?.trim() ? parseIndianMobile(input.mobile) : null;
@@ -467,6 +485,11 @@ export async function verifyLoginOtp(input: {
   let user: User;
   let isNewUser = false;
   if (existing) {
+    if (isPendingDeletion(existing)) {
+      if (!input.allowPendingDeletion) throw forbidden(ACCOUNT_PENDING_DELETION);
+      await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, phoneE164, actorId: existing.id, ip, otpId: otp.id, pendingDeletion: true });
+      return { user: existing, isNewUser: false, pendingDeletion: true };
+    }
     if (existing.status !== "ACTIVE") throw forbidden(ACCOUNT_BLOCKED);
     const patch: Partial<typeof users.$inferInsert> = {};
     if (!existing.emailVerified) patch.emailVerified = new Date();

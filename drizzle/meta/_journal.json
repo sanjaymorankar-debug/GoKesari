@@ -1338,6 +1338,13 @@
       "when": 1793269109000,
       "tag": "0190_shop_staff_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1793269110000,
+      "tag": "0191_account_deletion_cooling_off",
+      "breakpoints": true
     }
   ]
 }

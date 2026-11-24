@@ -17,7 +17,8 @@ import { isTextChannelAvailable } from "@/server/messaging/sms-whatsapp";
 import { createLoginTicket, verifyLoginOtp } from "@/server/otp/service";
 import { signInFromForm } from "@/server/signin-form";
 import { toClientError } from "@/lib/errors";
-import { headers } from "next/headers";
+import { createRestoreTicket, RESTORE_COOKIE, RESTORE_TICKET_TTL_MS } from "@/server/services/account-deletion";
+import { cookies, headers } from "next/headers";
 
 export const metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
@@ -62,18 +63,33 @@ export default async function SignInPage({
     "use server";
     const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
     let ticket: string;
+    let restoreFor: string | null = null;
     try {
-      const { user } = await verifyLoginOtp({
+      const { user, pendingDeletion } = await verifyLoginOtp({
         mobile: input?.mobile ?? null,
         email: input?.email ?? null,
         code: String(input?.code ?? ""),
         // TC-FLD-004: a new account needs the Terms box ticked; the server checks it.
         acceptedTerms: input?.acceptedTerms === true,
         ip,
+        // docs/account-deletion-2026-11 (0191): an account in its deletion cooling-off period gets the
+        // restore screen, never a session.
+        allowPendingDeletion: true,
       });
+      if (pendingDeletion) restoreFor = user.id;
       ticket = createLoginTicket(user.id);
     } catch (error) {
       return { error: toClientError(error).body.error.message };
+    }
+    if (restoreFor) {
+      (await cookies()).set(RESTORE_COOKIE, createRestoreTicket(restoreFor), {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: env.NODE_ENV === "production",
+        path: "/account/restore",
+        maxAge: Math.floor(RESTORE_TICKET_TTL_MS / 1000),
+      });
+      redirect("/account/restore");
     }
     try {
       await signIn(OTP_TICKET_PROVIDER_ID, { ticket, redirectTo: AFTER_SIGN_IN });
@@ -106,7 +122,8 @@ export default async function SignInPage({
             className="mt-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
             data-testid="signin-access-denied"
           >
-            This account is suspended or closed, so it cannot sign in. If you think this is a mistake,{" "}
+            This account is suspended or closed, so it cannot sign in. If you asked to delete it, you can still
+            restore it during the cooling-off period: sign in with the code we email you. If you think this is a mistake,{" "}
             <a href="/grievance" className="underline">
               contact us through the grievance form
             </a>

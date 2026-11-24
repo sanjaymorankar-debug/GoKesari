@@ -9,35 +9,52 @@
  *     subscriptions do not block: they are cancelled with the account.
  *  2. `requestAccountDeletionCode` emails a code (OTP purpose ACCOUNT_DELETE)
  *     to the account's own address, under the normal OTP limits.
- *  3. `deleteAccount` checks the code and the typed word DELETE, cancels the
- *     subscriptions, then in one transaction re-runs the checks on the locked
- *     account row and anonymises it.
+ *  3. `deleteAccount` checks the code, the typed word DELETE and the reason
+ *     (required), cancels the subscriptions, then in one transaction re-runs
+ *     the checks on the locked account row and HIDES the account (0191, owner
+ *     23-Nov-2026): users.status PENDING_DELETION, a rider profile deactivated,
+ *     push tokens removed, the request COOLING_OFF with `purgeAfter` = now +
+ *     rule accountDeletion.coolingOffDays (90).
+ *  4. During the cooling-off period the person may sign in with an emailed code
+ *     and restore the account (`restoreAccount`), or an admin may cancel the
+ *     request with a note (`adminCancelDeletion`). Either way the account is
+ *     ACTIVE again and the request CANCELLED.
+ *  5. The daily job `runDueAccountPurges` re-checks each due account: still
+ *     clear → anonymised (`anonymiseInTx`) and COMPLETED, completion email after
+ *     commit; a blocker appeared → BLOCKED, ops alerted, nothing purged (it is
+ *     retried daily until it clears or is cancelled).
  *
  * Anonymised: the user row (name, email → deleted+<id>@deleted.invalid, phone,
  * photo, status DELETED, deletedAt), saved addresses, push tokens and the
  * customer's own saved bank / UPI accounts (deleted, or retired when a refund
  * record points at them). Consents are kept as history.
  *
- * Kept untouched for legal retention (GST, Income-tax, payment and consumer
- * law): orders and their address snapshots, invoices, payments and payment
- * intents, wallet and wallet transactions, refunds and bank refund requests,
- * ledgers, TDS/TCS records, returns, disputes, rider earnings / payouts / KYC,
- * shop records, audit logs and the consent trail. See the README.
+ * Kept for legal retention (GST, Income-tax, payment and consumer law; rule
+ * accountDeletion.retentionYears): orders and their address snapshots,
+ * invoices, payments and payment intents, wallet and wallet transactions,
+ * refunds and bank refund requests, ledgers, TDS/TCS records, returns,
+ * disputes, rider earnings / payouts / KYC, shop records, audit logs and the
+ * consent trail. See the README.
  *
  * Sessions: auth is stateless JWT re-read against the user row on every
- * request; a DELETED row ends every session the person has, on every device
- * (auth-sessions.ts readSession drops it). The page then signs the browser out,
- * which also lists that session in revoked_sessions (endSession).
+ * request; a PENDING_DELETION or DELETED row ends every session the person has,
+ * on every device (auth-sessions.ts readSession drops it). A hidden account
+ * never gets a session again: the sign-in page shows the restore screen
+ * instead (a short-lived signed cookie, `createRestoreTicket`).
  *
- * External side effects (the completion email, setting a rider offline) run
- * after the transaction commits.
+ * External side effects (emails, setting a rider offline) run after the
+ * transaction commits.
  */
-import { and, count, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+import { and, count, desc, eq, inArray, isNotNull, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 
 import { maskEmailAddress } from "@/lib/contact";
-import { AppError, conflict, forbidden, validationFailed } from "@/lib/errors";
+import { getEnv } from "@/lib/env";
+import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import { isPlaceholderEmail } from "@/lib/placeholder-email";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
 import {
   accountDeletionRequests,
@@ -65,6 +82,7 @@ import { sendEmail } from "@/server/email/transport";
 import { requestAccountActionOtp, verifyAccountActionOtp } from "@/server/otp/service";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { featureNotAvailable, isFeatureEnabled } from "./feature-flags";
+import { getRule } from "./settings";
 import { OPEN_ORDER_STATUSES } from "./inventory-alerts";
 
 export const ACCOUNT_DELETION_FLAG = "account_self_deletion_enabled" as const;
@@ -349,7 +367,7 @@ export async function deletionPrecheck(userId: string): Promise<DeletionPrecheck
 
 export interface DeletionStatusView {
   precheck: DeletionPrecheck;
-  latestRequest: Pick<AccountDeletionRequest, "id" | "status" | "requestedAt" | "completedAt"> | null;
+  latestRequest: Pick<AccountDeletionRequest, "id" | "status" | "requestedAt" | "completedAt" | "purgeAfter"> | null;
 }
 
 /** GET /api/profile/delete: the checks plus the latest request. */
@@ -361,6 +379,7 @@ export async function getDeletionStatus(userId: string): Promise<DeletionStatusV
       status: accountDeletionRequests.status,
       requestedAt: accountDeletionRequests.requestedAt,
       completedAt: accountDeletionRequests.completedAt,
+      purgeAfter: accountDeletionRequests.purgeAfter,
     })
     .from(accountDeletionRequests)
     .where(eq(accountDeletionRequests.userId, userId))
@@ -465,6 +484,53 @@ export async function requestAccountDeletionCode(
   return { ...sent, requestId };
 }
 
+
+/* ------------------------------------------------------------ the reason */
+
+/** 0191: the reasons offered on the page (a reason is now required). "OTHER" needs the person's own words. */
+export const ACCOUNT_DELETION_REASONS = [
+  { code: "NOT_USING", label: "I don't use GoKesari any more" },
+  { code: "PRIVACY", label: "I am worried about my privacy or data" },
+  { code: "TOO_MANY_MESSAGES", label: "Too many messages or notifications" },
+  { code: "BAD_EXPERIENCE", label: "Bad experience with orders or delivery" },
+  { code: "OTHER_ACCOUNT", label: "I have another GoKesari account" },
+  { code: "OTHER", label: "Other" },
+] as const;
+export type AccountDeletionReasonCode = (typeof ACCOUNT_DELETION_REASONS)[number]["code"];
+
+/** Pure: checks the picked reason (and the words for "Other"); returns what is stored. */
+export function normaliseDeletionReason(input: { reasonCode?: string | null; reason?: string | null }): {
+  reasonCode: AccountDeletionReasonCode;
+  reason: string;
+} {
+  const words = input.reason?.trim().slice(0, 500) ?? "";
+  // A reason typed without picking one counts as "Other" (older app screens send only the words).
+  const code = input.reasonCode?.trim() || (words ? "OTHER" : "");
+  const picked = ACCOUNT_DELETION_REASONS.find((r) => r.code === code);
+  if (!picked) {
+    throw validationFailed("Tell us why you are leaving: pick a reason.", { fields: { reasonCode: "Pick a reason." } });
+  }
+  if (picked.code === "OTHER") {
+    if (words.length < 3) {
+      throw validationFailed("Tell us in a few words why you are leaving.", { fields: { reason: "Write your reason." } });
+    }
+    return { reasonCode: "OTHER", reason: words };
+  }
+  return { reasonCode: picked.code, reason: words ? `${picked.label} — ${words}` : picked.label };
+}
+
+/** Pure: when the cooling-off period of an account hidden at `now` ends. */
+export function coolingOffEnd(now: Date, days: number): Date {
+  return new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+/** "24 Feb 2027" in India time, for the emails and screens. */
+export function formatPurgeDate(value: Date): string {
+  return value.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+}
+
+/* --------------------------------------------------------- anonymisation */
+
 /** The placeholder address a deleted account keeps (users.email is NOT NULL and unique). */
 export function anonymisedEmail(userId: string): string {
   return `deleted+${userId}@deleted.invalid`;
@@ -488,20 +554,95 @@ export function anonymisedUserPatch(userId: string, now: Date) {
   };
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+const SUBSCRIPTION_CANCEL_REASON = "Account deleted by the customer.";
+
+/** Cancels any subscription still live, inside the transaction (no notification: the account is going). */
+async function cancelLiveSubscriptionsInTx(tx: Tx, userId: string, now: Date, actorId: string | null): Promise<number> {
+  const rows = await tx
+    .update(subscriptions)
+    .set({ status: "CANCELLED", cancelledAt: now, cancellationReason: SUBSCRIPTION_CANCEL_REASON, nextDeliveryDate: null, renewalReason: null, renewalDueDate: null, updatedAt: now, statusActorId: actorId })
+    .where(and(eq(subscriptions.userId, userId), notInArray(subscriptions.status, [...FINAL_SUBSCRIPTION_STATUSES])))
+    .returning({ id: subscriptions.id });
+  return rows.length;
+}
+
+/**
+ * Anonymises one account inside the caller's transaction (the account row must
+ * already be locked). Run by the daily job once the cooling-off period is over.
+ */
+export async function anonymiseInTx(tx: Tx, userId: string, now: Date): Promise<void> {
+  await tx.update(users).set(anonymisedUserPatch(userId, now)).where(eq(users.id, userId));
+
+  // Saved addresses: soft-deleted and stripped. Orders keep their own address snapshot.
+  await tx
+    .update(addresses)
+    .set({
+      label: null,
+      recipientName: null,
+      recipientPhone: null,
+      line1: "[deleted]",
+      line2: null,
+      area: null,
+      landmark: null,
+      deliveryInstructions: null,
+      latitude: null,
+      longitude: null,
+      isDefault: false,
+      deletedAt: now,
+    })
+    .where(eq(addresses.userId, userId));
+
+  await tx.delete(pushTokens).where(eq(pushTokens.userId, userId));
+
+  // The customer's own refund accounts (not a shop's). One a refund or payout record points
+  // at is retired, not deleted: that record is kept for legal retention.
+  await tx
+    .delete(bankAccounts)
+    .where(
+      and(
+        eq(bankAccounts.userId, userId),
+        isNull(bankAccounts.shopId),
+        sql`NOT EXISTS (SELECT 1 FROM ${bankRefundRequests} WHERE ${bankRefundRequests.bankAccountId} = ${bankAccounts.id})`,
+        sql`NOT EXISTS (SELECT 1 FROM ${riderBankTransfers} WHERE ${riderBankTransfers.bankAccountId} = ${bankAccounts.id})`,
+      ),
+    );
+  await tx
+    .update(bankAccounts)
+    .set({ isCurrent: false, supersededAt: now, updatedAt: now })
+    .where(and(eq(bankAccounts.userId, userId), isNull(bankAccounts.shopId), eq(bankAccounts.isCurrent, true)));
+
+  // A rider profile stops taking work for good; its KYC and earnings stay (tax records, rule accountDeletion.retentionYears).
+  await tx
+    .update(deliveryPartners)
+    .set({ status: "DEACTIVATED", isOnline: false, availability: "OFFLINE", updatedAt: now })
+    .where(and(eq(deliveryPartners.userId, userId), isNull(deliveryPartners.deletedAt), notInArray(deliveryPartners.status, ["DEACTIVATED", "REJECTED"])));
+}
+
+/* --------------------------------------------- confirm → cooling-off period */
+
 export interface DeleteAccountResult {
-  deleted: true;
+  /** The account is hidden now and will be deleted on `purgeAfter`. */
+  scheduled: true;
   requestId: string;
+  purgeAfter: Date;
   subscriptionsCancelled: number;
 }
 
-/** POST /api/profile/delete: deletes (anonymises) the signed-in person's account. */
+/**
+ * POST /api/profile/delete: the signed-in person confirms the deletion. Since
+ * 0191 the account is hidden at once and anonymised by the daily job after the
+ * cooling-off period; signing in again during that time offers a restore.
+ */
 export async function deleteAccount(
   actor: { id: string; role: UserRole },
-  input: { code: string; confirmText: string; reason?: string | null },
+  input: { code: string; confirmText: string; reason?: string | null; reasonCode?: string | null },
   meta: RequestMeta = {},
   deps: {
     cancelSubscription?: (id: string, reason: string, actor: { id: string; role: UserRole }) => Promise<unknown>;
     goOffline?: (userId: string) => Promise<unknown>;
+    now?: () => Date;
   } = {},
 ): Promise<DeleteAccountResult> {
   await requireFlag();
@@ -510,7 +651,7 @@ export async function deleteAccount(
       fields: { confirmText: `Type ${DELETE_CONFIRM_TEXT} exactly.` },
     });
   }
-  const reason = input.reason?.trim().slice(0, 500) || null;
+  const { reasonCode, reason } = normaliseDeletionReason(input);
 
   const [before] = await db.select().from(users).where(eq(users.id, actor.id));
   if (!before || before.status !== "ACTIVE" || before.deletedAt) throw forbidden();
@@ -532,7 +673,6 @@ export async function deleteAccount(
 
   // Subscriptions first, each through the normal cancel (its own audit, event and
   // schedule clean-up). Any left live (a race) are cancelled inside the transaction.
-  const reasonText = "Account deleted by the customer.";
   const live = await db
     .select({ id: subscriptions.id })
     .from(subscriptions)
@@ -541,75 +681,52 @@ export async function deleteAccount(
   let subscriptionsCancelled = 0;
   for (const s of live) {
     try {
-      await cancel(s.id, reasonText, actor);
+      await cancel(s.id, SUBSCRIPTION_CANCEL_REASON, actor);
       subscriptionsCancelled++;
     } catch (error) {
       console.error("[account-deletion] could not cancel subscription", s.id, error);
     }
   }
 
-  const now = new Date();
+  const { coolingOffDays } = await getRule("accountDeletion");
+  const now = deps.now?.() ?? new Date();
+  const purgeAfter = coolingOffEnd(now, coolingOffDays);
+
   const requestId = await db.transaction(async (tx) => {
-    // Lock the account row: a second delete, a sign-in update or a role change waits.
+    // Lock the account row: a second confirm, a sign-in update or a role change waits.
     const [locked] = await tx.select().from(users).where(eq(users.id, actor.id)).for("update");
-    if (!locked || locked.status !== "ACTIVE" || locked.deletedAt) throw conflict("This account has already been deleted.");
+    if (!locked || locked.status !== "ACTIVE" || locked.deletedAt) throw conflict("This account is already being deleted.");
 
     const again = blockersFrom(await gatherDeletionFacts(actor.id, tx));
     if (again.length > 0) throw blockedError(again);
 
-    const stragglers = await tx
-      .update(subscriptions)
-      .set({ status: "CANCELLED", cancelledAt: now, cancellationReason: reasonText, nextDeliveryDate: null, renewalReason: null, renewalDueDate: null, updatedAt: now, statusActorId: actor.id })
-      .where(and(eq(subscriptions.userId, actor.id), notInArray(subscriptions.status, [...FINAL_SUBSCRIPTION_STATUSES])))
-      .returning({ id: subscriptions.id });
-    subscriptionsCancelled += stragglers.length;
+    subscriptionsCancelled += await cancelLiveSubscriptionsInTx(tx, actor.id, now, actor.id);
 
-    await tx.update(users).set(anonymisedUserPatch(actor.id, now)).where(eq(users.id, actor.id));
-
-    // Saved addresses: soft-deleted and stripped. Orders keep their own address snapshot.
-    await tx
-      .update(addresses)
-      .set({
-        label: null,
-        recipientName: null,
-        recipientPhone: null,
-        line1: "[deleted]",
-        line2: null,
-        area: null,
-        landmark: null,
-        deliveryInstructions: null,
-        latitude: null,
-        longitude: null,
-        isDefault: false,
-        deletedAt: now,
-      })
-      .where(eq(addresses.userId, actor.id));
-
+    // Hidden: no sign-in, no session, not offered to anyone (status PENDING_DELETION).
+    await tx.update(users).set({ status: "PENDING_DELETION", updatedAt: now }).where(eq(users.id, actor.id));
+    // No app notifications while hidden (the app registers its token again after a restore).
     await tx.delete(pushTokens).where(eq(pushTokens.userId, actor.id));
-
-    // The customer's own refund accounts (not a shop's). One a refund or payout record points
-    // at is retired, not deleted: that record is kept for legal retention.
-    await tx
-      .delete(bankAccounts)
-      .where(
-        and(
-          eq(bankAccounts.userId, actor.id),
-          isNull(bankAccounts.shopId),
-          sql`NOT EXISTS (SELECT 1 FROM ${bankRefundRequests} WHERE ${bankRefundRequests.bankAccountId} = ${bankAccounts.id})`,
-          sql`NOT EXISTS (SELECT 1 FROM ${riderBankTransfers} WHERE ${riderBankTransfers.bankAccountId} = ${bankAccounts.id})`,
-        ),
-      );
-    await tx
-      .update(bankAccounts)
-      .set({ isCurrent: false, supersededAt: now, updatedAt: now })
-      .where(and(eq(bankAccounts.userId, actor.id), isNull(bankAccounts.shopId), eq(bankAccounts.isCurrent, true)));
-
-    // A rider profile stops taking work; its KYC and earnings stay (tax records).
-    await tx
-      .update(deliveryPartners)
-      .set({ status: "DEACTIVATED", updatedAt: now })
+    // A rider profile stops taking work; its status before is kept to switch it back on a restore.
+    const riders = await tx
+      .select({ id: deliveryPartners.id, status: deliveryPartners.status })
+      .from(deliveryPartners)
       .where(and(eq(deliveryPartners.userId, actor.id), isNull(deliveryPartners.deletedAt), notInArray(deliveryPartners.status, ["DEACTIVATED", "REJECTED"])));
+    if (riders.length > 0) {
+      await tx
+        .update(deliveryPartners)
+        .set({ status: "DEACTIVATED", updatedAt: now })
+        .where(inArray(deliveryPartners.id, riders.map((r) => r.id)));
+    }
 
+    const values = {
+      status: "COOLING_OFF" as const,
+      reason,
+      reasonCode,
+      coolingStartedAt: now,
+      purgeAfter,
+      hiddenState: { riderStatuses: riders },
+      blockers: [],
+    };
     const [open] = await tx
       .select({ id: accountDeletionRequests.id })
       .from(accountDeletionRequests)
@@ -618,15 +735,12 @@ export async function deleteAccount(
       .limit(1);
     let id: string;
     if (open) {
-      await tx
-        .update(accountDeletionRequests)
-        .set({ status: "COMPLETED", completedAt: now, reason, blockers: [] })
-        .where(eq(accountDeletionRequests.id, open.id));
+      await tx.update(accountDeletionRequests).set(values).where(eq(accountDeletionRequests.id, open.id));
       id = open.id;
     } else {
       const [row] = await tx
         .insert(accountDeletionRequests)
-        .values({ userId: actor.id, status: "COMPLETED", completedAt: now, reason, ipAddress: meta.ip ?? null, userAgent: meta.userAgent ?? null })
+        .values({ userId: actor.id, ...values, ipAddress: meta.ip ?? null, userAgent: meta.userAgent ?? null })
         .returning({ id: accountDeletionRequests.id });
       id = row.id;
     }
@@ -635,11 +749,11 @@ export async function deleteAccount(
       {
         actorId: actor.id,
         actorRole: locked.role,
-        action: AUDIT_ACTIONS.ACCOUNT_DELETED,
+        action: AUDIT_ACTIONS.ACCOUNT_DELETION_COOLING_OFF,
         entityType: "user",
         entityId: actor.id,
-        previousValue: { email: maskEmailAddress(locked.email), status: locked.status },
-        newValue: { status: "DELETED", requestId: id, subscriptionsCancelled, reason },
+        previousValue: { status: locked.status },
+        newValue: { status: "PENDING_DELETION", requestId: id, purgeAfter: purgeAfter.toISOString(), coolingOffDays, subscriptionsCancelled, reasonCode, reason, ridersDeactivated: riders.length },
         ipAddress: meta.ip ?? null,
         userAgent: meta.userAgent ?? null,
       },
@@ -648,13 +762,276 @@ export async function deleteAccount(
     return id;
   });
 
-  // After commit: side effects that may fail without undoing the deletion.
+  // After commit: side effects that may fail without undoing the request.
   const offline = deps.goOffline ?? (await import("./delivery-partners")).goOfflineOnSignOut;
   await Promise.resolve(offline(actor.id)).catch((error: unknown) => console.error("[account-deletion] could not set the rider offline", error));
 
   if (!before.emailPlaceholder && !isPlaceholderEmail(before.email)) {
+    const date = formatPurgeDate(purgeAfter);
     void sendEmail({
       to: before.email,
+      subject: `Your GoKesari account will be deleted on ${date}`,
+      text:
+        `As you asked, your GoKesari account is now hidden and will be deleted permanently on ${date}.\n\n` +
+        "Until then you can change your mind: sign in with your email address and the code we send you, then choose \"Restore my account\".\n\n" +
+        "Order, invoice and payment records are kept for the period the law requires (tax and consumer law), without being used for anything else.\n\n" +
+        "If you did not ask for this, sign in now to restore your account and contact support.\n",
+      html:
+        `<p>As you asked, your GoKesari account is now hidden and will be <strong>deleted permanently on ${date}</strong>.</p>` +
+        "<p>Until then you can change your mind: sign in with your email address and the code we send you, then choose <strong>Restore my account</strong>.</p>" +
+        "<p>Order, invoice and payment records are kept for the period the law requires (tax and consumer law), without being used for anything else.</p>" +
+        "<p>If you did not ask for this, sign in now to restore your account and contact support.</p>",
+    }).catch((error) => console.error("[account-deletion] cooling-off email failed", error));
+  }
+
+  return { scheduled: true, requestId, purgeAfter, subscriptionsCancelled };
+}
+
+/* ------------------------------------------------------------- restoring */
+
+/** The request that keeps an account hidden: COOLING_OFF, or BLOCKED at purge time (it has a purge date). */
+async function openCoolingRequest(userId: string, client: DbClient = db) {
+  const [row] = await client
+    .select()
+    .from(accountDeletionRequests)
+    .where(
+      and(
+        eq(accountDeletionRequests.userId, userId),
+        inArray(accountDeletionRequests.status, ["COOLING_OFF", "BLOCKED"]),
+        isNotNull(accountDeletionRequests.purgeAfter),
+      ),
+    )
+    .orderBy(desc(accountDeletionRequests.coolingStartedAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export interface PendingDeletionView {
+  requestId: string;
+  purgeAfter: Date;
+  maskedEmail: string;
+}
+
+/** For the restore screen: the hidden account's request, or null when the account is not hidden. */
+export async function getPendingDeletion(userId: string): Promise<PendingDeletionView | null> {
+  const [user] = await db.select({ status: users.status, email: users.email }).from(users).where(eq(users.id, userId));
+  if (!user || user.status !== "PENDING_DELETION") return null;
+  const request = await openCoolingRequest(userId);
+  if (!request?.purgeAfter) return null;
+  return { requestId: request.id, purgeAfter: request.purgeAfter, maskedEmail: maskEmailAddress(user.email) };
+}
+
+/**
+ * Switches a hidden account back on: ACTIVE again, a rider profile back to its
+ * status before, the request CANCELLED (who and why kept), audited, and an email
+ * after commit. `by` is SELF (the person, at sign-in) or ADMIN (with a note).
+ * Works with the flag off too, so no one is left hidden if it is switched off.
+ */
+export async function restoreAccount(
+  userId: string,
+  actor: { id: string; role: UserRole },
+  options: { by: "SELF" | "ADMIN"; note?: string | null; ip?: string | null; userAgent?: string | null; now?: Date } = { by: "SELF" },
+): Promise<{ restored: true; requestId: string }> {
+  const now = options.now ?? new Date();
+  const note = options.note?.trim().slice(0, 500) || null;
+  const result = await db.transaction(async (tx) => {
+    const [locked] = await tx.select().from(users).where(eq(users.id, userId)).for("update");
+    if (!locked || locked.status !== "PENDING_DELETION" || locked.deletedAt) {
+      throw conflict("This account is not waiting to be deleted, so there is nothing to restore.");
+    }
+    const request = await openCoolingRequest(userId, tx);
+    if (!request) throw conflict("This account is not waiting to be deleted, so there is nothing to restore.");
+
+    await tx.update(users).set({ status: "ACTIVE", updatedAt: now }).where(eq(users.id, userId));
+    // Riders switched off when the account was hidden go back to their status before (still offline).
+    for (const rider of request.hiddenState?.riderStatuses ?? []) {
+      await tx
+        .update(deliveryPartners)
+        .set({ status: rider.status as (typeof deliveryPartners.$inferSelect)["status"], updatedAt: now })
+        .where(and(eq(deliveryPartners.id, rider.id), eq(deliveryPartners.status, "DEACTIVATED")));
+    }
+    await tx
+      .update(accountDeletionRequests)
+      .set({ status: "CANCELLED", cancelledAt: now, cancelledBy: actor.id, cancelNote: note ?? (options.by === "SELF" ? "Restored by the person at sign-in." : null) })
+      .where(eq(accountDeletionRequests.id, request.id));
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: options.by === "SELF" ? locked.role : actor.role,
+        action: AUDIT_ACTIONS.ACCOUNT_DELETION_RESTORED,
+        entityType: "user",
+        entityId: userId,
+        previousValue: { status: "PENDING_DELETION", requestStatus: request.status, purgeAfter: request.purgeAfter?.toISOString() ?? null },
+        newValue: { status: "ACTIVE", requestId: request.id, by: options.by, note },
+        ipAddress: options.ip ?? null,
+        userAgent: options.userAgent ?? null,
+      },
+      tx,
+    );
+    return { requestId: request.id, email: locked.email, placeholder: locked.emailPlaceholder };
+  });
+
+  if (!result.placeholder && !isPlaceholderEmail(result.email)) {
+    const how = options.by === "SELF" ? "You restored your GoKesari account." : "A GoKesari administrator has cancelled the deletion of your account.";
+    void sendEmail({
+      to: result.email,
+      subject: "Your GoKesari account has been restored",
+      text: `${how} It will not be deleted, and you can sign in and use it as before.\n\nSubscriptions cancelled when you asked for the deletion stay cancelled; you can start them again.\n\nIf you did not do this, contact support.\n`,
+      html: `<p>${how} It will not be deleted, and you can sign in and use it as before.</p><p>Subscriptions cancelled when you asked for the deletion stay cancelled; you can start them again.</p><p>If you did not do this, contact support.</p>`,
+    }).catch((error) => console.error("[account-deletion] restore email failed", error));
+  }
+  return { restored: true, requestId: result.requestId };
+}
+
+/** Admin → Account deletions: an ADMIN cancels a request in its cooling-off period (restores the account), with a note. */
+export async function adminCancelDeletion(
+  actor: { id: string; role: UserRole },
+  requestId: string,
+  note: string,
+): Promise<{ restored: true; requestId: string }> {
+  if (!can(actor.role, PERMISSIONS.USER_SUSPEND)) throw forbidden("Only an administrator can cancel an account deletion.");
+  const trimmed = note.trim();
+  if (trimmed.length < 3) throw validationFailed("Write a note: why is the deletion cancelled?", { fields: { note: "A note is required." } });
+  const [request] = await db
+    .select({ userId: accountDeletionRequests.userId, status: accountDeletionRequests.status })
+    .from(accountDeletionRequests)
+    .where(eq(accountDeletionRequests.id, requestId));
+  if (!request) throw notFound("Account deletion request");
+  if (request.status !== "COOLING_OFF" && request.status !== "BLOCKED") throw conflict("Only a request in its cooling-off period can be cancelled.");
+  return restoreAccount(request.userId, actor, { by: "ADMIN", note: trimmed });
+}
+
+/* ---------------------------------------------- restore ticket (sign-in) */
+
+/** The cookie the sign-in page sets for a hidden account (httpOnly, 15 minutes). */
+export const RESTORE_COOKIE = "gk_account_restore";
+export const RESTORE_TICKET_TTL_MS = 15 * 60_000;
+
+function restoreMac(payload: string): string {
+  return createHmac("sha256", getEnv().AUTH_SECRET).update(`account-restore:${payload}`).digest("hex");
+}
+
+/** Proof that the person just signed in with a code for this hidden account. Never contains personal data. */
+export function createRestoreTicket(userId: string, now: number = Date.now()): string {
+  const payload = `${userId}.${now + RESTORE_TICKET_TTL_MS}`;
+  return `${payload}.${restoreMac(payload)}`;
+}
+
+export function readRestoreTicket(ticket: string | null | undefined, now: number = Date.now()): string | null {
+  const parts = (ticket ?? "").split(".");
+  if (parts.length !== 3) return null;
+  const [userId, expires, mac] = parts;
+  const expected = restoreMac(`${userId}.${expires}`);
+  if (mac.length !== expected.length || !timingSafeEqual(Buffer.from(mac), Buffer.from(expected))) return null;
+  if (!(Number(expires) > now)) return null;
+  return userId;
+}
+
+/* ------------------------------------------------------- the daily purge */
+
+export interface PurgeRunResult {
+  due: number;
+  completed: number;
+  blocked: number;
+  skipped: number;
+  errors: string[];
+}
+
+/**
+ * Daily job (cron/schedule.ts "account-deletion-purge"): every hidden account
+ * whose cooling-off period is over is checked again on the locked row. Clear →
+ * anonymised, request COMPLETED, completion email to the original address after
+ * commit. A blocker appeared (an open order, money in the wallet, rider dues …)
+ * → request BLOCKED with the blockers, ops alerted the first time, nothing
+ * purged; it is retried every day until it clears or an admin cancels it.
+ * Runs whatever the flag (a person who asked must not stay hidden for ever).
+ */
+export async function runDueAccountPurges(now: Date = new Date(), options: { limit?: number } = {}): Promise<PurgeRunResult> {
+  const due = await db
+    .select({ id: accountDeletionRequests.id })
+    .from(accountDeletionRequests)
+    .where(
+      and(
+        inArray(accountDeletionRequests.status, ["COOLING_OFF", "BLOCKED"]),
+        isNotNull(accountDeletionRequests.purgeAfter),
+        lte(accountDeletionRequests.purgeAfter, now),
+      ),
+    )
+    .orderBy(accountDeletionRequests.purgeAfter)
+    .limit(options.limit ?? 200);
+
+  const result: PurgeRunResult = { due: due.length, completed: 0, blocked: 0, skipped: 0, errors: [] };
+  for (const { id } of due) {
+    try {
+      const outcome = await purgeOne(id, now);
+      if (outcome === "COMPLETED") result.completed++;
+      else if (outcome === "BLOCKED") result.blocked++;
+      else result.skipped++;
+    } catch (error) {
+      result.errors.push(`${id}: ${error instanceof Error ? error.message : String(error)}`);
+      console.error("[account-deletion] purge failed", id, error);
+    }
+  }
+  return result;
+}
+
+async function purgeOne(requestId: string, now: Date): Promise<"COMPLETED" | "BLOCKED" | "SKIPPED"> {
+  const outcome = await db.transaction(async (tx) => {
+    const [request] = await tx.select().from(accountDeletionRequests).where(eq(accountDeletionRequests.id, requestId)).for("update");
+    if (!request || (request.status !== "COOLING_OFF" && request.status !== "BLOCKED") || !request.purgeAfter || request.purgeAfter > now) {
+      return { kind: "SKIPPED" as const };
+    }
+    const [locked] = await tx.select().from(users).where(eq(users.id, request.userId)).for("update");
+    if (!locked || locked.status !== "PENDING_DELETION" || locked.deletedAt) {
+      // Restored some other way, or already gone: the request is closed so it is not picked again.
+      await tx
+        .update(accountDeletionRequests)
+        .set(locked?.status === "DELETED" ? { status: "COMPLETED", completedAt: now } : { status: "CANCELLED", cancelledAt: now, cancelNote: "The account was no longer hidden at purge time." })
+        .where(eq(accountDeletionRequests.id, requestId));
+      return { kind: "SKIPPED" as const };
+    }
+
+    const blockers = blockersFrom(await gatherDeletionFacts(request.userId, tx));
+    if (blockers.length > 0) {
+      const firstTime = request.status === "COOLING_OFF";
+      await tx.update(accountDeletionRequests).set({ status: "BLOCKED", blockers }).where(eq(accountDeletionRequests.id, requestId));
+      if (firstTime) {
+        await recordAudit(
+          {
+            action: AUDIT_ACTIONS.ACCOUNT_DELETION_PURGE_BLOCKED,
+            entityType: "user",
+            entityId: request.userId,
+            newValue: { requestId, blockers: blockers.map((b) => b.code) },
+          },
+          tx,
+        );
+      }
+      return { kind: "BLOCKED" as const, firstTime, blockers, userId: request.userId };
+    }
+
+    const subscriptionsCancelled = await cancelLiveSubscriptionsInTx(tx, request.userId, now, null);
+    await anonymiseInTx(tx, request.userId, now);
+    await tx
+      .update(accountDeletionRequests)
+      .set({ status: "COMPLETED", completedAt: now, blockers: [] })
+      .where(eq(accountDeletionRequests.id, requestId));
+    await recordAudit(
+      {
+        action: AUDIT_ACTIONS.ACCOUNT_DELETED,
+        entityType: "user",
+        entityId: request.userId,
+        previousValue: { email: maskEmailAddress(locked.email), status: locked.status },
+        newValue: { status: "DELETED", requestId, subscriptionsCancelled, reasonCode: request.reasonCode, reason: request.reason, coolingStartedAt: request.coolingStartedAt?.toISOString() ?? null },
+      },
+      tx,
+    );
+    return { kind: "COMPLETED" as const, email: locked.email, placeholder: locked.emailPlaceholder };
+  });
+
+  // After commit.
+  if (outcome.kind === "COMPLETED" && !outcome.placeholder && !isPlaceholderEmail(outcome.email)) {
+    await sendEmail({
+      to: outcome.email,
       subject: "Your GoKesari account has been deleted",
       text:
         "Your GoKesari account has been deleted as you asked. Your name, contact details, saved addresses and saved bank details have been removed.\n\n" +
@@ -666,8 +1043,18 @@ export async function deleteAccount(
         "<p>You can create a new account with this email address at any time. If you did not delete your account, contact support immediately.</p>",
     }).catch((error) => console.error("[account-deletion] completion email failed", error));
   }
-
-  return { deleted: true, requestId, subscriptionsCancelled };
+  if (outcome.kind === "BLOCKED" && outcome.firstTime) {
+    const list = outcome.blockers.map((b) => `- ${b.code}: ${b.message}`).join("\n");
+    console.warn("[account-deletion] purge blocked", requestId, outcome.blockers.map((b) => b.code));
+    await sendEmail({
+      to: getEnv().SUPER_ADMIN_EMAIL,
+      subject: "Account deletion held: a blocker appeared during the cooling-off period",
+      text:
+        `The account deletion request ${requestId} (account id ${outcome.userId}) reached the end of its cooling-off period, but the account cannot be deleted yet:\n\n${list}\n\n` +
+        "Nothing was deleted; the account stays hidden and the job tries again every day. Sort the items out, or cancel the deletion (restores the account) at Admin → Consent record → Account deletions.\n",
+    }).catch((error) => console.error("[account-deletion] ops alert email failed", error));
+  }
+  return outcome.kind;
 }
 
 /* ------------------------------------------------------------------ admin */
@@ -678,12 +1065,25 @@ export interface DeletionRequestRow {
   status: AccountDeletionRequest["status"];
   blockers: DeletionBlocker[];
   reason: string | null;
+  reasonCode: string | null;
   requestedAt: Date;
+  coolingStartedAt: Date | null;
+  purgeAfter: Date | null;
   completedAt: Date | null;
+  cancelledAt: Date | null;
+  cancelNote: string | null;
+  /** Only for an account still hidden (not yet anonymised), and only when `includePersonal` (ADMIN). */
+  person: { name: string | null; email: string } | null;
 }
 
-/** Admin → Consent record → Account deletions (read-only). No personal data: the account is anonymised. */
-export async function listDeletionRequests(options: { status?: AccountDeletionRequest["status"]; limit?: number } = {}): Promise<DeletionRequestRow[]> {
+/**
+ * Admin → Consent record → Account deletions. A completed request's account is
+ * anonymised, so only its id is shown. An account still in its cooling-off
+ * period keeps its name and email, shown to admins only (`includePersonal`).
+ */
+export async function listDeletionRequests(
+  options: { status?: AccountDeletionRequest["status"]; limit?: number; includePersonal?: boolean } = {},
+): Promise<DeletionRequestRow[]> {
   const rows = await db
     .select({
       id: accountDeletionRequests.id,
@@ -691,12 +1091,28 @@ export async function listDeletionRequests(options: { status?: AccountDeletionRe
       status: accountDeletionRequests.status,
       blockers: accountDeletionRequests.blockers,
       reason: accountDeletionRequests.reason,
+      reasonCode: accountDeletionRequests.reasonCode,
       requestedAt: accountDeletionRequests.requestedAt,
+      coolingStartedAt: accountDeletionRequests.coolingStartedAt,
+      purgeAfter: accountDeletionRequests.purgeAfter,
       completedAt: accountDeletionRequests.completedAt,
+      cancelledAt: accountDeletionRequests.cancelledAt,
+      cancelNote: accountDeletionRequests.cancelNote,
+      userStatus: users.status,
+      name: users.name,
+      email: users.email,
     })
     .from(accountDeletionRequests)
+    .leftJoin(users, eq(users.id, accountDeletionRequests.userId))
     .where(options.status ? eq(accountDeletionRequests.status, options.status) : undefined)
     .orderBy(desc(accountDeletionRequests.requestedAt))
     .limit(Math.min(options.limit ?? 100, 500));
-  return rows.map((r) => ({ ...r, blockers: (r.blockers ?? []) as DeletionBlocker[] }));
+  return rows.map(({ userStatus, name, email, ...r }) => ({
+    ...r,
+    blockers: (r.blockers ?? []) as DeletionBlocker[],
+    person:
+      options.includePersonal && userStatus === "PENDING_DELETION" && email && (r.status === "COOLING_OFF" || r.status === "BLOCKED")
+        ? { name, email }
+        : null,
+  }));
 }

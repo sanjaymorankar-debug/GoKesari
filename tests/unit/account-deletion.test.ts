@@ -40,9 +40,15 @@ import { GET as statusRoute, POST as deleteRoute } from "@/app/api/profile/delet
 import { POST as codeRoute } from "@/app/api/profile/delete/code/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import {
+  ACCOUNT_DELETION_REASONS,
+  adminCancelDeletion,
   anonymisedEmail,
   anonymisedUserPatch,
   blockersFrom,
+  coolingOffEnd,
+  createRestoreTicket,
+  normaliseDeletionReason,
+  readRestoreTicket,
   deleteAccount,
   deletionPrecheck,
   precheckFrom,
@@ -196,11 +202,53 @@ describe("flag ON", () => {
     await expect(deleteAccount(USER, { code: "123456", confirmText: "" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 
+  it("0191: refuses without a reason, before checking the code", async () => {
+    mocks.flagOn = true;
+    await expect(deleteAccount(USER, { code: "123456", confirmText: "DELETE" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(deleteAccount(USER, { code: "123456", confirmText: "DELETE", reasonCode: "OTHER", reason: "" })).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+  });
+
   it("the APIs need a signed-in user", async () => {
     mocks.flagOn = true;
     const { unauthenticated } = await import("@/lib/errors");
     mocks.requireUser.mockRejectedValueOnce(unauthenticated());
     const res = await statusRoute();
     expect(res.status).toBe(401);
+  });
+});
+
+describe("0191 cooling-off: pure parts", () => {
+  it("a reason is required: a listed code, words for Other; words alone count as Other", () => {
+    expect(() => normaliseDeletionReason({})).toThrow();
+    expect(() => normaliseDeletionReason({ reasonCode: "NOPE" })).toThrow();
+    expect(() => normaliseDeletionReason({ reasonCode: "OTHER", reason: " x " })).toThrow();
+    expect(normaliseDeletionReason({ reasonCode: "NOT_USING" })).toEqual({ reasonCode: "NOT_USING", reason: "I don't use GoKesari any more" });
+    expect(normaliseDeletionReason({ reasonCode: "PRIVACY", reason: "spam calls" }).reason).toContain("spam calls");
+    expect(normaliseDeletionReason({ reason: "Moving abroad" })).toEqual({ reasonCode: "OTHER", reason: "Moving abroad" });
+    expect(ACCOUNT_DELETION_REASONS.at(-1)?.code).toBe("OTHER");
+  });
+
+  it("the cooling-off period ends the given number of days later (90 by default)", () => {
+    const now = new Date("2026-11-23T10:00:00Z");
+    expect(coolingOffEnd(now, 90).toISOString()).toBe("2027-02-21T10:00:00.000Z");
+  });
+
+  it("the restore ticket is signed, bound to the account and expires after 15 minutes", () => {
+    const now = Date.now();
+    const ticket = createRestoreTicket(USER.id, now);
+    expect(readRestoreTicket(ticket, now + 60_000)).toBe(USER.id);
+    expect(readRestoreTicket(ticket, now + 16 * 60_000)).toBeNull();
+    const [id, exp] = ticket.split(".");
+    expect(readRestoreTicket(`${id}.${Number(exp) + 999999}.${ticket.split(".")[2]}`, now)).toBeNull();
+    expect(readRestoreTicket("22222222-2222-4222-8222-222222222222." + ticket.split(".").slice(1).join("."), now)).toBeNull();
+    expect(readRestoreTicket(null, now)).toBeNull();
+  });
+
+  it("only an admin may cancel a deletion, and only with a note", async () => {
+    await expect(adminCancelDeletion({ id: USER.id, role: "OPERATOR" }, "x", "Customer called")).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(adminCancelDeletion({ id: USER.id, role: "CUSTOMER" }, "x", "Customer called")).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(adminCancelDeletion({ id: USER.id, role: "ADMIN" }, "x", " ")).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });

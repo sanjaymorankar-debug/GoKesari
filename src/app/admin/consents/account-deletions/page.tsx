@@ -1,11 +1,13 @@
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { Badge, EmptyState, LinkButton, PageHeader } from "@/components/ui";
-import { getCurrentUser } from "@/server/authz/guards";
+import { Alert, Badge, Button, EmptyState, LinkButton, PageHeader, inputClass } from "@/components/ui";
+import { toClientError } from "@/lib/errors";
+import { getCurrentUser, requirePermission } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { ACCOUNT_DELETION_STATUSES, type AccountDeletionStatus } from "@/server/db/schema";
-import { listDeletionRequests } from "@/server/services/account-deletion";
+import { adminCancelDeletion, formatPurgeDate, listDeletionRequests } from "@/server/services/account-deletion";
 
 export const metadata = { title: "Account deletion requests" };
 export const dynamic = "force-dynamic";
@@ -13,6 +15,7 @@ export const dynamic = "force-dynamic";
 const TONES: Record<AccountDeletionStatus, "success" | "warning" | "danger" | "info"> = {
   REQUESTED: "info",
   BLOCKED: "warning",
+  COOLING_OFF: "warning",
   COMPLETED: "success",
   CANCELLED: "danger",
 };
@@ -22,18 +25,33 @@ function when(value: Date | null): string {
 }
 
 /**
- * docs/account-deletion-2026-11: every self-service deletion request, read-only.
- * The accounts themselves are anonymised, so only the account id, the outcome,
- * what blocked it and the person's optional reason are shown. Same permission
- * as the consent record (CONSENT_VIEW).
+ * docs/account-deletion-2026-11: every self-service deletion request. Same
+ * permission as the consent record (CONSENT_VIEW). A completed request's account
+ * is anonymised, so only its id is shown. An account in its cooling-off period
+ * (0191) is marked "Under cooling period until <date>" with the person's reason;
+ * its name and email are shown to admins only (USER_SUSPEND), and an admin may
+ * cancel the deletion (restores the account) with a note — audited.
  */
-export default async function AccountDeletionsPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+export default async function AccountDeletionsPage({ searchParams }: { searchParams: Promise<{ status?: string; error?: string; done?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   if (!can(user.role, PERMISSIONS.CONSENT_VIEW)) redirect("/");
+  const isAdmin = can(user.role, PERMISSIONS.USER_SUSPEND);
   const params = await searchParams;
   const status = ACCOUNT_DELETION_STATUSES.find((s) => s === params.status);
-  const rows = await listDeletionRequests({ status, limit: 200 });
+  const rows = await listDeletionRequests({ status, limit: 200, includePersonal: isAdmin });
+
+  async function cancelDeletion(form: FormData) {
+    "use server";
+    const actor = await requirePermission(PERMISSIONS.USER_SUSPEND);
+    try {
+      await adminCancelDeletion({ id: actor.id, role: actor.role }, String(form.get("requestId") ?? ""), String(form.get("note") ?? ""));
+    } catch (error) {
+      redirect(`/admin/consents/account-deletions?error=${encodeURIComponent(toClientError(error).body.error.message)}`);
+    }
+    revalidatePath("/admin/consents/account-deletions");
+    redirect("/admin/consents/account-deletions?done=1");
+  }
 
   return (
     <>
@@ -46,6 +64,8 @@ export default async function AccountDeletionsPage({ searchParams }: { searchPar
           </LinkButton>
         }
       />
+      {params.error ? <Alert tone="danger">{params.error}</Alert> : null}
+      {params.done ? <Alert tone="success">The deletion was cancelled and the account restored.</Alert> : null}
       <nav aria-label="Filter by status" className="mb-4 flex flex-wrap gap-2 text-sm">
         {[undefined, ...ACCOUNT_DELETION_STATUSES].map((s) => (
           <Link
@@ -66,7 +86,7 @@ export default async function AccountDeletionsPage({ searchParams }: { searchPar
             <thead>
               <tr className="border-b bg-gray-100 text-left">
                 <th className="px-4 py-3 font-semibold">Requested</th>
-                <th className="px-4 py-3 font-semibold">Account id</th>
+                <th className="px-4 py-3 font-semibold">Account</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
                 <th className="px-4 py-3 font-semibold">Completed</th>
                 <th className="px-4 py-3 font-semibold">Blocked by / reason</th>
@@ -76,14 +96,40 @@ export default async function AccountDeletionsPage({ searchParams }: { searchPar
               {rows.map((r) => (
                 <tr key={r.id} className="border-b align-top hover:bg-gray-50">
                   <td className="px-4 py-3 text-ink-600">{when(r.requestedAt)}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-ink-700">{r.userId}</td>
+                  <td className="px-4 py-3 text-ink-700">
+                    {r.person ? (
+                      <p data-testid="account-deletion-person">
+                        {r.person.name ?? "—"} <span className="text-ink-500">{r.person.email}</span>
+                      </p>
+                    ) : null}
+                    <p className="font-mono text-xs">{r.userId}</p>
+                  </td>
                   <td className="px-4 py-3">
-                    <Badge tone={TONES[r.status]}>{r.status.toLowerCase()}</Badge>
+                    {r.status === "COOLING_OFF" && r.purgeAfter ? (
+                      <span data-testid="account-deletion-cooling">
+                        <Badge tone="warning">Under cooling period until {formatPurgeDate(r.purgeAfter)}</Badge>
+                      </span>
+                    ) : (
+                      <Badge tone={TONES[r.status]}>{r.status.toLowerCase().replace(/_/g, " ")}</Badge>
+                    )}
+                    {r.status === "BLOCKED" && r.purgeAfter ? (
+                      <p className="mt-1 text-xs text-amber-800">Held at purge time — the account stays hidden; retried daily.</p>
+                    ) : null}
+                    {r.cancelNote ? <p className="mt-1 text-xs text-ink-500">Cancelled: {r.cancelNote}</p> : null}
                   </td>
                   <td className="px-4 py-3 text-ink-600">{when(r.completedAt)}</td>
                   <td className="px-4 py-3 text-ink-700">
                     {r.blockers.length > 0 ? r.blockers.map((b) => b.code.toLowerCase().replace(/_/g, " ")).join(", ") : null}
                     {r.reason ? <p className="text-ink-500">“{r.reason}”</p> : null}
+                    {isAdmin && (r.status === "COOLING_OFF" || (r.status === "BLOCKED" && r.purgeAfter)) ? (
+                      <form action={cancelDeletion} className="mt-2 grid gap-2">
+                        <input type="hidden" name="requestId" value={r.id} />
+                        <input className={inputClass} name="note" required minLength={3} maxLength={500} placeholder="Why is the deletion cancelled?" />
+                        <Button type="submit" size="sm" variant="secondary">
+                          Cancel deletion (restore account)
+                        </Button>
+                      </form>
+                    ) : null}
                   </td>
                 </tr>
               ))}

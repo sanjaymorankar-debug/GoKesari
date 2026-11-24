@@ -242,6 +242,9 @@ export const DAILY: readonly Job[] = [
   { name: "smart-list-photo-retention", run: async () => (await import("@/server/services/smart-list/scan")).sweepExpiredScanPhotos() },
   // docs/smart-shopping-2026-11 (Feature 2): add-by-photo photos not used for a product, after rule smartShopping.photoRetentionDays.
   { name: "photo-listing-purge", run: async () => (await import("@/server/services/shop-photo-listing")).purgeExpiredPhotoListingPhotos() },
+  // docs/account-deletion-2026-11 (0191): accounts whose deletion cooling-off period (rule accountDeletion.coolingOffDays)
+  // is over are anonymised; one where a blocker appeared is held (BLOCKED) and ops are alerted. A no-op when none is due.
+  { name: "account-deletion-purge", run: async () => (await import("@/server/services/account-deletion")).runDueAccountPurges() },
 ];
 
 /** The jobs of an every-minute run at `now`. */

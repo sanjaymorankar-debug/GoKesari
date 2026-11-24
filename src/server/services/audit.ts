@@ -407,6 +407,10 @@ export const AUDIT_ACTIONS = {
   ACCOUNT_DELETION_REQUESTED: "account.deletion_requested",
   ACCOUNT_DELETION_BLOCKED: "account.deletion_blocked",
   ACCOUNT_DELETED: "account.deleted",
+  // 0191 (owner 23-Nov-2026): 90-day cooling-off before the anonymisation.
+  ACCOUNT_DELETION_COOLING_OFF: "account.deletion_cooling_off",
+  ACCOUNT_DELETION_RESTORED: "account.deletion_restored",
+  ACCOUNT_DELETION_PURGE_BLOCKED: "account.deletion_purge_blocked",
   SIGNED_OUT: "auth.signed_out", // QA TC-AUTH-045: Sign out, recorded like a sign-in (auth.otp_verified)
   PROFILE_UPDATED: "user.profile_updated",
   /* ------------------------------------------------- docs/four-features-2026-10 */

@@ -2053,6 +2053,38 @@ export const RULES = {
     },
   },
   /* <<< smart-shopping */
+  accountDeletion: {
+    description:
+      "Self-service account deletion (docs/account-deletion-2026-11; owner 23-Nov-2026). coolingOffDays: after the person confirms, the account is hidden (cannot sign in except to restore it, not shown to anyone else; admins see it as \"Under cooling period\") and is anonymised by the daily job this many days later (90 = 3 months). retentionYears: how long each class of record that is kept after deletion must be held, as per law — Income-tax Act s.44AA + Rule 6F (books, 8 years from the end of the assessment year; TDS records), CGST Act s.36 (72 months from the annual return due date), the longer one applying; DPDP Act 2023 s.8(7) requires erasure once the purpose is served unless a law requires retention. Informational for now: no job purges retained records yet (needs owner / legal sign-off).",
+    schema: z.object({
+      coolingOffDays: int(1, 365),
+      retentionYears: z.object({
+        /** GST invoices, credit notes, platform / billing documents, GST returns data. */
+        TAX_GST_INVOICES: int(1, 20),
+        /** Payments, payment intents, refunds, bank refunds, wallet ledger. */
+        PAYMENTS_WALLET: int(1, 20),
+        /** TDS (s.194C / 194-O) and TCS records, certificates, ledgers and accounting entries. */
+        TDS_TCS_LEDGERS: int(1, 20),
+        /** Rider PAN / KYC / documents and earnings and payouts used for TDS. */
+        RIDER_KYC_TDS: int(1, 20),
+        /** Orders and their address snapshots, returns, disputes, grievances (consumer law; kept with the invoices). */
+        ORDERS_CONSUMER: int(1, 20),
+        /** Audit log, consent trail and the deletion request itself (proof of what was done). */
+        AUDIT_CONSENT: int(1, 20),
+      }),
+    }),
+    defaults: {
+      coolingOffDays: 90,
+      retentionYears: {
+        TAX_GST_INVOICES: 8,
+        PAYMENTS_WALLET: 8,
+        TDS_TCS_LEDGERS: 8,
+        RIDER_KYC_TDS: 8,
+        ORDERS_CONSUMER: 8,
+        AUDIT_CONSENT: 8,
+      },
+    },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

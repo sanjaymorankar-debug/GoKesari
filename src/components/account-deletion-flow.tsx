@@ -20,12 +20,16 @@ export interface AccountDeletionFlowProps {
   /** Already formatted (₹). Null when there is no promotional credit. */
   promotionalForfeit: string | null;
   maskedEmail: string | null;
+  /** 0191: the reasons offered (a reason is required); "OTHER" needs words. */
+  reasons: readonly { code: string; label: string }[];
+  /** 0191: days the account stays hidden before it is deleted (rule accountDeletion.coolingOffDays). */
+  coolingOffDays: number;
 }
 
 /**
  * docs/account-deletion-2026-11: the steps on /profile/delete — blockers (with
- * where to fix each), then the emailed code and the typed word DELETE, then the
- * signed-out "account deleted" screen.
+ * where to fix each), then the emailed code, the reason (required) and the typed
+ * word DELETE, then the "account hidden, deleted on <date>" screen (0191 cooling-off).
  */
 export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
   const [blockers, setBlockers] = useState(props.blockers);
@@ -33,9 +37,10 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
   const [code, setCode] = useState("");
   const [confirmText, setConfirmText] = useState("");
   const [reason, setReason] = useState("");
+  const [reasonCode, setReasonCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deleted, setDeleted] = useState(false);
+  const [deletedOn, setDeletedOn] = useState<string | null>(null);
 
   function readBlockers(payload: unknown): DeletionBlockerView[] | null {
     const details = (payload as { error?: { details?: { blockers?: DeletionBlockerView[] } } } | null)?.error?.details;
@@ -60,11 +65,13 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
     event.preventDefault();
     setError(null);
     if (confirmText.trim() !== "DELETE") return setError("Type DELETE in capital letters to confirm.");
+    if (!reasonCode) return setError("Tell us why you are leaving: pick a reason.");
+    if (reasonCode === "OTHER" && reason.trim().length < 3) return setError("Tell us in a few words why you are leaving.");
     setBusy(true);
     const res = await fetch("/api/profile/delete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code, confirmText: confirmText.trim(), reason: reason.trim() || null }),
+      body: JSON.stringify({ code, confirmText: confirmText.trim(), reasonCode, reason: reason.trim() || null }),
     });
     const payload = await res.json().catch(() => null);
     setBusy(false);
@@ -76,18 +83,22 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
       }
       return setError(payload?.error?.message ?? "Could not delete the account.");
     }
-    setDeleted(true);
+    setDeletedOn(
+      new Date(payload.purgeAfter).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }),
+    );
   }
 
-  if (deleted) {
+  if (deletedOn) {
     return (
       <Card className="p-6" data-testid="account-deleted">
-        <h2 className="text-lg font-semibold text-ink-900">Your account has been deleted</h2>
+        <h2 className="text-lg font-semibold text-ink-900">Your account is now hidden</h2>
         <p className="mt-2 text-sm text-ink-700">
-          You have been signed out on every device. A confirmation has been sent to your old email address.
+          It will be deleted permanently on <strong>{deletedOn}</strong>. You have been signed out on every device, and a
+          confirmation has been sent to your email address.
         </p>
         <p className="mt-2 text-sm text-ink-700">
-          You can create a new account with the same email address at any time — it starts empty.
+          Changed your mind? Until then, sign in with your email address and the code we send you, and choose “Restore my
+          account”.
         </p>
         <form action={signOutAction} className="mt-4">
           <Button type="submit">Go to the home page</Button>
@@ -160,10 +171,30 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
                   required
                 />
               </Field>
-              <Field label="Why are you leaving? (optional)">
-                <textarea className={inputClass} rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+              <Field label="Why are you leaving?">
+                <select className={inputClass} value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} required>
+                  <option value="">Pick a reason</option>
+                  {props.reasons.map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
               </Field>
-              <Field label='Type DELETE to confirm' hint="This cannot be undone.">
+              <Field label={reasonCode === "OTHER" ? "Your reason" : "Anything to add? (optional)"}>
+                <textarea
+                  className={inputClass}
+                  rows={2}
+                  maxLength={500}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  required={reasonCode === "OTHER"}
+                />
+              </Field>
+              <Field
+                label="Type DELETE to confirm"
+                hint={`Your account is hidden at once and deleted after ${props.coolingOffDays} days. Sign in during that time to restore it.`}
+              >
                 <input
                   className={inputClass}
                   value={confirmText}
@@ -173,8 +204,8 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
                 />
               </Field>
               <div>
-                <Button type="submit" variant="danger" disabled={busy || confirmText.trim() !== "DELETE" || !code.trim()}>
-                  {busy ? "Deleting…" : "Delete my account permanently"}
+                <Button type="submit" variant="danger" disabled={busy || confirmText.trim() !== "DELETE" || !code.trim() || !reasonCode}>
+                  {busy ? "Deleting…" : "Delete my account"}
                 </Button>
               </div>
             </form>

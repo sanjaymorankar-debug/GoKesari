@@ -84,8 +84,9 @@ export async function readSession(token: SessionClaims): Promise<{ user: User | 
       .where(eq(users.id, token.sub));
     if (!row) return { user: undefined };
     if (row.revoked) return null;
-    // docs/account-deletion-2026-11: a deleted account ends every session it had, on every device.
-    if (row.user.status === "DELETED" || row.user.deletedAt) return null;
+    // docs/account-deletion-2026-11: a deleted account — or one hidden in its cooling-off period
+    // (0191, PENDING_DELETION) — ends every session it had, on every device.
+    if (row.user.status === "DELETED" || row.user.status === "PENDING_DELETION" || row.user.deletedAt) return null;
     return { user: row.user };
   } catch (error) {
     // The revocation list could not be read (a database the 0088 migration has not reached, or

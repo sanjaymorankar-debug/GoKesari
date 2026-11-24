@@ -3,6 +3,12 @@
 Owner brief 23-Nov-2026, Module 7. Branch `feat/m7-account-deletion`, migration **0183**,
 feature flag **`account_self_deletion_enabled` (seeded OFF)**.
 
+> **Changed 23-Nov-2026 (owner) — migration 0191: 90-day cooling-off.** Confirming no longer deletes at once.
+> The account is hidden for 3 months (admins see it "Under cooling period until <date>" with the reason), the
+> person can restore it by signing in, and the daily job anonymises it afterwards. See
+> [Cooling-off period (0191)](#cooling-off-period-0191) and [Retention as per law](#retention-as-per-law).
+> Steps 3–4 under "How it works" below describe the anonymisation, which now runs at the end of the period.
+
 ## What existed before
 
 - `users.status` already had the value `DELETED` and `users.deleted_at` existed, but nothing ever wrote them.
@@ -91,6 +97,100 @@ a name, email or phone.
   wallet, addresses) is linked to it. The phone number is released too (set to null).
 - A session issued before the deletion stops working on its next request (`readSession`).
 
+## Cooling-off period (0191)
+
+Owner, 23-Nov-2026: *"There should be 3 months of cooling-off period where the account will be hidden to all but
+will be visible to admin with a comment 'under cooling period' for the specific reason."*
+
+| Requirement | Status |
+|---|---|
+| Confirm → COOLING_OFF, `purge_after` = now + `accountDeletion.coolingOffDays` (90), reason required | DEVELOPED |
+| Account hidden (`users.status` = `PENDING_DELETION`), every session signed out | DEVELOPED |
+| Restore at sign-in ("Restore my account / Keep deletion") | DEVELOPED |
+| Daily purge job, blocker at purge time → BLOCKED + ops alert | DEVELOPED |
+| Admin page badge, reason, name/email (admins only), ADMIN cancel with note | DEVELOPED |
+| Retention table + rule `accountDeletion.retentionYears` | DEVELOPED (documentation + rule; no purge job) |
+| Profile page copy | DEVELOPED (English; the page does not use `tr()`) |
+
+**Confirming** (`deleteAccount`, same checks, code and typed DELETE): the reason is now **required** — one of
+`ACCOUNT_DELETION_REASONS` (not using any more, privacy, too many messages, bad experience, another account,
+**Other** = own words, at least 3 characters). Then, in one transaction on the locked account row (checks re-run):
+live subscriptions cancelled; `users.status` → **`PENDING_DELETION`**; push tokens deleted; a rider profile
+DEACTIVATED (its previous status kept in the request's `hidden_state`); the request → **COOLING_OFF** with
+`reason_code`, `reason`, `cooling_started_at`, `purge_after`; audit `account.deletion_cooling_off`. After commit:
+rider set offline; email "Your GoKesari account will be deleted on <date>" with how to restore.
+
+Why a new status and not SUSPENDED: an admin suspension (`services/users.ts`) and its **reinstate** use SUSPENDED;
+a reinstate would silently undo the person's own deletion request. `PENDING_DELETION` is additive (0191).
+
+**Hidden** means:
+- signed out on every device (`auth-sessions.ts readSession` drops PENDING_DELETION like DELETED); `getCurrentUser`,
+  the Auth.js `signIn` callback (Google) and the OTP ticket provider refuse any non-ACTIVE account, so it cannot
+  get a session, call an API or open a page;
+- the sign-in code flow emails a code, but `verifyLoginOtp` refuses the account everywhere except the main
+  `/signin` page, which shows the restore screen instead of signing in;
+- not offered to anyone: rider profile DEACTIVATED + offline (no dispatch, not in rider lists); no push
+  notifications; society dashboard members and riders lists skip it (`services/societies.ts`).
+  Shop owners must have closed their shop and staff must have been removed before deleting (existing blockers),
+  so shop pages and staff lists cannot show them. Ratings show no reviewer names. Not filtered (by design or cost):
+  past orders' records seen by the shop that served them (order history is kept as a legal record); admin screens
+  (admins should see it); dealer/referral admin lists (admin-only).
+
+**Restore** (`/account/restore`): after a correct code on `/signin` the page sets a 15-minute signed httpOnly
+cookie (`gk_account_restore`, path `/account/restore`, HMAC with AUTH_SECRET) and shows *"Your account is
+scheduled for deletion on <date>"* with **Restore my account** / **Keep deletion**. Restore → `restoreAccount`:
+users ACTIVE, rider profile back to its earlier status (still offline), request **CANCELLED**
+(`cancelled_at`, `cancelled_by`, `cancel_note`), audit `account.deletion_restored`, "account restored" email, then
+a normal session is opened. Keep deletion → cookie removed, home page. Cancelled subscriptions are not restarted.
+Other sign-in screens (shop registration card) answer "This account is scheduled for deletion. To restore it, sign
+in on the main Sign in page …". Google sign-in shows the "suspended or closed" note, which now mentions restoring.
+
+**Daily purge** (`cron/schedule.ts` DAILY `account-deletion-purge` → `runDueAccountPurges`, 05:00 IST): every
+COOLING_OFF (or purge-time BLOCKED) request with `purge_after <= now`, each in its own transaction with the request
+and account rows locked: the checks run again. Clear → subscriptions still live cancelled, `anonymiseInTx`
+(the anonymisation in "How it works" step 3), request **COMPLETED**, audit `account.deleted` (system actor);
+after commit the completion email to the **original** address. A blocker appeared (e.g. a refund landed in the
+wallet, an order was placed by an admin) → request **BLOCKED** with the blockers, audit
+`account.deletion_purge_blocked`, one alert email to `SUPER_ADMIN_EMAIL` (first time only), nothing purged, the
+account stays hidden; the job retries every day and completes once the blocker is gone, or an admin cancels it.
+
+**Admin** (`/admin/consents/account-deletions`, CONSENT_VIEW): COOLING_OFF rows show the badge
+**"Under cooling period until <date>"**, the reason, and — for ADMIN (`USER_SUSPEND`) only — the name and email.
+An ADMIN can **Cancel deletion (restore account)** with a required note (server action guarded by
+`requirePermission(USER_SUSPEND)`, re-checked in `adminCancelDeletion`); audited as `account.deletion_restored`
+with the admin as actor, and the person is emailed. Purge-time BLOCKED rows say "Held at purge time" and can be
+cancelled the same way.
+
+**Flag**: still `account_self_deletion_enabled` (OFF). With it OFF nobody can enter the cooling-off period, so the
+job and the restore page have nothing to do — the app behaves as before. If the flag is turned OFF while accounts
+are hidden, they can still be restored and are still purged when due (a person who asked must not be stuck).
+Rule `accountDeletion.coolingOffDays` (1–365, default 90) is editable by admins in the rules screen.
+
+## Retention as per law
+
+Rule `accountDeletion.retentionYears` (per record class, admin-editable, default **8 years**). Records below keep
+the user id but no longer resolve to a name, email or phone after the purge.
+
+| Record class (rule key) | Tables | Default | Legal basis |
+|---|---|---|---|
+| `TAX_GST_INVOICES` | invoices, platform invoices, billing documents, credit notes, GST data | 8 y | CGST Act s.36 / Rule 56: 72 months from the due date of the annual return; Income-tax Act s.44AA + Rule 6F |
+| `PAYMENTS_WALLET` | payments, payment_intents, refunds, bank_refund_requests, wallets, wallet_transactions | 8 y | Books of account (s.44AA / Rule 6F); RBI PA-PG directions (payment records) |
+| `TDS_TCS_LEDGERS` | TDS (194C, 194-O) / TCS records, ledgers, accounting entries | 8 y | Income-tax Act s.44AA + Rule 6F; reassessment window |
+| `RIDER_KYC_TDS` | delivery_partners (personal fields, PAN), rider KYC documents, earnings, payouts, rider_bank_transfers | 8 y | Rider KYC is used for TDS u/s 194C: kept with the TDS records |
+| `ORDERS_CONSUMER` | orders (+ address snapshots), order_items, return_requests, order_disputes, grievances | 8 y | Consumer Protection (E-Commerce) Rules 2020; kept with the invoices they support |
+| `AUDIT_CONSENT` | audit_logs, user_consents, account_deletion_requests | 8 y | Proof of consent and of the erasure (DPDP Act 2023 s.6 / s.8) |
+
+"8 years" = the longer of Income-tax (books kept 6 years from the end of the relevant assessment year, i.e. about
+8 years from the transaction year end, Rule 6F) and GST (72 months from the annual return due date). DPDP Act 2023
+s.8(7): personal data must be erased once its purpose is served **unless a law requires retention** — that
+exception is what keeps these records; nothing else from them is used after deletion.
+
+Rider personal details and KYC are **kept as per law** after deletion (owner, 23-Nov-2026): the rider profile is
+deactivated, the account anonymised, the KYC / PAN / earnings kept for `RIDER_KYC_TDS` years.
+
+**Not built (follow-up, needs owner / legal sign-off):** an automatic purge or anonymisation of these retained
+records when their period ends. The rule only records the periods today.
+
 ## Files
 
 - `drizzle/0183_account_self_deletion.sql`, `drizzle/meta/_journal.json`, `scripts/rollback-0183.sql`
@@ -105,6 +205,22 @@ a name, email or phone.
   `src/components/account-deletion-flow.tsx` (new)
 - `src/app/admin/consents/page.tsx` (link, flag-gated), `src/app/admin/consents/account-deletions/page.tsx` (new)
 - `tests/unit/account-deletion.test.ts`, `tests/integration/account-deletion.test.ts` (new)
+- 0191 cooling-off: `drizzle/0191_account_deletion_cooling_off.sql`, `scripts/rollback-0191.sql`, journal entry;
+  `schema.ts` (enum value, request columns); `config/rules.ts` (`accountDeletion`); `services/account-deletion.ts`
+  (cooling-off, restore, admin cancel, purge job, restore ticket); `services/audit.ts` (3 actions);
+  `cron/schedule.ts` (daily job); `otp/service.ts` (code for a hidden account, `allowPendingDeletion`);
+  `auth-sessions.ts`, `auth.ts` (type); `app/signin/page.tsx`; `app/account/restore/page.tsx` (new);
+  `app/profile/delete/page.tsx`, `components/account-deletion-flow.tsx` (copy, required reason);
+  `app/admin/consents/account-deletions/page.tsx`; `services/societies.ts` (hidden accounts skipped);
+  `services/feature-flags.ts` (hint)
+
+## Migration 0191
+
+Additive and safe to re-run: `user_status` gains `PENDING_DELETION`; `account_deletion_requests` gains
+`reason_code`, `cooling_started_at`, `purge_after`, `hidden_state` (jsonb), `cancelled_at`, `cancelled_by`,
+`cancel_note`, the status CHECK is widened with `COOLING_OFF`, index `(status, purge_after)`. No flag row (the
+module's flag is from 0183). Rollback: `scripts/rollback-0191.sql` — hidden accounts back to ACTIVE, their requests
+CANCELLED, columns dropped; the enum value stays (PostgreSQL cannot drop one).
 
 ## Migration 0183
 
@@ -123,7 +239,8 @@ CONSENT_VIEW) so past requests stay visible if the flag is turned off again.
 
 - `GET /api/profile/delete` → `{ precheck: { canDelete, blockers[], subscriptionsToCancel, promotionalForfeitPaise, maskedEmail }, latestRequest }`
 - `POST /api/profile/delete/code` → `{ maskedEmail, resendAfterSeconds, expiryMinutes, requestId }`; 409 with `details.blockers` when blocked
-- `POST /api/profile/delete` `{ code, confirmText: "DELETE", reason? }` → `{ deleted: true, requestId, subscriptionsCancelled }`; 422 wrong word / code; 409 with blockers
+- `POST /api/profile/delete` `{ code, confirmText: "DELETE", reasonCode, reason? }` → `{ scheduled: true, requestId, purgeAfter, subscriptionsCancelled }` (0191; was `{ deleted: true, … }`); 422 wrong word / code / missing reason; 409 with blockers
+- `/account/restore` (page with two server actions; needs the restore cookie from `/signin`)
 
 All require a signed-in ACTIVE user (`requireUser`); a user can only act on their own account.
 
@@ -131,10 +248,15 @@ All require a signed-in ACTIVE user (`requireUser`); a user can only act on thei
 
 - `tests/unit/account-deletion.test.ts` — 15 tests: every blocker, promotional credit, roles, placeholder email,
   subscriptions, anonymisation patch, flag OFF (service + all three APIs 404), typed word, sign-in required. Pass.
-- `tests/integration/account-deletion.test.ts` — real PostgreSQL: full delete (anonymised row, addresses, push
-  tokens, request COMPLETED, audits, sessions dropped, completion email to the old address, the old email
-  signing up as a new account), wrong word / wrong code, wallet blocker. **Not run locally** (no
-  `TEST_DATABASE_URL` / PostgreSQL on this Mac); runs in CI.
+- 0191 unit additions: required reason, 90-day end date, restore ticket (signature, expiry, other account),
+  admin-only cancel with note — `tests/unit/account-deletion.test.ts` now 20 tests. Pass.
+- `tests/integration/account-deletion.test.ts` — real PostgreSQL (run locally 24-Nov-2026 on a fresh database
+  migrated to 0191): cooling-off (hidden, reason, sessions, push tokens, email, admin list with/without personal
+  data), a hidden account cannot act (session, second request, sign-in refused except the restore path), restore
+  at sign-in (rider switched back, CANCELLED, audit, email), admin cancel (operator refused), daily purge with a
+  fake clock (nothing at day 89; anonymised + COMPLETED + email + fresh sign-up after day 90), blocker at purge
+  time (BLOCKED, one ops alert, retried, completes once cleared), wrong word / missing reason / wrong code,
+  wallet blocker. 9 tests, pass.
 
 ## Still open / for the owner
 
@@ -143,5 +265,10 @@ All require a signed-in ACTIVE user (`requireUser`); a user can only act on thei
   settled as usual. Shop delivery staff (`shop_delivery_staff`) are not checked.
 - Rider KYC documents and the rider profile's personal fields are kept (tax / KYC retention); only the account
   is anonymised and the rider profile deactivated. Owner to confirm the retention period.
-- No scheduled purge of retained records after their legal period — a later job.
-- No "undo" window: deletion is immediate once confirmed (the brief did not ask for a cooling-off period).
+- No scheduled purge of retained records after their legal period — a later job, needs owner / legal sign-off
+  (periods are recorded in rule `accountDeletion.retentionYears`).
+- ~~No "undo" window~~ — done in 0191 (90-day cooling-off, restore at sign-in, admin cancel).
+- Purge-time ops alert goes by email to `SUPER_ADMIN_EMAIL` (no notification-catalog entry was added).
+- Mobile app: the restore screen is a web page; the app's in-app code sign-in path was not changed (a hidden
+  account is refused there with "scheduled for deletion … sign in on the main Sign in page").
+- Not covered by the hiding: records of past orders seen by the shop that served them (kept legal records).
