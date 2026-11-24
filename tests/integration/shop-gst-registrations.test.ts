@@ -70,10 +70,13 @@ describe("adding GSTINs of other states", () => {
   });
 
   it("refuses: not live yet, no consent, the main GSTIN or its state, a second GSTIN for one state, the same GSTIN twice", async () => {
+    // A shop not live yet (still awaiting approval) cannot add one.
+    const pending = await gstShop({ gstin: gstinOf("24", "AAGCS1234Z") });
+    await db.update(shops).set({ status: "PENDING_APPROVAL" }).where(eq(shops.id, pending.shop.id));
+    const pendingActor = { id: pending.owner.id, role: pending.owner.role as UserRole };
+    await expect(addShopGstRegistration({ shopId: pending.shop.id, gstin: gstinOf("29", "AABCK4321Q"), consentGiven: true, actor: pendingActor })).rejects.toMatchObject({ code: "CONFLICT" });
+
     const { shop, actor } = await liveShop();
-    await db.update(shops).set({ status: "PENDING_APPROVAL" }).where(eq(shops.id, shop.id));
-    await expect(addShopGstRegistration({ shopId: shop.id, gstin: gstinOf("29", "AABCK4321Q"), consentGiven: true, actor })).rejects.toMatchObject({ code: "CONFLICT" });
-    await db.update(shops).set({ status: "APPROVED" }).where(eq(shops.id, shop.id));
 
     await expect(addShopGstRegistration({ shopId: shop.id, gstin: gstinOf("29", "AABCK4321Q"), consentGiven: false, actor })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     await expect(addShopGstRegistration({ shopId: shop.id, gstin: shop.gstin!, consentGiven: true, actor })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -119,7 +122,7 @@ describe("the invoice uses the delivery state's GSTIN", () => {
     const s = toKa.invoice!.snapshot as unknown as InvoiceSnapshot;
     expect(s.seller.gstin).toBe(ka);
     expect(s.seller.stateCode).toBe("KA");
-    expect(s.seller.panMasked).toBe("XXXXXX4321");
+    expect(s.seller.panMasked).toBe("XXXXXX321Q");
     expect(s.seller.address).toBe("Shop No 4, Main Market, Shivajinagar, Pune, Maharashtra, 411001");
     expect(toKa.invoice!.supplyType).toBe("INTRA");
     expect(toKa.invoice!.igstPaise).toBe(0);
