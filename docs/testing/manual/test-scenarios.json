@@ -3661,5 +3661,1037 @@
    "TC-WKIT-012",
    "TC-WKIT-013"
   ]
+ },
+ {
+  "id": "TS-PUJA-01",
+  "module": "Puja Samagri",
+  "title": "Customers find puja items: the tile, /puja, filters and search in three languages",
+  "description": "Checks the home tile, /puja with its 15 category chips and filters, search by English, Hindi and Marathi names and synonyms (also site search), the Hindi / Marathi page and the delivery-area line; roles: guest, customer.",
+  "caseIds": [
+   "TC-PUJA-001",
+   "TC-PUJA-002",
+   "TC-PUJA-014",
+   "TC-PUJA-052",
+   "TC-PUJA-053",
+   "TC-PUJA-054"
+  ]
+ },
+ {
+  "id": "TS-PUJA-02",
+  "module": "Puja Samagri",
+  "title": "A shop takes the puja catalogue",
+  "description": "Checks the 499-SKU master and taking it at stock 100, priced at MRP with loose / no-MRP items unpriced, unticking categories and products, the registration wizard step, the stock ledger and who may do it; role: shop owner.",
+  "caseIds": [
+   "TC-PUJA-010",
+   "TC-PUJA-019",
+   "TC-PUJA-020",
+   "TC-PUJA-021",
+   "TC-PUJA-022",
+   "TC-PUJA-023",
+   "TC-PUJA-024",
+   "TC-PUJA-025",
+   "TC-PUJA-026"
+  ]
+ },
+ {
+  "id": "TS-PUJA-03",
+  "module": "Puja Samagri",
+  "title": "The owner manages puja listings",
+  "description": "Checks Browse & add with filters and multi-select, remove and restore, the shop-only MRP and taking the catalogue again; role: shop owner.",
+  "caseIds": [
+   "TC-PUJA-011",
+   "TC-PUJA-027",
+   "TC-PUJA-028",
+   "TC-PUJA-029",
+   "TC-PUJA-030"
+  ]
+ },
+ {
+  "id": "TS-PUJA-04",
+  "module": "Puja Samagri",
+  "title": "Owner-created product types and products, and the review queue",
+  "description": "Checks the duplicate check (same and close names, closest first), own items listed at once and pending, staff approve / reject / merge with a reason and the owner's notices; roles: shop owner, operator, admin.",
+  "caseIds": [
+   "TC-PUJA-012",
+   "TC-PUJA-013",
+   "TC-PUJA-032",
+   "TC-PUJA-033",
+   "TC-PUJA-034",
+   "TC-PUJA-035",
+   "TC-PUJA-036",
+   "TC-PUJA-037",
+   "TC-PUJA-038",
+   "TC-PUJA-039"
+  ]
+ },
+ {
+  "id": "TS-PUJA-05",
+  "module": "Puja Samagri",
+  "title": "Price on confirmation for loose and fresh items",
+  "description": "Checks Ask price, the shop setting or declining the price, the customer's notices, the checks on who may ask and answer, and the item reaching the cart; roles: customer, shop owner.",
+  "caseIds": [
+   "TC-PUJA-015",
+   "TC-PUJA-055",
+   "TC-PUJA-056",
+   "TC-PUJA-057"
+  ]
+ },
+ {
+  "id": "TS-PUJA-06",
+  "module": "Puja Samagri",
+  "title": "Admin master catalogue and configuration",
+  "description": "Checks edit with MRP history and HSN / GST verified, retire, merge, CSV export and import, adding by API, the shop-type switch, FSSAI for edible lines and the seed stock; roles: admin, operator.",
+  "caseIds": [
+   "TC-PUJA-017",
+   "TC-PUJA-040",
+   "TC-PUJA-041",
+   "TC-PUJA-042",
+   "TC-PUJA-043",
+   "TC-PUJA-044",
+   "TC-PUJA-045",
+   "TC-PUJA-046",
+   "TC-PUJA-047",
+   "TC-PUJA-048"
+  ]
+ },
+ {
+  "id": "TS-PUJA-07",
+  "module": "Puja Samagri",
+  "title": "Festival collections and Nearby puja shops",
+  "description": "Checks collections by IST dates with a home banner and kits first, date rules, and the Nearby filter keeping shops with Puja Samagri as main or added type; roles: admin, customer, guest.",
+  "caseIds": [
+   "TC-PUJA-003",
+   "TC-PUJA-031",
+   "TC-PUJA-050",
+   "TC-PUJA-051"
+  ]
+ },
+ {
+  "id": "TS-PUJA-08",
+  "module": "Puja Samagri",
+  "title": "Puja orders, access by role and screen fit",
+  "description": "Checks puja items through the existing checkout, OTP delivery, cancel and refund, guest and wrong-role refusals, Seller Central entry, phone and laptop fit and the app link; all roles.",
+  "caseIds": [
+   "TC-PUJA-004",
+   "TC-PUJA-016",
+   "TC-PUJA-018",
+   "TC-PUJA-049",
+   "TC-PUJA-058",
+   "TC-PUJA-059",
+   "TC-PUJA-060"
+  ]
+ },
+ {
+  "id": "TS-ADM-09",
+  "module": "Admin & operations console",
+  "title": "Verify Consultants and Health left the Shops menus and Categories holds only Shop and Product",
+  "description": "Checks the admin Shops and Categories hubs and the operator Shop onboarding and Catalogue hubs after PR #463 / #464; roles: admin, operator.",
+  "caseIds": [
+   "TC-ADM-023",
+   "TC-ADM-024",
+   "TC-ADM-026"
+  ]
+ },
+ {
+  "id": "TS-ADM-10",
+  "module": "Admin & operations console",
+  "title": "Verify Puja Samagri, Consultants and Health open from Shop categories",
+  "description": "Checks the “Shop types with their own setup” strip, the Puja line on Product categories, who sees them, the phone layout and the language; roles: admin, operator, shop owner, customer.",
+  "caseIds": [
+   "TC-ADM-025",
+   "TC-ADM-027",
+   "TC-ADM-028",
+   "TC-ADM-029",
+   "TC-ADM-030"
+  ]
+ },
+ {
+  "id": "TS-WKIT-02",
+  "module": "Shop welcome kit & QR banner",
+  "title": "The banner carries the owner's 21-Nov wording in all three languages",
+  "description": "Third feature label “Everything For Everyone, Everywhere” (mr / hi) and the Marathi ribbon “आपले दुकान आता ऑनलाइन” on the downloads, in the welcome e-mail and on paper; roles: shop owner, owner (GoKesari).",
+  "caseIds": [
+   "TC-WKIT-014",
+   "TC-WKIT-015",
+   "TC-WKIT-016",
+   "TC-WKIT-017",
+   "TC-WKIT-018"
+  ]
+ },
+ {
+  "id": "TS-NTF-08",
+  "module": "Notifications",
+  "title": "Verify e-mail goes out from the mailbox pool in turn, 90 per mailbox in a rolling 24 hours",
+  "description": "Checks the first mailbox with room, the cap and the rolling window, refusals pausing a mailbox for an hour, every mailbox full, EMAIL_POOL unset and the clean-up of old counts; role: admin.",
+  "caseIds": [
+   "TC-NTF-021",
+   "TC-NTF-022",
+   "TC-NTF-023",
+   "TC-NTF-024",
+   "TC-NTF-025",
+   "TC-NTF-026",
+   "TC-NTF-027",
+   "TC-NTF-028"
+  ]
+ },
+ {
+  "id": "TS-DOC-01",
+  "module": "Shop documents & licences",
+  "title": "Verify an admin can approve a shop missing its FSSAI licence or a must-have document only with a reason, and the owner gets 30 days",
+  "description": "The approval card names what is missing; a plain Approve is refused; Approve without documents is admin only, needs a reason and sets the due date (admin, operator).",
+  "caseIds": [
+   "TC-DOC-001",
+   "TC-DOC-002",
+   "TC-DOC-003",
+   "TC-DOC-004",
+   "TC-DOC-005",
+   "TC-DOC-006",
+   "TC-DOC-007"
+  ]
+ },
+ {
+  "id": "TS-DOC-02",
+  "module": "Shop documents & licences",
+  "title": "Verify GoKesari staff upload a document the owner sent, and owners' uploads are checked for size early",
+  "description": "Upload documents for the owner (admins and full operators only), links from the approval card and the missing-documents list, 5 MB licence limit at upload (admin, operator, shop owner).",
+  "caseIds": [
+   "TC-DOC-008",
+   "TC-DOC-009",
+   "TC-DOC-010",
+   "TC-DOC-011",
+   "TC-DOC-012",
+   "TC-DOC-013"
+  ]
+ },
+ {
+  "id": "TS-DOC-03",
+  "module": "Shop documents & licences",
+  "title": "Verify FSSAI licences are checked online with Cashfree and fall back to manual review safely",
+  "description": "Sandbox numbers on staging, name and PIN checks, invalid numbers, missing keys, the weekly re-check and the sandbox / production guard (shop owner, admin).",
+  "caseIds": [
+   "TC-DOC-014",
+   "TC-DOC-015",
+   "TC-DOC-016",
+   "TC-DOC-017",
+   "TC-DOC-018",
+   "TC-DOC-019"
+  ]
+ },
+ {
+  "id": "TS-DOC-04",
+  "module": "Shop documents & licences",
+  "title": "Verify the signup documents screen: FSSAI must-have for food shops, the rest uploaded or promised",
+  "description": "“Upload your documents” after “Create my shop and pay”; FSSAI_REQUIRED, DOCUMENTS_PROMISE_NEEDED and the fee checkout; the promise and its 90 days (shop owner).",
+  "caseIds": [
+   "TC-DOC-020",
+   "TC-DOC-021",
+   "TC-DOC-022",
+   "TC-DOC-023",
+   "TC-DOC-024",
+   "TC-DOC-025",
+   "TC-DOC-026",
+   "TC-DOC-027",
+   "TC-DOC-028",
+   "TC-DOC-029"
+  ]
+ },
+ {
+  "id": "TS-DOC-05",
+  "module": "Shop documents & licences",
+  "title": "Verify missing documents are reminded on the 1st and 15th and the shop is suspended after its date",
+  "description": "Waiver, promise and rule dates; reminders and suspension wording; optional documents never chased; Shops missing documents list (shop owner, admin, operator, customer).",
+  "caseIds": [
+   "TC-DOC-030",
+   "TC-DOC-031",
+   "TC-DOC-032",
+   "TC-DOC-033",
+   "TC-DOC-034",
+   "TC-DOC-035"
+  ]
+ },
+ {
+  "id": "TS-DOC-06",
+  "module": "Shop documents & licences",
+  "title": "Verify an admin sets each document's level per scope, and only an admin can",
+  "description": "Admin → Shops → Document rules: seeded rules, levels, scopes and precedence, days for shops already live, removal, audit, access by role, phone layout.",
+  "caseIds": [
+   "TC-DOC-036",
+   "TC-DOC-037",
+   "TC-DOC-038",
+   "TC-DOC-039",
+   "TC-DOC-040",
+   "TC-DOC-041",
+   "TC-DOC-042",
+   "TC-DOC-043",
+   "TC-DOC-044",
+   "TC-DOC-045"
+  ]
+ },
+ {
+  "id": "TS-DOC-07",
+  "module": "Shop documents & licences",
+  "title": "Verify an admin can add a document the law requires and the rules apply on every screen",
+  "description": "Added documents with their own form, switch off / on, must-have and promise on the signup screen and checkout, shop-type notices and the upload checklist (admin, shop owner).",
+  "caseIds": [
+   "TC-DOC-046",
+   "TC-DOC-047",
+   "TC-DOC-048",
+   "TC-DOC-049",
+   "TC-DOC-050",
+   "TC-DOC-051",
+   "TC-DOC-052"
+  ]
+ },
+ {
+  "id": "TS-DOC-08",
+  "module": "Shop documents & licences",
+  "title": "Verify every Health doctor category needs a medical registration, with rule legalDocuments off too",
+  "description": "Doctors scope (not Therapy or Diagnostics): Legal documents card, reminders and suspension after the rule's date, shop-type rules win, admin may change it (admin, shop owner).",
+  "caseIds": [
+   "TC-DOC-053",
+   "TC-DOC-054",
+   "TC-DOC-055",
+   "TC-DOC-056",
+   "TC-DOC-057",
+   "TC-DOC-058"
+  ]
+ },
+ {
+  "id": "TS-HLT-08",
+  "module": "GoKesari Health",
+  "title": "Health groups and grouped doctor search",
+  "description": "Migration 0161 groups every medical practitioner; registration picker; Find a doctor by group, specialty, plain words and symptom chips; therapists, labs and vets never in doctor search.",
+  "caseIds": [
+   "TC-HLT-033",
+   "TC-HLT-034",
+   "TC-HLT-035",
+   "TC-HLT-036",
+   "TC-HLT-037",
+   "TC-HLT-038",
+   "TC-HLT-039",
+   "TC-HLT-040"
+  ]
+ },
+ {
+  "id": "TS-HLT-09",
+  "module": "GoKesari Health",
+  "title": "Health admin Specialties tab",
+  "description": "Every practitioner by group for admins and operators, read-only, linked from Shop categories; refused to everyone else.",
+  "caseIds": [
+   "TC-HLT-041",
+   "TC-HLT-042",
+   "TC-HLT-043",
+   "TC-HLT-044",
+   "TC-HLT-045"
+  ]
+ },
+ {
+  "id": "TS-FRN-01",
+  "module": "Franchise & territory zones",
+  "title": "Browse the franchise offer and zones as a guest",
+  "description": "The public franchise page, zone list, zone pages, map and public APIs show 99 zones with the launch fee and regular rates, city-prefixed names, on desktop and phone; signed-in pages and write APIs refuse a guest.",
+  "caseIds": [
+   "TC-FRN-001",
+   "TC-FRN-002",
+   "TC-FRN-003",
+   "TC-FRN-004",
+   "TC-FRN-005",
+   "TC-FRN-006",
+   "TC-FRN-007",
+   "TC-FRN-008",
+   "TC-FRN-009"
+  ]
+ },
+ {
+  "id": "TS-FRN-02",
+  "module": "Franchise & territory zones",
+  "title": "Choose a free dealership or a paid franchise",
+  "description": "After selecting zones the visitor picks the free route (working zone saved on the dealer application) or the paid route (straight to payment, through sign-in); accounts that cannot buy are stopped.",
+  "caseIds": [
+   "TC-FRN-010",
+   "TC-FRN-011",
+   "TC-FRN-012",
+   "TC-FRN-013",
+   "TC-FRN-014",
+   "TC-FRN-015"
+  ]
+ },
+ {
+  "id": "TS-FRN-03",
+  "module": "Franchise & territory zones",
+  "title": "Reserve and pay for franchise zones",
+  "description": "Server-priced cart with GST, rules, 15-minute all-or-nothing hold, capacity and launch limits, activation only on the gateway webhook, failure release and receipts.",
+  "caseIds": [
+   "TC-FRN-016",
+   "TC-FRN-017",
+   "TC-FRN-018",
+   "TC-FRN-019",
+   "TC-FRN-020",
+   "TC-FRN-021",
+   "TC-FRN-022",
+   "TC-FRN-023",
+   "TC-FRN-024",
+   "TC-FRN-025",
+   "TC-FRN-026"
+  ]
+ },
+ {
+  "id": "TS-FRN-04",
+  "module": "Franchise & territory zones",
+  "title": "Pay first, finish KYC within 30 days, go live",
+  "description": "A buyer without a dealer account pays with name, mobile and PAN; the zone is booked but not live until KYC and bank are approved; reminders, overdue notice and refund.",
+  "caseIds": [
+   "TC-FRN-027",
+   "TC-FRN-028",
+   "TC-FRN-029",
+   "TC-FRN-030",
+   "TC-FRN-031",
+   "TC-FRN-032"
+  ]
+ },
+ {
+  "id": "TS-FRN-05",
+  "module": "Franchise & territory zones",
+  "title": "Coupons on franchise fees",
+  "description": "Admin coupons (percent, cap, flat, scope, limits) are checked at the cart and at payment, discount before GST, held / used / released.",
+  "caseIds": [
+   "TC-FRN-033",
+   "TC-FRN-034",
+   "TC-FRN-035",
+   "TC-FRN-036",
+   "TC-FRN-037",
+   "TC-FRN-038",
+   "TC-FRN-039"
+  ]
+ },
+ {
+  "id": "TS-FRN-06",
+  "module": "Franchise & territory zones",
+  "title": "Owner's franchise page, renewal and expiry",
+  "description": "The owner sees only his zones, codes, shops, money and receipts; renews from 30 days before expiry at the zone's current fee; an expired franchise closes its code and keeps a 2-year tail.",
+  "caseIds": [
+   "TC-FRN-040",
+   "TC-FRN-041",
+   "TC-FRN-042",
+   "TC-FRN-043"
+  ]
+ },
+ {
+  "id": "TS-FRN-07",
+  "module": "Franchise & territory zones",
+  "title": "Admin franchise console",
+  "description": "Access by role, the booking switch, zone status (bulk, reserved, scheduled), maximum franchises, business import and fee publishing, commission settings with parity, and franchise actions incl. refunds.",
+  "caseIds": [
+   "TC-FRN-044",
+   "TC-FRN-045",
+   "TC-FRN-046",
+   "TC-FRN-047",
+   "TC-FRN-048",
+   "TC-FRN-049",
+   "TC-FRN-050",
+   "TC-FRN-051",
+   "TC-FRN-052",
+   "TC-FRN-053",
+   "TC-FRN-054",
+   "TC-FRN-055"
+  ]
+ },
+ {
+  "id": "TS-FRN-08",
+  "module": "Franchise & territory zones",
+  "title": "Franchise commission: one-time and recurring",
+  "description": "Model A / Model B one-time amounts on the ₹999 slab, the public chart, recurring 20% of GoKesari's 2% with the 50/50 split and bonus, and month-end calculation, statements and lock.",
+  "caseIds": [
+   "TC-FRN-056",
+   "TC-FRN-057",
+   "TC-FRN-058",
+   "TC-FRN-059",
+   "TC-FRN-060",
+   "TC-FRN-061"
+  ]
+ },
+ {
+  "id": "TS-FRN-09",
+  "module": "Franchise & territory zones",
+  "title": "Shop area, franchise codes at registration and territory retirement",
+  "description": "The shop's area decides its zone; staff correct it; a closed franchise code is refused; the old territory rule and page are retired into Admin → Franchise.",
+  "caseIds": [
+   "TC-FRN-062",
+   "TC-FRN-063",
+   "TC-FRN-064",
+   "TC-FRN-065",
+   "TC-FRN-066"
+  ]
+ },
+ {
+  "id": "TS-FRN-10",
+  "module": "Franchise & territory zones",
+  "title": "Dealer application for franchise buyers with online document checks",
+  "description": "A paid buyer's zone is his working area; PAN / GSTIN / bank are verified online instead of uploaded, with name match, limits and guards.",
+  "caseIds": [
+   "TC-FRN-067",
+   "TC-FRN-068",
+   "TC-FRN-069",
+   "TC-FRN-070"
+  ]
+ },
+ {
+  "id": "TS-REFM-01",
+  "module": "Referral code moves",
+  "title": "Verify the Referral moves screen, who may open it and the old transfer route",
+  "description": "REFM-01 / REFM-05: screen and shop search for an admin, guest / customer / operator refused, flag off, phone layout, the one-admin transfer API now refuses.",
+  "caseIds": [
+   "TC-REFM-001",
+   "TC-REFM-002",
+   "TC-REFM-003",
+   "TC-REFM-004",
+   "TC-REFM-005",
+   "TC-REFM-006"
+  ]
+ },
+ {
+  "id": "TS-REFM-02",
+  "module": "Referral code moves",
+  "title": "Verify an admin raises a shop or team-member move request with its checks",
+  "description": "REFM-02 / REFM-03: add a code to a shop with none, move shops to a dealer's own or a member's code, move a person under a team lead; reason, limits, duplicates and target checks.",
+  "caseIds": [
+   "TC-REFM-007",
+   "TC-REFM-008",
+   "TC-REFM-009",
+   "TC-REFM-010",
+   "TC-REFM-011",
+   "TC-REFM-012"
+  ]
+ },
+ {
+  "id": "TS-REFM-03",
+  "module": "Referral code moves",
+  "title": "Verify consent letters and the second admin's decision",
+  "description": "REFM-04 / REFM-05: required letters per kind, file checks, encrypted storage, requester cannot decide, approval needs every letter, reject, cancel, audit.",
+  "caseIds": [
+   "TC-REFM-013",
+   "TC-REFM-014",
+   "TC-REFM-015",
+   "TC-REFM-016",
+   "TC-REFM-017",
+   "TC-REFM-018"
+  ]
+ },
+ {
+  "id": "TS-REFM-04",
+  "module": "Referral code moves",
+  "title": "Verify what an approved move changes: code, attribution and money",
+  "description": "REFM-03 / REFM-06: shop code and attribution, member keeps his code, earned commission stays, unearned parts follow the new team, franchise recurring splits at the move.",
+  "caseIds": [
+   "TC-REFM-019",
+   "TC-REFM-020",
+   "TC-REFM-021",
+   "TC-REFM-022",
+   "TC-REFM-023",
+   "TC-REFM-024",
+   "TC-REFM-025"
+  ]
+ },
+ {
+  "id": "TS-DPLT-01",
+  "module": "Dealership platform",
+  "title": "Verify the schemes and every dealer's scheme after migrations 0177–0181",
+  "description": "DPLT-01: four seed schemes and their terms, migration of existing dealers, immutable terms and history, new dealers on Free, franchise payment and refund.",
+  "caseIds": [
+   "TC-DPLT-001",
+   "TC-DPLT-002",
+   "TC-DPLT-003",
+   "TC-DPLT-004",
+   "TC-DPLT-005",
+   "TC-DPLT-006"
+  ]
+ },
+ {
+  "id": "TS-DPLT-02",
+  "module": "Dealership platform",
+  "title": "Verify an applicant chooses a scheme, answers its questions and accepts its terms",
+  "description": "DPLT-02 / DPLT-08: scheme chooser, Free submit, approval onto the accepted version, choice rules, changed terms, custom questions and eligibility, phone layout.",
+  "caseIds": [
+   "TC-DPLT-007",
+   "TC-DPLT-008",
+   "TC-DPLT-009",
+   "TC-DPLT-010",
+   "TC-DPLT-011",
+   "TC-DPLT-012",
+   "TC-DPLT-040",
+   "TC-DPLT-041"
+  ]
+ },
+ {
+  "id": "TS-DPLT-03",
+  "module": "Dealership platform",
+  "title": "Verify the joining charge: online payment, submit, approval and refund on rejection",
+  "description": "DPLT-03: Business / Growth Partner payment in the sandbox, paid only on the webhook, payment rules, refund through the gateway when rejected.",
+  "caseIds": [
+   "TC-DPLT-013",
+   "TC-DPLT-014",
+   "TC-DPLT-015",
+   "TC-DPLT-016",
+   "TC-DPLT-017",
+   "TC-DPLT-018"
+  ]
+ },
+ {
+  "id": "TS-DPLT-04",
+  "module": "Dealership platform",
+  "title": "Verify commission by scheme: one-time at activation and monthly at the month close",
+  "description": "DPLT-04 / DPLT-05: amounts per scheme and fee slab, Growth Partner team levels, legacy paths unchanged, holds, reversals, refunds, duration, validity, budget.",
+  "caseIds": [
+   "TC-DPLT-019",
+   "TC-DPLT-020",
+   "TC-DPLT-021",
+   "TC-DPLT-022",
+   "TC-DPLT-023",
+   "TC-DPLT-024",
+   "TC-DPLT-025",
+   "TC-DPLT-026",
+   "TC-DPLT-027"
+  ]
+ },
+ {
+  "id": "TS-DPLT-05",
+  "module": "Dealership platform",
+  "title": "Verify the scheme builder, formulas and the simulator",
+  "description": "DPLT-06 / DPLT-07: create, clone, edit, validate, publish, new version, schedule, status moves, compare, formulas, simulator, phone layout.",
+  "caseIds": [
+   "TC-DPLT-028",
+   "TC-DPLT-029",
+   "TC-DPLT-030",
+   "TC-DPLT-031",
+   "TC-DPLT-032",
+   "TC-DPLT-033",
+   "TC-DPLT-034",
+   "TC-DPLT-035",
+   "TC-DPLT-036",
+   "TC-DPLT-037",
+   "TC-DPLT-038",
+   "TC-DPLT-039",
+   "TC-DPLT-043"
+  ]
+ },
+ {
+  "id": "TS-DPLT-06",
+  "module": "Dealership platform",
+  "title": "Verify the dealer's scheme card, scheme change and dealer logo",
+  "description": "DPLT-09: Your scheme line and card, upgrade with payment, downgrade at once, change rules, staff move to an accepted version, dealer logo with its flag, phone layout.",
+  "caseIds": [
+   "TC-DPLT-044",
+   "TC-DPLT-045",
+   "TC-DPLT-046",
+   "TC-DPLT-047",
+   "TC-DPLT-048",
+   "TC-DPLT-049"
+  ]
+ },
+ {
+  "id": "TS-DPLT-07",
+  "module": "Dealership platform",
+  "title": "Verify the dealer platform staff roles, regions and the second approver",
+  "description": "DPLT-10 / DPLT-11: grant the roles, what each may do through the website, what stays admin-only, Regional Admin scope, dealer_platform_four_eye off and on.",
+  "caseIds": [
+   "TC-DPLT-050",
+   "TC-DPLT-051",
+   "TC-DPLT-052",
+   "TC-DPLT-053",
+   "TC-DPLT-054",
+   "TC-DPLT-055"
+  ]
+ },
+ {
+  "id": "TS-DPLT-08",
+  "module": "Dealership platform",
+  "title": "Verify the dealer platform dashboard, CSV and the admin dealer page's scheme card",
+  "description": "DPLT-12: tiles, filters, money figures, CSV with the formula guard, access, the Scheme card with answers and history.",
+  "caseIds": [
+   "TC-DPLT-042",
+   "TC-DPLT-056",
+   "TC-DPLT-057",
+   "TC-DPLT-058",
+   "TC-DPLT-059",
+   "TC-DPLT-060"
+  ]
+ },
+ {
+  "id": "TS-SMART-01",
+  "module": "Smart shopping",
+  "title": "Scan a written shopping list and review the wishlist",
+  "description": "Guest and flag checks, the Scan tile, multi-page capture, AI read in Indian languages, unreadable photos and bills, the editable wishlist, saved wishlists and their privacy.",
+  "caseIds": [
+   "TC-SMART-001",
+   "TC-SMART-002",
+   "TC-SMART-003",
+   "TC-SMART-004",
+   "TC-SMART-005",
+   "TC-SMART-006",
+   "TC-SMART-007",
+   "TC-SMART-009",
+   "TC-SMART-010",
+   "TC-SMART-011",
+   "TC-SMART-012"
+  ]
+ },
+ {
+  "id": "TS-SMART-02",
+  "module": "Smart shopping",
+  "title": "Compare shops for a wishlist and order from one",
+  "description": "Shops within the radius, pack conversion, stock and price on confirmation, delivery options and sorting; the chosen shop's items go into the normal cart, changes are reported, and not-ordered items are ordered elsewhere.",
+  "caseIds": [
+   "TC-SMART-013",
+   "TC-SMART-014",
+   "TC-SMART-015",
+   "TC-SMART-016",
+   "TC-SMART-017",
+   "TC-SMART-018",
+   "TC-SMART-019",
+   "TC-SMART-020",
+   "TC-SMART-021",
+   "TC-SMART-022"
+  ]
+ },
+ {
+  "id": "TS-SMART-03",
+  "module": "Smart shopping",
+  "title": "List photo privacy, AI limits and the admin dashboard",
+  "description": "Private list photos deleted after the retention days, the per-person AI daily limit and the Smart shopping dashboard.",
+  "caseIds": [
+   "TC-SMART-008",
+   "TC-SMART-023",
+   "TC-SMART-024",
+   "TC-SMART-025"
+  ]
+ },
+ {
+  "id": "TS-SMART-04",
+  "module": "Smart shopping",
+  "title": "Shop owner adds a product by photo and voice",
+  "description": "AI reads 1–4 photos, the catalogue is checked first, price and stock by voice or typing with read-back, the MRP guard, publish, bulk mode and the admin report.",
+  "caseIds": [
+   "TC-SMART-026",
+   "TC-SMART-027",
+   "TC-SMART-028",
+   "TC-SMART-029",
+   "TC-SMART-030",
+   "TC-SMART-031",
+   "TC-SMART-032",
+   "TC-SMART-033"
+  ]
+ },
+ {
+  "id": "TS-SMART-05",
+  "module": "Smart shopping",
+  "title": "Shop owner sets up WhatsApp order alerts",
+  "description": "Owner-only settings, owner and staff numbers with consent, the staff limit and the number check status.",
+  "caseIds": [
+   "TC-SMART-034",
+   "TC-SMART-035",
+   "TC-SMART-036"
+  ]
+ },
+ {
+  "id": "TS-SMART-06",
+  "module": "Smart shopping",
+  "title": "New orders on WhatsApp: Accept / Reject, first action wins",
+  "description": "The order alert, Accept and Reject doing exactly what the app does, the first tap winning over the app and other numbers, follow-ups, fallback, the signed webhook and the admin log.",
+  "caseIds": [
+   "TC-SMART-037",
+   "TC-SMART-038",
+   "TC-SMART-039",
+   "TC-SMART-040"
+  ]
+ },
+ {
+  "id": "TS-VPA-01",
+  "module": "Voice price & offer assistant",
+  "title": "Access to the voice price page and APIs",
+  "description": "Flag off, guest, customer, other owners, staff and admins are refused; the shop owner gets the page in their language, on a phone too.",
+  "caseIds": [
+   "TC-VPA-001",
+   "TC-VPA-002",
+   "TC-VPA-003",
+   "TC-VPA-004"
+  ]
+ },
+ {
+  "id": "TS-VPA-02",
+  "module": "Voice price & offer assistant",
+  "title": "Understanding the command and finding the product",
+  "description": "Marathi, Hindi, English and Hinglish commands, the read-back, AI fallback, and matching only the shop's own listings by name, local name, spelling or barcode.",
+  "caseIds": [
+   "TC-VPA-005",
+   "TC-VPA-006",
+   "TC-VPA-007",
+   "TC-VPA-008",
+   "TC-VPA-009",
+   "TC-VPA-010",
+   "TC-VPA-011",
+   "TC-VPA-012",
+   "TC-VPA-013",
+   "TC-VPA-014"
+  ]
+ },
+ {
+  "id": "TS-VPA-03",
+  "module": "Voice price & offer assistant",
+  "title": "Publishing a price or an offer after “yes”",
+  "description": "Price through the normal price path with history, offers through shop offers, the published message and the stale-price refusal.",
+  "caseIds": [
+   "TC-VPA-015",
+   "TC-VPA-016",
+   "TC-VPA-017",
+   "TC-VPA-018",
+   "TC-VPA-019",
+   "TC-VPA-020"
+  ]
+ },
+ {
+  "id": "TS-VPA-04",
+  "module": "Voice price & offer assistant",
+  "title": "Safety checks before publishing",
+  "description": "Above-MRP refusal, big drop and big rise warnings, offer limits, offers on unpriced products and buy-X-get-Y.",
+  "caseIds": [
+   "TC-VPA-021",
+   "TC-VPA-022",
+   "TC-VPA-023",
+   "TC-VPA-024",
+   "TC-VPA-025"
+  ]
+ },
+ {
+  "id": "TS-LOGO-01",
+  "module": "Shop logo",
+  "title": "Shop owner uploads and removes the shop logo",
+  "description": "The card on the hours page only while the flag is on; upload, change and remove; where customers see the logo.",
+  "caseIds": [
+   "TC-LOGO-001",
+   "TC-LOGO-002",
+   "TC-LOGO-003"
+  ]
+ },
+ {
+  "id": "TS-LOGO-02",
+  "module": "Shop logo",
+  "title": "Logo upload access, file checks and layout",
+  "description": "Guest, customers, other owners and staff refused, operators allowed; file type, size and pixel checks; rate limit, audit, phone layout, district flag and reuse of the card.",
+  "caseIds": [
+   "TC-LOGO-004",
+   "TC-LOGO-005",
+   "TC-LOGO-006",
+   "TC-LOGO-007",
+   "TC-LOGO-008",
+   "TC-LOGO-009",
+   "TC-LOGO-010",
+   "TC-LOGO-011",
+   "TC-LOGO-012"
+  ]
+ },
+ {
+  "id": "TS-SOC-07",
+  "module": "Society module",
+  "title": "Verify an approved rider asks to join a verified society's rider list and can withdraw",
+  "description": "Checks the rider page and dashboard link behind the flag, search of verified societies, the request with a note, repeat requests, refusals for unapproved riders, unverified societies, listed or blocked riders, and withdrawal.",
+  "caseIds": [
+   "TC-SOC-018",
+   "TC-SOC-019",
+   "TC-SOC-020",
+   "TC-SOC-021",
+   "TC-SOC-022",
+   "TC-SOC-029"
+  ]
+ },
+ {
+  "id": "TS-SOC-08",
+  "module": "Society module",
+  "title": "Verify the society admin approves or declines rider join requests and only the right people decide",
+  "description": "Checks the requests section without phone numbers, approval listing the rider exactly as adding by mobile, decline, refusals for society operators, residents and other societies, approval that can no longer list the rider, dispatch to the approved rider and the district flag.",
+  "caseIds": [
+   "TC-SOC-023",
+   "TC-SOC-024",
+   "TC-SOC-025",
+   "TC-SOC-026",
+   "TC-SOC-027",
+   "TC-SOC-028",
+   "TC-SOC-030"
+  ]
+ },
+ {
+  "id": "TS-STAFF-01",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Give the new staff roles and check what each role can open on /staff",
+  "description": "An admin assigns the five new roles; each staff role sees only its own tiles and desks, existing roles lose nothing, and non-staff are sent away (admin, all staff roles, guest, customer, shop owner).",
+  "caseIds": [
+   "TC-STAFF-001",
+   "TC-STAFF-002",
+   "TC-STAFF-003",
+   "TC-STAFF-004",
+   "TC-STAFF-005",
+   "TC-STAFF-006",
+   "TC-STAFF-007",
+   "TC-STAFF-008",
+   "TC-STAFF-009",
+   "TC-STAFF-010",
+   "TC-STAFF-011",
+   "TC-STAFF-012"
+  ]
+ },
+ {
+  "id": "TS-STAFF-02",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Area flags, role scope and the refused-permission log",
+  "description": "Each back-office area is hidden and refused while its rbac_v2_* flag is off (or not on for the role); every refused check leaves an authz.denied audit row.",
+  "caseIds": [
+   "TC-STAFF-013",
+   "TC-STAFF-014",
+   "TC-STAFF-015",
+   "TC-STAFF-016"
+  ]
+ },
+ {
+  "id": "TS-STAFF-03",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Approval engine and Admin → Approvals",
+  "description": "Who sees and decides approval requests, comments on rejection, cancelling, append-only history and failed applies (admin, CA, requester).",
+  "caseIds": [
+   "TC-STAFF-017",
+   "TC-STAFF-018",
+   "TC-STAFF-019",
+   "TC-STAFF-020",
+   "TC-STAFF-021"
+  ]
+ },
+ {
+  "id": "TS-STAFF-04",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Two-admin approval of admin and configuration changes",
+  "description": "With rbac_v2_four_eye_admin ON, role, privileges, role removal, reactivation, flag, rule, commission and registration-fee changes wait for a different admin; with it OFF they apply at once as before.",
+  "caseIds": [
+   "TC-STAFF-022",
+   "TC-STAFF-023",
+   "TC-STAFF-024",
+   "TC-STAFF-025",
+   "TC-STAFF-026",
+   "TC-STAFF-027",
+   "TC-STAFF-028"
+  ]
+ },
+ {
+  "id": "TS-STAFF-05",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Super Admin bootstrap and emergency suspension",
+  "description": "The Super Admin may approve alone only while fewer than two admins are active; an emergency suspension applies at once and is confirmed or lifted by a second admin within 24 hours.",
+  "caseIds": [
+   "TC-STAFF-029",
+   "TC-STAFF-030",
+   "TC-STAFF-031",
+   "TC-STAFF-032"
+  ]
+ },
+ {
+  "id": "TS-STAFF-06",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Journal entries, periods and trial balance (Accountant → CA)",
+  "description": "The Accountant prepares balanced entries, the CA (and an admin above ₹50,000) approves; posted entries are final and corrected by reversal; the CA closes and reopens months; the trial balance nets to zero.",
+  "caseIds": [
+   "TC-STAFF-033",
+   "TC-STAFF-034",
+   "TC-STAFF-035",
+   "TC-STAFF-036",
+   "TC-STAFF-037",
+   "TC-STAFF-038",
+   "TC-STAFF-039",
+   "TC-STAFF-040",
+   "TC-STAFF-041"
+  ]
+ },
+ {
+  "id": "TS-STAFF-07",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Rate-change proposals Accountant → CA → Admin",
+  "description": "Commission, registration-fee and delivery-charge changes are proposed, approved, activated or scheduled through the existing setters; rates are untouched before activation.",
+  "caseIds": [
+   "TC-STAFF-042",
+   "TC-STAFF-043",
+   "TC-STAFF-044",
+   "TC-STAFF-045"
+  ]
+ },
+ {
+  "id": "TS-STAFF-08",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Bank-statement reconciliation",
+  "description": "The Accountant checks and imports the bank's statement, lines are matched by UTR + amount or by hand / excluded, the CA signs it off, and a reconciled statement is final.",
+  "caseIds": [
+   "TC-STAFF-046",
+   "TC-STAFF-047",
+   "TC-STAFF-048",
+   "TC-STAFF-049",
+   "TC-STAFF-050",
+   "TC-STAFF-051",
+   "TC-STAFF-052",
+   "TC-STAFF-053"
+  ]
+ },
+ {
+  "id": "TS-STAFF-09",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Support desk, staff teams and assigned work",
+  "description": "Admin builds teams; the Support Manager runs the dashboard and queue; a Support User sees only tickets assigned to them; people holding a role as a grant can be team members and assignees.",
+  "caseIds": [
+   "TC-STAFF-054",
+   "TC-STAFF-055",
+   "TC-STAFF-056",
+   "TC-STAFF-057",
+   "TC-STAFF-058",
+   "TC-STAFF-059",
+   "TC-STAFF-060"
+  ]
+ },
+ {
+  "id": "TS-STAFF-10",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Shop-owner change requests and the bulk price list",
+  "description": "Support proposes shop, price and MRP changes; nothing applies until the shop owner approves item by item; superseded, reminder, expiry, bulk and master-data rules hold.",
+  "caseIds": [
+   "TC-STAFF-061",
+   "TC-STAFF-062",
+   "TC-STAFF-063",
+   "TC-STAFF-064",
+   "TC-STAFF-065",
+   "TC-STAFF-066",
+   "TC-STAFF-067",
+   "TC-STAFF-068",
+   "TC-STAFF-069"
+  ]
+ },
+ {
+  "id": "TS-STAFF-11",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Staff documents",
+  "description": "Documents per shop with versions, verification, 10-minute signed links and two-admin deletion; only people working on the shop and its owner see them.",
+  "caseIds": [
+   "TC-STAFF-070",
+   "TC-STAFF-071",
+   "TC-STAFF-072",
+   "TC-STAFF-073"
+  ]
+ },
+ {
+  "id": "TS-STAFF-12",
+  "module": "Staff roles & back office (RBAC v2)",
+  "title": "Operations tasks, zones, customers, reports and the handover to Support",
+  "description": "Operations Managers assign tasks and zones and read reports; Operations Users work their own tasks and customers and hand shop problems to Support, then confirm the result.",
+  "caseIds": [
+   "TC-STAFF-074",
+   "TC-STAFF-075",
+   "TC-STAFF-076",
+   "TC-STAFF-077",
+   "TC-STAFF-078",
+   "TC-STAFF-079",
+   "TC-STAFF-080"
+  ]
  }
 ]

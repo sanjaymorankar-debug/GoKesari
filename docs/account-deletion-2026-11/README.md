@@ -1,12 +1,12 @@
 # Module 7 — Self-service account deletion (23-Nov-2026)
 
-Owner brief 23-Nov-2026, Module 7. Branch `feat/m7-account-deletion`, migration **0183**,
+Owner brief 23-Nov-2026, Module 7. Branch `feat/m7-account-deletion`, migration **0188**,
 feature flag **`account_self_deletion_enabled` (seeded OFF)**.
 
-> **Changed 23-Nov-2026 (owner) — migration 0191: 90-day cooling-off.** Confirming no longer deletes at once.
+> **Changed 23-Nov-2026 (owner) — migration 0196: 90-day cooling-off.** Confirming no longer deletes at once.
 > The account is hidden for 3 months (admins see it "Under cooling period until <date>" with the reason), the
 > person can restore it by signing in, and the daily job anonymises it afterwards. See
-> [Cooling-off period (0191)](#cooling-off-period-0191) and [Retention as per law](#retention-as-per-law).
+> [Cooling-off period (0196)](#cooling-off-period-0196) and [Retention as per law](#retention-as-per-law).
 > Steps 3–4 under "How it works" below describe the anonymisation, which now runs at the end of the period.
 
 ## What existed before
@@ -26,7 +26,7 @@ Nothing let a normal customer delete their own account.
 
 | Requirement | Status |
 |---|---|
-| 1. Table `account_deletion_requests` | DEVELOPED (0183) |
+| 1. Table `account_deletion_requests` | DEVELOPED (0188) |
 | 2. Service `src/server/services/account-deletion.ts` (precheck, code, delete, admin list) | DEVELOPED |
 | 3. APIs `GET/POST /api/profile/delete`, `POST /api/profile/delete/code` | DEVELOPED |
 | 4. UI: My Profile section + `/profile/delete` page | DEVELOPED |
@@ -97,7 +97,7 @@ a name, email or phone.
   wallet, addresses) is linked to it. The phone number is released too (set to null).
 - A session issued before the deletion stops working on its next request (`readSession`).
 
-## Cooling-off period (0191)
+## Cooling-off period (0196)
 
 Owner, 23-Nov-2026: *"There should be 3 months of cooling-off period where the account will be hidden to all but
 will be visible to admin with a comment 'under cooling period' for the specific reason."*
@@ -121,7 +121,7 @@ DEACTIVATED (its previous status kept in the request's `hidden_state`); the requ
 rider set offline; email "Your GoKesari account will be deleted on <date>" with how to restore.
 
 Why a new status and not SUSPENDED: an admin suspension (`services/users.ts`) and its **reinstate** use SUSPENDED;
-a reinstate would silently undo the person's own deletion request. `PENDING_DELETION` is additive (0191).
+a reinstate would silently undo the person's own deletion request. `PENDING_DELETION` is additive (0196).
 
 **Hidden** means:
 - signed out on every device (`auth-sessions.ts readSession` drops PENDING_DELETION like DELETED); `getCurrentUser`,
@@ -193,7 +193,7 @@ records when their period ends. The rule only records the periods today.
 
 ## Files
 
-- `drizzle/0183_account_self_deletion.sql`, `drizzle/meta/_journal.json`, `scripts/rollback-0183.sql`
+- `drizzle/0188_account_self_deletion.sql`, `drizzle/meta/_journal.json`, `scripts/rollback-0188.sql`
 - `src/server/db/schema.ts` — `accountDeletionRequests`, `ACCOUNT_DELETION_STATUSES`, flag key, OTP purpose
 - `src/server/services/account-deletion.ts` (new)
 - `src/server/services/feature-flags.ts`, `src/components/feature-flags-panel.tsx` — flag label / hint / type
@@ -205,7 +205,7 @@ records when their period ends. The rule only records the periods today.
   `src/components/account-deletion-flow.tsx` (new)
 - `src/app/admin/consents/page.tsx` (link, flag-gated), `src/app/admin/consents/account-deletions/page.tsx` (new)
 - `tests/unit/account-deletion.test.ts`, `tests/integration/account-deletion.test.ts` (new)
-- 0191 cooling-off: `drizzle/0191_account_deletion_cooling_off.sql`, `scripts/rollback-0191.sql`, journal entry;
+- 0196 cooling-off: `drizzle/0196_account_deletion_cooling_off.sql`, `scripts/rollback-0196.sql`, journal entry;
   `schema.ts` (enum value, request columns); `config/rules.ts` (`accountDeletion`); `services/account-deletion.ts`
   (cooling-off, restore, admin cancel, purge job, restore ticket); `services/audit.ts` (3 actions);
   `cron/schedule.ts` (daily job); `otp/service.ts` (code for a hidden account, `allowPendingDeletion`);
@@ -214,19 +214,19 @@ records when their period ends. The rule only records the periods today.
   `app/admin/consents/account-deletions/page.tsx`; `services/societies.ts` (hidden accounts skipped);
   `services/feature-flags.ts` (hint)
 
-## Migration 0191
+## Migration 0196
 
 Additive and safe to re-run: `user_status` gains `PENDING_DELETION`; `account_deletion_requests` gains
 `reason_code`, `cooling_started_at`, `purge_after`, `hidden_state` (jsonb), `cancelled_at`, `cancelled_by`,
 `cancel_note`, the status CHECK is widened with `COOLING_OFF`, index `(status, purge_after)`. No flag row (the
-module's flag is from 0183). Rollback: `scripts/rollback-0191.sql` — hidden accounts back to ACTIVE, their requests
+module's flag is from 0188). Rollback: `scripts/rollback-0196.sql` — hidden accounts back to ACTIVE, their requests
 CANCELLED, columns dropped; the enum value stays (PostgreSQL cannot drop one).
 
-## Migration 0183
+## Migration 0188
 
 Additive and safe to re-run: new table `account_deletion_requests` (no FK to users, so it survives as the record
 of honoured requests), two indexes, a status CHECK, and the flag row OFF. `login_otps.purpose` is plain text,
-so the new value needs no DB change. Rollback: `scripts/rollback-0183.sql` (accounts already deleted stay
+so the new value needs no DB change. Rollback: `scripts/rollback-0188.sql` (accounts already deleted stay
 anonymised — that cannot be undone).
 
 ## Flag
@@ -239,7 +239,7 @@ CONSENT_VIEW) so past requests stay visible if the flag is turned off again.
 
 - `GET /api/profile/delete` → `{ precheck: { canDelete, blockers[], subscriptionsToCancel, promotionalForfeitPaise, maskedEmail }, latestRequest }`
 - `POST /api/profile/delete/code` → `{ maskedEmail, resendAfterSeconds, expiryMinutes, requestId }`; 409 with `details.blockers` when blocked
-- `POST /api/profile/delete` `{ code, confirmText: "DELETE", reasonCode, reason? }` → `{ scheduled: true, requestId, purgeAfter, subscriptionsCancelled }` (0191; was `{ deleted: true, … }`); 422 wrong word / code / missing reason; 409 with blockers
+- `POST /api/profile/delete` `{ code, confirmText: "DELETE", reasonCode, reason? }` → `{ scheduled: true, requestId, purgeAfter, subscriptionsCancelled }` (0196; was `{ deleted: true, … }`); 422 wrong word / code / missing reason; 409 with blockers
 - `/account/restore` (page with two server actions; needs the restore cookie from `/signin`)
 
 All require a signed-in ACTIVE user (`requireUser`); a user can only act on their own account.
@@ -248,10 +248,10 @@ All require a signed-in ACTIVE user (`requireUser`); a user can only act on thei
 
 - `tests/unit/account-deletion.test.ts` — 15 tests: every blocker, promotional credit, roles, placeholder email,
   subscriptions, anonymisation patch, flag OFF (service + all three APIs 404), typed word, sign-in required. Pass.
-- 0191 unit additions: required reason, 90-day end date, restore ticket (signature, expiry, other account),
+- 0196 unit additions: required reason, 90-day end date, restore ticket (signature, expiry, other account),
   admin-only cancel with note — `tests/unit/account-deletion.test.ts` now 20 tests. Pass.
 - `tests/integration/account-deletion.test.ts` — real PostgreSQL (run locally 24-Nov-2026 on a fresh database
-  migrated to 0191): cooling-off (hidden, reason, sessions, push tokens, email, admin list with/without personal
+  migrated to 0196): cooling-off (hidden, reason, sessions, push tokens, email, admin list with/without personal
   data), a hidden account cannot act (session, second request, sign-in refused except the restore path), restore
   at sign-in (rider switched back, CANCELLED, audit, email), admin cancel (operator refused), daily purge with a
   fake clock (nothing at day 89; anonymised + COMPLETED + email + fresh sign-up after day 90), blocker at purge
@@ -267,7 +267,7 @@ All require a signed-in ACTIVE user (`requireUser`); a user can only act on thei
   is anonymised and the rider profile deactivated. Owner to confirm the retention period.
 - No scheduled purge of retained records after their legal period — a later job, needs owner / legal sign-off
   (periods are recorded in rule `accountDeletion.retentionYears`).
-- ~~No "undo" window~~ — done in 0191 (90-day cooling-off, restore at sign-in, admin cancel).
+- ~~No "undo" window~~ — done in 0196 (90-day cooling-off, restore at sign-in, admin cancel).
 - Purge-time ops alert goes by email to `SUPER_ADMIN_EMAIL` (no notification-catalog entry was added).
 - Mobile app: the restore screen is a web page; the app's in-app code sign-in path was not changed (a hidden
   account is refused there with "scheduled for deletion … sign in on the main Sign in page").

@@ -118,22 +118,28 @@ export async function importDrugsCsv(csv: string, actor: HealthActor): Promise<{
   if (lines.length < 2) throw validationFailed("The file needs a header row and at least one medicine.");
   const header = csvCells(lines[0]).map((h) => h.toLowerCase().replace(/\s+/g, "_"));
   const col = (row: string[], name: string) => row[header.indexOf(name)] ?? "";
-  if (!header.includes("generic_name")) throw validationFailed("The header must include generic_name.");
+  for (const need of ["generic_name", "schedule", "tele_list"]) if (!header.includes(need)) throw validationFailed(`The header must include ${need}.`);
+  const hasReview = header.includes("reviewed_by");
   let added = 0;
   let updated = 0;
   const errors: string[] = [];
   for (let i = 1; i < lines.length && i <= 20_000; i++) {
     const row = csvCells(lines[i]);
+    // Schedule and teleconsultation list are never guessed: an empty cell rejects the row.
+    if (!col(row, "schedule") || !col(row, "tele_list")) {
+      if (errors.length < 20) errors.push(`Line ${i + 1}: schedule and tele_list are required.`);
+      continue;
+    }
     const parsed = drugInput.safeParse({
       genericName: col(row, "generic_name"),
       brandName: col(row, "brand_name") || null,
       strength: col(row, "strength") || null,
       form: (col(row, "form") || "TABLET").toUpperCase(),
       manufacturer: col(row, "manufacturer") || null,
-      schedule: (col(row, "schedule") || "H").toUpperCase(),
+      schedule: col(row, "schedule").toUpperCase(),
       rxRequired: header.includes("rx_required") ? yes(col(row, "rx_required")) : true,
-      teleList: (col(row, "tele_list") || "A").toUpperCase(),
-      onlineSaleAllowed: header.includes("online_sale_allowed") ? yes(col(row, "online_sale_allowed")) : true,
+      teleList: col(row, "tele_list").toUpperCase(),
+      onlineSaleAllowed: header.includes("online_sale_allowed") ? yes(col(row, "online_sale_allowed")) : false,
     });
     if (!parsed.success) {
       if (errors.length < 20) errors.push(`Line ${i + 1}: ${parsed.error.issues[0]?.path.join(".")} ${parsed.error.issues[0]?.message}`);
@@ -151,7 +157,10 @@ export async function importDrugsCsv(csv: string, actor: HealthActor): Promise<{
           eq(healthDrugMaster.form, d.form),
         ),
       );
-    const values = { genericName: d.genericName, brandName: d.brandName ?? null, strength: d.strength ?? null, form: d.form, manufacturer: d.manufacturer ?? null, schedule: d.schedule, rxRequired: d.rxRequired, teleList: d.teleList, onlineSaleAllowed: d.onlineSaleAllowed, updatedBy: actor.id, updatedAt: new Date() };
+    // Pharmacist review sheet: a filled reviewed_by (name + registration no.) marks the row reviewed now.
+    const reviewer = hasReview ? col(row, "reviewed_by").trim().slice(0, 160) : "";
+    const review = reviewer ? { reviewedAt: new Date(), reviewedBy: reviewer, reviewNote: col(row, "review_note").trim().slice(0, 500) || null } : {};
+    const values = { genericName: d.genericName, brandName: d.brandName ?? null, strength: d.strength ?? null, form: d.form, manufacturer: d.manufacturer ?? null, schedule: d.schedule, rxRequired: d.rxRequired, teleList: d.teleList, onlineSaleAllowed: d.onlineSaleAllowed, ...review, updatedBy: actor.id, updatedAt: new Date() };
     if (existing) {
       await db.update(healthDrugMaster).set(values).where(eq(healthDrugMaster.id, existing.id));
       updated++;
@@ -174,5 +183,24 @@ export async function importIcdCsv(csv: string, actor: HealthActor): Promise<{ a
     await db.insert(healthIcd10).values({ code: code.toUpperCase(), title: title.slice(0, 300), chapter: chapter || null }).onConflictDoUpdate({ target: healthIcd10.code, set: { title: title.slice(0, 300) } });
     added++;
   }
+  await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.HEALTH_DRUG_MASTER, entityType: "health_icd10", newValue: { import: true, added } });
   return { added };
+}
+
+const csvCell = (v: unknown) => {
+  const t = v === null || v === undefined ? "" : v instanceof Date ? v.toISOString() : String(v);
+  return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
+
+/**
+ * The drug master as a pharmacist review sheet (CSV). The reviewer corrects schedule / rx_required / tele_list /
+ * online_sale_allowed, fills reviewed_by (name + registration number) and review_note, and the same file is
+ * imported back (importDrugsCsv), which marks the filled rows reviewed.
+ */
+export async function exportDrugsCsv(actor: HealthActor): Promise<string> {
+  requireStaff(actor);
+  const rows = await db.select().from(healthDrugMaster).orderBy(asc(healthDrugMaster.genericName), asc(healthDrugMaster.strength));
+  const header = ["generic_name", "brand_name", "strength", "form", "manufacturer", "schedule", "rx_required", "tele_list", "online_sale_allowed", "status", "reviewed_by", "review_note", "reviewed_at"];
+  const body = rows.map((r) => [r.genericName, r.brandName, r.strength, r.form, r.manufacturer, r.schedule, r.rxRequired ? "yes" : "no", r.teleList, r.onlineSaleAllowed ? "yes" : "no", r.status, r.reviewedBy, r.reviewNote, r.reviewedAt].map(csvCell).join(","));
+  return [header.join(","), ...body].join("\n") + "\n";
 }

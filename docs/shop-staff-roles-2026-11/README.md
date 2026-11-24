@@ -3,7 +3,7 @@
 Shop-side only: who a shop owner lets help run **their** shop, and what each person may do there.
 This is not the platform's own staff roles (RBAC v2, `rbac_v2_*`, staff team members) — those are untouched.
 
-Flag: **`shop_staff_roles_enabled`** — seeded **OFF** by migration 0190. With it off everything behaves as before:
+Flag: **`shop_staff_roles_enabled`** — seeded **OFF** by migration 0195. With it off everything behaves as before:
 staff can only edit product photos and descriptions (Module 1), and every migrated route answers exactly as
 `requireShopAccess` did.
 
@@ -21,7 +21,7 @@ staff can only edit product photos and descriptions (Module 1), and every migrat
 | # | Requirement | Status |
 |---|---|---|
 | 1 | Permission catalogue + preset roles | DEVELOPED — `src/lib/shop-staff/permissions.ts` |
-| 2 | Migration: role, permissions, INVITED/SUSPENDED, invite fields | DEVELOPED — `drizzle/0190_shop_staff_roles.sql` |
+| 2 | Migration: role, permissions, INVITED/SUSPENDED, invite fields | DEVELOPED — `drizzle/0195_shop_staff_roles.sql` |
 | 3 | `shopStaffCan` + `requireShopPermission`, routes migrated | DEVELOPED — list below |
 | 4 | Invite flow (existing account / new person by e-mail) | DEVELOPED |
 | 5 | Suspend / reactivate / revoke / change role, audited, immediate | DEVELOPED (revoke ENHANCED) |
@@ -41,7 +41,7 @@ Preset roles (the owner is implicit and has everything):
 | Role | Grants |
 |---|---|
 | MANAGER | everything in catalogue, inventory, orders, billing, delivery, customers, reports; settings.view; staff view/create/edit; financial visibility. **Not** settings changes (unless given `settings.edit` + `config_access` as extra grants) and not staff removal. May add/change staff only with permissions they hold, never a MANAGER. |
-| CATALOGUE_MANAGER | catalogue view/create/edit/delete, inventory.view (every pre-0190 row maps here — same photo/description access as before) |
+| CATALOGUE_MANAGER | catalogue view/create/edit/delete, inventory.view (every pre-0195 row maps here — same photo/description access as before) |
 | ORDER_MANAGER | orders view/edit/approve/cancel, delivery.view, customers.view |
 | BILLING_MANAGER | billing view/create/edit/export, reports view/export, orders.view, financial visibility |
 | INVENTORY_MANAGER | inventory view/create/edit, catalogue.view |
@@ -90,7 +90,7 @@ Two services had their own owner check behind the route (`setStockThresholds`, `
 `inventory-alerts.ts`); they take `{ staffAuthorised: true }` only when the guard let a staff member in.
 
 Catalogue photo/description routes keep `requireShopCatalogueAccess` (Module 1): an ACTIVE row whose role grants
-`catalogue.edit` — for every row that existed before 0190 that is the same answer as before.
+`catalogue.edit` — for every row that existed before 0195 that is the same answer as before.
 
 ### Still owner-only (`requireShopAccess`, unchanged)
 
@@ -136,13 +136,13 @@ audit entries since joining on the shop itself (including every `shop_staff.acti
   visibility), catalogue (product photos list + bulk upload), stock counts, and cards for the other allowed areas.
 - `/staff-invite?token=` — the e-mailed link's page (outside /shop so a signed-out visitor can read it).
 
-## Migration 0190
+## Migration 0195
 
 Additive and safe to re-run (checked by running it twice on a local database). `role` (default
 CATALOGUE_MANAGER), `permissions text[]`, `invite_email`, `invite_token_hash`, `invite_expires_at`, `invited_by`,
 `accepted_at`, `suspended_at`, `suspended_by`, `role_changed_at`; `user_id` made nullable (e-mail invitations);
 unique indexes for one open row per person per shop, one open e-mail invitation per shop, unique token hash; flag row
-OFF. `scope` is kept. Rollback: `scripts/rollback-0190.sql`.
+OFF. `scope` is kept. Rollback: `scripts/rollback-0195.sql`.
 
 ## Tests
 

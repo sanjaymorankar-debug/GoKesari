@@ -1,6 +1,6 @@
 /**
  * Module 7 — self-service account deletion against real PostgreSQL
- * (docs/account-deletion-2026-11): the code, the 90-day cooling-off (0191: the
+ * (docs/account-deletion-2026-11): the code, the 90-day cooling-off (0196: the
  * account hidden, a hidden account unable to act, restore at sign-in, admin
  * cancel), the daily purge with a fake clock (anonymisation, what is kept, a
  * blocker at purge time), every session ending, and the original email signing

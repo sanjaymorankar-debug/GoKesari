@@ -164,6 +164,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "pause", label: L("Pause", "रोकें", "थांबवा"), icon: "pause", href: "/subscriptions/{subscriptionId}", fallbackHref: "/subscriptions", auth: true },
       // docs/newspaper-subscriptions-2026-11: pick papers and magazines, then a vendor near you.
       { key: "newspapers", label: L("Newspapers", "अख़बार", "वृत्तपत्रे"), icon: "newspaper", href: "/subscriptions/newspapers", auth: true },
+      // docs/subscription-plans-2026-11: every shop's plans near you — meals, milk, newspapers…
+      { key: "plans", label: L("Plans", "प्लान", "योजना"), icon: "calendar-days", href: "/subscriptions/plans", auth: true },
     ],
   },
   {
@@ -269,6 +271,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "all", label: L("All", "सभी", "सर्व"), icon: "search", href: "/product-categories", permission: PERMISSIONS.CATALOGUE_BROWSE },
       // docs/puja-samagri-2026-11: take the puja catalogue, browse, own types and products, restore, price requests.
       { key: "puja", label: L("Puja Samagri", "पूजा सामग्री", "पूजा साहित्य"), short: L("Puja", "पूजा", "पूजा"), icon: "sparkles", href: "/shop/puja" },
+      // docs/subscription-plans-2026-11: make any product a subscription plan (meals, milk, newspapers…).
+      { key: "subscriptionPlans", label: L("Subscription plans", "सब्सक्रिप्शन प्लान", "सदस्यता योजना"), short: L("Plans", "प्लान", "योजना"), icon: "calendar-clock", href: "/shop/manage/subscription-plans" },
     ],
     more: [
       { key: "shopTypes", label: L("Shop types I sell", "मेरी दुकान के प्रकार", "माझ्या दुकानाचे प्रकार"), icon: "store", href: "/shop/manage/shop-types" },

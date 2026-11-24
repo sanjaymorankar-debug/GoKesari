@@ -1,6 +1,6 @@
 /**
  * Module 4 (23-Nov-2026) — customer signature, GPS at delivery / failure and
- * the fixed failed-delivery reasons, against real PostgreSQL (migration 0188).
+ * the fixed failed-delivery reasons, against real PostgreSQL (migration 0193).
  * Every behaviour is behind a deliveryProof rule field that defaults off.
  */
 import { eq, inArray } from "drizzle-orm";

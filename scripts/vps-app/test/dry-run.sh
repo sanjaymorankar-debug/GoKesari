@@ -247,7 +247,7 @@ check "build log written" test -s "$S/shared/build-$SHA1.log"
 B=$(grep '^systemd-run' "$GK_TEST_LOG" | tail -1)
 check "build: env file loaded by systemd" eq "$(grep -c 'EnvironmentFile=/etc/sites/gokesari-staging.env' <<< "$B")" 1
 check "build: as the site user" grep -q -- "--uid=gk-gokesari-staging" <<< "$B"
-check "build: 7G / 150% / nice 10 / 20 min" grep -q -- "--nice=10 -p EnvironmentFile=/etc/sites/gokesari-staging.env -p WorkingDirectory=/srv/sites/gokesari-staging/releases/$SHA1 -p MemoryMax=7G -p CPUQuota=150% -p RuntimeMaxSec=20min" <<< "$B"
+check "build: 9G / 150% / nice 10 / 20 min" grep -q -- "--nice=10 -p EnvironmentFile=/etc/sites/gokesari-staging.env -p WorkingDirectory=/srv/sites/gokesari-staging/releases/$SHA1 -p MemoryMax=9G -p CPUQuota=150% -p RuntimeMaxSec=20min" <<< "$B"
 check "build: Node heap 6 GB" grep -q -- "--setenv=NODE_OPTIONS=--max-old-space-size=6144" <<< "$B"
 check "build: GK_BUILD_VERSION = commit" grep -q -- "--setenv=GK_BUILD_VERSION=111111111111" <<< "$B"
 check "build: npm ci + npm run build" grep -q -- "npm ci --no-audit --no-fund && npm run build" <<< "$B"

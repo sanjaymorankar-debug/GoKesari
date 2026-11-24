@@ -2,12 +2,14 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 
 import { ListTabs, Pager } from "@/components/board/list-tabs";
+import { PlanCard } from "@/components/plan-cards";
 import { ProductGrid } from "@/components/product-grid";
 import { favouritesOn } from "@/server/services/favourites-flag";
 import { RatingBadge } from "@/components/rating-badge";
 import { Alert, Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
 import { tr } from "@/lib/board/i18n";
 import { listShopReviews } from "@/server/services/ratings";
+import { listPublicPlansForShop } from "@/server/services/subscription-plans";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
@@ -67,7 +69,7 @@ export default async function ShopPage({
   const pageCount = Math.max(1, Math.ceil((activeEntry?.count ?? 0) / PAGE_SIZE));
   // A page number out of range shows the nearest page.
   const page = Math.min(pageCount, Math.max(1, Math.floor(Number(query.page) || 1)));
-  const [listed, reviews, liveOffers, offerRows, cartLines] = await Promise.all([
+  const [listed, reviews, liveOffers, offerRows, cartLines, plans] = await Promise.all([
     activeEntry
       ? listStorefrontProducts({ shopId: shop.id, categoryId: activeEntry.categoryId, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
       : [],
@@ -75,6 +77,8 @@ export default async function ShopPage({
     listLiveOffersForShop(shop.id),
     getLiveOffers([shop.id]),
     user ? getCartLineQuantities(user.id) : null,
+    // docs/subscription-plans-2026-11: the shop's subscription plans.
+    listPublicPlansForShop(shop.id).catch(() => []),
   ]);
   // F8: live shop offers lower the online price shown (and charged in the cart).
   const products = listed.map((p) => {
@@ -219,6 +223,19 @@ export default async function ShopPage({
             ))}
           </ul>
         </Card>
+      ) : null}
+
+      {plans.length > 0 ? (
+        <section className="mb-8" data-testid="shop-plans-public" aria-labelledby="shop-plans-heading">
+          <h2 id="shop-plans-heading" className="mb-3 text-lg font-semibold text-ink-900">
+            Subscription plans
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {plans.map((p) => (
+              <PlanCard key={p.id} plan={p} />
+            ))}
+          </div>
+        </section>
       ) : null}
 
       <div className="mb-6">

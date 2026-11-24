@@ -376,7 +376,7 @@ async function confirmPaidOrder(order: Order, intent: PaymentIntentRef, tx: DbCl
       emailDetail: orderConfirmedEmailRows({
         lines: items.map((l) => ({ name: l.name, unit: l.unit, quantityMilli: l.quantityMilli, lineTotalPaise: l.lineTotalPaise })),
         deliveryFeePaise: order.deliveryFeePaise,
-        taxPaise: order.taxPaise,
+        taxIncludedPaise: order.taxIncludedPaise,
         discountPaise: order.discountPaise,
         totalPaise: order.totalPaise,
         paymentMethod: "ONLINE",

@@ -828,7 +828,7 @@ export const RULES = {
   },
   health: {
     description:
-      "GoKesari Health (docs/health/; owner brief 20 Nov 2026). Built on consultant appointments (consultBooking must be on too): patients keep one lifelong health record for themselves and their family; verified doctors issue e-prescriptions (PDF e-mailed, printed on their letterhead); patients forward prescriptions to medical stores for pickup or delivery; home-care providers (nurse, physiotherapist, massage therapist, attendant …) take home visits with OTP check-in / check-out; medical equipment stores rent equipment with a deposit; doctors, providers and stores can buy Prime listing plans (prices in Admin → Health → Prime plans, never in code). storeResponseMinutes: how long a medical store has to reply to a forwarded prescription. rxValidityDays: how long a prescription can be used at a store. rxCommissionBp / rentalCommissionBp: GoKesari's commission on store orders and rentals (default 2%), taken from the store's weekly payout. reminderHours: appointment reminders (the consultant rule's reminders are used). rentalDueReminderDays: reminder before a rental is due back. primeGraceDays: after a Prime plan ends, bookings already made stay valid; the profile drops to Free after the grace days. primeGstBp: GST on Prime plans (18%). payPerBooking: no subscription, a fee per new-patient booking billed to the provider's payout (feePerBookingPaise). videoProvider / telephonyProvider / printProvider: 'jitsi' / 'mock' / 'browser' until accounts are configured. breakGlassEnabled: admins may open a clinical record in an emergency with a reason (logged, patient told). freeListingManualApproval: a doctor on the Free listing gets booking requests the clinic confirms; Prime turns on instant booking. primeForAll (launch mode, on): every verified clinic, care provider and equipment store gets the Prime plan's features (instant booking, analytics …) without buying a plan; Prime plans are not sold; no Prime boost or label in search (everyone is equal); the standard registration fee and 2% commission apply. Off: My Health and the health screens say 'coming soon'; prescriptions already issued can still be opened and verified.",
+      "GoKesari Health (docs/health/; owner brief 20 Nov 2026). Built on consultant appointments (consultBooking must be on too): patients keep one lifelong health record for themselves and their family; verified doctors issue e-prescriptions (PDF e-mailed, printed on their letterhead); patients forward prescriptions to medical stores for pickup or delivery; home-care providers (nurse, physiotherapist, massage therapist, attendant …) take home visits with OTP check-in / check-out; medical equipment stores rent equipment with a deposit; doctors, providers and stores can buy Prime listing plans (prices in Admin → Health → Prime plans, never in code). storeResponseMinutes: how long a medical store has to reply to a forwarded prescription. rxValidityDays: how long a prescription can be used at a store. rxCommissionBp / rentalCommissionBp: GoKesari's commission on store orders and rentals (default 2%), taken from the store's weekly payout. reminderHours: appointment reminders (the consultant rule's reminders are used). rentalDueReminderDays: reminder before a rental is due back. primeGraceDays: after a Prime plan ends, bookings already made stay valid; the profile drops to Free after the grace days. primeGstBp: GST on Prime plans (18%). payPerBooking: no subscription, a fee per new-patient booking billed to the provider's payout (feePerBookingPaise). videoProvider / telephonyProvider / printProvider: 'jitsi' / 'mock' / 'browser' until accounts are configured. breakGlassEnabled: admins may open a clinical record in an emergency with a reason (logged, patient told). freeListingManualApproval: a doctor on the Free listing gets booking requests the clinic confirms; Prime turns on instant booking. primeForAll (launch mode, on): every verified clinic, care provider and equipment store gets the Prime plan's features (instant booking, analytics …) without buying a plan; Prime plans are not sold; no Prime boost or label in search (everyone is equal); the standard registration fee and 2% commission apply. Off: My Health and the health screens say 'coming soon'; prescriptions already issued can still be opened and verified. Prescribing safeguards: remoteFreeTextMedicines — by video or phone, a medicine typed by hand is matched to the drug master by name; one that matches nothing is REFUSE (cannot be prescribed remotely) or WARN (the doctor confirms). Schedule X and NDPS medicines are never prescribed by video or phone. onlineSaleFreeText: a medicine typed by hand (not from the drug master) may be ordered online from a store (decision H-43). onlineSaleOnlyReviewed: only drug-master medicines a pharmacist has marked reviewed (and OTC medicines) may be ordered online. requireRegistryCheck: a doctor can issue prescriptions only after staff record a check of the medical registration against the NMC / State Medical Council register (Admin → Health → Doctors).",
     schema: z.object({
       enabled: z.boolean(),
       storeResponseMinutes: int(2, 240),
@@ -852,6 +852,10 @@ export const RULES = {
       primeForAll: z.boolean(),
       careOtpMaxAttempts: int(1, 20),
       familyLinkCodeMinutes: int(2, 60),
+      remoteFreeTextMedicines: z.enum(["REFUSE", "WARN"]),
+      onlineSaleFreeText: z.boolean(),
+      onlineSaleOnlyReviewed: z.boolean(),
+      requireRegistryCheck: z.boolean(),
     }),
     // Owner brief 20-Nov-2026: store timeout 15 minutes, 2% commission, Prime GST 18%, everything admin-editable.
     defaults: {
@@ -879,6 +883,15 @@ export const RULES = {
       primeForAll: true,
       careOtpMaxAttempts: 5,
       familyLinkCodeMinutes: 10,
+      // Telemedicine Practice Guidelines 2020: a remote prescription is checked against the drug master's lists,
+      // so a hand-typed medicine that matches nothing is refused by video / phone (WARN restores the old warning).
+      remoteFreeTextMedicines: "REFUSE",
+      // H-43 (owner, 20-Nov-2026): hand-typed medicines may be ordered online; switch off to send them to the counter.
+      onlineSaleFreeText: true,
+      // Off until the pharmacist review of the drug master is done; on = only reviewed (or OTC) medicines sell online.
+      onlineSaleOnlyReviewed: false,
+      // Off until staff have checked every live doctor; on = prescribing needs a recorded register check.
+      requireRegistryCheck: false,
     },
   },
   consultBooking: {
@@ -919,11 +932,11 @@ export const RULES = {
   },
   dealerPayouts: {
     description:
-      "Dealer commission payouts (gap report Part C), every model: one payout per PAN per month — a person who earns in two roles is paid once. A TIERED team member is paid only with a PAN, a verified bank account and the agent agreement — and so is a dealer when enforcePayeeChecks is on (off: dealers are drafted and paid as before); otherwise the month's amount is held and carried to the next month, and with reminderEnabled the payee is reminded at the month's close what is missing. A net below minPayoutPaise is carried forward too (0 = no minimum, as before).",
+      "Dealer commission payouts (gap report Part C), every model: one payout per PAN per month — a person who earns in two roles is paid once. Every payee — dealer, franchise owner and team member — is paid only with a PAN and a verified bank account (and, TIERED, the agent agreement) while enforcePayeeChecks is on (the default); otherwise the month's amount is held and carried to the next month, and with reminderEnabled the payee is told at the month's close (app and e-mail) what is missing. A payout is paid only once a second admin has approved it. Team members are checked even with enforcePayeeChecks off. A net below minPayoutPaise is carried forward too (0 = no minimum, as before).",
     schema: z.object({ enforcePayeeChecks: z.boolean(), minPayoutPaise: int(0, 10_000_000), reminderEnabled: z.boolean() }),
-    // Owner to set the minimum (₹100 suggested, as riders) and switch the checks on for dealers;
-    // off / 0 keep today's behaviour for dealers. TIERED team members are always checked.
-    defaults: { enforcePayeeChecks: false, minPayoutPaise: 0, reminderEnabled: true },
+    // Checks on for every payee (23-Nov-2026; migration 0185 sets the stored value too).
+    // Owner to set the minimum (₹100 suggested, as riders).
+    defaults: { enforcePayeeChecks: true, minPayoutPaise: 0, reminderEnabled: true },
   },
   dealerAutoPayout: {
     description:
@@ -1239,13 +1252,13 @@ export const RULES = {
   },
   shopMembership: {
     description:
-      "Shop membership (D-69). Recording a registration fee or renewal payment extends the shop's membership by periodMonths (from the end of the current one, or from the payment when that has passed). When enabled, a shop whose membership ended more than graceDays ago is not online: customers see it as not taking orders and cannot check out from it, until a renewal is recorded. Shops with no end date (every shop registered before this rule, and shops that never paid a fee) are never affected. reminderDays: the owner's shop page warns this many days before the end. Renewal (0189, docs/shop-membership-renewal-2026-11): a period is added only once its fee is fully paid (part payments wait; a refund or reversal that leaves the fee unpaid takes the period back). renewalFeePaise: the renewal base fee before GST (0 = the shop's own registration base fee, without its coupon; a shop registered before the fee breakdown was kept renews at its registration total). addGst: GST on top at the PLATFORM_FEE_GST rate for REGISTRATION_FEE. renewalCheckoutEnabled (default off): the owner can pay online from renewalWindowDays before the end (switching it off stops new checkouts only). remindersEnabled (default off): in-app and e-mail reminders reminderDays, 7 and 1 day(s) before the end, on the day and when the grace ends. exemptShopTypes / exemptCategorySlugs, and the per-shop exemption (Admin → Shop memberships): never closed for a lapsed membership and not reminded. Switching enabled off closes nobody.",
+      "Shop membership (D-69). Recording a registration fee or renewal payment extends the shop's membership by periodMonths (from the end of the current one, or from the payment when that has passed). When enabled, a shop whose membership ended more than graceDays ago is not online: customers see it as not taking orders and cannot check out from it, until a renewal is recorded. Shops with no end date (every shop registered before this rule, and shops that never paid a fee) are never affected. reminderDays: the owner's shop page warns this many days before the end. Renewal (0194, docs/shop-membership-renewal-2026-11): a period is added only once its fee is fully paid (part payments wait; a refund or reversal that leaves the fee unpaid takes the period back). renewalFeePaise: the renewal base fee before GST (0 = the shop's own registration base fee, without its coupon; a shop registered before the fee breakdown was kept renews at its registration total). addGst: GST on top at the PLATFORM_FEE_GST rate for REGISTRATION_FEE. renewalCheckoutEnabled (default off): the owner can pay online from renewalWindowDays before the end (switching it off stops new checkouts only). remindersEnabled (default off): in-app and e-mail reminders reminderDays, 7 and 1 day(s) before the end, on the day and when the grace ends. exemptShopTypes / exemptCategorySlugs, and the per-shop exemption (Admin → Shop memberships): never closed for a lapsed membership and not reminded. Switching enabled off closes nobody.",
     schema: z.object({
       enabled: z.boolean(),
       periodMonths: int(1, 60),
       graceDays: int(0, 90),
       reminderDays: int(0, 90),
-      /* >>> 0189 shop membership renewal (docs/shop-membership-renewal-2026-11) */
+      /* >>> 0194 shop membership renewal (docs/shop-membership-renewal-2026-11) */
       /** 0: the shop's own registration base fee (without its coupon); more than 0: this base fee for every shop. Before GST. */
       renewalFeePaise: int(0, 100_000_000),
       /** GST added on the renewal fee at the PLATFORM_FEE_GST rate for REGISTRATION_FEE (as on the registration fee). */

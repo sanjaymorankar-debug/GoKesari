@@ -1,0 +1,606 @@
+{
+ "date": "2026-11-23",
+ "note": "Places where the code on origin/staging (d9cef71e) looks wrong or differs from the PR / owner brief, found while writing the 23-Nov cases. Not defects until a run confirms them.",
+ "observations": [
+  {
+   "id": "TC-PUJA-041",
+   "field": "expected",
+   "observation": "Retiring a master product (Retire) or merging a duplicate (mergeMasterProducts) sets products.is_active = false. The storefront shows only listings of active products (puja visibleConditions, storefront.ts:74; site storefrontConditions, services/catalogue.ts:1216), so shops that already list it stop selling it, while the merge message and README say the shop listings are “kept as they are”. Also applies to TC-PUJA-042. Expected written as the code behaves; owner to confirm.",
+   "file": "src/server/puja/admin.ts",
+   "line": 535,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-035",
+   "field": "expected",
+   "observation": "The own-product duplicate check reads every non-rejected product of the category, including another shop's PENDING_APPROVAL own products (and retired ones): the 409 message names them, and an exact name makes this shop list the other shop's pending product (reused). The type check keeps another shop's pending types private (service.ts:604).",
+   "file": "src/server/puja/service.ts",
+   "line": 773,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-049",
+   "field": "expected",
+   "observation": "PATCH /api/admin/puja/config is guarded by requirePujaStaff (OPERATOR or ADMIN) and the Configuration tab is shown to operators, so an operator can switch the Puja shop type off and change the business rule pujaSamagri (FSSAI for edible lines, seed stock). Other business rules are admin-only (SYSTEM_CONFIG, TC-ADM-007); the PR / README name operators only for the review queue.",
+   "file": "src/app/api/admin/puja/config/route.ts",
+   "line": 27,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-046",
+   "field": "expected",
+   "observation": "With the shop type switched off only the seed is refused (409). POST /api/shops/{id}/puja/types and /puja/products do not check the switch and still create own types and products (the screen hides the tabs); /puja keeps showing existing listings.",
+   "file": "src/server/puja/service.ts",
+   "line": 361,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-056",
+   "field": "expected",
+   "observation": "Adding an unpriced “Price on confirmation” item to the cart answers 422 “Available only at the physical shop.” — the generic cart message for a listing without an online price, misleading for a loose puja item that waits for the shop's price.",
+   "file": "src/server/services/cart.ts",
+   "line": 553,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-057",
+   "field": "expected",
+   "observation": "Declining a price request notifies the customers with type order.price_confirmed (CUSTOMER_PRICE_CONFIRMED) and title “Item not available”; the listing stays “Price on confirmation”, so the same customers can ask again at once.",
+   "file": "src/server/puja/storefront.ts",
+   "line": 307,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-PUJA-020",
+   "field": "preconditions",
+   "observation": "PR #427's body names the migrations 0152 / 0153 and scripts/rollback-0152.sql; on staging they are 0154_puja_samagri_schema.sql / 0155_puja_samagri_catalogue.sql and scripts/rollback-0154.sql (renumbered after #423 / #425, as the PR said it would be). Cases use the staging names.",
+   "file": "drizzle/0155_puja_samagri_catalogue.sql",
+   "line": 1,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-NTF-028",
+   "field": "expected",
+   "observation": "PR #451, migration 0158 and DEPLOYMENT.md say email_mailbox_sends rows older than two days are deleted by the hourly auth-housekeeping cron. Only the per-job route /api/cron/auth-housekeeping calls purgeOldMailboxSends; the sites run the consolidated /api/cron/hourly, whose “auth-housekeeping” job purges only OTPs and session revocations, and the per-job route answers 410 unless CRON_ROUTES_ENABLED=true. The table therefore grows without clean-up.",
+   "file": "src/server/cron/schedule.ts",
+   "line": 204,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-ADM-025",
+   "field": "expected",
+   "observation": "PR #464 lists the Health card as /admin/health with the note “Doctors, care providers and stores, medicine lists, Prime, reports”; on staging it opens /admin/health?tab=specialties with “All doctor specialties by group, verification, medicine lists, Prime, reports” (changed later by PR #466). Expected uses the current code.",
+   "file": "src/lib/board/menus.ts",
+   "line": 720,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-ADM-030",
+   "field": "expected",
+   "observation": "ShopTypeModules is rendered without a language (lang defaults to “en”), so the “Shop types with their own setup” strip stays English for Hindi / Marathi users although PR #464 added Hindi and Marathi labels and notes.",
+   "file": "src/app/admin/shop-categories/page.tsx",
+   "line": 25,
+   "group": "A-puja-admin-mail"
+  },
+  {
+   "id": "TC-DOC-034",
+   "field": "expected",
+   "observation": "A rule's live_shops_due_at is applied to every shop, not only shops already live when the rule came: shopsMissingDocuments treats any requirement whose live_shops_due_at is still ahead as “upcoming” for all shops. New pharmacies, clinics, professional offices and doctor-category shops registered on staging after 22-Nov are therefore not suspended for their licence before 20 Feb 2027 (and a rule raised with 365 days shields new shops for a year), and a new shop that uploaded everything else gets “GoKesari now needs this document from shops like yours, as the law requires”. The Document rules page says “New shops follow the rule at once” (true at the signup gate, not in the follow-up). Same effect in TC-ONB-082 / TC-ONB-083 overrides.",
+   "file": "src/server/services/shop-document-follow-up.ts",
+   "line": 174,
+   "group": "B-documents-health"
+  },
+  {
+   "id": "TC-DOC-006",
+   "field": "expected",
+   "observation": "Approve without documents for a must-have that is not FSSAI (DF-09, e.g. a trade licence on a General Trading Store) still sends the owner the FSSAI wording: sendFssaiWaiverNotice uses licenceGraceMessage(\"FSSAI licence\", days) whenever a waiver row exists, so the owner reads “FSSAI licence is mandatory for this type of shop … grace period of 30 days”.",
+   "file": "src/server/services/shops.ts",
+   "line": 847,
+   "group": "B-documents-health"
+  },
+  {
+   "id": "TC-DOC-006",
+   "field": "expected",
+   "observation": "For the same non-FSSAI waiver, a suspension after the due date gives the reason “FSSAI licence not uploaded by <date>, the date set when the shop was approved without it. Missing: <documents>.” (fssaiDeadline is set for any must-have waiver), and /admin/shops/{id}/documents shows “Approved without its FSSAI licence — The FSSAI licence is due by …” (src/app/admin/shops/[id]/documents/page.tsx line 50).",
+   "file": "src/server/services/shop-document-follow-up.ts",
+   "line": 391,
+   "group": "B-documents-health"
+  },
+  {
+   "id": "TC-DOC-022",
+   "field": "expected",
+   "observation": "DF-08 (PR #467, decision log) says a food shop's FSSAI licence “sent and waiting for the team” lets it pay but “then the paid shop waits for an admin”. In the code fssaiStatus counts a legal-documents FSSAI row in SUBMITTED with a future expiry date as on file, so the instant approval passes assertFssaiAllowsApproval and the shop goes live on payment. Because an upload through Upload documents writes that SUBMITTED row even when Cashfree reports the number INVALID (seller check FAILED), a food shop can pay and go live with an FSSAI number Cashfree did not find. Owner to confirm.",
+   "file": "src/server/services/document-uploads.ts",
+   "line": 704,
+   "group": "B-documents-health"
+  },
+  {
+   "id": "TC-DOC-014",
+   "field": "expected",
+   "observation": "PR #460 says an active licence whose premises PIN code matches the shop now verifies. The code also needs the business name on the Cashfree record to match the shop or owner name (score ≥ sellerVerification.nameMatchAutoApprove, 85), else “Under review” (name_mismatch). With Cashfree sandbox numbers on staging the result will normally be “Under review”, not “Verified”.",
+   "file": "src/server/services/seller-verification-checks.ts",
+   "line": 113,
+   "group": "B-documents-health"
+  },
+  {
+   "id": "TC-DOC-054",
+   "field": "expected",
+   "observation": "On Legal documents, a document asked only by the admin's rules (rule legalDocuments off — e.g. the Doctors medical registration, or the pharmacy drug licence) never blocks orders, but its card's warning says “Until then your shop keeps taking orders. After that date it cannot accept orders until the … is uploaded.” What actually follows the date is a suspension by the 1st / 15th follow-up.",
+   "file": "src/components/legal-documents-panel.tsx",
+   "line": 194,
+   "group": "B-documents-health"
+  },
+  {
+   "id": "TC-ONB-080",
+   "field": "expected",
+   "observation": "Defect D-151 in docs/testing/qa-defects.json is still “Fixed (awaiting staging retest)” with the DI-14 expectation (a food wizard shop goes live without FSSAI). DF-08 (PR #467) reversed that on purpose, so the retest would now fail by design; the defect should be closed as superseded and its cases (TC-ONB-080, TC-ONB-081, SC-39) retested against the overrides here.",
+   "file": "docs/testing/qa-defects.json",
+   "line": 2543,
+   "group": "B-documents-health"
+  },
+  {
+   "id": "SC-39",
+   "field": "journey",
+   "observation": "The journey SC-39 in tests/qa/catalog/scenarios.json still reads “food shop type … FSSAI 90-day grace notice; pay; shop goes live”. PR #467 moved the automated spec (tests/qa/scenarios/SC-39-licence-grace.spec.ts) to a Pharmacy with the drug licence promised. The journey text needs the same change; it cannot be overridden through this file (overrides take TC ids only). Note too: on staging the drug licence is not a suspension reason before 20 Feb 2027 (first code_check), so the journey's suspension step needs the Shop Act left missing or the rule date moved.",
+   "file": "tests/qa/catalog/scenarios.json",
+   "line": 309,
+   "group": "B-documents-health"
+  },
+  {
+   "id": "TC-FRN-025",
+   "field": "expected",
+   "observation": "The rules text (clickwrap 2026-11-22) says recurring commission continues “until the tail end (end of year 3 from the first activation)”, but the settings in force use tailMode years_after_lapse with tailYears 2 (2 years after the franchise lapses), as /franchise, the commission chart and DECISIONS G-15 / B-10 say. The owner signs a tail rule the system does not apply.",
+   "file": "src/lib/franchise.ts",
+   "line": 497,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-044",
+   "field": "expected",
+   "observation": "Admin → Franchise header still reads “Franchise zones — Pune” / “50 zones (one cluster each)…” although 99 zones in Pune, Mumbai (Konkan) and Nashik are on sale (DECISIONS G-21).",
+   "file": "src/app/admin/franchise/page.tsx",
+   "line": 21,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-040",
+   "field": "expected",
+   "observation": "/franchise/my header is “<dealer> · Pune franchise zones” for every owner, also for Mumbai (Konkan) and Nashik zones.",
+   "file": "src/app/franchise/my/page.tsx",
+   "line": 36,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-040",
+   "field": "expected",
+   "observation": "“This financial year” sums ledger types ONE_TIME_FRANCHISE / RECURRING_BASE / RECURRING_BONUS, but nothing writes ONE_TIME_FRANCHISE any more: Model B one-time commission runs through the team plan (DIRECT_1, OVERRIDE_*). The owner's 25% / 4% / 3% one-time franchise commission never shows in this card.",
+   "file": "src/server/franchise/dashboard.ts",
+   "line": 167,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-059",
+   "field": "expected",
+   "observation": "/franchise/my “This month so far (estimate)” uses the actual order commission of the owner's own attributed shops only, while “This month so far” (live) uses 2% × delivered goods of every zone shop incl. free-team shops and the 50/50 split — the page shows two different month figures.",
+   "file": "src/server/franchise/dashboard.ts",
+   "line": 114,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-039",
+   "field": "expected",
+   "observation": "A first-time buyer (no dealer account) cannot apply any coupon on the cart: the cart API refuses coupons until name / mobile / PAN are saved, and the page saves them only inside “Reserve and pay”. First-purchase coupons are therefore unusable in one sitting (works only after a reload once the details exist).",
+   "file": "src/server/franchise/booking.ts",
+   "line": 380,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-041",
+   "field": "expected",
+   "observation": "Renewal note “The zone's fee was updated from new business data: renewal is ₹… (this term ₹…)” shows for every launch-offer franchise, because the term fee is the ₹1,50,000 launch fee and the renewal is the regular rate — not because business data changed.",
+   "file": "src/app/franchise/my/page.tsx",
+   "line": 111,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-031",
+   "field": "expected",
+   "observation": "The 30-day KYC overdue e-mail says “Refund the booking to free the zone (Admin → Franchise → Bookings)” but there is no Bookings tab (the button is on Franchises), and it goes only to the franchise CC list (expiryCc, ceo@agtci.com), not to admins as FREE_OR_PAID_FLOW.md says.",
+   "file": "src/server/franchise/jobs.ts",
+   "line": 232,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-032",
+   "field": "expected",
+   "observation": "Refunding (or terminating) a franchise that is still waiting for KYC leaves kyc_due_at set: /franchise/my keeps the “Finish your KYC to go live” banner and the “Booked · awaiting KYC” badge for the CANCELLED zone, and the admin row keeps “KYC overdue since …”.",
+   "file": "src/server/franchise/booking.ts",
+   "line": 727,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-024",
+   "field": "expected",
+   "observation": "When the launch offer closes by its counters without a payment (e.g. an admin lowers “Launch offer: zones”), /franchise and the booking page say “Launch offer closed”, but zone cards and zone pages still show the “Launch offer” badge and ₹1,50,000: promoFeeNow only checks franchise_campaigns.closed_at, which is set only when a payment reaches the limit.",
+   "file": "src/server/franchise/zones.ts",
+   "line": 193,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-060",
+   "field": "expected",
+   "observation": "Admin → Monthly points “Recalculate a month” shows “Recalculated <month>” even when the server skipped it (“<month> is not over yet”); the page ignores the skipped reason.",
+   "file": "src/components/franchise/franchise-admin.tsx",
+   "line": 459,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-027",
+   "field": "expected",
+   "observation": "/franchise/my for a signed-in user without a dealer account says “Start with a free dealer account — Franchise areas are booked on a GoKesari dealer account (KYC, PAN and a verified bank account).” This contradicts pay-first (owner 22-Nov-2026): he can pay with name, mobile and PAN on /franchise/book.",
+   "file": "src/app/franchise/my/page.tsx",
+   "line": 38,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-002",
+   "field": "preconditions",
+   "observation": "Docs say zones start Coming Soon and booking must be switched on (docs/franchise/README.md “What needs you before booking opens”; PR #446 body), but migration 0157 seeds all 99 zones AVAILABLE and bookingOpen true (owner G-21). Cases follow the code; the README is out of date.",
+   "file": "docs/franchise/README.md",
+   "line": 65,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-070",
+   "field": "expected",
+   "observation": "The 10-checks-an-hour limit is applied before the “already verified” short-cut, so pressing Verify on an already verified number still uses up the hourly allowance (no vendor call is made); the limiter is also per server process (in memory).",
+   "file": "src/server/dealers/online-verify.ts",
+   "line": 61,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-FRN-064",
+   "field": "expected",
+   "observation": "closeAllocationCodes sets the GKF- referral code INACTIVE, and every registration path (wizard referral step, shop details, “Create my shop and pay”, POST /api/shops) runs assertRegistrationReferralCode before assertFranchiseCodeOpen. The buyer therefore sees the generic “Referral code GKF-… is inactive. Check the code, or leave it empty.”; the franchise messages “This franchise code closed when the franchise in zone … expired on …” and “This franchise code is closed for new shops.” (README §4.2 / B-04) are never reached.",
+   "file": "src/server/services/shop-registration-wizard.ts",
+   "line": 1250,
+   "group": "C1-franchise"
+  },
+  {
+   "id": "TC-DPLT-005",
+   "field": "expected",
+   "observation": "The PR title says 'flags off', but migration 0179 publishes Free Dealership v2, Business Partner and Growth Partner when it runs. On staging (and on production at release) every new dealer is put on Free v2 (20% one-time + 5% monthly, scheme calculation) by the dealers_default_scheme trigger, and applicants see the two paid schemes at once. Only the maker-checker has a flag. The owner should know this before the production release.",
+   "file": "drizzle/0179_dealer_scheme_commission.sql",
+   "line": 43,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-053",
+   "field": "expected",
+   "observation": "The guide and decideDealer() let Business Admin, Dealership Manager and Regional Admin (in his regions) approve, reject or suspend dealers. But POST /api/admin/dealers/[id]/decision still calls requireRole('ADMIN'), and the dealer page hides the buttons unless the role is ADMIN, so these roles cannot decide anything from the website.",
+   "file": "src/app/api/admin/dealers/[id]/decision/route.ts",
+   "line": 29,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-053",
+   "field": "expected",
+   "observation": "Finance Admin holds DEALER_PAYOUT_APPROVE (close the month, approve payouts) and closeCommissionMonth()/approvePayoutBatch() accept it. The dealer commission route's POST is still requireRole('ADMIN'), and /api/admin/payouts/batches needs PAYOUT_APPROVE, which Finance Admin does not have. So the month close and dealer payouts stay admin-only on the website.",
+   "file": "src/app/api/admin/dealer-commission/route.ts",
+   "line": 125,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-053",
+   "field": "expected",
+   "observation": "GET /api/admin/dealer-schemes and the builder's 'compare' action allow only ADMIN / OPERATOR. The schemes pages, however, open for every role with DEALER_PLATFORM_VIEW, so 'Compare versions' answers 403 for Business Admin, Dealership Manager, Auditor and the other new roles.",
+   "file": "src/app/api/admin/dealer-schemes/[id]/route.ts",
+   "line": 54,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-042",
+   "field": "expected",
+   "observation": "customFileContent() counts only ADMIN and OPERATOR as staff. An Auditor or Business Admin can open the dealer page but gets 404 on the answer file links, although the README says 'owner, staff' may download.",
+   "file": "src/server/dealers/custom-fields.ts",
+   "line": 99,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-055",
+   "field": "expected",
+   "observation": "With dealer_platform_four_eye on, the routes answer 202 {pendingApproval}, but the builder's post() treats any 2xx as done. It shows 'Published. New applicants get this version; …' or 'Scheme suspended.' although nothing has changed until a second admin approves.",
+   "file": "src/components/dealer/scheme-builder.tsx",
+   "line": 89,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-026",
+   "field": "expected",
+   "observation": "The terms say 'renewable' (renewal.allowed true), but there is no renewal step. After validityMonths (12 for Free v2, Business Partner and Growth Partner), counted from the assignment start, accrueSchemeActivation and accrueSchemeRecurring pay nothing at all, so a free dealer stops earning one-time commission after a year. The owner should decide on renewal before the first anniversary.",
+   "file": "src/server/dealers/scheme-calculator.ts",
+   "line": 96,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-025",
+   "field": "expected",
+   "observation": "The monthly calculation pays on every ACTIVE, activated shop attributed to the dealer and ignores the component's shopScope ('OWN'). It also pays on team members' shops and on shops activated before the dealer joined the scheme (an upgrade pays the higher rate on the remaining months of older shops). Decision D6 speaks of 'the dealer's own shops'.",
+   "file": "src/server/dealers/scheme-calculator.ts",
+   "line": 221,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-030",
+   "field": "expected",
+   "observation": "The charge kinds monthly / quarterly / annual / instalments / deposit are saved in the terms and shown as '₹X + GST = ₹Y (monthly)', but the joining payment takes the amount only once at joining. Nothing bills the following periods or instalments.",
+   "file": "src/server/dealers/scheme-registration.ts",
+   "line": 137,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-040",
+   "field": "expected",
+   "observation": "The README and admin guide say custom fields have 12 types; CUSTOM_FIELD_TYPES has 11 (TEXT, NUMBER, CURRENCY, PERCENT, DATE, DROPDOWN, MULTI_SELECT, CHECKBOX, YES_NO, FORMULA, FILE). A required CHECKBOX is never enforced on submit.",
+   "file": "src/lib/dealer-schemes.ts",
+   "line": 283,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-038",
+   "field": "expected",
+   "observation": "The builder's 'Formula help' checks component formulas against the dealer variables only (no cf_ custom fields). A valid formula that uses a custom field is shown in red there, although the terms validation and the calculator accept it.",
+   "file": "src/components/dealer/scheme-builder.tsx",
+   "line": 336,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-DPLT-054",
+   "field": "expected",
+   "observation": "The Territory utilisation tile counts every zone and allocation. It ignores the dashboard filters and a Regional Admin's regions, unlike the other tiles.",
+   "file": "src/server/dealers/platform-dashboard.ts",
+   "line": 127,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-REFM-003",
+   "field": "expected",
+   "observation": "The Referral moves page returns 404 while dealer_programme_enabled is off, but /api/admin/referral-moves (and the scheme, dashboard and logo APIs of #503) do not check the flag, so an admin can still raise and approve moves by API.",
+   "file": "src/app/api/admin/referral-moves/route.ts",
+   "line": 16,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-REFM-022",
+   "field": "expected",
+   "observation": "A member move uses transferMemberToDealer, which always adds the person as an AGENT. A moved team lead becomes an agent in the new team, and his agents and their shops stay with the old dealer. The PR says 'move an agent / team lead'; the owner should confirm this is intended.",
+   "file": "src/server/dealers/service.ts",
+   "line": 1260,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-REFM-008",
+   "field": "expected",
+   "observation": "For a shops request, one 'Old dealer / franchise owner's signed consent' is enough even when the chosen shops come from several different old dealers. The owner's rule asks for the old dealer's consent for each shop's dealer.",
+   "file": "src/server/dealers/referral-moves.ts",
+   "line": 144,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-REFM-021",
+   "field": "expected",
+   "observation": "When a member move is approved, transferMemberToDealer (old place closed, new place created) runs before the database transaction that re-checks the request and moves the code and shops. If that transaction fails, the person is already moved while the request stays PENDING and his shops and code are not moved.",
+   "file": "src/server/dealers/referral-moves.ts",
+   "line": 233,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-REFM-002",
+   "field": "expected",
+   "observation": "Business Admin holds DEALER_REASSIGN, described as 'move codes, shops and team members'. But the Referral moves page sends every non-ADMIN home, and its APIs use requireRole('ADMIN'), so that permission has no effect there.",
+   "file": "src/app/admin/dealers/referral-moves/page.tsx",
+   "line": 17,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-REFM-023",
+   "field": "expected",
+   "observation": "Moves and scheme monthly commission: franchise recurring is split exactly at the move, but the #503 scheme monthly commission is paid to whoever holds the shop when the month closes. That dealer gets the whole month and the old team gets nothing for the part before the move.",
+   "file": "src/server/dealers/scheme-calculator.ts",
+   "line": 218,
+   "group": "C2-referral-dealer-platform"
+  },
+  {
+   "id": "TC-SMART-002",
+   "field": "expected",
+   "observation": "docs/smart-shopping-2026-11/README.md (API section) says every smart-list route is refused (404) while smart_list_scan_enabled is off. Only scan, save, compare and order call requireFeature: listWishlists, getWishlist, updateWishlist, deleteWishlist and resetWishlistStatus have no flag check, and the routes GET /api/smart-list/products and GET /api/smart-list/scans/<id>/pages/<n> do not check it either, so these keep answering 200 / 204 with the flag off. The expected result is written to the code.",
+   "file": "src/server/services/smart-list/wishlist.ts",
+   "line": 97,
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SMART-022",
+   "field": "expected",
+   "observation": "Nothing moves a wishlist item from IN_CART to ORDERED after checkout (the “Ordered” label is never used), and an item stays IN_CART even if the customer removes it from the cart; orderFromShop and ?pending=1 skip IN_CART items, so ordering the same list again is refused. The only UI way to buy it again is “Save wishlist”, which re-inserts every item as PENDING and silently clears the statuses; POST …/reset and DELETE exist in the API but have no button on /wishlist/<id> (README F1.9 “reuse / re-order”). Owner to decide whether a reset / delete button is wanted.",
+   "file": "src/server/services/smart-list/wishlist.ts",
+   "line": 175,
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SMART-001",
+   "field": "role",
+   "observation": "The README says the smart-list routes need a signed-in customer; the routes use requireUser, so any signed-in role (shop owner, rider, admin) can scan, save, compare and fill their own cart. Probably harmless; noted for the owner.",
+   "file": "src/app/api/smart-list/scans/route.ts",
+   "line": 18,
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-VPA-004",
+   "field": "steps",
+   "observation": "FEATURE4_VOICE_PRICE_OFFERS.md, PR #491 and the tracker say the tile is under the shop board's Products group → more; menus.ts puts “Change price or offer by voice” in the Inventory group (next to “Add product by photo”). Steps are written to the code.",
+   "file": "src/lib/board/menus.ts",
+   "line": 251,
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-018",
+   "field": "expected",
+   "observation": "PR #498 and docs/delta/DELTA_BUILD_2026-11-22.md say every new route answers 404 while society_rider_join_requests_enabled is off; GET /api/societies/join-requests/mine (listMyJoinRequests) has no flag check and answers 200. The rider page and dashboard link also use the global flag value, not the district (each request is still checked by the society's district).",
+   "file": "src/server/services/delta/society-join-requests.ts",
+   "line": 151,
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-026",
+   "field": "expected",
+   "observation": "PR #498 says the society ADMIN approves or declines; requireSocietyRole also lets platform staff with SOCIETY_MANAGE_ANY (GoKesari operators and admins) list and decide requests, and the society page shows them Approve / Decline (myRole PLATFORM). Consistent with addSocietyRider and TC-SOC-010; the expected result is written to the code — confirm with the owner.",
+   "file": "src/server/services/societies.ts",
+   "line": 81,
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-SOC-024",
+   "field": "expected",
+   "observation": "Approval calls addSocietyRider(…, preferred = false), whose upsert sets preferred = false on an existing row: if the admin added the same rider by mobile as preferred while the request was still pending, approving the request silently removes the preferred mark.",
+   "file": "src/server/services/delta/society-join-requests.ts",
+   "line": 225,
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-LOGO-006",
+   "field": "expected",
+   "observation": "PR #489 says the shop owner “or staff with shop access” can upload or remove the logo; the route uses requireShopAccess with SHOP_UPDATE_ANY, so only the owner, operators and admins can — the shop's own staff are refused with 403. The expected result is written to the code.",
+   "file": "src/app/api/shops/[id]/logo/route.ts",
+   "line": 26,
+   "group": "D-smart-voice-logo-society"
+  },
+  {
+   "id": "TC-STAFF-010",
+   "field": "expected",
+   "observation": "Flag rbac_v2_staff_roles is seeded and labelled (hint: “Off: those roles see the site as a customer (the CA keeps its statutory pages)”) but no code reads it: /staff opens and the un-flagged tiles (Finance, Tax, Support queue, Onboard a shop, Raise a ticket) and the new roles' permissions work with it OFF. Case written to what the code does.",
+   "file": "src/app/staff/page.tsx",
+   "line": 36,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-016",
+   "field": "preconditions",
+   "observation": "docs/rbac and the flag hint say a flag “can be limited to some roles with the role scope”, but no admin screen or API sets feature_flags.role_scope: setFeatureFlagRoleScope is reached only by the FEATURE_FLAG_ROLE_SCOPE_SET approval handler, and no route submits that type. Testing needs a direct DB update.",
+   "file": "src/server/approvals/admin-actions.ts",
+   "line": 121,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-037",
+   "field": "expected",
+   "observation": "When a CA approves stage 1 of a CA-then-admin request (high-value journal, rate change) the card says “Approved and applied.” although nothing was applied — the request only moved to the admin. The message ignores `applied: false` in the response.",
+   "file": "src/components/approvals-queue.tsx",
+   "line": 50,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-054",
+   "field": "expected",
+   "observation": "Admin → Staff teams lists managers and candidates by users.role (the role being acted in) only, so people who hold Support / Operations roles as grants — the D7 case fixed in the API by PR #493 — cannot be picked on the screen.",
+   "file": "src/app/admin/staff-teams/page.tsx",
+   "line": 23,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-075",
+   "field": "expected",
+   "observation": "Same class as D7 / D8: listOpsTeam (team list and the “Assign to” picker) and listUnteamedOpsUsers filter users.role = OPERATIONS_USER, so an Operations User held as a grant (accepted by assertOpsUser since PR #500) is neither shown in the team nor offered in New task.",
+   "file": "src/server/rbac-operations/tasks.ts",
+   "line": 94,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-079",
+   "field": "expected",
+   "observation": "“New ticket”, overdue, confirm and change-request-expired notices go only to users whose active role is SUPPORT_MANAGER (users.role); a Support Manager held as a grant while acting in another role (e.g. gk-ops) gets none. Also in sweepSupportDesk (desk.ts line 512) and the expiry sweep (change-requests.ts line 530).",
+   "file": "src/server/rbac-support/desk.ts",
+   "line": 254,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-079",
+   "field": "expected",
+   "observation": "tellOperations links the Operations raiser's notifications to /staff/support/raised, which has no page (the tab is /staff/support?tab=raised), so the notification opens a 404.",
+   "file": "src/server/rbac-support/desk.ts",
+   "line": 345,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-068",
+   "field": "expected",
+   "observation": "The price-list template is served to any Support User for any shop id (only the permission and flag are checked), exposing products, prices, MRP and barcodes of shops not on an assigned ticket — the brief says a Support User works only assigned shops. A bulk upload whose rows are all bad also returns row errors before any shop / flag check (bulk.ts proposeBulkFile).",
+   "file": "src/app/api/staff/shops/[id]/changes/template/route.ts",
+   "line": 11,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-036",
+   "field": "expected",
+   "observation": "The Journals list offers no edit or resubmit for a REJECTED entry (buttons only for DRAFT, SUBMITTED, POSTED) — correcting needs PUT /api/staff/accounting/journals/{id}; the Rates tab likewise has no cancel button although the API exists. The testing report lists “A rejected entry is corrected and resubmitted” as passing (service level).",
+   "file": "src/components/staff/accounting-desk.tsx",
+   "line": 165,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-029",
+   "field": "preconditions",
+   "observation": "docs/rbac/01-assessment.md Q4 says the Super Admin must also be in PERMANENT_ADMIN_EMAILS or single-admin mode is refused; the engine checks only SUPER_ADMIN_EMAIL and the active-admin count.",
+   "file": "src/server/approvals/engine.ts",
+   "line": 236,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-077",
+   "field": "expected",
+   "observation": "Decision D6-02 says an assist is linked to an account “created after the assist”; the SQL accepts accounts created up to 1 hour before it. Case written to the code (older than 1 hour is never claimed).",
+   "file": "src/server/rbac-operations/assists.ts",
+   "line": 115,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-021",
+   "field": "expected",
+   "observation": "With four-eye ON, reinstate (and role / privileges / role removal) create the request without checking the target user, so an ACTIVE or unknown user gets 202 and the request FAILS only at apply — TC-ADM-018 expects 409 / 404 at once (true only with the flag OFF).",
+   "file": "src/app/api/users/[id]/reinstate/route.ts",
+   "line": 19,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-065",
+   "field": "expected",
+   "observation": "POST /api/approvals/{id}/decide does not re-check the area flag, so pending change requests, journals and bank sign-offs can still be decided after rbac_v2_shop_change_requests / rbac_v2_accounting is switched OFF.",
+   "file": "src/server/approvals/engine.ts",
+   "line": 241,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-001",
+   "field": "expected",
+   "observation": "For every RBAC v2 staff role the header link to /staff is labelled “Operator board” (UI.operatorBoard).",
+   "file": "src/components/site-header.tsx",
+   "line": 150,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-070",
+   "field": "expected",
+   "observation": "docs/rbac/05-documents.md says staff documents are limited to “≤ rule documentUpload.maxUploadBytes (5 MB default)”; the rule's default is 10,000,000 bytes, so the message is “A file can be at most 10.0 MB.” unless the site sets the rule lower.",
+   "file": "src/server/config/rules.ts",
+   "line": 1310,
+   "group": "E-rbac-v2"
+  },
+  {
+   "id": "TC-STAFF-056",
+   "field": "expected",
+   "observation": "The empty-team hint says “An admin adds them (Admin → Users, or POST /api/staff/teams).” — the screen for it is Admin → Staff teams.",
+   "file": "src/app/staff/support/page.tsx",
+   "line": 79,
+   "group": "E-rbac-v2"
+  }
+ ]
+}

@@ -1,10 +1,8 @@
--- Rollback for 0187_onboarding_waves_2_3 (onboarding Phase 2 Waves 2–3; docs/onboarding-waves-2-3-2026-11/).
--- Before running: deploy the previous release's code (which does not read these columns or flags), then delete
--- the 0187 row from drizzle.__drizzle_migrations. Assisted-draft history (who helped) is lost; the audit log keeps it.
-DROP INDEX IF EXISTS "shop_registration_drafts_assisted_idx";
-ALTER TABLE "shop_registration_drafts" DROP CONSTRAINT IF EXISTS "shop_registration_drafts_assisted_role";
-ALTER TABLE "shop_registration_drafts" DROP COLUMN IF EXISTS "assisted_session_id";
-ALTER TABLE "shop_registration_drafts" DROP COLUMN IF EXISTS "assisted_role";
-ALTER TABLE "shop_registration_drafts" DROP COLUMN IF EXISTS "assisted_by_user_id";
-DELETE FROM "feature_flag_changes" WHERE "flag_key" IN ('onboarding_referral_by_pin_enabled', 'onboarding_assisted_mode_enabled', 'onboarding_scan_first_enabled');
-DELETE FROM "feature_flags" WHERE "key" IN ('onboarding_referral_by_pin_enabled', 'onboarding_assisted_mode_enabled', 'onboarding_scan_first_enabled');
+-- Rollback for 0187_brand_barcode_favourites (docs/search-brand-barcode-favourites-2026-11/).
+-- Before running: switch the flag off (Admin → Feature flags), deploy the previous release's code, then
+-- delete the 0187 row from drizzle.__drizzle_migrations. Dropping favourites deletes customers' saved
+-- products: export the table first if they should be kept.
+DROP INDEX IF EXISTS "brands_name_trgm_idx";
+DROP TABLE IF EXISTS "favourites";
+DELETE FROM "feature_flags" WHERE "key" = 'brand_barcode_favourites_enabled';
+DELETE FROM "feature_flag_changes" WHERE "flag_key" = 'brand_barcode_favourites_enabled';

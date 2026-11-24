@@ -65,6 +65,7 @@ import {
 } from "@/lib/product-import";
 import { SUBSCRIPTION_DELIVERY_STATUSES } from "@/lib/subscription-deliveries";
 import { PERIODICAL_KINDS, PERIODICAL_PUBLICATIONS } from "@/lib/periodicals";
+import { PLAN_KINDS, PLAN_SLOTS } from "@/lib/subscription-plans";
 import {
   CONSULT_BOOKING_KINDS,
   CONSULT_BOOKING_STATUSES,
@@ -153,7 +154,7 @@ export const userStatusEnum = pgEnum("user_status", [
   "ACTIVE",
   "SUSPENDED",
   "DELETED",
-  // docs/account-deletion-2026-11 (0191): the person asked to delete the account; hidden during the
+  // docs/account-deletion-2026-11 (0196): the person asked to delete the account; hidden during the
   // cooling-off period (rule accountDeletion.coolingOffDays), then anonymised to DELETED.
   "PENDING_DELETION",
 ]);
@@ -566,7 +567,7 @@ export const grievanceCategoryEnum = pgEnum("grievance_category", [
 export const consentTypeEnum = pgEnum("consent_type", [
   "TERMS_AND_PRIVACY",
   "MARKETING_COMMUNICATIONS",
-  // docs/customer-whatsapp-2026-11 (0185): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
+  // docs/customer-whatsapp-2026-11 (0190): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
   "WHATSAPP_NOTIFICATIONS",
 ]);
 
@@ -598,14 +599,14 @@ export const users = pgTable(
      */
     emailPlaceholder: boolean("email_placeholder").notNull().default(false),
     /**
-     * docs/guest-checkout-2026-11 (0184): the account was created by guest
+     * docs/guest-checkout-2026-11 (0189): the account was created by guest
      * checkout (contact + one-time code at the cart, no sign-up form). It is a
      * normal customer account in every other way; the flag only adds the
      * "track without signing in" link to its order e-mails.
      */
     guestCreated: boolean("guest_created").notNull().default(false),
     /**
-     * Module 6 (migration 0186): language last chosen on the EN / हिं / मरा
+     * Module 6 (migration 0191): language last chosen on the EN / हिं / मरा
      * switch — "en", "hi" or "mr"; null = never chosen (English). The gk_lang
      * cookie wins; this is the fallback on a new device and the language of
      * the person's in-app / e-mail notifications.
@@ -924,7 +925,7 @@ export const shops = pgTable(
      */
     membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
     /**
-     * 0189 (docs/shop-membership-renewal-2026-11): an admin exempted this shop from the yearly membership —
+     * 0194 (docs/shop-membership-renewal-2026-11): an admin exempted this shop from the yearly membership —
      * never closed for a lapsed membership and not reminded. Audited (shop.membership_exemption_changed).
      */
     membershipExempt: boolean("membership_exempt").notNull().default(false),
@@ -2096,8 +2097,19 @@ export const orders = pgTable(
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
       .default(0),
+    /**
+     * Tax charged ON TOP of the item prices. Always 0: GoKesari prices already
+     * include GST, so adding tax here would charge it twice. The GST included in
+     * the prices is taxIncludedPaise (informational, never part of the total).
+     */
     taxPaise: bigint("tax_paise", { mode: "number" }).notNull().default(0),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /**
+     * GST (and cess) INCLUDED in the goods' prices, summed from the lines'
+     * taxPaise at checkout (migration 0183). Never added to totalPaise. Null
+     * when not recorded (orders before 0183, or a line with no known rate).
+     */
+    taxIncludedPaise: bigint("tax_included_paise", { mode: "number" }),
     /** Set once the wallet deduction has actually completed. */
     paidAt: timestamp("paid_at", { withTimezone: true }),
     deliveryDate: date("delivery_date"),
@@ -2204,6 +2216,18 @@ export const orderItems = pgTable(
     lineTotalPaise: bigint("line_total_paise", { mode: "number" }).notNull(),
     /** D-91: the product's MRP when it was sold (products.mrp_paise); null when it had none (loose goods). */
     mrpPaise: bigint("mrp_paise", { mode: "number" }),
+    /*
+     * Tax snapshot at checkout (migration 0183; null on older orders). The line's
+     * classification when it was ordered (listing → master product → dated HSN
+     * table) and the GST + cess INCLUDED in lineTotalPaise: taxable + tax = line
+     * total. A shop that charges no GST records taxable = line total, tax = 0.
+     * gstRateBp null = no rate was known (taxable / tax null too).
+     */
+    hsnCode: text("hsn_code"),
+    gstRateBp: integer("gst_rate_bp"),
+    cessBp: integer("cess_bp"),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }),
+    taxPaise: bigint("tax_paise", { mode: "number" }),
     /* ------------------------------------------ fulfilment (Slice 3) —
      * the original snapshot above is never rewritten; a substitute is
      * recorded alongside it so the order keeps its history. */
@@ -2333,11 +2357,11 @@ export const deliveryOrders = pgTable(
     arrivedAtCustomerAt: timestamp("arrived_at_customer_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
     failureReason: text("failure_reason"),
-    /** 0188 (Module 4, rule deliveryProof.failureReasons): the reason picked from the fixed list; null for free text. */
+    /** 0193 (Module 4, rule deliveryProof.failureReasons): the reason picked from the fixed list; null for free text. */
     failureReasonCode: text("failure_reason_code", {
       enum: ["CUSTOMER_NOT_AVAILABLE", "WRONG_ADDRESS", "REFUSED", "PHONE_UNREACHABLE", "OTHER"],
     }),
-    /** 0188 (Module 4, rule deliveryProof.captureGps): the rider's position when marking delivered / failed. Operations only. */
+    /** 0193 (Module 4, rule deliveryProof.captureGps): the rider's position when marking delivered / failed. Operations only. */
     deliveredLatitude: doublePrecision("delivered_latitude"),
     deliveredLongitude: doublePrecision("delivered_longitude"),
     deliveredAccuracyM: integer("delivered_accuracy_m"),
@@ -2400,7 +2424,7 @@ export const deliveryProofs = pgTable(
     storedImageId: uuid("stored_image_id")
       .notNull()
       .references(() => storedImages.id, { onDelete: "restrict" }),
-    /** 0121 (feature 9): the optional photo at pickup, or the photo at the door; 0188 (Module 4): the customer's signature. */
+    /** 0121 (feature 9): the optional photo at pickup, or the photo at the door; 0193 (Module 4): the customer's signature. */
     kind: text("kind", { enum: ["PICKUP", "DELIVERY", "SIGNATURE"] }).notNull().default("DELIVERY"),
     /** 0188: who signed (optional, SIGNATURE only). */
     signerName: text("signer_name"),
@@ -3819,6 +3843,60 @@ export const voucherUploadItems = pgTable(
   ],
 );
 
+/* ------------------------------------------------- subscription plans */
+
+/**
+ * A shop's offer to deliver one of its products on repeat (docs/subscription-plans-2026-11):
+ * a tiffin kitchen's "Veg lunch thali", a dairy's "Morning milk 1 L", a paper
+ * agent's "Times of India". Kind and slot help customers find it; serving
+ * days, allowed frequencies, fixed terms and lead days bound what a customer
+ * may choose; an optional subscriber price replaces the listing's online
+ * price for plan subscriptions. Soft-deleted (`deleted_at`): subscriptions
+ * keep pointing at it.
+ */
+export const subscriptionPlans = pgTable(
+  "subscription_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    shopProductId: uuid("shop_product_id")
+      .notNull()
+      .references(() => shopProducts.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    kind: text("kind", { enum: PLAN_KINDS }).notNull().default("OTHER"),
+    slot: text("slot", { enum: PLAN_SLOTS }).notNull().default("ANYTIME"),
+    /** The shop's own window, e.g. "12:30–2 pm"; null = the slot's usual window. */
+    slotWindow: text("slot_window"),
+    /** ISO weekdays the plan is delivered (1 Mon … 7 Sun). */
+    serviceDays: jsonb("service_days").$type<number[]>().notNull().default([1, 2, 3, 4, 5, 6, 7]),
+    /** Which schedules a customer may choose: DAILY, WEEKLY, MONTHLY. */
+    allowedFrequencies: jsonb("allowed_frequencies").$type<("DAILY" | "WEEKLY" | "MONTHLY")[]>().notNull().default(["DAILY", "WEEKLY"]),
+    /** Subscriber price per unit; null = the listing's online price. */
+    pricePaise: bigint("price_paise", { mode: "number" }),
+    /** Fixed lengths in days the customer picks from; empty = open-ended. */
+    termDays: jsonb("term_days").$type<number[]>().notNull().default([]),
+    /** Earliest first delivery = today + lead days. */
+    leadDays: integer("lead_days").notNull().default(1),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("subscription_plans_shop_idx").on(t.shopId),
+    index("subscription_plans_kind_idx").on(t.kind),
+    uniqueIndex("subscription_plans_shop_name_live_unique")
+      .on(t.shopId, sql`lower(${t.name})`)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check("subscription_plans_price_positive", sql`${t.pricePaise} IS NULL OR ${t.pricePaise} > 0`),
+    check("subscription_plans_lead_days", sql`${t.leadDays} BETWEEN 0 AND 30`),
+  ],
+);
+
 /* --------------------------------------------------------- subscriptions */
 
 export const subscriptions = pgTable(
@@ -3847,6 +3925,12 @@ export const subscriptions = pgTable(
      * one vendor in one go). Null for a subscription made on its own.
      */
     bundleId: uuid("bundle_id"),
+    /**
+     * The shop's plan this subscription was taken on (docs/subscription-plans-2026-11);
+     * null for a catalogue "subscribable" product taken the old way. No foreign
+     * key (seller and customer tables are linked in the service, CLAUDE.md).
+     */
+    planId: uuid("plan_id"),
     startDate: date("start_date").notNull(),
     endDate: date("end_date"),
     nextDeliveryDate: date("next_delivery_date"),
@@ -3879,6 +3963,7 @@ export const subscriptions = pgTable(
     index("subscriptions_status_idx").on(t.status),
     index("subscriptions_next_delivery_idx").on(t.nextDeliveryDate),
     index("subscriptions_bundle_idx").on(t.bundleId),
+    index("subscriptions_plan_idx").on(t.planId),
     check("subscriptions_quantity_positive", sql`${t.quantityMilli} > 0`),
     check(
       "subscriptions_pause_window_valid",
@@ -4314,7 +4399,7 @@ export const shopPayments = pgTable(
 );
 
 /**
- * 0189 (docs/shop-membership-renewal-2026-11): one row each time a fully paid fee (registration or renewal)
+ * 0194 (docs/shop-membership-renewal-2026-11): one row each time a fully paid fee (registration or renewal)
  * extended a shop's membership — the renewal history, and what a refund or reversal rolls back (voided_at).
  * LEGACY: what an existing shop had paid when this table was added (never rolled back).
  */
@@ -4456,16 +4541,16 @@ export const shopStaff = pgTable(
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    // Null only for an invitation to an e-mail address with no account yet (Module 10, 0190).
+    // Null only for an invitation to an e-mail address with no account yet (Module 10, 0195).
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     scope: text("scope", { enum: ["CATALOGUE"] }).notNull().default("CATALOGUE"),
-    // Module 10 (0190): INVITED and SUSPENDED added; only ACTIVE grants anything.
+    // Module 10 (0195): INVITED and SUSPENDED added; only ACTIVE grants anything.
     status: text("status", { enum: ["INVITED", "ACTIVE", "SUSPENDED", "REVOKED"] }).notNull().default("ACTIVE"),
     addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
     addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
     revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "set null" }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    /* Module 10 (0190, docs/shop-staff-roles-2026-11): role + extra permissions (src/lib/shop-staff/permissions.ts). */
+    /* Module 10 (0195, docs/shop-staff-roles-2026-11): role + extra permissions (src/lib/shop-staff/permissions.ts). */
     role: text("role").notNull().default("CATALOGUE_MANAGER"),
     permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`),
     inviteEmail: text("invite_email"),
@@ -4858,7 +4943,7 @@ export const userConsents = pgTable(
     /** false = a withdrawal (DPDPA §6(4)). Every existing row was a grant. */
     granted: boolean("granted").notNull().default(true),
     ipAddress: text("ip_address"),
-    /** docs/customer-whatsapp-2026-11 (0185): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
+    /** docs/customer-whatsapp-2026-11 (0190): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
     source: text("source"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -4871,7 +4956,7 @@ export const userConsents = pgTable(
 );
 
 /**
- * docs/account-deletion-2026-11 (0183): a person asking to delete their own
+ * docs/account-deletion-2026-11 (0188): a person asking to delete their own
  * account. REQUESTED when the code is sent, BLOCKED when a check refused it
  * (`blockers` lists why), COMPLETED once the account was anonymised. Kept after
  * the account is gone as the record that the request was honoured. No foreign
@@ -6397,6 +6482,7 @@ export type SubscriptionDailyOverride =
 export type SubscriptionOrder = typeof subscriptionOrders.$inferSelect;
 export type SubscriptionDelivery = typeof subscriptionDeliveries.$inferSelect;
 export type PeriodicalTitle = typeof periodicalTitles.$inferSelect;
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Address = typeof addresses.$inferSelect;
 export type DeliveryPartner = typeof deliveryPartners.$inferSelect;
@@ -9919,6 +10005,8 @@ export const payoutItems = pgTable(
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
     provider: text("provider"),
     providerRef: text("provider_ref"),
+    /** 0186: the id the provider knows the current attempt by, saved before the request is sent. */
+    providerTransferId: text("provider_transfer_id"),
     /** Bank reference of the transfer — recorded for every payment. */
     utr: text("utr"),
     /** Sent to the provider so a retried request never pays twice. */
@@ -9936,6 +10024,7 @@ export const payoutItems = pgTable(
     uniqueIndex("payout_items_batch_shop_unique").on(t.batchId, t.shopId),
     uniqueIndex("payout_items_idempotency_unique").on(t.idempotencyKey),
     uniqueIndex("payout_items_utr_unique").on(t.utr).where(sql`${t.utr} IS NOT NULL`),
+    uniqueIndex("payout_items_provider_transfer_id_unique").on(t.providerTransferId).where(sql`${t.providerTransferId} IS NOT NULL`),
     index("payout_items_shop_idx").on(t.shopId, t.createdAt),
     index("payout_items_status_idx").on(t.status, t.nextAttemptAt),
   ],
@@ -9964,6 +10053,32 @@ export const payoutEvents = pgTable(
   ],
 );
 export type PayoutEvent = typeof payoutEvents.$inferSelect;
+
+/**
+ * 0186: a correctly signed payout webhook that matched no payout yet (shop item, rider transfer or dealer
+ * payout). It is answered 409 so the provider delivers it again; matched_at is set once it is applied.
+ */
+export const payoutWebhookParked = pgTable(
+  "payout_webhook_parked",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    source: text("source").notNull(),
+    eventId: text("event_id").notNull(),
+    providerRef: text("provider_ref"),
+    transferId: text("transfer_id"),
+    status: text("status").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    deliveries: integer("deliveries").notNull().default(1),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    matchedAt: timestamp("matched_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("payout_webhook_parked_source_event_unique").on(t.source, t.eventId),
+    index("payout_webhook_parked_open_idx").on(t.firstSeenAt).where(sql`${t.matchedAt} IS NULL`),
+  ],
+);
+export type PayoutWebhookParked = typeof payoutWebhookParked.$inferSelect;
 
 /*
  * F10.2.5 GoKesari's tax invoices to shops for its own fees (seller database:
@@ -10596,7 +10711,7 @@ export type PurchaseListItem = typeof purchaseListItems.$inferSelect;
 
 /* <<< end purchase lists */
 
-/* >>> favourites (docs/search-brand-barcode-favourites-2026-11, 0182) */
+/* >>> favourites (docs/search-brand-barcode-favourites-2026-11, 0187) */
 
 /**
  * A customer's saved catalogue products (the heart on a product card). Not the smart-list "wishlist".
@@ -10668,22 +10783,22 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_operations",
   // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
   "dealer_platform_four_eye",
-  // docs/shop-staff-roles-2026-11 (0190): shop staff roles, permissions and invitations. Off: staff stay catalogue-only.
+  // docs/shop-staff-roles-2026-11 (0195): shop staff roles, permissions and invitations. Off: staff stay catalogue-only.
   "shop_staff_roles_enabled",
-  // docs/customer-whatsapp-2026-11 (0185): customer updates and shopping on WhatsApp (Meta Cloud API, or the mock outbox).
+  // docs/customer-whatsapp-2026-11 (0190): customer updates and shopping on WhatsApp (Meta Cloud API, or the mock outbox).
   "whatsapp_customer_enabled",
-  // docs/search-brand-barcode-favourites-2026-11 (0182): brand search, customer barcode search, favourites.
+  // docs/search-brand-barcode-favourites-2026-11 (0187): brand search, customer barcode search, favourites.
   "brand_barcode_favourites_enabled",
-  // docs/onboarding-waves-2-3-2026-11 (0187): onboarding Phase 2 Waves 2–3 (WP6, WP7, WP10). Seeded OFF.
+  // docs/onboarding-waves-2-3-2026-11 (0192): onboarding Phase 2 Waves 2–3 (WP6, WP7, WP10). Seeded OFF.
   "onboarding_referral_by_pin_enabled",
   "onboarding_assisted_mode_enabled",
   "onboarding_scan_first_enabled",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
-  // docs/guest-checkout-2026-11 (0184): checkout as a guest (contact + code), tracking links, best-shop panel,
+  // docs/guest-checkout-2026-11 (0189): checkout as a guest (contact + code), tracking links, best-shop panel,
   // group timeline and the admin order-group reconciliation. Needs guest_cart_enabled ON too. Seeded OFF.
   "guest_checkout_enabled",
-  // docs/account-deletion-2026-11 (0183): customers delete their own account from My Profile. Off: no section, APIs answer 404.
+  // docs/account-deletion-2026-11 (0188): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
@@ -11821,6 +11936,10 @@ export const dealerPayoutBatches = pgTable(
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     provider: text("provider"),
     providerRef: text("provider_ref"),
+    /** 0186: the id the provider knows the current attempt by, saved before the request is sent. */
+    providerTransferId: text("provider_transfer_id"),
+    /** 0186: when the current attempt was sent. */
+    sentAt: timestamp("sent_at", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(0),
     nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
     needsReview: boolean("needs_review").notNull().default(false),
@@ -11839,6 +11958,7 @@ export const dealerPayoutBatches = pgTable(
     index("dealer_payout_batches_pan_idx").on(t.payeePanHash, t.periodMonth).where(sql`${t.payeePanHash} IS NOT NULL`),
     index("dealer_payout_batches_retry_idx").on(t.status, t.nextRetryAt),
     index("dealer_payout_batches_provider_ref_idx").on(t.providerRef).where(sql`${t.providerRef} IS NOT NULL`),
+    uniqueIndex("dealer_payout_batches_provider_transfer_id_unique").on(t.providerTransferId).where(sql`${t.providerTransferId} IS NOT NULL`),
     check("dealer_payout_batches_status", sql`${t.status} in ('DRAFT', 'APPROVED', 'PROCESSING', 'FAILED', 'PAID', 'CANCELLED')`),
     check("dealer_payout_batches_tds", sql`${t.tdsPaise} >= 0 AND ${t.tdsPaise} <= greatest(${t.totalPaise}, 0) AND ${t.tdsRateBp} BETWEEN 0 AND 10000`),
   ],
@@ -12575,6 +12695,8 @@ export const riderBankTransfers = pgTable(
     /** Retries used up (or the bank returned it): finance decides — retry or release. */
     needsReview: boolean("needs_review").notNull().default(false),
     providerRef: text("provider_ref"),
+    /** 0186: the id the provider knows the current attempt by, saved before the request is sent. */
+    providerTransferId: text("provider_transfer_id"),
     utr: text("utr"),
     failureReason: text("failure_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -12587,6 +12709,7 @@ export const riderBankTransfers = pgTable(
     index("rider_bank_transfers_partner_idx").on(t.deliveryPartnerId, t.createdAt),
     index("rider_bank_transfers_status_idx").on(t.status, t.nextRetryAt),
     index("rider_bank_transfers_provider_ref_idx").on(t.providerRef).where(sql`${t.providerRef} IS NOT NULL`),
+    uniqueIndex("rider_bank_transfers_provider_transfer_id_unique").on(t.providerTransferId).where(sql`${t.providerTransferId} IS NOT NULL`),
     check(
       "rider_bank_transfers_amounts",
       sql`${t.grossPaise} > 0 AND ${t.tdsPaise} >= 0 AND ${t.feePaise} >= 0 AND ${t.netPaise} = ${t.grossPaise} - ${t.tdsPaise} - ${t.feePaise} AND ${t.netPaise} > 0`,

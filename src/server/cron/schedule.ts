@@ -198,6 +198,9 @@ export const HOURLY: readonly Job[] = [
   { name: "rider-monthly-payout", run: riderMonthlyPayout },
   // Gap report C4: failed dealer commission transfers whose backoff has passed (a no-op while dealerAutoPayout is off).
   { name: "dealer-payout-retries", run: async () => (await import("@/server/dealers/auto-payout")).retryDueDealerPayouts() },
+  // 23-Nov-2026: shop, rider and dealer transfers with no answer yet are looked up with the payout provider
+  // (src/server/payouts/reconcile.ts); a no-op while nothing is in flight.
+  { name: "payout-reconcile", run: async () => (await import("@/server/payouts/reconcile")).reconcilePayouts() },
   // docs/rbac: scheduled rate activations, change-request reminders / expiry, ticket SLA (no-ops while the flags are off).
   { name: "rbac-v2", run: async () => (await import("@/server/rbac-v2/sweep")).runRbacV2Sweep() },
   {
@@ -242,7 +245,7 @@ export const DAILY: readonly Job[] = [
   { name: "smart-list-photo-retention", run: async () => (await import("@/server/services/smart-list/scan")).sweepExpiredScanPhotos() },
   // docs/smart-shopping-2026-11 (Feature 2): add-by-photo photos not used for a product, after rule smartShopping.photoRetentionDays.
   { name: "photo-listing-purge", run: async () => (await import("@/server/services/shop-photo-listing")).purgeExpiredPhotoListingPhotos() },
-  // docs/account-deletion-2026-11 (0191): accounts whose deletion cooling-off period (rule accountDeletion.coolingOffDays)
+  // docs/account-deletion-2026-11 (0196): accounts whose deletion cooling-off period (rule accountDeletion.coolingOffDays)
   // is over are anonymised; one where a blocker appeared is held (BLOCKED) and ops are alerted. A no-op when none is due.
   { name: "account-deletion-purge", run: async () => (await import("@/server/services/account-deletion")).runDueAccountPurges() },
 ];

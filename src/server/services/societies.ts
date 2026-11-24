@@ -742,7 +742,7 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
       })
       .from(societyMembers)
       .innerJoin(users, eq(societyMembers.userId, users.id))
-      // docs/account-deletion-2026-11 (0191): an account hidden in its deletion cooling-off period is not shown.
+      // docs/account-deletion-2026-11 (0196): an account hidden in its deletion cooling-off period is not shown.
       .where(and(eq(societyMembers.societyId, societyId), ne(societyMembers.status, "REMOVED"), ne(users.status, "PENDING_DELETION")))
       .orderBy(societyMembers.status, societyMembers.createdAt),
     db
@@ -760,7 +760,7 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
       })
       .from(societyRiders)
       .innerJoin(deliveryPartners, eq(societyRiders.deliveryPartnerId, deliveryPartners.id))
-      // docs/account-deletion-2026-11 (0191): a rider whose account is hidden in its deletion cooling-off period is not shown.
+      // docs/account-deletion-2026-11 (0196): a rider whose account is hidden in its deletion cooling-off period is not shown.
       .where(
         and(
           eq(societyRiders.societyId, societyId),

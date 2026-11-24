@@ -72,7 +72,7 @@ export default async function SignInPage({
         // TC-FLD-004: a new account needs the Terms box ticked; the server checks it.
         acceptedTerms: input?.acceptedTerms === true,
         ip,
-        // docs/account-deletion-2026-11 (0191): an account in its deletion cooling-off period gets the
+        // docs/account-deletion-2026-11 (0196): an account in its deletion cooling-off period gets the
         // restore screen, never a session.
         allowPendingDeletion: true,
       });

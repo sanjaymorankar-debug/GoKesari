@@ -1,7 +1,7 @@
 # Brand search, barcode search and favourites (Module 3, 23-Nov-2026)
 
 Owner brief 23-Nov-2026, Module 3. Everything below is behind one feature flag,
-**`brand_barcode_favourites_enabled`**, seeded **OFF** by migration 0182. While it is off the site behaves exactly
+**`brand_barcode_favourites_enabled`**, seeded **OFF** by migration 0187. While it is off the site behaves exactly
 as before: no brand group, no scan button, no hearts, no Favourites tile; `/brand/…`, `/favourites` and the new
 APIs answer 404.
 
@@ -57,8 +57,8 @@ The brand page's location line reuses the search page's English wording, as that
 
 ## Migration
 
-`drizzle/0182_brand_barcode_favourites.sql` — `favourites` table + indexes, trigram index on `brands.name`, flag row
-OFF. Additive, re-runnable. Rollback: `scripts/rollback-0182.sql` (drops the table — export it first if customers'
+`drizzle/0187_brand_barcode_favourites.sql` — `favourites` table + indexes, trigram index on `brands.name`, flag row
+OFF. Additive, re-runnable. Rollback: `scripts/rollback-0187.sql` (drops the table — export it first if customers'
 favourites should be kept).
 
 ## Files

@@ -397,6 +397,7 @@ export const TEMPLATES: Record<string, Template> = {
   [T.SHOP_PLATFORM_INVOICE]: t("GoKesari invoice {{invoiceNumber}}", "GoKesari's tax invoice {{invoiceNumber}} for its fees ({{amount}} incl. GST) for {{period}} is in Finance → Statements.", false),
   [T.SUPPORT_PAYOUT_BATCH_DRAFTED]: t("Payout batch ready to approve", "The payout batch for {{period}} has {{items}} shop payment(s) totalling {{amount}} ({{held}} held). Approve it in Admin → Payouts.", false),
   [T.SUPPORT_PAYOUT_FAILED]: t("Payout failed", "The payout of {{amount}} to {{shopName}} failed after {{attempts}} attempt(s): {{reason}}", false),
+  [T.SUPPORT_PAYOUT_LOW_BALANCE]: t("Payouts balance low", "{{provider}} reports a low payouts account balance ({{balance}}). Add funds before the next payouts are sent, or transfers will fail.", false),
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
