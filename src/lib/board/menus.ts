@@ -372,6 +372,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "today", label: L("Today's deliveries", "आज की डिलीवरी", "आजच्या डिलिव्हऱ्या"), icon: "sunrise", href: "/shop/manage/today" },
+      // docs/hdms-2026-11: orders carried by Shadowfax / Pidge / Porter / Borzo — ongoing and history, with tracking.
+      { key: "partnerDeliveries", label: L("Partner deliveries", "पार्टनर डिलीवरी", "भागीदार डिलिव्हरी"), icon: "truck", href: "/shop/deliveries" },
     ],
   },
   {
@@ -528,6 +530,31 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/admin/support-services", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE, feature: "paid_support_services_enabled" },
     ],
   },
+  // docs/hdms-2026-11: Delivery management — shop riders, GoKesari riders and delivery partners in one place.
+  {
+    key: "delivery", label: L("Delivery management", "डिलीवरी प्रबंधन", "डिलिव्हरी व्यवस्थापन"), short: L("Delivery", "डिलीवरी", "डिलिव्हरी"), icon: "truck", tone: "amber", href: "/admin/delivery", opens: "hub",
+    items: [
+      { key: "dashboard", label: L("Delivery dashboard", "डिलीवरी डैशबोर्ड", "डिलिव्हरी डॅशबोर्ड"), icon: "chart-line", href: "/admin/delivery", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "active", label: L("Active deliveries", "चालू डिलीवरी", "चालू डिलिव्हरी"), icon: "truck", href: "/admin/delivery/active", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "providers", label: L("Delivery providers", "डिलीवरी पार्टनर", "डिलिव्हरी भागीदार"), icon: "route", href: "/admin/delivery/providers", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "zones", label: L("Delivery zones", "डिलीवरी ज़ोन", "डिलिव्हरी झोन"), icon: "map-pin", href: "/admin/delivery/zones", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "pricing", label: L("Delivery pricing", "डिलीवरी शुल्क", "डिलिव्हरी शुल्क"), icon: "indian-rupee", href: "/admin/delivery/pricing", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "allocation", label: L("Allocation rules", "आवंटन नियम", "वाटप नियम"), icon: "sliders-horizontal", href: "/admin/delivery/allocation", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "settlements", label: L("Settlements", "सेटलमेंट", "सेटलमेंट"), icon: "receipt", href: "/admin/delivery/settlements", permission: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.SYSTEM_CONFIG] },
+    ],
+    more: [
+      { key: "providerApi", label: L("Provider API configuration", "पार्टनर API सेटिंग", "भागीदार API सेटिंग"), icon: "settings", href: "/admin/delivery/providers", permission: PERMISSIONS.SYSTEM_CONFIG },
+      { key: "shopRiders", label: L("Shop delivery personnel", "दुकान डिलीवरी स्टाफ़", "दुकान डिलिव्हरी कर्मचारी"), icon: "bike", href: "/admin/delivery/shop-riders", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "partners", label: L("GoKesari delivery partners", "GoKesari डिलीवरी पार्टनर", "GoKesari डिलिव्हरी भागीदार"), icon: "bike", href: "/admin/delivery/partners", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "completed", label: L("Completed deliveries", "पूरी डिलीवरी", "पूर्ण डिलिव्हरी"), icon: "circle-check", href: "/admin/delivery/completed", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "failed", label: L("Failed deliveries", "विफल डिलीवरी", "अयशस्वी डिलिव्हरी"), icon: "triangle-alert", href: "/admin/delivery/failed", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "cancellations", label: L("Cancellation management", "रद्दीकरण", "रद्द"), icon: "undo-2", href: "/admin/delivery/cancelled", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "reconciliation", label: L("Reconciliation", "मिलान", "जुळवणी"), icon: "scale", href: "/admin/delivery/settlements", permission: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "reports", label: L("Delivery reports", "डिलीवरी रिपोर्ट", "डिलिव्हरी अहवाल"), icon: "file-chart-column", href: "/admin/delivery/reports", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "health", label: L("Integration health", "इंटीग्रेशन स्थिति", "इंटिग्रेशन स्थिती"), icon: "chart-line", href: "/admin/delivery/health", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "webhooks", label: L("Webhook logs", "वेबहुक लॉग", "वेबहुक लॉग"), icon: "history", href: "/admin/delivery/webhooks", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+    ],
+  },
   {
     key: "reports", label: L("Reports", "रिपोर्ट", "अहवाल"), icon: "file-chart-column", tone: "pink", href: "/admin/dashboard", opens: "hub",
     items: [
@@ -648,6 +675,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "profileChanges", label: L("Profile changes", "प्रोफ़ाइल बदलाव", "प्रोफाइल बदल"), icon: "user-check", href: "/admin/rider-changes", count: "riderChanges", permission: PERMISSIONS.DELIVERY_PARTNER_MANAGE },
       // Rider earnings rules are admin-only; operators work the money exceptions (missing rider earnings among them).
       { key: "earnings", label: L("Pay issues", "भुगतान समस्याएँ", "पेमेंट अडचणी"), icon: "indian-rupee", href: "/admin/finance/exceptions", permission: PERMISSIONS.FINANCE_EXCEPTIONS_VIEW },
+      // docs/hdms-2026-11: deliveries handed to Shadowfax / Pidge / Porter / Borzo, zones, allocation.
+      { key: "partnerDeliveries", label: L("Delivery management", "डिलीवरी प्रबंधन", "डिलिव्हरी व्यवस्थापन"), short: { en: "Delivery mgmt" }, icon: "truck", href: "/admin/delivery", permission: PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY },
     ],
   },
   {
