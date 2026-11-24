@@ -44,6 +44,7 @@ export type FeatureFlagKey =
   | "guest_cart_enabled"
   | "tax_register"
   | "payout_deductions"
+  | "hdms_enabled"
   // docs/seller-undertaking-2026-11
   | "seller_undertaking_gate_enabled";
 
