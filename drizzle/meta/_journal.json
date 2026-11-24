@@ -1324,6 +1324,13 @@
       "when": 1793269800000,
       "tag": "0188_payout_deductions",
       "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1793269900000,
+      "tag": "0189_hdms_delivery",
+      "breakpoints": true
     }
   ]
 }
