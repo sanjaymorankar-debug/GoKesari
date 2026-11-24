@@ -42,7 +42,8 @@ export type FeatureFlagKey =
   | "dealer_platform_four_eye"
   // docs/guest-cart-2026-11
   | "guest_cart_enabled"
-  | "tax_register";
+  | "tax_register"
+  | "payout_deductions";
 
 interface FlagValue {
   enabled: boolean;
