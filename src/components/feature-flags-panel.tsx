@@ -43,6 +43,7 @@ export type FeatureFlagKey =
   // docs/guest-cart-2026-11
   | "guest_cart_enabled"
   | "tax_register"
+  | "payout_deductions"
   // docs/price-comparison-off-2026-11
   | "local_price_comparison_enabled";
 

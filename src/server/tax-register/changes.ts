@@ -432,3 +432,14 @@ export function parseProductGstCsv(csv: string): z.infer<typeof productGstRowSch
   if (!rows.length) throw validationFailed("The file has no rows.");
   return rows;
 }
+
+/** Whether the CA approved the current value of these tax fields of a setting (all of them). */
+export async function ruleFieldsApproved(ruleKey: TaxRuleKey, fields: readonly string[]): Promise<boolean> {
+  const value = (await getRule(ruleKey as RuleKey)) as Record<string, unknown>;
+  const keys = fields.map((f) => ruleParamKey(ruleKey, f));
+  const approvals = await latestApprovals(keys);
+  return fields.every((f) => {
+    const a = approvals.get(ruleParamKey(ruleKey, f));
+    return !!a && sameValue(a.value, value[f]);
+  });
+}
