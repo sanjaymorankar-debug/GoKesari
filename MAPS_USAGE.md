@@ -43,18 +43,36 @@ rationale in full.
 - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` — client-side, HTTP-referrer-restricted
   to this app's domains. Powers Maps JS + Places Autocomplete only.
 - `GOOGLE_MAPS_SERVER_API_KEY` — server-side, IP-restricted, never sent to a
-  browser. Powers the Geocoding API call in `geocoding.ts` only.
+  browser. Powers the Geocoding API call in `geocoding.ts`, and the Routes
+  API when a routing rule uses the `google` provider.
 
-Neither key should have more APIs enabled on it than it actually uses —
-enabling Routes/Route Matrix on either key now would be enabling a service
-Phase 1 never calls.
+Neither key should have more APIs enabled on it than it actually uses. The
+Routes API is needed on the server key only, and only when rule `routing` or
+`riderNavigation` uses the `google` provider (see "Road routing" below).
 
-## Deferred to Phase 2
+## Road routing (built; every switch off by default)
 
-Real road-distance/travel-time routing (Google Routes / Route Matrix) is
-explicitly **not** used in Phase 1. Rider assignment and delivery-window
-feasibility checks use Haversine straight-line distance
-(`src/lib/geo/haversine.ts`, pure math, zero cost) on stored coordinates.
-Routing only earns its cost once Phase 2's multi-order batching needs actual
-route sequencing — see the delivery-system plan's "Explicitly NOT in this
-plan" section.
+The "deferred to Phase 2" note that stood here is out of date: road routing
+now exists, behind admin rules that are **off by default**. With them off
+everything still uses Haversine straight-line distance on stored
+coordinates (`src/lib/geo/haversine.ts`, zero cost), as Phase 1 did.
+
+| Feature | Rule | Service | When it is called | Logged as |
+|---|---|---|---|---|
+| Delivery distance and arrival-time estimates (rider offer, delivery window) | `routing` (`enabled`, `provider` google / osrm) | Google Routes API `computeRoutes` with `GOOGLE_MAPS_SERVER_API_KEY`, or an OSRM server (`osrmBaseUrl`) | When a rider is offered an order (rider → shop, shop → customer) and when the delivery window is estimated; reused between nearby points for `cacheSeconds` | `maps_api_call_log` service `ROUTES`, purposes `delivery_leg`, `delivery_pickup`, `delivery_window_estimate` |
+| Rider turn-by-turn navigation (`/delivery-partner/navigate/[deliveryId]`) | `riderNavigation` (`enabled`, `provider` mock / google / osrm) | Same Routes API / OSRM; `mock` is a straight line with no call | When the rider opens the screen, and again when they go more than `offRouteMeters` off the route (at most once per `rerouteCooldownSeconds`); cached for `cacheSeconds` per ~100 m cell | `ROUTES`, purpose `rider_navigation` (google with no key is not logged) |
+| Multi-stop trip on the navigation screen (Module 4) | `riderNavigation.multiStop` + `batching.enabled` | No extra call: the stop order comes from GoKesari's own trip planner (`delivery-trips.ts`, straight-line). No waypoints are sent; the route always goes to the next stop | Same as the navigation row above, one route per stop | as above |
+| "Open in Google Maps" deep link | always on | None from GoKesari — the rider's phone opens Google Maps | On tap | not logged (no cost to GoKesari) |
+
+Every routing call falls back to the straight-line estimate when the
+service fails, times out or has no route, so a missing key or an OSRM
+outage never stops a delivery. The public OSRM demo server is rate-limited
+and not for production; use a self-hosted OSRM for real traffic.
+
+GPS captured at delivery or at a failed drop (Module 4, rule
+`deliveryProof.captureGps`) comes from the rider's phone (browser
+Geolocation API) and makes **no** Google call.
+
+If the `google` provider is chosen for either rule, enable the Routes API
+on the **server** key only (`GOOGLE_MAPS_SERVER_API_KEY`), never on the
+browser key.

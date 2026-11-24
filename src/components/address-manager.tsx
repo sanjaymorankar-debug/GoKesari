@@ -7,21 +7,62 @@ import { Alert, Badge, Button, Card, EmptyState, Field, inputClass } from "@/com
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 import { ConfirmButton } from "@/components/confirm-button";
 import { mobileFieldDigits } from "@/lib/contact";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang, type Text } from "@/lib/board/i18n";
 
 /** Field names in the address API's validation errors → the form's labels (TC-FLD-125). */
-const FIELD_LABELS: Record<string, string> = {
-  label: "Label",
-  recipientName: "Recipient name",
-  recipientPhone: "Recipient mobile",
-  line1: "Address line 1",
-  line2: "Flat / house / floor",
-  area: "Area",
-  city: "City",
-  state: "State",
-  pincode: "PIN code",
-  landmark: "Landmark",
-  deliveryInstructions: "Delivery instructions",
+const FIELD_LABELS: Record<string, Text> = {
+  label: L("Label", "नाम", "नाव"),
+  recipientName: L("Recipient name", "पाने वाले का नाम", "घेणाऱ्याचे नाव"),
+  recipientPhone: L("Recipient mobile", "पाने वाले का मोबाइल", "घेणाऱ्याचा मोबाइल"),
+  line1: L("Address line 1", "पता पंक्ति 1", "पत्ता ओळ 1"),
+  line2: L("Flat / house / floor", "फ़्लैट / मकान / मंज़िल", "फ्लॅट / घर / मजला"),
+  area: L("Area", "इलाका", "परिसर"),
+  city: L("City", "शहर", "शहर"),
+  state: L("State", "राज्य", "राज्य"),
+  pincode: L("PIN code", "पिन कोड", "पिन कोड"),
+  landmark: L("Landmark", "पहचान का स्थान", "खूण"),
+  deliveryInstructions: L("Delivery instructions", "डिलीवरी निर्देश", "डिलिव्हरी सूचना"),
 };
+
+/** Module 6 (docs/hindi-marathi-2026-11): the address screens' wording. */
+const T = {
+  emptyTitle: L("No saved addresses yet.", "अभी कोई पता सहेजा नहीं है।", "अजून पत्ता जतन केलेला नाही."),
+  emptyText: L("Add one to speed up checkout.", "ऑर्डर जल्दी करने के लिए एक पता जोड़ें।", "ऑर्डर लवकर देण्यासाठी एक पत्ता जोडा."),
+  addNew: L("Add a new address", "नया पता जोड़ें", "नवीन पत्ता जोडा"),
+  home: L("Home", "घर", "घर"),
+  work: L("Work", "ऑफ़िस", "ऑफिस"),
+  other: L("Other", "अन्य", "इतर"),
+  default: L("Default", "मुख्य", "मुख्य"),
+  mapVerified: L("Map-verified", "नक्शे से सत्यापित", "नकाशावर पडताळलेले"),
+  landmark: L("Landmark:", "पहचान का स्थान:", "खूण:"),
+  edit: L("Edit", "बदलें", "बदला"),
+  yesDelete: L("Yes, delete", "हाँ, हटाएँ", "हो, काढा"),
+  deleteQuestion: L("Delete this address?", "यह पता हटाएँ?", "हा पत्ता काढायचा?"),
+  delete: L("Delete", "हटाएँ", "काढा"),
+  keep: L("Keep", "रखें", "ठेवा"),
+  cancel: L("Cancel", "रद्द करें", "रद्द करा"),
+  pleaseCheck: L("Please check {fields}.", "कृपया {fields} जाँचें।", "कृपया {fields} तपासा."),
+  geotag: L(
+    "Geo-tag this address (optional but recommended)",
+    "इस पते को नक्शे पर लगाएँ (वैकल्पिक, पर ज़रूरी सलाह)",
+    "हा पत्ता नकाशावर दाखवा (ऐच्छिक, पण शिफारस केलेले)",
+  ),
+  pinned: L("Location pinned:", "लोकेशन लगा दी:", "ठिकाण निश्चित केले:"),
+  addressType: L("Address type", "पते का प्रकार", "पत्त्याचा प्रकार"),
+  labelOptional: L("Label (optional)", "नाम (वैकल्पिक)", "नाव (ऐच्छिक)"),
+  labelHint: L("e.g. Mom's flat", "जैसे: माँ का फ़्लैट", "उदा. आईचा फ्लॅट"),
+  recipientName: L("Recipient name (optional)", "पाने वाले का नाम (वैकल्पिक)", "घेणाऱ्याचे नाव (ऐच्छिक)"),
+  recipientMobile: L("Recipient mobile (optional)", "पाने वाले का मोबाइल (वैकल्पिक)", "घेणाऱ्याचा मोबाइल (ऐच्छिक)"),
+  line2: L("Flat / house / floor (optional)", "फ़्लैट / मकान / मंज़िल (वैकल्पिक)", "फ्लॅट / घर / मजला (ऐच्छिक)"),
+  landmarkOptional: L("Landmark (optional)", "पहचान का स्थान (वैकल्पिक)", "खूण (ऐच्छिक)"),
+  instructions: L("Delivery instructions (optional)", "डिलीवरी निर्देश (वैकल्पिक)", "डिलिव्हरी सूचना (ऐच्छिक)"),
+  setDefault: L("Set as default address", "मुख्य पता बनाएँ", "मुख्य पत्ता करा"),
+  saving: L("Saving…", "सहेज रहे हैं…", "जतन करत आहे…"),
+  save: L("Save address", "पता सहेजें", "पत्ता जतन करा"),
+} as const;
+
+const typeText = (type: "HOME" | "WORK" | "OTHER") => (type === "HOME" ? T.home : type === "WORK" ? T.work : T.other);
 
 export interface AddressRow {
   id: string;
@@ -43,7 +84,7 @@ export interface AddressRow {
   isDefault: boolean;
 }
 
-export function AddressManager({ addresses }: { addresses: AddressRow[] }) {
+export function AddressManager({ addresses, lang = "en" }: { addresses: AddressRow[]; lang?: Lang }) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -51,7 +92,7 @@ export function AddressManager({ addresses }: { addresses: AddressRow[] }) {
   return (
     <div className="space-y-4">
       {addresses.length === 0 && !adding ? (
-        <EmptyState title="No saved addresses yet." description="Add one to speed up checkout." />
+        <EmptyState title={tr(T.emptyTitle, lang)} description={tr(T.emptyText, lang)} />
       ) : (
         addresses.map((address) =>
           editingId === address.id ? (
@@ -63,6 +104,7 @@ export function AddressManager({ addresses }: { addresses: AddressRow[] }) {
                   router.refresh();
                 }}
                 onCancel={() => setEditingId(null)}
+                lang={lang}
               />
             </Card>
           ) : (
@@ -71,6 +113,7 @@ export function AddressManager({ addresses }: { addresses: AddressRow[] }) {
               address={address}
               onEdit={() => setEditingId(address.id)}
               onDeleted={() => router.refresh()}
+              lang={lang}
             />
           ),
         )
@@ -84,11 +127,12 @@ export function AddressManager({ addresses }: { addresses: AddressRow[] }) {
               router.refresh();
             }}
             onCancel={() => setAdding(false)}
+            lang={lang}
           />
         </Card>
       ) : (
         <Button variant="secondary" onClick={() => setAdding(true)}>
-          Add a new address
+          {tr(T.addNew, lang)}
         </Button>
       )}
     </div>
@@ -99,10 +143,12 @@ function AddressCard({
   address,
   onEdit,
   onDeleted,
+  lang = "en",
 }: {
   address: AddressRow;
   onEdit: () => void;
   onDeleted: () => void;
+  lang?: Lang;
 }) {
   const [busy, setBusy] = useState(false);
 
@@ -121,13 +167,13 @@ function AddressCard({
         <div className="min-w-0">
           <div className="mb-1 flex flex-wrap items-center gap-2">
             <Badge tone="neutral">
-              {address.addressType === "HOME" ? "Home" : address.addressType === "WORK" ? "Work" : "Other"}
+              {tr(typeText(address.addressType), lang)}
             </Badge>
             {address.label ? (
               <span className="text-sm font-semibold text-ink-900">{address.label}</span>
             ) : null}
-            {address.isDefault ? <Badge tone="success">Default</Badge> : null}
-            {address.locationVerified ? <Badge tone="info">Map-verified</Badge> : null}
+            {address.isDefault ? <Badge tone="success">{tr(T.default, lang)}</Badge> : null}
+            {address.locationVerified ? <Badge tone="info">{tr(T.mapVerified, lang)}</Badge> : null}
           </div>
           <p className="text-sm text-ink-700">
             {address.line1}
@@ -137,15 +183,21 @@ function AddressCard({
             {[address.area, address.city].filter(Boolean).join(", ")} — {address.pincode}
           </p>
           {address.landmark ? (
-            <p className="text-xs text-ink-500">Landmark: {address.landmark}</p>
+            <p className="text-xs text-ink-500">{tr(T.landmark, lang)} {address.landmark}</p>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           <Button size="sm" variant="secondary" onClick={onEdit}>
-            Edit
+            {tr(T.edit, lang)}
           </Button>
-          <ConfirmButton onConfirm={remove} disabled={busy} confirmLabel="Yes, delete" question="Delete this address?">
-            Delete
+          <ConfirmButton
+            onConfirm={remove}
+            disabled={busy}
+            confirmLabel={tr(T.yesDelete, lang)}
+            keepLabel={tr(T.keep, lang)}
+            question={tr(T.deleteQuestion, lang)}
+          >
+            {tr(T.delete, lang)}
           </ConfirmButton>
         </div>
       </div>
@@ -157,13 +209,15 @@ export function AddressForm({
   address,
   onSaved,
   onCancel,
-  cancelLabel = "Cancel",
+  cancelLabel,
   defaultIsDefault = false,
+  lang = "en",
 }: {
   address?: AddressRow;
   onSaved: () => void;
   onCancel: () => void;
   cancelLabel?: string;
+  lang?: Lang;
   /** Pre-ticks "Set as default address" for a new address. */
   defaultIsDefault?: boolean;
 }) {
@@ -236,8 +290,8 @@ export function AddressForm({
       const named = Object.keys(fields).filter((f) => FIELD_LABELS[f]);
       setError(
         named.length
-          ? `Please check ${named.map((f) => FIELD_LABELS[f]).join(", ")}.`
-          : (payload?.error?.message ?? "Could not save this address."),
+          ? tr(T.pleaseCheck, lang).replace("{fields}", named.map((f) => tr(FIELD_LABELS[f], lang)).join(", "))
+          : errorText(payload?.error?.message ?? "Could not save this address.", lang, payload?.error?.code),
       );
       return;
     }
@@ -251,7 +305,7 @@ export function AddressForm({
 
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
-          Geo-tag this address (optional but recommended)
+          {tr(T.geotag, lang)}
         </p>
         <MapPicker
           purpose="address_save"
@@ -260,13 +314,13 @@ export function AddressForm({
         />
         {coordinates ? (
           <p className="mt-1 text-xs text-leaf-700" data-testid="address-geotag">
-            Location pinned: {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}
+            {tr(T.pinned, lang)} {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}
           </p>
         ) : null}
       </div>
 
-      <Field label="Address type">
-        <div className="flex gap-2" role="radiogroup" aria-label="Address type">
+      <Field label={tr(T.addressType, lang)}>
+        <div className="flex gap-2" role="radiogroup" aria-label={tr(T.addressType, lang)}>
           {(["HOME", "WORK", "OTHER"] as const).map((type) => (
             <button
               key={type}
@@ -280,19 +334,19 @@ export function AddressForm({
                   : "border-cream-200 text-ink-700"
               }`}
             >
-              {type === "HOME" ? "Home" : type === "WORK" ? "Work" : "Other"}
+              {tr(typeText(type), lang)}
             </button>
           ))}
         </div>
       </Field>
-      <Field label="Label (optional)" hint="e.g. Mom's flat" error={fieldErrors.label}>
+      <Field label={tr(T.labelOptional, lang)} hint={tr(T.labelHint, lang)} error={fieldErrors.label}>
         <input className={inputClass} value={label} maxLength={50} onChange={(e) => setLabel(e.target.value)} />
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Recipient name (optional)" error={fieldErrors.recipientName}>
+        <Field label={tr(T.recipientName, lang)} error={fieldErrors.recipientName}>
           <input className={inputClass} value={recipientName} maxLength={100} onChange={(e) => setRecipientName(e.target.value)} />
         </Field>
-        <Field label="Recipient mobile (optional)" error={fieldErrors.recipientPhone}>
+        <Field label={tr(T.recipientMobile, lang)} error={fieldErrors.recipientPhone}>
           <input
             className={inputClass}
             value={recipientPhone}
@@ -302,7 +356,7 @@ export function AddressForm({
           />
         </Field>
       </div>
-      <Field label="Address line 1" error={fieldErrors.line1}>
+      <Field label={tr(FIELD_LABELS.line1, lang)} error={fieldErrors.line1}>
         <input
           className={inputClass}
           maxLength={200}
@@ -311,14 +365,14 @@ export function AddressForm({
           required
         />
       </Field>
-      <Field label="Flat / house / floor (optional)" error={fieldErrors.line2}>
+      <Field label={tr(T.line2, lang)} error={fieldErrors.line2}>
         <input className={inputClass} value={line2} maxLength={200} onChange={(e) => setLine2(e.target.value)} />
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Area" error={fieldErrors.area}>
+        <Field label={tr(FIELD_LABELS.area, lang)} error={fieldErrors.area}>
           <input className={inputClass} value={area} maxLength={100} onChange={(e) => setArea(e.target.value)} />
         </Field>
-        <Field label="City" error={fieldErrors.city}>
+        <Field label={tr(FIELD_LABELS.city, lang)} error={fieldErrors.city}>
           <input
             className={inputClass}
             maxLength={100}
@@ -327,10 +381,10 @@ export function AddressForm({
             required
           />
         </Field>
-        <Field label="State" error={fieldErrors.state}>
+        <Field label={tr(FIELD_LABELS.state, lang)} error={fieldErrors.state}>
           <input className={inputClass} value={state} maxLength={100} onChange={(e) => setState(e.target.value)} />
         </Field>
-        <Field label="PIN code" error={fieldErrors.pincode}>
+        <Field label={tr(FIELD_LABELS.pincode, lang)} error={fieldErrors.pincode}>
           <input
             className={inputClass}
             value={pincode}
@@ -341,7 +395,7 @@ export function AddressForm({
           />
         </Field>
       </div>
-      <Field label="Landmark (optional)" error={fieldErrors.landmark}>
+      <Field label={tr(T.landmarkOptional, lang)} error={fieldErrors.landmark}>
         <input
           className={inputClass}
           maxLength={200}
@@ -349,7 +403,7 @@ export function AddressForm({
           onChange={(e) => setLandmark(e.target.value)}
         />
       </Field>
-      <Field label="Delivery instructions (optional)" error={fieldErrors.deliveryInstructions}>
+      <Field label={tr(T.instructions, lang)} error={fieldErrors.deliveryInstructions}>
         <textarea
           className={inputClass}
           rows={2}
@@ -365,15 +419,15 @@ export function AddressForm({
           onChange={(e) => setIsDefault(e.target.checked)}
           className="h-4 w-4 accent-kesari-600"
         />
-        Set as default address
+        {tr(T.setDefault, lang)}
       </label>
 
       <div className="flex gap-2">
         <Button type="submit" disabled={busy}>
-          {busy ? "Saving…" : "Save address"}
+          {busy ? tr(T.saving, lang) : tr(T.save, lang)}
         </Button>
         <Button type="button" variant="secondary" onClick={onCancel}>
-          {cancelLabel}
+          {cancelLabel ?? tr(T.cancel, lang)}
         </Button>
       </div>
     </form>

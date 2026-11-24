@@ -26,6 +26,8 @@ interface Props {
   scanList?: boolean;
   /** docs/price-comparison-off-2026-11: flag local_price_comparison_enabled. */
   priceComparison?: boolean;
+  /** docs/search-brand-barcode-favourites-2026-11: Orders → Favourites (flag brand_barcode_favourites_enabled). */
+  favourites?: boolean;
 }
 
 function cutoffText(hour: number): string {
@@ -38,13 +40,14 @@ function cutoffText(hour: number): string {
  * screens add the "Buy again" panel beside the tiles and a live footer line
  * on each tile.
  */
-export function CustomerBoard({ lang, user, header, data, timeZone, referralCode, scanList, priceComparison = false }: Props) {
+export function CustomerBoard({ lang, user, header, data, timeZone, referralCode, scanList, priceComparison = false, favourites = false }: Props) {
   const signedIn = Boolean(user);
   const menus = visibleMenus(CUSTOMER_MENUS, user?.role ?? "CUSTOMER", {
     subscriptionId: data.subscriptionId,
     activeOrderNumber: data.activeOrder?.orderNumber,
-    // docs/price-comparison-off-2026-11: "Compare prices" only while its flag is on.
-    features: priceComparison ? ["local_price_comparison_enabled"] : [],
+    // docs/price-comparison-off-2026-11: "Compare prices" only while its flag is on;
+    // docs/search-brand-barcode-favourites-2026-11: Orders → Favourites.
+    features: [...(priceComparison ? ["local_price_comparison_enabled"] : []), ...(favourites ? ["brand_barcode_favourites_enabled"] : [])],
   });
   const trackHref = data.activeOrder ? `/orders?tab=active#order-${encodeURIComponent(data.activeOrder.orderNumber)}` : "/orders?tab=active";
   const order = data.activeOrder;

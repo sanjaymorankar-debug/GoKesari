@@ -3,11 +3,31 @@ import { notFound, redirect } from "next/navigation";
 
 import { Alert, Card, Money, PageHeader, StatusBadge } from "@/components/ui";
 import { AppError } from "@/lib/errors";
+import { L, tr } from "@/lib/board/i18n";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { getOrderGroupForUser } from "@/server/services/order-groups";
+import { OrderGroupTimeline } from "@/components/guest-checkout/order-group-timeline";
+import { isGuestCheckoutOn, timelineForOrders } from "@/server/guest-checkout/tracking";
+import type { ChildStatus } from "@/server/guest-checkout/timeline";
 
 export const metadata = { title: "Order" };
 export const dynamic = "force-dynamic";
+
+const T = {
+  title: L("Order {n}", "ऑर्डर {n}", "ऑर्डर {n}"),
+  shop: L("shop", "दुकान", "दुकान"),
+  shops: L("shops", "दुकानें", "दुकाने"),
+  placed: L("placed", "ऑर्डर किया", "ऑर्डर दिली"),
+  placedTitle: L("Order placed", "ऑर्डर हो गया", "ऑर्डर दिली"),
+  placedText: L(
+    "Your order {n} is confirmed. Each shop prepares and delivers its part separately.",
+    "आपका ऑर्डर {n} पक्का हो गया है। हर दुकान अपना हिस्सा अलग से तैयार करके डिलीवर करेगी।",
+    "तुमची ऑर्डर {n} निश्चित झाली आहे. प्रत्येक दुकान आपला भाग स्वतंत्रपणे तयार करून पोहोचवेल.",
+  ),
+  total: L("Total", "कुल", "एकूण"),
+  trackEach: L("Track each shop's delivery in My Orders →", "मेरे ऑर्डर में हर दुकान की डिलीवरी ट्रैक करें →", "माझ्या ऑर्डरमध्ये प्रत्येक दुकानाची डिलिव्हरी ट्रॅक करा →"),
+} as const;
 
 /** F6: one parent reference over a multi-shop order; each shop's part is its own order. */
 export default async function OrderGroupPage({
@@ -20,24 +40,29 @@ export default async function OrderGroupPage({
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   const { reference } = await params;
-  const { placed } = await searchParams;
+  const [{ placed }, lang] = await Promise.all([searchParams, getBoardLang()]);
   const group = await getOrderGroupForUser(user.id, decodeURIComponent(reference)).catch((error) => {
     if (error instanceof AppError && error.code === "NOT_FOUND") return null;
     throw error;
   });
   if (!group) notFound();
+  // docs/guest-checkout-2026-11: the combined timeline across the shop orders (flag guest_checkout_enabled).
+  const timeline = (await isGuestCheckoutOn())
+    ? await timelineForOrders(group.orders.map((o) => ({ id: o.id, shopName: o.shopName, status: o.status as ChildStatus })))
+    : null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <PageHeader
-        title={`Order ${group.reference}`}
-        description={`${group.orders.length} shop${group.orders.length === 1 ? "" : "s"} · placed ${group.createdAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}`}
+        title={tr(T.title, lang).replace("{n}", group.reference)}
+        description={`${group.orders.length} ${tr(group.orders.length === 1 ? T.shop : T.shops, lang)} · ${tr(T.placed, lang)} ${group.createdAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}`}
       />
       {placed ? (
-        <Alert tone="success" title="Order placed">
-          Your order {group.reference} is confirmed. Each shop prepares and delivers its part separately.
+        <Alert tone="success" title={tr(T.placedTitle, lang)}>
+          {tr(T.placedText, lang).replace("{n}", group.reference)}
         </Alert>
       ) : null}
+      {timeline ? <OrderGroupTimeline timeline={timeline} /> : null}
       <div className="space-y-3">
         {group.orders.map((o) => (
           <Card key={o.id} className="flex items-center justify-between gap-3 p-4" data-testid="sub-order">
@@ -55,11 +80,11 @@ export default async function OrderGroupPage({
         ))}
       </div>
       <Card className="flex justify-between p-4 text-base font-semibold text-ink-900">
-        <span>Total</span>
+        <span>{tr(T.total, lang)}</span>
         <Money paise={group.totalPaise} />
       </Card>
       <Link href="/orders" className="text-sm text-kesari-700 hover:underline">
-        Track each shop&apos;s delivery in My Orders →
+        {tr(T.trackEach, lang)}
       </Link>
     </div>
   );

@@ -147,6 +147,7 @@ async function deliverMessages(
           vars: message.vars,
           actionUrl: message.actionUrl,
           channels: message.channels,
+          lang: message.lang,
           metadata: { eventId },
           dedupeKey: `evt:${message.dedupe ?? eventId}:${message.type}:${userId}`,
         },

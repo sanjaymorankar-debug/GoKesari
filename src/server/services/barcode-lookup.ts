@@ -31,10 +31,19 @@ export function cleanBarcode(raw: string): string | null {
   return code.length >= 6 ? code : null;
 }
 
-export async function findProductByBarcode(shopId: string, raw: string): Promise<{ code: string; match: BarcodeMatch | null } | null> {
+/**
+ * `invalidCheckDigit` (docs/search-brand-barcode-favourites-2026-11): the code is shaped like a GTIN
+ * (8, 12, 13 or 14 digits) but its check digit is wrong — most likely a mistyped digit. The lookup still
+ * runs as before (a shop's own legacy code may be such a number); the screen can warn the owner.
+ */
+export async function findProductByBarcode(
+  shopId: string,
+  raw: string,
+): Promise<{ code: string; match: BarcodeMatch | null; invalidCheckDigit?: true } | null> {
   const code = cleanBarcode(raw);
   if (!code) return null;
   const gtin = analyzeGtin(code);
+  const warn = gtin && !gtin.checkDigitValid && /^\d{8}$|^\d{12,14}$/.test(code) ? ({ invalidCheckDigit: true } as const) : {};
   const forms = gtin ? [...new Set([...gtinForms(gtin.gtin14), code])] : [code];
   const rows = await db
     .select({
@@ -53,13 +62,14 @@ export async function findProductByBarcode(shopId: string, raw: string): Promise
     .limit(5);
   // An approved product first; a pending one (an owner's own, waiting for review) only if none.
   const best = rows.find((r) => r.approvalStatus === "APPROVED") ?? rows[0];
-  if (!best) return { code, match: null };
+  if (!best) return { code, match: null, ...warn };
   const [listing] = await db
     .select({ id: shopProducts.id })
     .from(shopProducts)
     .where(and(eq(shopProducts.shopId, shopId), eq(shopProducts.productId, best.productId), isNull(shopProducts.deletedAt)));
   return {
     code,
+    ...warn,
     match: {
       productId: best.productId,
       name: best.name,
