@@ -96,6 +96,9 @@ import {
 } from "@/lib/order-cancellation";
 import { executeCancellationRefund, planCancellationRefund } from "@/server/aftercare/refunds"; // batch-2026-10 WS-C
 import { chargesGst, listingsMissingTaxData } from "@/server/gst/tax-data-check";
+import { resolveListingTaxClasses } from "@/server/gst/product-rates";
+import { orderTaxSnapshot } from "@/server/tax/order-snapshot";
+import { registeredGstin } from "./invoices";
 import { isFeatureEnabledForShop } from "./feature-flags";
 import { assertSuppliesAllowed, resolveBuyerGstin, type BuyerGstin } from "@/server/tax/checkout";
 import { recordOrderStatusEvent } from "@/server/events/order-status-record";
@@ -534,6 +537,13 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     let scheduledSlot: { start: Date; end: Date; date: string } | null = null;
     const acceptBy = await acceptByFor(new Date(), closedShops.get(group.shop.id) ?? null);
 
+    // Tax snapshot (migration 0184): each listing's GST classification, read before the
+    // transaction so it holds no lock longer; a line added to the cart meanwhile is read inside.
+    const [invoicingRule, taxClasses] = await Promise.all([
+      getRule("invoicing"),
+      resolveListingTaxClasses(group.lines.filter((l) => l.purchasable).map((l) => l.shopProductId)),
+    ]);
+
     lap("before-order");
     const placed = await db.transaction(async (tx) => {
       // The cart's lock first, before any slot, coupon, stock or wallet lock. Its other holders
@@ -604,10 +614,24 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       // Again on the lines ordered: the cart may have changed since the check above.
       assertMinimumOrder(shopRow, subtotalPaise, addressSnapshot != null);
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
-      const taxPaise = 0;
+      // Prices INCLUDE GST. orders.tax_paise is tax charged on top of them and stays 0 — never put
+      // the included GST there or into the total (it would charge GST twice). The included GST is
+      // recorded separately below (taxIncludedPaise), for the e-mail, the invoice and the TCS base.
+      const addedTaxPaise = 0;
       const couponShare = couponQuote?.shares.find((sh) => sh.shopId === group.shop.id)?.discountPaise ?? 0;
       const discountPaise = Math.min(couponShare, subtotalPaise);
-      const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise - discountPaise;
+      const totalPaise = subtotalPaise + deliveryFeePaise - discountPaise;
+
+      // Tax snapshot: the GST included in each line, split the way the shop's invoice splits it.
+      const unresolved = lines.map((l) => l.shopProductId).filter((id) => !taxClasses.has(id));
+      if (unresolved.length > 0) {
+        for (const [id, cls] of await resolveListingTaxClasses(unresolved, new Date(), tx)) taxClasses.set(id, cls);
+      }
+      const taxSnapshot = orderTaxSnapshot(
+        lines.map((l) => ({ lineTotalPaise: l.lineTotalPaise, cls: taxClasses.get(l.shopProductId) })),
+        // INTRA / INTER changes only how the tax divides (CGST + SGST or IGST), not the amounts recorded.
+        { chargesGst: chargesGst(shopRow) && (await registeredGstin(shopRow, tx)) != null, applyCess: invoicingRule.applyCess, supply: "INTRA" },
+      );
       if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise, codMaxOrderPaise);
 
       // GS-027: the customer's chosen time slot, re-checked under the day's lock.
@@ -667,7 +691,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
             societyId: orderSocietyId,
             subtotalPaise,
             deliveryFeePaise,
-            taxPaise,
+            taxPaise: addedTaxPaise,
+            taxIncludedPaise: taxSnapshot.taxIncludedPaise,
             totalPaise,
             deliveryWindow,
             promisedByAt,
@@ -682,7 +707,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           })
           .returning(),
         tx.insert(orderItems).values(
-          lines.map((l) => ({
+          lines.map((l, i) => ({
             orderId,
             shopProductId: l.shopProductId,
             productNameSnapshot: l.productName,
@@ -691,6 +716,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
             quantityMilli: l.quantityMilli,
             lineTotalPaise: l.lineTotalPaise,
             mrpPaise: l.mrpPaise,
+            ...taxSnapshot.lines[i],
           })),
         ),
       ]);
@@ -803,7 +829,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
             emailDetail: orderConfirmedEmailRows({
               lines: lines.map((l) => ({ name: l.productName, unit: l.unit, quantityMilli: l.quantityMilli, lineTotalPaise: l.lineTotalPaise })),
               deliveryFeePaise,
-              taxPaise,
+              taxIncludedPaise: taxSnapshot.taxIncludedPaise,
               discountPaise,
               totalPaise,
               paymentMethod,
@@ -938,7 +964,8 @@ function assertMinimumOrder(
 export function orderConfirmedEmailRows(order: {
   lines: { name: string; unit: string; quantityMilli: number; lineTotalPaise: number }[];
   deliveryFeePaise: number;
-  taxPaise?: number;
+  /** GST included in the prices (orders.tax_included_paise): shown under the total, never added to it. */
+  taxIncludedPaise?: number | null;
   discountPaise: number;
   totalPaise: number;
   paymentMethod: string;
@@ -946,12 +973,13 @@ export function orderConfirmedEmailRows(order: {
   return [
     ...order.lines.map((l) => ({ label: `${l.name} × ${formatQuantity(l.quantityMilli, l.unit)}`, value: formatPaise(l.lineTotalPaise) })),
     { label: "Delivery fee", value: order.deliveryFeePaise > 0 ? formatPaise(order.deliveryFeePaise) : "Free" },
-    ...(order.taxPaise ? [{ label: "Tax", value: formatPaise(order.taxPaise) }] : []),
     ...(order.discountPaise > 0 ? [{ label: "Discount", value: `−${formatPaise(order.discountPaise)}` }] : []),
     {
       label: order.paymentMethod === "COD" ? "Total (pay in cash on delivery)" : order.paymentMethod === "WALLET" ? "Total (paid from wallet)" : "Total",
       value: formatPaise(order.totalPaise),
     },
+    // Only when every line's rate was known; the amount is already inside the prices above.
+    ...(order.taxIncludedPaise != null && order.taxIncludedPaise > 0 ? [{ label: "Prices include GST", value: `incl. GST ${formatPaise(order.taxIncludedPaise)}` }] : []),
   ];
 }
 

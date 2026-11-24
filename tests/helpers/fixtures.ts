@@ -84,7 +84,7 @@ const RESET_TABLES = [
   "shop_registration_drafts",
   "grievances",
   "user_consents",
-  // docs/policy-reconsent-2026-11 (0183): no foreign key to users.
+  // docs/policy-reconsent-2026-11 (0184): no foreign key to users.
   "policy_acceptances",
   "delivery_partner_earnings",
   "delivery_earnings_config",

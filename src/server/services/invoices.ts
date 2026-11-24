@@ -177,8 +177,8 @@ export function amountInWords(paise: number): string {
   return `Rupees ${words}${p ? ` and ${belowThousand(p)} Paise` : ""} Only`;
 }
 
-/** The shop's GSTIN when it counts as GST-registered for invoicing; null → bill of supply. */
-async function registeredGstin(shop: typeof shops.$inferSelect, client: DbClient): Promise<string | null> {
+/** The shop's GSTIN when it counts as GST-registered for invoicing; null → bill of supply. Also checkout's tax snapshot. */
+export async function registeredGstin(shop: typeof shops.$inferSelect, client: DbClient): Promise<string | null> {
   if (!shop.gstin || !/^\d{2}[A-Z0-9]{13}$/.test(shop.gstin) || shop.gstStatus === "COMPOSITION") return null;
   if (shop.gstStatus === "REGISTERED") return shop.gstin;
   const [verified] = await client
@@ -267,11 +267,14 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   };
   for (const { item, hsn: masterHsn, gstRateBp: masterRate, shopHsn, shopGstRateBp, shopCessBp } of items) {
     if (item.fulfilmentStatus === "REMOVED") continue;
-    const hsn = shopHsn ?? masterHsn;
-    // Rate: the shop's, the product's, then the dated HSN table, then the rule default (marked).
-    const gstRateBp = shopGstRateBp ?? masterRate ?? (await hsnRate(hsn))?.rateBp ?? null;
-    // Cess: the shop's listing, then the dated HSN table; never on a bill of supply.
-    const cessBp = kind === "TAX_INVOICE" && rule.applyCess ? (shopCessBp ?? (await hsnRate(hsn))?.cessBp ?? 0) : 0;
+    // The checkout snapshot first (migration 0184: the classification when the order was placed),
+    // then today's: the shop's, the product's, the dated HSN table, then the rule default (marked).
+    const snapshotRated = item.gstRateBp != null;
+    const hsn = item.hsnCode ?? shopHsn ?? masterHsn;
+    const gstRateBp = item.gstRateBp ?? shopGstRateBp ?? masterRate ?? (await hsnRate(hsn))?.rateBp ?? null;
+    // Cess: the snapshot, the shop's listing, then the dated HSN table; never on a bill of supply.
+    const cessBp =
+      kind === "TAX_INVOICE" && rule.applyCess ? ((snapshotRated ? item.cessBp : null) ?? shopCessBp ?? (await hsnRate(hsn))?.cessBp ?? 0) : 0;
     const substituted = item.fulfilmentStatus === "SUBSTITUTED" && item.substituteLineTotalPaise != null;
     const gross = substituted ? item.substituteLineTotalPaise! : item.lineTotalPaise;
     const name = substituted ? (item.substituteNameSnapshot ?? item.productNameSnapshot) : item.productNameSnapshot;

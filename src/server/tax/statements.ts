@@ -17,7 +17,7 @@ import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { notify } from "@/server/services/notifications";
 import { notFound } from "@/lib/errors";
-import { monthBounds, orderSettlementReport, shopTaxStatement, type ShopTaxStatement } from "./compliance";
+import { buildGstr8, monthBounds, orderSettlementReport, shopTaxStatement, type Gstr8, type ShopTaxStatement } from "./compliance";
 
 const IST = (iso: string) => new Date(`${iso}T00:00:00+05:30`);
 const money = (p: number) => formatPaise(p).replace("₹", "Rs. ");
@@ -188,4 +188,43 @@ export async function sendMonthlyShopStatements(today: string): Promise<{ sent: 
     });
   }
   return { sent: owners.length };
+}
+
+/* ------------------------------------------------ GSTR-8 for manual upload */
+
+export const GSTR8_CSV_HEADER = [
+  "supplier_gstin",
+  "supplier_type",
+  "supply",
+  "place_of_supply",
+  "gross_value_inr",
+  "returns_inr",
+  "net_value_inr",
+  "tcs_igst_inr",
+  "tcs_cgst_inr",
+  "tcs_sgst_inr",
+] as const;
+
+/** GSTR-8 rows as CSV (one row per supplier, B2B / B2C and place of supply), with a total row. */
+export function gstr8Csv(g: Gstr8): string {
+  const rows = g.tcs.map((r) => [r.stin, r.supplierType, r.supply, r.pos, r.grsval, r.retsup, r.netval, r.iamt, r.camt, r.samt]);
+  const t = g.summary;
+  return (
+    [
+      GSTR8_CSV_HEADER.join(","),
+      ...rows.map((r) => r.map(cell).join(",")),
+      ["TOTAL", "", "", "", t.grsval, t.retsup, t.netval, t.iamt, t.camt, t.samt].map(cell).join(","),
+    ].join("\n") + "\n"
+  );
+}
+
+/**
+ * GoKesari's GSTR-8 for a month as files for a manual upload on the GST portal (or the CA's tool):
+ * the portal-shaped JSON (tax/compliance.ts buildGstr8, from the TCS lines of the payout cycles) and
+ * the same rows as CSV. Reads only; files nothing and records no filing (Admin → Compliance does that).
+ * `warnings` lists what was left out (a shop without a GSTIN, an Enrolment-ID shop with no id).
+ */
+export async function gstr8Export(period: string): Promise<{ json: Gstr8; csv: string; rows: number; warnings: string[] }> {
+  const { json, warnings } = await buildGstr8(period);
+  return { json, csv: gstr8Csv(json), rows: json.tcs.length, warnings };
 }
