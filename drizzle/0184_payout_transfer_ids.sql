@@ -8,7 +8,7 @@
 -- * payout_webhook_parked: a correctly signed webhook that matched no payout yet. It is answered 409 so the
 --   provider delivers it again, and is marked matched once it is applied.
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0183.sql.
+-- Additive and safe to re-run. Rollback: scripts/rollback-0184.sql.
 ALTER TABLE "payout_items" ADD COLUMN IF NOT EXISTS "provider_transfer_id" text;
 --> statement-breakpoint
 ALTER TABLE "rider_bank_transfers" ADD COLUMN IF NOT EXISTS "provider_transfer_id" text;
