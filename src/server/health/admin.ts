@@ -127,7 +127,7 @@ export interface ProviderMember {
   registrationBody: string | null;
   categories: string[];
   documents: number;
-  doctor: { fullName: string; practitionerType: string; qualifications: string; specialties: string[]; council: string; registrationNumber: string; registrationYear: number | null; hprId: string | null } | null;
+  doctor: { fullName: string; practitionerType: string; qualifications: string; specialties: string[]; council: string; registrationNumber: string; registrationYear: number | null; hprId: string | null; registryCheckedAt: Date | null; registryCheckNote: string | null } | null;
   care: { providerKind: string; gender: string | null; registrationBody: string | null; registrationNumber: string | null; policeVerification: string; servicePincodes: string[]; serviceRadiusKm: number; idCardNumber: string } | null;
 }
 
@@ -202,6 +202,8 @@ export async function providerQueue(actor: HealthActor, raw: unknown): Promise<P
         registrationNumber: healthDoctorProfiles.registrationNumber,
         registrationYear: healthDoctorProfiles.registrationYear,
         hprId: healthDoctorProfiles.hprId,
+        registryCheckedAt: healthDoctorProfiles.registryCheckedAt,
+        registryCheckNote: healthDoctorProfiles.registryCheckNote,
       })
       .from(healthDoctorProfiles)
       .where(inArray(healthDoctorProfiles.memberId, memberIds)),
@@ -224,11 +226,35 @@ export async function providerQueue(actor: HealthActor, raw: unknown): Promise<P
       registrationBody: r.registration_body,
       categories: cats.filter((x) => x.member_id === r.member_id).map((x) => x.name),
       documents: Number(docCounts.find((x) => x.member_id === r.member_id)?.n ?? 0),
-      doctor: d ? { fullName: d.fullName, practitionerType: d.practitionerType, qualifications: d.qualifications, specialties: d.specialties, council: d.council, registrationNumber: d.registrationNumber, registrationYear: d.registrationYear, hprId: d.hprId } : null,
+      doctor: d ? { fullName: d.fullName, practitionerType: d.practitionerType, qualifications: d.qualifications, specialties: d.specialties, council: d.council, registrationNumber: d.registrationNumber, registrationYear: d.registrationYear, hprId: d.hprId, registryCheckedAt: d.registryCheckedAt, registryCheckNote: d.registryCheckNote } : null,
       care: c ? { providerKind: c.providerKind, gender: c.gender, registrationBody: c.registrationBody, registrationNumber: c.registrationNumber, policeVerification: c.policeVerification, servicePincodes: c.servicePincodes, serviceRadiusKm: c.serviceRadiusKm, idCardNumber: c.idCardNumber } : null,
     });
   }
   return [...cards.values()];
+}
+
+export const registryCheckInput = z.object({
+  memberId: z.string().uuid(),
+  /** What was checked: register, entry found, name / qualification match, date. */
+  note: z.string().trim().min(10, "Say which register you checked and what it showed (at least 10 characters).").max(500),
+});
+
+/**
+ * Staff record that a doctor's registration was checked on the NMC / State Medical Council register. Needed to
+ * prescribe while rule health.requireRegistryCheck is on. Audited.
+ */
+export async function recordRegistryCheck(raw: unknown, actor: HealthActor): Promise<{ memberId: string; registryCheckedAt: Date }> {
+  requireStaff(actor);
+  const input = registryCheckInput.parse(raw);
+  const now = new Date();
+  const [row] = await db
+    .update(healthDoctorProfiles)
+    .set({ registryCheckedAt: now, registryCheckedBy: actor.id, registryCheckNote: input.note, updatedAt: now })
+    .where(eq(healthDoctorProfiles.memberId, input.memberId))
+    .returning({ id: healthDoctorProfiles.id });
+  if (!row) throw notFound("Doctor profile");
+  await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.HEALTH_DOCTOR_PROFILE, entityType: "health_doctor_profile", entityId: row.id, newValue: { event: "registry_checked", memberId: input.memberId, note: input.note } });
+  return { memberId: input.memberId, registryCheckedAt: now };
 }
 
 export const providerDecisionInput = z.object({

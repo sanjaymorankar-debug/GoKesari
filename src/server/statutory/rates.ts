@@ -35,7 +35,7 @@ export const STATUTORY_KEYS = [
   "GST_S95_LOCAL_DELIVERY",
   "UNREGISTERED_SELLER_RULES",
   "PLATFORM_FEE_GST",
-  // docs/tax-register (0185): seeded disabled, for the CA to confirm.
+  // docs/tax-register (0186): seeded disabled, for the CA to confirm.
   "IT_TDS_194H",
   "IT_TDS_194J",
 ] as const;
@@ -327,7 +327,7 @@ export async function platformFeeGstRateOn(feeType: string, day: IsoDate, resolv
 }
 
 /**
- * docs/tax-register (0185): a TDS section row (194H, 194J) in the shape the shared calculator
+ * docs/tax-register (0186): a TDS section row (194H, 194J) in the shape the shared calculator
  * (rider-wallet/rules.ts computeTds) takes. Null when no row is in force or it is disabled.
  * `confirmed`: the CA confirmed it — on gokesari.com an unconfirmed row holds the payment.
  */

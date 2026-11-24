@@ -327,7 +327,7 @@ export async function setCommissionStatus(id: string, status: "APPROVED" | "PAID
   const [current] = await db.select().from(referralCommissions).where(eq(referralCommissions.id, id));
   if (!current) throw notFound("Commission");
   if (!NEXT[current.status].includes(status)) throw conflict(`A ${current.status.toLowerCase()} commission cannot become ${status.toLowerCase()}.`);
-  // docs/tax-register (0185): TDS s.194H withheld when a referral commission is paid.
+  // docs/tax-register (0186): TDS s.194H withheld when a referral commission is paid.
   const tds = status === "PAID" ? await referralTds(current) : null;
   const [row] = await db
     .update(referralCommissions)
@@ -369,7 +369,7 @@ export async function listTestMessages(to?: string) {
 
 
 /**
- * docs/tax-register (0185): TDS s.194H on a referral commission being paid, with flag
+ * docs/tax-register (0186): TDS s.194H on a referral commission being paid, with flag
  * payout_deductions on and the IT_TDS_194H row enabled. The payee is the distributor (else the
  * referring user); the year's commissions to the same payee count towards the threshold. PAN:
  * the payee's dealer record. On gokesari.com an unconfirmed row holds the payment.

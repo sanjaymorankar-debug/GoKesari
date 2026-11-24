@@ -496,7 +496,7 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
       const base = { shopId: a.shopId, sourceType: "financial_adjustments", sourceId: a.id, occurredOn: day };
       if (a.type !== "REFUND_SHOP") {
         push({ ...base, lineType: "ADJUSTMENT", description: `Adjustment: ${a.reason}`, amountPaise: a.amountPaise, meta: { type: a.type } });
-        // docs/tax-register (0185): service earnings (appointments, rentals, prescriptions) carry TDS
+        // docs/tax-register (0186): service earnings (appointments, rentals, prescriptions) carry TDS
         // s.194-O on the gross, and TCS only where the CA's TCS row covers services (params.applyToServices).
         if (deductServices && isServiceEarning(a)) {
           const shop = shopById.get(a.shopId)!;

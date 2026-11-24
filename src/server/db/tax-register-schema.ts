@@ -1,5 +1,5 @@
 /**
- * Tax register (docs/tax-register/README.md; drizzle/0184_tax_register.sql).
+ * Tax register (docs/tax-register/README.md; drizzle/0185_tax_register.sql).
  *
  *   tax_change_requests   the Accountant (or an admin) proposes a change to a tax setting; the CA
  *                         approves (never their own) and it is applied through the setting's own
@@ -124,7 +124,7 @@ export const caActionItemNotes = pgTable(
 export type CaActionItemNote = typeof caActionItemNotes.$inferSelect;
 
 /**
- * docs/tax-register/BOOKS.md (0186): a balanced posting queued when a payout is paid, for the
+ * docs/tax-register/BOOKS.md (0187): a balanced posting queued when a payout is paid, for the
  * Accountant to turn into a journal entry draft (the CA approves it) or dismiss.
  */
 export const AUTO_POSTING_STATUSES = ["PENDING", "DRAFTED", "DISMISSED"] as const;
