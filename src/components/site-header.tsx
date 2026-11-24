@@ -41,6 +41,8 @@ interface Props {
   helpsShops?: boolean;
   /** Referral links (docs/four-features-2026-10): only those whose rule is switched on. */
   referralLinks?: { href: string; key: "referral" | "invite" }[];
+  /** docs/search-brand-barcode-favourites-2026-11: the search box's scan button (flag on). */
+  barcodeScan?: boolean;
 }
 
 /**
@@ -108,6 +110,7 @@ export function SiteHeader({
   savedAddresses,
   helpsShops = false,
   referralLinks = [],
+  barcodeScan = false,
 }: Props) {
   const pathname = usePathname();
   // docs/guest-cart-2026-11: a guest's cart lives in the browser; the badge counts it there.
@@ -217,7 +220,7 @@ export function SiteHeader({
 
         {shopsForThem ? (
           // docs/homepage-uiux-2026-10 (F2): the same search, with suggestions, as the home page.
-          <SearchBox lang={lang} signedIn={Boolean(user)} className="mx-1 hidden flex-1 md:block md:min-w-44" />
+          <SearchBox lang={lang} signedIn={Boolean(user)} barcodeScan={barcodeScan} className="mx-1 hidden flex-1 md:block md:min-w-44" />
         ) : (
           <span className="flex-1" />
         )}

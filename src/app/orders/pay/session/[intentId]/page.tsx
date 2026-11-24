@@ -7,12 +7,16 @@ import { notFound, redirect } from "next/navigation";
 import { GatewaySessionLauncher } from "@/components/gateway-session-launcher";
 import { Card, Money, PageHeader } from "@/components/ui";
 import { getEnv } from "@/lib/env";
+import { L, tr } from "@/lib/board/i18n";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { getPaymentIntentRow, isLive } from "@/server/payments/intents";
 import { actionUrlFor } from "@/server/payments/intent-store";
 
 export const metadata = { title: "Pay online" };
 export const dynamic = "force-dynamic";
+
+const PAY_ONLINE = L("Pay online", "ऑनलाइन भुगतान करें", "ऑनलाइन पेमेंट करा");
 
 export default async function GatewaySessionPage({ params }: { params: Promise<{ intentId: string }> }) {
   const { intentId } = await params;
@@ -23,9 +27,10 @@ export default async function GatewaySessionPage({ params }: { params: Promise<{
   const returnPath = actionUrlFor(intent);
   if (!isLive(intent) || intent.checkoutKind !== "SDK_SESSION" || !intent.checkoutToken) redirect(returnPath);
 
+  const lang = await getBoardLang();
   return (
     <div className="mx-auto max-w-md px-4 py-6">
-      <PageHeader title="Pay online" description={intent.description} />
+      <PageHeader title={tr(PAY_ONLINE, lang)} description={intent.description} />
       <Card className="space-y-4 p-4">
         <p className="text-2xl font-semibold text-ink-900">
           <Money paise={intent.amountPaise} />

@@ -22,25 +22,71 @@ import Link from "next/link";
 import { Alert } from "@/components/ui";
 import { needsSignupReferralCode } from "@/server/services/customer-signup-referrals";
 import { getBoardLang } from "@/server/board-lang";
+import { L, tr } from "@/lib/board/i18n";
 import { SaveCartAsList } from "@/components/purchase-lists/save-cart-as-list";
 import { listPurchaseLists } from "@/server/services/purchase-lists";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { ScanListTile } from "@/components/smart-list/scan-list-tile";
 import { GuestCartView } from "@/components/guest-cart/guest-cart-view";
+import { CartShopRecommendation } from "@/components/guest-checkout/cart-shop-recommendation";
+import { isGuestCheckoutOn } from "@/server/guest-checkout/tracking";
 
 export const metadata = { title: "Cart" };
+
+/** Module 6 (docs/hindi-marathi-2026-11): the cart page's own wording. */
+const T = {
+  noCod: L("{shop} does not accept cash on delivery.", "{shop} कैश ऑन डिलीवरी नहीं लेती।", "{shop} कॅश ऑन डिलिव्हरी स्वीकारत नाही."),
+  codLimit: L(
+    "Cash on delivery is available up to {amount} per shop order.",
+    "कैश ऑन डिलीवरी हर दुकान के ऑर्डर पर {amount} तक ही है।",
+    "कॅश ऑन डिलिव्हरी प्रत्येक दुकानाच्या ऑर्डरवर {amount} पर्यंतच आहे.",
+  ),
+  tooManyCod: L(
+    "Too many cash-on-delivery orders open — pay from your wallet.",
+    "कैश ऑन डिलीवरी के बहुत ऑर्डर खुले हैं — वॉलेट से भुगतान करें।",
+    "कॅश ऑन डिलिव्हरीच्या खूप ऑर्डर सुरू आहेत — वॉलेटमधून पैसे द्या.",
+  ),
+  title: L("Your cart", "आपका कार्ट", "तुमचे कार्ट"),
+  description: L(
+    "Items are grouped by shop — each shop becomes its own order.",
+    "चीज़ें दुकान के हिसाब से रखी गई हैं — हर दुकान का अलग ऑर्डर बनेगा।",
+    "वस्तू दुकानानुसार गटात आहेत — प्रत्येक दुकानाची वेगळी ऑर्डर होईल.",
+  ),
+  referralTitle: L(
+    "A referral code is needed for your first order",
+    "पहले ऑर्डर के लिए रेफ़रल कोड ज़रूरी है",
+    "पहिल्या ऑर्डरसाठी रेफरल कोड आवश्यक आहे",
+  ),
+  referralText: L(
+    "Enter the code you were given — or ask us for one — in",
+    "आपको मिला कोड डालें — या हमसे माँगें — यहाँ:",
+    "तुम्हाला मिळालेला कोड टाका — किंवा आमच्याकडे मागा — येथे:",
+  ),
+  myReferralCode: L("My referral code", "मेरा रेफ़रल कोड", "माझा रेफरल कोड"),
+} as const;
 export const dynamic = "force-dynamic";
 
-export default async function CartPage() {
+export default async function CartPage({ searchParams }: { searchParams?: Promise<{ guest?: string }> }) {
   const user = await getCurrentUser();
   if (!user) {
     // docs/guest-cart-2026-11: with guest_cart_enabled on, a guest sees the cart kept in their browser
     // and is asked to sign in only at "Place order". Off: sign in first, as before.
     if (!(await isFeatureEnabled("guest_cart_enabled").catch(() => false))) redirect("/signin");
+    // docs/guest-checkout-2026-11: with guest_checkout_enabled on too, the guest can also check out here
+    // (contact + one-time code) and sees the best-shop panel. The PIN code comes from the chosen location.
+    const guestLocation = (await isGuestCheckoutOn()) ? await getCustomerLocation(null) : undefined;
+    const guestCheckout =
+      guestLocation === undefined
+        ? null
+        : {
+            prefill: guestLocation
+              ? { pincode: guestLocation.pincode ?? null, area: null, latitude: guestLocation.latitude ?? null, longitude: guestLocation.longitude ?? null }
+              : null,
+          };
     return (
       <>
         <PageHeader title="Your cart" description="Items are grouped by shop — each shop becomes its own order." />
-        <GuestCartView lang={await getBoardLang()} />
+        <GuestCartView lang={await getBoardLang()} guestCheckout={guestCheckout} />
       </>
     );
   }
@@ -67,14 +113,15 @@ export default async function CartPage() {
   // GS-030: why cash on delivery is unavailable for this cart, if it is.
   const tooLarge = cart.groups.find((g) => g.totalPaise > codEligibility.maxOrderPaise);
   const noCodShop = cartShops.find((s) => !s.codEnabled || !s.deliveryAvailable);
+  const lang = await getBoardLang();
   const codUnavailableReason = !codEligibility.allowed
     ? codEligibility.reason
     : noCodShop
-      ? `${noCodShop.name} does not accept cash on delivery.`
+      ? tr(T.noCod, lang).replace("{shop}", noCodShop.name)
       : tooLarge
-        ? `Cash on delivery is available up to ₹${(codEligibility.maxOrderPaise / 100).toFixed(0)} per shop order.`
+        ? tr(T.codLimit, lang).replace("{amount}", `₹${(codEligibility.maxOrderPaise / 100).toFixed(0)}`)
         : cart.groups.length > codEligibility.maxOpenOrders - codEligibility.openOrders
-          ? "Too many cash-on-delivery orders open — pay from your wallet."
+          ? tr(T.tooManyCod, lang)
           : null;
   const preferredAddressId =
     location?.addressId && addresses.some((a) => a.id === location.addressId)
@@ -93,13 +140,18 @@ export default async function CartPage() {
   // docs/purchase-lists-2026-10: "Save as a list" offers the customer's own lists.
   const purchaseLists = cart.groups.length > 0 ? await listPurchaseLists(user.id) : [];
   // docs/smart-shopping-2026-11: "Scan my shopping list" in the cart too.
-  const [scanList, lang] = await Promise.all([isFeatureEnabled("smart_list_scan_enabled").catch(() => false), getBoardLang()]);
+  const [scanList, guestCheckoutOn] = await Promise.all([
+    isFeatureEnabled("smart_list_scan_enabled").catch(() => false),
+    isGuestCheckoutOn(),
+  ]);
+  // docs/guest-checkout-2026-11: /cart?guest=1 is where a guest lands right after verifying.
+  const justVerified = (await searchParams)?.guest === "1";
 
   return (
     <>
       <PageHeader
-        title="Your cart"
-        description="Items are grouped by shop — each shop becomes its own order."
+        title={tr(T.title, lang)}
+        description={tr(T.description, lang)}
       />
       {scanList ? (
         <div className="mb-4">
@@ -109,10 +161,10 @@ export default async function CartPage() {
       {bankPrompt ? <BankAccountPrompt status={bankPrompt} href="/profile/bank-account" purpose="refunds" /> : null}
       {needsReferralCode ? (
         <div className="mb-4" data-testid="cart-referral-needed">
-          <Alert tone="warning" title="A referral code is needed for your first order">
-            Enter the code you were given — or ask us for one — in{" "}
+          <Alert tone="warning" title={tr(T.referralTitle, lang)}>
+            {tr(T.referralText, lang)}{" "}
             <Link href="/referral" className="font-medium underline">
-              My referral code
+              {tr(T.myReferralCode, lang)}
             </Link>
             .
           </Alert>
@@ -120,6 +172,16 @@ export default async function CartPage() {
       ) : null}
       {cart.groups.length > 0 ? (
         <SaveCartAsList lists={purchaseLists.map((l) => ({ id: l.id, name: l.name, kind: l.kind }))} />
+      ) : null}
+      {guestCheckoutOn && cart.groups.length > 0 ? (
+        <CartShopRecommendation lang={lang} cartKey={cart.groups.flatMap((g) => g.lines.map((l) => `${l.cartItemId}:${l.quantity}`)).join(",")} />
+      ) : null}
+      {guestCheckoutOn && justVerified ? (
+        <div className="mb-4">
+          <Alert tone="success" title="You are signed in">
+            Your address is saved. Choose how to pay below and place your order.
+          </Alert>
+        </div>
       ) : null}
       <CartView
         cart={cart}
@@ -131,7 +193,7 @@ export default async function CartPage() {
         hasMobile={Boolean(account?.phoneE164)}
         couponsEnabled={(await getRule("coupons")).enabled}
         onlinePaymentsEnabled={(await getRule("onlinePayments")).enabled}
-        lang={await getBoardLang()}
+        lang={lang}
         openOrders={openOrders.map((o) => ({
           id: o.id,
           orderNumber: o.orderNumber,

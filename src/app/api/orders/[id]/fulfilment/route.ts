@@ -17,7 +17,8 @@ import { z } from "zod";
 import { notFound } from "@/lib/errors";
 import { DEFAULT_REMOVE_LINE_REASON, REMOVE_LINE_REASONS } from "@/lib/order-line-removal";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { requireUser } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { orders } from "@/server/db/schema";
@@ -63,9 +64,12 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
     columns: { id: true, shopId: true },
   });
   if (!order) throw notFound("Order");
-  const { user } = await requireShopAccess(order.shopId, {
-    anyPermission: PERMISSIONS.ORDER_UPDATE_STATUS_ANY,
-  });
+  // Module 10: accepting or rejecting is orders.approve; packing work is orders.edit.
+  const { user } = await requireShopPermission(
+    order.shopId,
+    body.action === "accept" || body.action === "reject" ? "orders.approve" : "orders.edit",
+    { anyPermission: PERMISSIONS.ORDER_UPDATE_STATUS_ANY },
+  );
 
   switch (body.action) {
     case "accept":
