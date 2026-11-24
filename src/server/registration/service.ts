@@ -60,6 +60,7 @@ import { isTextChannelAvailable, sendText } from "@/server/messaging/sms-whatsap
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { uniqueSlug } from "@/server/services/catalogue";
 import { recordConsent } from "@/server/services/consents";
+import { recordCurrentAcceptances } from "@/server/services/policy-versions";
 import { grantRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
 import { referralCodeUses } from "@/server/services/referrals";
@@ -740,6 +741,12 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
   if (result.outcome === "APPROVED" && result.newAccount) {
     // Seller terms were accepted on the registration form.
     await recordConsent(result.ownerId, "TERMS_AND_PRIVACY", {}).catch((e) => console.error("[registration] consent record failed", e));
+  }
+  if (result.outcome === "APPROVED") {
+    // docs/policy-reconsent-2026-11: the seller terms version accepted on the form, so the owner is not asked again.
+    await recordCurrentAcceptances(result.ownerId, ["seller-terms"], "SHOP_REGISTRATION").catch((e) =>
+      console.error("[registration] seller-terms acceptance record failed", e),
+    );
   }
   if (result.outcome === "APPROVED") return { outcome: "APPROVED", shopId: result.shopId, ownerId: result.ownerId };
   return result;

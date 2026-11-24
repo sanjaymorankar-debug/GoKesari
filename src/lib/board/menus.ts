@@ -554,6 +554,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "consent", label: L("Consent", "सहमति", "संमती"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
     ],
     more: [
+      // docs/policy-reconsent-2026-11: policy versions and acceptance counts.
+      { key: "policyVersions", label: L("Policy versions", "नीति संस्करण", "धोरण आवृत्त्या"), icon: "file-text", href: "/admin/policy-versions", permission: PERMISSIONS.CONSENT_VIEW },
       { key: "vouchers", label: L("Vouchers", "वाउचर", "व्हाउचर"), icon: "ticket", href: "/admin/console/vouchers", count: "activeVouchers", permission: PERMISSIONS.VOUCHER_VIEW },
       { key: "gst", label: L("GST settings", "जीएसटी सेटिंग", "जीएसटी सेटिंग्ज"), icon: "file-text", href: "/admin/gst-config", permission: PERMISSIONS.GST_CONFIG_MANAGE },
       { key: "productGst", label: L("Product GST rates", "उत्पाद जीएसटी दरें", "उत्पाद जीएसटी दर"), icon: "receipt", href: "/admin/product-gst", permission: PERMISSIONS.GST_CONFIG_MANAGE },
@@ -675,6 +677,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "consent", label: L("Consent records", "सहमति रिकॉर्ड", "संमती नोंदी"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
+      { key: "policyVersions", label: L("Policy versions", "नीति संस्करण", "धोरण आवृत्त्या"), icon: "file-text", href: "/admin/policy-versions", permission: PERMISSIONS.CONSENT_VIEW },
       { key: "helpdesk", label: L("Help desk", "हेल्प डेस्क", "मदत कक्ष"), icon: "life-buoy", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE }, // batch-2026-10 WS-C
       // docs/dealer-programme (GKS-SP-001): paid support services — charges, requests, refunds. Only while that flag is on.
       { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/admin/support-services", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE, feature: "paid_support_services_enabled" },
