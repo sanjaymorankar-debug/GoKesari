@@ -91,7 +91,7 @@ import {
 } from "@/server/db/schema";
 import { recordShopAttributionSafely } from "@/server/dealers/attribution";
 import { verifyDocument } from "@/server/kyc";
-import { requestShopEmailOtp, verifyShopEmailOtp } from "@/server/otp/service";
+import { linkPhone, requestShopEmailOtp, verifyShopEmailOtp } from "@/server/otp/service";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { assertRegistrationReferralCode, attributeRegistrationReferral } from "./referral-requests";
 import { isReferralRequired } from "./referral-settings";
@@ -231,6 +231,11 @@ export interface WizardView extends ShopRegistrationDraftView {
   referral: { answered: boolean; code: string | null; required: boolean; locked: boolean };
   /** 0120: the shop's email — the account's (the default) and the one confirmed for the shop. */
   email: { account: string | null; shop: string | null; confirmed: boolean };
+  /**
+   * Owner, 25-Nov-2026: what the account already holds (from sign-in or an earlier profile), so the
+   * wizard pre-fills the owner name and mobile instead of asking for them again.
+   */
+  account: { name: string | null; mobile: string | null };
   /** Always false since 08-Nov-2026 ("upload later" is gone); kept for the screen's shape. */
   documentsLater: boolean | null;
   /** The owner's name: typed on OWNER, else from the record (a proprietor's PAN). Null: OWNER asks for it. */
@@ -413,6 +418,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   // account's email (already proven by the sign-in) unless the owner changes it. Only a
   // mobile-only account, with no email, gets the email screen.
   const account = await accountEmail(draft.ownerId);
+  const accountDetails = await accountProfile(draft.ownerId);
   const email = {
     account,
     shop: draft.shopEmail ?? account,
@@ -469,6 +475,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     location,
     referral,
     email,
+    account: accountDetails,
     documentsLater,
     ownerName,
     address,
@@ -527,6 +534,38 @@ async function recordStepReached(draftId: string, step: WizardStep): Promise<voi
 async function accountEmail(ownerId: string): Promise<string | null> {
   const owner = await db.query.users.findFirst({ where: eq(users.id, ownerId), columns: { email: true } });
   return owner?.email && !isPlaceholderEmail(owner.email) ? owner.email : null;
+}
+
+/** The account's name and 10-digit mobile (from sign-in or the profile form), for the wizard to pre-fill. */
+async function accountProfile(ownerId: string): Promise<{ name: string | null; mobile: string | null }> {
+  const owner = await db.query.users.findFirst({ where: eq(users.id, ownerId), columns: { name: true, phoneE164: true } });
+  const mobile = owner?.phoneE164?.startsWith("+91") ? owner.phoneE164.slice(3) : null;
+  return { name: str(owner?.name ?? null), mobile };
+}
+
+/**
+ * Owner, 25-Nov-2026: the shop registration also completes the owner's GoKesari account, so the
+ * "Welcome" details form and the "add your mobile" popup do not ask for the same data again.
+ * Only empty account fields are filled: an account name stays as it is, and a sign-in mobile is
+ * never replaced (owner: a number changed on the shop form is the shop's contact only). A mobile
+ * already on another account is left to the shop. Never blocks the registration.
+ */
+async function completeAccountFromShop(actor: Actor, ownerName: string, phone: string): Promise<void> {
+  try {
+    const owner = await db.query.users.findFirst({ where: eq(users.id, actor.id), columns: { name: true, phoneE164: true, profileCompletedAt: true } });
+    if (!owner) return;
+    if (!owner.phoneE164 && phone) {
+      await linkPhone(actor.id, actor.role, { mobile: phone }).catch((error) =>
+        console.warn("[registration-wizard] shop mobile not linked to the account", error instanceof Error ? error.message : error),
+      );
+    }
+    const patch: Partial<typeof users.$inferInsert> = {};
+    if (!str(owner.name ?? null) && ownerName.trim()) patch.name = ownerName.trim().slice(0, 100);
+    if (!owner.profileCompletedAt) patch.profileCompletedAt = new Date();
+    if (Object.keys(patch).length > 0) await db.update(users).set({ ...patch, updatedAt: new Date() }).where(eq(users.id, actor.id));
+  } catch (error) {
+    console.error("[registration-wizard] could not complete the account from the shop", actor.id, error instanceof Error ? error.message : error);
+  }
 }
 
 /** What an approved shop has set up after registration: the map pin, categories and products. */
@@ -1328,6 +1367,7 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
     throw error;
   }
 
+  await completeAccountFromShop(actor, details.ownerName, details.phone);
   // Franchise brief 21-Nov-2026 §5.1: the area confirmed at the location step (else suggested) decides the zone.
   await (await import("@/server/franchise/zones")).assignAreaAtRegistration(shop.id, { areaId: typeof open.details?.franchiseAreaId === "string" ? open.details.franchiseAreaId : null, latitude: open.latitude, longitude: open.longitude, pincode: details.pincode }, actor);
   // After the commit, as POST /api/shops does: referral code and dealer attribution never block the registration.

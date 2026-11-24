@@ -199,7 +199,8 @@ export function toDraftView(draft: ShopRegistrationDraft): ShopRegistrationDraft
       legalName,
       tradeName,
       // A proprietor's PAN is the person's; a firm's or company's is the business's.
-      ownerName: holderLetter === "P" ? panName : null,
+      // A proprietorship's GST legal name is the proprietor's own name (owner, 25-Nov-2026).
+      ownerName: (holderLetter === "P" ? panName : null) ?? (gstVerified && /propriet/i.test(str(gst.constitution) ?? "") ? legalName : null),
       constitution: gstVerified ? str(gst.constitution) : null,
       address: gstVerified ? str(gst.address) : panAddress,
       stateCode: gstVerified ? str(gst.stateCode) : null,
