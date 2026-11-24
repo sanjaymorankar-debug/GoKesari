@@ -2,6 +2,7 @@
  * Monthly exports for GoKesari's CA (PLATFORM_INVOICE_MANAGE):
  *   ?type=gstr1  GoKesari's own supplies (fee invoices and notes), GSTR-1-ready
  *   ?type=tcs    GST TCS collected (GSTR-8-style)
+ *   ?type=gstr8  GSTR-8 in the portal's JSON shape (or the same rows as CSV), for a manual upload
  *   ?type=tds    income-tax TDS on e-commerce participants
  * &period=YYYY-MM&format=csv|json. Every export is audited.
  */
@@ -15,7 +16,7 @@ import { fileResponse } from "@/server/payouts/http";
 import { exportStatutoryReport } from "@/server/payouts/reports";
 
 const schema = z.object({
-  type: z.enum(["gstr1", "tcs", "tds"]),
+  type: z.enum(["gstr1", "tcs", "tds", "gstr8"]),
   period: z.string().regex(/^\d{4}-\d{2}$/),
   format: z.enum(["csv", "json"]).default("csv"),
 });

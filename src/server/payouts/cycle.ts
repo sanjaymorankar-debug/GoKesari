@@ -49,6 +49,7 @@ import {
   creditNotes,
   financialAdjustments,
   orderFinancials,
+  orderItems,
   orderMoneyFlows,
   orders,
   payoutBatches,
@@ -79,6 +80,9 @@ import { isServiceEarning, payoutDeductionsOn } from "@/server/tax/payout-deduct
 import { getRule } from "@/server/services/settings";
 import { getShopWalletBalance } from "@/server/services/shop-wallet";
 import { istDay, sec95RestaurantOn, statutoryResolver, tcsOn, tdsOn, unregisteredRulesOn } from "@/server/statutory/rates";
+import { resolveListingTaxClasses } from "@/server/gst/product-rates";
+import { chargesGst } from "@/server/gst/tax-data-check";
+import { payoutTaxableBase, type PayoutTaxItem } from "@/server/tax/order-snapshot";
 
 export interface SystemOrActor {
   id: string | null;
@@ -157,7 +161,13 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
   const existing = await loadCycle(window.start);
   if (existing) return { ...existing, created: false };
 
-  const [platform, invoicingRule, shopWalletRule, deductServices] = await Promise.all([platformInvoicingStatus(), getRule("platformInvoicing"), getRule("shopWallet"), payoutDeductionsOn()]);
+  const [platform, invoicingRule, shopWalletRule, gstInvoicing, deductServices] = await Promise.all([
+    platformInvoicingStatus(),
+    getRule("platformInvoicing"),
+    getRule("shopWallet"),
+    getRule("invoicing"),
+    payoutDeductionsOn(),
+  ]);
   const actor = options.actor;
 
   const outcome = await db.transaction(async (tx) => {
@@ -247,6 +257,36 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
           .where(inArray(taxInvoices.orderId, orderIds))
       : [];
     const invoiceByOrder = new Map(invoices.map((i) => [i.orderId, i]));
+    // An order with no tax invoice: its lines (checkout tax snapshot, migration 0183) give the TCS / TDS
+    // base without GST. Today's classification is read only for lines with no usable snapshot.
+    const uninvoiced = orderIds.filter((id) => !invoiceByOrder.has(id));
+    const uninvoicedItems = uninvoiced.length
+      ? await tx
+          .select({
+            orderId: orderItems.orderId,
+            shopProductId: orderItems.shopProductId,
+            substituteShopProductId: orderItems.substituteShopProductId,
+            fulfilmentStatus: orderItems.fulfilmentStatus,
+            lineTotalPaise: orderItems.lineTotalPaise,
+            substituteLineTotalPaise: orderItems.substituteLineTotalPaise,
+            taxablePaise: orderItems.taxablePaise,
+            gstRateBp: orderItems.gstRateBp,
+            cessBp: orderItems.cessBp,
+          })
+          .from(orderItems)
+          .where(inArray(orderItems.orderId, uninvoiced))
+      : [];
+    const needLive = uninvoicedItems
+      .filter((i) => i.fulfilmentStatus !== "REMOVED" && (i.taxablePaise == null || i.fulfilmentStatus === "SUBSTITUTED"))
+      .map((i) => (i.fulfilmentStatus === "SUBSTITUTED" ? (i.substituteShopProductId ?? i.shopProductId) : i.shopProductId));
+    const liveClasses = await resolveListingTaxClasses(needLive, new Date(), tx);
+    const itemsByOrder = new Map<string, PayoutTaxItem[]>();
+    for (const i of uninvoicedItems) {
+      const list = itemsByOrder.get(i.orderId) ?? [];
+      const liveId = i.fulfilmentStatus === "SUBSTITUTED" ? (i.substituteShopProductId ?? i.shopProductId) : i.shopProductId;
+      list.push({ ...i, live: liveClasses.get(liveId) });
+      itemsByOrder.set(i.orderId, list);
+    }
     // Billing v2 (docs/billing §5.4, §5.5): with the TCS / TDS engines on, the order's money-flow
     // record decides whether TCS / TDS apply (who received the customer's money), and the TDS
     // exemption is counted per PAN across every shop of that PAN. Off: as before.
@@ -314,7 +354,12 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
       }
 
       const invoice = invoiceByOrder.get(f.orderId);
-      const taxable = invoice?.taxablePaise ?? f.goodsPaise;
+      // The TCS / TDS base is the value without GST: the invoice's taxable value, else the order's
+      // lines (checkout snapshot, or worked out of today's rates). Never the GST-inclusive goods value.
+      const computedBase = invoice
+        ? null
+        : payoutTaxableBase(f.goodsPaise, itemsByOrder.get(f.orderId) ?? [], { chargesGst: chargesGst(shop), applyCess: gstInvoicing.applyCess });
+      const taxable = invoice?.taxablePaise ?? computedBase!.taxablePaise;
       const supply = invoice?.supplyType ?? "INTRA";
       const registered = isGstRegistered(shop);
       const unregRules = await unregisteredRulesOn(day, resolve);
@@ -355,7 +400,8 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
               supply,
               ...splitTax(amount, supply),
               statutoryRowId: tcs.rowId,
-              taxableFrom: invoice ? "TAX_INVOICE" : "GOODS_VALUE",
+              taxableFrom: invoice ? "TAX_INVOICE" : computedBase!.source,
+              ...(computedBase && computedBase.unratedGrossPaise > 0 ? { unratedGrossPaise: computedBase.unratedGrossPaise } : {}),
               b2b: Boolean(invoice?.buyerGstin),
               placeOfSupply: invoice?.placeOfSupply ?? null,
             },
@@ -450,7 +496,7 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
       const base = { shopId: a.shopId, sourceType: "financial_adjustments", sourceId: a.id, occurredOn: day };
       if (a.type !== "REFUND_SHOP") {
         push({ ...base, lineType: "ADJUSTMENT", description: `Adjustment: ${a.reason}`, amountPaise: a.amountPaise, meta: { type: a.type } });
-        // docs/tax-register (0184): service earnings (appointments, rentals, prescriptions) carry TDS
+        // docs/tax-register (0185): service earnings (appointments, rentals, prescriptions) carry TDS
         // s.194-O on the gross, and TCS only where the CA's TCS row covers services (params.applyToServices).
         if (deductServices && isServiceEarning(a)) {
           const shop = shopById.get(a.shopId)!;

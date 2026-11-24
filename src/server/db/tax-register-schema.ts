@@ -1,5 +1,5 @@
 /**
- * Tax register (docs/tax-register/README.md; drizzle/0183_tax_register.sql).
+ * Tax register (docs/tax-register/README.md; drizzle/0184_tax_register.sql).
  *
  *   tax_change_requests   the Accountant (or an admin) proposes a change to a tax setting; the CA
  *                         approves (never their own) and it is applied through the setting's own

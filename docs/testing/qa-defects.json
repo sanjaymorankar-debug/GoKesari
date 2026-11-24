@@ -2840,6 +2840,52 @@
       "expected": "The page works on the shop chosen in Seller Central (the gk_shop cookie), like the other /shop pages; the shop's name shown is that shop.",
       "fix": "Not fixed. Let resolveCatalogueShop use the selected shop (gk_shop) before falling back, or pass ?shopId from the board tile.",
       "status": "Open"
+    },
+    {
+      "id": "D-162",
+      "title": "Smart shopping: a guest opening /wishlist or /wishlist/scan got 404 instead of the sign-in page",
+      "cases": [
+        "TC-SMART-001",
+        "TC-RBAC-002"
+      ],
+      "severity": "Medium",
+      "found": "staging queue guest QA on PR #482, 22-Nov-2026 22.07 IST",
+      "actual": "/wishlist and /wishlist/scan answered 404 to a signed-out visitor",
+      "expected": "a guest is sent to /signin (protected page)",
+      "fix": "PR #484: the session is checked before the feature flag",
+      "status": "Fixed - retest passed",
+      "fixedIn": "#484",
+      "retest": "docs/testing/qa-runs/2026-11-23-staging-retest-d159-d161.json, staging 23-Nov-2026 23.04 IST: guest /wishlist and /wishlist/scan → 307 to sign-in. Pass"
+    },
+    {
+      "id": "D-163",
+      "title": "Voice price assistant: the confirmation showed the old price as the new one (\"₹42 → ₹42\")",
+      "cases": [
+        "TC-VPA-016"
+      ],
+      "severity": "Medium",
+      "found": "staging hand test VP-19, 23-Nov-2026 14.53 IST (VOICE_PRICE_ASSISTANT_STAGING_TEST_RESULTS_2026-11-23.md)",
+      "actual": "the read-back message showed ₹42 → ₹42",
+      "expected": "the read-back shows the current price and the new price",
+      "fix": "PR #496, merged into staging 23-Nov 18.28 IST",
+      "status": "Fixed - retest passed",
+      "fixedIn": "#496",
+      "retest": "docs/testing/qa-runs/2026-11-23-staging-retest-d159-d161.json, staging 23-Nov-2026 23.07 IST: published message \"₹40 → ₹43\". Pass"
+    },
+    {
+      "id": "D-164",
+      "title": "Shop logo: the logo card had no inner padding (D-CF011-01)",
+      "cases": [
+        "TC-LOGO-009"
+      ],
+      "severity": "Low",
+      "found": "staging hand test DT-STG-03, 23-Nov-2026 08.15 IST (docs/delta/DELTA_BUILD_2026-11-22.md)",
+      "actual": "the logo card content touched its border",
+      "expected": "the card has the normal inner padding at 1280 and 375 px",
+      "fix": "PR #490",
+      "status": "Fixed - retest passed",
+      "fixedIn": "#490",
+      "retest": "docs/testing/qa-runs/2026-11-23-staging-retest-d159-d161.json, staging 23-Nov-2026 23.08 IST: padding 16px at 1280 and 375 px, no sideways scroll. Pass"
     }
   ]
 }
