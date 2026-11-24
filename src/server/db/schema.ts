@@ -8895,7 +8895,7 @@ export const paymentIntents = pgTable(
     lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
     reconcileAttempts: integer("reconcile_attempts").notNull().default(0),
     /**
-     * PAY-SM (0187, docs/payment-settlement-states-2026-11.md): after the money is taken. NULL = not yet
+     * PAY-SM (0188, docs/payment-settlement-states-2026-11.md): after the money is taken. NULL = not yet
      * confirmed; RECONCILED = the gateway's status check confirmed the capture; CHARGEBACK = disputed by the
      * customer's bank (payment_chargebacks). Apart from `status`, which refunds and reports read.
      */
@@ -8999,7 +8999,7 @@ export const paymentRefunds = pgTable(
 );
 export type PaymentRefundRow = typeof paymentRefunds.$inferSelect;
 
-/** PAY-SM (0187): one row per gateway dispute / chargeback, kept current from the gateway's webhooks. */
+/** PAY-SM (0188): one row per gateway dispute / chargeback, kept current from the gateway's webhooks. */
 export const paymentChargebacks = pgTable(
   "payment_chargebacks",
   {
@@ -10652,7 +10652,9 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
-  "payment_settlement_states", // PAY-SM (0187)
+  // docs/tax-register (0187): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
+  "tax_register",
+  "payment_settlement_states", // PAY-SM (0188)
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13148,4 +13150,5 @@ export * from "./smart-shopping-schema";
 export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
+export * from "./tax-register-schema"; // docs/tax-register (0187)
 /* <<< GoKesari Health */

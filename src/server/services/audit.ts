@@ -21,6 +21,10 @@ export const AUDIT_ACTIONS = {
   USER_EMERGENCY_SUSPENDED: "user.emergency_suspended",
   FIN_PERIOD_CLOSED: "fin_period.closed",
   FIN_PERIOD_REOPENED: "fin_period.reopened",
+  /** docs/tax-register: a tax-setting change proposed, approved, sent back, withdrawn, applied or failed. */
+  TAX_CHANGE: "tax_change.event",
+  /** docs/tax-register: a CA item added, edited, answered, approved, sent back or closed. */
+  CA_ITEM_CHANGED: "ca_item.changed",
   JOURNAL_DRAFTED: "fin_journal.drafted",
   JOURNAL_POSTED: "fin_journal.posted",
   BANK_STATEMENT_IMPORTED: "fin_bank_statement.imported",

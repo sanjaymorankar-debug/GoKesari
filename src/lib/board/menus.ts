@@ -509,6 +509,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "riderPayouts", label: L("Rider payouts", "राइडर भुगतान", "रायडर पेमेंट"), icon: "bike", href: "/admin/rider-payouts", permission: PERMISSIONS.FINANCE_VIEW, feature: "rider_bank_account_enabled" }, // docs/gig-bank-payouts-2026-10
       { key: "feeInvoices", label: L("GoKesari invoices", "GoKesari बिल", "GoKesari बिले"), icon: "receipt", href: "/admin/platform-invoices", permission: PERMISSIONS.PLATFORM_INVOICE_MANAGE }, // batch-2026-10 WS-E
       { key: "statutory", label: L("TCS / TDS settings", "TCS / TDS सेटिंग", "TCS / TDS सेटिंग्ज"), icon: "file-text", href: "/admin/statutory", permission: PERMISSIONS.STATUTORY_MANAGE }, // batch-2026-10 WS-E
+      { key: "taxRegister", label: L("Tax register (Accountant → CA)", "कर रजिस्टर", "कर रजिस्टर"), icon: "file-text", href: "/staff/tax", permission: PERMISSIONS.TAX_PARAM_PROPOSE }, // docs/tax-register
       { key: "compliance", label: L("Tax returns & due dates", "टैक्स रिटर्न और तारीख़ें", "कर रिटर्न आणि तारखा"), icon: "calendar-clock", href: "/admin/compliance", permission: PERMISSIONS.STATUTORY_MANAGE, feature: "billing_v2" }, // docs/billing
     ],
   },
