@@ -293,6 +293,17 @@ const serverEnvSchema = z.object({
   CASHFREE_PAYOUT_CLIENT_ID: z.string().optional(), // batch-2026-10 WS-E
   CASHFREE_PAYOUT_CLIENT_SECRET: z.string().optional(), // batch-2026-10 WS-E
   CASHFREE_PAYOUT_ENV: z.enum(["sandbox", "production"]).default("sandbox"), // batch-2026-10 WS-E
+  /**
+   * Cashfree Payouts two-factor key (PEM public key from the Payouts dashboard), used instead of IP allow-listing:
+   * each request then carries X-Cf-Signature. Unset = no signature header (the server's IP must be allow-listed).
+   * A PEM pasted on one line with "\n" for its line breaks is accepted.
+   */
+  CASHFREE_PAYOUT_PUBLIC_KEY: z.string().optional(),
+  /**
+   * "true" once the Cashfree Payouts contract tests have passed against Cashfree (sandbox workflow and the ₹1 live
+   * test). Until then no rule (payouts, riderPayouts, dealerAutoPayout) may send money through CASHFREE.
+   */
+  CASHFREE_PAYOUTS_CONTRACT_VERIFIED: z.enum(["true", "false"]).optional(),
   /** batch-2026-10 WS-E: signing secret of the simulated payout webhooks (defaults to one derived from AUTH_SECRET). */
   PAYOUT_SANDBOX_WEBHOOK_SECRET: z.string().optional(), // batch-2026-10 WS-E
   /** GS1 India DataKart API (F9.1.2): base URL and key from the agreement; unset = mock (never in production). */
