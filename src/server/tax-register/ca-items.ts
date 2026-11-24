@@ -30,7 +30,16 @@ export const caItemInput = z.object({
 });
 export type CaItemInput = z.input<typeof caItemInput>;
 
-export const caItemPatch = caItemInput.omit({ ref: true }).partial().extend({ answer: z.string().trim().max(10_000).nullish() });
+/** Edits: only the fields sent change (no defaults here, so an answer edit keeps the item's switches). */
+export const caItemPatch = z.object({
+  area: z.string().trim().min(2).max(40).optional(),
+  title: z.string().trim().min(3).max(200).optional(),
+  question: z.string().trim().min(5).max(5000).optional(),
+  blocks: blocksSchema.optional(),
+  priority: z.enum(CA_ITEM_PRIORITIES).optional(),
+  dueOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  answer: z.string().trim().max(10_000).nullish(),
+});
 
 function requireMaker(actor: Actor) {
   if (!can(actor.role, PERMISSIONS.TAX_PARAM_PROPOSE)) throw forbidden("Only the Accountant or an admin adds and answers CA items.");
