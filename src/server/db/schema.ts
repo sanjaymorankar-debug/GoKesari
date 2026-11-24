@@ -154,7 +154,7 @@ export const userStatusEnum = pgEnum("user_status", [
   "ACTIVE",
   "SUSPENDED",
   "DELETED",
-  // docs/account-deletion-2026-11 (0196): the person asked to delete the account; hidden during the
+  // docs/account-deletion-2026-11 (0199): the person asked to delete the account; hidden during the
   // cooling-off period (rule accountDeletion.coolingOffDays), then anonymised to DELETED.
   "PENDING_DELETION",
 ]);
@@ -567,7 +567,7 @@ export const grievanceCategoryEnum = pgEnum("grievance_category", [
 export const consentTypeEnum = pgEnum("consent_type", [
   "TERMS_AND_PRIVACY",
   "MARKETING_COMMUNICATIONS",
-  // docs/customer-whatsapp-2026-11 (0190): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
+  // docs/customer-whatsapp-2026-11 (0193): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
   "WHATSAPP_NOTIFICATIONS",
 ]);
 
@@ -599,14 +599,14 @@ export const users = pgTable(
      */
     emailPlaceholder: boolean("email_placeholder").notNull().default(false),
     /**
-     * docs/guest-checkout-2026-11 (0189): the account was created by guest
+     * docs/guest-checkout-2026-11 (0192): the account was created by guest
      * checkout (contact + one-time code at the cart, no sign-up form). It is a
      * normal customer account in every other way; the flag only adds the
      * "track without signing in" link to its order e-mails.
      */
     guestCreated: boolean("guest_created").notNull().default(false),
     /**
-     * Module 6 (migration 0191): language last chosen on the EN / हिं / मरा
+     * Module 6 (migration 0194): language last chosen on the EN / हिं / मरा
      * switch — "en", "hi" or "mr"; null = never chosen (English). The gk_lang
      * cookie wins; this is the fallback on a new device and the language of
      * the person's in-app / e-mail notifications.
@@ -925,7 +925,7 @@ export const shops = pgTable(
      */
     membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
     /**
-     * 0194 (docs/shop-membership-renewal-2026-11): an admin exempted this shop from the yearly membership —
+     * 0197 (docs/shop-membership-renewal-2026-11): an admin exempted this shop from the yearly membership —
      * never closed for a lapsed membership and not reminded. Audited (shop.membership_exemption_changed).
      */
     membershipExempt: boolean("membership_exempt").notNull().default(false),
@@ -2357,11 +2357,11 @@ export const deliveryOrders = pgTable(
     arrivedAtCustomerAt: timestamp("arrived_at_customer_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
     failureReason: text("failure_reason"),
-    /** 0193 (Module 4, rule deliveryProof.failureReasons): the reason picked from the fixed list; null for free text. */
+    /** 0196 (Module 4, rule deliveryProof.failureReasons): the reason picked from the fixed list; null for free text. */
     failureReasonCode: text("failure_reason_code", {
       enum: ["CUSTOMER_NOT_AVAILABLE", "WRONG_ADDRESS", "REFUSED", "PHONE_UNREACHABLE", "OTHER"],
     }),
-    /** 0193 (Module 4, rule deliveryProof.captureGps): the rider's position when marking delivered / failed. Operations only. */
+    /** 0196 (Module 4, rule deliveryProof.captureGps): the rider's position when marking delivered / failed. Operations only. */
     deliveredLatitude: doublePrecision("delivered_latitude"),
     deliveredLongitude: doublePrecision("delivered_longitude"),
     deliveredAccuracyM: integer("delivered_accuracy_m"),
@@ -2424,7 +2424,7 @@ export const deliveryProofs = pgTable(
     storedImageId: uuid("stored_image_id")
       .notNull()
       .references(() => storedImages.id, { onDelete: "restrict" }),
-    /** 0121 (feature 9): the optional photo at pickup, or the photo at the door; 0193 (Module 4): the customer's signature. */
+    /** 0121 (feature 9): the optional photo at pickup, or the photo at the door; 0196 (Module 4): the customer's signature. */
     kind: text("kind", { enum: ["PICKUP", "DELIVERY", "SIGNATURE"] }).notNull().default("DELIVERY"),
     /** 0188: who signed (optional, SIGNATURE only). */
     signerName: text("signer_name"),
@@ -4399,7 +4399,7 @@ export const shopPayments = pgTable(
 );
 
 /**
- * 0194 (docs/shop-membership-renewal-2026-11): one row each time a fully paid fee (registration or renewal)
+ * 0197 (docs/shop-membership-renewal-2026-11): one row each time a fully paid fee (registration or renewal)
  * extended a shop's membership — the renewal history, and what a refund or reversal rolls back (voided_at).
  * LEGACY: what an existing shop had paid when this table was added (never rolled back).
  */
@@ -4541,16 +4541,16 @@ export const shopStaff = pgTable(
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    // Null only for an invitation to an e-mail address with no account yet (Module 10, 0195).
+    // Null only for an invitation to an e-mail address with no account yet (Module 10, 0198).
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     scope: text("scope", { enum: ["CATALOGUE"] }).notNull().default("CATALOGUE"),
-    // Module 10 (0195): INVITED and SUSPENDED added; only ACTIVE grants anything.
+    // Module 10 (0198): INVITED and SUSPENDED added; only ACTIVE grants anything.
     status: text("status", { enum: ["INVITED", "ACTIVE", "SUSPENDED", "REVOKED"] }).notNull().default("ACTIVE"),
     addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
     addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
     revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "set null" }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    /* Module 10 (0195, docs/shop-staff-roles-2026-11): role + extra permissions (src/lib/shop-staff/permissions.ts). */
+    /* Module 10 (0198, docs/shop-staff-roles-2026-11): role + extra permissions (src/lib/shop-staff/permissions.ts). */
     role: text("role").notNull().default("CATALOGUE_MANAGER"),
     permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`),
     inviteEmail: text("invite_email"),
@@ -4943,7 +4943,7 @@ export const userConsents = pgTable(
     /** false = a withdrawal (DPDPA §6(4)). Every existing row was a grant. */
     granted: boolean("granted").notNull().default(true),
     ipAddress: text("ip_address"),
-    /** docs/customer-whatsapp-2026-11 (0190): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
+    /** docs/customer-whatsapp-2026-11 (0193): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
     source: text("source"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -4956,7 +4956,7 @@ export const userConsents = pgTable(
 );
 
 /**
- * docs/account-deletion-2026-11 (0188): a person asking to delete their own
+ * docs/account-deletion-2026-11 (0191): a person asking to delete their own
  * account. REQUESTED when the code is sent, BLOCKED when a check refused it
  * (`blockers` lists why), COMPLETED once the account was anonymised. Kept after
  * the account is gone as the record that the request was honoured. No foreign
@@ -10725,7 +10725,7 @@ export type PurchaseListItem = typeof purchaseListItems.$inferSelect;
 
 /* <<< end purchase lists */
 
-/* >>> favourites (docs/search-brand-barcode-favourites-2026-11, 0187) */
+/* >>> favourites (docs/search-brand-barcode-favourites-2026-11, 0190) */
 
 /**
  * A customer's saved catalogue products (the heart on a product card). Not the smart-list "wishlist".
@@ -10797,13 +10797,13 @@ export const FEATURE_FLAG_KEYS = [
   "rbac_v2_operations",
   // docs/dealer-platform (0181): second approver for scheme publishing / status, dealer scheme changes, franchise refunds.
   "dealer_platform_four_eye",
-  // docs/shop-staff-roles-2026-11 (0195): shop staff roles, permissions and invitations. Off: staff stay catalogue-only.
+  // docs/shop-staff-roles-2026-11 (0198): shop staff roles, permissions and invitations. Off: staff stay catalogue-only.
   "shop_staff_roles_enabled",
-  // docs/customer-whatsapp-2026-11 (0190): customer updates and shopping on WhatsApp (Meta Cloud API, or the mock outbox).
+  // docs/customer-whatsapp-2026-11 (0193): customer updates and shopping on WhatsApp (Meta Cloud API, or the mock outbox).
   "whatsapp_customer_enabled",
-  // docs/search-brand-barcode-favourites-2026-11 (0187): brand search, customer barcode search, favourites.
+  // docs/search-brand-barcode-favourites-2026-11 (0190): brand search, customer barcode search, favourites.
   "brand_barcode_favourites_enabled",
-  // docs/onboarding-waves-2-3-2026-11 (0192): onboarding Phase 2 Waves 2–3 (WP6, WP7, WP10). Seeded OFF.
+  // docs/onboarding-waves-2-3-2026-11 (0195): onboarding Phase 2 Waves 2–3 (WP6, WP7, WP10). Seeded OFF.
   "onboarding_referral_by_pin_enabled",
   "onboarding_assisted_mode_enabled",
   "onboarding_scan_first_enabled",
@@ -10815,10 +10815,10 @@ export const FEATURE_FLAG_KEYS = [
   "payout_deductions",
   // docs/hdms-2026-11 (0189): delivery allocation engine + external delivery partners. Missing row = OFF.
   "hdms_enabled",
-  // docs/guest-checkout-2026-11 (0189): checkout as a guest (contact + code), tracking links, best-shop panel,
+  // docs/guest-checkout-2026-11 (0192): checkout as a guest (contact + code), tracking links, best-shop panel,
   // group timeline and the admin order-group reconciliation. Needs guest_cart_enabled ON too. Seeded OFF.
   "guest_checkout_enabled",
-  // docs/account-deletion-2026-11 (0188): customers delete their own account from My Profile. Off: no section, APIs answer 404.
+  // docs/account-deletion-2026-11 (0191): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];

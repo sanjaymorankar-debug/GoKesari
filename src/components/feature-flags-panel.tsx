@@ -40,12 +40,12 @@ export type FeatureFlagKey =
   | "rbac_v2_shop_change_requests"
   | "rbac_v2_operations"
   | "dealer_platform_four_eye"
-  // docs/shop-staff-roles-2026-11 (0195)
+  // docs/shop-staff-roles-2026-11 (0198)
   | "shop_staff_roles_enabled"
   | "whatsapp_customer_enabled"
-  // docs/search-brand-barcode-favourites-2026-11 (0187)
+  // docs/search-brand-barcode-favourites-2026-11 (0190)
   | "brand_barcode_favourites_enabled"
-  // docs/onboarding-waves-2-3-2026-11 (0192)
+  // docs/onboarding-waves-2-3-2026-11 (0195)
   | "onboarding_referral_by_pin_enabled"
   | "onboarding_assisted_mode_enabled"
   | "onboarding_scan_first_enabled"
@@ -56,7 +56,7 @@ export type FeatureFlagKey =
   | "hdms_enabled"
   // docs/guest-checkout-2026-11
   | "guest_checkout_enabled"
-  // docs/account-deletion-2026-11 (0188)
+  // docs/account-deletion-2026-11 (0191)
   | "account_self_deletion_enabled";
 
 interface FlagValue {

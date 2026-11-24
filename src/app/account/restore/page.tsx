@@ -18,7 +18,7 @@ export const metadata = { title: "Restore my account" };
 export const dynamic = "force-dynamic";
 
 /**
- * docs/account-deletion-2026-11 (0196): the screen a person in their deletion
+ * docs/account-deletion-2026-11 (0199): the screen a person in their deletion
  * cooling-off period reaches after signing in with an emailed code. Nothing else
  * is available to a hidden account: no session exists until "Restore my
  * account" switches it back on. The sign-in page proves the code with a

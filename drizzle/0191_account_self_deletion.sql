@@ -8,7 +8,7 @@
 --   /api/profile/delete APIs answer 404, so the app behaves exactly as before.
 -- * login_otps.purpose gains the value ACCOUNT_DELETE (plain text column, no constraint to change).
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0188.sql.
+-- Additive and safe to re-run. Rollback: scripts/rollback-0191.sql.
 CREATE TABLE IF NOT EXISTS "account_deletion_requests" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "user_id" uuid NOT NULL,

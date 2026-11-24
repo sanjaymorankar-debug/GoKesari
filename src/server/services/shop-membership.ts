@@ -10,7 +10,7 @@
  * exempt shop (0189: the per-shop exemption, or rule exemptShopTypes /
  * exemptCategorySlugs).
  *
- * 0194 (docs/shop-membership-renewal-2026-11): every extension is a row in
+ * 0197 (docs/shop-membership-renewal-2026-11): every extension is a row in
  * shop_membership_periods. The fee payments of a shop (REGISTRATION_FEE,
  * RENEWAL, and the REFUND / REVERSAL rows that correct them) form one pool;
  * each period consumes its fee from it. A part payment opens no period (it

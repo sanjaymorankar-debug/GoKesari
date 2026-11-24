@@ -28,7 +28,7 @@ function when(value: Date | null): string {
  * docs/account-deletion-2026-11: every self-service deletion request. Same
  * permission as the consent record (CONSENT_VIEW). A completed request's account
  * is anonymised, so only its id is shown. An account in its cooling-off period
- * (0196) is marked "Under cooling period until <date>" with the person's reason;
+ * (0199) is marked "Under cooling period until <date>" with the person's reason;
  * its name and email are shown to admins only (USER_SUSPEND), and an admin may
  * cancel the deletion (restores the account) with a note — audited.
  */

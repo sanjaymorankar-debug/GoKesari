@@ -1,7 +1,7 @@
 # Guest checkout, guest tracking, best-shop panel, group reconciliation (Module 1, 23-Nov-2026)
 
 Owner brief 23-Nov-2026, Module 1 "Guest shopping". Builds on PR #504 (guest cart, flag `guest_cart_enabled`).
-Branch `feat/m1-guest-checkout`. Migration **0189**. Flag **`guest_checkout_enabled`** (seeded OFF; shows nothing
+Branch `feat/m1-guest-checkout`. Migration **0192**. Flag **`guest_checkout_enabled`** (seeded OFF; shows nothing
 unless `guest_cart_enabled` is ON as well). With the flag off the site behaves exactly as before.
 
 ## What already existed
@@ -80,7 +80,7 @@ Verdicts: MATCHED, AMOUNT_MISMATCH, REFUND_MISMATCH, NO_PAYMENT, DUPLICATE_PAYME
 
 ## Files
 
-- Migration `drizzle/0189_guest_checkout.sql` (+ journal), rollback `scripts/rollback-0189.sql`
+- Migration `drizzle/0192_guest_checkout.sql` (+ journal), rollback `scripts/rollback-0192.sql`
 - `src/server/db/schema.ts` (users.guest_created, flag key, OTP purposes GUEST_MOBILE / ORDER_TRACK)
 - `src/server/guest-checkout/` — `service.ts` (start / complete), `token.ts`, `tracking.ts`, `timeline.ts`,
   `recommendation.ts`, `reconciliation.ts`

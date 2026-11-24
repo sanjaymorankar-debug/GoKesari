@@ -74,7 +74,7 @@ under `meta`, and non-button inbound messages were logged and dropped.
 
 ## Files
 
-New: `drizzle/0190_customer_whatsapp.sql`, `scripts/rollback-0190.sql`,
+New: `drizzle/0193_customer_whatsapp.sql`, `scripts/rollback-0193.sql`,
 `src/server/db/whatsapp-customer-schema.ts`, `src/server/whatsapp/customer/{config,consent,notify-hook,send,conversation,sessions,cart-link,admin}.ts`,
 `src/app/api/consents/whatsapp/route.ts`, `src/app/api/whatsapp/cart-link/route.ts`, `src/app/wa/cart/page.tsx`,
 `src/components/whatsapp-consent-toggle.tsx`, `tests/unit/whatsapp-customer-logic.test.ts`,
@@ -88,11 +88,11 @@ Changed: `schema.ts` (consent enum, `user_consents.source`, flag key, re-export)
 `admin/whatsapp-messages/page.tsx`, `admin/consents/page.tsx`, `profile/page.tsx`,
 `tests/integration/consents.test.ts` (new consent type listed), `drizzle/meta/_journal.json`.
 
-## Migration 0190 (additive, re-runnable)
+## Migration 0193 (additive, re-runnable)
 
 `consent_type` + `WHATSAPP_NOTIFICATIONS`; `user_consents.source`; `whatsapp_messages.user_id` + index and
 kind check widened (`CUSTOMER_NOTIFICATION`, `CUSTOMER_REPLY`); tables `whatsapp_customer_sessions`,
-`whatsapp_cart_links`; flag row `whatsapp_customer_enabled` OFF. Rollback: `scripts/rollback-0190.sql`
+`whatsapp_cart_links`; flag row `whatsapp_customer_enabled` OFF. Rollback: `scripts/rollback-0193.sql`
 (enum value stays, inert).
 
 ## Switches

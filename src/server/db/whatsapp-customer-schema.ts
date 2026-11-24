@@ -1,5 +1,5 @@
 /**
- * Customer WhatsApp (docs/customer-whatsapp-2026-11/README.md; drizzle/0190_customer_whatsapp.sql).
+ * Customer WhatsApp (docs/customer-whatsapp-2026-11/README.md; drizzle/0193_customer_whatsapp.sql).
  *
  *   whatsapp_customer_sessions  one chat per phone number: where the conversation
  *                               is (state), the last search results, the chat

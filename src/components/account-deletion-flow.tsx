@@ -20,16 +20,16 @@ export interface AccountDeletionFlowProps {
   /** Already formatted (₹). Null when there is no promotional credit. */
   promotionalForfeit: string | null;
   maskedEmail: string | null;
-  /** 0196: the reasons offered (a reason is required); "OTHER" needs words. */
+  /** 0199: the reasons offered (a reason is required); "OTHER" needs words. */
   reasons: readonly { code: string; label: string }[];
-  /** 0196: days the account stays hidden before it is deleted (rule accountDeletion.coolingOffDays). */
+  /** 0199: days the account stays hidden before it is deleted (rule accountDeletion.coolingOffDays). */
   coolingOffDays: number;
 }
 
 /**
  * docs/account-deletion-2026-11: the steps on /profile/delete — blockers (with
  * where to fix each), then the emailed code, the reason (required) and the typed
- * word DELETE, then the "account hidden, deleted on <date>" screen (0196 cooling-off).
+ * word DELETE, then the "account hidden, deleted on <date>" screen (0199 cooling-off).
  */
 export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
   const [blockers, setBlockers] = useState(props.blockers);

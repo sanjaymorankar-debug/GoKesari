@@ -2,7 +2,7 @@
  * docs/account-deletion-2026-11 — the signed-in person deletes their own account.
  * GET  → the checks (blockers, subscriptions to cancel) and the latest request's status.
  * POST { code, confirmText: "DELETE", reasonCode, reason? } → hides the account for the cooling-off
- *   period (0196: rule accountDeletion.coolingOffDays, 90) and schedules the anonymisation.
+ *   period (0199: rule accountDeletion.coolingOffDays, 90) and schedules the anonymisation.
  *   A reason is required: a code from ACCOUNT_DELETION_REASONS, with words for OTHER.
  * Flag account_self_deletion_enabled off → 404.
  */

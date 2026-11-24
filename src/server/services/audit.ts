@@ -193,7 +193,7 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTRATION_UPDATED: "shop.registration_updated",
   SHOP_PAYMENT_RECORDED: "shop_payment.recorded",
   SHOP_PAYMENT_REVERSED: "shop_payment.reversed",
-  /* >>> 0194 shop membership renewal (docs/shop-membership-renewal-2026-11) */
+  /* >>> 0197 shop membership renewal (docs/shop-membership-renewal-2026-11) */
   SHOP_MEMBERSHIP_EXEMPTION_CHANGED: "shop.membership_exemption_changed",
   SHOP_MEMBERSHIP_PERIOD_OPENED: "shop.membership_period_opened",
   SHOP_MEMBERSHIP_PERIOD_VOIDED: "shop.membership_period_voided",
@@ -411,7 +411,7 @@ export const AUDIT_ACTIONS = {
   PHONE_LINKED: "auth.phone_linked",
   PHONE_RELEASED: "auth.phone_released",
   EMAIL_CHANGED: "auth.email_changed",
-  // docs/account-deletion-2026-11 (0188): self-service account deletion.
+  // docs/account-deletion-2026-11 (0191): self-service account deletion.
   ACCOUNT_DELETION_REQUESTED: "account.deletion_requested",
   ACCOUNT_DELETION_BLOCKED: "account.deletion_blocked",
   ACCOUNT_DELETED: "account.deleted",
@@ -646,10 +646,10 @@ export const AUDIT_ACTIONS = {
   HEALTH_CARE_PROVIDER: "health.care_provider",
   HEALTH_EQUIPMENT_STORE: "health.equipment_store",
   /* <<< GoKesari Health */
-  /* docs/guest-checkout-2026-11 (0189) */
+  /* docs/guest-checkout-2026-11 (0192) */
   GUEST_CHECKOUT_VERIFIED: "guest_checkout.verified",
   GUEST_TRACKING_LOOKUP: "guest_checkout.tracking_lookup",
-  // docs/customer-whatsapp-2026-11 (0190): an admin re-queued a failed WhatsApp message; a simulated inbound chat message (test site).
+  // docs/customer-whatsapp-2026-11 (0193): an admin re-queued a failed WhatsApp message; a simulated inbound chat message (test site).
   WHATSAPP_MESSAGE_RETRIED: "whatsapp_message.retried",
   WHATSAPP_INBOUND_SIMULATED: "whatsapp_inbound.simulated",
 } as const;

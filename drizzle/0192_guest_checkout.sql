@@ -7,7 +7,7 @@
 -- * login_otps.purpose gains GUEST_MOBILE and ORDER_TRACK: text column with no CHECK, so nothing to change here.
 -- * feature flag guest_checkout_enabled, seeded OFF (it also needs guest_cart_enabled ON to show anything).
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0189.sql (drops the column and the flag row).
+-- Additive and safe to re-run. Rollback: scripts/rollback-0192.sql (drops the column and the flag row).
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "guest_created" boolean NOT NULL DEFAULT false;
 --> statement-breakpoint
 INSERT INTO "feature_flags" ("key", "enabled") VALUES ('guest_checkout_enabled', false) ON CONFLICT DO NOTHING;

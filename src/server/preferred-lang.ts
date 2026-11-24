@@ -5,7 +5,7 @@ import { db } from "@/server/db";
 import { users } from "@/server/db/schema";
 
 /**
- * users.preferred_lang (migration 0191): the language a signed-in person last
+ * users.preferred_lang (migration 0194): the language a signed-in person last
  * picked on the EN / हिं / मरा switch. Read for the board-language fallback
  * and for notification wording. Never throws — a missing column (migration
  * not yet applied) or a database error reads as "not chosen".

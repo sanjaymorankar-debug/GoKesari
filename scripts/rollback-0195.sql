@@ -1,21 +1,10 @@
--- Rollback for 0195_shop_staff_roles (Module 10; docs/shop-staff-roles-2026-11/).
--- Before running: turn shop_staff_roles_enabled off and deploy the previous release's code, then delete the 0195
--- row from drizzle.__drizzle_migrations. Invitations that were never accepted have no user and are removed; every
--- other row keeps working as catalogue staff (status INVITED/SUSPENDED rows are revoked so the old code ignores them).
-DELETE FROM "shop_staff" WHERE "user_id" IS NULL;
-UPDATE "shop_staff" SET "status" = 'REVOKED', "revoked_at" = COALESCE("revoked_at", now()) WHERE "status" IN ('INVITED', 'SUSPENDED');
-ALTER TABLE "shop_staff" ALTER COLUMN "user_id" SET NOT NULL;
-DROP INDEX IF EXISTS "shop_staff_invite_token_idx";
-DROP INDEX IF EXISTS "shop_staff_one_open_email";
-DROP INDEX IF EXISTS "shop_staff_one_open";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "role_changed_at";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "suspended_by";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "suspended_at";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "accepted_at";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "invited_by";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "invite_expires_at";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "invite_token_hash";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "invite_email";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "permissions";
-ALTER TABLE "shop_staff" DROP COLUMN IF EXISTS "role";
-DELETE FROM "feature_flags" WHERE "key" = 'shop_staff_roles_enabled';
+-- Rollback for 0195_onboarding_waves_2_3 (onboarding Phase 2 Waves 2–3; docs/onboarding-waves-2-3-2026-11/).
+-- Before running: deploy the previous release's code (which does not read these columns or flags), then delete
+-- the 0195 row from drizzle.__drizzle_migrations. Assisted-draft history (who helped) is lost; the audit log keeps it.
+DROP INDEX IF EXISTS "shop_registration_drafts_assisted_idx";
+ALTER TABLE "shop_registration_drafts" DROP CONSTRAINT IF EXISTS "shop_registration_drafts_assisted_role";
+ALTER TABLE "shop_registration_drafts" DROP COLUMN IF EXISTS "assisted_session_id";
+ALTER TABLE "shop_registration_drafts" DROP COLUMN IF EXISTS "assisted_role";
+ALTER TABLE "shop_registration_drafts" DROP COLUMN IF EXISTS "assisted_by_user_id";
+DELETE FROM "feature_flag_changes" WHERE "flag_key" IN ('onboarding_referral_by_pin_enabled', 'onboarding_assisted_mode_enabled', 'onboarding_scan_first_enabled');
+DELETE FROM "feature_flags" WHERE "key" IN ('onboarding_referral_by_pin_enabled', 'onboarding_assisted_mode_enabled', 'onboarding_scan_first_enabled');

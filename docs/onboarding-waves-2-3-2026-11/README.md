@@ -2,7 +2,7 @@
 
 Owner brief 23-Nov-2026, Module 5. Source of truth:
 `docs/onboarding-benchmark/phase-2/screens-flow-and-implementation-plan.md` §6 (WP6–WP10) and
-`docs/delta/CONFLICT_REGISTER_2026-11-22.md` CF-007 to CF-010. Branch `feat/m5-onboarding-waves`, migration **0192**.
+`docs/delta/CONFLICT_REGISTER_2026-11-22.md` CF-007 to CF-010. Branch `feat/m5-onboarding-waves`, migration **0195**.
 
 Everything new is behind three feature flags, all seeded **OFF**. With them off, the wizard, the dealer-assisted
 flat form and the operator onboarding flow work exactly as before.
@@ -62,7 +62,7 @@ and **Call** (only when a phone came back). Hidden when a code is already applie
 
 ## WP7: one assisted mode
 
-**Data (0192):** `shop_registration_drafts` + `assisted_by_user_id`, `assisted_role`
+**Data (0195):** `shop_registration_drafts` + `assisted_by_user_id`, `assisted_role`
 (`DEALER` / `DEALER_EMPLOYEE` / `OPERATOR`), `assisted_session_id` (the consent session used). Null for every
 existing row and for an owner registering alone.
 
@@ -109,7 +109,7 @@ still right there. Not opened once the number is verified.
 
 ## Files changed
 
-- `drizzle/0192_onboarding_waves_2_3.sql`, `drizzle/meta/_journal.json`, `scripts/rollback-0192.sql`
+- `drizzle/0195_onboarding_waves_2_3.sql`, `drizzle/meta/_journal.json`, `scripts/rollback-0195.sql`
 - `src/server/db/schema.ts` (3 flag keys; 3 draft columns, index, check)
 - `src/server/services/feature-flags.ts`, `src/components/feature-flags-panel.tsx` (labels and hints)
 - `src/server/services/audit.ts` (`ONBOARDING_ASSISTED_STEP`)
@@ -124,10 +124,10 @@ still right there. Not opened once the number is verified.
 - `src/lib/kyc/browser-ocr.ts` (`preloadBrowserOcr`)
 - Tests: `tests/unit/onboarding-waves-2-3.test.ts`
 
-## Migration 0192
+## Migration 0195
 
 Additive and safe to re-run: three nullable columns, one check, one partial index, three flag rows OFF.
-Rollback: `scripts/rollback-0192.sql` after deploying code without these columns.
+Rollback: `scripts/rollback-0195.sql` after deploying code without these columns.
 
 ## Tests
 

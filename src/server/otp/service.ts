@@ -75,7 +75,7 @@ export interface VerifiedLogin {
   user: User;
   isNewUser: boolean;
   /**
-   * docs/account-deletion-2026-11 (0196): the account is hidden in its deletion cooling-off
+   * docs/account-deletion-2026-11 (0199): the account is hidden in its deletion cooling-off
    * period. Only returned to a caller that passed `allowPendingDeletion`; it must not open a
    * session, only offer the restore screen.
    */
@@ -443,7 +443,7 @@ export async function verifyLoginOtp(input: {
    */
   acceptedTerms?: boolean;
   /**
-   * docs/account-deletion-2026-11 (0196): the sign-in page passes true so an account in its
+   * docs/account-deletion-2026-11 (0199): the sign-in page passes true so an account in its
    * deletion cooling-off period comes back with `pendingDeletion` (for the restore screen)
    * instead of being refused. Nothing is changed on such an account here.
    */

@@ -11,7 +11,7 @@
  *     to the account's own address, under the normal OTP limits.
  *  3. `deleteAccount` checks the code, the typed word DELETE and the reason
  *     (required), cancels the subscriptions, then in one transaction re-runs
- *     the checks on the locked account row and HIDES the account (0196, owner
+ *     the checks on the locked account row and HIDES the account (0199, owner
  *     23-Nov-2026): users.status PENDING_DELETION, a rider profile deactivated,
  *     push tokens removed, the request COOLING_OFF with `purgeAfter` = now +
  *     rule accountDeletion.coolingOffDays (90).
@@ -487,7 +487,7 @@ export async function requestAccountDeletionCode(
 
 /* ------------------------------------------------------------ the reason */
 
-/** 0196: the reasons offered on the page (a reason is now required). "OTHER" needs the person's own words. */
+/** 0199: the reasons offered on the page (a reason is now required). "OTHER" needs the person's own words. */
 export const ACCOUNT_DELETION_REASONS = [
   { code: "NOT_USING", label: "I don't use GoKesari any more" },
   { code: "PRIVACY", label: "I am worried about my privacy or data" },
@@ -632,7 +632,7 @@ export interface DeleteAccountResult {
 
 /**
  * POST /api/profile/delete: the signed-in person confirms the deletion. Since
- * 0196 the account is hidden at once and anonymised by the daily job after the
+ * 0199 the account is hidden at once and anonymised by the daily job after the
  * cooling-off period; signing in again during that time offers a restore.
  */
 export async function deleteAccount(

@@ -11,7 +11,7 @@
 -- * one open row (INVITED / ACTIVE / SUSPENDED) per person per shop.
 -- * feature flag shop_staff_roles_enabled (OFF): with it off, staff stay catalogue-only exactly as before.
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0195.sql.
+-- Additive and safe to re-run. Rollback: scripts/rollback-0198.sql.
 ALTER TABLE "shop_staff" ADD COLUMN IF NOT EXISTS "role" text NOT NULL DEFAULT 'CATALOGUE_MANAGER';
 --> statement-breakpoint
 ALTER TABLE "shop_staff" ADD COLUMN IF NOT EXISTS "permissions" text[] NOT NULL DEFAULT '{}';

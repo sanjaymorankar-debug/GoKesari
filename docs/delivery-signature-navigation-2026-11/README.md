@@ -1,6 +1,6 @@
 # Module 4 — Delivery signature and navigation (23-Nov-2026)
 
-Owner brief of 23-Nov-2026, gap completion. Branch `feat/m4-delivery-signature`, migration **0193**.
+Owner brief of 23-Nov-2026, gap completion. Branch `feat/m4-delivery-signature`, migration **0196**.
 Everything new is behind admin rule fields that are **off by default**; with them off the rider, customer,
 shop and admin screens behave exactly as before.
 
@@ -88,17 +88,17 @@ shop and admin screens behave exactly as before.
 These extend existing rule groups (the area already uses rules), so no `feature_flags` row is added. Stored rule
 values from before this change merge with the new defaults (`getRule` merges defaults first).
 
-## Migration 0193 (`drizzle/0193_delivery_signature_gps.sql`)
+## Migration 0196 (`drizzle/0196_delivery_signature_gps.sql`)
 
 Additive and safe to re-run: `delivery_proofs_kind_check` now allows `SIGNATURE`; new nullable columns
 `delivery_proofs.signer_name, latitude, longitude`; `delivery_orders.failure_reason_code` (checked against the list),
 `delivered_latitude, delivered_longitude, delivered_accuracy_m, failed_latitude, failed_longitude`.
-Rollback: `scripts/rollback-0193.sql` (deletes SIGNATURE rows first, then drops the columns).
+Rollback: `scripts/rollback-0196.sql` (deletes SIGNATURE rows first, then drops the columns).
 
 ## Files changed
 
-- New: `src/components/signature-pad.tsx`, `src/lib/delivery/failure-reasons.ts`, `drizzle/0193_delivery_signature_gps.sql`,
-  `scripts/rollback-0193.sql`, `tests/unit/delivery-signature-navigation.test.ts`, this README.
+- New: `src/components/signature-pad.tsx`, `src/lib/delivery/failure-reasons.ts`, `drizzle/0196_delivery_signature_gps.sql`,
+  `scripts/rollback-0196.sql`, `tests/unit/delivery-signature-navigation.test.ts`, this README.
 - Changed: `src/server/config/rules.ts`, `src/server/db/schema.ts`, `drizzle/meta/_journal.json`,
   `src/server/services/delivery-proofs.ts`, `src/server/services/delivery-assignment.ts`,
   `src/server/services/rider-navigation.ts`, `src/app/api/delivery-orders/[id]/route.ts`,
@@ -116,15 +116,15 @@ pickup; signer-name and position cleaning; GPS kept only with `captureGps`; mult
 batching / on; stop-list rendering; rider dashboard unchanged with rules off and the signature step gating
 "Mark delivered" with them on.
 
-`tests/integration/delivery-signature-gps.test.ts` (7 cases, TC-M4-I01…I30, real PostgreSQL with migration 0193):
+`tests/integration/delivery-signature-gps.test.ts` (7 cases, TC-M4-I01…I30, real PostgreSQL with migration 0196):
 rules off (signature upload 404, no GPS kept, reason code ignored, free text as before); required signature blocks
 "Mark delivered" until uploaded, signer name / position stored, viewers limited; GPS stored at delivery and failure
 and read back for the admin view, invalid point dropped; listed reason stored as label + code, Other needs a note.
 
 ## Not done / still open
 
-- `tests/unit/migration-journal.test.ts` fails on this branch alone because 0187–0190 belong to other module branches;
-  it passes once those are merged ahead of 0193.
+- `tests/unit/migration-journal.test.ts` fails on this branch alone because 0190–0193 belong to other module branches;
+  it passes once those are merged ahead of 0196.
 - The rider screen strings are English, as the rest of the rider dashboard is today; only the customer's
   "Signature at delivery" link is translated.
 - Waypoint routing through several stops in one route (Google `intermediates`, OSRM multi-coordinate) is not built.

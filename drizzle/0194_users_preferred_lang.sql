@@ -4,7 +4,7 @@
 -- 'mr'; NULL = never chosen). The gk_lang cookie still wins; this column is the fallback on a new device and the
 -- language used for that person's in-app and e-mail notifications. NULL keeps today's behaviour (English).
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0191.sql (drops the column; the cookie keeps working).
+-- Additive and safe to re-run. Rollback: scripts/rollback-0194.sql (drops the column; the cookie keeps working).
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "preferred_lang" text;
 --> statement-breakpoint
 DO $$

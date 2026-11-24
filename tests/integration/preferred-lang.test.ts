@@ -1,5 +1,5 @@
 /**
- * Module 6 (docs/hindi-marathi-2026-11/): users.preferred_lang (migration 0191)
+ * Module 6 (docs/hindi-marathi-2026-11/): users.preferred_lang (migration 0194)
  * — saved by the language switch, read back for the board-language fallback,
  * and used for the main customer notifications. English stays the default.
  */

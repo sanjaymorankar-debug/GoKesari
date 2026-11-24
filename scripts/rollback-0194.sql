@@ -1,12 +1,5 @@
--- Rollback for 0194_shop_membership_renewal (shop membership renewal; docs/shop-membership-renewal-2026-11/).
--- Before running: deploy the previous release's code, switch rule shopMembership.renewalCheckoutEnabled and
--- remindersEnabled off, and let any open SHOP_MEMBERSHIP_RENEWAL payment finish (a capture after the rollback
--- has no handler and is flagged for support). Then delete the 0194 row from drizzle.__drizzle_migrations.
--- The renewal history (shop_membership_periods) and the exemptions are lost; memberships' end dates
--- (shops.membership_valid_until) and the payment ledger are kept. The SHOP_MEMBERSHIP_RENEWAL payment purpose
--- stays allowed (inert).
-DROP TABLE IF EXISTS "shop_membership_periods";
-ALTER TABLE "shops" DROP COLUMN IF EXISTS "membership_exempt_set_at";
-ALTER TABLE "shops" DROP COLUMN IF EXISTS "membership_exempt_set_by";
-ALTER TABLE "shops" DROP COLUMN IF EXISTS "membership_exempt_reason";
-ALTER TABLE "shops" DROP COLUMN IF EXISTS "membership_exempt";
+-- Rollback for 0194_users_preferred_lang (Module 6, Hindi and Marathi; docs/hindi-marathi-2026-11/).
+-- Deploy the previous release's code first (it never reads the column), then run this and delete the 0194 row.
+-- The gk_lang cookie keeps every visitor's language; notifications go back to English only.
+ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_preferred_lang_check";
+ALTER TABLE "users" DROP COLUMN IF EXISTS "preferred_lang";

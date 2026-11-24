@@ -1,7 +1,7 @@
 # Shop membership renewal — modules 8 + 9 (23-Nov-2026)
 
 Yearly shop fee renewal checkout, renewal reminders, an admin report and per-shop exemption,
-and the admin ON/OFF switches. Branch `feat/m8-membership-renewal`, migration **0194**.
+and the admin ON/OFF switches. Branch `feat/m8-membership-renewal`, migration **0197**.
 
 ## What already existed
 - `shops.membership_valid_until` (0094) and rule `shopMembership {enabled, periodMonths 12, graceDays 15, reminderDays 30}`.
@@ -16,7 +16,7 @@ and the admin ON/OFF switches. Branch `feat/m8-membership-renewal`, migration **
 | # | Requirement | Status |
 |---|---|---|
 | 1 | Rule switches: `renewalFeePaise`, `addGst`, `renewalCheckoutEnabled` (off), `remindersEnabled` (off), `renewalWindowDays` (30), `exemptShopTypes`, `exemptCategorySlugs` | DEVELOPED |
-| 2 | Migration 0194: exemption columns, payment purpose `SHOP_MEMBERSHIP_RENEWAL`, `shop_membership_periods` (history) | DEVELOPED |
+| 2 | Migration 0197: exemption columns, payment purpose `SHOP_MEMBERSHIP_RENEWAL`, `shop_membership_periods` (history) | DEVELOPED |
 | 3 | Renewal checkout + capture handler; **defect fixed**: a part payment no longer extends the membership; refund / reversal rolls the period back | DEVELOPED / FIXED |
 | 4 | Printable receipt for a renewal (GST split when known) | DEVELOPED |
 | 5 | Owner UI: plan, fee, expiry, renewal date, state, Renew now, renewal history; "Renew it" link fixed; "Not enforced" copy | DEVELOPED / FIXED |
@@ -58,7 +58,7 @@ and the admin ON/OFF switches. Branch `feat/m8-membership-renewal`, migration **
   `remindersEnabled` off: no reminders. Switching anything off never suspends a shop.
 
 ## Files
-- `drizzle/0194_shop_membership_renewal.sql`, `drizzle/meta/_journal.json`, `scripts/rollback-0194.sql`
+- `drizzle/0197_shop_membership_renewal.sql`, `drizzle/meta/_journal.json`, `scripts/rollback-0197.sql`
 - `src/server/db/schema.ts` (shops exemption columns, `shopMembershipPeriods`, payment purpose)
 - `src/server/config/rules.ts` (rule `shopMembership`)
 - `src/server/services/shop-membership.ts` (exemptions, periods, rollback, renewal fee)

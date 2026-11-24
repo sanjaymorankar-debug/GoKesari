@@ -1314,22 +1314,8 @@
     {
       "idx": 187,
       "version": "7",
-      "when": 1793269601000,
-      "tag": "0187_brand_barcode_favourites",
-      "breakpoints": true
-    },
-    {
-      "idx": 187,
-      "version": "7",
       "when": 1793269700000,
       "tag": "0187_tax_register",
-      "breakpoints": true
-    },
-    {
-      "idx": 188,
-      "version": "7",
-      "when": 1793269602000,
-      "tag": "0188_account_self_deletion",
       "breakpoints": true
     },
     {
@@ -1342,13 +1328,6 @@
     {
       "idx": 189,
       "version": "7",
-      "when": 1793269603000,
-      "tag": "0189_guest_checkout",
-      "breakpoints": true
-    },
-    {
-      "idx": 189,
-      "version": "7",
       "when": 1793269900000,
       "tag": "0189_hdms_delivery",
       "breakpoints": true
@@ -1356,50 +1335,71 @@
     {
       "idx": 190,
       "version": "7",
-      "when": 1793269604000,
-      "tag": "0190_customer_whatsapp",
+      "when": 1793269901000,
+      "tag": "0190_brand_barcode_favourites",
       "breakpoints": true
     },
     {
       "idx": 191,
       "version": "7",
-      "when": 1793269605000,
-      "tag": "0191_users_preferred_lang",
+      "when": 1793269902000,
+      "tag": "0191_account_self_deletion",
       "breakpoints": true
     },
     {
       "idx": 192,
       "version": "7",
-      "when": 1793269606000,
-      "tag": "0192_onboarding_waves_2_3",
+      "when": 1793269903000,
+      "tag": "0192_guest_checkout",
       "breakpoints": true
     },
     {
       "idx": 193,
       "version": "7",
-      "when": 1793269607000,
-      "tag": "0193_delivery_signature_gps",
+      "when": 1793269904000,
+      "tag": "0193_customer_whatsapp",
       "breakpoints": true
     },
     {
       "idx": 194,
       "version": "7",
-      "when": 1793269608000,
-      "tag": "0194_shop_membership_renewal",
+      "when": 1793269905000,
+      "tag": "0194_users_preferred_lang",
       "breakpoints": true
     },
     {
       "idx": 195,
       "version": "7",
-      "when": 1793269609000,
-      "tag": "0195_shop_staff_roles",
+      "when": 1793269906000,
+      "tag": "0195_onboarding_waves_2_3",
       "breakpoints": true
     },
     {
       "idx": 196,
       "version": "7",
-      "when": 1793269610000,
-      "tag": "0196_account_deletion_cooling_off",
+      "when": 1793269907000,
+      "tag": "0196_delivery_signature_gps",
+      "breakpoints": true
+    },
+    {
+      "idx": 197,
+      "version": "7",
+      "when": 1793269908000,
+      "tag": "0197_shop_membership_renewal",
+      "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "7",
+      "when": 1793269909000,
+      "tag": "0198_shop_staff_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 199,
+      "version": "7",
+      "when": 1793269910000,
+      "tag": "0199_account_deletion_cooling_off",
       "breakpoints": true
     }
   ]

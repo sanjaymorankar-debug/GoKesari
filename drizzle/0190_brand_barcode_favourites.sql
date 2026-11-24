@@ -10,7 +10,7 @@
 --   /brand/[slug], the customer barcode scan and GET /api/products/barcode, the favourite hearts, /favourites
 --   and /api/favourites. Off: the site behaves exactly as before.
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0187.sql.
+-- Additive and safe to re-run. Rollback: scripts/rollback-0190.sql.
 CREATE TABLE IF NOT EXISTS "favourites" (
   "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE cascade,
   "product_id" uuid NOT NULL,

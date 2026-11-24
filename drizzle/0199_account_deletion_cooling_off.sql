@@ -11,8 +11,8 @@
 -- * index (status, purge_after) for the daily purge job.
 --
 -- Additive and safe to re-run (IF NOT EXISTS everywhere; the status CHECK is dropped and re-added wider).
--- No feature flag row: the whole module stays behind account_self_deletion_enabled (seeded OFF in 0188).
--- Rollback: scripts/rollback-0196.sql (the enum value stays; PostgreSQL cannot drop one).
+-- No feature flag row: the whole module stays behind account_self_deletion_enabled (seeded OFF in 0191).
+-- Rollback: scripts/rollback-0199.sql (the enum value stays; PostgreSQL cannot drop one).
 ALTER TYPE "user_status" ADD VALUE IF NOT EXISTS 'PENDING_DELETION';
 --> statement-breakpoint
 ALTER TABLE "account_deletion_requests" ADD COLUMN IF NOT EXISTS "reason_code" text;

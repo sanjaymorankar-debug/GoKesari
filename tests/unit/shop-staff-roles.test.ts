@@ -346,7 +346,7 @@ describe("staff management with the flag OFF", () => {
     expect(await svc.myStaffPermissions(SHOP_A, STAFF)).toBeNull();
   });
 
-  it("catalogue access keeps the Module 1 rule: an active CATALOGUE_MANAGER row (every pre-0195 row)", async () => {
+  it("catalogue access keeps the Module 1 rule: an active CATALOGUE_MANAGER row (every pre-0198 row)", async () => {
     const svc = await import("@/server/services/shop-staff");
     const actor = { id: STAFF, role: "CUSTOMER" as const };
     state.selectQueue = [[{ ownerId: OWNER_A }], [{ id: "s1", role: "CATALOGUE_MANAGER", permissions: [] }]];
