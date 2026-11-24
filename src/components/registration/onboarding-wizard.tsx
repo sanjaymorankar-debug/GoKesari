@@ -779,6 +779,8 @@ function VerifyStep({
   const [consent, setConsent] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  // Owner, 25-Nov-2026: a verified number is shown with "Change GST / PAN"; the form opens only on that tap.
+  const [changing, setChanging] = useState(false);
   const triedLink = useRef(false);
 
   useEffect(() => {
@@ -794,6 +796,9 @@ function VerifyStep({
   const typed = number.trim().toUpperCase().replace(/\s+/g, "");
   const derivedPan = hasGst && GSTIN_PATTERN.test(typed) ? typed.slice(2, 12) : null;
   const applied = Boolean(state?.referral.answered && state.referral.code && state.referral.code === code.trim());
+  const business = state?.prefill.legalName ?? state?.prefill.tradeName ?? null;
+  const showForm = !verified || changing;
+  const doneSoFar = Boolean(state?.ownerName || state?.address || state?.details || state?.location);
 
   function switchRoute(gst: boolean) {
     setHasGst(gst);
@@ -822,6 +827,30 @@ function VerifyStep({
   return (
     <StepCard title={tr({ en: "Verify your business", hi: "अपने व्यवसाय का सत्यापन करें", mr: "तुमच्या व्यवसायाची पडताळणी करा" }, lang)}>
       {requesting ? <ReferralRequestDialog prefill={{}} onClose={() => setRequesting(false)} /> : null}
+      {!showForm && state ? (
+        <div className="space-y-2 rounded-xl border border-leaf-500 bg-leaf-50 p-3" data-testid="identity-verified">
+          <p className="text-sm text-ink-800">
+            {state.route === "PAN_ONLY" ? "PAN" : "GSTIN"} <span className="font-mono">{check?.numberMasked}</span> is verified
+            {business ? <> for <strong>{business}</strong></> : null}.
+          </p>
+          <button type="button" className="min-h-11 text-sm font-semibold text-kesari-700 underline" onClick={() => setChanging(true)} data-testid="change-identity">
+            {tr({ en: "Change GST / PAN", hi: "GST / PAN बदलें", mr: "GST / PAN बदला" }, lang)}
+          </button>
+        </div>
+      ) : null}
+      {changing && doneSoFar ? (
+        <Alert tone="warning">
+          {tr(
+            {
+              en: "A different GST or PAN number is a different business: the owner name, address, shop details and map pin are filled in again from the new record.",
+              hi: "अलग GST या PAN नंबर अलग व्यवसाय है: मालिक का नाम, पता, दुकान का विवरण और नक्शे का पिन नए रिकॉर्ड से फिर भरे जाएँगे।",
+              mr: "वेगळा GST किंवा PAN क्रमांक म्हणजे वेगळा व्यवसाय: मालकाचे नाव, पत्ता, दुकानाचे तपशील आणि नकाशावरील पिन नव्या नोंदीवरून पुन्हा भरले जातील.",
+            },
+            lang,
+          )}
+        </Alert>
+      ) : null}
+      {showForm ? (
       <form onSubmit={verify} className="space-y-3">
         <Field
           label={referralRequired ? tr({ en: "Referral code", hi: "रेफ़रल कोड", mr: "रेफरल कोड" }, lang) : tr({ en: "Referral code (optional)", hi: "रेफ़रल कोड (वैकल्पिक)", mr: "रेफरल कोड (पर्यायी)" }, lang)}
@@ -902,10 +931,16 @@ function VerifyStep({
             </div>
           ) : null}
         </details>
+        {changing ? (
+          <button type="button" className="min-h-11 text-sm text-ink-700 underline" onClick={() => setChanging(false)} data-testid="keep-identity">
+            {tr({ en: "Keep the verified number", hi: "सत्यापित नंबर रखें", mr: "पडताळलेला क्रमांक ठेवा" }, lang)}
+          </button>
+        ) : null}
       </form>
+      ) : null}
 
-      <StatusLine check={check} />
-      {verified ? (
+      {showForm ? <StatusLine check={check} /> : null}
+      {verified && !changing ? (
         <div className="flex justify-end">
           <Button type="button" size="lg" onClick={next} disabled={busy}>
             {tr({ en: "Continue", hi: "आगे बढ़ें", mr: "पुढे जा" }, lang)}
