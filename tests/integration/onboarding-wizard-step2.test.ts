@@ -231,7 +231,7 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     view = (await getWizardDraft(owner))!;
     expect(view).toMatchObject({ nextStep: "OWNER", ownerName: null, details: null, location: null });
     expect(view.gstin).toMatchObject({ status: "VERIFIED" });
-    expect(view.referral.employeeId).toBe("EMP-7");
+    expect((view.referral as { employeeId?: string | null }).employeeId).toBe("EMP-7");
 
     // Switching to the PAN route does the same.
     await saveDraftOwner({ actor: owner, ownerName: "Second Owner" });
@@ -241,7 +241,7 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     expect(view.details).toBeNull();
     expect(view.location).toBeNull();
     expect(view.ownerName).not.toBe("Second Owner");
-    expect(view.referral.employeeId).toBe("EMP-7");
+    expect((view.referral as { employeeId?: string | null }).employeeId).toBe("EMP-7");
   });
 
   it("refuses a later step before the GSTIN / PAN step is done, and payment before every step", async () => {
