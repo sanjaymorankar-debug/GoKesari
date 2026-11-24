@@ -1310,6 +1310,13 @@
       "when": 1793269600000,
       "tag": "0186_payout_transfer_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1793269700000,
+      "tag": "0187_tax_register",
+      "breakpoints": true
     }
   ]
 }
