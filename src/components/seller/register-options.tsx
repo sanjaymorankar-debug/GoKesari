@@ -4,14 +4,16 @@ import { Icon } from "@/components/board/icons";
 
 /**
  * The one way a shop joins GoKesari (owner brief, 08-Nov-2026: one registration flow):
- * /shop/register, the step-by-step wizard — GST / PAN and the referral code first, then the
- * owner name if the record has none, the address and map pin, the shop name, the fee, live.
+ * /shop/register, the step-by-step wizard — owner, 25-Nov-2026: sign in, the referral code, GST / PAN,
+ * the shop type and its licences, the address and map pin, the shop details, the fee, live.
  * Used on the "Sell on GoKesari" page and on Seller Central before a shop exists.
  */
 export function RegisterOptions({ referralRequired, signedIn }: { referralRequired: boolean; signedIn: boolean }) {
   const steps = [
     ...(signedIn ? [] : ["Sign in — we email you a one-time code"]),
-    referralRequired ? "Your referral code and GST or PAN" : "Your GST or PAN (and referral code, if you have one)",
+    referralRequired ? "Your referral code" : "Your referral code, if you have one",
+    "Verify your GST or PAN — it fills in the shop and owner name",
+    "Your shop type and its licences (or upload them later)",
     "Confirm your address and mark your shop on the map",
     "Pay the registration fee online — your shop goes live",
   ];

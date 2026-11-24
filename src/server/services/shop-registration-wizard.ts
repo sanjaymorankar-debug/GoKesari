@@ -169,6 +169,8 @@ export interface DraftAddress {
 /** What the draft holds before the SHOP step: the owner name and address, saved on their own steps. */
 type PartialDetails = Partial<DraftShopDetails> & {
   addressConfirmed?: boolean;
+  /** Owner, 25-Nov-2026: the licences screen (after the shop type) was answered. */
+  licencesDone?: boolean;
   /** Owner, 21-Nov-2026: the optional documents screen was answered (Continue or Upload later). */
   documentsStepDone?: boolean;
 };
@@ -191,9 +193,13 @@ function addressOf(p: PartialDetails): DraftAddress | null {
 }
 
 export const WIZARD_STEPS = [
+  // Owner, 25-Nov-2026: the referral code on its own screen, then GST / PAN, then shop type and licences.
+  "REFERRAL",
   "IDENTITY",
   "EMAIL",
   "OWNER",
+  "TYPE",
+  "LICENCES",
   "ADDRESS",
   "PIN",
   "SHOP",
@@ -219,7 +225,23 @@ export interface WizardDocView {
   done: boolean;
 }
 
+/** Owner, 25-Nov-2026: one licence on the licences screen. */
+export interface WizardLicence {
+  key: string;
+  label: string;
+  level: "MUST_HAVE" | "PROMISE";
+  /** Checked here by number (FSSAI, Udyam, Shop Act); else uploaded once the shop exists. */
+  checkable: boolean;
+  check: (DraftCheckView & { validUntil: string | null }) | null;
+  done: boolean;
+}
+
 export interface WizardView extends ShopRegistrationDraftView {
+  /** The shop type chosen (the TYPE step), before the shop details are saved. */
+  shopType: string | null;
+  licences: WizardLicence[];
+  /** The owner promised to upload the remaining documents (the licences screen). */
+  documentsPromised: boolean;
   status: ShopRegistrationDraft["status"];
   details: DraftShopDetails | null;
   /** A food shop type: FSSAI is mandatory (approval waits for it to be verified). */
@@ -361,7 +383,9 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   const checks = await loadChecks(draft.id);
   const row = (t: DraftCheckDocType) => checks.find((c) => c.docType === t);
   const details = detailsOf(draft);
-  const foodShop = await isFoodShopType(details?.shopType);
+  // Owner, 25-Nov-2026: the shop type is chosen right after GST / PAN, before the shop details.
+  const shopTypeNow = details?.shopType ?? partialOf(draft).shopType ?? null;
+  const foodShop = await isFoodShopType(shopTypeNow ?? undefined);
 
   // Not a wizard step since 08-Nov-2026: Udyam is added on Documents after go-live.
   const udyam: WizardDocView = { has: draft.hasUdyam, check: checkView("UDYAM", row("UDYAM")), done: true };
@@ -374,6 +398,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     check: checkView("SHOP_ACT", row("SHOP_ACT")),
     done: draft.hasShopAct === false || settled(row("SHOP_ACT")),
   };
+  const licences = shopTypeNow ? await draftLicences(shopTypeNow, foodShop, row) : [];
   const location = draft.latitude && draft.longitude && draft.locationConfirmedAt ? { latitude: draft.latitude, longitude: draft.longitude, address: draft.locationAddress } : null;
 
   let shop: WizardView["shop"] = null;
@@ -444,9 +469,17 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     nextStep = "DOCUMENTS";
   }
   else if (draft.status === "SUBMITTED") nextStep = shop && shop.feeDuePaise > 0 ? "PAYMENT" : "WAITING";
-  else if (!referral.answered || !base.canContinue) nextStep = "IDENTITY";
+  // Owner, 25-Nov-2026: sign in → referral code → GST / PAN → (email) → owner name → shop type →
+  // licences → address → map pin → shop details → review → pay. A registration that already has its
+  // shop details (started before this order) is not sent back to the new screens.
+  else if (!referral.answered) nextStep = "REFERRAL";
+  else if (!base.canContinue) nextStep = "IDENTITY";
   else if (!email.confirmed) nextStep = "EMAIL";
   else if (!ownerName) nextStep = "OWNER";
+  // A registration already past its address (started before this order) is not sent back; a shop type
+  // changed later asks its licences again (licencesDone false).
+  else if (!details && !addressConfirmed && !partial.shopType) nextStep = "TYPE";
+  else if (partial.licencesDone === false || (!details && !addressConfirmed && partial.licencesDone !== true)) nextStep = "LICENCES";
   else if (!addressConfirmed) nextStep = "ADDRESS";
   else if (!location) nextStep = "PIN";
   else if (!details) nextStep = "SHOP";
@@ -479,10 +512,44 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     membershipMonths,
     licenceGraceDays: (await getRule("shopDocumentFollowUp")).graceDays,
     documentNotices: await documentNoticesByShopType(),
+    shopType: shopTypeNow,
+    licences,
+    documentsPromised: draft.documentsPromisedAt !== null,
     documentsStep,
     setup,
     nextStep,
   };
+}
+
+/** Licences checked by number on the draft (the government source or the reader); the rest are uploaded once the shop exists. */
+const CHECKABLE_LICENCES = new Set<DraftCheckDocType>(["FSSAI", "UDYAM", "SHOP_ACT"]);
+
+/**
+ * Owner, 25-Nov-2026: the licences screen after the shop type — what Admin → Shop document rules ask of
+ * this type (not "optional"). FSSAI, Udyam and the Shop Act are checked here by number; the others are
+ * uploaded on the documents screen before payment, or promised.
+ */
+async function draftLicences(
+  shopType: string,
+  foodShop: boolean,
+  row: (t: DraftCheckDocType) => ShopRegistrationDraftCheck | undefined,
+): Promise<WizardLicence[]> {
+  const set = await loadDocumentRuleSet();
+  return requirementsFromRuleSet(set, shopType, foodShop)
+    .filter((r) => r.level !== "OPTIONAL")
+    .map((r) => {
+      const checkable = CHECKABLE_LICENCES.has(r.key as DraftCheckDocType);
+      const key = r.key as DraftCheckDocType;
+      return {
+        key: r.key,
+        label: r.label,
+        level: r.level as "MUST_HAVE" | "PROMISE",
+        checkable,
+        check: checkable ? checkView(key, row(key)) : null,
+        // A licence that needs a file is settled on the documents screen once the shop exists.
+        done: checkable ? settled(row(key)) : false,
+      };
+    });
 }
 
 /** DF-09: the shop-type screen's licence notice for every active shop type, from the admin's rules. */
@@ -822,6 +889,39 @@ export async function saveDraftOwner(input: { actor: Actor; ownerName: string })
   return mergeDraftDetails(input.actor.id, { ownerName });
 }
 
+/** Step TYPE (owner, 25-Nov-2026): the shop type, right after GST / PAN — it decides which licences are asked. */
+export async function saveDraftShopType(input: { actor: Actor; shopType: string }): Promise<WizardView> {
+  const shopType = input.shopType.trim();
+  await assertShopType(shopType);
+  const draft = await findOpenDraft(input.actor.id);
+  const old = draft ? partialOf(draft) : {};
+  // Another type may ask for other licences: that screen is answered again.
+  return mergeDraftDetails(input.actor.id, { shopType, ...(old.shopType && old.shopType !== shopType ? { licencesDone: false } : {}) });
+}
+
+/**
+ * Step LICENCES (owner, 25-Nov-2026): the licences this shop type needs are checked by number (or read
+ * from a photo) on their own calls; this answers the screen. `promise`: "I will upload the rest within
+ * the promised days — my shop can be suspended if I don't". A must-have licence (Admin → Shop document
+ * rules) that is not checked yet stops it.
+ */
+export async function finishDraftLicences(input: { actor: Actor; promise: boolean }): Promise<WizardView> {
+  const draft = await findOpenDraft(input.actor.id);
+  if (!draft) throw notFound("Registration");
+  const view = await toWizardView(draft);
+  // A must-have that needs a file (a drug licence …) is asked on the documents screen before payment.
+  const blocked = view.licences.filter((l) => l.level === "MUST_HAVE" && l.checkable && !l.done);
+  if (blocked.length > 0) {
+    throw conflict(`${blocked.map((l) => l.label).join(", ")} must be checked before you go on.`, { reason: "LICENCE_REQUIRED", fields: { licences: blocked.map((l) => l.key).join(",") } });
+  }
+  const open = view.licences.filter((l) => l.level === "PROMISE" && !l.done);
+  // Shown in the audit / admin view: which ones the owner promised.
+  if (open.length > 0 && !input.promise) {
+    throw validationFailed("Tick the promise to upload the remaining documents later, or check them now.", { fields: { promise: "Required to go on without them." } });
+  }
+  return mergeDraftDetails(input.actor.id, { licencesDone: true }, open.length > 0 ? { documentsPromisedAt: new Date() } : {});
+}
+
 /** Step ADDRESS: the shop's address, pre-filled from the record — confirmed or corrected. */
 export async function saveDraftAddress(input: { actor: Actor; address: DraftAddress }): Promise<WizardView> {
   return mergeDraftDetails(input.actor.id, { ...input.address, addressConfirmed: true });
@@ -872,7 +972,9 @@ export async function saveDraftDetails(input: { actor: Actor; details: DraftShop
   }
   const foodShop = await isFoodShopType(details.shopType);
   // A food shop type answers the FSSAI question by itself.
-  return mergeDraftDetails(actor.id, { ...details, addressConfirmed: true }, foodShop ? { hasFssai: true } : {});
+  // Owner, 25-Nov-2026: another shop type than the one whose licences were answered asks them again.
+  const typeChanged = saved.licencesDone === true && saved.shopType !== undefined && saved.shopType !== details.shopType;
+  return mergeDraftDetails(actor.id, { ...details, addressConfirmed: true, ...(typeChanged ? { licencesDone: false } : {}) }, foodShop ? { hasFssai: true } : {});
 }
 
 function pickAddress(d: DraftShopInput): Record<string, string | null | undefined> {
@@ -1346,6 +1448,12 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
       documents: imports.map((c) => ({ docType: c.docType, number: c.numberMasked, status: c.status })),
     },
   });
+  // Owner, 25-Nov-2026: the promise given on the licences screen is the shop's documents promise.
+  if (open.documentsPromisedAt) {
+    await promiseShopDocuments(shop.id, { id: actor.id, role: actor.role }, "SIGNUP_WIZARD").catch((error) =>
+      console.error("[registration-wizard] licences promise not carried to the shop", shop.id, error instanceof Error ? error.message : error),
+    );
+  }
   // Nothing to pay (a full coupon): the approval runs now instead of on the payment webhook.
   if (registrationFeeDue(shop) === 0) {
     await autoApproveShopIfReady(shop.id).catch((error) => console.error("[registration-wizard] auto-approval check failed", shop.id, error));

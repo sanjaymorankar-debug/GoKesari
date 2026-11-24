@@ -244,7 +244,7 @@ describe("Flow 1 with a GSTIN", () => {
     expect(view.address!.addressLine1).toContain("Pune");
 
     view = await saveDraftOwner({ actor: owner, ownerName: "Ganesh Patil" });
-    expect(view).toMatchObject({ nextStep: "ADDRESS", ownerName: "Ganesh Patil" });
+    expect(view).toMatchObject({ nextStep: "TYPE", ownerName: "Ganesh Patil" });
     // The shop is elsewhere than the registered address: the owner changes it.
     view = await saveDraftAddress({ actor: owner, address: ADDRESS });
     expect(view).toMatchObject({ nextStep: "PIN", address: { addressLine1: "Shop No 7, Station Road" } });
@@ -257,7 +257,7 @@ describe("Flow 1 with a GSTIN", () => {
   it("owner name in the record (a proprietor): no owner screen — straight to the address", async () => {
     const view = await verifyGstin(gstinFor("ABCPK5678L"));
     expect(view.ownerName).toBeTruthy();
-    expect(view.nextStep).toBe("ADDRESS");
+    expect(view.nextStep).toBe("TYPE");
   });
 
   it("back keeps what was verified and typed: an earlier step saved again moves on from where it was", async () => {
@@ -540,7 +540,7 @@ describe("Flow 1 with a PAN only (no GST)", () => {
     let view = await verifyPan("ABCPE1234F");
     expect(view).toMatchObject({ route: "PAN_ONLY", noGstDeclared: true, pan: { status: "VERIFIED" } });
     expect(view.ownerName).toBeTruthy();
-    expect(view).toMatchObject({ nextStep: "ADDRESS", address: null, prefill: { shopName: null } });
+    expect(view).toMatchObject({ nextStep: "TYPE", address: null, prefill: { shopName: null } });
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
     view = await saveDraftDetails({ actor: owner, details: shopFields({ name: "Ekta Kirana" }) });
@@ -561,7 +561,7 @@ describe("Flow 1 with a PAN only (no GST)", () => {
     };
     setKycAdapterForTests(adapter);
     const view = await verifyPan("ABCPE1234F");
-    expect(view).toMatchObject({ nextStep: "ADDRESS", ownerName: "EKTA SHARMA", address: { addressLine1: "22, Laxmi Road, Pune, 411030", pincode: "411030", city: "Pune" } });
+    expect(view).toMatchObject({ nextStep: "TYPE", ownerName: "EKTA SHARMA", address: { addressLine1: "22, Laxmi Road, Pune, 411030", pincode: "411030", city: "Pune" } });
   });
 });
 
@@ -599,9 +599,9 @@ describe("Flow 2: an existing customer clicks Sell", () => {
     const [old] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id));
     await db.update(shopRegistrationDrafts).set({ updatedAt: new Date(Date.now() - ABANDONED_AFTER_MS - 60_000) }).where(eq(shopRegistrationDrafts.id, old.id));
 
-    // Back on Sell: the same registration, at the step after the owner name.
+    // Back on Sell: the same registration, at the step after the owner name (the shop type, 25-Nov-2026).
     const view = (await getWizardDraft(owner))!;
-    expect(view).toMatchObject({ id: old.id, status: "OPEN", nextStep: "ADDRESS", ownerName: "Old Name", route: "GSTIN" });
+    expect(view).toMatchObject({ id: old.id, status: "OPEN", nextStep: "TYPE", ownerName: "Old Name", route: "GSTIN" });
 
     // One marked ABANDONED before 25-Nov-2026 opens again too, and nothing new is started.
     await db.update(shopRegistrationDrafts).set({ status: "ABANDONED" }).where(eq(shopRegistrationDrafts.id, old.id));
@@ -628,7 +628,7 @@ describe("Flow 2: an existing customer clicks Sell", () => {
   it("within the week the same registration resumes where it was", async () => {
     await verifyGstin();
     await saveDraftOwner({ actor: owner, ownerName: "Ganesh Patil" });
-    expect((await getWizardDraft(owner))!).toMatchObject({ nextStep: "ADDRESS", ownerName: "Ganesh Patil" });
+    expect((await getWizardDraft(owner))!).toMatchObject({ nextStep: "TYPE", ownerName: "Ganesh Patil" });
   });
 });
 
