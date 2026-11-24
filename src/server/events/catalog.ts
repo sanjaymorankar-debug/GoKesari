@@ -34,6 +34,7 @@ export type SubjectKind =
   | "tax_invoice" // batch-2026-10 WS-E
   | "payout_batch" // batch-2026-10 WS-E
   | "payout_item" // batch-2026-10 WS-E
+  | "payout_provider" // 23-Nov-2026: provider account notices (low balance)
   | "platform_invoice" // batch-2026-10 WS-E
   | "order_refund"; // batch-2026-10 WS-C
 
@@ -1478,6 +1479,10 @@ export const EVENTS = {
   /** F10.2.4: a payout cycle was closed and its batch drafted — administrators approve it. */
   "payout.batch_drafted": define<{ batchId: string; period: string; items: number; amount: string; held: number }>("payout_batch", (p) => [
     { to: "SUPPORT_LEAD", type: N.SUPPORT_PAYOUT_BATCH_DRAFTED, vars: { period: p.period, items: p.items, amount: p.amount, held: p.held }, actionUrl: "/admin/payouts" },
+  ]),
+  /** 23-Nov-2026: the payout provider's low-balance alert — administrators (finance) add funds. */
+  "payout.provider_low_balance": define<{ provider: string; balance: string }>("payout_provider", (p) => [
+    { to: "SUPPORT_LEAD", type: N.SUPPORT_PAYOUT_LOW_BALANCE, vars: { provider: p.provider, balance: p.balance }, actionUrl: "/admin/payouts" },
   ]),
   /** F10.2.4: a shop's payout was paid (UTR recorded) — statement by email and in the app. */
   "payout.item_paid": define<{ itemId: string; ownerId: string; shopName: string; amount: string; period: string; utr: string }>(

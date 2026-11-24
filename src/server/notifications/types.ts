@@ -324,6 +324,8 @@ export const NOTIFICATION_TYPES = {
   SUPPORT_PAYOUT_BATCH_DRAFTED: "support.payout_batch_drafted",
   /** To administrators: a payout transfer failed for good (retries used up). */
   SUPPORT_PAYOUT_FAILED: "support.payout_failed",
+  /** To administrators: the payout provider says GoKesari's payouts account balance is low (23-Nov-2026). */
+  SUPPORT_PAYOUT_LOW_BALANCE: "support.payout_low_balance",
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
