@@ -76,6 +76,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_staff_roles: "Staff roles: CA, Accountant, Support and Operations boards",
   rbac_v2_four_eye_admin: "Two-admin approval for user, role, suspension and flag changes",
   rbac_v2_accounting: "Accounting: journal entries, period close, rate proposals",
+  tax_register: "Tax register: Accountant proposes, CA approves tax settings",
   rbac_v2_support: "Support desk: manager queue and Support Users",
   rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
@@ -137,6 +138,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   rbac_v2_four_eye_admin:
     "docs/rbac: role changes, suspensions, reactivations and flag changes made by one admin wait for a different admin to approve (Admin → Approvals). While fewer than two admins are active, the Super Admin may approve alone; each such approval is marked and e-mailed. Emergency suspension still applies at once and must be confirmed within 24 hours. Off: every admin acts alone, as today.",
   rbac_v2_accounting: "docs/rbac Phase 3: Accountant drafts → CA approves journal entries; periods; Accountant → CA → Admin rate changes. Existing rate screens are unchanged.",
+  tax_register:
+    "docs/tax-register: the Accountant proposes changes to tax settings (statutory TCS / TDS rows, TDS on commission, GST rules, HSN rates, product GST, tax fields of the settings) and answers questions for the CA; the CA approves (never their own) and the change is applied. On: those settings are changed only through the register (direct edits on the admin screens are refused). Off: the register screens work, and the admin screens edit directly as today.",
   rbac_v2_support: "docs/rbac Phase 4: the Support Manager's queue and the Support User's assigned work.",
   rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
   rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",

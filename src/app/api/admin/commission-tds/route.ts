@@ -37,6 +37,7 @@ import {
   uploadForm16a,
   withdrawTdsCertificate,
 } from "@/server/tax/commission-tds";
+import { refuseDirectTaxEdit } from "@/server/tax-register/changes";
 
 export const dynamic = "force-dynamic";
 
@@ -120,8 +121,10 @@ export const POST = route(async (request: NextRequest) => {
   const body = await parseBody(request, schema);
   switch (body.action) {
     case "addRate":
+      await refuseDirectTaxEdit("A TDS row");
       return ok({ rate: await addCommissionTdsRate(body, actor) });
     case "confirmRate":
+      await refuseDirectTaxEdit("A TDS row's confirmation");
       return ok({ rate: await setCommissionTdsConfirmation(body.id, body.confirmed, actor, body.note) });
     case "addCertificate":
       return ok({ certificate: await addTdsCertificate(body, actor) });

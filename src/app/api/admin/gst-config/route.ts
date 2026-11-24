@@ -9,6 +9,7 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { GST_RULE_HELP, listGstRules, setGstRule, setRuleSchema } from "@/server/gst/config";
+import { refuseDirectTaxEdit } from "@/server/tax-register/changes";
 
 export const dynamic = "force-dynamic";
 
@@ -19,5 +20,6 @@ export const GET = route(async () => {
 
 export const PUT = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.GST_CONFIG_MANAGE);
+  await refuseDirectTaxEdit("A GST rule");
   return ok({ rule: await setGstRule(await parseBody(request, setRuleSchema), user) });
 });

@@ -10687,6 +10687,8 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
+  // docs/tax-register (0187): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
+  "tax_register",
   // docs/identity-verification-2026-11 (0187): one-time identity check (Aadhaar by DigiLocker or PAN), switched
   // separately for customers (first checkout) and shop owners (go-live, order acceptance, grace). Both seeded OFF.
   "identity_verification_customers_enabled",
@@ -13186,4 +13188,5 @@ export * from "./smart-shopping-schema";
 export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
+export * from "./tax-register-schema"; // docs/tax-register (0187)
 /* <<< GoKesari Health */

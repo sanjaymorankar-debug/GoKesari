@@ -5,6 +5,8 @@ import { Alert, Badge, Card, PageHeader, Section } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { istDay, listStatutoryRates, STATUTORY_KEYS } from "@/server/statutory/rates";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { caSwitchClearance } from "@/server/tax-register/ca-items";
 
 export const metadata = { title: "Statutory settings" };
 export const dynamic = "force-dynamic";
@@ -19,7 +21,7 @@ export default async function StatutoryPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   if (!can(user.role, PERMISSIONS.STATUTORY_MANAGE)) redirect("/");
-  const rows = await listStatutoryRates();
+  const [rows, switches, registerOn] = await Promise.all([listStatutoryRates(), caSwitchClearance(), isFeatureEnabled("tax_register")]);
   const today = istDay(new Date());
   const inForce = (r: (typeof rows)[number]) => r.effectiveFrom <= today && (!r.effectiveTo || r.effectiveTo >= today);
   const unconfirmed = rows.filter((r) => !r.confirmedByCa && (!r.effectiveTo || r.effectiveTo >= today)).length;
@@ -38,6 +40,23 @@ export default async function StatutoryPage() {
           </Alert>
         </div>
       ) : null}
+
+      <div className="mb-6" data-testid="tax-register-panel">
+        <Alert tone={registerOn ? "info" : "warning"} title="Tax register">
+          {registerOn
+            ? "These rows change only through the tax register: the Accountant proposes at /staff/tax and the CA approves."
+            : "The Accountant can propose changes at /staff/tax for the CA to approve. Direct edits here stay possible until the tax_register flag is on."}
+          {switches.length ? (
+            <ul className="mt-2 space-y-0.5 text-xs">
+              {switches.map((s) => (
+                <li key={s.key}>
+                  <span className="font-mono">{s.key}</span>: {s.cleared ? "cleared by CA" : `waiting on ${s.waitingOn.join(", ")}`}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </Alert>
+      </div>
 
       <Section title="Settings">
         <div className="grid gap-3">
