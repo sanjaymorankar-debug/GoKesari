@@ -820,7 +820,7 @@ export const RULES = {
   },
   health: {
     description:
-      "GoKesari Health (docs/health/; owner brief 20 Nov 2026). Built on consultant appointments (consultBooking must be on too): patients keep one lifelong health record for themselves and their family; verified doctors issue e-prescriptions (PDF e-mailed, printed on their letterhead); patients forward prescriptions to medical stores for pickup or delivery; home-care providers (nurse, physiotherapist, massage therapist, attendant …) take home visits with OTP check-in / check-out; medical equipment stores rent equipment with a deposit; doctors, providers and stores can buy Prime listing plans (prices in Admin → Health → Prime plans, never in code). storeResponseMinutes: how long a medical store has to reply to a forwarded prescription. rxValidityDays: how long a prescription can be used at a store. rxCommissionBp / rentalCommissionBp: GoKesari's commission on store orders and rentals (default 2%), taken from the store's weekly payout. reminderHours: appointment reminders (the consultant rule's reminders are used). rentalDueReminderDays: reminder before a rental is due back. primeGraceDays: after a Prime plan ends, bookings already made stay valid; the profile drops to Free after the grace days. primeGstBp: GST on Prime plans (18%). payPerBooking: no subscription, a fee per new-patient booking billed to the provider's payout (feePerBookingPaise). videoProvider / telephonyProvider / printProvider: 'jitsi' / 'mock' / 'browser' until accounts are configured. breakGlassEnabled: admins may open a clinical record in an emergency with a reason (logged, patient told). freeListingManualApproval: a doctor on the Free listing gets booking requests the clinic confirms; Prime turns on instant booking. primeForAll (launch mode, on): every verified clinic, care provider and equipment store gets the Prime plan's features (instant booking, analytics …) without buying a plan; Prime plans are not sold; no Prime boost or label in search (everyone is equal); the standard registration fee and 2% commission apply. Off: My Health and the health screens say 'coming soon'; prescriptions already issued can still be opened and verified.",
+      "GoKesari Health (docs/health/; owner brief 20 Nov 2026). Built on consultant appointments (consultBooking must be on too): patients keep one lifelong health record for themselves and their family; verified doctors issue e-prescriptions (PDF e-mailed, printed on their letterhead); patients forward prescriptions to medical stores for pickup or delivery; home-care providers (nurse, physiotherapist, massage therapist, attendant …) take home visits with OTP check-in / check-out; medical equipment stores rent equipment with a deposit; doctors, providers and stores can buy Prime listing plans (prices in Admin → Health → Prime plans, never in code). storeResponseMinutes: how long a medical store has to reply to a forwarded prescription. rxValidityDays: how long a prescription can be used at a store. rxCommissionBp / rentalCommissionBp: GoKesari's commission on store orders and rentals (default 2%), taken from the store's weekly payout. reminderHours: appointment reminders (the consultant rule's reminders are used). rentalDueReminderDays: reminder before a rental is due back. primeGraceDays: after a Prime plan ends, bookings already made stay valid; the profile drops to Free after the grace days. primeGstBp: GST on Prime plans (18%). payPerBooking: no subscription, a fee per new-patient booking billed to the provider's payout (feePerBookingPaise). videoProvider / telephonyProvider / printProvider: 'jitsi' / 'mock' / 'browser' until accounts are configured. breakGlassEnabled: admins may open a clinical record in an emergency with a reason (logged, patient told). freeListingManualApproval: a doctor on the Free listing gets booking requests the clinic confirms; Prime turns on instant booking. primeForAll (launch mode, on): every verified clinic, care provider and equipment store gets the Prime plan's features (instant booking, analytics …) without buying a plan; Prime plans are not sold; no Prime boost or label in search (everyone is equal); the standard registration fee and 2% commission apply. Off: My Health and the health screens say 'coming soon'; prescriptions already issued can still be opened and verified. Prescribing safeguards: remoteFreeTextMedicines — by video or phone, a medicine typed by hand is matched to the drug master by name; one that matches nothing is REFUSE (cannot be prescribed remotely) or WARN (the doctor confirms). Schedule X and NDPS medicines are never prescribed by video or phone. onlineSaleFreeText: a medicine typed by hand (not from the drug master) may be ordered online from a store (decision H-43). onlineSaleOnlyReviewed: only drug-master medicines a pharmacist has marked reviewed (and OTC medicines) may be ordered online. requireRegistryCheck: a doctor can issue prescriptions only after staff record a check of the medical registration against the NMC / State Medical Council register (Admin → Health → Doctors).",
     schema: z.object({
       enabled: z.boolean(),
       storeResponseMinutes: int(2, 240),
@@ -844,6 +844,10 @@ export const RULES = {
       primeForAll: z.boolean(),
       careOtpMaxAttempts: int(1, 20),
       familyLinkCodeMinutes: int(2, 60),
+      remoteFreeTextMedicines: z.enum(["REFUSE", "WARN"]),
+      onlineSaleFreeText: z.boolean(),
+      onlineSaleOnlyReviewed: z.boolean(),
+      requireRegistryCheck: z.boolean(),
     }),
     // Owner brief 20-Nov-2026: store timeout 15 minutes, 2% commission, Prime GST 18%, everything admin-editable.
     defaults: {
@@ -871,6 +875,15 @@ export const RULES = {
       primeForAll: true,
       careOtpMaxAttempts: 5,
       familyLinkCodeMinutes: 10,
+      // Telemedicine Practice Guidelines 2020: a remote prescription is checked against the drug master's lists,
+      // so a hand-typed medicine that matches nothing is refused by video / phone (WARN restores the old warning).
+      remoteFreeTextMedicines: "REFUSE",
+      // H-43 (owner, 20-Nov-2026): hand-typed medicines may be ordered online; switch off to send them to the counter.
+      onlineSaleFreeText: true,
+      // Off until the pharmacist review of the drug master is done; on = only reviewed (or OTC) medicines sell online.
+      onlineSaleOnlyReviewed: false,
+      // Off until staff have checked every live doctor; on = prescribing needs a recorded register check.
+      requireRegistryCheck: false,
     },
   },
   consultBooking: {

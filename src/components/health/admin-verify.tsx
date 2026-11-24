@@ -57,7 +57,7 @@ interface Member {
   registrationBody: string | null;
   categories: string[];
   documents: number;
-  doctor: { fullName: string; practitionerType: string; qualifications: string; specialties: string[]; council: string; registrationNumber: string; registrationYear: number | null; hprId: string | null } | null;
+  doctor: { fullName: string; practitionerType: string; qualifications: string; specialties: string[]; council: string; registrationNumber: string; registrationYear: number | null; hprId: string | null; registryCheckedAt: string | null; registryCheckNote: string | null } | null;
   care: { providerKind: string; gender: string | null; registrationBody: string | null; registrationNumber: string | null; policeVerification: string; servicePincodes: string[]; serviceRadiusKm: number; idCardNumber: string } | null;
 }
 
@@ -95,6 +95,10 @@ function Providers({ kind, status, q, post }: { kind: "DOCTOR" | "CARE"; status:
     const note = notes[c.profileId]?.trim() || null;
     const res = await post({ action: "decideProvider", kind, profileId: c.profileId, decision, note, memberIds: c.members.map((m) => m.id) }, `${c.name}: ${decision === "VERIFIED" ? "approved" : "rejected"}. The owner is told.`);
     if (res) await load();
+  };
+  const [registryNotes, setRegistryNotes] = useState<Record<string, string>>({});
+  const registryCheck = async (memberId: string) => {
+    if (await post({ action: "registryCheck", memberId, note: registryNotes[memberId]?.trim() ?? "" }, "Register check recorded.")) await load();
   };
   const police = async (memberId: string, value: string) => {
     if (await post({ action: "police", memberId, status: value }, "Police verification saved.")) await load();
@@ -152,6 +156,30 @@ function Providers({ kind, status, q, post }: { kind: "DOCTOR" | "CARE"; status:
                       </Detail>
                       {m.doctor.hprId ? <Detail label="HPR id">{m.doctor.hprId}</Detail> : null}
                       {m.doctor.specialties.length ? <Detail label="Specialties">{m.doctor.specialties.join(", ")}</Detail> : null}
+                      <div className="sm:col-span-2" data-testid="health-registry-check">
+                        {m.doctor.registryCheckedAt ? (
+                          <p className="text-xs text-green-800">
+                            Register checked {new Date(m.doctor.registryCheckedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" })}
+                            {m.doctor.registryCheckNote ? ` — ${m.doctor.registryCheckNote}` : ""}
+                          </p>
+                        ) : (
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <label className="sr-only" htmlFor={`registry-note-${m.id}`}>
+                              What the register showed
+                            </label>
+                            <input
+                              id={`registry-note-${m.id}`}
+                              className={`${inputClass} min-h-10 flex-1`}
+                              placeholder="Register checked and what it showed"
+                              value={registryNotes[m.id] ?? ""}
+                              onChange={(e) => setRegistryNotes((n) => ({ ...n, [m.id]: e.target.value }))}
+                            />
+                            <button type="button" className="min-h-10 rounded-xl border border-kesari-700 px-3 text-sm font-bold text-kesari-800" onClick={() => registryCheck(m.id)} data-testid="health-registry-check-button">
+                              Record register check
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <p className="mt-1 text-xs text-amber-800">
