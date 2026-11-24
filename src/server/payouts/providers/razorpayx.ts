@@ -35,6 +35,8 @@ export const razorpayxPayoutProvider: PayoutProvider = {
     const env = getEnv();
     return Boolean(env.RAZORPAYX_KEY_ID && env.RAZORPAYX_KEY_SECRET && env.RAZORPAYX_ACCOUNT_NUMBER && env.RAZORPAYX_WEBHOOK_SECRET);
   },
+  // RazorpayX echoes our reference_id (the row's uuid); the idempotency key is the attempt's id.
+  transferIdFor: (idempotencyKey: string) => idempotencyKey,
   async createTransfer(request: TransferRequest): Promise<TransferResult> {
     const env = getEnv();
     if (!this.isConfigured()) throw new PayoutProviderError("RazorpayX keys are not configured.", false);
@@ -92,6 +94,7 @@ export const razorpayxPayoutProvider: PayoutProvider = {
       eventId: headers.get("x-razorpay-event-id") ?? `${entity.id ?? "unknown"}:${body.event ?? "event"}`,
       providerRef: entity.id ?? null,
       referenceId: entity.reference_id ?? null,
+      kind: "TRANSFER",
       status,
       utr: entity.utr ?? null,
       failureReason: entity.failure_reason ?? null,

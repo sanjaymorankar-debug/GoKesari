@@ -17,7 +17,7 @@
 
 # Both sites — gokesari.com and test.gokesari.com:
 * * * * *    every-minute   # timeouts, retries, queued sends (each at its own cadence)
-17 * * * *   hourly         # risk scan, dispute + help-desk deadlines, refund / payout retries, expired codes
+17 * * * *   hourly         # risk scan, dispute + help-desk deadlines, refund / payout retries, payout reconcile, expired codes
 30 23 * * *  daily          # 05:00 IST: subscription orders, document upkeep, GST reminders, Saturday payout, Monday finance week
 
 # On the server (gk-site cron <site> on|off|status):
