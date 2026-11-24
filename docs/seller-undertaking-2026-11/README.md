@@ -33,7 +33,7 @@ Acceptance is stored in `user_consents` (append-only):
 | `SELLER_GOODS_UNDERTAKING` | `SELLER_UNDERTAKING_VERSION` |
 | `SELLER_TERMS` | `SELLER_TERMS_VERSION` |
 
-with `ip_address`, `user_agent` and `shop_id` (migration `0187`). One row per type **per shop the owner
+with `ip_address`, `user_agent` and `shop_id` (migration `0188`). One row per type **per shop the owner
 owns** (the evidence names each business it covers); an owner with no shop gets one row per type without a
 shop. `created_at` is a `timestamptz` (an absolute UTC instant); every screen shows it in IST. The admin
 consent record (`/admin/consents`) lists both types, each counted against its own current version.
@@ -73,10 +73,10 @@ A typo fix that should not ask anyone again: leave the version alone.
 PR #530 (`policy_reconsent_enabled`) adds a general re-consent gate for the Terms, Privacy Policy and
 Seller Terms for every signed-in user, using its own tables (`policy_versions`, `policy_acceptances`). This
 feature is separate: its own flag, its own consent types in `user_consents`, and it also blocks order
-acceptance. Both PRs use migration number **0187** — whichever merges second must be renumbered to 0188 (file
+acceptance. Both PRs started at migration number 0187; this one is now **0188** — renumber again if #530 lands first (file
 name, journal `idx`/`tag`, `when` after the other). If both flags are on, an owner may be asked to accept the
 Seller Terms twice (once per gate) until the two are joined.
 
 ## Rollback
 
-`scripts/rollback-0187.sql` (drops the two columns, the index and the flag row; enum values stay, inert).
+`scripts/rollback-0188.sql` (drops the two columns, the index and the flag row; enum values stay, inert).

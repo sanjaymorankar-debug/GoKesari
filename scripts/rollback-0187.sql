@@ -1,9 +1,11 @@
--- Rollback for drizzle/0187_seller_goods_undertaking.sql (docs/seller-undertaking-2026-11).
--- The consent_type values SELLER_GOODS_UNDERTAKING / SELLER_TERMS cannot be dropped; once no row uses them they are inert.
--- Deleting the seller consent rows removes the evidence of acceptance: only do it if the owner agrees.
+-- Rollback for 0187_tax_register (docs/tax-register/README.md).
+-- Before running: deploy the previous release's code, then delete the 0187 row from
+-- drizzle.__drizzle_migrations. Change requests, approvals and CA items are lost: export them first.
+-- Settings already changed through the register keep their values (they live in their own tables).
 BEGIN;
-DELETE FROM "feature_flags" WHERE "key" = 'seller_undertaking_gate_enabled';
-DROP INDEX IF EXISTS "user_consents_user_type_created_idx";
-ALTER TABLE "user_consents" DROP COLUMN IF EXISTS "user_agent";
-ALTER TABLE "user_consents" DROP COLUMN IF EXISTS "shop_id";
+DROP TABLE IF EXISTS "ca_action_item_notes";
+DROP TABLE IF EXISTS "ca_action_items";
+DROP TABLE IF EXISTS "tax_param_approvals";
+DROP TABLE IF EXISTS "tax_change_requests";
+DELETE FROM "feature_flags" WHERE "key" = 'tax_register';
 COMMIT;

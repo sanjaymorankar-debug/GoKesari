@@ -1314,8 +1314,15 @@
     {
       "idx": 187,
       "version": "7",
-      "when": 1793269750000,
-      "tag": "0187_seller_goods_undertaking",
+      "when": 1793269700000,
+      "tag": "0187_tax_register",
+      "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1793269800000,
+      "tag": "0188_seller_goods_undertaking",
       "breakpoints": true
     }
   ]
