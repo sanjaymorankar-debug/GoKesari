@@ -142,6 +142,8 @@ export interface WizardState {
   location: { latitude: string; longitude: string; address: string | null } | null;
   referral: { answered: boolean; code: string | null; required: boolean; locked: boolean; employeeId: string | null };
   email: { account: string | null; shop: string | null; confirmed: boolean };
+  /** Owner, 25-Nov-2026: the account's name and mobile, pre-filled instead of asked again. */
+  account?: { name: string | null; mobile: string | null };
   documentsLater: boolean | null;
   documents: {
     verified: string[];
@@ -252,7 +254,41 @@ function VerifiedFrom({ state }: { state: WizardState }) {
   );
 }
 
-const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+/**
+ * Owner, 25-Nov-2026: what the verified GST record says about the business — legal name, trade name,
+ * type and address — shown as soon as the GSTIN is verified, so the owner sees what was fetched.
+ */
+function VerifiedBusiness({ state }: { state: WizardState | null }) {
+  if (!state || state.route !== "GSTIN" || state.gstin?.status !== "VERIFIED") return null;
+  const p = state.prefill;
+  if (!p.legalName && !p.tradeName) return null;
+  const rows: [string, string | null][] = [
+    ["Business (legal) name", p.legalName],
+    ["Trade name", p.tradeName && p.tradeName !== p.legalName ? p.tradeName : null],
+    ["Business type", p.constitution],
+    ["Owner", p.ownerName],
+    ["Registered address", p.address],
+  ];
+  return (
+    <div className="rounded-lg border border-leaf-200 bg-leaf-50 p-3 text-sm" data-testid="verified-business">
+      <p className="mb-2 font-semibold text-leaf-800">✓ From your GST record</p>
+      <dl className="grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-[auto_1fr]">
+        {rows
+          .filter(([, value]) => value)
+          .map(([label, value]) => (
+            <div key={label} className="contents">
+              <dt className="text-ink-500">{label}</dt>
+              <dd className="font-medium text-ink-900" data-testid={`verified-business-${label.split(" ")[0].toLowerCase()}`}>
+                {value}
+              </dd>
+            </div>
+          ))}
+      </dl>
+    </div>
+  );
+}
+
+const GSTIN_PATTERN =/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const PAN_PATTERN = /^[A-Z]{5}\d{4}[A-Z]$/;
 
 /**
@@ -1054,6 +1090,7 @@ function VerifyStep({
       ) : null}
 
       {mode === "identity" && showForm ? <StatusLine check={check} /> : null}
+      {mode === "identity" && hasGst ? <VerifiedBusiness state={state} /> : null}
       {mode === "identity" && verified && !changing ? (
         <div className="flex justify-end">
           <Button type="button" size="lg" onClick={next} disabled={busy}>
@@ -1228,7 +1265,8 @@ function LicencesStep({ state, busy, fields, send, back, staff }: { state: Wizar
 
 /** Owner brief 08-Nov-2026: the GST (or PAN) record named no owner — only that one field is asked. */
 function OwnerStep({ state, busy, fields, send, back }: { state: WizardState; busy: boolean; fields: Record<string, string>; send: Send; back: ReactNode }) {
-  const [ownerName, setOwnerName] = useState(state.ownerName ?? "");
+  // Owner, 25-Nov-2026: pre-filled from the account (sign-in, Google or the profile form); the owner may change it.
+  const [ownerName, setOwnerName] = useState(state.ownerName ?? state.account?.name ?? "");
   const business = state.prefill.legalName ?? state.prefill.tradeName;
   return (
     <StepCard
@@ -1239,6 +1277,9 @@ function OwnerStep({ state, busy, fields, send, back }: { state: WizardState; bu
           : "Your record names no owner. Who owns or runs the shop?"
       }
     >
+      <div className="mb-3">
+        <VerifiedBusiness state={state} />
+      </div>
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -1286,6 +1327,9 @@ function AddressStep({ state, busy, fields, send, back }: { state: WizardState; 
           : "Your record gave no address — enter your shop's address."
       }
     >
+      <div className="mb-3">
+        <VerifiedBusiness state={state} />
+      </div>
       {state.ownerName ? (
         <p className="text-sm text-ink-700" data-testid="owner-line">
           Owner: <strong>{state.ownerName}</strong>
@@ -1432,12 +1476,15 @@ function ShopStep({
   const rule = state.feeRule;
   const [form, setForm] = useState({
     name: d?.name ?? p.shopName ?? "",
-    phone: d?.phone ?? "",
+    phone: d?.phone ?? state.account?.mobile ?? "",
     shopType: d?.shopType ?? state.shopType ?? "",
     couponCode: d?.couponCode ?? "",
   });
   // The slab the owner picks; its turnover is sent as the slab's own limit (the last slab: just above the one before).
   const [slab, setSlab] = useState<number | null>(d?.annualTurnoverRupees != null && rule.enabled ? turnoverSlab(d.annualTurnoverRupees, rule) : null);
+  // Owner, 25-Nov-2026: the mobile given at sign-in is shown, not asked again; "Change" opens the field.
+  const signInMobile = state.account?.mobile ?? null;
+  const [editPhone, setEditPhone] = useState(!signInMobile || (d?.phone != null && d.phone !== signInMobile));
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
   const turnoverFor = (n: number) => rule.slabs[n - 1]?.upToRupees ?? (n > 1 ? (rule.slabs[n - 2]?.upToRupees ?? 0) + 1 : 0);
   const blank = (v: string) => (v.trim() ? v.trim() : null);
@@ -1470,9 +1517,25 @@ function ShopStep({
           <Field label={<>Shop name{p.shopName && form.name === p.shopName ? <VerifiedFrom state={state} /> : null}</>} error={fields.name}>
             <input className={inputClass} value={form.name} onChange={set("name")} required minLength={2} maxLength={120} data-testid="shop-name" />
           </Field>
-          <Field label="10-digit contact number" error={fields.phone}>
-            <input className={inputClass} value={form.phone} onChange={set("phone")} required inputMode="numeric" autoComplete="tel-national" maxLength={10} pattern="[6-9][0-9]{9}" data-testid="shop-phone" />
-          </Field>
+          {editPhone ? (
+            <Field
+              label="10-digit contact number"
+              error={fields.phone}
+              hint={signInMobile && form.phone !== signInMobile ? `Used as the shop's contact number only. You still sign in with +91 ${signInMobile}.` : undefined}
+            >
+              <input className={inputClass} value={form.phone} onChange={set("phone")} required inputMode="numeric" autoComplete="tel-national" maxLength={10} pattern="[6-9][0-9]{9}" data-testid="shop-phone" />
+            </Field>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2 self-end rounded-lg border border-[var(--gk-line)] bg-white px-3 py-2 text-sm" data-testid="shop-phone-line">
+              <span className="text-ink-700">
+                Contact number: <strong className="text-ink-900">+91 {form.phone}</strong>
+                <span className="block text-xs text-ink-500">The mobile you signed in with</span>
+              </span>
+              <button type="button" className="min-h-11 font-semibold text-kesari-700 underline" onClick={() => setEditPhone(true)} data-testid="change-shop-phone">
+                Change
+              </button>
+            </div>
+          )}
           <Field label="Shop type" error={fields.shopType}>
             <select className={inputClass} value={form.shopType} onChange={set("shopType")} required data-testid="shop-type">
               <option value="">Choose…</option>
