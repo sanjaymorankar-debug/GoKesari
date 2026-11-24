@@ -2069,8 +2069,19 @@ export const orders = pgTable(
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
       .default(0),
+    /**
+     * Tax charged ON TOP of the item prices. Always 0: GoKesari prices already
+     * include GST, so adding tax here would charge it twice. The GST included in
+     * the prices is taxIncludedPaise (informational, never part of the total).
+     */
     taxPaise: bigint("tax_paise", { mode: "number" }).notNull().default(0),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /**
+     * GST (and cess) INCLUDED in the goods' prices, summed from the lines'
+     * taxPaise at checkout (migration 0183). Never added to totalPaise. Null
+     * when not recorded (orders before 0183, or a line with no known rate).
+     */
+    taxIncludedPaise: bigint("tax_included_paise", { mode: "number" }),
     /** Set once the wallet deduction has actually completed. */
     paidAt: timestamp("paid_at", { withTimezone: true }),
     deliveryDate: date("delivery_date"),
@@ -2177,6 +2188,18 @@ export const orderItems = pgTable(
     lineTotalPaise: bigint("line_total_paise", { mode: "number" }).notNull(),
     /** D-91: the product's MRP when it was sold (products.mrp_paise); null when it had none (loose goods). */
     mrpPaise: bigint("mrp_paise", { mode: "number" }),
+    /*
+     * Tax snapshot at checkout (migration 0183; null on older orders). The line's
+     * classification when it was ordered (listing → master product → dated HSN
+     * table) and the GST + cess INCLUDED in lineTotalPaise: taxable + tax = line
+     * total. A shop that charges no GST records taxable = line total, tax = 0.
+     * gstRateBp null = no rate was known (taxable / tax null too).
+     */
+    hsnCode: text("hsn_code"),
+    gstRateBp: integer("gst_rate_bp"),
+    cessBp: integer("cess_bp"),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }),
+    taxPaise: bigint("tax_paise", { mode: "number" }),
     /* ------------------------------------------ fulfilment (Slice 3) —
      * the original snapshot above is never rewritten; a substitute is
      * recorded alongside it so the order keeps its history. */
@@ -5552,7 +5575,7 @@ export const riderPayouts = pgTable(
     adjustmentsPaise: bigint("adjustments_paise", { mode: "number" }).notNull(),
     /** gross + adjustments — what is paid. */
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
-    /** docs/tax-register (0184): TDS s.194C withheld from this payout (amountPaise is what is paid, after it). */
+    /** docs/tax-register (0185): TDS s.194C withheld from this payout (amountPaise is what is paid, after it). */
     tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
     tdsRateBp: integer("tds_rate_bp"),
     ...payoutLifecycleColumns(),
@@ -6731,7 +6754,7 @@ export const referralCommissions = pgTable(
     commissionType: text("commission_type", { enum: COMMISSION_TYPES }).notNull(),
     commissionValue: integer("commission_value").notNull(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
-    /** docs/tax-register (0184): TDS s.194H withheld when paid; netPaise is what is paid. */
+    /** docs/tax-register (0185): TDS s.194H withheld when paid; netPaise is what is paid. */
     tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
     tdsRateBp: integer("tds_rate_bp"),
     netPaise: bigint("net_paise", { mode: "number" }),
@@ -10560,11 +10583,11 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_platform_four_eye",
   // docs/guest-cart-2026-11: guests fill a cart kept in their browser; sign-in only at "Place order". Missing row = OFF.
   "guest_cart_enabled",
-  // docs/tax-register (0183): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
+  // docs/tax-register (0184): tax settings change only through Accountant proposal → CA approval. Missing row = OFF.
   "tax_register",
-  // docs/tax-register (0184): TDS / TCS withheld on every payout path. Missing row = OFF.
+  // docs/tax-register (0185): TDS / TCS withheld on every payout path. Missing row = OFF.
   "payout_deductions",
-  // docs/tax-register (0185): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
+  // docs/tax-register (0186): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
   "auto_journals",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
@@ -13053,5 +13076,5 @@ export * from "./smart-shopping-schema";
 export * from "./shop-photo-listing-schema";
 export * from "./whatsapp-shop-orders-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
-export * from "./tax-register-schema"; // docs/tax-register (0183)
+export * from "./tax-register-schema"; // docs/tax-register (0184)
 /* <<< GoKesari Health */

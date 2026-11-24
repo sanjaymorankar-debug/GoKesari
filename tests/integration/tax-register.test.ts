@@ -1,5 +1,5 @@
 /**
- * docs/tax-register (0183): the Accountant proposes tax-setting changes and answers CA items;
+ * docs/tax-register (0184): the Accountant proposes tax-setting changes and answers CA items;
  * the CA approves (never their own) and the change is applied through the setting's own service.
  */
 import { and, eq } from "drizzle-orm";

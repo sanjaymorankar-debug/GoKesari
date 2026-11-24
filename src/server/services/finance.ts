@@ -752,7 +752,7 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
   if ((await getRule("payouts")).enabled) {
     throw conflict("Automated payouts are on (rule payouts): shop settlements are prepared by the payout cycle, under Admin → Payouts.");
   }
-  // docs/tax-register (0184): with payout deductions on, shops are paid only through the payout
+  // docs/tax-register (0185): with payout deductions on, shops are paid only through the payout
   // cycle, which withholds TCS and TDS; the weekly settlement would pay them without.
   if (await payoutDeductionsOn()) {
     throw conflict("Payout deductions are on: shops are paid through the payout cycle (Admin → Payouts), which withholds TCS and TDS.");
@@ -855,7 +855,7 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
  */
 export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActor): Promise<RiderPayout[]> {
   const { start, end } = assertMonday(weekStart, "STARTED");
-  // docs/tax-register (0184): TDS s.194C on weekly rider payouts (rule riderPayouts).
+  // docs/tax-register (0185): TDS s.194C on weekly rider payouts (rule riderPayouts).
   const deduct = await payoutDeductionsOn();
   const riderRule = deduct ? await getRule("riderPayouts") : null;
   if (riderRule?.tdsEnabled) {
