@@ -40,7 +40,7 @@ declare module "next-auth" {
     user: {
       id: string;
       role: UserRole;
-      status: "ACTIVE" | "SUSPENDED" | "DELETED";
+      status: "ACTIVE" | "SUSPENDED" | "DELETED" | "PENDING_DELETION";
     } & DefaultSession["user"];
   }
 }

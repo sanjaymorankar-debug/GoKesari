@@ -8,7 +8,7 @@
 --   for one order; the checkout request that used it is saved here.
 -- login_otps.purpose is plain text: the new purposes LOGIN_SMS and CHECKOUT need no change.
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0190.sql.
+-- Additive and safe to re-run. Rollback: scripts/rollback-0200.sql.
 ALTER TABLE "login_otps" ADD COLUMN IF NOT EXISTS "step_up_request_id" text;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "login_otps_user_purpose_consumed_idx" ON "login_otps" ("user_id", "purpose", "consumed_at") WHERE "consumed_at" IS NOT NULL;

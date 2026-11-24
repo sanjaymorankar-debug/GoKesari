@@ -33,7 +33,7 @@ export { CURRENT_POLICY_VERSION };
 export async function recordConsent(
   userId: string,
   consentType: ConsentType,
-  options: { version?: string; ipAddress?: string | null; granted?: boolean } = {},
+  options: { version?: string; ipAddress?: string | null; granted?: boolean; source?: string | null } = {},
 ): Promise<UserConsent> {
   const [consent] = await db
     .insert(userConsents)
@@ -43,6 +43,7 @@ export async function recordConsent(
       version: options.version ?? CURRENT_POLICY_VERSION,
       granted: options.granted ?? true,
       ipAddress: options.ipAddress ?? null,
+      source: options.source ?? null,
     })
     .returning();
   return consent;

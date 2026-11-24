@@ -8,6 +8,7 @@ import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
 import { isMobileAppUserAgent } from "@/lib/mobile-app";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { signIn } from "@/server/auth";
 import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
 import { emailMode } from "@/server/email/transport";
@@ -17,7 +18,8 @@ import { signInFromForm } from "@/server/signin-form";
 import { continueAfterFirstFactor } from "@/server/signin-otp";
 import { GOOGLE_SIGN_UP_NEEDS_CODE } from "@/server/otp/google-second-factor";
 import { toClientError } from "@/lib/errors";
-import { headers } from "next/headers";
+import { createRestoreTicket, RESTORE_COOKIE, RESTORE_TICKET_TTL_MS } from "@/server/services/account-deletion";
+import { cookies, headers } from "next/headers";
 
 export const metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
@@ -48,6 +50,7 @@ export default async function SignInPage({
   const inMobileApp = isMobileAppUserAgent((await headers()).get("user-agent"));
   const emailEnabled = emailSignInMode(env) !== "disabled" && !inMobileApp;
   const query = await searchParams;
+  const lang = await getBoardLang();
   const checkEmail = Boolean(query["check-email"]);
   // Auth.js sends AccessDenied when the signIn callback refuses: a suspended or closed account.
   const accessDenied = query.error === "AccessDenied";
@@ -63,17 +66,33 @@ export default async function SignInPage({
     "use server";
     const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
     let user: Awaited<ReturnType<typeof verifyLoginOtp>>["user"];
+    let restoreFor: string | null = null;
     try {
-      ({ user } = await verifyLoginOtp({
+      let pendingDeletion: boolean | undefined;
+      ({ user, pendingDeletion } = await verifyLoginOtp({
         mobile: input?.mobile ?? null,
         email: input?.email ?? null,
         code: String(input?.code ?? ""),
         // TC-FLD-004: a new account needs the Terms box ticked; the server checks it.
         acceptedTerms: input?.acceptedTerms === true,
         ip,
+        // docs/account-deletion-2026-11 (0199): an account in its deletion cooling-off period gets the
+        // restore screen, never a session.
+        allowPendingDeletion: true,
       }));
+      if (pendingDeletion) restoreFor = user.id;
     } catch (error) {
       return { error: toClientError(error).body.error.message };
+    }
+    if (restoreFor) {
+      (await cookies()).set(RESTORE_COOKIE, createRestoreTicket(restoreFor), {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: env.NODE_ENV === "production",
+        path: "/account/restore",
+        maxAge: Math.floor(RESTORE_TICKET_TTL_MS / 1000),
+      });
+      redirect("/account/restore");
     }
     // docs/sms-2fa-2026-11: the session, or the SMS step when the account needs a second factor.
     try {
@@ -106,7 +125,8 @@ export default async function SignInPage({
             className="mt-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
             data-testid="signin-access-denied"
           >
-            This account is suspended or closed, so it cannot sign in. If you think this is a mistake,{" "}
+            This account is suspended or closed, so it cannot sign in. If you asked to delete it, you can still
+            restore it during the cooling-off period: sign in with the code we email you. If you think this is a mistake,{" "}
             <a href="/grievance" className="underline">
               contact us through the grievance form
             </a>
@@ -154,7 +174,7 @@ export default async function SignInPage({
         )}
 
         {otpEmailAvailable ? (
-          <OtpLoginForm verify={verifyLoginCode} />
+          <OtpLoginForm verify={verifyLoginCode} lang={lang} />
         ) : (
           <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             Sign-in codes cannot be emailed: set <code>AUTH_EMAIL_FROM</code> and <code>AUTH_EMAIL_SERVER</code>.

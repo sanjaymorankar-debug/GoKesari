@@ -1,6 +1,8 @@
--- Rollback for 0190_sms_two_factor (SMS sign-in code flags, checkout step-up column).
--- Before running: deploy the previous release's code. Then delete the 0190 row.
-DELETE FROM "feature_flag_changes" WHERE "flag_key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DELETE FROM "feature_flags" WHERE "key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DROP INDEX IF EXISTS "login_otps_user_purpose_consumed_idx";
-ALTER TABLE "login_otps" DROP COLUMN IF EXISTS "step_up_request_id";
+-- Rollback for 0190_brand_barcode_favourites (docs/search-brand-barcode-favourites-2026-11/).
+-- Before running: switch the flag off (Admin → Feature flags), deploy the previous release's code, then
+-- delete the 0190 row from drizzle.__drizzle_migrations. Dropping favourites deletes customers' saved
+-- products: export the table first if they should be kept.
+DROP INDEX IF EXISTS "brands_name_trgm_idx";
+DROP TABLE IF EXISTS "favourites";
+DELETE FROM "feature_flags" WHERE "key" = 'brand_barcode_favourites_enabled';
+DELETE FROM "feature_flag_changes" WHERE "flag_key" = 'brand_barcode_favourites_enabled';
