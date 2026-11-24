@@ -99,7 +99,11 @@ export const GET = route(
         : null;
 
     const { buyerPollSeconds } = await getRule("tracking");
+    // docs/hdms-2026-11: an order carried by a delivery partner (Shadowfax, Pidge, ...) — its status,
+    // ETA, masked rider number and last position. Null for every other order (unchanged).
+    const partner = row.deliveryStatus ? null : await (await import("@/server/delivery/tracking")).partnerTrackingFor(orderId);
     return ok({
+      partner,
       ...buildOrderTracking({
         orderId,
         orderStatus: row.orderStatus,

@@ -44,6 +44,7 @@ export type FeatureFlagKey =
   | "guest_cart_enabled"
   | "tax_register"
   | "payout_deductions"
+  | "hdms_enabled"
   // docs/price-comparison-off-2026-11
   | "local_price_comparison_enabled";
 
