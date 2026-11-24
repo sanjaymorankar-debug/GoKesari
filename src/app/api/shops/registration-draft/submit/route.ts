@@ -9,10 +9,9 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { wizardActor } from "@/server/registration/wizard-actor";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
-import { requirePermission } from "@/server/authz/guards";
-import { PERMISSIONS } from "@/server/authz/permissions";
 import { submitDraftForPayment } from "@/server/services/shop-registration-wizard";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +19,7 @@ export const dynamic = "force-dynamic";
 const schema = z.object({ promiseDocuments: z.boolean().optional() });
 
 export const POST = route(async (request: NextRequest) => {
-  const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
+  const user = await wizardActor(request);
   // Only while the wizard flag is on (an admin may use it while it is off): the screen is not the only gate.
   enforceRateLimit(`registration-draft:${user.id}`, RATE_LIMITS.MUTATION);
   const hasBody = Number(request.headers.get("content-length") ?? "0") > 0;

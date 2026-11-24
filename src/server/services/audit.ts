@@ -45,6 +45,10 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTRATION_DRAFT_CHECKED: "shop_registration_draft.checked",
   /** docs/shop-onboarding-wizard-2026-10 step 2: the shop created from the wizard's draft, its checks copied. Masked numbers only. */
   SHOP_REGISTRATION_DRAFT_SUBMITTED: "shop_registration_draft.submitted",
+  /** Owner, 25-Nov-2026: staff opened an owner's unfinished registration to continue it for them. */
+  SHOP_REGISTRATION_DRAFT_STAFF_OPENED: "shop_registration_draft.staff_opened",
+  /** Staff sent the owner a link to carry on with an unfinished registration. */
+  SHOP_REGISTRATION_DRAFT_RESUME_SENT: "shop_registration_draft.resume_link_sent",
   SHOP_APPROVED: "shop.approved",
   /** docs/shop-welcome-kit-2026-11: an admin sent the welcome kit (printable QR banners) to a shop that was already live, or to a city / district. */
   SHOP_WELCOME_KIT_SENT: "shop.welcome_kit_sent",

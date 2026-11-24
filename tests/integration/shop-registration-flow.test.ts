@@ -5,7 +5,7 @@
  *           owner name only if the record has none → confirm address → map pin → shop name →
  *           pay → live with "Add Products"
  *   Flow 2  an existing customer who clicks Sell starts at the same screen; a registration
- *           abandoned for a week is discarded, never resumed
+ *           left for a week (or more) resumes where it stopped (owner, 25-Nov-2026)
  *   - no "upload later": nothing goes on until the GSTIN or PAN is verified
  *   - a GSTIN or PAN already registered is refused with that shop's status, before any paid call
  */
@@ -592,20 +592,22 @@ describe("duplicates", () => {
 });
 
 describe("Flow 2: an existing customer clicks Sell", () => {
-  it("starts at the GST / PAN screen (already signed in); a registration left for a week is discarded and starts afresh", async () => {
+  it("starts at the GST / PAN screen (already signed in); a registration left for a week resumes where it stopped (owner, 25-Nov-2026)", async () => {
     // The customer started once and walked away.
     await verifyGstin();
     await saveDraftOwner({ actor: owner, ownerName: "Old Name" });
     const [old] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id));
     await db.update(shopRegistrationDrafts).set({ updatedAt: new Date(Date.now() - ABANDONED_AFTER_MS - 60_000) }).where(eq(shopRegistrationDrafts.id, old.id));
 
-    // Back on Sell: nothing of the old attempt is reused.
-    expect(await getWizardDraft(owner)).toBeNull();
-    const [abandoned] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.id, old.id));
-    expect(abandoned.status).toBe("ABANDONED");
-    const view = await answerDraftReferral({ actor: owner, referralCode: null });
-    expect(view).toMatchObject({ nextStep: "IDENTITY", route: null, gstin: null, ownerName: null });
-    expect(view.id).not.toBe(old.id);
+    // Back on Sell: the same registration, at the step after the owner name.
+    const view = (await getWizardDraft(owner))!;
+    expect(view).toMatchObject({ id: old.id, status: "OPEN", nextStep: "ADDRESS", ownerName: "Old Name", route: "GSTIN" });
+
+    // One marked ABANDONED before 25-Nov-2026 opens again too, and nothing new is started.
+    await db.update(shopRegistrationDrafts).set({ status: "ABANDONED" }).where(eq(shopRegistrationDrafts.id, old.id));
+    const reopened = await answerDraftReferral({ actor: owner, referralCode: null });
+    expect(reopened).toMatchObject({ id: old.id, status: "OPEN", ownerName: "Old Name" });
+    expect(await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id))).toHaveLength(1);
   });
 
   it("verified and paid goes live even when another account has a shop of the same name and PIN (DI-13)", async () => {

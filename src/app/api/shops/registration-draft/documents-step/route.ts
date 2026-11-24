@@ -8,10 +8,9 @@
 import { z } from "zod";
 
 import { validationFailed } from "@/lib/errors";
+import { wizardActor } from "@/server/registration/wizard-actor";
 import { ok, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
-import { requirePermission } from "@/server/authz/guards";
-import { PERMISSIONS } from "@/server/authz/permissions";
 import { finishDraftDocumentsStep } from "@/server/services/shop-registration-wizard";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +18,7 @@ export const dynamic = "force-dynamic";
 const schema = z.object({ promise: z.boolean().optional() }).strict();
 
 export const POST = route(async (request: Request) => {
-  const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
+  const user = await wizardActor(request);
   enforceRateLimit(`registration-draft:${user.id}`, RATE_LIMITS.MUTATION);
   // No body (the screen as it was before DF-08) is the same as no promise.
   const text = await request.text();

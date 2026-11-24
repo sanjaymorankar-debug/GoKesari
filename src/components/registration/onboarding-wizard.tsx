@@ -207,6 +207,8 @@ function stepForTile(n: number, state: WizardState): Step | null {
   const verified = state.canContinue && state.referral.answered;
   if (open && n === 2) return "IDENTITY";
   if (open && n === 3 && verified && state.ownerName) return "ADDRESS";
+  // Owner, 25-Nov-2026: every finished step can be opened again, back and forward, until payment.
+  if (open && n === 4 && state.nextStep === "REVIEW") return "REVIEW";
   if (approved && n === 5) return "LIVE";
   return null;
 }
@@ -233,6 +235,26 @@ const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const PAN_PATTERN = /^[A-Z]{5}\d{4}[A-Z]$/;
 
 /**
+ * Owner, 25-Nov-2026: on the staff page (Admin → Unfinished registrations) the wizard works on the
+ * owner's draft: every call to the wizard's routes names it in this header. Null on the owner's page.
+ */
+const STAFF_PAGE = /^\/admin\/shop-registrations\/unfinished\/([0-9a-f-]{36})\/?$/i;
+
+/** The draft staff are continuing, read from the staff page's address; null on the owner's page. */
+function staffDraftOnPage(): string | null {
+  if (typeof window === "undefined") return null;
+  return STAFF_PAGE.exec(window.location.pathname)?.[1] ?? null;
+}
+
+function wizardFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const draftId = staffDraftOnPage();
+  if (!draftId || !path.startsWith("/api/shops/registration-draft")) return fetch(path, init);
+  const headers = new Headers(init.headers);
+  headers.set("x-gk-registration-draft", draftId);
+  return fetch(path, { ...init, headers });
+}
+
+/**
  * Sends one step. The wizard's own routes answer with the whole wizard; a shop route (map pin,
  * categories — saved on the approved shop) answers with something else, so the wizard is read again.
  */
@@ -241,7 +263,7 @@ async function post(
   body?: unknown,
   method: "POST" | "PUT" | "PATCH" = "POST",
 ): Promise<{ ok: true; data: WizardState } | { ok: false; error: string; fields?: Record<string, string> }> {
-  const response = await fetch(path, {
+  const response = await wizardFetch(path, {
     method,
     headers: body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -249,7 +271,7 @@ async function post(
   if (!response) return { ok: false, error: "Could not reach the server. Check your connection and try again." };
   const payload = await response.json().catch(() => null);
   if (response.ok && payload && !path.startsWith("/api/shops/registration-draft")) {
-    const again = await fetch("/api/shops/registration-draft").catch(() => null);
+    const again = await wizardFetch("/api/shops/registration-draft").catch(() => null);
     const next = again?.ok ? await again.json().catch(() => null) : null;
     if (next) return { ok: true, data: next as WizardState };
     return { ok: false, error: "Saved. Reload the page to see the next step." };
@@ -503,6 +525,7 @@ export function OnboardingWizard({
   initialReferralCode = null,
   referralRequired = false,
   lang = "en",
+  staffDraft = null,
 }: {
   initial: WizardState | null;
   initialCategories?: PickerCategory[];
@@ -512,6 +535,8 @@ export function OnboardingWizard({
   /** Before the draft exists: the admin's setting referral_required_shop. */
   referralRequired?: boolean;
   lang?: Lang;
+  /** Owner, 25-Nov-2026: staff continuing this owner's registration (the draft's id); null on the owner's own page. */
+  staffDraft?: string | null;
 }) {
   const [state, setState] = useState<WizardState | null>(initial);
   // The owner may look back at a finished step; null = the step the server says is next.
@@ -551,14 +576,14 @@ export function OnboardingWizard({
 
   /** Reads the wizard again without moving the page (an upload on the documents screen, DF-08). */
   async function reloadState() {
-    const response = await fetch("/api/shops/registration-draft").catch(() => null);
+    const response = await wizardFetch("/api/shops/registration-draft").catch(() => null);
     const next = response?.ok ? ((await response.json().catch(() => null)) as WizardState | null) : null;
     if (next) setState(next);
   }
 
   /** Reads the wizard again after a change made outside its own routes (the starter shelf). */
   async function refresh() {
-    const response = await fetch("/api/shops/registration-draft").catch(() => null);
+    const response = await wizardFetch("/api/shops/registration-draft").catch(() => null);
     const next = response?.ok ? ((await response.json().catch(() => null)) as WizardState | null) : null;
     if (next) {
       setState(next);
@@ -577,6 +602,13 @@ export function OnboardingWizard({
   return (
     <div className="space-y-3" data-registration-board>
       <TileSteps step={step} state={state} onOpen={setViewing} lang={lang} />
+      {viewing && state && viewing !== state.nextStep ? (
+        <div className="flex justify-end">
+          <button type="button" className="min-h-11 text-sm font-semibold text-kesari-700 underline" onClick={() => setViewing(null)} data-testid="resume-where-left">
+            {tr({ en: "Go to where I left off →", hi: "जहाँ छोड़ा था वहाँ जाएँ →", mr: "जिथे थांबलो तिथे जा →" }, lang)}
+          </button>
+        </div>
+      ) : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {notice && !error && step !== "IDENTITY" ? <Alert tone="warning">{notice}</Alert> : null}
 
@@ -591,6 +623,7 @@ export function OnboardingWizard({
           send={send}
           next={() => setViewing(null)}
           lang={lang}
+          staff={Boolean(staffDraft)}
         />
       ) : null}
       {step === "EMAIL" && state ? <EmailStep state={state} busy={busy} fields={fields} send={send} back={back(state.status === "OPEN" && state.details ? "SHOP" : "IDENTITY")} /> : null}
@@ -602,7 +635,18 @@ export function OnboardingWizard({
       ) : null}
       {step === "REVIEW" && state ? <ReviewStep state={state} busy={busy} send={send} goTo={setViewing} /> : null}
       {step === "DOCUMENTS" && state?.shop ? <DocumentsStep shopId={state.shop.id} step={state.documentsStep} busy={busy} send={send} refresh={reloadState} /> : null}
-      {step === "PAYMENT" && state?.shop ? (
+      {staffDraft && state?.shop && step !== "DOCUMENTS" ? (
+        <StepCard title="Shop created — the owner takes it from here">
+          <p className="text-sm text-ink-700" data-testid="staff-after-submit">
+            <strong>{state.shop.name}</strong>
+            {state.shop.registrationNumber ? <> · Shop ID {state.shop.registrationNumber}</> : null}
+            {state.shop.feeDuePaise > 0
+              ? " is waiting for its registration fee. The owner pays it from their own account (Register your shop → Pay); send them the link to continue from the list of unfinished registrations."
+              : " needs no more steps here. Use Admin → Shops for anything else."}
+          </p>
+        </StepCard>
+      ) : null}
+      {step === "PAYMENT" && state?.shop && !staffDraft ? (
         <StepCard title="Pay the registration fee" intro="Pay by UPI or card. Your shop goes live as soon as the payment is confirmed.">
           <p className="text-sm text-ink-700">
             <strong>{state.shop.name}</strong>
@@ -625,7 +669,7 @@ export function OnboardingWizard({
           </Link>
         </StepCard>
       ) : null}
-      {step === "WAITING" && state?.shop ? (
+      {step === "WAITING" && state?.shop && !staffDraft ? (
         <StepCard title="Payment received — pending admin approval">
           <Alert tone="warning">
             {state.documents.missing.length > 0
@@ -645,10 +689,10 @@ export function OnboardingWizard({
           </div>
         </StepCard>
       ) : null}
-      {step === "LIVE" && state?.shop ? (
+      {step === "LIVE" && state?.shop && !staffDraft ? (
         <LiveStep state={state} lang={lang} addProducts={() => setViewing(state.setup?.categories ? "PRODUCTS" : "CATEGORY")} />
       ) : null}
-      {step === "LOCATION" && state?.shop ? (
+      {step === "LOCATION" && state?.shop && !staffDraft ? (
         <ShopLocationStep
           title="6. Your shop's address and map pin"
           initial={state.location}
@@ -660,7 +704,7 @@ export function OnboardingWizard({
           }
         />
       ) : null}
-      {step === "CATEGORY" && state?.shop ? (
+      {step === "CATEGORY" && state?.shop && !staffDraft ? (
         <ShopCategoryStep
           shopId={state.shop.id}
           busy={busy}
@@ -671,7 +715,7 @@ export function OnboardingWizard({
           onSaved={() => setViewing("PRODUCTS")}
         />
       ) : null}
-      {step === "PRODUCTS" && state?.shop ? (
+      {step === "PRODUCTS" && state?.shop && !staffDraft ? (
         <StepCard
           title="7. Add your products"
           intro="We've picked the products shops like yours sell most, priced at MRP. Check them and publish — customers can order as soon as they are listed."
@@ -692,7 +736,7 @@ export function OnboardingWizard({
           </div>
         </StepCard>
       ) : null}
-      {step === "DONE" && state?.shop ? (
+      {step === "DONE" && state?.shop && !staffDraft ? (
         <StepCard title="Registration successful 🎉">
           <p className="text-sm text-ink-700">Your shop is set up: location, categories and products are in place.</p>
           {/* Onboarding Phase 2 (WP3): the two set-up steps left after going live, each one tap away. */}
@@ -758,6 +802,7 @@ function VerifyStep({
   send,
   next,
   lang,
+  staff = false,
 }: {
   state: WizardState | null;
   initialReferralCode: string | null;
@@ -769,6 +814,8 @@ function VerifyStep({
   /** Leaves the screen for the step the server says is next (when the owner came back to look). */
   next: () => void;
   lang: Lang;
+  /** Staff continuing the owner's registration: the consent is the owner's, given on the call. */
+  staff?: boolean;
 }) {
   const [code, setCode] = useState(state?.referral.code ?? initialReferralCode ?? "");
   const [employeeId, setEmployeeId] = useState(state?.referral.employeeId ?? "");
@@ -912,7 +959,15 @@ function VerifyStep({
           {hasGst ? tr({ en: "I don't have GST, use PAN", hi: "मेरे पास GST नहीं है, PAN का उपयोग करें", mr: "माझ्याकडे GST नाही, PAN वापरा" }, lang) : tr({ en: "I have a GST number", hi: "मेरे पास GST नंबर है", mr: "माझ्याकडे GST क्रमांक आहे" }, lang)}
         </button>
         {!hasGst ? <Consent checked={declaration} onChange={setDeclaration} text={GST_DECLARATION_TEXT} short="My shop is not registered under GST." /> : null}
-        <Consent checked={consent} onChange={setConsent} short="I agree that GoKesari checks this number with the government record." />
+        <Consent
+          checked={consent}
+          onChange={setConsent}
+          short={
+            staff
+              ? "The owner agreed (on the call) that GoKesari checks this number with the government record."
+              : "I agree that GoKesari checks this number with the government record."
+          }
+        />
         <Button type="submit" size="lg" className="w-full" disabled={busy || !consent || !typed || (!hasGst && !declaration) || (referralRequired && code.trim().length < 3)} data-testid="verify-identity">
           {busy ? tr({ en: "Verifying…", hi: "जाँच हो रही है…", mr: "तपासत आहे…" }, lang) : hasGst ? "Verify GSTIN" : "Verify PAN"}
         </Button>
@@ -1097,7 +1152,7 @@ function PinStep({ state, busy, fields, send, back }: { state: WizardState; busy
     }
     setProblem(null);
     // Franchise brief 21-Nov-2026 §5.1: the confirmed area is saved first (it never blocks the location step).
-    if (areaId) await fetch("/api/shops/registration-draft/area", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ areaId }) }).catch(() => null);
+    if (areaId) await wizardFetch("/api/shops/registration-draft/area", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ areaId }) }).catch(() => null);
     void send("/api/shops/registration-draft/location", { latitude, longitude, address });
   }
 
@@ -1537,7 +1592,7 @@ function EmailStep({ state, busy, fields, send, back }: { state: WizardState; bu
   async function sendCode() {
     setSending(true);
     setError(null);
-    const response = await fetch("/api/shops/registration-draft/email", {
+    const response = await wizardFetch("/api/shops/registration-draft/email", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email }),

@@ -7,10 +7,9 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { wizardActor } from "@/server/registration/wizard-actor";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
-import { requirePermission } from "@/server/authz/guards";
-import { PERMISSIONS } from "@/server/authz/permissions";
 import { submitDraftGstin } from "@/server/services/shop-registration-draft";
 import { getWizardDraft } from "@/server/services/shop-registration-wizard";
 
@@ -22,7 +21,7 @@ const schema = z.object({
 });
 
 export const POST = route(async (request: NextRequest) => {
-  const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
+  const user = await wizardActor(request);
   // D-106: only while the wizard flag is on (an admin may use it while it is off), as the later steps —
   // this step makes paid government lookups, so the screen must not be the only gate.
   enforceRateLimit(`registration-draft:${user.id}`, RATE_LIMITS.MUTATION);
