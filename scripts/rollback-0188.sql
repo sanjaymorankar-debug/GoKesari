@@ -1,9 +1,12 @@
--- Rollback for drizzle/0188_seller_goods_undertaking.sql (docs/seller-undertaking-2026-11).
--- The consent_type values SELLER_GOODS_UNDERTAKING / SELLER_TERMS cannot be dropped; once no row uses them they are inert.
--- Deleting the seller consent rows removes the evidence of acceptance: only do it if the owner agrees.
+-- Rollback for 0188_payout_deductions (docs/tax-register/PAYOUT_DEDUCTIONS.md).
+-- Before running: deploy the previous release's code, then delete the 0188 row from
+-- drizzle.__drizzle_migrations. TDS already deducted stays recorded in the audit log only.
 BEGIN;
-DELETE FROM "feature_flags" WHERE "key" = 'seller_undertaking_gate_enabled';
-DROP INDEX IF EXISTS "user_consents_user_type_created_idx";
-ALTER TABLE "user_consents" DROP COLUMN IF EXISTS "user_agent";
-ALTER TABLE "user_consents" DROP COLUMN IF EXISTS "shop_id";
+ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_paise";
+ALTER TABLE "rider_payouts" DROP COLUMN IF EXISTS "tds_rate_bp";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_paise";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "tds_rate_bp";
+ALTER TABLE "referral_commissions" DROP COLUMN IF EXISTS "net_paise";
+DELETE FROM "statutory_rates" WHERE "key" IN ('IT_TDS_194H', 'IT_TDS_194J') AND "effective_from" = '2026-04-01' AND NOT "confirmed_by_ca";
+DELETE FROM "feature_flags" WHERE "key" = 'payout_deductions';
 COMMIT;
