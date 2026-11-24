@@ -189,6 +189,7 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/webhooks/payments/[gateway]": "payment webhook: signature checked",
   "/api/payments/hdfc/return": "the bank's form POST back from the payment page: only forwards (303) to our own page; nothing is decided there",
   "/api/webhooks/payouts/[provider]": "payout webhook: signature checked",
+  "/api/webhooks/delivery/[provider]": "delivery partner webhook (docs/hdms-2026-11): signature checked over the raw body; 404 for an unknown partner, 401 for a bad signature",
   "/api/webhooks/whatsapp": "Meta WhatsApp webhook (docs/smart-shopping-2026-11): X-Hub-Signature-256 checked; 503 until META_WA_APP_SECRET is set",
   "/api/dev/settle-registration": "development only: 404 in a production build",
   "/api/dev/settle-topup": "development only: 404 in a production build",
