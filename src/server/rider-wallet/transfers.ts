@@ -171,7 +171,7 @@ export async function claimIntoTransfer(tx: Tx, input: ClaimInput): Promise<{ pa
   const carry = available - amount;
 
   const rule = await getRule("riderPayouts");
-  const tds = await tdsFor(tx, input.deliveryPartnerId, amount, input.feePaise, rule);
+  const tds = await riderTdsFor(tx, input.deliveryPartnerId, amount, input.feePaise, rule);
 
   const now = new Date();
   const [payout] = await tx
@@ -259,7 +259,8 @@ export async function claimIntoTransfer(tx: Tx, input: ClaimInput): Promise<{ pa
   return { payout, transfer, tds };
 }
 
-async function tdsFor(
+/** TDS s.194C on a payment to a rider, counting the whole financial year (weekly payouts and transfers). */
+export async function riderTdsFor(
   tx: Tx,
   deliveryPartnerId: string,
   grossPaise: number,
@@ -269,7 +270,8 @@ async function tdsFor(
   const fy = financialYearBounds(new Date());
   // Weekly batches count too: everything credited to the rider this year that was not cancelled or reversed.
   const [paid] = await tx
-    .select({ sum: sql<string>`coalesce(sum(${riderPayouts.amountPaise}), 0)` })
+    // docs/tax-register (0188): a weekly payout's amount is after its own TDS, so add it back.
+    .select({ sum: sql<string>`coalesce(sum(${riderPayouts.amountPaise} + ${riderPayouts.tdsPaise}), 0)`, tds: sql<string>`coalesce(sum(${riderPayouts.tdsPaise}), 0)` })
     .from(riderPayouts)
     .where(
       and(
@@ -294,7 +296,7 @@ async function tdsFor(
   return computeTds(rule, {
     grossPaise,
     paidThisYearPaise: Number(paid.sum),
-    tdsThisYearPaise: Number(deducted.sum),
+    tdsThisYearPaise: Number(deducted.sum) + Number(paid.tds),
     hasPan: Boolean(partner?.pan),
     maxPaise: Math.max(grossPaise - feePaise - 100, 0),
   });

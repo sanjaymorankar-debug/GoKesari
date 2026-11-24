@@ -1,6 +1,6 @@
 # One-time identity verification: customers and shop owners (24-Nov-2026)
 
-Branch `feat/identity-verification-2026-11-24`, migration `drizzle/0188_identity_verification.sql`.
+Branch `feat/identity-verification-2026-11-24`, migration `drizzle/0189_identity_verification.sql`.
 **Legal advice is pending.** Keep both switches off on gokesari.com until a lawyer has reviewed the
 consent wording, the retention period and the gates.
 
@@ -138,7 +138,7 @@ Cost control in the code: one verified check per person ever; rate limits (10 Di
 
 | Piece | File |
 |---|---|
-| Migration | `drizzle/0188_identity_verification.sql` (journal idx 187) |
+| Migration | `drizzle/0189_identity_verification.sql` (journal idx 187) |
 | Tables, flags | `src/server/db/schema.ts` (`identityVerifications`, `identityVerificationPrompts`, two flag keys) |
 | Rule | `src/server/config/rules.ts` `identityVerification` |
 | Service | `src/server/services/identity-verification.ts` |
