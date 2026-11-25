@@ -710,7 +710,7 @@ export const RULES = {
   },
   selfRegistration: {
     description:
-      "Shop self-registration (Module 3, /shop/join): a shop registers with its name, an OTP-verified mobile and a referral code, picks a fee tier and pays online; the payment webhook approves it. enabled: the page accepts registrations. holdHours: how long an unpaid registration keeps its place on a referral code's usage limit. maxPendingPerMobile: unpaid registrations one mobile may have at once. classification: Kesari/Green given to a self-registered shop (operators can change it).",
+      "Shop self-registration (Module 3; its /shop/join form is retired and forwards to /shop/register, so this governs registrations already started there): a shop registers with its name, an OTP-verified mobile and a referral code, picks a fee tier and pays online; the payment webhook approves it. enabled: the page accepts registrations. holdHours: how long an unpaid registration keeps its place on a referral code's usage limit. maxPendingPerMobile: unpaid registrations one mobile may have at once. classification: Kesari/Green given to a self-registered shop (operators can change it).",
     schema: z.object({
       enabled: z.boolean(),
       holdHours: int(1, 168),
