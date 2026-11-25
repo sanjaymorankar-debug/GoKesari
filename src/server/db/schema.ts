@@ -9092,7 +9092,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0203 PAY-2 */] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -13447,5 +13447,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
-export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0203)
+export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0204)
 /* <<< GoKesari Health */
