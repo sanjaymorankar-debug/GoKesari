@@ -62,6 +62,7 @@ export type FeatureFlagKey =
   | "auto_journals"
   // docs/payment-settlement-states-2026-11
   | "payment_settlement_states"
+  | "policy_reconsent_enabled"
   // docs/sms-2fa-2026-11
   | "sms_otp_signin_customers_enabled"
   | "sms_otp_signin_shop_owners_enabled";

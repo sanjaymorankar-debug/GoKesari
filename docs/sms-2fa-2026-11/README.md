@@ -1,7 +1,7 @@
 # SMS one-time codes: sign-in second factor and checkout code
 
 24-Nov-2026. Branch `feat/sms-2fa-checkout-otp-2026-11-24`. Migration
-`drizzle/0202_sms_two_factor.sql` (rollback `scripts/rollback-0202.sql`).
+`drizzle/0203_sms_two_factor.sql` (rollback `scripts/rollback-0203.sql`).
 Everything ships **off**.
 
 ## What it does
