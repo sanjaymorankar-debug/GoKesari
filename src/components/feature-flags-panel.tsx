@@ -63,6 +63,8 @@ export type FeatureFlagKey =
   // docs/payment-settlement-states-2026-11
   | "payment_settlement_states"
   | "policy_reconsent_enabled"
+  // docs/price-comparison-off-2026-11
+  | "local_price_comparison_enabled"
   // docs/identity-verification-2026-11
   | "identity_verification_customers_enabled"
   | "identity_verification_shop_owners_enabled";

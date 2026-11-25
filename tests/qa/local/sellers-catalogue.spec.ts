@@ -16,6 +16,7 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { as, pageAs } from "../lib/actors";
+import { withFlags } from "../lib/billing-v2-helpers";
 import { db } from "../lib/db";
 import { addToCart, cartLines, deliver, emptyCart, onlyRiderOnline, packOrder, placeOrder } from "../lib/flows";
 import { anonymous, call, expectStatus, RUN, stash, unstash, why } from "../lib/http";
@@ -839,7 +840,9 @@ qa("TC-CAT-034", "search and Compare prices with shop A unpriced and shop B pric
   const lb = await call(await as("shopB"), "POST", `/api/shops/${shopB.id}/products`, { productId: product.id, onlineSaleEnabled: true, onlinePricePaise: 4500, offlineSaleEnabled: false, trackInventory: true, onlineStock: 50 });
   expectStatus(la, 201, "shop A lists it unpriced");
   expectStatus(lb, 201, "shop B lists it at ₹45/kg");
+  // docs/price-comparison-off-2026-11: "Lowest price" exists only while the comparison flag is on.
   try {
+    return await withFlags({ local_price_comparison_enabled: true }, async () => {
     await page.goto(`/search?q=${encodeURIComponent(product.name)}`);
     await expect(page.locator(`[data-product-name="${product.name}"]`).first()).toBeVisible();
     for (const t of await page.locator(`[data-product-name="${product.name}"]`).allInnerTexts()) expect(t).not.toMatch(/₹\s?0(\.00)?\b/);
@@ -853,6 +856,7 @@ qa("TC-CAT-034", "search and Compare prices with shop A unpriced and shop B pric
     const order = await rows.allInnerTexts();
     expect(order.findIndex((t) => t.includes(shopA.name))).toBeGreaterThan(order.findIndex((t) => t.includes(shopB.name)));
     return `search shows ${product.name} with no ₹0; compare: B ₹45/kg first with "Lowest price"; A "Not available online", after B, no ₹0`;
+    });
   } finally {
     await call(await as("shop"), "DELETE", `/api/shop-products/${la.body.id}`);
     await call(await as("shopB"), "DELETE", `/api/shop-products/${lb.body.id}`);

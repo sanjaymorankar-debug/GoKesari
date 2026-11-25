@@ -95,6 +95,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   guest_checkout_enabled: "Guest checkout: order with a one-time code, track without signing in",
   account_self_deletion_enabled: "Self-service account deletion from My Profile",
   payment_settlement_states: "Online payments: reconciled and chargeback states",
+  local_price_comparison_enabled: "Price comparison between local shops",
   identity_verification_customers_enabled: "Customers: verify identity before first checkout",
   identity_verification_shop_owners_enabled: "Shop owners: verify identity before going live / accepting orders",
 };
@@ -184,6 +185,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   account_self_deletion_enabled: "docs/account-deletion-2026-11: a signed-in person deletes their own account (My Profile → Delete my account) after the checks pass and an emailed code. The account is hidden at once (signed out everywhere, not shown to anyone else; admins see it \"Under cooling period\" with the reason) and anonymised after the cooling-off period (rule accountDeletion.coolingOffDays, 90 days) by the daily job; signing in again with an emailed code during that time offers to restore it. Orders, invoices, payments and ledgers are kept for legal retention (rule accountDeletion.retentionYears). Off: the section is hidden and the APIs answer 404; accounts already in their cooling-off period can still be restored and are still purged when due.",
   payment_settlement_states:
     "docs/payment-settlement-states-2026-11.md (PAY-SM): the payments job asks the gateway about each paid online payment and marks it Reconciled when the gateway confirms the same amount; a dispute / chargeback webhook marks the payment Chargeback, records the amount, reason and respond-by date in Admin → Payments → Chargebacks and alerts the admins. Timing: rule paymentSettlement. Off: nothing is marked and dispute webhooks are only logged, as before.",
+  local_price_comparison_enabled:
+    "docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off). On: product cards show \"Compare N prices\", /search/compare and its menu entries are open, the home page shows the comparison block (rule homePriceComparison) and the product page ranks shops by price with a \"Lowest price\" tag. Off: none of these; /search/compare answers 404 and the product page lists shops nearest-first. The smart shopping list keeps its own flag (smart_list_scan_enabled).",
   identity_verification_customers_enabled:
     "docs/identity-verification-2026-11 (Admin → Identity verification): customers verify their identity once, before their first order — Aadhaar shared from DigiLocker through the licensed KYC provider, or PAN instead (Aadhaar is voluntary). Only the last four digits, the verified name, the method and the provider reference are kept. Legal advice is pending: keep off on gokesari.com until it is given. On test.gokesari.com the mock provider is always used. Off: no customer is asked or blocked; verifications already done are kept.",
   identity_verification_shop_owners_enabled:

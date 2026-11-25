@@ -7,7 +7,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { CustomerLocation } from "@/lib/location";
 import { db } from "@/server/db";
-import { platformSettings, products } from "@/server/db/schema";
+import { featureFlags, platformSettings, products } from "@/server/db/schema";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { homePriceComparison } from "@/server/services/price-comparison";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { saveShopOffer } from "@/server/services/shop-offers";
@@ -28,6 +29,9 @@ beforeEach(async () => {
   await db.delete(platformSettings).where(eq(platformSettings.key, "homePriceComparison"));
   await db.delete(platformSettings).where(eq(platformSettings.key, "shopOffers"));
   clearRuleCache();
+  // docs/price-comparison-off-2026-11: the comparison exists only while its flag is on.
+  await db.insert(featureFlags).values({ key: "local_price_comparison_enabled", enabled: true }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled: true } });
+  clearFeatureFlagCache();
 });
 
 async function scene() {
