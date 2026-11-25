@@ -1443,6 +1443,20 @@
       "when": 1793270500000,
       "tag": "0205_sms_two_factor",
       "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1793270600000,
+      "tag": "0206_shop_gst_registrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 207,
+      "version": "7",
+      "when": 1793270700000,
+      "tag": "0207_dealer_free_v3",
+      "breakpoints": true
     }
   ]
 }
