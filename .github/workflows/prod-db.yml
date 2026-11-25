@@ -119,7 +119,7 @@ jobs:
       # By hand: the chosen action. Automatic (PR into main, push to main): migrate.
       ACTION: ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'migrate' }}
       # What is being released: a branch by hand, the PR, or main.
-      SOURCE: ${{ github.event_name == 'workflow_dispatch' && inputs.source || (github.event_name == 'pull_request_target' && format('PR #{0}', github.event.pull_request.number) || 'main') }}
+      SOURCE: ${{ github.event_name == 'workflow_dispatch' && inputs.source || (github.event_name == 'pull_request_target' && format('PR {0}', github.event.pull_request.number) || 'main') }}
       RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.source || (github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha) }}
 
     steps:
