@@ -162,7 +162,7 @@ export async function recordPayment(
         registrationFeePaise: shops.registrationFeePaise,
         registrationFeeBasePaise: shops.registrationFeeBasePaise,
         registrationFeeGstRateBp: shops.registrationFeeGstRateBp,
-        // 0202: the shop's own / its type's renewal fee.
+        // 0203: the shop's own / its type's renewal fee.
         renewalFeePaise: shops.renewalFeePaise,
         shopType: shops.shopType,
       })
@@ -223,7 +223,7 @@ export async function recordPayment(
         quote: input.membership?.quote ?? null,
         paymentIntentId: input.membership?.paymentIntentId ?? null,
       });
-      // 0202 registration subscription: last payment, start date, overrides ended by a new period.
+      // 0203 registration subscription: last payment, start date, overrides ended by a new period.
       await noteRegistrationPayment(tx, shop.id, payment, membership.periodEnd);
     } else if (input.paymentType === "REFUND") {
       await rollBackUnpaidMembershipPeriods(tx, shop.id, payment.id, `refund ${payment.reference}`);
@@ -260,11 +260,11 @@ export async function recordPayment(
   // docs/dealer-programme: a refunded registration fee takes back the dealer's commission for the shop.
   if (input.paymentType === "REFUND" && client === db) await reverseShopCommissionSafely(input.shopId, "registration fee refunded", actor);
   // TIERED (0136): a paid renewal of a shop still active earns its direct earner the renewal commission.
-  // 0202: only while rule shopRegistrationSubscription.payCommissionOnRenewals is on (owner brief 25-Nov-2026, default off).
+  // 0203: only while rule shopRegistrationSubscription.payCommissionOnRenewals is on (owner brief 25-Nov-2026, default off).
   if (input.paymentType === "RENEWAL" && client === db && (await getRule("shopRegistrationSubscription")).payCommissionOnRenewals) {
     await accrueRenewalCommissionSafely(recorded.payment.id, actor);
   }
-  // 0202: the stored registration status follows every fee payment, refund and reversal (after commit).
+  // 0203: the stored registration status follows every fee payment, refund and reversal (after commit).
   if (client === db) await refreshRegistrationStatusSafely(input.shopId);
   return recorded;
 }
@@ -337,7 +337,7 @@ export async function reversePayment(
   });
   // docs/dealer-programme: a fee no longer settled takes back the dealer's commission for the shop.
   if (result.feePaymentStatus !== "PAID") await reverseShopCommissionSafely(result.reversal.shopId, `registration fee payment reversed: ${reason}`, actor);
-  await refreshRegistrationStatusSafely(result.reversal.shopId); // 0202
+  await refreshRegistrationStatusSafely(result.reversal.shopId); // 0203
   return result;
 }
 

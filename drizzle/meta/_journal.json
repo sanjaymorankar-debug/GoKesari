@@ -1419,8 +1419,15 @@
     {
       "idx": 202,
       "version": "7",
-      "when": 1793270110000,
-      "tag": "0202_shop_registration_subscription",
+      "when": 1793270200000,
+      "tag": "0202_policy_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1793270300000,
+      "tag": "0203_shop_registration_subscription",
       "breakpoints": true
     }
   ]

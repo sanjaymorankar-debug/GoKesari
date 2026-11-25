@@ -60,6 +60,7 @@ import { isTextChannelAvailable, sendText } from "@/server/messaging/sms-whatsap
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { uniqueSlug } from "@/server/services/catalogue";
 import { recordConsent } from "@/server/services/consents";
+import { recordCurrentAcceptances } from "@/server/services/policy-versions";
 import { grantRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
 import { referralCodeUses } from "@/server/services/referrals";
@@ -656,7 +657,7 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
     }).returning({ id: shopPayments.id });
     // D-69: the fee is paid in full here; 0189: the period is recorded against it.
     await extendMembership(tx, shop.id, now, { kind: "REGISTRATION", feePaise: reg.feePaise, shopPaymentId: feeRow.id });
-    // 0202 registration subscription: 1 year from the payment, ACTIVE now (the job keeps it in step later).
+    // 0203 registration subscription: 1 year from the payment, ACTIVE now (the job keeps it in step later).
     await noteRegistrationPayment(tx, shop.id, { id: feeRow.id, paidAt: now, amountPaise: reg.feePaise }, now);
     await tx.update(shops).set({ registrationStatus: "ACTIVE", registrationStatusAt: now }).where(eq(shops.id, shop.id));
     // No code (referral_required_shop OPTIONAL): nothing to redeem; payment alone approves the shop.
@@ -744,6 +745,12 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
   if (result.outcome === "APPROVED" && result.newAccount) {
     // Seller terms were accepted on the registration form.
     await recordConsent(result.ownerId, "TERMS_AND_PRIVACY", {}).catch((e) => console.error("[registration] consent record failed", e));
+  }
+  if (result.outcome === "APPROVED") {
+    // docs/policy-reconsent-2026-11: the seller terms version accepted on the form, so the owner is not asked again.
+    await recordCurrentAcceptances(result.ownerId, ["seller-terms"], "SHOP_REGISTRATION").catch((e) =>
+      console.error("[registration] seller-terms acceptance record failed", e),
+    );
   }
   if (result.outcome === "APPROVED") return { outcome: "APPROVED", shopId: result.shopId, ownerId: result.ownerId };
   return result;

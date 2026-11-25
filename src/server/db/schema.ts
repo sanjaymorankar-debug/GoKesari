@@ -934,7 +934,7 @@ export const shops = pgTable(
     membershipExemptSetBy: uuid("membership_exempt_set_by"),
     membershipExemptSetAt: timestamp("membership_exempt_set_at", { withTimezone: true }),
     /**
-     * 0202 shop registration subscription (docs/shop-registration-subscription-2026-11). The expiry is
+     * 0203 shop registration subscription (docs/shop-registration-subscription-2026-11). The expiry is
      * membershipValidUntil; the fee is registrationFeePaise. Status is kept current by every payment, admin
      * change and the reminder job (services/shop-registration-subscription.ts recomputes it on read too).
      */
@@ -946,14 +946,14 @@ export const shops = pgTable(
     renewalFeePaise: bigint("renewal_fee_paise", { mode: "number" }),
     /** Per-shop grace days; null = rule shopMembership.graceDays. 0 after "Expire now". */
     registrationGraceDays: integer("registration_grace_days"),
-    /** Grace given until this moment (the 0202 migration, or an admin); the shop stays online until then. */
+    /** Grace given until this moment (the 0203 migration, or an admin); the shop stays online until then. */
     registrationGraceUntil: timestamp("registration_grace_until", { withTimezone: true }),
     registrationRemindersEnabled: boolean("registration_reminders_enabled").notNull().default(true),
     /** No foreign key, as the other payment links on shops. */
     lastRegistrationPaymentId: uuid("last_registration_payment_id"),
     lastRegistrationPaymentAt: timestamp("last_registration_payment_at", { withTimezone: true }),
     registrationStatusAt: timestamp("registration_status_at", { withTimezone: true }),
-    /** What the 0202 migration did to this shop: END_DATE_SET, GRACE_GIVEN, or both. */
+    /** What the 0203 migration did to this shop: END_DATE_SET, GRACE_GIVEN, or both. */
     registrationBackfill: text("registration_backfill"),
     /** D-69: the owner closed the shop permanently (status INACTIVE). No foreign key: users are customer-side. */
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -2128,7 +2128,7 @@ export const orders = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /**
      * GST (and cess) INCLUDED in the goods' prices, summed from the lines'
-     * taxPaise at checkout (migration 0183). Never added to totalPaise. Null
+     * taxPaise at checkout (migration 0185). Never added to totalPaise. Null
      * when not recorded (orders before 0183, or a line with no known rate).
      */
     taxIncludedPaise: bigint("tax_included_paise", { mode: "number" }),
@@ -2239,7 +2239,7 @@ export const orderItems = pgTable(
     /** D-91: the product's MRP when it was sold (products.mrp_paise); null when it had none (loose goods). */
     mrpPaise: bigint("mrp_paise", { mode: "number" }),
     /*
-     * Tax snapshot at checkout (migration 0183; null on older orders). The line's
+     * Tax snapshot at checkout (migration 0185; null on older orders). The line's
      * classification when it was ordered (listing → master product → dated HSN
      * table) and the GST + cess INCLUDED in lineTotalPaise: taxable + tax = line
      * total. A shop that charges no GST records taxable = line total, tax = 0.
@@ -4461,7 +4461,7 @@ export const shopMembershipPeriods = pgTable(
 export type ShopMembershipPeriod = typeof shopMembershipPeriods.$inferSelect;
 
 /**
- * 0202 (docs/shop-registration-subscription-2026-11): a registration / renewal payment link sent to a shop
+ * 0203 (docs/shop-registration-subscription-2026-11): a registration / renewal payment link sent to a shop
  * owner (by an admin, or by the reminder job). One ACTIVE link per shop; a new one cancels the old.
  */
 export const shopRegistrationLinks = pgTable(
@@ -4492,7 +4492,7 @@ export const shopRegistrationLinks = pgTable(
 );
 export type ShopRegistrationLink = typeof shopRegistrationLinks.$inferSelect;
 
-/** 0202: every registration reminder sent — automatic ones once per shop, stage and day (sent_by null); staff ones always. */
+/** 0203: every registration reminder sent — automatic ones once per shop, stage and day (sent_by null); staff ones always. */
 export const shopRegistrationReminders = pgTable(
   "shop_registration_reminders",
   {
@@ -4517,14 +4517,14 @@ export const shopRegistrationReminders = pgTable(
 );
 export type ShopRegistrationReminder = typeof shopRegistrationReminders.$inferSelect;
 
-/** 0202: one row per day the expiry digest went to the CC list (claimed before sending). */
+/** 0203: one row per day the expiry digest went to the CC list (claimed before sending). */
 export const shopRegistrationDigests = pgTable("shop_registration_digests", {
   day: date("day").primaryKey(),
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   detail: text("detail"),
 });
 
-/** 0202: the migration report — counts per registration status when the migration ran. */
+/** 0203: the migration report — counts per registration status when the migration ran. */
 export const shopRegistrationMigrationReports = pgTable("shop_registration_migration_reports", {
   id: uuid("id").primaryKey().defaultRandom(),
   ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
@@ -5100,6 +5100,71 @@ export const accountDeletionRequests = pgTable(
   ],
 );
 export type AccountDeletionRequest = typeof accountDeletionRequests.$inferSelect;
+/* --------------------------------------------- policy re-consent (0201) */
+/** Policy documents a user accepts (docs/policy-reconsent-2026-11). Slugs match /legal/<slug>. */
+export const POLICY_DOCS = ["terms", "privacy-policy", "seller-terms"] as const;
+export type PolicyDoc = (typeof POLICY_DOCS)[number];
+
+/** Where an acceptance was given. */
+export const POLICY_ACCEPTANCE_CHANNELS = [
+  "WEB",
+  "APP",
+  "SHOP_PORTAL",
+  "RIDER_PORTAL",
+  "DEALER_PORTAL",
+  "SIGNUP",
+  "SHOP_REGISTRATION",
+  "API",
+] as const;
+export type PolicyAcceptanceChannel = (typeof POLICY_ACCEPTANCE_CHANNELS)[number];
+
+/** A change summary in the site's languages; English is required, Hindi / Marathi fall back to it. */
+export type PolicySummary = { en: string; hi?: string; mr?: string };
+
+/**
+ * One published version of a policy document. The newest row with requires_acceptance is the version
+ * signed-in users must have accepted; a minor edit (requires_acceptance false) asks nobody again.
+ */
+export const policyVersions = pgTable(
+  "policy_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doc: text("doc", { enum: POLICY_DOCS }).notNull(),
+    /** e.g. "2026-12-01" — matches the policy page's "Last updated" date. */
+    version: text("version").notNull(),
+    summary: jsonb("summary").$type<PolicySummary>().notNull().default({ en: "" }),
+    requiresAcceptance: boolean("requires_acceptance").notNull().default(true),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+    /** No foreign key: kept when the admin's account is deleted. */
+    publishedBy: uuid("published_by"),
+    reason: text("reason"),
+  },
+  (t) => [
+    uniqueIndex("policy_versions_doc_version_uq").on(t.doc, t.version),
+    index("policy_versions_doc_published_idx").on(t.doc, t.publishedAt),
+  ],
+);
+export type PolicyVersion = typeof policyVersions.$inferSelect;
+
+/** Append-only: who accepted which version of which document, when and where. */
+export const policyAcceptances = pgTable(
+  "policy_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    doc: text("doc", { enum: POLICY_DOCS }).notNull(),
+    version: text("version").notNull(),
+    channel: text("channel", { enum: POLICY_ACCEPTANCE_CHANNELS }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("policy_acceptances_user_doc_idx").on(t.userId, t.doc),
+    index("policy_acceptances_doc_version_idx").on(t.doc, t.version),
+  ],
+);
+export type PolicyAcceptance = typeof policyAcceptances.$inferSelect;
 
 /* ----------------------------------------------------------- audit logs */
 
@@ -10965,6 +11030,8 @@ export const FEATURE_FLAG_KEYS = [
   // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
   "auto_journals",
   "payment_settlement_states", // PAY-SM (0201)
+  // docs/policy-reconsent-2026-11 (0202): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
+  "policy_reconsent_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
