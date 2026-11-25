@@ -1,5 +1,12 @@
 # Hostinger process-limit work — status
 
+> **Closed (24-Nov-2026).** Hostinger's per-account process limit no longer
+> applies: since 17-Nov-2026 the sites run on our own server and hPanel has no
+> cron lines. What this work left in the code stays: three cron entry points and
+> one run at a time per entry point ([docs/cron-schedule.md](../cron-schedule.md)).
+> The old per-job cron routes still answer (they do not return 410); just don't
+> schedule them. Kept as the record.
+
 ## Step 0 audit (from the repo)
 - Cron routes: `src/app/api/cron/*` — daily-orders, delivery-dispatch, dispute-escalation, finance-weekly, notification-retry, notifications, risk-rules, seller-verification, shop-acceptance, timeout-sweep.
 - In-app schedulers (`node-cron`, `setInterval`, `instrumentation.ts` jobs): **none**. `instrumentation.ts` only logs request errors.

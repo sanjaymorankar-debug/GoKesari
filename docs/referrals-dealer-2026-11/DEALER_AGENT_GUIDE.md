@@ -1,17 +1,23 @@
 # Dealer, team lead and agent guide
 
-03-Nov-2026. Your page: **gokesari.com/dealer** (also in the GoKesari app). Only when GoKesari has
+03-Nov-2026 (rates updated 24-Nov-2026). Your page: **gokesari.com/dealer** (also in the GoKesari app). Only when GoKesari has
 moved your dealership to the 3-level programme.
 
 ## Who earns what
 
 On every shop that pays its GoKesari registration fee (before GST, after any coupon):
 
-* whoever signed the shop — **20%**: 60% of it when the shop is approved, the rest when it delivers
-  10 orders within 90 days (shown as *trading progress*);
-* the agent's team lead — **5%**, when the shop is trading;
-* the main dealer — **3%** on every shop his team signs, when the shop is trading;
-* on a membership renewal of a shop you signed — **10%**.
+* whoever signed the shop — **20%**, all of it when the shop pays and is approved;
+* the agent's team lead — **4%**, at the same time;
+* the main dealer — **4%** on a shop signed by someone who reports to him directly (a team lead, or an agent with no
+  team lead), **3%** on a shop signed by an agent under a team lead;
+* on a membership renewal of a shop (within 3 years of its approval) — **10%** to whoever signed it, 2% to the team
+  lead, 1% to the main dealer;
+* a month in which you reach **50 shops** — a bonus of **10%** of that month's commission.
+
+> *Superseded (24-Nov-2026):* the 03-Nov-2026 text said 20% (60% at approval, the rest after 10 orders in 90 days),
+> team lead 5% and main dealer 3%, both when the shop was trading. Changed by the owner on 05-Nov-2026 (20 / 4 / 2,
+> all at approval), 20-Nov-2026 (main dealer 3%) and 21-Nov-2026 (main dealer 4% one level up).
 
 No joining fee, and nothing is paid for recruiting anyone.
 

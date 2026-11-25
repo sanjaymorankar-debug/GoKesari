@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { addDeliveryStaff, listDeliveryStaff } from "@/server/services/fulfilment-options";
 
@@ -19,13 +19,13 @@ const schema = z.object({ name: z.string().max(80), mobile: z.string().max(20) }
 
 export const GET = route(async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
-  await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
+  await requireShopPermission(id, "delivery.view", { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
   return ok({ staff: await listDeliveryStaff(id) });
 });
 
 export const POST = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
-  const { user } = await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
+  const { user } = await requireShopPermission(id, "delivery.create", { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
   enforceRateLimit(`delivery-staff:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
   return ok(await addDeliveryStaff(id, body, user), 201);

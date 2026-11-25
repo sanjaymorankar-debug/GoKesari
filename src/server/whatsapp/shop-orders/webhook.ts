@@ -44,6 +44,9 @@ import { acceptOrder, rejectOrder } from "@/server/services/fulfilment";
 import { onMessageFailed } from "./dispatch";
 import { parseButtonPayload, shopOrderLink } from "./render";
 import { whatsAppFeatureState } from "./state";
+import { customerWhatsAppState } from "@/server/whatsapp/customer/config";
+import { inboundTextFromReplyId } from "@/server/whatsapp/customer/conversation";
+import { handleCustomerInbound } from "@/server/whatsapp/customer/sessions";
 
 /** The reason a WhatsApp Reject gives the customer (no follow-up question is asked). */
 export const WHATSAPP_REJECT_REASON = "Rejected on WhatsApp";
@@ -83,13 +86,15 @@ interface MetaStatus {
   errors?: { code?: number; title?: string; message?: string; error_data?: { details?: string } }[];
 }
 
-interface MetaInbound {
+export interface MetaInbound {
   id?: string;
   from?: string;
   type?: string;
   context?: { id?: string; from?: string };
   button?: { payload?: string; text?: string };
-  interactive?: { type?: string; button_reply?: { id?: string; title?: string } };
+  interactive?: { type?: string; button_reply?: { id?: string; title?: string }; list_reply?: { id?: string; title?: string } };
+  /** docs/customer-whatsapp-2026-11: a customer's typed message. */
+  text?: { body?: string };
 }
 
 interface MetaWebhookBody {
@@ -119,14 +124,17 @@ export async function handleWhatsAppWebhook(rawBody: string, headers: Headers): 
     return { status: 400, body: { error: "Invalid JSON." } };
   }
   const state = await whatsAppFeatureState();
-  if (!state.flagOn) return { status: 200, body: { ignored: "whatsapp_shop_orders_enabled is off" } };
+  // docs/customer-whatsapp-2026-11: customer chat shares this webhook; with both flags off nothing is handled, as before.
+  const customer = await customerWhatsAppState();
+  if (!state.flagOn && !customer.flagOn) return { status: 200, body: { ignored: "whatsapp_shop_orders_enabled is off" } };
+  const flags = { shop: state.flagOn, customer: customer.flagOn };
 
   const results: string[] = [];
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
       if (change.field && change.field !== "messages") continue;
       for (const status of change.value?.statuses ?? []) results.push(await handleStatus(status));
-      for (const message of change.value?.messages ?? []) results.push(await handleInbound(message));
+      for (const message of change.value?.messages ?? []) results.push(await handleInbound(message, flags));
     }
   }
   return { status: 200, body: { ok: true, results } };
@@ -201,16 +209,33 @@ async function handleStatus(status: MetaStatus): Promise<string> {
 
 /* --------------------------------------------------------- button taps */
 
-async function handleInbound(message: MetaInbound): Promise<string> {
+async function handleInbound(message: MetaInbound, flags: { shop: boolean; customer: boolean } = { shop: true, customer: false }): Promise<string> {
   if (!message.id || !message.from) return "message ignored";
   const from = toE164(message.from);
   const eventId = await firstTime(`msg:${message.id}`, "MESSAGE", from, message);
   if (!eventId) return "message duplicate";
   const payload = message.button?.payload ?? message.interactive?.button_reply?.id ?? null;
   const tap = parseButtonPayload(payload);
-  if (!tap) return noteResult(eventId, `not a button tap (${message.type ?? "unknown"})`);
+  if (!tap) {
+    // docs/customer-whatsapp-2026-11: a customer's text, list pick or button → the shopping chat (flag whatsapp_customer_enabled).
+    const text = customerTextOf(message);
+    if (flags.customer && text) return noteResult(eventId, await handleCustomerInbound({ from, text, inboundId: message.id }));
+    return noteResult(eventId, `not a button tap (${message.type ?? "unknown"})`);
+  }
+  if (!flags.shop) return noteResult(eventId, "ignored: whatsapp_shop_orders_enabled is off");
   const result = await processButtonTap({ from, action: tap.action, orderId: tap.orderId, contextId: message.context?.id ?? null, inboundId: message.id });
   return noteResult(eventId, result);
+}
+
+/** What a customer sent, as text: typed text, a list row / reply button of the chat, or a template button's label. */
+export function customerTextOf(message: Pick<MetaInbound, "text" | "interactive" | "button">): string | null {
+  const typed = message.text?.body?.trim();
+  if (typed) return typed.slice(0, 500);
+  const replyId = message.interactive?.list_reply?.id ?? message.interactive?.button_reply?.id;
+  const picked = inboundTextFromReplyId(replyId);
+  if (picked) return picked;
+  const label = message.interactive?.button_reply?.title ?? message.button?.text;
+  return label?.trim() ? label.trim().slice(0, 100) : null;
 }
 
 export interface ButtonTap {

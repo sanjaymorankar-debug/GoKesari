@@ -10,7 +10,7 @@ import { apiRoutes, fill, isDynamic, NO_SUCH_ID, pagePaths, PUBLIC_PAGES, PUBLIC
 import { BASE_URL, IS_PROD, IS_REMOTE, TARGET } from "../lib/target";
 
 /** Public forms with a per-IP limit of a handful of calls (5–10 per 10–60 minutes). */
-const TIGHT_LIMITS = new Set(["/api/grievances", "/api/shop-registrations", "/api/shop-registrations/otp", "/api/otp/request", "/api/referral-requests"]);
+const TIGHT_LIMITS = new Set(["/api/grievances", "/api/otp/request", "/api/referral-requests", "/api/guest-checkout/start", "/api/track/lookup"]);
 
 const WRITE = ["POST", "PUT", "PATCH", "DELETE"] as const;
 
@@ -101,11 +101,9 @@ qa("TC-SEC-001", "public write endpoints refuse an empty call without a server e
         continue;
       }
       // Refused: validation (400/422), not found (404), signature/secret (401/403), not configured (503).
-      // The referral-code check only reads (a blank code is valid while referral is optional): 200 is fine.
-      const readOnly = r.path === "/api/shop-registrations/referral-check" && res.status === 200;
       // The bank's return only forwards (303) to our own page, which asks the gateway for the state.
       if (r.path === "/api/payments/hdfc/return" && res.status === 303 && new URL(res.location ?? "/", BASE_URL).host === new URL(BASE_URL).host) continue;
-      if ((res.status < 400 && !readOnly) || res.status === 500) bad.push(`${method} ${r.path} → ${res.status}`);
+      if (res.status < 400 || res.status === 500) bad.push(`${method} ${r.path} → ${res.status}`);
     }
   }
   await guest.dispose();

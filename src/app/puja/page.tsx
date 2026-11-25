@@ -201,7 +201,7 @@ export default async function PujaPage({ searchParams }: { searchParams: Promise
         <EmptyState title="No puja items match these filters yet." />
       ) : (
         <>
-          {priced.length ? <ProductGrid products={priced} signedIn={Boolean(user)} cartLines={cartLines} /> : null}
+          {priced.length ? <ProductGrid lang={lang} products={priced} signedIn={Boolean(user)} cartLines={cartLines} /> : null}
           {poc.length ? (
             <section aria-labelledby="puja-poc" className="space-y-2">
               <h2 id="puja-poc" className="text-lg font-bold text-ink-900">
