@@ -9027,7 +9027,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0200 PAY-2 */] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0201 PAY-2 */] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -10820,6 +10820,8 @@ export const FEATURE_FLAG_KEYS = [
   "guest_checkout_enabled",
   // docs/account-deletion-2026-11 (0191): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
+  // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
+  "auto_journals",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
