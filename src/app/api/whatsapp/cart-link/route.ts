@@ -17,8 +17,8 @@ import { CUSTOMER_WHATSAPP_FLAG } from "@/server/whatsapp/customer/config";
 const schema = z.object({ token: z.string().min(10).max(300) });
 
 export const POST = route(async (request: NextRequest) => {
-  if (!(await isFeatureEnabled(CUSTOMER_WHATSAPP_FLAG))) throw featureNotAvailable(CUSTOMER_WHATSAPP_FLAG);
   const user = await requireUser();
+  if (!(await isFeatureEnabled(CUSTOMER_WHATSAPP_FLAG))) throw featureNotAvailable(CUSTOMER_WHATSAPP_FLAG);
   const body = await parseBody(request, schema);
   return ok(await claimCartLink(body.token, user));
 });
