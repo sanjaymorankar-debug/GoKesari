@@ -24,10 +24,13 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { suspendDeliveryPartner } from "./delivery-partners";
 import { NOTIFICATION_TYPES, notifyEvent } from "./notifications";
 import { assignRoleByAdmin, grantRole } from "./roles";
+import { identityStatusFilter, type UserIdentityStatus } from "./identity-verification";
 
 export interface ListUsersOptions {
   query?: string;
   role?: UserRole;
+  /** docs/identity-verification-2026-11: only users whose identity status is this (admin users list filter). */
+  identityStatus?: UserIdentityStatus;
   limit?: number;
   offset?: number;
 }
@@ -39,6 +42,7 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<User[]>
     conditions.push(or(ilike(users.email, term), ilike(users.name, term))!);
   }
   if (options.role) conditions.push(eq(users.role, options.role));
+  if (options.identityStatus) conditions.push(identityStatusFilter(options.identityStatus));
 
   return db
     .select()

@@ -26,6 +26,15 @@ describe("1.6.0 — DigiLocker", () => {
     expect(digilockerResult(null)).toBe("cancelled");
   });
 
+  it("the customer / shop owner identity check (website 24-Nov-2026) uses the same link and callback", () => {
+    // /profile/verify-identity opens the same DigiLocker page (or the site's mock) through the same bridge call,
+    // and the website's shared return link maps its statuses (in review → pending, rejected → failed) onto these three.
+    expect(isDigilockerUrl(`${SITE}/mobile-auth/digilocker-mock?session=mock-dl-2`, SITE)).toBe(true);
+    expect(isDigilockerUrl(`${SITE}/profile/verify-identity`, SITE)).toBe(false);
+    expect(digilockerResult("gokesari://digilocker-return?result=pending")).toBe("pending");
+    expect(digilockerResult("gokesari://digilocker-return?result=verified")).toBe("verified");
+  });
+
   it("the page bridge offers openDigiLocker and says which app build it is", () => {
     const script = buildBridgeScript({ siteOrigin: SITE, token: "t", platform: "android", version: "1.6.0", scheme: "gokesari" });
     expect(script).toContain('openDigiLocker: function (url) { return request("digilocker.open", { url: String(url) }); }');
