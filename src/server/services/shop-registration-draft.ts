@@ -346,6 +346,28 @@ export async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<Shop
   return created;
 }
 
+/** Answers that belong to the person, not the business: kept when the owner changes the GSTIN or PAN. */
+const KEPT_ON_NUMBER_CHANGE = ["employeeId", "franchiseAreaId", "franchiseAreaName"] as const;
+
+/**
+ * Owner, 25-Nov-2026: the owner may go back and change the GSTIN or PAN before paying. A different
+ * number is a different business, so what the old record filled in or the owner confirmed for it —
+ * owner name, address, shop details, map pin, documents answer — is asked again from the new record.
+ * The referral code, the shop email and the franchise area stay.
+ */
+export function answersResetFor(draft: ShopRegistrationDraft) {
+  const old = (draft.details as Record<string, unknown> | null) ?? {};
+  const details: Record<string, unknown> = {};
+  for (const key of KEPT_ON_NUMBER_CHANGE) if (old[key] !== undefined) details[key] = old[key];
+  return {
+    details,
+    latitude: null,
+    longitude: null,
+    locationAddress: null,
+    locationConfirmedAt: null,
+  };
+}
+
 /** The per-draft hourly limit on paid checks the owner can start. */
 export async function countCheck(tx: DbClient, draft: ShopRegistrationDraft, now: Date) {
   const rule = await getRule("sellerVerification");
@@ -528,6 +550,7 @@ export async function submitDraftGstin(input: SubmitDraftGstinInput): Promise<Sh
               panErrorCode: null,
               panIdempotencyKey: null,
               panVerifiedAt: null,
+              ...answersResetFor(draft),
             }),
         noGstDeclaredAt: null,
         noGstDeclarationVersion: null,
@@ -637,7 +660,7 @@ export async function submitDraftPan(input: SubmitDraftPanInput): Promise<ShopRe
         consentVersion: SELLER_VERIFICATION_CONSENT_VERSION,
         ...(counted ?? {}),
         // The PAN of a GSTIN is not this route's PAN: a check stored under the other route is redone.
-        ...(samePan ? {} : { panHash: null, panStatus: "NOT_SUBMITTED" as const }),
+        ...(samePan ? {} : { panHash: null, panStatus: "NOT_SUBMITTED" as const, ...answersResetFor(draft) }),
         updatedAt: now,
       })
       .where(eq(shopRegistrationDrafts.id, draft.id));

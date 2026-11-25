@@ -16,7 +16,10 @@ export async function purgeExpiredOtps(now: Date = new Date()): Promise<{ delete
   const housekeeping = await getRule("otpHousekeeping");
   if (!housekeeping.purgeEnabled) return { deleted: 0, skipped: "disabled" };
   const otp = await getRule("otp");
-  const keepMs = Math.max(housekeeping.retainHours * 3_600_000, otp.resendWindowMinutes * 60_000);
+  // docs/sms-2fa-2026-11: a verified checkout code covers orders for checkoutOtp.hours (once_per_hours mode).
+  const checkoutOtp = await getRule("checkoutOtp");
+  const checkoutKeepMs = checkoutOtp.enabled && checkoutOtp.mode === "once_per_hours" ? checkoutOtp.hours * 3_600_000 : 0;
+  const keepMs = Math.max(housekeeping.retainHours * 3_600_000, otp.resendWindowMinutes * 60_000, checkoutKeepMs);
   const before = new Date(now.getTime() - keepMs);
   const deleted = await db
     .delete(loginOtps)
