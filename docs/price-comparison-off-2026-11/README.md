@@ -3,7 +3,7 @@
 Owner decision, 24-Nov-2026: customers are not shown price comparisons between
 local shops. Everything sits behind the feature flag
 **`local_price_comparison_enabled`**, seeded **OFF** on both sites by migration
-`0203_local_price_comparison_off` (a missing row also reads as off).
+`0204_local_price_comparison_off` (a missing row also reads as off).
 
 | Surface | Flag off | Flag on |
 |---|---|---|
