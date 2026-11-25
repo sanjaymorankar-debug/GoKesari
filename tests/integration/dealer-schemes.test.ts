@@ -144,7 +144,7 @@ describe("assignments", () => {
     await expect(db.delete(dealerSchemeVersions).where(eq(dealerSchemeVersions.id, v1.id))).rejects.toThrow();
     await expect(db.update(dealerSchemeVersions).set({ status: "DRAFT" }).where(eq(dealerSchemeVersions.id, v1.id))).rejects.toThrow();
     // A draft may still be edited (its fingerprint follows) and deleted.
-    const [draft] = await db.insert(dealerSchemeVersions).values({ schemeId: v1.schemeId, version: 3, status: "DRAFT", terms: v1.terms }).returning();
+    const [draft] = await db.insert(dealerSchemeVersions).values({ schemeId: v1.schemeId, version: 9, status: "DRAFT", terms: v1.terms }).returning();
     expect(draft.termsHash).toBe(v1.termsHash);
     const [edited] = await db.update(dealerSchemeVersions).set({ terms: { ...v1.terms, summary: "Free dealership, edited while a draft." } }).where(eq(dealerSchemeVersions.id, draft.id)).returning();
     expect(edited.termsHash).not.toBe(v1.termsHash);

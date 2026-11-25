@@ -3179,7 +3179,7 @@ export const deliveryPartnerKycChecks = pgTable(
 export type DeliveryPartnerKycCheck = typeof deliveryPartnerKycChecks.$inferSelect;
 
 /**
- * docs/identity-verification-2026-11 (0206): one-time identity verification
+ * docs/identity-verification-2026-11 (0208): one-time identity verification
  * of customers and shop owners — Aadhaar through DigiLocker by default, PAN as
  * the always-offered alternative. One row per attempt; at most one VERIFIED
  * row and one open (PENDING) row per user (partial unique indexes).
@@ -11031,7 +11031,7 @@ export const FEATURE_FLAG_KEYS = [
   // (Admin → Sign-in security). Seeded OFF.
   "sms_otp_signin_customers_enabled",
   "sms_otp_signin_shop_owners_enabled",
-  // docs/identity-verification-2026-11 (0206): one-time identity check (Aadhaar by DigiLocker or PAN), switched
+  // docs/identity-verification-2026-11 (0208): one-time identity check (Aadhaar by DigiLocker or PAN), switched
   // separately for customers (first checkout) and shop owners (go-live, order acceptance, grace). Both seeded OFF.
   "identity_verification_customers_enabled",
   "identity_verification_shop_owners_enabled",
@@ -13545,4 +13545,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
+export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 /* <<< GoKesari Health */
