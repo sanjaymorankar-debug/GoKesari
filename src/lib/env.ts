@@ -210,8 +210,25 @@ const serverEnvSchema = z.object({
    * to outbound_test_messages for testers to read at /admin/test-messages
    * (test site only; refused on the production site). Real providers (MSG91
    * DLT for SMS, Meta Cloud API for WhatsApp) are added when chosen.
+   *
+   * `msg91` (docs/sms-2fa-2026-11): one-time codes only (sign-in second factor,
+   * checkout step-up, codes for mobile-only shops), sent through MSG91's flow
+   * API with the DLT-approved OTP template below. Other texts (notifications,
+   * registration links) have no DLT template, so in this mode they are not
+   * sent. Needs MSG91_AUTH_KEY, MSG91_SENDER_ID and MSG91_OTP_TEMPLATE_ID;
+   * with any missing, SMS codes report themselves unavailable (msg91ConfigProblem).
    */
-  SMS_PROVIDER: z.enum(["none", "mock"]).default("none"),
+  SMS_PROVIDER: z.enum(["none", "mock", "msg91"]).default("none"),
+  /** MSG91 → API → Auth key. Server environment only, never in code. */
+  MSG91_AUTH_KEY: z.string().optional(),
+  /** The DLT-registered 6-letter sender header, e.g. GOKSRI. */
+  MSG91_SENDER_ID: z.string().optional(),
+  /** MSG91 template (flow) id of the DLT-approved OTP text; its variables are ##otp## and ##minutes##. */
+  MSG91_OTP_TEMPLATE_ID: z.string().optional(),
+  /** Optional: the DLT content-template id, sent as DLT_TE_ID when the MSG91 template does not carry it. */
+  MSG91_DLT_TE_ID: z.string().optional(),
+  /** MSG91 flow API URL (overridable for tests). */
+  MSG91_API_URL: z.string().default("https://control.msg91.com/api/v5/flow"),
   /**
    * `meta` (docs/smart-shopping-2026-11/FEATURE3_WHATSAPP_ORDERS.md): the
    * Meta WhatsApp Business Cloud API, used by the shop-order alerts (flag
@@ -544,6 +561,18 @@ export function messagingConfigProblem(env: ServerEnv = getEnv()): string | null
   if (isProductionHost && (env.SMS_PROVIDER === "mock" || env.WHATSAPP_PROVIDER === "mock")) {
     return "SMS_PROVIDER / WHATSAPP_PROVIDER=mock is not allowed on the production site.";
   }
+  return null;
+}
+
+/**
+ * Why MSG91 must not send one-time codes with these settings, or null
+ * (docs/sms-2fa-2026-11). Keys come from the environment only.
+ */
+export function msg91ConfigProblem(env: ServerEnv = getEnv()): string | null {
+  if (env.SMS_PROVIDER !== "msg91") return `SMS_PROVIDER is "${env.SMS_PROVIDER}", not "msg91".`;
+  const missing = (["MSG91_AUTH_KEY", "MSG91_SENDER_ID", "MSG91_OTP_TEMPLATE_ID"] as const).filter((key) => !env[key]?.trim());
+  if (missing.length > 0) return `Missing ${missing.join(", ")}.`;
+  if (!/^[A-Za-z]{6}$/.test(env.MSG91_SENDER_ID!.trim())) return "MSG91_SENDER_ID must be the 6-letter DLT sender header, e.g. GOKSRI.";
   return null;
 }
 

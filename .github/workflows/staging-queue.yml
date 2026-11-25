@@ -77,10 +77,20 @@ jobs:
           # Option A (README, "Speed"): a repository variable
           # STAGING_QUEUE_SKIP_UPDATE=0 turns it off without a code change.
           QUEUE_SKIP_UPDATE: ${{ vars.STAGING_QUEUE_SKIP_UPDATE || '1' }}
+          # Batches (README, "Batches"; owner, 25 Nov 2026): up to 4 queued PRs
+          # tested together. A repository variable STAGING_QUEUE_BATCH_SIZE=1
+          # turns it off without a code change.
+          QUEUE_BATCH_SIZE: ${{ vars.STAGING_QUEUE_BATCH_SIZE || '4' }}
+          # Known failures (README; owner, 25 Nov 2026): a failure does not stop
+          # the queue. STAGING_QUEUE_CONTINUE_ON_FAIL=0 brings the old pause back.
+          QUEUE_CONTINUE_ON_FAIL: ${{ vars.STAGING_QUEUE_CONTINUE_ON_FAIL || '1' }}
         run: |
           mkdir -p "$RUNNER_TEMP/queue"
           cp scripts/release/staging-queue.sh scripts/release/staging-queue-qa.sh \
              scripts/release/post-deploy-check.sh "$RUNNER_TEMP/queue/"
+          # Not on staging until #548 lands there; a run from a PR's copy of
+          # this file (label events) must not fail on it.
+          [ ! -f scripts/db/renumber-migrations.mjs ] || cp scripts/db/renumber-migrations.mjs "$RUNNER_TEMP/queue/"
           QUEUE_DIR="$RUNNER_TEMP/queue" QUEUE_QA_SCRIPT="$RUNNER_TEMP/queue/staging-queue-qa.sh" \
             bash "$RUNNER_TEMP/queue/staging-queue.sh"
 

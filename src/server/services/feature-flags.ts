@@ -89,11 +89,15 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   onboarding_referral_by_pin_enabled: "Shop registration: find a referral code by PIN code",
   onboarding_assisted_mode_enabled: "Shop registration: dealer / operator fills in the wizard for the owner",
   onboarding_scan_first_enabled: "Shop registration: open the document scan first on phones",
+  policy_reconsent_enabled: "Ask signed-in users to accept a new policy version",
   guest_cart_enabled: "Guests can fill a cart; sign-in only at Place order",
   hdms_enabled: "Delivery management: allocation engine and delivery partners (Shadowfax, Pidge, Porter, Borzo)",
   guest_checkout_enabled: "Guest checkout: order with a one-time code, track without signing in",
   account_self_deletion_enabled: "Self-service account deletion from My Profile",
   payment_settlement_states: "Online payments: reconciled and chargeback states",
+  local_price_comparison_enabled: "Price comparison between local shops",
+  sms_otp_signin_customers_enabled: "Customers: email + SMS code at sign-in",
+  sms_otp_signin_shop_owners_enabled: "Shop owners: email + SMS code at sign-in",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -170,6 +174,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/onboarding-waves-2-3-2026-11 (WP7): a dealer, dealer employee or operator who holds a valid owner-consent session (the owner's one-time code) fills in the registration wizard for the owner. The draft records who helped, the helper's referral code is locked onto it and the owner pays the fee by a link / QR on their own phone. Every assisted step is in the audit log. Off: the wizard is the owner's alone, as today; the dealer and operator flat forms are unchanged either way.",
   onboarding_scan_first_enabled:
     "docs/onboarding-waves-2-3-2026-11 (WP10): on a phone the wizard's Verify screen opens the GST / PAN photo scan first and loads the reading model in the background. Typing the number stays one tap away. Off: the scan stays folded as today.",
+  policy_reconsent_enabled:
+    "docs/policy-reconsent-2026-11: when an admin publishes a new Terms, Privacy Policy or Seller Terms version that needs acceptance (Admin → Policy versions), signed-in users who accepted an older one see a short page with the change summary and a link, and must accept before going on. Every acceptance is recorded with its version, time and channel. Off: nobody is asked; the admin page still reports.",
   guest_cart_enabled:
     "docs/guest-cart-2026-11 (owner, 23-Nov-2026): a shopper who is not signed in can tap Add to cart and open the cart. The guest cart is kept only in their browser (up to 50 items, 7 days); nothing is saved on the server. Place order asks them to sign in, then moves the items into their account cart (quantities added, capped at stock) and returns to checkout. Off: Add to cart asks for sign-in first, as before.",
   hdms_enabled:
@@ -179,6 +185,12 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   account_self_deletion_enabled: "docs/account-deletion-2026-11: a signed-in person deletes their own account (My Profile → Delete my account) after the checks pass and an emailed code. The account is hidden at once (signed out everywhere, not shown to anyone else; admins see it \"Under cooling period\" with the reason) and anonymised after the cooling-off period (rule accountDeletion.coolingOffDays, 90 days) by the daily job; signing in again with an emailed code during that time offers to restore it. Orders, invoices, payments and ledgers are kept for legal retention (rule accountDeletion.retentionYears). Off: the section is hidden and the APIs answer 404; accounts already in their cooling-off period can still be restored and are still purged when due.",
   payment_settlement_states:
     "docs/payment-settlement-states-2026-11.md (PAY-SM): the payments job asks the gateway about each paid online payment and marks it Reconciled when the gateway confirms the same amount; a dispute / chargeback webhook marks the payment Chargeback, records the amount, reason and respond-by date in Admin → Payments → Chargebacks and alerts the admins. Timing: rule paymentSettlement. Off: nothing is marked and dispute webhooks are only logged, as before.",
+  local_price_comparison_enabled:
+    "docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off). On: product cards show \"Compare N prices\", /search/compare and its menu entries are open, the home page shows the comparison block (rule homePriceComparison) and the product page ranks shops by price with a \"Lowest price\" tag. Off: none of these; /search/compare answers 404 and the product page lists shops nearest-first. The smart shopping list keeps its own flag (smart_list_scan_enabled).",
+  sms_otp_signin_customers_enabled:
+    "docs/sms-2fa-2026-11 (Admin → Sign-in security): after the emailed code, a CUSTOMER account also enters a code sent by SMS to its mobile; an account without a verified mobile adds and verifies one then. Google and the emailed link ask for it too. Works only while SMS codes can be sent (SMS_PROVIDER=msg91 with the DLT keys, or mock on the test site, and rule otp.smsEnabled); otherwise sign-in stays email-only, so nobody is locked out. Off: email only at once; verified numbers stay verified. Keep OFF on gokesari.com until MSG91 and DLT are live.",
+  sms_otp_signin_shop_owners_enabled:
+    "docs/sms-2fa-2026-11 (Admin → Sign-in security): the same SMS sign-in code for SHOP_OWNER accounts. Works only while SMS codes can be sent; otherwise email-only. Off: email only at once; verified numbers stay verified.",
 };
 
 export interface FeatureFlagView {

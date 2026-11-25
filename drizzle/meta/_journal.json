@@ -1420,7 +1420,35 @@
       "idx": 202,
       "version": "7",
       "when": 1793270200000,
-      "tag": "0202_shop_gst_registrations",
+      "tag": "0202_policy_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1793270300000,
+      "tag": "0203_topup_payment_intents",
+      "breakpoints": true
+    },
+    {
+      "idx": 204,
+      "version": "7",
+      "when": 1793270400000,
+      "tag": "0204_local_price_comparison_off",
+      "breakpoints": true
+    },
+    {
+      "idx": 205,
+      "version": "7",
+      "when": 1793270500000,
+      "tag": "0205_sms_two_factor",
+      "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1793270600000,
+      "tag": "0206_shop_gst_registrations",
       "breakpoints": true
     }
   ]

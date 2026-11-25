@@ -135,7 +135,7 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       // Mockup: "Favourites" — now under Orders → Favourites (docs/search-brand-barcode-favourites-2026-11, flag-gated).
       { key: "deliversHere", label: L("Delivers here", "यहाँ डिलीवरी", "इथे डिलिव्हरी"), short: { en: "Delivers" }, icon: "truck", href: "/shops?delivery=true", count: "deliveringShops" },
       // Was the "Compare prices near you" section under the old home page.
-      { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare" },
+      { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare", feature: "local_price_comparison_enabled" },
       // docs/consult-booking-2026-11: doctors, lawyers, CAs and other professionals near you, with free times.
       { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/consult" },
       // GoKesari Health (docs/health/): verified doctors near you (the board keeps 6 tiles — one screen on a phone).
@@ -585,8 +585,12 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "campaigns", label: L("Campaigns", "अभियान", "मोहिमा"), icon: "megaphone", href: "/admin/campaigns", count: "submittedCampaigns", permission: PERMISSIONS.MARKETING_APPROVE },
       { key: "alerts", label: L("Alerts", "अलर्ट", "सूचना"), icon: "triangle-alert", href: "/admin/exceptions", count: "opsExceptions", urgent: true, permission: PERMISSIONS.ORDER_VIEW_ANY },
       { key: "consent", label: L("Consent", "सहमति", "संमती"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
+      // docs/sms-2fa-2026-11: SMS sign-in code per audience and the checkout code — admin only.
+      { key: "signInSecurity", label: L("Sign-in security", "साइन-इन सुरक्षा", "साइन-इन सुरक्षा"), icon: "lock", href: "/admin/sign-in-security", permission: ADMIN_ONLY },
     ],
     more: [
+      // docs/policy-reconsent-2026-11: policy versions and acceptance counts.
+      { key: "policyVersions", label: L("Policy versions", "नीति संस्करण", "धोरण आवृत्त्या"), icon: "file-text", href: "/admin/policy-versions", permission: PERMISSIONS.CONSENT_VIEW },
       { key: "vouchers", label: L("Vouchers", "वाउचर", "व्हाउचर"), icon: "ticket", href: "/admin/console/vouchers", count: "activeVouchers", permission: PERMISSIONS.VOUCHER_VIEW },
       { key: "gst", label: L("GST settings", "जीएसटी सेटिंग", "जीएसटी सेटिंग्ज"), icon: "file-text", href: "/admin/gst-config", permission: PERMISSIONS.GST_CONFIG_MANAGE },
       { key: "productGst", label: L("Product GST rates", "उत्पाद जीएसटी दरें", "उत्पाद जीएसटी दर"), icon: "receipt", href: "/admin/product-gst", permission: PERMISSIONS.GST_CONFIG_MANAGE },
@@ -712,6 +716,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "consent", label: L("Consent records", "सहमति रिकॉर्ड", "संमती नोंदी"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
+      { key: "policyVersions", label: L("Policy versions", "नीति संस्करण", "धोरण आवृत्त्या"), icon: "file-text", href: "/admin/policy-versions", permission: PERMISSIONS.CONSENT_VIEW },
       { key: "helpdesk", label: L("Help desk", "हेल्प डेस्क", "मदत कक्ष"), icon: "life-buoy", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE }, // batch-2026-10 WS-C
       // docs/dealer-programme (GKS-SP-001): paid support services — charges, requests, refunds. Only while that flag is on.
       { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/admin/support-services", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE, feature: "paid_support_services_enabled" },

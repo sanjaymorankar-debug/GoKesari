@@ -61,7 +61,13 @@ export type FeatureFlagKey =
   // docs/tax-register/BOOKS.md (0200)
   | "auto_journals"
   // docs/payment-settlement-states-2026-11
-  | "payment_settlement_states";
+  | "payment_settlement_states"
+  | "policy_reconsent_enabled"
+  // docs/price-comparison-off-2026-11
+  | "local_price_comparison_enabled"
+  // docs/sms-2fa-2026-11
+  | "sms_otp_signin_customers_enabled"
+  | "sms_otp_signin_shop_owners_enabled";
 
 interface FlagValue {
   enabled: boolean;

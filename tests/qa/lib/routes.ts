@@ -100,6 +100,7 @@ export const PUBLIC_PAGES = new Set([
   "/favourites", // guests see the hearts kept in their browser (docs/search-brand-barcode-favourites-2026-11); 404 while the flag is off
   "/staff-invite", // an invitation e-mail's landing page: a signed-out visitor signs in here (docs/shop-staff-roles-2026-11)
   "/track", // find an order without signing in (docs/guest-checkout-2026-11); 404 while the guest flags are off
+  "/track/[token]", // an order's tracking link: unguessable signed token; a bad one shows "not valid" and nothing else
   "/wa/cart", // a WhatsApp checkout link: anyone with the link sees the lines (docs/customer-whatsapp-2026-11); 404 while the flag is off
   "/about",
   "/bakery", // redirects to /category/BAKERY
@@ -135,6 +136,9 @@ export const PUBLIC_PAGES = new Set([
   "/shops/[slug]/contact",
   "/shops/nearby",
   "/signin",
+  // docs/sms-2fa-2026-11: the SMS step after Google / the emailed link (challenge in an httpOnly cookie);
+  // without one it says the sign-in expired.
+  "/signin/second-factor",
   "/orders/pay/sandbox/[ref]", // sandbox payment page (test site only; 404 on production)
   "/mobile-auth/digilocker-mock", // DigiLocker's screens stood in for on test sites (#312; 404 on production) — QA E-15
   // docs/consult-booking-2026-11: Find a Consultant ("coming soon" while rule consultBooking is off) and a

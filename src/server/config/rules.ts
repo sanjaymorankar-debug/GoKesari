@@ -38,6 +38,29 @@ export const RULES = {
       smsEnabled: true,
     },
   },
+  /**
+   * docs/sms-2fa-2026-11 (3b): a fresh code by SMS before an order is placed.
+   * Checked on the server in POST /api/checkout. Works only while SMS codes
+   * can be sent (SMS_PROVIDER + rule otp.smsEnabled); otherwise orders are
+   * placed without it, so checkout never stops for want of an SMS vendor.
+   */
+  checkoutOtp: {
+    description:
+      "Checkout step-up: before placing an order the customer enters a code sent by SMS to their verified mobile (an account without one verifies it in the same step). " +
+      "Mode every_checkout = a new code for every order (a code is good for 10 minutes and one order); once_per_hours = one code covers every order for `hours` hours. " +
+      "Needs SMS codes (SMS_PROVIDER and rule otp.smsEnabled); without them orders go through without the code. Off by default.",
+    schema: z.object({
+      enabled: z.boolean(),
+      mode: z.enum(["every_checkout", "once_per_hours"]),
+      /** once_per_hours: how long one verified code covers further orders. */
+      hours: int(1, 720),
+    }),
+    defaults: {
+      enabled: false,
+      mode: "every_checkout" as "every_checkout" | "once_per_hours",
+      hours: 12,
+    },
+  },
   dispatch: {
     description:
       "Finding a rider: offer lifetime, retry cadence and limits, and when the search stops.",
@@ -1390,6 +1413,15 @@ export const RULES = {
       maxReconcileAttempts: 48,
       allowSandboxInProduction: false,
     },
+  },
+  /** PAY-2 (docs/payments-topups-via-intents-2026-11): wallet top-ups through payment intents. */
+  topupPaymentIntents: {
+    description:
+      "Wallet top-ups and shop wallet recharges use the same payment path as orders (payment intents: one create path, one webhook, one status check) " +
+      "through the gateway chosen by PAYMENT_GATEWAY. Off: top-ups use the older Cashfree top-up flow exactly as before. " +
+      "Top-ups already started finish on the path they started on either way.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
   },
   /** PAY-SM (docs/payment-settlement-states-2026-11.md): timing of the reconcile step. Switched by flag payment_settlement_states. */
   paymentSettlement: {
