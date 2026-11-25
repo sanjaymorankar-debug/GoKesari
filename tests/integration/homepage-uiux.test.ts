@@ -9,7 +9,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { CustomerLocation } from "@/lib/location";
 import { db } from "@/server/db";
-import { homeBanners, orderItems, platformSettings, searchQueries } from "@/server/db/schema";
+import { featureFlags, homeBanners, orderItems, platformSettings, searchQueries } from "@/server/db/schema";
+import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { createBanner, deleteBanner, listAllBanners, listLiveBanners, moveBanner, setBannerActive, updateBanner } from "@/server/services/home-banners";
 import { nearbyOfferCounts, popularInArea } from "@/server/services/home-discovery";
 import { homePriceComparison } from "@/server/services/price-comparison";
@@ -34,6 +35,9 @@ beforeEach(async () => {
   await db.delete(searchQueries);
   await db.delete(platformSettings).where(eq(platformSettings.key, "homePriceComparison"));
   clearRuleCache();
+  // docs/price-comparison-off-2026-11: the comparison exists only while its flag is on.
+  await db.insert(featureFlags).values({ key: "local_price_comparison_enabled", enabled: true }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled: true } });
+  clearFeatureFlagCache();
 });
 
 async function scene() {

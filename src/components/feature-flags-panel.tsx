@@ -62,7 +62,9 @@ export type FeatureFlagKey =
   | "auto_journals"
   // docs/payment-settlement-states-2026-11
   | "payment_settlement_states"
-  | "policy_reconsent_enabled";
+  | "policy_reconsent_enabled"
+  // docs/price-comparison-off-2026-11
+  | "local_price_comparison_enabled";
 
 interface FlagValue {
   enabled: boolean;
