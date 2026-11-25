@@ -43,7 +43,7 @@ export const COUNT_KEYS = [
   "activeSubscriptions", "shopCategories", "unread",
   // shop owner
   "shopActiveOrders", "shopNew", "shopPacking", "shopReady", "shopOut", "shopOpenReturns",
-  "shopReturnRequests", "shopReturnPickups", "shopOpenDisputes", "shopLowStock", "shopNeedsStock", "shopPendingPhotos",
+  "shopReturnRequests", "shopReturnPickups", "shopOpenDisputes", "shopLowStock", "shopNeedsStock", "shopNeedsPrice", "shopPendingPhotos",
   "shopPriceRequests", "shopActiveOffers", "shopRiders",
   // admin & operator
   "pendingShops", "allShops", "sellerReviews", "activeSuspensions", "users", "customers", "owners",

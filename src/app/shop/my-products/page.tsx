@@ -52,9 +52,15 @@ export default async function MyProductsPage({ searchParams }: { searchParams: P
     const query = new URLSearchParams({ ...(shops.length > 1 ? { shop: shop.id } : {}), ...(s ? { status: s } : {}) }).toString();
     return `/shop/my-products${query ? `?${query}` : ""}`;
   };
+  // Owner brief 25-Nov-2026: what needs work first — Needs price, Live, Paused — then the rest and All.
+  const TAB_ORDER: ListingStatus[] = ["NEEDS_PRICE", "LIVE", "PAUSED", "NEEDS_STOCK", "OUT_OF_STOCK"];
   const tabs: { value: ListingStatus | null; label: string; count: number }[] = [
+    ...TAB_ORDER.filter((s) => (LISTING_STATUSES as readonly string[]).includes(s)).map((s) => ({
+      value: s,
+      label: tr(LISTING_STATUS_TEXT[s], lang),
+      count: listings.filter((l) => l.status === s).length,
+    })),
     { value: null, label: tr(T.all, lang), count: listings.length },
-    ...LISTING_STATUSES.map((s) => ({ value: s, label: tr(LISTING_STATUS_TEXT[s], lang), count: listings.filter((l) => l.status === s).length })),
   ];
   const setupHref = `/shop/product-categories${shops.length > 1 ? `?shop=${shop.id}` : ""}`;
 
@@ -62,13 +68,13 @@ export default async function MyProductsPage({ searchParams }: { searchParams: P
     <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader title={tr(T.title, lang)} description={shop.name} action={<LinkButton href={setupHref} variant="secondary">{tr(T.add, lang)}</LinkButton>} />
 
-      <nav className="flex flex-wrap gap-2" aria-label={tr(T.filterAria, lang)}>
+      <nav className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0" aria-label={tr(T.filterAria, lang)}>
         {tabs.map((t) => (
           <Link
             key={t.label}
             href={href(t.value)}
             aria-current={t.value === status ? "page" : undefined}
-            className={clsx("inline-flex min-h-11 items-center rounded-full px-4 text-sm font-medium", t.value === status ? "bg-kesari-600 text-white" : "bg-cream-100 text-ink-700")}
+            className={clsx("inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-4 text-sm font-semibold", t.value === status ? "bg-kesari-700 text-white" : "border border-slate-300 bg-white text-ink-800")}
           >
             {t.label} ({t.count})
           </Link>

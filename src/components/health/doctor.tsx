@@ -919,7 +919,7 @@ export function ConsultationPad({ consultation: initial, summary, letterheadAuto
         </Panel>
         <SuggestionsBuilder value={sugg} onChange={setSugg} readOnly={readOnly} careCategories={careCategories} followUpDate={c.followUpDate} />
         {!readOnly ? (
-          <div className="sticky bottom-0 z-10 flex flex-col gap-2 rounded-2xl border-2 border-kesari-300 bg-white p-3 shadow-lg">
+          <div className="sticky bottom-[var(--gk-bottom-nav,0px)] z-10 flex flex-col gap-2 rounded-2xl border-2 border-kesari-300 bg-white p-3 shadow-lg">
             {errors.map((e) => (
               <p key={e} className="text-sm font-bold text-red-800">
                 ⛔ {e}

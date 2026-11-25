@@ -2,7 +2,8 @@ import Link from "next/link";
 import clsx from "clsx";
 
 import { formatRupees } from "@/lib/board/format";
-import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
+import { L, LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
+import { addProductPath } from "@/lib/shop-setup-links";
 import { SHOP_DO_NOW, SHOP_MENUS, visibleItems, visibleMenus } from "@/lib/board/menus";
 import type { UserRole } from "@/server/db/schema";
 import type { BoardHeaderData } from "@/server/board-header-data";
@@ -23,6 +24,19 @@ interface Props {
   alerts?: ShopAlert[];
 }
 
+const QUICK = {
+  newOrders: L("New orders", "नए ऑर्डर", "नवीन ऑर्डर"),
+  noNewOrders: L("No new orders right now", "अभी कोई नया ऑर्डर नहीं", "सध्या नवीन ऑर्डर नाहीत"),
+  openAccept: L("Open and accept", "खोलें और स्वीकारें", "उघडा आणि स्वीकारा"),
+  seeOrders: L("See all orders", "सभी ऑर्डर देखें", "सर्व ऑर्डर पहा"),
+  addProduct: L("Add product", "उत्पाद जोड़ें", "उत्पादन जोडा"),
+  updatePrices: L("Update prices & stock", "कीमत और स्टॉक बदलें", "किंमत आणि साठा बदला"),
+  needsPrice: L("{n} products need a price — customers can't buy them yet", "{n} उत्पादों की कीमत बाकी है — ग्राहक अभी नहीं खरीद सकते", "{n} उत्पादनांची किंमत बाकी आहे — ग्राहक अजून खरेदी करू शकत नाहीत"),
+  setPrices: L("Set prices", "कीमत डालें", "किंमत भरा"),
+  wallet: L("Wallet balance", "वॉलेट बैलेंस", "वॉलेट शिल्लक"),
+  quick: L("Quick actions", "तुरंत काम", "झटपट कामे"),
+} as const;
+
 /**
  * Shop owner home board on touch screens (`/shop` below the lg breakpoint;
  * wider screens get the Seller Central home): account alerts (only when there is one),
@@ -39,7 +53,7 @@ export function ShopBoard({ lang, user, header, shop, data, alerts = [] }: Props
   const extras = { balance: walletBalance };
 
   return (
-    <div data-tile-board="shop" lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-[var(--gk-bg)] text-ink-900 max-lg:h-[100svh]">
+    <div data-tile-board="shop" lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-[var(--gk-bg)] text-ink-900 max-lg:min-h-0">
       <BoardHeader
         lang={lang}
         user={user}
@@ -67,11 +81,16 @@ export function ShopBoard({ lang, user, header, shop, data, alerts = [] }: Props
           </div>
         ) : null}
 
-        <DoNowStrip items={doNow} lang={lang} counts={data.counts} />
+        {/* Phones and tablets: new orders first, then the two jobs owners do most (docs/ux-mobile-2026-11). */}
+        <QuickPanel lang={lang} counts={data.counts} walletBalance={walletBalance} />
 
-        {/* Touch screens: sixteen tiles, two columns. */}
-        <nav aria-label={tr(UI.board, lang)} className="flex min-h-0 flex-1 flex-col lg:hidden">
-          <div className="grid min-h-0 flex-1 grid-cols-2 gap-1 [grid-auto-rows:minmax(0,1fr)]">
+        <div className="max-lg:hidden">
+          <DoNowStrip items={doNow} lang={lang} counts={data.counts} />
+        </div>
+
+        {/* Touch screens: sixteen tiles, two columns, scrolling below the quick actions. */}
+        <nav aria-label={tr(UI.board, lang)} className="flex flex-col lg:hidden">
+          <div className="grid grid-cols-2 gap-1.5 [grid-auto-rows:minmax(4.5rem,auto)]">
             {menus.map((menu) => (
               <Tile key={menu.key} menu={menu} lang={lang} counts={data.counts} ticks={ticks} extras={menu.key === "wallet" ? extras : undefined} layout="row" />
             ))}
@@ -115,5 +134,71 @@ export function ShopBoard({ lang, user, header, shop, data, alerts = [] }: Props
         </ul>
       </div>
     </div>
+  );
+}
+
+/** The top of the phone home: a big "New orders (n)" card, Add product, Update prices & stock, the Needs-price alert. */
+function QuickPanel({ lang, counts, walletBalance }: { lang: Lang; counts: ShopBoardData["counts"]; walletBalance: string | null }) {
+  const n = counts.shopNew ?? 0;
+  const needsPrice = counts.shopNeedsPrice ?? 0;
+  return (
+    <section aria-label={tr(QUICK.quick, lang)} className="flex flex-col gap-2 lg:hidden" data-testid="shop-quick">
+      <Link
+        href={n > 0 ? "/shop/orders?status=new" : "/shop/orders"}
+        data-testid="shop-quick-new-orders"
+        className={clsx(
+          "flex min-h-[4.5rem] items-center gap-3 rounded-2xl px-4 py-3",
+          n > 0 ? "bg-kesari-700 text-white shadow-md" : "border border-[var(--gk-line)] bg-white text-ink-900",
+        )}
+      >
+        <span className={clsx("grid h-11 w-11 shrink-0 place-items-center rounded-full", n > 0 ? "bg-white/20" : "bg-kesari-100 text-kesari-700")}>
+          <Icon name="package" size={24} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-lg font-bold leading-tight">
+            {n > 0 ? `${tr(QUICK.newOrders, lang)} (${n})` : tr(QUICK.noNewOrders, lang)}
+          </span>
+          <span className={clsx("block text-sm", n > 0 ? "text-white/90" : "text-ink-600")}>{tr(n > 0 ? QUICK.openAccept : QUICK.seeOrders, lang)} →</span>
+        </span>
+      </Link>
+      <div className="grid grid-cols-2 gap-2">
+        <Link
+          href={addProductPath()}
+          data-testid="shop-quick-add-product"
+          className="flex min-h-14 items-center justify-center gap-2 rounded-2xl border-2 border-kesari-600 bg-white px-2 text-center text-base font-bold leading-tight text-kesari-800"
+        >
+          <Icon name="plus" size={20} className="shrink-0" />
+          {tr(QUICK.addProduct, lang)}
+        </Link>
+        <Link
+          href="/shop/my-products"
+          data-testid="shop-quick-update-prices"
+          className="flex min-h-14 items-center justify-center gap-2 rounded-2xl border-2 border-kesari-600 bg-white px-2 text-center text-base font-bold leading-tight text-kesari-800"
+        >
+          <Icon name="tag" size={20} className="shrink-0" />
+          {tr(QUICK.updatePrices, lang)}
+        </Link>
+      </div>
+      {needsPrice > 0 ? (
+        <Link
+          href="/shop/my-products?status=NEEDS_PRICE"
+          data-testid="shop-quick-needs-price"
+          className="flex min-h-12 items-center gap-2 rounded-2xl border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900"
+        >
+          <Icon name="triangle-alert" size={18} className="shrink-0" />
+          <span className="min-w-0 flex-1">{tr(QUICK.needsPrice, lang).replace("{n}", String(needsPrice))}</span>
+          <span className="shrink-0 font-bold underline">{tr(QUICK.setPrices, lang)}</span>
+        </Link>
+      ) : null}
+      {walletBalance ? (
+        <Link href="/shop/wallet" className="flex min-h-12 items-center justify-between rounded-2xl border border-[var(--gk-line)] bg-white px-3 text-sm text-ink-700">
+          <span className="flex items-center gap-2">
+            <Icon name="wallet" size={18} className="text-green-700" />
+            {tr(QUICK.wallet, lang)}
+          </span>
+          <span className="text-base font-bold tabular-nums text-ink-900">{walletBalance}</span>
+        </Link>
+      ) : null}
+    </section>
   );
 }
