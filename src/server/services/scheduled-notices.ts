@@ -181,3 +181,26 @@ export async function deliverDueScheduledNotices(options: { now?: Date; limit?: 
   }
   return { sent, skipped };
 }
+
+/**
+ * Owner, 25-Nov-2026: staff send the owner a link to carry on with an unfinished (or abandoned)
+ * registration from where it stopped — the same message as the idle reminder, sent now.
+ */
+export async function sendRegistrationResumeLink(draftId: string, now: Date = new Date()): Promise<void> {
+  const [draft] = await db
+    .select({ id: shopRegistrationDrafts.id, ownerId: shopRegistrationDrafts.ownerId, status: shopRegistrationDrafts.status })
+    .from(shopRegistrationDrafts)
+    .where(eq(shopRegistrationDrafts.id, draftId));
+  if (!draft) return;
+  const [notice] = await db.select({ payload: scheduledNotices.payload }).from(scheduledNotices).where(eq(scheduledNotices.key, registrationKey(draftId)));
+  const step = (notice?.payload as Record<string, string | null> | undefined)?.step ?? null;
+  const where = STEP_LABEL[step ?? ""] ?? STEP_LABEL.IDENTITY;
+  const left = LIVE_AFTER_TILE - where.tile + 1;
+  await notify({
+    userId: draft.ownerId,
+    type: NOTIFICATION_TYPES.SHOP_REGISTRATION_IDLE,
+    vars: { stepLabel: where.label, stepsLeft: left === 1 ? "1 step" : `${left} steps`, resumeUrl: siteUrl("/shop/register") },
+    actionUrl: "/shop/register",
+    dedupeKey: `registration-resume:${draftId}:${now.toISOString()}`,
+  });
+}
