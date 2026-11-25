@@ -17,8 +17,9 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 
 import { forbidden } from "@/lib/errors";
 import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { SELLER_TERMS_VERSION, SELLER_UNDERTAKING_VERSION } from "@/lib/legal/seller-undertaking";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { db } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   consentTypeEnum,
   userConsents,
@@ -30,12 +31,26 @@ import {
 
 export { CURRENT_POLICY_VERSION };
 
+/**
+ * Appends one consent row. `created_at` is the database's now() in a timestamptz column, i.e. an
+ * absolute (UTC) instant; every screen that shows it formats it in IST (Asia/Kolkata).
+ * `shopId` / `userAgent` (0209) are evidence for seller consents: which shop it was given for, and
+ * from which browser or app. `client` lets a caller write it inside its own transaction.
+ */
 export async function recordConsent(
   userId: string,
   consentType: ConsentType,
-  options: { version?: string; ipAddress?: string | null; granted?: boolean; source?: string | null } = {},
+  options: {
+    version?: string;
+    ipAddress?: string | null;
+    granted?: boolean;
+    source?: string | null;
+    shopId?: string | null;
+    userAgent?: string | null;
+    client?: DbClient;
+  } = {},
 ): Promise<UserConsent> {
-  const [consent] = await db
+  const [consent] = await (options.client ?? db)
     .insert(userConsents)
     .values({
       userId,
@@ -44,6 +59,9 @@ export async function recordConsent(
       granted: options.granted ?? true,
       ipAddress: options.ipAddress ?? null,
       source: options.source ?? null,
+      shopId: options.shopId ?? null,
+      // Kept short: evidence of the act, not a fingerprint store.
+      userAgent: options.userAgent ? options.userAgent.slice(0, 500) : null,
     })
     .returning();
   return consent;
@@ -152,6 +170,8 @@ const latestConsentPerUser = sql`
 
 export interface ConsentTypeSummary {
   consentType: ConsentType;
+  /** The version a grant must be for to count as current. */
+  currentVersion: string;
   /** Latest row is a grant for the current policy version. */
   current: number;
   /** Latest row is a grant, but against an older policy version. */
@@ -168,14 +188,29 @@ export interface ConsentOverview {
   byType: ConsentTypeSummary[];
 }
 
+/**
+ * The version a consent type is "current" at: the seller undertaking and Seller Terms carry their own
+ * versions (docs/seller-undertaking-2026-11); every other type follows the policy version.
+ */
+export function currentConsentVersion(consentType: ConsentType): string {
+  if (consentType === "SELLER_GOODS_UNDERTAKING") return SELLER_UNDERTAKING_VERSION;
+  if (consentType === "SELLER_TERMS") return SELLER_TERMS_VERSION;
+  return CURRENT_POLICY_VERSION;
+}
+
+const currentVersionSql = sql`(case l.consent_type::text
+  when 'SELLER_GOODS_UNDERTAKING' then ${SELLER_UNDERTAKING_VERSION}
+  when 'SELLER_TERMS' then ${SELLER_TERMS_VERSION}
+  else ${CURRENT_POLICY_VERSION} end)`;
+
 /** Aggregate consent state across live users. Identifies nobody. */
 export async function getConsentOverview(): Promise<ConsentOverview> {
   const [[{ total }], rows] = await Promise.all([
     db.select({ total: sql<number>`count(*)::int` }).from(users).where(LIVE_USER),
     db.execute(sql`
       select l.consent_type::text as consent_type,
-             count(*) filter (where l.granted and l.version = ${CURRENT_POLICY_VERSION})::int as current,
-             count(*) filter (where l.granted and l.version <> ${CURRENT_POLICY_VERSION})::int as stale,
+             count(*) filter (where l.granted and l.version = ${currentVersionSql})::int as current,
+             count(*) filter (where l.granted and l.version <> ${currentVersionSql})::int as stale,
              count(*) filter (where not l.granted)::int as withdrawn
         from (${latestConsentPerUser}) l
         join users u on u.id = l.user_id and u.deleted_at is null
@@ -202,6 +237,7 @@ export async function getConsentOverview(): Promise<ConsentOverview> {
       const recorded = counts.current + counts.stale + counts.withdrawn;
       return {
         consentType,
+        currentVersion: currentConsentVersion(consentType),
         ...counts,
         never: Math.max(0, liveUsers - recorded),
       };
