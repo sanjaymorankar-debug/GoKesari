@@ -7,10 +7,10 @@ name: CI
 #
 # To save Actions minutes (the monthly allowance ran out on 9 Oct 2026), the
 # "scope" job first decides what a change needs (scripts/ci/scope.sh):
-#   - test and mobile are skipped when the same files already passed CI on a
+#   - the app jobs (checks, test, build) and mobile are skipped when the same files already passed CI on a
 #     push (a release's PR and its merge into main repeat staging's run), or
 #     when only documentation changed;
-#   - test is skipped when only mobile/ changed, mobile when mobile/ didn't.
+#   - the app jobs are skipped when only mobile/ changed, mobile when mobile/ didn't.
 # A skipped job counts as passed. A newer push to a pull request cancels its
 # older run; pushes to main and staging always finish.
 on:
@@ -51,10 +51,48 @@ jobs:
       - name: Staging queue script tests
         run: bash scripts/release/staging-queue.test.sh
 
+  # The app is checked by three kinds of job that run side by side (24-Nov-2026:
+  # one job doing everything took ~55 minutes, ~40 of them in the tests, which
+  # made each PR in the staging queue take ~75 minutes):
+  #   - checks: typecheck and lint;
+  #   - test:   the unit and integration tests, split into shards by file
+  #             (vitest --shard). Each shard has its own PostgreSQL, so the
+  #             one-file-at-a-time rule in vitest.config.ts still holds inside
+  #             a shard;
+  #   - build:  the production build.
+  # The repository is public, so these runners do not use the minutes allowance.
+  checks:
+    needs: scope
+    if: needs.scope.outputs.app == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npx eslint src tests --ext .ts,.tsx
+
   test:
     needs: scope
     if: needs.scope.outputs.app == 'yes'
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    name: test (${{ matrix.shard }}/4)
 
     services:
       postgres:
@@ -88,14 +126,46 @@ jobs:
       - name: Apply migrations
         run: npm run db:migrate
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Unit and integration tests (shard ${{ matrix.shard }} of 4)
+        run: npx vitest run --shard=${{ matrix.shard }}/4
 
-      - name: Lint
-        run: npx eslint src tests --ext .ts,.tsx
+  build:
+    needs: scope
+    if: needs.scope.outputs.app == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-      - name: Unit and integration tests
-        run: npm test
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dairy_bakery_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
+      AUTH_SECRET: ci-only-secret-not-used-in-production
+      CRON_SECRET: ci-only-cron-secret
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations
+        run: npm run db:migrate
 
       - name: Production build
         run: npm run build

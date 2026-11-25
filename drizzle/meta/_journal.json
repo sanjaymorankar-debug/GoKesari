@@ -1420,7 +1420,14 @@
       "idx": 202,
       "version": "7",
       "when": 1793270200000,
-      "tag": "0202_local_price_comparison_off",
+      "tag": "0202_policy_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1793270300000,
+      "tag": "0203_local_price_comparison_off",
       "breakpoints": true
     }
   ]
