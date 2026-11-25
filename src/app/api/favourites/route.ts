@@ -25,8 +25,8 @@ const FLAG = "brand_barcode_favourites_enabled" as const;
 const getSchema = z.object({ details: z.enum(["0", "1"]).optional() });
 
 export const GET = route(async (request: NextRequest) => {
-  await requireFeature(FLAG);
   const user = await requireUser();
+  await requireFeature(FLAG);
   const { details } = parseQuery(request, getSchema);
   if (details !== "1") return ok({ ids: await listFavouriteIds(user.id) });
   const location = await getCustomerLocation(user.id).catch(() => null);
@@ -40,8 +40,8 @@ const postSchema = z.union([
 ]);
 
 export const POST = route(async (request: NextRequest) => {
-  await requireFeature(FLAG);
   const user = await requireUser();
+  await requireFeature(FLAG);
   enforceRateLimit(`favourites:${user.id}`, RATE_LIMITS.FAVOURITES);
   const body = await parseBody(request, postSchema);
   if ("productId" in body) {
@@ -54,8 +54,8 @@ export const POST = route(async (request: NextRequest) => {
 const deleteSchema = z.object({ productId: z.string().uuid() });
 
 export const DELETE = route(async (request: NextRequest) => {
-  await requireFeature(FLAG);
   const user = await requireUser();
+  await requireFeature(FLAG);
   enforceRateLimit(`favourites:${user.id}`, RATE_LIMITS.FAVOURITES);
   const { productId } = parseQuery(request, deleteSchema);
   const { removed } = await removeFavourite(user.id, productId);
