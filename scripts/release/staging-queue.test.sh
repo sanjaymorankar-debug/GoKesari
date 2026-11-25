@@ -448,5 +448,17 @@ check "no batch" eval '! said "batch:"'
 check "one at a time" said "DRY RUN: would merge #7"
 end_case
 
+# Known failures: with QUEUE_CONTINUE_ON_FAIL=1 a failure on staging opens the
+# issue "(queue continues)" and the run goes on instead of stopping.
+run_case continue-on-fail "$UP_TO_DATE
+PUT repos/acme/shop/pulls/7/merge 200 {\"sha\":\"mmmm111\"}
+GET repos/acme/shop/actions/runs?head_sha=mmmm111* 200 {\"workflow_runs\":[{\"id\":1,\"name\":\"CI\",\"event\":\"push\",\"status\":\"completed\",\"conclusion\":\"success\"}]}
+POST repos/acme/shop/issues 201 {\"number\":77}" QUEUE_CONTINUE_ON_FAIL=1
+check "labels #7 failed" called '^POST repos/acme/shop/issues/7/labels labels\[\]=staging-failed'
+check "opens the issue, saying the queue continues" called '^POST repos/acme/shop/issues title=Staging queue: #7 failed on test.gokesari.com \(queue continues\)'
+check "tells #7 the queue goes on" called 'issues/7/comments body=.*The queue goes on testing the next PRs'
+check "does not say paused" eval '! said "PAUSED — #7"'
+end_case
+
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]

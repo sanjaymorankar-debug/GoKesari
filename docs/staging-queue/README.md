@@ -224,6 +224,26 @@ About 50 minutes per batch of 4 instead of about 90 minutes per PR.
 - **Production:** a release takes the batch as one, by its merge
   `Merge pull request #<batch>` on `staging`.
 
+## Known failures: the queue does not stop (owner's choice, 25-Nov-2026)
+
+Owner: "in case any CI stopped due to defect, switch to next testing and finish
+that testing." So with `QUEUE_CONTINUE_ON_FAIL=1` (the workflow's default):
+
+- A PR (or batch) that fails on staging is still labelled `staging-failed`, and
+  the issue labelled `staging-queue-paused` is opened (title "… (queue
+  continues)"). Its failing guest QA checks are kept in the issue body as
+  **known failures**.
+- The queue **goes on** merging and testing the next PRs. A later PR whose guest
+  QA fails **only** on known failures counts as passed (its comment says so). A
+  new failing check, or a failure before QA (CI, migrations, deploy), still
+  fails it and is added to the issue.
+- Fixes (`staging-fix`) still go first. A fix that passes cleanly closes the issue.
+- **Production waits:** a release never goes past a `staging-failed` PR until a
+  fix after it is `staging-verified` (the owner's release rule). So staging keeps
+  moving, and gokesari.com only ever gets code that has passed.
+- Back to the old behaviour (stop until fixed): repository variable
+  `STAGING_QUEUE_CONTINUE_ON_FAIL=0`.
+
 ## What it does not do
 
 - **Production.** `staging` → `main` stays the owner's approval and the

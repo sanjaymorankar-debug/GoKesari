@@ -62,6 +62,7 @@ SKIP_UPDATE="${QUEUE_SKIP_UPDATE:-1}"    # option A: merge a behind PR as it is 
 CI_WORKFLOW="${QUEUE_CI_WORKFLOW:-CI}"   # staging's CI, which option A needs to have passed
 GIT_URL="${QUEUE_GIT_URL:-https://github.com/$REPO.git}" # where renumber_migrations clones from and pushes to
 BATCH_SIZE="${QUEUE_BATCH_SIZE:-1}"     # batch mode (README, "Batches"): up to this many PRs tested together; 1 = off
+CONTINUE_ON_FAIL="${QUEUE_CONTINUE_ON_FAIL:-0}" # 1 = a failure does not stop the queue (README, "Known failures")
 
 READY=ready-for-staging FIX=staging-fix HOLD=staging-hold SOLO=staging-solo
 TESTING=staging-testing VERIFIED=staging-verified
@@ -143,6 +144,27 @@ remove_label() { # 404: it did not carry the label
 comment() { write "repos/$REPO/issues/$1/comments" -f body="$2" >/dev/null; }
 
 # ---------------------------------------------------------------- the queue
+# Known failures (owner, 25 Nov 2026; README, "Known failures"). With
+# QUEUE_CONTINUE_ON_FAIL=1 a PR that fails on staging still opens the pause
+# issue (fixes still go first, and production waits for the fix), but the queue
+# goes on testing the next PRs. The guest QA checks that failed are kept in the
+# issue's body; a later PR whose QA fails ONLY on those checks counts as passed.
+# Any new failure, or a failure before QA (CI, migrations, deploy), still fails it.
+KNOWN="" IGNORED_KNOWN=0 FAILS_OUT=""
+qa_titles() { # failing-check lines → test titles, one per line
+  sed -E 's/^[[:space:]]*[0-9]+\) //; s/^\[[a-z]+\] › //; s/.* › //; s/[[:space:]]+$//' | grep . | sort -u
+}
+load_known() { # $1 = open pause issue (or empty)
+  KNOWN=""; [ -n "$1" ] || return 0
+  KNOWN="$(api "repos/$REPO/issues/$1" --jq .body | sed -n '/^<!-- known-failures$/,/^-->$/p' | sed '1d;$d' | grep . || true)"
+}
+only_known() { # stdin = failing-check lines; 0 if every one is already known
+  local t; t="$(qa_titles)"
+  [ -n "$t" ] && [ -n "$KNOWN" ] && [ -z "$(grep -vxF -f <(printf '%s\n' "$KNOWN") <<<"$t" || true)" ]
+}
+known_block() { # $1 = failing-check lines to add to KNOWN → the issue body block
+  printf '<!-- known-failures\n%s\n-->' "$( { printf '%s\n' "$KNOWN"; qa_titles <<<"$1"; } | grep . | sort -u)"
+}
 pause_issue() { # number of the open pause issue, or empty
   api "repos/$REPO/issues?state=open&labels=$PAUSED&per_page=1" --jq '.[0].number // empty'
 }
@@ -522,13 +544,18 @@ It stays queued; the next queue run merges it once its checks pass. **Session th
     if ! bash "$QA_SCRIPT" "$merged_sha" "$SITE" "$n" 2>&1 | tee "$qa_log" >&2; then
       failed_tests="$(grep -E '✘|^\s+[0-9]+\) ' "$qa_log" | sed 's/^[[:space:]]*//' | sort -u | head -15)"
       fail="guest QA tier failed on $SITE ($(grep -oE '[0-9]+ failed' "$qa_log" | tail -1))"
+      if [ "$CONTINUE_ON_FAIL" = 1 ] && only_known <<<"$failed_tests"; then
+        note "#$n: guest QA failed only on checks already failing on $BASE (known failures) — counted as passed"
+        fail="" IGNORED_KNOWN=1
+      fi
     fi
   fi
+  [ -z "$FAILS_OUT" ] || printf '%s\n' "$failed_tests" > "$FAILS_OUT"
 
   remove_label "$n" "$TESTING"
   if [ -z "$fail" ]; then
     add_label "$n" "$VERIFIED"
-    comment "$n" "✅ **Staging queue** ($(ist)): verified on $SITE — staging CI and migrations passed, the deploy is live, the site kept answering and the guest QA tier passed. Signed-in QA and production stay with the session/owner."
+    comment "$n" "✅ **Staging queue** ($(ist)): verified on $SITE — staging CI and migrations passed, the deploy is live, the site kept answering and the guest QA tier passed. Signed-in QA and production stay with the session/owner.$([ "$IGNORED_KNOWN" = 1 ] && echo " (Guest QA checks that were already failing on \`$BASE\` because of an earlier PR were not counted; production waits for that PR's fix.)")"
     note "#$n verified on $SITE"; return 0
   fi
   add_label "$n" "$FAILED"
@@ -539,7 +566,7 @@ Failing checks:
 $failed_tests
 \`\`\`
 }
-The queue is paused; nothing else is merged into \`$BASE\` until a fix passes.
+$( [ "$CONTINUE_ON_FAIL" = 1 ] && echo "The queue goes on testing the next PRs; production waits until a fix for this passes." || echo "The queue is paused; nothing else is merged into \`$BASE\` until a fix passes.")
 
 **Session that owns this PR — fix it now, no need to ask the owner:**
 1. \`git fetch origin $BASE\` and branch from \`origin/$BASE\` (this PR is already merged, so don't reuse its branch).
@@ -715,8 +742,13 @@ $out
     if ! bash "$QA_SCRIPT" "$merged_sha" "$SITE" "$bpr" 2>&1 | tee "$qa_log" >&2; then
       failed_tests="$(grep -E '✘|^\s+[0-9]+\) ' "$qa_log" | sed 's/^[[:space:]]*//' | sort -u | head -15)"
       fail="guest QA tier failed on $SITE ($(grep -oE '[0-9]+ failed' "$qa_log" | tail -1))"
+      if [ "$CONTINUE_ON_FAIL" = 1 ] && only_known <<<"$failed_tests"; then
+        note "batch #$bpr: guest QA failed only on checks already failing on $BASE (known failures) — counted as passed"
+        fail="" IGNORED_KNOWN=1
+      fi
     fi
   fi
+  [ -z "$FAILS_OUT" ] || printf '%s\n' "$failed_tests" > "$FAILS_OUT"
 
   for n in "$bpr" "${inb[@]}"; do remove_label "$n" "$TESTING"; done
   if [ -z "$fail" ]; then
@@ -737,11 +769,39 @@ Failing checks:
 $failed_tests
 \`\`\`
 }
-The queue is paused. **Session whose change the failing checks point at:** branch from \`origin/$BASE\`, fix, and open a PR into \`$BASE\` titled \`Fix #$n: …\` with the label **\`$FIX\`**. If it is not this PR's, say so here."
+$( [ "$CONTINUE_ON_FAIL" = 1 ] && echo "The queue goes on testing the next PRs; production waits for the fix." || echo "The queue is paused.") **Session whose change the failing checks point at:** branch from \`origin/$BASE\`, fix, and open a PR into \`$BASE\` titled \`Fix #$n: …\` with the label **\`$FIX\`**. If it is not this PR's, say so here."
   done
   note "batch #$bpr ($list) FAILED: $fail"
   close_if_open "$bpr" "${inb[@]}"
   { echo "${inb[*]}"; echo "batch #$bpr ($list): $fail"; } >>"$BATCH_OUT"; return 1
+}
+
+# Continue mode: a failure is recorded on the pause issue (opened if needed)
+# with the failing guest QA checks as known failures, and the queue goes on.
+# $1 = what failed ("#7" or "batch #90 (#7, #8)"), $2 = the reason.
+record_failure() {
+  local what="$1" why="$2" fails body
+  fails="$(cat "$FAILS_OUT" 2>/dev/null || true)"
+  if [ -z "$paused" ]; then
+    write "repos/$REPO/issues" -f title="Staging queue: $what failed on test.gokesari.com (queue continues)" \
+      -f "labels[]=$PAUSED" -f body="$what was merged into \`$BASE\` and failed on $SITE ($(ist)):
+
+$why
+
+The queue goes on testing the next PRs (README, \"Known failures\"): a later PR whose guest QA fails only on the checks below still passes; any new failure fails it. Fixes (\`$FIX\`) go first. **Production waits:** nothing after $what is released until a fix passes and closes this issue.
+${RUN_URL:+
+Run: $RUN_URL}
+
+$(known_block "$fails")" >/dev/null
+    paused="$(pause_issue)"
+  else
+    body="$(api "repos/$REPO/issues/$paused" --jq .body | sed '/^<!-- known-failures$/,/^-->$/d')"
+    load_known "$paused"
+    write -X PATCH "repos/$REPO/issues/$paused" -f body="$body
+$(known_block "$fails")" >/dev/null
+    comment "$paused" "❌ $what also failed on $SITE ($(ist)): $why"
+  fi
+  load_known "$paused"
 }
 
 # ---------------------------------------------------------------- main
@@ -751,7 +811,8 @@ note "queue started (base $BASE, site $SITE$([ "$DRY_RUN" = 1 ] && echo ', DRY R
 processed=0 rc=0
 while [ "$processed" -lt "$MAX_PRS" ]; do
   paused="$(pause_issue)"
-  if [ -n "$paused" ]; then mapfile -t list < <(candidates "$FIX")
+  [ "$CONTINUE_ON_FAIL" = 1 ] && load_known "$paused"
+  if [ -n "$paused" ] && [ "$CONTINUE_ON_FAIL" != 1 ]; then mapfile -t list < <(candidates "$FIX")
   else mapfile -t list < <(candidates "$FIX"; candidates "$READY"); fi
   # first one not seen in this run (a skipped PR stays labelled only if dry run)
   next=""
@@ -778,7 +839,7 @@ while [ "$processed" -lt "$MAX_PRS" ]; do
 
   # Batch mode: not while paused, not for fixes, not after a batch's CI failed
   # in this run (its PRs then go one at a time).
-  if [ "$BATCH_SIZE" -gt 1 ] && [ -z "$paused" ] && [ "${batch_off:-0}" = 0 ] &&
+  if [ "$BATCH_SIZE" -gt 1 ] && { [ -z "$paused" ] || [ "$CONTINUE_ON_FAIL" = 1 ]; } && [ "${batch_off:-0}" = 0 ] &&
      [ -z "$(candidates "$FIX" | grep -vxF -f <(tr ' ' '\n' <<<"${seen:-}" | grep .) || true)" ]; then
     pool=()
     for c in "${list[@]}"; do
@@ -787,13 +848,19 @@ while [ "$processed" -lt "$MAX_PRS" ]; do
       pool+=("$c")
     done
     if [ "${#pool[@]}" -ge 2 ]; then
-      BATCH_OUT="$(mktemp)"
+      BATCH_OUT="$(mktemp)" FAILS_OUT="$(mktemp)" IGNORED_KNOWN=0
       set +e; process_batch "${pool[@]}" >&2; res=$?; set -e
       done_prs="$(head -1 "$BATCH_OUT")"; reason="$(tail -1 "$BATCH_OUT")"
       case "$res" in
         0) seen="${seen:-} $done_prs"; processed=$((processed + $(wc -w <<<"$done_prs"))); continue ;;
         3) batch_off=1; continue ;; # the same PRs now go one at a time
         1)
+          if [ "$CONTINUE_ON_FAIL" = 1 ]; then
+            seen="${seen:-} $done_prs"; processed=$((processed + $(wc -w <<<"$done_prs")))
+            record_failure "a batch ($(prs $done_prs))" "$reason"
+            update_tracker "⚠️ known failure on staging (see #$paused) — queue continues"
+            rc=1; continue
+          fi
           write "repos/$REPO/issues" -f title="Staging queue paused — batch failed on test.gokesari.com" \
             -f "labels[]=$PAUSED" -f body="A batch ($(prs $done_prs)) was merged into \`$BASE\` and failed on $SITE ($(ist)):
 
@@ -812,13 +879,22 @@ Run: $RUN_URL}" >/dev/null
   seen="${seen:-} $next"
   update_tracker "▶️ running — checking #$next"
   [ "$write_errors" = 0 ] || break # GitHub refused a write: start no PR (fails below)
-  out="$(mktemp)"
+  out="$(mktemp)" FAILS_OUT="$(mktemp)" IGNORED_KNOWN=0
   set +e; process_pr "$next" > "$out"; res=$?; set -e
   reason="$(tail -1 "$out")"
   processed=$((processed + 1))
-  if [ "$res" = 0 ] && [ -n "$paused" ]; then
+  # A verified PR closes the pause issue only if it is a fix (while paused,
+  # only fixes ran before continue mode) and passed without known failures.
+  is_fix=1
+  [ "$CONTINUE_ON_FAIL" = 1 ] && { candidates "$FIX" | grep -qxF "$next" || is_fix=0; }
+  if [ "$res" = 0 ] && [ -n "$paused" ] && [ "$is_fix" = 1 ] && [ "$IGNORED_KNOWN" = 0 ]; then
     write -X PATCH "repos/$REPO/issues/$paused" -f state=closed >/dev/null
     comment "$paused" "✅ Fix #$next verified on $SITE ($(ist)). Queue resumed."
+  fi
+  if [ "$res" = 1 ] && [ "$CONTINUE_ON_FAIL" = 1 ]; then
+    record_failure "#$next" "$reason"
+    update_tracker "⚠️ known failure on staging (see #$paused) — queue continues"
+    rc=1; continue
   fi
   if [ "$res" = 1 ]; then
     if [ -z "$paused" ]; then

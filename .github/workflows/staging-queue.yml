@@ -81,6 +81,9 @@ jobs:
           # tested together. A repository variable STAGING_QUEUE_BATCH_SIZE=1
           # turns it off without a code change.
           QUEUE_BATCH_SIZE: ${{ vars.STAGING_QUEUE_BATCH_SIZE || '4' }}
+          # Known failures (README; owner, 25 Nov 2026): a failure does not stop
+          # the queue. STAGING_QUEUE_CONTINUE_ON_FAIL=0 brings the old pause back.
+          QUEUE_CONTINUE_ON_FAIL: ${{ vars.STAGING_QUEUE_CONTINUE_ON_FAIL || '1' }}
         run: |
           mkdir -p "$RUNNER_TEMP/queue"
           cp scripts/release/staging-queue.sh scripts/release/staging-queue-qa.sh \
