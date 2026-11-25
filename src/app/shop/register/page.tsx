@@ -4,7 +4,7 @@ import { OnboardingWizard, type WizardState } from "@/components/registration/on
 import { Alert, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { isReferralRequired } from "@/server/services/referral-settings";
-import { ReferredByBanner } from "@/components/referral-sharing/referred-by-banner";
+import { ReferredByView, referredByFor } from "@/components/referral-sharing/referred-by-banner";
 import { sharedShopCode } from "@/server/services/referral-link-cookies";
 import { listShopCategories } from "@/server/services/shop-categories";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
@@ -36,7 +36,7 @@ export default async function RegisterShopPage({
     return (
       <div className="mx-auto max-w-2xl">
         <PageHeader title="Register your shop" description="Step 1 of 5: sign in with your email. Then your referral code and GST or PAN, your address and map pin, and the fee — and your shop goes live." />
-        <ReferredByBanner audience="shop-owner" code={ref} />
+        <ReferredByView data={await referredByFor({ audience: "shop-owner", code: ref }).catch(() => null)} />
         <ShopSignInCard />
       </div>
     );
@@ -66,13 +66,14 @@ export default async function RegisterShopPage({
   // docs/referral-sharing-2026-11: a /r/<code> link opened earlier (cookie gk_ref_link), or the app's
   // deferred link, fills in a dealer / team lead / agent / franchise / shop code when the URL has none.
   const shareRef = ref ?? (await sharedShopCode());
+  const referredBy = await referredByFor({ audience: "shop-owner", code: shareRef }).catch(() => null);
   const draft = params.new === "1" && current && current.status !== "OPEN" ? null : current;
   // One registration at a time: said before any screen is filled in, not at "Create my shop and pay".
   const waiting = draft === null || draft.status === "OPEN" ? await waitingRegistration(user.id) : null;
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title="Register your shop" description="A few quick steps. Your GST or PAN fills in your details." />
-      <ReferredByBanner audience="shop-owner" code={shareRef} />
+      <ReferredByView data={referredBy} />
       {draft === null || draft.status === "OPEN" ? (
         <p className="mb-3 rounded-lg border border-leaf-300 bg-leaf-50 px-3 py-2 text-sm text-leaf-700" data-testid="registering-as">
           ✓ Signed in{user.email && !isPlaceholderEmail(user.email) ? ` as ${user.email}` : ""} — your shop is added to this account.

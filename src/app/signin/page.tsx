@@ -6,7 +6,7 @@ import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
 import { OtpLoginForm } from "@/components/otp-login-form";
 import { ConsentSubmitButton, SignInConsentCheckbox, SignInConsentProvider } from "@/components/signin-consent";
 import { Card } from "@/components/ui";
-import { ReferredByBanner } from "@/components/referral-sharing/referred-by-banner";
+import { ReferredByView, referredByFor } from "@/components/referral-sharing/referred-by-banner";
 import { getEnv } from "@/lib/env";
 import { isMobileAppUserAgent } from "@/lib/mobile-app";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -101,9 +101,12 @@ export default async function SignInPage({
     }
   }
 
+  // docs/referral-sharing-2026-11: "Referred by <name>" (awaited here, so the page never suspends).
+  const referredBy = await referredByFor().catch(() => null);
+
   return (
     <div className="mx-auto max-w-md py-8">
-      <ReferredByBanner />
+      <ReferredByView data={referredBy} />
       <Card className="p-8">
         <SignInConsentProvider>
         <p className="mb-4 flex flex-col leading-tight" data-testid="signin-brand">

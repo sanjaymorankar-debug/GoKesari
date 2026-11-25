@@ -13,7 +13,17 @@ import { isMobileAppUserAgent } from "@/lib/mobile-app";
 import { getCurrentUser } from "@/server/authz/guards";
 import { claimDeferredReferral, referralSharingOn, resolveReferralLink } from "@/server/services/referral-links";
 
-export async function ReferredByBanner({ audience, code: given }: { audience?: "shop-owner" | "customer"; code?: string | null }) {
+export interface ReferredBy {
+  name: string;
+  level: string;
+  code: string;
+  inApp: boolean;
+  android: string | null;
+  ios: string | null;
+}
+
+/** The banner's data (or null): awaited by the page, so the page itself never suspends while rendering. */
+export async function referredByFor({ audience, code: given }: { audience?: "shop-owner" | "customer"; code?: string | null } = {}): Promise<ReferredBy | null> {
   if (!(await referralSharingOn())) return null;
   const jar = await cookies();
   const code = given || jar.get(REFERRAL_LINK_COOKIE)?.value;
@@ -31,12 +41,19 @@ export async function ReferredByBanner({ audience, code: given }: { audience?: "
   const inApp = isMobileAppUserAgent((await headers()).get("user-agent"));
   const android = parseStoreLink(process.env.MOBILE_APP_ANDROID_URL, "android");
   const ios = parseStoreLink(process.env.MOBILE_APP_IOS_URL, "ios");
+  return { name: target.referrerName, level: target.level, code: target.code, inApp, android, ios };
+}
+
+/** "Referred by <name>" — synchronous, from referredByFor(). */
+export function ReferredByView({ data }: { data: ReferredBy | null }) {
+  if (!data) return null;
+  const { inApp, android, ios } = data;
   return (
     <div className="mb-4 rounded-xl border border-kesari-200 bg-kesari-50 p-3 text-sm text-ink-800" data-testid="referred-by">
       <p>
-        Referred by <strong data-testid="referred-by-name">{target.referrerName}</strong>
-        {target.level !== "Customer" && target.level !== "GoKesari" ? <span className="text-ink-500"> ({target.level})</span> : null} — code{" "}
-        <span className="font-mono font-semibold">{target.code}</span> is filled in for you.
+        Referred by <strong data-testid="referred-by-name">{data.name}</strong>
+        {data.level !== "Customer" && data.level !== "GoKesari" ? <span className="text-ink-500"> ({data.level})</span> : null} — code{" "}
+        <span className="font-mono font-semibold">{data.code}</span> is filled in for you.
       </p>
       {!inApp ? (
         <p className="mt-2 flex flex-wrap gap-3 text-sm" data-testid="referred-by-app">
@@ -47,4 +64,9 @@ export async function ReferredByBanner({ audience, code: given }: { audience?: "
       ) : null}
     </div>
   );
+}
+
+/** Convenience for pages that render it as an async server component. */
+export async function ReferredByBanner(props: { audience?: "shop-owner" | "customer"; code?: string | null }) {
+  return <ReferredByView data={await referredByFor(props)} />;
 }
