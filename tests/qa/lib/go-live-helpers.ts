@@ -336,11 +336,22 @@ export async function liveShop(browser: Browser, label: string, opts: Parameters
  */
 export async function registerInWizard(page: Page, input: { code: string | null; gstin: string; name: string; phone: string; shopType: string; place: Place }) {
   await page.goto("/shop/register");
-  await expect(page.getByRole("heading", { name: "Verify your business" })).toBeVisible();
+  // Owner, 25-Nov-2026: the referral code on its own screen, then GST / PAN, the shop type and its licences.
+  await expect(page.getByRole("heading", { name: "Your referral code" })).toBeVisible();
   if (input.code) await page.getByTestId("wizard-referral-code").fill(input.code);
+  await page.getByTestId("referral-continue").click();
+  await expect(page.getByRole("heading", { name: "Verify your business" })).toBeVisible({ timeout: 30_000 });
   await page.getByTestId("gstin-input").fill(input.gstin);
   await page.getByLabel("I agree that GoKesari checks this number with the government record.").check();
   await page.getByTestId("verify-identity").click();
+
+  await expect(page.getByRole("heading", { name: "Shop type" })).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId("type-step-shop-type").selectOption(input.shopType);
+  await page.getByTestId("type-continue").click();
+  await expect(page.getByRole("heading", { name: "Licences for your shop" })).toBeVisible({ timeout: 30_000 });
+  const promise = page.getByTestId("licences-promise").getByRole("checkbox");
+  if (await promise.isVisible()) await promise.check();
+  await page.getByTestId("licences-continue").click();
 
   await expect(page.getByRole("heading", { name: "Confirm your shop address" })).toBeVisible({ timeout: 30_000 });
   await page.getByTestId("address-line1").fill(input.place.line);

@@ -298,6 +298,9 @@ export const AUDIT_ACTIONS = {
   /* Gig worker flow (docs/gig-worker-2026-10). Never a document number or a file — masked forms only. */
   DELIVERY_PARTNER_KYC_CHECKED: "delivery_partner.kyc_checked",
   DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  /* docs/identity-verification-2026-11: customer / shop owner identity check. Masked ids only, never a number. */
+  IDENTITY_VERIFICATION_CHECKED: "identity.verification_checked",
+  IDENTITY_VERIFICATION_DECIDED: "identity.verification_decided",
   DELIVERY_PARTNER_BACKGROUND_DOC_UPLOADED: "delivery_partner.background_doc_uploaded",
   DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
   DELIVERY_PARTNER_BACKGROUND_DOC_VIEWED: "delivery_partner.background_doc_viewed",

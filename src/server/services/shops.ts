@@ -68,6 +68,7 @@ import { activeFssaiWaiver, recordFssaiWaiver } from "./fssai-waiver";
 import { missingMustHaveDocuments } from "./shop-document-rules";
 import { listJoin } from "@/lib/shop-document-rules";
 import { assertLegalDocsAllowApproval } from "./legal-documents";
+import { assertOwnerIdentityAllowsGoLive } from "./identity-verification";
 import { emitEvent } from "@/server/events/emit";
 import {
   duplicateShopError,
@@ -1061,6 +1062,8 @@ function approveShopTransaction(
     if (shop.status === "APPROVED") {
       throw conflict("This shop is already approved.");
     }
+    // docs/identity-verification-2026-11 (flag on): a shop goes live only once its owner's identity is verified.
+    await assertOwnerIdentityAllowsGoLive(shop.ownerId);
     // Approve without FSSAI (admin only): recorded only when the shop sells food and no valid
     // licence is on file; with one on file the approval goes ahead as usual.
     if (waiveFssai && (actor.role !== "ADMIN" || !actor.id)) {

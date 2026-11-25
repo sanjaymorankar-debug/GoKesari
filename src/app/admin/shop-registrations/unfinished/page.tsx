@@ -11,7 +11,10 @@ export const metadata = { title: "Unfinished shop registrations" };
 export const dynamic = "force-dynamic";
 
 const STEP: Record<string, string> = {
+  REFERRAL: "Referral code",
   IDENTITY: "Verify GST / PAN",
+  TYPE: "Shop type",
+  LICENCES: "Licences",
   EMAIL: "Shop e-mail",
   OWNER: "Owner name",
   ADDRESS: "Address",

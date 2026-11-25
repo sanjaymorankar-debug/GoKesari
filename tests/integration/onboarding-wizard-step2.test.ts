@@ -75,6 +75,8 @@ import { promiseShopDocuments, shopDocumentGate } from "@/server/services/shop-d
 import { submitDraftGstin, submitDraftPan } from "@/server/services/shop-registration-draft";
 import {
   finishDraftDocumentsStep,
+  finishDraftLicences,
+  saveDraftShopType,
   answerDraftDocument,
   answerDraftReferral,
   getWizardDraft,
@@ -200,9 +202,9 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     expect(view.feeRule.slabs.length).toBeGreaterThan(0);
 
     view = await saveDraftOwner({ actor: owner, ownerName: "Test Seller" });
-    expect(view).toMatchObject({ nextStep: "ADDRESS", ownerName: "Test Seller" });
+    expect(view).toMatchObject({ nextStep: "TYPE", ownerName: "Test Seller" });
     // A new session (another device) resumes at the same place.
-    expect((await getWizardDraft({ id: owner.id }))!.nextStep).toBe("ADDRESS");
+    expect((await getWizardDraft({ id: owner.id }))!.nextStep).toBe("TYPE");
 
     const d = details();
     const address = { addressLine1: d.addressLine1, addressLine2: d.addressLine2, area: d.area, city: d.city, state: d.state, pincode: d.pincode, landmark: d.landmark };
@@ -259,9 +261,9 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     const actor = await staffActorForDraft(draft.id, { id: staffUser.id, role: "ADMIN" });
     expect(actor).toMatchObject({ id: owner.id, staff: { id: staffUser.id } });
     const view = await saveDraftOwner({ actor, ownerName: "Staff Typed" });
-    expect(view).toMatchObject({ id: draft.id, nextStep: "ADDRESS", ownerName: "Staff Typed" });
+    expect(view).toMatchObject({ id: draft.id, nextStep: "TYPE", ownerName: "Staff Typed" });
     // The owner picks it up from the same step.
-    expect((await getWizardDraft(owner))!).toMatchObject({ id: draft.id, nextStep: "ADDRESS" });
+    expect((await getWizardDraft(owner))!).toMatchObject({ id: draft.id, nextStep: "TYPE" });
 
     // A paid check made by staff is recorded under the staff member's name.
     await submitDraftGstin({ gstin: gstinFor("AABCH4321K"), consentGiven: true, actor });
@@ -272,6 +274,34 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     const sent = await db.select().from(notifications).where(eq(notifications.userId, owner.id));
     expect(sent.some((n) => n.actionUrl === "/shop/register")).toBe(true);
     await expect(staffActorForDraft(randomUUID(), { id: staffUser.id, role: "ADMIN" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("owner 25-Nov-2026: shop type and licences come right after GST / PAN; a must-have licence stops the screen, the rest may be promised", async () => {
+    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
+    await saveDraftOwner({ actor: owner, ownerName: "Test Seller" });
+    expect((await getWizardDraft(owner))!.nextStep).toBe("TYPE");
+
+    // A food shop: FSSAI is what the rules ask (must-have unless the admin made it a promise).
+    let view = await saveDraftShopType({ actor: owner, shopType: "DAIRY" });
+    expect(view).toMatchObject({ nextStep: "LICENCES", shopType: "DAIRY", foodShop: true });
+    const fssai = view.licences.find((l) => l.key === "FSSAI");
+    expect(fssai).toMatchObject({ checkable: true, done: false });
+    if (fssai!.level === "MUST_HAVE") {
+      await expect(finishDraftLicences({ actor: owner, promise: true })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "LICENCE_REQUIRED" } });
+    }
+    view = await doc("FSSAI", FSSAI);
+    expect(view.licences.find((l) => l.key === "FSSAI")).toMatchObject({ done: true });
+    const open = view.licences.filter((l) => l.level === "PROMISE" && !l.done);
+    if (open.length > 0) {
+      await expect(finishDraftLicences({ actor: owner, promise: false })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    }
+    view = await finishDraftLicences({ actor: owner, promise: true });
+    expect(view).toMatchObject({ nextStep: "ADDRESS", documentsPromised: open.length > 0 });
+
+    // Another type later asks its licences again.
+    view = await saveDraftShopType({ actor: owner, shopType: "GENERAL_TRADING" });
+    expect(view).toMatchObject({ nextStep: "LICENCES", shopType: "GENERAL_TRADING", foodShop: false });
+    await expect(saveDraftShopType({ actor: owner, shopType: "NO_SUCH_TYPE" })).rejects.toBeTruthy();
   });
 
   it("refuses a later step before the GSTIN / PAN step is done, and payment before every step", async () => {
@@ -611,7 +641,7 @@ describe("HTTP routes", () => {
     const resumed = await call(draftRoute, "/api/shops/registration-draft");
     expect(resumed.body.nextStep).toBe("OWNER");
     const named = await call(ownerRoute, "/api/shops/registration-draft/owner", { method: "POST", body: { ownerName: "Test Seller" } });
-    expect(named.body.nextStep).toBe("ADDRESS");
+    expect(named.body.nextStep).toBe("TYPE");
     const placed = await call(addressRoute, "/api/shops/registration-draft/address", {
       method: "POST",
       body: { addressLine1: "Shop No 4, Main Market", city: "Pune", state: "Maharashtra", pincode: "411001" },

@@ -479,6 +479,12 @@ export function CartView({
         setStepUp({ details: payload.error.details, ack: acknowledgeClosedShopIds });
         return;
       }
+      // docs/identity-verification-2026-11: the one-time identity check first, then back to the cart.
+      const verifyUrl = payload?.error?.details?.needsIdentityVerification ? payload.error.details.verifyUrl : null;
+      if (typeof verifyUrl === "string" && verifyUrl.startsWith("/")) {
+        router.push(verifyUrl);
+        return;
+      }
       setError(errorText(payload?.error?.message ?? "Checkout failed. Please try again.", lang, payload?.error?.code));
       return;
     }
