@@ -175,7 +175,8 @@ describe("permission filtering", () => {
     // 23: Shops → "Consultants", Orders → "Appointments" (docs/consult-booking-2026-11).
     // 25: Shops → "Doctors", Profile → "My Health" (docs/health/; no 7th tile — one screen on a phone).
     // 26: Subscriptions → "Plans" (docs/subscription-plans-2026-11).
-    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(26);
+    // 27: Profile → "My referrals" (docs/referral-sharing-2026-11).
+    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(27);
   });
 
   it("treats a list of permissions as any-of", () => {

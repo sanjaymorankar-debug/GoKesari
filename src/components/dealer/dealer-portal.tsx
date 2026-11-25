@@ -4,12 +4,15 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
+import { ReferralShareButtons } from "@/components/referral-sharing/share-buttons";
 
 export interface PortalCode {
   code: string;
   shareLink: string;
   whatsapp: string;
   qrSvg: string;
+  /** docs/referral-sharing-2026-11 (rule referralSharing on): the /r/<code> Share buttons, logged. */
+  share?: { who: string; origin: string } | null;
 }
 
 export interface PortalEmployee {
@@ -106,10 +109,18 @@ export function DealerPortal({
               {code.code}
             </p>
             <p className="text-sm text-ink-700">Shops enter this code when they register, or open your link with it filled in. Shops you register yourself get it automatically.</p>
-            <div className="flex flex-wrap gap-2">
+            {code.share ? <ReferralShareButtons code={code.code} who={code.share.who} audience="shop-owner" origin={code.share.origin} subject="Register your shop on GoKesari" /> : null}
+            <div className={code.share ? "flex flex-wrap gap-2 text-sm" : "flex flex-wrap gap-2"}>
+              {code.share ? (
+                <a href="/referrals" className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline" data-testid="my-referrals-link">
+                  My referrals
+                </a>
+              ) : (
               <a href={code.whatsapp} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-lg bg-leaf-700 px-4 text-sm font-semibold text-white">
                 Share on WhatsApp
               </a>
+              )}
+              {code.share ? null : (
               <Button
                 variant="secondary"
                 onClick={async () => {
@@ -119,6 +130,7 @@ export function DealerPortal({
               >
                 {copied ? "Link copied" : "Copy link"}
               </Button>
+              )}
             </div>
           </div>
         </Card>
@@ -157,9 +169,13 @@ export function DealerPortal({
               {shown?.id === p.id ? (
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                   <div className="w-36 rounded-lg border border-cream-200 bg-white p-1 [&>svg]:block [&>svg]:h-auto [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: shown.code.qrSvg }} />
+                  {shown.code.share ? (
+                    <ReferralShareButtons code={shown.code.code} who={shown.code.share.who} audience="shop-owner" origin={shown.code.share.origin} subject="Register your shop on GoKesari" />
+                  ) : (
                   <a href={shown.code.whatsapp} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-lg bg-leaf-700 px-4 text-sm font-semibold text-white">
                     Share on WhatsApp
                   </a>
+                  )}
                 </div>
               ) : null}
             </li>

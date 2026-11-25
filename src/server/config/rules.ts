@@ -268,6 +268,16 @@ export const RULES = {
       applyWithinDays: 30,
     },
   },
+  referralSharing: {
+    description:
+      "Referral sharing (docs/referral-sharing-2026-11). On: dealers, team leads, agents, franchise owners, shops and customers see Share buttons (WhatsApp, SMS, email, the phone's share sheet, copy link) for their own referral link /r/<code>; every share and link click is logged, a link opened before the app was installed is offered to the new account (deferred link), and the sign-up pages show \"Referred by <name>\". Off: the original WhatsApp / Copy link buttons only and nothing is logged. Rewards and commission are not changed by this switch.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** How long after a link click a new account on the same network may be offered that code (deferred link after an app install). */
+      deferredMatchHours: int(1, 168),
+    }),
+    defaults: { enabled: true, deferredMatchHours: 24 },
+  },
   imageModeration: {
     description:
       "Product photo moderation. Off: shop owners' photos go live at once (the original behaviour). On: photos a shop owner adds or replaces wait in Admin → Image moderation and are shown publicly only once approved; rejected photos carry a reason. Photos already live stay live.",

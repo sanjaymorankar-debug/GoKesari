@@ -87,6 +87,8 @@ const APP_LINK_PATH_PREFIXES = [
   "/health", // docs/health: My Health — records, prescriptions, doctors, medicines, home care, equipment
   "/franchise", // 1.11.0, docs/franchise: Pune franchise offer, zone booking, zone pages (1.12.0), my franchise
   "/rx", // docs/health: prescription verification QR (/rx/verify/<token>)
+  "/invite/", // 1.15.0, docs/referral-sharing-2026-11: a closed or expired referral link's page
+  "/app-open", // 1.15.0: the first page after an install (deferred referral link)
   "/wishlist", // 1.13.0, docs/smart-shopping-2026-11: scan my shopping list, wishlists, shop price comparison
   "/brand", // docs/search-brand-barcode-favourites-2026-11: a brand's products near the customer
   "/favourites", // docs/search-brand-barcode-favourites-2026-11: the customer's favourites list
@@ -102,7 +104,7 @@ const APP_LINK_PATH_PREFIXES = [
  * Pages not (yet) top-level directories of the website, such as the help
  * desk's /support/tickets/…, are listed here so the intent filter has them.
  */
-const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/", "/search/compare", "/dealer/commission-chart", "/dealer", "/shop/register", "/franchise"];
+const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/invite/", "/notifications", "/support/tickets/", "/search/compare", "/dealer/commission-chart", "/dealer", "/shop/register", "/franchise"];
 
 const INTENT_PATH_PREFIXES = [...new Set([...APP_LINK_PATH_PREFIXES, ...DEEP_LINK_ROUTE_PREFIXES])];
 
@@ -182,7 +184,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   // 1.8.0: card, UPI (the phone's UPI apps) and wallet payments through Cashfree's own mobile SDK
   // (react-native-cashfree-pg-sdk) when the website asks for it (src/cashfree.ts); the website
   // still confirms every payment with its server. Older builds keep Cashfree's web checkout.
-  version: "1.13.0",
+  version: "1.15.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -191,7 +193,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "14",
+    buildNumber: "16",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -213,7 +215,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 14,
+    versionCode: 16,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",

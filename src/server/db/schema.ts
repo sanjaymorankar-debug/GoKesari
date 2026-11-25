@@ -13380,4 +13380,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
+export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0202)
 /* <<< GoKesari Health */

@@ -6,6 +6,7 @@ import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
 import { OtpLoginForm } from "@/components/otp-login-form";
 import { ConsentSubmitButton, SignInConsentCheckbox, SignInConsentProvider } from "@/components/signin-consent";
 import { Card } from "@/components/ui";
+import { ReferredByBanner } from "@/components/referral-sharing/referred-by-banner";
 import { getEnv } from "@/lib/env";
 import { isMobileAppUserAgent } from "@/lib/mobile-app";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -102,6 +103,7 @@ export default async function SignInPage({
 
   return (
     <div className="mx-auto max-w-md py-8">
+      <ReferredByBanner />
       <Card className="p-8">
         <SignInConsentProvider>
         <p className="mb-4 flex flex-col leading-tight" data-testid="signin-brand">
