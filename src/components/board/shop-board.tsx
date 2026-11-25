@@ -142,7 +142,7 @@ function QuickPanel({ lang, counts, walletBalance }: { lang: Lang; counts: ShopB
   const n = counts.shopNew ?? 0;
   const needsPrice = counts.shopNeedsPrice ?? 0;
   return (
-    <section aria-label={tr(QUICK.quick, lang)} className="flex flex-col gap-2 lg:hidden" data-testid="shop-quick">
+    <section aria-label={tr(QUICK.quick, lang)} className="order-first flex flex-col gap-2 lg:hidden" data-testid="shop-quick">
       <Link
         href={n > 0 ? "/shop/orders?status=new" : "/shop/orders"}
         data-testid="shop-quick-new-orders"

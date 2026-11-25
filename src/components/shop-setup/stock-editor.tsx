@@ -54,7 +54,9 @@ export function packSizeLooksWrong(row: Pick<ListingRow, "kind" | "packSize">): 
 
 /** "150 g pack" for packaged goods, "Sold per kg" for loose ones. */
 export function packLine(row: Pick<ListingRow, "kind" | "packSize" | "unit">): string {
-  return row.kind === "LOOSE" ? `Sold per ${row.unit}` : `${row.packSize} pack`;
+  if (row.kind === "LOOSE") return `Sold per ${row.unit}`;
+  const piece = /^1 (piece|pc|pcs|nos|no|unit|each)s?$/i.exec(row.packSize.trim());
+  return piece ? "Per piece" : `${row.packSize} pack`;
 }
 
 function sameDraft(a: Draft, b: Draft): boolean {
@@ -362,8 +364,8 @@ export function StockEditor({
   return (
     <div className="space-y-4" data-testid="stock-editor">
       {/* Find and sort */}
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <label className="relative flex-1">
+      <div className="flex gap-2">
+        <label className="relative min-w-0 flex-1">
           <span className="sr-only">Search products</span>
           <input
             type="search"
@@ -377,19 +379,20 @@ export function StockEditor({
             data-testid="stock-search"
           />
         </label>
-        <label className="flex items-center gap-2 text-sm font-medium text-ink-700">
-          Sort
+        <label className="flex shrink-0 items-center gap-2 text-sm font-medium text-ink-700">
+          <span className="sr-only sm:not-sr-only">Sort</span>
           <select
             value={sort}
             onChange={(e) => {
               setSort(e.target.value as Sort);
               setPage(0);
             }}
-            className="h-12 rounded-lg border-[1.5px] border-slate-500 bg-white px-2 text-base text-ink-900 focus:border-kesari-700 focus:outline-none focus:ring-4 focus:ring-kesari-300/70"
+            aria-label="Sort products"
+            className="h-12 w-[7.5rem] rounded-lg border-[1.5px] border-slate-500 bg-white px-2 text-base sm:w-auto text-ink-900 focus:border-kesari-700 focus:outline-none focus:ring-4 focus:ring-kesari-300/70"
             data-testid="stock-sort"
           >
             <option value="list">Category</option>
-            <option value="needs">Needs action first</option>
+            <option value="needs">Needs action</option>
             <option value="name">Name A–Z</option>
             <option value="price">Price, low first</option>
             <option value="stock">Stock, low first</option>
@@ -398,7 +401,7 @@ export function StockEditor({
       </div>
 
       {/* Selection: none at first; the bulk tools appear once rows are picked. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+      <div className="flex flex-wrap items-center gap-x-4">
         <label className="flex min-h-11 items-center gap-2 text-sm text-ink-700">
           <input type="checkbox" className="size-5 accent-kesari-600" checked={allOnPage} onChange={() => toggleAll(pageRows.map((r) => r.shopProductId), !allOnPage)} />
           Select this page ({selected.size} of {rows.length} selected)
@@ -478,7 +481,7 @@ export function StockEditor({
             <div
               key={r.shopProductId}
               className={clsx(
-                "grid grid-cols-2 gap-3 rounded-2xl border bg-white p-3 lg:grid-cols-[2rem_minmax(0,1fr)_7.5rem_7.5rem_13.5rem_2.75rem] lg:items-start lg:rounded-none lg:border-0 lg:border-l-4",
+                "relative grid grid-cols-2 gap-3 rounded-2xl border bg-white p-3 lg:grid-cols-[2rem_minmax(0,1fr)_7.5rem_7.5rem_13.5rem_2.75rem] lg:items-start lg:rounded-none lg:border-0 lg:border-l-4",
                 edited ? "border-l-4 border-kesari-600 border-y-slate-300 border-r-slate-300 lg:border-l-kesari-600 lg:bg-kesari-50/40" : "border-slate-300 lg:border-l-transparent",
               )}
               data-testid="stock-row"
@@ -498,7 +501,7 @@ export function StockEditor({
                     })
                   }
                 />
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 pr-10 lg:pr-0">
                   <p className="break-words font-semibold leading-snug text-ink-900">{r.name}</p>
                   <p className="mt-0.5 text-sm text-ink-600">
                     <span className="font-medium text-ink-800">{packLine(r)}</span>
@@ -519,25 +522,6 @@ export function StockEditor({
                   </div>
                   {rowErrors.get(r.shopProductId) ? <p className="mt-1 text-sm font-medium text-red-700">{rowErrors.get(r.shopProductId)}</p> : null}
                 </div>
-                {mode === "manage" ? (
-                  <RowMenu
-                    row={r}
-                    open={menuFor === r.shopProductId}
-                    confirming={confirmPause === r.shopProductId}
-                    busy={busy}
-                    onToggle={() => {
-                      setMenuFor((v) => (v === r.shopProductId ? null : r.shopProductId));
-                      setConfirmPause(null);
-                    }}
-                    onAskPause={() => setConfirmPause(r.shopProductId)}
-                    onCancel={() => {
-                      setConfirmPause(null);
-                      setMenuFor(null);
-                    }}
-                    onSet={(paused) => setPaused(r, paused)}
-                    className="lg:hidden"
-                  />
-                ) : null}
               </div>
               {field(r, "mrp", "MRP (₹)", { message: p.mrp, rupee: true, placeholder: "Enter MRP", required: r.kind === "PACKAGED", visibleLabel: "MRP" })}
               {field(r, "price", "Selling price (₹)", { message: p.price, rupee: true, placeholder: "Enter price", required: true, visibleLabel: "Selling price" })}
@@ -580,7 +564,7 @@ export function StockEditor({
                     setMenuFor(null);
                   }}
                   onSet={(paused) => setPaused(r, paused)}
-                  className="hidden lg:block"
+                  className="absolute right-1.5 top-1.5 lg:static"
                 />
               ) : (
                 <span className="hidden lg:block" />
@@ -626,7 +610,7 @@ export function StockEditor({
           </>
         ) : (
           <>
-            <p className="w-full text-sm text-ink-700 sm:w-auto sm:flex-1" aria-live="polite">
+            <p className="min-w-[7.5rem] flex-1 text-sm text-ink-700" aria-live="polite">
               {dirtyCount > 0 ? (
                 <>
                   <span className="font-bold text-kesari-800">{dirtyCount}</span> unsaved {dirtyCount === 1 ? "change" : "changes"}
@@ -641,7 +625,7 @@ export function StockEditor({
                 Discard
               </Button>
             ) : null}
-            <Button className="min-h-12 flex-1 sm:flex-none sm:px-6" disabled={busy || hasProblems || dirtyCount === 0} onClick={() => save("live")}>
+            <Button className="min-h-12 shrink-0 px-5 sm:px-6" disabled={busy || hasProblems || dirtyCount === 0} onClick={() => save("live")}>
               Save changes{dirtyCount > 0 ? ` (${dirtyCount})` : ""}
             </Button>
           </>
