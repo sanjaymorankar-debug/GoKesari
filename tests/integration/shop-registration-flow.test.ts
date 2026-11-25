@@ -43,7 +43,8 @@ import { POST as emailRoute } from "@/app/api/shops/registration-draft/email/rou
 import { POST as referralRoute } from "@/app/api/shops/registration-draft/referral/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
-import { auditLogs, notifications, platformSettings, shopCategories, shopFssaiWaivers, shopLegalDocuments, shopRegistrationDrafts, shops } from "@/server/db/schema";
+import { auditLogs, notifications, platformSettings, shopCategories, shopFssaiWaivers, shopLegalDocuments, shopRegistrationDrafts, shops, userConsents } from "@/server/db/schema";
+import { SELLER_TERMS_VERSION, SELLER_UNDERTAKING_VERSION } from "@/lib/legal/seller-undertaking";
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
@@ -276,9 +277,22 @@ describe("Flow 1 with a GSTIN", () => {
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
     await saveDraftDetails({ actor: owner, details: shopFields() });
-    const submitted = await submitDraftForPayment({ actor: owner });
+    // docs/seller-undertaking-2026-11: no shop without both boxes ticked.
+    for (const ticks of [{}, { acceptSellerTerms: true }, { acceptUndertaking: true }]) {
+      await expect(submitDraftForPayment({ actor: owner, ...ticks })).rejects.toMatchObject({ code: "VALIDATION_FAILED", details: { reason: "SELLER_ACCEPTANCE_REQUIRED" } });
+    }
+    expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
+    const submitted = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     const shopId = submitted.shop!.id;
     expect(submitted.nextStep).toBe("DOCUMENTS");
+    // Both consents recorded with the new shop, at the current versions.
+    const consents = await db.select().from(userConsents).where(eq(userConsents.userId, owner.id));
+    expect(consents.map((c) => [c.consentType, c.version, c.shopId]).sort()).toEqual(
+      [
+        ["SELLER_GOODS_UNDERTAKING", SELLER_UNDERTAKING_VERSION, shopId],
+        ["SELLER_TERMS", SELLER_TERMS_VERSION, shopId],
+      ].sort(),
+    );
     expect(await finishDraftDocumentsStep({ actor: owner, promise: true })).toMatchObject({ nextStep: "PAYMENT" });
     // The pin placed before payment is on the shop.
     expect(await shopRow(shopId)).toMatchObject({ status: "PENDING_APPROVAL", latitude: expect.stringMatching(/^18\.53/) });
@@ -304,7 +318,7 @@ describe("Flow 1 with a GSTIN", () => {
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
     await saveDraftDetails({ actor: owner, details: shopFields() });
-    const view = await submitDraftForPayment({ actor: owner });
+    const view = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     expect(await shopRow(view.shop!.id)).toMatchObject({ email: "orders@kirana.example" });
   });
 
@@ -315,7 +329,7 @@ describe("Flow 1 with a GSTIN", () => {
     await saveDraftLocation({ actor: owner, ...PIN });
     const view = await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
     expect(view).toMatchObject({ foodShop: true, nextStep: "REVIEW", licenceGraceDays: 90 });
-    const submitted = await submitDraftForPayment({ actor: owner });
+    const submitted = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     await payInSandbox(submitted.shop!.id);
     expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
     // DF-08: FSSAI is never "due within 90 days" any more.
@@ -336,7 +350,7 @@ describe("DF-08 (owner, 21-Nov-2026 night): GST/PAN and FSSAI are must-have; the
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
     await saveDraftDetails({ actor: owner, details: shopFields({ shopType: "DAIRY" }) });
-    return submitDraftForPayment({ actor: owner });
+    return submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
   }
 
   it("a food shop without its FSSAI licence cannot leave the documents screen or pay", async () => {
@@ -413,7 +427,7 @@ describe("DF-09 (owner, 22-Nov-2026): the admin decides which documents each kin
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
     await saveDraftDetails({ actor: owner, details: shopFields({ shopType }) });
-    return submitDraftForPayment({ actor: owner });
+    return submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
   }
 
   it("Shop Act made optional for all shops: nothing to promise, the owner goes on to payment", async () => {
@@ -545,7 +559,7 @@ describe("Flow 1 with a PAN only (no GST)", () => {
     await saveDraftLocation({ actor: owner, ...PIN });
     view = await saveDraftDetails({ actor: owner, details: shopFields({ name: "Ekta Kirana" }) });
     expect(view.nextStep).toBe("REVIEW");
-    const submitted = await submitDraftForPayment({ actor: owner });
+    const submitted = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     await payInSandbox(submitted.shop!.id);
     expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", gstin: null, gstStatus: "NOT_REGISTERED" });
   });
@@ -579,7 +593,7 @@ describe("duplicates", () => {
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
     await saveDraftDetails({ actor: owner, details: shopFields() });
-    await submitDraftForPayment({ actor: owner });
+    await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     // Another account tries the same PAN.
     const u = await createUser({ role: "CUSTOMER" });
     const second = { id: u.id, role: "CUSTOMER" as const };
@@ -619,7 +633,7 @@ describe("Flow 2: an existing customer clicks Sell", () => {
     await saveDraftAddress({ actor: owner, address: ADDRESS });
     await saveDraftLocation({ actor: owner, ...PIN });
     await saveDraftDetails({ actor: owner, details: fields });
-    const submitted = await submitDraftForPayment({ actor: owner });
+    const submitted = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
     expect(await findLikelyDuplicate(submitted.shop!.id)).toMatchObject({ kind: "DUPLICATE", reasons: expect.arrayContaining(["NAME_SAME_PIN"]) });
     await payInSandbox(submitted.shop!.id);
     expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
