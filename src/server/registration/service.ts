@@ -61,6 +61,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { uniqueSlug } from "@/server/services/catalogue";
 import { recordConsent } from "@/server/services/consents";
 import { acceptSellerUndertaking } from "@/server/services/seller-undertaking";
+import { recordCurrentAcceptances } from "@/server/services/policy-versions";
 import { grantRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
 import { referralCodeUses } from "@/server/services/referrals";
@@ -750,6 +751,10 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
     // refuses without them); recorded for the new shop once it exists. Best-effort: never undoes a paid registration.
     await acceptSellerUndertaking({ userId: result.ownerId, shopIds: [result.shopId], actorRole: "SHOP_OWNER" }).catch((e) =>
       console.error("[registration] seller undertaking record failed", e),
+    );
+    // docs/policy-reconsent-2026-11: the seller terms version accepted on the form, so the owner is not asked again.
+    await recordCurrentAcceptances(result.ownerId, ["seller-terms"], "SHOP_REGISTRATION").catch((e) =>
+      console.error("[registration] seller-terms acceptance record failed", e),
     );
   }
   if (result.outcome === "APPROVED") return { outcome: "APPROVED", shopId: result.shopId, ownerId: result.ownerId };

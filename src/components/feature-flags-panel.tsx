@@ -62,6 +62,7 @@ export type FeatureFlagKey =
   | "auto_journals"
   // docs/payment-settlement-states-2026-11
   | "payment_settlement_states"
+  | "policy_reconsent_enabled"
   // docs/seller-undertaking-2026-11
   | "seller_undertaking_gate_enabled";
 

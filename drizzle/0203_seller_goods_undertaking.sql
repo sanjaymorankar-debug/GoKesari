@@ -10,7 +10,7 @@
 --
 -- The enum values are added the way 0170 / 0181 add user_role values (EXECUTE inside a DO block, IF NOT EXISTS);
 -- nothing in this migration uses the new values, so it is safe inside the migrator's transaction (PostgreSQL 12+).
--- Additive and safe to re-run. Rollback: scripts/rollback-0202.sql (enum values cannot be dropped; unused, inert).
+-- Additive and safe to re-run. Rollback: scripts/rollback-0203.sql (enum values cannot be dropped; unused, inert).
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = 'consent_type' AND n.nspname = 'public') THEN
