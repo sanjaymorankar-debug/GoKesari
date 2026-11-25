@@ -9062,6 +9062,15 @@ export const paymentIntents = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
     lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
     reconcileAttempts: integer("reconcile_attempts").notNull().default(0),
+    /**
+     * PAY-SM (0201, docs/payment-settlement-states-2026-11.md): after the money is taken. NULL = not yet
+     * confirmed; RECONCILED = the gateway's status check confirmed the capture; CHARGEBACK = disputed by the
+     * customer's bank (payment_chargebacks). Apart from `status`, which refunds and reports read.
+     */
+    settlementState: text("settlement_state", { enum: ["RECONCILED", "CHARGEBACK"] }),
+    reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
+    settlementCheckedAt: timestamp("settlement_checked_at", { withTimezone: true }),
+    settlementChecks: integer("settlement_checks").notNull().default(0),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -9157,6 +9166,44 @@ export const paymentRefunds = pgTable(
   ],
 );
 export type PaymentRefundRow = typeof paymentRefunds.$inferSelect;
+
+/** PAY-SM (0201): one row per gateway dispute / chargeback, kept current from the gateway's webhooks. */
+export const paymentChargebacks = pgTable(
+  "payment_chargebacks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gateway: text("gateway").notNull(),
+    gatewayDisputeId: text("gateway_dispute_id").notNull(),
+    /** Null when the disputed payment is not one of our payment intents (e.g. a wallet top-up). */
+    intentId: uuid("intent_id").references(() => paymentIntents.id, { onDelete: "set null" }),
+    gatewayOrderId: text("gateway_order_id"),
+    gatewayPaymentId: text("gateway_payment_id"),
+    /** The gateway's kind: DISPUTE, CHARGEBACK, RETRIEVAL, PRE_ARBITRATION, ARBITRATION … */
+    disputeType: text("dispute_type"),
+    /** The gateway's own status word, as last received. */
+    gatewayStatus: text("gateway_status").notNull(),
+    outcome: text("outcome", { enum: ["OPEN", "WON", "LOST", "CLOSED"] }).notNull().default("OPEN"),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    reasonCode: text("reason_code"),
+    reason: text("reason"),
+    /** The deadline to send evidence to the gateway. */
+    respondBy: timestamp("respond_by", { withTimezone: true }),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    /** The gateway's time of the newest event applied (older redeliveries do not overwrite it). */
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
+    lastWebhookEventId: uuid("last_webhook_event_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payment_chargebacks_gateway_dispute_uq").on(t.gateway, t.gatewayDisputeId),
+    index("payment_chargebacks_intent_idx").on(t.intentId),
+    index("payment_chargebacks_open_idx").on(t.outcome, t.respondBy),
+    check("payment_chargebacks_amount_check", sql`${t.amountPaise} >= 0`),
+  ],
+);
+export type PaymentChargebackRow = typeof paymentChargebacks.$inferSelect;
 
 /**
  * The sandbox gateway's own ledger (tests and staging only): what a real
@@ -10822,8 +10869,9 @@ export const FEATURE_FLAG_KEYS = [
   "account_self_deletion_enabled",
   // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
   "auto_journals",
+  "payment_settlement_states", // PAY-SM (0201)
   // docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off): "Compare N prices", /search/compare,
-  // "Lowest price" and price-first sorting between local shops. Seeded OFF by its own migration (0201 at the time of writing).
+  // "Lowest price" and price-first sorting between local shops. Seeded OFF by its own migration (0202 at the time of writing).
   "local_price_comparison_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
