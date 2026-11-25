@@ -68,7 +68,7 @@ export function SiteFooter({ lang = "en" }: { lang?: Lang }) {
             <LanguageSwitch lang={lang} variant="buttons" />
           </div>
           <p className="text-center text-xs leading-snug text-ink-600 lg:text-right" data-testid="footer-company-line">
-            <BrandWordmark className="text-xs" /> · <BrandTagline className="text-xs" /> · © {LEGAL_ENTITY.legalName} · GSTIN {LEGAL_ENTITY.gstin}
+            <BrandWordmark className="text-xs" /> · <BrandTagline className="text-xs" /> · gokesari.com a unit of © {LEGAL_ENTITY.legalName} · GSTIN {LEGAL_ENTITY.gstin}
           </p>
         </div>
       </div>
