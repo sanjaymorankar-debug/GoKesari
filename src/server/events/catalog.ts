@@ -1134,6 +1134,18 @@ export const EVENTS = {
     "payment_intent",
     (p) => [{ to: "SUPPORT", type: N.SUPPORT_PAYMENT_ATTENTION, vars: { reference: p.reference, problem: p.problem }, actionUrl: "/admin" }],
   ),
+  /** PAY-SM: the customer's bank disputed a payment (opened, or its outcome changed). Admins only. */
+  "payment.chargeback": define<{ chargebackId: string; intentId: string | null; amount: string; reference: string; outcome: string; respondBy: string; reason: string }>(
+    "payment_intent",
+    (p) => [
+      {
+        to: "SUPPORT_LEAD",
+        type: N.ADMIN_PAYMENT_CHARGEBACK,
+        vars: { reference: p.reference, amount: p.amount, outcome: p.outcome, respondBy: p.respondBy, reason: p.reason },
+        actionUrl: "/admin/payments/chargebacks",
+      },
+    ],
+  ),
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
