@@ -3,6 +3,20 @@
 For dealers and their field employees. Works the same on the website and in the GoKesari app.
 Last updated 28 Oct 2026.
 
+> **Current rules (24-Nov-2026)** — sections 1, 4 and 5 are out of date:
+> - **Applying** (`/dealer/apply`): you first choose a scheme — **Free Dealership** (20% of each shop's registration
+>   fee + 5% of GoKesari's commission on your shops monthly for 12 months), **Business Partner** or **Growth
+>   Partner** (paid joining charge, higher rates) — or book a franchise zone. PAN, GSTIN and your bank account can be
+>   verified online instead of uploaded. Current guide: [../dealer-platform/DEALER_GUIDE.md](../dealer-platform/DEALER_GUIDE.md).
+> - **Codes:** new dealer codes look like `GKD-7K4Q9X`; older codes keep working.
+> - **Going live** (section 4): a shop goes live as soon as its GSTIN or PAN is verified online and the fee is paid,
+>   in every district; a food shop also needs its FSSAI licence first. Other documents can follow within 90 days on
+>   the owner's promise.
+> - **Commission** (section 5): the ₹100 / ₹150 / ₹150 pilot milestones were replaced on 29 Oct 2026 by a % of the
+>   fee, and since then by the scheme you are on (or, in a 3-level team, 20% / 4% / 3%:
+>   [TIERED_COMMISSION.md](TIERED_COMMISSION.md)). Your page always shows your current terms. Commission is paid
+>   monthly on the 5th.
+
 ---
 
 ## 1. Become a dealer

@@ -1,5 +1,7 @@
 # Dealer documents: verify online or upload (22-Nov-2026)
 
+> **Status (24-Nov-2026):** live on gokesari.com since 22-Nov-2026 19.19 IST (release #481, migration 0166).
+
 ## Owner's request
 
 1. After booking a franchise zone, the dealer application asked the buyer again to choose the area he will

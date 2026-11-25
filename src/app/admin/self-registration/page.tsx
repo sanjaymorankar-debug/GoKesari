@@ -30,7 +30,7 @@ export default async function SelfRegistrationAdminPage() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         title="Shop self-registration"
-        description="Shops register at /shop/join with a referral code and pay online; the payment webhook approves them. Set the fee plans, distributors (commission) and codes here."
+        description="Shops register at /shop/register (a code's link: /shop/register?ref=CODE) and pay online; the payment approves them. Set the fee plans, distributors (commission) and codes here."
       />
       <nav className="mb-4 flex flex-wrap gap-3 text-sm">
         <Link className="text-kesari-600 underline" href="/admin/shops/auto-approved">Auto-approved shops ({counts.APPROVED ?? 0})</Link>
