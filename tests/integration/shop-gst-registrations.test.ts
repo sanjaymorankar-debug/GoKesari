@@ -76,7 +76,9 @@ describe("adding GSTINs of other states", () => {
     const pendingActor = { id: pending.owner.id, role: pending.owner.role as UserRole };
     await expect(addShopGstRegistration({ shopId: pending.shop.id, gstin: gstinOf("29", "AABCK4321Q"), consentGiven: true, actor: pendingActor })).rejects.toMatchObject({ code: "CONFLICT" });
 
-    const { shop, actor } = await liveShop();
+    // The main GSTIN must itself be well-formed (its PAN's 4th letter a valid holder type), so the
+    // "already your main GSTIN" check is reached rather than the format check.
+    const { shop, actor } = await liveShop({ gstin: gstinOf("27", "AAPCM5555K") });
 
     await expect(addShopGstRegistration({ shopId: shop.id, gstin: gstinOf("29", "AABCK4321Q"), consentGiven: false, actor })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     await expect(addShopGstRegistration({ shopId: shop.id, gstin: shop.gstin!, consentGiven: true, actor })).rejects.toMatchObject({ code: "CONFLICT" });
