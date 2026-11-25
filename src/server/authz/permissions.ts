@@ -717,6 +717,10 @@ const OPERATIONS_MANAGER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.OPS_TEAM_MANAGE,
   PERMISSIONS.OPS_REPORT_VIEW,
   PERMISSIONS.STAFF_TEAM_VIEW,
+  // Owner, 25-Nov-2026: shop documents (upload, read, verify) and shop registrations (unfinished ones,
+  // continuing one for the owner, the onboarding funnel) — as the Operator role has them.
+  PERMISSIONS.SHOP_GST_PAN_VERIFY,
+  PERMISSIONS.SHOP_REGISTRATION_MANAGE,
 ];
 /* <<< RBAC v2 */
 

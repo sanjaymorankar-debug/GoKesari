@@ -95,6 +95,10 @@ describe("RBAC v2 roles and permission matrix", () => {
     expect(can("OPERATIONS_USER", PERMISSIONS.OPS_TEAM_MANAGE)).toBe(false);
     expect(can("OPERATIONS_MANAGER", PERMISSIONS.OPS_TEAM_MANAGE)).toBe(true);
     expect(can("OPERATIONS_MANAGER", PERMISSIONS.OPERATOR_LIMITED_ONBOARD)).toBe(false);
+    // Owner, 25-Nov-2026: the Operations Manager works shop documents and registrations, as the Operator does.
+    expect(can("OPERATIONS_MANAGER", PERMISSIONS.SHOP_GST_PAN_VERIFY)).toBe(true);
+    expect(can("OPERATIONS_MANAGER", PERMISSIONS.SHOP_REGISTRATION_MANAGE)).toBe(true);
+    expect(can("OPERATIONS_USER", PERMISSIONS.SHOP_REGISTRATION_MANAGE)).toBe(false);
   });
 
   it("removes nothing from the existing roles (brief §2.3 rule 4)", () => {
