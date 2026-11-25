@@ -239,7 +239,8 @@ describe("menu definitions", () => {
     // operator Catalogue shows Shop categories and Product categories on the board (+2, from "more").
     // Smart shopping dashboard (docs/smart-shopping-2026-11): admin +1, Reports → "Smart shopping" (operator: under Order support → more).
     // HDMS (docs/hdms-2026-11): admin +7, the Delivery management hub's board items (the rest under "more").
-    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(46);
+    // Sign-in security (docs/sms-2fa-2026-11): admin +1, Settings → "Sign-in security".
+    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(47);
     // HDMS: operator +1, Riders → "Partner deliveries".
     expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(29);
   });

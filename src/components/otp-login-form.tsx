@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 import { useSignInConsent } from "@/components/signin-consent";
 import { EMAIL_HINT, isValidEmail, parseIndianMobile } from "@/lib/contact";
+import { SmsSecondFactor } from "@/components/sms-second-factor";
+import type { SecondFactorPrompt } from "@/server/otp/second-factor";
 import { errorText } from "@/lib/board/error-text";
 import { L, tr, type Lang } from "@/lib/board/i18n";
 
@@ -63,14 +65,15 @@ const T = {
   signUpEmail: L("Sign up with your email", "अपने ईमेल से साइन अप करें", "तुमच्या ईमेलने साइन अप करा"),
 } as const;
 
-type Step = "identify" | "email" | "code";
+type Step = "identify" | "email" | "code" | "sms";
 export type VerifyLoginCode = (input: {
   mobile: string | null;
   email: string | null;
   code: string;
   /** The Terms & Privacy box: the server creates a new account only when it is ticked (TC-FLD-004). */
   acceptedTerms: boolean;
-}) => Promise<{ error?: string } | void>;
+  /** docs/sms-2fa-2026-11: the SMS step, when the account needs a second factor. */
+}) => Promise<{ error?: string; secondFactor?: SecondFactorPrompt } | void>;
 
 const inputClass =
   "min-w-0 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none";
@@ -93,6 +96,8 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
   const [emailInput, setEmailInput] = useState("");
   /** Where the code went: the email given, masked, or null for "the account's email, if registered". */
   const [sentTo, setSentTo] = useState<string | null>(null);
+  /** docs/sms-2fa-2026-11: the SMS step's prompt once the emailed code is right. */
+  const [secondFactor, setSecondFactor] = useState<SecondFactorPrompt | null>(null);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -166,12 +171,17 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
     setBusy(true);
     setError(null);
     const result = await verify({ mobile, email, code: code.trim(), acceptedTerms: agreed });
-    // On success the server action redirects and never returns here.
+    // On success the server action redirects and never returns here — unless the SMS step comes next.
     if (result?.error) setError(errorText(result.error, lang));
+    else if (result?.secondFactor) {
+      setSecondFactor(result.secondFactor);
+      setStep("sms");
+    }
     setBusy(false);
   }
 
   function startOver() {
+    setSecondFactor(null);
     setStep("identify");
     setCode("");
     setEmailInput("");
@@ -294,7 +304,9 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
         </form>
       ) : null}
 
-      {error ? (
+      {step === "sms" && secondFactor ? <SmsSecondFactor prompt={secondFactor} onCancel={startOver} /> : null}
+
+      {error && step !== "sms" ? (
         <p role="alert" className="mt-2 text-sm text-red-700">
           {error}
         </p>
