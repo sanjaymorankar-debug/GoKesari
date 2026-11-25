@@ -187,6 +187,63 @@ its roughly 32 minutes.
     ran its build, the post-deploy check had passed, and 44 guest checks had
     passed with none failing. #421 then passed the full guest QA on top of it.
 
+## Batches (owner's choice, 25-Nov-2026)
+
+Tested one at a time, a PR takes about 90 minutes on staging, mostly the same
+CI run twice (its own, then staging's on the merge). With 21 PRs waiting that
+was about 30 hours. So the queue now tests **up to 4 PRs together**:
+
+1. It takes the oldest queued PRs whose own checks have passed (not
+   `staging-fix`, not `staging-solo`, not from a fork) and builds a branch
+   `queue/batch-<time>` = `staging` + each PR merged in order. A PR whose only
+   conflict is the migration journal is renumbered (as under "Migration
+   numbers"; the result is pushed to its own branch). A PR with any other
+   conflict is left out and keeps its place.
+2. That branch goes up as one PR into `staging`, "Staging queue batch: #a, #b, …".
+   Its CI tests the combination once.
+   - **CI fails:** the batch PR is closed, nothing reaches `staging`, and the
+     same PRs are tested **one at a time** in that run, which finds the culprit
+     and blocks only it.
+3. **CI passes:** the batch PR is merged (one push to `staging`). When the merge
+   has exactly the tree CI tested, staging's CI is not waited for again;
+   "Test database" (migrations), the deploy, the post-deploy check and the
+   guest QA tier run **once** for the batch.
+4. **Passes:** the batch PR and every PR in it get `staging-verified` (a PR
+   GitHub has not shown as merged is closed with a pointer to the batch).
+   **Fails:** they all get `staging-failed` and the queue pauses as for one PR.
+   The failing checks in the comments name the culprit; its session opens the
+   `Fix #<n>: …` PR with `staging-fix`.
+
+About 50 minutes per batch of 4 instead of about 90 minutes per PR.
+
+- **Keep a PR out of batches:** add the label `staging-solo` (a risky change, a
+  large migration).
+- **Turn batches off:** repository variable `STAGING_QUEUE_BATCH_SIZE=1`
+  (Settings → Secrets and variables → Actions → Variables). Any other number is
+  the batch size; the default is 4.
+- **Production:** a release takes the batch as one, by its merge
+  `Merge pull request #<batch>` on `staging`.
+
+## Known failures: the queue does not stop (owner's choice, 25-Nov-2026)
+
+Owner: "in case any CI stopped due to defect, switch to next testing and finish
+that testing." So with `QUEUE_CONTINUE_ON_FAIL=1` (the workflow's default):
+
+- A PR (or batch) that fails on staging is still labelled `staging-failed`, and
+  the issue labelled `staging-queue-paused` is opened (title "… (queue
+  continues)"). Its failing guest QA checks are kept in the issue body as
+  **known failures**.
+- The queue **goes on** merging and testing the next PRs. A later PR whose guest
+  QA fails **only** on known failures counts as passed (its comment says so). A
+  new failing check, or a failure before QA (CI, migrations, deploy), still
+  fails it and is added to the issue.
+- Fixes (`staging-fix`) still go first. A fix that passes cleanly closes the issue.
+- **Production waits:** a release never goes past a `staging-failed` PR until a
+  fix after it is `staging-verified` (the owner's release rule). So staging keeps
+  moving, and gokesari.com only ever gets code that has passed.
+- Back to the old behaviour (stop until fixed): repository variable
+  `STAGING_QUEUE_CONTINUE_ON_FAIL=0`.
+
 ## What it does not do
 
 - **Production.** `staging` → `main` stays the owner's approval and the
