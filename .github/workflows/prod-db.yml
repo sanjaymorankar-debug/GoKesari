@@ -1,18 +1,31 @@
-# Production database — gokesari.com. BY HAND ONLY.
+# Production database — gokesari.com.
 # Setup and use: docs/event-driven-2026-10/PROD_DB.md
 #
-# Actions → "Production database" → Run workflow → branch main:
+# AUTOMATIC (since 25-Nov-2026, after two outages that day where code reached
+# gokesari.com without its migrations):
+#   - every pull request into main (opened, new commits, reopened, ready for
+#     review): applies the PR's migrations to production BEFORE the merge. A PR
+#     with no new migration passes in a few seconds and changes nothing. The
+#     check "Production database" must be green before anyone merges into main.
+#   - every push to main: a safety net with main's own migrations, in case a
+#     merge beat the PR's run. It finishes before the server's ~5-minute build.
+#   Automatic runs need no typed confirmation, but every other guard applies:
+#   the production URL is checked; every pending migration must already be on
+#   the test database, byte for byte (same SHA-256 drizzle recorded there);
+#   a restore point is taken first; only main's copy of this workflow and of the
+#   migrator run (the PR contributes only its drizzle/*.sql and journal). PRs
+#   from forks or from people without write access are skipped (never migrated).
+#
+# BY HAND — Actions → "Production database" → Run workflow → branch main:
 #   verify   read-only: which migrations production has, and which of the
 #            release's (staging by default) it still lacks
 #   migrate  applies the release's migrations to production; needs
 #            confirm = MIGRATE PRODUCTION, and refuses any migration the test
 #            database does not already have
 #
-# Run "migrate" from main with source = staging BEFORE merging staging into
-# main: migrations are additive, so the live code keeps working on the new
-# schema, and the new code finds its tables when the server deploys it.
+# Migrations are additive, so the live code keeps working on the new schema,
+# and the new code finds its tables when the server deploys it.
 #
-# There is no push or schedule trigger: nothing here runs on its own.
 # Production data never leaves the database server — no dump to GitHub, no
 # artifact. Before migrating, the run records the point an undo would go back
 # to, the way that fits where production is (variable PROD_DATABASE_HOST):
@@ -58,6 +71,11 @@ on:
         description: "migrate only: type MIGRATE PRODUCTION"
         required: false
         default: ""
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
 
 # One production run at a time; a queued run waits rather than cancelling one mid-migration.
 concurrency:
@@ -74,8 +92,17 @@ defaults:
 
 jobs:
   prod-db:
-    # Only the reviewed copy of this file on main may run against production.
-    if: github.ref == 'refs/heads/main'
+    # Only the reviewed copy of this file on main may run against production
+    # (pull_request_target runs main's copy, with github.ref = refs/heads/main).
+    # PRs: only from this repository, by someone with write access, not drafts.
+    if: >-
+      github.ref == 'refs/heads/main' && (
+        github.event_name != 'pull_request_target' || (
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          !github.event.pull_request.draft &&
+          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+        )
+      )
     # F14.2.1 (PLT-009): the production secrets and variables are kept on the
     # "production" environment (as copy-shops.yml already uses).
     # Without this line the job sees only repository-level values, which is why
@@ -89,8 +116,11 @@ jobs:
       EXPECTED_HOST: ${{ vars.PROD_DATABASE_HOST }}
       EXPECTED_DB: ${{ vars.PROD_DATABASE_NAME }}
       TEST_HOST: ${{ vars.TEST_DATABASE_HOST }}
-      ACTION: ${{ inputs.action }}
-      SOURCE: ${{ inputs.source }}
+      # By hand: the chosen action. Automatic (PR into main, push to main): migrate.
+      ACTION: ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'migrate' }}
+      # What is being released: a branch by hand, the PR, or main.
+      SOURCE: ${{ github.event_name == 'workflow_dispatch' && inputs.source || (github.event_name == 'pull_request_target' && format('PR #{0}', github.event.pull_request.number) || 'main') }}
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.source || (github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha) }}
 
     steps:
       - name: Check out this workflow's scripts (main)
@@ -100,10 +130,11 @@ jobs:
           path: tools
           persist-credentials: false
 
-      - name: Check out the release (${{ inputs.source }})
+      - name: Check out the release (${{ env.SOURCE }})
+        # Only read: its drizzle/ journal and SQL files. No code from it runs.
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.source }}
+          ref: ${{ env.RELEASE_REF }}
           path: release
           persist-credentials: false
 
@@ -160,25 +191,37 @@ jobs:
           hosts: ${{ env.VPS_HOSTS }}
           environment: production
 
-      - name: Guard — production, by hand, confirmed
+      - name: Guard — production, main, confirmed when by hand
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
           CONFIRM: ${{ inputs.confirm }}
         run: tools/scripts/prod-db/guard.sh
 
-      - name: Tested on the test database first
-        if: inputs.action == 'migrate'
-        env:
-          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
-        run: tools/scripts/prod-db/tested-on-test.sh release/drizzle/meta/_journal.json
-
       - name: State before
+        # Also sets PENDING (how many of the release's migrations production lacks).
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: tools/scripts/prod-db/state.sh release/drizzle/meta/_journal.json
 
+      - name: Nothing to migrate
+        if: env.ACTION == 'migrate' && env.PENDING == '0'
+        run: echo "Production already has every migration of ${SOURCE}. Nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Tested on the test database first
+        if: env.ACTION == 'migrate' && env.PENDING != '0'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: tools/scripts/prod-db/tested-on-test.sh release/drizzle/meta/_journal.json
+
+      - name: Same migrations as the test database (SHA-256)
+        if: env.ACTION == 'migrate' && env.PENDING != '0'
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: tools/scripts/prod-db/same-as-test.sh release/drizzle
+
       - name: Restore point (Neon)
-        if: inputs.action == 'migrate' && env.PROD_PROVIDER != 'vps'
+        if: env.ACTION == 'migrate' && env.PENDING != '0' && env.PROD_PROVIDER != 'vps'
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: |
@@ -192,7 +235,7 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Restore point (database server snapshot)
-        if: inputs.action == 'migrate' && env.PROD_PROVIDER == 'vps'
+        if: env.ACTION == 'migrate' && env.PENDING != '0' && env.PROD_PROVIDER == 'vps'
         # A dump on the server plus a restore point named prod-db-migrate-<date>-run<N>;
         # no rows leave the server. Stops the run before migrating if it fails.
         uses: ./tools/.github/actions/vps-db-snapshot
@@ -205,28 +248,29 @@ jobs:
           title: Restore point (before migrating)
 
       - uses: actions/setup-node@v5
-        if: inputs.action == 'migrate'
+        if: env.ACTION == 'migrate' && env.PENDING != '0'
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: release/package-lock.json
+          cache-dependency-path: tools/package-lock.json
 
-      - name: Install the migrator (no secrets, no install scripts)
-        if: inputs.action == 'migrate'
-        working-directory: release
+      - name: Install the migrator from main (no secrets, no install scripts)
+        if: env.ACTION == 'migrate' && env.PENDING != '0'
+        working-directory: tools
         run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
       - name: Migrate production
-        if: inputs.action == 'migrate'
+        if: env.ACTION == 'migrate' && env.PENDING != '0'
+        # Main's migrator (tools/) applies the release's ./drizzle folder: the run
+        # executes no code from the release. Shared lock: safe even if another
+        # run migrates at the same moment (builds themselves never migrate).
         working-directory: release
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
-        # The build's migrator with its shared lock: safe even if another run
-        # migrates at the same moment (builds themselves never migrate).
-        run: MIGRATE_ON_BUILD=true DATABASE_URL="$PROD_DATABASE_URL" node scripts/migrate-on-build.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+        run: MIGRATE_ON_BUILD=true DATABASE_URL="$PROD_DATABASE_URL" node "$GITHUB_WORKSPACE/tools/scripts/migrate-on-build.mjs" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: State after
-        if: inputs.action == 'migrate'
+        if: env.ACTION == 'migrate'
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: tools/scripts/prod-db/state.sh release/drizzle/meta/_journal.json --expect-latest
