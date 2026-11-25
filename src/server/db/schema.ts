@@ -10820,6 +10820,8 @@ export const FEATURE_FLAG_KEYS = [
   "guest_checkout_enabled",
   // docs/account-deletion-2026-11 (0191): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
+  // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
+  "auto_journals",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
