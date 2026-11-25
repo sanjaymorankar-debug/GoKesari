@@ -165,6 +165,13 @@ export async function setHsnRate(input: z.infer<typeof hsnRateSchema>, actor: { 
  * may be empty). Every row is checked first; nothing is saved if one is wrong.
  */
 export async function importHsnRates(csv: string, actor: { id: string; role: UserRole }): Promise<{ saved: number }> {
+  const rows = parseHsnCsv(csv);
+  for (const row of rows) await setHsnRate(row, actor);
+  return { saved: rows.length };
+}
+
+/** The rows of an HSN rate CSV (see importHsnRates), all checked; throws listing the bad rows. */
+export function parseHsnCsv(csv: string): z.infer<typeof hsnRateSchema>[] {
   const rows: z.infer<typeof hsnRateSchema>[] = [];
   const errors: string[] = [];
   const lines = csv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -183,8 +190,7 @@ export async function importHsnRates(csv: string, actor: { id: string; role: Use
     else errors.push(`Row ${i + 1}: ${parsed.error.issues[0]?.message ?? "not valid"}`);
   });
   if (errors.length) throw validationFailed(`Nothing saved. ${errors.slice(0, 5).join("; ")}${errors.length > 5 ? ` (and ${errors.length - 5} more)` : ""}`);
-  for (const row of rows) await setHsnRate(row, actor);
-  return { saved: rows.length };
+  return rows;
 }
 
 export async function endHsnRate(id: string, effectiveTo: string, actor: { id: string; role: UserRole }) {

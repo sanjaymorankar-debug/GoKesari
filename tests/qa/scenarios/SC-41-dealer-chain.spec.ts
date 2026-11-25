@@ -54,8 +54,11 @@ qa("SC-41", "dealer chain: request a code, register with the agent's code, ₹4,
       expectStatus(await commissionAction({ action: "approve", ids: [entry.id] }), 200, "approve");
       const batch = await commissionAction({ action: "createPayout", dealerId: net.dealerId, memberId: net.agent.id, note: "SC-41" });
       expectStatus(batch, 200, "the agent's payout");
+      // A second admin approves before it is paid by hand.
+      const approved = await call(await ctxFor(await freshAccount("sc41-admin2", "ADMIN")), "POST", "/api/admin/dealer-commission", { action: "approvePayout", batchId: batch.body.batch.id });
+      if (approved.status === 409 && approved.body?.error?.details?.reason === "TDS_UNCONFIRMED") need(null, "a CA-confirmed TDS row (Admin → TDS on commission)");
+      expectStatus(approved, 200, "another admin approves");
       const paid = await commissionAction({ action: "payoutPaid", batchId: batch.body.batch.id, reference: "SC41-UTR" });
-      if (paid.status === 409 && paid.body?.error?.details?.reason === "TDS_UNCONFIRMED") need(null, "a CA-confirmed TDS row (Admin → TDS on commission)");
       expectStatus(paid, 200, "paid with PAN and a verified bank");
       return `₹999.80 / ₹199.96 / ₹149.97 at activation; unready agent ON_HOLD; agent paid (${batch.body.batch.id.slice(0, 8)})`;
     }),

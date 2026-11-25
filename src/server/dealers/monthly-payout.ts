@@ -51,7 +51,7 @@ import { notify } from "@/server/services/notifications";
 import { queueDocumentEmail } from "@/server/documents/email";
 import { getRule } from "@/server/services/settings";
 import { COMMISSION_ENTRY_TYPE_LABELS, STATEMENT_LINES, type CommissionEntryType } from "@/lib/dealer-tiers";
-import { getCommissionSettings, payeeStatus, payoutTds, tdsColumns } from "./commission";
+import { getCommissionSettings, payeeChecksApply, payeeStatus, payoutTds, tdsColumns } from "./commission";
 import { financialYear } from "@/server/tax/commission-tds";
 import { accrueTerritoryIncome } from "./territory";
 import { accrueDevelopmentBonuses, accrueTargetBonuses } from "./tiered";
@@ -191,8 +191,8 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
       const total = rows.reduce((s, r) => s + r.amountPaise, 0);
       if (rows.length === 0) continue;
       const payee = await payeeStatus(tx, dealerId, memberId);
-      // Team members always; dealers when rule dealerPayouts.enforcePayeeChecks is on (off: as before).
-      if (payee.missing.length && (memberId || payoutRule.enforcePayeeChecks)) {
+      // Every payee (dealer, franchise owner, team member) — see payeeChecksApply.
+      if (payee.missing.length && (await payeeChecksApply(memberId, payoutRule))) {
         carried.push({ dealerId, memberId, netPaise: total, reason: `held: ${payee.missing.join(", ")}`, missing: payee.missing });
         continue;
       }
@@ -280,7 +280,7 @@ async function remindHeldPayees(month: string, carried: MonthCloseResult["carrie
       type: NOTIFICATION_TYPES.DEALER_PAYOUT_HELD,
       vars: { month: monthLabel(month), amount: rupees(c.netPaise), missing: c.missing!.join(", ") },
       actionUrl: "/dealer",
-      channels: ["PUSH"],
+      channels: ["PUSH", "EMAIL"],
       dedupeKey: `dealer-payout-held:${month}:${c.memberId ?? c.dealerId}`,
     });
     sent += 1;

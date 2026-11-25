@@ -10,7 +10,7 @@ import { apiRoutes, fill, isDynamic, NO_SUCH_ID, pagePaths, PUBLIC_PAGES, PUBLIC
 import { BASE_URL, IS_PROD, IS_REMOTE, TARGET } from "../lib/target";
 
 /** Public forms with a per-IP limit of a handful of calls (5–10 per 10–60 minutes). */
-const TIGHT_LIMITS = new Set(["/api/grievances", "/api/shop-registrations", "/api/shop-registrations/otp", "/api/otp/request", "/api/referral-requests"]);
+const TIGHT_LIMITS = new Set(["/api/grievances", "/api/shop-registrations", "/api/shop-registrations/otp", "/api/otp/request", "/api/referral-requests", "/api/guest-checkout/start", "/api/track/lookup"]);
 
 const WRITE = ["POST", "PUT", "PATCH", "DELETE"] as const;
 

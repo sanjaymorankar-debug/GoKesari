@@ -36,7 +36,7 @@ export interface ThreadProps {
   access: "STAFF" | "REQUESTER" | "SHOP";
   messages: ThreadMessage[];
   files: ThreadFile[];
-  can: { reply: boolean; close: boolean; reopen: boolean; rate: boolean; manage: boolean; nextStatuses: TicketStatus[] };
+  can: { reply: boolean; close: boolean; reopen: boolean; rate: boolean; manage: boolean; assign: boolean; escalate: boolean; nextStatuses: TicketStatus[] };
   csat: { rating: number; comment: string | null } | null;
   cannedReplies?: { id: string; title: string }[];
   staff?: { id: string; label: string }[];
@@ -261,24 +261,26 @@ export function TicketThread(props: ThreadProps) {
           <Button disabled={busy || !statusTo} onClick={() => act(() => send(base, "PATCH", { action: "status", status: statusTo, note: statusNote || null }))}>
             Update status
           </Button>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Assigned to">
-              <select className={inputClass} value={assignee} onChange={(e) => setAssignee(e.target.value)}>
-                <option value="">Nobody</option>
-                {(props.staff ?? []).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="flex items-end">
-              <Button variant="secondary" disabled={busy} onClick={() => act(() => send(base, "PATCH", { action: "assign", assigneeId: assignee || null }))}>
-                Save assignment
-              </Button>
+          {props.can.assign ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Assigned to">
+                <select className={inputClass} value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+                  <option value="">Nobody</option>
+                  {(props.staff ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="flex items-end">
+                <Button variant="secondary" disabled={busy} onClick={() => act(() => send(base, "PATCH", { action: "assign", assigneeId: assignee || null }))}>
+                  Save assignment
+                </Button>
+              </div>
             </div>
-          </div>
-          {props.can.nextStatuses.includes("ESCALATED") ? (
+          ) : null}
+          {props.can.escalate && props.can.nextStatuses.includes("ESCALATED") ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Escalate — why?">
                 <input className={inputClass} value={why} onChange={(e) => setWhy(e.target.value)} />

@@ -8,6 +8,7 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { addStatutoryRate, listStatutoryRates, statutoryRateInput } from "@/server/statutory/rates";
+import { refuseDirectTaxEdit } from "@/server/tax-register/changes";
 
 export const GET = route(async () => {
   await requirePermission(PERMISSIONS.STATUTORY_MANAGE);
@@ -16,6 +17,7 @@ export const GET = route(async () => {
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.STATUTORY_MANAGE);
+  await refuseDirectTaxEdit("A statutory setting");
   const body = await parseBody(request, statutoryRateInput);
   return ok(await addStatutoryRate(body, user), 201);
 });

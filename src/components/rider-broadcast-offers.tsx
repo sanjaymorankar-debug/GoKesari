@@ -12,6 +12,33 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Alert, Badge, Button, Card, Money } from "@/components/ui";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang } from "@/lib/board/i18n";
+
+/** Module 6 (docs/hindi-marathi-2026-11/). */
+const T = {
+  errUpdate: L("Could not update the offer.", "ऑफ़र अपडेट नहीं हो सका।", "ऑफर अपडेट करता आली नाही."),
+  errNoServer: L(
+    "Could not reach the server. Check your connection and try again.",
+    "सर्वर से संपर्क नहीं हो सका। इंटरनेट देखें और फिर कोशिश करें।",
+    "सर्व्हरशी संपर्क झाला नाही. इंटरनेट तपासा आणि पुन्हा प्रयत्न करा.",
+  ),
+  taken: L("Offer taken", "ऑफ़र ले लिया गया", "ऑफर घेतली गेली"),
+  expired: L("Offer expired", "ऑफ़र खत्म हो गया", "ऑफरची मुदत संपली"),
+  open: L(
+    "Open delivery — first to accept gets it",
+    "खुली डिलीवरी — जो पहले स्वीकारे, उसे मिलेगी",
+    "खुली डिलिव्हरी — जो आधी स्वीकारेल त्याला मिळेल",
+  ),
+  left: L("{t} left", "{t} बाकी", "{t} बाकी"),
+  order: L("Order {n}", "ऑर्डर {n}", "ऑर्डर {n}"),
+  toShop: L(" · {km} km to the shop", " · दुकान तक {km} km", " · दुकानापर्यंत {km} km"),
+  delivery: L(" · {km} km delivery", " · {km} km डिलीवरी", " · {km} km डिलिव्हरी"),
+  earn: L("Earn about", "लगभग कमाई", "सुमारे कमाई"),
+  otherRider: L("Another rider accepted this order first.", "दूसरे राइडर ने यह ऑर्डर पहले स्वीकार कर लिया।", "दुसऱ्या रायडरने ही ऑर्डर आधी स्वीकारली."),
+  accept: L("Accept", "स्वीकारें", "स्वीकारा"),
+  notThis: L("Not this one", "यह नहीं", "ही नको"),
+} as const;
 
 export interface BroadcastOfferView {
   broadcastId: string;
@@ -36,7 +63,7 @@ function countdown(expiresAt: string | null, now: number): string | null {
   return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
 }
 
-export function RiderBroadcastOffers({ initialPollSeconds }: { initialPollSeconds: number }) {
+export function RiderBroadcastOffers({ initialPollSeconds, lang = "en" }: { initialPollSeconds: number; lang?: Lang }) {
   const router = useRouter();
   const [offers, setOffers] = useState<BroadcastOfferView[]>([]);
   const [taken, setTaken] = useState<Set<string>>(new Set());
@@ -90,10 +117,10 @@ export function RiderBroadcastOffers({ initialPollSeconds }: { initialPollSecond
       if (body?.error?.details?.reason === "OFFER_TAKEN") {
         setTaken((s) => new Set(s).add(broadcastId));
       } else {
-        setError(body?.error?.message ?? "Could not update the offer.");
+        setError(errorText(body?.error?.message ?? tr(T.errUpdate, lang), lang, body?.error?.code));
       }
     } catch {
-      setError("Could not reach the server. Check your connection and try again.");
+      setError(tr(T.errNoServer, lang));
     } finally {
       setBusy(null);
     }
@@ -111,34 +138,34 @@ export function RiderBroadcastOffers({ initialPollSeconds }: { initialPollSecond
           <Card key={offer.broadcastId} className="p-4" data-testid="broadcast-offer">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-kesari-600">
-                {isTaken ? "Offer taken" : expired ? "Offer expired" : "Open delivery — first to accept gets it"}
+                {tr(isTaken ? T.taken : expired ? T.expired : T.open, lang)}
               </p>
-              {!isTaken && !expired && left ? <Badge tone="warning">{left} left</Badge> : null}
+              {!isTaken && !expired && left ? <Badge tone="warning">{tr(T.left, lang).replace("{t}", left)}</Badge> : null}
             </div>
             <p className="mt-1 font-semibold text-ink-900">
               {offer.shopName} <span className="text-sm font-normal text-ink-500">· {offer.shopArea}</span>
             </p>
             <p className="text-sm text-ink-600">
-              Order {offer.orderNumber}
-              {offer.distanceToShopKm != null ? ` · ${offer.distanceToShopKm.toFixed(1)} km to the shop` : ""}
-              {offer.deliveryLegKm != null ? ` · ${offer.deliveryLegKm.toFixed(1)} km delivery` : ""}
+              {tr(T.order, lang).replace("{n}", offer.orderNumber)}
+              {offer.distanceToShopKm != null ? tr(T.toShop, lang).replace("{km}", offer.distanceToShopKm.toFixed(1)) : ""}
+              {offer.deliveryLegKm != null ? tr(T.delivery, lang).replace("{km}", offer.deliveryLegKm.toFixed(1)) : ""}
             </p>
             {offer.earningsPaise != null && !isTaken ? (
               <p className="text-sm text-ink-700">
-                Earn about <Money paise={offer.earningsPaise} />
+                {tr(T.earn, lang)} <Money paise={offer.earningsPaise} />
               </p>
             ) : null}
             {isTaken ? (
               <p className="mt-2 text-sm text-ink-500" data-testid="offer-taken">
-                Another rider accepted this order first.
+                {tr(T.otherRider, lang)}
               </p>
             ) : expired ? null : (
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" disabled={busy !== null} onClick={() => act(offer.broadcastId, "accept")}>
-                  Accept
+                  {tr(T.accept, lang)}
                 </Button>
                 <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => act(offer.broadcastId, "decline")}>
-                  Not this one
+                  {tr(T.notThis, lang)}
                 </Button>
               </div>
             )}

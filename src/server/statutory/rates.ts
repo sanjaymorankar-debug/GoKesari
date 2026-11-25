@@ -16,11 +16,13 @@
  *   GST_S95_LOCAL_DELIVERY   rateBp (disabled by default)
  *   UNREGISTERED_SELLER_RULES params.tcsOnUnregistered, tdsOnUnregistered, interStateAllowed
  *   PLATFORM_FEE_GST         params.rateBpByFeeType (GST on GoKesari's fees)
+ *   IT_TDS_194H / _194J      rateBp; params.noPanRateBp, annualThresholdPaise, singlePaymentThresholdPaise, sectionLabel
  */
 import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { addDays, assertIsoDate, type IsoDate } from "@/lib/dates";
+import { isProductionSite } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
 import { statutoryRates, type StatutoryRate, type UserRole } from "@/server/db/schema";
@@ -33,6 +35,9 @@ export const STATUTORY_KEYS = [
   "GST_S95_LOCAL_DELIVERY",
   "UNREGISTERED_SELLER_RULES",
   "PLATFORM_FEE_GST",
+  // docs/tax-register (0188): seeded disabled, for the CA to confirm.
+  "IT_TDS_194H",
+  "IT_TDS_194J",
 ] as const;
 export type StatutoryKey = (typeof STATUTORY_KEYS)[number];
 
@@ -218,15 +223,44 @@ export async function updateStatutoryRate(id: string, patch: z.infer<typeof stat
 
 /* ------------------------------------------------------- typed readers */
 
+export interface StatutoryReadOptions {
+  /** Override for tests; default: this is gokesari.com (isProductionSite). */
+  production?: boolean;
+}
+
+const warnedUnconfirmed = new Set<string>();
+
+/** True on gokesari.com only; test.gokesari.com and local builds keep using unconfirmed rows. */
+function onProductionSite(opts?: StatutoryReadOptions): boolean {
+  if (opts?.production !== undefined) return opts.production;
+  if (process.env.NODE_ENV !== "production") return false;
+  return isProductionSite();
+}
+
+/**
+ * On production a TCS / TDS row is used only once the CA has confirmed it
+ * (/admin/statutory); an unconfirmed row counts as "not in force" and is
+ * logged once per row per process. Test and local sites use it as before.
+ */
+function usableOnThisSite(row: StatutoryRate, opts?: StatutoryReadOptions): boolean {
+  if (row.confirmedByCa || !onProductionSite(opts)) return true;
+  if (!warnedUnconfirmed.has(row.id)) {
+    warnedUnconfirmed.add(row.id);
+    console.warn(`[statutory] ${row.key} row ${row.id} (from ${row.effectiveFrom}) is not confirmed by the CA; not applied on production.`);
+  }
+  return false;
+}
+
 export interface TcsSetting {
   rateBp: number;
   applyToUnregistered: boolean;
   rowId: string;
 }
 
-export async function tcsOn(day: IsoDate, resolve: StatutoryResolver): Promise<TcsSetting | null> {
+export async function tcsOn(day: IsoDate, resolve: StatutoryResolver, opts?: StatutoryReadOptions): Promise<TcsSetting | null> {
   const row = await resolve("GST_TCS_SEC52", day);
   if (!row || !row.enabled || row.rateBp == null) return null;
+  if (!usableOnThisSite(row, opts)) return null;
   return { rateBp: row.rateBp, applyToUnregistered: row.params.applyToUnregistered === true, rowId: row.id };
 }
 
@@ -239,9 +273,10 @@ export interface TdsSetting {
   rowId: string;
 }
 
-export async function tdsOn(day: IsoDate, resolve: StatutoryResolver): Promise<TdsSetting | null> {
+export async function tdsOn(day: IsoDate, resolve: StatutoryResolver, opts?: StatutoryReadOptions): Promise<TdsSetting | null> {
   const row = await resolve("IT_TDS_194O", day);
   if (!row || !row.enabled || row.rateBp == null) return null;
+  if (!usableOnThisSite(row, opts)) return null;
   const p = row.params;
   return {
     rateBp: row.rateBp,
@@ -289,4 +324,32 @@ export async function platformFeeGstRateOn(feeType: string, day: IsoDate, resolv
   const byType = (row.params.rateBpByFeeType ?? {}) as Record<string, unknown>;
   const rate = byType[feeType];
   return typeof rate === "number" ? rate : (row.rateBp ?? 0);
+}
+
+/**
+ * docs/tax-register (0188): a TDS section row (194H, 194J) in the shape the shared calculator
+ * (rider-wallet/rules.ts computeTds) takes. Null when no row is in force or it is disabled.
+ * `confirmed`: the CA confirmed it — on gokesari.com an unconfirmed row holds the payment.
+ */
+export async function tdsSectionOn(
+  key: "IT_TDS_194H" | "IT_TDS_194J",
+  day: IsoDate,
+  resolve: StatutoryResolver,
+): Promise<{ rule: { tdsEnabled: boolean; tdsRatePanBp: number; tdsRateNoPanBp: number; singlePaymentThresholdPaise: number; annualThresholdPaise: number }; sectionLabel: string; rowId: string; confirmed: boolean } | null> {
+  const row = await resolve(key, day);
+  if (!row || !row.enabled || row.rateBp == null) return null;
+  const p = row.params;
+  const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+  return {
+    rule: {
+      tdsEnabled: true,
+      tdsRatePanBp: row.rateBp,
+      tdsRateNoPanBp: num(p.noPanRateBp, 2000),
+      annualThresholdPaise: num(p.annualThresholdPaise, 0),
+      singlePaymentThresholdPaise: num(p.singlePaymentThresholdPaise, num(p.annualThresholdPaise, 0)),
+    },
+    sectionLabel: typeof p.sectionLabel === "string" ? p.sectionLabel : key,
+    rowId: row.id,
+    confirmed: row.confirmedByCa,
+  };
 }

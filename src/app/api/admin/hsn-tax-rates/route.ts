@@ -11,6 +11,7 @@ import { ok, parseBody, parseQuery, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { hsnRateSchema, importHsnRates, listHsnRates, setHsnRate } from "@/server/gst/config";
+import { refuseDirectTaxEdit } from "@/server/tax-register/changes";
 
 export const dynamic = "force-dynamic";
 
@@ -22,11 +23,13 @@ export const GET = route(async (request: NextRequest) => {
 
 export const PUT = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.GST_CONFIG_MANAGE);
+  await refuseDirectTaxEdit("An HSN rate");
   return ok({ rate: await setHsnRate(await parseBody(request, hsnRateSchema), user) });
 });
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.GST_CONFIG_MANAGE);
   const { csv } = await parseBody(request, z.object({ csv: z.string().min(1).max(1_000_000) }));
+  await refuseDirectTaxEdit("An HSN rate");
   return ok(await importHsnRates(csv, user));
 });

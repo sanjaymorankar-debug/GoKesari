@@ -60,4 +60,9 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   // A paid scheme's joining charge: marked paid in the capture transaction; the applicant then submits.
   DEALER_JOINING_FEE: async (intent, client) => (await import("@/server/dealers/scheme-registration")).onJoiningFeeCaptured(intent, client),
   /* <<< dealer platform */
+  //
+  /* >>> shop membership renewal (docs/shop-membership-renewal-2026-11) */
+  // The yearly membership renewal paid online: on the shop's ledger (RENEWAL, ONLINE) and the membership extended, in the capture transaction.
+  SHOP_MEMBERSHIP_RENEWAL: async (intent, client, afterCommit) => (await import("@/server/services/shop-membership-renewal")).onShopMembershipRenewalCaptured(intent, client, afterCommit),
+  /* <<< shop membership renewal */
 };

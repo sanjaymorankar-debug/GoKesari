@@ -7,11 +7,13 @@ import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { isUuid } from "@/server/payouts/http";
 import { statutoryPatchInput, updateStatutoryRate } from "@/server/statutory/rates";
+import { refuseDirectTaxEdit } from "@/server/tax-register/changes";
 
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const user = await requirePermission(PERMISSIONS.STATUTORY_MANAGE);
   const { id } = await context.params;
   if (!isUuid(id)) throw notFound("Statutory setting");
+  await refuseDirectTaxEdit("A statutory setting");
   const body = await parseBody(request, statutoryPatchInput);
   return ok(await updateStatutoryRate(id, body, user));
 });
