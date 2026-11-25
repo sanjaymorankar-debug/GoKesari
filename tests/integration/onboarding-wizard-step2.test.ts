@@ -87,6 +87,8 @@ import {
   type DraftShopDetails,
 } from "@/server/services/shop-registration-wizard";
 import { registerShop } from "@/server/services/shops";
+import { listUnfinishedRegistrations, sendResumeLinkForStaff } from "@/server/registration/unfinished";
+import { staffActorForDraft } from "@/server/registration/wizard-actor";
 import { createUser, resetDatabase } from "../helpers/fixtures";
 import { call } from "../helpers/http";
 
@@ -242,6 +244,34 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     expect(view.location).toBeNull();
     expect(view.ownerName).not.toBe("Second Owner");
     expect((view.referral as { employeeId?: string | null }).employeeId).toBe("EMP-7");
+  });
+
+  it("owner 25-Nov-2026: staff see an unfinished registration, continue it for the owner (audited under their name) and send the owner a link", async () => {
+    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
+    const [draft] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id));
+    // Left for over a week: listed as abandoned, at the owner-name step.
+    await db.update(shopRegistrationDrafts).set({ updatedAt: new Date(Date.now() - 8 * 24 * 3_600_000) }).where(eq(shopRegistrationDrafts.id, draft.id));
+    const listed = (await listUnfinishedRegistrations({ only: "ABANDONED" })).find((r) => r.draftId === draft.id);
+    expect(listed).toMatchObject({ ownerId: owner.id, abandoned: true, status: "OPEN" });
+    expect((await listUnfinishedRegistrations({ only: "ACTIVE" })).some((r) => r.draftId === draft.id)).toBe(false);
+
+    const staffUser = await createUser({ role: "ADMIN" });
+    const actor = await staffActorForDraft(draft.id, { id: staffUser.id, role: "ADMIN" });
+    expect(actor).toMatchObject({ id: owner.id, staff: { id: staffUser.id } });
+    const view = await saveDraftOwner({ actor, ownerName: "Staff Typed" });
+    expect(view).toMatchObject({ id: draft.id, nextStep: "ADDRESS", ownerName: "Staff Typed" });
+    // The owner picks it up from the same step.
+    expect((await getWizardDraft(owner))!).toMatchObject({ id: draft.id, nextStep: "ADDRESS" });
+
+    // A paid check made by staff is recorded under the staff member's name.
+    await submitDraftGstin({ gstin: gstinFor("AABCH4321K"), consentGiven: true, actor });
+    const checked = await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, draft.id), eq(auditLogs.action, "shop_registration_draft.checked")));
+    expect(checked.some((a) => a.actorId === staffUser.id)).toBe(true);
+
+    await sendResumeLinkForStaff(draft.id, { id: staffUser.id, role: "ADMIN" });
+    const sent = await db.select().from(notifications).where(eq(notifications.userId, owner.id));
+    expect(sent.some((n) => n.actionUrl === "/shop/register")).toBe(true);
+    await expect(staffActorForDraft(randomUUID(), { id: staffUser.id, role: "ADMIN" })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("refuses a later step before the GSTIN / PAN step is done, and payment before every step", async () => {
