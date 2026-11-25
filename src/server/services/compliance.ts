@@ -6,6 +6,7 @@
  * judgement call this code cannot make, e.g. "has a lawyer reviewed this
  * policy text"). Existence of a feature is not a legal compliance claim.
  */
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { getEnv, isPaymentGatewayLive, kycConfigProblem } from "@/lib/env";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
 import { loadShopTypeRegistry } from "./shop-types";
@@ -144,10 +145,14 @@ export async function getComplianceChecklist(): Promise<ComplianceItem[]> {
     detail: "New sign-ups must tick 'I agree to Terms & Privacy Policy' before Google sign-in proceeds; recorded per-user with a policy version.",
   });
 
+  // docs/policy-reconsent-2026-11: built, behind the policy_reconsent_enabled flag.
+  const reconsentOn = await isFeatureEnabled("policy_reconsent_enabled").catch(() => false);
   items.push({
     area: "Consent re-capture on policy change",
-    status: "MISSING",
-    detail: "Existing users are not yet re-prompted when CURRENT_POLICY_VERSION changes — only new sign-ups are gated today.",
+    status: reconsentOn ? "ACTIVE" : "MISSING",
+    detail: reconsentOn
+      ? "Signed-in users are asked to accept a new Terms, Privacy or Seller Terms version published in Admin → Policy versions; each acceptance is recorded with version, time and channel."
+      : "Built but switched off: turn on the feature flag “Ask signed-in users to accept a new policy version”, then publish versions in Admin → Policy versions.",
   });
 
   items.push({
