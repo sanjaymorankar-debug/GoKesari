@@ -128,6 +128,7 @@ for (const width of BREAKPOINTS) {
         await expect(page.locator("#footer-company")).toContainText(HOME.footerCompany[lang]);
         await expect(page.getByTestId("footer-company-line")).toContainText("GSTIN 27ABCCA8318D1ZV");
         await expect(page.getByTestId("footer-company-line")).toContainText("ASMY GLOBAL TRADING & CONSULTANCY INDIA PRIVATE LIMITED");
+        await expect(page.getByTestId("footer-company-line")).toContainText("gokesari.com a unit of © ASMY GLOBAL TRADING");
         // F6: header, location and cart always on screen; phones get the bottom navigation.
         await expect(page.getByTestId("deliver-to")).toBeVisible();
         await expect(page.getByTestId("home-cart")).toBeVisible();
