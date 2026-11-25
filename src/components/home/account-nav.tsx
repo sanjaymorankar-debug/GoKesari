@@ -42,6 +42,8 @@ export interface AccountNavProps {
   extraLinks: { href: string; label: string }[];
   /** Values for `{placeholders}` (the active order, the first subscription). */
   params?: LinkParams;
+  /** docs/price-comparison-off-2026-11: flag local_price_comparison_enabled — off hides "Compare prices". */
+  priceComparison?: boolean;
 }
 
 const EXTRA_LINK_LABELS: Record<string, Text> = {
@@ -224,7 +226,7 @@ export function AccountDropdown({ lang, user, roles, balancePaise, extraLinks, p
 }
 
 /** Phones: the ☰ button and the side drawer it opens. */
-export function AccountDrawer({ lang, user, roles, balancePaise, extraLinks, params = {} }: AccountNavProps) {
+export function AccountDrawer({ lang, user, roles, balancePaise, extraLinks, params = {}, priceComparison = false }: AccountNavProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -251,7 +253,7 @@ export function AccountDrawer({ lang, user, roles, balancePaise, extraLinks, par
     { href: "/", label: tr(HOME.home, lang), icon: "house" },
     { href: "/categories", label: tr(HOME.categories, lang), icon: "layout-grid" },
     { href: "/shops", label: tr(HOME.shopsNearYou, lang), icon: "store" },
-    { href: "/search/compare", label: tr(HOME.compare, lang), icon: "scale" },
+    ...(priceComparison ? [{ href: "/search/compare", label: tr(HOME.compare, lang), icon: "scale" as IconName }] : []),
   ];
   const groups = user ? accountGroups(lang, user.role, params) : [];
   const board = user ? boardLink(user.role, lang) : null;

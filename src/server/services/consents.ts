@@ -34,7 +34,7 @@ export { CURRENT_POLICY_VERSION };
 /**
  * Appends one consent row. `created_at` is the database's now() in a timestamptz column, i.e. an
  * absolute (UTC) instant; every screen that shows it formats it in IST (Asia/Kolkata).
- * `shopId` / `userAgent` (0204) are evidence for seller consents: which shop it was given for, and
+ * `shopId` / `userAgent` (0205) are evidence for seller consents: which shop it was given for, and
  * from which browser or app. `client` lets a caller write it inside its own transaction.
  */
 export async function recordConsent(

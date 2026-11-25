@@ -11,6 +11,7 @@
 import type { Page } from "@playwright/test";
 
 import { as } from "../lib/actors";
+import { withFlags } from "../lib/billing-v2-helpers";
 import { db } from "../lib/db";
 import { deliver, onlyRiderOnline, packOrder } from "../lib/flows";
 import { call, expectStatus, poll, RUN, why, type Answer } from "../lib/http";
@@ -644,7 +645,8 @@ async function compareCard(page: Page, productName: string) {
 qa("TC-DISC-021", "price comparison (rule on): products sold by two delivering shops with each shop's price, the lowest marked, linking to the product page with the same prices", async ({ browser }) => {
   const a = listing("sharedA");
   const b = listing("sharedB");
-  return withRules({ homePriceComparison: { enabled: true } }, async () => {
+  // docs/price-comparison-off-2026-11: the comparison needs its flag (seeded off) as well as the rule.
+  return withFlags({ local_price_comparison_enabled: true }, () => withRules({ homePriceComparison: { enabled: true } }, async () => {
     const { context, page } = await signedPage(browser, "customer");
     try {
       await open(page, "/search/compare");
@@ -667,7 +669,7 @@ qa("TC-DISC-021", "price comparison (rule on): products sold by two delivering s
     } finally {
       await context.close();
     }
-  });
+  }));
 }, { ...LOCAL, mobile: true, partial: "the comparison moved from the home page to Shops › Compare prices (/search/compare, docs/homepage-uiux-2026-10); the home page links to it from product tiles" });
 
 qa("TC-DISC-022", "the comparison never offers unpriced, out-of-stock or non-delivering listings", async ({ browser }) => {
@@ -675,7 +677,8 @@ qa("TC-DISC-022", "the comparison never offers unpriced, out-of-stock or non-del
   const b = listing("sharedB");
   const sugar = listing("unpricedLoose");
   const ghee = listing("premium");
-  return withRules({ homePriceComparison: { enabled: true } }, async () => {
+  // docs/price-comparison-off-2026-11: the comparison needs its flag (seeded off) as well as the rule.
+  return withFlags({ local_price_comparison_enabled: true }, () => withRules({ homePriceComparison: { enabled: true } }, async () => {
     const { context, page } = await signedPage(browser, "customer");
     try {
       await open(page, "/search/compare");
@@ -693,7 +696,7 @@ qa("TC-DISC-022", "the comparison never offers unpriced, out-of-stock or non-del
     } finally {
       await context.close();
     }
-  });
+  }));
 }, LOCAL);
 
 /* --------------------------------------------------------- reference prices */
