@@ -1412,8 +1412,15 @@
     {
       "idx": 201,
       "version": "7",
-      "when": 1793270010000,
-      "tag": "0201_shop_registration_subscription",
+      "when": 1793270100000,
+      "tag": "0201_payment_settlement_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 202,
+      "version": "7",
+      "when": 1793270110000,
+      "tag": "0202_shop_registration_subscription",
       "breakpoints": true
     }
   ]

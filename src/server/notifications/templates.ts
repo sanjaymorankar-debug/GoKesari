@@ -144,7 +144,7 @@ export const TEMPLATES: Record<string, Template> = {
     "{{shopName}} is live, but these documents are still missing: {{documents}}. {{deadline}} Upload them on GoKesari so we can verify them. {{warning}}",
   ),
   [T.SHOP_MEMBERSHIP_RENEWAL_DUE]: t("{{headline}} — {{shopName}}", "{{message}} Renew it on GoKesari: Shop → Registration and fee → Renew now."),
-  // 0201 registration subscription: the text is built in English + Marathi by services/shop-registration-subscription.ts.
+  // 0202 registration subscription: the text is built in English + Marathi by services/shop-registration-subscription.ts.
   [T.SHOP_REGISTRATION_REMINDER]: t("{{title}}", "{{message}}"),
   [T.SHOP_REGISTRATION_PAYMENT_LINK]: t("{{title}}", "{{message}}"),
   [T.SHOP_REGISTRATION_EXPIRY_CHANGED]: t("{{title}}", "{{message}}"),
@@ -320,6 +320,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{amount}} for {{reference}} has been refunded to your original payment method. Banks usually take 5–7 working days to show it.",
   ),
   [T.SUPPORT_PAYMENT_ATTENTION]: t("Payment needs attention", "{{reference}}: {{problem}}", false),
+  [T.ADMIN_PAYMENT_CHARGEBACK]: t(
+    "Chargeback: {{outcome}}",
+    "{{reference}}: {{amount}} disputed by the customer's bank ({{reason}}). Respond by {{respondBy}}.",
+    false,
+  ),
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */

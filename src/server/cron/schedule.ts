@@ -84,7 +84,11 @@ export async function paymentsReconcile() {
   const bankChecks = await (await import("@/server/services/bank-accounts"))
     .sweepBankVerifications()
     .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-  return { ...payments, orderRefunds, cashfreeTopUps, registrationFees, bankChecks };
+  // PAY-SM: paid payments confirmed with the gateway (RECONCILED); a no-op while flag payment_settlement_states is off.
+  const settlement = await (await import("@/server/payments/settlement"))
+    .runSettlementReconciliation()
+    .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  return { ...payments, orderRefunds, cashfreeTopUps, registrationFees, bankChecks, settlement };
 }
 
 /** Help-desk deadlines (acknowledge / resolve, auto-close) and refund retries. */
@@ -186,7 +190,7 @@ export const EVERY_MINUTE: readonly Job[] = [
   // and the month before calculated on the 1st from 02:00 IST. Each send is logged once, so a late run catches up.
   { name: "franchise", everyMinutes: 5, run: async () => (await import("@/server/franchise/jobs")).runFranchiseJob() },
   // docs/dealer-platform phase 4: scheme versions scheduled to launch are published when their time comes.
-  // docs/shop-registration-subscription-2026-11 (0201; replaces the 05:00 shop-membership-reminders job): registration
+  // docs/shop-registration-subscription-2026-11 (0202; replaces the 05:00 shop-membership-reminders job): registration
   // statuses in step with the clock, payment links past their date, open links checked with the gateway, and from
   // 09:00 IST (rule shopRegistrationSubscription.reminderHourIst) the day's reminders and the CC digest — each sent
   // once (claimed per shop, stage and day). Reminders are a no-op while rule shopMembership.remindersEnabled is off.

@@ -102,7 +102,27 @@ export type GatewayWebhookKind =
   | "LINK_PAID"
   | "REFUND_SUCCESS"
   | "REFUND_FAILED"
+  /** PAY-SM: a dispute / chargeback was opened, updated or closed (details in `dispute`). */
+  | "DISPUTE"
   | "UNKNOWN";
+
+/** PAY-SM: a dispute as the gateway's (signed) webhook describes it. Money in paise. */
+export interface GatewayDispute {
+  disputeId: string;
+  /** DISPUTE, CHARGEBACK, RETRIEVAL, PRE_ARBITRATION, ARBITRATION … */
+  disputeType: string | null;
+  /** The gateway's status word (e.g. DISPUTE_CREATED, DISPUTE_MERCHANT_WON). */
+  gatewayStatus: string;
+  outcome: "OPEN" | "WON" | "LOST" | "CLOSED";
+  amountPaise: number;
+  reasonCode: string | null;
+  reason: string | null;
+  respondBy: Date | null;
+  openedAt: Date | null;
+  resolvedAt: Date | null;
+  /** When the gateway last changed it (orders redeliveries). */
+  updatedAt: Date;
+}
 
 export interface GatewayWebhookEvent {
   /** The gateway's event id — the idempotency key for processing. */
@@ -115,6 +135,8 @@ export interface GatewayWebhookEvent {
   gatewayRefundId: string | null;
   amountPaise: number | null;
   occurredAt: Date;
+  /** Set when kind is DISPUTE. */
+  dispute?: GatewayDispute | null;
   raw: unknown;
 }
 
@@ -126,7 +148,7 @@ export interface PaymentGateway {
   /** Server-side truth for reconciliation — never trust the client or the webhook alone. */
   fetchOrder(gatewayOrderId: string): Promise<GatewayOrderState>;
   createPaymentLink(input: CreatePaymentLinkInput): Promise<GatewayPaymentLink>;
-  /** 0201: stop an unpaid payment link (optional — gateways without it keep the link until it expires). */
+  /** 0202: stop an unpaid payment link (optional — gateways without it keep the link until it expires). */
   cancelPaymentLink?(gatewayLinkId: string): Promise<void>;
   refund(input: GatewayRefundInput): Promise<GatewayRefund>;
   fetchRefund(gatewayOrderId: string, merchantRefundId: string): Promise<GatewayRefund>;

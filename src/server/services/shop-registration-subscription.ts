@@ -1141,7 +1141,7 @@ export async function registrationPaymentHistory(shopId: string) {
   });
 }
 
-/** The latest migration report (counts per status when 0201 ran). */
+/** The latest migration report (counts per status when 0202 ran). */
 export async function latestMigrationReport() {
   const [row] = await db.select().from(shopRegistrationMigrationReports).orderBy(desc(shopRegistrationMigrationReports.ranAt)).limit(1);
   return row ?? null;

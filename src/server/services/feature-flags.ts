@@ -93,6 +93,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   hdms_enabled: "Delivery management: allocation engine and delivery partners (Shadowfax, Pidge, Porter, Borzo)",
   guest_checkout_enabled: "Guest checkout: order with a one-time code, track without signing in",
   account_self_deletion_enabled: "Self-service account deletion from My Profile",
+  payment_settlement_states: "Online payments: reconciled and chargeback states",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -176,6 +177,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   guest_checkout_enabled:
     "docs/guest-checkout-2026-11: needs guest_cart_enabled ON too. A guest checks out from the cart with name, mobile, e-mail and address and a one-time code (e-mail; plus a mobile code where SMS is set up — mock on the test site). That makes a normal customer account (marked guest-created), signs them in and continues to the usual payment choice. Adds: tracking links without sign-in (/track), the combined timeline on multi-shop orders, the \"Best shop for this cart\" panel and Admin → Payments → Order-group reconciliation. Off: the site behaves as before.",
   account_self_deletion_enabled: "docs/account-deletion-2026-11: a signed-in person deletes their own account (My Profile → Delete my account) after the checks pass and an emailed code. The account is hidden at once (signed out everywhere, not shown to anyone else; admins see it \"Under cooling period\" with the reason) and anonymised after the cooling-off period (rule accountDeletion.coolingOffDays, 90 days) by the daily job; signing in again with an emailed code during that time offers to restore it. Orders, invoices, payments and ledgers are kept for legal retention (rule accountDeletion.retentionYears). Off: the section is hidden and the APIs answer 404; accounts already in their cooling-off period can still be restored and are still purged when due.",
+  payment_settlement_states:
+    "docs/payment-settlement-states-2026-11.md (PAY-SM): the payments job asks the gateway about each paid online payment and marks it Reconciled when the gateway confirms the same amount; a dispute / chargeback webhook marks the payment Chargeback, records the amount, reason and respond-by date in Admin → Payments → Chargebacks and alerts the admins. Timing: rule paymentSettlement. Off: nothing is marked and dispute webhooks are only logged, as before.",
 };
 
 export interface FeatureFlagView {

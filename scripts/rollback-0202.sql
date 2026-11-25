@@ -1,6 +1,6 @@
--- Rollback for 0201_shop_registration_subscription (docs/shop-registration-subscription-2026-11/).
+-- Rollback for 0202_shop_registration_subscription (docs/shop-registration-subscription-2026-11/).
 -- Before running: deploy the previous release's code (the reminder job and admin screen go with it).
--- Then delete the 0201 row from drizzle.__drizzle_migrations.
+-- Then delete the 0202 row from drizzle.__drizzle_migrations.
 --
 -- Shops that got their first end date from this migration (registration_backfill END_DATE_SET) and have
 -- not paid a renewal since go back to "no end date", with their LEGACY period; every other end date stays.

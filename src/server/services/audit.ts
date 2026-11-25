@@ -199,7 +199,7 @@ export const AUDIT_ACTIONS = {
   SHOP_MEMBERSHIP_PERIOD_VOIDED: "shop.membership_period_voided",
   SHOP_MEMBERSHIP_RENEWAL_STARTED: "shop.membership_renewal_started",
   SHOP_MEMBERSHIP_RENEWAL_PAID: "shop.membership_renewal_paid",
-  // 0201 registration subscription (docs/shop-registration-subscription-2026-11)
+  // 0202 registration subscription (docs/shop-registration-subscription-2026-11)
   SHOP_REGISTRATION_REMINDER_SENT: "shop.registration_reminder_sent",
   SHOP_REGISTRATION_LINK_CREATED: "shop.registration_link_created",
   SHOP_REGISTRATION_LINK_CANCELLED: "shop.registration_link_cancelled",
@@ -588,6 +588,8 @@ export const AUDIT_ACTIONS = {
   PAYMENT_WEBHOOK_REJECTED: "payment.webhook_rejected", // batch-2026-10 WS-A
   PAYMENT_REFUND_REQUESTED: "payment.refund_requested", // batch-2026-10 WS-A
   PAYMENT_REFUND_SETTLED: "payment.refund_settled", // batch-2026-10 WS-A
+  PAYMENT_SETTLEMENT_STATE_CHANGED: "payment.settlement_state_changed", // PAY-SM
+  PAYMENT_CHARGEBACK_RECORDED: "payment.chargeback_recorded", // PAY-SM
   OTP_PURGED: "auth.otp_purged", // batch-2026-10 WS-A
   /* ---------------------- rider bank payouts (docs/gig-bank-payouts-2026-10) */
   RIDER_BANK_ACCOUNT_REAUTH: "rider_bank.reauthenticated",

@@ -32,6 +32,13 @@ The owner's brief was received 22-Nov-2026 at 21.56 IST. All times below are IST
 
 A feature is "Done" only when Development is Completed and both Testing statuses are Passed.
 
+> **Status update, 24-Nov-2026** (the table above is as of 22-Nov):
+> - **test.gokesari.com:** #485, #487, #493 and #500 are staging-verified; all six `rbac_v2_*` flags
+>   are ON there, four-eye included. The role run passed 21 / 21 on 23-Nov 18.00
+>   ([testing-report.md](testing-report.md)).
+> - **gokesari.com:** the code is live with **every flag OFF**: Phase 2 came with the 23-Nov release
+>   (#488), Phases 3–7 with #506 (23-Nov). The production test run has not started.
+
 ## Rules this work follows
 
 - **Additive only.** New enum values, tables, nullable columns and flags. No existing table changes type, and no existing permission is removed.

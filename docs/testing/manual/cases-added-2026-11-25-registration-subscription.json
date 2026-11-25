@@ -1,6 +1,6 @@
 {
  "date": "2026-11-25",
- "note": "Shop registration subscription (owner brief 25-Nov-2026 02.02 IST; PR #557, migration 0201; docs/shop-registration-subscription-2026-11). TC-REGSUB-001…008 are signed-in checks in tests/qa/signed-in/registration-subscription.spec.ts (run on test.gokesari.com). 009…015 are covered by tests/integration/shop-registration-subscription.test.ts (Vitest, real PostgreSQL). 016…019 need a phone or the owner.",
+ "note": "Shop registration subscription (owner brief 25-Nov-2026 02.02 IST; PR #557, migration 0202; docs/shop-registration-subscription-2026-11). TC-REGSUB-001…008 are signed-in checks in tests/qa/signed-in/registration-subscription.spec.ts (run on test.gokesari.com). 009…015 are covered by tests/integration/shop-registration-subscription.test.ts (Vitest, real PostgreSQL). 016…019 need a phone or the owner.",
  "features": [
   {
    "id": "REGSUB-01",
@@ -169,7 +169,7 @@
    "method": "Integration",
    "title": "Migration of existing shops and its report",
    "preconditions": "Shops paid without an end date, paid over a year ago, never paid",
-   "steps": "Run migration 0201",
+   "steps": "Run migration 0202",
    "expected": "Paid: +12 months from the first fee payment; past expiry: GRACE for 7 days; never paid: UNPAID; report counts per status"
   },
   {

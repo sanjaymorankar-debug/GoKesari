@@ -35,8 +35,6 @@ export function AddProductPanel({
   applyPriceImmediately,
 }: {
   shopId: string;
-  /** No longer used: what a shop can add comes from its categories, not its type. */
-  department?: string;
   /** False for an operator acting on a shop they don't own — price queues for approval. */
   applyPriceImmediately: boolean;
 }) {
