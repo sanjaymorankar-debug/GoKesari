@@ -1,5 +1,11 @@
 # RBAC & Shop Operations — Implementation Plan
 
+> **Superseded in part (24-Nov-2026).** This was the first RBAC plan (Oct 2026).
+> Staff roles, the approval engine and four-eye approval came with **RBAC v2**
+> (22–23-Nov-2026): [docs/rbac/README.md](docs/rbac/README.md). The test-database
+> notes below date from the Neon era; tests now use any PostgreSQL in
+> `TEST_DATABASE_URL`.
+
 Status: **Implemented.** Phases 1–12 built on top of baseline `517bad2` (`staging`).
 
 See "What was built" at the end of this document for the delivered surface and

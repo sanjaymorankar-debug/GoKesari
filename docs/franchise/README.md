@@ -11,6 +11,31 @@ and 21-Nov 00.30 IST). Branch `feat/franchise-pmr-2026-11`.
   registration suggestion). `scripts/franchise/build-zone-seed.py` checks them and writes the migration's seed.
 - Migration: `drizzle/0157_franchise_pmr.sql` (DDL head in `scripts/franchise/sql/`). Rollback: `scripts/rollback-0157.sql`.
 - Testing report: [docs/testing/franchise-pmr/TESTING_REPORT.md](../testing/franchise-pmr/TESTING_REPORT.md).
+- Later changes: [FREE_OR_PAID_FLOW.md](FREE_OR_PAID_FLOW.md) (22-Nov-2026), dealer online verification
+  ([../dealer-programme/ONLINE_VERIFICATION.md](../dealer-programme/ONLINE_VERIFICATION.md)), and the scheme platform
+  ([../dealer-platform/README.md](../dealer-platform/README.md), 23-Nov-2026).
+
+> **Current rules (24-Nov-2026)** — changed after the final brief; the code and DECISIONS G-20 … G-28 win over the
+> text below where they differ:
+> - **Two models, every rate admin-editable** (owner, 21-Nov-2026 evening, G-24 … G-27). Model A (free, no upfront
+>   fee): one-time **20% / 4% / 3%** on each shop's registration fee (signer 20%, one level up 4%, two levels up 3%;
+>   rule `dealerTieredCommission`, `overrideByDistance` on), no recurring. Model B (paid franchise): owner's own
+>   shop **25%**; team shops **20 / 4 / 3** (owner 4% one level up, 3% two levels up — no longer a flat 5%);
+>   recurring **20%** of GoKesari's order commission (`recurringBaseBp`, was 25%) plus a monthly bonus of up to 5%.
+>   Model A in Admin → Dealer tiers, Model B in Admin → Franchise → Settings; saved changes apply from the 1st of
+>   the next month.
+> - **Fee:** ₹1,50,000 + GST for every zone while the launch offer is open (first 25 franchise dealers,
+>   `promoFeePaise`); each zone also shows its regular rate from its tier (G-20).
+> - **Zones on sale:** Pune (50), Mumbai (Konkan) (38) and Nashik (11), all Available, booking on (G-21); zone
+>   names carry the city prefix ("Pune – …"); codes unchanged (22-Nov-2026).
+> - **Free or paid at booking** (22-Nov-2026, [FREE_OR_PAID_FLOW.md](FREE_OR_PAID_FLOW.md)): the applicant picks a
+>   free dealership (no fee, a working zone) or a paid franchise. Paid = pay first; dealer KYC and bank within
+>   **30 days**, and the zone goes live only after both are approved. Franchise buyers skip the area picker and can
+>   verify PAN / GSTIN / bank online.
+> - **Territory dealer retired** (G-28, migration 0160): territories are sold only as franchise zones; rule
+>   `territoryDealer` is off and cannot be switched on. This supersedes B-13 / G-19 ("leave it on").
+> - **Scheme platform** (23-Nov-2026): a paid zone moves the dealer onto the **Territory Franchise** scheme, whose
+>   amounts follow Franchise settings; new free dealers start on Free Dealership v2 (see the dealer-platform README).
 
 ---
 
@@ -29,9 +54,11 @@ monthly bonus. Everybody is paid by GoKesari on the 5th, after TDS, into his own
 | A3 | Agent under a team lead | Agent 20% | 4% | Dealer 3% |
 | A4 | Team lead himself | Team lead 20% | — | Dealer 4% |
 | B1 | Franchise owner himself | — | — | Owner 25% |
-| B2 | Agent directly under the owner | Agent 20% | — | Owner 5% |
-| B3 | Agent under a team lead | Agent 20% | 4% | Owner 5% |
-| B4 | Team lead himself | Team lead 20% | — | Owner 5% |
+| B2 | Agent directly under the owner | Agent 20% | — | Owner 4% |
+| B3 | Agent under a team lead | Agent 20% | 4% | Owner 3% |
+| B4 | Team lead himself | Team lead 20% | — | Owner 4% |
+
+*B2–B4 changed 21-Nov-2026 evening (G-25): the owner earned a flat 5% before.*
 
 Model B applies to shops the owner's team registers **inside his paid zone(s)**; anywhere else his team follows
 Model A. A free team may register shops inside a paid zone: it earns its normal Model A commission, the owner gets no
@@ -40,8 +67,8 @@ one-time share, and the shop is attached to the zone's franchise for recurring c
 
 ### Recurring commission (paid franchise only)
 
-- 25% of GoKesari's 2% on every delivered order of the shops attached to the franchise, plus a monthly bonus of up to
-  5% (100 base points = 1%, shown to one decimal: 30 points → 25.3%). Base points: 1 per new shop above the target of
+- 20% (was 25% until 21-Nov-2026, G-26) of GoKesari's 2% on every delivered order of the shops attached to the franchise, plus a monthly bonus of up to
+  5% (100 base points = 1%, shown to one decimal: 30 points → 20.3%). Base points: 1 per new shop above the target of
   60 a month, and 1 per ₹5,000 of business above the baseline (opening shops × ₹1 lakh).
 - Two owners in one zone share a free team's shop 50/50. A zone with no owner: its shops attach to the next franchise
   sold.
@@ -50,9 +77,10 @@ one-time share, and the shop is attached to the zone's franchise for recurring c
 
 ### Zones and fees
 
-- 50 Pune zones (`GKZ-PUN-01`–`50`), one per cluster of areas, at most 2 franchises each, 1-year term.
-- Fee by business: **Premier** (more than 10% above the Pune average) and **Emerging** (more than 10% below) pay
-  ₹1,50,000 × (1 + difference); **Standard** pays ₹1,50,000. GST extra. The fee is locked for the term; a renewal pays
+- 50 Pune zones (`GKZ-PUN-01`–`50`), one per cluster of areas, at most 2 franchises each, 1-year term. Since 21-Nov-2026 also Mumbai (Konkan) (38) and Nashik (11) zone sets (G-21, G-22).
+- Fee by business (the **regular rate**): **Premier** (more than 10% above the Pune average) and **Emerging** (more
+  than 10% below) pay ₹1,50,000 × (1 + difference); **Standard** pays ₹1,50,000. GST extra. While the launch offer
+  is open every zone sells at ₹1,50,000 + GST (G-20). The fee is locked for the term; a renewal pays
   the zone's fee at that time.
 - The business index in the seed is a **provisional estimate**. Before selling, import the actual annual business
   per zone (Admin → Franchise → Fees), check the preview and publish. Until then the booking page says "Fees being
@@ -60,6 +88,9 @@ one-time share, and the shop is attached to the zone's franchise for recurring c
 - These fees and rates are the launch offer for the first 25 franchise dealers; later terms are never shown.
 
 ### What needs you before booking opens
+
+*Superseded in part (24-Nov-2026):* the owner's launch settings of 21-Nov-2026 09.20 IST (G-20, G-21) put every
+zone on sale at the ₹1,50,000 launch fee with booking on; items 3 and 4 still stand.
 
 1. Import and publish the actual business figures (or allow sale at provisional fees).
 2. Set the zones you want to sell to **Available** (they start as Coming Soon), and switch booking on.
