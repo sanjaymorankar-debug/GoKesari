@@ -9063,7 +9063,7 @@ export const paymentIntents = pgTable(
     lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
     reconcileAttempts: integer("reconcile_attempts").notNull().default(0),
     /**
-     * PAY-SM (0200, docs/payment-settlement-states-2026-11.md): after the money is taken. NULL = not yet
+     * PAY-SM (0201, docs/payment-settlement-states-2026-11.md): after the money is taken. NULL = not yet
      * confirmed; RECONCILED = the gateway's status check confirmed the capture; CHARGEBACK = disputed by the
      * customer's bank (payment_chargebacks). Apart from `status`, which refunds and reports read.
      */
@@ -9167,7 +9167,7 @@ export const paymentRefunds = pgTable(
 );
 export type PaymentRefundRow = typeof paymentRefunds.$inferSelect;
 
-/** PAY-SM (0200): one row per gateway dispute / chargeback, kept current from the gateway's webhooks. */
+/** PAY-SM (0201): one row per gateway dispute / chargeback, kept current from the gateway's webhooks. */
 export const paymentChargebacks = pgTable(
   "payment_chargebacks",
   {
@@ -10867,7 +10867,9 @@ export const FEATURE_FLAG_KEYS = [
   "guest_checkout_enabled",
   // docs/account-deletion-2026-11 (0191): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
-  "payment_settlement_states", // PAY-SM (0200)
+  // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
+  "auto_journals",
+  "payment_settlement_states", // PAY-SM (0201)
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 

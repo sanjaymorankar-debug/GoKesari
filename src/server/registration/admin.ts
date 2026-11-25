@@ -349,6 +349,10 @@ export async function setCommissionStatus(id: string, status: "APPROVED" | "PAID
     previousValue: { status: current.status },
     newValue: { status, note, ...(tds && tds.tdsPaise > 0 ? { tdsPaise: tds.tdsPaise, tdsRateBp: tds.rateBp, section: tds.section } : {}) },
   });
+  if (status === "PAID") {
+    const { commissionPosting, queuePosting } = await import("@/server/rbac-accounting/auto-post");
+    await queuePosting(commissionPosting({ sourceType: "referral_commissions", id, payee: "referrer", grossPaise: row.amountPaise, tdsPaise: row.tdsPaise, paidAt: new Date(), reference: note }));
+  }
   return row;
 }
 
