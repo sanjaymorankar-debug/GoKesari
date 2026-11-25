@@ -248,13 +248,11 @@ Shop routes: the shop's owner; operators may view and retry (support); admins ma
 ## Shop self-registration (Module 3)
 
 Details, flow and checklists: [docs/three-modules-2026-10/MODULE3_SELF_REGISTRATION.md](docs/three-modules-2026-10/MODULE3_SELF_REGISTRATION.md).
-Applicant routes are public: the private `{token}` (from `POST /api/shop-registrations`, also sent by SMS) is the access, stored only as a hash. All answer 409 while the `selfRegistration` rule is off.
+The sign-up form (`/shop/join`) and its three APIs (`referral-check`, `otp`, `POST /api/shop-registrations`) were removed on 24-Nov-2026: `/shop/join` forwards to `/shop/register` (the onboarding wizard), keeping a `?code=`/`?ref=` referral code. The routes below remain for registrations already started there.
+Applicant routes are public: the private `{token}` (given when the registration was made, also sent by SMS) is the access, stored only as a hash. All answer 409 while the `selfRegistration` rule is off.
 
 | Method & path | |
 |---|---|
-| `POST /api/shop-registrations/referral-check` | `{ code }` → `{ ok: true, code, label, distributor, tiers: [{ code, label, description, amountPaise }] }` or `{ ok: false, reason: NOT_FOUND\|INACTIVE\|EXPIRED\|LIMIT_REACHED, message }` (same shape for every failure) |
-| `POST /api/shop-registrations/otp` | `{ mobile, referralCode }` → `{ sent, resendAfterSeconds, expiryMinutes }`; an invalid code → 422 and nothing is sent |
-| `POST /api/shop-registrations` | `{ shopName, mobile, referralCode, tierCode, otp, acceptTerms: true }` → 201 `{ token, status: PENDING_PAYMENT, feePaise }`; the code is re-checked under a row lock (the last slot goes to one applicant) |
 | `GET /api/shop-registrations/{token}` | `{ status, shopName, mobile (masked), feePaise, tier, referralCode, holdExpiresAt, lastPayment, shop, receipt, gateway }` for the return / retry page |
 | `POST /api/shop-registrations/{token}/pay` | 201 `{ gateway: CASHFREE\|MOCK, orderId, paymentSessionId, amountPaise, cashfreeMode }` — a new `reg_…` order for exactly the fee snapshot. The browser return never approves |
 | `GET /api/shop-registrations/{token}/receipt` | Fee receipt PDF (`PAY-YYYY-NNNNNN`) once approved |
@@ -922,10 +920,10 @@ Mandatory code and customers asking for one (owner's decision, 9 Oct 2026; `cust
 | `GET /api/admin/referral-settings` | `ADMIN` only | `{ settings: [{ key, value, since }], changes: [{ settingKey, oldValue, newValue, changedByEmail, changedByRole, changedAt }] }` |
 | `PUT /api/admin/referral-settings` | `ADMIN` only | `{ key: referral_required_customer \| referral_required_shop, value: MANDATORY \| OPTIONAL }` → `{ setting, changed, lastChange }`. Operators, shop owners and customers get `403` |
 
-Shop self-registration (`POST /api/shop-registrations/referral-check`, `/otp`,
-`POST /api/shop-registrations`) accepts a blank `referralCode` while
-`referral_required_shop` is `OPTIONAL` (the shop is approved on payment
-without a code) and refuses it (`reason: REQUIRED`) while `MANDATORY`.
+Shop registration (`/shop/register`) accepts a blank referral code while
+`referral_required_shop` is `OPTIONAL` and refuses it (`reason: REQUIRED`)
+while `MANDATORY`. (The Module 3 self-registration APIs that followed the same
+rule were removed on 24-Nov-2026.)
 
 ## TIERED dealer commission and shop referrals (docs/dealer-programme/TIERED_COMMISSION.md)
 
