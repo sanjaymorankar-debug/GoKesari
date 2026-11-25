@@ -26,11 +26,10 @@
  * Vendor calls happen outside any transaction; a vendor outage leaves the
  * check Pending, never Failed.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { and, desc, eq, ne } from "drizzle-orm";
 
-import { getEnv } from "@/lib/env";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import {
   maskAadhaar,
@@ -47,15 +46,22 @@ import { looksLikeAadhaar } from "@/lib/kyc/doc-formats";
 import { nameMatchScore } from "@/lib/kyc/name-match";
 import { checkRiderPan } from "@/lib/kyc/rider-details";
 import { docBlindIndex, encryptSecret } from "@/lib/pan-crypto";
+import { getKycAdapter, KycConfigError, KycUnavailableError, verifyDocument } from "@/server/kyc";
 import {
-  getDigilockerAdapter,
-  getKycAdapter,
-  KycConfigError,
-  KycUnavailableError,
-  verifyDocument,
-  type DigilockerAdapter,
-  type KycProviderId,
-} from "@/server/kyc";
+  DIGILOCKER_APP_CALLBACK_HOST,
+  DIGILOCKER_CONSENT_MS,
+  DIGILOCKER_PENDING_MASK,
+  DIGILOCKER_RETURN_PATH,
+  DIGILOCKER_REUSE_MIN_LEFT_MS,
+  digilockerErrorCode,
+  digilockerReturnApp,
+  isDigilockerReturnKey,
+  openDigilockerSession,
+  resolveDigilockerSession,
+  siteBase,
+  type DigilockerResolution,
+  type DigilockerSource,
+} from "@/server/kyc/digilocker-session";
 import { db } from "@/server/db";
 import {
   deliveryPartnerKycChecks,
@@ -79,22 +85,10 @@ type DocType = DeliveryPartnerKycCheck["docType"];
 export const RIDER_NAME_MATCH_MIN = 80;
 /** Seconds before another Aadhaar OTP may be asked for. */
 export const AADHAAR_OTP_COOLDOWN_SECONDS = 60;
-/** Where DigiLocker sends the partner back (a route: it needs no sign-in, the random key finds the check). */
-export const DIGILOCKER_RETURN_PATH = "/mobile-auth/digilocker-return";
-/** `<scheme>://digilocker-return` — how the return link hands back to the app's in-app browser. */
-export const DIGILOCKER_APP_CALLBACK_HOST = "digilocker-return";
-/**
- * How long the DigiLocker consent stays valid. Sandbox refuses under an hour, and
- * DigiLocker refuses a link opened with less than an hour of consent left — so
- * two hours leaves the link usable for about an hour.
- */
-export const DIGILOCKER_CONSENT_MS = 2 * 60 * 60_000;
-/** A link is handed out again only while DigiLocker will still open it (an hour of consent, plus a margin). */
-const DIGILOCKER_REUSE_MIN_LEFT_MS = 65 * 60_000;
+// The DigiLocker session handling is shared with the customer / shop owner identity check (server/kyc/digilocker-session.ts).
+export { DIGILOCKER_APP_CALLBACK_HOST, DIGILOCKER_CONSENT_MS, DIGILOCKER_RETURN_PATH, digilockerReturnApp, siteBase };
 /** Opening the KYC page re-asks Sandbox at most this often (the polling fallback to the webhook). */
 const DIGILOCKER_POLL_MIN_MS = 10_000;
-/** Shown until DigiLocker shares the Aadhaar: no digits are known yet. */
-const DIGILOCKER_PENDING_MASK = "XXXX XXXX XXXX";
 const NO_SESSION = { sessionId: null, sessionStatus: null, sessionUrl: null, sessionExpiresAt: null, sessionReturnKey: null } as const;
 
 export interface RiderKycCheckView {
@@ -439,11 +433,6 @@ export async function confirmMyAadhaarOtp(userId: string, otp: string): Promise<
 
 /* ------------------------------------------------------- Aadhaar by DigiLocker */
 
-/** The site's public address (AUTH_URL). Behind Hostinger's proxy a request's own origin is the internal 0.0.0.0:3000. */
-export function siteBase(): string {
-  return (getEnv().AUTH_URL ?? "https://gokesari.com").replace(/\/+$/, "");
-}
-
 /** The partner's next step for an Aadhaar check: open DigiLocker (a fresh or still-valid link), or nothing. */
 export interface DigilockerStart {
   check: RiderKycCheckView;
@@ -451,19 +440,8 @@ export interface DigilockerStart {
   url: string | null;
 }
 
-type DigilockerSource = "kyc_provider" | "mock";
-
-function adapterFor(source: DigilockerSource): { providerId: KycProviderId; adapter: DigilockerAdapter | null } {
-  return getDigilockerAdapter(source);
-}
-
 function vendorErrorCode(error: unknown, providerId: string, step: string): string {
-  if (error instanceof KycUnavailableError) return `vendor_${error.code}`;
-  if (error instanceof KycConfigError) {
-    console.error(`[rider-kyc] ${providerId} digilocker ${step}: ${error.code} — ${error.message}`);
-    return `config_${error.code}`;
-  }
-  throw error;
+  return digilockerErrorCode(error, providerId, step, "rider-kyc");
 }
 
 /**
@@ -479,39 +457,26 @@ async function startDigilockerSession(
   step: string,
 ): Promise<DigilockerStart> {
   const rule = await getRule("riderVerification");
-  // Random, plus the app build to hand back to (decided here, never taken from the return request).
-  const returnKey = `${randomBytes(18).toString("base64url")}${app ? `.${app}` : ""}`;
-  const redirect = new URL(`${siteBase()}${DIGILOCKER_RETURN_PATH}`);
-  redirect.searchParams.set("k", returnKey);
-  const expiresAt = new Date(Date.now() + DIGILOCKER_CONSENT_MS);
-
-  let providerId: string = rule.digilockerProvider === "mock" ? "mock" : getEnv().KYC_PROVIDER;
-  let values: CheckWrite & { provider: string };
-  try {
-    const picked = adapterFor(rule.digilockerProvider);
-    providerId = picked.providerId;
-    if (!picked.adapter) {
-      values = { provider: providerId, status: "PENDING", errorCode: "vendor_unsupported", ...NO_SESSION };
-    } else {
-      const session = await picked.adapter.startSession(
-        { redirectUrl: redirect.toString(), consentExpiryMs: expiresAt.getTime() },
-        `rider-digilocker:${partner.id}:${randomUUID()}`,
-      );
-      values = {
-        provider: providerId,
-        status: "PENDING",
-        errorCode: "digilocker_started",
-        providerRef: session.providerRef,
-        sessionId: session.sessionId,
-        sessionStatus: "created",
-        sessionUrl: session.authorizationUrl,
-        sessionExpiresAt: expiresAt,
-        sessionReturnKey: returnKey,
-      };
-    }
-  } catch (error) {
-    values = { provider: providerId, status: "PENDING", errorCode: vendorErrorCode(error, providerId, "start"), ...NO_SESSION };
-  }
+  const opened = await openDigilockerSession(rule.digilockerProvider, `rider-digilocker:${partner.id}:${randomUUID()}`, app, "rider-kyc");
+  const values: CheckWrite & { provider: string } =
+    opened.kind === "open"
+      ? {
+          provider: opened.providerId,
+          status: "PENDING",
+          errorCode: "digilocker_started",
+          providerRef: opened.session.providerRef,
+          sessionId: opened.session.sessionId,
+          sessionStatus: "created",
+          sessionUrl: opened.session.authorizationUrl,
+          sessionExpiresAt: opened.expiresAt,
+          sessionReturnKey: opened.returnKey,
+        }
+      : {
+          provider: opened.providerId,
+          status: "PENDING",
+          errorCode: opened.kind === "unsupported" ? "vendor_unsupported" : opened.errorCode,
+          ...NO_SESSION,
+        };
 
   const row = await saveCheck(
     partner,
@@ -560,12 +525,6 @@ export async function startMyAadhaarDigilocker(userId: string, input: Consent & 
   return startDigilockerSession(partner, input, app, userId, "aadhaar_digilocker_start");
 }
 
-/** The app build a return key hands back to; null for a browser. */
-export function digilockerReturnApp(returnKey: string | null | undefined): MobileAppScheme | null {
-  const suffix = returnKey?.split(".")[1] ?? null;
-  return isMobileAppScheme(suffix) ? suffix : null;
-}
-
 export type DigilockerSyncTrigger = "poll" | "webhook" | "return" | "admin";
 
 /**
@@ -585,27 +544,20 @@ export async function syncDigilockerCheck(check: DeliveryPartnerKycCheck, trigge
 
   let set: CheckWrite;
   try {
-    const { adapter } = adapterFor(source);
-    if (!adapter) {
+    const resolved = await resolveDigilockerSession(source, sessionId, check.sessionExpiresAt, now);
+    if (resolved.kind === "unsupported") {
       set = { errorCode: "vendor_unsupported" };
+    } else if (resolved.kind === "waiting") {
+      set = { errorCode: "digilocker_started", sessionStatus: "created" };
+    } else if (resolved.kind === "failed") {
+      set = {
+        status: "FAILED",
+        errorCode: resolved.errorCode,
+        sessionStatus: resolved.sessionStatus,
+        ...(resolved.providerRef !== undefined ? { providerRef: resolved.providerRef } : {}),
+      };
     } else {
-      const state = await adapter.sessionStatus(sessionId);
-      if (!state) {
-        set = { status: "FAILED", errorCode: "digilocker_expired", sessionStatus: "expired" };
-      } else if (state.status === "created") {
-        const expired = (check.sessionExpiresAt?.getTime() ?? 0) <= now.getTime();
-        set = expired
-          ? { status: "FAILED", errorCode: "digilocker_expired", sessionStatus: "expired" }
-          : { errorCode: "digilocker_started", sessionStatus: "created" };
-      } else if (state.status === "failed") {
-        set = { status: "FAILED", errorCode: "digilocker_denied", sessionStatus: "failed" };
-      } else if (state.status === "expired") {
-        set = { status: "FAILED", errorCode: "digilocker_expired", sessionStatus: "expired" };
-      } else if (!state.documentsConsented.includes("aadhaar")) {
-        set = { status: "FAILED", errorCode: "digilocker_no_aadhaar", sessionStatus: "succeeded" };
-      } else {
-        set = await settleSharedAadhaar(check, adapter, sessionId, now);
-      }
+      set = await settleSharedAadhaar(check, resolved, now);
     }
   } catch (error) {
     set = { errorCode: vendorErrorCode(error, check.provider, "sync") };
@@ -647,11 +599,11 @@ export async function syncDigilockerCheck(check: DeliveryPartnerKycCheck, trigge
 }
 
 /** The session succeeded with the Aadhaar consented: read it and decide. */
-async function settleSharedAadhaar(check: DeliveryPartnerKycCheck, adapter: DigilockerAdapter, sessionId: string, now: Date): Promise<CheckWrite> {
-  const outcome = await adapter.fetchAadhaar(sessionId);
-  if (outcome.kind === "session_unusable") return { status: "FAILED", errorCode: "digilocker_expired", sessionStatus: "expired" };
-  if (outcome.kind === "not_shared") return { status: "FAILED", errorCode: "digilocker_no_aadhaar", sessionStatus: "succeeded", providerRef: outcome.providerRef };
-
+async function settleSharedAadhaar(
+  check: DeliveryPartnerKycCheck,
+  outcome: Extract<DigilockerResolution, { kind: "shared" }>,
+  now: Date,
+): Promise<CheckWrite> {
   const base: CheckWrite = { sessionStatus: "succeeded", providerRef: outcome.providerRef, nameOnRecord: outcome.name };
   if (!outcome.holderId || !outcome.last4) {
     // Shared, but not readable as expected: an admin compares the card by hand.
@@ -701,7 +653,7 @@ export async function handleDigilockerWebhook(sessionId: string): Promise<"settl
  * the check; nothing about the partner is shown, only where to go next.
  */
 export async function handleDigilockerReturn(returnKey: string): Promise<{ status: RiderKycStatus | null; app: MobileAppScheme | null }> {
-  if (!/^[A-Za-z0-9_-]{16,40}(\.[a-z-]{1,24})?$/.test(returnKey)) return { status: null, app: null };
+  if (!isDigilockerReturnKey(returnKey)) return { status: null, app: null };
   const check = await db.query.deliveryPartnerKycChecks.findFirst({ where: eq(deliveryPartnerKycChecks.sessionReturnKey, returnKey) });
   if (!check) return { status: null, app: null };
   const row = await syncDigilockerCheck(check, "return");

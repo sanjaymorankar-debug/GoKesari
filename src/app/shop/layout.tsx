@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
 import { SellerShell } from "@/components/seller/seller-shell";
+import { IdentityGraceBanner } from "@/components/seller/identity-grace-banner";
 import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
 import { packingSlipOrderId, REQUEST_PATH_HEADER, shopPageNeedsSignIn } from "@/lib/request-path";
 import { groupSellerMenus } from "@/lib/seller/nav";
@@ -15,6 +16,7 @@ import { registrationFeeDue } from "@/server/services/registration-fee-payment";
 import { unreadCount } from "@/server/services/notifications";
 import { listUserRoles } from "@/server/services/roles";
 import { listShopsForOwner } from "@/server/services/shops";
+import { noteSellerIdentityPrompt } from "@/server/services/identity-verification";
 import { shopMenuFeatures } from "@/server/board-data";
 import { RegistrationBanner } from "@/components/seller/registration-status";
 import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
@@ -51,9 +53,12 @@ export default async function SellerCentralLayout({ children }: { children: Reac
   const counts = shop ? await loadShopCounts(shop.id).catch(() => ({})) : {};
   const features = user && shop ? await shopMenuFeatures(shop) : [];
   const groups = user && shop ? groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug, features }, "shop")) : [];
-  // 0208 registration subscription: red (unpaid / grace / expired) or amber (expiring) banner on every screen until paid.
+  // 0209 registration subscription: red (unpaid / grace / expired) or amber (expiring) banner on every screen until paid.
   const registration =
     user && shop && (shop.status === "APPROVED" || shop.status === "PENDING_APPROVAL" || shop.status === "SUSPENDED") ? await ownerRegistrationStatus(shop) : null;
+
+  // docs/identity-verification-2026-11 (flag on): an unverified shop owner is asked here; the grace period starts once.
+  const identity = user && shops.length > 0 ? await noteSellerIdentityPrompt(user.id).catch(() => null) : null;
 
   return (
     <SellerShell
@@ -67,6 +72,7 @@ export default async function SellerCentralLayout({ children }: { children: Reac
       counts={counts}
       banner={<RegistrationBanner view={registration} />}
     >
+      {identity?.required ? <IdentityGraceBanner graceEndsAt={identity.graceEndsAt} graceOver={identity.graceOver} /> : null}
       {children}
     </SellerShell>
   );

@@ -1462,7 +1462,14 @@
       "idx": 208,
       "version": "7",
       "when": 1793270800000,
-      "tag": "0208_shop_registration_subscription",
+      "tag": "0208_identity_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 209,
+      "version": "7",
+      "when": 1793270900000,
+      "tag": "0209_shop_registration_subscription",
       "breakpoints": true
     }
   ]

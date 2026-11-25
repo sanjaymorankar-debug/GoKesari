@@ -190,7 +190,7 @@ export const EVERY_MINUTE: readonly Job[] = [
   // and the month before calculated on the 1st from 02:00 IST. Each send is logged once, so a late run catches up.
   { name: "franchise", everyMinutes: 5, run: async () => (await import("@/server/franchise/jobs")).runFranchiseJob() },
   // docs/dealer-platform phase 4: scheme versions scheduled to launch are published when their time comes.
-  // docs/shop-registration-subscription-2026-11 (0208; replaces the 05:00 shop-membership-reminders job): registration
+  // docs/shop-registration-subscription-2026-11 (0209; replaces the 05:00 shop-membership-reminders job): registration
   // statuses in step with the clock, payment links past their date, open links checked with the gateway, and from
   // 09:00 IST (rule shopRegistrationSubscription.reminderHourIst) the day's reminders and the CC digest — each sent
   // once (claimed per shop, stage and day). Reminders are a no-op while rule shopMembership.remindersEnabled is off.

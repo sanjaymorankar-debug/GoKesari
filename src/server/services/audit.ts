@@ -203,7 +203,7 @@ export const AUDIT_ACTIONS = {
   SHOP_MEMBERSHIP_PERIOD_VOIDED: "shop.membership_period_voided",
   SHOP_MEMBERSHIP_RENEWAL_STARTED: "shop.membership_renewal_started",
   SHOP_MEMBERSHIP_RENEWAL_PAID: "shop.membership_renewal_paid",
-  // 0208 registration subscription (docs/shop-registration-subscription-2026-11)
+  // 0209 registration subscription (docs/shop-registration-subscription-2026-11)
   SHOP_REGISTRATION_REMINDER_SENT: "shop.registration_reminder_sent",
   SHOP_REGISTRATION_LINK_CREATED: "shop.registration_link_created",
   SHOP_REGISTRATION_LINK_CANCELLED: "shop.registration_link_cancelled",
@@ -305,6 +305,9 @@ export const AUDIT_ACTIONS = {
   /* Gig worker flow (docs/gig-worker-2026-10). Never a document number or a file — masked forms only. */
   DELIVERY_PARTNER_KYC_CHECKED: "delivery_partner.kyc_checked",
   DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  /* docs/identity-verification-2026-11: customer / shop owner identity check. Masked ids only, never a number. */
+  IDENTITY_VERIFICATION_CHECKED: "identity.verification_checked",
+  IDENTITY_VERIFICATION_DECIDED: "identity.verification_decided",
   DELIVERY_PARTNER_BACKGROUND_DOC_UPLOADED: "delivery_partner.background_doc_uploaded",
   DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
   DELIVERY_PARTNER_BACKGROUND_DOC_VIEWED: "delivery_partner.background_doc_viewed",

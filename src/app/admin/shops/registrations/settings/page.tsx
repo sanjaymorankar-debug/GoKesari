@@ -10,7 +10,7 @@ import { getRule } from "@/server/services/settings";
 export const metadata = { title: "Registration subscription settings" };
 export const dynamic = "force-dynamic";
 
-/** Admin only (0208): validity, grace, reminder schedule, fees per shop type, link validity, CC list, commission on renewals. */
+/** Admin only (0209): validity, grace, reminder schedule, fees per shop type, link validity, CC list, commission on renewals. */
 export default async function ShopRegistrationSettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");

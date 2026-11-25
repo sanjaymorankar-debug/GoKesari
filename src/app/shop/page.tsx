@@ -129,7 +129,7 @@ export default async function ShopDashboardPage() {
   return (
     <>
       <HashRedirect map={OLD_SECTIONS} />
-      {/* 0208: the Shop Registration card (status, dates, days left, amount due, Pay / Renew). */}
+      {/* 0209: the Shop Registration card (status, dates, days left, amount due, Pay / Renew). */}
       <RegistrationCard view={registration} />
       {/* Touch screens: the approved Tile Board, every menu on one screen. */}
       <div className="lg:hidden">

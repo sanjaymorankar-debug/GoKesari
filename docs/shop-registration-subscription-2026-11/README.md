@@ -1,6 +1,6 @@
 # Shop registration subscription — 1-year validity, expiry, reminders, payment links
 
-Owner brief: 25-Nov-2026 02.02 IST. Branch `feat/shop-registration-subscription-2026-11-25`, migration **0208**.
+Owner brief: 25-Nov-2026 02.02 IST. Branch `feat/shop-registration-subscription-2026-11-25`, migration **0209**.
 Builds on the yearly membership (D-69, 0094) and on PR #518's renewal module (0197,
 [docs/shop-membership-renewal-2026-11](../shop-membership-renewal-2026-11/README.md)) — this PR must be merged
 after #518. All times IST.
@@ -33,7 +33,7 @@ after #518. All times IST.
 
 ## Switches before go-live (per site)
 
-1. Migration 0208 runs with the deploy (staging queue / production release).
+1. Migration 0209 runs with the deploy (staging queue / production release).
 2. Admin → Unpaid & expiring registrations → Settings: **Send reminders** on; **Online renewal** on. Check grace (7) and CC list.
 3. The status is enforced while rule `shopMembership.enabled` is on (it is on by default).
 
@@ -47,7 +47,7 @@ after #518. All times IST.
 
 ## Files
 
-- `drizzle/0208_shop_registration_subscription.sql`, `scripts/rollback-0208.sql`
+- `drizzle/0209_shop_registration_subscription.sql`, `scripts/rollback-0209.sql`
 - `src/server/services/shop-registration-subscription.ts` (new), `shop-membership.ts`, `shop-payments.ts`,
   `shop-membership-renewal.ts`, `operator-limited.ts`, `registration/service.ts`
 - `src/server/payments/intents.ts` (link expiry + metadata), `processing.ts` (long links not "stuck"),
@@ -76,5 +76,5 @@ after #518. All times IST.
 
 ## Rollback
 
-Deploy the previous release, then run `scripts/rollback-0208.sql` and delete the 0208 row from
-`drizzle.__drizzle_migrations`. Shops that got their first expiry from 0208 go back to "no end date".
+Deploy the previous release, then run `scripts/rollback-0209.sql` and delete the 0209 row from
+`drizzle.__drizzle_migrations`. Shops that got their first expiry from 0209 go back to "no end date".

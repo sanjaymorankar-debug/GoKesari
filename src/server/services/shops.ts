@@ -68,6 +68,7 @@ import { activeFssaiWaiver, recordFssaiWaiver } from "./fssai-waiver";
 import { missingMustHaveDocuments } from "./shop-document-rules";
 import { listJoin } from "@/lib/shop-document-rules";
 import { assertLegalDocsAllowApproval } from "./legal-documents";
+import { assertOwnerIdentityAllowsGoLive } from "./identity-verification";
 import { emitEvent } from "@/server/events/emit";
 import {
   duplicateShopError,
@@ -1062,6 +1063,8 @@ function approveShopTransaction(
     if (shop.status === "APPROVED") {
       throw conflict("This shop is already approved.");
     }
+    // docs/identity-verification-2026-11 (flag on): a shop goes live only once its owner's identity is verified.
+    await assertOwnerIdentityAllowsGoLive(shop.ownerId);
     // Approve without FSSAI (admin only): recorded only when the shop sells food and no valid
     // licence is on file; with one on file the approval goes ahead as usual.
     if (waiveFssai && (actor.role !== "ADMIN" || !actor.id)) {
@@ -1607,7 +1610,7 @@ export async function getPublicShopBySlug(
       eq(shops.slug, slug),
       eq(shops.status, "APPROVED"),
       isNull(shops.deletedAt),
-      registrationListed, // 0208: an expired registration hides the shop / QR page
+      registrationListed, // 0209: an expired registration hides the shop / QR page
     ),
   });
 }
@@ -1663,7 +1666,7 @@ export async function searchShops(
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
-    registrationListed, // 0208: expired registrations are not found
+    registrationListed, // 0209: expired registrations are not found
   ];
   if (filters.ids) conditions.push(inArray(shops.id, [...filters.ids]));
 
