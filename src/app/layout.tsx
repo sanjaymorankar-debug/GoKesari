@@ -98,7 +98,7 @@ export default async function RootLayout({
           .catch(() => []),
       ])
     : null;
-  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled, reconsent] = await Promise.all([
+  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled, priceComparison, reconsent] = await Promise.all([
     signedIn,
     // The same location every page filters by (cookie, else the default address).
     getCustomerLocation(user?.id).catch(() => null),
@@ -110,6 +110,8 @@ export default async function RootLayout({
     // docs/guest-cart-2026-11: guests fill a browser cart (sign-in at Place order); signed-in users
     // need it only to move a guest cart left in this browser into their account cart.
     isFeatureEnabled("guest_cart_enabled").catch(() => false),
+    // docs/price-comparison-off-2026-11: the phones' Compare tab only while the flag is on.
+    isFeatureEnabled("local_price_comparison_enabled").catch(() => false),
     // docs/policy-reconsent-2026-11: a new policy version this user has not accepted (flag policy_reconsent_enabled).
     // One flag read (cached) when off; a failed read never blocks the site.
     user ? getReconsentState(user.id).catch(() => null) : null,
@@ -170,7 +172,7 @@ export default async function RootLayout({
           cartBar={cartCount > 0 && Boolean(user)}
         />
         <AppUpdatePrompt lang={lang} />
-        {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} /> : null}
+        {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} priceComparison={priceComparison} /> : null}
         {guestCartEnabled && user ? <GuestCartMerge /> : null}
         {reconsent?.needsReconsent ? <PolicyReconsentGate lang={lang} pending={reconsent.pending} /> : null}
         </GuestCartProvider>

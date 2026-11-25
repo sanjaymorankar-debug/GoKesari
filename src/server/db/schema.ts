@@ -10937,6 +10937,9 @@ export const FEATURE_FLAG_KEYS = [
   "payment_settlement_states", // PAY-SM (0201)
   // docs/policy-reconsent-2026-11 (0202): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
   "policy_reconsent_enabled",
+  // docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off): "Compare N prices", /search/compare,
+  // "Lowest price" and price-first sorting between local shops. Seeded OFF by its own migration (0204 at the time of writing).
+  "local_price_comparison_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13447,5 +13450,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
-export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0204)
+export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0205)
 /* <<< GoKesari Health */

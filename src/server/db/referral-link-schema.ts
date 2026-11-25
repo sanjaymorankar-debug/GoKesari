@@ -1,5 +1,5 @@
 /**
- * Referral sharing (docs/referral-sharing-2026-11; drizzle/0204_referral_link_events.sql).
+ * Referral sharing (docs/referral-sharing-2026-11; drizzle/0205_referral_link_events.sql).
  *
  * Tracking only: every share button press, link click, first app open and deferred claim of a
  * referral link. Rewards and commission are never decided from here — they stay with the existing

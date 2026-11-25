@@ -175,8 +175,12 @@ describe("permission filtering", () => {
     // 23: Shops → "Consultants", Orders → "Appointments" (docs/consult-booking-2026-11).
     // 25: Shops → "Doctors", Profile → "My Health" (docs/health/; no 7th tile — one screen on a phone).
     // 26: Subscriptions → "Plans" (docs/subscription-plans-2026-11).
-    // 27: Profile → "My referrals" (docs/referral-sharing-2026-11).
-    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(27);
+    // docs/price-comparison-off-2026-11: Shops → "Compare prices" only while flag local_price_comparison_enabled is on.
+    // +1: Profile → "My referrals" (docs/referral-sharing-2026-11).
+    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(26);
+    const withCompare = visibleMenus(CUSTOMER_MENUS, "CUSTOMER", { features: ["local_price_comparison_enabled"] });
+    expect(withCompare.reduce((n, m) => n + m.items.length, 0)).toBe(27);
+    expect(withCompare.find((m) => m.key === "shops")?.items.some((i) => i.key === "compare")).toBe(true);
   });
 
   it("treats a list of permissions as any-of", () => {
