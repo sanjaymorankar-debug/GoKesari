@@ -136,6 +136,9 @@ export const PUBLIC_PAGES = new Set([
   "/shops/[slug]/contact",
   "/shops/nearby",
   "/signin",
+  // docs/sms-2fa-2026-11: the SMS step after Google / the emailed link (challenge in an httpOnly cookie);
+  // without one it says the sign-in expired.
+  "/signin/second-factor",
   "/orders/pay/sandbox/[ref]", // sandbox payment page (test site only; 404 on production)
   "/mobile-auth/digilocker-mock", // DigiLocker's screens stood in for on test sites (#312; 404 on production) — QA E-15
   // docs/consult-booking-2026-11: Find a Consultant ("coming soon" while rule consultBooking is off) and a

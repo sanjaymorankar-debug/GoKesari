@@ -1,19 +1,19 @@
 /**
  * OTP delivery abstraction.
  *
- *   OTP service → getOtpProvider("EMAIL") → EmailOtpProvider   (live — the channel today)
- *   OTP service → getOtpProvider("SMS")   → SMS through server/messaging (mock outbox on the
- *                                           test site), only when SMS_PROVIDER is set AND
- *                                           rule otp.smsEnabled is on
- *                                         → SmsOtpProvider (Phase 2 stub: no vendor chosen)
+ *   OTP service → getOtpProvider("EMAIL") → EmailOtpProvider   (live — the main channel)
+ *   OTP service → getOtpProvider("SMS")   → only when rule otp.smsEnabled is on, and
+ *                                           SMS_PROVIDER=msg91 (with its keys) → Msg91 (SmsOtpProvider)
+ *                                           SMS_PROVIDER=mock                   → mock outbox (test site)
+ *                                           otherwise                           → none: email only
  *
- * A vendor (MSG91, Twilio, ...) is added by implementing `OtpProvider` (see
- * SmsOtpProvider below) and registering it in `smsProvider()`; nothing else
- * changes. Until then SMS reports itself unavailable and the sign-in screen
- * offers email only.
+ * docs/sms-2fa-2026-11: MSG91 is the real SMS vendor (DLT template, sender
+ * header; keys from the environment). Another vendor is added by implementing
+ * `OtpProvider` and registering it in `smsProvider()`; nothing else changes.
  */
 import { sendEmail } from "@/server/email/transport";
-import { isTextChannelAvailable, sendText } from "@/server/messaging/sms-whatsapp";
+import { sendText, smsOtpMode } from "@/server/messaging/sms-whatsapp";
+import { Msg91Error, sendMsg91Otp } from "@/server/messaging/msg91";
 import { renderEmailChangeOtpEmail, renderOtpEmail } from "@/server/notifications/templates";
 import { getRule } from "@/server/services/settings";
 
@@ -48,42 +48,47 @@ export const emailOtpProvider: OtpProvider = {
   },
 };
 
+/** The SMS text of every one-time code; the same wording as the DLT template (docs/sms-2fa-2026-11/DLT_SETUP.md). */
+export function smsOtpText(code: string, expiryMinutes: number): string {
+  return `${code} is your GoKesari code. It expires in ${expiryMinutes} minutes. Do not share it with anyone. -GoKesari`;
+}
+
 /**
- * SMS through server/messaging (Module 3): available when SMS_PROVIDER is set
- * (mock on the test site until a vendor is chosen — decision D2 still open).
+ * The mock outbox (SMS_PROVIDER=mock, test site only): testers read the code
+ * at /admin/test-messages (or GET /api/admin/test-messages).
  */
-const textOtpProvider: OtpProvider = {
+const mockSmsOtpProvider: OtpProvider = {
   channel: "SMS",
-  isAvailable: () => isTextChannelAvailable("SMS"),
+  isAvailable: () => smsOtpMode() === "mock",
   async send({ to, code, expiryMinutes }) {
-    await sendText("SMS", to, `${code} is your GoKesari code. It expires in ${expiryMinutes} minutes. Do not share it with anyone.`, "otp");
+    await sendText("SMS", to, smsOtpText(code, expiryMinutes), "otp");
   },
 };
 
 /**
- * PHASE 2 — the real SMS vendor adapter (F1.1.2 / GS-001). No vendor is
- * chosen yet (decision D2), so it is never available and never sends. When
- * one is chosen: implement `send` with the vendor's API (DLT-registered
- * template, sender id), read its keys from the environment, make
- * `isAvailable` check them, and return it from `smsProvider()`.
+ * docs/sms-2fa-2026-11: the real SMS vendor, MSG91, with the DLT-approved OTP
+ * template. Available only with SMS_PROVIDER=msg91 and all its keys.
  */
 export class SmsOtpProvider implements OtpProvider {
   readonly channel = "SMS" as const;
 
   isAvailable(): boolean {
-    return false;
+    return smsOtpMode() === "msg91";
   }
 
-  async send(): Promise<void> {
-    throw new Error("SMS one-time codes are a Phase 2 feature: no SMS vendor is configured.");
+  async send({ to, code, expiryMinutes }: OtpMessage): Promise<void> {
+    if (!this.isAvailable()) throw new Msg91Error("MSG91 is not set up on this server (SMS_PROVIDER and the MSG91_* keys).");
+    await sendMsg91Otp({ toE164: to, code, expiryMinutes });
   }
 }
 
-export const phase2SmsOtpProvider: OtpProvider = new SmsOtpProvider();
+export const msg91OtpProvider: OtpProvider = new SmsOtpProvider();
+/** @deprecated the former Phase 2 stub's name; now the MSG91 provider. */
+export const phase2SmsOtpProvider = msg91OtpProvider;
 
 export function smsProvider(): OtpProvider | null {
-  if (phase2SmsOtpProvider.isAvailable()) return phase2SmsOtpProvider;
-  return textOtpProvider.isAvailable() ? textOtpProvider : null;
+  if (msg91OtpProvider.isAvailable()) return msg91OtpProvider;
+  return mockSmsOtpProvider.isAvailable() ? mockSmsOtpProvider : null;
 }
 
 export function getProvider(channel: OtpChannel): OtpProvider | null {

@@ -659,7 +659,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -668,6 +668,11 @@ export const loginOtps = pgTable(
     /** Set when the code was used, or when a newer code replaced it. */
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    /**
+     * 0205 (docs/sms-2fa-2026-11): a verified CHECKOUT code is a one-time pass for one order;
+     * the checkout request that used it. A retry of the same request may use it again.
+     */
+    stepUpRequestId: text("step_up_request_id"),
     ipAddress: text("ip_address"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1402,7 +1407,7 @@ export const deliveryPartners = pgTable(
     latitude: text("latitude"),
     longitude: text("longitude"),
     operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
-    /** Rider App v2 (0205, rule riderReferral): this rider's own code, and who referred them. */
+    /** Rider App v2 (0206, rule riderReferral): this rider's own code, and who referred them. */
     referralCode: text("referral_code"),
     referredByPartnerId: uuid("referred_by_partner_id"),
     /** Rating aggregate (GS-060), maintained from visible order_ratings. Average × 100. */
@@ -2377,12 +2382,12 @@ export const deliveryOrders = pgTable(
     rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
     /** GA-005: the trip this delivery is batched into with the rider's other orders; null = carried alone. */
     tripId: uuid("trip_id").references((): AnyPgColumn => deliveryTrips.id, { onDelete: "set null" }),
-    /* Rider App v2 (0205, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
+    /* Rider App v2 (0206, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
     quotePaise: integer("quote_paise"),
     quoteBreakdown: jsonb("quote_breakdown").$type<import("@/lib/rider-pay-plan").PayQuote>(),
     payPlanId: uuid("pay_plan_id"),
     quotedAt: timestamp("quoted_at", { withTimezone: true }),
-    /** 0205: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
+    /** 0206: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
     rejectReasonCode: text("reject_reason_code"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2846,7 +2851,7 @@ export const deliveryPartnerEarnings = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
     payoutId: uuid("payout_id"),
-    /* Rider App v2 (0205): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
+    /* Rider App v2 (0206): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
     quotePaise: integer("quote_paise"),
     payPlanId: uuid("pay_plan_id"),
     planBreakdown: jsonb("plan_breakdown").$type<Record<string, unknown>>(),
@@ -3380,9 +3385,9 @@ export const riderEarningSlots = pgTable(
     /** Peak-period component paid on top in this slot. */
     peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
     isPeak: boolean("is_peak").notNull().default(false),
-    /** Rider App v2 (0205): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
+    /** Rider App v2 (0206): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
     surgeMultiplierBp: integer("surge_multiplier_bp"),
-    /** 0205 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
+    /** 0206 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
     bookable: boolean("bookable").notNull().default(false),
     bookingCapacity: integer("booking_capacity"),
     /** The highest-priority active slot containing the delivery time wins. */
@@ -10959,6 +10964,10 @@ export const FEATURE_FLAG_KEYS = [
   // docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off): "Compare N prices", /search/compare,
   // "Lowest price" and price-first sorting between local shops. Seeded OFF by its own migration (0204 at the time of writing).
   "local_price_comparison_enabled",
+  // docs/sms-2fa-2026-11 (0205): sign-in needs an SMS code after the emailed one — one switch per audience
+  // (Admin → Sign-in security). Seeded OFF.
+  "sms_otp_signin_customers_enabled",
+  "sms_otp_signin_shop_owners_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13469,5 +13478,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
-export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0205)
+export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0206)
 /* <<< GoKesari Health */
