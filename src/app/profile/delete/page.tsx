@@ -14,9 +14,10 @@ export const dynamic = "force-dynamic";
 
 /** docs/account-deletion-2026-11: what is deleted and what is kept, the checks, the code and the typed DELETE. */
 export default async function DeleteAccountPage() {
-  if (!(await isFeatureEnabled(ACCOUNT_DELETION_FLAG))) notFound();
+  // Sign-in first, so a signed-out visitor is sent to sign in whether or not the switch is on.
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
+  if (!(await isFeatureEnabled(ACCOUNT_DELETION_FLAG))) notFound();
   const precheck = await deletionPrecheck(user.id);
   const { coolingOffDays } = await getRule("accountDeletion");
 

@@ -169,7 +169,7 @@ export class SandboxGateway implements PaymentGateway {
     return { gatewayLinkId: gatewayOrderId, url: SandboxGateway.checkoutPath(input.merchantLinkId), expiresAt: row.expiresAt ?? input.expiresAt };
   }
 
-  /** 0200: an unpaid sandbox link stops (reported EXPIRED, as Cashfree's cancelled link ends the payment). */
+  /** 0201: an unpaid sandbox link stops (reported EXPIRED, as Cashfree's cancelled link ends the payment). */
   async cancelPaymentLink(gatewayLinkId: string): Promise<void> {
     await db
       .update(paymentSandboxOrders)

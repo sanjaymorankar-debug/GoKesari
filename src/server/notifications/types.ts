@@ -14,13 +14,13 @@ export const NOTIFICATION_TYPES = {
   SHOP_MEMBERSHIP_RENEWAL_DUE: "shop.membership_renewal_due",
   /** 0189: to the shop owner — the renewal was paid and the membership extended. */
   SHOP_MEMBERSHIP_RENEWED: "shop.membership_renewed",
-  /** 0200 (registration subscription): reminder to pay the registration fee / renew the registration (English + Marathi). */
+  /** 0201 (registration subscription): reminder to pay the registration fee / renew the registration (English + Marathi). */
   SHOP_REGISTRATION_REMINDER: "shop.registration_reminder",
-  /** 0200: a payment link for the registration / renewal fee was created for the shop. */
+  /** 0201: a payment link for the registration / renewal fee was created for the shop. */
   SHOP_REGISTRATION_PAYMENT_LINK: "shop.registration_payment_link",
-  /** 0200: an admin changed the shop's registration expiry. */
+  /** 0201: an admin changed the shop's registration expiry. */
   SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",
-  /** 0200: registration / renewal received (online or recorded offline) — valid until the new date. */
+  /** 0201: registration / renewal received (online or recorded offline) — valid until the new date. */
   SHOP_REGISTRATION_CONFIRMED: "shop.registration_confirmed",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",

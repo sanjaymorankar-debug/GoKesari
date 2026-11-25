@@ -934,7 +934,7 @@ export const shops = pgTable(
     membershipExemptSetBy: uuid("membership_exempt_set_by"),
     membershipExemptSetAt: timestamp("membership_exempt_set_at", { withTimezone: true }),
     /**
-     * 0200 shop registration subscription (docs/shop-registration-subscription-2026-11). The expiry is
+     * 0201 shop registration subscription (docs/shop-registration-subscription-2026-11). The expiry is
      * membershipValidUntil; the fee is registrationFeePaise. Status is kept current by every payment, admin
      * change and the reminder job (services/shop-registration-subscription.ts recomputes it on read too).
      */
@@ -946,14 +946,14 @@ export const shops = pgTable(
     renewalFeePaise: bigint("renewal_fee_paise", { mode: "number" }),
     /** Per-shop grace days; null = rule shopMembership.graceDays. 0 after "Expire now". */
     registrationGraceDays: integer("registration_grace_days"),
-    /** Grace given until this moment (the 0200 migration, or an admin); the shop stays online until then. */
+    /** Grace given until this moment (the 0201 migration, or an admin); the shop stays online until then. */
     registrationGraceUntil: timestamp("registration_grace_until", { withTimezone: true }),
     registrationRemindersEnabled: boolean("registration_reminders_enabled").notNull().default(true),
     /** No foreign key, as the other payment links on shops. */
     lastRegistrationPaymentId: uuid("last_registration_payment_id"),
     lastRegistrationPaymentAt: timestamp("last_registration_payment_at", { withTimezone: true }),
     registrationStatusAt: timestamp("registration_status_at", { withTimezone: true }),
-    /** What the 0200 migration did to this shop: END_DATE_SET, GRACE_GIVEN, or both. */
+    /** What the 0201 migration did to this shop: END_DATE_SET, GRACE_GIVEN, or both. */
     registrationBackfill: text("registration_backfill"),
     /** D-69: the owner closed the shop permanently (status INACTIVE). No foreign key: users are customer-side. */
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -4461,7 +4461,7 @@ export const shopMembershipPeriods = pgTable(
 export type ShopMembershipPeriod = typeof shopMembershipPeriods.$inferSelect;
 
 /**
- * 0200 (docs/shop-registration-subscription-2026-11): a registration / renewal payment link sent to a shop
+ * 0201 (docs/shop-registration-subscription-2026-11): a registration / renewal payment link sent to a shop
  * owner (by an admin, or by the reminder job). One ACTIVE link per shop; a new one cancels the old.
  */
 export const shopRegistrationLinks = pgTable(
@@ -4492,7 +4492,7 @@ export const shopRegistrationLinks = pgTable(
 );
 export type ShopRegistrationLink = typeof shopRegistrationLinks.$inferSelect;
 
-/** 0200: every registration reminder sent — automatic ones once per shop, stage and day (sent_by null); staff ones always. */
+/** 0201: every registration reminder sent — automatic ones once per shop, stage and day (sent_by null); staff ones always. */
 export const shopRegistrationReminders = pgTable(
   "shop_registration_reminders",
   {
@@ -4517,14 +4517,14 @@ export const shopRegistrationReminders = pgTable(
 );
 export type ShopRegistrationReminder = typeof shopRegistrationReminders.$inferSelect;
 
-/** 0200: one row per day the expiry digest went to the CC list (claimed before sending). */
+/** 0201: one row per day the expiry digest went to the CC list (claimed before sending). */
 export const shopRegistrationDigests = pgTable("shop_registration_digests", {
   day: date("day").primaryKey(),
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   detail: text("detail"),
 });
 
-/** 0200: the migration report — counts per registration status when the migration ran. */
+/** 0201: the migration report — counts per registration status when the migration ran. */
 export const shopRegistrationMigrationReports = pgTable("shop_registration_migration_reports", {
   id: uuid("id").primaryKey().defaultRandom(),
   ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
@@ -10915,6 +10915,8 @@ export const FEATURE_FLAG_KEYS = [
   "guest_checkout_enabled",
   // docs/account-deletion-2026-11 (0191): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
+  // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
+  "auto_journals",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 

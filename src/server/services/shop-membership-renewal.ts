@@ -351,7 +351,7 @@ export async function onShopMembershipRenewalCaptured(intent: PaymentIntentRef, 
     client,
   );
   const extendedTo = recorded.membership?.periodEnd ?? null;
-  // 0200 registration subscription: the link that was paid (if any) is PAID, other open links end.
+  // 0201 registration subscription: the link that was paid (if any) is PAID, other open links end.
   await (await import("./shop-registration-subscription")).markRegistrationLinksPaid(client, shop.id, intent.id);
   await recordAudit(
     {
@@ -366,14 +366,14 @@ export async function onShopMembershipRenewalCaptured(intent: PaymentIntentRef, 
   if (!extendedTo) await flagPaymentForSupport(client, row, "Membership renewal paid but the membership was not extended (fees short after a refund) — check the shop's payments.", "renewal-not-extended");
 
   const finish = async () => {
-    // 0200: renewal commission only while rule shopRegistrationSubscription.payCommissionOnRenewals is on (default off).
+    // 0201: renewal commission only while rule shopRegistrationSubscription.payCommissionOnRenewals is on (default off).
     if ((await getRule("shopRegistrationSubscription")).payCommissionOnRenewals) {
       const { accrueRenewalCommissionSafely } = await import("@/server/dealers/tiered");
       await accrueRenewalCommissionSafely(recorded.payment.id, actor);
     }
     const { afterRegistrationPayment } = await import("./shop-registration-subscription");
     if (extendedTo) {
-      // 0200: status + confirmation by in-app, push and e-mail (English + Marathi) with the receipt.
+      // 0201: status + confirmation by in-app, push and e-mail (English + Marathi) with the receipt.
       await afterRegistrationPayment(shop.id, { id: recorded.payment.id, reference: recorded.payment.reference, amountPaise: intent.amountPaise, kind: "RENEWAL" });
     } else {
       await (await import("./shop-membership")).refreshRegistrationStatusSafely(shop.id);

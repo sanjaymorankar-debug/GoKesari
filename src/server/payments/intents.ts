@@ -81,9 +81,9 @@ export interface CreatePaymentIntentInput {
   /** CHECKOUT: hosted page / SDK now. LINK: a payment link to send (e.g. to a shop owner). */
   mode: "CHECKOUT" | "LINK";
   returnPath?: string;
-  /** 0200: when the payment (link) stops working; default rule onlinePayments.intentExpiryMinutes from now. */
+  /** 0201: when the payment (link) stops working; default rule onlinePayments.intentExpiryMinutes from now. */
   expiresAt?: Date;
-  /** 0200: extra metadata stored with the intent (merged next to the customer). */
+  /** 0201: extra metadata stored with the intent (merged next to the customer). */
   metadata?: Record<string, unknown>;
 }
 

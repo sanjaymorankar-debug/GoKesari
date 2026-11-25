@@ -250,6 +250,9 @@ describe("favourites", () => {
     expect((await call(favPostRoute, "/api/favourites", { method: "POST", body: { productId: butter.id } })).status).toBe(404);
     expect((await call(detailsRoute, `/api/favourites/details?ids=${butter.id}`)).status).toBe(404);
     expect(await listFavouriteIds(user.id)).toEqual([]);
+    // Signed out, the sign-in check comes first even with the flag off (guest QA TC-SEC-001).
+    state.session = null;
+    expect((await call(favPostRoute, "/api/favourites", { method: "POST", body: {} })).status).toBe(401);
 
     await setFlag(true);
     state.session = null;

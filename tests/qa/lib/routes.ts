@@ -97,6 +97,10 @@ export function apiRoutes(): ApiRoute[] {
  */
 export const PUBLIC_PAGES = new Set([
   "/",
+  "/favourites", // guests see the hearts kept in their browser (docs/search-brand-barcode-favourites-2026-11); 404 while the flag is off
+  "/staff-invite", // an invitation e-mail's landing page: a signed-out visitor signs in here (docs/shop-staff-roles-2026-11)
+  "/track", // find an order without signing in (docs/guest-checkout-2026-11); 404 while the guest flags are off
+  "/wa/cart", // a WhatsApp checkout link: anyone with the link sees the lines (docs/customer-whatsapp-2026-11); 404 while the flag is off
   "/about",
   "/bakery", // redirects to /category/BAKERY
   "/dairy", // redirects to /category/DAIRY
@@ -189,10 +193,14 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/webhooks/payments/[gateway]": "payment webhook: signature checked",
   "/api/payments/hdfc/return": "the bank's form POST back from the payment page: only forwards (303) to our own page; nothing is decided there",
   "/api/webhooks/payouts/[provider]": "payout webhook: signature checked",
+  "/api/webhooks/delivery/[provider]": "delivery partner webhook (docs/hdms-2026-11): signature checked over the raw body; an unknown provider is 404",
   "/api/webhooks/whatsapp": "Meta WhatsApp webhook (docs/smart-shopping-2026-11): X-Hub-Signature-256 checked; 503 until META_WA_APP_SECRET is set",
   "/api/dev/settle-registration": "development only: 404 in a production build",
   "/api/dev/settle-topup": "development only: 404 in a production build",
   "/api/kyc-mock/digilocker": "DigiLocker stand-in on test sites (#312): 404 on production (QA E-15)",
+  "/api/cart/recommendation": "'best shop for this cart' for a guest's browser lines too (docs/guest-checkout-2026-11): reads only; 404 while the guest flags are off",
+  "/api/guest-checkout/start": "guest checkout step 1 (docs/guest-checkout-2026-11): sends the contact codes, creates nothing; rate-limited per IP",
+  "/api/track/lookup": "find an order without signing in (docs/guest-checkout-2026-11): same reply for every miss, rate-limited per IP and reference; 404 while the guest flags are off",
   "/api/health/telephony/webhook": "call-tracking provider webhook (docs/health): HMAC signature checked; mock provider only off production",
 };
 

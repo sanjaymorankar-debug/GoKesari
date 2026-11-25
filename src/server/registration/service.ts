@@ -656,7 +656,7 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
     }).returning({ id: shopPayments.id });
     // D-69: the fee is paid in full here; 0189: the period is recorded against it.
     await extendMembership(tx, shop.id, now, { kind: "REGISTRATION", feePaise: reg.feePaise, shopPaymentId: feeRow.id });
-    // 0200 registration subscription: 1 year from the payment, ACTIVE now (the job keeps it in step later).
+    // 0201 registration subscription: 1 year from the payment, ACTIVE now (the job keeps it in step later).
     await noteRegistrationPayment(tx, shop.id, { id: feeRow.id, paidAt: now, amountPaise: reg.feePaise }, now);
     await tx.update(shops).set({ registrationStatus: "ACTIVE", registrationStatusAt: now }).where(eq(shops.id, shop.id));
     // No code (referral_required_shop OPTIONAL): nothing to redeem; payment alone approves the shop.

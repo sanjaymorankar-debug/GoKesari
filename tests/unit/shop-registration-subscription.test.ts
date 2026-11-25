@@ -1,4 +1,4 @@
-/** Registration subscription (0200) — pure parts: reminder schedule, expiry changes, status, fees, text. */
+/** Registration subscription (0201) — pure parts: reminder schedule, expiry changes, status, fees, text. */
 import { describe, expect, it } from "vitest";
 
 import type { IsoDate } from "@/lib/dates";
