@@ -25,7 +25,7 @@
  * Full numbers exist only in memory and as ciphertext; views carry the masked
  * form only.
  */
-import { and, eq, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 
 import { GST_DECLARATION_VERSION, SELLER_VERIFICATION_CONSENT_VERSION } from "@/lib/kyc/consent";
 import { parseSellerDocNumber, PAN_HOLDER_TYPES, type ParsedDocNumber, type PanHolderType } from "@/lib/kyc/doc-formats";
@@ -50,8 +50,19 @@ import { registrationFeeDue } from "./registration-fee-payment";
 import { getRule } from "./settings";
 
 export interface Actor {
+  /** The shop owner whose registration this is. */
   id: string;
   role: UserRole;
+  /**
+   * Owner, 25-Nov-2026: an admin or operations user continuing the owner's registration for them
+   * (Admin → Unfinished registrations). The draft stays the owner's; audit entries name the staff member.
+   */
+  staff?: { id: string; role: UserRole };
+}
+
+/** Who did it, for the audit log: the staff member when one acts for the owner. */
+export function auditActorOf(actor: Actor): { actorId: string; actorRole: UserRole } {
+  return actor.staff ? { actorId: actor.staff.id, actorRole: actor.staff.role } : { actorId: actor.id, actorRole: actor.role };
 }
 
 /** A second identical submission within this window rides on the first instead of paying again. */
@@ -214,28 +225,34 @@ export function toDraftView(draft: ShopRegistrationDraft): ShopRegistrationDraft
 /* --------------------------------------------------------------- reading */
 
 /**
- * Owner brief 08-Nov-2026 (Flow 2): an abandoned registration is not resumed — the owner starts
- * again at the GST / PAN screen. Abandoned = no step for this long: past both reminders (24 h and
- * 72 h, scheduled-notices.ts), which still invite the owner back to the same registration.
+ * A registration left this long without a step counts as abandoned in the admin lists (past both
+ * reminders, 24 h and 72 h).
+ *
+ * Owner, 25-Nov-2026 (reverses the 08-Nov-2026 brief, Flow 2): an abandoned registration is never
+ * thrown away. When the owner — or staff for them — comes back, it opens again at the step it stopped on.
  */
 export const ABANDONED_AFTER_MS = 7 * 24 * HOUR_MS;
 
-/** Marks the owner's OPEN registration ABANDONED when it has been left for ABANDONED_AFTER_MS. */
-export async function discardAbandonedDraft(ownerId: string, client: DbClient = db, now: Date = new Date()): Promise<void> {
+/**
+ * The owner's latest registration, opened again when it was ABANDONED (drafts marked so before
+ * 25-Nov-2026) and nothing newer was started.
+ */
+export async function reopenAbandonedDraft(ownerId: string, client: DbClient = db, now: Date = new Date()): Promise<void> {
+  const [latest] = await client
+    .select({ id: shopRegistrationDrafts.id, status: shopRegistrationDrafts.status })
+    .from(shopRegistrationDrafts)
+    .where(eq(shopRegistrationDrafts.ownerId, ownerId))
+    .orderBy(desc(shopRegistrationDrafts.createdAt))
+    .limit(1);
+  if (latest?.status !== "ABANDONED") return;
   await client
     .update(shopRegistrationDrafts)
-    .set({ status: "ABANDONED", updatedAt: now })
-    .where(
-      and(
-        eq(shopRegistrationDrafts.ownerId, ownerId),
-        eq(shopRegistrationDrafts.status, "OPEN"),
-        lt(shopRegistrationDrafts.updatedAt, new Date(now.getTime() - ABANDONED_AFTER_MS)),
-      ),
-    );
+    .set({ status: "OPEN", updatedAt: now })
+    .where(and(eq(shopRegistrationDrafts.id, latest.id), eq(shopRegistrationDrafts.status, "ABANDONED")));
 }
 
 export async function findOpenDraft(ownerId: string): Promise<ShopRegistrationDraft | undefined> {
-  await discardAbandonedDraft(ownerId);
+  await reopenAbandonedDraft(ownerId);
   const [draft] = await db
     .select()
     .from(shopRegistrationDrafts)
@@ -327,7 +344,7 @@ export async function assertNoWaitingRegistration(ownerId: string): Promise<void
  */
 export async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<ShopRegistrationDraft> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`shop-registration-draft:${ownerId}`}, 0))`);
-  await discardAbandonedDraft(ownerId, tx);
+  await reopenAbandonedDraft(ownerId, tx);
   const lockOpen = () =>
     tx
       .select()
@@ -596,8 +613,7 @@ export async function submitDraftGstin(input: SubmitDraftGstinInput): Promise<Sh
   const [final] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.id, claim.draftId));
   if (claim.kind === "call") {
     await recordAudit({
-      actorId: actor.id,
-      actorRole: actor.role,
+      ...auditActorOf(actor),
       action: AUDIT_ACTIONS.SHOP_REGISTRATION_DRAFT_CHECKED,
       entityType: "shop_registration_draft",
       entityId: final.id,
@@ -671,8 +687,7 @@ export async function submitDraftPan(input: SubmitDraftPanInput): Promise<ShopRe
   const [final] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.id, result.draftId));
   if (result.called) {
     await recordAudit({
-      actorId: actor.id,
-      actorRole: actor.role,
+      ...auditActorOf(actor),
       action: AUDIT_ACTIONS.SHOP_REGISTRATION_DRAFT_CHECKED,
       entityType: "shop_registration_draft",
       entityId: final.id,

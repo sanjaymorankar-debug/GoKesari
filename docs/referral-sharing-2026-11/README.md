@@ -35,7 +35,7 @@ Additive only: no referral, reward, commission or registration rule was changed.
 |---|---|---|---|
 | G-1 | No share by SMS, email or the phone's share sheet for dealers, franchise owners and customers (WhatsApp + copy only) | Missing | **Built**: one Share component (WhatsApp, SMS, Email, share sheet, Copy link) on `/refer`, the shop's Registration page, `/dealer` (own and employees' codes) and `/franchise/my`. |
 | G-2 | `/r/GKD-…` did not work: the route stripped the hyphen, so dealer / team / agent / franchise codes never matched, and non-SHOP codes went to customer sign-in | Broken | **Fixed** (rule `referralSharing` on): hyphen kept; partner codes open Add my shop with the code filled in. |
-| G-3 | No log of shares or link opens; no "My referrals"; no report by channel | Missing | **Built**: `referral_link_events` (0206), `/referrals`, Admin → Referral sharing report. |
+| G-3 | No log of shares or link opens; no "My referrals"; no report by channel | Missing | **Built**: `referral_link_events` (0208), `/referrals`, Admin → Referral sharing report. |
 | G-4 | A closed / expired franchise code showed the generic "Referral code … is inactive." in the wizard (the franchise message was checked after) | Broken message | **Fixed**: `assertRegistrationReferralCode` asks the franchise check first. |
 | G-5 | Replacing a team lead's code issued a `GKA-` (agent) code | Bug | **Fixed**: team leads get `GKT-`. |
 | G-6 | No deferred deep link (link opened before the app is installed is lost) | Missing | **Built**: app 1.15.0 opens `/app-open` once after install; the server matches the phone's recent click (same network, 24 h, unclaimed, usable, not the account's own) and pre-fills the code. |
@@ -70,7 +70,7 @@ Not changed (policy not defined — **open questions for the owner**):
 
 ## 5. Deploy
 
-- Migration `0206_referral_link_events.sql` (the staging queue renumbers it on a clash). Rollback: `scripts/rollback-0206-referral-link-events.sql`.
+- Migration `0208_referral_link_events.sql` (the staging queue renumbers it on a clash). Rollback: `scripts/rollback-0208-referral-link-events.sql`.
 - No new environment variables. For the "Google Play" / "App Store" buttons the existing `MOBILE_APP_ANDROID_URL` / `MOBILE_APP_IOS_URL` are used; without them the banner links to `/app` (the website APK).
 - Production: run the prod-db migrate before the deploy (25-Nov sign-in outage lesson).
 

@@ -12,7 +12,7 @@
 -- * ip_hash: sha256 of the visitor's address with AUTH_SECRET (never the address itself), for the deferred
 --   match after an app install; kept 30 days in practice (rows are small; no purge job needed yet).
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0206-referral-link-events.sql.
+-- Additive and safe to re-run. Rollback: scripts/rollback-0208-referral-link-events.sql.
 CREATE TABLE IF NOT EXISTS "referral_link_events" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "code" text NOT NULL,

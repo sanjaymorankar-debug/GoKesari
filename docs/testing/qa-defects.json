@@ -2886,6 +2886,19 @@
       "status": "Fixed - retest passed",
       "fixedIn": "#490",
       "retest": "docs/testing/qa-runs/2026-11-23-staging-retest-d159-d161.json, staging 23-Nov-2026 23.08 IST: padding 16px at 1280 and 375 px, no sideways scroll. Pass"
+    },
+    {
+      "id": "D-165",
+      "title": "Shop documents: a file over about 10 MB is answered “Attach the document” instead of the 10 MB message",
+      "cases": [
+        "TC-DOC-011"
+      ],
+      "severity": "Low",
+      "found": "staging automated run 25-Nov-2026 01.30 IST (tests/qa/signed-in/docs-franchise-2026-11-25.spec.ts), test.gokesari.com d418c07b",
+      "actual": "POST /api/shops/<id>/documents/read with a 10.5 MB or 11 MB PDF answers 422 “Attach the document — upload a file or take a photo.” (the request body is cut at about 10 MB, so the server never sees the file); a 9.5 MB PDF gets the right 5 MB message. The page shrinks photos over 2.5 MB but sends a PDF as it is, so an owner who picks a PDF over 10 MB is told to attach a document he just attached.",
+      "expected": "“The file can be at most 10 MB. Take the photo again at a lower size or upload a smaller PDF.” — or the page refuses the file before sending it",
+      "fix": "Check the file size in the upload panel before sending (src/components/document-upload-panel.tsx), or raise the request body limit for this route above 10 MB so documentUpload.maxUploadBytes is the limit that answers",
+      "status": "Open"
     }
   ]
 }
