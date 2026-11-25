@@ -12,12 +12,15 @@ import { and, eq, inArray, lte, sql } from "drizzle-orm";
 
 import { formatIndianMobile } from "@/lib/contact";
 import { db } from "@/server/db";
-import { orders, shopWhatsappContacts, shops, whatsappMessages, type WhatsappMessage } from "@/server/db/schema";
+import { orders, shopWhatsappContacts, shops, whatsappMessages, type WhatsAppMessageKind, type WhatsappMessage } from "@/server/db/schema";
 import { MetaWhatsAppError, metaWhatsAppProblem, sendMetaTemplate } from "@/server/notifications/providers/whatsapp-meta";
 import { NOTIFICATION_TYPES, notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { ACCEPT_PREFIX, REJECT_PREFIX, loadNewOrderContent, loadOrderNumber, newOrderParams, newOrderText, shopOrderLink } from "./render";
 import { whatsAppFeatureState } from "./state";
+import { customerWhatsAppState } from "@/server/whatsapp/customer/config";
+import { hasWhatsAppConsent } from "@/server/whatsapp/customer/consent";
+import { sendCustomerTemplate } from "@/server/whatsapp/customer/send";
 
 const MAX_ATTEMPTS = 3;
 
@@ -40,24 +43,41 @@ export async function dispatchWhatsAppQueue(options: { limit?: number } = {}): P
     .returning();
   for (const row of interrupted) await onMessageFailed(row);
 
+  // Shop alerts and customer updates (docs/customer-whatsapp-2026-11) share this outbox; each has its own switches.
   const state = await whatsAppFeatureState();
+  const customer = await customerWhatsAppState();
+  const liveKinds: WhatsAppMessageKind[] = [];
   if (!state.live) {
     // Switched off (or the keys went missing) after these were queued: they are not sent later by surprise.
     const reason = !state.flagOn ? "The feature flag whatsapp_shop_orders_enabled is off." : `WhatsApp is dormant: ${state.providerProblem}`;
     const skipped = await db
       .update(whatsappMessages)
       .set({ status: "SKIPPED", error: reason, updatedAt: new Date() })
-      .where(eq(whatsappMessages.status, "QUEUED"))
+      .where(and(eq(whatsappMessages.status, "QUEUED"), inArray(whatsappMessages.kind, SHOP_KINDS)))
       .returning({ id: whatsappMessages.id });
     tally.skipped += skipped.length;
-    return { ...tally, dormant: reason };
+    tally.dormant = reason;
+  } else {
+    liveKinds.push(...SHOP_KINDS);
   }
+  if (!customer.live) {
+    const reason = !customer.flagOn ? "The feature flag whatsapp_customer_enabled is off." : `Customer WhatsApp is dormant: ${customer.problem}`;
+    const skipped = await db
+      .update(whatsappMessages)
+      .set({ status: "SKIPPED", error: reason, updatedAt: new Date() })
+      .where(and(eq(whatsappMessages.status, "QUEUED"), inArray(whatsappMessages.kind, CUSTOMER_KINDS)))
+      .returning({ id: whatsappMessages.id });
+    tally.skipped += skipped.length;
+  } else {
+    liveKinds.push(...CUSTOMER_KINDS);
+  }
+  if (liveKinds.length === 0) return tally;
 
   const claimed = await db.transaction(async (tx) => {
     const due = await tx
       .select({ id: whatsappMessages.id })
       .from(whatsappMessages)
-      .where(eq(whatsappMessages.status, "QUEUED"))
+      .where(and(eq(whatsappMessages.status, "QUEUED"), inArray(whatsappMessages.kind, liveKinds)))
       .orderBy(whatsappMessages.createdAt)
       .limit(options.limit ?? 50)
       .for("update", { skipLocked: true });
@@ -70,12 +90,19 @@ export async function dispatchWhatsAppQueue(options: { limit?: number } = {}): P
   });
 
   const rule = await getRule("whatsappShopOrders");
+  const customerRule = claimed.some((r) => r.kind === "CUSTOMER_NOTIFICATION") ? await getRule("whatsappCustomer") : null;
   for (const row of claimed) {
-    const outcome = await sendOne(row, rule.templateLanguage);
+    const outcome = await sendOne(row, row.kind === "CUSTOMER_NOTIFICATION" ? (customerRule?.templateLanguage ?? "en") : rule.templateLanguage);
     tally[outcome] += 1;
   }
   return tally;
 }
+
+/** Kinds the shop-order switches govern, and the customer ones (0185). */
+export const SHOP_KINDS: WhatsAppMessageKind[] = ["NEW_ORDER", "STATUS_UPDATE", "NUMBER_CHECK", "REPLY"];
+export const CUSTOMER_KINDS: WhatsAppMessageKind[] = ["CUSTOMER_NOTIFICATION", "CUSTOMER_REPLY"];
+/** Kinds an admin may send again after a failure: the template messages (a reply belongs to its moment). */
+export const RETRYABLE_KINDS: WhatsAppMessageKind[] = ["NEW_ORDER", "STATUS_UPDATE", "NUMBER_CHECK", "CUSTOMER_NOTIFICATION"];
 
 async function sendOne(row: WhatsappMessage, language: string): Promise<"sent" | "failed" | "skipped" | "retrying"> {
   const finish = (fields: Partial<typeof whatsappMessages.$inferInsert>) =>
@@ -84,7 +111,18 @@ async function sendOne(row: WhatsappMessage, language: string): Promise<"sent" |
   let bodyParams: string[];
   let quickReplies: string[] | undefined;
   let body: string;
-  if (row.kind === "NEW_ORDER") {
+  let deliver = () => sendMetaTemplate({ to: row.intendedTo, name: row.template ?? "", language, bodyParams, quickReplies });
+  if (row.kind === "CUSTOMER_NOTIFICATION") {
+    // Consent is checked again at send time: a STOP sent after the update was queued wins.
+    if (!row.userId || !(await hasWhatsAppConsent(row.userId))) {
+      await finish({ status: "SKIPPED", error: "The customer has not agreed to WhatsApp updates (or sent STOP)." });
+      return "skipped";
+    }
+    const p = row.params ?? {};
+    bodyParams = [String(p.title ?? ""), String(p.text ?? ""), String(p.link ?? "")];
+    body = bodyParams.join("\n");
+    deliver = () => sendCustomerTemplate({ to: row.intendedTo, name: row.template ?? "", language, bodyParams, text: body });
+  } else if (row.kind === "NEW_ORDER") {
     const [order] = row.orderId ? await db.select({ status: orders.status }).from(orders).where(eq(orders.id, row.orderId)) : [];
     if (!order || order.status !== "CONFIRMED") {
       await finish({ status: "SKIPPED", error: order ? `The order is already ${order.status.toLowerCase()}.` : "The order no longer exists." });
@@ -113,7 +151,7 @@ async function sendOne(row: WhatsappMessage, language: string): Promise<"sent" |
   }
 
   try {
-    const result = await sendMetaTemplate({ to: row.intendedTo, name: row.template ?? "", language, bodyParams, quickReplies });
+    const result = await deliver();
     await finish({
       status: "SENT",
       metaMessageId: result.messageId,

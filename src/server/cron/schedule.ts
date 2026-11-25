@@ -84,7 +84,11 @@ export async function paymentsReconcile() {
   const bankChecks = await (await import("@/server/services/bank-accounts"))
     .sweepBankVerifications()
     .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-  return { ...payments, orderRefunds, cashfreeTopUps, registrationFees, bankChecks };
+  // PAY-SM: paid payments confirmed with the gateway (RECONCILED); a no-op while flag payment_settlement_states is off.
+  const settlement = await (await import("@/server/payments/settlement"))
+    .runSettlementReconciliation()
+    .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  return { ...payments, orderRefunds, cashfreeTopUps, registrationFees, bankChecks, settlement };
 }
 
 /** Help-desk deadlines (acknowledge / resolve, auto-close) and refund retries. */
@@ -238,6 +242,8 @@ export const DAILY: readonly Job[] = [
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
   // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.
   { name: "shop-document-follow-up", run: async () => (await import("@/server/services/shop-document-follow-up")).runShopDocumentFollowUp() },
+  // docs/shop-membership-renewal-2026-11: yearly membership reminders (before the end, on the day, grace end) — a no-op while rule shopMembership.remindersEnabled is off.
+  { name: "shop-membership-reminders", run: async () => (await import("@/server/services/shop-membership-renewal")).runMembershipRenewalReminders() },
   // docs/billing: compliance reminders, s.9(5) invoice catch-up, books posting, statements, GST link reminders,
   // credit-note IRNs — a no-op while billing_v2 is off.
   { name: "billing-daily", run: async () => (await import("@/server/tax/daily")).runBillingDaily() },
@@ -245,6 +251,9 @@ export const DAILY: readonly Job[] = [
   { name: "smart-list-photo-retention", run: async () => (await import("@/server/services/smart-list/scan")).sweepExpiredScanPhotos() },
   // docs/smart-shopping-2026-11 (Feature 2): add-by-photo photos not used for a product, after rule smartShopping.photoRetentionDays.
   { name: "photo-listing-purge", run: async () => (await import("@/server/services/shop-photo-listing")).purgeExpiredPhotoListingPhotos() },
+  // docs/account-deletion-2026-11 (0199): accounts whose deletion cooling-off period (rule accountDeletion.coolingOffDays)
+  // is over are anonymised; one where a blocker appeared is held (BLOCKED) and ops are alerted. A no-op when none is due.
+  { name: "account-deletion-purge", run: async () => (await import("@/server/services/account-deletion")).runDueAccountPurges() },
 ];
 
 /** The jobs of an every-minute run at `now`. */

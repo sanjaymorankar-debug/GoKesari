@@ -19,7 +19,8 @@ import {
 import { SHOP_DELIVERY_CHOICES } from "@/lib/shop-delivery-choice";
 import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { getShopAccess, requireShopAccess } from "@/server/authz/guards";
+import { getShopAccess } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { getPublicShopById, getShopById, toShopView, updateShop } from "@/server/services/shops";
 import { notFound } from "@/lib/errors";
@@ -94,7 +95,7 @@ const schema = z
 export const PATCH = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
     const { id } = await context.params;
-    const { user } = await requireShopAccess(id, {
+    const { user } = await requireShopPermission(id, "settings.edit", {
       anyPermission: PERMISSIONS.SHOP_UPDATE_ANY,
     });
     const body = await parseBody(request, schema);

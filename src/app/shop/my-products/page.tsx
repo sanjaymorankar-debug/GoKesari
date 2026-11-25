@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 import { BulkPanel } from "@/components/shop-setup/bulk-panel";
 import { StockEditor } from "@/components/shop-setup/stock-editor";
 import { EmptyState, LinkButton, PageHeader } from "@/components/ui";
-import { LISTING_STATUSES, LISTING_STATUS_LABEL, type ListingStatus } from "@/lib/listing-status";
+import { L, tr } from "@/lib/board/i18n";
+import { LISTING_STATUSES, LISTING_STATUS_TEXT, type ListingStatus } from "@/lib/listing-status";
+import { getBoardLang } from "@/server/board-lang";
 import { addProductPath } from "@/lib/shop-setup-links";
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -16,17 +18,29 @@ import { listShopsForOwner } from "@/server/services/shops";
 export const metadata = { title: "My products" };
 export const dynamic = "force-dynamic";
 
+const T = {
+  title: L("My products", "मेरे उत्पाद", "माझी उत्पादने"),
+  noShop: L("You haven't registered a shop yet", "आपने अभी कोई दुकान रजिस्टर नहीं की है", "तुम्ही अजून दुकान नोंदवलेले नाही"),
+  all: L("All", "सभी", "सर्व"),
+  add: L("Add products", "उत्पाद जोड़ें", "उत्पादने जोडा"),
+  filterAria: L("Filter by status", "स्थिति से छाँटें", "स्थितीनुसार निवडा"),
+  noProducts: L("Your shop has no products yet", "आपकी दुकान में अभी कोई उत्पाद नहीं है", "तुमच्या दुकानात अजून उत्पादने नाहीत"),
+  noMatch: L("No products match", "कोई उत्पाद मेल नहीं खाता", "कोणतेही उत्पादन जुळत नाही"),
+  clear: L("Clear filter", "फ़िल्टर हटाएँ", "फिल्टर काढा"),
+  excel: L("Update many products with Excel", "Excel से कई उत्पाद एक साथ अपडेट करें", "Excel ने अनेक उत्पादने एकत्र अपडेट करा"),
+} as const;
+
 /** Every listing of the owner's shop by status; stock and price can be changed here at any time. */
 export default async function MyProductsPage({ searchParams }: { searchParams: Promise<{ shop?: string; status?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   const params = await searchParams;
-  const shops = await listShopsForOwner(user.id);
+  const [shops, lang] = await Promise.all([listShopsForOwner(user.id), getBoardLang()]);
   if (shops.length === 0) {
     return (
       <>
-        <PageHeader title="My products" />
-        <EmptyState title="You haven't registered a shop yet" />
+        <PageHeader title={tr(T.title, lang)} />
+        <EmptyState title={tr(T.noShop, lang)} />
       </>
     );
   }
@@ -39,16 +53,16 @@ export default async function MyProductsPage({ searchParams }: { searchParams: P
     return `/shop/my-products${query ? `?${query}` : ""}`;
   };
   const tabs: { value: ListingStatus | null; label: string; count: number }[] = [
-    { value: null, label: "All", count: listings.length },
-    ...LISTING_STATUSES.map((s) => ({ value: s, label: LISTING_STATUS_LABEL[s], count: listings.filter((l) => l.status === s).length })),
+    { value: null, label: tr(T.all, lang), count: listings.length },
+    ...LISTING_STATUSES.map((s) => ({ value: s, label: tr(LISTING_STATUS_TEXT[s], lang), count: listings.filter((l) => l.status === s).length })),
   ];
   const setupHref = `/shop/product-categories${shops.length > 1 ? `?shop=${shop.id}` : ""}`;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader title="My products" description={shop.name} action={<LinkButton href={setupHref} variant="secondary">Add products</LinkButton>} />
+      <PageHeader title={tr(T.title, lang)} description={shop.name} action={<LinkButton href={setupHref} variant="secondary">{tr(T.add, lang)}</LinkButton>} />
 
-      <nav className="flex flex-wrap gap-2" aria-label="Filter by status">
+      <nav className="flex flex-wrap gap-2" aria-label={tr(T.filterAria, lang)}>
         {tabs.map((t) => (
           <Link
             key={t.label}
@@ -62,16 +76,16 @@ export default async function MyProductsPage({ searchParams }: { searchParams: P
       </nav>
 
       {listings.length === 0 ? (
-        <EmptyState title="Your shop has no products yet" action={<LinkButton href={setupHref}>Add products</LinkButton>} />
+        <EmptyState title={tr(T.noProducts, lang)} action={<LinkButton href={setupHref}>{tr(T.add, lang)}</LinkButton>} />
       ) : rows.length === 0 ? (
-        <EmptyState title="No products match" action={<LinkButton href={href(null)} variant="secondary">Clear filter</LinkButton>} />
+        <EmptyState title={tr(T.noMatch, lang)} action={<LinkButton href={href(null)} variant="secondary">{tr(T.clear, lang)}</LinkButton>} />
       ) : (
         // Remounted per filter, so it starts from what is saved now.
         <StockEditor key={status ?? "all"} shopId={shop.id} rows={rows} mode="manage" needsHref={href("NEEDS_STOCK")} productsHref={href(null)} />
       )}
 
       <details className="rounded-2xl border border-cream-200 bg-cream-50 p-4">
-        <summary className="min-h-6 cursor-pointer font-medium text-ink-900">Update many products with Excel</summary>
+        <summary className="min-h-6 cursor-pointer font-medium text-ink-900">{tr(T.excel, lang)}</summary>
         <div className="mt-4">
           <BulkPanel
             shopId={shop.id}

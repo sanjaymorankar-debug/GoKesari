@@ -48,6 +48,8 @@ export interface EventMessage {
   actionUrl?: string;
   channels?: Channel[];
   includeActor?: boolean;
+  /** Module 6: "auto" writes it in the person's saved language when the event has Hindi / Marathi wording. */
+  lang?: "auto";
   /**
    * The scope of "at most once per person". Defaults to this event; a wider
    * scope (e.g. `order:<id>:rider-search`) sends once across many events.
@@ -266,6 +268,7 @@ const forBuyer = (p: OrderEventPayload, type: NotificationType, vars: Vars = {})
   type,
   vars: { orderNumber: p.orderNumber, shopName: p.shopName, ...vars },
   actionUrl: ORDERS,
+  lang: "auto",
 });
 
 /* ----------------------------------------------------------------- the list */
@@ -334,7 +337,7 @@ export const EVENTS = {
   "order.cancelled": define<OrderEventPayload>("order", (p) => {
     const messages: EventMessage[] = [
       {
-        ...forBuyer(p, N.ORDER_CANCELLED),
+        ...forBuyer(p, N.ORDER_CANCELLED, { reason: p.reason ?? "" }),
         title: "Order cancelled",
         body: `Your order ${p.orderNumber} was cancelled: ${p.reason ?? ""}`.trim(),
       },
@@ -1123,13 +1126,25 @@ export const EVENTS = {
   "payment.refunded": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
     "payment_intent",
     (p) => [
-      { to: p.userId, type: N.ORDER_PAYMENT_REFUNDED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true },
+      { to: p.userId, type: N.ORDER_PAYMENT_REFUNDED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true, lang: "auto" },
     ],
   ),
   /** Support: a payment needs a person (amount mismatch, money taken after the attempt ended, refund failed or stuck). */
   "payment.attention": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string; problem: string }>(
     "payment_intent",
     (p) => [{ to: "SUPPORT", type: N.SUPPORT_PAYMENT_ATTENTION, vars: { reference: p.reference, problem: p.problem }, actionUrl: "/admin" }],
+  ),
+  /** PAY-SM: the customer's bank disputed a payment (opened, or its outcome changed). Admins only. */
+  "payment.chargeback": define<{ chargebackId: string; intentId: string | null; amount: string; reference: string; outcome: string; respondBy: string; reason: string }>(
+    "payment_intent",
+    (p) => [
+      {
+        to: "SUPPORT_LEAD",
+        type: N.ADMIN_PAYMENT_CHARGEBACK,
+        vars: { reference: p.reference, amount: p.amount, outcome: p.outcome, respondBy: p.respondBy, reason: p.reason },
+        actionUrl: "/admin/payments/chargebacks",
+      },
+    ],
   ),
   /* <<< end WS-A */
   //

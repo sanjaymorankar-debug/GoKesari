@@ -80,6 +80,11 @@ Owner brief received 10.51. Built 11.00 – 12.40.
 - **Tests**: 6 integration suites (core, rx-orders, care, rentals, prime, admin), guest QA checks TC-HLT-001…005,
   signed-in journeys TC-HLT-010…032.
 
+### Switched on at launch (14.13 IST) and released (23.32 IST)
+- Migration 0156 merges `health.enabled` and `consultBooking.enabled` **on** when it runs on each site, with
+  audit-log rows (owner, 20-Nov-2026 ~14.05 IST, DECISIONS H-47). "Rule `health` (off by default)" above is the
+  code default only. Live on gokesari.com since 20-Nov-2026 23.32 IST (release #440).
+
 ### Launch mode (13.32 IST)
 - Rule `health.primeForAll` (default on, owner decision): every verified provider gets the Prime features; Prime plans are not sold; no paid boost or label in search; standard registration fee (₹999 slab) and 2% commission apply.
 

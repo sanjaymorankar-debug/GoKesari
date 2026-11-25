@@ -192,6 +192,8 @@ async function findIntentForEvent(gateway: PaymentGateway, event: GatewayWebhook
 }
 
 async function processEvent(gateway: PaymentGateway, event: GatewayWebhookEvent, webhookEventId: string): Promise<{ outcome: string; intentId: string | null }> {
+  // PAY-SM: disputes / chargebacks (settlement.ts; a no-op while flag payment_settlement_states is off).
+  if (event.kind === "DISPUTE") return (await import("./settlement")).applyDisputeEvent(gateway.name, event, webhookEventId);
   if (event.kind === "REFUND_SUCCESS" || event.kind === "REFUND_FAILED") {
     const conditions = [];
     if (event.merchantRef) conditions.push(eq(paymentRefunds.merchantRefundId, event.merchantRef));

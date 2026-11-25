@@ -108,6 +108,54 @@ export async function sendMetaText(to: string, text: string, env: ServerEnv = ge
   return { messageId, sentTo };
 }
 
+/** docs/customer-whatsapp-2026-11: an interactive reply (inside the 24-hour window) — up to 3 reply buttons, or a list of up to 10 rows. */
+export interface InteractiveSend {
+  to: string;
+  body: string;
+  buttons?: { id: string; title: string }[];
+  list?: { button: string; rows: { id: string; title: string; description?: string }[] };
+}
+
+const cut = (value: string, max: number) => (value.length > max ? `${value.slice(0, max - 1)}…` : value);
+
+/** The Meta "interactive" object for a reply (limits: button 20 chars, row title 24, description 72, body 1024). */
+export function interactivePayload(message: Omit<InteractiveSend, "to">): Record<string, unknown> {
+  const body = { text: cut(message.body, 1024) };
+  if (message.list && message.list.rows.length > 0) {
+    return {
+      type: "list",
+      body,
+      action: {
+        button: cut(message.list.button, 20),
+        sections: [
+          {
+            title: "Choose",
+            rows: message.list.rows.slice(0, 10).map((r) => ({
+              id: r.id.slice(0, 200),
+              title: cut(r.title, 24),
+              ...(r.description ? { description: cut(r.description, 72) } : {}),
+            })),
+          },
+        ],
+      },
+    };
+  }
+  return {
+    type: "button",
+    body,
+    action: { buttons: (message.buttons ?? []).slice(0, 3).map((b) => ({ type: "reply", reply: { id: b.id.slice(0, 256), title: cut(b.title, 20) } })) },
+  };
+}
+
+export async function sendMetaInteractive(message: InteractiveSend, env: ServerEnv = getEnv()): Promise<SendResult> {
+  const sentTo = whatsappRecipientFor(message.to, env);
+  const messageId = await post(
+    { messaging_product: "whatsapp", recipient_type: "individual", to: sentTo.slice(1), type: "interactive", interactive: interactivePayload(message) },
+    env,
+  );
+  return { messageId, sentTo };
+}
+
 async function post(body: Record<string, unknown>, env: ServerEnv): Promise<string> {
   const problem = metaWhatsAppProblem(env);
   if (problem) throw new MetaWhatsAppError(`WhatsApp is not set up: ${problem}`, "NOT_CONFIGURED", false);
