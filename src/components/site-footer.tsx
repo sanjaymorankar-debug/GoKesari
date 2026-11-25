@@ -62,12 +62,15 @@ export function SiteFooter({ lang = "en" }: { lang?: Lang }) {
     <footer lang={LANG_TAG[lang]} className="border-t border-cream-200 bg-white" data-testid="site-footer">
       <div className="mx-auto max-w-6xl px-4 pb-4 pt-5 sm:px-6 lg:pt-8">
         <FooterColumns columns={columns} />
-        <div className="mt-4 flex flex-col items-center gap-3 border-t border-cream-200 pt-4 lg:mt-6 lg:flex-row lg:justify-between">
+        {/* Language row, then the company line on its own row: the full line ("… gokesari.com a unit of © …")
+            needs ~990px, more than is left beside the language buttons, so on desktop it sits below them
+            on one line (lg:whitespace-nowrap); on phones it wraps. */}
+        <div className="mt-4 flex flex-col items-center gap-3 border-t border-cream-200 pt-4 lg:mt-6">
           <div className="flex items-center gap-2" data-testid="footer-language">
             <span className="text-sm font-semibold text-ink-700">{tr(UI.language, lang)}</span>
             <LanguageSwitch lang={lang} variant="buttons" />
           </div>
-          <p className="text-center text-xs leading-snug text-ink-600 lg:text-right" data-testid="footer-company-line">
+          <p className="text-center text-xs leading-snug text-ink-600 lg:whitespace-nowrap" data-testid="footer-company-line">
             <BrandWordmark className="text-xs" /> · <BrandTagline className="text-xs" /> · gokesari.com a unit of © {LEGAL_ENTITY.legalName} · GSTIN {LEGAL_ENTITY.gstin}
           </p>
         </div>
