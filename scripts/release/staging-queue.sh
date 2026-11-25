@@ -676,7 +676,7 @@ $out
   if [ "$DRY_RUN" = 1 ]; then note "DRY RUN: would test $list together on $SITE"; rm -rf "$dir"; return 2; fi
   [ "$write_errors" = 0 ] || { rm -rf "$dir"; return 2; }
 
-  stamp="$(TZ=Asia/Kolkata date +%Y%m%d-%H%M)"; branch="queue/batch-$stamp"
+  stamp="$(TZ=Asia/Kolkata date +%Y%m%d-%H%M%S)-$RANDOM"; branch="queue/batch-$stamp"
   b push -q origin "HEAD:refs/heads/$branch" || { rm -rf "$dir"; log "batch: could not push $branch"; return 2; }
   bsha="$(b rev-parse HEAD)"; rm -rf "$dir"
   local body="Staging queue batch ($(ist)): $list, tested together (docs/staging-queue/README.md, \"Batches\"). Opened and merged by the queue — do not edit.${RUN_URL:+ [Run]($RUN_URL).}"
