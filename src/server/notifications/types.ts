@@ -268,6 +268,8 @@ export const NOTIFICATION_TYPES = {
   ORDER_PAYMENT_REFUNDED: "order.payment_refunded",
   /** To support: a payment needs a person (amount mismatch, late capture, stuck refund). */
   SUPPORT_PAYMENT_ATTENTION: "support.payment_attention",
+  /** PAY-SM, to admins: a payment was disputed / charged back, or the dispute's outcome changed. */
+  ADMIN_PAYMENT_CHARGEBACK: "support.payment_chargeback",
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */

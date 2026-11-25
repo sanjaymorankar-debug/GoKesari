@@ -18,7 +18,7 @@ Where to start:
 
 - **Assigning a role:** Admin → Users → the person → Privileges. Choose the role there.
 - **A Regional Admin's areas:** set by an admin through `setRegionScope` (a screen for this is a follow-up).
-- **Second approver:** turn on the flag `dealer_platform_four_eye` (Admin → Feature flags). Then these actions wait in Admin → Approvals for a different admin:
+- **Second approver:** turn on the flag `dealer_platform_four_eye` (Admin → Feature flags; **off on gokesari.com** as of 24-Nov-2026 — switch it on once a second admin exists). Then these actions wait in Admin → Approvals for a different admin:
   - publishing or scheduling a scheme;
   - changing a scheme's status;
   - moving a dealer to another scheme;
