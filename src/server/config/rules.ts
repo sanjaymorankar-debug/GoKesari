@@ -1391,6 +1391,15 @@ export const RULES = {
       allowSandboxInProduction: false,
     },
   },
+  /** PAY-2 (docs/payments-topups-via-intents-2026-11): wallet top-ups through payment intents. */
+  topupPaymentIntents: {
+    description:
+      "Wallet top-ups and shop wallet recharges use the same payment path as orders (payment intents: one create path, one webhook, one status check) " +
+      "through the gateway chosen by PAYMENT_GATEWAY. Off: top-ups use the older Cashfree top-up flow exactly as before. " +
+      "Top-ups already started finish on the path they started on either way.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
   /** PAY-SM (docs/payment-settlement-states-2026-11.md): timing of the reconcile step. Switched by flag payment_settlement_states. */
   paymentSettlement: {
     description:
@@ -1459,7 +1468,7 @@ export const RULES = {
       takenNoticeSeconds: 120,
     },
   },
-  /* >>> Rider App v2 (docs/rider-app-v2-2026-11; drizzle/0203) — every switch OFF by default */
+  /* >>> Rider App v2 (docs/rider-app-v2-2026-11; drizzle/0204) — every switch OFF by default */
   riderAppV2: {
     description:
       "Rider App v2 screens. Off (default): the rider dashboard as before. On: riders get the bottom bar (Home · Earnings · My Slots · Refer · More), the header with Online/Offline, Help, SOS and tier badge, the Home tiles, the high-earning-slot banner, the daily incentive ladder, and the Mon–Sun earnings week with cash in hand shown apart.",

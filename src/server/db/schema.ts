@@ -1402,7 +1402,7 @@ export const deliveryPartners = pgTable(
     latitude: text("latitude"),
     longitude: text("longitude"),
     operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
-    /** Rider App v2 (0203, rule riderReferral): this rider's own code, and who referred them. */
+    /** Rider App v2 (0204, rule riderReferral): this rider's own code, and who referred them. */
     referralCode: text("referral_code"),
     referredByPartnerId: uuid("referred_by_partner_id"),
     /** Rating aggregate (GS-060), maintained from visible order_ratings. Average × 100. */
@@ -2377,12 +2377,12 @@ export const deliveryOrders = pgTable(
     rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
     /** GA-005: the trip this delivery is batched into with the rider's other orders; null = carried alone. */
     tripId: uuid("trip_id").references((): AnyPgColumn => deliveryTrips.id, { onDelete: "set null" }),
-    /* Rider App v2 (0203, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
+    /* Rider App v2 (0204, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
     quotePaise: integer("quote_paise"),
     quoteBreakdown: jsonb("quote_breakdown").$type<import("@/lib/rider-pay-plan").PayQuote>(),
     payPlanId: uuid("pay_plan_id"),
     quotedAt: timestamp("quoted_at", { withTimezone: true }),
-    /** 0203: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
+    /** 0204: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
     rejectReasonCode: text("reject_reason_code"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2846,7 +2846,7 @@ export const deliveryPartnerEarnings = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
     payoutId: uuid("payout_id"),
-    /* Rider App v2 (0203): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
+    /* Rider App v2 (0204): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
     quotePaise: integer("quote_paise"),
     payPlanId: uuid("pay_plan_id"),
     planBreakdown: jsonb("plan_breakdown").$type<Record<string, unknown>>(),
@@ -3380,9 +3380,9 @@ export const riderEarningSlots = pgTable(
     /** Peak-period component paid on top in this slot. */
     peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
     isPeak: boolean("is_peak").notNull().default(false),
-    /** Rider App v2 (0203): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
+    /** Rider App v2 (0204): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
     surgeMultiplierBp: integer("surge_multiplier_bp"),
-    /** 0203 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
+    /** 0204 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
     bookable: boolean("bookable").notNull().default(false),
     bookingCapacity: integer("booking_capacity"),
     /** The highest-priority active slot containing the delivery time wins. */
@@ -9111,7 +9111,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0203 PAY-2 */] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -13466,5 +13466,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
-export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0203)
+export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0204)
 /* <<< GoKesari Health */

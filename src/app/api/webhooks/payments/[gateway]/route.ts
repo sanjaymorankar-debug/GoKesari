@@ -5,8 +5,9 @@
  * 401 on a bad signature (recorded), 200 for a repeated event (ignored),
  * 500 when processing failed (the gateway retries). The state is taken from
  * the gateway's own API, not from this body — see server/payments/processing.ts.
- * The older Cashfree wallet top-up webhook (/api/webhooks/cashfree) is separate
- * and unchanged.
+ * Wallet top-ups come here too once rule topupPaymentIntents is on (PAY-2); the
+ * older Cashfree top-up webhook (/api/webhooks/cashfree) forwards such top-ups
+ * here and still settles top-ups started on the older flow.
  */
 import { NextResponse, type NextRequest } from "next/server";
 

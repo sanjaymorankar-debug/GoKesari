@@ -25,4 +25,7 @@ export const PAYMENT_ENDED_HANDLERS: Partial<Record<PaymentPurpose, EndedHandler
   // Franchise area booking: a failed or expired payment releases the reserved slots (docs/franchise).
   FRANCHISE_FEE: async (intent, to, client) => (await import("@/server/franchise/booking")).onFranchiseFeeEnded(intent, to, client),
   DEALER_JOINING_FEE: async (intent, to, client) => (await import("@/server/dealers/scheme-registration")).onJoiningFeeEnded(intent, to, client),
+  // PAY-2: a top-up's payments row fails with its intent.
+  WALLET_TOPUP: async (intent, to, client) => (await import("./topup-intents")).onTopUpEnded(intent, to, client),
+  SHOP_WALLET_TOPUP: async (intent, to, client) => (await import("./topup-intents")).onTopUpEnded(intent, to, client),
 };
