@@ -569,7 +569,7 @@ export const consentTypeEnum = pgEnum("consent_type", [
   "MARKETING_COMMUNICATIONS",
   // docs/customer-whatsapp-2026-11 (0193): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
   "WHATSAPP_NOTIFICATIONS",
-  // docs/seller-undertaking-2026-11 (0203): a shop owner's undertaking to supply only fresh, non-expired,
+  // docs/seller-undertaking-2026-11 (0204): a shop owner's undertaking to supply only fresh, non-expired,
   // compliant goods, and their acceptance of the Seller Terms — each with its own version.
   "SELLER_GOODS_UNDERTAKING",
   "SELLER_TERMS",
@@ -4949,9 +4949,9 @@ export const userConsents = pgTable(
     ipAddress: text("ip_address"),
     /** docs/customer-whatsapp-2026-11 (0193): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
     source: text("source"),
-    /** 0203: the shop the consent was given for (seller consents); null for every other consent. No FK (kept on shop deletion as evidence). */
+    /** 0204: the shop the consent was given for (seller consents); null for every other consent. No FK (kept on shop deletion as evidence). */
     shopId: uuid("shop_id"),
-    /** 0203: the browser / app that recorded the consent, as evidence of the act; null on older rows. */
+    /** 0204: the browser / app that recorded the consent, as evidence of the act; null on older rows. */
     userAgent: text("user_agent"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -4960,7 +4960,7 @@ export const userConsents = pgTable(
   (t) => [
     index("user_consents_user_idx").on(t.userId),
     index("user_consents_type_idx").on(t.consentType),
-    // 0203: "latest consent of this type for this user" (seller undertaking gate, read on every Seller Central page).
+    // 0204: "latest consent of this type for this user" (seller undertaking gate, read on every Seller Central page).
     index("user_consents_user_type_created_idx").on(t.userId, t.consentType, t.createdAt),
   ],
 );
@@ -9102,7 +9102,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0203 PAY-2 */] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -10947,7 +10947,7 @@ export const FEATURE_FLAG_KEYS = [
   "payment_settlement_states", // PAY-SM (0201)
   // docs/policy-reconsent-2026-11 (0202): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
   "policy_reconsent_enabled",
-  // docs/seller-undertaking-2026-11 (0203): shop owners accept the fresh-goods undertaking before using Seller Central / accepting new orders. Seeded OFF.
+  // docs/seller-undertaking-2026-11 (0204): shop owners accept the fresh-goods undertaking before using Seller Central / accepting new orders. Seeded OFF.
   "seller_undertaking_gate_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
