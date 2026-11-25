@@ -5,6 +5,8 @@ import { inArray } from "drizzle-orm";
 import { ApprovalsQueue, type ApprovalRow } from "@/components/approvals-queue";
 import { JournalComposer, JournalList, PeriodList, RateProposals } from "@/components/staff/accounting-desk";
 import { BankStatementDetail, BankStatementImport, BankStatementList } from "@/components/staff/bank-recon-desk";
+import { AutoPostings } from "@/components/staff/auto-postings";
+import { listAutoPostings, statutoryLiabilities } from "@/server/rbac-accounting/auto-post";
 import { PageHeader } from "@/components/ui";
 import { istToday } from "@/lib/fulfilment-options";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -26,6 +28,7 @@ const TABS = [
   { key: "periods", label: "Periods" },
   { key: "rates", label: "Rates" },
   { key: "bank", label: "Bank" },
+  { key: "auto", label: "Auto postings" },
   { key: "tb", label: "Trial balance" },
 ] as const;
 
@@ -37,7 +40,7 @@ const rupees = (p: number) => `₹${(p / 100).toLocaleString("en-IN", { minimumF
  * RBAC v2 Phase 3 accounting desk (docs/rbac/03-phase3-accounting.md): Accountant (maker) and CA (checker).
  * Behind rbac_v2_accounting for the viewer's role.
  */
-export default async function AccountingPage({ searchParams }: { searchParams: Promise<{ tab?: string; statement?: string; lines?: string }> }) {
+export default async function AccountingPage({ searchParams }: { searchParams: Promise<{ tab?: string; statement?: string; lines?: string; month?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   const canPrepare = can(user.role, PERMISSIONS.JOURNAL_PREPARE);
@@ -154,6 +157,18 @@ export default async function AccountingPage({ searchParams }: { searchParams: P
         </div>
       );
     }
+  } else if (tab === "auto") {
+    // docs/tax-register/BOOKS.md: postings queued by paid payouts (flag auto_journals).
+    const month = params.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.month) ? params.month : today.slice(0, 7);
+    const [rows, liabilities] = await Promise.all([listAutoPostings(), statutoryLiabilities(month)]);
+    body = (
+      <AutoPostings
+        canPrepare={canPrepare}
+        month={month}
+        liabilities={liabilities}
+        rows={rows.map((r) => ({ id: r.id, sourceType: r.sourceType, entryDate: r.entryDate, narration: r.narration, totalPaise: r.totalPaise, status: r.status, lines: r.lines, dismissedReason: r.dismissedReason, journalEntryId: r.journalEntryId }))}
+      />
+    );
   } else if (tab === "rates") {
     const rows = (await listRateProposals()).map((p) => ({
       id: p.id,

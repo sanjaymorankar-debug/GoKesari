@@ -51,9 +51,17 @@ never treated as verified.
 
 ## Settings per site
 
-Set in hPanel → the site → environment variables. Never commit them. To apply,
-use Deployments → Redeploy → "Settings and redeploy" — never "Change
-repository", which has wiped environment variables before.
+> **Updated 24-Nov-2026.** Provider: the owner chose **Sandbox.co.in**
+> (`KYC_PROVIDER=sandboxco`) on 09-Nov-2026 for PAN and GSTIN — live `key_live_…`
+> keys with `KYC_ENV=production` on gokesari.com, `key_test_…` with
+> `KYC_ENV=sandbox` on test.gokesari.com; bank accounts are checked with
+> Cashfree Secure ID. Gridlines (below) was the first plan and its adapter
+> stays. The app refuses `mock` or sandbox keys on gokesari.com, and live keys
+> anywhere else (`src/lib/env.ts`).
+
+Set in each site's env file on the server (`sudo gk-site env set <site> <KEY>`,
+then `sudo gk-deploy restart <site>`; DEPLOYMENT.md §2). Never commit them.
+Until 17-Nov-2026 they were set in hPanel.
 
 | Variable | Local / CI | test.gokesari.com | gokesari.com |
 |---|---|---|---|
