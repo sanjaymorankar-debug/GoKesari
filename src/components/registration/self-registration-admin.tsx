@@ -201,7 +201,7 @@ function CodeRow({ code, distributors, onSave }: { code?: Code; distributors: Di
     <div className="space-y-2 p-3">
       {code ? (
         <p className="text-xs text-ink-500">
-          <b className="text-ink-900">{code.code}</b> · used {code.used}{code.maxUses ? ` of ${code.maxUses}` : ""}{code.held ? ` · ${code.held} waiting for payment` : ""} · link: /shop/join?code={code.code}
+          <b className="text-ink-900">{code.code}</b> · used {code.used}{code.maxUses ? ` of ${code.maxUses}` : ""}{code.held ? ` · ${code.held} waiting for payment` : ""} · link: /shop/register?ref={code.code}
         </p>
       ) : null}
       <div className="grid gap-2 sm:grid-cols-3">

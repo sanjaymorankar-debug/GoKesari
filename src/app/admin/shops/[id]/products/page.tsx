@@ -115,7 +115,6 @@ export default async function AdminShopProductsPage({
 
       <ShopProductManager
         shopId={shop.id}
-        department={shop.shopType}
         applyPriceImmediately={immediate}
         products={products.map((p) => ({
           id: p.id,
