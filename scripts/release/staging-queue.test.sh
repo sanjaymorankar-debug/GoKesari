@@ -379,5 +379,86 @@ check "still takes the PR" said "DRY RUN: would merge #7 at aaaa111"
 check "does not hand over" eval '! said "run time budget reached"'
 end_case
 
+# Batches (README, "Batches"): with QUEUE_BATCH_SIZE > 1, two queued PRs whose
+# checks passed are merged onto staging in one branch, tested as one PR (#90),
+# and that PR is merged. The fake site never answers, so the batch fails at the
+# deploy step: that also shows the pause path.
+sg switch -q staging; S_SHA="$(sg rev-parse staging)"
+sg switch -qc feature/b1 staging; echo one > "$SEED/b1.txt"; sg add -A; sg commit -qm b1
+sg switch -qc feature/b2 staging; echo two > "$SEED/b2.txt"; sg add -A; sg commit -qm b2
+sg switch -q staging; sg push -q "$REMOTE" feature/b1 feature/b2
+B1="$(sg rev-parse feature/b1)" B2="$(sg rev-parse feature/b2)"
+pr_json() { echo "{\"number\":$1,\"state\":\"open\",\"draft\":false,\"title\":\"B$1\",\"updated_at\":\"2026-11-25T09:00:00Z\",\"labels\":[{\"name\":\"ready-for-staging\"}],\"head\":{\"sha\":\"$2\",\"ref\":\"$3\",\"repo\":{\"full_name\":\"acme/shop\"}},\"mergeable\":true}"; }
+BATCH="GET repos/acme/shop/pulls?state=open* 200 [$(pr_json 7 "$B1" feature/b1),$(pr_json 8 "$B2" feature/b2)]
+GET repos/acme/shop/pulls/7 200 $(pr_json 7 "$B1" feature/b1)
+GET repos/acme/shop/pulls/8 200 $(pr_json 8 "$B2" feature/b2)
+GET repos/acme/shop/compare/staging...* 200 {\"behind_by\":0}
+GET repos/acme/shop/branches/staging 200 {\"commit\":{\"sha\":\"$S_SHA\"}}
+GET repos/acme/shop/commits/$B1/check-runs* 200 {\"check_runs\":[{\"id\":1,\"name\":\"test\",\"status\":\"completed\",\"conclusion\":\"success\",\"app\":{\"slug\":\"github-actions\"}}]}
+GET repos/acme/shop/commits/$B2/check-runs* 200 {\"check_runs\":[{\"id\":1,\"name\":\"test\",\"status\":\"completed\",\"conclusion\":\"success\",\"app\":{\"slug\":\"github-actions\"}}]}
+POST repos/acme/shop/pulls 201 {\"number\":90}
+PATCH repos/acme/shop/pulls/90 200 {}
+DELETE repos/acme/shop/git/refs/heads/* 204 {}
+GET repos/acme/shop/pulls/90 200 {\"number\":90,\"merge_commit_sha\":\"tttt000\"}
+GET repos/acme/shop/git/commits/tttt000 200 {\"tree\":{\"sha\":\"tree1\"}}
+GET repos/acme/shop/git/commits/mmmm999 200 {\"tree\":{\"sha\":\"tree1\"}}
+PUT repos/acme/shop/pulls/90/merge 200 {\"sha\":\"mmmm999\"}
+GET repos/acme/shop/actions/runs?head_sha=mmmm999* 200 {\"workflow_runs\":[{\"id\":21,\"name\":\"Test database\",\"event\":\"push\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":22,\"name\":\"CI\",\"event\":\"push\",\"status\":\"in_progress\",\"conclusion\":null}]}
+PUT repos/acme/shop/pulls/7/merge 405 {\"message\":\"Pull Request is not mergeable\"}
+PUT repos/acme/shop/pulls/8/merge 405 {\"message\":\"Pull Request is not mergeable\"}"
+BATCH_CI_OK='GET repos/acme/shop/commits/*/check-runs* 200 {"check_runs":[{"id":2,"name":"test","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'
+BATCH_CI_RED='GET repos/acme/shop/commits/*/check-runs* 200 {"check_runs":[{"id":2,"name":"test","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}]}'
+
+run_case batch-merged-then-deploy-fails "$BATCH
+$BATCH_CI_OK" QUEUE_GIT_URL="$REMOTE" QUEUE_BATCH_SIZE=4
+BATCH_REF="$(git -C "$REMOTE" for-each-ref --format='%(refname:short)' 'refs/heads/queue/batch-*' | head -1)"
+check "exits 1 (paused)" exits 1
+check "pushes a batch branch" [ -n "$BATCH_REF" ]
+check "the batch has both PRs" eval '[ "$(git -C "$REMOTE" show "$BATCH_REF:b1.txt")$(git -C "$REMOTE" show "$BATCH_REF:b2.txt")" = onetwo ]'
+check "opens one batch PR into staging" called '^POST repos/acme/shop/pulls title=Staging queue batch: #7, #8 head=queue/batch-.* base=staging'
+check "merges the batch PR, not #7 or #8" called '^PUT repos/acme/shop/pulls/90/merge merge_method=merge'
+check "does not merge #7 on its own" not_called '^PUT repos/acme/shop/pulls/7/merge'
+check "skips staging's CI on the tested tree" said "not waiting for staging's CI again"
+check "fails at the deploy, not at the runs" said "did not show a new build"
+check "labels #7 failed" called '^POST repos/acme/shop/issues/7/labels labels\[\]=staging-failed'
+check "labels #8 failed" called '^POST repos/acme/shop/issues/8/labels labels\[\]=staging-failed'
+check "pauses the queue" called '^POST repos/acme/shop/issues title=Staging queue paused — batch failed'
+end_case
+
+run_case batch-ci-fails "$BATCH
+$BATCH_CI_RED" QUEUE_GIT_URL="$REMOTE" QUEUE_BATCH_SIZE=4
+check "exits 0 (nothing paused)" exits 0
+check "closes the batch PR" called '^PATCH repos/acme/shop/pulls/90 state=closed'
+check "does not merge the batch" not_called '^PUT repos/acme/shop/pulls/90/merge'
+check "then tries #7 on its own" called '^PUT repos/acme/shop/pulls/7/merge'
+check "and #8 on its own" called '^PUT repos/acme/shop/pulls/8/merge'
+check "no pause issue" not_called '^POST repos/acme/shop/issues title='
+end_case
+
+run_case batch-dry-run "$BATCH
+$BATCH_CI_OK" QUEUE_GIT_URL="$REMOTE" QUEUE_BATCH_SIZE=4 DRY_RUN=1
+check "exits 0" exits 0
+check "writes nothing" not_called "$WRITES"
+check "reports the batch" said "DRY RUN: would test #7, #8 together"
+end_case
+
+run_case batch-off-by-default "$BATCH
+$BATCH_CI_OK" QUEUE_GIT_URL="$REMOTE" DRY_RUN=1
+check "no batch" eval '! said "batch:"'
+check "one at a time" said "DRY RUN: would merge #7"
+end_case
+
+# Known failures: with QUEUE_CONTINUE_ON_FAIL=1 a failure on staging opens the
+# issue "(queue continues)" and the run goes on instead of stopping.
+run_case continue-on-fail "$UP_TO_DATE
+PUT repos/acme/shop/pulls/7/merge 200 {\"sha\":\"mmmm111\"}
+GET repos/acme/shop/actions/runs?head_sha=mmmm111* 200 {\"workflow_runs\":[{\"id\":1,\"name\":\"CI\",\"event\":\"push\",\"status\":\"completed\",\"conclusion\":\"success\"}]}
+POST repos/acme/shop/issues 201 {\"number\":77}" QUEUE_CONTINUE_ON_FAIL=1
+check "labels #7 failed" called '^POST repos/acme/shop/issues/7/labels labels\[\]=staging-failed'
+check "opens the issue, saying the queue continues" called '^POST repos/acme/shop/issues title=Staging queue: #7 failed on test.gokesari.com \(queue continues\)'
+check "tells #7 the queue goes on" called 'issues/7/comments body=.*The queue goes on testing the next PRs'
+check "does not say paused" eval '! said "PAUSED — #7"'
+end_case
+
 echo "$passed passed, $failed failed"
 [ "$failed" = 0 ]

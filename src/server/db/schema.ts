@@ -3174,7 +3174,7 @@ export const deliveryPartnerKycChecks = pgTable(
 export type DeliveryPartnerKycCheck = typeof deliveryPartnerKycChecks.$inferSelect;
 
 /**
- * docs/identity-verification-2026-11 (0203): one-time identity verification
+ * docs/identity-verification-2026-11 (0204): one-time identity verification
  * of customers and shop owners — Aadhaar through DigiLocker by default, PAN as
  * the always-offered alternative. One row per attempt; at most one VERIFIED
  * row and one open (PENDING) row per user (partial unique indexes).
@@ -9174,7 +9174,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0203 PAY-2 */] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -11019,7 +11019,7 @@ export const FEATURE_FLAG_KEYS = [
   "payment_settlement_states", // PAY-SM (0201)
   // docs/policy-reconsent-2026-11 (0202): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
   "policy_reconsent_enabled",
-  // docs/identity-verification-2026-11 (0203): one-time identity check (Aadhaar by DigiLocker or PAN), switched
+  // docs/identity-verification-2026-11 (0204): one-time identity check (Aadhaar by DigiLocker or PAN), switched
   // separately for customers (first checkout) and shop owners (go-live, order acceptance, grace). Both seeded OFF.
   "identity_verification_customers_enabled",
   "identity_verification_shop_owners_enabled",
