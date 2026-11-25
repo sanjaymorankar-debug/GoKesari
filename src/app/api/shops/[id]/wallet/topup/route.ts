@@ -35,5 +35,7 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
     amountPaise: result.amountPaise,
     currency: result.currency,
     mock: result.mock,
+    // PAY-2: a top-up through a payment intent with no Cashfree SDK session — send the browser here.
+    redirectUrl: result.redirectUrl,
   });
 });

@@ -1,5 +1,5 @@
 /**
- * One shop's registration (0203): its payment history and the registration audit trail (who, when in IST,
+ * One shop's registration (0204): its payment history and the registration audit trail (who, when in IST,
  * old value, new value, reason). Admin and operator only.
  */
 import type { NextRequest } from "next/server";

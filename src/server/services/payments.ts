@@ -27,6 +27,7 @@ import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 
 import { cashfreeApiBase, cashfreeEnvProblem, getEnv, isPaymentGatewayLive } from "@/lib/env";
 import {
+  AppError,
   conflict,
   notFound,
   paymentVerificationFailed,
@@ -43,6 +44,9 @@ import { creditShopWalletTopUp, getShopWalletBalance } from "./shop-wallet";
 import { previewVoucher, redeemVoucher } from "./vouchers";
 import { getRule } from "./settings";
 
+/** PAY-2: payments.gateway of a top-up run through a payment intent (payments/topup-intents.ts). */
+const INTENT_ROUTED_GATEWAY = "INTENT";
+
 /** Minimum / maximum top-up, in paise: live values are rule `walletTopup` (defaults ₹1 and ₹1,00,000). */
 const rupees = (paise: number) => (paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
@@ -56,6 +60,12 @@ export interface CreateTopUpResult {
   amountPaise: number;
   currency: string;
   mock: boolean;
+  /**
+   * PAY-2: set when the top-up runs through a payment intent and there is no
+   * Cashfree SDK session to open (the sandbox gateway, a hosted page): the
+   * browser goes there, and the payment return page shows the result.
+   */
+  redirectUrl: string | null;
   /** Set only when a voucher code was supplied and validated (§18 preview). */
   voucherPreview: {
     code: string;
@@ -89,6 +99,19 @@ export async function createTopUpOrder(
   const voucherPreview = voucherCode
     ? await previewVoucher(voucherCode, amountPaise, userId)
     : null;
+  const preview = voucherPreview
+    ? {
+        code: voucherPreview.code!,
+        name: voucherPreview.name,
+        bonusPercent: voucherPreview.bonusPercent,
+        bonusAmountPaise: voucherPreview.bonusAmountPaise,
+        totalCreditPaise: voucherPreview.totalCreditPaise,
+      }
+    : null;
+
+  // PAY-2: rule topupPaymentIntents — the same intent path as every other online payment.
+  const routed = await startViaIntentIfOn({ userId, amountPaise, voucherCode: voucherPreview?.code ?? null });
+  if (routed) return { ...routed, voucherPreview: preview };
 
   const live = isPaymentGatewayLive();
 
@@ -124,15 +147,44 @@ export async function createTopUpOrder(
     amountPaise,
     currency: "INR",
     mock: !live,
-    voucherPreview: voucherPreview
-      ? {
-          code: voucherPreview.code!,
-          name: voucherPreview.name,
-          bonusPercent: voucherPreview.bonusPercent,
-          bonusAmountPaise: voucherPreview.bonusAmountPaise,
-          totalCreditPaise: voucherPreview.totalCreditPaise,
-        }
-      : null,
+    redirectUrl: null,
+    voucherPreview: preview,
+  };
+}
+
+/** PAY-2: opens the top-up as a payment intent when rule topupPaymentIntents is on; null when it is off. */
+async function startViaIntentIfOn(input: {
+  userId: string;
+  shopId?: string;
+  amountPaise: number;
+  voucherCode: string | null;
+}): Promise<Omit<CreateTopUpResult, "voucherPreview"> | null> {
+  const routing = await import("@/server/payments/topup-intents");
+  if (!(await routing.topUpsUseIntents())) return null;
+  const started = await routing.startTopUpViaIntent(input);
+  return {
+    payment: started.payment,
+    gatewayOrderId: started.payment.gatewayOrderId,
+    paymentSessionId: started.paymentSessionId,
+    cashfreeMode: routing.cashfreeMode(),
+    amountPaise: input.amountPaise,
+    currency: "INR",
+    mock: false,
+    redirectUrl: started.redirectUrl,
+  };
+}
+
+/** PAY-2: a routed top-up's status, through the intent (the gateway's own answer). */
+async function confirmRoutedTopUp(payment: Payment): Promise<VerifyTopUpResult> {
+  const routing = await import("@/server/payments/topup-intents");
+  const wasSettled = payment.status === "SUCCESS";
+  const status = await routing.confirmTopUpViaIntent(payment);
+  routing.assertTopUpPaid(status);
+  return {
+    payment: status.payment,
+    balancePaise: await settledBalancePaise(status.payment),
+    alreadyProcessed: wasSettled,
+    voucherBonusPaise: status.voucherBonusPaise,
   };
 }
 
@@ -157,6 +209,10 @@ export async function createShopWalletTopUpOrder(
   if (amountPaise > rules.topupMaxPaise) {
     throw validationFailed(`The maximum recharge is ₹${rupees(rules.topupMaxPaise)}.`);
   }
+
+  // PAY-2: rule topupPaymentIntents.
+  const routed = await startViaIntentIfOn({ userId, shopId, amountPaise, voucherCode: null });
+  if (routed) return { ...routed, voucherPreview: null };
 
   const live = isPaymentGatewayLive();
   let gatewayOrderId: string;
@@ -191,6 +247,7 @@ export async function createShopWalletTopUpOrder(
     amountPaise,
     currency: "INR",
     mock: !live,
+    redirectUrl: null,
     voucherPreview: null,
   };
 }
@@ -267,6 +324,12 @@ export async function verifyAndCreditTopUp(input: {
   userId: string;
   gatewayOrderId: string;
 }): Promise<VerifyTopUpResult> {
+  // PAY-2: a top-up started through a payment intent is confirmed through it, whatever the rule says now.
+  const routed = await db.query.payments.findFirst({ where: eq(payments.gatewayOrderId, input.gatewayOrderId) });
+  if (routed?.gateway === INTENT_ROUTED_GATEWAY) {
+    if (routed.userId !== input.userId) throw paymentVerificationFailed("This payment does not belong to you.");
+    return confirmRoutedTopUp(routed);
+  }
   let loaded: Awaited<ReturnType<typeof loadVerifiablePayment>>;
   try {
     loaded = await loadVerifiablePayment(input.userId, input.gatewayOrderId);
@@ -353,6 +416,8 @@ export async function settleMockTopUp(input: {
     input.gatewayOrderId,
   );
   if (alreadySettled) return alreadySettled;
+  // PAY-2: a routed top-up is settled only by its gateway, never by the mock signer.
+  if (payment.gateway === INTENT_ROUTED_GATEWAY) throw conflict("This payment is confirmed by the payment gateway.");
 
   const signatureValid = verifyMockSignature(
     input.gatewayOrderId,
@@ -539,6 +604,14 @@ export async function creditFromWebhook(
     where: eq(payments.gatewayOrderId, gatewayOrderId),
   });
   if (!payment) return null; // Not one of ours (or a different purpose) — ignore, not an error.
+  // PAY-2: a routed top-up moves only on the gateway's own answer, through its intent.
+  if (payment.gateway === INTENT_ROUTED_GATEWAY) {
+    // "Not paid (yet)" is an answer, not a failure; anything else is thrown so the gateway retries.
+    return confirmRoutedTopUp(payment).catch((error: unknown) => {
+      if (error instanceof AppError && error.code !== "INTERNAL") return null;
+      throw error;
+    });
+  }
 
   if (payment.status === "SUCCESS") {
     return {

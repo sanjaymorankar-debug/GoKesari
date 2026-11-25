@@ -13,7 +13,8 @@ export default function AboutPage() {
       <Card className="p-6">
         <div className="legal-doc max-w-none text-sm leading-relaxed text-ink-700">
           <p>
-            {LEGAL_ENTITY.legalName} operates this marketplace, connecting
+            gokesari.com is a unit of {LEGAL_ENTITY.legalName}, which
+            operates this marketplace, connecting
             customers with independent local shops — grocery, pharmacy,
             jewellery, dairy, bakery and every other kind of shop in their
             neighbourhood. Rather than running our own warehouse or
@@ -48,6 +49,10 @@ export default function AboutPage() {
           <ul>
             <li>
               <strong>Registered name:</strong> {LEGAL_ENTITY.legalName}
+            </li>
+            <li>
+              <strong>Website:</strong> gokesari.com is a unit of{" "}
+              {LEGAL_ENTITY.legalName}
             </li>
             <li>
               <strong>Registered address:</strong> {LEGAL_ENTITY.registeredAddress}

@@ -53,7 +53,7 @@ export { PAYMENT_INTENT_STATUSES } from "@/lib/payment-intent-states";
 export type PaymentIntentStatus = PaymentIntentStatusValue;
 
 /** What a payment is for. Each purpose's capture handler lives in purpose-handlers.ts. */
-export type PaymentPurpose = "ORDER" | "ORDER_GROUP" | "SHOP_REGISTRATION_FEE" | "SUPPORT_SERVICE" | "TERRITORY_FEE" | "CONSULT_BOOKING" | "HEALTH_RX_ORDER" | "HEALTH_RENTAL" | "HEALTH_PRIME" | "FRANCHISE_FEE" | "DEALER_JOINING_FEE" | "SHOP_MEMBERSHIP_RENEWAL";
+export type PaymentPurpose = "ORDER" | "ORDER_GROUP" | "SHOP_REGISTRATION_FEE" | "SUPPORT_SERVICE" | "TERRITORY_FEE" | "CONSULT_BOOKING" | "HEALTH_RX_ORDER" | "HEALTH_RENTAL" | "HEALTH_PRIME" | "FRANCHISE_FEE" | "DEALER_JOINING_FEE" | "SHOP_MEMBERSHIP_RENEWAL" | "WALLET_TOPUP" | "SHOP_WALLET_TOPUP" /* PAY-2: payment-intents top-ups */;
 
 export interface PaymentIntentRef {
   id: string;
@@ -81,9 +81,9 @@ export interface CreatePaymentIntentInput {
   /** CHECKOUT: hosted page / SDK now. LINK: a payment link to send (e.g. to a shop owner). */
   mode: "CHECKOUT" | "LINK";
   returnPath?: string;
-  /** 0203: when the payment (link) stops working; default rule onlinePayments.intentExpiryMinutes from now. */
+  /** 0204: when the payment (link) stops working; default rule onlinePayments.intentExpiryMinutes from now. */
   expiresAt?: Date;
-  /** 0203: extra metadata stored with the intent (merged next to the customer). */
+  /** 0204: extra metadata stored with the intent (merged next to the customer). */
   metadata?: Record<string, unknown>;
 }
 

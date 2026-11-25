@@ -1,5 +1,5 @@
 /**
- * Registration subscription settings (0203) — admin only, each change audited (setting.changed):
+ * Registration subscription settings (0204) — admin only, each change audited (setting.changed):
  * validity months, grace days, reminders / online renewal switches (rule shopMembership) and the reminder
  * schedule, link validity, CC list, renewal fee per shop type and commission on renewals
  * (rule shopRegistrationSubscription).
