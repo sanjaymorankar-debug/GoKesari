@@ -64,6 +64,17 @@ Used by **My products** (`/shop/my-products`) and step 3 of product setup.
 * Other sticky bottom bars under `/shop` (category picker, product picker, bill
   review, Health) sit above the tab bar (`--gk-bottom-nav`).
 
+### E. Customer orders and delivery partner (follow-up, 25-Nov 22.10 IST)
+
+* **Customer `/orders`:** document and help links on each order card are 44 px tall
+  (14 px text, was 12 px and 16 px tall); rating stars are 44 × 44; Submit rating and
+  Cancel order buttons are 44 px; the EN / हिं / मरा switch is 44 px everywhere.
+* **Delivery partner:** a phone tab bar (`src/components/rider-bottom-nav.tsx`,
+  `src/app/delivery-partner/layout.tsx`): Home · Earnings · Payouts · Documents ·
+  Account. Earnings and Payouts jump to those sections of the home page and appear
+  once the rider is approved; the bar is hidden while applying or registering and on
+  the full-screen navigation map. Verification links and Reload are ≥ 44 px.
+
 ## Tap counts (Part 2C targets)
 
 | Task | Target | Now (phone) |

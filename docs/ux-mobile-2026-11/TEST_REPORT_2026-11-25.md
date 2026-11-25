@@ -25,6 +25,7 @@ Brief received 25-Nov-2026 21.10 IST. PR: [#582](https://github.com/sanjaymorank
 | Production build | local | 21.45 | 22.00 | compiled, 88/88 pages |
 | After audit, 6 screens × 8 widths | local production build | 21.50 | 21.54 | 48 screens; 0 sideways scroll, 0 inputs < 16 px on phones, 0 clipped labels |
 | Flow check (Part 3 + tap counts), 9 checks × 5 phone widths | local production build | 21.51 | 21.53 | **45/45 pass** |
+| Customer orders + rider: small-target count and audit, 3 screens × 8 widths | local production build | 22.20 | 22.35 | customer 39 → 0 and rider 2 → 0 small targets on phones; rider tabs: applicant Home · Documents · Account, approved rider all five; Earnings/Payouts scroll to their sections (top at 80 px). Approved riders' "KYC" / "Police verification" alert links (17 px tall) enlarged afterwards — typecheck only, to see on staging |
 | Staging run | test.gokesari.com | — | — | waiting in the staging queue |
 | Production run | gokesari.com | — | — | waiting for the 26-Nov 23.00 release |
 
@@ -47,8 +48,8 @@ Brief received 25-Nov-2026 21.10 IST. PR: [#582](https://github.com/sanjaymorank
 | 13 | P2 | All | Every page | No `viewport-fit=cover`, so `env(safe-area-inset-*)` was always 0 in Safari | Added; headers and bottom bars pad for notch and home bar | Fixed (local) |
 | 14 | P2 | Customer, Shop owner | /orders, desktop seller pages | 2–3 inputs under 16 px (iOS zooms in on tap) | 16 px on every input below 1024 px | Fixed (local) |
 | 15 | P3 | Admin hub pages | Menu pages on phones | Sub-actions in 2 narrow columns | One full-width row each below 480 px (≥ 64 px tall) | Fixed (local) |
-| 16 | P2 | Customer | /orders on phones | 29–41 links/buttons under 44 × 44 px (chips, tabs) | — | **Open** |
-| 17 | P3 | Rider | /delivery-partner | 2 targets under 44 px; no bottom tab bar | — | **Open** |
+| 16 | P2 | Customer | /orders on phones | 39 targets under 44 × 44 px: 16 px-tall text links (Bill of supply, Photo at delivery, Signature, Details/refunds/help, Get help), 20 px-wide rating stars, 40 px Submit rating / Cancel order, 38 px language buttons | Links 44 px tall in 14 px text, stars 44 × 44, rating/cancel buttons 44 px, language buttons 44 px | Fixed (local): 39 → 0 at every phone width |
+| 17 | P3 | Rider | /delivery-partner | "PAN" link 28 px wide, Reload 40 px, no bottom tab bar | Checklist links ≥ 44 × 44, Reload 44 px; tab bar Home · Earnings · Payouts · Documents · Account (Earnings/Payouts appear once the rider is approved; hidden on apply/register and the navigation map) | Fixed (local): 2 → 0 |
 | 18 | P3 | All | Desktop ≥ 1280 px | Chips 36–40 px tall (mouse use; acceptable) | — | Open (by design) |
 | 19 | P3 | Shop owner | Phone home | No "today's sales" figure; Accept/Reject not on the home card | Wallet balance shown; Accept is 2 taps via the card | **Open** |
 
@@ -117,8 +118,7 @@ staging/production list needs a server-side query, because this Mac's SSH key is
    then runs with test accounts only, followed by cleanup.
 2. Real-device check on iPhone SE / 15 / 15 Pro Max and two Android phones (owner or tester).
    This includes the app WebView and the first-visit tour.
-3. Customer `/orders` small tap targets (#16), rider bottom bar and targets (#17), today's sales and
-   Accept/Reject on the shop home card (#19).
+3. Today's sales and Accept/Reject on the shop home card (#19).
 4. Fix the 19 pack sizes and decide how master MRPs get filled for the 509 packaged products.
 5. Hindi/Marathi: new labels are translated (tab bar, quick actions, tour, admin counts). The
    price editor's own strings are English, as they were before.

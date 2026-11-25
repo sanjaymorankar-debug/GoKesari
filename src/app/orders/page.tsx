@@ -305,24 +305,24 @@ export default async function OrdersPage({
                 {order.deliveryDate && !order.scheduledSlotStart ? tr(T.forDate, lang).replace("{n}", order.deliveryDate) : ""}
               </p>
               {order.status === "DELIVERED" && (invoicingRule.enabled || proofPhotos.has(order.id) || gokesariInvoices.has(order.id) || signatures.has(order.id)) ? (
-                <p className="mt-1 flex flex-wrap gap-3 text-xs" data-testid="order-documents">
+                <p className="mt-1 flex flex-wrap gap-x-4 text-sm" data-testid="order-documents">
                   {invoicingRule.enabled ? (
-                    <a href={`/api/orders/${order.id}/invoice`} className="font-medium text-kesari-700 hover:underline">
+                    <a href={`/api/orders/${order.id}/invoice`} className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline">
                       {orderInvoiceLabel(invoiceKinds.get(order.id))}
                     </a>
                   ) : null}
                   {(gokesariInvoices.get(order.id) ?? []).map((g) => (
-                    <a key={g.id} href={`/api/delivery-invoices/${g.id}/pdf`} className="font-medium text-kesari-700 hover:underline">
+                    <a key={g.id} href={`/api/delivery-invoices/${g.id}/pdf`} className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline">
                       {platformInvoiceLabel(g.kind)}
                     </a>
                   ))}
                   {proofPhotos.has(order.id) ? (
-                    <a href={proofPhotos.get(order.id)!.url} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline">
+                    <a href={proofPhotos.get(order.id)!.url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline">
                       {tr(T.photoAtDelivery, lang)}
                     </a>
                   ) : null}
                   {signatures.has(order.id) ? (
-                    <a href={signatures.get(order.id)!.url} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline" data-testid="order-signature">
+                    <a href={signatures.get(order.id)!.url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline" data-testid="order-signature">
                       {tr(SIGNATURE_LINK, lang)} · {formatProofTime(signatures.get(order.id)!.takenAt)}
                     </a>
                   ) : null}
@@ -383,11 +383,11 @@ export default async function OrdersPage({
               ) : null}
 
               {/* batch-2026-10 WS-C: refund timeline, charges and help for this order. */}
-              <p className="mt-3 flex flex-wrap gap-3 text-xs">
-                <Link href={`/orders/${order.id}`} className="font-medium text-kesari-700 hover:underline" data-testid="order-details-link">
+              <p className="mt-2 flex flex-wrap gap-x-4 text-sm">
+                <Link href={`/orders/${order.id}`} className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline" data-testid="order-details-link">
                   {tr(T.details, lang)}
                 </Link>
-                <Link href={`/support?orderId=${order.id}`} className="font-medium text-kesari-700 hover:underline">
+                <Link href={`/support?orderId=${order.id}`} className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline">
                   {tr(T.getHelp, lang)}
                 </Link>
               </p>
