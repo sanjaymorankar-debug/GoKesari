@@ -811,6 +811,7 @@ Run: $RUN_URL}" >/dev/null
 
   seen="${seen:-} $next"
   update_tracker "▶️ running — checking #$next"
+  [ "$write_errors" = 0 ] || break # GitHub refused a write: start no PR (fails below)
   out="$(mktemp)"
   set +e; process_pr "$next" > "$out"; res=$?; set -e
   reason="$(tail -1 "$out")"

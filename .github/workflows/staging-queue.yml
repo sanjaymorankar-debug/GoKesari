@@ -84,8 +84,10 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/queue"
           cp scripts/release/staging-queue.sh scripts/release/staging-queue-qa.sh \
-             scripts/release/post-deploy-check.sh scripts/db/renumber-migrations.mjs \
-             "$RUNNER_TEMP/queue/"
+             scripts/release/post-deploy-check.sh "$RUNNER_TEMP/queue/"
+          # Not on staging until #548 lands there; a run from a PR's copy of
+          # this file (label events) must not fail on it.
+          [ ! -f scripts/db/renumber-migrations.mjs ] || cp scripts/db/renumber-migrations.mjs "$RUNNER_TEMP/queue/"
           QUEUE_DIR="$RUNNER_TEMP/queue" QUEUE_QA_SCRIPT="$RUNNER_TEMP/queue/staging-queue-qa.sh" \
             bash "$RUNNER_TEMP/queue/staging-queue.sh"
 
