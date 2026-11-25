@@ -411,6 +411,10 @@ export const PERMISSIONS = {
   BANK_RECON_PREPARE: "bank-recon:prepare",
   /** CA: sign off (or send back) a reconciled bank statement prepared by someone else. */
   BANK_RECON_SIGNOFF: "bank-recon:signoff",
+  /** docs/tax-register: propose changes to tax settings and answer questions for the CA (Accountant). */
+  TAX_PARAM_PROPOSE: "tax-param:propose",
+  /** docs/tax-register: approve or send back tax-setting changes and CA items (the CA; never one's own). */
+  TAX_PARAM_APPROVE: "tax-param:approve",
   /** Support Manager: run the support queue — assign, reassign, priority, due dates, close. */
   SUPPORT_QUEUE_MANAGE: "support-queue:manage",
   /** Support User: work the tickets and shops assigned to them. */
@@ -653,6 +657,7 @@ const CA_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.FIN_PERIOD_CLOSE,
   PERMISSIONS.RATE_APPROVE,
   PERMISSIONS.BANK_RECON_SIGNOFF,
+  PERMISSIONS.TAX_PARAM_APPROVE,
 ];
 
 /* >>> RBAC v2 (docs/rbac/01-assessment.md §3). Staff roles get personal shopping only, plus their own area. */
@@ -675,6 +680,7 @@ const ACCOUNTANT_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.JOURNAL_PREPARE,
   PERMISSIONS.RATE_PROPOSE,
   PERMISSIONS.BANK_RECON_PREPARE,
+  PERMISSIONS.TAX_PARAM_PROPOSE,
   // Deliberately absent: FINANCE_MANAGE, FINANCE_PREPARE (settlement drafts stay admin), JOURNAL_APPROVE,
   // FIN_PERIOD_CLOSE, RATE_APPROVE, RATE_ACTIVATE — the Accountant is the maker, never the checker.
 ];
@@ -1042,6 +1048,8 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.RATE_ACTIVATE]: "Activate an approved rate change with an effective date",
   [PERMISSIONS.BANK_RECON_PREPARE]: "Import bank statements and match their lines to payouts, refunds and journal entries",
   [PERMISSIONS.BANK_RECON_SIGNOFF]: "Sign off a reconciled bank statement prepared by someone else",
+  [PERMISSIONS.TAX_PARAM_PROPOSE]: "Propose changes to tax settings and answer questions for the CA",
+  [PERMISSIONS.TAX_PARAM_APPROVE]: "Approve or send back tax-setting changes and CA items (the CA, never one's own)",
   [PERMISSIONS.SUPPORT_QUEUE_MANAGE]: "Run the support queue: assign, reassign, priority, due dates, close and reopen",
   [PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED]: "Work the tickets and shops assigned to oneself",
   [PERMISSIONS.SHOP_CHANGE_PROPOSE]: "Propose shop, product, price or MRP changes for the shop owner to approve",

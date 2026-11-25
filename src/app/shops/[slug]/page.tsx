@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ListTabs, Pager } from "@/components/board/list-tabs";
 import { PlanCard } from "@/components/plan-cards";
 import { ProductGrid } from "@/components/product-grid";
+import { favouritesOn } from "@/server/services/favourites-flag";
 import { RatingBadge } from "@/components/rating-badge";
 import { Alert, Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
 import { tr } from "@/lib/board/i18n";
@@ -263,7 +264,7 @@ export default async function ShopPage({
           ) : (
             <PageHeader title={activeCategory} />
           )}
-          <ProductGrid products={products} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} />
+          <ProductGrid lang={lang} products={products} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} favourites={await favouritesOn()} />
           <Pager
             lang={lang}
             page={page}

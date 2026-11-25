@@ -1,0 +1,77 @@
+# Cashfree Payouts sandbox contract — runs the adapter live against Cashfree's
+# SANDBOX (never production): create a transfer, resend it with the same
+# transfer id, look its status up, an unknown id, a refused request
+# (tests/contract/cashfree-payouts/live.test.ts). Every request and response is
+# uploaded as the run's artifact, to compare with tests/contract/cashfree-payouts/fixtures.ts.
+#
+# Secrets (repository → Settings → Secrets and variables → Actions):
+#   CF_PAYOUT_SANDBOX_CLIENT_ID   Cashfree Payouts sandbox client id
+#   CF_PAYOUT_SANDBOX_SECRET      Cashfree Payouts sandbox client secret
+#   CF_PAYOUT_SANDBOX_PUBLIC_KEY  the sandbox 2FA public key (PEM; GitHub's runners have no fixed IP to allow-list)
+#
+#   Actions → "Cashfree Payouts sandbox" → Run workflow; also every Monday 06:30 IST.
+name: Cashfree Payouts sandbox
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 1 * * 1"
+  push:
+    # Registers the workflow when it changes; the job runs only by hand or on the schedule.
+    paths: [".github/workflows/cashfree-payouts-sandbox.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cashfree-payouts-sandbox
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CF_PAYOUT_SANDBOX_CLIENT_ID: ${{ secrets.CF_PAYOUT_SANDBOX_CLIENT_ID }}
+      CF_PAYOUT_SANDBOX_SECRET: ${{ secrets.CF_PAYOUT_SANDBOX_SECRET }}
+      CF_PAYOUT_SANDBOX_PUBLIC_KEY: ${{ secrets.CF_PAYOUT_SANDBOX_PUBLIC_KEY }}
+      CASHFREE_PAYOUTS_LIVE: "1"
+      # The test bootstrap needs these set; this job never opens the database.
+      TEST_DATABASE_URL: postgresql://unused:unused@localhost:5432/unused
+      AUTH_SECRET: contract-only-secret
+      CRON_SECRET: contract-only-cron
+    steps:
+      - name: Check the secrets are set
+        run: |
+          if [ -z "$CF_PAYOUT_SANDBOX_CLIENT_ID" ] || [ -z "$CF_PAYOUT_SANDBOX_SECRET" ]; then
+            echo "::error::Add the repository secrets CF_PAYOUT_SANDBOX_CLIENT_ID and CF_PAYOUT_SANDBOX_SECRET (Cashfree Payouts sandbox keys)."
+            exit 1
+          fi
+          if [ -z "$CF_PAYOUT_SANDBOX_PUBLIC_KEY" ]; then
+            echo "::warning::CF_PAYOUT_SANDBOX_PUBLIC_KEY is not set: Cashfree will refuse requests unless the runner's IP is allow-listed."
+          fi
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Contract tests (live, sandbox)
+        # runner.temp is not allowed in job-level env (GitHub rejects the file), only in steps.
+        env:
+          CASHFREE_PAYOUTS_RECORD_DIR: ${{ runner.temp }}/cashfree-payouts
+        run: npx vitest run tests/contract/cashfree-payouts/live.test.ts tests/contract/cashfree-payouts/adapter.test.ts
+
+      - name: Upload the recorded requests and responses
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cashfree-payouts-sandbox-${{ github.run_id }}
+          path: ${{ runner.temp }}/cashfree-payouts
+          if-no-files-found: ignore
+          retention-days: 30

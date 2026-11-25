@@ -617,6 +617,10 @@ export interface TicketDetail {
     reopen: boolean;
     rate: boolean;
     manage: boolean;
+    /** Reassign the ticket: only support staff who manage the queue (assignTicket refuses anyone else). */
+    assign: boolean;
+    /** Escalate it: the same people (escalateTicket refuses anyone else). */
+    escalate: boolean;
     nextStatuses: TicketStatus[];
   };
 }
@@ -690,6 +694,10 @@ export async function getTicketDetail(ticketId: string, actor: Actor): Promise<T
       reopen: access === "REQUESTER" && reopenOpen,
       rate: access === "REQUESTER" && status === "CLOSED" && rule.csatEnabled && !csat,
       manage: staff,
+      // A Support User has STAFF access to the tickets assigned to them but may not reassign or escalate
+      // them (TC-STAFF-059): offer those controls only to the people the server lets act.
+      assign: staff && isSupportStaff(actor.role),
+      escalate: staff && isSupportStaff(actor.role),
       nextStatuses: staff ? [...TICKET_TRANSITIONS[status]] : [],
     },
   };

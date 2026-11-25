@@ -337,11 +337,19 @@ export const RULES = {
   },
   deliveryProof: {
     description:
-      "Photo proof of delivery (NEW-007). Off: a rider marks an order delivered with the customer's code, as before. On: the rider must also take or upload a photo at the door (JPEG, PNG or WebP, within the image size limit) before the order can be marked delivered. The photo is shown to the customer, the shop and operations only. An operator's override is unchanged.",
+      "Photo proof of delivery (NEW-007). Off: a rider marks an order delivered with the customer's code, as before. On: the rider must also take or upload a photo at the door (JPEG, PNG or WebP, within the image size limit) before the order can be marked delivered. The photo is shown to the customer, the shop and operations only. An operator's override is unchanged. Module 4 (23-Nov-2026), all off by default: signatureEnabled shows a 'Customer signature' pad on the rider's screen before 'Mark delivered' (stored privately like the photo, with an optional signer name, shown with its time next to the photo); signatureRequired (only with signatureEnabled) refuses 'Mark delivered' until a signature is in. captureGps records the rider's position (with permission; nothing when refused) when an order is delivered or reported failed, shown to operations only. failureReasons gives the rider a fixed list of failed-delivery reasons (customer not available, wrong address, refused, phone unreachable, other + note) instead of free text; old free-text reports keep working.",
     schema: z.object({
       photoRequired: z.boolean(),
+      /** Module 4: show the customer-signature pad on the rider's screen. */
+      signatureEnabled: z.boolean(),
+      /** Module 4: with signatureEnabled, a signature is needed before "Mark delivered". */
+      signatureRequired: z.boolean(),
+      /** Module 4: record the rider's GPS position at delivery / failure (operations only). */
+      captureGps: z.boolean(),
+      /** Module 4: the rider picks a failed-delivery reason from a fixed list. */
+      failureReasons: z.boolean(),
     }),
-    defaults: { photoRequired: false },
+    defaults: { photoRequired: false, signatureEnabled: false, signatureRequired: false, captureGps: false, failureReasons: false },
   },
   invoicing: {
     description:
@@ -702,7 +710,7 @@ export const RULES = {
   },
   selfRegistration: {
     description:
-      "Shop self-registration (Module 3, /shop/join): a shop registers with its name, an OTP-verified mobile and a referral code, picks a fee tier and pays online; the payment webhook approves it. enabled: the page accepts registrations. holdHours: how long an unpaid registration keeps its place on a referral code's usage limit. maxPendingPerMobile: unpaid registrations one mobile may have at once. classification: Kesari/Green given to a self-registered shop (operators can change it).",
+      "Shop self-registration (Module 3; its /shop/join form is retired and forwards to /shop/register, so this governs registrations already started there): a shop registers with its name, an OTP-verified mobile and a referral code, picks a fee tier and pays online; the payment webhook approves it. enabled: the page accepts registrations. holdHours: how long an unpaid registration keeps its place on a referral code's usage limit. maxPendingPerMobile: unpaid registrations one mobile may have at once. classification: Kesari/Green given to a self-registered shop (operators can change it).",
     schema: z.object({
       enabled: z.boolean(),
       holdHours: int(1, 168),
@@ -1244,9 +1252,41 @@ export const RULES = {
   },
   shopMembership: {
     description:
-      "Shop membership (D-69). Recording a registration fee or renewal payment extends the shop's membership by periodMonths (from the end of the current one, or from the payment when that has passed). When enabled, a shop whose membership ended more than graceDays ago is not online: customers see it as not taking orders and cannot check out from it, until a renewal is recorded. Shops with no end date (every shop registered before this rule, and shops that never paid a fee) are never affected. reminderDays: the owner's shop page warns this many days before the end.",
-    schema: z.object({ enabled: z.boolean(), periodMonths: int(1, 60), graceDays: int(0, 90), reminderDays: int(0, 90) }),
-    defaults: { enabled: true, periodMonths: 12, graceDays: 15, reminderDays: 30 },
+      "Shop membership (D-69). Recording a registration fee or renewal payment extends the shop's membership by periodMonths (from the end of the current one, or from the payment when that has passed). When enabled, a shop whose membership ended more than graceDays ago is not online: customers see it as not taking orders and cannot check out from it, until a renewal is recorded. Shops with no end date (every shop registered before this rule, and shops that never paid a fee) are never affected. reminderDays: the owner's shop page warns this many days before the end. Renewal (0197, docs/shop-membership-renewal-2026-11): a period is added only once its fee is fully paid (part payments wait; a refund or reversal that leaves the fee unpaid takes the period back). renewalFeePaise: the renewal base fee before GST (0 = the shop's own registration base fee, without its coupon; a shop registered before the fee breakdown was kept renews at its registration total). addGst: GST on top at the PLATFORM_FEE_GST rate for REGISTRATION_FEE. renewalCheckoutEnabled (default off): the owner can pay online from renewalWindowDays before the end (switching it off stops new checkouts only). remindersEnabled (default off): in-app and e-mail reminders reminderDays, 7 and 1 day(s) before the end, on the day and when the grace ends. exemptShopTypes / exemptCategorySlugs, and the per-shop exemption (Admin → Shop memberships): never closed for a lapsed membership and not reminded. Switching enabled off closes nobody.",
+    schema: z.object({
+      enabled: z.boolean(),
+      periodMonths: int(1, 60),
+      graceDays: int(0, 90),
+      reminderDays: int(0, 90),
+      /* >>> 0197 shop membership renewal (docs/shop-membership-renewal-2026-11) */
+      /** 0: the shop's own registration base fee (without its coupon); more than 0: this base fee for every shop. Before GST. */
+      renewalFeePaise: int(0, 100_000_000),
+      /** GST added on the renewal fee at the PLATFORM_FEE_GST rate for REGISTRATION_FEE (as on the registration fee). */
+      addGst: z.boolean(),
+      /** The owner can pay the renewal online (Shop → Registration → Renew now). Off: no new checkout starts. */
+      renewalCheckoutEnabled: z.boolean(),
+      /** Daily reminders (in-app + e-mail) before and after the end. Off: none are sent. */
+      remindersEnabled: z.boolean(),
+      /** Renew now opens this many days before the end (and at any time after it). */
+      renewalWindowDays: int(0, 365),
+      /** Never closed for a lapsed membership and not reminded: these shop types / shop category slugs. */
+      exemptShopTypes: z.array(z.string().max(60)).max(50),
+      exemptCategorySlugs: z.array(z.string().max(80)).max(100),
+      /* <<< 0189 */
+    }),
+    defaults: {
+      enabled: true,
+      periodMonths: 12,
+      graceDays: 15,
+      reminderDays: 30,
+      renewalFeePaise: 0,
+      addGst: true,
+      renewalCheckoutEnabled: false,
+      remindersEnabled: false,
+      renewalWindowDays: 30,
+      exemptShopTypes: [],
+      exemptCategorySlugs: [],
+    },
   },
   bankAccounts: {
     description:
@@ -1351,6 +1391,24 @@ export const RULES = {
       allowSandboxInProduction: false,
     },
   },
+  /** PAY-SM (docs/payment-settlement-states-2026-11.md): timing of the reconcile step. Switched by flag payment_settlement_states. */
+  paymentSettlement: {
+    description:
+      "How the payments job confirms paid online payments with the gateway (Reconciled). Used only while the feature flag payment_settlement_states is on.",
+    schema: z.object({
+      /** A payment is first checked this long after it was captured. */
+      checkAfterMinutes: int(1, 7 * 24 * 60),
+      /** A payment the gateway did not confirm is asked about again after this long. */
+      recheckMinutes: int(5, 7 * 24 * 60),
+      /** Payments captured longer ago than this are not checked any more. */
+      lookbackDays: int(1, 365),
+      /** After this many unconfirmed checks the job stops and support is alerted. */
+      maxChecks: int(1, 100),
+      /** Payments checked per run (the job runs every 5 minutes). */
+      batchSize: int(1, 500),
+    }),
+    defaults: { checkAfterMinutes: 30, recheckMinutes: 360, lookbackDays: 45, maxChecks: 12, batchSize: 50 },
+  },
   /** F1.1.2 (GS-001, GS-074): clean-up of used and expired sign-in codes. */
   otpHousekeeping: {
     description:
@@ -1413,7 +1471,7 @@ export const RULES = {
   },
   riderNavigation: {
     description:
-      "In-app turn-by-turn navigation for riders (F4.2.2). Off (default): riders get the \"Navigate\" links that open Google Maps, as before. On: the rider's delivery has an in-app navigation screen — the route to the shop, then to the customer (the customer's exact location only after pickup), next turn, remaining distance and time, voice prompts (voiceDefaultOn), and a fresh route when the rider is more than offRouteMeters off it (at most once per rerouteCooldownSeconds). provider: mock (straight line, for testing/offline), google (Routes API with GOOGLE_MAPS_SERVER_API_KEY) or osrm (an OSRM-compatible server at osrmBaseUrl). Routes are cached for cacheSeconds; a provider failure falls back to the straight-line route. \"Open in Google Maps\" always stays available.",
+      "In-app turn-by-turn navigation for riders (F4.2.2). Off (default): riders get the \"Navigate\" links that open Google Maps, as before. On: the rider's delivery has an in-app navigation screen — the route to the shop, then to the customer (the customer's exact location only after pickup), next turn, remaining distance and time, voice prompts (voiceDefaultOn), and a fresh route when the rider is more than offRouteMeters off it (at most once per rerouteCooldownSeconds). provider: mock (straight line, for testing/offline), google (Routes API with GOOGLE_MAPS_SERVER_API_KEY) or osrm (an OSRM-compatible server at osrmBaseUrl). Routes are cached for cacheSeconds; a provider failure falls back to the straight-line route. \"Open in Google Maps\" always stays available. multiStop (Module 4, off by default): when the rider carries a batched trip (rule batching), the screen lists the trip's stops in order and offers \"Next stop\" after each one is done; the route goes to the next stop (none of the providers is sent waypoints).",
     schema: z.object({
       enabled: z.boolean(),
       provider: z.enum(["mock", "google", "osrm"]),
@@ -1423,8 +1481,11 @@ export const RULES = {
       voiceDefaultOn: z.boolean(),
       cacheSeconds: int(0, 3600),
       timeoutMs: int(500, 10_000),
+      /** Module 4: on a batched trip (rule batching), show the ordered stop list and a "Next stop" link. */
+      multiStop: z.boolean(),
     }),
     defaults: {
+      multiStop: false,
       enabled: false,
       provider: "mock",
       osrmBaseUrl: "https://router.project-osrm.org",
@@ -1952,6 +2013,56 @@ export const RULES = {
       fallbackOnFailure: true,
     },
   },
+  whatsappCustomer: {
+    description:
+      "Customer updates and shopping on WhatsApp (docs/customer-whatsapp-2026-11; flag whatsapp_customer_enabled). `enabled` switches the template updates on; each update type names its Meta-approved template (empty = not sent on WhatsApp). Every template takes three body parameters: {{1}} title, {{2}} message, {{3}} link. Sent only to customers who opted in (My Profile, or START on WhatsApp).",
+    schema: z.object({
+      /** Template updates (order, payment, delivery, refund, renewal). The chat works whenever the flag is on. */
+      enabled: z.boolean(),
+      templateLanguage: z.string().max(10),
+      templates: z.object({
+        ORDER_PLACED: z.string().max(120),
+        ORDER_CONFIRMED: z.string().max(120),
+        PAYMENT_RECEIVED: z.string().max(120),
+        ORDER_STATUS: z.string().max(120),
+        OUT_FOR_DELIVERY: z.string().max(120),
+        DELIVERED: z.string().max(120),
+        CANCELLED: z.string().max(120),
+        REFUND_ISSUED: z.string().max(120),
+        SUBSCRIPTION_RENEWAL: z.string().max(120),
+      }),
+      /** Chat: inbound messages per phone per minute; above it the bot answers once and then stays quiet. */
+      rateLimitPerMinute: int(1, 120),
+      /** Chat: a session (results, cart) is forgotten this long after the last message. */
+      sessionTtlMinutes: int(5, 1440),
+      /** Chat: the checkout link works this long, once. */
+      checkoutLinkTtlMinutes: int(5, 1440),
+      /** Chat: search results offered per search (WhatsApp lists show at most 10). */
+      maxResults: int(1, 10),
+      /** Chat: the largest quantity one line may have. */
+      maxQuantity: int(1, 100),
+    }),
+    defaults: {
+      enabled: false,
+      templateLanguage: "en",
+      templates: {
+        ORDER_PLACED: "gk_cust_order_placed",
+        ORDER_CONFIRMED: "gk_cust_order_confirmed",
+        PAYMENT_RECEIVED: "gk_cust_payment_received",
+        ORDER_STATUS: "gk_cust_order_status",
+        OUT_FOR_DELIVERY: "gk_cust_out_for_delivery",
+        DELIVERED: "gk_cust_delivered",
+        CANCELLED: "gk_cust_order_cancelled",
+        REFUND_ISSUED: "gk_cust_refund_issued",
+        SUBSCRIPTION_RENEWAL: "gk_cust_subscription_renewal",
+      },
+      rateLimitPerMinute: 20,
+      sessionTtlMinutes: 60,
+      checkoutLinkTtlMinutes: 30,
+      maxResults: 5,
+      maxQuantity: 20,
+    },
+  },
   voicePriceAssistant: {
     description:
       "Shop owners change prices and offers by voice (docs/smart-shopping-2026-11/FEATURE4_VOICE_PRICE_OFFERS.md). GoKesari shows what it understood and publishes only after the owner confirms.",
@@ -1973,6 +2084,82 @@ export const RULES = {
     },
   },
   /* <<< smart-shopping */
+  /* >>> hdms-2026-11 (delivery management) — add entries below this line only */
+  deliveryAllocation: {
+    description:
+      "Delivery allocation engine (docs/hdms-2026-11; needs flag hdms_enabled). Order of preference between the shop's own riders, GoKesari riders and external delivery partners; when to fall back to a partner; how quotes are compared (fee, ETA, reliability — never price alone); and the promised ETA by distance shown to customers. Partners are tried only if enabled in Admin → Delivery → Providers and their zone is active.",
+    schema: z.object({
+      /** Channels in order of preference. EXTERNAL means every enabled partner, ranked by score. */
+      channelOrder: z.array(z.enum(["SHOP_RIDER", "GOKESARI_RIDER", "EXTERNAL"])).min(1).max(3),
+      /** Book a partner after this many failed GoKesari rider attempts (0 = as soon as nobody is free). */
+      externalAfterRiderAttempts: int(0, 50),
+      /** Score weights (any scale; normalised). */
+      weightFee: z.number().min(0).max(100),
+      weightEta: z.number().min(0).max(100),
+      weightReliability: z.number().min(0).max(100),
+      /** A partner with reliability below this (percent) is skipped. */
+      minReliabilityPercent: int(0, 100),
+      /** How long to wait for all partner quotes (ms). */
+      quoteTimeoutMs: int(500, 30_000),
+      /** Circuit breaker: this many failures in a row stop calls to the partner for cooldownSeconds. */
+      circuitFailureThreshold: int(1, 50),
+      circuitCooldownSeconds: int(10, 3600),
+      /** Promised ETA bands by distance (km upper bound → minutes). Used when no better estimate is known. */
+      etaBands: z.array(z.object({ upToKm: z.number().min(0.5).max(50), minMinutes: int(5, 240), maxMinutes: int(5, 300) })).min(1).max(10),
+      /** Extra minutes on top of the shop's preparation time before pickup. */
+      pickupBufferMinutes: int(0, 60),
+    }),
+    defaults: {
+      channelOrder: ["SHOP_RIDER", "GOKESARI_RIDER", "EXTERNAL"],
+      externalAfterRiderAttempts: 3,
+      weightFee: 40,
+      weightEta: 40,
+      weightReliability: 20,
+      minReliabilityPercent: 60,
+      quoteTimeoutMs: 6000,
+      circuitFailureThreshold: 5,
+      circuitCooldownSeconds: 300,
+      etaBands: [
+        { upToKm: 2, minMinutes: 20, maxMinutes: 35 },
+        { upToKm: 4, minMinutes: 30, maxMinutes: 45 },
+        { upToKm: 6, minMinutes: 40, maxMinutes: 60 },
+      ],
+      pickupBufferMinutes: 5,
+    },
+  },
+  /* <<< hdms-2026-11 */
+  accountDeletion: {
+    description:
+      "Self-service account deletion (docs/account-deletion-2026-11; owner 23-Nov-2026). coolingOffDays: after the person confirms, the account is hidden (cannot sign in except to restore it, not shown to anyone else; admins see it as \"Under cooling period\") and is anonymised by the daily job this many days later (90 = 3 months). retentionYears: how long each class of record that is kept after deletion must be held, as per law — Income-tax Act s.44AA + Rule 6F (books, 8 years from the end of the assessment year; TDS records), CGST Act s.36 (72 months from the annual return due date), the longer one applying; DPDP Act 2023 s.8(7) requires erasure once the purpose is served unless a law requires retention. Informational for now: no job purges retained records yet (needs owner / legal sign-off).",
+    schema: z.object({
+      coolingOffDays: int(1, 365),
+      retentionYears: z.object({
+        /** GST invoices, credit notes, platform / billing documents, GST returns data. */
+        TAX_GST_INVOICES: int(1, 20),
+        /** Payments, payment intents, refunds, bank refunds, wallet ledger. */
+        PAYMENTS_WALLET: int(1, 20),
+        /** TDS (s.194C / 194-O) and TCS records, certificates, ledgers and accounting entries. */
+        TDS_TCS_LEDGERS: int(1, 20),
+        /** Rider PAN / KYC / documents and earnings and payouts used for TDS. */
+        RIDER_KYC_TDS: int(1, 20),
+        /** Orders and their address snapshots, returns, disputes, grievances (consumer law; kept with the invoices). */
+        ORDERS_CONSUMER: int(1, 20),
+        /** Audit log, consent trail and the deletion request itself (proof of what was done). */
+        AUDIT_CONSENT: int(1, 20),
+      }),
+    }),
+    defaults: {
+      coolingOffDays: 90,
+      retentionYears: {
+        TAX_GST_INVOICES: 8,
+        PAYMENTS_WALLET: 8,
+        TDS_TCS_LEDGERS: 8,
+        RIDER_KYC_TDS: 8,
+        ORDERS_CONSUMER: 8,
+        AUDIT_CONSENT: 8,
+      },
+    },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

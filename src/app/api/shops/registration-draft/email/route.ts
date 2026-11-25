@@ -9,8 +9,7 @@ import { z } from "zod";
 
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
-import { requirePermission } from "@/server/authz/guards";
-import { PERMISSIONS } from "@/server/authz/permissions";
+import { wizardActor } from "@/server/api/wizard-actor";
 import {
   confirmDraftEmailCode,
   requestDraftEmailCode,
@@ -26,7 +25,7 @@ const schema = z.union([
 ]);
 
 export const POST = route(async (request: NextRequest) => {
-  const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
+  const user = await wizardActor(request);
   // Only while the wizard flag is on (an admin may use it while it is off): the screen is not the only gate.
   enforceRateLimit(`registration-draft:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);

@@ -65,6 +65,7 @@ import { reserveSlot, slotFullError } from "./delivery-slots";
 import { reserveScheduledSlot } from "./scheduled-slots";
 import { acceptByFor } from "./shop-acceptance";
 import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
+import { guestTrackingLinkFor } from "@/server/guest-checkout/tracking";
 import { quoteCoupon, redeemCouponForOrder } from "./coupons";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
 import { rewardReferralOnDelivery } from "./customer-referrals";
@@ -488,6 +489,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       ? await getOrCreateOrderGroup(input.userId, input.requestId)
       : null;
 
+  // docs/guest-checkout-2026-11: null unless guest_checkout_enabled is on and the account was made by guest checkout.
+  const guestTrackLink = await guestTrackingLinkFor(input.userId);
+
   // One transaction per shop: a problem with one shop's order must not roll back
   // a sibling shop's successful order.
   for (const group of purchasableGroups) {
@@ -824,7 +828,11 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
             type: NOTIFICATION_TYPES.ORDER_CONFIRMED,
             title: "Order confirmed",
             body: `Your order ${orderRow.orderNumber} from ${shopRow.name} is confirmed.`,
-            actionUrl: `/orders`,
+            // docs/guest-checkout-2026-11: a guest-created account's e-mail links to tracking without sign-in.
+            actionUrl: guestTrackLink ? guestTrackLink({ orderId: orderRow.id, orderGroupId: orderGroup?.id ?? null }) : `/orders`,
+            // Module 6: Hindi / Marathi for a customer who chose it; English text above unchanged.
+            vars: { orderNumber: orderRow.orderNumber, shopName: shopRow.name },
+            lang: "auto",
             // TC-SPI-004: the e-mail lists what was ordered and what it costs.
             emailDetail: orderConfirmedEmailRows({
               lines: lines.map((l) => ({ name: l.productName, unit: l.unit, quantityMilli: l.quantityMilli, lineTotalPaise: l.lineTotalPaise })),
@@ -1562,6 +1570,17 @@ export async function cancelOrder(
 
     return updated;
   });
+  // docs/hdms-2026-11: a delivery partner booked for the order is cancelled with the partner once the
+  // cancellation has committed (an outside call never runs inside the transaction). Never throws.
+  {
+    const { cancelLiveBookingForCancelledOrder } = await import("@/server/delivery/bookings");
+    const order = result as { userId?: string };
+    await cancelLiveBookingForCancelledOrder(
+      orderId,
+      !actor ? "SYSTEM" : actor.id === order.userId ? "CUSTOMER" : actor.role === "ADMIN" || actor.role === "OPERATOR" ? "ADMIN" : "SHOP",
+      reason,
+    );
+  }
   // Batch integration (WS-A × WS-C): a refund to the original payment method is
   // sent to the gateway as soon as the cancellation has committed, whoever
   // cancelled (shop, operator or customer). Idempotent; the payments-reconcile

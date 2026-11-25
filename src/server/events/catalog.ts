@@ -34,6 +34,7 @@ export type SubjectKind =
   | "tax_invoice" // batch-2026-10 WS-E
   | "payout_batch" // batch-2026-10 WS-E
   | "payout_item" // batch-2026-10 WS-E
+  | "payout_provider" // 23-Nov-2026: provider account notices (low balance)
   | "platform_invoice" // batch-2026-10 WS-E
   | "order_refund"; // batch-2026-10 WS-C
 
@@ -47,6 +48,8 @@ export interface EventMessage {
   actionUrl?: string;
   channels?: Channel[];
   includeActor?: boolean;
+  /** Module 6: "auto" writes it in the person's saved language when the event has Hindi / Marathi wording. */
+  lang?: "auto";
   /**
    * The scope of "at most once per person". Defaults to this event; a wider
    * scope (e.g. `order:<id>:rider-search`) sends once across many events.
@@ -265,6 +268,7 @@ const forBuyer = (p: OrderEventPayload, type: NotificationType, vars: Vars = {})
   type,
   vars: { orderNumber: p.orderNumber, shopName: p.shopName, ...vars },
   actionUrl: ORDERS,
+  lang: "auto",
 });
 
 /* ----------------------------------------------------------------- the list */
@@ -333,7 +337,7 @@ export const EVENTS = {
   "order.cancelled": define<OrderEventPayload>("order", (p) => {
     const messages: EventMessage[] = [
       {
-        ...forBuyer(p, N.ORDER_CANCELLED),
+        ...forBuyer(p, N.ORDER_CANCELLED, { reason: p.reason ?? "" }),
         title: "Order cancelled",
         body: `Your order ${p.orderNumber} was cancelled: ${p.reason ?? ""}`.trim(),
       },
@@ -1122,13 +1126,25 @@ export const EVENTS = {
   "payment.refunded": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
     "payment_intent",
     (p) => [
-      { to: p.userId, type: N.ORDER_PAYMENT_REFUNDED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true },
+      { to: p.userId, type: N.ORDER_PAYMENT_REFUNDED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true, lang: "auto" },
     ],
   ),
   /** Support: a payment needs a person (amount mismatch, money taken after the attempt ended, refund failed or stuck). */
   "payment.attention": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string; problem: string }>(
     "payment_intent",
     (p) => [{ to: "SUPPORT", type: N.SUPPORT_PAYMENT_ATTENTION, vars: { reference: p.reference, problem: p.problem }, actionUrl: "/admin" }],
+  ),
+  /** PAY-SM: the customer's bank disputed a payment (opened, or its outcome changed). Admins only. */
+  "payment.chargeback": define<{ chargebackId: string; intentId: string | null; amount: string; reference: string; outcome: string; respondBy: string; reason: string }>(
+    "payment_intent",
+    (p) => [
+      {
+        to: "SUPPORT_LEAD",
+        type: N.ADMIN_PAYMENT_CHARGEBACK,
+        vars: { reference: p.reference, amount: p.amount, outcome: p.outcome, respondBy: p.respondBy, reason: p.reason },
+        actionUrl: "/admin/payments/chargebacks",
+      },
+    ],
   ),
   /* <<< end WS-A */
   //
@@ -1466,6 +1482,10 @@ export const EVENTS = {
   /** F10.2.4: a payout cycle was closed and its batch drafted — administrators approve it. */
   "payout.batch_drafted": define<{ batchId: string; period: string; items: number; amount: string; held: number }>("payout_batch", (p) => [
     { to: "SUPPORT_LEAD", type: N.SUPPORT_PAYOUT_BATCH_DRAFTED, vars: { period: p.period, items: p.items, amount: p.amount, held: p.held }, actionUrl: "/admin/payouts" },
+  ]),
+  /** 23-Nov-2026: the payout provider's low-balance alert — administrators (finance) add funds. */
+  "payout.provider_low_balance": define<{ provider: string; balance: string }>("payout_provider", (p) => [
+    { to: "SUPPORT_LEAD", type: N.SUPPORT_PAYOUT_LOW_BALANCE, vars: { provider: p.provider, balance: p.balance }, actionUrl: "/admin/payouts" },
   ]),
   /** F10.2.4: a shop's payout was paid (UTR recorded) — statement by email and in the app. */
   "payout.item_paid": define<{ itemId: string; ownerId: string; shopName: string; amount: string; period: string; utr: string }>(

@@ -143,11 +143,24 @@ export const TEMPLATES: Record<string, Template> = {
     "Submit your shop documents — reminder {{reminderNo}}{{maxReminders}}",
     "{{shopName}} is live, but these documents are still missing: {{documents}}. {{deadline}} Upload them on GoKesari so we can verify them. {{warning}}",
   ),
+  [T.SHOP_MEMBERSHIP_RENEWAL_DUE]: t("{{headline}} — {{shopName}}", "{{message}} Renew it on GoKesari: Shop → Registration and fee → Renew now."),
+  [T.SHOP_MEMBERSHIP_RENEWED]: t(
+    "Membership renewed — {{shopName}}",
+    "We received {{amount}} for {{shopName}}'s yearly membership. It is now valid until {{validUntil}}. Receipt {{reference}}.",
+  ),
   [T.SHOP_STAFF_ADDED]: t(
     "You can now edit a shop's products",
     "{{ownerName}} added you to {{shopName}}: you can add and change its product photos and descriptions.",
   ),
   [T.SHOP_STAFF_REMOVED]: t("Shop access removed", "You can no longer edit product photos and descriptions for {{shopName}}.", false),
+  [T.SHOP_STAFF_INVITED]: t(
+    "You are invited to a shop's staff",
+    "{{ownerName}} invited you to {{shopName}} as {{roleLabel}}. Open the invitation to accept it.",
+  ),
+  [T.SHOP_STAFF_ROLE_CHANGED]: t("Your shop role changed", "Your role at {{shopName}} is now {{roleLabel}}.", false),
+  [T.SHOP_STAFF_SUSPENDED]: t("Shop access paused", "Your access to {{shopName}} is paused by the shop owner.", false),
+  [T.SHOP_STAFF_REACTIVATED]: t("Shop access restored", "Your access to {{shopName}} is restored ({{roleLabel}}).", false),
+  [T.SHOP_STAFF_INVITE_ACCEPTED]: t("Invitation accepted", "{{staffName}} joined {{shopName}} as {{roleLabel}}.", false),
   [T.SHOP_SELF_REGISTERED]: t(
     "Your shop is live on GoKesari",
     "{{shopName}} is approved — shop no. {{registrationNumber}}. Sign in with your mobile number {{mobile}} to complete your profile and add products. Fee receipt {{receiptNumber}}.",
@@ -302,6 +315,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{amount}} for {{reference}} has been refunded to your original payment method. Banks usually take 5–7 working days to show it.",
   ),
   [T.SUPPORT_PAYMENT_ATTENTION]: t("Payment needs attention", "{{reference}}: {{problem}}", false),
+  [T.ADMIN_PAYMENT_CHARGEBACK]: t(
+    "Chargeback: {{outcome}}",
+    "{{reference}}: {{amount}} disputed by the customer's bank ({{reason}}). Respond by {{respondBy}}.",
+    false,
+  ),
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
@@ -384,6 +402,7 @@ export const TEMPLATES: Record<string, Template> = {
   [T.SHOP_PLATFORM_INVOICE]: t("GoKesari invoice {{invoiceNumber}}", "GoKesari's tax invoice {{invoiceNumber}} for its fees ({{amount}} incl. GST) for {{period}} is in Finance → Statements.", false),
   [T.SUPPORT_PAYOUT_BATCH_DRAFTED]: t("Payout batch ready to approve", "The payout batch for {{period}} has {{items}} shop payment(s) totalling {{amount}} ({{held}} held). Approve it in Admin → Payouts.", false),
   [T.SUPPORT_PAYOUT_FAILED]: t("Payout failed", "The payout of {{amount}} to {{shopName}} failed after {{attempts}} attempt(s): {{reason}}", false),
+  [T.SUPPORT_PAYOUT_LOW_BALANCE]: t("Payouts balance low", "{{provider}} reports a low payouts account balance ({{balance}}). Add funds before the next payouts are sent, or transfers will fail.", false),
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
@@ -518,6 +537,97 @@ export function renderTemplate(
   return template ? { title: interpolate(template.title, vars), body: interpolate(template.body, vars) } : null;
 }
 
+/* ------------------------------------------------- Hindi and Marathi (Module 6) */
+
+/** A language a notification can be written in (same codes as the EN / हिं / मरा switch). */
+export type NotificationLang = "en" | "hi" | "mr";
+
+type Wording = { title: string; body: string };
+
+/**
+ * Hindi and Marathi wording for the main customer events (docs/hindi-marathi-2026-11/).
+ * Used only when the notification asks for a language (`lang` on notify) and the
+ * person chose Hindi or Marathi; every `{{variable}}` must be supplied, otherwise the
+ * English text is kept. Order numbers, shop names and amounts stay as they are.
+ */
+export const TEMPLATE_TRANSLATIONS: Readonly<Record<string, Readonly<Record<"hi" | "mr", Wording>>>> = {
+  [T.ORDER_CONFIRMED]: {
+    hi: { title: "ऑर्डर की पुष्टि हुई", body: "{{shopName}} से आपका ऑर्डर {{orderNumber}} पक्का हो गया है।" },
+    mr: { title: "ऑर्डर निश्चित झाली", body: "{{shopName}} कडून तुमची ऑर्डर {{orderNumber}} निश्चित झाली आहे." },
+  },
+  [T.ORDER_ACCEPTED]: {
+    hi: { title: "ऑर्डर स्वीकार हुआ", body: "{{shopName}} ने आपका ऑर्डर {{orderNumber}} स्वीकार किया और तैयार कर रही है।" },
+    mr: { title: "ऑर्डर स्वीकारली", body: "{{shopName}} ने तुमची ऑर्डर {{orderNumber}} स्वीकारली असून ती तयार करत आहे." },
+  },
+  [T.ORDER_OUT_FOR_DELIVERY]: {
+    hi: {
+      title: "आपका ऑर्डर रास्ते में है",
+      body: "राइडर आपका ऑर्डर {{orderNumber}} लेकर निकल चुका है। ऑर्डर पेज पर लाइव ट्रैक करें और डिलीवरी कोड तैयार रखें।",
+    },
+    mr: {
+      title: "तुमची ऑर्डर वाटेत आहे",
+      body: "रायडर तुमची ऑर्डर {{orderNumber}} घेऊन निघाला आहे. ऑर्डर पानावर थेट ट्रॅक करा आणि डिलिव्हरी कोड तयार ठेवा.",
+    },
+  },
+  [T.ORDER_DELIVERED]: {
+    hi: { title: "ऑर्डर डिलीवर हुआ", body: "आपका ऑर्डर {{orderNumber}} डिलीवर हो गया है। धन्यवाद!" },
+    mr: { title: "ऑर्डर पोहोचली", body: "तुमची ऑर्डर {{orderNumber}} पोहोचली आहे. धन्यवाद!" },
+  },
+  [T.ORDER_CANCELLED]: {
+    hi: { title: "ऑर्डर रद्द हुआ", body: "आपका ऑर्डर {{orderNumber}} रद्द हो गया। {{reason}}" },
+    mr: { title: "ऑर्डर रद्द झाली", body: "तुमची ऑर्डर {{orderNumber}} रद्द झाली. {{reason}}" },
+  },
+  [T.ORDER_PAYMENT_REFUNDED]: {
+    hi: {
+      title: "रिफंड भेजा गया",
+      body: "{{reference}} के {{amount}} आपके मूल भुगतान तरीके में वापस भेज दिए गए हैं। बैंक में दिखने में आमतौर पर 5–7 कामकाजी दिन लगते हैं।",
+    },
+    mr: {
+      title: "परतावा पाठवला",
+      body: "{{reference}} चे {{amount}} तुमच्या मूळ पेमेंट पद्धतीत परत पाठवले आहेत. बँकेत दिसायला साधारण 5–7 कामकाजाचे दिवस लागतात.",
+    },
+  },
+  [T.RETURN_REFUND_INITIATED]: {
+    hi: { title: "रिफंड शुरू हुआ", body: "रिटर्न {{returnNumber}} के लिए आपका {{amount}} का रिफंड प्रोसेस हो रहा है।" },
+    mr: { title: "परतावा सुरू झाला", body: "रिटर्न {{returnNumber}} साठी तुमचा {{amount}} चा परतावा प्रक्रियेत आहे." },
+  },
+  [T.RETURN_REFUND_COMPLETED]: {
+    hi: { title: "रिफंड पूरा हुआ", body: "रिटर्न {{returnNumber}} के {{amount}} आपके वॉलेट में वापस आ गए हैं।" },
+    mr: { title: "परतावा पूर्ण झाला", body: "रिटर्न {{returnNumber}} चे {{amount}} तुमच्या वॉलेटमध्ये परत आले आहेत." },
+  },
+};
+
+/** True when the event has Hindi / Marathi wording (so a language look-up is worth doing). */
+export function hasTranslation(type: string): boolean {
+  return type in TEMPLATE_TRANSLATIONS;
+}
+
+/**
+ * The event's wording in `lang`, or null — English, no translation for the
+ * event, or a `{{variable}}` the translation needs is missing — so the
+ * caller keeps its English title and body.
+ */
+export function renderTranslated(
+  type: string,
+  vars: Record<string, string | number | null | undefined> | undefined,
+  lang: NotificationLang | null | undefined,
+): { title: string; body: string } | null {
+  if (!lang || lang === "en" || !vars) return null;
+  const wording = TEMPLATE_TRANSLATIONS[type]?.[lang];
+  if (!wording) return null;
+  const needed = [...`${wording.title} ${wording.body}`.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
+  // "reason" may be blank (the English template allows it too); every other value must be there.
+  if (needed.some((key) => key !== "reason" && (vars[key] === undefined || vars[key] === null || vars[key] === ""))) return null;
+  return { title: interpolate(wording.title, vars), body: interpolate(wording.body, vars) };
+}
+
+/** The e-mail's own fixed lines, per language. */
+const EMAIL_CHROME: Record<NotificationLang, { open: string; footer: string }> = {
+  en: { open: "Open in Gokesari", footer: "You receive this because of your notification settings on Gokesari." },
+  hi: { open: "Gokesari में खोलें", footer: "Gokesari पर आपकी सूचना सेटिंग के कारण आपको यह मिला है।" },
+  mr: { open: "Gokesari मध्ये उघडा", footer: "Gokesari वरील तुमच्या सूचना सेटिंगमुळे तुम्हाला हे मिळाले आहे." },
+};
+
 export function emailByDefault(type: string): boolean {
   return TEMPLATES[type]?.emailByDefault ?? false;
 }
@@ -540,6 +650,8 @@ export function renderEmail(input: {
   baseUrl?: string;
   /** Rows shown under the body, e-mail only (the in-app notice, SMS and push keep the short body). */
   detail?: EmailDetailRow[];
+  /** Module 6: the button and footer language — only when the title and body were written in it. Default English. */
+  lang?: NotificationLang;
 }): {
   subject: string;
   text: string;
@@ -566,18 +678,19 @@ export function renderEmail(input: {
       ? raw
       : null;
   const showLink = link !== null && /^https?:\/\//i.test(link);
+  const chrome = EMAIL_CHROME[input.lang ?? "en"] ?? EMAIL_CHROME.en;
   return {
     subject: `${input.title} — Gokesari`,
-    text: `${input.title}\n\n${input.body}\n${detailText}${showLink ? `\n${link}\n` : ""}\nYou receive this because of your notification settings on Gokesari.`,
+    text: `${input.title}\n\n${input.body}\n${detailText}${showLink ? `\n${link}\n` : ""}\n${chrome.footer}`,
     html:
       `<div style="font-family:system-ui,sans-serif;max-width:480px">` +
       `<h2 style="margin:0 0 8px;color:#1c1917">${escapeHtml(input.title)}</h2>` +
       `<p style="color:#44403c;line-height:1.5">${escapeHtml(input.body)}</p>` +
       detailHtml +
       (showLink
-        ? `<p><a href="${escapeHtml(link)}" style="display:inline-block;padding:10px 18px;background:#ea580c;color:#fff;border-radius:8px;text-decoration:none">Open in Gokesari</a></p>`
+        ? `<p><a href="${escapeHtml(link)}" style="display:inline-block;padding:10px 18px;background:#ea580c;color:#fff;border-radius:8px;text-decoration:none">${escapeHtml(chrome.open)}</a></p>`
         : "") +
-      `<p style="color:#78716c;font-size:12px">You receive this because of your notification settings on Gokesari.</p></div>`,
+      `<p style="color:#78716c;font-size:12px">${escapeHtml(chrome.footer)}</p></div>`,
   };
 }
 

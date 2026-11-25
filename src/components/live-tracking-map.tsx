@@ -5,6 +5,44 @@ import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Card, StatusBadge } from "@/components/ui";
 import { isMapsAvailable, loadGoogleMaps } from "@/lib/geo/provider";
 import type { OrderTracking } from "@/lib/tracking";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang } from "@/lib/board/i18n";
+
+/** Wording (Module 6, docs/hindi-marathi-2026-11/). */
+const T = {
+  hide: L("Hide tracking", "ट्रैकिंग छिपाएँ", "ट्रॅकिंग लपवा"),
+  track: L("Track delivery", "डिलीवरी ट्रैक करें", "डिलिव्हरी ट्रॅक करा"),
+  yourRider: L("Your rider", "आपका राइडर", "तुमचा रायडर"),
+  seeRider: L("See where your rider is", "देखें आपका राइडर कहाँ है", "तुमचा रायडर कुठे आहे ते पहा"),
+  loadFailed: L("Could not load delivery tracking.", "डिलीवरी ट्रैकिंग लोड नहीं हो सकी।", "डिलिव्हरी ट्रॅकिंग लोड झाली नाही."),
+  loadRetry: L("Could not load delivery tracking. Retrying.", "डिलीवरी ट्रैकिंग लोड नहीं हो सकी। फिर कोशिश कर रहे हैं।", "डिलिव्हरी ट्रॅकिंग लोड झाली नाही. पुन्हा प्रयत्न करत आहोत."),
+  loading: L("Loading delivery tracking…", "डिलीवरी ट्रैकिंग लोड हो रही है…", "डिलिव्हरी ट्रॅकिंग लोड होत आहे…"),
+  title: L("Delivery tracking", "डिलीवरी ट्रैकिंग", "डिलिव्हरी ट्रॅकिंग"),
+  ended: L("Tracking has ended for this order.", "इस ऑर्डर की ट्रैकिंग खत्म हो गई है।", "या ऑर्डरचे ट्रॅकिंग संपले आहे."),
+  estimated: L("Estimated arrival around", "लगभग पहुँचने का समय", "अंदाजे पोहोचण्याची वेळ"),
+  appearsOnce: L(
+    "The rider's location appears here once they set off to you.",
+    "राइडर के आपकी ओर निकलते ही उसकी लोकेशन यहाँ दिखेगी।",
+    "रायडर तुमच्याकडे निघाल्यावर त्याचे ठिकाण इथे दिसेल.",
+  ),
+  collected: L(
+    "The rider has collected your order. You can follow them here as soon as they set off.",
+    "राइडर ने आपका ऑर्डर ले लिया है। उसके निकलते ही आप उसे यहाँ देख सकेंगे।",
+    "रायडरने तुमची ऑर्डर घेतली आहे. तो निघताच तुम्ही त्याला इथे पाहू शकाल.",
+  ),
+  notTracked: L(
+    "Live rider tracking isn't available for this order.",
+    "इस ऑर्डर के लिए लाइव राइडर ट्रैकिंग उपलब्ध नहीं है।",
+    "या ऑर्डरसाठी थेट रायडर ट्रॅकिंग उपलब्ध नाही.",
+  ),
+  waiting: L("Waiting for the rider's location.", "राइडर की लोकेशन का इंतज़ार है।", "रायडरच्या ठिकाणाची वाट पाहत आहोत."),
+  about: L("About", "लगभग", "सुमारे"),
+  away: L("away ·", "दूर ·", "दूर ·"),
+  byRoad: L("by road", "सड़क से", "रस्त्याने"),
+  straight: L("in a straight line", "सीधी रेखा में", "सरळ रेषेत"),
+  arriving: L("arriving around", "पहुँचने का समय लगभग", "पोहोचण्याची वेळ सुमारे"),
+  updatedAt: L("Rider location updated at", "राइडर की लोकेशन अपडेट हुई:", "रायडरचे ठिकाण अपडेट झाले:"),
+} as const;
 
 /** Until the server says otherwise (rule tracking.buyerPollSeconds). */
 const DEFAULT_POLL_MS = 5_000;
@@ -14,14 +52,14 @@ const DEFAULT_POLL_MS = 5_000;
  * tracking panel. The map — one Maps JS load — is only paid for when someone
  * actually opens it, and the 5-second poll only runs while it is open.
  */
-export function TrackDeliveryButton({ orderId }: { orderId: string }) {
+export function TrackDeliveryButton({ orderId, lang = "en" }: { orderId: string; lang?: Lang }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="space-y-3">
       <Button size="sm" variant="secondary" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        {open ? "Hide tracking" : "Track delivery"}
+        {tr(open ? T.hide : T.track, lang)}
       </Button>
-      {open ? <LiveTrackingMap orderId={orderId} /> : null}
+      {open ? <LiveTrackingMap orderId={orderId} lang={lang} /> : null}
     </div>
   );
 }
@@ -30,7 +68,7 @@ export function TrackDeliveryButton({ orderId }: { orderId: string }) {
  * The rider on a map, moved on every poll without reloading the map. Without
  * a Maps key it falls back to a plain link — never a paid call per update.
  */
-function RiderMap({ latitude, longitude }: { latitude: number; longitude: number }) {
+function RiderMap({ latitude, longitude, lang = "en" }: { latitude: number; longitude: number; lang?: Lang }) {
   const mapDiv = useRef<HTMLDivElement>(null);
   const map = useRef<google.maps.Map | null>(null);
   const marker = useRef<google.maps.Marker | null>(null);
@@ -54,7 +92,7 @@ function RiderMap({ latitude, longitude }: { latitude: number; longitude: number
           disableDefaultUI: true,
           zoomControl: true,
         });
-        marker.current = new google.maps.Marker({ position, map: map.current, title: "Your rider" });
+        marker.current = new google.maps.Marker({ position, map: map.current, title: tr(T.yourRider, lang) });
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -62,7 +100,7 @@ function RiderMap({ latitude, longitude }: { latitude: number; longitude: number
     return () => {
       cancelled = true;
     };
-  }, [latitude, longitude, failed]);
+  }, [latitude, longitude, failed, lang]);
 
   if (failed) {
     return (
@@ -72,15 +110,52 @@ function RiderMap({ latitude, longitude }: { latitude: number; longitude: number
         target="_blank"
         rel="noreferrer"
       >
-        See where your rider is
+        {tr(T.seeRider, lang)}
       </a>
     );
   }
   return <div ref={mapDiv} className="h-64 w-full overflow-hidden rounded-lg bg-cream-100" data-testid="rider-map" />;
 }
 
-export function LiveTrackingMap({ orderId }: { orderId: string }) {
-  const [tracking, setTracking] = useState<OrderTracking | null>(null);
+/** docs/hdms-2026-11: an order carried by a delivery partner. */
+interface PartnerTracking {
+  providerName: string;
+  status: string;
+  statusLabel: string;
+  etaAt: string | null;
+  riderName: string | null;
+  riderPhoneMasked: string | null;
+  trackingUrl: string | null;
+  riderLocation: { latitude: number; longitude: number; recordedAt: string } | null;
+  finished: boolean;
+}
+
+function PartnerTrackingCard({ partner, lang = "en" }: { partner: PartnerTracking; lang?: Lang }) {
+  const eta = partner.etaAt ? new Date(partner.etaAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }) : null;
+  return (
+    <div className="space-y-2" data-testid="partner-tracking">
+      <p className="text-sm text-ink-700">
+        Delivered by <span className="font-semibold">{partner.providerName}</span> · {partner.statusLabel}
+        {eta && !partner.finished ? <> · arriving around <span className="font-semibold">{eta}</span></> : null}
+      </p>
+      {partner.riderName ? (
+        <p className="text-sm text-ink-600">
+          Rider: {partner.riderName}
+          {partner.riderPhoneMasked ? ` (${partner.riderPhoneMasked})` : ""}
+        </p>
+      ) : null}
+      {partner.riderLocation && !partner.finished ? <RiderMap latitude={partner.riderLocation.latitude} longitude={partner.riderLocation.longitude} lang={lang} /> : null}
+      {partner.trackingUrl && !partner.finished ? (
+        <a className="text-sm font-medium text-kesari-600 hover:underline" href={partner.trackingUrl} target="_blank" rel="noopener noreferrer">
+          Track on {partner.providerName} →
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+export function LiveTrackingMap({ orderId, lang = "en" }: { orderId: string; lang?: Lang }) {
+  const [tracking, setTracking] = useState<(OrderTracking & { partner?: PartnerTracking | null }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,21 +168,21 @@ export function LiveTrackingMap({ orderId }: { orderId: string }) {
       try {
         const response = await fetch(`/api/tracking/${orderId}`, { cache: "no-store" });
         if (response.ok) {
-          const data: OrderTracking = await response.json();
+          const data: OrderTracking & { partner?: PartnerTracking | null } = await response.json();
           if (cancelled) return;
           setTracking(data);
           setError(null);
-          keepPolling = data.stage !== "ENDED";
+          keepPolling = data.partner ? !data.partner.finished : data.stage !== "ENDED";
           if (data.pollSeconds) pollMs = data.pollSeconds * 1000;
         } else {
-          const payload: { error?: { message?: string } } | null = await response.json().catch(() => null);
+          const payload: { error?: { message?: string; code?: string } } | null = await response.json().catch(() => null);
           if (cancelled) return;
-          setError(payload?.error?.message ?? "Could not load delivery tracking.");
+          setError(payload?.error?.message ? errorText(payload.error.message, lang, payload.error.code) : tr(T.loadFailed, lang));
           keepPolling = response.status >= 500;
         }
       } catch {
         if (cancelled) return;
-        setError("Could not load delivery tracking. Retrying.");
+        setError(tr(T.loadRetry, lang));
       }
       if (!cancelled && keepPolling) timer = setTimeout(poll, pollMs);
     }
@@ -117,13 +192,13 @@ export function LiveTrackingMap({ orderId }: { orderId: string }) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [orderId]);
+  }, [orderId, lang]);
 
   if (!tracking) {
     return error ? (
       <Alert tone="danger">{error}</Alert>
     ) : (
-      <Card className="p-5 text-sm text-ink-500">Loading delivery tracking…</Card>
+      <Card className="p-5 text-sm text-ink-500">{tr(T.loading, lang)}</Card>
     );
   }
 
@@ -135,41 +210,43 @@ export function LiveTrackingMap({ orderId }: { orderId: string }) {
   return (
     <Card className="space-y-3 p-5">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-base font-semibold text-ink-900">Delivery tracking</h3>
+        <h3 className="text-base font-semibold text-ink-900">{tr(T.title, lang)}</h3>
         <StatusBadge status={tracking.orderStatus} />
       </div>
 
-      {tracking.stage === "ENDED" ? (
-        <p className="text-sm text-ink-600">Tracking has ended for this order.</p>
+      {tracking.partner ? (
+        <PartnerTrackingCard partner={tracking.partner} lang={lang} />
+      ) : tracking.stage === "ENDED" ? (
+        <p className="text-sm text-ink-600">{tr(T.ended, lang)}</p>
       ) : tracking.stage === "AWAITING_PICKUP" ? (
         <div className="space-y-1">
           {arrival ? (
             <p className="text-sm text-ink-700" data-testid="estimated-arrival">
-              Estimated arrival around <span className="font-semibold">{arrival}</span>
+              {tr(T.estimated, lang)} <span className="font-semibold">{arrival}</span>
             </p>
           ) : null}
-          <p className="text-sm text-ink-600">The rider&apos;s location appears here once they set off to you.</p>
+          <p className="text-sm text-ink-600">{tr(T.appearsOnce, lang)}</p>
         </div>
       ) : tracking.stage === "AWAITING_START" ? (
         <p className="text-sm text-ink-600">
-          The rider has collected your order. You can follow them here as soon as they set off.
+          {tr(T.collected, lang)}
         </p>
       ) : tracking.stage === "NOT_TRACKED" ? (
-        <p className="text-sm text-ink-600">Live rider tracking isn&apos;t available for this order.</p>
+        <p className="text-sm text-ink-600">{tr(T.notTracked, lang)}</p>
       ) : !riderLocation ? (
-        <p className="text-sm text-ink-600">Waiting for the rider&apos;s location.</p>
+        <p className="text-sm text-ink-600">{tr(T.waiting, lang)}</p>
       ) : (
         <div className="space-y-1">
           {etaMinutes !== null && distanceToDestinationKm !== null ? (
             <p className="text-sm text-ink-700">
-              About <span className="font-semibold">{etaMinutes} min</span> away ·{" "}
-              {distanceToDestinationKm} km {etaSource === "ROAD" ? "by road" : "in a straight line"}
-              {arrival ? <> · arriving around <span className="font-semibold">{arrival}</span></> : null}
+              {tr(T.about, lang)} <span className="font-semibold">{etaMinutes} min</span> {tr(T.away, lang)}{" "}
+              {distanceToDestinationKm} km {tr(etaSource === "ROAD" ? T.byRoad : T.straight, lang)}
+              {arrival ? <> · {tr(T.arriving, lang)} <span className="font-semibold">{arrival}</span></> : null}
             </p>
           ) : null}
-          <RiderMap latitude={riderLocation.latitude} longitude={riderLocation.longitude} />
+          <RiderMap latitude={riderLocation.latitude} longitude={riderLocation.longitude} lang={lang} />
           <p className="text-xs text-ink-500">
-            Rider location updated at {new Date(riderLocation.recordedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
+            {tr(T.updatedAt, lang)} {new Date(riderLocation.recordedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
           </p>
         </div>
       )}

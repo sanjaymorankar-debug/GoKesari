@@ -132,7 +132,7 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       // docs/nearby-referral-2026-10: shops near the device's real position (asks for location).
       { key: "nearby", label: L("Nearby", "पास में", "जवळची"), icon: "map-pin", href: "/shops/nearby", count: "nearbyShops" },
       { key: "openNow", label: L("Open now", "अभी खुली", "आता उघडी"), icon: "clock", href: "/shops?open=1", count: "openNowShops" },
-      // Mockup: "Favourites" — no favourites feature exists; nearest real destination.
+      // Mockup: "Favourites" — now under Orders → Favourites (docs/search-brand-barcode-favourites-2026-11, flag-gated).
       { key: "deliversHere", label: L("Delivers here", "यहाँ डिलीवरी", "इथे डिलिव्हरी"), short: { en: "Delivers" }, icon: "truck", href: "/shops?delivery=true", count: "deliveringShops" },
       // Was the "Compare prices near you" section under the old home page.
       { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare" },
@@ -150,6 +150,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "returns", label: L("Returns", "वापसी", "परतावा"), icon: "undo-2", href: "/returns", count: "openReturns", auth: true },
       // docs/purchase-lists-2026-10: weekly / monthly shopping and medicine lists, reordered in a few taps.
       { key: "lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या"), short: { en: "Lists" }, icon: "clipboard-check", href: "/lists", auth: true },
+      // docs/search-brand-barcode-favourites-2026-11: products saved with the heart (guests' stay in the browser). Only while its flag is on.
+      { key: "favourites", label: L("Favourites", "पसंदीदा", "आवडती"), icon: "heart", href: "/favourites", feature: "brand_barcode_favourites_enabled" },
       // docs/consult-booking-2026-11: the customer's consultant appointments.
       { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), short: { en: "Bookings" }, icon: "calendar-clock", href: "/consult/bookings", auth: true },
     ],
@@ -372,6 +374,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "today", label: L("Today's deliveries", "आज की डिलीवरी", "आजच्या डिलिव्हऱ्या"), icon: "sunrise", href: "/shop/manage/today" },
+      // docs/hdms-2026-11: orders carried by Shadowfax / Pidge / Porter / Borzo — ongoing and history, with tracking.
+      { key: "partnerDeliveries", label: L("Partner deliveries", "पार्टनर डिलीवरी", "भागीदार डिलिव्हरी"), icon: "truck", href: "/shop/deliveries" },
     ],
   },
   {
@@ -433,6 +437,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "welcomeKit", label: L("Send welcome kit", "वेलकम किट भेजें", "वेलकम किट पाठवा"), icon: "megaphone", href: "/admin/shops/welcome-kit", permission: ADMIN_ONLY, feature: "shop_welcome_kit_admin_send_enabled" },
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
+      // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },
   {
@@ -502,12 +508,14 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "payIssues", label: L("Pay issues", "भुगतान समस्याएँ", "पेमेंट अडचणी"), icon: "triangle-alert", href: "/admin/finance/exceptions", permission: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.FINANCE_EXCEPTIONS_VIEW] },
       { key: "bankAccounts", label: L("Bank accounts", "बैंक खाते", "बँक खाती"), icon: "landmark", href: "/admin/bank-accounts", permission: PERMISSIONS.FINANCE_VIEW },
       { key: "cashfree", label: L("Cashfree set-up & tests", "Cashfree सेटअप और टेस्ट", "Cashfree सेटअप आणि चाचण्या"), icon: "landmark", href: "/admin/payments/cashfree", permission: PERMISSIONS.FINANCE_VIEW }, // docs/payments-cashfree-audit-2026-11
+      { key: "chargebacks", label: L("Chargebacks", "चार्जबैक", "चार्जबॅक"), icon: "triangle-alert", href: "/admin/payments/chargebacks", permission: PERMISSIONS.FINANCE_VIEW, feature: "payment_settlement_states" }, // PAY-SM
       { key: "subscriptions", label: L("Subscriptions", "सब्सक्रिप्शन", "सदस्यता"), short: { en: "Subscription" }, icon: "calendar-clock", href: "/admin/subscriptions", permission: PERMISSIONS.SUBSCRIPTION_MANAGE_ANY },
       { key: "commissions", label: L("Referral commissions", "रेफ़रल कमीशन", "रेफरल कमिशन"), icon: "receipt", href: "/admin/referral-commissions", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "payouts", label: L("Payouts", "भुगतान", "पेमेंट"), icon: "landmark", href: "/admin/payouts", permission: PERMISSIONS.PAYOUT_VIEW }, // batch-2026-10 WS-E
       { key: "riderPayouts", label: L("Rider payouts", "राइडर भुगतान", "रायडर पेमेंट"), icon: "bike", href: "/admin/rider-payouts", permission: PERMISSIONS.FINANCE_VIEW, feature: "rider_bank_account_enabled" }, // docs/gig-bank-payouts-2026-10
       { key: "feeInvoices", label: L("GoKesari invoices", "GoKesari बिल", "GoKesari बिले"), icon: "receipt", href: "/admin/platform-invoices", permission: PERMISSIONS.PLATFORM_INVOICE_MANAGE }, // batch-2026-10 WS-E
       { key: "statutory", label: L("TCS / TDS settings", "TCS / TDS सेटिंग", "TCS / TDS सेटिंग्ज"), icon: "file-text", href: "/admin/statutory", permission: PERMISSIONS.STATUTORY_MANAGE }, // batch-2026-10 WS-E
+      { key: "taxRegister", label: L("Tax register (Accountant → CA)", "कर रजिस्टर", "कर रजिस्टर"), icon: "file-text", href: "/staff/tax", permission: PERMISSIONS.TAX_PARAM_PROPOSE }, // docs/tax-register
       { key: "compliance", label: L("Tax returns & due dates", "टैक्स रिटर्न और तारीख़ें", "कर रिटर्न आणि तारखा"), icon: "calendar-clock", href: "/admin/compliance", permission: PERMISSIONS.STATUTORY_MANAGE, feature: "billing_v2" }, // docs/billing
     ],
   },
@@ -525,6 +533,31 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "cannedReplies", label: L("Canned replies", "तैयार जवाब", "तयार उत्तरे"), icon: "message-square", href: "/admin/support/canned-replies", permission: PERMISSIONS.SUPPORT_CANNED_REPLY_MANAGE },
       // docs/dealer-programme (GKS-SP-001): paid support services — charges, requests, refunds. Only while that flag is on.
       { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/admin/support-services", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE, feature: "paid_support_services_enabled" },
+    ],
+  },
+  // docs/hdms-2026-11: Delivery management — shop riders, GoKesari riders and delivery partners in one place.
+  {
+    key: "delivery", label: L("Delivery management", "डिलीवरी प्रबंधन", "डिलिव्हरी व्यवस्थापन"), short: L("Delivery", "डिलीवरी", "डिलिव्हरी"), icon: "truck", tone: "amber", href: "/admin/delivery", opens: "hub",
+    items: [
+      { key: "dashboard", label: L("Delivery dashboard", "डिलीवरी डैशबोर्ड", "डिलिव्हरी डॅशबोर्ड"), icon: "chart-line", href: "/admin/delivery", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "active", label: L("Active deliveries", "चालू डिलीवरी", "चालू डिलिव्हरी"), icon: "truck", href: "/admin/delivery/active", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "providers", label: L("Delivery providers", "डिलीवरी पार्टनर", "डिलिव्हरी भागीदार"), icon: "route", href: "/admin/delivery/providers", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "zones", label: L("Delivery zones", "डिलीवरी ज़ोन", "डिलिव्हरी झोन"), icon: "map-pin", href: "/admin/delivery/zones", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "pricing", label: L("Delivery pricing", "डिलीवरी शुल्क", "डिलिव्हरी शुल्क"), icon: "indian-rupee", href: "/admin/delivery/pricing", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "allocation", label: L("Allocation rules", "आवंटन नियम", "वाटप नियम"), icon: "sliders-horizontal", href: "/admin/delivery/allocation", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "settlements", label: L("Settlements", "सेटलमेंट", "सेटलमेंट"), icon: "receipt", href: "/admin/delivery/settlements", permission: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.SYSTEM_CONFIG] },
+    ],
+    more: [
+      { key: "providerApi", label: L("Provider API configuration", "पार्टनर API सेटिंग", "भागीदार API सेटिंग"), icon: "settings", href: "/admin/delivery/providers", permission: PERMISSIONS.SYSTEM_CONFIG },
+      { key: "shopRiders", label: L("Shop delivery personnel", "दुकान डिलीवरी स्टाफ़", "दुकान डिलिव्हरी कर्मचारी"), icon: "bike", href: "/admin/delivery/shop-riders", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "partners", label: L("GoKesari delivery partners", "GoKesari डिलीवरी पार्टनर", "GoKesari डिलिव्हरी भागीदार"), icon: "bike", href: "/admin/delivery/partners", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "completed", label: L("Completed deliveries", "पूरी डिलीवरी", "पूर्ण डिलिव्हरी"), icon: "circle-check", href: "/admin/delivery/completed", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "failed", label: L("Failed deliveries", "विफल डिलीवरी", "अयशस्वी डिलिव्हरी"), icon: "triangle-alert", href: "/admin/delivery/failed", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "cancellations", label: L("Cancellation management", "रद्दीकरण", "रद्द"), icon: "undo-2", href: "/admin/delivery/cancelled", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "reconciliation", label: L("Reconciliation", "मिलान", "जुळवणी"), icon: "scale", href: "/admin/delivery/settlements", permission: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "reports", label: L("Delivery reports", "डिलीवरी रिपोर्ट", "डिलिव्हरी अहवाल"), icon: "file-chart-column", href: "/admin/delivery/reports", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "health", label: L("Integration health", "इंटीग्रेशन स्थिति", "इंटिग्रेशन स्थिती"), icon: "chart-line", href: "/admin/delivery/health", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
+      { key: "webhooks", label: L("Webhook logs", "वेबहुक लॉग", "वेबहुक लॉग"), icon: "history", href: "/admin/delivery/webhooks", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
     ],
   },
   {
@@ -612,6 +645,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "onboardingFunnel", label: L("Onboarding funnel", "ऑनबोर्डिंग फ़नल", "ऑनबोर्डिंग फनेल"), icon: "chart-line", href: "/admin/onboarding-funnel", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
+      // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },
   {
@@ -647,6 +682,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "profileChanges", label: L("Profile changes", "प्रोफ़ाइल बदलाव", "प्रोफाइल बदल"), icon: "user-check", href: "/admin/rider-changes", count: "riderChanges", permission: PERMISSIONS.DELIVERY_PARTNER_MANAGE },
       // Rider earnings rules are admin-only; operators work the money exceptions (missing rider earnings among them).
       { key: "earnings", label: L("Pay issues", "भुगतान समस्याएँ", "पेमेंट अडचणी"), icon: "indian-rupee", href: "/admin/finance/exceptions", permission: PERMISSIONS.FINANCE_EXCEPTIONS_VIEW },
+      // docs/hdms-2026-11: deliveries handed to Shadowfax / Pidge / Porter / Borzo, zones, allocation.
+      { key: "partnerDeliveries", label: L("Delivery management", "डिलीवरी प्रबंधन", "डिलिव्हरी व्यवस्थापन"), short: { en: "Delivery mgmt" }, icon: "truck", href: "/admin/delivery", permission: PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY },
     ],
   },
   {

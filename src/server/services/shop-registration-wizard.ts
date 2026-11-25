@@ -406,7 +406,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     code: draft.referralCode,
     required: await isReferralRequired("shop"),
     // Shop-refers-shop on (DT-13): the first code entered is kept, so the screen must not offer to change it.
-    locked: draft.referralCode !== null && (await shopReferralRule()).enabled,
+    locked: draft.referralCode !== null && (draft.assistedByUserId !== null || (await shopReferralRule()).enabled),
     employeeId: str(partialOf(draft).employeeId),
   };
   // Owner, 05-Nov-2026 (D3): the shop email stays required but is one pre-filled line — the
@@ -643,6 +643,13 @@ export async function answerDraftReferral(input: { actor: Actor; referralCode: s
   const oneCode = (await shopReferralRule()).enabled;
   const draft = await db.transaction(async (tx) => {
     const locked = await lockOpenDraft(tx, input.actor.id);
+    // Onboarding WP7 (0187): a helper's code is locked onto an assisted draft (set only while onboarding_assisted_mode_enabled is on).
+    if (locked.assistedByUserId && locked.referralCode && locked.referralCode !== code) {
+      throw conflict(`This registration is assisted with referral code ${locked.referralCode}; it cannot be changed.`, {
+        reason: "REFERRAL_CODE_LOCKED",
+        fields: { referralCode: "The helper's code is kept." },
+      });
+    }
     if (oneCode && locked.referralCode && locked.referralCode !== code) {
       throw conflict(`You already entered referral code ${locked.referralCode}. Only one code can be used — a dealer's or a shop's — and the first one is kept.`, {
         reason: "REFERRAL_CODE_LOCKED",

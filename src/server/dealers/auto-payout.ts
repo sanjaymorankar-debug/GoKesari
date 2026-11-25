@@ -23,9 +23,9 @@ import { decryptSecret } from "@/lib/pan-crypto";
 import { db } from "@/server/db";
 import { dealerCommissionLedger, dealerPayoutBatches, dealerSalespeople, dealers, type DealerPayoutBatch, type UserRole } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
-import { getPayoutProvider } from "@/server/payouts/providers";
+import { sendingPayoutProvider } from "@/server/payouts/guard";
 import { buildSandboxWebhook } from "@/server/payouts/providers/sandbox";
-import type { PayoutWebhookEvent } from "@/server/payouts/types";
+import { PayoutProviderError, type PayoutProvider, type PayoutWebhookEvent } from "@/server/payouts/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
@@ -104,12 +104,15 @@ export async function approvePayoutBatch(batchId: string, actor: Actor): Promise
  * provider. Nothing is sent while the rule is off or the provider is not
  * configured; the payout simply stays where it is for an admin to pay by hand.
  */
+/** The idempotency key of a payout's current attempt (the provider transfer id is worked out from it). */
+const attemptKey = (b: Pick<DealerPayoutBatch, "id" | "attempts">) => `dealer-payout:${b.id}:${b.attempts}`;
+
 export async function sendDealerPayout(batchId: string, actor: Actor | typeof SYSTEM = SYSTEM): Promise<DealerPayoutBatch> {
   const rule = await getRule("dealerAutoPayout");
-  const provider = getPayoutProvider(rule.provider);
+  const provider = sendingPayoutProvider(rule.provider);
   const [current] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId));
   if (!current) throw notFound("Payout");
-  if (!rule.enabled || !provider || !provider.isConfigured()) return current;
+  if (!rule.enabled || !provider) return current;
   const beneficiary = await beneficiaryFor(current);
   if (!beneficiary) {
     const [held] = await db
@@ -119,16 +122,42 @@ export async function sendDealerPayout(batchId: string, actor: Actor | typeof SY
       .returning();
     return held;
   }
+  const attempts = current.attempts + 1;
   const [claimed] = await db
     .update(dealerPayoutBatches)
     // A new attempt forgets the last attempt's reference: a late event for that attempt matches nothing.
-    .set({ status: "PROCESSING", attempts: current.attempts + 1, provider: provider.name, providerRef: null, nextRetryAt: null, needsReview: false, failureReason: null })
-    .where(and(eq(dealerPayoutBatches.id, batchId), inArray(dealerPayoutBatches.status, ["APPROVED", "FAILED"])))
+    // Its transfer id is saved here, before the request: an early or late webhook still finds it.
+    .set({
+      status: "PROCESSING",
+      attempts,
+      provider: provider.name,
+      providerRef: null,
+      providerTransferId: provider.transferIdFor(attemptKey({ id: current.id, attempts })),
+      sentAt: new Date(),
+      nextRetryAt: null,
+      needsReview: false,
+      failureReason: null,
+    })
+    .where(and(eq(dealerPayoutBatches.id, batchId), eq(dealerPayoutBatches.attempts, current.attempts), inArray(dealerPayoutBatches.status, ["APPROVED", "FAILED"])))
     .returning();
   if (!claimed) return current;
+  return dispatchDealerPayout(claimed, beneficiary, provider, rule, actor);
+}
+
+/**
+ * Sends a payout's current attempt (claimed: PROCESSING, transfer id saved). Also used by the
+ * reconcile job to send the same attempt again — same transfer id — when the provider never got it.
+ */
+async function dispatchDealerPayout(
+  claimed: DealerPayoutBatch,
+  beneficiary: Beneficiary,
+  provider: PayoutProvider,
+  rule: Awaited<ReturnType<typeof getRule<"dealerAutoPayout">>>,
+  actor: Actor | typeof SYSTEM,
+): Promise<DealerPayoutBatch> {
   try {
     const result = await provider.createTransfer({
-      idempotencyKey: `dealer-payout:${claimed.id}:${claimed.attempts}`,
+      idempotencyKey: attemptKey(claimed),
       referenceId: claimed.id,
       amountPaise: net(claimed),
       mode: rule.mode,
@@ -146,12 +175,37 @@ export async function sendDealerPayout(batchId: string, actor: Actor | typeof SY
       await handlePayoutWebhook("sandbox", rawBody, headers);
     }
   } catch (error) {
-    // The request may or may not have reached the bank: never retry blind — finance checks.
     const reason = error instanceof Error ? error.message : "The payout provider could not be reached.";
+    // A definite refusal (the provider answered and took nothing) fails as the bank's refusal would.
+    if (error instanceof PayoutProviderError && !error.retryable) return applyDealerPayoutOutcome(claimed.id, { status: "FAILED", reason });
+    // The request may or may not have reached the bank: never retry blind — the reconcile job asks the provider, finance checks.
     return applyDealerPayoutOutcome(claimed.id, { status: "FAILED", reason: `${OUTCOME_UNKNOWN} — ${reason}`, review: true });
   }
   const [after] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, claimed.id));
   return after;
+}
+
+/**
+ * Reconcile job: the provider has no transfer with this payout's current id (the request never
+ * reached it), so the same attempt is sent again with the same id — it can never be paid twice.
+ * Only for a payout in progress or of unknown outcome, while the rule is on.
+ */
+export async function resendDealerPayout(batchId: string): Promise<DealerPayoutBatch | null> {
+  const rule = await getRule("dealerAutoPayout");
+  const [b] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId));
+  if (!rule.enabled || !b || !b.provider || !b.providerTransferId || b.providerRef || !(b.status === "PROCESSING" || payoutOutcomeUnknown(b))) return null;
+  const provider = sendingPayoutProvider(b.provider);
+  if (!provider || provider.transferIdFor(attemptKey(b)) !== b.providerTransferId) return null;
+  const beneficiary = await beneficiaryFor(b);
+  if (!beneficiary) return null;
+  const [claimed] = await db
+    .update(dealerPayoutBatches)
+    .set({ status: "PROCESSING", needsReview: false, failureReason: null, nextRetryAt: null, sentAt: new Date() })
+    .where(and(eq(dealerPayoutBatches.id, b.id), eq(dealerPayoutBatches.attempts, b.attempts), inArray(dealerPayoutBatches.status, ["PROCESSING", "FAILED"])))
+    .returning();
+  if (!claimed) return null;
+  await recordAudit({ action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: b.id, newValue: { resent: true, attempt: b.attempts, transferId: b.providerTransferId } });
+  return dispatchDealerPayout(claimed, beneficiary, provider, rule, SYSTEM);
 }
 
 type Outcome = { status: "SUCCESS"; utr: string } | { status: "FAILED"; reason: string; review?: boolean } | { status: "REVERSED"; reason: string };
@@ -174,7 +228,8 @@ export async function applyDealerPayoutOutcome(batchId: string, outcome: Outcome
       await tx.update(dealerPayoutBatches).set({ status: "FAILED", needsReview: true, failureReason: outcome.reason, paidAt: null }).where(eq(dealerPayoutBatches.id, batchId));
       await recordAudit({ action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batchId, previousValue: { status: "PAID" }, newValue: { status: "FAILED", reversed: true, reason: outcome.reason } }, tx);
     });
-  } else if (b.status === "PROCESSING" || b.status === "APPROVED") {
+  } else if (b.status === "PROCESSING" || b.status === "APPROVED" || (outcome.status !== "REVERSED" && !("review" in outcome && outcome.review) && payoutOutcomeUnknown(b))) {
+    // (The bank's definite answer also settles an attempt whose outcome was unknown.)
     const review = ("review" in outcome && outcome.review) || outcome.status === "REVERSED" || b.attempts > rule.maxRetries;
     await db
       .update(dealerPayoutBatches)
@@ -199,16 +254,24 @@ export async function applyDealerPayoutOutcome(batchId: string, outcome: Outcome
   return after;
 }
 
-/** The payout providers' signed webhook for a dealer payout (after shop payouts and rider transfers). */
-export async function handleDealerPayoutEvent(source: string, event: PayoutWebhookEvent): Promise<{ status: number; body: Record<string, unknown> }> {
+/**
+ * The payout providers' signed webhook for a dealer payout (after shop payouts and rider transfers):
+ * by the provider's reference, then by the attempt's transfer id saved before sending (0186), then
+ * by our id. "WAIT": the payout is being sent and its reference is not known yet — deliver again later.
+ */
+export async function findDealerPayoutForEvent(event: PayoutWebhookEvent): Promise<DealerPayoutBatch | "WAIT" | null> {
   let batch: DealerPayoutBatch | undefined;
   if (event.providerRef) [batch] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.providerRef, event.providerRef));
+  if (!batch && event.transferId) {
+    [batch] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.providerTransferId, event.transferId));
+    if (batch && event.providerRef && !batch.providerRef) await db.update(dealerPayoutBatches).set({ providerRef: event.providerRef }).where(eq(dealerPayoutBatches.id, batch.id));
+  }
   if (!batch && event.referenceId && /^[0-9a-f-]{36}$/i.test(event.referenceId)) {
     // By our id only while we do not know the attempt's reference: an event of an earlier attempt
     // must never decide a later one (each attempt's reference replaces the last).
     const [byId] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, event.referenceId));
     if (byId && !byId.providerRef) {
-      if (byId.status === "PROCESSING") return { status: 409, body: { ok: false, retry: "The transfer is still being sent — deliver this event again later." } };
+      if (byId.status === "PROCESSING") return "WAIT";
       if (payoutOutcomeUnknown(byId)) {
         // The bank's answer for the attempt whose outcome we did not know.
         if (event.providerRef) await db.update(dealerPayoutBatches).set({ providerRef: event.providerRef }).where(eq(dealerPayoutBatches.id, byId.id));
@@ -216,16 +279,29 @@ export async function handleDealerPayoutEvent(source: string, event: PayoutWebho
       }
     }
   }
-  if (!batch) return { status: 200, body: { ok: true, ignored: "No payout matches this event." } };
+  return batch ?? null;
+}
+
+/** Applies a matched event (once per event: handlePayoutWebhook records it after this). */
+export async function applyDealerPayoutEvent(source: string, batch: DealerPayoutBatch, event: PayoutWebhookEvent): Promise<{ status: number; body: Record<string, unknown> }> {
   if (event.status === "SUCCESS") {
     if (!event.utr) return { status: 200, body: { ok: true, pending: "Success without a UTR — waiting for the bank reference." } };
     await applyDealerPayoutOutcome(batch.id, { status: "SUCCESS", utr: event.utr });
-  } else if (event.status === "FAILED") {
+  } else if (event.status === "FAILED" || (event.status === "REVERSED" && batch.status !== "PAID")) {
+    // A return before we recorded the payment: the money is back, so it is a refused transfer.
     await applyDealerPayoutOutcome(batch.id, { status: "FAILED", reason: event.failureReason ?? "The bank rejected the transfer." });
   } else if (event.status === "REVERSED") {
     await applyDealerPayoutOutcome(batch.id, { status: "REVERSED", reason: event.failureReason ?? "The bank returned the transfer." });
   }
   return { status: 200, body: { ok: true, source } };
+}
+
+/** Find and apply (kept for callers that hold a parsed event). */
+export async function handleDealerPayoutEvent(source: string, event: PayoutWebhookEvent): Promise<{ status: number; body: Record<string, unknown> }> {
+  const batch = await findDealerPayoutForEvent(event);
+  if (batch === "WAIT") return { status: 409, body: { ok: false, retry: "The transfer is still being sent — deliver this event again later." } };
+  if (!batch) return { status: 200, body: { ok: true, ignored: "No payout matches this event." } };
+  return applyDealerPayoutEvent(source, batch, event);
 }
 
 /** Hourly: failed payouts whose backoff has passed are sent again (never one flagged for review). */

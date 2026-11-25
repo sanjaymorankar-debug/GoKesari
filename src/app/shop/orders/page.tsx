@@ -4,7 +4,7 @@ import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
 import { ShopOrderManager } from "@/components/shop-order-manager";
 import { ShopWalletBanner } from "@/components/shop-wallet-banner";
 import { EmptyState, PageHeader } from "@/components/ui";
-import { tr, UI } from "@/lib/board/i18n";
+import { L, tr, UI } from "@/lib/board/i18n";
 import { SHOP_MENUS } from "@/lib/board/menus";
 import { pickTab, SHOP_ORDER_TABS, type ShopOrderTab } from "@/lib/board/status-groups";
 import { activeShop } from "@/server/active-shop";
@@ -14,7 +14,7 @@ import { getDeliveryOrdersForOrders, getRiderSearchStatus } from "@/server/servi
 import { listShopProducts } from "@/server/services/catalogue";
 import { listOrdersForShop } from "@/server/services/orders";
 import { listShopsForOwner } from "@/server/services/shops";
-import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
+import { proofPhotosForOrders, signaturesForOrders } from "@/server/services/delivery-proofs";
 import { invoiceKindsForOrders, orderInvoiceLabel } from "@/server/services/invoices";
 import { getRule } from "@/server/services/settings";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
@@ -30,6 +30,19 @@ export const dynamic = "force-dynamic";
  * delivery partner (delivery-system Part 58, Slice C).
  */
 const PAGE_SIZE = 5;
+
+const T = {
+  title: L("Orders", "ऑर्डर", "ऑर्डर"),
+  description: L("{shop} — manage and fulfil incoming orders.", "{shop} — आने वाले ऑर्डर संभालें और पूरे करें।", "{shop} — येणाऱ्या ऑर्डर सांभाळा आणि पूर्ण करा."),
+  noOrders: L("No orders yet.", "अभी कोई ऑर्डर नहीं।", "अजून ऑर्डर नाहीत."),
+  nothingHere: L("Nothing here right now.", "अभी यहाँ कुछ नहीं है।", "सध्या इथे काही नाही."),
+  noOrdersText: L(
+    "New orders appear here and on your board the moment a customer places them.",
+    "ग्राहक के ऑर्डर करते ही नए ऑर्डर यहाँ और आपके बोर्ड पर दिखेंगे।",
+    "ग्राहकाने ऑर्डर देताच नवीन ऑर्डर इथे आणि तुमच्या बोर्डवर दिसतील.",
+  ),
+  moveText: L("Orders move to the next tab as you work on them.", "काम आगे बढ़ने पर ऑर्डर अगले टैब में चले जाते हैं।", "काम पुढे सरकताच ऑर्डर पुढील टॅबमध्ये जातात."),
+} as const;
 const TAB_KEYS = ["new", "packing", "ready", "out", "done", "all"] as const satisfies readonly ShopOrderTab[];
 
 export default async function ShopOrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; page?: string }> }) {
@@ -75,7 +88,12 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
   // NEW-007: invoice and delivery-photo links on delivered orders.
   const delivered = orders.filter((o) => o.status === "DELIVERED").map((o) => o.id);
   // QA D-121: invoiceKinds names the link by the document issued (a shop outside GST issues a bill of supply).
-  const [proofPhotos, invoicingRule, invoiceKinds] = await Promise.all([proofPhotosForOrders(delivered), getRule("invoicing"), invoiceKindsForOrders(delivered)]);
+  const [proofPhotos, invoicingRule, invoiceKinds, signatures] = await Promise.all([
+    proofPhotosForOrders(delivered),
+    getRule("invoicing"),
+    invoiceKindsForOrders(delivered),
+    signaturesForOrders(delivered), // Module 4: the customer's signature at the door
+  ]);
   // Only READY orders of a delivering shop are waiting for a rider.
   const searchByOrder = new Map(
     shop.deliveryAvailable
@@ -107,22 +125,23 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
 
   return (
     <>
-      <PageHeader title="Orders" description={`${shop.name} — manage and fulfil incoming orders.`} />
+      <PageHeader title={tr(T.title, lang)} description={tr(T.description, lang).replace("{shop}", shop.name)} />
       {/* Shop wallet: below the minimum the shop cannot accept new orders (the server refuses too). */}
-      <ShopWalletBanner {...wallet} />
+      <ShopWalletBanner {...wallet} lang={lang} />
 
       <ListTabs tabs={tabs} active={tab} label={tr(UI.orders, lang)} />
 
       {orders.length === 0 ? (
         <EmptyState
-          title={allOrders.length === 0 ? "No orders yet." : "Nothing here right now."}
-          description={allOrders.length === 0 ? "New orders appear here and on your board the moment a customer places them." : "Orders move to the next tab as you work on them."}
+          title={allOrders.length === 0 ? tr(T.noOrders, lang) : tr(T.nothingHere, lang)}
+          description={allOrders.length === 0 ? tr(T.noOrdersText, lang) : tr(T.moveText, lang)}
         />
       ) : (
         <ShopOrderManager
           deliveryAvailable={shop.deliveryAvailable}
           substitutes={substitutes}
           fulfilment={fulfilment}
+          lang={lang}
           orders={orders.map((o) => ({
             id: o.id,
             orderNumber: o.orderNumber,
@@ -136,6 +155,8 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
             invoiceUrl: o.status === "DELIVERED" && invoicingRule.enabled ? `/api/orders/${o.id}/invoice` : null,
             invoiceLabel: orderInvoiceLabel(invoiceKinds.get(o.id)),
             proofPhotoUrl: proofPhotos.get(o.id)?.url ?? null,
+            signatureUrl: signatures.get(o.id)?.url ?? null,
+            signatureAt: signatures.get(o.id)?.takenAt.toISOString() ?? null,
             scheduledSlot:
               o.scheduledSlotStart && o.scheduledSlotEnd
                 ? { start: o.scheduledSlotStart.toISOString(), end: o.scheduledSlotEnd.toISOString() }

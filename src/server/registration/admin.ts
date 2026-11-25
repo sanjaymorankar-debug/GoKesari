@@ -327,9 +327,16 @@ export async function setCommissionStatus(id: string, status: "APPROVED" | "PAID
   const [current] = await db.select().from(referralCommissions).where(eq(referralCommissions.id, id));
   if (!current) throw notFound("Commission");
   if (!NEXT[current.status].includes(status)) throw conflict(`A ${current.status.toLowerCase()} commission cannot become ${status.toLowerCase()}.`);
+  // docs/tax-register (0188): TDS s.194H withheld when a referral commission is paid.
+  const tds = status === "PAID" ? await referralTds(current) : null;
   const [row] = await db
     .update(referralCommissions)
-    .set({ status, note: note ?? current.note, updatedAt: new Date() })
+    .set({
+      status,
+      note: note ?? current.note,
+      ...(status === "PAID" ? { tdsPaise: tds?.tdsPaise ?? 0, tdsRateBp: tds && tds.tdsPaise > 0 ? tds.rateBp : null, netPaise: current.amountPaise - (tds?.tdsPaise ?? 0) } : {}),
+      updatedAt: new Date(),
+    })
     .where(and(eq(referralCommissions.id, id), eq(referralCommissions.status, current.status)))
     .returning();
   if (!row) throw conflict("The commission changed meanwhile. Reload and try again.");
@@ -340,8 +347,12 @@ export async function setCommissionStatus(id: string, status: "APPROVED" | "PAID
     entityType: "referral_commission",
     entityId: id,
     previousValue: { status: current.status },
-    newValue: { status, note },
+    newValue: { status, note, ...(tds && tds.tdsPaise > 0 ? { tdsPaise: tds.tdsPaise, tdsRateBp: tds.rateBp, section: tds.section } : {}) },
   });
+  if (status === "PAID") {
+    const { commissionPosting, queuePosting } = await import("@/server/rbac-accounting/auto-post");
+    await queuePosting(commissionPosting({ sourceType: "referral_commissions", id, payee: "referrer", grossPaise: row.amountPaise, tdsPaise: row.tdsPaise, paidAt: new Date(), reference: note }));
+  }
   return row;
 }
 
@@ -356,3 +367,36 @@ export async function listTestMessages(to?: string) {
     .limit(200);
 }
 
+
+/**
+ * docs/tax-register (0188): TDS s.194H on a referral commission being paid, with flag
+ * payout_deductions on and the IT_TDS_194H row enabled. The payee is the distributor (else the
+ * referring user); the year's commissions to the same payee count towards the threshold. PAN:
+ * the payee's dealer record. On gokesari.com an unconfirmed row holds the payment.
+ */
+async function referralTds(c: typeof referralCommissions.$inferSelect): Promise<{ tdsPaise: number; rateBp: number; section: string } | null> {
+  const { holdUnlessApproved, payoutDeductionsOn } = await import("@/server/tax/payout-deductions");
+  if (!(await payoutDeductionsOn())) return null;
+  const { istDay, statutoryResolver, tdsSectionOn } = await import("@/server/statutory/rates");
+  const section = await tdsSectionOn("IT_TDS_194H", istDay(new Date()), statutoryResolver());
+  if (!section) return null;
+  holdUnlessApproved(section.confirmed, "Referral TDS s.194H");
+  const { computeTds, financialYearBounds } = await import("@/server/rider-wallet/rules");
+  const fy = financialYearBounds(new Date());
+  const payee = c.distributorId ? eq(referralCommissions.distributorId, c.distributorId) : c.referrerUserId ? eq(referralCommissions.referrerUserId, c.referrerUserId) : null;
+  let paid = 0;
+  let deducted = 0;
+  if (payee) {
+    const [sum] = await db
+      .select({ paid: sql<string>`coalesce(sum(${referralCommissions.amountPaise}), 0)`, tds: sql<string>`coalesce(sum(${referralCommissions.tdsPaise}), 0)` })
+      .from(referralCommissions)
+      .where(and(payee, eq(referralCommissions.status, "PAID"), gte(referralCommissions.updatedAt, fy.start), lt(referralCommissions.updatedAt, fy.end)));
+    paid = Number(sum?.paid ?? 0);
+    deducted = Number(sum?.tds ?? 0);
+  }
+  const userId = c.referrerUserId ?? (c.distributorId ? (await db.select({ userId: distributors.userId }).from(distributors).where(eq(distributors.id, c.distributorId)))[0]?.userId ?? null : null);
+  const { dealers } = await import("@/server/db/schema");
+  const hasPan = userId ? Boolean((await db.select({ pan: dealers.panHash }).from(dealers).where(eq(dealers.userId, userId)))[0]?.pan) : false;
+  const r = computeTds(section.rule, { grossPaise: c.amountPaise, paidThisYearPaise: paid, tdsThisYearPaise: deducted, hasPan, maxPaise: c.amountPaise });
+  return { tdsPaise: r.tdsPaise, rateBp: r.rateBp, section: section.sectionLabel };
+}
