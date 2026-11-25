@@ -48,7 +48,7 @@ export const EMAIL_IN_USE = "This email address is already used by another accou
 /** RIDER_BANK_CHANGE / RIDER_WITHDRAWAL (0124): a delivery partner confirms a bank change or a withdrawal. */
 /** ACCOUNT_DELETE (0183): a signed-in person confirms deleting their own account. */
 /** GUEST_MOBILE / ORDER_TRACK (0184): guest checkout's mobile check and tracking look-up. */
-/** LOGIN_SMS / CHECKOUT (0203, docs/sms-2fa-2026-11): the SMS second factor at sign-in and the checkout step-up. */
+/** LOGIN_SMS / CHECKOUT (0204, docs/sms-2fa-2026-11): the SMS second factor at sign-in and the checkout step-up. */
 export type OtpPurpose =
   | "LOGIN"
   | "EMAIL_CHANGE"
