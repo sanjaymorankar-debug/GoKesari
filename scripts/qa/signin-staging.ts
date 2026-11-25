@@ -19,7 +19,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { chromium, request, type Browser } from "@playwright/test";
+import { chromium, request, type Browser, type Page } from "@playwright/test";
 
 const BASE = "https://test.gokesari.com";
 const AUTH_DIR = process.env.E2E_AUTH_DIR ?? ".e2e-auth";
@@ -44,6 +44,61 @@ async function signedInAs(role: string): Promise<string | null> {
     const res = await ctx.get("/api/auth/session");
     const body = (await res.json().catch(() => null)) as { user?: { email?: string; role?: string } } | null;
     return body?.user?.email ? `${body.user.email} (${body.user.role})` : null;
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * docs/sms-2fa-2026-11: with the SMS sign-in code on for customers / shop owners on staging
+ * (Admin → Sign-in security), the email code is followed by an SMS step. Staging runs
+ * SMS_PROVIDER=mock, so the code is in the mock outbox: read it through
+ * GET /api/admin/test-messages with the saved ADMIN session (admins never get the SMS step,
+ * so sign "admin" in first: --roles admin,...). Without an admin session, whoever runs this
+ * writes the code from Admin → Test messages to test-results/qa/codes/<role>.smscode.
+ * An account without a verified mobile needs a number: QA_SMS_MOBILE_<ROLE> (e.g.
+ * QA_SMS_MOBILE_CUSTOMER=9xxxxxxxxx, one free number per account) or users.<role>.mobile in the world file.
+ */
+async function smsStepIfAsked(page: Page, role: string, email: string) {
+  const step = page.getByTestId("sms-second-factor");
+  const asked = await step.waitFor({ timeout: 8_000 }).then(() => true, () => false);
+  if (!asked) return;
+  const askedAt = Date.now();
+  const numberBox = page.getByLabel("Mobile number for the SMS code");
+  let last4 = "";
+  if (await numberBox.isVisible().catch(() => false)) {
+    const mobile = process.env[`QA_SMS_MOBILE_${role.toUpperCase()}`] ?? (world.users[role] as { mobile?: string }).mobile;
+    if (!mobile) throw new Error(`${role}: the SMS step asks for a mobile number — set QA_SMS_MOBILE_${role.toUpperCase()}`);
+    await numberBox.fill(mobile);
+    await page.getByRole("button", { name: "Send SMS code" }).click();
+    last4 = mobile.replace(/\D/g, "").slice(-4);
+  }
+  await page.getByLabel("SMS code").waitFor({ timeout: 60_000 });
+  if (!last4) last4 = ((await page.getByTestId("sms-sent-to").innerText().catch(() => "")).match(/(\d{4})\D*$/)?.[1] ?? "");
+  console.log(`signin-staging: ${role}: SMS step for ${email} (mobile ending ${last4 || "?"})`);
+
+  const smsFile = join(CODES, `${role}.smscode`);
+  let code = "";
+  for (let i = 0; i < waitSeconds && !code; i++) {
+    if (existsSync(smsFile)) code = readFileSync(smsFile, "utf8").trim();
+    else if (last4 && existsSync(stateFile("admin")) && i % 3 === 0) code = (await smsCodeFromOutbox(last4, askedAt)) ?? "";
+    if (!code) await page.waitForTimeout(1000);
+  }
+  if (!code) throw new Error(`${role}: no SMS code within ${waitSeconds} s (sign admin in first, or write ${smsFile})`);
+  await page.getByLabel("SMS code").fill(code);
+  await page.getByRole("button", { name: "Verify and sign in" }).click();
+  rmSync(smsFile, { force: true });
+}
+
+/** The newest mock SMS code to a number ending in `last4`, sent after `since`, read with the admin session. */
+async function smsCodeFromOutbox(last4: string, since: number): Promise<string | null> {
+  const ctx = await request.newContext({ baseURL: BASE, storageState: stateFile("admin") });
+  try {
+    const res = await ctx.get(`/api/admin/test-messages?to=${last4}`);
+    if (!res.ok()) return null;
+    const body = (await res.json().catch(() => null)) as { messages?: { body: string; purpose: string; createdAt: string }[] } | null;
+    const hit = (body?.messages ?? []).find((m) => m.purpose === "otp" && new Date(m.createdAt).getTime() >= since - 5_000);
+    return hit?.body.match(/^(\d{4,8}) is your GoKesari code/)?.[1] ?? null;
   } finally {
     await ctx.dispose();
   }
@@ -90,6 +145,7 @@ async function signIn(browser: Browser, role: string, email: string) {
     await page.getByLabel("One-time code").fill(code);
     // The code form's own submit button ("Sign in"), not the header link or another provider's button.
     await page.getByTestId("otp-signin").getByRole("button", { name: "Sign in", exact: true }).click();
+    await smsStepIfAsked(page, role, email);
     let who = "";
     for (let i = 0; i < 60 && !who; i++) {
       await page.waitForTimeout(1500);

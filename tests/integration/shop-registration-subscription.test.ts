@@ -1,5 +1,5 @@
 /**
- * Shop registration subscription (0205; owner brief 25-Nov-2026; docs/shop-registration-subscription-2026-11).
+ * Shop registration subscription (0206; owner brief 25-Nov-2026; docs/shop-registration-subscription-2026-11).
  * Real PostgreSQL. Covers the brief's test list that runs without a phone:
  *   new registration payment → 1 year · unpaid reminders + auto payment link · migration of existing shops ·
  *   expiry reminder days · bulk reminders · link create / cancel / expire · gateway success / failure /
@@ -307,10 +307,10 @@ describe("commission on renewals", () => {
   });
 });
 
-describe("migration of existing shops (0205)", () => {
-  /** Runs the 0205 data statements again on fixture shops (the schema part is already applied). */
+describe("migration of existing shops (0206)", () => {
+  /** Runs the 0206 data statements again on fixture shops (the schema part is already applied). */
   async function runBackfill() {
-    const file = readFileSync(path.join(process.cwd(), "drizzle/0205_shop_registration_subscription.sql"), "utf8");
+    const file = readFileSync(path.join(process.cwd(), "drizzle/0206_shop_registration_subscription.sql"), "utf8");
     const statements = file
       .split("--> statement-breakpoint")
       .map((s) => s.trim())

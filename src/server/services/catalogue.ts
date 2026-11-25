@@ -1221,7 +1221,7 @@ function storefrontConditions(options: StorefrontFilters) {
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
-    registrationListed, // 0205: an expired registration's listings are not shown
+    registrationListed, // 0206: an expired registration's listings are not shown
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(products.isActive, true),

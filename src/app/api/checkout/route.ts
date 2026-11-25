@@ -15,6 +15,7 @@ import { forbidden } from "@/lib/errors";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { checkout } from "@/server/services/orders";
 import { startOnlineCheckout } from "@/server/payments/order-payments";
+import { claimCheckoutStepUp } from "@/server/otp/checkout-step-up";
 
 const schema = z.object({
   /** Stable per attempt — resubmitting the same id will not charge twice. */
@@ -67,8 +68,19 @@ export const POST = route(async (request: NextRequest) => {
   // batch-2026-10 WS-A: "Pay online" goes through its own service; wallet / COD unchanged.
   const { paymentMethod: _method, ...onlineInput } = input;
   void _method;
-  const online = body.paymentMethod === "ONLINE" ? await startOnlineCheckout(onlineInput) : null;
-  const result = online ?? (await checkout(input));
+  // docs/sms-2fa-2026-11 (rule checkoutOtp): a verified SMS code must cover this order. Refused with
+  // 403 { details: { stepUp: "CHECKOUT_OTP", needsPhone, maskedPhone, mode } } otherwise; the pass is
+  // given back when the checkout itself fails. Rule off / no SMS here → nothing is asked.
+  const stepUp = await claimCheckoutStepUp(user.id, body.requestId);
+  let online: Awaited<ReturnType<typeof startOnlineCheckout>> | null;
+  let result: Awaited<ReturnType<typeof checkout>>;
+  try {
+    online = body.paymentMethod === "ONLINE" ? await startOnlineCheckout(onlineInput) : null;
+    result = online ?? (await checkout(input));
+  } catch (error) {
+    await stepUp.release().catch((releaseError) => console.error("[checkout-otp] could not give the pass back", releaseError));
+    throw error;
+  }
 
   return ok(
     {

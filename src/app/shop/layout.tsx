@@ -51,7 +51,7 @@ export default async function SellerCentralLayout({ children }: { children: Reac
   const counts = shop ? await loadShopCounts(shop.id).catch(() => ({})) : {};
   const features = user && shop ? await shopMenuFeatures(shop) : [];
   const groups = user && shop ? groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug, features }, "shop")) : [];
-  // 0205 registration subscription: red (unpaid / grace / expired) or amber (expiring) banner on every screen until paid.
+  // 0206 registration subscription: red (unpaid / grace / expired) or amber (expiring) banner on every screen until paid.
   const registration =
     user && shop && (shop.status === "APPROVED" || shop.status === "PENDING_APPROVAL" || shop.status === "SUSPENDED") ? await ownerRegistrationStatus(shop) : null;
 

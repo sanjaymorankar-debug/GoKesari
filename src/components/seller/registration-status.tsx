@@ -1,6 +1,6 @@
 /**
  * Shop owner: the registration subscription banner (top of every Seller Central screen) and the
- * "Shop Registration" card (0205; owner brief 25-Nov-2026). Server-rendered; works the same in the
+ * "Shop Registration" card (0206; owner brief 25-Nov-2026). Server-rendered; works the same in the
  * Android / iPhone app, which shows these pages. English with a Marathi line.
  */
 import Link from "next/link";

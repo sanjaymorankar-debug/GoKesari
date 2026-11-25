@@ -102,8 +102,8 @@ export interface MembershipStatus {
 }
 
 /**
- * 0205: when the shop goes offline — the end plus its grace days (the shop's own, else the rule's), or a
- * grace an admin / the 0205 migration gave until a later moment.
+ * 0206: when the shop goes offline — the end plus its grace days (the shop's own, else the rule's), or a
+ * grace an admin / the 0206 migration gave until a later moment.
  */
 export function offlineFromOf(
   until: Date,
@@ -145,7 +145,7 @@ export async function membershipOrderGate(): Promise<SQL> {
   return sql`(${stillOnlineSql(rule.graceDays)} or ${exemptionSql(rule)})`;
 }
 
-/** SQL on the outer `shops` row (raw names): no end date, or still inside the end plus its grace (0205 overrides). */
+/** SQL on the outer `shops` row (raw names): no end date, or still inside the end plus its grace (0206 overrides). */
 function stillOnlineSql(graceDays: number): SQL {
   return sql`(shops.membership_valid_until is null
     or shops.membership_valid_until > now() - make_interval(days => coalesce(shops.registration_grace_days, ${graceDays}))
@@ -153,7 +153,7 @@ function stillOnlineSql(graceDays: number): SQL {
 }
 
 /**
- * 0205 (owner brief 25-Nov-2026): false for a shop customers must not find — registration EXPIRED (past its
+ * 0206 (owner brief 25-Nov-2026): false for a shop customers must not find — registration EXPIRED (past its
  * grace while rule shopMembership is enforced; the stored status, kept current by every payment and admin
  * change at once and by the registration job every 15 minutes). Search, nearby, home discovery, price
  * comparison and the shop / QR page add it; orders already placed are not affected.
@@ -195,14 +195,14 @@ export function renewalQuoteFrom(
   shop: Pick<Shop, "registrationFeeBasePaise" | "registrationFeePaise"> & { renewalFeePaise?: number | null; shopType?: string | null },
   rule: { renewalFeePaise: number; addGst: boolean },
   gstRateBp: number,
-  /** 0205: renewal fee before GST per shop type (rule shopRegistrationSubscription.renewalFeeByShopType). */
+  /** 0206: renewal fee before GST per shop type (rule shopRegistrationSubscription.renewalFeeByShopType). */
   byShopType: Readonly<Record<string, number>> = {},
 ): RenewalQuote {
   let basePaise: number;
   let source: RenewalQuote["source"];
   const typeFee = shop.shopType ? byShopType[shop.shopType] : undefined;
   if (shop.renewalFeePaise != null && shop.renewalFeePaise > 0) {
-    // 0205: the admin set this shop's own renewal fee.
+    // 0206: the admin set this shop's own renewal fee.
     basePaise = shop.renewalFeePaise;
     source = "SHOP_OVERRIDE";
   } else if (typeFee != null && typeFee > 0) {
@@ -421,7 +421,7 @@ export async function listMembershipPeriods(shopId: string, client: DbClient = d
     .orderBy(desc(shopMembershipPeriods.createdAt));
 }
 
-/* ======================================== 0205 registration subscription */
+/* ======================================== 0206 registration subscription */
 
 /** The registration subscription's status (owner brief 25-Nov-2026), as stored in shops.registration_status. */
 export type RegistrationStatus = "UNPAID" | "ACTIVE" | "EXPIRING_SOON" | "GRACE" | "EXPIRED" | "EXEMPT";
@@ -455,7 +455,7 @@ export function registrationStatusOf(
 }
 
 /**
- * 0205: inside recordPayment's transaction, after a REGISTRATION_FEE or RENEWAL payment. Notes the last
+ * 0206: inside recordPayment's transaction, after a REGISTRATION_FEE or RENEWAL payment. Notes the last
  * payment; when it opened a period, sets the start date (first period) and ends an "Expire now" or a
  * migration grace — the new period stands on its own.
  */
@@ -484,7 +484,7 @@ export async function noteRegistrationPayment(
 }
 
 
-/** 0205: recomputes and stores one shop's registration status. Returns it (null: no such shop). */
+/** 0206: recomputes and stores one shop's registration status. Returns it (null: no such shop). */
 export async function refreshRegistrationStatus(shopId: string, now = new Date(), client: DbClient = db): Promise<RegistrationStatus | null> {
   const rule = await getRule("shopMembership");
   const [shop] = await client.select().from(shops).where(eq(shops.id, shopId));
