@@ -28,6 +28,7 @@ import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import type { CartSummary } from "@/server/services/cart";
 import type { CartIssue, ShopCartCheck } from "@/server/services/cart-validation";
 import { ConfirmButton } from "@/components/confirm-button";
+import { CheckoutOtpStep, isCheckoutStepUp, type CheckoutStepUpDetails } from "@/components/checkout-otp-step";
 
 type DeliveryWindowKey = "EXPRESS_30" | "STANDARD_60" | "SCHEDULED";
 
@@ -244,6 +245,8 @@ export function CartView({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** docs/sms-2fa-2026-11: the order needs an SMS code first (rule checkoutOtp); the closed shops it was confirmed for. */
+  const [stepUp, setStepUp] = useState<{ details: CheckoutStepUpDetails; ack: string[] } | null>(null);
   const [requestId] = useState(() => crypto.randomUUID());
   const [addressId, setAddressId] = useState<string | null>(
     preferredAddressId ?? addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id ?? null,
@@ -472,6 +475,10 @@ export function CartView({
     setBusy(false);
 
     if (!response.ok) {
+      if (isCheckoutStepUp(payload?.error?.details)) {
+        setStepUp({ details: payload.error.details, ack: acknowledgeClosedShopIds });
+        return;
+      }
       // docs/identity-verification-2026-11: the one-time identity check first, then back to the cart.
       const verifyUrl = payload?.error?.details?.needsIdentityVerification ? payload.error.details.verifyUrl : null;
       if (typeof verifyUrl === "string" && verifyUrl.startsWith("/")) {
@@ -481,6 +488,7 @@ export function CartView({
       setError(errorText(payload?.error?.message ?? "Checkout failed. Please try again.", lang, payload?.error?.code));
       return;
     }
+    setStepUp(null);
     // batch-2026-10 WS-A: an online payment continues on the gateway's page (kept in-app by the mobile WebView).
     if (payload?.payment?.redirectUrl) {
       window.location.assign(payload.payment.redirectUrl);
@@ -888,6 +896,20 @@ export function CartView({
           {error ? (
             <div className="mt-3">
               <Alert tone="danger">{error}</Alert>
+            </div>
+          ) : null}
+
+          {stepUp ? (
+            <div className="mt-3">
+              <CheckoutOtpStep
+                details={stepUp.details}
+                onVerified={() => {
+                  const ack = stepUp.ack;
+                  setStepUp(null);
+                  void checkout(ack);
+                }}
+                onCancel={() => setStepUp(null)}
+              />
             </div>
           ) : null}
 

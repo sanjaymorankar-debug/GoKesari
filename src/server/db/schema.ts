@@ -659,7 +659,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -668,6 +668,11 @@ export const loginOtps = pgTable(
     /** Set when the code was used, or when a newer code replaced it. */
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    /**
+     * 0205 (docs/sms-2fa-2026-11): a verified CHECKOUT code is a one-time pass for one order;
+     * the checkout request that used it. A retry of the same request may use it again.
+     */
+    stepUpRequestId: text("step_up_request_id"),
     ipAddress: text("ip_address"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -3174,7 +3179,7 @@ export const deliveryPartnerKycChecks = pgTable(
 export type DeliveryPartnerKycCheck = typeof deliveryPartnerKycChecks.$inferSelect;
 
 /**
- * docs/identity-verification-2026-11 (0205): one-time identity verification
+ * docs/identity-verification-2026-11 (0206): one-time identity verification
  * of customers and shop owners — Aadhaar through DigiLocker by default, PAN as
  * the always-offered alternative. One row per attempt; at most one VERIFIED
  * row and one open (PENDING) row per user (partial unique indexes).
@@ -11022,7 +11027,11 @@ export const FEATURE_FLAG_KEYS = [
   // docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off): "Compare N prices", /search/compare,
   // "Lowest price" and price-first sorting between local shops. Seeded OFF by its own migration (0204 at the time of writing).
   "local_price_comparison_enabled",
-  // docs/identity-verification-2026-11 (0205): one-time identity check (Aadhaar by DigiLocker or PAN), switched
+  // docs/sms-2fa-2026-11 (0205): sign-in needs an SMS code after the emailed one — one switch per audience
+  // (Admin → Sign-in security). Seeded OFF.
+  "sms_otp_signin_customers_enabled",
+  "sms_otp_signin_shop_owners_enabled",
+  // docs/identity-verification-2026-11 (0206): one-time identity check (Aadhaar by DigiLocker or PAN), switched
   // separately for customers (first checkout) and shop owners (go-live, order acceptance, grace). Both seeded OFF.
   "identity_verification_customers_enabled",
   "identity_verification_shop_owners_enabled",

@@ -96,6 +96,8 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   account_self_deletion_enabled: "Self-service account deletion from My Profile",
   payment_settlement_states: "Online payments: reconciled and chargeback states",
   local_price_comparison_enabled: "Price comparison between local shops",
+  sms_otp_signin_customers_enabled: "Customers: email + SMS code at sign-in",
+  sms_otp_signin_shop_owners_enabled: "Shop owners: email + SMS code at sign-in",
   identity_verification_customers_enabled: "Customers: verify identity before first checkout",
   identity_verification_shop_owners_enabled: "Shop owners: verify identity before going live / accepting orders",
 };
@@ -187,6 +189,10 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/payment-settlement-states-2026-11.md (PAY-SM): the payments job asks the gateway about each paid online payment and marks it Reconciled when the gateway confirms the same amount; a dispute / chargeback webhook marks the payment Chargeback, records the amount, reason and respond-by date in Admin → Payments → Chargebacks and alerts the admins. Timing: rule paymentSettlement. Off: nothing is marked and dispute webhooks are only logged, as before.",
   local_price_comparison_enabled:
     "docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off). On: product cards show \"Compare N prices\", /search/compare and its menu entries are open, the home page shows the comparison block (rule homePriceComparison) and the product page ranks shops by price with a \"Lowest price\" tag. Off: none of these; /search/compare answers 404 and the product page lists shops nearest-first. The smart shopping list keeps its own flag (smart_list_scan_enabled).",
+  sms_otp_signin_customers_enabled:
+    "docs/sms-2fa-2026-11 (Admin → Sign-in security): after the emailed code, a CUSTOMER account also enters a code sent by SMS to its mobile; an account without a verified mobile adds and verifies one then. Google and the emailed link ask for it too. Works only while SMS codes can be sent (SMS_PROVIDER=msg91 with the DLT keys, or mock on the test site, and rule otp.smsEnabled); otherwise sign-in stays email-only, so nobody is locked out. Off: email only at once; verified numbers stay verified. Keep OFF on gokesari.com until MSG91 and DLT are live.",
+  sms_otp_signin_shop_owners_enabled:
+    "docs/sms-2fa-2026-11 (Admin → Sign-in security): the same SMS sign-in code for SHOP_OWNER accounts. Works only while SMS codes can be sent; otherwise email-only. Off: email only at once; verified numbers stay verified.",
   identity_verification_customers_enabled:
     "docs/identity-verification-2026-11 (Admin → Identity verification): customers verify their identity once, before their first order — Aadhaar shared from DigiLocker through the licensed KYC provider, or PAN instead (Aadhaar is voluntary). Only the last four digits, the verified name, the method and the provider reference are kept. Legal advice is pending: keep off on gokesari.com until it is given. On test.gokesari.com the mock provider is always used. Off: no customer is asked or blocked; verifications already done are kept.",
   identity_verification_shop_owners_enabled:
