@@ -23,14 +23,14 @@ async function requireFlag(): Promise<void> {
 }
 
 export const GET = route(async () => {
-  await requireFlag();
   const user = await requireUser();
+  await requireFlag();
   return ok(await getWhatsAppConsentStatus(user.id));
 });
 
 export const PUT = route(async (request: NextRequest) => {
-  await requireFlag();
   const user = await requireUser();
+  await requireFlag();
   const body = await parseBody(request, schema);
   if (body.granted) {
     if (!(await verifiedPhoneOf(user.id))) {

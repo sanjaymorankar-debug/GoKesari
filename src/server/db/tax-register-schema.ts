@@ -12,7 +12,7 @@
  *
  * Users are not referenced by foreign key (the service checks those links). Re-exported by schema.ts.
  */
-import { date, index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, date, index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const TAX_CHANGE_KINDS = [
   "STATUTORY_ROW",
@@ -122,3 +122,29 @@ export const caActionItemNotes = pgTable(
   (t) => [index("ca_action_item_notes_item_idx").on(t.itemId, t.createdAt)],
 );
 export type CaActionItemNote = typeof caActionItemNotes.$inferSelect;
+
+/**
+ * docs/tax-register/BOOKS.md (0200): a balanced posting queued when a payout is paid, for the
+ * Accountant to turn into a journal entry draft (the CA approves it) or dismiss.
+ */
+export const AUTO_POSTING_STATUSES = ["PENDING", "DRAFTED", "DISMISSED"] as const;
+export const finAutoPostings = pgTable(
+  "fin_auto_postings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    entryDate: date("entry_date", { mode: "string" }).notNull(),
+    narration: text("narration").notNull(),
+    lines: jsonb("lines").$type<{ accountCode: string; accountName: string; debitPaise: number; creditPaise: number; memo?: string | null }[]>().notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: AUTO_POSTING_STATUSES }).notNull().default("PENDING"),
+    journalEntryId: uuid("journal_entry_id"),
+    dismissedReason: text("dismissed_reason"),
+    decidedBy: uuid("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("fin_auto_postings_source_unique").on(t.sourceType, t.sourceId), index("fin_auto_postings_status_idx").on(t.status, t.entryDate)],
+);
+export type FinAutoPosting = typeof finAutoPostings.$inferSelect;

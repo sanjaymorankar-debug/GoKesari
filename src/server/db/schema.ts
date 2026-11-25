@@ -5005,7 +5005,7 @@ export const accountDeletionRequests = pgTable(
   ],
 );
 export type AccountDeletionRequest = typeof accountDeletionRequests.$inferSelect;
-/* --------------------------------------------- policy re-consent (0200) */
+/* --------------------------------------------- policy re-consent (0201) */
 /** Policy documents a user accepts (docs/policy-reconsent-2026-11). Slugs match /legal/<slug>. */
 export const POLICY_DOCS = ["terms", "privacy-policy", "seller-terms"] as const;
 export type PolicyDoc = (typeof POLICY_DOCS)[number];
@@ -10885,7 +10885,9 @@ export const FEATURE_FLAG_KEYS = [
   "guest_checkout_enabled",
   // docs/account-deletion-2026-11 (0191): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
-  // docs/policy-reconsent-2026-11 (0200): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
+  // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
+  "auto_journals",
+  // docs/policy-reconsent-2026-11 (0201): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
   "policy_reconsent_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
