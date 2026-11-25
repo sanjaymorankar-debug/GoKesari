@@ -10,6 +10,12 @@ import { REGISTRATION_MESSAGES, RIDER_GENDERS, VEHICLES_WITHOUT_NUMBER } from "@
 import { VEHICLE_TYPES, vehicleTypeText } from "@/lib/vehicle-types";
 
 const T = {
+  referralCode: L("Referral code (optional)", "रेफ़रल कोड (वैकल्पिक)", "रेफरल कोड (ऐच्छिक)"),
+  referralHint: L(
+    "From a GoKesari rider who invited you, e.g. GKR4K7P2Q.",
+    "आपको बुलाने वाले GoKesari राइडर से, जैसे GKR4K7P2Q।",
+    "तुम्हाला बोलावणाऱ्या GoKesari रायडरकडून, उदा. GKR4K7P2Q.",
+  ),
   locationBlocked: L(
     "Location access is blocked. Allow location for GoKesari in your browser or phone settings, then tap \"Share my location\" again. Registration can't be completed without it.",
     "लोकेशन की अनुमति बंद है। ब्राउज़र या फ़ोन की सेटिंग में GoKesari के लिए लोकेशन चालू करें, फिर \"मेरी लोकेशन साझा करें\" दोबारा दबाएँ। इसके बिना पंजीकरण पूरा नहीं होगा।",
@@ -157,7 +163,14 @@ function locationErrorMessage(error: GeolocationPositionError | null, lang: Lang
  * submitted until location is shared. PAN and Aadhaar are verified on the
  * next step (/delivery-partner/kyc), never typed here.
  */
-export function DeliveryPartnerRegisterForm({ lang = "en" }: { lang?: Lang } = {}) {
+export function DeliveryPartnerRegisterForm({
+  lang = "en",
+  referral,
+}: {
+  lang?: Lang;
+  /** Rider App v2 (rule riderReferral on): show the optional referral code, prefilled from ?ref=. */
+  referral?: { code: string };
+} = {}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -225,6 +238,7 @@ export function DeliveryPartnerRegisterForm({ lang = "en" }: { lang?: Lang } = {
         latitude: location.latitude,
         longitude: location.longitude,
         operatingRadiusKm: radius ? Number(radius) : undefined,
+        ...(referral ? { referralCode: get("referralCode") || null } : {}),
       }),
     });
 
@@ -378,6 +392,20 @@ export function DeliveryPartnerRegisterForm({ lang = "en" }: { lang?: Lang } = {
         <Field label={t(T.radius)}>
           <input name="operatingRadiusKm" type="number" min={1} max={50} defaultValue={5} className={inputClass} />
         </Field>
+
+        {referral ? (
+          <Field label={t(T.referralCode)} hint={t(T.referralHint)} error={fe("referralCode")}>
+            <input
+              name="referralCode"
+              defaultValue={referral.code}
+              autoCapitalize="characters"
+              autoComplete="off"
+              maxLength={20}
+              className={inputClass}
+              data-testid="rider-referral-code-input"
+            />
+          </Field>
+        ) : null}
 
         {error ? (
           <div className="sm:col-span-2">

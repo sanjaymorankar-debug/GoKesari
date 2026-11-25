@@ -18,6 +18,7 @@
  */
 import { randomInt } from "node:crypto";
 import { lockQuoteOnAccept } from "./rider-pay-plans";
+import { checkReferralQualification } from "./rider-referrals";
 
 import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
@@ -682,6 +683,8 @@ export async function rejectDeliveryOffer(
   deliveryOrderId: string,
   partnerUserId: string,
   reason?: string,
+  /** Rider App v2 (G1): the picked reason (TOO_FAR, VEHICLE_ISSUE, ENDING_SHIFT, OTHER); omitted by older callers. */
+  reasonCode?: string | null,
 ): Promise<DeliveryOrder> {
   await loadOwnDeliveryOrder(deliveryOrderId, partnerUserId); // ownership check
 
@@ -691,6 +694,7 @@ export async function rejectDeliveryOffer(
       status: "REJECTED",
       cancelledAt: new Date(),
       cancellationReason: reason?.trim() || null,
+      ...(reasonCode ? { rejectReasonCode: reasonCode } : {}),
       rejectedPartnerIds: sql`array_append(${deliveryOrders.rejectedPartnerIds}, ${deliveryOrders.deliveryPartnerId})`,
       updatedAt: new Date(),
     })
@@ -703,7 +707,7 @@ export async function rejectDeliveryOffer(
     action: AUDIT_ACTIONS.DELIVERY_ORDER_REJECTED,
     entityType: "delivery_order",
     entityId: deliveryOrderId,
-    newValue: { status: "REJECTED", reason },
+    newValue: { status: "REJECTED", reason, ...(reasonCode ? { reasonCode } : {}) },
   });
   await emitEvent({
     type: "delivery.rejected",
@@ -856,7 +860,7 @@ export async function markDelivered(
   if (withCode) await checkDeliveryCode(row, otp, actor);
   const gps = await gpsToKeep(position);
 
-  return db.transaction(async (tx) => {
+  const delivered = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(deliveryOrders)
       .set({
@@ -926,6 +930,9 @@ export async function markDelivered(
 
     return updated;
   });
+  // Rider App v2: a referred rider's delivery may complete their referral (after commit; never throws).
+  void checkReferralQualification(delivered.deliveryPartnerId);
+  return delivered;
 }
 
 /**
@@ -1206,7 +1213,7 @@ export async function confirmDeliveryByOperator(
   if (note.length < 5) throw validationFailed("Record how the delivery was confirmed.");
   await assertCashConfirmed(orderId, cashCollected);
 
-  return db.transaction(async (tx) => {
+  const delivered = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(deliveryOrders)
       .set({
@@ -1254,6 +1261,9 @@ export async function confirmDeliveryByOperator(
     );
     return updated;
   });
+  // Rider App v2: a referred rider's delivery may complete their referral (after commit; never throws).
+  void checkReferralQualification(delivered.deliveryPartnerId);
+  return delivered;
 }
 
 /** A COD order cannot be marked delivered until the cash is confirmed (GS-030). */

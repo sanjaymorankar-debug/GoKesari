@@ -1,5 +1,25 @@
 # GoKesari app — release notes
 
+## 1.14.0 (Android versionCode 15, iPhone build 15) — 25 Nov 2026
+
+Rider App v2 + rider pay plans (owner brief 25 Nov 2026 13.11 IST; docs/rider-app-v2-2026-11 at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Delivery partners: see what you earn on every delivery before you accept,
+> pick jobs from the Available Deliveries list, track your week's earnings day
+> by day, book high-earning slots, refer friends, check your tier and
+> insurance, and press SOS in an emergency.
+
+Changes in the app itself:
+- Nothing native changed: every rider screen is a website page, live in every installed version once
+  the website is deployed and the admin switches (riderAppV2, riderJobBoard, riderPayPlans, …) are on.
+- SOS dials the emergency number through a `tel:` link, which the app already hands to the phone
+  dialler (navigation policy, test "SOS dials 112 outside the app"). Location (1.4.0) and push (1.6.0)
+  are unchanged.
+- The in-app update check offers 1.14.0 once `MOBILE_APP_ANDROID_LATEST` / `MOBILE_APP_IOS_LATEST` are
+  set to 1.14.0 on the server after the store release.
+
 ## 1.13.0 (Android versionCode 14, iPhone build 14) — 22 Nov 2026
 
 Smart shopping (owner brief 22 Nov 2026 18.23 IST; docs/smart-shopping-2026-11 at the repository root).

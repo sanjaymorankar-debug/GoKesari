@@ -404,6 +404,7 @@ export const AUDIT_ACTIONS = {
   RIDER_REFERRAL_QUALIFIED: "rider_referral.qualified",
   RIDER_SOS_RAISED: "rider_sos.raised",
   RIDER_SOS_ACKNOWLEDGED: "rider_sos.acknowledged",
+  RIDER_SOS_CLOSED: "rider_sos.closed",
   RIDER_INSURANCE_POLICY_SAVED: "rider_insurance_policy.saved",
   RIDER_NOMINEE_SAVED: "rider_nominee.saved",
 

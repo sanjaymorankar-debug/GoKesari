@@ -10,7 +10,7 @@ import { getBoardLang } from "@/server/board-lang";
 import { getCurrentUser } from "@/server/authz/guards";
 import { PERMISSIONS, can } from "@/server/authz/permissions";
 import { db } from "@/server/db";
-import { deliveryPartners, type UserRole } from "@/server/db/schema";
+import { deliveryOrders, deliveryPartners, orders, type UserRole } from "@/server/db/schema";
 import { getMyActiveDeliveryDetail, getMyOtherActiveDeliveries } from "@/server/services/delivery-assignment";
 import { RiderOtherDeliveries } from "@/components/rider-other-deliveries";
 import { RiderTripCard } from "@/components/rider-trip-card";
@@ -30,6 +30,12 @@ import { isRiderNavigationEnabled } from "@/server/services/rider-navigation";
 import { getRule } from "@/server/services/settings";
 import { SOCIETY_JOIN_FLAG } from "@/server/services/delta/society-join-requests";
 import { getFeatureFlag } from "@/server/services/feature-flags";
+// Rider App v2 (docs/rider-app-v2-2026-11): Home, Available Deliveries and "You earn ₹X" (each behind its rule).
+import { AvailableDeliveries } from "@/components/rider-shell/available-deliveries";
+import { HighEarningBanner } from "@/components/rider-shell/high-earning-banner";
+import { ImportantMessages, IncentiveLadderCard, RiderShortcutTiles } from "@/components/rider-shell/home-sections";
+import { getRiderHome } from "@/server/services/rider-home";
+import { quoteForOwnOffer } from "@/server/services/rider-job-board";
 
 /** Module 6: this page's words in English, Hindi and Marathi. */
 const T = {
@@ -77,7 +83,20 @@ const T = {
   payouts: L("Payouts", "पेआउट", "पेआउट"),
   noPayouts: L("Earnings are paid out weekly — nothing batched yet.", "कमाई हर हफ़्ते दी जाती है — अभी कुछ जमा नहीं हुआ।", "कमाई दर आठवड्याला दिली जाते — अजून काही जमा झालेले नाही."),
   week: L("Week from {d} · {n} deliveries", "{d} से शुरू हफ़्ता · {n} डिलीवरी", "{d} पासूनचा आठवडा · {n} डिलिव्हऱ्या"),
+  homeTitle: L("Home", "होम", "होम"),
+  seeEarnings: L("See this week's earnings and payouts", "इस हफ़्ते की कमाई और पेआउट देखें", "या आठवड्याची कमाई आणि पेआउट पाहा"),
 } as const;
+
+/** G1: "You earn ₹X" for the rider's own OFFERED delivery (null when none or it cannot be priced). */
+async function offerEarnFor(deliveryOrderId: string) {
+  const [row] = await db
+    .select({ delivery: deliveryOrders, subtotalPaise: orders.subtotalPaise })
+    .from(deliveryOrders)
+    .innerJoin(orders, eq(orders.id, deliveryOrders.orderId))
+    .where(eq(deliveryOrders.id, deliveryOrderId));
+  if (!row || row.delivery.status !== "OFFERED") return null;
+  return quoteForOwnOffer(row.delivery, row.subtotalPaise);
+}
 
 /** "45 seconds" / "1 minute" / "3 minutes" — the offer window from the rules. */
 function offerWindowText(seconds: number, lang: Lang): string {
@@ -178,6 +197,63 @@ export default async function DeliveryPartnerStatusPage() {
   ]);
   // docs/delta CF-006: link to "Join a society" while the flag is on.
   const societyJoinOn = partner.status === "APPROVED" && (await getFeatureFlag(SOCIETY_JOIN_FLAG)).enabled;
+  // Rider App v2: rules riderAppV2 (Home) and riderJobBoard (Available Deliveries); G1 follows the offer card.
+  const [appV2, jobBoard, offerEarn] =
+    partner.status === "APPROVED" && canDeliver
+      ? await Promise.all([
+          getRule("riderAppV2").then((r) => r.enabled),
+          getRule("riderJobBoard"),
+          activeDelivery?.status === "OFFERED" ? offerEarnFor(activeDelivery.id).catch(() => null) : Promise.resolve(null),
+        ])
+      : [false, null, null];
+  const availableDeliveries =
+    canDeliver && jobBoard?.enabled ? <AvailableDeliveries initialPollSeconds={jobBoard.pollSeconds} lang={lang} /> : null;
+  const dashboard = canDeliver ? (
+    <DeliveryPartnerDashboard
+      isOnline={partner.isOnline}
+      availability={partner.availability}
+      gate={{ allowed: gate.allowed, missing: gate.missing }}
+      activeDelivery={activeDelivery}
+      activeReturnPickup={activeReturnPickup}
+      earnings={earnings}
+      rating={{ avgX100: partnerRating?.ratingAvgX100 ?? 0, count: partnerRating?.ratingCount ?? 0 }}
+      offerLabel={broadcast ? t(T.offerLabel).replace("{w}", offerWindowText(broadcast.singleOfferSeconds, lang)) : undefined}
+      pickupQr={pickupQr}
+      inAppNavigation={inAppNavigation}
+      offerEarn={offerEarn}
+      lang={lang}
+    />
+  ) : null;
+
+  if (appV2) {
+    // Rider App v2 Home (the header and bottom bar come from the layout).
+    const home = await getRiderHome(partner.id, user.id);
+    const online = partner.availability !== "OFFLINE";
+    const banner = <HighEarningBanner items={home.banner} online={online} canGoOnline={gate.allowed} lang={lang} />;
+    return (
+      <div className="mx-auto max-w-2xl space-y-4" data-testid="rider-home-v2">
+        <h1 className="sr-only">{t(T.homeTitle)}</h1>
+        {!gate.allowed ? <RiderVerificationChecklist kyc={kyc} documents={backgroundDocs} gate={gate} lang={lang} /> : null}
+        {activeDelivery ? null : banner}
+        {broadcast ? <RiderBroadcastOffers initialPollSeconds={broadcast.pollSeconds} lang={lang} /> : null}
+        {availableDeliveries}
+        {dashboard}
+        {trip ? <RiderTripCard stops={trip.stops} lang={lang} /> : null}
+        <RiderOtherDeliveries deliveries={otherDeliveries} lang={lang} />
+        {activeDelivery ? banner : null}
+        <RiderShortcutTiles lang={lang} />
+        {home.ladders.map((ladder) => (
+          <IncentiveLadderCard key={ladder.period} ladder={ladder} lang={lang} />
+        ))}
+        <ImportantMessages messages={home.messages} lang={lang} />
+        <p className="text-center text-sm">
+          <a className="font-medium text-kesari-700 underline" href="/delivery-partner/earnings">
+            {t(T.seeEarnings)}
+          </a>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -256,23 +332,8 @@ export default async function DeliveryPartnerStatusPage() {
               <RiderBroadcastOffers initialPollSeconds={broadcast.pollSeconds} lang={lang} />
             </div>
           ) : null}
-          {canDeliver ? (
-            <DeliveryPartnerDashboard
-              isOnline={partner.isOnline}
-              availability={partner.availability}
-              gate={{ allowed: gate.allowed, missing: gate.missing }}
-              activeDelivery={activeDelivery}
-              activeReturnPickup={activeReturnPickup}
-              earnings={earnings}
-              rating={{ avgX100: partnerRating?.ratingAvgX100 ?? 0, count: partnerRating?.ratingCount ?? 0 }}
-              offerLabel={
-                broadcast ? t(T.offerLabel).replace("{w}", offerWindowText(broadcast.singleOfferSeconds, lang)) : undefined
-              }
-              pickupQr={pickupQr}
-              inAppNavigation={inAppNavigation}
-              lang={lang}
-            />
-          ) : null}
+          {availableDeliveries ? <div className="mb-4">{availableDeliveries}</div> : null}
+          {dashboard}
           {canDeliver && trip ? <RiderTripCard stops={trip.stops} lang={lang} /> : null}
           {canDeliver ? (
             <RiderOtherDeliveries deliveries={otherDeliveries} lang={lang} />

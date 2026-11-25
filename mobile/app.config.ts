@@ -182,7 +182,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   // 1.8.0: card, UPI (the phone's UPI apps) and wallet payments through Cashfree's own mobile SDK
   // (react-native-cashfree-pg-sdk) when the website asks for it (src/cashfree.ts); the website
   // still confirms every payment with its server. Older builds keep Cashfree's web checkout.
-  version: "1.13.0",
+  version: "1.14.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -191,7 +191,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "14",
+    buildNumber: "15",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -213,7 +213,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 14,
+    versionCode: 15,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",

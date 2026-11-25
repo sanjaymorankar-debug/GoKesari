@@ -11,7 +11,7 @@
  *  - The flat base + per-km rate (delivery_earnings_config) was migrated into version 1 of the
  *    default plan (0201), so turning the rule on pays the same until an admin publishes a change.
  */
-import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
@@ -182,7 +182,7 @@ export async function liveSurges(place: JobPlace, at: Date = new Date(), client:
   const rows = await client
     .select()
     .from(riderSurges)
-    .where(and(lte(riderSurges.startsAt, at), sql`${riderSurges.endsAt} > ${at}`, isNull(riderSurges.endedAt)));
+    .where(and(lte(riderSurges.startsAt, at), gt(riderSurges.endsAt, at), isNull(riderSurges.endedAt)));
   if (rows.length === 0) return [];
   const zoneIds = zonesAt(await activeZones(client), place.point);
   return rows.filter((s) => (s.zoneId ? zoneIds.has(s.zoneId) : s.city ? sameCity(s.city, place.city) : true));
@@ -227,7 +227,7 @@ export async function loadQuoteKit(at: Date = new Date(), client: DbClient = db)
     plansInForce(at, client),
     activeZones(client),
     activeSlots(client),
-    client.select().from(riderSurges).where(and(lte(riderSurges.startsAt, at), sql`${riderSurges.endsAt} > ${at}`, isNull(riderSurges.endedAt))),
+    client.select().from(riderSurges).where(and(lte(riderSurges.startsAt, at), gt(riderSurges.endsAt, at), isNull(riderSurges.endedAt))),
   ]);
   return { at, plans, zones, slots, surges, timeZone: getEnv().APP_TIMEZONE };
 }
@@ -531,7 +531,7 @@ export async function simulatePlan(id: string, days: 7 | 30, actor: Actor): Prom
   const [zones, slots, surges] = await Promise.all([
     activeZones(db),
     activeSlots(db),
-    db.select().from(riderSurges).where(sql`${riderSurges.endsAt} > ${from}`),
+    db.select().from(riderSurges).where(gt(riderSurges.endsAt, from)),
   ]);
   const tz = getEnv().APP_TIMEZONE;
   const terms = toTerms(plan);
