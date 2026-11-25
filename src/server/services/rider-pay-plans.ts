@@ -9,7 +9,7 @@
  *    (delivery_orders.quote_*). Publishing a plan never changes a quote already locked, nor an
  *    earning already written (lib/earnings-calc.ts calculatePlanEarning pays from the lock).
  *  - The flat base + per-km rate (delivery_earnings_config) was migrated into version 1 of the
- *    default plan (0201), so turning the rule on pays the same until an admin publishes a change.
+ *    default plan (0202), so turning the rule on pays the same until an admin publishes a change.
  */
 import { and, desc, eq, gt, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 

@@ -39,6 +39,7 @@ import {
   type GatewayRefund,
   type GatewayRefundInput,
   type GatewayRefundStatus,
+  type GatewayDispute,
   type GatewayWebhookEvent,
   type GatewayWebhookKind,
   type PaymentGateway,
@@ -278,6 +279,8 @@ export class CashfreeGateway implements PaymentGateway {
   }
 
   parseWebhook(rawBody: string, headers: Headers): GatewayWebhookEvent {
+    const dispute = parseCashfreeDispute(rawBody, headers);
+    if (dispute) return dispute;
     const event = JSON.parse(rawBody) as {
       type?: string;
       event_time?: string;
@@ -317,4 +320,88 @@ export class CashfreeGateway implements PaymentGateway {
       raw: event,
     };
   }
+}
+
+/* ------------------------------------------------------------ PAY-SM: disputes */
+
+interface CfDisputeWebhook {
+  type?: string;
+  event_time?: string;
+  data?: {
+    dispute?: {
+      dispute_id?: string | number;
+      dispute_type?: string;
+      reason_code?: string | number;
+      reason_description?: string;
+      dispute_amount?: number | string;
+      created_at?: string;
+      updated_at?: string;
+      respond_by?: string;
+      resolved_at?: string | null;
+      dispute_status?: string;
+    };
+    order_details?: { order_id?: string; cf_payment_id?: string | number; payment_amount?: number };
+  };
+}
+
+function dateOrNull(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Cashfree's dispute status word → our outcome. Cashfree prefixes the stage (DISPUTE_, CHARGEBACK_,
+ * RETRIEVAL_, PRE_ARBITRATION_, ARBITRATION_) and ends with what happened.
+ */
+export function cashfreeDisputeOutcome(status: string, eventType: string): GatewayDispute["outcome"] {
+  const s = status.toUpperCase();
+  if (s.endsWith("MERCHANT_WON")) return "WON";
+  if (s.endsWith("MERCHANT_LOST") || s.endsWith("MERCHANT_ACCEPTED") || s.endsWith("INSUFFICIENT_EVIDENCE")) return "LOST";
+  if (s.endsWith("_CLOSED") || eventType === "DISPUTE_CLOSED") return "CLOSED";
+  return "OPEN";
+}
+
+/**
+ * A Cashfree DISPUTE_CREATED / DISPUTE_UPDATED / DISPUTE_CLOSED webhook (PG API 2023-08-01), or null for
+ * any other event. Field names follow Cashfree's published dispute webhook; UNVERIFIED against a live
+ * dispute (none can be raised from this environment).
+ */
+export function parseCashfreeDispute(rawBody: string, headers: Headers): GatewayWebhookEvent | null {
+  const event = JSON.parse(rawBody) as CfDisputeWebhook;
+  const type = event.type ?? "";
+  if (!type.startsWith("DISPUTE_")) return null;
+  const d = event.data?.dispute;
+  const disputeId = exactJsonId(rawBody, "dispute_id", d?.dispute_id);
+  if (!d || !disputeId) throw new Error("dispute webhook without a dispute id");
+  const order = event.data?.order_details ?? {};
+  const gatewayStatus = d.dispute_status ?? type;
+  const updatedAt = dateOrNull(d.updated_at) ?? dateOrNull(event.event_time) ?? new Date();
+  const paymentId = exactJsonId(rawBody, "cf_payment_id", order.cf_payment_id);
+  const dispute: GatewayDispute = {
+    disputeId,
+    disputeType: d.dispute_type ?? null,
+    gatewayStatus,
+    outcome: cashfreeDisputeOutcome(gatewayStatus, type),
+    amountPaise: paise(d.dispute_amount) ?? 0,
+    reasonCode: d.reason_code == null ? null : String(d.reason_code),
+    reason: d.reason_description ?? null,
+    respondBy: dateOrNull(d.respond_by),
+    openedAt: dateOrNull(d.created_at),
+    resolvedAt: dateOrNull(d.resolved_at),
+    updatedAt,
+  };
+  return {
+    // One event per (dispute, status, change time); Cashfree's own idempotency key wins when it sends one.
+    eventId: headers.get("x-idempotency-key") ?? `${type}:${disputeId}:${gatewayStatus}:${updatedAt.toISOString()}`,
+    kind: "DISPUTE",
+    merchantRef: order.order_id ?? null,
+    gatewayOrderId: order.order_id ?? null,
+    gatewayPaymentId: paymentId,
+    gatewayRefundId: null,
+    amountPaise: dispute.amountPaise,
+    occurredAt: dateOrNull(event.event_time) ?? updatedAt,
+    dispute,
+    raw: event,
+  };
 }

@@ -59,7 +59,9 @@ export type FeatureFlagKey =
   // docs/account-deletion-2026-11 (0191)
   | "account_self_deletion_enabled"
   // docs/tax-register/BOOKS.md (0200)
-  | "auto_journals";
+  | "auto_journals"
+  // docs/payment-settlement-states-2026-11
+  | "payment_settlement_states";
 
 interface FlagValue {
   enabled: boolean;

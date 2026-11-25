@@ -315,6 +315,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{amount}} for {{reference}} has been refunded to your original payment method. Banks usually take 5–7 working days to show it.",
   ),
   [T.SUPPORT_PAYMENT_ATTENTION]: t("Payment needs attention", "{{reference}}: {{problem}}", false),
+  [T.ADMIN_PAYMENT_CHARGEBACK]: t(
+    "Chargeback: {{outcome}}",
+    "{{reference}}: {{amount}} disputed by the customer's bank ({{reason}}). Respond by {{respondBy}}.",
+    false,
+  ),
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
@@ -324,7 +329,7 @@ export const TEMPLATES: Record<string, Template> = {
     false,
   ),
   [T.DELIVERY_OFFER_TAKEN]: t("Offer taken", "Order {{orderNumber}} was accepted by another rider.", false),
-  /* Rider App v2 (0201) */
+  /* Rider App v2 (0202) */
   [T.RIDER_JOB_NEARBY]: t("New delivery near you", "{{shopName}}, {{km}} km away — you earn {{amount}}. Open the app to accept.", false),
   [T.RIDER_SURGE_STARTED]: t("High-earning time in your zone", "{{reason}}: pay ×{{multiplier}}{{flat}} per order until {{until}} IST. Go online to earn more.", false),
   [T.RIDER_SURGE_ENDED]: t("Surge ended", "The {{reason}} surge in your zone has ended.", false),

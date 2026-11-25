@@ -1,7 +1,7 @@
 # Rider App v2 + Rider Pay Plans (25-Nov-2026)
 
 Owner brief: 25-Nov-2026 13.11 IST ("GoKesari — Delivery Partner (Rider) App v2 + Admin Rider Pay Plan").
-Migration: `drizzle/0201_rider_app_v2.sql` (additive). Rollback SQL: `scripts/rollback-0201-rider-app-v2.sql`.
+Migration: `drizzle/0202_rider_app_v2.sql` (additive). Rollback SQL: `scripts/rollback-0202-rider-app-v2.sql`.
 
 ## Switches (Admin → Settings), all OFF by default
 
@@ -79,7 +79,7 @@ is now 0 for prepaid orders. Tests: `findForbiddenRiderKeys` in the integration 
 1. Turn the rules above off (Admin → Settings) — riders return to the previous screens and the flat
    rate at once; quotes already locked are still paid as locked.
 2. If the code must go: `sudo gk-deploy rollback gokesari-prod` (previous release), then, only if
-   required, run `scripts/rollback-0201-rider-app-v2.sql` and delete the 0201 row from
+   required, run `scripts/rollback-0202-rider-app-v2.sql` and delete the 0202 row from
    `drizzle.__drizzle_migrations`.
 
 ## Parked for the owner

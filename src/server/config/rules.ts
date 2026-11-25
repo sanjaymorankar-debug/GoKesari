@@ -1391,6 +1391,24 @@ export const RULES = {
       allowSandboxInProduction: false,
     },
   },
+  /** PAY-SM (docs/payment-settlement-states-2026-11.md): timing of the reconcile step. Switched by flag payment_settlement_states. */
+  paymentSettlement: {
+    description:
+      "How the payments job confirms paid online payments with the gateway (Reconciled). Used only while the feature flag payment_settlement_states is on.",
+    schema: z.object({
+      /** A payment is first checked this long after it was captured. */
+      checkAfterMinutes: int(1, 7 * 24 * 60),
+      /** A payment the gateway did not confirm is asked about again after this long. */
+      recheckMinutes: int(5, 7 * 24 * 60),
+      /** Payments captured longer ago than this are not checked any more. */
+      lookbackDays: int(1, 365),
+      /** After this many unconfirmed checks the job stops and support is alerted. */
+      maxChecks: int(1, 100),
+      /** Payments checked per run (the job runs every 5 minutes). */
+      batchSize: int(1, 500),
+    }),
+    defaults: { checkAfterMinutes: 30, recheckMinutes: 360, lookbackDays: 45, maxChecks: 12, batchSize: 50 },
+  },
   /** F1.1.2 (GS-001, GS-074): clean-up of used and expired sign-in codes. */
   otpHousekeeping: {
     description:
@@ -1441,7 +1459,7 @@ export const RULES = {
       takenNoticeSeconds: 120,
     },
   },
-  /* >>> Rider App v2 (docs/rider-app-v2-2026-11; drizzle/0201) — every switch OFF by default */
+  /* >>> Rider App v2 (docs/rider-app-v2-2026-11; drizzle/0202) — every switch OFF by default */
   riderAppV2: {
     description:
       "Rider App v2 screens. Off (default): the rider dashboard as before. On: riders get the bottom bar (Home · Earnings · My Slots · Refer · More), the header with Online/Offline, Help, SOS and tier badge, the Home tiles, the high-earning-slot banner, the daily incentive ladder, and the Mon–Sun earnings week with cash in hand shown apart.",

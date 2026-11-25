@@ -1402,7 +1402,7 @@ export const deliveryPartners = pgTable(
     latitude: text("latitude"),
     longitude: text("longitude"),
     operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
-    /** Rider App v2 (0201, rule riderReferral): this rider's own code, and who referred them. */
+    /** Rider App v2 (0202, rule riderReferral): this rider's own code, and who referred them. */
     referralCode: text("referral_code"),
     referredByPartnerId: uuid("referred_by_partner_id"),
     /** Rating aggregate (GS-060), maintained from visible order_ratings. Average × 100. */
@@ -2377,12 +2377,12 @@ export const deliveryOrders = pgTable(
     rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
     /** GA-005: the trip this delivery is batched into with the rider's other orders; null = carried alone. */
     tripId: uuid("trip_id").references((): AnyPgColumn => deliveryTrips.id, { onDelete: "set null" }),
-    /* Rider App v2 (0201, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
+    /* Rider App v2 (0202, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
     quotePaise: integer("quote_paise"),
     quoteBreakdown: jsonb("quote_breakdown").$type<import("@/lib/rider-pay-plan").PayQuote>(),
     payPlanId: uuid("pay_plan_id"),
     quotedAt: timestamp("quoted_at", { withTimezone: true }),
-    /** 0201: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
+    /** 0202: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
     rejectReasonCode: text("reject_reason_code"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2846,7 +2846,7 @@ export const deliveryPartnerEarnings = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
     payoutId: uuid("payout_id"),
-    /* Rider App v2 (0201): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
+    /* Rider App v2 (0202): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
     quotePaise: integer("quote_paise"),
     payPlanId: uuid("pay_plan_id"),
     planBreakdown: jsonb("plan_breakdown").$type<Record<string, unknown>>(),
@@ -3380,9 +3380,9 @@ export const riderEarningSlots = pgTable(
     /** Peak-period component paid on top in this slot. */
     peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
     isPeak: boolean("is_peak").notNull().default(false),
-    /** Rider App v2 (0201): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
+    /** Rider App v2 (0202): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
     surgeMultiplierBp: integer("surge_multiplier_bp"),
-    /** 0201 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
+    /** 0202 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
     bookable: boolean("bookable").notNull().default(false),
     bookingCapacity: integer("booking_capacity"),
     /** The highest-priority active slot containing the delivery time wins. */
@@ -9081,6 +9081,15 @@ export const paymentIntents = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
     lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
     reconcileAttempts: integer("reconcile_attempts").notNull().default(0),
+    /**
+     * PAY-SM (0201, docs/payment-settlement-states-2026-11.md): after the money is taken. NULL = not yet
+     * confirmed; RECONCILED = the gateway's status check confirmed the capture; CHARGEBACK = disputed by the
+     * customer's bank (payment_chargebacks). Apart from `status`, which refunds and reports read.
+     */
+    settlementState: text("settlement_state", { enum: ["RECONCILED", "CHARGEBACK"] }),
+    reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
+    settlementCheckedAt: timestamp("settlement_checked_at", { withTimezone: true }),
+    settlementChecks: integer("settlement_checks").notNull().default(0),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -9176,6 +9185,44 @@ export const paymentRefunds = pgTable(
   ],
 );
 export type PaymentRefundRow = typeof paymentRefunds.$inferSelect;
+
+/** PAY-SM (0201): one row per gateway dispute / chargeback, kept current from the gateway's webhooks. */
+export const paymentChargebacks = pgTable(
+  "payment_chargebacks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gateway: text("gateway").notNull(),
+    gatewayDisputeId: text("gateway_dispute_id").notNull(),
+    /** Null when the disputed payment is not one of our payment intents (e.g. a wallet top-up). */
+    intentId: uuid("intent_id").references(() => paymentIntents.id, { onDelete: "set null" }),
+    gatewayOrderId: text("gateway_order_id"),
+    gatewayPaymentId: text("gateway_payment_id"),
+    /** The gateway's kind: DISPUTE, CHARGEBACK, RETRIEVAL, PRE_ARBITRATION, ARBITRATION … */
+    disputeType: text("dispute_type"),
+    /** The gateway's own status word, as last received. */
+    gatewayStatus: text("gateway_status").notNull(),
+    outcome: text("outcome", { enum: ["OPEN", "WON", "LOST", "CLOSED"] }).notNull().default("OPEN"),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    reasonCode: text("reason_code"),
+    reason: text("reason"),
+    /** The deadline to send evidence to the gateway. */
+    respondBy: timestamp("respond_by", { withTimezone: true }),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    /** The gateway's time of the newest event applied (older redeliveries do not overwrite it). */
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
+    lastWebhookEventId: uuid("last_webhook_event_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payment_chargebacks_gateway_dispute_uq").on(t.gateway, t.gatewayDisputeId),
+    index("payment_chargebacks_intent_idx").on(t.intentId),
+    index("payment_chargebacks_open_idx").on(t.outcome, t.respondBy),
+    check("payment_chargebacks_amount_check", sql`${t.amountPaise} >= 0`),
+  ],
+);
+export type PaymentChargebackRow = typeof paymentChargebacks.$inferSelect;
 
 /**
  * The sandbox gateway's own ledger (tests and staging only): what a real
@@ -10841,6 +10888,7 @@ export const FEATURE_FLAG_KEYS = [
   "account_self_deletion_enabled",
   // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
   "auto_journals",
+  "payment_settlement_states", // PAY-SM (0201)
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13351,5 +13399,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
-export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0201)
+export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0202)
 /* <<< GoKesari Health */

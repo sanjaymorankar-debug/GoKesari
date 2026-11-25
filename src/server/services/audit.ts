@@ -391,7 +391,7 @@ export const AUDIT_ACTIONS = {
   IMAGE_UPLOADED: "image.uploaded",
   RIDER_EARNING_SLOT_SAVED: "rider_earning_slot.saved",
   RIDER_INCENTIVE_SAVED: "rider_incentive.saved",
-  /* Rider App v2 (0201) */
+  /* Rider App v2 (0202) */
   RIDER_PAY_PLAN_SAVED: "rider_pay_plan.saved",
   RIDER_PAY_PLAN_SIMULATED: "rider_pay_plan.simulated",
   RIDER_PAY_PLAN_PUBLISHED: "rider_pay_plan.published",
@@ -597,6 +597,8 @@ export const AUDIT_ACTIONS = {
   PAYMENT_WEBHOOK_REJECTED: "payment.webhook_rejected", // batch-2026-10 WS-A
   PAYMENT_REFUND_REQUESTED: "payment.refund_requested", // batch-2026-10 WS-A
   PAYMENT_REFUND_SETTLED: "payment.refund_settled", // batch-2026-10 WS-A
+  PAYMENT_SETTLEMENT_STATE_CHANGED: "payment.settlement_state_changed", // PAY-SM
+  PAYMENT_CHARGEBACK_RECORDED: "payment.chargeback_recorded", // PAY-SM
   OTP_PURGED: "auth.otp_purged", // batch-2026-10 WS-A
   /* ---------------------- rider bank payouts (docs/gig-bank-payouts-2026-10) */
   RIDER_BANK_ACCOUNT_REAUTH: "rider_bank.reauthenticated",
