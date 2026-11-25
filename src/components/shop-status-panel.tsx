@@ -14,7 +14,8 @@ export interface ShopStatusView {
   state: ShopOpenState;
   /** Formatted on the server ("25 Oct 2026"). */
   closedOn: string | null;
-  membership: { state: "NONE" | "ACTIVE" | "DUE_SOON" | "GRACE" | "LAPSED"; validUntil: string | null; offlineFrom: string | null };
+  /** enforced: false when rule shopMembership is off or the shop is exempt — an ended membership closes nothing. */
+  membership: { state: "NONE" | "ACTIVE" | "DUE_SOON" | "GRACE" | "LAPSED" | "EXEMPT"; validUntil: string | null; offlineFrom: string | null; enforced?: boolean };
 }
 
 const STATE_TEXT: Record<ShopOpenState, { label: string; tone: "success" | "warning" | "danger" | "info"; text: string }> = {
@@ -40,6 +41,9 @@ export function ShopStatusPanel({ view }: { view: ShopStatusView }) {
   const [confirmName, setConfirmName] = useState("");
   const s = STATE_TEXT[view.state];
   const m = view.membership;
+  const enforced = m.enforced !== false;
+  // 0189: the renewal is paid on the Registration page (Renew now), not on the old payments list.
+  const renewHref = "/shop/manage/registration#membership";
 
   async function send(url: string, method: "PATCH" | "POST", body: unknown): Promise<boolean> {
     setBusy(true);
@@ -89,18 +93,28 @@ export function ShopStatusPanel({ view }: { view: ShopStatusView }) {
       {m.state === "ACTIVE" ? <p className="text-sm text-ink-600">Membership valid until {m.validUntil}.</p> : null}
       {m.state === "DUE_SOON" ? (
         <Alert tone="warning">
-          Your membership ends on {m.validUntil}. <Link href="/shop/manage/registration" className="font-medium underline">Renew it</Link> to stay online.
+          Your membership ends on {m.validUntil}. <Link href={renewHref} className="font-medium underline">Renew it</Link>
+          {enforced ? " to stay online." : "."}
         </Alert>
       ) : null}
-      {m.state === "GRACE" ? (
+      {m.state === "GRACE" && enforced ? (
         <Alert tone="warning">
-          Your membership ended on {m.validUntil}. <Link href="/shop/manage/registration" className="font-medium underline">Renew it</Link> before{" "}
+          Your membership ended on {m.validUntil}. <Link href={renewHref} className="font-medium underline">Renew it</Link> before{" "}
           {m.offlineFrom}, or customers won&apos;t be able to order from your shop.
         </Alert>
       ) : null}
+      {m.state === "GRACE" && !enforced ? (
+        <p className="text-sm text-ink-600" data-testid="membership-not-enforced">
+          Membership ended on {m.validUntil} — not enforced: your shop stays online.{" "}
+          <Link href={renewHref} className="font-medium underline">
+            Membership details
+          </Link>
+        </p>
+      ) : null}
+      {m.state === "EXEMPT" ? <p className="text-sm text-ink-600">Membership: not required for this shop.</p> : null}
       {m.state === "LAPSED" ? (
         <Alert tone="danger">
-          Your membership ended on {m.validUntil}, so your shop is not online. <Link href="/shop/manage/registration" className="font-medium underline">Renew it</Link> to
+          Your membership ended on {m.validUntil}, so your shop is not online. <Link href={renewHref} className="font-medium underline">Renew it</Link> to
           take orders again.
         </Alert>
       ) : null}

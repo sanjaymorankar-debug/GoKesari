@@ -1335,8 +1335,78 @@
     {
       "idx": 190,
       "version": "7",
+      "when": 1793269901000,
+      "tag": "0190_brand_barcode_favourites",
+      "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1793269902000,
+      "tag": "0191_account_self_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "7",
+      "when": 1793269903000,
+      "tag": "0192_guest_checkout",
+      "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "7",
+      "when": 1793269904000,
+      "tag": "0193_customer_whatsapp",
+      "breakpoints": true
+    },
+    {
+      "idx": 194,
+      "version": "7",
+      "when": 1793269905000,
+      "tag": "0194_users_preferred_lang",
+      "breakpoints": true
+    },
+    {
+      "idx": 195,
+      "version": "7",
+      "when": 1793269906000,
+      "tag": "0195_onboarding_waves_2_3",
+      "breakpoints": true
+    },
+    {
+      "idx": 196,
+      "version": "7",
+      "when": 1793269907000,
+      "tag": "0196_delivery_signature_gps",
+      "breakpoints": true
+    },
+    {
+      "idx": 197,
+      "version": "7",
+      "when": 1793269908000,
+      "tag": "0197_shop_membership_renewal",
+      "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "7",
+      "when": 1793269909000,
+      "tag": "0198_shop_staff_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 199,
+      "version": "7",
+      "when": 1793269910000,
+      "tag": "0199_account_deletion_cooling_off",
+      "breakpoints": true
+    },
+    {
+      "idx": 200,
+      "version": "7",
       "when": 1793270000000,
-      "tag": "0190_shop_gst_registrations",
+      "tag": "0200_shop_gst_registrations",
       "breakpoints": true
     }
   ]

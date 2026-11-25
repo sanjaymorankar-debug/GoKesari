@@ -1,5 +1,5 @@
 /**
- * Many GSTINs per shop (owner, 25-Nov-2026; drizzle/0190_shop_gst_registrations.sql).
+ * Many GSTINs per shop (owner, 25-Nov-2026; drizzle/0200_shop_gst_registrations.sql).
  *
  * A shop keeps its main GSTIN on shops.gstin. A shop chain registered in several states adds the
  * other GSTINs here after going live — any PAN, each checked with the KYC vendor. An order

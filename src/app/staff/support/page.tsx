@@ -4,6 +4,8 @@ import { and, eq, isNotNull } from "drizzle-orm";
 
 import { DeskTicketList, RaiseTicketForm, type DeskRow } from "@/components/staff/support-desk";
 import { Card, PageHeader } from "@/components/ui";
+import { L, tr } from "@/lib/board/i18n";
+import { getBoardLang } from "@/server/board-lang";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
@@ -23,6 +25,42 @@ import { isFeatureEnabledForRole } from "@/server/services/feature-flags";
 export const metadata = { title: "Support desk" };
 export const dynamic = "force-dynamic";
 
+/** Module 6: Hindi / Marathi for the desk's own words (English unchanged). */
+const T = {
+  dashboard: L("Dashboard", "डैशबोर्ड", "डॅशबोर्ड"),
+  queue: L("Queue", "कतार", "रांग"),
+  myTickets: L("My tickets", "मेरे टिकट", "माझी तिकिटे"),
+  raisedByMe: L("Raised by me", "मेरे बनाए", "मी तयार केलेली"),
+  raise: L("Raise a ticket", "टिकट बनाएँ", "तिकीट तयार करा"),
+  new: L("New", "नए", "नवीन"),
+  assigned: L("Assigned", "सौंपे गए", "सोपवलेली"),
+  inProgress: L("In progress", "चल रहे", "सुरू"),
+  pending: L("Pending / on hold", "बाकी / रुके हुए", "बाकी / थांबवलेली"),
+  awaitingOwner: L("Awaiting shop owner", "दुकान मालिक का इंतज़ार", "दुकान मालकाची वाट"),
+  resolved: L("Resolved", "हल हुए", "सोडवलेली"),
+  overdue: L("Overdue", "देर से", "मुदत उलटलेली"),
+  avg: L("Avg. resolution (30 days)", "औसत समाधान समय (30 दिन)", "सरासरी निराकरण वेळ (30 दिवस)"),
+  workload: L("Workload per Support User", "हर सपोर्ट यूज़र का काम", "प्रत्येक सपोर्ट युजरचे काम"),
+  noTeam: L(
+    "No Support Users in your team yet. An admin adds them (Admin → Users, or POST /api/staff/teams).",
+    "आपकी टीम में अभी कोई सपोर्ट यूज़र नहीं है। एडमिन उन्हें जोड़ते हैं (Admin → Users, या POST /api/staff/teams)।",
+    "तुमच्या टीममध्ये अजून सपोर्ट युजर नाहीत. ॲडमिन त्यांना जोडतात (Admin → Users, किंवा POST /api/staff/teams).",
+  ),
+  name: L("Name", "नाम", "नाव"),
+  open: L("Open", "खुले", "उघडी"),
+  awaitingOwnerShort: L("Awaiting owner", "मालिक का इंतज़ार", "मालकाची वाट"),
+  resolved7: L("Resolved 7 d", "7 दिन में हल", "7 दिवसांत सोडवलेली"),
+  avgH: L("Avg h", "औसत घंटे", "सरासरी तास"),
+  myWork: L("← My work", "← मेरा काम", "← माझे काम"),
+  title: L("Support desk", "सपोर्ट डेस्क", "सपोर्ट डेस्क"),
+  description: L(
+    "Tickets, assignments and the work that waits for shop owners.",
+    "टिकट, सौंपे गए काम और वह काम जो दुकान मालिकों का इंतज़ार कर रहा है।",
+    "तिकिटे, सोपवलेली कामे आणि दुकान मालकांची वाट पाहणारे काम.",
+  ),
+  sections: L("Support sections", "सपोर्ट विभाग", "सपोर्ट विभाग"),
+} as const;
+
 const ist = (d: Date) => d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 const toDesk = (r: DeskTicketRow): DeskRow => ({ ...r, dueIst: ist(r.resolveBy) });
 
@@ -39,25 +77,26 @@ export default async function SupportDeskPage({ searchParams }: { searchParams: 
   const manager = can(user.role, PERMISSIONS.SUPPORT_QUEUE_MANAGE);
   const worker = can(user.role, PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED);
   const params = await searchParams;
+  const lang = await getBoardLang();
   const tab = params.tab ?? (manager ? "dashboard" : worker ? "mine" : "raised");
   const tabs = [
-    ...(manager ? [{ key: "dashboard", label: "Dashboard" }, { key: "queue", label: "Queue" }] : []),
-    ...(worker ? [{ key: "mine", label: "My tickets" }] : []),
-    { key: "raised", label: "Raised by me" },
-    { key: "raise", label: "Raise a ticket" },
+    ...(manager ? [{ key: "dashboard", label: tr(T.dashboard, lang) }, { key: "queue", label: tr(T.queue, lang) }] : []),
+    ...(worker ? [{ key: "mine", label: tr(T.myTickets, lang) }] : []),
+    { key: "raised", label: tr(T.raisedByMe, lang) },
+    { key: "raise", label: tr(T.raise, lang) },
   ];
 
   let body: React.ReactNode = null;
   if (tab === "dashboard" && manager) {
     const d = await supportDashboard(user);
     const tiles: [string, number][] = [
-      ["New", d.counts.new],
-      ["Assigned", d.counts.assigned],
-      ["In progress", d.counts.inProgress],
-      ["Pending / on hold", d.counts.pending],
-      ["Awaiting shop owner", d.counts.awaitingOwner],
-      ["Resolved", d.counts.resolved],
-      ["Overdue", d.counts.overdue],
+      [tr(T.new, lang), d.counts.new],
+      [tr(T.assigned, lang), d.counts.assigned],
+      [tr(T.inProgress, lang), d.counts.inProgress],
+      [tr(T.pending, lang), d.counts.pending],
+      [tr(T.awaitingOwner, lang), d.counts.awaitingOwner],
+      [tr(T.resolved, lang), d.counts.resolved],
+      [tr(T.overdue, lang), d.counts.overdue],
     ];
     body = (
       <div className="grid gap-3">
@@ -65,28 +104,28 @@ export default async function SupportDeskPage({ searchParams }: { searchParams: 
           {tiles.map(([label, n]) => (
             <Card key={label}>
               <p className="text-sm text-ink-600">{label}</p>
-              <p className={`text-2xl font-bold ${label === "Overdue" && n > 0 ? "text-red-700" : "text-ink-900"}`}>{n}</p>
+              <p className={`text-2xl font-bold ${label === tr(T.overdue, lang) && n > 0 ? "text-red-700" : "text-ink-900"}`}>{n}</p>
             </Card>
           ))}
           <Card>
-            <p className="text-sm text-ink-600">Avg. resolution (30 days)</p>
+            <p className="text-sm text-ink-600">{tr(T.avg, lang)}</p>
             <p className="text-2xl font-bold">{d.avgResolutionHours == null ? "—" : `${d.avgResolutionHours} h`}</p>
           </Card>
         </div>
         <Card>
-          <p className="mb-2 font-semibold">Workload per Support User</p>
+          <p className="mb-2 font-semibold">{tr(T.workload, lang)}</p>
           {d.team.length === 0 ? (
-            <p className="text-sm text-ink-600">No Support Users in your team yet. An admin adds them (Admin → Users, or POST /api/staff/teams).</p>
+            <p className="text-sm text-ink-600">{tr(T.noTeam, lang)}</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-ink-600">
-                  <th>Name</th>
-                  <th className="text-right">Open</th>
-                  <th className="text-right">Awaiting owner</th>
-                  <th className="text-right">Overdue</th>
-                  <th className="text-right">Resolved 7 d</th>
-                  <th className="text-right">Avg h</th>
+                  <th>{tr(T.name, lang)}</th>
+                  <th className="text-right">{tr(T.open, lang)}</th>
+                  <th className="text-right">{tr(T.awaitingOwnerShort, lang)}</th>
+                  <th className="text-right">{tr(T.overdue, lang)}</th>
+                  <th className="text-right">{tr(T.resolved7, lang)}</th>
+                  <th className="text-right">{tr(T.avgH, lang)}</th>
                 </tr>
               </thead>
               <tbody>
@@ -132,10 +171,10 @@ export default async function SupportDeskPage({ searchParams }: { searchParams: 
   return (
     <div className="mx-auto max-w-5xl">
       <Link href="/staff" className="mb-2 inline-flex min-h-11 items-center text-sm font-semibold text-kesari-800 hover:underline">
-        ← My work
+        {tr(T.myWork, lang)}
       </Link>
-      <PageHeader title="Support desk" description="Tickets, assignments and the work that waits for shop owners." />
-      <nav className="mb-3 flex flex-wrap gap-1" aria-label="Support sections">
+      <PageHeader title={tr(T.title, lang)} description={tr(T.description, lang)} />
+      <nav className="mb-3 flex flex-wrap gap-1" aria-label={tr(T.sections, lang)}>
         {tabs.map((t) => (
           <Link
             key={t.key}
