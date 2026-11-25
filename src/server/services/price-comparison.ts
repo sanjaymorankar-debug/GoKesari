@@ -72,7 +72,7 @@ function comparableListing(shopIds: string[]): SQL {
     inArray(shopProducts.shopId, shopIds),
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
-    registrationListed, // 0209 registration subscription: expired shops are not compared
+    registrationListed, // 0210 registration subscription: expired shops are not compared
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(shopProducts.isAvailable, true),

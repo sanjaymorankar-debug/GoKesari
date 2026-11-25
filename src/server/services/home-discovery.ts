@@ -43,7 +43,7 @@ function purchasable(): SQL {
   return and(
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
-    registrationListed, // 0209 registration subscription: expired shops are hidden
+    registrationListed, // 0210 registration subscription: expired shops are hidden
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(shopProducts.isAvailable, true),

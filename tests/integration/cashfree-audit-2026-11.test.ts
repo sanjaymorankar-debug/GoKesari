@@ -316,7 +316,7 @@ describe("registration fee paid at Cashfree, webhook lost", () => {
     await sendRegistrationOtp(`+91${mobile}`, null);
     const rows = await db.select().from(outboundTestMessages).where(eq(outboundTestMessages.toAddress, `+91${mobile}`));
     const otp = /(\d{4,8})/.exec(rows.sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime())[0].body)![1];
-    const { token } = await createRegistration({ shopName: "Audit Kirana", mobile, referralCode: "AUDIT11", tierCode: "BASIC", otp, acceptTerms: true }, "127.0.0.1");
+    const { token } = await createRegistration({ shopName: "Audit Kirana", mobile, referralCode: "AUDIT11", tierCode: "BASIC", otp, acceptTerms: true, acceptUndertaking: true }, "127.0.0.1");
     const pay = await startRegistrationPayment(token); // mock mode: no keys yet
     // Make it a Cashfree order, as on a site with keys.
     await db.update(registrationPayments).set({ gateway: "CASHFREE", createdAt: new Date(Date.now() - 20 * 60_000) }).where(eq(registrationPayments.gatewayOrderId, pay.orderId));

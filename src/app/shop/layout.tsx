@@ -20,6 +20,13 @@ import { noteSellerIdentityPrompt } from "@/server/services/identity-verificatio
 import { shopMenuFeatures } from "@/server/board-data";
 import { RegistrationBanner } from "@/components/seller/registration-status";
 import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
+import { SellerUndertakingGate } from "@/components/seller/seller-undertaking-gate";
+import { sellerUndertakingGateApplies } from "@/server/services/seller-undertaking";
+
+/** Registration pages carry their own undertaking checkbox, so the gate never covers them. */
+function isRegistrationPath(path: string): boolean {
+  return ["/shop/register", "/shop/join"].some((p) => path === p || path.startsWith(`${p}/`));
+}
 
 export const metadata = {
   title: { default: "Seller Central", template: "%s · GoKesari Seller Central" },
@@ -49,11 +56,18 @@ export default async function SellerCentralLayout({ children }: { children: Reac
     user ? listUserRoles(user.id).catch(() => [user.role]) : Promise.resolve([] as UserRole[]),
     user ? unreadCount(user.id).catch(() => 0) : Promise.resolve(0),
   ]);
+  // docs/seller-undertaking-2026-11: with the flag on, an owner who has not accepted the current
+  // undertaking + Seller Terms sees the acknowledgement instead of any Seller Central page. Registration
+  // (/shop/register, /shop/join) has its own checkboxes and is never blocked. Best-effort: an error never
+  // locks an owner out.
+  if (user && shops.length > 0 && !isRegistrationPath(path) && (await sellerUndertakingGateApplies(user.id).catch(() => false))) {
+    return <SellerUndertakingGate ownerName={user.name} />;
+  }
   const shop = shops.length > 0 ? await activeShop(shops) : null;
   const counts = shop ? await loadShopCounts(shop.id).catch(() => ({})) : {};
   const features = user && shop ? await shopMenuFeatures(shop) : [];
   const groups = user && shop ? groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug, features }, "shop")) : [];
-  // 0209 registration subscription: red (unpaid / grace / expired) or amber (expiring) banner on every screen until paid.
+  // 0210 registration subscription: red (unpaid / grace / expired) or amber (expiring) banner on every screen until paid.
   const registration =
     user && shop && (shop.status === "APPROVED" || shop.status === "PENDING_APPROVAL" || shop.status === "SUSPENDED") ? await ownerRegistrationStatus(shop) : null;
 

@@ -60,6 +60,7 @@ import { isTextChannelAvailable, sendText } from "@/server/messaging/sms-whatsap
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { uniqueSlug } from "@/server/services/catalogue";
 import { recordConsent } from "@/server/services/consents";
+import { acceptSellerUndertaking } from "@/server/services/seller-undertaking";
 import { recordCurrentAcceptances } from "@/server/services/policy-versions";
 import { grantRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
@@ -179,6 +180,8 @@ export const createRegistrationSchema = z.object({
   tierCode: z.string().trim().min(2).max(32),
   otp: z.string().trim().min(4).max(8),
   acceptTerms: z.literal(true, { message: "Accept the seller terms to continue." }),
+  // docs/seller-undertaking-2026-11: the fresh-goods undertaking, its own unticked box on the form.
+  acceptUndertaking: z.literal(true, { message: "Accept the seller undertaking (fresh, non-expired, compliant goods) to continue." }),
 });
 
 export function parseMobileOrThrow(raw: string): { e164: string; national: string } {
@@ -657,7 +660,7 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
     }).returning({ id: shopPayments.id });
     // D-69: the fee is paid in full here; 0189: the period is recorded against it.
     await extendMembership(tx, shop.id, now, { kind: "REGISTRATION", feePaise: reg.feePaise, shopPaymentId: feeRow.id });
-    // 0209 registration subscription: 1 year from the payment, ACTIVE now (the job keeps it in step later).
+    // 0210 registration subscription: 1 year from the payment, ACTIVE now (the job keeps it in step later).
     await noteRegistrationPayment(tx, shop.id, { id: feeRow.id, paidAt: now, amountPaise: reg.feePaise }, now);
     await tx.update(shops).set({ registrationStatus: "ACTIVE", registrationStatusAt: now }).where(eq(shops.id, shop.id));
     // No code (referral_required_shop OPTIONAL): nothing to redeem; payment alone approves the shop.
@@ -747,6 +750,11 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
     await recordConsent(result.ownerId, "TERMS_AND_PRIVACY", {}).catch((e) => console.error("[registration] consent record failed", e));
   }
   if (result.outcome === "APPROVED") {
+    // docs/seller-undertaking-2026-11: Seller Terms + undertaking were ticked on the form (createRegistrationSchema
+    // refuses without them); recorded for the new shop once it exists. Best-effort: never undoes a paid registration.
+    await acceptSellerUndertaking({ userId: result.ownerId, shopIds: [result.shopId], actorRole: "SHOP_OWNER" }).catch((e) =>
+      console.error("[registration] seller undertaking record failed", e),
+    );
     // docs/policy-reconsent-2026-11: the seller terms version accepted on the form, so the owner is not asked again.
     await recordCurrentAcceptances(result.ownerId, ["seller-terms"], "SHOP_REGISTRATION").catch((e) =>
       console.error("[registration] seller-terms acceptance record failed", e),

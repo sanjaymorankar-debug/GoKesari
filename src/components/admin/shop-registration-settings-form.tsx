@@ -1,6 +1,6 @@
 "use client";
 
-/** Admin → Unpaid & expiring registrations → Settings (0209). Saves both rules through one audited endpoint. */
+/** Admin → Unpaid & expiring registrations → Settings (0210). Saves both rules through one audited endpoint. */
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 

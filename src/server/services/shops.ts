@@ -1610,7 +1610,7 @@ export async function getPublicShopBySlug(
       eq(shops.slug, slug),
       eq(shops.status, "APPROVED"),
       isNull(shops.deletedAt),
-      registrationListed, // 0209: an expired registration hides the shop / QR page
+      registrationListed, // 0210: an expired registration hides the shop / QR page
     ),
   });
 }
@@ -1666,7 +1666,7 @@ export async function searchShops(
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
-    registrationListed, // 0209: expired registrations are not found
+    registrationListed, // 0210: expired registrations are not found
   ];
   if (filters.ids) conditions.push(inArray(shops.id, [...filters.ids]));
 

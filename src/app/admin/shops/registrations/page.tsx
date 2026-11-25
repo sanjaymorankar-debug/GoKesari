@@ -33,7 +33,7 @@ const FILTER_LABEL: Record<RegistrationFilter, string> = {
 };
 
 /**
- * Admin / operator: shops whose registration fee is unpaid, expiring, in grace or expired (0209; owner brief
+ * Admin / operator: shops whose registration fee is unpaid, expiring, in grace or expired (0210; owner brief
  * 25-Nov-2026), with reminders, payment links, expiry changes and offline Mark as paid. All times IST.
  */
 export default async function ShopRegistrationsPage({

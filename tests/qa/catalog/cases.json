@@ -23123,7 +23123,7 @@
   "role": "System",
   "method": "Integration",
   "preconditions": "Shops paid without an end date, paid over a year ago, never paid",
-  "steps": "Run migration 0209",
+  "steps": "Run migration 0210",
   "expected": "Paid: +12 months from the first fee payment; past expiry: GRACE for 7 days; never paid: UNPAID; report counts per status",
   "source": "Added 25-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-REGSUB-01; docs/testing/manual/README.md)"
  },

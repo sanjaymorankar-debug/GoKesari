@@ -99,7 +99,7 @@ async function register(opts: { referral: string; tier?: string; shopName?: stri
   await sendRegistrationOtp(`+91${mobile}`, null);
   const otp = await latestCode(`+91${mobile}`);
   const { token, registration } = await createRegistration(
-    { shopName: opts.shopName ?? "Shree Ganesh Kirana", mobile, referralCode: opts.referral, tierCode: opts.tier ?? "BASIC", otp, acceptTerms: true },
+    { shopName: opts.shopName ?? "Shree Ganesh Kirana", mobile, referralCode: opts.referral, tierCode: opts.tier ?? "BASIC", otp, acceptTerms: true, acceptUndertaking: true },
     "127.0.0.1",
   );
   return { token, registration, mobile };
@@ -163,7 +163,7 @@ describe("referral code is checked before anything else", () => {
     }
     const results = await Promise.allSettled(
       applicants.map((a) =>
-        createRegistration({ shopName: "Race Shop", mobile: a.mobile, referralCode: "LASTSLOT", tierCode: "BASIC", otp: a.otp, acceptTerms: true }, "127.0.0.1"),
+        createRegistration({ shopName: "Race Shop", mobile: a.mobile, referralCode: "LASTSLOT", tierCode: "BASIC", otp: a.otp, acceptTerms: true, acceptUndertaking: true }, "127.0.0.1"),
       ),
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
@@ -189,10 +189,10 @@ describe("referral code is checked before anything else", () => {
     await sendRegistrationOtp(`+91${mobile}`, null);
     const otp = await latestCode(`+91${mobile}`);
     const wrong = otp === "000000" ? "111111" : "000000";
-    await expect(createRegistration({ shopName: "A Shop", mobile, referralCode: "PUNE2026", tierCode: "BASIC", otp: wrong, acceptTerms: true }, null)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(createRegistration({ shopName: "A Shop", mobile, referralCode: "PUNE2026", tierCode: "BASIC", otp: wrong, acceptTerms: true, acceptUndertaking: true }, null)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     await sendRegistrationOtp(`+91${mobile}`, null).catch(() => undefined); // cooldown may refuse; the old code is still the latest
     const fresh = await latestCode(`+91${mobile}`);
-    await expect(createRegistration({ shopName: "A Shop", mobile, referralCode: "PUNE2026", tierCode: "SILVER", otp: fresh, acceptTerms: true }, null)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(createRegistration({ shopName: "A Shop", mobile, referralCode: "PUNE2026", tierCode: "SILVER", otp: fresh, acceptTerms: true, acceptUndertaking: true }, null)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });
 

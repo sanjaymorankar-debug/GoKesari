@@ -85,6 +85,8 @@ describe("consent overview for operations (NAV-019)", () => {
     expect(overview.liveUsers).toBe(2);
     expect(overview.byType.map((s) => s.consentType).sort()).toEqual([
       "MARKETING_COMMUNICATIONS",
+      "SELLER_GOODS_UNDERTAKING",
+      "SELLER_TERMS",
       "TERMS_AND_PRIVACY",
       "WHATSAPP_NOTIFICATIONS",
     ]);
