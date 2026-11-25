@@ -98,6 +98,8 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   local_price_comparison_enabled: "Price comparison between local shops",
   sms_otp_signin_customers_enabled: "Customers: email + SMS code at sign-in",
   sms_otp_signin_shop_owners_enabled: "Shop owners: email + SMS code at sign-in",
+  identity_verification_customers_enabled: "Customers: verify identity before first checkout",
+  identity_verification_shop_owners_enabled: "Shop owners: verify identity before going live / accepting orders",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -191,6 +193,10 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/sms-2fa-2026-11 (Admin → Sign-in security): after the emailed code, a CUSTOMER account also enters a code sent by SMS to its mobile; an account without a verified mobile adds and verifies one then. Google and the emailed link ask for it too. Works only while SMS codes can be sent (SMS_PROVIDER=msg91 with the DLT keys, or mock on the test site, and rule otp.smsEnabled); otherwise sign-in stays email-only, so nobody is locked out. Off: email only at once; verified numbers stay verified. Keep OFF on gokesari.com until MSG91 and DLT are live.",
   sms_otp_signin_shop_owners_enabled:
     "docs/sms-2fa-2026-11 (Admin → Sign-in security): the same SMS sign-in code for SHOP_OWNER accounts. Works only while SMS codes can be sent; otherwise email-only. Off: email only at once; verified numbers stay verified.",
+  identity_verification_customers_enabled:
+    "docs/identity-verification-2026-11 (Admin → Identity verification): customers verify their identity once, before their first order — Aadhaar shared from DigiLocker through the licensed KYC provider, or PAN instead (Aadhaar is voluntary). Only the last four digits, the verified name, the method and the provider reference are kept. Legal advice is pending: keep off on gokesari.com until it is given. On test.gokesari.com the mock provider is always used. Off: no customer is asked or blocked; verifications already done are kept.",
+  identity_verification_shop_owners_enabled:
+    "docs/identity-verification-2026-11 (Admin → Identity verification): a new shop goes live only once its owner's identity is verified; an existing owner is asked at sign-in and has rule identityVerification.sellerGraceDays from the first time they are asked after this was switched on, then their shops take no new orders until they verify (orders already accepted are unaffected). Legal advice is pending. Off: no shop owner is asked or blocked, no banner; verifications already done are kept.",
 };
 
 export interface FeatureFlagView {
