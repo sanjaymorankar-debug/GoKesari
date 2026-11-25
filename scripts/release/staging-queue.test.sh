@@ -180,6 +180,54 @@ check "exits 0" exits 0
 check "blocks #7" called '^POST repos/acme/shop/issues/7/labels labels\[\]=staging-blocked'
 end_case
 
+# Migration numbers: a conflict in drizzle/meta/_journal.json alone is
+# renumbered and pushed by the queue (README, "Migration numbers"). A local
+# bare repository stands in for GitHub's git side (QUEUE_GIT_URL).
+REMOTE="$WORK/remote.git" SEED="$WORK/seed"
+git init -q --bare "$REMOTE"
+git init -q -b staging "$SEED"
+sg() { git -C "$SEED" -c user.name=t -c user.email=t@t "$@"; }
+journal() { # tags… → drizzle/meta/_journal.json in the seed repo
+  mkdir -p "$SEED/drizzle/meta"
+  jq -n '{version:"7",dialect:"postgresql",entries:[$ARGS.positional|to_entries[]|{idx:.key,version:"7",when:(1000+.key),tag:.value,breakpoints:true}]}' \
+    --args "$@" > "$SEED/drizzle/meta/_journal.json"
+}
+journal 0000_init; echo init > "$SEED/drizzle/0000_init.sql"; echo base > "$SEED/app.txt"
+sg add -A; sg commit -qm base
+sg switch -qc feature/x; journal 0000_init 0001_topups; echo '-- 0001_topups' > "$SEED/drizzle/0001_topups.sql"
+sg add -A; sg commit -qm feature
+sg switch -qc feature/y staging; journal 0000_init 0001_other; echo x > "$SEED/drizzle/0001_other.sql"; echo theirs > "$SEED/app.txt"
+sg add -A; sg commit -qm other
+sg switch -q staging; journal 0000_init 0001_tax; echo tax > "$SEED/drizzle/0001_tax.sql"; echo ours > "$SEED/app.txt"
+sg add -A; sg commit -qm tax
+sg push -q "$REMOTE" staging feature/x feature/y
+X_SHA="$(sg rev-parse feature/x)" Y_SHA="$(sg rev-parse feature/y)"
+own_pr() { # $1 ref, $2 sha: #7 as a branch of this repository
+  echo "GET repos/acme/shop/pulls/7 200 {\"number\":7,\"state\":\"open\",\"head\":{\"sha\":\"$2\",\"ref\":\"$1\",\"repo\":{\"full_name\":\"acme/shop\"}},\"mergeable\":true}
+GET repos/acme/shop/compare/staging...$2 200 {\"behind_by\":1}
+PUT repos/acme/shop/pulls/7/update-branch 422 {\"message\":\"merge conflict between base and head\"}
+GET repos/acme/shop/commits/*/check-runs* 200 {\"check_runs\":[{\"id\":1,\"name\":\"test\",\"status\":\"completed\",\"conclusion\":\"success\",\"app\":{\"slug\":\"github-actions\"}}]}
+PUT repos/acme/shop/pulls/7/merge 405 {\"message\":\"Pull Request is not mergeable\"}"
+}
+
+run_case renumber-journal-only "$(own_pr feature/x "$X_SHA")" QUEUE_GIT_URL="$REMOTE"
+NEW_SHA="$(git -C "$REMOTE" rev-parse feature/x)"
+check "exits 0" exits 0
+check "pushes a merge onto the branch" [ "$(git -C "$REMOTE" rev-parse "$NEW_SHA^1")" = "$X_SHA" ]
+check "the migration follows staging's" eval '[ "$(git -C "$REMOTE" show feature/x:drizzle/0002_topups.sql)" = "-- 0002_topups" ]'
+check "journal is contiguous" eval '[ "$(git -C "$REMOTE" show feature/x:drizzle/meta/_journal.json | jq -c "[.entries[]|.tag]")" = "[\"0000_init\",\"0001_tax\",\"0002_topups\"]" ]'
+check "tells the PR" called '^POST repos/acme/shop/issues/7/comments body=.*migrations renumbered|^POST repos/acme/shop/issues/7/comments body=.*renumbered this PR'
+check "does not block #7" not_called 'labels\[\]=staging-blocked'
+check "goes on to merge the new head" called "^PUT repos/acme/shop/pulls/7/merge merge_method=merge sha=$NEW_SHA"
+end_case
+
+run_case renumber-other-conflict "$(own_pr feature/y "$Y_SHA")" QUEUE_GIT_URL="$REMOTE"
+check "exits 0" exits 0
+check "pushes nothing" [ "$(git -C "$REMOTE" rev-parse feature/y)" = "$Y_SHA" ]
+check "blocks #7" called '^POST repos/acme/shop/issues/7/labels labels\[\]=staging-blocked'
+check "names the conflicting files" said "conflicts beyond the migration journal: app.txt"
+end_case
+
 # GitHub refuses the merge with 403: not labelled testing, run fails.
 run_case merge-403 "$UP_TO_DATE
 PUT repos/acme/shop/pulls/7/merge 403 $FORBIDDEN"

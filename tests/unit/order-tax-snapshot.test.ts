@@ -1,5 +1,5 @@
 /**
- * The GST included in an order's lines (migration 0183), the TCS / TDS base
+ * The GST included in an order's lines (migration 0185), the TCS / TDS base
  * without GST, unconfirmed statutory rows on production, GST16 invoice
  * numbers and the GSTR-8 CSV. Amounts are in paise.
  */

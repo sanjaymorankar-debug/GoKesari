@@ -6,6 +6,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { validationFailed } from "@/lib/errors";
 import { featureNotAvailable } from "@/server/services/feature-flags";
 import { GUEST_CART_MAX_LINES } from "@/lib/guest-cart";
 import { MAX_CART_LINE_QUANTITY } from "@/lib/stock-quantity";
@@ -34,6 +35,9 @@ export const POST = route(async (request: NextRequest) => {
   const body = await parseBody(request, schema);
   const location = await getCustomerLocation(user?.id ?? null);
   if (user) return ok({ recommendation: await recommendForUserCart(user.id, location) });
-  const preview = await previewGuestCart(body.lines ?? []);
+  // A guest sends the browser cart's lines; a call without any is refused, not answered empty
+  // (guest QA TC-SEC-001: public writes refuse an empty call).
+  if (!body.lines?.length) throw validationFailed("Please check the highlighted fields.", { fields: { lines: "Add an item to the cart first." } });
+  const preview = await previewGuestCart(body.lines);
   return ok({ recommendation: await recommendShopForCart(linesFromSummary(preview), preview.grandTotalPaise, location) });
 });
