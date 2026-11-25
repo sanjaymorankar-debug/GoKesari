@@ -1402,7 +1402,7 @@ export const deliveryPartners = pgTable(
     latitude: text("latitude"),
     longitude: text("longitude"),
     operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
-    /** Rider App v2 (0202, rule riderReferral): this rider's own code, and who referred them. */
+    /** Rider App v2 (0203, rule riderReferral): this rider's own code, and who referred them. */
     referralCode: text("referral_code"),
     referredByPartnerId: uuid("referred_by_partner_id"),
     /** Rating aggregate (GS-060), maintained from visible order_ratings. Average × 100. */
@@ -2109,7 +2109,7 @@ export const orders = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /**
      * GST (and cess) INCLUDED in the goods' prices, summed from the lines'
-     * taxPaise at checkout (migration 0183). Never added to totalPaise. Null
+     * taxPaise at checkout (migration 0185). Never added to totalPaise. Null
      * when not recorded (orders before 0183, or a line with no known rate).
      */
     taxIncludedPaise: bigint("tax_included_paise", { mode: "number" }),
@@ -2220,7 +2220,7 @@ export const orderItems = pgTable(
     /** D-91: the product's MRP when it was sold (products.mrp_paise); null when it had none (loose goods). */
     mrpPaise: bigint("mrp_paise", { mode: "number" }),
     /*
-     * Tax snapshot at checkout (migration 0183; null on older orders). The line's
+     * Tax snapshot at checkout (migration 0185; null on older orders). The line's
      * classification when it was ordered (listing → master product → dated HSN
      * table) and the GST + cess INCLUDED in lineTotalPaise: taxable + tax = line
      * total. A shop that charges no GST records taxable = line total, tax = 0.
@@ -2377,12 +2377,12 @@ export const deliveryOrders = pgTable(
     rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
     /** GA-005: the trip this delivery is batched into with the rider's other orders; null = carried alone. */
     tripId: uuid("trip_id").references((): AnyPgColumn => deliveryTrips.id, { onDelete: "set null" }),
-    /* Rider App v2 (0202, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
+    /* Rider App v2 (0203, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
     quotePaise: integer("quote_paise"),
     quoteBreakdown: jsonb("quote_breakdown").$type<import("@/lib/rider-pay-plan").PayQuote>(),
     payPlanId: uuid("pay_plan_id"),
     quotedAt: timestamp("quoted_at", { withTimezone: true }),
-    /** 0202: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
+    /** 0203: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
     rejectReasonCode: text("reject_reason_code"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2846,7 +2846,7 @@ export const deliveryPartnerEarnings = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
     payoutId: uuid("payout_id"),
-    /* Rider App v2 (0202): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
+    /* Rider App v2 (0203): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
     quotePaise: integer("quote_paise"),
     payPlanId: uuid("pay_plan_id"),
     planBreakdown: jsonb("plan_breakdown").$type<Record<string, unknown>>(),
@@ -3380,9 +3380,9 @@ export const riderEarningSlots = pgTable(
     /** Peak-period component paid on top in this slot. */
     peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
     isPeak: boolean("is_peak").notNull().default(false),
-    /** Rider App v2 (0202): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
+    /** Rider App v2 (0203): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
     surgeMultiplierBp: integer("surge_multiplier_bp"),
-    /** 0202 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
+    /** 0203 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
     bookable: boolean("bookable").notNull().default(false),
     bookingCapacity: integer("booking_capacity"),
     /** The highest-priority active slot containing the delivery time wins. */
@@ -5024,6 +5024,71 @@ export const accountDeletionRequests = pgTable(
   ],
 );
 export type AccountDeletionRequest = typeof accountDeletionRequests.$inferSelect;
+/* --------------------------------------------- policy re-consent (0201) */
+/** Policy documents a user accepts (docs/policy-reconsent-2026-11). Slugs match /legal/<slug>. */
+export const POLICY_DOCS = ["terms", "privacy-policy", "seller-terms"] as const;
+export type PolicyDoc = (typeof POLICY_DOCS)[number];
+
+/** Where an acceptance was given. */
+export const POLICY_ACCEPTANCE_CHANNELS = [
+  "WEB",
+  "APP",
+  "SHOP_PORTAL",
+  "RIDER_PORTAL",
+  "DEALER_PORTAL",
+  "SIGNUP",
+  "SHOP_REGISTRATION",
+  "API",
+] as const;
+export type PolicyAcceptanceChannel = (typeof POLICY_ACCEPTANCE_CHANNELS)[number];
+
+/** A change summary in the site's languages; English is required, Hindi / Marathi fall back to it. */
+export type PolicySummary = { en: string; hi?: string; mr?: string };
+
+/**
+ * One published version of a policy document. The newest row with requires_acceptance is the version
+ * signed-in users must have accepted; a minor edit (requires_acceptance false) asks nobody again.
+ */
+export const policyVersions = pgTable(
+  "policy_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doc: text("doc", { enum: POLICY_DOCS }).notNull(),
+    /** e.g. "2026-12-01" — matches the policy page's "Last updated" date. */
+    version: text("version").notNull(),
+    summary: jsonb("summary").$type<PolicySummary>().notNull().default({ en: "" }),
+    requiresAcceptance: boolean("requires_acceptance").notNull().default(true),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+    /** No foreign key: kept when the admin's account is deleted. */
+    publishedBy: uuid("published_by"),
+    reason: text("reason"),
+  },
+  (t) => [
+    uniqueIndex("policy_versions_doc_version_uq").on(t.doc, t.version),
+    index("policy_versions_doc_published_idx").on(t.doc, t.publishedAt),
+  ],
+);
+export type PolicyVersion = typeof policyVersions.$inferSelect;
+
+/** Append-only: who accepted which version of which document, when and where. */
+export const policyAcceptances = pgTable(
+  "policy_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    doc: text("doc", { enum: POLICY_DOCS }).notNull(),
+    version: text("version").notNull(),
+    channel: text("channel", { enum: POLICY_ACCEPTANCE_CHANNELS }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("policy_acceptances_user_doc_idx").on(t.userId, t.doc),
+    index("policy_acceptances_doc_version_idx").on(t.doc, t.version),
+  ],
+);
+export type PolicyAcceptance = typeof policyAcceptances.$inferSelect;
 
 /* ----------------------------------------------------------- audit logs */
 
@@ -10889,6 +10954,8 @@ export const FEATURE_FLAG_KEYS = [
   // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
   "auto_journals",
   "payment_settlement_states", // PAY-SM (0201)
+  // docs/policy-reconsent-2026-11 (0202): signed-in users accept a new terms / privacy / seller-terms version. Missing row = OFF.
+  "policy_reconsent_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13399,5 +13466,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
-export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0202)
+export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0203)
 /* <<< GoKesari Health */

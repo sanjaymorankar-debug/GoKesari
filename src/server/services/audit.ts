@@ -235,6 +235,9 @@ export const AUDIT_ACTIONS = {
   /** Operations read one person's consent trail (NAV-019). Access to a
    *  consent record is itself worth a trail — see getUserConsentTrail(). */
   CONSENT_HISTORY_VIEWED: "consent.history_viewed",
+  /** docs/policy-reconsent-2026-11: an admin published a policy version; a user accepted one. */
+  POLICY_VERSION_PUBLISHED: "policy_version.published",
+  POLICY_ACCEPTED: "policy.accepted",
 
   /* --------------------------------------------- seller/food compliance */
   SHOP_COMPLIANCE_UPDATED: "shop.compliance_updated",
@@ -391,7 +394,7 @@ export const AUDIT_ACTIONS = {
   IMAGE_UPLOADED: "image.uploaded",
   RIDER_EARNING_SLOT_SAVED: "rider_earning_slot.saved",
   RIDER_INCENTIVE_SAVED: "rider_incentive.saved",
-  /* Rider App v2 (0202) */
+  /* Rider App v2 (0203) */
   RIDER_PAY_PLAN_SAVED: "rider_pay_plan.saved",
   RIDER_PAY_PLAN_SIMULATED: "rider_pay_plan.simulated",
   RIDER_PAY_PLAN_PUBLISHED: "rider_pay_plan.published",

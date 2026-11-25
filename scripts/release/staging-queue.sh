@@ -60,6 +60,7 @@ MAX_PRS="${QUEUE_MAX_PRS:-20}"           # per run; the next trigger carries on
 RUN_BUDGET="${QUEUE_RUN_BUDGET:-14400}"  # s: start no new PR after 4 h (the job stops at 350 min)
 SKIP_UPDATE="${QUEUE_SKIP_UPDATE:-1}"    # option A: merge a behind PR as it is when safe
 CI_WORKFLOW="${QUEUE_CI_WORKFLOW:-CI}"   # staging's CI, which option A needs to have passed
+GIT_URL="${QUEUE_GIT_URL:-https://github.com/$REPO.git}" # where renumber_migrations clones from and pushes to
 
 READY=ready-for-staging FIX=staging-fix HOLD=staging-hold
 TESTING=staging-testing VERIFIED=staging-verified
@@ -183,6 +184,59 @@ mergeable() { # $1 = PR → true | false | null (GitHub still working it out aft
     [ $((SECONDS - start)) -ge 120 ] && break; sleep 5
   done
   echo "$m"
+}
+
+# Migration numbers (README, "Migration numbers"). Several PRs often take the
+# same next migration number; whichever lands first keeps it and the rest
+# conflict on drizzle/meta/_journal.json alone (24-25 Nov 2026: #531 was
+# renumbered by hand five times). When that file is the ONLY conflict, the
+# queue merges $BASE into the PR branch itself, renumbers the PR's own
+# migrations past $BASE's (scripts/db/renumber-migrations.mjs) and pushes
+# the merge to the PR branch. Its CI then runs on the new head as after any
+# branch update.
+# $1 = PR number, $2 = the PR's JSON. Prints the new head sha on the first
+# line, then what the renumbering did.
+# Returns 0 pushed, 1 not this kind of conflict (block the PR as before),
+# 2 could not finish for another reason (leave the PR queued).
+renumber_migrations() {
+  local n="$1" pr="$2" ref sha dir auth out conflicts rc=2
+  [ "$(jq -r .head.repo.full_name <<<"$pr")" = "$REPO" ] || return 1 # a fork: cannot push there
+  ref="$(jq -r .head.ref <<<"$pr")"; sha="$(jq -r .head.sha <<<"$pr")"
+  dir="$(mktemp -d)"
+  auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+  g() { git -C "$dir" -c http.extraheader="$auth" -c user.name="GoKesari staging queue" \
+          -c user.email="staging-queue@users.noreply.github.com" "$@"; }
+  {
+    git -c http.extraheader="$auth" clone -q --filter=blob:none --no-checkout \
+      "$GIT_URL" "$dir" 2>/dev/null &&
+      g fetch -q origin "$BASE" "$ref" && g checkout -q -b queue-renumber "$sha"
+  } || { log "#$n: could not fetch its branch to renumber migrations"; rm -rf "$dir"; return 2; }
+  if g merge -q --no-edit "origin/$BASE" >/dev/null 2>&1; then
+    # Merges cleanly here, so GitHub's conflict was something else: not ours.
+    rm -rf "$dir"; return 1
+  fi
+  conflicts="$(g diff --name-only --diff-filter=U)"
+  if [ "$conflicts" != drizzle/meta/_journal.json ]; then
+    log "#$n: conflicts beyond the migration journal: $(tr '\n' ' ' <<<"$conflicts")"
+    rm -rf "$dir"; return 1
+  fi
+  # The workflow copies the script next to this one; run from the repo it is in scripts/db.
+  local tool="$QUEUE_DIR/renumber-migrations.mjs"
+  [ -f "$tool" ] || tool="$QUEUE_DIR/../db/renumber-migrations.mjs"
+  if out="$(cd "$dir" && node "$tool" "origin/$BASE" 2>&1)" &&
+     [ -z "$(g diff --name-only --diff-filter=U)" ]; then
+    if [ "$DRY_RUN" = 1 ]; then
+      log "DRY RUN: would renumber #$n's migrations and push: $out"
+    elif g commit -q -m "Merge $BASE into $ref; migrations renumbered by the staging queue" -m "$out" &&
+         g push -q origin "HEAD:refs/heads/$ref"; then
+      g rev-parse HEAD; printf '%s\n' "$out"; rc=0
+    else
+      log "#$n: could not push the renumbered merge (the branch may have moved)"
+    fi
+  else
+    log "#$n: renumbering failed: $out"; rc=1
+  fi
+  rm -rf "$dir"; return "$rc"
 }
 
 # Only runs started by a push to staging count, here and in wait_merge_runs.
@@ -344,7 +398,7 @@ Production (\`main\`) is not part of this queue: staging → main stays the owne
 # ---------------------------------------------------------------- one PR
 # Returns 0 = verified, 1 = failed on staging (queue pauses), 2 = skipped.
 process_pr() {
-  local n="$1" pr head sha ref state behind as_is="" merged_sha merged_at before runs qa_log
+  local n="$1" pr head sha ref state behind as_is="" merged_sha merged_at before runs qa_log renumbered rc_rn
   pr="$(api "repos/$REPO/pulls/$n")"
   [ "$(jq -r .state <<<"$pr")" = open ] || return 2
   sha="$(jq -r .head.sha <<<"$pr")"; ref="$(jq -r .head.ref <<<"$pr")"
@@ -370,16 +424,33 @@ process_pr() {
         note "#$n left queued: could not update its branch (HTTP $WRITE_STATUS: $WRITE_ERROR)"
         write_failed; return 2
       fi
-      add_label "$n" "$BLOCKED"; remove_label "$n" "$READY"
-      comment "$n" "⛔ **Staging queue** ($(ist)): could not bring this branch up to date with \`$BASE\` (merge conflict). **Session that owns this PR:** merge \`origin/$BASE\` into this branch, resolve the conflict, run the tests, push, and add \`$READY\` again — no need to ask the owner."
-      return 2
+      # Only the migration journal? Then renumber and carry on (README).
+      renumbered="$(renumber_migrations "$n" "$pr")"; rc_rn=$?
+      case "$rc_rn" in
+        0)
+          sha="$(head -1 <<<"$renumbered")"
+          comment "$n" "🔢 **Staging queue** ($(ist)): the only conflict with \`$BASE\` was the migration journal (another PR took the same migration number). The queue merged \`$BASE\` into this branch and renumbered this PR's migrations (\`${sha:0:7}\`):
+\`\`\`
+$(tail -n +2 <<<"$renumbered")
+\`\`\`
+Nothing for you to do unless a number is listed above as still mentioned in prose. **Session that owns this PR:** pull before pushing again."
+          note "#$n: migrations renumbered past $BASE's and pushed as ${sha:0:7}"
+          ;;
+        2) note "#$n left queued: could not renumber its migrations this time"; return 2 ;;
+        *)
+          add_label "$n" "$BLOCKED"; remove_label "$n" "$READY"
+          comment "$n" "⛔ **Staging queue** ($(ist)): could not bring this branch up to date with \`$BASE\` (merge conflict). **Session that owns this PR:** merge \`origin/$BASE\` into this branch, resolve the conflict, run the tests, push, and add \`$READY\` again — no need to ask the owner. (If only \`drizzle/meta/_journal.json\` conflicts, \`node scripts/db/renumber-migrations.mjs origin/$BASE\` resolves it.)"
+          return 2
+          ;;
+      esac
+    else
+      [ "$DRY_RUN" = 1 ] && return 2
+      local start=$SECONDS
+      while head="$(api "repos/$REPO/pulls/$n" --jq .head.sha)"; [ "$head" = "$sha" ]; do
+        [ $((SECONDS - start)) -ge 300 ] && break; sleep 10
+      done
+      sha="$head"
     fi
-    [ "$DRY_RUN" = 1 ] && return 2
-    local start=$SECONDS
-    while head="$(api "repos/$REPO/pulls/$n" --jq .head.sha)"; [ "$head" = "$sha" ]; do
-      [ $((SECONDS - start)) -ge 300 ] && break; sleep 10
-    done
-    sha="$head"
   fi
 
   state="$(wait_checks "$sha")"
@@ -390,6 +461,19 @@ process_pr() {
   fi
 
   if [ "$(mergeable "$n")" = false ]; then
+    # Staging moved while the checks ran. A journal-only conflict is renumbered;
+    # its CI starts again, so the PR stays queued for the next run.
+    renumbered="$(renumber_migrations "$n" "$(api "repos/$REPO/pulls/$n")")"; rc_rn=$?
+    if [ "$rc_rn" = 2 ]; then note "#$n left queued: could not renumber its migrations this time"; return 2; fi
+    if [ "$rc_rn" = 0 ]; then
+      comment "$n" "🔢 **Staging queue** ($(ist)): \`$BASE\` moved while this PR's checks ran, and the only conflict was the migration journal. The queue renumbered this PR's migrations (\`$(head -1 <<<"$renumbered" | cut -c1-7)\`):
+\`\`\`
+$(tail -n +2 <<<"$renumbered")
+\`\`\`
+It stays queued; the next queue run merges it once its checks pass. **Session that owns this PR:** pull before pushing again."
+      note "#$n: migrations renumbered after $BASE moved; left queued"
+      return 2
+    fi
     add_label "$n" "$BLOCKED"; remove_label "$n" "$READY"
     comment "$n" "⛔ **Staging queue** ($(ist)): merge conflict with \`$BASE\`. **Session that owns this PR:** merge \`origin/$BASE\` into this branch, resolve the conflict, run the tests, push, and add \`$READY\` again — no need to ask the owner."
     return 2

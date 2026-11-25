@@ -1419,8 +1419,15 @@
     {
       "idx": 202,
       "version": "7",
-      "when": 1793270100100,
-      "tag": "0202_rider_app_v2",
+      "when": 1793270200000,
+      "tag": "0202_policy_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1793270200100,
+      "tag": "0203_rider_app_v2",
       "breakpoints": true
     }
   ]

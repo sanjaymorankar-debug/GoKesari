@@ -329,7 +329,7 @@ export const TEMPLATES: Record<string, Template> = {
     false,
   ),
   [T.DELIVERY_OFFER_TAKEN]: t("Offer taken", "Order {{orderNumber}} was accepted by another rider.", false),
-  /* Rider App v2 (0202) */
+  /* Rider App v2 (0203) */
   [T.RIDER_JOB_NEARBY]: t("New delivery near you", "{{shopName}}, {{km}} km away — you earn {{amount}}. Open the app to accept.", false),
   [T.RIDER_SURGE_STARTED]: t("High-earning time in your zone", "{{reason}}: pay ×{{multiplier}}{{flat}} per order until {{until}} IST. Go online to earn more.", false),
   [T.RIDER_SURGE_ENDED]: t("Surge ended", "The {{reason}} surge in your zone has ended.", false),
