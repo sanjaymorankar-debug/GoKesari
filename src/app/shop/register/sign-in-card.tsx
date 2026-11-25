@@ -1,5 +1,4 @@
 import { headers } from "next/headers";
-import { AuthError } from "next-auth";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { OtpLoginForm } from "@/components/otp-login-form";
@@ -7,10 +6,11 @@ import { ConsentSubmitButton, SignInConsentCheckbox, SignInConsentProvider } fro
 import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
 import { toClientError } from "@/lib/errors";
-import { OTP_TICKET_PROVIDER_ID, signIn } from "@/server/auth";
+import { signIn } from "@/server/auth";
 import { emailMode } from "@/server/email/transport";
-import { createLoginTicket, verifyLoginOtp } from "@/server/otp/service";
+import { verifyLoginOtp } from "@/server/otp/service";
 import { signInFromForm } from "@/server/signin-form";
+import { continueAfterFirstFactor } from "@/server/signin-otp";
 
 /**
  * Every sign-in lands on /onboarding first, which asks a new account for its details and then
@@ -34,25 +34,24 @@ export function ShopSignInCard() {
   async function verifyLoginCode(input: { mobile: string | null; email: string | null; code: string; acceptedTerms: boolean }) {
     "use server";
     const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-    let ticket: string;
+    let user: Awaited<ReturnType<typeof verifyLoginOtp>>["user"];
     try {
-      const { user } = await verifyLoginOtp({
+      ({ user } = await verifyLoginOtp({
         mobile: input?.mobile ?? null,
         email: input?.email ?? null,
         code: String(input?.code ?? ""),
         acceptedTerms: input?.acceptedTerms === true,
         ip,
-      });
-      ticket = createLoginTicket(user.id);
+      }));
     } catch (error) {
       return { error: toClientError(error).body.error.message };
     }
+    // docs/sms-2fa-2026-11: the session, or the SMS step when the account needs a second factor.
     try {
-      await signIn(OTP_TICKET_PROVIDER_ID, { ticket, redirectTo: AFTER_SIGN_IN });
+      return await continueAfterFirstFactor(user, ip, AFTER_SIGN_IN);
     } catch (error) {
       if (isRedirectError(error)) throw error;
-      if (error instanceof AuthError) return { error: "Could not sign you in. Please request a new code." };
-      throw error;
+      return { error: toClientError(error).body.error.message };
     }
   }
 

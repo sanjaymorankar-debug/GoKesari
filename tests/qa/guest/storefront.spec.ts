@@ -93,7 +93,8 @@ qa("TC-PRE-002", "database-backed pages load without a 500 or an error page", as
 
 qa(["TC-PRE-010", "TC-RBAC-001"], "a guest can browse and search: home, shops, search, a shop, a product, sign-in and terms", async ({ page }) => {
   const { shop, product } = await aShopAndProduct();
-  const paths = ["/", "/shops", "/search?q=milk", `/shops/${shop.slug}`, ...(product ? [`/products/${product.id}`] : []), "/search/compare", "/signin", "/legal/terms"];
+  const paths = ["/", "/shops", "/search?q=milk", `/shops/${shop.slug}`, ...(product ? [`/products/${product.id}`] : []), "/signin", "/legal/terms"];
+  // /search/compare is left out: with price comparison off (#535) it answers 404 by design — TC-PCOMP-001 checks that.
   for (const path of paths) await open(page, path);
   return `${TARGET}: ${paths.length} pages readable signed out`;
 }, { mobile: true, partial: "'Add to cart / subscribe prompts sign-in' is checked in TC-RBAC-001 add-to-cart below" });

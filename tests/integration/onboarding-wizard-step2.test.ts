@@ -215,6 +215,35 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     expect(view.documents).toMatchObject({ missing: [], canSubmit: true, needsTeamApproval: false, promised: false });
   });
 
+  it("owner 25-Nov-2026: going back and verifying another GSTIN (or a PAN) asks the business's answers again; the same GSTIN keeps them", async () => {
+    await answerDraftReferral({ actor: owner, referralCode: null, employeeId: "EMP-7" });
+    await walkToReview();
+    await saveDraftOwner({ actor: owner, ownerName: "Test Seller" });
+    let view = (await getWizardDraft(owner))!;
+    expect(view.nextStep).toBe("REVIEW");
+
+    // The same number again (a double tap, or Back then Verify) changes nothing.
+    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
+    expect((await getWizardDraft(owner))!.nextStep).toBe("REVIEW");
+
+    // Another GSTIN: a different business — owner, address, shop details and pin are asked again.
+    await submitDraftGstin({ gstin: gstinFor("AABCH4321K"), consentGiven: true, actor: owner });
+    view = (await getWizardDraft(owner))!;
+    expect(view).toMatchObject({ nextStep: "OWNER", ownerName: null, details: null, location: null });
+    expect(view.gstin).toMatchObject({ status: "VERIFIED" });
+    expect((view.referral as { employeeId?: string | null }).employeeId).toBe("EMP-7");
+
+    // Switching to the PAN route does the same.
+    await saveDraftOwner({ actor: owner, ownerName: "Second Owner" });
+    await submitDraftPan({ pan: PROPRIETOR_PAN, declarationAccepted: true, consentGiven: true, actor: owner });
+    view = (await getWizardDraft(owner))!;
+    expect(view.route).toBe("PAN_ONLY");
+    expect(view.details).toBeNull();
+    expect(view.location).toBeNull();
+    expect(view.ownerName).not.toBe("Second Owner");
+    expect((view.referral as { employeeId?: string | null }).employeeId).toBe("EMP-7");
+  });
+
   it("refuses a later step before the GSTIN / PAN step is done, and payment before every step", async () => {
     await expect(saveDraftDetails({ actor: owner, details: details() })).rejects.toMatchObject({ code: "NOT_FOUND" });
     // GSTIN not found: the draft exists but cannot go on.

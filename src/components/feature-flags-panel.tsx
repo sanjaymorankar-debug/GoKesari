@@ -65,6 +65,9 @@ export type FeatureFlagKey =
   | "policy_reconsent_enabled"
   // docs/price-comparison-off-2026-11
   | "local_price_comparison_enabled"
+  // docs/sms-2fa-2026-11
+  | "sms_otp_signin_customers_enabled"
+  | "sms_otp_signin_shop_owners_enabled"
   // docs/seller-undertaking-2026-11
   | "seller_undertaking_gate_enabled";
 

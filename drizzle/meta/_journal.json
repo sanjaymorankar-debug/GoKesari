@@ -1441,7 +1441,14 @@
       "idx": 205,
       "version": "7",
       "when": 1793270500000,
-      "tag": "0205_seller_goods_undertaking",
+      "tag": "0205_sms_two_factor",
+      "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1793270600000,
+      "tag": "0206_seller_goods_undertaking",
       "breakpoints": true
     }
   ]

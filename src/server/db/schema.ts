@@ -569,7 +569,7 @@ export const consentTypeEnum = pgEnum("consent_type", [
   "MARKETING_COMMUNICATIONS",
   // docs/customer-whatsapp-2026-11 (0193): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
   "WHATSAPP_NOTIFICATIONS",
-  // docs/seller-undertaking-2026-11 (0205): a shop owner's undertaking to supply only fresh, non-expired,
+  // docs/seller-undertaking-2026-11 (0206): a shop owner's undertaking to supply only fresh, non-expired,
   // compliant goods, and their acceptance of the Seller Terms — each with its own version.
   "SELLER_GOODS_UNDERTAKING",
   "SELLER_TERMS",
@@ -663,7 +663,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -672,6 +672,11 @@ export const loginOtps = pgTable(
     /** Set when the code was used, or when a newer code replaced it. */
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    /**
+     * 0205 (docs/sms-2fa-2026-11): a verified CHECKOUT code is a one-time pass for one order;
+     * the checkout request that used it. A retry of the same request may use it again.
+     */
+    stepUpRequestId: text("step_up_request_id"),
     ipAddress: text("ip_address"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -4949,9 +4954,9 @@ export const userConsents = pgTable(
     ipAddress: text("ip_address"),
     /** docs/customer-whatsapp-2026-11 (0193): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
     source: text("source"),
-    /** 0205: the shop the consent was given for (seller consents); null for every other consent. No FK (kept on shop deletion as evidence). */
+    /** 0206: the shop the consent was given for (seller consents); null for every other consent. No FK (kept on shop deletion as evidence). */
     shopId: uuid("shop_id"),
-    /** 0205: the browser / app that recorded the consent, as evidence of the act; null on older rows. */
+    /** 0206: the browser / app that recorded the consent, as evidence of the act; null on older rows. */
     userAgent: text("user_agent"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -4960,7 +4965,7 @@ export const userConsents = pgTable(
   (t) => [
     index("user_consents_user_idx").on(t.userId),
     index("user_consents_type_idx").on(t.consentType),
-    // 0205: "latest consent of this type for this user" (seller undertaking gate, read on every Seller Central page).
+    // 0206: "latest consent of this type for this user" (seller undertaking gate, read on every Seller Central page).
     index("user_consents_user_type_created_idx").on(t.userId, t.consentType, t.createdAt),
   ],
 );
@@ -10950,7 +10955,11 @@ export const FEATURE_FLAG_KEYS = [
   // docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off): "Compare N prices", /search/compare,
   // "Lowest price" and price-first sorting between local shops. Seeded OFF by its own migration (0204 at the time of writing).
   "local_price_comparison_enabled",
-  // docs/seller-undertaking-2026-11 (0205): shop owners accept the fresh-goods undertaking before using Seller Central / accepting new orders. Seeded OFF.
+  // docs/sms-2fa-2026-11 (0205): sign-in needs an SMS code after the emailed one — one switch per audience
+  // (Admin → Sign-in security). Seeded OFF.
+  "sms_otp_signin_customers_enabled",
+  "sms_otp_signin_shop_owners_enabled",
+  // docs/seller-undertaking-2026-11 (0206): shop owners accept the fresh-goods undertaking before using Seller Central / accepting new orders. Seeded OFF.
   "seller_undertaking_gate_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
