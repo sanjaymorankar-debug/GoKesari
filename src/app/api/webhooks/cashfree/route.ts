@@ -27,6 +27,8 @@ import { NextResponse } from "next/server";
 
 import { getEnv } from "@/lib/env";
 import { exactJsonId } from "@/server/payments/gateway/common";
+import { handlePaymentWebhook } from "@/server/payments/processing";
+import { topUpIntentForOrderId } from "@/server/payments/topup-intents";
 import { isRegistrationOrder, processRegistrationPaymentEvent } from "@/server/registration/service";
 import { creditFromWebhook, verifyWebhookSignature } from "@/server/services/payments";
 
@@ -89,6 +91,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.error("[webhook] registration payment processing failed", error);
       return NextResponse.json({ error: "Processing failed" }, { status: 500 });
     }
+  }
+
+  // PAY-2 (docs/payments-topups-via-intents-2026-11): a top-up started through a payment intent
+  // is handed, unchanged, to the one payment webhook (/api/webhooks/payments/cashfree) — its own
+  // signature check, event de-duplication and the gateway's own order state decide. This keeps
+  // this URL working for any delivery Cashfree still sends here (a dashboard webhook, a retry).
+  // Top-ups started on the older flow (topup_… orders) carry on below exactly as before.
+  const forwardOrderId = event.data?.order?.order_id;
+  if (forwardOrderId && (await topUpIntentForOrderId(forwardOrderId))) {
+    const forwarded = await handlePaymentWebhook("cashfree", rawBody, request.headers);
+    return NextResponse.json(forwarded.body, { status: forwarded.status });
   }
 
   // Only a SUCCESS payment actually confirms money moved. Other event types

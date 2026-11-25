@@ -586,8 +586,9 @@ export async function creditShopWalletTopUp(input: {
   gatewayPaymentId: string;
   amountPaise: number;
   userId: string;
-}): Promise<ShopWalletEntryResult> {
-  return db.transaction(async (tx) => {
+}, client?: DbClient): Promise<ShopWalletEntryResult> {
+  // PAY-2: inside a caller's transaction (the intent capture) this is a savepoint.
+  return (client ?? db).transaction(async (tx) => {
     const shop = await shopFacts(input.shopId, tx);
     const result = await applyShopWalletEntry(
       {
