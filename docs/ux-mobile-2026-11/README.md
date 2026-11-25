@@ -75,12 +75,24 @@ Used by **My products** (`/shop/my-products`) and step 3 of product setup.
   once the rider is approved; the bar is hidden while applying or registering and on
   the full-screen navigation map. Verification links and Reload are ≥ 44 px.
 
+### F. Shop home: today's sales and Accept / Reject (25-Nov 22.20 IST)
+
+* The New orders card (`src/components/board/new-orders-card.tsx`) lists the newest
+  two orders waiting for the shop (number, items, time, accept-by time, total) with
+  **Accept** and **Reject**. Reject asks why: one tap on "Items out of stock", "Shop
+  closed now" or "Can't deliver to this address", or a typed reason, then "Reject
+  order". Both call the same API as the Orders page
+  (`POST /api/orders/:id/fulfilment`), so permissions and rules are unchanged.
+* "Today's sales" (`src/server/services/shop-today.ts`): today's order total and
+  count in IST, leaving out unpaid, cancelled, failed, refunded and returned
+  orders. Shown to people who may see the shop's reports, beside the wallet balance.
+
 ## Tap counts (Part 2C targets)
 
 | Task | Target | Now (phone) |
 |---|---|---|
 | Open new orders from home | 1 | 1 — "New orders (n)" card (or the Orders tab from any page) |
-| Accept an order | ≤ 2 | 2 — New orders card → "Accept order" on the order |
+| Accept an order | ≤ 2 | 1 — Accept on the home card |
 | Reach the add-product form | ≤ 2 | 1 — "+ Add product" |
 | Update the price of 10 products | < 2 min | Products tab → Needs Price → type price, keypad "Next" ×10 → Save changes (n). Timed in the test report. |
 

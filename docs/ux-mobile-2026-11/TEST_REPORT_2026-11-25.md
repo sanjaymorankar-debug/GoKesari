@@ -25,6 +25,7 @@ Brief received 25-Nov-2026 21.10 IST. PR: [#582](https://github.com/sanjaymorank
 | Production build | local | 21.45 | 22.00 | compiled, 88/88 pages |
 | After audit, 6 screens × 8 widths | local production build | 21.50 | 21.54 | 48 screens; 0 sideways scroll, 0 inputs < 16 px on phones, 0 clipped labels |
 | Flow check (Part 3 + tap counts), 9 checks × 5 phone widths | local production build | 21.51 | 21.53 | **45/45 pass** |
+| Shop home: today's sales, Accept and Reject from the card (375, 390 px) | local production build | 22.20 | 22.52 | Pass: UX-6/UX-8 accepted, UX-7/UX-8 rejected (database shows ACCEPTED / CANCELLED); "New orders (5)" → "(3)" |
 | Customer orders + rider: small-target count and audit, 3 screens × 8 widths | local production build | 21.58 | 22.14 | customer 39 → 0 and rider 2 → 0 small targets on phones; rider tabs: applicant Home · Documents · Account, approved rider all five; Earnings/Payouts scroll to their sections (top at 80 px). Approved riders' "KYC" / "Police verification" alert links (17 px tall) enlarged afterwards — typecheck only, to see on staging |
 | Staging run | test.gokesari.com | — | — | waiting in the staging queue |
 | Production run | gokesari.com | — | — | waiting for the 26-Nov 23.00 release |
@@ -51,7 +52,7 @@ Brief received 25-Nov-2026 21.10 IST. PR: [#582](https://github.com/sanjaymorank
 | 16 | P2 | Customer | /orders on phones | 39 targets under 44 × 44 px: 16 px-tall text links (Bill of supply, Photo at delivery, Signature, Details/refunds/help, Get help), 20 px-wide rating stars, 40 px Submit rating / Cancel order, 38 px language buttons | Links 44 px tall in 14 px text, stars 44 × 44, rating/cancel buttons 44 px, language buttons 44 px | Fixed (local): 39 → 0 at every phone width |
 | 17 | P3 | Rider | /delivery-partner | "PAN" link 28 px wide, Reload 40 px, no bottom tab bar | Checklist links ≥ 44 × 44, Reload 44 px; tab bar Home · Earnings · Payouts · Documents · Account (Earnings/Payouts appear once the rider is approved; hidden on apply/register and the navigation map) | Fixed (local): 2 → 0 |
 | 18 | P3 | All | Desktop ≥ 1280 px | Chips 36–40 px tall (mouse use; acceptable) | — | Open (by design) |
-| 19 | P3 | Shop owner | Phone home | No "today's sales" figure; Accept/Reject not on the home card | Wallet balance shown; Accept is 2 taps via the card | **Open** |
+| 19 | P3 | Shop owner | Phone home | No "today's sales"; Accept/Reject only on the Orders page | "Today's sales" card (₹ total and order count for today, IST; cancelled, unpaid, refunded and returned orders left out) beside the wallet; the New orders card lists the newest two with **Accept** (1 tap) and **Reject** (pick a common reason or type one, then confirm) | Fixed (local): accept and reject checked against the database at 375 and 390 px |
 
 Screenshots (on the Mac, not in the public repo):
 `Test_Cases_Tracking/ux-mobile-2026-11-25/shots/before-staging/` (64) and `…/after-local/` (48).
@@ -64,7 +65,7 @@ Key pairs: `before-staging_admin_admin_ip15-390.png` ↔ `after-local_admin_admi
 | Task | Target | Result | Status |
 |---|---|---|---|
 | Open new orders from home | 1 tap | 1 tap ("New orders (n)" card or the Orders tab) | Pass |
-| Accept an order | ≤ 2 taps | 2 taps (card → "Accept order") | Pass |
+| Accept an order | ≤ 2 taps | **1 tap** (Accept on the home card) | Pass |
 | Reach the add-product form | ≤ 2 taps | 1 tap ("+ Add product") | Pass |
 | Price 10 products on a phone | < 2 min | Automated run: 10 prices + save in 0.7–0.8 s. Estimate for a person: about 6–8 s per price (tap, type, Next) plus a 2 s save, so **about 1 min 10 s–1 min 30 s** | Pass (estimate). A timed run by a person on a real iPhone is still open |
 
@@ -118,7 +119,6 @@ staging/production list needs a server-side query, because this Mac's SSH key is
    then runs with test accounts only, followed by cleanup.
 2. Real-device check on iPhone SE / 15 / 15 Pro Max and two Android phones (owner or tester).
    This includes the app WebView and the first-visit tour.
-3. Today's sales and Accept/Reject on the shop home card (#19).
 4. Fix the 19 pack sizes and decide how master MRPs get filled for the 509 packaged products.
 5. Hindi/Marathi: new labels are translated (tab bar, quick actions, tour, admin counts). The
    price editor's own strings are English, as they were before.
