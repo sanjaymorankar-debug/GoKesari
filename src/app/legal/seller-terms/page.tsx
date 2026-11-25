@@ -1,4 +1,12 @@
-import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { SellerUndertakingClauses } from "@/components/legal/seller-undertaking-clauses";
+import {
+  formatUndertakingDate,
+  SELLER_TERMS_VERSION,
+  SELLER_UNDERTAKING_EFFECTIVE_DATE,
+  SELLER_UNDERTAKING_PROMISE,
+  SELLER_UNDERTAKING_TITLE,
+  SELLER_UNDERTAKING_VERSION,
+} from "@/lib/legal/seller-undertaking";
 
 export const metadata = { title: "Marketplace Seller Terms" };
 
@@ -6,7 +14,7 @@ export default function SellerTermsPage() {
   return (
     <>
       <h1>Marketplace Seller Terms</h1>
-      <p>Last updated: {CURRENT_POLICY_VERSION}</p>
+      <p>Last updated: {SELLER_TERMS_VERSION}</p>
 
       <p>
         These terms apply to every shop listed on the platform. By
@@ -90,6 +98,17 @@ export default function SellerTermsPage() {
         The platform may request evidence of required licences and may
         suspend a listing that cannot demonstrate compliance when required.
       </p>
+
+      {/* docs/seller-undertaking-2026-11. Wording needs lawyer review before production. */}
+      <h2 id="seller-undertaking">{SELLER_UNDERTAKING_TITLE}</h2>
+      <p>
+        Version {SELLER_UNDERTAKING_VERSION}, effective {formatUndertakingDate(SELLER_UNDERTAKING_EFFECTIVE_DATE)}. Every shop owner
+        accepts this undertaking when registering a shop, and again whenever it changes, before the shop can accept new orders.
+      </p>
+      <p>
+        <strong>{SELLER_UNDERTAKING_PROMISE}</strong>
+      </p>
+      <SellerUndertakingClauses />
     </>
   );
 }

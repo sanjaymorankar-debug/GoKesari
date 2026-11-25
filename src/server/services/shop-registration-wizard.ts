@@ -129,6 +129,7 @@ import { assertShopType, listShopTypes, loadShopTypeRegistry } from "./shop-type
 import { loadDocumentRuleSet, requirementsFromRuleSet } from "./shop-document-rules";
 
 import { autoApproveShopIfReady, registerShop } from "./shops";
+import { acceptSellerUndertaking } from "./seller-undertaking";
 
 /* ---------------------------------------------------------------- types */
 
@@ -1376,7 +1377,16 @@ const plain = (row: ShopRegistrationDraftCheck | undefined, include = true): str
  * same transaction. Returns the wizard at its payment step. Idempotent: a
  * draft already turned into a shop is returned as it is.
  */
-export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: string | null; /** Ignored: no promise in the wizard any more. */ promiseDocuments?: boolean }): Promise<WizardView> {
+export async function submitDraftForPayment(input: {
+  actor: Actor;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  /** Ignored: no promise in the wizard any more. */
+  promiseDocuments?: boolean;
+  /** docs/seller-undertaking-2026-11: both must be true (ticked by the owner) or nothing is created. */
+  acceptSellerTerms?: boolean;
+  acceptUndertaking?: boolean;
+}): Promise<WizardView> {
   const { actor } = input;
   const open = await findOpenDraft(actor.id);
   if (!open) {
@@ -1392,6 +1402,13 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
   if (!view.documents.canSubmit) {
     throw conflict("A valid PAN or GST is required to register. Please get your GSTIN or PAN verified before paying the registration fee.", {
       reason: "IDENTITY_NOT_VERIFIED",
+    });
+  }
+  if (input.acceptSellerTerms !== true || input.acceptUndertaking !== true) {
+    throw validationFailed("Tick both boxes to accept the Seller Terms and the seller undertaking (fresh, non-expired, compliant goods) before payment.", {
+      reason: "SELLER_ACCEPTANCE_REQUIRED",
+      acceptSellerTerms: input.acceptSellerTerms === true,
+      acceptUndertaking: input.acceptUndertaking === true,
     });
   }
   const details = view.details!;
@@ -1433,6 +1450,8 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
         updatedAt: new Date(),
       })
       .where(eq(shopRegistrationDrafts.id, draft.id));
+    // docs/seller-undertaking-2026-11: the owner ticked both boxes; recorded with the shop, in the same transaction.
+    await acceptSellerUndertaking({ userId: actor.id, shopIds: [shop.id], ip: input.ipAddress ?? null, userAgent: input.userAgent ?? null, actorRole: actor.role, client: tx });
   };
 
   const gstin = open.route === "GSTIN" && open.gstinEncrypted && (!later || CHECKED.has(open.gstStatus)) ? decryptSecret(open.gstinEncrypted) : null;

@@ -404,7 +404,7 @@ export const AUDIT_ACTIONS = {
   IMAGE_UPLOADED: "image.uploaded",
   RIDER_EARNING_SLOT_SAVED: "rider_earning_slot.saved",
   RIDER_INCENTIVE_SAVED: "rider_incentive.saved",
-  /* Rider App v2 (0209) */
+  /* Rider App v2 (0210) */
   RIDER_PAY_PLAN_SAVED: "rider_pay_plan.saved",
   RIDER_PAY_PLAN_SIMULATED: "rider_pay_plan.simulated",
   RIDER_PAY_PLAN_PUBLISHED: "rider_pay_plan.published",

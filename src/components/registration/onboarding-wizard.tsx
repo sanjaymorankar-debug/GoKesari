@@ -15,6 +15,8 @@ import { tr, type Lang } from "@/lib/board/i18n";
 import { documentNoticeMessage, licenceNoticeMessage, mandatoryLicenceFor } from "@/lib/shop-licences";
 import { PUJA_SHOP_TYPE_KEY } from "@/lib/puja";
 import { GST_DECLARATION_TEXT, SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
+import { SellerUndertakingClauses } from "@/components/legal/seller-undertaking-clauses";
+import { SELLER_TERMS_ACCEPT_TEXT, SELLER_UNDERTAKING_PROMISE, SELLER_UNDERTAKING_TITLE, SELLER_UNDERTAKING_VERSION } from "@/lib/legal/seller-undertaking";
 import { SELLER_DOC_LABELS, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { formatRupeesIndian, turnoverSlab, turnoverSlabLabel, type TurnoverFeeRule } from "@/lib/registration-fee";
 import { DocumentUploadPanel, type PanelItem } from "@/components/document-upload-panel";
@@ -1861,6 +1863,8 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
     </div>
   );
   const identity = state.route === "PAN_ONLY" ? state.pan : state.gstin;
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [acceptUndertaking, setAcceptUndertaking] = useState(false);
   return (
     <StepCard title="Payment" intro="Check your details, then continue to pay the registration fee by UPI or card.">
       <div>
@@ -1882,7 +1886,34 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
         <Alert tone="success">Your {state.route === "PAN_ONLY" ? "PAN" : "GSTIN"} is verified: your shop goes live as soon as the payment is confirmed.</Alert>
       )}
       <WhatYouPay state={state} slab={slab} />
-      <Button type="button" size="lg" className="w-full" disabled={busy || !docs.canSubmit} onClick={() => void send("/api/shops/registration-draft/submit")} data-testid="create-and-pay">
+      {/* docs/seller-undertaking-2026-11: both unticked; the server refuses the submit unless both are true. */}
+      <div className="space-y-2 text-sm text-ink-700">
+        <label className="flex items-start gap-3">
+          <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} data-testid="accept-seller-terms" />
+          <span>
+            {SELLER_TERMS_ACCEPT_TEXT}:{" "}
+            <a href="/legal/seller-terms" target="_blank" rel="noopener" className="underline">Seller Terms</a>,{" "}
+            <a href="/legal/terms" target="_blank" rel="noopener" className="underline">Terms &amp; Conditions</a>,{" "}
+            <a href="/legal/privacy-policy" target="_blank" rel="noopener" className="underline">Privacy Policy</a>.
+          </span>
+        </label>
+        <label className="flex items-start gap-3">
+          <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={acceptUndertaking} onChange={(e) => setAcceptUndertaking(e.target.checked)} data-testid="accept-seller-undertaking" />
+          <span>{SELLER_UNDERTAKING_PROMISE}</span>
+        </label>
+        <details className="ml-8 text-xs text-ink-600">
+          <summary className="cursor-pointer underline">{SELLER_UNDERTAKING_TITLE} (version {SELLER_UNDERTAKING_VERSION}) — read in full</summary>
+          <SellerUndertakingClauses className="mt-1 list-decimal space-y-1 pl-5" />
+        </details>
+      </div>
+      <Button
+        type="button"
+        size="lg"
+        className="w-full"
+        disabled={busy || !docs.canSubmit || !acceptTerms || !acceptUndertaking}
+        onClick={() => void send("/api/shops/registration-draft/submit", { acceptSellerTerms: acceptTerms, acceptUndertaking })}
+        data-testid="create-and-pay"
+      >
         {busy ? "Creating your shop…" : "Create my shop and pay"}
       </Button>
     </StepCard>

@@ -79,6 +79,7 @@ import { shopServiceability, societyPartnerShopIds, withWalletGate } from "./ser
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { assertFulfilmentAllowsStatus } from "./fulfilment-guards";
 import { assertLegalDocsAllowOrders } from "./legal-documents";
+import { assertSellerUndertakingAllowsOrders } from "./seller-undertaking";
 import { assertIdentityVerifiedForCheckout, assertShopIdentityAllowsOrders } from "./identity-verification";
 import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 import { resolveAddressSociety } from "./societies";
@@ -1062,6 +1063,8 @@ export async function updateOrderStatus(
     if (order.status === "CONFIRMED" && (newStatus === "ACCEPTED" || newStatus === "PREPARING")) {
       await assertShopMayAcceptOrders(order.shopId, tx);
       await assertLegalDocsAllowOrders(order.shopId);
+      // docs/seller-undertaking-2026-11: no NEW order until the owner accepts the fresh-goods undertaking (flag on).
+      await assertSellerUndertakingAllowsOrders(order.shopId);
       // docs/identity-verification-2026-11: the owner's identity, after the grace period (which starts here if not yet).
       await assertShopIdentityAllowsOrders(order.shopId, { startGrace: true });
     }

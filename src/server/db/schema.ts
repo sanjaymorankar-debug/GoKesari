@@ -569,6 +569,10 @@ export const consentTypeEnum = pgEnum("consent_type", [
   "MARKETING_COMMUNICATIONS",
   // docs/customer-whatsapp-2026-11 (0193): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
   "WHATSAPP_NOTIFICATIONS",
+  // docs/seller-undertaking-2026-11 (0209): a shop owner's undertaking to supply only fresh, non-expired,
+  // compliant goods, and their acceptance of the Seller Terms — each with its own version.
+  "SELLER_GOODS_UNDERTAKING",
+  "SELLER_TERMS",
 ]);
 
 /* ------------------------------------------------- auth (Auth.js managed) */
@@ -1407,7 +1411,7 @@ export const deliveryPartners = pgTable(
     latitude: text("latitude"),
     longitude: text("longitude"),
     operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
-    /** Rider App v2 (0209, rule riderReferral): this rider's own code, and who referred them. */
+    /** Rider App v2 (0210, rule riderReferral): this rider's own code, and who referred them. */
     referralCode: text("referral_code"),
     referredByPartnerId: uuid("referred_by_partner_id"),
     /** Rating aggregate (GS-060), maintained from visible order_ratings. Average × 100. */
@@ -2382,12 +2386,12 @@ export const deliveryOrders = pgTable(
     rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
     /** GA-005: the trip this delivery is batched into with the rider's other orders; null = carried alone. */
     tripId: uuid("trip_id").references((): AnyPgColumn => deliveryTrips.id, { onDelete: "set null" }),
-    /* Rider App v2 (0209, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
+    /* Rider App v2 (0210, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
     quotePaise: integer("quote_paise"),
     quoteBreakdown: jsonb("quote_breakdown").$type<import("@/lib/rider-pay-plan").PayQuote>(),
     payPlanId: uuid("pay_plan_id"),
     quotedAt: timestamp("quoted_at", { withTimezone: true }),
-    /** 0209: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
+    /** 0210: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
     rejectReasonCode: text("reject_reason_code"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2851,7 +2855,7 @@ export const deliveryPartnerEarnings = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
     payoutId: uuid("payout_id"),
-    /* Rider App v2 (0209): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
+    /* Rider App v2 (0210): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
     quotePaise: integer("quote_paise"),
     payPlanId: uuid("pay_plan_id"),
     planBreakdown: jsonb("plan_breakdown").$type<Record<string, unknown>>(),
@@ -3467,9 +3471,9 @@ export const riderEarningSlots = pgTable(
     /** Peak-period component paid on top in this slot. */
     peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
     isPeak: boolean("is_peak").notNull().default(false),
-    /** Rider App v2 (0209): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
+    /** Rider App v2 (0210): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
     surgeMultiplierBp: integer("surge_multiplier_bp"),
-    /** 0209 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
+    /** 0210 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
     bookable: boolean("bookable").notNull().default(false),
     bookingCapacity: integer("booking_capacity"),
     /** The highest-priority active slot containing the delivery time wins. */
@@ -5051,6 +5055,10 @@ export const userConsents = pgTable(
     ipAddress: text("ip_address"),
     /** docs/customer-whatsapp-2026-11 (0193): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
     source: text("source"),
+    /** 0209: the shop the consent was given for (seller consents); null for every other consent. No FK (kept on shop deletion as evidence). */
+    shopId: uuid("shop_id"),
+    /** 0209: the browser / app that recorded the consent, as evidence of the act; null on older rows. */
+    userAgent: text("user_agent"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -5058,6 +5066,8 @@ export const userConsents = pgTable(
   (t) => [
     index("user_consents_user_idx").on(t.userId),
     index("user_consents_type_idx").on(t.consentType),
+    // 0209: "latest consent of this type for this user" (seller undertaking gate, read on every Seller Central page).
+    index("user_consents_user_type_created_idx").on(t.userId, t.consentType, t.createdAt),
   ],
 );
 
@@ -11054,6 +11064,8 @@ export const FEATURE_FLAG_KEYS = [
   // separately for customers (first checkout) and shop owners (go-live, order acceptance, grace). Both seeded OFF.
   "identity_verification_customers_enabled",
   "identity_verification_shop_owners_enabled",
+  // docs/seller-undertaking-2026-11 (0209): shop owners accept the fresh-goods undertaking before using Seller Central / accepting new orders. Seeded OFF.
+  "seller_undertaking_gate_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
