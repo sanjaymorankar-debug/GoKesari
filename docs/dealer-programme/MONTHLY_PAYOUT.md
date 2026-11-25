@@ -1,5 +1,15 @@
 # Dealer commission — monthly payout on the 5th (28 Oct 2026)
 
+> **Current rules (24-Nov-2026)** — the close on the 5th still works as below, with these later changes:
+> - **One payout per PAN** (not per dealer): every earner of a TIERED team or franchise team (main dealer, team
+>   lead, agent) is paid directly, once a month, if he has a PAN, a verified bank account and the accepted agent
+>   agreement; otherwise the month is held and carried (rule `dealerPayouts`; [../referrals-dealer-2026-11/ADMIN_GUIDE.md](../referrals-dealer-2026-11/ADMIN_GUIDE.md)).
+> - **Automatic bank transfer** exists (rule `dealerAutoPayout`, off by default): a second admin approves the draft
+>   and it is sent through the payout provider. Off, an admin still pays by hand and records the UTR, as below.
+> - **TDS** is built (rule `dealerPayoutTds`, Admin → TDS on commission) and stays off until the CA confirms the rows.
+> - Franchise recurring lines and scheme lines (`SCHEME_*`, 23-Nov-2026) go through the same close.
+> - One database since Nov 2026: the `-- split: seller` header below is history.
+
 Owner request: dealer commission is released monthly, on the 5th of each month, with a detailed
 report of the registrations each dealer brought.
 

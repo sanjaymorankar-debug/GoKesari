@@ -58,6 +58,11 @@ AUTH_GOOGLE_SECRET=<google oauth client secret>
 CASHFREE_APP_ID=<live app id>
 CASHFREE_SECRET_KEY=<live secret key>
 CASHFREE_ENV=production
+# Gateway for online order payments. gokesari.com: CASHFREE (set 19-Nov-2026;
+# the default SANDBOX is refused in production, so unset means no online
+# payment). test.gokesari.com: SANDBOX (the app's built-in test payment page;
+# owner, 24-Nov-2026) — never live keys there.
+PAYMENT_GATEWAY=CASHFREE
 
 CRON_SECRET=<openssl rand -hex 32>
 BOOTSTRAP_ADMIN_EMAILS=you@your-domain.com
@@ -71,17 +76,15 @@ SUBSCRIPTION_CUTOFF_HOUR=20
 
 # Seller document verification — see docs/seller-verification/README.md.
 # Sandbox keys on staging, live keys on production only; the app refuses
-# any other pairing.
-KYC_PROVIDER=gridlines
+# any other pairing. Owner's choice (09-Nov-2026): Sandbox.co.in for PAN and
+# GSTIN (Udyam / FSSAI / Shop Act then go to manual review). Production:
+# key_live_… keys. Staging: KYC_ENV=sandbox with key_test_… keys
+# (test-api.sandbox.co.in answers only its saved examples).
+KYC_PROVIDER=sandboxco
 KYC_ENV=production
-GRIDLINES_API_KEY=<live key>
-# …or Sandbox.co.in for PAN and GSTIN (Udyam / FSSAI / Shop Act then go to
-# manual review). Production: key_live_… keys. Staging: KYC_ENV=sandbox with
-# key_test_… keys (test-api.sandbox.co.in answers only its saved examples:
-# PAN XXXPX1234A, GSTIN 33ABKCS2033B1ZW).
-# KYC_PROVIDER=sandboxco
-# SANDBOX_CO_API_KEY=<key_live_…>
-# SANDBOX_CO_API_SECRET=<secret_live_…>
+SANDBOX_CO_API_KEY=<key_live_…>
+SANDBOX_CO_API_SECRET=<secret_live_…>
+# Gridlines (first plan; adapter kept): KYC_PROVIDER=gridlines, GRIDLINES_API_KEY=<live key>
 
 # Shop document upload with auto-read — docs/document-upload-2026-10/README.md.
 # Default: read on this server (tesseract), nothing needed. "claude" sends the
@@ -412,54 +415,45 @@ Staging first:
 Rollback: `scripts/rollback-0040.sql` (drops both tables — back up first).
 See `docs/seller-verification/README.md` for settings per site.
 
-## 5. Schedule the daily order engine
+## 5. Schedule the background jobs
 
-This is the step that makes subscriptions work. Without it, no daily orders are
-generated and no wallets are debited.
+> **Updated 24-Nov-2026.** This section used to list one crontab line per job
+> (daily orders, seller verification, shop acceptance, integration sync). Since
+> 19-Oct-2026 there are three entry points instead, and since 17-Nov-2026 they
+> run as systemd timers on our server, not as hPanel cron lines.
 
-```bash
-# Daily at 05:00 IST
-0 5 * * * curl -fsS -X POST https://your-domain.com/api/cron/daily-orders \
-  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/daily-orders.log 2>&1
-```
+This is the step that makes subscriptions, timeouts, retries and payouts work.
+Without it, no daily orders are generated and no wallets are debited.
 
-Seller document verification has its own daily sweep (re-checks, expiry
-warnings, suspension when a mandatory document lapses):
+| Entry point | When (IST) | Runs |
+|---|---|---|
+| `POST /api/cron/every-minute` | every minute | timeouts, retries, queued and scheduled sends, payment reconciliation (every 5 min), … |
+| `POST /api/cron/hourly` | hourly at :47 | risk scan, dispute and help-desk deadlines, payout retries, rider monthly payout, … |
+| `POST /api/cron/daily` | 05:00 | subscription orders (`daily-orders`), seller document upkeep, GST reminders, weekly shop payout (Saturday), dealer payouts, … |
 
-```bash
-# Daily at 06:30 IST
-30 6 * * * curl -fsS -X POST https://your-domain.com/api/cron/seller-verification \
-  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/seller-verification.log 2>&1
-```
+The full job list is in [docs/cron-schedule.md](docs/cron-schedule.md) and the
+schedule in [docs/crontab.txt](docs/crontab.txt). Each call carries
+`Authorization: Bearer $CRON_SECRET`; every job is idempotent, and each entry
+point runs one copy at a time (an overlapping call answers
+`{"skipped":true,"reason":"ALREADY_RUNNING"}`).
 
-> **Event layer (docs/event-driven-2026-10):** status changes and their
-> notifications now happen in the request that causes them; cron is the safety
-> net only. The minute jobs become `timeout-sweep` and `notification-retry` —
-> see `docs/event-driven-2026-10/crontab.test.txt` for the full schedule and
-> `ROLLBACK.md` there to restore the jobs below.
+**On our server:** the timers `gk-cron@<site>-every-minute|hourly|daily`, the
+same on both sites; `sudo gk-site cron <site> on|off|status`
+([scripts/vps-app/README.md](scripts/vps-app/README.md), "Cron"). The
+every-minute timer must fire at whole minutes: the 5-, 10- and 15-minute jobs
+run only on matching minutes.
 
-The shop acceptance timeout (rule `shopAcceptance`, NEW-007) needs a sweep
-every minute. It does nothing while the rule is off, so it is safe to schedule
-before switching the rule on:
-
-```bash
-* * * * * curl -fsS -X POST https://your-domain.com/api/cron/shop-acceptance \
-  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/shop-acceptance.log 2>&1
-```
-
-Accounting integration (Module 2, docs/three-modules-2026-10) — invoices and
-credit notes are sent to the shop's software by the event that creates them;
-this minute sweep only runs retries that came due, re-queues a missed push and
-warns about offline Tally connectors:
+**On any other host**, three crontab lines (UTC):
 
 ```bash
-* * * * * curl -fsS -X POST https://your-domain.com/api/cron/integration-sync \
-  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/integration-sync.log 2>&1
+* * * * *   curl -fsS --max-time 55  -o /dev/null -X POST https://your-domain.com/api/cron/every-minute -H "Authorization: Bearer $CRON_SECRET"
+17 * * * *  curl -fsS --max-time 300 -o /dev/null -X POST https://your-domain.com/api/cron/hourly -H "Authorization: Bearer $CRON_SECRET"
+30 23 * * * curl -fsS --max-time 300 -o /dev/null -X POST https://your-domain.com/api/cron/daily -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-Any scheduler works — the host's cron panel, GitHub Actions on a schedule, or an
-external monitor. The job is idempotent, so a duplicate or retried run is
-harmless.
+Don't also schedule the old per-job routes (`/api/cron/daily-orders`,
+`/api/cron/shop-acceptance`, …): they still answer for a manual run, but
+scheduled next to the entry points each job would run twice.
 
 Verify wiring without generating anything:
 
@@ -495,6 +489,13 @@ The wallet is credited only after the server independently confirms payment
 with Cashfree's own API (never from anything the client reports), and
 `payments.gateway_payment_id` is UNIQUE, so a replayed callback or a webhook
 racing the browser callback cannot credit twice.
+
+Online **order** payments go through the gateway named by `PAYMENT_GATEWAY`
+(§2): `CASHFREE` on gokesari.com since 19-Nov-2026; `SANDBOX` (the built-in test
+payment page) on test.gokesari.com ([docs/payments-gateway-2026-10.md](docs/payments-gateway-2026-10.md)).
+Payment tests on staging use Cashfree sandbox test data only
+([docs/testing/cashfree-sandbox-test-data.md](docs/testing/cashfree-sandbox-test-data.md));
+the pay step runs through the "Sandbox payment" workflow.
 
 With no Cashfree credentials the app runs in **mock payment mode**, which is
 correct for local development but must never reach production — confirm
@@ -582,7 +583,11 @@ Watch, at minimum:
 | Database connection pool saturation | `max: 20` in production |
 | Shops stuck in `PENDING_APPROVAL` | Operator SLA |
 
-Application logs go to stdout. The audit log (`audit_logs`) records every
+On our server, `gk-app-health` checks each site every 5 minutes, and the deploy
+agent, backups and databases report to healthchecks.io, which e-mails the owner
+([RUNBOOK](docs/neon-to-vps-2026-11/RUNBOOK.md), alerts table).
+
+Application logs go to stdout (on the server: `journalctl -u 'site@<site>-*'`). The audit log (`audit_logs`) records every
 sensitive mutation — approvals, classification changes, price changes, wallet
 adjustments, refunds, role changes, order status changes — with actor, entity
 and before/after values.
@@ -626,7 +631,7 @@ Rollback checklist:
 - [ ] Google OAuth redirect URI matches the deployed domain exactly
 - [ ] `CASHFREE_APP_ID` is set with `CASHFREE_ENV=production` — confirm the app is not in mock payment mode
 - [ ] Migrations applied; `npm run db:seed -- --minimal` run once
-- [ ] Daily cron scheduled **and observed to run successfully once**
+- [ ] The three cron entry points scheduled (§5) **and the daily run observed to succeed once**
 - [ ] Signed in with the bootstrap admin, then removed `BOOTSTRAP_ADMIN_EMAILS`
 - [ ] `PERMANENT_ADMIN_EMAILS` set to the owner accounts that must never be lockable out
 - [ ] `PAN_ENCRYPTION_KEY` set, and a copy kept somewhere other than the database backups
