@@ -25,7 +25,7 @@ Brief received 25-Nov-2026 21.10 IST. PR: [#582](https://github.com/sanjaymorank
 | Production build | local | 21.45 | 22.00 | compiled, 88/88 pages |
 | After audit, 6 screens × 8 widths | local production build | 21.50 | 21.54 | 48 screens; 0 sideways scroll, 0 inputs < 16 px on phones, 0 clipped labels |
 | Flow check (Part 3 + tap counts), 9 checks × 5 phone widths | local production build | 21.51 | 21.53 | **45/45 pass** |
-| Shop home: today's sales, Accept and Reject from the card (375, 390 px) | local production build | 22.20 | 22.52 | Pass: UX-6/UX-8 accepted, UX-7/UX-8 rejected (database shows ACCEPTED / CANCELLED); "New orders (5)" → "(3)" |
+| Shop home: today's sales, Accept and Reject from the card (375, 390 px) | local production build | 22.18 | 22.38 | Pass: UX-6/UX-8 accepted, UX-7/UX-8 rejected (database shows ACCEPTED / CANCELLED); "New orders (5)" → "(3)" |
 | Customer orders + rider: small-target count and audit, 3 screens × 8 widths | local production build | 21.58 | 22.14 | customer 39 → 0 and rider 2 → 0 small targets on phones; rider tabs: applicant Home · Documents · Account, approved rider all five; Earnings/Payouts scroll to their sections (top at 80 px). Approved riders' "KYC" / "Police verification" alert links (17 px tall) enlarged afterwards — typecheck only, to see on staging |
 | Staging run | test.gokesari.com | — | — | waiting in the staging queue |
 | Production run | gokesari.com | — | — | waiting for the 26-Nov 23.00 release |
