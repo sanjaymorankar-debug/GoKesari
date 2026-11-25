@@ -12,6 +12,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { conflict, isUniqueViolation, notFound, validationFailed } from "@/lib/errors";
 import {
   calculateEarning,
+  calculatePlanEarning,
   localTime,
   type EarningBreakdown,
   type EarningOutcome,
@@ -19,6 +20,7 @@ import {
   type SlotRule,
 } from "@/lib/earnings-calc";
 import { getEnv } from "@/lib/env";
+import { computeFinalPay } from "@/lib/rider-pay-plan";
 import { db, type DbClient } from "@/server/db";
 import {
   deliveryEarningsConfig,
@@ -29,12 +31,14 @@ import {
   riderEarningsLedger,
   riderIncentiveAwards,
   riderIncentiveRules,
+  riderPayPlans,
   type DeliveryEarningsConfig,
   type DeliveryPartnerEarning,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { postRiderEarning } from "./finance";
+import { planLabel, toTerms } from "./rider-pay-plans";
 import { getRule } from "./settings";
 
 interface Actor {
@@ -166,6 +170,46 @@ export async function previewEarning(input: {
 }
 
 /**
+ * Rider App v2 (0201): the earning of a delivery whose quote was locked at acceptance. FINAL =
+ * max(quote, re-worked pay after a long reroute) + wait at the shop + incentives − deductions.
+ * Null when the delivery has no locked quote (flat-rate path). The plan the quote came from is
+ * read for its wait and reroute terms; if it is gone, the quote alone is paid.
+ */
+async function planEarningFor(
+  deliveryOrder: typeof deliveryOrders.$inferSelect,
+  incentives: IncentiveRule[],
+  rules: Awaited<ReturnType<typeof getRule<"riderEarnings">>>,
+  input: Parameters<typeof calculateEarning>[4],
+  c: DbClient,
+): Promise<{ breakdown: EarningBreakdown; quotePaise: number; payPlanId: string | null; detail: Record<string, unknown> } | null> {
+  const quote = deliveryOrder.quoteBreakdown;
+  if (deliveryOrder.quotePaise == null || !quote) return null;
+  const plan = deliveryOrder.payPlanId
+    ? await c.query.riderPayPlans.findFirst({ where: eq(riderPayPlans.id, deliveryOrder.payPlanId) })
+    : null;
+  const waitMin =
+    deliveryOrder.arrivedAtShopAt && deliveryOrder.pickedUpAt
+      ? Math.max(0, (deliveryOrder.pickedUpAt.getTime() - deliveryOrder.arrivedAtShopAt.getTime()) / 60_000)
+      : 0;
+  const legKm = deliveryOrder.distanceKm != null ? Number(deliveryOrder.distanceKm) : NaN;
+  const final = plan
+    ? computeFinalPay(toTerms(plan), { quote, actualLegM: Number.isFinite(legKm) ? Math.round(legKm * 1000) : null, waitMin })
+    : { tripPaise: deliveryOrder.quotePaise, reroutedPaise: null, rerouted: false, waitPaise: 0 };
+  const breakdown = calculatePlanEarning(
+    { quote, tripPaise: final.tripPaise, waitPaise: final.waitPaise, waitMin, planLabel: plan ? planLabel(plan) : "pay plan" },
+    incentives,
+    rules,
+    input,
+  );
+  return {
+    breakdown,
+    quotePaise: deliveryOrder.quotePaise,
+    payPlanId: deliveryOrder.payPlanId,
+    detail: { quote, final, waitMin: Math.round(waitMin) },
+  };
+}
+
+/**
  * Idempotent on deliveryOrderId — a retried credit (e.g. a re-run failsafe)
  * never pays out twice. Eligible once a delivery is DELIVERED, or — per D10
  * (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md DEF-08) — CANCELLED after
@@ -250,7 +294,7 @@ export async function creditDeliveryEarnings(
       ),
     );
 
-  const breakdown = calculateEarning(config, slots, incentives, rules, {
+  const earningInput = {
     outcome,
     distanceKm: deliveryOrder.distanceKm ? Number(deliveryOrder.distanceKm) : 0,
     orderSubtotalPaise: order?.subtotalPaise ?? 0,
@@ -264,7 +308,11 @@ export async function creditDeliveryEarnings(
         : null,
     alreadyAwarded: new Set(awardedRows.map((r) => `${r.ruleId}:${r.periodKey}`)),
     deliveryOrderId,
-  });
+  };
+  // Rider App v2: a delivery quoted from a pay plan is paid from its locked quote.
+  const planPay = await planEarningFor(deliveryOrder, incentives, rules, earningInput, c);
+
+  const breakdown = planPay?.breakdown ?? calculateEarning(config, slots, incentives, rules, earningInput);
 
   try {
     const [earning] = await c
@@ -282,6 +330,9 @@ export async function creditDeliveryEarnings(
         deductionsPaise: breakdown.deductionsPaise,
         slotId: breakdown.slotId,
         totalPaise: breakdown.totalPaise,
+        quotePaise: planPay?.quotePaise ?? null,
+        payPlanId: planPay?.payPlanId ?? null,
+        planBreakdown: planPay?.detail ?? null,
       })
       .returning();
 

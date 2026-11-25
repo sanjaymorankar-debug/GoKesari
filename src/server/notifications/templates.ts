@@ -324,6 +324,16 @@ export const TEMPLATES: Record<string, Template> = {
     false,
   ),
   [T.DELIVERY_OFFER_TAKEN]: t("Offer taken", "Order {{orderNumber}} was accepted by another rider.", false),
+  /* Rider App v2 (0201) */
+  [T.RIDER_JOB_NEARBY]: t("New delivery near you", "{{shopName}}, {{km}} km away — you earn {{amount}}. Open the app to accept.", false),
+  [T.RIDER_SURGE_STARTED]: t("High-earning time in your zone", "{{reason}}: pay ×{{multiplier}}{{flat}} per order until {{until}} IST. Go online to earn more.", false),
+  [T.RIDER_SURGE_ENDED]: t("Surge ended", "The {{reason}} surge in your zone has ended.", false),
+  [T.RIDER_MILESTONE_UNLOCKED]: t("Milestone unlocked", "{{name}}: you earned {{amount}} extra.", false),
+  [T.RIDER_SLOT_REMINDER]: t("Your slot starts soon", "{{slotName}} starts at {{start}} IST. Go online to get priority on orders.", false),
+  [T.RIDER_SOS_RAISED]: t("Rider SOS", "{{riderName}} ({{mobile}}) pressed SOS{{orderPart}}. Location: {{mapUrl}}", true),
+  [T.RIDER_SOS_ACKNOWLEDGED]: t("Help is on the way", "Our team has seen your SOS and is contacting you now.", false),
+  [T.RIDER_INSURANCE_STATUS]: t("Insurance update", "Your rider insurance is now {{status}}.", false),
+  [T.RIDER_REFERRAL_QUALIFIED]: t("Referral reward earned", "{{name}} completed their deliveries — {{amount}} will be added to your next payout.", false),
   [T.SHOP_RIDER_OFFER_BROADCAST]: t(
     "Asking all riders nearby",
     "Order {{orderNumber}}: the first rider did not accept in time, so the offer has gone to every rider within {{radiusKm}} km. You will hear as soon as one accepts.",

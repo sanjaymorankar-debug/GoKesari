@@ -273,6 +273,16 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_BROADCAST_OFFERED: "delivery.broadcast_offered",
   /** To a rider who had a broadcast offer: another rider accepted it first. */
   DELIVERY_OFFER_TAKEN: "delivery.offer_taken",
+  /* Rider App v2 (0201) */
+  RIDER_JOB_NEARBY: "delivery.rider_job_nearby",
+  RIDER_SURGE_STARTED: "delivery.rider_surge_started",
+  RIDER_SURGE_ENDED: "delivery.rider_surge_ended",
+  RIDER_MILESTONE_UNLOCKED: "delivery.rider_milestone_unlocked",
+  RIDER_SLOT_REMINDER: "delivery.rider_slot_reminder",
+  RIDER_SOS_RAISED: "delivery.rider_sos_raised",
+  RIDER_SOS_ACKNOWLEDGED: "delivery.rider_sos_acknowledged",
+  RIDER_INSURANCE_STATUS: "delivery.rider_insurance_status",
+  RIDER_REFERRAL_QUALIFIED: "delivery.rider_referral_qualified",
   /** To the shop: no rider took the single offer, so it went to all riders nearby. */
   SHOP_RIDER_OFFER_BROADCAST: "shop.rider_offer_broadcast",
   /* <<< end WS-B */

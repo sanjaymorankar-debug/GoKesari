@@ -193,6 +193,50 @@ export function pickSlot(slots: readonly SlotRule[], at: Date, timeZone: string)
   return matching[0] ?? null;
 }
 
+
+/** The incentive rules a delivery earns (completed drops only). Shared by the flat-rate and the pay-plan paths. */
+export function incentiveAwards(incentives: readonly IncentiveRule[], input: EarningInput, t: LocalTime): Award[] {
+  const awards: Award[] = [];
+  if (input.outcome === "DELIVERED") {
+    for (const rule of incentives) {
+      if (!activeOn(rule, t)) continue;
+      let periodKey: string | null = null;
+      let bucket: Award["bucket"] = "OTHER";
+      switch (rule.type) {
+        case "ORDER_COUNT": {
+          const count = rule.period === "WEEK" ? input.weekCount : input.dayCount;
+          if (count > rule.thresholdValue) periodKey = input.deliveryOrderId;
+          bucket = "ORDER";
+          break;
+        }
+        case "DAILY_TARGET":
+          if (input.dayCount === rule.thresholdValue) periodKey = t.dateKey;
+          bucket = "ORDER";
+          break;
+        case "WEEKLY_TARGET":
+          if (input.weekCount === rule.thresholdValue) periodKey = t.weekKey;
+          bucket = "ORDER";
+          break;
+        case "DISTANCE":
+          if (input.distanceKm * 1000 >= rule.thresholdValue) periodKey = input.deliveryOrderId;
+          bucket = "OTHER";
+          break;
+        case "PEAK_HOUR":
+          if (inWindow(t.minutes, rule.startTime, rule.endTime)) periodKey = input.deliveryOrderId;
+          bucket = "SLOT";
+          break;
+        case "CAMPAIGN":
+          if (inWindow(t.minutes, rule.startTime, rule.endTime)) periodKey = input.deliveryOrderId;
+          bucket = "OTHER";
+          break;
+      }
+      if (!periodKey || input.alreadyAwarded.has(`${rule.id}:${periodKey}`)) continue;
+      awards.push({ ruleId: rule.id, name: rule.name, type: rule.type, amountPaise: rule.rewardPaise, periodKey, bucket });
+    }
+  }
+  return awards;
+}
+
 /* ------------------------------------------------------------ calculation */
 
 const percentOf = (paise: number, percent: number) => Math.round((paise * percent) / 100);
@@ -250,44 +294,7 @@ export function calculateEarning(
   }
 
   // Incentives reward completed deliveries only.
-  const awards: Award[] = [];
-  if (input.outcome === "DELIVERED") {
-    for (const rule of incentives) {
-      if (!activeOn(rule, t)) continue;
-      let periodKey: string | null = null;
-      let bucket: Award["bucket"] = "OTHER";
-      switch (rule.type) {
-        case "ORDER_COUNT": {
-          const count = rule.period === "WEEK" ? input.weekCount : input.dayCount;
-          if (count > rule.thresholdValue) periodKey = input.deliveryOrderId;
-          bucket = "ORDER";
-          break;
-        }
-        case "DAILY_TARGET":
-          if (input.dayCount === rule.thresholdValue) periodKey = t.dateKey;
-          bucket = "ORDER";
-          break;
-        case "WEEKLY_TARGET":
-          if (input.weekCount === rule.thresholdValue) periodKey = t.weekKey;
-          bucket = "ORDER";
-          break;
-        case "DISTANCE":
-          if (input.distanceKm * 1000 >= rule.thresholdValue) periodKey = input.deliveryOrderId;
-          bucket = "OTHER";
-          break;
-        case "PEAK_HOUR":
-          if (inWindow(t.minutes, rule.startTime, rule.endTime)) periodKey = input.deliveryOrderId;
-          bucket = "SLOT";
-          break;
-        case "CAMPAIGN":
-          if (inWindow(t.minutes, rule.startTime, rule.endTime)) periodKey = input.deliveryOrderId;
-          bucket = "OTHER";
-          break;
-      }
-      if (!periodKey || input.alreadyAwarded.has(`${rule.id}:${periodKey}`)) continue;
-      awards.push({ ruleId: rule.id, name: rule.name, type: rule.type, amountPaise: rule.rewardPaise, periodKey, bucket });
-    }
-  }
+  const awards = incentiveAwards(incentives, input, t);
 
   const sumBucket = (bucket: Award["bucket"]) =>
     awards.filter((a) => a.bucket === bucket).reduce((n, a) => n + a.amountPaise, 0);
@@ -328,6 +335,108 @@ export function calculateEarning(
     totalPaise,
     slotId: slot?.id ?? null,
     slotName: slot?.name ?? null,
+    awards,
+    lines,
+  };
+}
+
+/* ------------------------------------------------------- pay-plan earning */
+
+/**
+ * Rider App v2 (rule riderPayPlans): the earning for a delivery whose pay was quoted from a pay
+ * plan and locked at acceptance (lib/rider-pay-plan.ts). The trip part is the locked quote (or the
+ * higher re-worked pay after a long reroute), wait pay is added, then the same incentive rules and
+ * deductions as the flat-rate path. A failed or cancelled-after-pickup trip pays the rule's
+ * percentage of the QUOTE. The ledger lines sum to the total.
+ */
+export interface PlanTripInput {
+  quote: import("./rider-pay-plan").PayQuote;
+  /** max(quote, re-worked pay). */
+  tripPaise: number;
+  waitPaise: number;
+  waitMin: number;
+  planLabel: string;
+}
+
+export function calculatePlanEarning(
+  trip: PlanTripInput,
+  incentives: readonly IncentiveRule[],
+  rules: EarningRules,
+  input: EarningInput,
+): EarningBreakdown {
+  const t = localTime(input.at, input.timeZone);
+  const q = trip.quote;
+  const lines: LedgerLine[] = [];
+  const push = (component: LedgerLine["component"], amountPaise: number, description: string) => {
+    if (amountPaise !== 0) lines.push({ component, amountPaise, description });
+  };
+  const km = (m: number) => (m / 1000).toFixed(1);
+
+  push("BASE", q.basePaise, `Base fee (${trip.planLabel})`);
+  push("DISTANCE", q.lastMilePaise, `Distance to customer ${km(q.legM)} km`);
+  push("DISTANCE", q.firstMilePaise, `Ride to shop ${km(q.firstMileM)} km`);
+  push("DISTANCE", q.extraDropPaise, "Extra drop in the same trip");
+  push("DISTANCE", q.longDistancePaise, "Long-distance bonus");
+  push("SLOT_INCENTIVE", q.surgePaise, q.surgeLabels.length ? `Surge (${q.surgeLabels.join(", ")})` : "Surge");
+  push("MIN_TOP_UP", q.minTopUpPaise, "Top-up to the minimum per order");
+  push("MIN_TOP_UP", q.roundingPaise, "Rounded up to the next ₹1");
+  push("DISTANCE", -q.capCutPaise, "Per-order cap");
+  const uplift = trip.tripPaise - q.quotePaise;
+  push("DISTANCE", uplift, "Route grew after accepting — re-worked pay");
+
+  // Column totals (the ledger lines above sum to tripPaise).
+  const basePaise = q.basePaise;
+  const slotSurge = q.surgePaise;
+  const minTopUpPaise = q.minTopUpPaise + q.roundingPaise;
+  const distancePaise = trip.tripPaise - basePaise - slotSurge - minTopUpPaise;
+
+  let deductionsPaise = 0;
+  const payoutPercent =
+    input.outcome === "FAILED"
+      ? rules.failedDeliveryPayoutPercent
+      : input.outcome === "CANCELLED_AFTER_PICKUP"
+        ? rules.cancelledAfterPickupPayoutPercent
+        : 100;
+  // Wait pay is earned before the drop, so it is paid whatever the outcome.
+  const waitPaise = trip.waitPaise;
+  push("OTHER_INCENTIVE", waitPaise, `Wait at shop ${Math.round(trip.waitMin)} min`);
+  if (payoutPercent < 100) {
+    const base = input.outcome === "DELIVERED" ? trip.tripPaise : q.quotePaise;
+    const cut = trip.tripPaise - percentOf(base, payoutPercent);
+    deductionsPaise += cut;
+    push("DEDUCTION", -cut, `Only ${payoutPercent}% of the quote paid for a ${input.outcome === "FAILED" ? "failed delivery" : "cancelled order"}`);
+  }
+  if (input.outcome === "DELIVERED" && rules.latePenaltyPaise > 0 && input.minutesLate != null && input.minutesLate > rules.lateGraceMinutes) {
+    const penalty = Math.min(rules.latePenaltyPaise, trip.tripPaise - deductionsPaise);
+    deductionsPaise += penalty;
+    push("DEDUCTION", -penalty, `Late by ${Math.round(input.minutesLate)} min`);
+  }
+
+  const awards = incentiveAwards(incentives, input, t);
+  const sumBucket = (bucket: Award["bucket"]) => awards.filter((a) => a.bucket === bucket).reduce((n, a) => n + a.amountPaise, 0);
+  for (const a of awards) {
+    push(a.bucket === "ORDER" ? "ORDER_INCENTIVE" : a.bucket === "SLOT" ? "SLOT_INCENTIVE" : "OTHER_INCENTIVE", a.amountPaise, `Incentive: ${a.name}`);
+  }
+  const orderIncentivePaise = sumBucket("ORDER");
+  const otherIncentivePaise = sumBucket("OTHER") + waitPaise;
+  const slotIncentivePaise = slotSurge + sumBucket("SLOT");
+
+  const totalPaise = Math.max(
+    0,
+    basePaise + distancePaise + slotIncentivePaise + minTopUpPaise + orderIncentivePaise + otherIncentivePaise - deductionsPaise,
+  );
+  return {
+    basePaise,
+    distancePaise,
+    orderComponentPaise: 0,
+    slotIncentivePaise,
+    minTopUpPaise,
+    orderIncentivePaise,
+    otherIncentivePaise,
+    deductionsPaise,
+    totalPaise,
+    slotId: null,
+    slotName: null,
     awards,
     lines,
   };

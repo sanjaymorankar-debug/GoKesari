@@ -17,6 +17,7 @@
  *    verified customer location on file.
  */
 import { randomInt } from "node:crypto";
+import { lockQuoteOnAccept } from "./rider-pay-plans";
 
 import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
@@ -659,6 +660,9 @@ export async function acceptOfferInTransaction(
     .set({ status: "ASSIGNED", stopReason: "RIDER_ACCEPTED", stoppedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(riderSearches.orderId, row.orderId), eq(riderSearches.status, "SEARCHING")));
 
+  // Rider App v2 (rule riderPayPlans): the pay the rider was shown is locked now.
+  const quote = await lockQuoteOnAccept(tx, deliveryOrderId);
+
   await recordAudit(
     {
       actorId: partnerUserId,
@@ -666,11 +670,11 @@ export async function acceptOfferInTransaction(
       action: AUDIT_ACTIONS.DELIVERY_ORDER_ACCEPTED,
       entityType: "delivery_order",
       entityId: deliveryOrderId,
-      newValue: { status: "ACCEPTED" },
+      newValue: quote ? { status: "ACCEPTED", quotePaise: quote.quotePaise, payPlanId: quote.planId } : { status: "ACCEPTED" },
     },
     tx,
   );
-  return updated;
+  return quote ? { ...updated, quotePaise: quote.quotePaise, quoteBreakdown: quote, payPlanId: quote.planId } : updated;
 }
 
 /** DEF-04 fix — same status-guarded UPDATE as acceptDeliveryOffer, see above. */
@@ -2134,7 +2138,8 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
   return {
     ...stripSecrets(active),
     orderNumber: row.orderNumber,
-    orderTotalPaise: row.orderTotalPaise,
+    // Rider App v2 privacy: the rider sees the order total only as cash to collect (COD); 0 when prepaid.
+    orderTotalPaise: row.paymentMethod === "COD" ? row.orderTotalPaise : 0,
     cashToCollectPaise: row.paymentMethod === "COD" ? row.orderTotalPaise : null,
     scheduledSlot:
       row.scheduledSlotStart && row.scheduledSlotEnd
