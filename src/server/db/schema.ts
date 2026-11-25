@@ -10820,8 +10820,10 @@ export const FEATURE_FLAG_KEYS = [
   "guest_checkout_enabled",
   // docs/account-deletion-2026-11 (0191): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
+  // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
+  "auto_journals",
   // docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off): "Compare N prices", /search/compare,
-  // "Lowest price" and price-first sorting between local shops. Seeded OFF by its own migration (0200 at the time of writing).
+  // "Lowest price" and price-first sorting between local shops. Seeded OFF by its own migration (0201 at the time of writing).
   "local_price_comparison_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
