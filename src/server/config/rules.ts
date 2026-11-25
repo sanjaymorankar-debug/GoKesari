@@ -1939,6 +1939,24 @@ export const RULES = {
       digilockerProvider: "kyc_provider",
     },
   },
+  /* >>> identity verification (docs/identity-verification-2026-11) */
+  identityVerification: {
+    description:
+      "One-time identity verification of customers and shop owners, used only while its switch is on (Admin → Identity verification: identity_verification_customers_enabled for customers, identity_verification_shop_owners_enabled for shop owners). LEGAL ADVICE IS PENDING: Aadhaar may be used only voluntarily and only through a licensed KYC provider (GoKesari has no UIDAI licence) — confirm the wording, the retention period and the gates with a lawyer before turning either switch on at gokesari.com. allowedMethods — \"aadhaar_or_alternative\" (default): Aadhaar by DigiLocker is offered first and PAN is always offered instead; \"aadhaar_only\": only Aadhaar by DigiLocker (the voluntary-use requirement makes this risky; keep the default unless a lawyer says otherwise). sellerGraceDays — days an existing shop owner has, from when they are first asked, before their shops stop accepting new orders (orders already taken are unaffected). nameMatchThreshold — 0–100: at or above it the verified name counts as the account's (customers) or the shop owner's / registered name (shop owners); below it the check waits for an admin in Admin → Identity verification. provider — \"kyc_provider\": KYC_PROVIDER's adapter (Sandbox.co.in: DigiLocker Aadhaar and PAN); \"mock\": a local fake DigiLocker page and fake PAN answers, refused on gokesari.com. Off production (test.gokesari.com, local work) the mock is always used, whatever this says, so no real Aadhaar is ever checked there.",
+    schema: z.object({
+      allowedMethods: z.enum(["aadhaar_or_alternative", "aadhaar_only"]),
+      sellerGraceDays: int(0, 365),
+      nameMatchThreshold: int(50, 100),
+      provider: z.enum(["kyc_provider", "mock"]),
+    }),
+    defaults: {
+      allowedMethods: "aadhaar_or_alternative",
+      sellerGraceDays: 30,
+      nameMatchThreshold: 80,
+      provider: "kyc_provider",
+    },
+  },
+  /* <<< identity verification */
   riderZoning: {
     description:
       "Delivery zoning (gig worker flow): an order is offered only to a Ready partner whose live location is within radiusKm of both the pickup (the shop) and the delivery address — and, for the pickup, within the partner's own operating radius. Uses the partner's live location, never the registration address; a location older than maxLocationAgeMinutes is not live, so the partner gets no new offers until the phone sends a fresh one. Each location update re-checks the partner's open offers and withdraws any that are now out of range. Off: the shop-only radius check of before.",
