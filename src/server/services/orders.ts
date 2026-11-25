@@ -546,7 +546,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     let scheduledSlot: { start: Date; end: Date; date: string } | null = null;
     const acceptBy = await acceptByFor(new Date(), closedShops.get(group.shop.id) ?? null);
 
-    // Tax snapshot (migration 0183): each listing's GST classification, read before the
+    // Tax snapshot (migration 0185): each listing's GST classification, read before the
     // transaction so it holds no lock longer; a line added to the cart meanwhile is read inside.
     const [invoicingRule, taxClasses] = await Promise.all([
       getRule("invoicing"),
