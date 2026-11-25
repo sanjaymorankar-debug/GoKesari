@@ -7,7 +7,8 @@ import { HOME } from "@/lib/home-i18n";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { getCustomerLocation } from "@/server/location";
-import { homePriceComparison } from "@/server/services/price-comparison";
+import { notFound } from "next/navigation";
+import { homePriceComparison, isLocalPriceComparisonEnabled } from "@/server/services/price-comparison";
 
 export const metadata = { title: "Compare prices" };
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ export const dynamic = "force-dynamic";
  * highest.
  */
 export default async function ComparePricesPage({ searchParams }: { searchParams: Promise<{ product?: string }> }) {
+  // docs/price-comparison-off-2026-11: the page does not exist while the flag is off.
+  if (!(await isLocalPriceComparisonEnabled())) notFound();
   const { product } = await searchParams;
   const productId = product && /^[0-9a-f-]{36}$/i.test(product) ? product : undefined;
   const user = await getCurrentUser();

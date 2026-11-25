@@ -1,7 +1,7 @@
 -- Rider App v2 + Rider Pay Plans (docs/rider-app-v2-2026-11/README.md). Additive only; every new
 -- behaviour sits behind a rule that is OFF until an admin turns it on (riderPayPlans, riderJobBoard,
 -- riderSlotBooking, riderReferral, riderTiers, riderSos, riderInsurance). With riderPayPlans off,
--- payouts are worked out exactly as before. Rollback: scripts/rollback-0204-rider-app-v2.sql
+-- payouts are worked out exactly as before. Rollback: scripts/rollback-0205-rider-app-v2.sql
 CREATE TABLE IF NOT EXISTS "rider_pay_plans" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"plan_key" uuid NOT NULL,

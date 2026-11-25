@@ -1,6 +1,6 @@
--- Rollback for 0204_rider_app_v2 (docs/rider-app-v2-2026-11/README.md).
+-- Rollback for 0205_rider_app_v2 (docs/rider-app-v2-2026-11/README.md).
 -- Before running: deploy the previous release's code (or turn every rider v2 rule off), then delete
--- the 0204_rider_app_v2 row from drizzle.__drizzle_migrations. Earnings already written keep their
+-- the 0205_rider_app_v2 row from drizzle.__drizzle_migrations. Earnings already written keep their
 -- amounts; only the quote / plan columns and the new tables go.
 BEGIN;
 DROP TABLE IF EXISTS "rider_sos_events";
