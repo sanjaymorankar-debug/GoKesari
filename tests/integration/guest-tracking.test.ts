@@ -4,7 +4,10 @@
  * + mobile digits, and the e-mailed link only for guest-created accounts with the flags on.
  */
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Guest calls: no session.
+vi.mock("@/server/auth", () => ({ auth: async () => null, handlers: {}, signIn: async () => {}, signOut: async () => {} }));
 
 import type { UserRole } from "@/server/db/schema";
 import { db } from "@/server/db";
@@ -94,5 +97,17 @@ describe("guestTrackingLinkFor", () => {
     const link = await guestTrackingLinkFor(guest.id);
     const path = link!({ orderId: "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f", orderGroupId: null });
     expect(verifyTrackingToken(path.replace("/track/", ""))).toMatchObject({ ok: true, target: { kind: "O" } });
+  });
+});
+
+describe("POST /api/cart/recommendation (guest)", () => {
+  it("TC-SEC-001: a guest call with no cart lines is refused (422), not answered with an empty 200", async () => {
+    await flagsOn();
+    const { POST } = await import("@/app/api/cart/recommendation/route");
+    const { NextRequest } = await import("next/server");
+    const call = (body: unknown) =>
+      POST(new NextRequest("http://localhost/api/cart/recommendation", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }));
+    expect((await call({})).status).toBe(422);
+    expect((await call({ lines: [] })).status).toBe(422);
   });
 });

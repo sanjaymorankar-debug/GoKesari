@@ -9,6 +9,7 @@ import { z } from "zod";
 import { featureNotAvailable } from "@/server/services/feature-flags";
 import { GUEST_CART_MAX_LINES } from "@/lib/guest-cart";
 import { MAX_CART_LINE_QUANTITY } from "@/lib/stock-quantity";
+import { validationFailed } from "@/lib/errors";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -32,6 +33,8 @@ export const POST = route(async (request: NextRequest) => {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   enforceRateLimit(`cart-recommendation:${user?.id ?? ip}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
+  // A guest asks about the lines in their browser: with none there is nothing to compare (TC-SEC-001).
+  if (!user && !body.lines?.length) throw validationFailed("Add something to your cart first.");
   const location = await getCustomerLocation(user?.id ?? null);
   if (user) return ok({ recommendation: await recommendForUserCart(user.id, location) });
   const preview = await previewGuestCart(body.lines ?? []);
