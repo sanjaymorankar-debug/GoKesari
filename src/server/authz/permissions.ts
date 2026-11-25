@@ -143,7 +143,7 @@ export const PERMISSIONS = {
   /** Record a received payment, or a reversal/refund. */
   PAYMENT_RECORD: "payment:record",
   /**
-   * 0204 (owner brief 25-Nov-2026): the Unpaid & expiring registrations screen — reminders, payment links,
+   * 0205 (owner brief 25-Nov-2026): the Unpaid & expiring registrations screen — reminders, payment links,
    * expiry changes (reason required) and offline "Mark as paid". ADMIN and OPERATOR only.
    */
   SHOP_REGISTRATION_SUBSCRIPTION_MANAGE: "shop-registration-subscription:manage",
@@ -513,7 +513,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
 ];
 
 const OPERATOR_PERMISSIONS: readonly Permission[] = [
-  PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE, // 0204 registration subscription (owner brief 25-Nov-2026)
+  PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE, // 0205 registration subscription (owner brief 25-Nov-2026)
   PERMISSIONS.CONSULT_MANAGE, // consultant appointments: operators run consultant onboarding and bookings with admins
   PERMISSIONS.CONSULT_ONBOARD,
   PERMISSIONS.HEALTH_MANAGE, // GoKesari Health: operators verify providers and keep the lists with admins (no clinical content; break-glass is admin-only)

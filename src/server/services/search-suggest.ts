@@ -131,7 +131,7 @@ export async function suggest(
           or(ilike(products.name, pattern), sql`EXISTS (SELECT 1 FROM product_local_names pln WHERE pln.product_id = "products"."id" AND pln.search_text ILIKE ${pattern})`),
           eq(shops.status, "APPROVED"),
           isNull(shops.deletedAt),
-          registrationListed, // 0200
+          registrationListed, // 0205 registration subscription: expired shops are hidden
           eq(shopProducts.isActive, true),
           isNull(shopProducts.deletedAt),
           eq(products.isActive, true),

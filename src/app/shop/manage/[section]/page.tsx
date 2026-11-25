@@ -572,7 +572,7 @@ export default async function ShopManagePage({
       ]);
       const origin = originFromHeaders(await headers());
       const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
-      const registrationView = await ownerRegistrationStatus(shop); // 0200
+      const registrationView = await ownerRegistrationStatus(shop); // 0205
       return (
         <>
           {header}

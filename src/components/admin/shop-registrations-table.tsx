@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Admin → Shops → Unpaid & expiring registrations (0204; docs/shop-registration-subscription-2026-11).
+ * Admin → Shops → Unpaid & expiring registrations (0205; docs/shop-registration-subscription-2026-11).
  * One row per shop with the brief's columns; tick rows for bulk Send reminder / Create payment link;
  * each row also has Expiry (reason required), Mark as paid (reference + note) and History (audit trail).
  */

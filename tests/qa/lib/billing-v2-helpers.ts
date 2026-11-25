@@ -21,7 +21,7 @@ import { blocked } from "./record";
 import { gstinFor, uniquePan } from "./sellers-helpers";
 import { assertWritable, IS_LOCAL } from "./target";
 
-export const BILLING_FLAGS = ["billing_v2", "tcs_engine", "tds_engine", "delivery_9_5", "gsp_live", "einvoice", "ewaybill", "tally_connector", "dealer_programme_enabled", "dealer_rating_bonus_enabled"] as const;
+export const BILLING_FLAGS = ["billing_v2", "tcs_engine", "tds_engine", "delivery_9_5", "gsp_live", "einvoice", "ewaybill", "tally_connector", "dealer_programme_enabled", "dealer_rating_bonus_enabled", "local_price_comparison_enabled"] as const;
 export type FlagKey = (typeof BILLING_FLAGS)[number];
 
 interface FlagView {

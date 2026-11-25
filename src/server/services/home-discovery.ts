@@ -13,6 +13,7 @@ import { and, count, countDistinct, desc, eq, gt, gte, inArray, isNotNull, isNul
 import type { CustomerLocation } from "@/lib/location";
 import { db } from "@/server/db";
 import { orderItems, orders, products, shopProducts, shops } from "@/server/db/schema";
+import { isFeatureEnabled } from "./feature-flags";
 import { shopCarriesProductCategory } from "./product-categories";
 import { serviceableShopIds } from "./serviceability";
 import { registrationListed } from "./shop-membership";
@@ -42,7 +43,7 @@ function purchasable(): SQL {
   return and(
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
-    registrationListed, // 0200
+    registrationListed, // 0205 registration subscription: expired shops are hidden
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(shopProducts.isAvailable, true),
@@ -187,9 +188,12 @@ export async function popularInArea(
 /**
  * productId → how many of these shops sell it online right now. A product
  * card offers "Compare N prices" when N ≥ 2 (F4).
+ * docs/price-comparison-off-2026-11: empty while flag `local_price_comparison_enabled`
+ * is off, so no card on any page (home, search, category, shop) offers the link.
  */
 export async function nearbyOfferCounts(productIds: readonly string[], shopIds: readonly string[]): Promise<Map<string, number>> {
   if (productIds.length === 0 || shopIds.length < 2) return new Map();
+  if (!(await isFeatureEnabled("local_price_comparison_enabled").catch(() => false))) return new Map();
   try {
     const rows = await db
       .select({ productId: shopProducts.productId, n: count() })
