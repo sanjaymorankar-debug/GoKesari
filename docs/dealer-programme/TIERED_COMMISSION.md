@@ -5,7 +5,19 @@ Decisions: [docs/decision-log.md](../decision-log.md), section "TIERED dealer co
 shop-refers-shop" (DT-01 … DT-17). Everything is **off by default** and changes nothing for existing
 dealers, shops or customers until an admin switches it on.
 
-A TIERED dealer can also hold an exclusive territory and earn on its orders: [TERRITORY_DEALER.md](TERRITORY_DEALER.md) (20-Nov-2026).
+> **Current rules (24-Nov-2026):**
+> - **Main dealer's override by distance** (owner, 21-Nov-2026; `overrideByDistance`, default on): the main dealer
+>   earns **4%** when the signer reports to him directly (a team lead, or an agent with no lead) and **3%** when the
+>   signer is an agent under a team lead. The tables below are corrected to this.
+> - ~~A TIERED dealer can also hold an exclusive territory and earn on its orders~~ — **superseded:** the territory
+>   dealer was retired on 21-Nov-2026 (rule `territoryDealer` off, cannot be switched on); territories are sold only
+>   as franchise zones ([../franchise/README.md](../franchise/README.md), G-28). [TERRITORY_DEALER.md](TERRITORY_DEALER.md) is kept for the record.
+> - **Scheme platform** (live 23-Nov-2026): dealers who existed before stay on Free Dealership v1 (this model if an
+>   admin moved them to TIERED); **new** dealers start on Free Dealership v2 (20% one-time + 5% monthly, no team) unless
+>   an admin moves them to TIERED, which keeps precedence. See [../dealer-platform/README.md](../dealer-platform/README.md).
+> - A franchise owner's team inside his paid zone earns the same 20 / 4 / 3, with the owner's own shops at 25%
+>   ([../franchise/README.md](../franchise/README.md)).
+> - One database since Nov 2026: "seller database" below means the site's only database.
 
 | Switch | Where | Default |
 |---|---|---|
@@ -42,9 +54,9 @@ after any coupon):
 |---|---|---|
 | Whoever signed the shop (agent, lead or main dealer) — "direct" | 20% | when the shop pays its fee and is approved |
 | The agent's team lead — "lead override" | 4% | at the same time |
-| The main dealer, on every shop his team signs (leads' and agents') — "main override" | 3% | at the same time |
+| The main dealer, on every shop his team signs — "main override": **4%** when the signer reports to him directly (a team lead, or an agent with no lead), **3%** when the signer is an agent under a team lead (since 21-Nov-2026, `overrideByDistance`) | 4% / 3% | at the same time |
 
-*Owner's structure, 5 Nov 2026 (decisions DT-13 to DT-16); the main dealer's share raised from 2% to 3% on 20 Nov 2026 (DT-23) — shops activated before that keep 2%.* Everything is earned when the shop pays
+*Owner's structure, 5 Nov 2026 (decisions DT-13 to DT-16); the main dealer's share raised from 2% to 3% on 20 Nov 2026 (DT-23) — shops activated before that keep 2%; 4% one level up from 21 Nov 2026 (rates are frozen per shop, so earlier shops keep theirs).* Everything is earned when the shop pays
 and is registered; there is no wait for orders, and **no per-shop cap** — the fee the shop owner paid
 earns its full commission at every level. All of a month's commission (shops registered up to the
 last day of the month) is paid on the **5th of the next month**.
@@ -62,7 +74,8 @@ Worked examples (fee before GST):
 | Shop signed by | ₹4,999 shop | ₹9,999 shop |
 |---|---|---|
 | An agent under a team lead | agent ₹999.80 · lead ₹199.96 · main dealer ₹149.97 (27%) | agent ₹1,999.80 · lead ₹399.96 · main dealer ₹299.97 |
-| A team lead himself | lead ₹999.80 · main dealer ₹149.97 (23%) | lead ₹1,999.80 · main dealer ₹299.97 |
+| A team lead himself | lead ₹999.80 · main dealer ₹199.96 (24%) | lead ₹1,999.80 · main dealer ₹399.96 |
+| An agent reporting straight to the main dealer | agent ₹999.80 · main dealer ₹199.96 (24%) | agent ₹1,999.80 · main dealer ₹399.96 |
 | The main dealer himself | main dealer ₹999.80 (20%) | main dealer ₹1,999.80 |
 
 **Renewals** (owner, 5 Nov 2026 — DT-18). When a shop that is still active pays its membership
@@ -101,7 +114,7 @@ zero every month.
 |---|---|---|
 | Agent | shops he signed this month | 10% of his direct commission this month |
 | Team lead | shops his team signed (his own and his agents') | 10% of his direct + 4% override commission this month |
-| Main dealer | shops the whole network signed | 10% of his direct + 3% override commission this month |
+| Main dealer | shops the whole network signed | 10% of his direct + 4% / 3% override commission this month |
 
 Example: an agent signs 55 shops of ₹4,999 in November → 55 × ₹999.80 = ₹54,989 commission, bonus
 ₹5,498.90. With 49 shops there is no bonus. Targets and % are in the rule (`targets`: role, minShops,
@@ -160,7 +173,7 @@ See "Open items for the owner" at the end of this file.
 ### Switching TIERED on (test.gokesari.com first)
 
 1. Admin → Settings → `dealerTieredCommission`: set `enabled` to true; check the values
-   (directBp 2000 = 20%, leadOverrideBp 400 = 4%, mainOverrideBp 300 = 3% (since 20 Nov 2026; migration 0150 moved a saved 200 to 300), firstPartBp 10000 = all at
+   (directBp 2000 = 20%, leadOverrideBp 400 = 4%, mainOverrideBp 300 = 3% (since 20 Nov 2026; migration 0150 moved a saved 200 to 300), overrideByDistance true = the main dealer gets leadOverrideBp one level up (since 21 Nov 2026), firstPartBp 10000 = all at
    activation, tradingOrders 0 = no trading condition, renewalEnabled / renewalBp 1000 /
    renewalLeadBp 200 / renewalMainBp 100 / renewalYears 3, promotionMinShops 50 / promotionMinAgents 3,
    developmentBp 100 / developmentMonths 6 / developmentMinShopsPerMonth 100, targetBonusesEnabled true +

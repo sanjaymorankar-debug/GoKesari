@@ -1,5 +1,13 @@
 # Seller verification — deployment (Deliverable 5)
 
+> **Superseded hosting steps (24-Nov-2026).** This was written when the sites
+> ran on Hostinger's Node.js hosting with Neon databases (and env vars / cron in
+> hPanel). Since 17-Nov-2026 both sites run on our own server: deploys by
+> `gk-deploy` from `staging` / `main`, env with `gk-site env …`, cron as systemd
+> timers, migrations only through the GitHub database workflows, backups by
+> pgBackRest and the workflows' snapshots. Use [DEPLOYMENT.md](../../DEPLOYMENT.md)
+> for the current steps; the text below is kept as the record.
+
 Order: **test.gokesari.com first, then gokesari.com.** Hostinger deploys
 `staging` to test and `main` to production automatically on push, so merging
 to `main` is the production release. Database: Neon, a separate database for

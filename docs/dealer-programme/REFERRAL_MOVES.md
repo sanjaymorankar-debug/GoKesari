@@ -1,5 +1,7 @@
 # Referral moves — add / move a referral code (owner, 21/22-Nov-2026)
 
+> **Status (24-Nov-2026):** live on gokesari.com since 22-Nov-2026 (release #473, migration 0162).
+
 Admin → Dealers → **Referral moves** (`/admin/dealers/referral-moves`). Code: `src/server/dealers/referral-moves.ts`,
 API `src/app/api/admin/referral-moves/`, migration `drizzle/0162_referral_moves.sql` (rollback `scripts/rollback-0162.sql`).
 

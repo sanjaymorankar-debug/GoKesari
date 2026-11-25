@@ -1,5 +1,13 @@
 # Publishing the Product Master to a shop catalogue (test, then live)
 
+> **Superseded hosting steps (24-Nov-2026).** This was written when the sites
+> ran on Hostinger's Node.js hosting with Neon databases (and env vars / cron in
+> hPanel). Since 17-Nov-2026 both sites run on our own server: deploys by
+> `gk-deploy` from `staging` / `main`, env with `gk-site env …`, cron as systemd
+> timers, migrations only through the GitHub database workflows, backups by
+> pgBackRest and the workflows' snapshots. Use [DEPLOYMENT.md](../../DEPLOYMENT.md)
+> for the current steps; the text below is kept as the record.
+
 How the pilot catalogue gets from a Product Master database into `public.products` on a deployed site. Rehearsed end to
 end on a scratch local database (migrate → copy pilot data → promote → roll back → promote again). **Not yet run against
 any hosted database.**
