@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Production-database workflow guard (.github/workflows/prod-db.yml). Stops the
 # run unless it is clearly a deliberate run against the PRODUCTION database:
-#   - started by hand (workflow_dispatch) on the main branch;
-#   - a migrate run carries the typed confirmation MIGRATE PRODUCTION;
+#   - main's copy of the workflow: by hand (workflow_dispatch), or automatically
+#     for a pull request into main (pull_request_target) or a push to main;
+#   - a migrate run by hand carries the typed confirmation MIGRATE PRODUCTION
+#     (automatic runs only migrate what the test database already has, checked
+#     by tested-on-test.sh and same-as-test.sh);
 #   - the PROD_DATABASE_URL secret is set, and its host, port and database equal
 #     the PROD_DATABASE_HOST and PROD_DATABASE_NAME repository variables (set by
 #     hand once, so a wrong secret is caught here);
@@ -38,13 +41,19 @@ url_target() {
   ' "$1" 2>/dev/null
 }
 
-[ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || fail "Production runs only by hand (this run came from '${GITHUB_EVENT_NAME:-unknown}')."
+case "${GITHUB_EVENT_NAME:-}" in
+  workflow_dispatch) by_hand=yes ;;
+  pull_request_target|push) by_hand=no ;;
+  *) fail "Production runs by hand, or for a pull request into / push to main (this run came from '${GITHUB_EVENT_NAME:-unknown}')." ;;
+esac
 [ "${GITHUB_REF:-}" = "refs/heads/main" ] || fail "Production runs only from the main branch (this run is on ${GITHUB_REF:-unknown})."
 
 case "${ACTION:-}" in
   verify) ;;
   migrate)
-    [ "${CONFIRM:-}" = "MIGRATE PRODUCTION" ] || fail "To migrate production, run again with confirm = MIGRATE PRODUCTION." ;;
+    if [ "$by_hand" = yes ]; then
+      [ "${CONFIRM:-}" = "MIGRATE PRODUCTION" ] || fail "To migrate production, run again with confirm = MIGRATE PRODUCTION."
+    fi ;;
   *) fail "Unknown action '${ACTION:-}'." ;;
 esac
 

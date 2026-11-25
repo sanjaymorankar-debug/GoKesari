@@ -100,6 +100,12 @@ release at a time" and "After every production deploy".
     `git rev-parse origin/main`.
   - If one is running, wait. Never open a second staging → main PR for code
     another one already carries.
+  - **Wait for the PR's "Production database" check to be green.** Since
+    25-Nov-2026 it migrates production automatically for every PR into
+    `main`, before the merge (two outages that day came from code going
+    live without its migrations). Never merge while it is red, pending or
+    missing; read its summary. A push to `main` runs it again as a safety
+    net. By hand, if needed: Actions → "Production database" → `migrate`.
 - **After the merge:**
   - the server builds and switches gokesari.com about 5–6 minutes later
     (`/sw.js` then shows the new commit);
