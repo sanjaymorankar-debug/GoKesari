@@ -76,6 +76,49 @@ Then:
   the next run. (On 3 Nov 2026 the token could read but not write for 5½
   hours, and every run still ended green while #334, #336 and #339 sat
   unmerged.)
+- **Merge conflict in the migration journal only** → the queue fixes it
+  itself; see "Migration numbers" below.
+
+## Migration numbers
+
+`tests/unit/migration-journal.test.ts` wants the Drizzle journal contiguous:
+entry *i* is `drizzle/NNNN_….sql` with NNNN = *i*. A PR cannot reserve a
+number, so PRs opened at the same time all take the next free one. Whichever
+lands first keeps it; every other one then conflicts on
+`drizzle/meta/_journal.json`. On 24–25 Nov 2026, PAY-2 (#531) had to be
+renumbered by hand five times, 0185 → 0190, as #513, #512, #523/#524 and
+#525 landed ahead of it.
+
+Since 25 Nov 2026 the queue handles this itself. When a PR's branch cannot be
+brought up to date and the **only** conflicting file is the journal, the queue:
+
+1. merges `staging` into the PR branch in a scratch clone;
+2. runs `scripts/db/renumber-migrations.mjs origin/staging`, which:
+   - moves the PR's own migrations past staging's last one;
+   - renames their `.sql` files, any `drizzle/meta/NNNN_snapshot.json` the
+     PR added, and its `scripts/rollback-NNNN*.sql`;
+   - rewrites the full tags (`0187_foo`, `rollback-0187`) in files the PR
+     changed;
+   - rewrites bare numbers too, but only in files the PR added;
+3. pushes that merge to the PR branch, comments what it renumbered (🔢), and
+   carries on with the new head: CI, merge and test as usual.
+
+The same happens when `staging` moves while the PR's checks are running. The
+PR stays queued and the next run picks it up.
+
+The queue does not do this for a PR from a fork, which it cannot push to, or
+for a conflict in any other file. Those PRs are `staging-blocked` as before.
+The session that owns the PR should **pull before pushing again**. If the
+queue's comment lists an old number still mentioned in a file the PR only
+modified, check that mention by hand.
+
+Sessions can use the same script locally:
+
+```bash
+git fetch origin staging && git merge origin/staging   # stops on _journal.json
+node scripts/db/renumber-migrations.mjs origin/staging  # add --dry-run to preview
+git commit --no-edit
+```
 
 The live status is the issue labelled **`staging-queue-tracker`** (open PRs,
 their place and state, recently verified PRs, all times IST). It is an issue,
@@ -180,7 +223,9 @@ access …": renew the token with the permissions above and update the secret.
 `scripts/release/staging-queue.test.sh` runs the queue script against a fake
 `gh` (403 / 422 answers, dry runs, the 7 Nov 2026 runs of `f971899` with
 the release PR's CI still running — `scripts/release/fixtures/` — and when
-option A merges a behind PR as it is or updates it; nothing goes to GitHub).
+option A merges a behind PR as it is or updates it, and a journal-only
+conflict renumbered against a local bare repository; nothing goes to GitHub).
+`tests/unit/renumber-migrations.test.ts` covers the renumbering script itself.
 CI runs it in the
 `scope` job; locally it needs bash 4+ and jq (macOS: `brew install bash jq`).
 
