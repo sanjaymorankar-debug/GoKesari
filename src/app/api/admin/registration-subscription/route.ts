@@ -1,5 +1,5 @@
 /**
- * Unpaid & expiring shop registrations (0206; docs/shop-registration-subscription-2026-11).
+ * Unpaid & expiring shop registrations (0208; docs/shop-registration-subscription-2026-11).
  *
  * GET  ?filter=ALL|UNPAID|EXPIRING_30|EXPIRING_15|EXPIRING_7|GRACE|EXPIRED|ACTIVE|EXEMPT&shopType=&area=&dealerCode=&q=[&format=csv]
  * POST { action: "REMIND", shopIds[] }                                  reminder (in-app + push + e-mail), bulk

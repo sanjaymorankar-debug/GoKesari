@@ -939,7 +939,7 @@ export const shops = pgTable(
     membershipExemptSetBy: uuid("membership_exempt_set_by"),
     membershipExemptSetAt: timestamp("membership_exempt_set_at", { withTimezone: true }),
     /**
-     * 0206 shop registration subscription (docs/shop-registration-subscription-2026-11). The expiry is
+     * 0208 shop registration subscription (docs/shop-registration-subscription-2026-11). The expiry is
      * membershipValidUntil; the fee is registrationFeePaise. Status is kept current by every payment, admin
      * change and the reminder job (services/shop-registration-subscription.ts recomputes it on read too).
      */
@@ -951,14 +951,14 @@ export const shops = pgTable(
     renewalFeePaise: bigint("renewal_fee_paise", { mode: "number" }),
     /** Per-shop grace days; null = rule shopMembership.graceDays. 0 after "Expire now". */
     registrationGraceDays: integer("registration_grace_days"),
-    /** Grace given until this moment (the 0206 migration, or an admin); the shop stays online until then. */
+    /** Grace given until this moment (the 0208 migration, or an admin); the shop stays online until then. */
     registrationGraceUntil: timestamp("registration_grace_until", { withTimezone: true }),
     registrationRemindersEnabled: boolean("registration_reminders_enabled").notNull().default(true),
     /** No foreign key, as the other payment links on shops. */
     lastRegistrationPaymentId: uuid("last_registration_payment_id"),
     lastRegistrationPaymentAt: timestamp("last_registration_payment_at", { withTimezone: true }),
     registrationStatusAt: timestamp("registration_status_at", { withTimezone: true }),
-    /** What the 0206 migration did to this shop: END_DATE_SET, GRACE_GIVEN, or both. */
+    /** What the 0208 migration did to this shop: END_DATE_SET, GRACE_GIVEN, or both. */
     registrationBackfill: text("registration_backfill"),
     /** D-69: the owner closed the shop permanently (status INACTIVE). No foreign key: users are customer-side. */
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -4466,7 +4466,7 @@ export const shopMembershipPeriods = pgTable(
 export type ShopMembershipPeriod = typeof shopMembershipPeriods.$inferSelect;
 
 /**
- * 0206 (docs/shop-registration-subscription-2026-11): a registration / renewal payment link sent to a shop
+ * 0208 (docs/shop-registration-subscription-2026-11): a registration / renewal payment link sent to a shop
  * owner (by an admin, or by the reminder job). One ACTIVE link per shop; a new one cancels the old.
  */
 export const shopRegistrationLinks = pgTable(
@@ -4497,7 +4497,7 @@ export const shopRegistrationLinks = pgTable(
 );
 export type ShopRegistrationLink = typeof shopRegistrationLinks.$inferSelect;
 
-/** 0206: every registration reminder sent — automatic ones once per shop, stage and day (sent_by null); staff ones always. */
+/** 0208: every registration reminder sent — automatic ones once per shop, stage and day (sent_by null); staff ones always. */
 export const shopRegistrationReminders = pgTable(
   "shop_registration_reminders",
   {
@@ -4522,14 +4522,14 @@ export const shopRegistrationReminders = pgTable(
 );
 export type ShopRegistrationReminder = typeof shopRegistrationReminders.$inferSelect;
 
-/** 0206: one row per day the expiry digest went to the CC list (claimed before sending). */
+/** 0208: one row per day the expiry digest went to the CC list (claimed before sending). */
 export const shopRegistrationDigests = pgTable("shop_registration_digests", {
   day: date("day").primaryKey(),
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   detail: text("detail"),
 });
 
-/** 0206: the migration report — counts per registration status when the migration ran. */
+/** 0208: the migration report — counts per registration status when the migration ran. */
 export const shopRegistrationMigrationReports = pgTable("shop_registration_migration_reports", {
   id: uuid("id").primaryKey().defaultRandom(),
   ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
@@ -13554,4 +13554,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
+export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 /* <<< GoKesari Health */

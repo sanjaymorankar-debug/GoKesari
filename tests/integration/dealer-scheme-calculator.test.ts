@@ -2,8 +2,9 @@
  * Dealership & Franchise Platform phase 3 (docs/dealer-platform/PHASE_3_CALCULATOR.md):
  *   pure: one-time lines with team levels, the commission budget, monthly duration, formula components
  *   database (production scheme state, 0179):
- *     - a new free dealer is on Free v2: his shop's activation pays 20% of the fee, once (re-runs write nothing)
- *     - the month close pays 5% of GoKesari's commission on his shop's delivered orders, once
+ *     - a new free dealer is on Free v3: his shop's activation pays 20% of the fee, once (re-runs write nothing)
+ *     - the month close pays him nothing more (owner D1, 25-Nov-2026: no monthly commission)
+ *     - a dealer still on Free v2 gets 5% of GoKesari's commission at the month close, once
  *     - an existing dealer on Free v1 keeps the existing commission model (D8)
  *     - Growth Partner with a team: 30% to the signing agent, 4% to his lead, 3% to the dealer
  *     - a refunded registration fee reverses the scheme lines
@@ -129,7 +130,30 @@ describe("calculation (pure)", () => {
 });
 
 describe("calculation (database)", () => {
+  it("Free v3: 20% at activation once, no monthly commission at the month close (D1, 25-Nov-2026)", async () => {
+    const d = await dealer("Free Three");
+    const [a] = await db.select().from(dealerSchemeAssignments).where(eq(dealerSchemeAssignments.dealerId, d.id));
+    expect(a.versionId).toBe(await versionId("FREE", 3));
+    const shop = await signedShop(d.id, null, 100_000);
+    expect(await lines(shop.id)).toEqual(["SCHEME_ONE_TIME:DEALER:20000:EARNED"]);
+    // A re-run (another milestone check) writes nothing new.
+    await (await import("@/server/dealers/commission")).checkCommissionMilestones(shop.id, null);
+    expect(await lines(shop.id)).toHaveLength(1);
+
+    await deliver(shop.id, 500_000); // ₹5,000 delivered; GoKesari's 2% = ₹100
+    const month = thisMonth();
+    await db.transaction(async (tx) => {
+      const { accrueSchemeRecurring } = await import("@/server/dealers/scheme-calculator");
+      const { start, end } = { start: new Date(`${month}-01T00:00:00+05:30`), end: new Date(new Date(`${month}-01T00:00:00+05:30`).setUTCMonth(new Date(`${month}-01T00:00:00+05:30`).getUTCMonth() + 1)) };
+      await accrueSchemeRecurring(tx, month, start, end, null);
+      await accrueSchemeRecurring(tx, month, start, end, null); // idempotent
+    });
+    const all = await lines(shop.id);
+    expect(all).toEqual(["SCHEME_ONE_TIME:DEALER:20000:EARNED"]);
+  });
+
   it("Free v2: 20% at activation once, then 5% of GoKesari's commission at the month close", async () => {
+    await resetSchemes(undefined, { freeVersion: 2 }); // a dealer who joined on v2
     const d = await dealer("Free Two");
     const [a] = await db.select().from(dealerSchemeAssignments).where(eq(dealerSchemeAssignments.dealerId, d.id));
     expect(a.versionId).toBe(await versionId("FREE", 2));
@@ -155,7 +179,7 @@ describe("calculation (database)", () => {
   it("an existing dealer on Free v1 keeps the existing commission model (D8)", async () => {
     await resetSchemes(["FREE"], { freeVersion: 1 });
     const d = await dealer("Old Terms");
-    await resetSchemes(); // GoKesari publishes v2 afterwards
+    await resetSchemes(); // GoKesari publishes a newer version afterwards
     const shop = await signedShop(d.id, null, 100_000);
     expect(await lines(shop.id)).toEqual(["BASE:DEALER:40000:EARNED"]); // 40% base model, unchanged
   });
@@ -178,6 +202,7 @@ describe("calculation (database)", () => {
   });
 
   it("closes a month with scheme lines approved and drafted for payout", async () => {
+    await resetSchemes(undefined, { freeVersion: 2 }); // a dealer on v2, which has a monthly component
     const d = await dealer("Close Co");
     const shop = await signedShop(d.id, null, 100_000);
     await deliver(shop.id, 500_000);

@@ -1,6 +1,6 @@
 # Shop registration subscription — 1-year validity, expiry, reminders, payment links
 
-Owner brief: 25-Nov-2026 02.02 IST. Branch `feat/shop-registration-subscription-2026-11-25`, migration **0206**.
+Owner brief: 25-Nov-2026 02.02 IST. Branch `feat/shop-registration-subscription-2026-11-25`, migration **0208**.
 Builds on the yearly membership (D-69, 0094) and on PR #518's renewal module (0197,
 [docs/shop-membership-renewal-2026-11](../shop-membership-renewal-2026-11/README.md)) — this PR must be merged
 after #518. All times IST.
@@ -12,7 +12,7 @@ after #518. All times IST.
 | 1. Registration fee = 1-year subscription; Unpaid until paid; start = payment date, expiry = +12 months | `shop-membership.ts` (periods, `noteRegistrationPayment`, `registrationStatusOf`), `shop-payments.ts` |
 | 1. Fields per shop | `shops.registration_status`, `registration_start_date`, `membership_valid_until` (= registration_expiry_date), `registration_fee_paise` (= registration_fee), `renewal_fee_paise`, `last_registration_payment_id` / `_at`, `registration_grace_days`, `registration_grace_until`, `registration_reminders_enabled` |
 | 1. Renewal fee = registration fee by default, admin per shop type | rule `shopRegistrationSubscription.renewalFeeByShopType`; per shop: row → Settings; precedence shop → type → `shopMembership.renewalFeePaise` → the shop's own registration base fee (+ GST as #518) |
-| 1. Migration of existing shops + report | `drizzle/0200_…sql`: paid → start = first fee payment, +12 months (LEGACY period); never paid → UNPAID; computed expiry past → GRACE until +7 days; counts in `shop_registration_migration_reports` (shown on the admin screen) |
+| 1. Migration of existing shops + report | `drizzle/0208_…sql`: paid → start = first fee payment, +12 months (LEGACY period); never paid → UNPAID; computed expiry past → GRACE until +7 days; counts in `shop_registration_migration_reports` (shown on the admin screen) |
 | 2. Admin / operator screen with filters and columns | Admin → Shops → **Unpaid & expiring registrations** (`/admin/shops/registrations`), CSV |
 | 2a. Send reminder (row / bulk) | e-mail + push + in-app; "complete your registration payment" or "renew your shop registration". WhatsApp: not sent — WhatsApp templates are not approved yet (Meta keys pending), so it is not "already integrated" for this |
 | 2b. Create payment link | existing gateway (Cashfree payment links, sandbox on staging); amount editable; validity default 7 days; a new link cancels the older one (Cashfree `POST /links/{id}/cancel`); sent by e-mail + push + in-app |
@@ -33,7 +33,7 @@ after #518. All times IST.
 
 ## Switches before go-live (per site)
 
-1. Migration 0206 runs with the deploy (staging queue / production release).
+1. Migration 0208 runs with the deploy (staging queue / production release).
 2. Admin → Unpaid & expiring registrations → Settings: **Send reminders** on; **Online renewal** on. Check grace (7) and CC list.
 3. The status is enforced while rule `shopMembership.enabled` is on (it is on by default).
 
@@ -47,7 +47,7 @@ after #518. All times IST.
 
 ## Files
 
-- `drizzle/0206_shop_registration_subscription.sql`, `scripts/rollback-0206.sql`
+- `drizzle/0208_shop_registration_subscription.sql`, `scripts/rollback-0208.sql`
 - `src/server/services/shop-registration-subscription.ts` (new), `shop-membership.ts`, `shop-payments.ts`,
   `shop-membership-renewal.ts`, `operator-limited.ts`, `registration/service.ts`
 - `src/server/payments/intents.ts` (link expiry + metadata), `processing.ts` (long links not "stuck"),
@@ -76,5 +76,5 @@ after #518. All times IST.
 
 ## Rollback
 
-Deploy the previous release, then run `scripts/rollback-0206.sql` and delete the 0206 row from
-`drizzle.__drizzle_migrations`. Shops that got their first expiry from 0206 go back to "no end date".
+Deploy the previous release, then run `scripts/rollback-0208.sql` and delete the 0208 row from
+`drizzle.__drizzle_migrations`. Shops that got their first expiry from 0208 go back to "no end date".

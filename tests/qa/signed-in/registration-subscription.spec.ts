@@ -1,5 +1,5 @@
 /**
- * Shop registration subscription (0206; owner brief 25-Nov-2026; PR #557;
+ * Shop registration subscription (0208; owner brief 25-Nov-2026; PR #557;
  * docs/shop-registration-subscription-2026-11). Cases in
  * docs/testing/manual/cases-added-2026-11-25-registration-subscription.json.
  *

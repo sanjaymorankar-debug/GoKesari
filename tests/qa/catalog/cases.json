@@ -12250,6 +12250,34 @@
   "source": "docs/dealer-programme/TIERED_COMMISSION.md (owner brief 02-Nov-2026)"
  },
  {
+  "id": "TC-DPAY-006",
+  "module": "Dealer network & shop referrals",
+  "features": "DPAY-CHECKS",
+  "title": "A dealer without PAN or verified bank sees the held-commission banner on /dealer",
+  "type": "Positive",
+  "priority": "P1",
+  "role": "Dealer",
+  "method": "UI",
+  "preconditions": "Rule dealerPayouts.enforcePayeeChecks on (default); a dealer with commission and no PAN",
+  "steps": "1. Sign in as the dealer\n2. Open /dealer",
+  "expected": "Banner: the amount waiting, what is missing (PAN) and an \"Add PAN\" link; gone once PAN and a verified bank are on file.",
+  "source": "Added 23-Nov-2026: dealer payouts, payee checks for every payee"
+ },
+ {
+  "id": "TC-DPAY-007",
+  "module": "Dealer network & shop referrals",
+  "features": "DPAY-CHECKS",
+  "title": "A payout is marked paid only after a second admin approves it, with the payee ready",
+  "type": "Negative",
+  "priority": "P0",
+  "role": "Admin",
+  "method": "API",
+  "preconditions": "A draft payout to a team member without a verified bank",
+  "steps": "1. Mark the draft paid\n2. A second admin approves it\n3. Verify the bank, approve, mark paid",
+  "expected": "1: refused (not approved). 2: refused (payee not ready). 3: approved, then paid.",
+  "source": "Added 23-Nov-2026: dealer payouts, approval before payment"
+ },
+ {
   "id": "TC-ONB-048",
   "module": "Shop onboarding, KYC, fees & suspension",
   "features": "DI-12, KYC-SBX",
@@ -23095,7 +23123,7 @@
   "role": "System",
   "method": "Integration",
   "preconditions": "Shops paid without an end date, paid over a year ago, never paid",
-  "steps": "Run migration 0206",
+  "steps": "Run migration 0208",
   "expected": "Paid: +12 months from the first fee payment; past expiry: GRACE for 7 days; never paid: UNPAID; report counts per status",
   "source": "Added 25-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-REGSUB-01; docs/testing/manual/README.md)"
  },

@@ -31,7 +31,7 @@ interface Props {
   shops: { id: string; name: string }[];
   groups: ResolvedSellerGroup[];
   counts: Counts;
-  /** 0206: the registration subscription banner, shown at the top of every screen until paid. */
+  /** 0208: the registration subscription banner, shown at the top of every screen until paid. */
   banner?: ReactNode;
   children: ReactNode;
 }
