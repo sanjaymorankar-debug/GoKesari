@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 
 import { DocumentUploadPanel } from "@/components/document-upload-panel";
+import { ShopGstRegistrations } from "@/components/shop-gst-registrations";
 import { Alert, PageHeader } from "@/components/ui";
 import { formatDisplayDate, todayIn } from "@/lib/dates";
 import { toPanelItems } from "@/lib/document-panel-items";
@@ -13,6 +14,7 @@ import { shops } from "@/server/db/schema";
 import { browserReadEnabled } from "@/server/kyc/document-reader";
 import { getDocumentChecklist } from "@/server/services/document-uploads";
 import { activeFssaiWaiver } from "@/server/services/fssai-waiver";
+import { listShopGstRegistrations } from "@/server/services/shop-gst-registrations";
 
 export const metadata = { title: "Upload documents for a shop" };
 export const dynamic = "force-dynamic";
@@ -32,7 +34,7 @@ export default async function AdminShopDocumentsPage({ params }: { params: Promi
 
   const [shop] = await db.select().from(shops).where(eq(shops.id, id)).limit(1);
   if (!shop || shop.deletedAt) notFound();
-  const [checklist, waiver] = await Promise.all([getDocumentChecklist(shop.id, user), activeFssaiWaiver(shop.id)]);
+  const [checklist, waiver, gstRegistrations] = await Promise.all([getDocumentChecklist(shop.id, user), activeFssaiWaiver(shop.id), listShopGstRegistrations(shop.id)]);
   const missingLabels = checklist.items.filter((i) => checklist.missing.includes(i.docType)).map((i) => i.label);
 
   return (
@@ -68,6 +70,7 @@ export default async function AdminShopDocumentsPage({ params }: { params: Promi
           This shop sells food, so a valid FSSAI licence or registration is needed. An expired licence is not accepted.
         </Alert>
       ) : null}
+      <ShopGstRegistrations shopId={shop.id} initial={gstRegistrations} mode="staff" />
       {checklist.enabled ? (
         <DocumentUploadPanel shopId={shop.id} items={toPanelItems(checklist)} browserOcr={browserReadEnabled()} onBehalfOf={shop.ownerName} />
       ) : null}

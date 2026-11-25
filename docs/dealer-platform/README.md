@@ -46,7 +46,8 @@ The existing dealer, franchise, ledger and payout code stays. Schemes sit on top
 | Existing | In the platform |
 |---|---|
 | Free dealer (STANDARD 40% / milestone rules / TIERED 20-4-3) | **Free Dealership v1** (`LEGACY_DEALER`). Existing dealers stay on it (D8). |
-| Brief's free terms (20% + 5% monthly) | **Free Dealership v2** (`SCHEME`). New dealers get it from migration 0179. |
+| Brief's free terms (20% + 5% monthly) | **Free Dealership v2** (`SCHEME`), from migration 0179; superseded on 25-Nov-2026 |
+| Owner 25-Nov-2026 (D1): 20% one-time only | **Free Dealership v3** (`SCHEME`). New dealers get it from migration 0206; v2 dealers move to it. Business / Growth Partner suspended (D2). |
 | — | **Business Partner** (₹11,000 + GST) and **Growth Partner** (₹21,000 + GST), both `SCHEME` |
 | ₹1.5 lakh franchise (Model B, `franchise_config_versions`) | **Territory Franchise v1** (`LEGACY_FRANCHISE`; amounts follow Franchise settings) |
 | Retired pincode territory dealer | Left as it is (off, no data); to be removed later |
@@ -204,6 +205,7 @@ The terms are a JSON document (`schemeTermsSchema`):
 5. **What changes for real users at release:**
    - new dealers start on Free v2, with 20% one-time and 5% monthly;
    - Business Partner and Growth Partner are open for applications.
+   - Since migration 0206 (owner, 25-Nov-2026): Free v3, 20% one-time only; Business / Growth Partner suspended.
    - Existing dealers are unchanged.
 6. **Rollback, step by step:**
    1. Suspend Business / Growth Partner in Admin → Dealers → Schemes. Applicants then see only Free.

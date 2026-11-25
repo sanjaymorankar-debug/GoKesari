@@ -1491,7 +1491,7 @@ export const RULES = {
       takenNoticeSeconds: 120,
     },
   },
-  /* >>> Rider App v2 (docs/rider-app-v2-2026-11; drizzle/0206) — every switch OFF by default */
+  /* >>> Rider App v2 (docs/rider-app-v2-2026-11; drizzle/0208) — every switch OFF by default */
   riderAppV2: {
     description:
       "Rider App v2 screens. Off (default): the rider dashboard as before. On: riders get the bottom bar (Home · Earnings · My Slots · Refer · More), the header with Online/Offline, Help, SOS and tier badge, the Home tiles, the high-earning-slot banner, the daily incentive ladder, and the Mon–Sun earnings week with cash in hand shown apart.",

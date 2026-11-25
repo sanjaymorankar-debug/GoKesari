@@ -29,7 +29,7 @@ const slotSchema = z.object({
   validFrom: date.nullish(),
   validTo: date.nullish(),
   isActive: z.boolean().optional(),
-  // Rider App v2 (0206): pay-plan surge (12000 = ×1.2), slot booking.
+  // Rider App v2 (0208): pay-plan surge (12000 = ×1.2), slot booking.
   surgeMultiplierBp: z.number().int().min(10000).max(30000).nullish(),
   bookable: z.boolean().optional(),
   bookingCapacity: z.number().int().min(1).max(100000).nullish(),

@@ -275,7 +275,7 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_BROADCAST_OFFERED: "delivery.broadcast_offered",
   /** To a rider who had a broadcast offer: another rider accepted it first. */
   DELIVERY_OFFER_TAKEN: "delivery.offer_taken",
-  /* Rider App v2 (0206) */
+  /* Rider App v2 (0208) */
   RIDER_JOB_NEARBY: "delivery.rider_job_nearby",
   RIDER_SURGE_STARTED: "delivery.rider_surge_started",
   RIDER_SURGE_ENDED: "delivery.rider_surge_ended",
