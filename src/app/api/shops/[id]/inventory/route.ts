@@ -10,7 +10,7 @@ import { z } from "zod";
 import { MAX_STOCK_UNITS, STOCK_MAX_MESSAGE } from "@/lib/price-rules";
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopPermission } from "@/server/authz/shop-permission";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 
 export const GET = route(async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
-  await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY });
+  await requireShopPermission(id, "inventory.view", { anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY });
   const [shop] = await db.select().from(shops).where(eq(shops.id, id));
   if (!shop) throw notFound("Shop");
   const [dashboard, rows, alerts] = await Promise.all([getInventoryDashboard(id), listInventory(id), listStockAlerts(id)]);
@@ -51,7 +51,7 @@ const schema = z.object({
 
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
-  const { user } = await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY });
-  await setShopStockDefaults(id, await parseBody(request, schema), user);
+  const { user, via } = await requireShopPermission(id, "inventory.edit", { anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY });
+  await setShopStockDefaults(id, await parseBody(request, schema), user, { staffAuthorised: via === "STAFF" });
   return ok({ saved: true });
 });

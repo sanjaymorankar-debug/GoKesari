@@ -8,7 +8,9 @@ import { Alert, Card, LinkButton, Money, PageHeader, StatusBadge } from "@/compo
 import { formatQuantity } from "@/lib/money";
 import { customerCancellableStatuses } from "@/lib/order-cancellation";
 import { paymentMethodLabel } from "@/lib/payment-methods";
+import { L, tr } from "@/lib/board/i18n";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { assertOrderViewer, listChargesForOrder } from "@/server/aftercare/order-view";
 import { listRefundsForOrder } from "@/server/aftercare/refunds";
 import { listTicketsForOrder } from "@/server/aftercare/support-tickets";
@@ -18,6 +20,28 @@ import { platformInvoiceLabel, platformInvoicesForOrders } from "@/server/tax/de
 import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Order details" };
+
+/** Wording on the order page (Module 6, docs/hindi-marathi-2026-11/). */
+const T = {
+  title: L("Order {n}", "ऑर्डर {n}", "ऑर्डर {n}"),
+  back: L("← My Orders", "← मेरे ऑर्डर", "← माझ्या ऑर्डर"),
+  cancelledTitle: L("Order cancelled", "ऑर्डर रद्द हुआ", "ऑर्डर रद्द झाली"),
+  cancelledText: L(
+    "Your refund is shown below with each step as it happens.",
+    "आपका रिफंड नीचे दिखाया गया है, हर कदम होते ही दिखेगा।",
+    "तुमचा परतावा खाली दाखवला आहे, प्रत्येक टप्पा होताच दिसेल.",
+  ),
+  payment: L(" · Payment: ", " · भुगतान: ", " · पेमेंट: "),
+  items: L("Items", "सामान", "वस्तू"),
+  deliveryFee: L("Delivery fee", "डिलीवरी शुल्क", "डिलिव्हरी शुल्क"),
+  discount: L("Discount", "छूट", "सूट"),
+  cancellationFee: L("Cancellation fee (kept from the refund)", "रद्द करने का शुल्क (रिफंड से काटा गया)", "रद्द करण्याचे शुल्क (परताव्यातून कापले)"),
+  refunds: L("Refunds", "रिफंड", "परतावे"),
+  noRefunds: L("No refunds on this order.", "इस ऑर्डर पर कोई रिफंड नहीं।", "या ऑर्डरवर कोणताही परतावा नाही."),
+  help: L("Help with this order", "इस ऑर्डर के लिए मदद", "या ऑर्डरसाठी मदत"),
+  noTickets: L("No tickets on this order", "इस ऑर्डर पर कोई टिकट नहीं", "या ऑर्डरवर कोणतेही तिकीट नाही"),
+  raiseTicket: L("Raise a ticket about this order", "इस ऑर्डर के बारे में टिकट बनाएँ", "या ऑर्डरबद्दल तिकीट नोंदवा"),
+} as const;
 export const dynamic = "force-dynamic";
 
 /**
@@ -36,7 +60,7 @@ export default async function OrderDetailPage({
   if (!user) redirect("/signin");
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const query = await searchParams;
+  const [query, lang] = await Promise.all([searchParams, getBoardLang()]);
   const viewed = await assertOrderViewer(id, user).catch(() => null);
   if (!viewed) notFound();
   const [order, refunds, charges, tickets, cancellationRule, afterPackingRule, invoicingRule, invoiceKinds, gokesariInvoices] = await Promise.all([
@@ -64,17 +88,17 @@ export default async function OrderDetailPage({
   return (
     <>
       <PageHeader
-        title={`Order ${order.orderNumber}`}
+        title={tr(T.title, lang).replace("{n}", order.orderNumber)}
         description={
           <Link href="/orders" className="underline">
-            ← My Orders
+            {tr(T.back, lang)}
           </Link>
         }
       />
       {query.cancelled ? (
         <div className="mb-4">
-          <Alert tone="success" title="Order cancelled">
-            Your refund is shown below with each step as it happens.
+          <Alert tone="success" title={tr(T.cancelledTitle, lang)}>
+            {tr(T.cancelledText, lang)}
           </Alert>
         </div>
       ) : null}
@@ -92,7 +116,7 @@ export default async function OrderDetailPage({
               {new Date(order.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}
               {/* TC-SPI-006: how the order is paid, whatever the method. */}
               {paymentMethodLabel(order.paymentMethod) ? (
-                <span data-testid="order-payment-method"> · Payment: {paymentMethodLabel(order.paymentMethod)}</span>
+                <span data-testid="order-payment-method">{tr(T.payment, lang)}{paymentMethodLabel(order.paymentMethod)}</span>
               ) : null}
             </p>
             <ul className="mt-3 space-y-1 text-sm text-ink-600">
@@ -117,14 +141,14 @@ export default async function OrderDetailPage({
             </ul>
             <dl className="mt-3 space-y-1 border-t border-cream-100 pt-3 text-sm">
               <div className="flex justify-between">
-                <dt className="text-ink-600">Items</dt>
+                <dt className="text-ink-600">{tr(T.items, lang)}</dt>
                 <dd>
                   <Money paise={order.subtotalPaise} />
                 </dd>
               </div>
               {order.deliveryFeePaise > 0 ? (
                 <div className="flex justify-between">
-                  <dt className="text-ink-600">Delivery fee</dt>
+                  <dt className="text-ink-600">{tr(T.deliveryFee, lang)}</dt>
                   <dd>
                     <Money paise={order.deliveryFeePaise} />
                   </dd>
@@ -132,7 +156,7 @@ export default async function OrderDetailPage({
               ) : null}
               {order.discountPaise > 0 ? (
                 <div className="flex justify-between">
-                  <dt className="text-ink-600">Discount</dt>
+                  <dt className="text-ink-600">{tr(T.discount, lang)}</dt>
                   <dd>
                     −<Money paise={order.discountPaise} />
                   </dd>
@@ -140,7 +164,7 @@ export default async function OrderDetailPage({
               ) : null}
               {charges.map((c) => (
                 <div key={c.id} className="flex justify-between" data-testid="order-charge">
-                  <dt className="text-ink-600">Cancellation fee (kept from the refund)</dt>
+                  <dt className="text-ink-600">{tr(T.cancellationFee, lang)}</dt>
                   <dd>
                     <Money paise={c.amountPaise} />
                   </dd>
@@ -162,14 +186,14 @@ export default async function OrderDetailPage({
               </p>
             ) : null}
             {isBuyer && order.source !== "SUBSCRIPTION" && cancellable.includes(order.status) ? (
-              <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} />
+              <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} lang={lang} />
             ) : null}
           </Card>
 
           <section>
-            <h2 className="mb-2 text-lg font-semibold text-ink-900">Refunds</h2>
+            <h2 className="mb-2 text-lg font-semibold text-ink-900">{tr(T.refunds, lang)}</h2>
             {refunds.length === 0 ? (
-              <p className="text-sm text-ink-500">No refunds on this order.</p>
+              <p className="text-sm text-ink-500">{tr(T.noRefunds, lang)}</p>
             ) : (
               <RefundTimeline
                 refunds={refunds.map((r) => ({
@@ -183,11 +207,11 @@ export default async function OrderDetailPage({
         </div>
 
         <aside className="space-y-3">
-          <h2 className="text-lg font-semibold text-ink-900">Help with this order</h2>
-          <TicketList rows={tickets.map(toRowView)} hrefBase="/support" emptyTitle="No tickets on this order" />
+          <h2 className="text-lg font-semibold text-ink-900">{tr(T.help, lang)}</h2>
+          <TicketList rows={tickets.map(toRowView)} hrefBase="/support" emptyTitle={tr(T.noTickets, lang)} />
           {isBuyer ? (
             <LinkButton href={`/support?orderId=${order.id}#new`} variant="secondary">
-              Raise a ticket about this order
+              {tr(T.raiseTicket, lang)}
             </LinkButton>
           ) : null}
         </aside>

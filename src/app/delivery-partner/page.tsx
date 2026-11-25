@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 import { DeliveryPartnerDashboard } from "@/components/delivery-partner-dashboard";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { Alert, Card, Money, PageHeader, StatusBadge } from "@/components/ui";
-import { vehicleTypeLabel } from "@/lib/vehicle-types";
+import { L, tr, type Lang } from "@/lib/board/i18n";
+import { vehicleTypeText } from "@/lib/vehicle-types";
+import { getBoardLang } from "@/server/board-lang";
 import { getCurrentUser } from "@/server/authz/guards";
 import { PERMISSIONS, can } from "@/server/authz/permissions";
 import { db } from "@/server/db";
@@ -29,35 +31,97 @@ import { getRule } from "@/server/services/settings";
 import { SOCIETY_JOIN_FLAG } from "@/server/services/delta/society-join-requests";
 import { getFeatureFlag } from "@/server/services/feature-flags";
 
+/** Module 6: this page's words in English, Hindi and Marathi. */
+const T = {
+  seconds: L("{n} seconds", "{n} सेकंड", "{n} सेकंद"),
+  oneMinute: L("1 minute", "1 मिनट", "1 मिनिट"),
+  minutes: L("{n} minutes", "{n} मिनट", "{n} मिनिटे"),
+  offerLabel: L("New delivery offer — accept within {w}", "नया डिलीवरी ऑफ़र — {w} में स्वीकार करें", "नवीन डिलिव्हरी ऑफर — {w} मध्ये स्वीकारा"),
+  title: L("My Delivery Partner Application", "मेरा डिलीवरी पार्टनर आवेदन", "माझा डिलिव्हरी पार्टनर अर्ज"),
+  joinSociety: L("Join a housing society's rider list", "किसी हाउसिंग सोसाइटी की राइडर सूची में जुड़ें", "हाउसिंग सोसायटीच्या रायडर यादीत सामील व्हा"),
+  reason: L("Reason", "कारण", "कारण"),
+  teamNote: L("Note from our team", "हमारी टीम का संदेश", "आमच्या टीमची नोंद"),
+  details: L("Application details", "आवेदन का विवरण", "अर्जाचा तपशील"),
+  fullName: L("Full name", "पूरा नाम", "पूर्ण नाव"),
+  mobile: L("Mobile", "मोबाइल", "मोबाइल"),
+  vehicle: L("Vehicle", "वाहन", "वाहन"),
+  radius: L("Operating radius", "काम का दायरा", "कामाचा परिसर"),
+  switchRoleTitle: L("Switch to your Delivery Partner role", "अपनी डिलीवरी पार्टनर भूमिका पर जाएँ", "तुमच्या डिलिव्हरी पार्टनर भूमिकेवर जा"),
+  switchRole1: L(
+    "You're browsing with another role, so you can't go online or take deliveries",
+    "आप किसी दूसरी भूमिका में हैं, इसलिए ऑनलाइन नहीं हो सकते और डिलीवरी नहीं ले सकते",
+    "तुम्ही दुसऱ्या भूमिकेत आहात, त्यामुळे ऑनलाइन होऊ शकत नाही किंवा डिलिव्हरी घेऊ शकत नाही",
+  ),
+  switchRoleOnline: L(
+    " — but you are still marked online and may be offered deliveries",
+    " — लेकिन आप अभी भी ऑनलाइन दिख रहे हैं और आपको डिलीवरी ऑफ़र मिल सकते हैं",
+    " — पण तुम्ही अजूनही ऑनलाइन दिसत आहात आणि तुम्हाला डिलिव्हरी ऑफर मिळू शकतात",
+  ),
+  switchRole2: L(
+    ". Choose “Delivery Partner” in the “Acting as” menu at the top of the page, or here:",
+    "। पेज के ऊपर “भूमिका” मेनू में “डिलीवरी पार्टनर” चुनें, या यहाँ:",
+    ". पानाच्या वरच्या “भूमिका” मेनूमध्ये “डिलिव्हरी पार्टनर” निवडा, किंवा इथे:",
+  ),
+  noRoleTitle: L("Delivery Partner role not active", "डिलीवरी पार्टनर भूमिका सक्रिय नहीं", "डिलिव्हरी पार्टनर भूमिका सक्रिय नाही"),
+  noRole: L(
+    "Your account no longer holds the Delivery Partner role, so you can't go online or take deliveries. Please contact support.",
+    "आपके खाते में अब डिलीवरी पार्टनर भूमिका नहीं है, इसलिए आप ऑनलाइन नहीं हो सकते और डिलीवरी नहीं ले सकते। कृपया सहायता से संपर्क करें।",
+    "तुमच्या खात्यात आता डिलिव्हरी पार्टनर भूमिका नाही, त्यामुळे तुम्ही ऑनलाइन होऊ शकत नाही किंवा डिलिव्हरी घेऊ शकत नाही. कृपया सहाय्याशी संपर्क साधा.",
+  ),
+  earnings: L("Earnings", "कमाई", "कमाई"),
+  notPaid: L("Not yet paid out:", "अभी तक भुगतान नहीं हुआ:", "अजून पैसे मिळाले नाहीत:"),
+  inclAdj: L("(incl. adjustments", "(समायोजन सहित", "(समायोजनांसह"),
+  noEarnings: L("No earnings yet.", "अभी कोई कमाई नहीं।", "अजून कमाई नाही."),
+  delivery: L("delivery", "डिलीवरी", "डिलिव्हरी"),
+  adjustments: L("Adjustments", "समायोजन", "समायोजने"),
+  payouts: L("Payouts", "पेआउट", "पेआउट"),
+  noPayouts: L("Earnings are paid out weekly — nothing batched yet.", "कमाई हर हफ़्ते दी जाती है — अभी कुछ जमा नहीं हुआ।", "कमाई दर आठवड्याला दिली जाते — अजून काही जमा झालेले नाही."),
+  week: L("Week from {d} · {n} deliveries", "{d} से शुरू हफ़्ता · {n} डिलीवरी", "{d} पासूनचा आठवडा · {n} डिलिव्हऱ्या"),
+} as const;
+
 /** "45 seconds" / "1 minute" / "3 minutes" — the offer window from the rules. */
-function offerWindowText(seconds: number): string {
-  if (seconds % 60 !== 0) return `${seconds} seconds`;
+function offerWindowText(seconds: number, lang: Lang): string {
+  if (seconds % 60 !== 0) return tr(T.seconds, lang).replace("{n}", String(seconds));
   const minutes = seconds / 60;
-  return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  return minutes === 1 ? tr(T.oneMinute, lang) : tr(T.minutes, lang).replace("{n}", String(minutes));
 }
 
 export const metadata = { title: "My Delivery Partner Application" };
 export const dynamic = "force-dynamic";
 
-const STATUS_MESSAGE: Record<string, string> = {
-  REGISTERED: "Your application has been received and is waiting to be reviewed.",
-  UNDER_REVIEW: "Our team is reviewing your application.",
-  APPROVED: "You're approved as a delivery partner.",
-  REJECTED: "Your application was not approved.",
-  SUSPENDED: "Your delivery partner account is currently suspended.",
-  DEACTIVATED: "Your delivery partner account has been deactivated.",
+const STATUS_MESSAGE: Record<string, ReturnType<typeof L>> = {
+  REGISTERED: L(
+    "Your application has been received and is waiting to be reviewed.",
+    "आपका आवेदन मिल गया है और जाँच का इंतज़ार कर रहा है।",
+    "तुमचा अर्ज मिळाला आहे आणि तपासणीची वाट पाहत आहे.",
+  ),
+  UNDER_REVIEW: L("Our team is reviewing your application.", "हमारी टीम आपका आवेदन देख रही है।", "आमची टीम तुमचा अर्ज तपासत आहे."),
+  APPROVED: L("You're approved as a delivery partner.", "आप डिलीवरी पार्टनर के रूप में मंज़ूर हैं।", "तुम्हाला डिलिव्हरी पार्टनर म्हणून मंजुरी मिळाली आहे."),
+  REJECTED: L("Your application was not approved.", "आपका आवेदन मंज़ूर नहीं हुआ।", "तुमचा अर्ज मंजूर झाला नाही."),
+  SUSPENDED: L("Your delivery partner account is currently suspended.", "आपका डिलीवरी पार्टनर खाता अभी निलंबित है।", "तुमचे डिलिव्हरी पार्टनर खाते सध्या निलंबित आहे."),
+  DEACTIVATED: L("Your delivery partner account has been deactivated.", "आपका डिलीवरी पार्टनर खाता बंद कर दिया गया है।", "तुमचे डिलिव्हरी पार्टनर खाते बंद केले आहे."),
 };
+
+const APPROVED_CHECKS = L(
+  "You're approved — finish {checks} below to start delivering: {list}.",
+  "आप मंज़ूर हैं — डिलीवरी शुरू करने के लिए नीचे {checks} पूरी करें: {list}।",
+  "तुम्हाला मंजुरी मिळाली आहे — डिलिव्हरी सुरू करण्यासाठी खालील {checks} पूर्ण करा: {list}.",
+);
+const ONE_CHECK = L("1 more check", "1 और जाँच", "आणखी 1 तपासणी");
+const N_CHECKS = L("{n} more checks", "{n} और जाँचें", "आणखी {n} तपासण्या");
 
 /**
  * D-140: one clear status with the next step first. An approved partner who still has checks to
  * pass before going Active hears that, not just "approved" above a list of checks not started.
  */
-function statusMessage(status: string, gate: { allowed: boolean; missing: string[] }): string | undefined {
+function statusMessage(status: string, gate: { allowed: boolean; missing: string[] }, lang: Lang): string | undefined {
   if (status === "APPROVED" && !gate.allowed && gate.missing.length > 0) {
     const n = gate.missing.length;
-    return `You're approved — finish ${n === 1 ? "1 more check" : `${n} more checks`} below to start delivering: ${gate.missing.join("; ")}.`;
+    const checks = n === 1 ? tr(ONE_CHECK, lang) : tr(N_CHECKS, lang).replace("{n}", String(n));
+    return tr(APPROVED_CHECKS, lang).replace("{checks}", checks).replace("{list}", gate.missing.join("; "));
   }
-  return STATUS_MESSAGE[status];
+  const message = STATUS_MESSAGE[status];
+  return message ? tr(message, lang) : undefined;
 }
 
 /**
@@ -68,6 +132,8 @@ function statusMessage(status: string, gate: { allowed: boolean; missing: string
 export default async function DeliveryPartnerStatusPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
+  const lang = await getBoardLang();
+  const t = (text: ReturnType<typeof L>) => tr(text, lang);
 
   const partner = await getMyDeliveryPartnerProfile(user.id);
   if (!partner) redirect("/delivery-partner/apply");
@@ -115,11 +181,11 @@ export default async function DeliveryPartnerStatusPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader title="My Delivery Partner Application" />
+      <PageHeader title={t(T.title)} />
       {societyJoinOn ? (
         <p className="-mt-4 mb-4 text-sm">
           <a className="font-medium text-kesari-700 underline" href="/delivery-partner/societies">
-            Join a housing society&apos;s rider list
+            {t(T.joinSociety)}
           </a>
         </p>
       ) : null}
@@ -128,25 +194,25 @@ export default async function DeliveryPartnerStatusPage() {
         <div className="mb-3 flex items-center gap-2">
           <StatusBadge status={partner.status} />
         </div>
-        <p className="text-sm text-ink-700">{statusMessage(partner.status, gate)}</p>
+        <p className="text-sm text-ink-700">{statusMessage(partner.status, gate, lang)}</p>
 
         {partner.status === "REJECTED" && partner.rejectionReason ? (
           <div className="mt-3">
-            <Alert tone="danger" title="Reason">
+            <Alert tone="danger" title={t(T.reason)}>
               {partner.rejectionReason}
             </Alert>
           </div>
         ) : null}
         {partner.status === "SUSPENDED" && partner.rejectionReason ? (
           <div className="mt-3">
-            <Alert tone="warning" title="Reason">
+            <Alert tone="warning" title={t(T.reason)}>
               {partner.rejectionReason}
             </Alert>
           </div>
         ) : null}
         {partner.reviewNotes ? (
           <div className="mt-3">
-            <Alert tone="info" title="Note from our team">
+            <Alert tone="info" title={t(T.teamNote)}>
               {partner.reviewNotes}
             </Alert>
           </div>
@@ -155,29 +221,29 @@ export default async function DeliveryPartnerStatusPage() {
 
       {partner.status !== "DEACTIVATED" && partner.status !== "REJECTED" ? (
         <div className="mb-6">
-          <RiderVerificationChecklist kyc={kyc} documents={backgroundDocs} gate={gate} />
+          <RiderVerificationChecklist kyc={kyc} documents={backgroundDocs} gate={gate} lang={lang} />
         </div>
       ) : null}
 
       <Card className="p-6">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">
-          Application details
+          {t(T.details)}
         </h2>
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div>
-            <dt className="font-medium text-ink-700">Full name</dt>
+            <dt className="font-medium text-ink-700">{t(T.fullName)}</dt>
             <dd className="text-ink-500">{partner.fullName}</dd>
           </div>
           <div>
-            <dt className="font-medium text-ink-700">Mobile</dt>
+            <dt className="font-medium text-ink-700">{t(T.mobile)}</dt>
             <dd className="text-ink-500">{partner.mobile}</dd>
           </div>
           <div>
-            <dt className="font-medium text-ink-700">Vehicle</dt>
-            <dd className="text-ink-500">{vehicleTypeLabel(partner.vehicleType)}</dd>
+            <dt className="font-medium text-ink-700">{t(T.vehicle)}</dt>
+            <dd className="text-ink-500">{vehicleTypeText(partner.vehicleType, lang)}</dd>
           </div>
           <div>
-            <dt className="font-medium text-ink-700">Operating radius</dt>
+            <dt className="font-medium text-ink-700">{t(T.radius)}</dt>
             <dd className="text-ink-500">{partner.operatingRadiusKm} km</dd>
           </div>
         </dl>
@@ -187,7 +253,7 @@ export default async function DeliveryPartnerStatusPage() {
         <div className="mt-4">
           {canDeliver && broadcast ? (
             <div className="mb-4">
-              <RiderBroadcastOffers initialPollSeconds={broadcast.pollSeconds} />
+              <RiderBroadcastOffers initialPollSeconds={broadcast.pollSeconds} lang={lang} />
             </div>
           ) : null}
           {canDeliver ? (
@@ -200,53 +266,53 @@ export default async function DeliveryPartnerStatusPage() {
               earnings={earnings}
               rating={{ avgX100: partnerRating?.ratingAvgX100 ?? 0, count: partnerRating?.ratingCount ?? 0 }}
               offerLabel={
-                broadcast ? `New delivery offer — accept within ${offerWindowText(broadcast.singleOfferSeconds)}` : undefined
+                broadcast ? t(T.offerLabel).replace("{w}", offerWindowText(broadcast.singleOfferSeconds, lang)) : undefined
               }
               pickupQr={pickupQr}
               inAppNavigation={inAppNavigation}
+              lang={lang}
             />
           ) : null}
-          {canDeliver && trip ? <RiderTripCard stops={trip.stops} /> : null}
+          {canDeliver && trip ? <RiderTripCard stops={trip.stops} lang={lang} /> : null}
           {canDeliver ? (
-            <RiderOtherDeliveries deliveries={otherDeliveries} />
+            <RiderOtherDeliveries deliveries={otherDeliveries} lang={lang} />
           ) : roles.includes("DELIVERY_PARTNER") ? (
-            <Alert tone="warning" title="Switch to your Delivery Partner role">
+            <Alert tone="warning" title={t(T.switchRoleTitle)}>
               <p>
-                You&apos;re browsing with another role, so you can&apos;t go online or take deliveries
-                {partner.isOnline ? " — but you are still marked online and may be offered deliveries" : ""}. Choose
-                &ldquo;Delivery Partner&rdquo; in the &ldquo;Acting as&rdquo; menu at the top of the page, or here:
+                {t(T.switchRole1)}
+                {partner.isOnline ? t(T.switchRoleOnline) : ""}
+                {t(T.switchRole2)}
               </p>
               <div className="mt-2">
                 <RoleSwitcher active={user.role} roles={roles} />
               </div>
             </Alert>
           ) : (
-            <Alert tone="warning" title="Delivery Partner role not active">
-              Your account no longer holds the Delivery Partner role, so you can&apos;t go online or take
-              deliveries. Please contact support.
+            <Alert tone="warning" title={t(T.noRoleTitle)}>
+              {t(T.noRole)}
             </Alert>
           )}
           {earningsView ? (
             <Card className="mt-4 p-5" data-testid="rider-earnings">
-              <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-500">Earnings</h2>
+              <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-500">{t(T.earnings)}</h2>
               <p className="mb-3 text-sm text-ink-600">
-                Not yet paid out: <Money paise={earningsView.pendingEarningsPaise + earningsView.pendingAdjustmentsPaise} />
+                {t(T.notPaid)} <Money paise={earningsView.pendingEarningsPaise + earningsView.pendingAdjustmentsPaise} />
                 {earningsView.pendingAdjustmentsPaise !== 0 ? (
                   <span className="text-xs text-ink-500">
                     {" "}
-                    (incl. adjustments <Money paise={earningsView.pendingAdjustmentsPaise} />)
+                    {t(T.inclAdj)} <Money paise={earningsView.pendingAdjustmentsPaise} />)
                   </span>
                 ) : null}
               </p>
               {earningsView.earnings.length === 0 ? (
-                <p className="text-sm text-ink-500">No earnings yet.</p>
+                <p className="text-sm text-ink-500">{t(T.noEarnings)}</p>
               ) : (
                 <ul className="divide-y divide-cream-100 text-sm">
                   {earningsView.earnings.map((e) => (
                     <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                       <span>
                         {e.orderNumber}
-                        <span className="text-xs text-ink-500"> · delivery {e.deliveryStatus.toLowerCase()}</span>
+                        <span className="text-xs text-ink-500"> · {t(T.delivery)} {e.deliveryStatus.toLowerCase()}</span>
                       </span>
                       <span className="flex items-center gap-2">
                         <StatusBadge status={e.status} />
@@ -258,7 +324,7 @@ export default async function DeliveryPartnerStatusPage() {
               )}
               {adjustments.length > 0 ? (
                 <>
-                  <p className="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Adjustments</p>
+                  <p className="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">{t(T.adjustments)}</p>
                   <ul className="divide-y divide-cream-100 text-sm">
                     {adjustments.map(({ adjustment: a, orderNumber }) => (
                       <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
@@ -278,15 +344,15 @@ export default async function DeliveryPartnerStatusPage() {
             </Card>
           ) : null}
           <Card className="mt-4 p-5" data-testid="rider-payouts">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">Payouts</h2>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">{t(T.payouts)}</h2>
             {payouts.length === 0 ? (
-              <p className="text-sm text-ink-500">Earnings are paid out weekly — nothing batched yet.</p>
+              <p className="text-sm text-ink-500">{t(T.noPayouts)}</p>
             ) : (
               <ul className="divide-y divide-cream-100 text-sm">
                 {payouts.map(({ payout }) => (
                   <li key={payout.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <span>
-                      Week from {payout.periodStart} · {payout.earningsCount} deliveries
+                      {t(T.week).replace("{d}", payout.periodStart).replace("{n}", String(payout.earningsCount))}
                       {payout.paymentReference ? ` · ref ${payout.paymentReference}` : ""}
                     </span>
                     <span className="flex items-center gap-2">

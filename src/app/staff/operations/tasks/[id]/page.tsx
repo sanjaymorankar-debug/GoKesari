@@ -3,6 +3,8 @@ import { notFound, redirect } from "next/navigation";
 
 import { TaskActions } from "@/components/staff/operations-desk";
 import { Alert, Badge, Card, PageHeader } from "@/components/ui";
+import { L, tr, type Text } from "@/lib/board/i18n";
+import { getBoardLang } from "@/server/board-lang";
 import { AppError } from "@/lib/errors";
 import { formatIst } from "@/lib/franchise";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -12,17 +14,31 @@ import { isFeatureEnabledForRole } from "@/server/services/feature-flags";
 export const metadata = { title: "Operations task" };
 export const dynamic = "force-dynamic";
 
-const ACTION: Record<string, string> = {
-  CREATE: "Created",
-  ASSIGN: "Assigned",
-  REASSIGN: "Reassigned",
-  START: "Started",
-  FOLLOW_UP: "Follow-up set",
-  NOTE: "Note",
-  DONE: "Done",
-  CANCEL: "Cancelled",
-  REOPEN: "Reopened",
+const ACTION: Record<string, Text> = {
+  CREATE: L("Created", "बनाया गया", "तयार केले"),
+  ASSIGN: L("Assigned", "सौंपा गया", "सोपवले"),
+  REASSIGN: L("Reassigned", "फिर से सौंपा गया", "पुन्हा सोपवले"),
+  START: L("Started", "शुरू हुआ", "सुरू केले"),
+  FOLLOW_UP: L("Follow-up set", "फ़ॉलो-अप तय", "फॉलो-अप ठरवला"),
+  NOTE: L("Note", "नोट", "टीप"),
+  DONE: L("Done", "पूरा", "पूर्ण"),
+  CANCEL: L("Cancelled", "रद्द", "रद्द"),
+  REOPEN: L("Reopened", "फिर से खोला", "पुन्हा उघडले"),
 };
+
+/** Module 6: Hindi / Marathi (English unchanged). */
+const T = {
+  tasks: L("← Tasks", "← काम", "← कामे"),
+  overdue: L("Overdue", "देर से", "मुदत उलटली"),
+  assignedTo: L("Assigned to: {name}", "किसे सौंपा: {name}", "कोणाला सोपवले: {name}"),
+  shop: L("Shop: {name}", "दुकान: {name}", "दुकान: {name}"),
+  zone: L("Zone: {name}", "ज़ोन: {name}", "झोन: {name}"),
+  due: L("Due: {date}", "अंतिम तारीख: {date}", "अंतिम तारीख: {date}"),
+  followUp: L("Follow up: {date}", "फ़ॉलो-अप: {date}", "फॉलो-अप: {date}"),
+  notes: L("Notes: {text}", "नोट्स: {text}", "टिपा: {text}"),
+  outcome: L("Outcome: {text}", "नतीजा: {text}", "निकाल: {text}"),
+  history: L("History", "इतिहास", "इतिहास"),
+} as const;
 
 /** RBAC v2 Phase 6: one Operations task, its history and what the viewer may do with it. */
 export default async function OpsTaskPage({ params }: { params: Promise<{ id: string }> }) {
@@ -30,6 +46,7 @@ export default async function OpsTaskPage({ params }: { params: Promise<{ id: st
   if (!user) redirect("/signin");
   if (!(await isFeatureEnabledForRole("rbac_v2_operations", user.role))) redirect("/staff");
   const { id } = await params;
+  const lang = await getBoardLang();
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   let detail;
   try {
@@ -49,22 +66,22 @@ export default async function OpsTaskPage({ params }: { params: Promise<{ id: st
   return (
     <div className="mx-auto max-w-3xl">
       <Link href="/staff/operations?tab=tasks" className="mb-2 inline-flex min-h-11 items-center text-sm font-semibold text-kesari-800 hover:underline">
-        ← Tasks
+        {tr(T.tasks, lang)}
       </Link>
       <PageHeader title={task.title} />
       <Card className="mb-3 grid gap-1 p-3 text-sm">
         <div className="flex flex-wrap gap-2">
           <Badge tone={task.status === "DONE" ? "success" : task.status === "CANCELLED" ? "warning" : "info"}>{task.status.replace("_", " ")}</Badge>
           <Badge tone={task.priority === "URGENT" ? "danger" : task.priority === "HIGH" ? "warning" : "neutral"}>{task.priority}</Badge>
-          {task.overdue ? <Badge tone="danger">Overdue</Badge> : null}
+          {task.overdue ? <Badge tone="danger">{tr(T.overdue, lang)}</Badge> : null}
         </div>
-        <p>Assigned to: {task.assigneeName ?? "—"}</p>
-        {task.shopName ? <p>Shop: {task.shopName}</p> : null}
-        {task.zoneId ? <p>Zone: {task.zoneId}</p> : null}
-        {task.dueAt ? <p>Due: {formatIst(task.dueAt)}</p> : null}
-        {task.followUpAt ? <p>Follow up: {formatIst(task.followUpAt)}</p> : null}
-        {task.notes ? <p className="whitespace-pre-wrap">Notes: {task.notes}</p> : null}
-        {task.outcome ? <Alert tone="success">Outcome: {task.outcome}</Alert> : null}
+        <p>{tr(T.assignedTo, lang).replace("{name}", task.assigneeName ?? "—")}</p>
+        {task.shopName ? <p>{tr(T.shop, lang).replace("{name}", task.shopName)}</p> : null}
+        {task.zoneId ? <p>{tr(T.zone, lang).replace("{name}", String(task.zoneId))}</p> : null}
+        {task.dueAt ? <p>{tr(T.due, lang).replace("{date}", formatIst(task.dueAt))}</p> : null}
+        {task.followUpAt ? <p>{tr(T.followUp, lang).replace("{date}", formatIst(task.followUpAt))}</p> : null}
+        {task.notes ? <p className="whitespace-pre-wrap">{tr(T.notes, lang).replace("{text}", task.notes)}</p> : null}
+        {task.outcome ? <Alert tone="success">{tr(T.outcome, lang).replace("{text}", task.outcome)}</Alert> : null}
       </Card>
       <TaskActions
         taskId={task.id}
@@ -76,11 +93,11 @@ export default async function OpsTaskPage({ params }: { params: Promise<{ id: st
         shopId={task.shopId}
         supportEnabled={supportEnabled}
       />
-      <h2 className="mb-1 mt-4 font-semibold">History</h2>
+      <h2 className="mb-1 mt-4 font-semibold">{tr(T.history, lang)}</h2>
       <ol className="grid gap-1 text-sm">
         {events.map((e) => (
           <li key={e.id} className="border-l-2 border-cream-300 pl-2">
-            <span className="font-medium">{ACTION[e.action] ?? e.action}</span> · {e.actorName ?? "—"} · {formatIst(e.createdAt)}
+            <span className="font-medium">{ACTION[e.action] ? tr(ACTION[e.action], lang) : e.action}</span> · {e.actorName ?? "—"} · {formatIst(e.createdAt)}
             {e.note ? <span className="block text-ink-700">{e.note}</span> : null}
           </li>
         ))}
