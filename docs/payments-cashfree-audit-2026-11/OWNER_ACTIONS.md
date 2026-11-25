@@ -1,5 +1,10 @@
 # Cashfree — what only the owner can do (7 Nov 2026)
 
+> **Updated 24-Nov-2026.** gokesari.com runs `PAYMENT_GATEWAY=CASHFREE` since 19-Nov-2026; test.gokesari.com
+> runs `PAYMENT_GATEWAY=SANDBOX` (owner, 24-Nov-2026), where this note says CASHFREE with sandbox keys. Where this
+> says hPanel / redeploy: settings are now in each site's env file on our server (`sudo gk-site env set <site> <KEY>`,
+> then `sudo gk-deploy restart <site>`; DEPLOYMENT.md §2).
+
 These need the Cashfree dashboard, the Hostinger environment, a real card / UPI account or the
 app stores — none of which this build environment can reach. Times in IST.
 

@@ -1,5 +1,11 @@
 # Copy shops from test to production (11 Oct 2026)
 
+> **Historical record (24-Nov-2026).** The Neon console steps below no longer
+> apply: Neon is retired (read-only until 1-Dec-2026, then deleted with the
+> owner's OK) and both databases are on our own server since 17-Nov-2026. A data
+> copy today goes through the database workflows or `psql` over WireGuard
+> ([RUNBOOK](../neon-to-vps-2026-11/RUNBOOK.md)); see [DEPLOYMENT.md](../../DEPLOYMENT.md).
+
 The owner asked to copy only the real shops registered on test.gokesari.com to
 gokesari.com, leaving test's E2E and QA test shops behind:
 
