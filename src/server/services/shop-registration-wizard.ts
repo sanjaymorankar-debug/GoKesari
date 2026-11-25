@@ -112,6 +112,7 @@ import {
   assertNoWaitingRegistration,
   assertOwnerExists,
   CAN_CONTINUE,
+  auditActorOf,
   countCheck,
   findOpenDraft,
   IN_FLIGHT_WINDOW_MS,
@@ -1054,8 +1055,7 @@ export async function submitDraftDocument(input: SubmitDraftDocumentInput): Prom
   if (claim.kind === "call") {
     const [row] = await loadChecks(final.id).then((rows) => rows.filter((r) => r.docType === docType));
     await recordAudit({
-      actorId: actor.id,
-      actorRole: actor.role,
+      ...auditActorOf(actor),
       action: AUDIT_ACTIONS.SHOP_REGISTRATION_DRAFT_CHECKED,
       entityType: "shop_registration_draft",
       entityId: final.id,
@@ -1341,8 +1341,7 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
   if (referralCode) await attributeRegistrationReferral(shop, referralCode, actor);
   await recordShopAttributionSafely(shop.id, actor, { employeeText: details.employeeId ?? null });
   await recordAudit({
-    actorId: actor.id,
-    actorRole: actor.role,
+    ...auditActorOf(actor),
     action: AUDIT_ACTIONS.SHOP_REGISTRATION_DRAFT_SUBMITTED,
     entityType: "shop_registration_draft",
     entityId: open.id,
