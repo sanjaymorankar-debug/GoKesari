@@ -61,8 +61,10 @@ RUN_BUDGET="${QUEUE_RUN_BUDGET:-14400}"  # s: start no new PR after 4 h (the job
 SKIP_UPDATE="${QUEUE_SKIP_UPDATE:-1}"    # option A: merge a behind PR as it is when safe
 CI_WORKFLOW="${QUEUE_CI_WORKFLOW:-CI}"   # staging's CI, which option A needs to have passed
 GIT_URL="${QUEUE_GIT_URL:-https://github.com/$REPO.git}" # where renumber_migrations clones from and pushes to
+BATCH_SIZE="${QUEUE_BATCH_SIZE:-1}"     # batch mode (README, "Batches"): up to this many PRs tested together; 1 = off
+CONTINUE_ON_FAIL="${QUEUE_CONTINUE_ON_FAIL:-0}" # 1 = a failure does not stop the queue (README, "Known failures")
 
-READY=ready-for-staging FIX=staging-fix HOLD=staging-hold
+READY=ready-for-staging FIX=staging-fix HOLD=staging-hold SOLO=staging-solo
 TESTING=staging-testing VERIFIED=staging-verified
 BLOCKED=staging-blocked FAILED=staging-failed
 PAUSED=staging-queue-paused TRACKER=staging-queue-tracker
@@ -126,7 +128,7 @@ check_write_access() {
 
 ensure_labels() {
   local spec name color
-  for spec in "$READY:0e8a16" "$FIX:5319e7" "$HOLD:bfdadc" "$TESTING:fbca04" "$VERIFIED:1d76db" \
+  for spec in "$READY:0e8a16" "$FIX:5319e7" "$HOLD:bfdadc" "$SOLO:bfdadc" "$TESTING:fbca04" "$VERIFIED:1d76db" \
               "$BLOCKED:d93f0b" "$FAILED:b60205" "$PAUSED:b60205" "$TRACKER:c5def5"; do
     name="${spec%%:*}" color="${spec##*:}"
     api "repos/$REPO/labels/$name" >/dev/null 2>&1 && continue
@@ -142,6 +144,27 @@ remove_label() { # 404: it did not carry the label
 comment() { write "repos/$REPO/issues/$1/comments" -f body="$2" >/dev/null; }
 
 # ---------------------------------------------------------------- the queue
+# Known failures (owner, 25 Nov 2026; README, "Known failures"). With
+# QUEUE_CONTINUE_ON_FAIL=1 a PR that fails on staging still opens the pause
+# issue (fixes still go first, and production waits for the fix), but the queue
+# goes on testing the next PRs. The guest QA checks that failed are kept in the
+# issue's body; a later PR whose QA fails ONLY on those checks counts as passed.
+# Any new failure, or a failure before QA (CI, migrations, deploy), still fails it.
+KNOWN="" IGNORED_KNOWN=0 FAILS_OUT=""
+qa_titles() { # failing-check lines → test titles, one per line
+  sed -E 's/^[[:space:]]*[0-9]+\) //; s/^\[[a-z]+\] › //; s/.* › //; s/[[:space:]]+$//' | grep . | sort -u
+}
+load_known() { # $1 = open pause issue (or empty)
+  KNOWN=""; [ -n "$1" ] || return 0
+  KNOWN="$(api "repos/$REPO/issues/$1" --jq .body | sed -n '/^<!-- known-failures$/,/^-->$/p' | sed '1d;$d' | grep . || true)"
+}
+only_known() { # stdin = failing-check lines; 0 if every one is already known
+  local t; t="$(qa_titles)"
+  [ -n "$t" ] && [ -n "$KNOWN" ] && [ -z "$(grep -vxF -f <(printf '%s\n' "$KNOWN") <<<"$t" || true)" ]
+}
+known_block() { # $1 = failing-check lines to add to KNOWN → the issue body block
+  printf '<!-- known-failures\n%s\n-->' "$( { printf '%s\n' "$KNOWN"; qa_titles <<<"$1"; } | grep . | sort -u)"
+}
 pause_issue() { # number of the open pause issue, or empty
   api "repos/$REPO/issues?state=open&labels=$PAUSED&per_page=1" --jq '.[0].number // empty'
 }
@@ -265,11 +288,11 @@ wait_staging_idle() {
 # Every run started by the push of the merge commit (CI, Test database,
 # app builds…), not release-PR or hand-dispatched runs on the same sha.
 # Prints success | failure:<names>
-wait_merge_runs() {
-  local sha="$1" start=$SECONDS out
+wait_merge_runs() { # $1 sha, $2 a workflow not to wait for (batch: CI already passed on this exact tree)
+  local sha="$1" skip="${2:-}" start=$SECONDS out
   while :; do
     out="$(api "repos/$REPO/actions/runs?head_sha=$sha&per_page=50" --jq "
-      [ .workflow_runs[] | $PUSH_RUN | select(.name != \"$SELF_WORKFLOW\") ] | group_by(.name) | map(max_by(.id))
+      [ .workflow_runs[] | $PUSH_RUN | select(.name != \"$SELF_WORKFLOW\") | select(.name != \"$skip\") ] | group_by(.name) | map(max_by(.id))
       | if length == 0 then \"none\"
         elif any(.[]; .status != \"completed\") then \"pending\"
         elif any(.[]; (.conclusion | IN(\"success\",\"skipped\",\"neutral\")) | not)
@@ -521,13 +544,18 @@ It stays queued; the next queue run merges it once its checks pass. **Session th
     if ! bash "$QA_SCRIPT" "$merged_sha" "$SITE" "$n" 2>&1 | tee "$qa_log" >&2; then
       failed_tests="$(grep -E '✘|^\s+[0-9]+\) ' "$qa_log" | sed 's/^[[:space:]]*//' | sort -u | head -15)"
       fail="guest QA tier failed on $SITE ($(grep -oE '[0-9]+ failed' "$qa_log" | tail -1))"
+      if [ "$CONTINUE_ON_FAIL" = 1 ] && only_known <<<"$failed_tests"; then
+        note "#$n: guest QA failed only on checks already failing on $BASE (known failures) — counted as passed"
+        fail="" IGNORED_KNOWN=1
+      fi
     fi
   fi
+  [ -z "$FAILS_OUT" ] || printf '%s\n' "$failed_tests" > "$FAILS_OUT"
 
   remove_label "$n" "$TESTING"
   if [ -z "$fail" ]; then
     add_label "$n" "$VERIFIED"
-    comment "$n" "✅ **Staging queue** ($(ist)): verified on $SITE — staging CI and migrations passed, the deploy is live, the site kept answering and the guest QA tier passed. Signed-in QA and production stay with the session/owner."
+    comment "$n" "✅ **Staging queue** ($(ist)): verified on $SITE — staging CI and migrations passed, the deploy is live, the site kept answering and the guest QA tier passed. Signed-in QA and production stay with the session/owner.$([ "$IGNORED_KNOWN" = 1 ] && echo " (Guest QA checks that were already failing on \`$BASE\` because of an earlier PR were not counted; production waits for that PR's fix.)")"
     note "#$n verified on $SITE"; return 0
   fi
   add_label "$n" "$FAILED"
@@ -538,7 +566,7 @@ Failing checks:
 $failed_tests
 \`\`\`
 }
-The queue is paused; nothing else is merged into \`$BASE\` until a fix passes.
+$( [ "$CONTINUE_ON_FAIL" = 1 ] && echo "The queue goes on testing the next PRs; production waits until a fix for this passes." || echo "The queue is paused; nothing else is merged into \`$BASE\` until a fix passes.")
 
 **Session that owns this PR — fix it now, no need to ask the owner:**
 1. \`git fetch origin $BASE\` and branch from \`origin/$BASE\` (this PR is already merged, so don't reuse its branch).
@@ -549,6 +577,233 @@ The queue is paused; nothing else is merged into \`$BASE\` until a fix passes.
   echo "$fail"; return 1
 }
 
+# ---------------------------------------------------------------- a batch
+prs() { local n o=""; for n in "$@"; do [ -n "$n" ] && o="$o${o:+, }#$n"; done; echo "$o"; }
+# GitHub marks a PR merged once its head is on the base; if one of a batch is
+# still open (its branch moved meanwhile), close it with a pointer to the batch.
+close_if_open() { # $1 = batch PR, then the batch's PRs
+  local bpr="$1" n; shift
+  for n in "$@"; do
+    [ "$(api "repos/$REPO/pulls/$n" --jq .state 2>/dev/null)" = open ] || continue
+    comment "$n" "Merged into \`$BASE\` as part of batch #$bpr, so this PR is closed (its commits are on \`$BASE\`)."
+    write -X PATCH "repos/$REPO/pulls/$n" -f state=closed >/dev/null
+  done
+}
+# Batch mode (owner, 25 Nov 2026; README, "Batches"). Testing every PR on its
+# own costs about 90 min each, mostly the same CI run twice. With
+# QUEUE_BATCH_SIZE > 1 and the queue not paused, up to that many queued PRs
+# whose own checks passed are tested TOGETHER:
+#   1. a branch queue/batch-<time> = staging + each PR merged in order. A PR
+#      whose only conflict is the migration journal gets the same renumbering
+#      as above (pushed to its own branch, so GitHub sees it merged later); a
+#      PR with any other conflict is left out and keeps its place;
+#   2. that branch goes up as one PR into staging; its CI tests the
+#      combination once. CI fails → the batch PR is closed and these PRs are
+#      tested one at a time in this run (that finds the culprit; nothing on
+#      staging changed);
+#   3. CI passed → the batch PR is merged (one push to staging). Staging's CI
+#      is not waited for again when the merge has the very tree that was
+#      tested; "Test database" (migrations), the deploy, the post-deploy check
+#      and the guest QA tier run once for the whole batch;
+#   4. passed → every PR in it (and the batch PR) is staging-verified.
+#      Failed → all of them are staging-failed and the queue pauses as for one
+#      PR; the failing checks name the culprit and a fix PR goes first.
+# A PR labelled staging-solo is never batched. Fixes (staging-fix) always go
+# one at a time, first.
+# $@ = candidate PR numbers, oldest first.
+# Returns 0 verified, 1 failed on staging (pause), 2 no batch (fewer than two
+# could go in, or staging moved: carry on one at a time), 3 the batch's CI
+# failed (test its PRs one at a time). Writes the PRs it dealt with to
+# $BATCH_OUT on the first line (0, 1, 3), then the reason (1).
+process_batch() {
+  local cands=("$@") picked=() n pr labels dir auth base stamp branch bpr bsha state tree_tested
+  local merged_sha merged_at before runs fail="" failed_tests="" qa_log list renum=() out
+  for n in "${cands[@]}"; do
+    [ "${#picked[@]}" -ge "$BATCH_SIZE" ] && break
+    pr="$(api "repos/$REPO/pulls/$n")" || continue
+    [ "$(jq -r .state <<<"$pr")" = open ] || continue
+    labels="$(jq -r '[.labels[].name] | join(" ")' <<<"$pr")"
+    case " $labels " in *" $SOLO "*|*" $FIX "*|*" $BLOCKED "*) continue ;; esac
+    [ "$(jq -r .head.repo.full_name <<<"$pr")" = "$REPO" ] || continue # a fork: renumbering could not push there
+    [ "$(checks_state "$(jq -r .head.sha <<<"$pr")")" = success ] || continue
+    picked+=("$n")
+  done
+  [ "${#picked[@]}" -ge 2 ] || return 2
+  note "batch: trying $(prs "${picked[@]}") together"
+
+  base="$(api "repos/$REPO/branches/$BASE" --jq .commit.sha)" && [ -n "$base" ] || return 2
+  dir="$(mktemp -d)"
+  auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+  b() { git -C "$dir" -c http.extraheader="$auth" -c user.name="GoKesari staging queue" \
+          -c user.email="staging-queue@users.noreply.github.com" "$@"; }
+  local tool="$QUEUE_DIR/renumber-migrations.mjs"
+  [ -f "$tool" ] || tool="$QUEUE_DIR/../db/renumber-migrations.mjs"
+  if ! { git -c http.extraheader="$auth" clone -q --filter=blob:none --no-checkout "$GIT_URL" "$dir" 2>/dev/null &&
+         b fetch -q origin "$BASE" && b checkout -q -b batch "$base"; }; then
+    log "batch: could not clone"; rm -rf "$dir"; return 2
+  fi
+  local inb=() ref
+  for n in "${picked[@]}"; do
+    pr="$(api "repos/$REPO/pulls/$n")"; ref="$(jq -r .head.ref <<<"$pr")"
+    b fetch -q origin "$ref" || { log "batch: #$n: could not fetch $ref"; continue; }
+    if b merge -q --no-edit -m "Batch: merge #$n ($ref)" FETCH_HEAD >/dev/null 2>&1; then inb+=("$n"); continue; fi
+    if [ "$(b diff --name-only --diff-filter=U)" != drizzle/meta/_journal.json ]; then
+      b merge --abort; note "batch: #$n left out (conflicts with the PRs before it); it keeps its place"; continue
+    fi
+    # Only the journal: renumber on the PR's side (as renumber_migrations does),
+    # push that to the PR's branch, and take it into the batch.
+    b merge --abort
+    b checkout -q -b "pr-$n" FETCH_HEAD
+    if b merge -q --no-edit batch >/dev/null 2>&1 || [ "$(b diff --name-only --diff-filter=U)" != drizzle/meta/_journal.json ] ||
+       ! out="$(cd "$dir" && node "$tool" batch 2>&1)" || [ -n "$(b diff --name-only --diff-filter=U)" ] ||
+       ! b commit -q -m "Merge $BASE and the queue's batch into $ref; migrations renumbered by the staging queue" -m "$out"; then
+      b merge --abort 2>/dev/null || true; b checkout -q batch
+      note "batch: #$n left out (could not renumber its migrations here)"; continue
+    fi
+    if [ "$DRY_RUN" != 1 ] && ! b push -q origin "HEAD:refs/heads/$ref"; then
+      b checkout -q batch; note "batch: #$n left out (its branch moved)"; continue
+    fi
+    b checkout -q batch && b merge -q --ff-only "pr-$n"
+    inb+=("$n"); renum+=("$n")
+    [ "$DRY_RUN" = 1 ] || comment "$n" "🔢 **Staging queue** ($(ist)): to test this PR in a batch, the queue merged \`$BASE\` (and the PRs before it in the batch) into this branch and renumbered its migrations:
+\`\`\`
+$out
+\`\`\`
+**Session that owns this PR:** pull before pushing again."
+  done
+  if [ "${#inb[@]}" -lt 2 ]; then rm -rf "$dir"; note "batch: fewer than two PRs went in — one at a time"; return 2; fi
+  list="$(prs "${inb[@]}")"
+  if [ "$DRY_RUN" = 1 ]; then note "DRY RUN: would test $list together on $SITE"; rm -rf "$dir"; return 2; fi
+  [ "$write_errors" = 0 ] || { rm -rf "$dir"; return 2; }
+
+  stamp="$(TZ=Asia/Kolkata date +%Y%m%d-%H%M%S)-$RANDOM"; branch="queue/batch-$stamp"
+  b push -q origin "HEAD:refs/heads/$branch" || { rm -rf "$dir"; log "batch: could not push $branch"; return 2; }
+  bsha="$(b rev-parse HEAD)"; rm -rf "$dir"
+  local body="Staging queue batch ($(ist)): $list, tested together (docs/staging-queue/README.md, \"Batches\"). Opened and merged by the queue — do not edit.${RUN_URL:+ [Run]($RUN_URL).}"
+  if ! try_write "repos/$REPO/pulls" -f title="Staging queue batch: $list" -f head="$branch" -f base="$BASE" -f body="$body" --jq .number >/dev/null; then
+    write_failed; try_write -X DELETE "repos/$REPO/git/refs/heads/$branch" >/dev/null || true; return 2
+  fi
+  bpr="$WRITE_OUT"
+  local m others
+  for n in "${inb[@]}"; do
+    others=(); for m in "${inb[@]}"; do [ "$m" = "$n" ] || others+=("$m"); done
+    comment "$n" "📦 **Staging queue** ($(ist)): testing this PR together with $(prs "${others[@]}") in batch #$bpr (CI on the combination, then one deploy and QA on $SITE)."
+  done
+  update_tracker "📦 batch #$bpr: CI on $list"
+  note "batch #$bpr ($list): waiting for CI on ${bsha:0:7}"
+
+  state="$(wait_checks "$bsha")"
+  if [ "$state" != success ]; then
+    write -X PATCH "repos/$REPO/pulls/$bpr" -f state=closed >/dev/null
+    try_write -X DELETE "repos/$REPO/git/refs/heads/$branch" >/dev/null || true
+    comment "$bpr" "Batch CI failed (${state#failure:}); its PRs are tested one at a time instead."
+    for n in "${inb[@]}"; do
+      comment "$n" "📦 **Staging queue** ($(ist)): batch #$bpr's CI failed (${state#failure:}). Nothing was merged; the queue now tests this PR on its own."
+    done
+    note "batch #$bpr CI failed (${state#failure:}) — one at a time"
+    echo "${inb[*]}" >>"$BATCH_OUT"; return 3
+  fi
+
+  wait_staging_idle
+  if [ "$(api "repos/$REPO/branches/$BASE" --jq .commit.sha)" != "$base" ]; then
+    write -X PATCH "repos/$REPO/pulls/$bpr" -f state=closed >/dev/null
+    try_write -X DELETE "repos/$REPO/git/refs/heads/$branch" >/dev/null || true
+    note "batch #$bpr dropped: $BASE moved while its CI ran"; return 2
+  fi
+  # The tree GitHub's CI tested: the PR's test merge onto this same staging head.
+  tree_tested="$(api "repos/$REPO/pulls/$bpr" --jq .merge_commit_sha)" &&
+    tree_tested="$(api "repos/$REPO/git/commits/$tree_tested" --jq .tree.sha)" || tree_tested=""
+  before="$(site_version || true)"
+  merged_at=$(date +%s)
+  if ! try_write -X PUT "repos/$REPO/pulls/$bpr/merge" -f merge_method=merge -f sha="$bsha" \
+         -f commit_title="Merge pull request #$bpr: staging queue batch $list" --jq .sha >/dev/null; then
+    write_failed; note "batch #$bpr: GitHub refused the merge"; return 2
+  fi
+  merged_sha="$WRITE_OUT"
+  try_write -X DELETE "repos/$REPO/git/refs/heads/$branch" >/dev/null || true
+  for n in "$bpr" "${inb[@]}"; do remove_label "$n" "$READY"; add_label "$n" "$TESTING"; done
+  note "batch #$bpr ($list) merged into $BASE as ${merged_sha:0:7}"
+  update_tracker "🧪 testing batch #$bpr ($list) on $SITE"
+
+  local skip=""
+  if [ -n "$tree_tested" ] && [ "$(api "repos/$REPO/git/commits/$merged_sha" --jq .tree.sha)" = "$tree_tested" ]; then
+    skip="$CI_WORKFLOW"; log "merge has the tree batch CI tested: not waiting for $BASE's $CI_WORKFLOW again"
+  fi
+  runs="$(wait_merge_runs "$merged_sha" "$skip")"
+  [ "$runs" = success ] || fail="staging runs: ${runs#failure:}"
+  if [ -z "$fail" ] && ! wait_deploy "$before" "$merged_at"; then
+    fail="$SITE did not show a new build within $((DEPLOY_WAIT / 60)) min (server deploy: gk-deploy status on gk-db-1)"
+  fi
+  if [ -z "$fail" ] && ! bash "$QUEUE_DIR/post-deploy-check.sh" "$SITE" --rounds 3 --every 45 --deadline 600 >&2; then
+    fail="$SITE did not keep answering after the deploy (post-deploy check)"
+  fi
+  if [ -z "$fail" ] && [ -n "$QA_SCRIPT" ]; then
+    qa_log="$(mktemp)"
+    if ! bash "$QA_SCRIPT" "$merged_sha" "$SITE" "$bpr" 2>&1 | tee "$qa_log" >&2; then
+      failed_tests="$(grep -E '✘|^\s+[0-9]+\) ' "$qa_log" | sed 's/^[[:space:]]*//' | sort -u | head -15)"
+      fail="guest QA tier failed on $SITE ($(grep -oE '[0-9]+ failed' "$qa_log" | tail -1))"
+      if [ "$CONTINUE_ON_FAIL" = 1 ] && only_known <<<"$failed_tests"; then
+        note "batch #$bpr: guest QA failed only on checks already failing on $BASE (known failures) — counted as passed"
+        fail="" IGNORED_KNOWN=1
+      fi
+    fi
+  fi
+  [ -z "$FAILS_OUT" ] || printf '%s\n' "$failed_tests" > "$FAILS_OUT"
+
+  for n in "$bpr" "${inb[@]}"; do remove_label "$n" "$TESTING"; done
+  if [ -z "$fail" ]; then
+    for n in "$bpr" "${inb[@]}"; do add_label "$n" "$VERIFIED"; done
+    for n in "${inb[@]}"; do
+      comment "$n" "✅ **Staging queue** ($(ist)): verified on $SITE in batch #$bpr ($list) — CI on the combination and migrations passed, the deploy is live, the site kept answering and the guest QA tier passed. Signed-in QA and production stay with the session/owner."
+    done
+    note "batch #$bpr ($list) verified on $SITE"
+    close_if_open "$bpr" "${inb[@]}"
+    echo "${inb[*]}" >>"$BATCH_OUT"; return 0
+  fi
+  for n in "$bpr" "${inb[@]}"; do add_label "$n" "$FAILED"; done
+  for n in "${inb[@]}"; do
+    comment "$n" "❌ **Staging queue** ($(ist)): **batch #$bpr ($list) failed on $SITE** — $fail
+${failed_tests:+
+Failing checks:
+\`\`\`
+$failed_tests
+\`\`\`
+}
+$( [ "$CONTINUE_ON_FAIL" = 1 ] && echo "The queue goes on testing the next PRs; production waits for the fix." || echo "The queue is paused.") **Session whose change the failing checks point at:** branch from \`origin/$BASE\`, fix, and open a PR into \`$BASE\` titled \`Fix #$n: …\` with the label **\`$FIX\`**. If it is not this PR's, say so here."
+  done
+  note "batch #$bpr ($list) FAILED: $fail"
+  close_if_open "$bpr" "${inb[@]}"
+  { echo "${inb[*]}"; echo "batch #$bpr ($list): $fail"; } >>"$BATCH_OUT"; return 1
+}
+
+# Continue mode: a failure is recorded on the pause issue (opened if needed)
+# with the failing guest QA checks as known failures, and the queue goes on.
+# $1 = what failed ("#7" or "batch #90 (#7, #8)"), $2 = the reason.
+record_failure() {
+  local what="$1" why="$2" fails body
+  fails="$(cat "$FAILS_OUT" 2>/dev/null || true)"
+  if [ -z "$paused" ]; then
+    write "repos/$REPO/issues" -f title="Staging queue: $what failed on test.gokesari.com (queue continues)" \
+      -f "labels[]=$PAUSED" -f body="$what was merged into \`$BASE\` and failed on $SITE ($(ist)):
+
+$why
+
+The queue goes on testing the next PRs (README, \"Known failures\"): a later PR whose guest QA fails only on the checks below still passes; any new failure fails it. Fixes (\`$FIX\`) go first. **Production waits:** nothing after $what is released until a fix passes and closes this issue.
+${RUN_URL:+
+Run: $RUN_URL}
+
+$(known_block "$fails")" >/dev/null
+    paused="$(pause_issue)"
+  else
+    body="$(api "repos/$REPO/issues/$paused" --jq .body | sed '/^<!-- known-failures$/,/^-->$/d')"
+    load_known "$paused"
+    write -X PATCH "repos/$REPO/issues/$paused" -f body="$body
+$(known_block "$fails")" >/dev/null
+    comment "$paused" "❌ $what also failed on $SITE ($(ist)): $why"
+  fi
+  load_known "$paused"
+}
+
 # ---------------------------------------------------------------- main
 check_write_access
 ensure_labels
@@ -556,7 +811,8 @@ note "queue started (base $BASE, site $SITE$([ "$DRY_RUN" = 1 ] && echo ', DRY R
 processed=0 rc=0
 while [ "$processed" -lt "$MAX_PRS" ]; do
   paused="$(pause_issue)"
-  if [ -n "$paused" ]; then mapfile -t list < <(candidates "$FIX")
+  [ "$CONTINUE_ON_FAIL" = 1 ] && load_known "$paused"
+  if [ -n "$paused" ] && [ "$CONTINUE_ON_FAIL" != 1 ]; then mapfile -t list < <(candidates "$FIX")
   else mapfile -t list < <(candidates "$FIX"; candidates "$READY"); fi
   # first one not seen in this run (a skipped PR stays labelled only if dry run)
   next=""
@@ -579,16 +835,66 @@ while [ "$processed" -lt "$MAX_PRS" ]; do
     update_tracker "⏭ handing over — #$next is next; the next run (a push to \`$BASE\`, a label, or the hourly check) carries on"
     break
   fi
+  [ "$write_errors" = 0 ] || break # GitHub refused a write: start no PR (fails below)
+
+  # Batch mode: not while paused, not for fixes, not after a batch's CI failed
+  # in this run (its PRs then go one at a time).
+  if [ "$BATCH_SIZE" -gt 1 ] && { [ -z "$paused" ] || [ "$CONTINUE_ON_FAIL" = 1 ]; } && [ "${batch_off:-0}" = 0 ] &&
+     [ -z "$(candidates "$FIX" | grep -vxF -f <(tr ' ' '\n' <<<"${seen:-}" | grep .) || true)" ]; then
+    pool=()
+    for c in "${list[@]}"; do
+      [ -n "$c" ] || continue
+      case " ${seen:-} " in *" $c "*) continue ;; esac
+      pool+=("$c")
+    done
+    if [ "${#pool[@]}" -ge 2 ]; then
+      BATCH_OUT="$(mktemp)" FAILS_OUT="$(mktemp)" IGNORED_KNOWN=0
+      set +e; process_batch "${pool[@]}" >&2; res=$?; set -e
+      done_prs="$(head -1 "$BATCH_OUT")"; reason="$(tail -1 "$BATCH_OUT")"
+      case "$res" in
+        0) seen="${seen:-} $done_prs"; processed=$((processed + $(wc -w <<<"$done_prs"))); continue ;;
+        3) batch_off=1; continue ;; # the same PRs now go one at a time
+        1)
+          if [ "$CONTINUE_ON_FAIL" = 1 ]; then
+            seen="${seen:-} $done_prs"; processed=$((processed + $(wc -w <<<"$done_prs")))
+            record_failure "a batch ($(prs $done_prs))" "$reason"
+            update_tracker "⚠️ known failure on staging (see #$paused) — queue continues"
+            rc=1; continue
+          fi
+          write "repos/$REPO/issues" -f title="Staging queue paused — batch failed on test.gokesari.com" \
+            -f "labels[]=$PAUSED" -f body="A batch ($(prs $done_prs)) was merged into \`$BASE\` and failed on $SITE ($(ist)):
+
+$reason
+
+Nothing else is merged into staging until this is resolved. Open a fix PR into \`$BASE\` labelled \`$FIX\` (the failing checks in the PRs' comments name the culprit), or close this issue if the failure was not caused by the change.
+${RUN_URL:+
+Run: $RUN_URL}" >/dev/null
+          update_tracker "⛔ PAUSED — a batch failed on staging"
+          rc=1; break ;;
+        *) : ;; # no batch this time: the next PR goes on its own, then batching is tried again
+      esac
+    fi
+  fi
+
   seen="${seen:-} $next"
   update_tracker "▶️ running — checking #$next"
   [ "$write_errors" = 0 ] || break # GitHub refused a write: start no PR (fails below)
-  out="$(mktemp)"
+  out="$(mktemp)" FAILS_OUT="$(mktemp)" IGNORED_KNOWN=0
   set +e; process_pr "$next" > "$out"; res=$?; set -e
   reason="$(tail -1 "$out")"
   processed=$((processed + 1))
-  if [ "$res" = 0 ] && [ -n "$paused" ]; then
+  # A verified PR closes the pause issue only if it is a fix (while paused,
+  # only fixes ran before continue mode) and passed without known failures.
+  is_fix=1
+  [ "$CONTINUE_ON_FAIL" = 1 ] && { candidates "$FIX" | grep -qxF "$next" || is_fix=0; }
+  if [ "$res" = 0 ] && [ -n "$paused" ] && [ "$is_fix" = 1 ] && [ "$IGNORED_KNOWN" = 0 ]; then
     write -X PATCH "repos/$REPO/issues/$paused" -f state=closed >/dev/null
     comment "$paused" "✅ Fix #$next verified on $SITE ($(ist)). Queue resumed."
+  fi
+  if [ "$res" = 1 ] && [ "$CONTINUE_ON_FAIL" = 1 ]; then
+    record_failure "#$next" "$reason"
+    update_tracker "⚠️ known failure on staging (see #$paused) — queue continues"
+    rc=1; continue
   fi
   if [ "$res" = 1 ]; then
     if [ -z "$paused" ]; then

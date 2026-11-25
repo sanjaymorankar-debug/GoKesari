@@ -9092,7 +9092,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0203 PAY-2 */] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
