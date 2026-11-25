@@ -77,6 +77,10 @@ jobs:
           # Option A (README, "Speed"): a repository variable
           # STAGING_QUEUE_SKIP_UPDATE=0 turns it off without a code change.
           QUEUE_SKIP_UPDATE: ${{ vars.STAGING_QUEUE_SKIP_UPDATE || '1' }}
+          # Batches (README, "Batches"; owner, 25 Nov 2026): up to 4 queued PRs
+          # tested together. A repository variable STAGING_QUEUE_BATCH_SIZE=1
+          # turns it off without a code change.
+          QUEUE_BATCH_SIZE: ${{ vars.STAGING_QUEUE_BATCH_SIZE || '4' }}
         run: |
           mkdir -p "$RUNNER_TEMP/queue"
           cp scripts/release/staging-queue.sh scripts/release/staging-queue-qa.sh \
