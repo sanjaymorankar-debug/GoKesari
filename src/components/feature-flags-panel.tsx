@@ -58,6 +58,8 @@ export type FeatureFlagKey =
   | "guest_checkout_enabled"
   // docs/account-deletion-2026-11 (0191)
   | "account_self_deletion_enabled"
+  // docs/tax-register/BOOKS.md (0200)
+  | "auto_journals"
   // docs/sms-2fa-2026-11
   | "sms_otp_signin_customers_enabled"
   | "sms_otp_signin_shop_owners_enabled";

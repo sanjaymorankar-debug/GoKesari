@@ -1,6 +1,7 @@
--- Rollback for 0200_sms_two_factor (SMS sign-in code flags, checkout step-up column).
--- Before running: deploy the previous release's code. Then delete the 0200 row.
-DELETE FROM "feature_flag_changes" WHERE "flag_key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DELETE FROM "feature_flags" WHERE "key" IN ('sms_otp_signin_customers_enabled', 'sms_otp_signin_shop_owners_enabled');
-DROP INDEX IF EXISTS "login_otps_user_purpose_consumed_idx";
-ALTER TABLE "login_otps" DROP COLUMN IF EXISTS "step_up_request_id";
+-- Rollback for 0200_gokesari_books (docs/tax-register/BOOKS.md).
+-- Before running: deploy the previous release's code, then delete the 0200 row from
+-- drizzle.__drizzle_migrations. Journal drafts already made from postings stay.
+BEGIN;
+DROP TABLE IF EXISTS "fin_auto_postings";
+DELETE FROM "feature_flags" WHERE "key" = 'auto_journals';
+COMMIT;

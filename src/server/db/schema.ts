@@ -659,7 +659,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0200: SMS second factor, checkout step-up */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0201: SMS second factor, checkout step-up */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -669,7 +669,7 @@ export const loginOtps = pgTable(
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
     /**
-     * 0200 (docs/sms-2fa-2026-11): a verified CHECKOUT code is a one-time pass for one order;
+     * 0201 (docs/sms-2fa-2026-11): a verified CHECKOUT code is a one-time pass for one order;
      * the checkout request that used it. A retry of the same request may use it again.
      */
     stepUpRequestId: text("step_up_request_id"),
@@ -10825,7 +10825,9 @@ export const FEATURE_FLAG_KEYS = [
   "guest_checkout_enabled",
   // docs/account-deletion-2026-11 (0191): customers delete their own account from My Profile. Off: no section, APIs answer 404.
   "account_self_deletion_enabled",
-  // docs/sms-2fa-2026-11 (0200): sign-in needs an SMS code after the emailed one — one switch per audience
+  // docs/tax-register (0200): paid payouts queue balanced postings for the Accountant. Missing row = OFF.
+  "auto_journals",
+  // docs/sms-2fa-2026-11 (0201): sign-in needs an SMS code after the emailed one — one switch per audience
   // (Admin → Sign-in security). Seeded OFF.
   "sms_otp_signin_customers_enabled",
   "sms_otp_signin_shop_owners_enabled",
