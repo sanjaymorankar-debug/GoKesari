@@ -57,7 +57,9 @@ export type FeatureFlagKey =
   // docs/guest-checkout-2026-11
   | "guest_checkout_enabled"
   // docs/account-deletion-2026-11 (0191)
-  | "account_self_deletion_enabled";
+  | "account_self_deletion_enabled"
+  // docs/tax-register/BOOKS.md (0200)
+  | "auto_journals";
 
 interface FlagValue {
   enabled: boolean;

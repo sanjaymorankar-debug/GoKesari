@@ -1401,6 +1401,13 @@
       "when": 1793269910000,
       "tag": "0199_account_deletion_cooling_off",
       "breakpoints": true
+    },
+    {
+      "idx": 200,
+      "version": "7",
+      "when": 1793270000000,
+      "tag": "0200_gokesari_books",
+      "breakpoints": true
     }
   ]
 }
