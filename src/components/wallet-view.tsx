@@ -7,6 +7,7 @@ import { EmptyIllustration } from "@/components/empty-illustrations";
 import { Alert, Button, Card, Money, inputClass } from "@/components/ui";
 import { errorText } from "@/lib/board/error-text";
 import { L, tr, type Lang } from "@/lib/board/i18n";
+import { walletDescriptionText, walletTypeText } from "@/lib/wallet-i18n";
 import { HOME } from "@/lib/home-i18n";
 import { openCashfreeCheckout } from "@/lib/cashfree-checkout";
 import { TOPUP_PRESETS_PAISE, formatPaiseCompact } from "@/lib/money";
@@ -316,10 +317,10 @@ export function WalletView({
                 <li key={t.id} className="flex items-center gap-3 py-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-ink-900">
-                      {t.description}
+                      {walletDescriptionText(t.description, lang)}
                     </p>
                     <p className="text-xs text-ink-500">
-                      {t.type.replace(/_/g, " ").toLowerCase()} ·{" "}
+                      {walletTypeText(t.type, lang)} ·{" "}
                       {/* GAP-017: India time on the server too, or the server's UTC text mismatches the browser's (React #418). */}
                       {new Date(t.createdAt).toLocaleString("en-IN", {
                         dateStyle: "medium",

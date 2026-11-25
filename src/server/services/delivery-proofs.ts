@@ -217,6 +217,8 @@ export async function canViewDeliveryProof(imageId: string, user: { id: string; 
 export interface DeliveryGpsView {
   delivered: { latitude: number; longitude: number; accuracyM: number | null } | null;
   failed: { latitude: number; longitude: number } | null;
+  /** Module 4 (rule deliveryProof.failureReasons; staging E2E 25-Nov-2026): why the drop failed, as the rider gave it. */
+  failureReason: string | null;
 }
 
 /**
@@ -234,6 +236,7 @@ export async function deliveryGpsForOrders(orderIds: string[]): Promise<Map<stri
       deliveredAccuracyM: deliveryOrders.deliveredAccuracyM,
       failedLatitude: deliveryOrders.failedLatitude,
       failedLongitude: deliveryOrders.failedLongitude,
+      failureReason: deliveryOrders.failureReason,
     })
     .from(deliveryOrders)
     .where(inArray(deliveryOrders.orderId, orderIds));
@@ -245,7 +248,8 @@ export async function deliveryGpsForOrders(orderIds: string[]): Promise<Map<stri
         : null;
     const failed =
       r.failedLatitude != null && r.failedLongitude != null ? { latitude: r.failedLatitude, longitude: r.failedLongitude } : null;
-    if (delivered || failed) out.set(r.orderId, { delivered, failed });
+    const failureReason = r.failureReason?.trim() || null;
+    if (delivered || failed || failureReason) out.set(r.orderId, { delivered, failed, failureReason });
   }
   return out;
 }

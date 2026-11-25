@@ -171,7 +171,7 @@ export default async function CartPage({ searchParams }: { searchParams?: Promis
         </div>
       ) : null}
       {cart.groups.length > 0 ? (
-        <SaveCartAsList lists={purchaseLists.map((l) => ({ id: l.id, name: l.name, kind: l.kind }))} />
+        <SaveCartAsList lists={purchaseLists.map((l) => ({ id: l.id, name: l.name, kind: l.kind }))} lang={lang} />
       ) : null}
       {guestCheckoutOn && cart.groups.length > 0 ? (
         <CartShopRecommendation lang={lang} cartKey={cart.groups.flatMap((g) => g.lines.map((l) => `${l.cartItemId}:${l.quantity}`)).join(",")} />
