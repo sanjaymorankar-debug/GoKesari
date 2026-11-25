@@ -1,5 +1,19 @@
 # Shop documents before the fee, the 30-day promise, and the 1st / 15th follow-up
 
+> **Current rules (24-Nov-2026) — the registration gate below is superseded; the 1st / 15th follow-up and suspension still run (rule `shopDocumentFollowUp`).** Shops register only
+> through the identity-first wizard ([BRIEF.md](../shop-onboarding-identity-first-2026-11/BRIEF.md); decision log DI-01 … DI-14,
+> DF-08, DF-09): sign in → referral code and GSTIN / PAN on the first screen, checked online before anything else (no
+> "upload later") → owner name if missing → address → **map pin before payment** → shop name, type and turnover slab
+> → documents screen → pay → **live on payment, in every district**, once the must-haves below are on file (instant approval, DI-11 / DI-13). The
+> old one-page form and the switches `shop_onboarding_wizard_enabled` / `gov_verification_auto_approval_enabled` are
+> retired (DI-11). **Must-have before go-live:** a verified GSTIN or PAN, and the FSSAI licence for a food shop
+> (owner, 21-Nov-2026 23.30 IST, DF-08 — this reverses DI-14 / DF-05 for FSSAI). **Every other document** (Shop Act,
+> drug licence, medical / professional registration) may follow on the owner's ticked promise: 90 days
+> (`shopDocumentFollowUp.promiseDays`), e-mail reminders on the 1st and 15th, automatic suspension after the date.
+> Since 22-Nov-2026 an admin sets each document to must-have, on the promise or optional per shop type (or for all
+> shops, food shops, doctors) in Admin → Shops → **Document rules** (DF-09, PR #471). The admin's "Approve without
+> documents" (30 days) is the only exception to a must-have (DF-06).
+
 > **29 Oct 2026, later the same day:** shops registered through the onboarding wizard no longer use
 > this gate — they pay once their GSTIN / PAN is checked and go live on a verified GSTIN / PAN + payment
 > ([BRIEF_REDESIGN.md](../shop-onboarding-wizard-2026-10/BRIEF_REDESIGN.md), decision D-B01). The

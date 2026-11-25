@@ -58,14 +58,11 @@ const PAGE_SIZE = 6;
 
 export function ShopProductManager({
   shopId,
-  department,
   applyPriceImmediately = true,
   products,
   suggestions,
 }: {
   shopId: string;
-  /** The shop's own department/type — scopes category choices and searches. */
-  department: string;
   /** False when an operator/admin is managing a shop they don't own. */
   applyPriceImmediately?: boolean;
   products: ManagedProduct[];
@@ -86,7 +83,6 @@ export function ShopProductManager({
           <h2 className="text-lg font-semibold text-ink-900">Add a product</h2>
           <AddProductPanel
             shopId={shopId}
-            department={department}
             applyPriceImmediately={applyPriceImmediately}
           />
         </div>

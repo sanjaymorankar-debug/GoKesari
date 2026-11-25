@@ -3,6 +3,15 @@
 03-Nov-2026. Owner view: [OWNER_GUIDE.md](OWNER_GUIDE.md). TIERED details: [TIERED_COMMISSION.md](../dealer-programme/TIERED_COMMISSION.md).
 Switch everything on **test.gokesari.com first**. Every change asks for a reason and is audited.
 
+> **Current rules (24-Nov-2026):** the 3-level (TIERED) rates are **20% / 4% / 3%**, all earned when the shop pays
+> its fee and is approved (no trading wait), no per-shop cap; the main dealer gets **4%** when the signer reports to
+> him directly and **3%** two levels up (since 21-Nov-2026). Renewals **10% / 2% / 1%** for 3 years from activation;
+> promotion to team lead at **50 activated shops and 3 ready agents**; a monthly target of **50 shops** for every role
+> pays **10%** of that month's commission (owner, 05-Nov-2026 and 20/21-Nov-2026). Details:
+> [TIERED_COMMISSION.md](../dealer-programme/TIERED_COMMISSION.md). Since 23-Nov-2026 new dealers start on the
+> scheme platform's Free Dealership v2 unless an admin moves them to TIERED
+> ([dealer-platform](../dealer-platform/README.md)).
+
 ## 1. Rules (Admin → Settings)
 
 | Rule | Field | Default | Meaning |
@@ -26,7 +35,7 @@ Choose the dealer → *Move this dealer to TIERED* → build the team (*Add memb
   *Mapping history* shows every move with date and reason.
 * Commission follows the team **as it was on the shop's registration date**: moving an agent
   changes only shops registered afterwards.
-* *Promote to team lead* (10 activated shops, or *Promote anyway* with a reason). Sub-agent requests
+* *Promote to team lead* (50 activated shops and 3 ready agents since 05-Nov-2026 — was 10 shops; or *Promote anyway* with a reason). Sub-agent requests
   are approved or declined here.
 
 ## 3. Payouts (Admin → Dealers → Commission → Ledger & payouts)

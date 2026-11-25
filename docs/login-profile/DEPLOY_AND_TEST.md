@@ -1,5 +1,13 @@
 # Login by mobile or email + profile — deploy and test
 
+> **Superseded hosting steps (24-Nov-2026).** This was written when the sites
+> ran on Hostinger's Node.js hosting with Neon databases (and env vars / cron in
+> hPanel). Since 17-Nov-2026 both sites run on our own server: deploys by
+> `gk-deploy` from `staging` / `main`, env with `gk-site env …`, cron as systemd
+> timers, migrations only through the GitHub database workflows, backups by
+> pgBackRest and the workflows' snapshots. Use [DEPLOYMENT.md](../../DEPLOYMENT.md)
+> for the current steps; the text below is kept as the record.
+
 Covers migration `0038_login_profile` (numbered `0037` on staging before the merge with main's `0037_dispute_cases`) and the sign-in / onboarding / My Profile / checkout changes.
 
 ## What changed for users

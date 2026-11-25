@@ -4,6 +4,16 @@ Owner brief: 20-Nov-2026 10.51 IST. Decisions: [DECISIONS.md](DECISIONS.md) · C
 Data model: [DATA_MODEL.md](DATA_MODEL.md) · Guides: [doctor](DOCTOR_GUIDE.md), [stores and providers](STORE_PROVIDER_GUIDE.md),
 [admin](ADMIN_GUIDE.md) · Tests: [TESTING_REPORT.md](TESTING_REPORT.md).
 
+> **Status (24-Nov-2026):** Health is **live on gokesari.com** since 20-Nov-2026 23.32 IST (release #440) and on
+> test.gokesari.com. Migration 0156 switched `health.enabled` and `consultBooking.enabled` **on** on both sites
+> (owner, 20-Nov-2026: "switch health on in prod at launch", DECISIONS H-47); the legal and pharmacist reviews
+> (H-19, H-30) stay recommendations. Launch mode `primeForAll` is on: every verified provider gets the Prime
+> features free and pays the standard registration fee (₹999 slab + GST) and 2% commission; no Prime plan is sold
+> (H-45). On the business side Health is only for medical-field shops (H-46). A pharmacy's drug licence and a
+> doctor's medical registration are collected **on the owner's promise** (upload within 90 days, reminders on the
+> 1st / 15th, suspension after the date), not before go-live; the admin can change this per shop type in Admin →
+> Shops → Document rules (decision log DF-08, DF-09; H-52).
+
 GoKesari Health links patients (and their families), doctors and clinic reception, medical stores, home-care
 providers, medical equipment stores and GoKesari staff. It is built **on the consultant-appointments engine**
 (docs/consult-booking-2026-11): a doctor or care provider is a consult member of a practice (a shop) and every
@@ -12,10 +22,14 @@ home-care visits, rentals and Prime listing plans.
 
 ## Switching it on
 
+Both switches are already on on both sites (migration 0156, H-47). The steps below are for a fresh database or
+after switching Health off.
+
 1. Admin → Settings → `consultBooking.enabled` = on (appointments engine).
 2. Admin → Settings → `health.enabled` = on. Off: every Health page says "coming soon"; issued prescriptions still
    open and verify.
 3. Recommended consult setting for clinics: `consultBooking.reminderHours` = [24, 2] (brief: reminders 24 h and 2 h).
+   It was not changed at launch: reminders follow the consult rule as stored (H-47).
 4. Review the starter drug master (Admin → Health → Drug master) with a pharmacist / doctor (DECISIONS H-19).
 
 Settings in rule `health`: store response time (15 min), prescription validity (30 days), commissions on medicine

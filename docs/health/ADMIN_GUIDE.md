@@ -20,6 +20,15 @@ medicines or reports — except through break-glass. Permission `health:manage` 
 
 ## Switching Health on
 
+> **Status (24-Nov-2026):** already done on both sites. Migration 0156 switched `health.enabled` and
+> `consultBooking.enabled` on (owner, 20-Nov-2026, DECISIONS H-47); gokesari.com has served Health since
+> 20-Nov-2026 23.32 IST (release #440). Step 2 (legal review) and the drug-master review stay recommended, not a
+> condition for go-live. The steps are kept for a fresh database or after switching Health off.
+>
+> Licences: medical stores are verified here (drug licence, pharmacist), but the shop's drug licence and a doctor's
+> medical registration are asked for **on the owner's promise** (90 days, then suspension), set in Admin → Shops →
+> Document rules (decision log DF-08, DF-09; DECISIONS H-52), not before the shop goes live.
+
 1. Admin → Settings → `consultBooking.enabled` on (and `reminderHours` [24, 2]).
 2. Review the drug master and the consent / retention texts (legal review, DECISIONS H-30).
 3. Admin → Settings → `health.enabled` on.

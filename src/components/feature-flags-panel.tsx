@@ -60,6 +60,8 @@ export type FeatureFlagKey =
   | "account_self_deletion_enabled"
   // docs/tax-register/BOOKS.md (0200)
   | "auto_journals"
+  // docs/payment-settlement-states-2026-11
+  | "payment_settlement_states"
   | "policy_reconsent_enabled";
 
 interface FlagValue {
