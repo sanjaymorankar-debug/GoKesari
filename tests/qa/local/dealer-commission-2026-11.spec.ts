@@ -345,7 +345,7 @@ qa("TC-TIER-026", "lead A sees only his team; the admin's per-dealer API refuses
 
 /* --------------------------------------- TS-DLR-17: holds, payouts, reversal */
 
-qa("TC-TIER-029", "earnings wait on hold until the agreement is accepted; 'Paid' is refused without a verified bank; then paid", async () => {
+qa(["TC-TIER-029", "TC-DPAY-007"], "earnings wait on hold until the agreement is accepted; 'Paid' is refused without a verified bank; then paid", async () => {
   return tiered(async () => {
     const net = await tieredNetwork("t029");
     const fresh = await addMember(net, "AGENT", net.lead.id, { pan: true, bank: false, agreement: false }, true);
@@ -364,17 +364,48 @@ qa("TC-TIER-029", "earnings wait on hold until the agreement is accepted; 'Paid'
     const batch = await commissionAction({ action: "createPayout", dealerId: net.dealerId, memberId: fresh.id, note: "QA payout" });
     expectStatus(batch, 200, "draft the agent's payout");
     const batchId = batch.body.batch.id as string;
-    const refused = await commissionAction({ action: "payoutPaid", batchId, reference: "QA-UTR-1" });
-    expectStatus(refused, 409, "Paid without a verified bank");
-    expect(refused.body.error.message).toBe(`${fresh.name}'s bank account is not verified. A payout is paid only with PAN and a verified bank account on file.`);
+    // Paying by hand needs a second admin's approval first; neither goes through without a verified bank.
+    const draftPaid = await commissionAction({ action: "payoutPaid", batchId, reference: "QA-UTR-1" });
+    expectStatus(draftPaid, 409, "Paid on a draft");
+    expect(draftPaid.body.error.details?.reason).toBe("NOT_APPROVED");
+    const checker = await ctxFor(await freshAccount("t029-admin2", "ADMIN"));
+    const refused = await call(checker, "POST", "/api/admin/dealer-commission", { action: "approvePayout", batchId });
+    expectStatus(refused, 409, "Approved without a verified bank");
+    expect(refused.body.error.details?.reason).toBe("PAYEE_NOT_READY");
     await db()`update dealer_salespeople set bank_status = 'VERIFIED', bank_account_last4 = '4321', bank_verified_at = now() where id = ${fresh.id}`;
+    const approved = await call(checker, "POST", "/api/admin/dealer-commission", { action: "approvePayout", batchId });
+    if (approved.status === 409 && approved.body?.error?.details?.reason === "TDS_UNCONFIRMED") need(null, "a CA-confirmed TDS row for the payout (Admin → TDS on commission)");
+    expectStatus(approved, 200, "another admin approves once the bank is verified");
     const paid = await commissionAction({ action: "payoutPaid", batchId, reference: "QA-UTR-2" });
-    if (paid.status === 409 && paid.body?.error?.details?.reason === "TDS_UNCONFIRMED") need(null, "a CA-confirmed TDS row for the payout (Admin → TDS on commission)");
     expectStatus(paid, 200, "Paid once PAN and a verified bank are on file");
     expect(paid.body.batch.status).toBe("PAID");
-    return "ON_HOLD → EARNED on acceptance; Paid refused (bank not verified) → PAID";
+    return "ON_HOLD → EARNED on acceptance; draft not payable; approval refused (bank not verified) → approved → PAID";
   });
 }, { ...local, partial: "the month close's 'held: PAN, verified bank account, agent agreement' carry-over is proven by tests/integration/dealer-tiered-commission.test.ts and dealer-payouts-pan-tds.test.ts" });
+
+qa("TC-DPAY-006", "a dealer without PAN sees the held-commission banner on /dealer with the amount and an Add PAN link; gone once PAN and bank are on file", async ({ browser }) => {
+  return tiered(async () => {
+    const net = await dealerOnly("dpay006", { standard: true });
+    await db()`update dealers set pan_hash = null, pan_last4 = null where id = ${net.dealerId}`;
+    await db()`insert into dealer_commission_ledger (dealer_id, milestone, entry_type, accrual_key, amount_paise, base_paise, status)
+               values (${net.dealerId}, 'MONTHLY', 'BONUS', ${`QA-DPAY-006:${net.dealerId}`}, 123400, 123400, 'APPROVED')`;
+    const { context, page } = await pageFor(browser, net.owner);
+    try {
+      await page.goto("/dealer");
+      const banner = page.getByTestId("dealer-payout-held");
+      await expect(banner).toContainText("₹1,234 of commission is waiting for your details");
+      await expect(banner).toContainText("Missing: PAN.");
+      await expect(banner.getByRole("link", { name: "Add PAN" })).toHaveAttribute("href", "/dealer/apply#documents");
+      await db()`update dealers set pan_hash = ${`qa-pan-${net.dealerId}`}, pan_last4 = '123F' where id = ${net.dealerId}`;
+      await page.reload();
+      await expect(page.getByTestId("dealer-payout-held")).toHaveCount(0);
+    } finally {
+      await context.close();
+      await db()`delete from dealer_commission_ledger where accrual_key = ${`QA-DPAY-006:${net.dealerId}`}`;
+    }
+    return "banner with ₹1,234 and Add PAN → gone once PAN is on file";
+  });
+}, local);
 
 qa("TC-TIER-030", "a refund of the shop's registration fee takes back the direct, lead and main-dealer entries", async () => {
   return tiered(async () => {

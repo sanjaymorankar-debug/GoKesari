@@ -257,7 +257,7 @@ export function deduction(input: {
  */
 export async function computeCommissionTds(
   client: DbClient,
-  input: { panHash: string | null; payeeType: PayeeType; grossPaise: number; at: Date; dealerId: string; memberId: string | null },
+  input: { panHash: string | null; payeeType: PayeeType; grossPaise: number; at: Date; dealerId: string; memberId: string | null; excludeBatchId?: string },
 ): Promise<CommissionTds> {
   const none: CommissionTds = { tdsPaise: 0, rateBp: 0, rateId: null, section: null, certificateId: null, flag: null };
   if (!(await getRule("dealerPayoutTds")).enabled || input.grossPaise <= 0) return none;
@@ -271,9 +271,20 @@ export async function computeCommissionTds(
     .where(
       and(
         input.panHash
-          ? eq(dealerPayoutBatches.payeePanHash, input.panHash)
+          ? or(
+              eq(dealerPayoutBatches.payeePanHash, input.panHash),
+              // Paid before the PAN was added: the same person's PAN-less payouts count towards the PAN's year.
+              and(
+                isNull(dealerPayoutBatches.payeePanHash),
+                or(
+                  and(isNull(dealerPayoutBatches.memberId), inArray(dealerPayoutBatches.dealerId, client.select({ id: dealers.id }).from(dealers).where(eq(dealers.panHash, input.panHash)))),
+                  inArray(dealerPayoutBatches.memberId, client.select({ id: dealerSalespeople.id }).from(dealerSalespeople).where(eq(dealerSalespeople.panHash, input.panHash))),
+                ),
+              ),
+            )
           : and(eq(dealerPayoutBatches.dealerId, input.dealerId), input.memberId ? eq(dealerPayoutBatches.memberId, input.memberId) : isNull(dealerPayoutBatches.memberId)),
         inArray(dealerPayoutBatches.status, ["DRAFT", "APPROVED", "PROCESSING", "FAILED", "PAID"]),
+        input.excludeBatchId ? sql`${dealerPayoutBatches.id} <> ${input.excludeBatchId}` : undefined,
         sql`coalesce(to_date(${dealerPayoutBatches.periodMonth}, 'YYYY-MM'), (${dealerPayoutBatches.createdAt} at time zone 'Asia/Kolkata')::date) between ${fy.from}::date and ${fy.to}::date`,
       ),
     );
@@ -304,7 +315,10 @@ export function tdsBlock(b: { tdsFlag: string | null; tdsOverrideReason: string 
   return null;
 }
 
-/** ADMIN: pays a payout whose TDS row is unconfirmed anyway — the reason is kept on the payout and audited. */
+/**
+ * ADMIN: lets a draft payout whose TDS row is unconfirmed go on — the reason is kept on the payout and
+ * audited. A second admin (not the one who overrode it) must still approve the payout before it is paid.
+ */
 export async function overrideTdsBlock(batchId: string, reason: string, actor: Actor): Promise<void> {
   if (actor.role !== "ADMIN") throw forbidden("Only an admin can override the TDS block.");
   const why = reason.trim();
@@ -312,6 +326,8 @@ export async function overrideTdsBlock(batchId: string, reason: string, actor: A
   const [b] = await db.select().from(dealerPayoutBatches).where(eq(dealerPayoutBatches.id, batchId));
   if (!b) throw notFound("Payout");
   if (!tdsBlock(b)) throw conflict("This payout is not blocked for TDS.");
+  // Two admins: the override is on a draft, and the admin who approves the payout is another one.
+  if (b.status !== "DRAFT") throw conflict("Only a draft payout's TDS can be overridden.");
   await db.update(dealerPayoutBatches).set({ tdsOverrideReason: why.slice(0, 500), tdsOverrideBy: actor.id }).where(eq(dealerPayoutBatches.id, batchId));
   await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_PAYOUT_SAVED, entityType: "dealer_payout_batch", entityId: batchId, newValue: { tdsOverride: true, flag: b.tdsFlag, reason: why } });
 }

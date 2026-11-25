@@ -6,9 +6,10 @@
  * "Amul" would rewrite it for everyone. Shops pick an existing brand when
  * creating a product; they never mint one.
  */
-import { and, asc, eq, ilike, isNull } from "drizzle-orm";
+import { and, asc, eq, ilike, isNull, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
+import { likePattern } from "@/lib/like-pattern";
 import { db } from "@/server/db";
 import { brands, type Brand, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
@@ -109,4 +110,53 @@ export async function updateBrand(
   });
 
   return updated;
+}
+
+/* ---------------------------------------------- customer side (docs/search-brand-barcode-favourites-2026-11)
+ * Read-only. Callers check the flag brand_barcode_favourites_enabled first. */
+
+export interface PublicBrand {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  logoUrl: string | null;
+}
+
+const publicBrandColumns = {
+  id: brands.id,
+  name: brands.name,
+  slug: brands.slug,
+  description: brands.description,
+  logoUrl: brands.logoUrl,
+};
+
+/** An active brand by its slug (the /brand/[slug] page and the ?brand= filter on /search), or null. */
+export async function getPublicBrandBySlug(slug: string): Promise<PublicBrand | null> {
+  const clean = slug.trim().toLowerCase();
+  if (!/^[a-z0-9-]{1,120}$/.test(clean)) return null;
+  const [row] = await db
+    .select(publicBrandColumns)
+    .from(brands)
+    .where(and(eq(brands.slug, clean), eq(brands.isActive, true), isNull(brands.deletedAt)))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Active brands whose name contains what was typed, with at least one active approved product,
+ * names starting with it first. For the search box's "Brands" group and the brand chips on /search.
+ */
+export async function searchPublicBrands(rawQuery: string, limit = 3): Promise<(PublicBrand & { productCount: number })[]> {
+  const query = rawQuery.replace(/\s+/g, " ").trim().slice(0, 60);
+  if (query.length < 2) return [];
+  const lower = query.toLowerCase();
+  const productCount = sql<number>`(SELECT count(*)::int FROM products p WHERE p.brand_id = "brands"."id" AND p.is_active AND p.deleted_at IS NULL AND p.approval_status = 'APPROVED')`;
+  const rows = await db
+    .select({ ...publicBrandColumns, productCount })
+    .from(brands)
+    .where(and(eq(brands.isActive, true), isNull(brands.deletedAt), ilike(brands.name, likePattern(query)), sql`${productCount} > 0`))
+    .orderBy(asc(sql`position(${lower} in lower(${brands.name}))`), asc(sql`length(${brands.name})`), asc(brands.name))
+    .limit(Math.min(Math.max(limit, 1), 10));
+  return rows.map((r) => ({ ...r, productCount: Number(r.productCount) }));
 }

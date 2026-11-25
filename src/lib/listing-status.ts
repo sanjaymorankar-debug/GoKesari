@@ -3,6 +3,8 @@
  * setup flow, My products, the Excel preview and the tests read one rule. The
  * customer side applies the same rule in SQL (catalogue.ts `storefrontLive`).
  */
+import { L, type Text } from "@/lib/board/i18n";
+
 export const LISTING_STATUSES = ["LIVE", "NEEDS_STOCK", "NEEDS_PRICE", "OUT_OF_STOCK", "PAUSED"] as const;
 export type ListingStatus = (typeof LISTING_STATUSES)[number];
 
@@ -12,6 +14,15 @@ export const LISTING_STATUS_LABEL: Record<ListingStatus, string> = {
   NEEDS_PRICE: "Needs Price",
   OUT_OF_STOCK: "Out of Stock",
   PAUSED: "Paused",
+};
+
+/** Module 6: the same labels in Hindi and Marathi (English identical to LISTING_STATUS_LABEL). */
+export const LISTING_STATUS_TEXT: Record<ListingStatus, Text> = {
+  LIVE: L("Live", "लाइव", "लाइव्ह"),
+  NEEDS_STOCK: L("Needs Stock", "स्टॉक चाहिए", "स्टॉक हवा"),
+  NEEDS_PRICE: L("Needs Price", "कीमत चाहिए", "किंमत हवी"),
+  OUT_OF_STOCK: L("Out of Stock", "स्टॉक खत्म", "स्टॉक संपला"),
+  PAUSED: L("Paused", "रोका गया", "थांबवले"),
 };
 
 export interface ListingStatusInput {

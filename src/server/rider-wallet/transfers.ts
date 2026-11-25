@@ -50,9 +50,9 @@ import {
   type RiderPayout,
   type UserRole,
 } from "@/server/db/schema";
-import { getPayoutProvider } from "@/server/payouts/providers";
+import { sendingPayoutProvider } from "@/server/payouts/guard";
 import { buildSandboxWebhook } from "@/server/payouts/providers/sandbox";
-import type { PayoutProvider, PayoutWebhookEvent } from "@/server/payouts/types";
+import { PayoutProviderError, type PayoutProvider, type PayoutWebhookEvent } from "@/server/payouts/types";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { assertNoFailedBankCheck } from "@/server/services/bank-account-check";
@@ -171,7 +171,7 @@ export async function claimIntoTransfer(tx: Tx, input: ClaimInput): Promise<{ pa
   const carry = available - amount;
 
   const rule = await getRule("riderPayouts");
-  const tds = await tdsFor(tx, input.deliveryPartnerId, amount, input.feePaise, rule);
+  const tds = await riderTdsFor(tx, input.deliveryPartnerId, amount, input.feePaise, rule);
 
   const now = new Date();
   const [payout] = await tx
@@ -259,7 +259,8 @@ export async function claimIntoTransfer(tx: Tx, input: ClaimInput): Promise<{ pa
   return { payout, transfer, tds };
 }
 
-async function tdsFor(
+/** TDS s.194C on a payment to a rider, counting the whole financial year (weekly payouts and transfers). */
+export async function riderTdsFor(
   tx: Tx,
   deliveryPartnerId: string,
   grossPaise: number,
@@ -269,7 +270,8 @@ async function tdsFor(
   const fy = financialYearBounds(new Date());
   // Weekly batches count too: everything credited to the rider this year that was not cancelled or reversed.
   const [paid] = await tx
-    .select({ sum: sql<string>`coalesce(sum(${riderPayouts.amountPaise}), 0)` })
+    // docs/tax-register (0188): a weekly payout's amount is after its own TDS, so add it back.
+    .select({ sum: sql<string>`coalesce(sum(${riderPayouts.amountPaise} + ${riderPayouts.tdsPaise}), 0)`, tds: sql<string>`coalesce(sum(${riderPayouts.tdsPaise}), 0)` })
     .from(riderPayouts)
     .where(
       and(
@@ -294,7 +296,7 @@ async function tdsFor(
   return computeTds(rule, {
     grossPaise,
     paidThisYearPaise: Number(paid.sum),
-    tdsThisYearPaise: Number(deducted.sum),
+    tdsThisYearPaise: Number(deducted.sum) + Number(paid.tds),
     hasPan: Boolean(partner?.pan),
     maxPaise: Math.max(grossPaise - feePaise - 100, 0),
   });
@@ -325,9 +327,19 @@ export function railFor(account: Pick<BankAccount, "method">, mode: "IMPS" | "NE
 /** The configured provider, or null when it cannot send (no keys, or the sandbox on gokesari.com). */
 export async function activeRiderProvider(): Promise<PayoutProvider | null> {
   const rule = await getRule("riderPayouts");
-  const provider = getPayoutProvider(rule.provider);
-  return provider && provider.isConfigured() ? provider : null;
+  return sendingPayoutProvider(rule.provider);
 }
+
+/** Starts every "outcome unknown" reason: nobody knows yet whether the bank paid the transfer. */
+export const RIDER_OUTCOME_UNKNOWN = "Outcome unknown";
+
+/** True for a transfer whose last attempt may or may not have been paid (waits for the bank's answer or finance). */
+export function riderOutcomeUnknown(t: Pick<RiderBankTransfer, "status" | "needsReview" | "failureReason">): boolean {
+  return t.status === "FAILED" && t.needsReview && (t.failureReason ?? "").startsWith(RIDER_OUTCOME_UNKNOWN);
+}
+
+/** The idempotency key of a transfer's current attempt (the provider transfer id is worked out from it). */
+const attemptKey = (t: Pick<RiderBankTransfer, "id" | "attempts">) => `rider-transfer:${t.id}:${t.attempts}`;
 
 /* =================================================================== send */
 
@@ -351,21 +363,25 @@ async function logEvent(client: DbClient, input: { transferId: string; source?: 
  */
 export async function sendTransfer(transferId: string, actor: SystemOrActor = SYSTEM): Promise<RiderBankTransfer> {
   const rule = await getRule("riderPayouts");
-  const provider = getPayoutProvider(rule.provider);
+  const provider = sendingPayoutProvider(rule.provider);
   const claimed = await db.transaction(async (tx) => {
     const [t] = await tx.select().from(riderBankTransfers).where(eq(riderBankTransfers.id, transferId)).for("update");
     if (!t) throw notFound("Transfer");
     if (t.status !== "PENDING" && t.status !== "FAILED") return { transfer: t, account: null, send: false };
     const account = await payableAccount(t.userId, tx);
-    if (!provider || !provider.isConfigured() || !account) {
+    if (!provider || !account) {
       return { transfer: t, account: null, send: false, refused: !account ? "No verified bank account to pay into." : "Bank transfers are not available right now." };
     }
     const retry = t.status === "FAILED";
+    const attempts = t.attempts + 1;
     const [updated] = await tx
       .update(riderBankTransfers)
       .set({
         status: "PROCESSING",
-        attempts: t.attempts + 1,
+        attempts,
+        // Saved with the claim, before the request: an early or late webhook still finds this transfer.
+        providerTransferId: provider.transferIdFor(attemptKey({ id: t.id, attempts })),
+        providerRef: null,
         retryCount: retry ? t.retryCount + 1 : t.retryCount,
         provider: provider.name,
         bankAccountId: account.id,
@@ -393,11 +409,23 @@ export async function sendTransfer(transferId: string, actor: SystemOrActor = SY
       .returning();
     return held ?? claimed.transfer;
   }
-  const t = claimed.transfer;
-  const account = claimed.account;
+  return dispatchTransfer(claimed.transfer, claimed.account, provider, rule, actor);
+}
+
+/**
+ * Sends a transfer's current attempt (claimed: PROCESSING, transfer id saved). Also used by the
+ * reconcile job to send the same attempt again — same transfer id — when the provider never got it.
+ */
+async function dispatchTransfer(
+  t: RiderBankTransfer,
+  account: BankAccount,
+  provider: PayoutProvider,
+  rule: Awaited<ReturnType<typeof getRule<"riderPayouts">>>,
+  actor: SystemOrActor,
+): Promise<RiderBankTransfer> {
   try {
     const result = await provider.createTransfer({
-      idempotencyKey: `rider-transfer:${t.id}:${t.attempts}`,
+      idempotencyKey: attemptKey(t),
       referenceId: t.id,
       amountPaise: t.netPaise,
       mode: t.mode,
@@ -417,12 +445,42 @@ export async function sendTransfer(transferId: string, actor: SystemOrActor = SY
     if (result.status === "FAILED") return applyOutcome(t.id, { status: "FAILED", reason: result.failureReason ?? "Rejected by the bank.", definite: true, source: provider.name }, actor);
     if (provider.name === "SANDBOX" && rule.sandboxAutoWebhook) await deliverSandboxWebhook(t.id);
   } catch (error) {
-    // The request may or may not have reached the bank: never retry or release blind.
     const reason = error instanceof Error ? error.message : "The payout provider could not be reached.";
-    return applyOutcome(t.id, { status: "FAILED", reason: `Outcome unknown — ${reason}`, definite: false, source: provider.name }, actor);
+    // A definite refusal (the provider answered and took nothing) fails as the bank's refusal would.
+    if (error instanceof PayoutProviderError && !error.retryable) {
+      return applyOutcome(t.id, { status: "FAILED", reason, definite: true, source: provider.name }, actor);
+    }
+    // The request may or may not have reached the bank: never retry or release blind (the reconcile job asks the provider).
+    return applyOutcome(t.id, { status: "FAILED", reason: `${RIDER_OUTCOME_UNKNOWN} — ${reason}`, definite: false, source: provider.name }, actor);
   }
   const [after] = await db.select().from(riderBankTransfers).where(eq(riderBankTransfers.id, t.id));
   return after;
+}
+
+/**
+ * Reconcile job: the provider has no transfer with this transfer's current id (the request never
+ * reached it), so the same attempt is sent again with the same id — it can never be paid twice.
+ * Only for a transfer in progress or of unknown outcome, to the same still-payable account.
+ */
+export async function resendRiderTransfer(transferId: string, actor: SystemOrActor = SYSTEM): Promise<RiderBankTransfer | null> {
+  const rule = await getRule("riderPayouts");
+  const claimed = await db.transaction(async (tx) => {
+    const [t] = await tx.select().from(riderBankTransfers).where(eq(riderBankTransfers.id, transferId)).for("update");
+    if (!t || !t.providerTransferId || t.providerRef || !(t.status === "PROCESSING" || riderOutcomeUnknown(t))) return null;
+    const provider = sendingPayoutProvider(t.provider);
+    if (!provider || provider.transferIdFor(attemptKey(t)) !== t.providerTransferId) return null;
+    const account = await payableAccount(t.userId, tx);
+    if (!account || account.id !== t.bankAccountId) return null;
+    const [updated] = await tx
+      .update(riderBankTransfers)
+      .set({ status: "PROCESSING", needsReview: false, failureReason: null, nextRetryAt: null, updatedAt: new Date() })
+      .where(eq(riderBankTransfers.id, t.id))
+      .returning();
+    await logEvent(tx, { transferId: t.id, source: provider.name, type: "TRANSFER_RESENT", payload: { attempt: t.attempts, transferId: t.providerTransferId }, actorId: actor.id });
+    return { transfer: updated, account, provider };
+  });
+  if (!claimed) return null;
+  return dispatchTransfer(claimed.transfer, claimed.account, claimed.provider, rule, actor);
 }
 
 /** The sandbox "bank" answers through the same signed webhook path a real provider uses. */
@@ -497,7 +555,7 @@ export async function applyOutcome(transferId: string, outcome: Outcome, actor: 
         });
       }
     } else if (outcome.status === "REVERSED") {
-      if (t.status !== "SUCCESS") return t;
+      if (t.status !== "SUCCESS") return t; // a return before success is applied as a failure (applyRiderTransferEvent)
       next = { status: "REVERSED", needsReview: true, failureReason: outcome.reason, completedAt: now };
       await releasePayout(tx, t.payoutId, "REVERSED", outcome.reason);
       await postLedger(
@@ -511,7 +569,8 @@ export async function applyOutcome(transferId: string, outcome: Outcome, actor: 
         vars: { what: what(t), amount: formatPaise(t.netPaise), account: label, reason: outcome.reason, next: "The amount is back in your balance. Check your bank details under My wallet, then withdraw again." },
       });
     } else {
-      if (t.status !== "PROCESSING" && t.status !== "PENDING") return t;
+      // The bank's definite answer also settles an attempt whose outcome was unknown.
+      if (t.status !== "PROCESSING" && t.status !== "PENDING" && !(outcome.definite && riderOutcomeUnknown(t))) return t;
       if (!outcome.definite) {
         next = { status: "FAILED", needsReview: true, failureReason: outcome.reason, nextRetryAt: null };
         notices.push({
@@ -520,7 +579,7 @@ export async function applyOutcome(transferId: string, outcome: Outcome, actor: 
           vars: { what: what(t), amount: formatPaise(t.netPaise), account: label, reason: "we could not confirm it with the bank.", next: "Our finance team is checking it; you'll hear from us. Nothing is lost." },
         });
       } else if (t.kind === "WITHDRAWAL") {
-        next = { status: "RELEASED", failureReason: outcome.reason, nextRetryAt: null, completedAt: now };
+        next = { status: "RELEASED", needsReview: false, failureReason: outcome.reason, nextRetryAt: null, completedAt: now };
         await releasePayout(tx, t.payoutId, "CANCELLED", outcome.reason);
         notices.push({
           type: NOTIFICATION_TYPES.RIDER_PAYOUT_FAILED,
@@ -528,7 +587,7 @@ export async function applyOutcome(transferId: string, outcome: Outcome, actor: 
           vars: { what: what(t), amount: formatPaise(t.netPaise), account: label, reason: outcome.reason, next: "The amount is back in your balance — you can withdraw it again." },
         });
       } else if (t.retryCount < rule.maxRetries) {
-        next = { status: "FAILED", failureReason: outcome.reason, nextRetryAt: new Date(now.getTime() + rule.retryBackoffMinutes * (t.retryCount + 1) * 60_000) };
+        next = { status: "FAILED", needsReview: false, failureReason: outcome.reason, nextRetryAt: new Date(now.getTime() + rule.retryBackoffMinutes * (t.retryCount + 1) * 60_000) };
         await tx.update(riderPayouts).set({ status: "FAILED", failedAt: now, failureReason: outcome.reason, updatedAt: now }).where(eq(riderPayouts.id, t.payoutId));
       } else {
         next = { status: "FAILED", needsReview: true, failureReason: outcome.reason, nextRetryAt: null };
@@ -567,25 +626,44 @@ export async function applyOutcome(transferId: string, outcome: Outcome, actor: 
 
 /**
  * A payout webhook that matched no shop payout item (handlePayoutWebhook,
- * after the signature check and the once-per-event guard): a rider transfer?
+ * after the signature check): a rider transfer? By the provider's reference,
+ * then by the attempt's transfer id saved before sending (0186), then by our id.
  */
-export async function handleRiderTransferEvent(source: string, event: PayoutWebhookEvent): Promise<{ status: number; body: Record<string, unknown> }> {
+export async function findRiderTransferForEvent(event: PayoutWebhookEvent): Promise<RiderBankTransfer | null> {
   let transfer: RiderBankTransfer | undefined;
   if (event.providerRef) [transfer] = await db.select().from(riderBankTransfers).where(eq(riderBankTransfers.providerRef, event.providerRef));
+  if (!transfer && event.transferId) {
+    [transfer] = await db.select().from(riderBankTransfers).where(eq(riderBankTransfers.providerTransferId, event.transferId));
+    if (transfer && event.providerRef && !transfer.providerRef) {
+      await db.update(riderBankTransfers).set({ providerRef: event.providerRef, updatedAt: new Date() }).where(eq(riderBankTransfers.id, transfer.id));
+    }
+  }
   if (!transfer && event.referenceId && /^[0-9a-f-]{36}$/i.test(event.referenceId)) {
     [transfer] = await db.select().from(riderBankTransfers).where(eq(riderBankTransfers.id, event.referenceId));
   }
-  if (!transfer) return { status: 200, body: { ok: true, ignored: "No payout matches this event." } };
+  return transfer ?? null;
+}
+
+/** Applies a matched event (once per event: handlePayoutWebhook records it after this). */
+export async function applyRiderTransferEvent(source: string, transfer: RiderBankTransfer, event: PayoutWebhookEvent): Promise<{ status: number; body: Record<string, unknown> }> {
   await logEvent(db, { transferId: transfer.id, source, eventId: event.eventId, type: `WEBHOOK_${event.status}`, payload: event.raw });
   if (event.status === "SUCCESS") {
     if (!event.utr) return { status: 200, body: { ok: true, pending: "Success without a UTR — waiting for the bank reference." } };
     await applyOutcome(transfer.id, { status: "SUCCESS", utr: event.utr.toUpperCase(), source });
-  } else if (event.status === "FAILED") {
+  } else if (event.status === "FAILED" || (event.status === "REVERSED" && transfer.status !== "SUCCESS")) {
+    // A return before we recorded the payment: the money is back, so it is a refused transfer.
     await applyOutcome(transfer.id, { status: "FAILED", reason: event.failureReason ?? "The bank rejected the transfer.", definite: true, source });
   } else if (event.status === "REVERSED") {
     await applyOutcome(transfer.id, { status: "REVERSED", reason: event.failureReason ?? "The bank returned the transfer.", source });
   }
   return { status: 200, body: { ok: true } };
+}
+
+/** Find and apply (kept for callers that hold a parsed event). */
+export async function handleRiderTransferEvent(source: string, event: PayoutWebhookEvent): Promise<{ status: number; body: Record<string, unknown> }> {
+  const transfer = await findRiderTransferForEvent(event);
+  if (!transfer) return { status: 200, body: { ok: true, ignored: "No payout matches this event." } };
+  return applyRiderTransferEvent(source, transfer, event);
 }
 
 /* ================================================================= retries */

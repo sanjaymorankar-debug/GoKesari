@@ -188,15 +188,6 @@ export function renewalBasePaise(amountPaise: number, gstRateBp: number): number
   return Math.max(0, Math.round((amountPaise * 10_000) / (10_000 + Math.max(0, gstRateBp))));
 }
 
-/** Income-tax TDS on a payout (rule dealerPayoutTds), with catch-up when the threshold is first passed. */
-export function tdsForPayout(input: { grossPaise: number; yearGrossBeforePaise: number; yearTdsBeforePaise: number; rateBp: number; thresholdPaise: number; enabled: boolean }): number {
-  if (!input.enabled || input.grossPaise <= 0 || input.rateBp <= 0) return 0;
-  const yearGross = input.yearGrossBeforePaise + input.grossPaise;
-  if (yearGross <= input.thresholdPaise) return 0;
-  const due = Math.round((yearGross * input.rateBp) / 10_000) - input.yearTdsBeforePaise;
-  return Math.max(0, Math.min(input.grossPaise, due));
-}
-
 /** The Indian financial year (April–March, IST) an instant falls in: [start, end). */
 export function financialYearBounds(at: Date): { start: Date; end: Date } {
   const ist = new Date(at.getTime() + 330 * 60_000);

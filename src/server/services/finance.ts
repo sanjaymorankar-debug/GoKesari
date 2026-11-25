@@ -64,6 +64,8 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { applyWalletMutation } from "./wallet";
 import { getRule } from "./settings";
+import { holdUnlessApproved, payoutDeductionsOn } from "@/server/tax/payout-deductions";
+import { TAX_RULE_FIELDS } from "@/server/tax-register/rules";
 import { payoutHoldReason } from "./shop-onboarding";
 import { onRefundRecorded } from "@/server/integrations/hooks";
 import { recordOrderMoneyFlow } from "@/server/tax/money-flow";
@@ -343,7 +345,13 @@ export async function walletCollectionFor(orderId: string, client: DbClient = db
     .select({ distanceKm: deliveryOrders.distanceKm, routeSource: deliveryOrders.routeSource })
     .from(deliveryOrders)
     .where(and(eq(deliveryOrders.orderId, orderId), eq(deliveryOrders.status, "DELIVERED")));
-  if (!riderDelivered) return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: 0, shopDeliveryDistanceM: null };
+  if (!riderDelivered) {
+    // docs/hdms-2026-11: a delivery partner delivered it — the shop pays its share under the pricing rule
+    // (Shop pays / Shared), never more than the delivery cost. No partner booking: nothing, as before.
+    const { partnerDeliveryShopCharge } = await import("@/server/delivery/charges");
+    const partner = await partnerDeliveryShopCharge(orderId, client);
+    return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: partner.chargePaise, shopDeliveryDistanceM: partner.distanceM };
+  }
   const charge = shopDeliveryChargeFor(riderDelivered, rules);
   return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: charge.chargePaise, shopDeliveryDistanceM: charge.distanceM };
 }
@@ -749,6 +757,11 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
   if ((await getRule("payouts")).enabled) {
     throw conflict("Automated payouts are on (rule payouts): shop settlements are prepared by the payout cycle, under Admin → Payouts.");
   }
+  // docs/tax-register (0188): with payout deductions on, shops are paid only through the payout
+  // cycle, which withholds TCS and TDS; the weekly settlement would pay them without.
+  if (await payoutDeductionsOn()) {
+    throw conflict("Payout deductions are on: shops are paid through the payout cycle (Admin → Payouts), which withholds TCS and TDS.");
+  }
   const settlementRule = await getRule("settlement");
 
   return db.transaction(async (tx) => {
@@ -847,6 +860,14 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
  */
 export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActor): Promise<RiderPayout[]> {
   const { start, end } = assertMonday(weekStart, "STARTED");
+  // docs/tax-register (0188): TDS s.194C on weekly rider payouts (rule riderPayouts).
+  const deduct = await payoutDeductionsOn();
+  const riderRule = deduct ? await getRule("riderPayouts") : null;
+  if (riderRule?.tdsEnabled) {
+    const { ruleFieldsApproved } = await import("@/server/tax-register/changes");
+    holdUnlessApproved(await ruleFieldsApproved("riderPayouts", TAX_RULE_FIELDS.riderPayouts), "Rider TDS s.194C");
+  }
+  const { riderTdsFor } = await import("@/server/rider-wallet/transfers");
 
   return db.transaction(async (tx) => {
     const earnings = await tx
@@ -874,6 +895,9 @@ export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActo
       const myAdjustments = adjustments.filter((a) => a.deliveryPartnerId === partnerId);
       const grossPaise = mine.reduce((sum, e) => sum + e.totalPaise, 0);
       const adjustmentsPaise = myAdjustments.reduce((sum, a) => sum + a.amountPaise, 0);
+      const before = grossPaise + adjustmentsPaise;
+      const tds = riderRule?.tdsEnabled && before > 0 ? await riderTdsFor(tx, partnerId, before, 0, riderRule) : null;
+      const tdsPaise = tds?.tdsPaise ?? 0;
       const [payout] = await tx
         .insert(riderPayouts)
         .values({
@@ -883,7 +907,9 @@ export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActo
           earningsCount: mine.length,
           grossPaise,
           adjustmentsPaise,
-          amountPaise: grossPaise + adjustmentsPaise,
+          tdsPaise,
+          tdsRateBp: tdsPaise > 0 ? tds!.rateBp : null,
+          amountPaise: before - tdsPaise,
           createdBy: actor.id,
         })
         .returning();
@@ -909,6 +935,7 @@ export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActo
           newValue: {
             deliveryPartnerId: partnerId,
             amountPaise: payout.amountPaise,
+            ...(tdsPaise > 0 ? { tdsPaise, tdsRateBp: tds!.rateBp, tdsBasis: tds!.basis } : {}),
             earnings: mine.length,
             ...(payout.amountPaise < 0 ? { held: "negative net: the rider owes the platform" } : {}),
           },
