@@ -1,5 +1,11 @@
 # Territory dealers
 
+> **Superseded (24-Nov-2026): retired on 21-Nov-2026.** The owner decided that a territory and a franchise are the
+> same thing (franchise DECISIONS G-28). Migration 0160 switched rule `territoryDealer` off, Admin → Settings refuses
+> to switch it back on, and Admin → Dealers → Territories opens Admin → Franchise. Territories are sold, paid and earn
+> recurring commission only as franchise zones: [../franchise/README.md](../franchise/README.md). No territory had
+> been given on production. This page is kept for the record.
+
 Owner, 20-Nov-2026. Built 20-Nov-2026 on branch `feat/territory-dealer`. Decisions: [docs/decision-log.md](../decision-log.md),
 section "Territory dealers" (DT-24 … DT-27). Migration `drizzle/0151_territory_dealers.sql`, rollback `scripts/rollback-0151.sql`.
 **Off by default**: nothing changes until an admin switches rule `territoryDealer` on and gives a dealer a territory.

@@ -3,6 +3,20 @@
 **Status:** built on branch `feat/onboarding-identity-first`, tested locally. Staging and production
 results: [TEST_RESULTS.md](TEST_RESULTS.md). Decisions: [decision-log.md, DI-01 … DI-10](../decision-log.md).
 
+> **Current rules (24-Nov-2026).** This is the registration flow on both sites (the only one since DI-11; the
+> wizard is always on, in every district). Changed since this brief:
+> - **Email** step (`EMAIL`) after the first screen, for an account with no e-mail (DI-08).
+> - **Documents screen** (`DOCUMENTS`) between "Create my shop" and payment (DF-07, made required by DF-08,
+>   21-Nov-2026 23.30 IST). **Must-have before payment:** the verified GSTIN or PAN and, for a food shop, the FSSAI
+>   licence (`FSSAI_REQUIRED`) — this reverses DI-14 / DF-05 for FSSAI. **Everything else** (Shop Act, drug licence,
+>   medical / professional registration) may follow on the owner's ticked promise (`DOCUMENTS_PROMISE_NEEDED`):
+>   90 days, reminders on the 1st / 15th, automatic suspension after the date.
+> - **Admin document rules** (DF-09, 22-Nov-2026, PR #471): Admin → Shops → Document rules sets each document to
+>   must-have, on the promise or optional for all shops, food shops, doctors or one shop type. GSTIN / PAN stays a
+>   fixed must-have.
+> - Paid and verified means live at once (DI-13); "Approve without documents" (admin, 30 days) is the only way past
+>   a missing must-have (DF-06).
+
 ## Problem (owner's words, summarised)
 
 The wizard asked for the shop name, owner address and map pin first, and the PAN / GST last, so
@@ -27,6 +41,7 @@ below is the only registration flow, always on.
 | 2 | **Confirm your shop address** — pre-filled, "Verified from GST / PAN"; editable | GST / PAN record | `ADDRESS` |
 | 3 | **Mark your shop location on the map** — search, current location or drag the pin | existing map integration | `PIN` |
 | 4 | Your shop name — pre-filled from the GST trade / legal name; type, mobile, turnover slab | GST record | `SHOP` (+ `FSSAI` for a food shop) |
+| 4b | *(added 21-Nov-2026; shown after `REVIEW` creates the shop, before `PAYMENT`)* Upload your documents: must-haves, or tick the promise for the rest | — | `DOCUMENTS` |
 | 5 | Check and pay — the registration fee (existing yearly slabs) | — | `REVIEW` → `PAYMENT` |
 | 6 | "Your onboarding is complete. Your shop is now live and accepting orders." + "Add your products now so customers can find them and place orders with you." + **[Add Products]**; same words by email | — | `LIVE` → `CATEGORY` → `PRODUCTS` |
 

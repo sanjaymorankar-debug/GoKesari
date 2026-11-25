@@ -2,7 +2,7 @@
 -- through payment intents (rule topupPaymentIntents, off by default). Adds the two purposes to
 -- payment_intents_purpose_check. Additive only: no row changes, no new column; existing intents and
 -- payments are untouched. Re-runnable (the constraint is rebuilt from what it already allows).
--- Rollback: scripts/rollback-0201-topup-intents.sql
+-- Rollback: scripts/rollback-0202-topup-intents.sql
 DO $$
 DECLARE
   def text;
