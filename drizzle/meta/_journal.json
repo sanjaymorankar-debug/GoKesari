@@ -1434,7 +1434,14 @@
       "idx": 204,
       "version": "7",
       "when": 1793270400000,
-      "tag": "0204_dealer_free_v3",
+      "tag": "0204_local_price_comparison_off",
+      "breakpoints": true
+    },
+    {
+      "idx": 205,
+      "version": "7",
+      "when": 1793270500000,
+      "tag": "0205_dealer_free_v3",
       "breakpoints": true
     }
   ]
