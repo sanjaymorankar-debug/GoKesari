@@ -126,6 +126,10 @@ After labelling, **stay subscribed to your PR until it is `staging-verified`**
 and act on the queue's comments yourself, without asking the owner:
 - **`staging-blocked`** (CI red or merge conflict, not merged): fix it on the
   same branch, push, and add `ready-for-staging` again.
+- **Migration-number clashes** (only `drizzle/meta/_journal.json` conflicts):
+  the queue renumbers the PR's migrations and pushes the merge itself (🔢
+  comment), so pull before pushing again. To do it by hand:
+  `node scripts/db/renumber-migrations.mjs origin/staging` during the merge.
 - **`staging-failed`** (merged, then failed on test.gokesari.com; the queue is
   paused): branch from `origin/staging`, reproduce from the comment and the
   run's `staging-queue-qa-*` artifact, fix, test locally, and open a new PR
