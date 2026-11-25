@@ -3,6 +3,11 @@
 Owner brief "Unified Dealership & Franchise Management Platform" (23-Nov-2026). Gap analysis:
 [GAP_ANALYSIS_2026-11-23.md](GAP_ANALYSIS_2026-11-23.md). Owner, 09.20 IST: **"Yes, use defaults"** for decisions D1–D10.
 
+> **Status (25-Nov-2026):** this is the phase-1 record. The seed table below shows the state after 0177 only:
+> migration 0179 (phase 3) published Free Dealership v2, Business Partner v1 and Growth Partner v1; migration
+> 0201 (owner's answers below) publishes Free v3 and suspends Business / Growth Partner. Phases 1–6 are live on
+> gokesari.com since 23-Nov-2026 23.21 IST (release #511); see [README.md](README.md).
+
 ## Decisions in force (owner's answers, 25-Nov-2026)
 
 The defaults below were accepted on 23-Nov-2026 at 09.20 IST. On 25-Nov-2026 (about 01.30 IST) the owner

@@ -1,5 +1,12 @@
 # Franchise dealer module — gap analysis
 
+> **Superseded in part (24-Nov-2026):** this is the gap analysis as written on 20/21-Nov-2026. Since then: the
+> owner's share on team shops is 4% one level up / 3% two levels up (not 5%) and recurring is 20% (not 25%) (G-25,
+> G-26); the territory dealer (B32) is **retired**, not just superseded (G-28, migration 0160); paid buyers pay first
+> and finish KYC within 30 days ([FREE_OR_PAID_FLOW.md](FREE_OR_PAID_FLOW.md)); and new free dealers start on Free
+> Dealership v2 under the scheme platform ([../dealer-platform/README.md](../dealer-platform/README.md)). Current
+> rules: [README.md](README.md).
+
 ## Final brief of 21-Nov-2026 08.06 IST — gap analysis (current)
 
 Read against this branch at `e9ae2e01`'s parent (the 20-Nov / 00.30 build) on 21-Nov-2026 08.15 IST. Status:
