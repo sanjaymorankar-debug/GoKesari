@@ -25,7 +25,10 @@ export const REGISTRATION_REMINDER_HOURS = [24, 48] as const;
 /** Wizard steps before the shop is live, with the words the owner saw. */
 // Owner brief 08-Nov-2026: verify → address → map pin → shop name → pay (wizard tiles 1–5).
 const STEP_LABEL: Record<string, { label: string; tile: number }> = {
+  REFERRAL: { label: "Your referral code", tile: 1 },
   IDENTITY: { label: "Verify your business (GST or PAN)", tile: 1 },
+  TYPE: { label: "Shop type", tile: 1 },
+  LICENCES: { label: "Licences for your shop", tile: 1 },
   EMAIL: { label: "Shop e-mail", tile: 1 },
   OWNER: { label: "Owner name", tile: 1 },
   ADDRESS: { label: "Confirm your shop address", tile: 2 },

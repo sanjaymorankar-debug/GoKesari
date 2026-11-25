@@ -79,3 +79,6 @@ tests/test-results/
 /.claude/skills/upgrade-advisor/
 /.claude/skills/validation-and-testing/
 /.claude/cashfree-skills*.json
+
+# A symlink to a shared install (worktrees); "node_modules/" does not match a symlink.
+mobile/node_modules

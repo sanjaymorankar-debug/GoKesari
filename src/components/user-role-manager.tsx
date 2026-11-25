@@ -22,7 +22,18 @@ export interface ManagedUser {
   status: string;
   /** GS-003: other roles the user holds and can switch to. */
   otherRoles?: UserRole[];
+  /** docs/identity-verification-2026-11: VERIFIED, NAME_MISMATCH_REVIEW, … or NONE. */
+  identityStatus?: string;
 }
+
+const IDENTITY_BADGE: Record<string, { label: string; tone: "success" | "warning" | "danger" | "neutral" }> = {
+  VERIFIED: { label: "ID verified", tone: "success" },
+  PENDING: { label: "ID in progress", tone: "warning" },
+  NAME_MISMATCH_REVIEW: { label: "ID in review", tone: "warning" },
+  REJECTED: { label: "ID rejected", tone: "danger" },
+  FAILED: { label: "ID not verified", tone: "danger" },
+  NONE: { label: "ID not started", tone: "neutral" },
+};
 
 /**
  * Admin user list (§5). Read-only by design: this used to carry a role
@@ -72,6 +83,11 @@ export function UserRoleManager({
 
           <div className="flex flex-wrap items-center gap-2">
             {u.status !== "ACTIVE" ? <Badge tone="danger">{u.status}</Badge> : null}
+            {u.identityStatus && IDENTITY_BADGE[u.identityStatus] ? (
+              <span data-testid="user-identity-status">
+                <Badge tone={IDENTITY_BADGE[u.identityStatus].tone}>{IDENTITY_BADGE[u.identityStatus].label}</Badge>
+              </span>
+            ) : null}
             <Badge>{ROLE_LABELS[u.role] ?? u.role}</Badge>
             {canSetRole ? (
               <>

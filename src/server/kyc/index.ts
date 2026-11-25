@@ -158,10 +158,15 @@ export async function verifyDocument(
   number: string,
   extra: VerifyExtraFields,
   idempotencyKey: string,
+  /**
+   * docs/identity-verification-2026-11: "mock" checks with the in-process mock whatever KYC_PROVIDER says
+   * (the identity check off production never calls a real vendor). Tests' setKycAdapterForTests still wins.
+   */
+  options: { source?: "kyc_provider" | "mock" } = {},
 ): Promise<VerifyDocumentResult> {
-  let providerId: KycProviderId = getEnv().KYC_PROVIDER;
+  let providerId: KycProviderId = options.source === "mock" ? "mock" : getEnv().KYC_PROVIDER;
   try {
-    const adapter = await adapterFor(docType);
+    const adapter = options.source === "mock" && !adapterOverride ? createMockAdapter() : await adapterFor(docType);
     providerId = adapter.id;
     const outcome = await adapter.verify({ docType, number, extra, idempotencyKey });
     const { status, errorCode } = statusFromOutcome(outcome);

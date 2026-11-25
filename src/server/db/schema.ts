@@ -1407,7 +1407,7 @@ export const deliveryPartners = pgTable(
     latitude: text("latitude"),
     longitude: text("longitude"),
     operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
-    /** Rider App v2 (0208, rule riderReferral): this rider's own code, and who referred them. */
+    /** Rider App v2 (0209, rule riderReferral): this rider's own code, and who referred them. */
     referralCode: text("referral_code"),
     referredByPartnerId: uuid("referred_by_partner_id"),
     /** Rating aggregate (GS-060), maintained from visible order_ratings. Average × 100. */
@@ -2382,12 +2382,12 @@ export const deliveryOrders = pgTable(
     rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
     /** GA-005: the trip this delivery is batched into with the rider's other orders; null = carried alone. */
     tripId: uuid("trip_id").references((): AnyPgColumn => deliveryTrips.id, { onDelete: "set null" }),
-    /* Rider App v2 (0208, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
+    /* Rider App v2 (0209, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
     quotePaise: integer("quote_paise"),
     quoteBreakdown: jsonb("quote_breakdown").$type<import("@/lib/rider-pay-plan").PayQuote>(),
     payPlanId: uuid("pay_plan_id"),
     quotedAt: timestamp("quoted_at", { withTimezone: true }),
-    /** 0208: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
+    /** 0209: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
     rejectReasonCode: text("reject_reason_code"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2851,7 +2851,7 @@ export const deliveryPartnerEarnings = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
     payoutId: uuid("payout_id"),
-    /* Rider App v2 (0208): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
+    /* Rider App v2 (0209): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
     quotePaise: integer("quote_paise"),
     payPlanId: uuid("pay_plan_id"),
     planBreakdown: jsonb("plan_breakdown").$type<Record<string, unknown>>(),
@@ -3193,6 +3193,88 @@ export const deliveryPartnerKycChecks = pgTable(
 export type DeliveryPartnerKycCheck = typeof deliveryPartnerKycChecks.$inferSelect;
 
 /**
+ * docs/identity-verification-2026-11 (0208): one-time identity verification
+ * of customers and shop owners — Aadhaar through DigiLocker by default, PAN as
+ * the always-offered alternative. One row per attempt; at most one VERIFIED
+ * row and one open (PENDING) row per user (partial unique indexes).
+ *
+ * NEVER stored: the Aadhaar number, OTP, e-KYC XML, photo, date of birth or
+ * address. `maskedId` keeps the last four characters only (a database check
+ * refuses five or more digits in a row); `idToken` is a keyed blind index
+ * (lib/pan-crypto.ts docBlindIndex) of the DigiLocker account id or the PAN,
+ * which finds the same identity on another account without holding it.
+ */
+export const IDENTITY_VERIFICATION_METHODS = ["AADHAAR_DIGILOCKER", "PAN", "DRIVING_LICENCE", "VOTER_ID"] as const;
+export type IdentityVerificationMethod = (typeof IDENTITY_VERIFICATION_METHODS)[number];
+export const IDENTITY_VERIFICATION_STATUSES = ["PENDING", "VERIFIED", "NAME_MISMATCH_REVIEW", "REJECTED", "FAILED"] as const;
+export type IdentityVerificationStatus = (typeof IDENTITY_VERIFICATION_STATUSES)[number];
+
+export const identityVerifications = pgTable(
+  "identity_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Whose gate the attempt was started for: the customer checkout or the shop owner. */
+    subject: text("subject", { enum: ["CUSTOMER", "SHOP_OWNER"] }).notNull(),
+    method: text("method", { enum: IDENTITY_VERIFICATION_METHODS }).notNull(),
+    status: text("status", { enum: IDENTITY_VERIFICATION_STATUSES }).notNull().default("PENDING"),
+    /** "XXXX XXXX 1234" (Aadhaar) or "XXXXXX234F" (PAN): last four only. */
+    maskedId: text("masked_id").notNull(),
+    /** Keyed blind index of the DigiLocker account id / PAN. Never reversible. */
+    idToken: text("id_token"),
+    provider: text("provider").notNull(),
+    providerRef: text("provider_ref"),
+    verifiedName: text("verified_name"),
+    /** The account / shop name the verified name was compared with. */
+    comparedName: text("compared_name"),
+    nameMatchScore: integer("name_match_score"),
+    nameMatchResult: text("name_match_result", { enum: ["MATCH", "MISMATCH", "NO_NAME"] }),
+    errorCode: text("error_code"),
+    consentAt: timestamp("consent_at", { withTimezone: true }).notNull(),
+    consentVersion: text("consent_version").notNull(),
+    consentIp: text("consent_ip"),
+    consentUserAgent: text("consent_user_agent"),
+    /** DigiLocker only: the provider session (shared return link / webhook, server/kyc/digilocker-session.ts). */
+    sessionId: text("session_id"),
+    sessionStatus: text("session_status", { enum: ["created", "succeeded", "failed", "expired"] }),
+    sessionUrl: text("session_url"),
+    sessionExpiresAt: timestamp("session_expires_at", { withTimezone: true }),
+    sessionReturnKey: text("session_return_key"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("identity_verifications_user_idx").on(t.userId, t.createdAt),
+    uniqueIndex("identity_verifications_one_verified").on(t.userId).where(sql`${t.status} = 'VERIFIED'`),
+    uniqueIndex("identity_verifications_one_open").on(t.userId).where(sql`${t.status} = 'PENDING'`),
+    index("identity_verifications_status_idx").on(t.status),
+    index("identity_verifications_session_idx").on(t.sessionId),
+    uniqueIndex("identity_verifications_return_key_unique").on(t.sessionReturnKey),
+    index("identity_verifications_token_idx").on(t.method, t.idToken),
+    check("identity_verifications_masked_id_no_number", sql`length(regexp_replace(${t.maskedId}, '[^0-9]', '', 'g')) <= 4`),
+  ],
+);
+export type IdentityVerification = typeof identityVerifications.$inferSelect;
+
+/**
+ * When a shop owner was first asked to verify (seller grace period, rule
+ * identityVerification.sellerGraceDays). One row per user, written once.
+ */
+export const identityVerificationPrompts = pgTable("identity_verification_prompts", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  firstPromptedAt: timestamp("first_prompted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type IdentityVerificationPrompt = typeof identityVerificationPrompts.$inferSelect;
+
+/**
  * Gig worker flow (0121, feature 3): police verification form and character
  * certificate. The file is encrypted (lib/pan-crypto.ts encryptBytes) in the
  * row — private storage, opened only by an admin, every opening audited.
@@ -3385,9 +3467,9 @@ export const riderEarningSlots = pgTable(
     /** Peak-period component paid on top in this slot. */
     peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
     isPeak: boolean("is_peak").notNull().default(false),
-    /** Rider App v2 (0208): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
+    /** Rider App v2 (0209): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
     surgeMultiplierBp: integer("surge_multiplier_bp"),
-    /** 0208 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
+    /** 0209 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
     bookable: boolean("bookable").notNull().default(false),
     bookingCapacity: integer("booking_capacity"),
     /** The highest-priority active slot containing the delivery time wins. */
@@ -10968,6 +11050,10 @@ export const FEATURE_FLAG_KEYS = [
   // (Admin → Sign-in security). Seeded OFF.
   "sms_otp_signin_customers_enabled",
   "sms_otp_signin_shop_owners_enabled",
+  // docs/identity-verification-2026-11 (0208): one-time identity check (Aadhaar by DigiLocker or PAN), switched
+  // separately for customers (first checkout) and shop owners (go-live, order acceptance, grace). Both seeded OFF.
+  "identity_verification_customers_enabled",
+  "identity_verification_shop_owners_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
