@@ -186,17 +186,28 @@ jobs:
           printf '[Interface]\nPrivateKey = %s\nAddress = %s\n\n[Peer]\nPublicKey = %s\nEndpoint = %s\nAllowedIPs = %s/32\nPersistentKeepalive = 25\n' \
             "$(printf '%s' "$WG_PRIVATE_KEY" | tr -d '\r\n')" "$WG_ADDRESS" "$WG_SERVER_PUBLIC_KEY" "$WG_ENDPOINT" "$WG_SERVER" | sudo tee "$conf" > /dev/null
           sudo wg-quick up gkdb
-          sudo rm -f "$conf"
 
-          # Wait for the handshake; any packet into the tunnel starts one.
+          # Wait for the handshake; any packet into the tunnel starts one. A lost first handshake (seen
+          # 26-Nov-2026 21.00 IST, #624: the same keys worked on a re-run minutes later) is retried by taking the
+          # tunnel down and up again — up to 3 attempts of about 30 s each — before giving up.
           hs=0
-          for _ in $(seq 30); do
-            hs=$(sudo wg show gkdb latest-handshakes | awk '{ print $2 }')
+          for attempt in 1 2 3; do
+            for _ in $(seq 10); do
+              hs=$(sudo wg show gkdb latest-handshakes | awk '{ print $2 }')
+              [ "${hs:-0}" -gt 0 ] && break
+              timeout 2 bash -c ": < /dev/tcp/$WG_SERVER/22" 2>/dev/null || true
+              sleep 1
+            done
             [ "${hs:-0}" -gt 0 ] && break
-            timeout 2 bash -c ": < /dev/tcp/$WG_SERVER/22" 2>/dev/null || true
-            sleep 1
+            if [ "$attempt" -lt 3 ]; then
+              echo "No WireGuard handshake yet (attempt $attempt of 3); restarting the tunnel."
+              sudo wg-quick down gkdb || true
+              sleep 5
+              sudo wg-quick up gkdb
+            fi
           done
-          [ "${hs:-0}" -gt 0 ] || fail "No WireGuard handshake with the database server ($WG_ENDPOINT) in 30 s. Check VPS_WG_KEY_TEST_DB, VPS_WG_SERVER_PUBLIC_KEY and the server's peer gh-test-db (gk-peer list). Stopping before any change."
+          sudo rm -f "$conf"
+          [ "${hs:-0}" -gt 0 ] || fail "No WireGuard handshake with the database server ($WG_ENDPOINT) after 3 attempts. Check VPS_WG_KEY_TEST_DB, VPS_WG_SERVER_PUBLIC_KEY and the server's peer gh-test-db (gk-peer list). Stopping before any change."
 
           echo "$WG_SERVER $db_host" | sudo tee -a /etc/hosts > /dev/null
           [ "$(getent hosts "$db_host" | awk '{ print $1; exit }')" = "$WG_SERVER" ] || fail "$db_host does not resolve to $WG_SERVER inside the tunnel. Stopping before any change."
