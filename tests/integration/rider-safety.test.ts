@@ -30,8 +30,9 @@ async function setup() {
 }
 
 describe("rider SOS", () => {
-  it("is refused while the rule is off", async () => {
-    const { rider } = await setup();
+  it("is refused when an admin switches the rule off (on by default)", async () => {
+    const { rider, admin } = await setup();
+    await setRule("riderSos", { enabled: false, emergencyNumber: "112" }, { id: admin.id, role: "ADMIN" });
     await expect(raiseSos(rider, {})).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 

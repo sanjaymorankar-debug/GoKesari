@@ -62,7 +62,8 @@ describe("slot booking", () => {
     return row;
   }
 
-  it("is closed while the rule is off", async () => {
+  it("is closed when an admin switches the rule off (on by default)", async () => {
+    await setRule("riderSlotBooking", { enabled: false, daysAhead: 7, cancelCutoffMinutes: 60, reminderMinutes: 15 }, admin);
     const r = await rider();
     const s = await slot(2);
     expect((await listBookableSlots(r.partner.id, NOW)).days).toEqual([]);
@@ -121,7 +122,8 @@ describe("slot booking", () => {
 });
 
 describe("refer & earn", () => {
-  it("does nothing while the rule is off", async () => {
+  it("does nothing when an admin switches the rule off (on by default)", async () => {
+    await setRule("riderReferral", { enabled: false, rewardPaise: 50_000, deliveriesRequired: 20, withinDays: 30 }, admin);
     const r = await rider();
     expect(await ensureReferralCode(r.partner.id)).toBeNull();
     expect(await resolveReferrerForRegistration("GKRAAAAAA", r.user.id)).toBeNull();

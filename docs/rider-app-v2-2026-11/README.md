@@ -3,20 +3,26 @@
 Owner brief: 25-Nov-2026 13.11 IST ("GoKesari — Delivery Partner (Rider) App v2 + Admin Rider Pay Plan").
 Migration: `drizzle/0210_rider_app_v2.sql` (additive). Rollback SQL: `scripts/rollback-0210-rider-app-v2.sql`.
 
-## Switches (Admin → Settings), all OFF by default
+## Switches (Admin → Settings), all ON by default
+
+Owner decision, 26-Nov-2026 01.50 IST: every switch is ON by default, on test.gokesari.com and on
+gokesari.com from the release (this replaces the 25-Nov "production off until the owner says").
+An admin can still turn any of them off in Admin → Settings.
 
 | Rule | What it turns on | Staging | Production |
 |---|---|---|---|
-| `riderAppV2.enabled` | Bottom bar (Home · Earnings · My Slots · Refer · More), header (Online/Offline, Help, SOS, tier badge), Home tiles, high-earning banner, incentive ladder, earnings week | ON after verification | OFF until the owner says |
-| `riderPayPlans.enabled` | Pay from the pay plan in force; quote shown on the offer and locked on accept | ON after verification | OFF until the owner says |
-| `riderJobBoard.enabled` | Available Deliveries list | ON after verification | OFF until the owner says (brief suggests ON) |
-| `riderSlotBooking.enabled` | My Slots booking + dispatch priority + 15-min reminder | ON after verification | OFF |
-| `riderReferral.enabled` | Refer & Earn (₹500 after 20 deliveries in 30 days by default) | ON after verification | OFF |
-| `riderTiers.enabled` | Tier badge (Bronze / Silver / Gold / Kesari Star) | ON after verification | OFF |
-| `riderSos.enabled` | SOS button (dials 112, alerts operations) | ON after verification | OFF |
-| `riderInsurance.enabled` | Insurance screen ("Coming soon" until an insurer policy is entered) | ON after verification | OFF |
+| `riderAppV2.enabled` | Bottom bar (Home · Earnings · My Slots · Refer · More), header (Online/Offline, Help, SOS, tier badge), Home tiles, high-earning banner, incentive ladder, earnings week | ON (default) | ON (default) |
+| `riderPayPlans.enabled` | Pay from the pay plan in force; quote shown on the offer and locked on accept | ON (default) | ON (default) |
+| `riderJobBoard.enabled` | Available Deliveries list | ON (default) | ON (default) |
+| `riderSlotBooking.enabled` | My Slots booking + dispatch priority + 15-min reminder | ON (default) | ON (default) |
+| `riderReferral.enabled` | Refer & Earn (₹500 after 20 deliveries in 30 days by default) | ON (default) | ON (default) |
+| `riderTiers.enabled` | Tier badge (Bronze / Silver / Gold / Kesari Star) | ON (default) | ON (default) |
+| `riderSos.enabled` | SOS button (dials 112, alerts operations) | ON (default) | ON (default) |
+| `riderInsurance.enabled` | Insurance screen ("Coming soon" until an insurer policy is entered) | ON (default) | ON (default) |
 
-The "production stays off until the owner says" default follows the owner's standing rule of 25-Nov-2026.
+With no insurer policy entered the Insurance screen shows "Coming soon". With no new pay plan
+published, pay plans pay the migrated flat rate (version 1 of the default plan), so pay is unchanged
+on the day of release.
 
 ## Pay formula
 
@@ -85,7 +91,7 @@ is now 0 for prepaid orders. Tests: `findForbiddenRiderKeys` in the integration 
 ## Parked for the owner
 
 - Insurer contract (policy number, covers, network hospitals) — the screen shows "Coming soon".
-- Production values for every switch above, and the final pay-plan numbers (the Pune pilot numbers
+- The final pay-plan numbers (the Pune pilot numbers
   are offered as a starting point in the admin screen, not published).
 - Store submission of app 1.14.0 (needs the owner's Play Console / App Store Connect login).
 - Loans (Jify-style) are out of scope by the brief.

@@ -1,6 +1,6 @@
 /**
  * Rider App v2 — pay plans, quote lock and the Available Deliveries board (docs/rider-app-v2-2026-11).
- * Rules riderPayPlans / riderJobBoard are OFF by default: with them off nothing changes.
+ * Rules riderPayPlans / riderJobBoard are ON by default (owner, 26-Nov-2026); switched off, nothing changes.
  */
 import { eq, inArray, ne } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ import { acceptDeliveryOffer, assignNearestPartner } from "@/server/services/del
 import { creditDeliveryEarnings } from "@/server/services/delivery-earnings";
 import { acceptJob, listOpenJobs, passJob, quoteForOwnOffer } from "@/server/services/rider-job-board";
 import { clonePlan, endSurge, listPlans, publishPlan, simulatePlan, startSurge, updateDraft } from "@/server/services/rider-pay-plans";
-import { clearRuleCache, setRule } from "@/server/services/settings";
+import { clearRuleCache, getRule, setRule } from "@/server/services/settings";
 import { PUNE_PILOT_PLAN } from "@/lib/rider-pay-plan";
 import { findForbiddenRiderKeys } from "../helpers/rider-privacy-scan";
 import { createDeliveryPartner, createOrder, createShop, createUser, resetDatabase, turnRiderZoningOff } from "../helpers/fixtures";
@@ -66,8 +66,10 @@ async function deliver(deliveryOrderId: string) {
   return creditDeliveryEarnings(deliveryOrderId);
 }
 
-const enable = (key: "riderPayPlans" | "riderJobBoard", extra: Record<string, unknown> = {}) =>
-  setRule(key, { enabled: true, ...extra } as never, adminActor);
+const JOB_BOARD = { maxJobs: 50, maxRadiusKm: 8, pollSeconds: 10 };
+const setSwitch = (key: "riderPayPlans" | "riderJobBoard", enabled: boolean) =>
+  setRule(key, (key === "riderJobBoard" ? { enabled, ...JOB_BOARD } : { enabled }) as never, adminActor);
+const enable = (key: "riderPayPlans" | "riderJobBoard") => setSwitch(key, true);
 
 async function defaultPlan() {
   return (await listPlans()).find((p) => p.scopeType === "DEFAULT" && p.inForce)!;
@@ -80,8 +82,18 @@ async function publishPilot(note = "Pune pilot numbers") {
   return publishPlan(draft.id, { note }, adminActor);
 }
 
-describe("riderPayPlans off (default)", () => {
+describe("defaults (owner, 26-Nov-2026)", () => {
+  it("RV2-000 all eight Rider App v2 switches are on when no admin has changed them", async () => {
+    const keys = ["riderAppV2", "riderPayPlans", "riderJobBoard", "riderSlotBooking", "riderReferral", "riderTiers", "riderSos", "riderInsurance"] as const;
+    await db.delete(platformSettings).where(inArray(platformSettings.key, [...keys]));
+    clearRuleCache();
+    for (const key of keys) expect({ key, enabled: (await getRule(key)).enabled }).toEqual({ key, enabled: true });
+  });
+});
+
+describe("riderPayPlans switched off", () => {
   it("RV2-001 accepting locks no quote and the earning is the flat base + per-km rate as before", async () => {
+    await setSwitch("riderPayPlans", false);
     const { offer, riders } = await offered();
     const accepted = await acceptDeliveryOffer(offer.id, riders[0].user.id);
     expect(accepted.quotePaise ?? null).toBeNull();
@@ -168,7 +180,8 @@ describe("Available Deliveries (riderJobBoard)", () => {
     return setup;
   }
 
-  it("RV2-010 off by default: the list is empty and accepting is refused", async () => {
+  it("RV2-010 switched off: the list is empty and accepting is refused", async () => {
+    await setSwitch("riderJobBoard", false);
     const { riders, offer } = await openJob();
     const board = await listOpenJobs(riders[1].user.id);
     expect(board).toMatchObject({ enabled: false, blockedReason: "OFF", jobs: [] });

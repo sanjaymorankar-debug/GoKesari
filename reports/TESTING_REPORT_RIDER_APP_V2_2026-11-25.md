@@ -30,7 +30,7 @@ Open: `migrate-on-build.test.ts` (3 cases) timed out connecting to the local tes
 Pending: PR #568 queued in the staging queue at 15.20 IST (CI, migration, deploy, post-deploy check, guest QA run by the queue). Then: switches ON on staging and rider / admin walk-through (go online → list → ₹ → accept → complete → earnings week; reject; SOS; insurance; slot booking; referral; admin plan → simulate → publish → new offer shows new pay; surge on/off).
 
 ## Run 3 — gokesari.com (production)
-Not started. Production release at the 23.00 IST window after staging verification; switches stay OFF on production until the owner says.
+Not started. Production release at the 23.00 IST window after staging verification; all eight rider switches are ON by default on production too (owner, 26-Nov-2026 01.50 IST).
 
 ## Not covered yet
 - Screens not yet seen in a browser / Expo WebView / 360 px phone — checked on staging in Run 2.
