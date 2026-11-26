@@ -6,6 +6,9 @@
 --   the shop exists (operators open it from Admin → Shop documents → Registration licences).
 -- * registration_licence_entries: who decided a PENDING_OPERATOR entry and when.
 --
+-- The purpose check is re-added NOT VALID: new rows are checked at once, existing rows (all valid) are not
+-- re-scanned under the ACCESS EXCLUSIVE lock, so checkouts and captures are not held up during the deploy.
+--
 -- Additive and safe to re-run. Nothing is dropped. Rollback: scripts/rollback-0217-onboarding-v2-shop.sql.
 DO $$
 DECLARE
@@ -22,7 +25,7 @@ BEGIN
     UNION SELECT 'SHOP_REGISTRATION_DRAFT_FEE'
   ) s;
   EXECUTE 'ALTER TABLE public.payment_intents DROP CONSTRAINT payment_intents_purpose_check';
-  EXECUTE format('ALTER TABLE public.payment_intents ADD CONSTRAINT payment_intents_purpose_check CHECK ("purpose" IN (%s))',
+  EXECUTE format('ALTER TABLE public.payment_intents ADD CONSTRAINT payment_intents_purpose_check CHECK ("purpose" IN (%s)) NOT VALID',
     (SELECT string_agg(quote_literal(v), ', ' ORDER BY v) FROM unnest(vals) v));
 END $$;
 --> statement-breakpoint
