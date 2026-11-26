@@ -641,6 +641,17 @@ export const AUDIT_ACTIONS = {
   PAYMENT_SETTLEMENT_STATE_CHANGED: "payment.settlement_state_changed", // PAY-SM
   PAYMENT_CHARGEBACK_RECORDED: "payment.chargeback_recorded", // PAY-SM
   OTP_PURGED: "auth.otp_purged", // batch-2026-10 WS-A
+  // docs/dual-auth-2026-11 (0219, flag dual_auth): factor verified, device trust, two-code checks, account conflicts.
+  DUAL_AUTH_FACTOR_VERIFIED: "auth.dual_factor_verified",
+  DUAL_AUTH_SIGN_IN: "auth.dual_sign_in",
+  DUAL_AUTH_DEVICE_TRUSTED: "auth.device_trusted",
+  DUAL_AUTH_DEVICES_REVOKED: "auth.devices_revoked",
+  DUAL_AUTH_STEP_UP_SENT: "auth.step_up_sent",
+  DUAL_AUTH_STEP_UP_VERIFIED: "auth.step_up_verified",
+  DUAL_AUTH_STEP_UP_REQUIRED: "auth.step_up_required",
+  DUAL_AUTH_ACCOUNT_CONFLICT: "auth.account_conflict",
+  DUAL_AUTH_GATE_BLOCKED: "auth.dual_gate_blocked",
+  DUAL_AUTH_REMINDER_SENT: "auth.second_factor_reminder",
   /* ---------------------- rider bank payouts (docs/gig-bank-payouts-2026-10) */
   RIDER_BANK_ACCOUNT_REAUTH: "rider_bank.reauthenticated",
   RIDER_BANK_ACCOUNT_REMOVED: "rider_bank.account_removed",

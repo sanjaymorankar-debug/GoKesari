@@ -44,7 +44,7 @@ export function AuditLogView({
         <table className="w-full text-left text-sm">
           <thead className="bg-cream-100 text-xs uppercase text-ink-500">
             <tr>
-              <th className="px-4 py-2">When</th>
+              <th className="px-4 py-2">When (IST)</th>
               <th className="px-4 py-2">Who</th>
               <th className="px-4 py-2">Action</th>
               <th className="px-4 py-2">Entity</th>

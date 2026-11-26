@@ -131,6 +131,14 @@ export async function acceptV2Terms(actor: Actor, input: { accept: boolean; ip?:
  * used instead of a magic link here, because the owner is already signed in (the sign-in page offers Google / link).
  */
 export async function requestV2EmailCode(actor: Actor, input: { email?: string | null; ip?: string | null }) {
+  // docs/dual-auth-2026-11: the shared DualVerify e-mail step (code to the account's address, or the address a
+  // mobile-only owner adds; account check after the code).
+  const dual = await import("@/server/dual-auth/policy");
+  if (await dual.dualAuthInForce()) {
+    const { sendEmailFactorCode } = await import("@/server/dual-auth/verify");
+    const sent = await sendEmailFactorCode(actor.id, input.email ?? null, input.ip ?? null);
+    return { maskedEmail: sent.sentTo, resendAfterSeconds: sent.resendAfterSeconds, expiryMinutes: sent.expiryMinutes };
+  }
   const owner = await accountOf(actor.id);
   const otp = await import("@/server/otp/service");
   const placeholder = owner.emailPlaceholder || isPlaceholderEmail(owner.email);
@@ -142,6 +150,12 @@ export async function requestV2EmailCode(actor: Actor, input: { email?: string |
 }
 
 export async function confirmV2EmailCode(actor: Actor, input: { email?: string | null; code: string; ip?: string | null }): Promise<WizardView> {
+  const dual = await import("@/server/dual-auth/policy");
+  if (await dual.dualAuthInForce()) {
+    const { confirmEmailFactorCode } = await import("@/server/dual-auth/verify");
+    await confirmEmailFactorCode(actor.id, input.email ?? null, input.code, input.ip ?? null, "shop_identity");
+    return toWizardView(await openV2Draft(actor.id));
+  }
   const owner = await accountOf(actor.id);
   const otp = await import("@/server/otp/service");
   const placeholder = owner.emailPlaceholder || isPlaceholderEmail(owner.email);
@@ -163,6 +177,14 @@ export async function confirmV2EmailCode(actor: Actor, input: { email?: string |
 export async function requestV2MobileCode(actor: Actor, input: { mobile: string; ip?: string | null }): Promise<{ sent: boolean; view: WizardView }> {
   const parsed = parseIndianMobile(input.mobile);
   if (!parsed.ok) throw validationFailed(parsed.error, { fields: { mobile: parsed.error } });
+  // docs/dual-auth-2026-11: the shared DualVerify mobile step (strict SMS code; account check after the code).
+  const dual = await import("@/server/dual-auth/policy");
+  if (await dual.dualAuthFlagOn()) {
+    if (!(await dual.dualAuthInForce())) throw conflict("We can't send an SMS code right now. Please try again later.", { reason: "SMS_UNAVAILABLE" });
+    const { sendMobileFactorCode } = await import("@/server/dual-auth/verify");
+    await sendMobileFactorCode(actor.id, parsed.e164, input.ip ?? null);
+    return { sent: true, view: await toWizardView(await openV2Draft(actor.id)) };
+  }
   const otp = await import("@/server/otp/service");
   await otp.assertPhoneFree(parsed.e164, actor.id);
   const owner = await accountOf(actor.id);
@@ -180,6 +202,12 @@ export async function requestV2MobileCode(actor: Actor, input: { mobile: string;
 }
 
 export async function confirmV2MobileCode(actor: Actor, input: { mobile: string; code: string; ip?: string | null }): Promise<WizardView> {
+  const dual = await import("@/server/dual-auth/policy");
+  if (await dual.dualAuthInForce()) {
+    const { confirmMobileFactorCode } = await import("@/server/dual-auth/verify");
+    await confirmMobileFactorCode(actor.id, input.mobile, input.code, input.ip ?? null, "shop_identity");
+    return toWizardView(await patchDraft(actor.id, { v2MobileUnverified: false }));
+  }
   const owner = await accountOf(actor.id);
   const otp = await import("@/server/otp/service");
   const e164 = await otp.verifyGuestMobileOtp({ email: owner.email, mobile: input.mobile, code: input.code, ip: input.ip ?? null });

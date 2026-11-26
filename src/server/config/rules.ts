@@ -291,6 +291,43 @@ export const RULES = {
       applyWithinDays: 30,
     },
   },
+  dualAuth: {
+    description:
+      "Dual authentication (docs/dual-auth-2026-11; flag dual_auth): mobile SMS code + e-mail (code, link or Google) for every account; code lifetimes, resend limits, lockout, device trust and the two-code check for sensitive actions.",
+    schema: z.object({
+      /** DEFAULT – confirm with Sanjay: brief section 5 — mobile code 5 min, e-mail code 10 min (the e-mail link is fixed at 15 min, single use). */
+      smsExpiryMinutes: int(1, 30),
+      emailExpiryMinutes: int(1, 60),
+      /** DEFAULT – confirm with Sanjay: resend after 30 s; at most 3 resends (4 codes) per 15 minutes per number / e-mail. */
+      resendCooldownSeconds: int(0, 600),
+      maxCodesPerWindow: int(1, 20),
+      windowMinutes: int(1, 1440),
+      /** DEFAULT – confirm with Sanjay: 5 wrong codes lock that number / e-mail for 15 minutes. */
+      lockoutWrongAttempts: int(1, 50),
+      lockoutMinutes: int(1, 1440),
+      /** DEFAULT – confirm with Sanjay: codes per IP per window (all numbers and e-mails together). */
+      maxCodesPerIpPerWindow: int(1, 500),
+      /** DEFAULT – confirm with Sanjay: a device that finished both factors is trusted for 30 days. */
+      trustDays: int(1, 365),
+      /** DEFAULT – confirm with Sanjay: the two codes of a sensitive action stay good for 10 minutes. */
+      stepUpMinutes: int(1, 60),
+      /** DEFAULT – confirm with Sanjay: mobile-only shop owners get the "add your e-mail" SMS reminder every 3 days. */
+      reminderEveryDays: int(1, 60),
+    }),
+    defaults: {
+      smsExpiryMinutes: 5,
+      emailExpiryMinutes: 10,
+      resendCooldownSeconds: 30,
+      maxCodesPerWindow: 4,
+      windowMinutes: 15,
+      lockoutWrongAttempts: 5,
+      lockoutMinutes: 15,
+      maxCodesPerIpPerWindow: 30,
+      trustDays: 30,
+      stepUpMinutes: 10,
+      reminderEveryDays: 3,
+    },
+  },
   onboardingV2: {
     description:
       "Onboarding v2 (docs/onboarding-v2-2026-11; flag onboarding_v2). Shop registration fee by kind (paid straight after GST/PAN verification, online only), the base delivery fee shown at checkout before the address is known, team invitations and whether team leads may add agents under themselves.",

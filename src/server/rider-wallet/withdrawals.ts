@@ -30,6 +30,7 @@ import { notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { withdrawalProblem } from "./rules";
 import { accountLabel, activeRiderProvider, claimIntoTransfer, payableAccount, railFor, sendTransfer } from "./transfers";
+import { requireDualStepUp } from "@/server/dual-auth/step-up";
 
 interface Actor {
   id: string;
@@ -129,6 +130,8 @@ export async function consumeBankChangeGrant(userId: string): Promise<void> {
 /** Removes the personal bank account (it stops being current; history stays). Not while money is on its way to it. */
 export async function removeBankAccount(actor: Actor): Promise<void> {
   await requireFeature("rider_bank_account_enabled");
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  await requireDualStepUp(actor.id, "BANK_CHANGE");
   const account = await currentBankAccount(actor.id, null);
   if (!account) return;
   const [inFlight] = await db
@@ -161,6 +164,8 @@ async function withdrawalGate(actor: Actor): Promise<DeliveryPartner> {
 
 export async function requestWithdrawalCode(actor: Actor, amountPaise: number, ip: string | null) {
   await withdrawalGate(actor);
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  await requireDualStepUp(actor.id, "WITHDRAWAL");
   return requestAccountActionOtp({
     email: await accountEmail(actor.id),
     userId: actor.id,
@@ -194,6 +199,8 @@ export async function withdrawnTodayPaise(deliveryPartnerId: string, client: DbC
  */
 export async function withdraw(actor: Actor, input: { amountPaise: number; code: string }, ip: string | null) {
   const partner = await withdrawalGate(actor);
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  await requireDualStepUp(actor.id, "WITHDRAWAL");
   const rule = await getRule("riderPayouts");
   const account = await payableAccount(actor.id);
   if (!account) throw conflict("Add and verify your bank account first.", { reason: "BANK_NOT_VERIFIED" });

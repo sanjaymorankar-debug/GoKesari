@@ -44,6 +44,7 @@ import { NOTIFICATION_TYPES, notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { emailIsVerified, mobileState } from "./customer";
 import { ONBOARDING_V2_FLAG, formatIstStamp, listMarketplaceRoles, recordRoleChange } from "./roles";
+import { requireDualStepUp } from "@/server/dual-auth/step-up";
 
 export interface TeamActor {
   id: string;
@@ -558,6 +559,8 @@ async function tell(member: DealerSalesperson, message: string): Promise<void> {
 
 /** Agent → team lead (reports to the dealer directly from now on). */
 export async function upgradeToTeamLead(actor: TeamActor, memberId: string, opts: ChangeOptions = {}): Promise<DealerSalesperson> {
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  if (!opts.override) await requireDualStepUp(actor.id, "TEAM_ROLE");
   const { member } = await memberForChange(actor, memberId, opts);
   // DEFAULT – confirm with Sanjay: the v2 upgrade is the dealer's own decision — the promotion minimums of the
   // TIERED rule (dealerPromotesAgent) are not checked and no development bonus is started for a former lead.
@@ -591,6 +594,8 @@ export async function upgradeToTeamLead(actor: TeamActor, memberId: string, opts
  * agents: the dealer reassigns them first (reassignAgent).
  */
 export async function downgradeToAgent(actor: TeamActor, memberId: string, input: { parentId?: string | null }, opts: ChangeOptions = {}): Promise<DealerSalesperson> {
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  if (!opts.override) await requireDualStepUp(actor.id, "TEAM_ROLE");
   const { member } = await memberForChange(actor, memberId, opts);
   const after = await db.transaction(async (tx) => {
     const [before] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId)).for("update");
@@ -631,6 +636,8 @@ export async function downgradeToAgent(actor: TeamActor, memberId: string, input
 
 /** An agent moves under another team lead, or under the dealer directly (parentId null). */
 export async function reassignAgent(actor: TeamActor, agentId: string, input: { parentId: string | null }, opts: ChangeOptions = {}): Promise<DealerSalesperson> {
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  if (!opts.override) await requireDualStepUp(actor.id, "TEAM_ROLE");
   const { member } = await memberForChange(actor, agentId, opts);
   const result = await db.transaction(async (tx) => {
     const [before] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, agentId)).for("update");
@@ -668,6 +675,8 @@ export async function reassignAgent(actor: TeamActor, agentId: string, input: { 
  * shops; shops he brought stay his), a team lead's active agents move under the dealer (existing rule).
  */
 export async function removeTeamRole(actor: TeamActor, memberId: string, opts: ChangeOptions = {}): Promise<void> {
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  if (!opts.override) await requireDualStepUp(actor.id, "TEAM_ROLE");
   const { member, dealer } = await memberForChange(actor, memberId, opts);
   if (member.status !== "ACTIVE") throw conflict("This person no longer has a team role.");
   const agents = member.teamRole === "TEAM_LEAD"

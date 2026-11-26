@@ -3,6 +3,7 @@ import { ReferralShareButtons } from "@/components/referral-sharing/share-button
 import { referralSharingOn } from "@/server/services/referral-links";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { dualVerifyRedirect } from "@/server/dual-auth/policy";
 
 import { AreaMap, type AreaShape } from "@/components/franchise/area-map";
 import { FranchiseActions } from "@/components/franchise/franchise-actions";
@@ -26,6 +27,9 @@ const TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = { ACT
 export default async function MyFranchisePage({ searchParams }: { searchParams: Promise<{ booking?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin?callbackUrl=/franchise/my");
+  // docs/dual-auth-2026-11: team / franchise features need both factors verified (flag dual_auth).
+  const verifyAt = await dualVerifyRedirect(user.id, "/franchise/my").catch(() => null);
+  if (verifyAt) redirect(verifyAt);
   const d = await ownerDashboard(user.id);
   const sp = await searchParams;
   const origin = originFromHeaders(await headers());
