@@ -5019,6 +5019,8 @@ export const orderDisputes = pgTable(
     raisedByUserId: uuid("raised_by_user_id").references(() => users.id, { onDelete: "set null" }),
     /** The complaint this case came from, when it came from one. */
     grievanceId: uuid("grievance_id").references(() => grievances.id, { onDelete: "set null" }),
+    /** docs/flows-v3/wave2.md (0222, flag flow_f16): the declined return this case was opened from. Nullable. */
+    returnRequestId: uuid("return_request_id"),
 
     status: text("status", { enum: DISPUTE_STATUSES }).notNull().default("OPEN"),
     level: text("level", { enum: DISPUTE_LEVELS }).notNull().default("L1"),
@@ -11198,6 +11200,15 @@ export const FEATURE_FLAG_KEYS = [
   // docs/seller-agreements-2026-11 (0213): personalised, OTP-signed Seller SLA (+ medical agreement) at registration and for
   // existing shops (blocking screen; no new orders after the grace period). Seeded OFF.
   "seller_agreements_enabled",
+  // docs/flows-v3/wave2.md (0222): flow spec v3 wave 2. F2 customer order, F20 multi-shop cart, F3 order fulfilment,
+  // F19 order timeouts, F16 cancellations / refunds / returns, F13 product and inventory setup.
+  // Seeded ON on the staging database (gokesari_test), OFF on production.
+  "flow_f2",
+  "flow_f20",
+  "flow_f3",
+  "flow_f19",
+  "flow_f16",
+  "flow_f13",
   // docs/onboarding-v2-2026-11 (0215): rebuilt customer / shop / franchise / team onboarding (owner brief 26-Nov-2026).
   // Seeded ON on the staging database (gokesari_test) and OFF on production until the production test pass.
   "onboarding_v2",
@@ -11211,7 +11222,7 @@ export const FEATURE_FLAG_KEYS = [
   "flow_f1",
   "flow_f14",
   "flow_f17",
-  // docs/flows-v3/wave4.md (0222): flow spec v3 wave 4. F7 franchise (live shop for every paid booking, renewal
+  // docs/flows-v3/wave4.md (0223): flow spec v3 wave 4. F7 franchise (live shop for every paid booking, renewal
   // without PAN), F8 team (downgrade moves the agents), F9 recurring commission (own shops anywhere, the zone's first
   // franchise keeps the others), F10 renewal (3-year cap on the tail), F12 referral codes for every dealer, shop and
   // customer, F21 zone hold (one hold per dealer, 15 minutes, refund of a lost slot), F22 commission (held 3 days,
@@ -12383,7 +12394,7 @@ export const dealerPayoutBatches = pgTable(
     paidBy: uuid("paid_by"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    /** 0222 (docs/flows-v3/wave4.md, flag flow_f22): GST added for a GST-registered dealer; net = gross + GST − TDS. */
+    /** 0223 (docs/flows-v3/wave4.md, flag flow_f22): GST added for a GST-registered dealer; net = gross + GST − TDS. */
     gstPaise: integer("gst_paise").notNull().default(0),
     gstRateBp: integer("gst_rate_bp").notNull().default(0),
     /** 0222: the commission invoice (dealer_commission_invoices) issued for this payout. */
@@ -13751,8 +13762,9 @@ export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)
 export * from "./legal-agreements-schema"; // docs/seller-agreements-2026-11 (0213)
+export * from "./flows-v3-wave2-schema"; // docs/flows-v3/wave2.md (0222)
 export * from "./onboarding-v2-schema"; // docs/onboarding-v2-2026-11 (0215)
 export * from "./dual-auth-schema"; // docs/dual-auth-2026-11 (0219)
 export * from "./flows-v3-schema"; // docs/flows-v3 (0221)
-export * from "./flows-v3-wave4-schema"; // docs/flows-v3/wave4.md (0222)
+export * from "./flows-v3-wave4-schema"; // docs/flows-v3/wave4.md (0223)
 /* <<< GoKesari Health */

@@ -230,7 +230,16 @@ qa("TC-RGR-010", "D-140: an approved rider with checks outstanding reads 'You're
     const { context, page } = await pageAs(browser, role);
     try {
       await page.goto("/delivery-partner");
-      await expect(page.getByRole("heading", { name: "My Delivery Partner Application" })).toBeVisible();
+      // Rider App v2 Home (rule riderAppV2, on on the test site): no page heading; the verification checklist shows
+      // only while checks are outstanding. Without it this rider has nothing outstanding — not the D-140 case.
+      if (await page.getByTestId("rider-home-v2").waitFor({ timeout: 30_000 }).then(() => true, () => false)) {
+        if (!(await page.getByTestId("rider-verification-checklist").count())) {
+          seen.push(`${role}: Rider App v2 Home without a checklist (no check outstanding)`);
+          continue;
+        }
+      } else {
+        await expect(page.getByRole("heading", { name: "My Delivery Partner Application" })).toBeVisible();
+      }
       const line = page.getByText(/^You're approved — finish \d+ more checks? below to start delivering: .+\.$/);
       if (!(await line.count())) {
         const plain = (await page.getByText(/^You're approved as a delivery partner\.$|^Your (application|delivery partner account)/).first().innerText().catch(() => "")).trim();

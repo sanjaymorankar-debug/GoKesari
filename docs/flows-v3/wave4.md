@@ -5,7 +5,7 @@ flag; with the flag off the site behaves exactly as before.
 
 | Flag | Area | Seeded by |
 |---|---|---|
-| `flow_f7` | F7 franchise | migration **0222** — ON on the staging database (`gokesari_test`), OFF everywhere else |
+| `flow_f7` | F7 franchise | migration **0223** — ON on the staging database (`gokesari_test`), OFF everywhere else |
 | `flow_f8` | F8 team lead / agent | same |
 | `flow_f9` | F9 recurring commission | same |
 | `flow_f10` | F10 franchise renewal and tail | same |
@@ -20,7 +20,7 @@ Owner policy kept as is: free dealer 20% one-time on the shop fee (Free v3, 12 m
 commission + bonus up to 5%; launch fee per zone for the first 25; payouts on the 5th; no commission on shop
 renewals; settlement hold 3 days. No existing rule default and no existing dealer's frozen rate is changed.
 
-## Migration 0222 (`drizzle/0222_flows_v3_wave4.sql`)
+## Migration 0223 (`drizzle/0223_flows_v3_wave4.sql`)
 
 Additive only, safe to re-run:
 
@@ -30,7 +30,7 @@ Additive only, safe to re-run:
 - new table `dealer_commission_invoice_counters` (gapless number per prefix and financial year);
 - the seven flag rows (`ON CONFLICT DO NOTHING`).
 
-Rollback: `scripts/rollback-0222-flows-v3-wave4.sql`. If the staging queue renumbers the migration, the content
+Rollback: `scripts/rollback-0223-flows-v3-wave4.sql`. If the staging queue renumbers the migration, the content
 stays the same.
 
 ## Rule `franchiseFlowsV3` (Admin → Rules; each value used only while its flag is on)

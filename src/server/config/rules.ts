@@ -172,6 +172,71 @@ export const RULES = {
       maxHandoverAttempts: 5,
     },
   },
+  /* >>> docs/flows-v3 (wave 2): read only while the matching flow_f* feature flag is on. */
+  orderFlowsV3: {
+    description:
+      "Flow spec v3, wave 2 (docs/flows-v3/wave2.md). Each value is used only while its feature flag is on; with the flag off the older rules (shopAcceptance, dispatch, dispatchBroadcast, cancellation, afterPackingCancellation, returns, Admin → Finance commission) apply unchanged. flow_f19: shopAcceptMinutes (the shop must accept within this; reminder at acceptReminderAtFraction of it, in the app and on the shop's WhatsApp where that is on; a silent shop's order is cancelled with a full refund) and suggestAnotherShop (point the customer to the nearest shop within suggestRadiusKm that lists every item); riderWidenAfterMinutes (the rider offer goes out to a wider radius every this many minutes), riderGiveUpMinutes (the rider search stops), noRiderCancelAfterMinutes (after the search stops, the shop has this long to switch to its own delivery or pickup, else the order is cancelled with a full refund; 0 = never); pickupGraceMinutes (after a pickup slot ends, the shop may cancel an uncollected order). flow_f16: a packed order is cancelled only when the shop agrees, with no charge (owner 27-Nov-2026); returnWindowHours, returnPhotoReasons (the return reasons that need a photo), nonReturnableDepartments / nonReturnableCategorySlugs (product categories — by shop type of the category, or by category slug — that cannot be returned) except for nonReturnableExceptReasons, failedDeliveryRefundAfterMinutes (a failed delivery still not retried after this long is cancelled with a full refund). flow_f3: defaultCommissionBps (commission when Admin → Finance has no rate for the shop). flow_f13: defaultListingStock (stock given to products listed from a chosen category or the master list).",
+    schema: z.object({
+      shopAcceptMinutes: int(1, 240),
+      acceptReminderAtFraction: z.number().min(0.1).max(0.95),
+      suggestAnotherShop: z.boolean(),
+      suggestRadiusKm: z.number().min(0.5).max(50),
+      riderWidenAfterMinutes: int(1, 60),
+      riderGiveUpMinutes: int(1, 720),
+      noRiderCancelAfterMinutes: int(0, 720),
+      pickupGraceMinutes: int(0, 1440),
+      returnWindowHours: int(1, 24 * 30),
+      returnPhotoReasons: z.array(z.string().min(1).max(40)).max(10),
+      nonReturnableDepartments: z.array(z.string().min(1).max(60)).max(100),
+      nonReturnableCategorySlugs: z.array(z.string().min(1).max(120)).max(500),
+      nonReturnableExceptReasons: z.array(z.string().min(1).max(40)).max(10),
+      failedDeliveryRefundAfterMinutes: int(0, 1440),
+      defaultCommissionBps: int(0, 5000),
+      defaultListingStock: int(0, 100_000),
+    }),
+    defaults: {
+      // Owner 27-Nov-2026: accept within 10 minutes, reminder at half time.
+      shopAcceptMinutes: 10,
+      acceptReminderAtFraction: 0.5,
+      suggestAnotherShop: true,
+      // DEFAULT – confirm with Sanjay: suggest a shop within 5 km (the Nearby radius).
+      suggestRadiusKm: 5,
+      // Owner 27-Nov-2026: widen after 5 minutes, give up after 20.
+      riderWidenAfterMinutes: 5,
+      riderGiveUpMinutes: 20,
+      // DEFAULT – confirm with Sanjay: 10 minutes for the shop to switch to own delivery / pickup.
+      noRiderCancelAfterMinutes: 10,
+      // Owner 27-Nov-2026: 60 minutes after the pickup slot ends.
+      pickupGraceMinutes: 60,
+      // Owner 27-Nov-2026: 2 days.
+      returnWindowHours: 48,
+      // Owner 27-Nov-2026: photo optional except damaged / wrong item.
+      returnPhotoReasons: ["DAMAGED", "WRONG_ITEM"] as string[],
+      // Owner 27-Nov-2026: food and medicines are not returnable. DEFAULT – confirm with Sanjay: the shop types
+      // counted as food / medicine below (mixed-goods types such as kirana and supermarket are left out).
+      nonReturnableDepartments: [
+        "FRUIT_VEGETABLE",
+        "DAIRY",
+        "BAKERY",
+        "MEAT_SHOP",
+        "SWEET_SHOP",
+        "RESTAURANT",
+        "FAST_FOOD",
+        "CAFE",
+        "PHARMACY",
+      ] as string[],
+      nonReturnableCategorySlugs: [] as string[],
+      // DEFAULT – confirm with Sanjay: a damaged, wrong or expired food / medicine item may still be returned.
+      nonReturnableExceptReasons: ["DAMAGED", "WRONG_ITEM", "EXPIRED"] as string[],
+      // DEFAULT – confirm with Sanjay: a failed delivery not retried within 30 minutes is refunded automatically.
+      failedDeliveryRefundAfterMinutes: 30,
+      // Owner (seller agreements, 26-Nov-2026): commission 2% on every shop.
+      defaultCommissionBps: 200,
+      // Owner policy: starter shelf / listings start at stock 100.
+      defaultListingStock: 100,
+    },
+  },
+  /* <<< docs/flows-v3 (wave 2) */
   images: {
     description: "Uploaded images: size and dimension limits and counts.",
     schema: z.object({

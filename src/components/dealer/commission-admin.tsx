@@ -67,7 +67,7 @@ interface Payout {
   totalPaise: number;
   /** 0136 / 0139 / 0142: TDS, the automatic transfer and its review flag, the TDS block. */
   tdsPaise?: number;
-  /** 0222 (docs/flows-v3/wave4.md, flag flow_f22): GST added for a GST-registered dealer. */
+  /** 0223 (docs/flows-v3/wave4.md, flag flow_f22): GST added for a GST-registered dealer. */
   gstPaise?: number;
   needsReview?: boolean;
   failureReason?: string | null;

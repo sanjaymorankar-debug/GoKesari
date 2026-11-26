@@ -189,6 +189,15 @@ qa("TC-UX-009", "the language switch changes Seller Central to हिं, then �
     const years = (cookie!.expires * 1000 - Date.now()) / (365 * 86_400_000);
     return `EN → हिं (कैटलॉग / भुगतान, "टूल खोजें…") → मरा (कॅटलॉग / पेमेंट, "साधन शोधा…"); kept on /shop/inventory, /shop/orders and after a reload; gk_lang=mr for ${years.toFixed(2)} year`;
   } finally {
+    // The switch also saves the choice on the account (users.preferred_lang, Module 6): put English back, or
+    // every later page of the shop owner opens in Marathi (baseline 27-Nov-2026: 30+ Seller Central checks).
+    await page
+      .getByTestId("seller-topbar")
+      .getByTestId("language-switch")
+      .getByRole("button", { name: "English" })
+      .click()
+      .then(() => page.waitForLoadState("networkidle", { timeout: 15_000 }))
+      .catch(() => {});
     await context.close();
   }
 }, signed);

@@ -91,6 +91,7 @@ import { orderEventFor, type OrderEventPayload } from "@/server/events/catalog";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 import { checkRiskForUser } from "./risk";
 import { afterPackingCancellationOpen } from "@/server/aftercare/cancellation-fee"; // batch-2026-10 WS-C
+import { afterPackingCancellationRule, cancellationRule } from "@/server/flows/wave2-rules"; // docs/flows-v3/wave2.md
 import {
   SELF_CANCEL_BEFORE_PACKING,
   SELF_CANCEL_MESSAGES,
@@ -1390,7 +1391,7 @@ export async function cancelOrder(
     // (only ever set with the flag on) can always be cancelled by its customer for a full refund — whatever the
     // shop has done — since without a location it can never be delivered. NULL on every other order: unchanged.
     const addressPending = order.addressPendingSince != null;
-    const { customerMayCancelUntil } = await getRule("cancellation");
+    const { customerMayCancelUntil } = await cancellationRule(); // docs/flows-v3/wave2.md (flag flow_f16)
     const customerCancelBeforePacking =
       Boolean(options.selfService) && beforePacking && customerMayCancelUntil === "PREPARING";
     // batch-2026-10 WS-C (F6.1.3): with rule afterPackingCancellation on, the
@@ -1403,7 +1404,7 @@ export async function cancelOrder(
     const block = options.selfService && !addressPending
       ? selfCancelBlock(order.status, {
           customerMayCancelUntil,
-          afterPackingEnabled: (await getRule("afterPackingCancellation")).enabled,
+          afterPackingEnabled: (await afterPackingCancellationRule()).enabled,
         })
       : null;
     if (block === "BEING_PREPARED" || block === "CONTACT_SUPPORT") throw conflict(SELF_CANCEL_MESSAGES[block]);
@@ -1476,7 +1477,7 @@ export async function cancelOrder(
     const unitSizes =
       restockLines.length > 0
         ? await tx
-            .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli, kind: products.kind })
+            .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli, kind: products.kind, trackInventory: shopProducts.trackInventory })
             .from(shopProducts)
             .innerJoin(products, eq(shopProducts.productId, products.id))
             .where(inArray(shopProducts.id, restockLines.map((l) => l.shopProductId)))
@@ -1487,7 +1488,8 @@ export async function cancelOrder(
       unitSizeMilli: productById.get(l.shopProductId)?.unitSizeMilli ?? 1000,
       kind: productById.get(l.shopProductId)?.kind ?? ("PACKAGED" as const),
     }));
-    for (const line of onlinePolicy?.stockAlreadyReleased ? [] : lines) {
+    // D-172: a listing that does not track stock was never taken from stock, so nothing goes back.
+    for (const line of onlinePolicy?.stockAlreadyReleased ? [] : lines.filter((l) => productById.get(l.shopProductId)?.trackInventory !== false)) {
       const quantityUnits = milliToStockUnits(line.quantityMilli, line.unitSizeMilli, line.kind);
       if (quantityUnits > 0) {
         await restockOnline(
@@ -1662,6 +1664,12 @@ export async function cancelOrder(
       console.error("[refunds] immediate send failed for order", orderId, error),
     );
   }
+  // docs/flows-v3/wave2.md (flag flow_f20): one part of a multi-shop checkout cancelled by the shop, support or the
+  // system — the customer is offered to cancel the rest. After commit; never throws; nothing while the flag is off.
+  if (result.orderGroupId) {
+    const { notifyGroupPartCancelled } = await import("@/server/flows/f20-multishop");
+    await notifyGroupPartCancelled(orderId, actor?.id === result.userId);
+  }
   return result;
 }
 
@@ -1750,8 +1758,8 @@ export async function listOpenOrdersForCheckout(
   if (rule.scope === "SAME_SHOP" && cartShopIds.length === 0) return [];
   // TC-ORD-008: the same D10 rule as cancelOrder (lib/order-cancellation.ts).
   const cancellable = customerCancellableStatuses({
-    customerMayCancelUntil: (await getRule("cancellation")).customerMayCancelUntil,
-    afterPackingEnabled: (await getRule("afterPackingCancellation")).enabled,
+    customerMayCancelUntil: (await cancellationRule()).customerMayCancelUntil,
+    afterPackingEnabled: (await afterPackingCancellationRule()).enabled,
   });
   const rows = await db
     .select({

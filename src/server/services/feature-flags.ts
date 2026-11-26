@@ -102,6 +102,12 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   identity_verification_shop_owners_enabled: "Shop owners: verify identity before going live / accepting orders",
   seller_undertaking_gate_enabled: "Shop owners must accept the fresh-goods undertaking",
   seller_agreements_enabled: "Shop owners sign the personalised Seller SLA (OTP e-signature)",
+  flow_f2: "Flows v3 F2: no referral code before the first order, explicit Online / COD choice",
+  flow_f20: "Flows v3 F20: offer to cancel the rest of a multi-shop order when one shop declines",
+  flow_f3: "Flows v3 F3: mark packed straight from accepted, 2% commission when no rate is set",
+  flow_f19: "Flows v3 F19: 10-minute shop acceptance, rider search timings, no-rider and pickup no-show handling",
+  flow_f16: "Flows v3 F16: cancel until packing, shop-agreed cancel after packing, return rules, failed-delivery refund",
+  flow_f13: "Flows v3 F13: category adds items at stock 100, duplicate choice, own product types, product-upload e-mail",
   onboarding_v2: "Onboarding v2: sign-in at checkout, shop / franchise / team onboarding",
   dual_auth: "Dual authentication: verified mobile AND e-mail for every account",
   flow_f1: "Flows v3 F1: rider verification gate, sign-up Terms record, referral link to sign-up",
@@ -215,6 +221,18 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/seller-undertaking-2026-11: a shop owner who has not accepted the current seller undertaking (fresh, non-expired, compliant goods only; expiry / best-before date always shared) and the current Seller Terms sees a full-page acknowledgement instead of Seller Central, and their shops cannot accept new orders until they accept. Orders already accepted carry on as normal. Bumping the undertaking or Seller Terms version asks every owner again. Off: nobody is asked (new registrations still accept both).",
   seller_agreements_enabled:
     "docs/seller-agreements-2026-11 (Admin → Agreements): registration gets an Agreements step before the fee payment — the owner reads the Seller SLA (and, for medical shops, the Merchant Onboarding Agreement) filled in with their own shop and licence details, in English / मराठी / हिंदी, ticks each one and signs with their name, designation and an SMS code; signed PDFs are e-mailed (copy to ceo@agtci.com). Existing shops see a blocking screen after sign-in and take no new orders once the grace period (rule sellerAgreements.graceDays) has passed. Replaces the Seller Terms tick on the registration Payment step. Needs at least one published Seller SLA version. Off: nobody is asked; registration keeps the Seller Terms tick.",
+  flow_f2:
+    "docs/flows-v3/wave2.md (F2): no referral code is asked or required before the first order (the admin setting MANDATORY does not block checkout); the customer may give one after paying their first order (order page). Checkout asks the customer to choose Online or cash on delivery explicitly — nothing is preselected. Off: unchanged.",
+  flow_f20:
+    "docs/flows-v3/wave2.md (F20): when one shop of a multi-shop checkout declines or cancels its part, the customer is told and offered to cancel the other parts still cancellable (full refund each). Delivery fees stay the shop's own, shown per shop before payment. Off: unchanged.",
+  flow_f3:
+    "docs/flows-v3/wave2.md (F3): \"Mark packed\" works straight from Accepted (picking starts automatically); the commission is 2% (rule orderFlowsV3.defaultCommissionBps) where Admin → Finance has no rate. Off: unchanged.",
+  flow_f19:
+    "docs/flows-v3/wave2.md (F19, rule orderFlowsV3): shops accept within 10 minutes (reminder at half time in the app and, where shop WhatsApp is on, on WhatsApp); a silent shop's order is cancelled with a full refund and the customer is pointed to a nearby shop with the same items. The rider search widens every 5 minutes and stops after 20; if the shop has not switched to its own delivery or pickup within the set wait, the order is cancelled with a full refund. A pickup not collected 60 minutes after its slot may be cancelled by the shop. Off: unchanged.",
+  flow_f16:
+    "docs/flows-v3/wave2.md (F16, rule orderFlowsV3): customers may cancel until the order is packed (full refund, delivery fee included); after packing they can ask the shop, which agrees or declines (no charge). Returns within 2 days; food and medicine categories are not returnable (admin list) except for defects; a photo is needed only for damaged or wrong items; a declined return can be taken to a dispute; the shop is told when a return is refunded; a failed delivery is refunded automatically. Off: unchanged.",
+  flow_f13:
+    "docs/flows-v3/wave2.md (F13, rule orderFlowsV3): choosing a category lists every master product in it at stock 100; products picked from the master list start at stock 100; an exact name match asks the owner to use the existing product or add a new one; every shop type can create its own product type (sent for review); a shop going live by any approval path gets a \"ready for product upload\" e-mail. Off: unchanged.",
   onboarding_v2:
     "docs/onboarding-v2-2026-11 (owner brief 26-Nov-2026): guests browse and fill a cart with no sign-in anywhere; \"Place order\" opens a sign-in sheet (Terms tick, e-mail by Google or link, mobile code) and returns to the cart; the delivery address is asked after payment. Shop registration: identity → referral → GST/PAN → fee → shop type → licences (enter / upload / scan / later) → Seller SLA → address + pin → live. Franchise needs a live shop; free dealers go live at once; paid zones pay a plan up front and go live on payment (no 30-day KYC refund rule). Dealers build \"My team\" by inviting customers, who must accept. Off: every flow behaves exactly as before.",
   dual_auth:
