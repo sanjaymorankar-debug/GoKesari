@@ -56,7 +56,8 @@ qa("TC-MKT-019", "/refer shows the customer's own code and share link; the link 
     await page.getByRole("button", { name: "Copy link" }).click();
     await expect(page.getByRole("button", { name: "Link copied" })).toBeVisible();
     const copied = await page.evaluate(() => navigator.clipboard.readText()).catch(() => null);
-    if (copied !== null) expect(copied, "what Copy link copied").toBe(link);
+    // Referral sharing tags each channel's link (?c=cp for Copy link, docs/referral-sharing-2026-11).
+    if (copied !== null) expect([link, `${link}?c=cp`], "what Copy link copied").toContain(copied);
   } finally {
     await context.close();
   }

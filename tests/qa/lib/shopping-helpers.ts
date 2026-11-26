@@ -546,6 +546,9 @@ export async function chooseDeliveryTime(page: Page): Promise<boolean> {
  */
 export async function payOnCartPage(page: Page, closed: "yes" | "no" | "none" = "none") {
   await chooseDeliveryTime(page);
+  // onboarding v2 (on on test.gokesari.com) preselects no payment: the wallet is chosen as a customer would.
+  const { pickPaymentIfNone } = await import("./onboarding-v2-helpers");
+  await pickPaymentIfNone(page, "Wallet");
   await page.getByRole("button", { name: /Pay from wallet|Place order/ }).click();
   const ignore = page.getByRole("button", { name: "Ignore and continue" });
   const closedYes = page.getByRole("button", { name: "Yes, continue" });

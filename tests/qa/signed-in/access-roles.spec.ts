@@ -315,6 +315,9 @@ qa("TC-RBAC-004", "every shop-scoped API refuses owner A on shop B (403/404), al
       __multipart: { photo: { name: "front.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") }, side: "FRONT" },
     },
     "PATCH /api/shops/[id]/staff/[staffId]": { suspended: true },
+    // Voice price assistant (smart shopping): body first, then assertVoiceAccess.
+    "POST /api/shops/[id]/voice-price/interpret": { text: "Bread price 42 rupees" },
+    "POST /api/shops/[id]/voice-price/apply": { shopProductId: NO_SUCH_ID, newPricePaise: 4200, offer: null, expectedPricePaise: 4000 },
   };
   const validationFirst = byStatus.get(422) ?? [];
   const retried: string[] = [];
