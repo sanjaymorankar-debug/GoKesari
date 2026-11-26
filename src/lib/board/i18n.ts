@@ -232,8 +232,6 @@ export const UI = {
   installAndroidStep1: L("Tap ⋮ menu", "⋮ मेनू दबाएँ", "⋮ मेनू दाबा"),
   installAndroidStep2: L("Install app", "ऐप इंस्टॉल करें", "ॲप इन्स्टॉल करा"),
   installAndroidStep3: L("Tap Install", "इंस्टॉल दबाएँ", "इन्स्टॉल दाबा"),
-  updateReady: L("A new version of GoKesari is ready.", "GoKesari का नया संस्करण तैयार है।", "GoKesari ची नवी आवृत्ती तयार आहे."),
-  updateReload: L("Reload", "रीलोड करें", "रीलोड करा"),
   errorTitle: L("Something went wrong on our side", "हमारी तरफ़ से कुछ गड़बड़ हुई", "आमच्याकडून काहीतरी चुकले"),
   errorText: L("Nothing you entered was lost. Try again, or go back to your board.", "आपकी भरी जानकारी सुरक्षित है। फिर कोशिश करें या बोर्ड पर लौटें।", "तुम्ही भरलेली माहिती सुरक्षित आहे. पुन्हा प्रयत्न करा किंवा बोर्डवर परत जा."),
   tryAgain: L("Try again", "फिर कोशिश करें", "पुन्हा प्रयत्न करा"),

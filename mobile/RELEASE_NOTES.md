@@ -1,5 +1,20 @@
 # GoKesari app — release notes
 
+## 1.16.0 (Android versionCode 17, iPhone build 17) — 26 Nov 2026
+
+Silent updates (owner brief 26 Nov 2026 09.55 IST; docs/silent-update-2026-11 at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Updates now happen quietly in the background — no more "new version" pop-ups.
+
+Changes in the app itself:
+- No "A new version of GoKesari is ready — Later / Update" popup (src/app-update.ts). The page inside the app is
+  the live website, so website changes reach everyone without an app update; newer native builds come through
+  the store's own automatic updates.
+- Only a build below the minimum the website names (MOBILE_APP_ANDROID_MINIMUM / MOBILE_APP_IOS_MINIMUM, set by
+  the owner for a critical breaking change) still asks, with "Update" alone — as before.
+
 ## 1.15.0 (Android versionCode 16, iPhone build 16) — 25 Nov 2026
 
 Referral sharing (owner brief 25 Nov 2026 17.10 IST; docs/referral-sharing-2026-11 at the repository root).

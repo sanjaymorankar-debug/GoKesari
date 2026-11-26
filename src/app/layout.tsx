@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 
 import { AppInstallPrompt, INSTALL_EVENT_CATCHER } from "@/components/app-install/install-prompt";
-import { AppUpdatePrompt } from "@/components/app-install/update-prompt";
+import { AppAutoUpdate } from "@/components/app-install/app-auto-update";
 import { NavigationFeedback } from "@/components/board/navigation-feedback";
 import { OfflineBanner } from "@/components/board/offline-banner";
 import { MobileShopNav } from "@/components/home/mobile-shop-nav";
@@ -160,7 +160,7 @@ export default async function RootLayout({
           {children}
         </main>
         <SiteFooter lang={lang} />
-        {/* docs/app-install-2026-10: "Get the app" on every visit until installed; "Reload" for a new version. */}
+        {/* docs/app-install-2026-10: "Get the app" on every visit until installed. */}
         <AppInstallPrompt
           lang={lang}
           signedIn={Boolean(user)}
@@ -171,7 +171,8 @@ export default async function RootLayout({
           shoppingNav={homeDiscovery.enabled}
           cartBar={cartCount > 0 && Boolean(user)}
         />
-        <AppUpdatePrompt lang={lang} />
+        {/* docs/silent-update-2026-11: new versions install and switch silently; no "Reload" prompt. */}
+        <AppAutoUpdate userKey={user?.id ?? null} />
         {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} priceComparison={priceComparison} /> : null}
         {guestCartEnabled && user ? <GuestCartMerge /> : null}
         {reconsent?.needsReconsent ? <PolicyReconsentGate lang={lang} pending={reconsent.pending} /> : null}
