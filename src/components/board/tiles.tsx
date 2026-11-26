@@ -294,7 +294,7 @@ export function Tile({
               {menu.items.map((item) => (
                 <Tag key={item.key} item={item} lang={lang} counts={counts} ticks={ticks} tone={menu.tone} extra={extras?.[item.key]} urgentOnly={tagCounts === "urgent"} inline />
               ))}
-              {menu.more.length > 0 ? <span className="text-kesari-800">+{menu.more.length}</span> : null}
+              {menu.more.length > 0 ? <span className="whitespace-nowrap text-kesari-800">+{menu.more.length} {tr(UI.more, lang).toLowerCase()}</span> : null}
             </span>
           </span>
         </Link>

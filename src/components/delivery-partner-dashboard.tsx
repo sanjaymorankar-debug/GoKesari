@@ -753,12 +753,11 @@ export function DeliveryPartnerDashboard({
         {gate && !gate.allowed ? (
           <Alert tone="warning" title={tr(T.gateTitle, lang)}>
             <p>{tr(T.stillNeeded, lang).replace("{list}", gate.missing.join("; "))}</p>
-            <p className="mt-1">
-              <a className="font-medium underline" href="/delivery-partner/kyc">
+            <p className="mt-1 flex flex-wrap items-center gap-x-4">
+              <a className="inline-flex min-h-11 min-w-11 items-center font-semibold underline" href="/delivery-partner/kyc">
                 KYC
-              </a>{" "}
-              ·{" "}
-              <a className="font-medium underline" href="/delivery-partner/documents">
+              </a>
+              <a className="inline-flex min-h-11 items-center font-semibold underline" href="/delivery-partner/documents">
                 {tr(T.policeDocs, lang)}
               </a>
             </p>
@@ -770,7 +769,7 @@ export function DeliveryPartnerDashboard({
         <Alert tone="warning" title={tr(T.locBlockedTitle, lang)}>
           <p>{tr(T.locBlockedBody, lang)}</p>
           <div className="mt-2">
-            <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>
+            <Button size="sm" variant="secondary" className="min-h-11" onClick={() => window.location.reload()}>
               {tr(T.reload, lang)}
             </Button>
           </div>

@@ -27,6 +27,7 @@ import { registrationFeeDue } from "@/server/services/registration-fee-payment";
 import { RegistrationCard } from "@/components/seller/registration-status";
 import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
 import { listShopsForOwner } from "@/server/services/shops";
+import { getShopToday, listNewOrdersForHome } from "@/server/services/shop-today";
 
 export const metadata = { title: { absolute: "Seller Central · GoKesari" } };
 export const dynamic = "force-dynamic";
@@ -94,6 +95,12 @@ export default async function ShopDashboardPage() {
   ]);
 
   const registration = shop.status === "REJECTED" || shop.status === "INACTIVE" ? null : await ownerRegistrationStatus(shop);
+  // Phone home (docs/ux-mobile-2026-11): newest orders to accept, and today's sales for owners who may see reports. Best-effort.
+  const [homeNewOrders, today] = await Promise.all([
+    listNewOrdersForHome(shop.id, 2).catch(() => []),
+    can(user.role, PERMISSIONS.REPORT_VIEW_SHOP) ? getShopToday(shop.id).catch(() => null) : Promise.resolve(null),
+  ]);
+
   const alerts = shopAlerts(lang, {
     status: shop.status,
     feeDue: registrationFeeDue(shop) > 0,
@@ -133,7 +140,7 @@ export default async function ShopDashboardPage() {
       <RegistrationCard view={registration} />
       {/* Touch screens: the approved Tile Board, every menu on one screen. */}
       <div className="lg:hidden">
-        <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: publicSlug }} data={board} alerts={boardAlerts} />
+        <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: publicSlug }} data={board} alerts={boardAlerts} newOrders={homeNewOrders} today={today} />
       </div>
       {/* Wide screens: the Seller Central home. */}
       <div className="hidden lg:block">

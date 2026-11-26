@@ -48,6 +48,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // iPhone notch and home bar: lets env(safe-area-inset-*) report real values; the bottom bars and
+  // headers pad themselves with it (docs/ux-mobile-2026-11).
+  viewportFit: "cover",
   themeColor: "#f97316",
 };
 

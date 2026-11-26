@@ -354,7 +354,7 @@ export default async function DeliveryPartnerStatusPage() {
             </Alert>
           )}
           {earningsView ? (
-            <Card className="mt-4 p-5" data-testid="rider-earnings">
+            <Card className="mt-4 scroll-mt-20 p-5" id="rider-earnings" data-testid="rider-earnings">
               <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-500">{t(T.earnings)}</h2>
               <p className="mb-3 text-sm text-ink-600">
                 {t(T.notPaid)} <Money paise={earningsView.pendingEarningsPaise + earningsView.pendingAdjustmentsPaise} />
@@ -404,7 +404,7 @@ export default async function DeliveryPartnerStatusPage() {
               ) : null}
             </Card>
           ) : null}
-          <Card className="mt-4 p-5" data-testid="rider-payouts">
+          <Card className="mt-4 scroll-mt-20 p-5" id="rider-payouts" data-testid="rider-payouts">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">{t(T.payouts)}</h2>
             {payouts.length === 0 ? (
               <p className="text-sm text-ink-500">{t(T.noPayouts)}</p>

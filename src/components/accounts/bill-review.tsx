@@ -403,7 +403,7 @@ export function BillReview(props: Props) {
             </label>
           ) : null}
 
-          <div className="sticky bottom-0 z-10 -mx-2 flex flex-wrap items-center gap-2 border-t border-[var(--gk-line)] bg-[var(--gk-bg)] px-2 py-2">
+          <div className="sticky bottom-[var(--gk-bottom-nav,0px)] z-10 -mx-2 flex flex-wrap items-center gap-2 border-t border-[var(--gk-line)] bg-[var(--gk-bg)] px-2 py-2">
             <Button size="lg" onClick={() => void confirm()} disabled={busy || blocked} data-testid="bill-confirm">
               {mode === "capture" ? "Confirm & add to stock" : "Save correction"}
             </Button>
