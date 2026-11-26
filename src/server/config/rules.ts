@@ -301,6 +301,16 @@ export const RULES = {
     }),
     defaults: { enabled: true, deferredMatchHours: 24 },
   },
+  shopWelcomeKit: {
+    description:
+      "Shop welcome kit (docs/shop-welcome-kit-2026-11). Every shop gets one welcome e-mail with its printable banners when it goes live. Safety net on: every 15 minutes, live shops approved since `safetyNetFrom` (set by migration 0212 to the moment that release ran) that never had the kit get it — normally none. Shops that were live before that time are never e-mailed automatically (Admin → Shops → Send welcome kit).",
+    schema: z.object({
+      safetyNetEnabled: z.boolean(),
+      /** ISO time; empty = the safety net does nothing. */
+      safetyNetFrom: z.string().max(40),
+    }),
+    defaults: { safetyNetEnabled: true, safetyNetFrom: "" },
+  },
   imageModeration: {
     description:
       "Product photo moderation. Off: shop owners' photos go live at once (the original behaviour). On: photos a shop owner adds or replaces wait in Admin → Image moderation and are shown publicly only once approved; rejected photos carry a reason. Photos already live stay live.",

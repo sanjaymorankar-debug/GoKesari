@@ -51,6 +51,7 @@ import {
 import { deliverPending } from "@/server/services/notifications";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { createUser, resetDatabase, uniqueMobile } from "../helpers/fixtures";
+import { welcomeKitCount } from "../helpers/welcome-kit";
 
 let admin = { id: "", role: "ADMIN" as const };
 
@@ -265,6 +266,8 @@ describe("payment webhook approves the shop in one transaction", () => {
     // And again later.
     expect((await (await webhook(event)).json()).outcome).toBe("ALREADY_APPROVED");
     expect(await db.select().from(shops)).toHaveLength(1);
+    // TC-WKIT-038 (26-Nov-2026): paid self-registration — one welcome kit despite duplicate and concurrent webhooks.
+    expect(await welcomeKitCount((await db.select({ id: shops.id }).from(shops))[0].id)).toBe(1);
     expect(await db.select().from(shopPayments)).toHaveLength(1);
     expect(await db.select().from(referralRedemptions)).toHaveLength(1);
     expect(await db.select().from(domainEvents).where(eq(domainEvents.type, "shop.self_registered"))).toHaveLength(1);

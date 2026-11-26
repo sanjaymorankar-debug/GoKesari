@@ -8187,6 +8187,12 @@ export const invSettings = pgTable(
     salesInvoicePrefix: text("sales_invoice_prefix").notNull().default("S"),
     /** Billing v2 (0128): the shop's UPI id, printed as a payment QR on counter bills (receipts). */
     upiVpa: text("upi_vpa"),
+    /**
+     * 0212 (docs/shop-welcome-kit-2026-11, 26-Nov-2026): the text of a payment QR the owner uploaded for the shop
+     * banner's "Pay here (UPI)" panel (checked by parseUpiQr: upi://pay, valid payee, no fixed amount). Wins over
+     * upi_vpa on the banner only; counter bills keep using upi_vpa.
+     */
+    bannerUpiQr: text("banner_upi_qr"),
     /** Days before a GST due date the owner is reminded. */
     reminderDaysBefore: integer("reminder_days_before").notNull().default(3),
     expiryAlertDays: integer("expiry_alert_days").notNull().default(30),

@@ -22,7 +22,14 @@ import { isFeatureEnabled, requireFeature } from "@/server/services/feature-flag
 import { districtCodeForPincode } from "@/server/services/geo-areas";
 
 import { localBannerLanguage, type BannerLanguage } from "./render";
-import { WELCOME_KIT_DOC_TYPE, queueShopWelcomeKit, welcomeKitStatuses, type WelcomeKitStatus } from "./welcome-kit";
+import {
+  BANNER_UPDATE_DOC_TYPE,
+  WELCOME_KIT_DOC_TYPE,
+  queueBannerUpdate,
+  queueShopWelcomeKit,
+  welcomeKitStatuses,
+  type WelcomeKitStatus,
+} from "./welcome-kit";
 
 export const WELCOME_KIT_ADMIN_FLAG = "shop_welcome_kit_admin_send_enabled" as const;
 /** Most shops one bulk run queues (run it again for the rest). */
@@ -47,6 +54,8 @@ export interface WelcomeKitShop {
   ownerHasEmail: boolean;
   local: Exclude<BannerLanguage, "en">;
   welcomeKit: WelcomeKitStatus | null;
+  /** 26-Nov-2026: the latest "Resend updated banner" e-mail, if any. */
+  bannerUpdate: WelcomeKitStatus | null;
 }
 
 export interface WelcomeKitFilter {
@@ -104,6 +113,7 @@ export async function findWelcomeKitShops(filter: WelcomeKitFilter, limit = LIST
   }
   const page = matched.slice(0, limit);
   const statuses = await welcomeKitStatuses(page.map((r) => r.id));
+  const updates = await welcomeKitStatuses(page.map((r) => r.id), BANNER_UPDATE_DOC_TYPE);
   return {
     total: matched.length,
     shops: page.map(({ ownerEmail, ...r }) => ({
@@ -111,6 +121,7 @@ export async function findWelcomeKitShops(filter: WelcomeKitFilter, limit = LIST
       ownerHasEmail: Boolean(ownerEmail && !isPlaceholderEmail(ownerEmail)),
       local: localBannerLanguage(r),
       welcomeKit: statuses.get(r.id) ?? null,
+      bannerUpdate: updates.get(r.id) ?? null,
     })),
   };
 }
@@ -150,12 +161,14 @@ export async function sendWelcomeKitToShop(shopId: string, actor: Actor): Promis
  * WELCOME_KIT_BULK_LIMIT per run. The e-mails go out with the outbox sweep, not at once.
  */
 export async function sendWelcomeKitBulk(
-  filter: { city?: string | null; districtCode?: string | null },
+  filter: { city?: string | null; districtCode?: string | null; all?: boolean },
   actor: Actor,
 ): Promise<{ matched: number; queued: number; notQueued: number; remaining: number }> {
   await requireFeature(WELCOME_KIT_ADMIN_FLAG);
-  if (!clean(filter.city) && !clean(filter.districtCode)) throw validationFailed("Choose a city or a district for a bulk run.");
-  const { total, shops: targets } = await findWelcomeKitShops({ ...filter, notWelcomedOnly: true }, WELCOME_KIT_BULK_LIMIT);
+  // 26-Nov-2026: "all" = every live shop that never had it (the existing-shop roll-out), still ≤ 200 per run.
+  if (!filter.all && !clean(filter.city) && !clean(filter.districtCode)) throw validationFailed("Choose a city or a district for a bulk run.");
+  const area: { city?: string | null; districtCode?: string | null } = filter.all ? {} : { city: filter.city, districtCode: filter.districtCode };
+  const { total, shops: targets } = await findWelcomeKitShops({ ...area, notWelcomedOnly: true }, WELCOME_KIT_BULK_LIMIT);
   let queued = 0;
   for (const shop of targets) {
     if (await queueShopWelcomeKit(shop, db, { deliverNow: false })) queued += 1;
@@ -166,7 +179,26 @@ export async function sendWelcomeKitBulk(
     actorRole: actor.role,
     action: AUDIT_ACTIONS.SHOP_WELCOME_KIT_BULK_SENT,
     entityType: "shop_welcome_kit",
-    newValue: { city: clean(filter.city) || null, districtCode: clean(filter.districtCode) || null, ...result },
+    newValue: { city: clean(area.city) || null, districtCode: clean(area.districtCode) || null, all: Boolean(filter.all), ...result },
   });
   return result;
+}
+
+/**
+ * 26-Nov-2026 owner brief: "Resend updated banner" for one live shop — e.g. one that had the 20-Nov kit, or whose
+ * owner has since added a UPI ID. Shops that already had the kit never get a second automatic mail; this is the
+ * only way to send them the new banner by e-mail (they can always download it from Marketing).
+ */
+export async function resendUpdatedBanner(shopId: string, actor: Actor): Promise<{ shopId: string; bannerUpdate: WelcomeKitStatus | null }> {
+  await requireFeature(WELCOME_KIT_ADMIN_FLAG);
+  await queueBannerUpdate(shopId);
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.SHOP_BANNER_RESENT,
+    entityType: "shop",
+    entityId: shopId,
+    newValue: { docType: BANNER_UPDATE_DOC_TYPE, via: "ADMIN" },
+  });
+  return { shopId, bannerUpdate: (await welcomeKitStatuses([shopId], BANNER_UPDATE_DOC_TYPE)).get(shopId) ?? null };
 }

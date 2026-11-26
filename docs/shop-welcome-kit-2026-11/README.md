@@ -1,6 +1,68 @@
 # Shop welcome kit: printable banner with QR code (owner request, 20-Nov-2026)
 
 **Status (20-Nov-2026): PR #431 into `staging` — see the test report for staging / production results.**
+**26-Nov-2026: personalised banner + e-mail — see the next section.**
+
+## 26-Nov-2026: personalised banner and welcome e-mail (owner brief, 26-Nov-2026 10.50 IST)
+
+The brief: "Welcome e-mail with a personalised shop banner (shop name + owner name) for every registered shop".
+Built on branch `feat/welcome-kit-personalised-2026-11-26` (PR into `staging`, migration 0212).
+
+### What already worked before this change (checked 26-Nov-2026 11.00 IST)
+
+| | Status before |
+|---|---|
+| Banner (EN + Marathi / Hindi) with shop name and an "Order online" QR of `/shops/<slug>`, PNG + A4 PDF | ✅ `render.ts` |
+| Welcome e-mail with both banners inline + PDFs, colour-print, scan-first, eye level, laminate, local-language line, Add products / Marketing / Help links | ✅ `welcome-kit.ts` |
+| Queued in the go-live transaction (savepoint, never blocks), once per shop ever, retried 60 s → 6 h | ✅ |
+| Every go-live path ends in `approveShopTransaction` or `approveRegistration`: wizard + checkout, dealer fee link, admin payment link, admin "mark as paid", staff / admin / dealer on the owner's behalf, automatic and instant GST/PAN approval (all fee captures call `autoApproveShopIfReady`) | ✅ (traced 26-Nov) |
+| Marketing download (owner + operations), admin send to one shop or a city / district (flag `shop_welcome_kit_admin_send_enabled`, off) | ✅ |
+| Shop QR opens the app (Android app links, fingerprint set on both sites 20-Nov) | ✅ |
+
+### Gaps found against the brief, and what closed them
+
+| # | Gap | Done |
+|---|---|---|
+| G1 | No owner name on the banner | "Owner: …" / "मालक: …" / "मालिक: …" under the shop name, both auto-fitted (Poppins: Latin + Devanagari) |
+| G2 | Headline was "We are available on GoKesari.com" | "This shop is now live on GoKesari.com" (Marathi "हे दुकान आता लाइव्ह आहे", Hindi "यह दुकान अब लाइव है" — native-speaker check pending) on all three templates (`scripts/shop-banner/set-ribbon.ts en|mr|hi`) |
+| G3 | No UPI QR | "Pay here (UPI)" QR beside the shop QR, from `inv_settings.upi_vpa`, payee = shop name, no amount; left out without a UPI ID (the e-mail says how to add one). The shop QR's heading is now "Order online — Scan this QR" so the two cannot be confused |
+| G4 | Owner could not use an existing payment QR | Optional upload on Seller Central → Marketing: the QR is read (jsQR), must be `upi://pay` with a valid payee and no fixed amount; its text is kept (`inv_settings.banner_upi_qr`, 0212), the photo is not |
+| G5 | E-mail not personalised; no phone; no company line | "Dear <owner>, congratulations! <shop> is now live on GoKesari.com"; "Questions? Write to support@gokesari.com or call +91 91751 93009"; footer "gokesari.com is a unit of ASMY GLOBAL TRADING & CONSULTANCY INDIA PRIVATE LIMITED" |
+| G6 | Not every path had a test that the kit is queued | One test per path (TC-WKIT-025 … 038) |
+| G7 | No safety net if a go-live path ever skipped the kit | Cron `welcome-kit-safety-net` (every 15 min): live shops approved since rule `shopWelcomeKit.safetyNetFrom` (= when 0212 ran) without a kit get it |
+| G8 | Shops that had the 20-Nov kit cannot get the new banner by e-mail | Admin → Shops → Send welcome kit → **Resend updated banner** (one shop; own outbox type `SHOP_BANNER_UPDATE`, no second congratulations, 10-minute guard, audited) |
+| G9 | Bulk send needed a city or district | "All live shops" option (≤ 200 per run; run again until none remain) |
+| G10 | "Make the India map clearly visible" | **Open:** the banner templates have no India map. Owner to send the map / design they mean, or confirm it is dropped |
+
+### Decisions
+
+- **Owner name source: `shops.owner_name`** — the name entered for *this* shop at registration (the wizard fills it
+  from the PAN holder's name; staff type it when registering on the owner's behalf). Not `users.name`, which can be
+  blank, a nickname or an e-mail address and is shared by every shop one mobile owns. Cleaned by `bannerOwnerName()`:
+  no line for blank, "null" / "undefined" / "N/A" / "Owner" placeholders, an e-mail address or a number; a name in
+  capitals (as PAN gives it) is printed in title case.
+- **One renderer**: PNG, PDF, the e-mail and the Marketing download all come from `shopBannerFiles()` → `renderShopBanner()`, so they match.
+- **When**: on go-live (as before). A shop whose fee is paid but which still waits for an admin (missing documents,
+  rule off) gets the kit when it goes live: before that its QR page does not open.
+- **Existing shops** are never e-mailed automatically (the safety net starts at the 0212 release time). Admin bulk send, in batches, after staging verification.
+- **One e-mail with #600**: PR #600 (seller agreements, flag `seller_agreements_enabled`, off) e-mails new shops their
+  signed agreements with the banners from `onRegistrationFeePaid`. Owner rule: one welcome mail per shop. Merging the
+  two (this e-mail carrying the signed PDFs when that flag is on) is done after #600 lands on `staging` — see "Follow-up with #600" below.
+- **Mobile apps**: no change needed — the shop QR opens `/shops/<slug>` (claimed by the apps), a scanned UPI QR is
+  handled by the phone's camera / UPI app (and `upi:` links in the app open the UPI app), Marketing downloads and the
+  QR upload work in the WebView (Android native download, iOS share sheet). App 1.15.0 (staging) — no EAS update.
+
+### Follow-up with #600 (after it is merged into `staging`)
+
+With `seller_agreements_enabled` on, `onRegistrationFeePaid` sends a `SELLER_AGREEMENTS` mail with the banners, and
+this kit sends `SHOP_WELCOME_KIT` on go-live: two mails. The merge: when the flag is on, the welcome kit's renderer
+attaches the signed SLA PDFs (from `legal_signed_files`) and #600's fee-paid mail leaves the banners out (and is not
+sent for a new shop whose kit carries them). Until then the flag stays off on both sites, so each shop gets one mail.
+
+### Preview (26-Nov-2026)
+
+`preview-2026-11-26/`: with UPI (EN / MR / HI), without UPI (MR), without owner name or UPI (EN). Both QRs decode
+from a blurred 1000-px "phone photo" of the banner in all three languages (unit test TC-WKIT-021).
 
 ## What the owner asked for
 
@@ -109,7 +171,10 @@ the e-mail line; send corrections and re-run the generator.
 
 | | Marathi | Hindi |
 |---|---|---|
-| Ribbon ("We are available on") | आपले दुकान आता ऑनलाइन | हमारी दुकान अब ऑनलाइन |
+| Ribbon ("This shop is now live on", 26-Nov-2026; was "We are available on") | हे दुकान आता लाइव्ह आहे | यह दुकान अब लाइव है |
+| Shop QR heading ("Order online / Scan this QR", 26-Nov) | ऑनलाइन ऑर्डर करा / हा QR स्कॅन करा | ऑनलाइन ऑर्डर करें / यह QR स्कैन करें |
+| UPI panel ("Pay here (UPI) / Scan with any UPI app", 26-Nov) | येथे पैसे द्या (UPI) / कोणत्याही UPI ॲपने स्कॅन करा | यहाँ भुगतान करें (UPI) / किसी भी UPI ऐप से स्कैन करें |
+| Owner line ("Owner: …", 26-Nov) | मालक: … | मालिक: … |
 | Trusted & Secure | विश्वासार्ह व सुरक्षित | भरोसेमंद और सुरक्षित |
 | Delivered with Care | काळजीपूर्वक डिलिव्हरी | सावधानी से डिलीवरी |
 | Everything For Everyone, Everywhere | सर्वांसाठी सर्व काही, सर्वत्र | सबके लिए सब कुछ, हर जगह |
