@@ -24,6 +24,16 @@ import { normalizeReferralCode } from "@/server/services/customer-referrals";
 import { landingPathFor, logReferralEvent, referralSharingOn, resolveReferralLink } from "@/server/services/referral-links";
 import { looksLikeShopCode, shopReferralRule } from "@/server/services/shop-referrals";
 import { onboardingV2Enabled, v2GuestReferralLanding } from "@/server/onboarding-v2/customer";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
+
+/**
+ * docs/flows-v3/wave1.md (F12 → F1, flag flow_f1): a signed-out visitor on a customer link goes to sign-up, with
+ * the code kept (cookie, and ?ref= on the page), instead of the onboarding-v2 home page. null = flag off.
+ */
+async function f1SignupPath(code: string): Promise<string | null> {
+  if (!(await isFeatureEnabled("flow_f1").catch(() => false))) return null;
+  return code ? `/signin?ref=${encodeURIComponent(code)}` : "/signin";
+}
 
 const cookieOptions = (request: NextRequest) => ({
   httpOnly: true,
@@ -51,7 +61,8 @@ async function originalLink(request: NextRequest, code: string) {
   const user = await getCurrentUser();
   // Relative Location: behind the host's proxy request.url carries the
   // internal address (0.0.0.0:3000), not the public domain.
-  const response = new NextResponse(null, { status: 307, headers: { Location: user ? "/refer" : v2Guest ? "/" : "/signin" } });
+  const guestLanding = v2Guest ? ((await f1SignupPath(clean)) ?? "/") : "/signin";
+  const response = new NextResponse(null, { status: 307, headers: { Location: user ? "/refer" : guestLanding } });
   if (clean) response.cookies.set(REFERRAL_COOKIE, clean, cookieOptions(request));
   return response;
 }
@@ -90,7 +101,8 @@ async function sharedLink(request: NextRequest, rawCode: string) {
   await log(keptFirst ? "KEPT_FIRST" : "OK");
 
   // docs/onboarding-v2-2026-11 (flag onboarding_v2): a guest opens the shop / home page instead of sign-in.
-  const v2Landing = !user && (await onboardingV2Enabled()) ? await v2GuestReferralLanding(winner) : null;
+  let v2Landing = !user && (await onboardingV2Enabled()) ? await v2GuestReferralLanding(winner) : null;
+  if (v2Landing === "/") v2Landing = (await f1SignupPath(winner.code)) ?? v2Landing;
   const response = new NextResponse(null, { status: 307, headers: { Location: v2Landing ?? landingPathFor(winner, Boolean(user)) } });
   if (!keptFirst) {
     response.cookies.set(REFERRAL_LINK_COOKIE, target.code, cookieOptions(request));
