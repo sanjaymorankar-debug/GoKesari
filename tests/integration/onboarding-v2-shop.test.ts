@@ -16,7 +16,22 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ outbox: [] as { to: string; subject: string; text: string }[] }));
+const state = vi.hoisted(() => ({ outbox: [] as { to: string; subject: string; text: string }[], failLedger: 0 }));
+
+// Ledger failure injection: the next `failLedger` calls of the shop fee capture step throw (then it works again).
+vi.mock("@/server/services/operator-limited", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/server/services/operator-limited")>();
+  return {
+    ...real,
+    onShopRegistrationFeeCaptured: async (...args: Parameters<typeof real.onShopRegistrationFeeCaptured>) => {
+      if (state.failLedger > 0) {
+        state.failLedger -= 1;
+        throw new Error("ledger write failed (test)");
+      }
+      return real.onShopRegistrationFeeCaptured(...args);
+    },
+  };
+});
 
 vi.mock("@/server/email/transport", () => ({
   emailMode: () => "smtp",
@@ -31,6 +46,7 @@ import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import {
   onboardingRoleHistory,
+  paymentIntents,
   outboundTestMessages,
   registrationLicenceEntries,
   registrationLicenceFiles,
@@ -43,8 +59,11 @@ import {
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
+import { createPaymentIntent, getPaymentIntent } from "@/server/payments/intents";
 import {
   acceptV2Agreement,
+  onDraftFeeCaptured,
+  sweepV2FeeLedger,
   acceptV2Terms,
   confirmV2EmailCode,
   confirmV2MobileCode,
@@ -101,6 +120,7 @@ async function verifiedCustomer(): Promise<Owner> {
 
 beforeEach(async () => {
   state.outbox = [];
+  state.failLedger = 0;
   resetRateLimits();
   clearRuleCache();
   await resetDatabase();
@@ -424,5 +444,129 @@ describe("one draft per owner", () => {
     expect((await view(other)).v2?.fee.paid).toBe(true);
     expect(randomUUID()).toBeTruthy();
     expect(await db.select().from(registrationLicenceEntries).where(and(eq(registrationLicenceEntries.ownerUserId, owner.id)))).toHaveLength(0);
+  });
+});
+
+describe("fee money safety", () => {
+  async function toAgreement() {
+    await saveDraftShopType({ actor: owner, shopType: "WHOLESALE_STORE" }).catch(() => undefined);
+    const v = await view();
+    for (const l of v.v2!.licences) if (!l.done) await saveLicenceEntry(owner, { licenceKey: l.key, option: "LATER", promise: true });
+    return addressAndPin();
+  }
+
+  it("switching the kind ends the older checkout; paying it is not applied; the new one sets kind, snapshot and ledger", async () => {
+    await walkToFee();
+    const shopCheckout = await startDraftFeeCheckout(owner, { kind: "SHOP", shopName: "V2 Test Mart" });
+    const wholesaleCheckout = await startDraftFeeCheckout(owner, { kind: "WHOLESALE", shopName: "V2 Test Mart" });
+    expect(wholesaleCheckout.intentId).not.toBe(shopCheckout.intentId);
+    expect((await getPaymentIntent(shopCheckout.intentId!))!.status).toBe("EXPIRED");
+
+    // The owner pays the old (shop) checkout anyway: the gateway's late capture is not applied to the draft.
+    const late = await simulateSandboxCheckout({ ref: shopCheckout.intentId!, viewerId: owner.id, outcome: "SUCCESS" }).catch((e: Error) => e.message);
+    expect(String(typeof late === "string" ? late : late.outcome)).toBe("LATE_CAPTURE");
+    expect((await draftRow()).feePaidAt).toBeNull();
+
+    await simulateSandboxCheckout({ ref: wholesaleCheckout.intentId!, viewerId: owner.id, outcome: "SUCCESS" });
+    const paid = await draftRow();
+    expect(paid.feePaidAt).not.toBeNull();
+    expect(paid.feeKind).toBe("WHOLESALE");
+    expect(paid.feePaymentIntentId).toBe(wholesaleCheckout.intentId);
+    // Locked once paid: no new checkout, whatever the kind.
+    await expect(startDraftFeeCheckout(owner, { kind: "SHOP", shopName: "V2 Test Mart" })).rejects.toMatchObject({ details: { reason: "FEE_PAID" } });
+
+    await toAgreement();
+    const v = await prepareV2Agreement(owner);
+    const [shop] = await db.select().from(shops).where(eq(shops.id, v.shop!.id));
+    expect(shop.registrationFeePaise).toBe(wholesaleCheckout.amountPaise);
+    const ledger = await db.select().from(shopPayments).where(eq(shopPayments.shopId, shop.id));
+    expect(ledger.reduce((sum, p) => sum + Number(p.amountPaise), 0)).toBe(wholesaleCheckout.amountPaise);
+  });
+
+  it("the kind follows the checkout actually captured, even if the screen changed it meanwhile", async () => {
+    await walkToFee();
+    const shopCheckout = await startDraftFeeCheckout(owner, { kind: "SHOP", shopName: "V2 Test Mart" });
+    // The screen's kind moves to wholesale without a new checkout (e.g. a second tab before the switch).
+    await db.update(shopRegistrationDrafts).set({ feeKind: "WHOLESALE" }).where(eq(shopRegistrationDrafts.ownerId, owner.id));
+    await simulateSandboxCheckout({ ref: shopCheckout.intentId!, viewerId: owner.id, outcome: "SUCCESS" });
+    const paid = await draftRow();
+    expect(paid.feeKind).toBe("SHOP");
+    expect((paid.details as { v2Fee: { totalPaise: number } }).v2Fee.totalPaise).toBe(shopCheckout.amountPaise);
+  });
+
+  it("a second capture, or a capture whose amount is not its quote, is not applied", async () => {
+    await walkToFee();
+    const draft = await draftRow();
+    const quote = await v2FeeQuote("SHOP");
+    // Amount ≠ the checkout's quote.
+    const wrong = await createPaymentIntent({
+      purpose: "SHOP_REGISTRATION_DRAFT_FEE",
+      referenceId: draft.id,
+      userId: owner.id,
+      amountPaise: quote.totalPaise + 100,
+      customer: { id: owner.id },
+      description: "test",
+      idempotencyKey: `test-wrong-${draft.id}`,
+      mode: "CHECKOUT",
+      metadata: { v2Fee: quote },
+    });
+    await onDraftFeeCaptured((await getPaymentIntent(wrong.intent.id))!, db);
+    expect((await draftRow()).feePaidAt).toBeNull();
+
+    const first = await payFee("SHOP");
+    const second = await createPaymentIntent({
+      purpose: "SHOP_REGISTRATION_DRAFT_FEE",
+      referenceId: draft.id,
+      userId: owner.id,
+      amountPaise: quote.totalPaise,
+      customer: { id: owner.id },
+      description: "test",
+      idempotencyKey: `test-second-${draft.id}`,
+      mode: "CHECKOUT",
+      metadata: { v2Fee: quote },
+    });
+    await onDraftFeeCaptured((await getPaymentIntent(second.intent.id))!, db);
+    // Captured twice for the same intent (webhook + reconcile): still once.
+    await onDraftFeeCaptured((await getPaymentIntent(first.intentId!))!, db);
+    const after = await draftRow();
+    expect(after.feePaymentIntentId).toBe(first.intentId);
+    expect(await db.select().from(paymentIntents).where(eq(paymentIntents.referenceId, draft.id))).toHaveLength(3);
+  });
+
+  it("a failed ledger write is retried (safety net, go-live) and never doubles", async () => {
+    await walkToFee();
+    const paid = await payFee("SHOP");
+    await saveDraftShopType({ actor: owner, shopType: "GENERAL_TRADING" });
+    await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
+    await addressAndPin();
+    state.failLedger = 1;
+    const v = await prepareV2Agreement(owner);
+    const shopId = v.shop!.id;
+    expect(await db.select().from(shopPayments).where(eq(shopPayments.shopId, shopId))).toHaveLength(0);
+    expect((await db.select().from(shops).where(eq(shops.id, shopId)))[0].feePaymentStatus).not.toBe("PAID");
+
+    // The cron safety net puts it on the ledger; a second run finds nothing to do.
+    expect(await sweepV2FeeLedger()).toMatchObject({ checked: 1, fixed: 1, failed: 0 });
+    expect(await sweepV2FeeLedger()).toMatchObject({ checked: 0 });
+    const ledger = await db.select().from(shopPayments).where(eq(shopPayments.shopId, shopId));
+    expect(ledger).toHaveLength(1);
+    expect(Number(ledger[0].amountPaise)).toBe(paid.amountPaise);
+
+    const live = await acceptV2Agreement(owner, { acceptSellerTerms: true, acceptUndertaking: true });
+    expect(live.shop?.status).toBe("APPROVED");
+    expect(await db.select().from(shopPayments).where(eq(shopPayments.shopId, shopId))).toHaveLength(1);
+  });
+
+  it("go-live itself retries the ledger write when the safety net has not run yet", async () => {
+    await walkToFee();
+    await payFee("SHOP");
+    await saveDraftShopType({ actor: owner, shopType: "GENERAL_TRADING" });
+    await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
+    await addressAndPin();
+    state.failLedger = 1;
+    const v = await prepareV2Agreement(owner);
+    const live = await acceptV2Agreement(owner, { acceptSellerTerms: true, acceptUndertaking: true });
+    expect(live.shop?.status).toBe("APPROVED");
+    expect(await db.select().from(shopPayments).where(eq(shopPayments.shopId, v.shop!.id))).toHaveLength(1);
   });
 });
