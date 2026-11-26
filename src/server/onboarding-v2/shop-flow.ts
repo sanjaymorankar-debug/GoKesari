@@ -416,7 +416,8 @@ const clean = (v: string | null | undefined, max: number) => {
  * Stores an uploaded / scanned licence file (encrypted). Returns its id.
  * DEFAULT – confirm with Sanjay: a registration file stays in registration_licence_files (operators open it from the
  * registration-licences queue); it is not copied into the shop's legal-documents register, where the owner can still
- * upload it after go-live (My shop → Documents).
+ * upload it after go-live (My shop → Documents). With flag flow_f5 (docs/flows-v3/wave3.md) it is copied there
+ * (flows/f5-licences.ts), so the register and its reminders count it as given.
  */
 async function storeLicenceFile(draft: ShopRegistrationDraft, licenceKey: string, file: NonNullable<LicenceEntryInput["file"]>): Promise<string> {
   if (file.data.length === 0) throw validationFailed("The file is empty.", { fields: { file: "Attach the document." } });
@@ -596,6 +597,8 @@ export async function afterV2ShopCreated(shop: Shop, actor: Actor): Promise<void
   }).catch((error: unknown) => console.error("[onboarding-v2] role history not written", shop.id, error));
   // The fee paid on the draft: on the shop's ledger now; if this fails it is retried (ensureV2FeeOnLedger).
   await ensureV2FeeOnLedger(shop.id).catch((error: unknown) => console.error("[onboarding-v2] draft fee not on the shop's ledger yet (retried)", shop.id, error));
+  // docs/flows-v3/wave3.md (flag flow_f5): the licences given at registration go into the shop's licence register.
+  await (await import("@/server/flows/f5-licences")).copyRegistrationLicencesSafely(shop.id);
 }
 
 /**
@@ -827,6 +830,8 @@ export async function reviewRegistrationLicence(
     entityId: entryId,
     newValue: { approve: decision.approve, reason, licenceKey: entry.licenceKey, shopId: entry.shopId },
   });
+  // docs/flows-v3/wave3.md (flag flow_f5): the register copy follows the team's decision (approved / rejected).
+  await (await import("@/server/flows/f5-licences")).copyRegistrationLicencesSafely(entry.shopId);
   if (decision.approve) await (await import("./document-reactivation")).afterShopDocumentGiven(entry.shopId);
   const [row] = (await listRegistrationLicences({ status: "ALL", limit: 500 })).filter((r) => r.id === entryId);
   return row;
