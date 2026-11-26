@@ -106,4 +106,19 @@ describe("/sw.js", () => {
     expect(script).toContain("/_next/static/");
     expect(script).toContain("SKIP_WAITING");
   });
+
+  it("updates silently, never caches pages or API calls, and is the same for the same build (docs/silent-update-2026-11)", async () => {
+    const script = await swGET().text();
+    // Takes over without waiting for anyone.
+    expect(script).toMatch(/addEventListener\("install"[\s\S]*?self\.skipWaiting\(\)/);
+    expect(script).toContain("self.clients.claim()");
+    // Pages: network first, offline page only on failure; nothing but static files is ever put in a cache.
+    expect(script).toContain('request.mode === "navigate"');
+    expect(script).toContain("You are offline");
+    expect(script.match(/cache\.put\(/g)).toHaveLength(1);
+    expect(script).not.toMatch(/\/api/);
+    // Deterministic: no clock or random value in the script.
+    expect(script).not.toMatch(/Date\.now|new Date|Math\.random/);
+    expect(await swGET().text()).toBe(script);
+  });
 });
