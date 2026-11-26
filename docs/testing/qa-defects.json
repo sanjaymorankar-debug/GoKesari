@@ -2899,6 +2899,97 @@
       "expected": "“The file can be at most 10 MB. Take the photo again at a lower size or upload a smaller PDF.” — or the page refuses the file before sending it",
       "fix": "Check the file size in the upload panel before sending (src/components/document-upload-panel.tsx), or raise the request body limit for this route above 10 MB so documentUpload.maxUploadBytes is the limit that answers",
       "status": "Open"
+    },
+    {
+      "id": "D-166",
+      "title": "Onboarding v2: a paid delivery order waiting for its address cannot be marked ready for a GoKesari rider; the shop is pushed to Pickup, which turns it into a pickup order",
+      "cases": [
+        "TC-OV2-017"
+      ],
+      "severity": "High",
+      "found": "staging automated run 26-Nov-2026 21.40 IST (tests/qa/signed-in/onboarding-v2-customer.spec.ts), test.gokesari.com 03fc4a01",
+      "actual": "Wallet-paid delivery order on shop A placed with 'Set the location after paying' (addressPendingSince set). Shop: accept → start OK; POST /api/orders/<id>/fulfilment-plan {option: GOKESARI_PARTNER, markReady: true} → 422 'This order has no delivery address — choose pickup.'. The same call with option PICKUP → 200: order READY as a pickup while addressPendingSince is still set (the customer still sees the delivery-location prompt). Rule fulfilmentOptions is ON on staging.",
+      "expected": "README #13: the order goes to the shop at once; the shop packs and marks it ready; rider dispatch waits until the customer sets the location (then dispatchReadyOrder finds a rider). Pickup must not be offered as the way out for a paid delivery order.",
+      "fix": "src/server/services/fulfilment-options.ts:302-305 — for SHOP_DELIVERY / GOKESARI_PARTNER accept an order whose addressPendingSince is set (plan without address; dispatch already waits in delivery-assignment.ts:205), and refuse PICKUP for an address-pending delivery order (or say 'waiting for the customer's location'). Also tests/qa/lib/flows.ts readyWithPartner falls back to PICKUP on this 422 and would hide it.",
+      "status": "Open"
+    },
+    {
+      "id": "D-167",
+      "title": "Onboarding v2 shop identity step: the Terms & Conditions and Privacy Policy links open 404 pages",
+      "cases": [
+        "TC-OV2-030"
+      ],
+      "severity": "Medium",
+      "found": "staging hand test 26-Nov-2026 21.26 IST (gk-shop, /shop/register?new=1), test.gokesari.com 03fc4a01",
+      "actual": "The 'I accept GoKesari's Terms & Conditions and Privacy Policy (version 2026-11-26)' links point to /terms and /privacy; both answer HTTP 404 on test.gokesari.com. The owner is asked to accept documents he cannot open.",
+      "expected": "Links open the published documents (/legal/terms, /legal/privacy-policy — as the customer login sheet does).",
+      "fix": "src/components/registration/onboarding-v2-steps.tsx:133-134 — href=\"/legal/terms\" and href=\"/legal/privacy-policy\"",
+      "status": "Open"
+    },
+    {
+      "id": "D-168",
+      "title": "Onboarding v2 login sheet: the accepted Terms version is not shown, and the sheet and the shop step record different Terms versions",
+      "cases": [
+        "TC-OV2-012"
+      ],
+      "severity": "Low",
+      "found": "staging automated run 26-Nov-2026 21.32 IST (tests/qa/signed-in/onboarding-v2-customer.spec.ts), test.gokesari.com 03fc4a01",
+      "actual": "After the tick the sheet shows only 'Terms accepted 26 Nov 2026, 09.32 PM IST.'; POST /api/onboarding-v2/customer/consent answers version 2026-10-24 (CURRENT_POLICY_VERSION) but the page never shows it. The shop identity step shows and records version 2026-11-26 (ONBOARDING_V2_TERMS_VERSION) for the same TERMS_AND_PRIVACY consent.",
+      "expected": "Brief: Terms tick recorded and shown with version + time (IST); one Terms version for the same consent.",
+      "fix": "src/components/onboarding-v2/login-sheet.tsx:245 — show the version (payload.version) with the time; align src/server/onboarding-v2/shop-view.ts:30 ONBOARDING_V2_TERMS_VERSION with src/lib/legal-docs.ts:10 (or the published version) — owner to confirm which version is current",
+      "status": "Open"
+    },
+    {
+      "id": "D-169",
+      "title": "Paid franchise: an abandoned checkout keeps the zone after 'held until', with no way to resume the payment or cancel",
+      "cases": [
+        "TC-OV2-073"
+      ],
+      "severity": "Medium",
+      "found": "staging hand test 26-Nov-2026 22.01 IST (customer2, /franchise/start), test.gokesari.com 03fc4a01",
+      "actual": "Reserve and pay for GKZ-PUN-06 opened Cashfree's checkout; the tab was closed without paying. /franchise/my then showed 'Waiting for payment · GKZ-PUN-06 · ₹1,77,000 · held until 26-Nov-2026, 22.00 IST · Payment being verified' with no Pay / Cancel action. At 22.01 IST a new Reserve and pay for the same zone answered 'Nothing was reserved: you already hold or are booking GKZ-PUN-06. Remove this zone and try again.' The booking is PAYMENT_PENDING, so releaseExpiredHolds (RESERVED only) and cancelReservation ('The payment has started…') both skip it until the gateway order lapses. Four more zones (GKZ-PUN-10, -11, -41, -46) stay 'Waiting for payment' from this test pass the same way.",
+      "expected": "After the hold time the zone is free again (or the buyer can continue the same payment / cancel it); the page does not promise a hold time it does not keep.",
+      "fix": "src/server/franchise/booking.ts:459 releaseExpiredHolds / cancelReservation — expire a PAYMENT_PENDING booking whose hold has passed (after checking the gateway order is not paid, e.g. terminate the Cashfree order), or offer 'Continue payment' on /franchise/my for an open checkout",
+      "status": "Open"
+    },
+    {
+      "id": "D-170",
+      "title": "Admin dealer-scheme APIs answer 422 (body checked) instead of 403 to a customer / shop owner",
+      "cases": [
+        "TC-RBAC-003",
+        "TC-RBAC-005",
+        "TC-SEC-001"
+      ],
+      "severity": "Low",
+      "found": "staging regression run 26-Nov-2026 21.45–23.20 IST (tests/qa/signed-in/access-roles.spec.ts), test.gokesari.com 03fc4a01; not an onboarding-v2 change",
+      "actual": "POST /api/admin/dealer-schemes and POST /api/admin/dealer-schemes/<id> with an empty body as a customer or shop owner → 422 VALIDATION_FAILED; the permission is checked only after parseBody (requireSchemePermission / createScheme).",
+      "expected": "403 before the body is read, like every other admin write (TC-SEC-001 rule)",
+      "fix": "src/app/api/admin/dealer-schemes/route.ts:25-29 and [id]/route.ts:31-33 — check the scheme permission before parseBody",
+      "status": "Open"
+    },
+    {
+      "id": "E-42",
+      "title": "Regression check TC-AUTH-024 leaves the staging customer's mobile unverified; with onboarding_v2 every later customer checkout check gets 409 'Finish signing in' (step MOBILE)",
+      "cases": [
+        "TC-AUTH-024",
+        "TC-PAY-010",
+        "TC-PAY-018",
+        "TC-PAY-019",
+        "TC-PAY-020",
+        "TC-PAY-024",
+        "TC-PAY-025",
+        "TC-PAY-029",
+        "TC-PAY-033",
+        "TC-PAY-036",
+        "TC-COD-012",
+        "TC-CART-011"
+      ],
+      "severity": "Info",
+      "found": "staging regression run and re-run 26-Nov-2026 (21.55 and 23.02 IST): gk-lc14 phone_verified_at cleared after TC-AUTH-024; restored twice by the v2 mobile step (SMS mock) at 22.15 and 23.30 IST",
+      "actual": "TC-AUTH-024 changes the customer's mobile on /profile and expects 'Add your mobile number before ordering' (pre-v2 cart text). With onboarding_v2 the changed number is unverified, the v2 cart shows no such text (fail) and the login-sheet gate refuses that account's checkouts until the number is verified again.",
+      "expected": "QA isolation: the check restores a VERIFIED mobile (send + verify through /api/onboarding-v2/customer/mobile with the SMS mock) and asserts the v2 behaviour (checkout → login sheet MOBILE step) while the flag is on",
+      "fix": "tests/qa/signed-in/auth-profile.spec.ts TC-AUTH-024 — v2 branch + re-verify in finally; not an app defect",
+      "status": "Open"
     }
   ]
 }

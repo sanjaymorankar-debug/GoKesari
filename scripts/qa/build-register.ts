@@ -89,7 +89,7 @@ function scanSpecs() {
     });
   for (const file of walk(join("tests", "qa"))) {
     const src = readFileSync(file, "utf8");
-    const ids = (text: string) => [...text.matchAll(/"((?:TC-[A-Z]+|SC)-\d+)"/g)].map((m) => m[1]);
+    const ids = (text: string) => [...text.matchAll(/"((?:TC-[A-Z][A-Z0-9]*|SC)-\d+)"/g)].map((m) => m[1]);
     // IDs named in manual(...) calls; every other ID literal in a spec is an automated check
     // (qa() takes literals or a constant list of them).
     const manualIds = new Set([...src.matchAll(/\bmanual\(\s*(\[[^\]]*\]|"[^"]*")/g)].flatMap((m) => ids(m[1])));

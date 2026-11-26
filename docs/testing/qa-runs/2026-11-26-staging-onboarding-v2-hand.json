@@ -1,0 +1,80 @@
+{
+ "run": {
+  "target": "staging",
+  "host": "test.gokesari.com",
+  "label": "onboarding-v2-hand",
+  "note": "Onboarding v2 (PR #624) hand checks on test.gokesari.com 03fc4a01, 26-Nov-2026 21.26–22.09 IST",
+  "suiteCommit": "03fc4a01",
+  "startedAt": "2026-11-26T15:56:00.000Z",
+  "finishedAt": "2026-11-26T18:05:36.544000Z",
+  "cases": 4,
+  "rows": 4,
+  "totals": {
+   "pass": 3,
+   "fail": 1,
+   "blocked": 0,
+   "skipped": 0
+  }
+ },
+ "results": [
+  {
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "hand (Playwright scripts, test-results/ov2x)",
+   "durationMs": 0,
+   "id": "TC-OV2-030",
+   "title": "Shop identity step: Terms tick with version, links, e-mail, mobile SMS code",
+   "status": "fail",
+   "detail": "gk-shop /shop/register?new=1 (21.26 IST): v2 identity card shown; Terms text shows 'version 2026-11-26'; Accept → ✓ Accepted; e-mail already verified; 'Send me a code by SMS' to +91 …0102 → code read from the mock outbox (Admin → Test messages) → Confirm → step 2 (referral). FAIL: the Terms & Conditions / Privacy Policy links go to /terms and /privacy, both HTTP 404 (D-167). Screenshot test-results/ov2x/s1.png",
+   "test": "hand: shop identity step",
+   "at": "2026-11-26T15:57:00.000Z",
+   "evidence": "test-results/ov2x/s1.png"
+  },
+  {
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "hand (Playwright scripts, test-results/ov2x)",
+   "durationMs": 0,
+   "id": "TC-OV2-035",
+   "title": "Referral step: Request a referral code",
+   "status": "pass",
+   "detail": "gk-shop draft step 2: 'Request a referral code' opens the request form (your name, mobile, type of shop list, address; location optional); not submitted. Then referral code entered → Continue → 'Verify your business' (GST / PAN). Screenshot test-results/ov2x/s3-request-code.png",
+   "partial": "the request was not sent (it e-mails the team)",
+   "test": "hand: referral step",
+   "at": "2026-11-26T15:58:30.000Z"
+  },
+  {
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "hand (Playwright scripts, test-results/ov2x)",
+   "durationMs": 0,
+   "id": "TC-OV2-073",
+   "title": "Paid franchise: zone, LAUNCH_1Y, coupon, sandbox payment → GKF code",
+   "status": "pass",
+   "detail": "customer2 (staging dealer), 22.06–22.08 IST: /franchise/start → Choose zones and plan → GKZ-PUN-21 Pune – Hadapsar → plan '1-year launch offer ₹1,50,000 + GST per zone · 12 months', total ₹1,77,000 (GST ₹27,000); coupon QAOV2NOSUCH → 'Coupon QAOV2NOSUCH does not exist.'; 'Live as soon as you pay' (no 30-day KYC); Reserve and pay → Cashfree SANDBOX checkout (test merchant); paid with scripts/test-site/sandbox-pay.mjs netbanking-success (Order Pay 200, simulator SUCCESS) → isFranchisee true, roles franchisee_paid; /franchise/my: zone Active, valid until 25-Nov-2027 23.59 IST, code GKF-Q6MRP2. The checkout's own simulator page stayed on 'Loading…' in local Chromium, hence the script.",
+   "partial": "a valid coupon was not applied (none exists on staging; admin data not created)",
+   "test": "hand: paid franchise with sandbox payment",
+   "at": "2026-11-26T16:38:17.000Z"
+  },
+  {
+   "tier": "signed",
+   "project": "desktop",
+   "target": "staging",
+   "host": "test.gokesari.com",
+   "spec": "hand (Playwright scripts, test-results/ov2x)",
+   "durationMs": 0,
+   "id": "TC-OV2-014",
+   "title": "Login sheet step 3: mobile SMS code (mock) verifies the number; account DONE with wallet",
+   "status": "pass",
+   "detail": "Automated 21.33 IST (ops: CODE_SENT +91 ******0108, wrong code 422, right code → DONE, mobile verified, wallet 200). Again 22.15 IST for the customer account (gk-lc14), whose mobile a regression profile check had left unverified: POST /api/onboarding-v2/customer/mobile send → CODE_SENT; code from Admin → Test messages (SMS mock); verify → 200, step DONE, mobile verified. The automated check is 'blocked' on later runs only because no staging account is left at the MOBILE step.",
+   "test": "hand: login sheet mobile step",
+   "at": "2026-11-26T16:45:00.000Z"
+  }
+ ]
+}
