@@ -17,6 +17,16 @@ import { checkout } from "@/server/services/orders";
 import { startOnlineCheckout } from "@/server/payments/order-payments";
 import { claimCheckoutStepUp } from "@/server/otp/checkout-step-up";
 import { assertV2CheckoutReady } from "@/server/onboarding-v2/customer";
+import { getCustomerLocation } from "@/server/location";
+
+/** docs/onboarding-v2-2026-11: the chosen location (GPS / map / PIN), else the default saved address; null if none. */
+async function bestKnownLocation(userId: string) {
+  try {
+    return await getCustomerLocation(userId);
+  } catch {
+    return null;
+  }
+}
 
 const schema = z.object({
   /** Stable per attempt — resubmitting the same id will not charge twice. */
@@ -68,7 +78,9 @@ export const POST = route(async (request: NextRequest) => {
     acknowledgeClosedShopIds: body.acknowledgeClosedShopIds,
     couponCode: body.couponCode ?? null,
     buyerGstin: body.buyerGstin ?? null,
-    ...(v2 && !body.addressId && (body.orderType ?? "PERSONAL") === "PERSONAL" ? { addressAfterPayment: true } : {}),
+    ...(v2 && !body.addressId && (body.orderType ?? "PERSONAL") === "PERSONAL"
+      ? { addressAfterPayment: true, addressLaterLocation: await bestKnownLocation(user.id) }
+      : {}),
   };
   // batch-2026-10 WS-A: "Pay online" goes through its own service; wallet / COD unchanged.
   const { paymentMethod: _method, ...onlineInput } = input;

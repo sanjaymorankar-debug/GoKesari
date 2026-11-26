@@ -499,6 +499,8 @@ export function CartView({
         openLoginSheet({ returnTo: "/cart" });
         return;
       }
+      // docs/onboarding-v2-2026-11: no location known, or the shop does not deliver there — the header's chooser opens.
+      if (v2 && payload?.error?.details?.missing === "location") window.dispatchEvent(new Event("gk:open-location"));
       if (isCheckoutStepUp(payload?.error?.details)) {
         setStepUp({ details: payload.error.details, ack: acknowledgeClosedShopIds });
         return;
