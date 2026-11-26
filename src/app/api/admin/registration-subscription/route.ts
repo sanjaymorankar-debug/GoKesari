@@ -127,7 +127,7 @@ export const POST = route(async (request: NextRequest) => {
       const failed: { shopId: string; reason: string }[] = [];
       for (const shopId of [...new Set(input.shopIds)]) {
         try {
-          const r = await requestRegistrationFee(shopId, { amountPaise: input.shopIds.length === 1 ? input.amountPaise : null, validityDays: input.validityDays, reason: input.reason }, actor);
+          const r = await requestRegistrationFee(shopId, { amountPaise: input.amountPaise, validityDays: input.validityDays, reason: input.reason }, actor);
           created.push({ shopId, amountPaise: r.amountPaise, linkId: r.link.id, url: r.url });
         } catch (error) {
           failed.push({ shopId, reason: error instanceof Error ? error.message : String(error) });

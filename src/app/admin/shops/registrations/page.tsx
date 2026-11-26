@@ -24,6 +24,7 @@ export const dynamic = "force-dynamic";
 const FILTER_LABEL: Record<RegistrationFilter, string> = {
   ALL: "All",
   UNPAID: "Unpaid",
+  NO_FEE: "Never paid (₹0)",
   EXPIRING_30: "Expiring in 30 days",
   EXPIRING_15: "15 days",
   EXPIRING_7: "7 days",
@@ -61,7 +62,7 @@ export default async function ShopRegistrationsPage({
     return sp.toString();
   };
   const count = (f: RegistrationFilter) =>
-    f === "ALL" ? null : f === "EXPIRING_30" ? counts.EXPIRING_30 : f === "EXPIRING_15" ? counts.EXPIRING_15 : f === "EXPIRING_7" ? counts.EXPIRING_7 : counts[f];
+    f === "ALL" ? null : f === "EXPIRING_30" ? counts.EXPIRING_30 : f === "EXPIRING_15" ? counts.EXPIRING_15 : f === "EXPIRING_7" ? counts.EXPIRING_7 : f === "NO_FEE" ? counts.NO_FEE : counts[f];
   const newFee = await newRegistrationFeeQuote();
   const tableRows: RegistrationTableRow[] = rows.map((r) => ({
     shopId: r.shopId,

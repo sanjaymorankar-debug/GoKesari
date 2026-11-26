@@ -44,6 +44,10 @@ and the **Link** button would have made a *renewal* link. Their row now shows **
   paid — reminder text for a live shop asks for the fee without saying orders stop;
 - the shop stays live; paying the link opens its 1-year registration.
 
+To find them: filter **Never paid (₹0)**; select rows and press **Ask fee (never paid)** to ask several at once
+(same amount each). Their Remind / Link buttons are off until the fee is asked. Shops that already owe the fee
+are under **Unpaid**: select all → **Send reminder** (admins and operators).
+
 API: `POST /api/admin/registration-subscription { action: "REQUEST_FEE", shopIds[], amountPaise?, validityDays?, reason }`.
 
 ## Switches before go-live (per site)

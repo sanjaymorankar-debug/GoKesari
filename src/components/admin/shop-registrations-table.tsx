@@ -134,6 +134,16 @@ export function ShopRegistrationsTable({ rows, linkValidityDays, newFeePaise = 0
         <Button size="sm" variant="secondary" disabled={busy || selected.size === 0} onClick={() => setDialog({ kind: "LINK", shopIds: [...selected], single: null })}>
           Create payment link
         </Button>
+        {rows.some((r) => r.canRequestFee) ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy || !rows.some((r) => r.canRequestFee && selected.has(r.shopId))}
+            onClick={() => setDialog({ kind: "REQUEST_FEE", shopIds: rows.filter((r) => r.canRequestFee && selected.has(r.shopId)).map((r) => r.shopId), single: null })}
+          >
+            Ask fee (never paid)
+          </Button>
+        ) : null}
       </div>
       <Card className="overflow-x-auto">
         <table className="w-full text-left text-sm" data-testid="shop-registrations">
@@ -213,10 +223,10 @@ export function ShopRegistrationsTable({ rows, linkValidityDays, newFeePaise = 0
                 </td>
                 <td className="px-2 py-2 align-top">
                   <div className="flex flex-wrap gap-1">
-                    <Button size="sm" variant="secondary" disabled={busy || r.status === "EXEMPT"} onClick={() => remind([r.shopId])}>
+                    <Button size="sm" variant="secondary" disabled={busy || r.status === "EXEMPT" || r.canRequestFee} onClick={() => remind([r.shopId])}>
                       Remind
                     </Button>
-                    <Button size="sm" variant="secondary" disabled={busy || r.status === "EXEMPT"} onClick={() => setDialog({ kind: "LINK", shopIds: [r.shopId], single: r })}>
+                    <Button size="sm" variant="secondary" disabled={busy || r.status === "EXEMPT" || r.canRequestFee} onClick={() => setDialog({ kind: "LINK", shopIds: [r.shopId], single: r })}>
                       Link
                     </Button>
                     {r.canRequestFee ? (
@@ -333,12 +343,11 @@ function RequestFeeDialog({ dialog, validityDays, defaultPaise, busy, onClose, o
         This shop is live but has never paid a registration fee (₹0). The fee below becomes owed (status Unpaid), a payment link is sent to the owner now by in-app alert, push and
         e-mail, and the automatic unpaid reminders follow until it is paid. The shop stays live. Paying starts its 1-year registration.
       </p>
-      {single ? (
-        <label className="mb-3 block text-sm font-medium text-ink-800">
-          Registration fee (₹, with GST) — the current fee for a new shop; editable
-          <input className={inputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        </label>
-      ) : null}
+      {!single ? <p className="mb-3 text-sm text-ink-700">{dialog.shopIds.length} selected shop(s) that never paid. Each is asked for the same amount.</p> : null}
+      <label className="mb-3 block text-sm font-medium text-ink-800">
+        Registration fee (₹, with GST) — the current fee for a new shop; editable
+        <input className={inputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      </label>
       <label className="mb-3 block text-sm font-medium text-ink-800">
         Link valid for (days)
         <input className={inputClass} inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} />
@@ -353,7 +362,7 @@ function RequestFeeDialog({ dialog, validityDays, defaultPaise, busy, onClose, o
           onSubmit({
             action: "REQUEST_FEE",
             shopIds: dialog.shopIds,
-            amountPaise: single ? rupeesToPaise(amount) : null,
+            amountPaise: rupeesToPaise(amount),
             validityDays: Math.min(30, Math.max(1, Number(days) || validityDays)),
             reason: reason.trim(),
           })

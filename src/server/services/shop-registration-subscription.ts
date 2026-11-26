@@ -215,7 +215,7 @@ export async function syncRegistrationStatuses(): Promise<number> {
 
 /* ================================================================ list */
 
-export const REGISTRATION_FILTERS = ["ALL", "UNPAID", "EXPIRING_30", "EXPIRING_15", "EXPIRING_7", "GRACE", "EXPIRED", "ACTIVE", "EXEMPT"] as const;
+export const REGISTRATION_FILTERS = ["ALL", "UNPAID", "NO_FEE", "EXPIRING_30", "EXPIRING_15", "EXPIRING_7", "GRACE", "EXPIRED", "ACTIVE", "EXEMPT"] as const;
 export type RegistrationFilter = (typeof REGISTRATION_FILTERS)[number];
 
 export interface RegistrationRow {
@@ -265,7 +265,7 @@ export interface RegistrationListFilter {
 export async function listShopRegistrations(
   input: RegistrationListFilter = {},
   now = new Date(),
-): Promise<{ rows: RegistrationRow[]; counts: Record<RegistrationStatus, number> & { EXPIRING_7: number; EXPIRING_15: number; EXPIRING_30: number } }> {
+): Promise<{ rows: RegistrationRow[]; counts: Record<RegistrationStatus, number> & { EXPIRING_7: number; EXPIRING_15: number; EXPIRING_30: number; NO_FEE: number } }> {
   const rule = await getRule("shopMembership");
   const conds: SQL[] = [isNull(shops.deletedAt), sql`${shops.status} in ('PENDING_APPROVAL', 'APPROVED', 'SUSPENDED')`];
   if (input.shopType) conds.push(eq(shops.shopType, input.shopType));
@@ -306,7 +306,7 @@ export async function listShopRegistrations(
   ]);
   const lastReminder = new Map(reminders.map((r) => [r.shopId, r.at ? new Date(r.at) : null]));
   const linkBy = new Map(links.map((l) => [l.shopId, l]));
-  const counts = { UNPAID: 0, ACTIVE: 0, EXPIRING_SOON: 0, GRACE: 0, EXPIRED: 0, EXEMPT: 0, EXPIRING_7: 0, EXPIRING_15: 0, EXPIRING_30: 0 };
+  const counts = { UNPAID: 0, ACTIVE: 0, EXPIRING_SOON: 0, GRACE: 0, EXPIRED: 0, EXEMPT: 0, EXPIRING_7: 0, EXPIRING_15: 0, EXPIRING_30: 0, NO_FEE: 0 };
   const rows: RegistrationRow[] = [];
   for (const { shop, ownerEmail, dealerCode } of list) {
     const status = registrationStatusOf(shop, membershipStatus(shop, rule, now, slugs.get(shop.id) ?? []));
@@ -317,7 +317,10 @@ export async function listShopRegistrations(
       if (left <= 15) counts.EXPIRING_15 += 1;
       if (left <= 7) counts.EXPIRING_7 += 1;
     }
-    if (!matchesFilter(input.filter ?? "ALL", status, left)) continue;
+    // Live without ever paying (fee ₹0, no period): "Never paid (₹0)" — staff can Ask fee.
+    const canRequestFee = status === "ACTIVE" && !shop.membershipValidUntil && (shop.amountPaidPaise ?? 0) === 0 && (shop.registrationFeePaise ?? 0) === 0;
+    if (canRequestFee) counts.NO_FEE += 1;
+    if (input.filter === "NO_FEE" ? !canRequestFee : !matchesFilter(input.filter ?? "ALL", status, left)) continue;
     const dueKind = status === "UNPAID" ? "REGISTRATION" : "RENEWAL";
     const amountDuePaise =
       status === "UNPAID" ? registrationFeeDue(shop) : status === "EXEMPT" ? 0 : renewalQuoteFrom(shop, rule, rule.addGst ? gstRate ?? shop.registrationFeeGstRateBp ?? 0 : 0, sub.renewalFeeByShopType).totalPaise;
@@ -349,7 +352,7 @@ export async function listShopRegistrations(
         ? { id: link.id, status: link.status === "ACTIVE" && link.expiresAt <= now ? "EXPIRED" : link.status, amountPaise: link.amountPaise, expiresAt: link.expiresAt, url: link.linkUrl, createdAt: link.createdAt }
         : null,
       remindersEnabled: shop.registrationRemindersEnabled,
-      canRequestFee: status === "ACTIVE" && !shop.membershipValidUntil && (shop.amountPaidPaise ?? 0) === 0 && (shop.registrationFeePaise ?? 0) === 0,
+      canRequestFee,
       renewalFeeOverridePaise: shop.renewalFeePaise,
       graceDaysOverride: shop.registrationGraceDays,
       graceUntil: shop.registrationGraceUntil,

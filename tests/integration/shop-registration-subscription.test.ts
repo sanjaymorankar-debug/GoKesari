@@ -204,6 +204,9 @@ describe("ask a live ₹0 shop for its registration fee (26-Nov-2026)", () => {
     const { owner, shop } = await freeLiveShop();
     const before = (await listShopRegistrations({ q: "Free Live Shop" })).rows[0];
     expect(before).toMatchObject({ status: "ACTIVE", canRequestFee: true });
+    const noFee = await listShopRegistrations({ filter: "NO_FEE" });
+    expect(noFee.rows.map((r) => r.shopId)).toEqual([shop.id]);
+    expect(noFee.counts.NO_FEE).toBe(1);
 
     await expect(requestRegistrationFee(shop.id, { reason: "no" }, admin)).rejects.toMatchObject({ status: 422 });
     const r = await requestRegistrationFee(shop.id, { amountPaise: 117_800, reason: "went live without paying" }, admin);
@@ -217,6 +220,8 @@ describe("ask a live ₹0 shop for its registration fee (26-Nov-2026)", () => {
     const audit = await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, shop.id), eq(auditLogs.action, "shop.registration_fee_requested")));
     expect(audit).toHaveLength(1);
     expect((await listShopRegistrations({ q: "Free Live Shop" })).rows[0]).toMatchObject({ status: "UNPAID", canRequestFee: false, amountDuePaise: 117_800 });
+    expect((await listShopRegistrations({ filter: "NO_FEE" })).rows).toHaveLength(0);
+    expect((await listShopRegistrations({ filter: "UNPAID" })).rows.map((r) => r.shopId)).toContain(shop.id);
 
     // Asking twice is refused; still live in search meanwhile.
     await expect(requestRegistrationFee(shop.id, { reason: "again please" }, admin)).rejects.toMatchObject({ status: 409 });
