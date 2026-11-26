@@ -663,7 +663,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */, "LEGAL_ESIGN" /* 0212: seller agreements e-signature */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -8207,7 +8207,7 @@ export const invSettings = pgTable(
     /** Billing v2 (0128): the shop's UPI id, printed as a payment QR on counter bills (receipts). */
     upiVpa: text("upi_vpa"),
     /**
-     * 0213 (docs/shop-welcome-kit-2026-11, 26-Nov-2026): the text of a payment QR the owner uploaded for the shop
+     * 0214 (docs/shop-welcome-kit-2026-11, 26-Nov-2026): the text of a payment QR the owner uploaded for the shop
      * banner's "Pay here (UPI)" panel (checked by parseUpiQr: upi://pay, valid payee, no fixed amount). Wins over
      * upi_vpa on the banner only; counter bills keep using upi_vpa.
      */
@@ -10736,6 +10736,9 @@ export const documentEmails = pgTable(
     subject: text("subject").notNull(),
     body: text("body").notNull(),
     status: text("status", { enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED", "DEAD"] }).notNull().default("PENDING"),
+    /** 0213: the SMTP Message-ID of the sent e-mail, and who it was copied to (signed agreements: ceo@agtci.com). */
+    messageId: text("message_id"),
+    ccAddresses: text("cc_addresses").array(),
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(5),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
@@ -11167,6 +11170,9 @@ export const FEATURE_FLAG_KEYS = [
   "identity_verification_shop_owners_enabled",
   // docs/seller-undertaking-2026-11 (0209): shop owners accept the fresh-goods undertaking before using Seller Central / accepting new orders. Seeded OFF.
   "seller_undertaking_gate_enabled",
+  // docs/seller-agreements-2026-11 (0213): personalised, OTP-signed Seller SLA (+ medical agreement) at registration and for
+  // existing shops (blocking screen; no new orders after the grace period). Seeded OFF.
+  "seller_agreements_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13680,4 +13686,5 @@ export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
 export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)
+export * from "./legal-agreements-schema"; // docs/seller-agreements-2026-11 (0213)
 /* <<< GoKesari Health */

@@ -33,6 +33,8 @@ export const DOCUMENT_TYPES = [
   "SHOP_WELCOME_KIT",
   // 26-Nov-2026: an admin's "Resend updated banner" (same banners, no second congratulations); docId is the shop.
   "SHOP_BANNER_UPDATE",
+  // docs/seller-agreements-2026-11: the signed agreements (EN / MR / HI PDFs, banners); docId is legal_agreement_emails.id.
+  "SELLER_AGREEMENTS",
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
@@ -50,6 +52,8 @@ export interface QueueDocumentEmailInput {
   maxAttempts?: number;
   /** false: leave it to the outbox sweep instead of sending right after commit (bulk runs: shop welcome kit). Default true. */
   deliverNow?: boolean;
+  /** Sent even when the recipient switched the category's e-mails off (signed legal agreements). */
+  mandatory?: boolean;
 }
 
 /** Queues the email (once per document and recipient). Returns false when it was not queued (opted out, or already queued). */
@@ -64,7 +68,7 @@ export async function queueDocumentEmail(input: QueueDocumentEmailInput, client:
         eq(notificationPreferences.channel, "EMAIL"),
       ),
     );
-  if (optOut && !optOut.enabled) return false;
+  if (optOut && !optOut.enabled && !input.mandatory) return false;
   const email = renderEmail({ title: input.title, body: input.body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL });
   const [row] = await client
     .insert(documentEmails)
@@ -98,6 +102,10 @@ export interface RenderedDocument {
   attachments: EmailAttachment[];
   /** Optional HTML body (shop welcome kit: the banner shown in the mail); the queued text stays the plain part. */
   html?: string;
+  /** Replaces the queued plain text (signed agreements: built in three languages at send time). */
+  text?: string;
+  /** Copied recipients (signed agreements: rule sellerAgreements.ccEmails). */
+  cc?: string[];
 }
 
 /** Renders a document's attachments by type. Lazy imports keep this module free of the services' dependency graph. */
@@ -144,6 +152,10 @@ export async function renderDocumentAttachments(docType: string, docId: string):
       const doc = await renderPlatformInvoiceById(docId);
       return doc ? { attachments: [{ filename: doc.filename, content: doc.pdf, contentType: "application/pdf" }] } : null;
     }
+    case "SELLER_AGREEMENTS": {
+      const { renderAgreementEmail } = await import("@/server/legal-agreements/email");
+      return renderAgreementEmail(docId);
+    }
     case "HEALTH_PRESCRIPTION": {
       // GoKesari Health (docs/health/): the issued prescription's PDF; docId is the prescription version.
       const { prescriptionPdfForEmail } = await import("@/server/health/prescriptions");
@@ -160,6 +172,8 @@ export const safeName = (value: string) => value.replace(/[^A-Za-z0-9-]+/g, "_")
 /* ------------------------------------------------------------- delivery */
 
 const BACKOFF_SECONDS = [60, 300, 1800, 7200, 21600];
+/** Owner decision 26-Nov-2026: signed agreements are retried after 5 min, 30 min and 2 h, then admins are alerted. */
+const BACKOFF_BY_TYPE: Record<string, number[]> = { SELLER_AGREEMENTS: [300, 1800, 7200] };
 
 /**
  * Sends due document emails (PENDING / FAILED whose time has come). Rows are
@@ -214,8 +228,19 @@ async function sendDocumentEmail(row: DocumentEmail): Promise<"sent" | "failed" 
       await finish({ status: "SKIPPED", attempts, toAddress: to, lastError: "The document no longer exists." });
       return "skipped";
     }
-    await sendEmail({ to, subject: row.subject, text: row.body, html: doc.html, attachments: doc.attachments });
-    await finish({ status: "SENT", attempts, toAddress: to, sentAt: new Date(), lastError: null });
+    let messageId: string | null = null;
+    await sendEmail({
+      to,
+      subject: row.subject,
+      text: doc.text ?? row.body,
+      html: doc.html,
+      attachments: doc.attachments,
+      cc: doc.cc,
+      onSent: (info) => {
+        messageId = info.messageId;
+      },
+    });
+    await finish({ status: "SENT", attempts, toAddress: to, sentAt: new Date(), lastError: null, messageId, ccAddresses: doc.cc?.length ? doc.cc : null });
     return "sent";
   } catch (error) {
     if (error instanceof EmailUnavailableError) {
@@ -231,9 +256,14 @@ async function sendDocumentEmail(row: DocumentEmail): Promise<"sent" | "failed" 
         entityId: row.id,
         newValue: { docType: row.docType, docId: row.docId, attempts, error: message },
       });
+      if (row.docType === "SELLER_AGREEMENTS") {
+        const { alertAgreementEmailFailed } = await import("@/server/legal-agreements/email");
+        await alertAgreementEmailFailed(row.docId, attempts, message).catch((alertError) => console.error("[document-emails] agreement alert failed", alertError));
+      }
       return "dead";
     }
-    const wait = BACKOFF_SECONDS[Math.min(attempts - 1, BACKOFF_SECONDS.length - 1)];
+    const schedule = BACKOFF_BY_TYPE[row.docType] ?? BACKOFF_SECONDS;
+    const wait = schedule[Math.min(attempts - 1, schedule.length - 1)];
     await finish({ status: "FAILED", attempts, toAddress: to, lastError: message, nextAttemptAt: new Date(Date.now() + wait * 1000) });
     return "failed";
   }

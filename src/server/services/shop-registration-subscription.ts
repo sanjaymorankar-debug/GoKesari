@@ -483,6 +483,10 @@ export async function createRegistrationLink(
   if (!shop) throw notFound("Shop");
   const due = await amountDue(shop, now);
   if (due.status === "EXEMPT") throw conflict(`${shop.name} is exempt from the registration fee.`);
+  // docs/seller-agreements-2026-11: a new shop's fee is paid only after its agreements are signed (flag on).
+  if (due.kind === "REGISTRATION" && shop.status === "PENDING_APPROVAL") {
+    await (await import("@/server/legal-agreements/requirements")).assertAgreementsSignedForPayment(shop.id);
+  }
   const amountPaise = input.amountPaise ?? due.amountPaise;
   if (!Number.isInteger(amountPaise) || amountPaise < 100) throw validationFailed("The amount must be at least ₹1.", { fields: { amountPaise: "Enter an amount of at least ₹1." } });
   const validityDays = Math.min(30, Math.max(1, input.validityDays ?? sub.paymentLinkValidityDays));
@@ -847,6 +851,10 @@ export async function markRegistrationPaid(shopId: string, input: MarkPaidInput,
   if (!shop) throw notFound("Shop");
   const due = await amountDue(shop, now);
   if (due.status === "EXEMPT") throw conflict(`${shop.name} is exempt from the registration fee.`);
+  // docs/seller-agreements-2026-11: a new shop's fee is paid only after its agreements are signed (flag on).
+  if (due.kind === "REGISTRATION" && shop.status === "PENDING_APPROVAL") {
+    await (await import("@/server/legal-agreements/requirements")).assertAgreementsSignedForPayment(shop.id);
+  }
   const amountPaise = input.amountPaise ?? due.amountPaise;
   if (!Number.isInteger(amountPaise) || amountPaise <= 0) throw validationFailed("Enter the amount received.", { fields: { amountPaise: "Amount required." } });
   const paidAt = input.paidOn && /^\d{4}-\d{2}-\d{2}$/.test(input.paidOn) ? new Date(Math.min(new Date(`${input.paidOn}T12:00:00+05:30`).getTime(), now.getTime())) : now;

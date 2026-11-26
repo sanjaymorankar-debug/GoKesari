@@ -101,6 +101,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   identity_verification_customers_enabled: "Customers: verify identity before first checkout",
   identity_verification_shop_owners_enabled: "Shop owners: verify identity before going live / accepting orders",
   seller_undertaking_gate_enabled: "Shop owners must accept the fresh-goods undertaking",
+  seller_agreements_enabled: "Shop owners sign the personalised Seller SLA (OTP e-signature)",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -200,6 +201,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/identity-verification-2026-11 (Admin → Identity verification): a new shop goes live only once its owner's identity is verified; an existing owner is asked at sign-in and has rule identityVerification.sellerGraceDays from the first time they are asked after this was switched on, then their shops take no new orders until they verify (orders already accepted are unaffected). Legal advice is pending. Off: no shop owner is asked or blocked, no banner; verifications already done are kept.",
   seller_undertaking_gate_enabled:
     "docs/seller-undertaking-2026-11: a shop owner who has not accepted the current seller undertaking (fresh, non-expired, compliant goods only; expiry / best-before date always shared) and the current Seller Terms sees a full-page acknowledgement instead of Seller Central, and their shops cannot accept new orders until they accept. Orders already accepted carry on as normal. Bumping the undertaking or Seller Terms version asks every owner again. Off: nobody is asked (new registrations still accept both).",
+  seller_agreements_enabled:
+    "docs/seller-agreements-2026-11 (Admin → Agreements): registration gets an Agreements step before the fee payment — the owner reads the Seller SLA (and, for medical shops, the Merchant Onboarding Agreement) filled in with their own shop and licence details, in English / मराठी / हिंदी, ticks each one and signs with their name, designation and an SMS code; signed PDFs are e-mailed (copy to ceo@agtci.com). Existing shops see a blocking screen after sign-in and take no new orders once the grace period (rule sellerAgreements.graceDays) has passed. Replaces the Seller Terms tick on the registration Payment step. Needs at least one published Seller SLA version. Off: nobody is asked; registration keeps the Seller Terms tick.",
 };
 
 export interface FeatureFlagView {

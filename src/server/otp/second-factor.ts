@@ -153,13 +153,13 @@ export async function markPhoneVerified(user: User, e164: string): Promise<User>
 }
 
 /** Sends an SMS code for `purpose` to `target` (rate limits, expiry and audit as for every code). */
-export async function sendSmsCode(user: User, target: string, purpose: Extract<OtpPurpose, "LOGIN_SMS" | "CHECKOUT">, ip: string | null) {
+export async function sendSmsCode(user: User, target: string, purpose: Extract<OtpPurpose, "LOGIN_SMS" | "CHECKOUT" | "LEGAL_ESIGN">, ip: string | null) {
   const sent = await issueCode({ email: user.email, purpose, userId: user.id, phoneE164: target, ip, bySms: true });
   return { maskedPhone: maskPhone(target), ...sent };
 }
 
 /** Checks and consumes an SMS code for `purpose`; the code must have gone to `target` for this user. */
-export async function consumeSmsCode(user: User, target: string, purpose: Extract<OtpPurpose, "LOGIN_SMS" | "CHECKOUT">, code: string, ip: string | null) {
+export async function consumeSmsCode(user: User, target: string, purpose: Extract<OtpPurpose, "LOGIN_SMS" | "CHECKOUT" | "LEGAL_ESIGN">, code: string, ip: string | null) {
   const otp = await consumeCode({ email: user.email, purpose, code, ip, phoneE164: target, userId: user.id });
   await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email: user.email, phoneE164: target, actorId: user.id, ip, otpId: otp.id, purpose });
   return otp;

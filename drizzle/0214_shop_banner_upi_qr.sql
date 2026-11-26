@@ -7,7 +7,7 @@
 --   safety net queues the welcome kit for any shop that went live without one. Shops live before this
 --   moment are never e-mailed automatically (admin bulk send only). A stored value is kept (re-run safe).
 --
--- Additive and safe to re-run. Rollback: scripts/rollback-0213-shop-banner-upi-qr.sql.
+-- Additive and safe to re-run. Rollback: scripts/rollback-0214-shop-banner-upi-qr.sql.
 ALTER TABLE "inv_settings" ADD COLUMN IF NOT EXISTS "banner_upi_qr" text;
 --> statement-breakpoint
 INSERT INTO "platform_settings" ("key", "value", "updated_at")

@@ -269,6 +269,8 @@ export async function assistedFeeLink(helper: Helper, ownerId: string): Promise<
   const due = registrationFeeDue(shop);
   if (due === 0) throw conflict("Nothing is due: the registration fee is already settled.");
   await assertDocumentsAllowPayment(shop);
+  // docs/seller-agreements-2026-11: the owner signs the agreements (own OTP) before the fee link is issued (flag on).
+  await (await import("@/server/legal-agreements/requirements")).assertAgreementsSignedForPayment(shop.id);
 
   const previous = await listIntentsFor("SHOP_REGISTRATION_FEE", shop.id);
   const open = previous.find((row) => isLive(row) && row.mode === "LINK" && row.userId === ownerId && row.amountPaise === due && row.linkUrl);

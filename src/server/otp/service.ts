@@ -60,7 +60,9 @@ export type OtpPurpose =
   | "ORDER_TRACK"
   | "ACCOUNT_DELETE"
   | "LOGIN_SMS"
-  | "CHECKOUT";
+  | "CHECKOUT"
+  /** docs/seller-agreements-2026-11: the SMS code a shop owner signs their agreements with. */
+  | "LEGAL_ESIGN";
 type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =

@@ -303,7 +303,7 @@ export const RULES = {
   },
   shopWelcomeKit: {
     description:
-      "Shop welcome kit (docs/shop-welcome-kit-2026-11). Every shop gets one welcome e-mail with its printable banners when it goes live. Safety net on: every 15 minutes, live shops approved since `safetyNetFrom` (set by migration 0213 to the moment that release ran) that never had the kit get it — normally none. Shops that were live before that time are never e-mailed automatically (Admin → Shops → Send welcome kit).",
+      "Shop welcome kit (docs/shop-welcome-kit-2026-11). Every shop gets one welcome e-mail with its printable banners when it goes live. Safety net on: every 15 minutes, live shops approved since `safetyNetFrom` (set by migration 0214 to the moment that release ran) that never had the kit get it — normally none. Shops that were live before that time are never e-mailed automatically (Admin → Shops → Send welcome kit).",
     schema: z.object({
       safetyNetEnabled: z.boolean(),
       /** ISO time; empty = the safety net does nothing. */
@@ -1358,6 +1358,50 @@ export const RULES = {
       ccEmails: ["ceo@agtci.com"],
       renewalFeeByShopType: {},
       payCommissionOnRenewals: false,
+    },
+  },
+  sellerAgreements: {
+    description:
+      "Seller agreements (docs/seller-agreements-2026-11; flag seller_agreements_enabled; templates under Admin → Agreements). graceDays: days an existing shop may keep accepting new orders after it is first asked to sign (or re-confirm) its agreements. noticeDays: minimum days between publishing a new version and its effective date (the change notice). linkExpiryDays: how long the signing link sent to an owner (when staff or a dealer registered the shop) works. platformSignatoryName / platformSignatoryDesignation / boardResolutionDate / eSealAssetId: the Platform's signature block on every agreement (e-seal uploaded on the Agreements page). ccEmails: copied on every signed-copy e-mail. supportPhone: printed in that e-mail. maxEmailBytes: attachments above this are replaced by secure download links (English agreements and banners stay attached). Fee and penalty figures printed in the agreements: the registration fee and commission come from Admin → Finance; settlement days from settlement.holdDays; the wallet minimum from shopWallet.minBalancePaise; order acceptance minutes from shopAcceptance; the rest from here (paise; 0 = not offered: billingManagementFeePaise prints 'As agreed separately', perOrderCommissionPaise is left out).",
+    schema: z.object({
+      graceDays: int(0, 90),
+      noticeDays: int(0, 365),
+      linkExpiryDays: int(1, 30),
+      platformSignatoryName: z.string().trim().min(2).max(120),
+      platformSignatoryDesignation: z.string().trim().min(2).max(80),
+      boardResolutionDate: z.string().trim().max(40),
+      eSealAssetId: z.string().trim().max(40),
+      ccEmails: z.array(z.string().email()).max(10),
+      supportPhone: z.string().trim().min(5).max(30),
+      maxEmailBytes: int(1_000_000, 25_000_000),
+      medicineShelfLifeMonths: int(1, 36),
+      wholesaleRegistrationFeePaise: int(0, 100_000_000),
+      billingManagementFeePaise: int(0, 100_000_000),
+      perOrderCommissionPaise: int(0, 10_000_000),
+      slaChargesPaise: z.object({
+        lateReady: int(0, 10_000_000),
+        sellerCancel: int(0, 10_000_000),
+        lateThenCancel: int(0, 10_000_000),
+        defect: int(0, 10_000_000),
+        medicineBreach: int(0, 10_000_000),
+      }),
+    }),
+    defaults: {
+      graceDays: 7,
+      noticeDays: 30,
+      linkExpiryDays: 7,
+      platformSignatoryName: "Sonali Sanjay Morankar",
+      platformSignatoryDesignation: "Director",
+      boardResolutionDate: "",
+      eSealAssetId: "",
+      ccEmails: ["ceo@agtci.com"],
+      supportPhone: "+91 91751 93009",
+      maxEmailBytes: 10_000_000,
+      medicineShelfLifeMonths: 3,
+      wholesaleRegistrationFeePaise: 250_000,
+      billingManagementFeePaise: 0,
+      perOrderCommissionPaise: 0,
+      slaChargesPaise: { lateReady: 1_500, sellerCancel: 3_000, lateThenCancel: 4_500, defect: 3_000, medicineBreach: 50_000 },
     },
   },
   bankAccounts: {

@@ -1,6 +1,6 @@
 {
   "date": "2026-11-26",
-  "note": "Personalised shop welcome kit (owner brief 26-Nov-2026 10.50 IST; docs/shop-welcome-kit-2026-11, migration 0213). TC-WKIT-019…024 unit, 025…038 integration (real PostgreSQL); 032/034 also QA checks in tests/qa; SC-64 the end-to-end journey on test.gokesari.com.",
+  "note": "Personalised shop welcome kit (owner brief 26-Nov-2026 10.50 IST; docs/shop-welcome-kit-2026-11, migration 0214). TC-WKIT-019…024 unit, 025…038 integration (real PostgreSQL); 032/034 also QA checks in tests/qa; SC-64 the end-to-end journey on test.gokesari.com.",
   "features": [
     {
       "id": "WKIT-02",
