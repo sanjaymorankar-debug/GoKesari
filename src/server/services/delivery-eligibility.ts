@@ -98,6 +98,13 @@ export async function countActiveAssignments(partnerId: string, client: DbClient
  * riders. Without it (every caller's default) busy riders are excluded as
  * before.
  */
+/**
+ * Rider App v2 dispatch group: 0 = booked the running slot (riderSlotBooking), 1 = tier with
+ * priority (riderTiers), 2 = everyone else. Lower goes first; distance and the other nudges order
+ * riders only within a group.
+ */
+export type DispatchPriority = 0 | 1 | 2;
+
 export async function findEligiblePartnersNearShop(
   shopCoords: { latitude: number; longitude: number },
   client: DbClient = db,
@@ -108,7 +115,7 @@ export async function findEligiblePartnersNearShop(
     /** Gig worker flow: the order's society; partners blocked there are left out. */
     societyId?: string | null;
   } = {},
-): Promise<{ partner: DeliveryPartner; distanceToShopKm: number; activeCount: number }[]> {
+): Promise<{ partner: DeliveryPartner; distanceToShopKm: number; activeCount: number; priority: DispatchPriority }[]> {
   const candidates = await client.query.deliveryPartners.findMany({
     where: and(
       eq(deliveryPartners.status, "APPROVED"),
@@ -134,6 +141,8 @@ export async function findEligiblePartnersNearShop(
   // Rider App v2: riders who booked the running slot (rule riderSlotBooking) or whose tier has
   // priority (rule riderTiers) are offered first, nearest first within each group. Both sets are
   // empty while their rules are off, so the order is the plain distance order as before.
+  // Each candidate carries its group (`priority`) so the later ranking (rankCandidates) keeps it.
+  let rank: (id: string) => DispatchPriority = () => 2;
   if (inRange.length > 1) {
     const ids = inRange.map((c) => c.partner.id);
     const [booked, tiered] = await Promise.all([
@@ -141,13 +150,14 @@ export async function findEligiblePartnersNearShop(
       priorityPartnerIds(ids, now).catch(() => new Set<string>()),
     ]);
     if (booked.size > 0 || tiered.size > 0) {
-      const rank = (id: string) => (booked.has(id) ? 0 : tiered.has(id) ? 1 : 2);
+      rank = (id: string) => (booked.has(id) ? 0 : tiered.has(id) ? 1 : 2);
       inRange.sort((a, b) => rank(a.partner.id) - rank(b.partner.id) || a.distanceToShopKm - b.distanceToShopKm);
     }
   }
 
-  const available: { partner: DeliveryPartner; distanceToShopKm: number; activeCount: number }[] = [];
-  for (const candidate of inRange) {
+  const available: { partner: DeliveryPartner; distanceToShopKm: number; activeCount: number; priority: DispatchPriority }[] = [];
+  for (const inZone of inRange) {
+    const candidate = { ...inZone, priority: rank(inZone.partner.id) };
     if (!options.includeBusyUpTo) {
       const busy = await client.query.deliveryOrders.findFirst({
         where: and(
