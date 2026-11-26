@@ -306,6 +306,12 @@ export interface CreateProductForShopInput {
   confirmDuplicate?: boolean;
   /** Onboarding Phase 2 (WP2): the code the owner scanned, kept on the new product for our team's review. */
   barcode?: string | null;
+  /**
+   * docs/flows-v3/wave2.md (flag flow_f13): the manual form asks the owner about an exact name match instead of
+   * reusing it silently — 409 { exactMatch } until `duplicateChoice` says USE_EXISTING or ADD_NEW.
+   */
+  askOnExactMatch?: boolean;
+  duplicateChoice?: "USE_EXISTING" | "ADD_NEW";
 }
 
 /**
@@ -378,11 +384,24 @@ export async function createProductForShop(
     offlinePricePaise: input.offlinePricePaise,
   });
 
-  const { exact, similar } = await findSimilarProducts(
+  const found = await findSimilarProducts(
     name,
     categoryId,
     lookupClient,
   );
+  let { exact } = found;
+  const { similar } = found;
+
+  // docs/flows-v3/wave2.md (flag flow_f13): the owner chooses — use the existing product or add a new one.
+  if (exact && input.askOnExactMatch && (await (await import("@/server/flows/wave2-rules")).flowOn("flow_f13"))) {
+    if (!input.duplicateChoice) {
+      throw conflict(`"${exact.name}" already exists in this category. Use the existing product, or add yours as a new one?`, {
+        exactMatch: { id: exact.id, name: exact.name },
+        choices: ["USE_EXISTING", "ADD_NEW"],
+      });
+    }
+    if (input.duplicateChoice === "ADD_NEW") exact = null;
+  }
 
   // An exact name match in the same category IS this product — reuse it
   // rather than create a duplicate row, exactly as item 5 asks.
@@ -415,7 +434,7 @@ export async function createProductForShop(
     };
   }
 
-  if (similar.length > 0 && !input.confirmDuplicate) {
+  if (similar.length > 0 && !input.confirmDuplicate && input.duplicateChoice !== "ADD_NEW") {
     throw conflict(
       `This looks similar to an existing product: ${similar
         .map((p) => p.name)

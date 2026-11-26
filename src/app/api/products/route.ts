@@ -63,6 +63,8 @@ const schema = z
     offlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
     isAvailable: z.boolean().default(true),
     confirmDuplicate: z.boolean().default(false),
+    /** docs/flows-v3/wave2.md (flag flow_f13): the owner's answer to an exact name match. */
+    duplicateChoice: z.enum(["USE_EXISTING", "ADD_NEW"]).optional(),
     /** Onboarding Phase 2 (WP2): a scanned barcode that is not in the catalogue yet. */
     barcode: z.string().trim().regex(/^[0-9A-Za-z]{6,32}$/, "Barcode: 6–32 digits or letters").nullish(),
   })
@@ -94,7 +96,8 @@ export const POST = route(async (request: NextRequest) => {
   // admin override) goes live immediately; anyone else's is withheld pending
   // the owner's approval (§7/§10 of the RBAC brief — preserved, not bypassed).
   const immediate = appliesImmediately(user, shop?.ownerId ?? user.id);
-  const result = await createProductForShop(body, user, immediate);
+  // docs/flows-v3/wave2.md (flag flow_f13): an exact name match is put to the owner (409 exactMatch) first.
+  const result = await createProductForShop({ ...body, askOnExactMatch: true }, user, immediate);
 
   let pendingPriceRequestId: string | null = null;
   const wantsPrice = body.onlinePricePaise != null || body.offlinePricePaise != null;
