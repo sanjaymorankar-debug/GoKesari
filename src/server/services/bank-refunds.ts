@@ -49,6 +49,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { assertCustomerBankRefundAllowed, currentBankAccount } from "./bank-accounts";
 import { getRule } from "./settings";
 import { applyWalletMutation } from "./wallet";
+import { requireDualStepUp } from "@/server/dual-auth/step-up";
 
 interface Actor {
   id: string;
@@ -174,6 +175,8 @@ export async function getCustomerBankRefunds(userId: string): Promise<CustomerBa
 
 /** The customer asks for one refund to be sent to their bank account. */
 export async function requestBankRefund(userId: string, refundTransactionId: string, actor: Actor): Promise<BankRefundView> {
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  if (actor.id === userId) await requireDualStepUp(actor.id, "WITHDRAWAL");
   const rules = await getRule("bankRefunds");
   if (!rules.enabled) throw conflict("Refunds to a bank account are not available.");
   const account = await assertCustomerBankRefundAllowed(userId);

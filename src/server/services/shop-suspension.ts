@@ -119,7 +119,7 @@ export async function suspendShopWithPolicy(
     expectedAction?: string | null;
     /** The owner's notice is sent even with shop e-mails switched off (the documents follow-up). */
     mandatoryNotice?: boolean;
-    /** 0219: DOCUMENT_FOLLOW_UP — the documents follow-up (reinstated automatically once the documents are given, onboarding v2). */
+    /** 0220: DOCUMENT_FOLLOW_UP — the documents follow-up (reinstated automatically once the documents are given, onboarding v2). */
     source?: "DOCUMENT_FOLLOW_UP" | null;
   },
   actor: Actor | null,

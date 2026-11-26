@@ -27,6 +27,7 @@ import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 import { requestLoginOtp, verifyLoginOtp } from "@/server/otp/service";
 import { signInFromForm } from "@/server/signin-form";
 import { continueAfterFirstFactor } from "@/server/signin-otp";
+import type { SecondFactorPrompt } from "@/server/otp/second-factor";
 
 async function ip(): Promise<string | null> {
   return (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || null;
@@ -71,7 +72,7 @@ export async function sheetRequestEmailCode(email: string): Promise<{ error?: st
   }
 }
 
-export async function sheetVerifyEmailCode(email: string, code: string, returnTo: string): Promise<{ error?: string; secondFactor?: true } | void> {
+export async function sheetVerifyEmailCode(email: string, code: string, returnTo: string): Promise<{ error?: string; secondFactor?: true | SecondFactorPrompt } | void> {
   if (!(await onboardingV2Enabled())) return OFF;
   const tick = readTermsToken((await cookies()).get(V2_TERMS_COOKIE)?.value);
   const from = await ip();
@@ -82,9 +83,12 @@ export async function sheetVerifyEmailCode(email: string, code: string, returnTo
     return { error: toClientError(error).body.error.message };
   }
   try {
+    // docs/dual-auth-2026-11: after the SMS step (on a new device) the session opens through /onboarding, which
+    // follows this return-to cookie back to the cart.
+    await rememberReturn(sheetResumePath(returnTo));
     const next = await continueAfterFirstFactor(user, from, sheetResumePath(returnTo));
-    // The SMS second factor at sign-in (docs/sms-2fa-2026-11, its own flags) finishes on the sign-in page.
-    if (next && "secondFactor" in next && next.secondFactor) return { secondFactor: true };
+    // The SMS second factor at sign-in: shown in the sheet itself (docs/dual-auth-2026-11).
+    if (next && "secondFactor" in next && next.secondFactor) return { secondFactor: next.secondFactor };
     if (next && "error" in next && next.error) return { error: next.error };
   } catch (error) {
     if (isRedirectError(error)) throw error;

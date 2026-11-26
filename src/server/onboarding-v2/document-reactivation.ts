@@ -3,7 +3,7 @@
  * will be activated post documents are provided ... no additional admin approval is required for any of the
  * scenarios" (docs/onboarding-v2-2026-11).
  *
- * A shop the documents follow-up suspended (shop_suspensions.source = DOCUMENT_FOLLOW_UP, 0219) is reinstated with
+ * A shop the documents follow-up suspended (shop_suspensions.source = DOCUMENT_FOLLOW_UP, 0220) is reinstated with
  * no person as soon as nothing is chased any more: every document the follow-up asks for is given — verified, or
  * sent and waiting for GoKesari's check (PENDING / MANUAL_REVIEW, the follow-up's WITH_THE_TEAM; a licence entered
  * or uploaded at a v2 registration). Optional documents never count. A shop suspended for any other reason is never
@@ -12,7 +12,7 @@
  * Only while the onboarding_v2 flag is on; off, a person reinstates the shop as before.
  *
  * DEFAULT – confirm with Sanjay: it applies to every shop the follow-up suspends from this release on (not only shops
- * registered through v2), and not to documents suspensions made before 0219 (no source recorded: a person lifts those).
+ * registered through v2), and not to documents suspensions made before 0220 (no source recorded: a person lifts those).
  */
 import { and, eq, isNotNull } from "drizzle-orm";
 

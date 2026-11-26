@@ -252,7 +252,9 @@ export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput)
   const { guestMobileCodesAvailable } = await import("@/server/otp/service");
   const smsAvailable = await guestMobileCodesAvailable();
   const mobileSavedUnverified = extra.v2MobileUnverified === true && owner?.phoneE164 != null;
-  const mobileOk = mobileVerified || (mobileSavedUnverified && !smsAvailable && rule.mobileOtpFallbackWhenNoSms);
+  // docs/dual-auth-2026-11: with dual_auth on, only an SMS-verified mobile counts (no unverified fallback).
+  const { dualAuthFlagOn } = await import("@/server/dual-auth/policy");
+  const mobileOk = mobileVerified || (mobileSavedUnverified && !smsAvailable && rule.mobileOtpFallbackWhenNoSms && !(await dualAuthFlagOn()));
   const termsAccepted = typeof extra.v2TermsAcceptedAt === "string";
   const skipped = emailVerified && mobileVerified;
   const identityDone = draft.identityVerifiedAt !== null || skipped || (termsAccepted && emailVerified && mobileOk);

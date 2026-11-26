@@ -269,7 +269,7 @@ export async function signAgreements(ctx: SigningContext, input: SignInput): Pro
 /**
  * Onboarding v2 (owner, 27-Nov-2026: "while shop registration to see the terms and condition OTP is not required"):
  * the agreements of a shop whose v2 registration is still at its agreement step are accepted with the ticks and the
- * owner's typed name, without an SMS code (signature_method REGISTRATION_ACCEPT, 0219). Everything else is as the
+ * owner's typed name, without an SMS code (signature_method REGISTRATION_ACCEPT, 0220). Everything else is as the
  * e-sign: the same snapshot, PDFs in every published language with their hashes, the certificate (saying how it was
  * accepted), immutable acceptances and the signed copies e-mailed. Any later review or re-sign — from the shop
  * dashboard, a changed licence, a new version — goes through signAgreements with the OTP.

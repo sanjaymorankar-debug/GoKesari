@@ -1,6 +1,6 @@
 {
  "F0.1": {"status":"Done","test":"ON since 26 Nov 09.20 PM IST (migration 0215)","prod":"Deployed 11.32 PM IST, flag OFF","notes":"Prod ON after owner's real-money + SMS tests"},
- "F0.2": {"status":"Done","test":"0215–0218 applied 09.20 PM IST","prod":"0215–0218 applied by Production database check on #634 (11.2x PM IST)","notes":"0219 dropped (one person may be in two dealer networks, DP-2)"},
+ "F0.2": {"status":"Done","test":"0215–0218 applied 09.20 PM IST","prod":"0215–0218 applied by Production database check on #634 (11.2x PM IST)","notes":"0220 dropped (one person may be in two dealer networks, DP-2)"},
  "F0.3": {"status":"Done","test":"Applied","prod":"Applied","notes":"Wallet for every shop owner without one; MIGRATED role rows"},
  "F0.4": {"status":"Done","test":"Pass (admin roles view)","prod":"Deployed, flag OFF","notes":"Derived roles + onboarding_role_history"},
  "F1.0": {"status":"Done","test":"Pass desktop + phone (TC-OV2-001..003, 010)","prod":"Deployed, flag OFF","notes":"/r/<customer code> → / for guests; shop referral codes still → Add my shop"},

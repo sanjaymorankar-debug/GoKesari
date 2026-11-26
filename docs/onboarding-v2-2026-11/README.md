@@ -21,11 +21,11 @@ All times in this document and in every v2 screen are IST.
 | Team | Dealer adds employees by ID; admin placement | "My team": search customer by mobile / e-mail, invite, member accepts; upgrade / downgrade / remove with IST audit |
 | Roles | `user_role_grants` + dealer tables | Derived marketplace roles (`src/server/onboarding-v2/roles.ts`) + `onboarding_role_history` |
 
-## Data (migration 0215; 0219 for the owner decisions of 27-Nov)
+## Data (migration 0215; 0220 for the owner decisions of 27-Nov)
 
-- 0219: `legal_acceptances.signature_method` / `legal_signing_requests.signature_method` (`SMS_OTP` default,
+- 0220: `legal_acceptances.signature_method` / `legal_signing_requests.signature_method` (`SMS_OTP` default,
   `REGISTRATION_ACCEPT`), `shop_suspensions.source` (`DOCUMENT_FOLLOW_UP`). Rollback:
-  `scripts/rollback-0219-onboarding-v2-owner-decisions.sql`.
+  `scripts/rollback-0220-onboarding-v2-owner-decisions.sql`.
 
 - `onboarding_role_history` — every role change (who, what, when).
 - `team_invitations` — dealer / team-lead invitations; role added only on accept.
@@ -52,14 +52,14 @@ All times in this document and in every v2 screen are IST.
    the 21-Nov rule "FSSAI before live" for v2 registrations — owner-confirmed 27-Nov-2026 00.30 IST: "Yes, FSSAI can be
    uploaded later".** No licence and no operator check holds a v2 shop's
    go-live (GST / PAN verified + fee paid still decide the instant go-live). The follow-up reminds and suspends as
-   before (suspension tagged `source = DOCUMENT_FOLLOW_UP`, migration 0219); with the flag on, such a shop is
+   before (suspension tagged `source = DOCUMENT_FOLLOW_UP`, migration 0220); with the flag on, such a shop is
    **reinstated automatically** (audit + owner notice) as soon as nothing is chased — right after a document is
    given (seller documents, Shop Act certificate, FSSAI upload, legal-documents register, a registration licence
    decision) and in the daily follow-up run. A licence entered / uploaded at registration counts as given. A shop
    suspended for any other reason is never reinstated automatically. Optional documents never block anything.
 3. **Agreement** — "when seller want to review the terms the only OTP is required, while shop registration to see the
    terms and condition OTP is not required": at the v2 registration the personalised SLA (+ medical agreement) is
-   accepted with the ticks and the typed name, no SMS code (`signature_method = REGISTRATION_ACCEPT`, 0219); the
+   accepted with the ticks and the typed name, no SMS code (`signature_method = REGISTRATION_ACCEPT`, 0220); the
    signed copies (EN / MR / HI) are still e-mailed with the welcome kit. Reviewing or re-signing later from the shop
    dashboard keeps the OTP.
 4. Free dealer live at once; paid franchise live on payment without the 30-day KYC rule — decided by owner 27-Nov

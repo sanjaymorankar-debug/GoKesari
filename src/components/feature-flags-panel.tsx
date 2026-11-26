@@ -74,7 +74,8 @@ export type FeatureFlagKey =
   // docs/seller-undertaking-2026-11
   | "seller_undertaking_gate_enabled"
   | "seller_agreements_enabled"
-  | "onboarding_v2";
+  | "onboarding_v2"
+  | "dual_auth";
 
 interface FlagValue {
   enabled: boolean;

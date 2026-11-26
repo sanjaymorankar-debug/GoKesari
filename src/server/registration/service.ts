@@ -90,6 +90,15 @@ export async function assertSelfRegistrationOpen(): Promise<void> {
   if (!(await getRule("selfRegistration")).enabled) {
     throw validationFailed("Shop self-registration is not open yet. Please contact GoKesari or a distributor.");
   }
+  // docs/dual-auth-2026-11 (flag dual_auth): every shop owner needs a verified e-mail too, so a shop can no longer be
+  // registered with a mobile number alone. The owner registers through Add my shop (mobile + e-mail codes).
+  const { dualAuthInForce } = await import("@/server/dual-auth/policy");
+  if (await dualAuthInForce()) {
+    throw validationFailed("Registering a shop with a mobile number alone has stopped. Please use Add my shop on gokesari.com/shop/register: it verifies your mobile and e-mail.", {
+      reason: "MOBILE_ONLY_REGISTRATION_CLOSED",
+      redirectTo: "/shop/register",
+    });
+  }
 }
 
 export interface TierView {
@@ -322,6 +331,9 @@ export interface StartedPayment {
 
 /** Step 3: a gateway order for exactly the snapshotted fee. Paying after the hold lapsed is allowed while the code still has room. */
 export async function startRegistrationPayment(token: string): Promise<StartedPayment> {
+  // docs/dual-auth-2026-11: no new payment for a mobile-only registration made before the rule (none is lost:
+  // an already paid one still completes through the payment event).
+  await assertSelfRegistrationOpen();
   const reg = await registrationByToken(token);
   if (reg.status === "APPROVED") throw conflict("This registration is already paid and approved.");
   if (reg.status !== "PENDING_PAYMENT") throw conflict("This registration was cancelled. Start a new one.");

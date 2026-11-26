@@ -1,5 +1,5 @@
--- Rollback of drizzle/0219_onboarding_v2_owner_decisions.sql (docs/onboarding-v2-2026-11, owner decisions 27-Nov-2026).
--- Deploy the previous release's code first, then run this and delete the 0219 row from drizzle.__drizzle_migrations.
+-- Rollback of drizzle/0220_onboarding_v2_owner_decisions.sql (docs/onboarding-v2-2026-11, owner decisions 27-Nov-2026).
+-- Deploy the previous release's code first, then run this and delete the 0220 row from drizzle.__drizzle_migrations.
 -- Idempotent. Dropping signature_method loses which acceptances were made at registration without an OTP: export
 -- them first (SELECT id, shop_id FROM legal_acceptances WHERE signature_method = 'REGISTRATION_ACCEPT').
 DROP INDEX IF EXISTS "shop_suspensions_source_active_idx";

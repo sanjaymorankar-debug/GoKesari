@@ -9,7 +9,7 @@
 --   any more. NULL on every existing row and on every other suspension (never reinstated automatically).
 --
 -- Additive (constant defaults: no row rewrite, so the insert-only trigger of legal_acceptances never fires) and safe
--- to re-run. Rollback: scripts/rollback-0219-onboarding-v2-owner-decisions.sql.
+-- to re-run. Rollback: scripts/rollback-0220-onboarding-v2-owner-decisions.sql.
 ALTER TABLE "legal_acceptances" ADD COLUMN IF NOT EXISTS "signature_method" text NOT NULL DEFAULT 'SMS_OTP';
 --> statement-breakpoint
 ALTER TABLE "legal_signing_requests" ADD COLUMN IF NOT EXISTS "signature_method" text NOT NULL DEFAULT 'SMS_OTP';

@@ -1059,6 +1059,37 @@ async function approveOnGovVerification(shopId: string): Promise<boolean> {
   return true;
 }
 
+/** docs/dual-auth-2026-11: CONFLICT (reason OWNER_NOT_DUAL_VERIFIED) while the owner lacks a verified mobile or e-mail. */
+async function assertOwnerDualVerifiedForGoLive(ownerId: string): Promise<void> {
+  const { dualAuthInForce, factorState } = await import("@/server/dual-auth/policy");
+  if (!(await dualAuthInForce())) return;
+  const [owner] = await db.select().from(users).where(eq(users.id, ownerId));
+  if (!owner) return;
+  const state = await factorState(owner);
+  if (state.missing.length === 0) return;
+  const what = state.missing.length === 2 ? "mobile number and e-mail" : state.missing[0] === "MOBILE" ? "mobile number" : "e-mail";
+  throw conflict(`The shop owner has not verified their ${what} yet. The shop goes live once they do (codes are sent to them).`, {
+    reason: "OWNER_NOT_DUAL_VERIFIED",
+    missing: state.missing,
+  });
+}
+
+/**
+ * docs/dual-auth-2026-11: the owner just verified both factors — each of their shops still waiting for approval is
+ * tried again by the normal automatic approval (documents, fee and every other rule still apply). Best-effort.
+ */
+export async function releaseShopsHeldForDualAuth(ownerId: string): Promise<number> {
+  const pending = await db
+    .select({ id: shops.id })
+    .from(shops)
+    .where(and(eq(shops.ownerId, ownerId), eq(shops.status, "PENDING_APPROVAL"), isNull(shops.deletedAt)));
+  let approved = 0;
+  for (const { id } of pending) {
+    if (await autoApproveShopIfReady(id).catch((e) => (console.error("[dual-auth] release shop", id, e), false))) approved += 1;
+  }
+  return approved;
+}
+
 function approveShopTransaction(
   shopId: string,
   input: { classification: Classification },
@@ -1088,6 +1119,10 @@ function approveShopTransaction(
     }
     // docs/identity-verification-2026-11 (flag on): a shop goes live only once its owner's identity is verified.
     await assertOwnerIdentityAllowsGoLive(shop.ownerId);
+    // docs/dual-auth-2026-11 (flag dual_auth): a shop — also one registered by an admin, operator, dealer or another
+    // shop owner on the owner's behalf — goes live only once its owner has verified both mobile and e-mail. It goes
+    // live by itself when the owner finishes (dual-auth/verify.ts → releaseShopsHeldForDualAuth).
+    await assertOwnerDualVerifiedForGoLive(shop.ownerId);
     // Approve without FSSAI (admin only): recorded only when the shop sells food and no valid
     // licence is on file; with one on file the approval goes ahead as usual.
     if (waiveFssai && (actor.role !== "ADMIN" || !actor.id)) {

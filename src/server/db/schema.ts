@@ -610,6 +610,15 @@ export const users = pgTable(
      */
     guestCreated: boolean("guest_created").notNull().default(false),
     /**
+     * docs/dual-auth-2026-11 (0219, flag dual_auth): the account has only one verified factor (mobile by SMS code,
+     * or a real e-mail by code / link / Google). It can browse; orders, shop / dealer features and withdrawals ask
+     * for the missing factor first. Cleared as soon as both are verified.
+     */
+    needsSecondFactor: boolean("needs_second_factor").notNull().default(false),
+    needsSecondFactorSince: timestamp("needs_second_factor_since", { withTimezone: true }),
+    /** 0219: last reminder (in-app + SMS) to a mobile-only shop owner to add and verify an e-mail. */
+    secondFactorRemindedAt: timestamp("second_factor_reminded_at", { withTimezone: true }),
+    /**
      * Module 6 (migration 0194): language last chosen on the EN / हिं / मरा
      * switch — "en", "hi" or "mr"; null = never chosen (English). The gk_lang
      * cookie wins; this is the fallback on a new device and the language of
@@ -663,7 +672,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */, "LEGAL_ESIGN" /* 0212: seller agreements e-signature */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */, "LEGAL_ESIGN" /* 0212: seller agreements e-signature */, "LOGIN_EMAIL", "STEP_UP_SMS", "STEP_UP_EMAIL", "DUAL_VERIFY_SMS", "DUAL_VERIFY_EMAIL" /* 0219 dual_auth */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -2924,7 +2933,7 @@ export const shopSuspensions = pgTable(
     /** Policy in force and the counts it produced — a snapshot, not a live view. */
     policy: jsonb("policy").$type<Record<string, string>>().notNull().default({}),
     impact: jsonb("impact").$type<Record<string, number>>().notNull().default({}),
-    /** 0219: what suspended the shop — DOCUMENT_FOLLOW_UP (reinstated automatically with onboarding_v2), else null. */
+    /** 0220: what suspended the shop — DOCUMENT_FOLLOW_UP (reinstated automatically with onboarding_v2), else null. */
     source: text("source", { enum: ["DOCUMENT_FOLLOW_UP"] }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -11185,6 +11194,9 @@ export const FEATURE_FLAG_KEYS = [
   // docs/onboarding-v2-2026-11 (0215): rebuilt customer / shop / franchise / team onboarding (owner brief 26-Nov-2026).
   // Seeded ON on the staging database (gokesari_test) and OFF on production until the production test pass.
   "onboarding_v2",
+  // docs/dual-auth-2026-11 (0219): every account needs a verified mobile AND e-mail; device trust; two codes for
+  // sensitive actions. Seeded ON on the staging database (gokesari_test), OFF on production until its test pass.
+  "dual_auth",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13709,4 +13721,5 @@ export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)
 export * from "./legal-agreements-schema"; // docs/seller-agreements-2026-11 (0213)
 export * from "./onboarding-v2-schema"; // docs/onboarding-v2-2026-11 (0215)
+export * from "./dual-auth-schema"; // docs/dual-auth-2026-11 (0219)
 /* <<< GoKesari Health */

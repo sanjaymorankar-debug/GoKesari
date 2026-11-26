@@ -71,6 +71,7 @@ import { activeCodeFor, issueCode, listDealerCodes, replaceCode, setCodesStatus 
 import { holdDealerCommission } from "./commission";
 import { placeNewMember, recordMapping } from "./tiered";
 import type { TeamRole } from "@/lib/dealer-tiers";
+import { requireDualStepUp } from "@/server/dual-auth/step-up";
 
 export interface DealerActor {
   id: string;
@@ -460,6 +461,8 @@ export async function saveApplication(input: DealerApplicationInput, actor: Deal
         existing.bankAccountLast4 !== bank.account.slice(-4) ||
         existing.bankHolderName !== bank.holderName ||
         (existing.bankAccountEnc !== null && decryptSecret(existing.bankAccountEnc) !== bank.account));
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+    if (bankChanged) await requireDualStepUp(actor.id, "BANK_CHANGE");
     const values = {
       legalName,
       contactName,
@@ -1125,6 +1128,9 @@ export async function requireApprovedDealer(actor: DealerActor): Promise<Dealer>
   const dealer = await getDealerForUser(actor.id);
   if (!dealer) throw notFound("Dealer");
   if (dealer.status !== "APPROVED") throw forbidden("Your dealer account is not active.");
+  // docs/dual-auth-2026-11: dealer features need both factors verified (flag dual_auth).
+  const { assertDualVerified } = await import("@/server/dual-auth/policy");
+  await assertDualVerified(actor.id, "DEALER");
   return dealer;
 }
 
