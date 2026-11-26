@@ -891,17 +891,24 @@ Run: $RUN_URL}" >/dev/null
   seen="${seen:-} $next"
   update_tracker "▶️ running — checking #$next"
   [ "$write_errors" = 0 ] || break # GitHub refused a write: start no PR (fails below)
+  # A verified PR closes the pause issue only if it is a fix (while paused,
+  # only fixes ran before continue mode) and passed without known failures.
+  # Decided before the PR runs: once merged it is no longer an open candidate
+  # (26 Nov 2026: fix #598 passed but the pause issues stayed open).
+  is_fix=1
+  [ "$CONTINUE_ON_FAIL" = 1 ] && { candidates "$FIX" | grep -qxF "$next" || is_fix=0; }
   out="$(mktemp)" FAILS_OUT="$(mktemp)" IGNORED_KNOWN=0
   set +e; process_pr "$next" > "$out"; res=$?; set -e
   reason="$(tail -1 "$out")"
   processed=$((processed + 1))
-  # A verified PR closes the pause issue only if it is a fix (while paused,
-  # only fixes ran before continue mode) and passed without known failures.
-  is_fix=1
-  [ "$CONTINUE_ON_FAIL" = 1 ] && { candidates "$FIX" | grep -qxF "$next" || is_fix=0; }
   if [ "$res" = 0 ] && [ -n "$paused" ] && [ "$is_fix" = 1 ] && [ "$IGNORED_KNOWN" = 0 ]; then
-    write -X PATCH "repos/$REPO/issues/$paused" -f state=closed >/dev/null
-    comment "$paused" "✅ Fix #$next verified on $SITE ($(ist)). Queue resumed."
+    # Close every open pause issue (a run can have opened more than one).
+    for p in $(api "repos/$REPO/issues?state=open&labels=$PAUSED&per_page=20" --jq '.[].number') $paused; do
+      [ "$(api "repos/$REPO/issues/$p" --jq .state 2>/dev/null || true)" = open ] || continue
+      write -X PATCH "repos/$REPO/issues/$p" -f state=closed >/dev/null
+      comment "$p" "✅ Fix #$next verified on $SITE ($(ist)). Queue resumed."
+    done
+    paused="" LAST_PAUSE=""
   fi
   if [ "$res" = 1 ] && [ "$CONTINUE_ON_FAIL" = 1 ]; then
     record_failure "#$next" "$reason"
