@@ -557,7 +557,7 @@ describe("F18-12 account closure (account_self_deletion_enabled + flow_f18)", ()
     async function closeAndPurge(flow: boolean) {
       await setFlag("flow_f18", flow);
       const user = await verifiedUser("CUSTOMER");
-      await grantRole(user.id, "DELIVERY_PARTNER", { source: "TEST" });
+      await grantRole(user.id, "DELIVERY_PARTNER", { source: "DELIVERY_PARTNER_APPLICATION" });
       await requestAccountDeletionCode(actorOf(user));
       const smsCode = flow ? await lastSmsCode(user.phoneE164!) : undefined;
       await deleteAccount(actorOf(user), { code: lastEmailCode(user.email), confirmText: "DELETE", reasonCode: "OTHER", reason: "Done here", smsCode }, {}, NO_DEPS);
