@@ -28,7 +28,7 @@ beforeEach(async () => {
   await resetDatabase();
   await db.delete(platformSettings).where(inArray(platformSettings.key, RULE_KEYS));
   await db.delete(riderSurges);
-  // Keep only the migrated default plan (0210), back to its seeded state.
+  // Keep only the migrated default plan (0211), back to its seeded state.
   const seeded = await db.select().from(riderPayPlans).where(eq(riderPayPlans.version, 1)).orderBy(riderPayPlans.createdAt).limit(1);
   if (seeded[0]) {
     await db.delete(riderPayPlans).where(ne(riderPayPlans.planKey, seeded[0].planKey));

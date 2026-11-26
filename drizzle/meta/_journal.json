@@ -1476,7 +1476,14 @@
       "idx": 210,
       "version": "7",
       "when": 1793271000000,
-      "tag": "0210_rider_app_v2",
+      "tag": "0210_shop_registration_subscription",
+      "breakpoints": true
+    },
+    {
+      "idx": 211,
+      "version": "7",
+      "when": 1793271100000,
+      "tag": "0211_rider_app_v2",
       "breakpoints": true
     }
   ]

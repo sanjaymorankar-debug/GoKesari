@@ -144,6 +144,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{shopName}} is live, but these documents are still missing: {{documents}}. {{deadline}} Upload them on GoKesari so we can verify them. {{warning}}",
   ),
   [T.SHOP_MEMBERSHIP_RENEWAL_DUE]: t("{{headline}} — {{shopName}}", "{{message}} Renew it on GoKesari: Shop → Registration and fee → Renew now."),
+  // 0210 registration subscription: the text is built in English + Marathi by services/shop-registration-subscription.ts.
+  [T.SHOP_REGISTRATION_REMINDER]: t("{{title}}", "{{message}}"),
+  [T.SHOP_REGISTRATION_PAYMENT_LINK]: t("{{title}}", "{{message}}"),
+  [T.SHOP_REGISTRATION_EXPIRY_CHANGED]: t("{{title}}", "{{message}}"),
+  [T.SHOP_REGISTRATION_CONFIRMED]: t("{{title}}", "{{message}}"),
   [T.SHOP_MEMBERSHIP_RENEWED]: t(
     "Membership renewed — {{shopName}}",
     "We received {{amount}} for {{shopName}}'s yearly membership. It is now valid until {{validUntil}}. Receipt {{reference}}.",
@@ -329,7 +334,7 @@ export const TEMPLATES: Record<string, Template> = {
     false,
   ),
   [T.DELIVERY_OFFER_TAKEN]: t("Offer taken", "Order {{orderNumber}} was accepted by another rider.", false),
-  /* Rider App v2 (0210) */
+  /* Rider App v2 (0211) */
   [T.RIDER_JOB_NEARBY]: t("New delivery near you", "{{shopName}}, {{km}} km away — you earn {{amount}}. Open the app to accept.", false),
   [T.RIDER_SURGE_STARTED]: t("High-earning time in your zone", "{{reason}}: pay ×{{multiplier}}{{flat}} per order until {{until}} IST. Go online to earn more.", false),
   [T.RIDER_SURGE_ENDED]: t("Surge ended", "The {{reason}} surge in your zone has ended.", false),

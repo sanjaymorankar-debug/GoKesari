@@ -170,7 +170,7 @@ export async function previewEarning(input: {
 }
 
 /**
- * Rider App v2 (0210): the earning of a delivery whose quote was locked at acceptance. FINAL =
+ * Rider App v2 (0211): the earning of a delivery whose quote was locked at acceptance. FINAL =
  * max(quote, re-worked pay after a long reroute) + wait at the shop + incentives − deductions.
  * Null when the delivery has no locked quote (flat-rate path). The plan the quote came from is
  * read for its wait and reroute terms; if it is gone, the quote alone is paid.
