@@ -152,6 +152,8 @@ export async function ownerDashboard(userId: string) {
       gstPaise: b.gstPaise,
       basePaise: b.basePaise,
       holdExpiresAt: b.holdExpiresAt.toISOString(),
+      /** Onboarding v2 plan booking: an open checkout can be continued or cancelled (QA D-169). */
+      plan: b.planId != null,
       paidAtIst: formatIst(b.paidAt),
       createdAtIst: formatIst(b.createdAt),
       failureReason: b.failureReason,

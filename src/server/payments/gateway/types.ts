@@ -150,6 +150,8 @@ export interface PaymentGateway {
   createPaymentLink(input: CreatePaymentLinkInput): Promise<GatewayPaymentLink>;
   /** 0210: stop an unpaid payment link (optional — gateways without it keep the link until it expires). */
   cancelPaymentLink?(gatewayLinkId: string): Promise<void>;
+  /** QA D-169: stop an unpaid checkout order (optional — best effort; without it the order lapses at its expiry). */
+  cancelOrder?(gatewayOrderId: string): Promise<void>;
   refund(input: GatewayRefundInput): Promise<GatewayRefund>;
   fetchRefund(gatewayOrderId: string, merchantRefundId: string): Promise<GatewayRefund>;
   /** Signature check over the raw body; false on any mismatch or a stale timestamp. */

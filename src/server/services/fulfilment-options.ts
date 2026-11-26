@@ -254,6 +254,13 @@ function labelFor(plan: Pick<OrderFulfilmentArrangement, "option" | "scheduledSt
 
 const nonce = () => randomBytes(12).toString("hex");
 
+/** QA D-166: refused for a delivery order still waiting for the customer's location. */
+export const ADDRESS_PENDING_NO_PICKUP =
+  "The customer chose delivery and is still setting the delivery location — this order cannot be changed to pickup. Pack it and choose a delivery option; it goes out once the location is set.";
+/** QA D-166: own delivery cannot leave the shop before the customer's location is known. */
+export const ADDRESS_PENDING_NOT_OUT =
+  "Waiting for the customer's delivery location — the order can go out once it is set.";
+
 /**
  * Saves the plan for an order already locked by the caller (FOR UPDATE).
  * Returns what changed, for the follow-up work done after commit.
@@ -299,8 +306,16 @@ async function savePlan(
   if (!shop) throw notFound("Shop");
 
   let staff: ShopDeliveryStaff | null = null;
+  // docs/onboarding-v2-2026-11 #13 (QA D-166): a delivery order paid before the customer gave the location
+  // (addressPendingSince, only ever set with onboarding_v2 on) is packed and planned as a delivery at once; the rider
+  // search (delivery-assignment.ts) and the own-delivery start (startOwnDelivery) wait for the location. It never
+  // becomes a pickup: the customer chose delivery; only the customer's cancel or the auto-cancel ends it.
+  const addressPending = order.addressPendingSince != null;
+  if (addressPending && input.option === "PICKUP") {
+    throw conflict(ADDRESS_PENDING_NO_PICKUP);
+  }
   if (input.option === "SHOP_DELIVERY" || input.option === "GOKESARI_PARTNER") {
-    if (!order.deliveryAddressSnapshot) {
+    if (!order.deliveryAddressSnapshot && !addressPending) {
       throw validationFailed("This order has no delivery address — choose pickup.");
     }
   }
@@ -894,6 +909,9 @@ export async function startOwnDelivery(orderId: string, actor: Actor, by?: strin
     return { id: order.id, orderNumber: order.orderNumber, status: order.status };
   }
   if (order.status !== "READY") throw conflict("Mark the order ready before it goes out.");
+  // QA D-166: own delivery planned while the customer's location is still pending (DEFAULT – confirm with Sanjay:
+  // the shop may choose its own delivery as well as a GoKesari rider; it leaves only once the location is set).
+  if (order.addressPendingSince) throw conflict(ADDRESS_PENDING_NOT_OUT);
   const code = generateDeliveryCode();
   const updated = await db.transaction(async (tx) => {
     const [claimed] = await tx
@@ -1077,7 +1095,11 @@ export async function getStaffLinkView(token: string): Promise<StaffLinkView> {
     .from(orderItems)
     .where(eq(orderItems.orderId, plan.orderId));
   const address = row.order.deliveryAddressSnapshot;
-  const addressText = address ? [address.line1, address.line2, address.area, address.city, address.pincode].filter(Boolean).join(", ") : "";
+  const addressText = address
+    ? [address.line1, address.line2, address.area, address.city, address.pincode].filter(Boolean).join(", ")
+    : row.order.addressPendingSince
+      ? "Waiting for the customer's delivery location."
+      : "";
   const mapsUrl = address
     ? address.latitude && address.longitude
       ? `https://www.google.com/maps/dir/?api=1&destination=${address.latitude},${address.longitude}`
@@ -1108,7 +1130,7 @@ export async function getStaffLinkView(token: string): Promise<StaffLinkView> {
       : [],
     cashToCollectPaise: open && row.order.paymentMethod === "COD" && !row.order.codCollectedAt ? row.order.totalPaise : null,
     locked: plan.codeLockedAt != null,
-    canStart: open && row.order.status === "READY",
+    canStart: open && row.order.status === "READY" && row.order.addressPendingSince == null,
     canComplete: open && row.order.status === "OUT_FOR_DELIVERY" && plan.outForDeliveryAt != null && plan.codeLockedAt == null,
   };
 }

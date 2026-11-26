@@ -11,6 +11,7 @@ import { formatIst, rupees } from "@/lib/franchise";
 import { getCurrentUser } from "@/server/authz/guards";
 import { codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
 import { originFromHeaders } from "@/server/dealers/http";
+import { pendingPlanBookings } from "@/server/franchise/booking";
 import { ownerDashboard } from "@/server/franchise/dashboard";
 import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 
@@ -26,6 +27,8 @@ const TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = { ACT
 export default async function MyFranchisePage({ searchParams }: { searchParams: Promise<{ booking?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin?callbackUrl=/franchise/my");
+  // QA D-169: the buyer's own v2 checkouts left open past "held until" are released before they are listed.
+  if (await onboardingV2Enabled()) await pendingPlanBookings(user.id).catch((error: unknown) => console.error("[franchise/my] pending bookings", error));
   const d = await ownerDashboard(user.id);
   const sp = await searchParams;
   const origin = originFromHeaders(await headers());
@@ -138,7 +141,14 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
               <span>
                 {b.kind === "RENEWAL" ? "Renewal" : b.zones.join(", ")} · {rupees(b.totalPaise)} · held until {formatIst(b.holdExpiresAt)}
               </span>
-              {b.status === "RESERVED" ? <FranchiseActions kind="pay" id={b.id} label="Pay now" cancel /> : <span className="text-ink-500">Payment being verified</span>}
+              {b.status === "RESERVED" ? (
+                <FranchiseActions kind="pay" id={b.id} label="Pay now" cancel />
+              ) : b.plan ? (
+                // QA D-169 (onboarding v2): an open checkout can be continued or given up.
+                <FranchiseActions kind="pay" id={b.id} label="Continue payment" cancel />
+              ) : (
+                <span className="text-ink-500">Payment being verified</span>
+              )}
             </div>
           ))}
         </Card>

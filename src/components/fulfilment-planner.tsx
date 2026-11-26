@@ -47,6 +47,7 @@ export function FulfilmentPlanner({
   days,
   staff,
   hasAddress,
+  addressPending = false,
   shopDelivers,
   cashOnDelivery,
   pickupRefundPaise = 0,
@@ -59,6 +60,8 @@ export function FulfilmentPlanner({
   days: SlotDay[];
   staff: PlannerStaff[];
   hasAddress: boolean;
+  /** Onboarding v2 (QA D-166): paid delivery order waiting for the customer's location — delivery only, no pickup. */
+  addressPending?: boolean;
   shopDelivers: boolean;
   cashOnDelivery: boolean;
   /** Choosing pickup gives the customer this delivery fee back (0: nothing to give back). */
@@ -139,12 +142,20 @@ export function FulfilmentPlanner({
         </p>
       ) : null}
 
+      {addressPending ? (
+        <p className="mt-1 text-xs font-medium text-kesari-800" data-testid="planner-address-pending">
+          Waiting for the customer&apos;s delivery location. Pack the order and mark it ready — the delivery starts once the
+          location is set.
+        </p>
+      ) : null}
+
       {showForm ? (
         <PlanForm
           initial={plan}
           days={days}
           staff={staff}
           hasAddress={hasAddress}
+          addressPending={addressPending}
           shopDelivers={shopDelivers}
           pickupRefundPaise={plan?.deliveryFeeRefundedPaise ? 0 : pickupRefundPaise}
           busy={busy}
@@ -182,7 +193,7 @@ export function FulfilmentPlanner({
           ) : null}
           {plan.option === "SHOP_DELIVERY" && status === "READY" ? (
             <div className="mt-2">
-              <Button size="sm" disabled={busy} onClick={() => void handover({ action: "out_for_delivery" })}>
+              <Button size="sm" disabled={busy || addressPending} onClick={() => void handover({ action: "out_for_delivery" })}>
                 Out for delivery{plan.staff ? ` with ${plan.staff.name}` : ""}
               </Button>
               <p className="mt-1 text-xs text-ink-500">The customer is emailed their delivery code when the order goes out.</p>
@@ -222,6 +233,7 @@ function PlanForm({
   days,
   staff,
   hasAddress,
+  addressPending,
   shopDelivers,
   pickupRefundPaise,
   busy,
@@ -234,6 +246,7 @@ function PlanForm({
   days: SlotDay[];
   staff: PlannerStaff[];
   hasAddress: boolean;
+  addressPending: boolean;
   shopDelivers: boolean;
   pickupRefundPaise: number;
   busy: boolean;
@@ -243,8 +256,10 @@ function PlanForm({
   onSubmit: (input: { option: FulfilmentOptionKey; slotKey: string; staffId: string | null }) => void;
 }) {
   const unavailable = (option: FulfilmentOptionKey): string | null => {
-    if (option === "PICKUP") return null;
-    if (!hasAddress) return "No delivery address on this order.";
+    // QA D-166: the customer paid for delivery and is setting the location — the shop plans a delivery now
+    // (it goes out once the location is set) and cannot turn the order into a pickup.
+    if (option === "PICKUP") return addressPending ? "The customer chose delivery — not available." : null;
+    if (!hasAddress && !addressPending) return "No delivery address on this order.";
     if (option === "SHOP_DELIVERY" && staff.length === 0) return "Add your delivery people first (My Shop → Delivery staff).";
     if (option === "GOKESARI_PARTNER" && !shopDelivers) return "Switch on delivery in your shop settings to use GoKesari partners.";
     return null;

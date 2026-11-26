@@ -17,6 +17,7 @@ import { db } from "../lib/db";
 import { addToCart, emptyCart, sellable } from "../lib/flows";
 import { call, expectStatus, RUN } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
+import { onboardingV2On, reverifyMobile } from "../lib/onboarding-v2-helpers";
 import { IS_LOCAL } from "../lib/target";
 import { world, type Role } from "../lib/world";
 
@@ -191,11 +192,21 @@ qa("TC-AUTH-024", "change the mobile, then remove it: the new number shows, then
     await emptyCart();
     expectStatus(await addToCart("customer", listing.shopProductId, 1), [200, 201], "add a delivery item");
     await page.goto("/cart");
+    if (await onboardingV2On("customer")) {
+      // onboarding v2 (on on test.gokesari.com): the mobile is asked in the checkout sign-in sheet, not on the cart.
+      await expect(page.getByTestId("checkout-missing-details")).toHaveCount(0);
+      const sheet = await call(await as("customer"), "POST", "/api/onboarding-v2/customer/status", {});
+      expectStatus(sheet, 200, "login-sheet status");
+      expect(sheet.body.step, "v2: checkout asks for the mobile again (sheet step MOBILE)").toBe("MOBILE");
+      return `changed to +91 ${mobile} (shown; 'Mobile number changed' notice); removed → 'Not added'; onboarding v2: checkout asks for a mobile again in the sign-in sheet (step MOBILE)`;
+    }
     await expect(page.getByTestId("checkout-missing-details")).toContainText("Add your mobile number before ordering");
     return `changed to +91 ${mobile} (shown; 'Mobile number changed' notice); removed → 'Not added'; the cart asks for a mobile again`;
   } finally {
     await context.close();
     await restoreMobile("customer", original);
+    // QA E-42: a restored number is unverified; with v2 on that blocks every later customer checkout — verify it again.
+    if (original.phoneE164) console.log(`[TC-AUTH-024] ${await reverifyMobile("customer", original.phoneE164.slice(3))}`);
     await emptyCart().catch(() => {});
   }
 }, { ...signed, partial: "the notice is checked in-app; its email copy follows the customer's notification settings (notification specs)" });

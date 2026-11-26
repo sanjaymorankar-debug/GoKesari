@@ -53,9 +53,12 @@ import {
   shopPayments,
   shopRegistrationDrafts,
   shops,
+  userConsents,
   users,
   wallets,
 } from "@/server/db/schema";
+import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { hasCurrentConsent } from "@/server/services/consents";
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
@@ -200,6 +203,16 @@ describe("step 1: identity", () => {
 
     v = await acceptV2Terms(who, { accept: true });
     expect(v.v2?.identity.termsAccepted).toBe(true);
+    // QA D-168: one Terms version for the same consent — the one /signin and the checkout login sheet record.
+    expect(v.v2?.identity.termsVersion).toBe(CURRENT_POLICY_VERSION);
+    const [tick] = await db
+      .select()
+      .from(userConsents)
+      .where(and(eq(userConsents.userId, who.id), eq(userConsents.consentType, "TERMS_AND_PRIVACY")))
+      .orderBy(desc(userConsents.createdAt))
+      .limit(1);
+    expect(tick).toMatchObject({ version: CURRENT_POLICY_VERSION, granted: true });
+    expect(await hasCurrentConsent(who.id, "TERMS_AND_PRIVACY")).toBe(true);
     await requestV2EmailCode(who, {});
     const emailed = [...state.outbox].reverse().find((m) => m.to === who.email)!;
     const code = emailed.text.match(/\b(\d{4,8})\b/)![1];

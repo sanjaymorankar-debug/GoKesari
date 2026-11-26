@@ -310,6 +310,8 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
   if (!config.bookingOpen && !isTest) throw conflict("Franchise bookings are not open yet.");
   const status = await ownerStatusForUser(actor.id, db, { v2 });
   if (!status.agreementAccepted) throw conflict("Accept the franchise responsibilities and rules first.");
+  // QA D-169: his own checkout left open past "held until" no longer blocks reserving the zone again.
+  if (v2) await releaseLapsedPlanPayments(franchiseNow(config), { ownerDealerId: owner.id });
 
   const result = await db.transaction(async (tx) => {
     const now = franchiseNow(config);
@@ -475,18 +477,137 @@ export async function releaseExpiredHolds(client: DbClient, now: Date, zoneIds?:
 
 /** The owner gives up a reservation before paying: the slots are free at once. */
 export async function cancelReservation(bookingId: string, actor: Actor): Promise<void> {
+  // QA D-169 (onboarding v2 plan bookings only): a checkout opened but not paid can be cancelled too. The gateway is
+  // asked first — a payment that went through is kept — then the booking is cancelled and the attempt ended in one
+  // transaction (lock order intent → booking, as at capture), and the gateway order is stopped after commit.
+  const [open] = await db.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId));
+  if (open?.status === "PAYMENT_PENDING" && open.planId && open.paymentIntentId) {
+    const owner = await ownerStatusForUser(actor.id);
+    if (actor.role !== "ADMIN" && open.ownerDealerId !== owner.dealer?.id) throw notFound("Booking");
+    const { abandonOpenIntent } = await import("@/server/payments/processing");
+    await abandonOpenIntent(open.paymentIntentId, {
+      to: "FAILED",
+      reason: "Cancelled by the buyer before paying",
+      beforeEnd: async (tx) => {
+        const [locked] = await tx.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId)).for("update");
+        if (locked?.status === "PAYMENT_PENDING") await cancelBookingRows(tx, bookingId, actor, "cancelled before payment");
+      },
+    }).catch((error: unknown) => {
+      console.error("[franchise] cancel: the payment could not be checked", bookingId, error);
+      throw conflict("We could not check the payment with the bank just now. Please try again in a minute.");
+    });
+    const [after] = await db.select({ status: franchiseBookings.status }).from(franchiseBookings).where(eq(franchiseBookings.id, bookingId));
+    if (after?.status === "PAID") throw conflict("This booking is already paid.");
+    if (after?.status === "PAYMENT_PENDING") {
+      // Its attempt had already ended without moving the booking (an older attempt): nothing can be paid on it.
+      const intent = await (await import("@/server/payments/intents")).getPaymentIntentRow(open.paymentIntentId);
+      if (intent && ["FAILED", "EXPIRED"].includes(intent.status)) {
+        await db.transaction(async (tx) => {
+          const [locked] = await tx.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId)).for("update");
+          if (locked?.status === "PAYMENT_PENDING") await cancelBookingRows(tx, bookingId, actor, "cancelled before payment");
+        });
+      }
+    }
+    return;
+  }
   await db.transaction(async (tx) => {
     const [booking] = await tx.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId)).for("update");
     if (!booking) throw notFound("Booking");
     const owner = await ownerStatusForUser(actor.id, tx);
     if (actor.role !== "ADMIN" && booking.ownerDealerId !== owner.dealer?.id) throw notFound("Booking");
     if (booking.status !== "RESERVED") throw conflict(booking.status === "PAYMENT_PENDING" ? "The payment has started; it is released automatically if it does not complete." : "This booking is no longer open.");
-    const now = new Date();
-    await tx.update(franchiseBookings).set({ status: "CANCELLED", failureReason: "cancelled before payment", updatedAt: now }).where(eq(franchiseBookings.id, bookingId));
-    await tx.update(franchiseAllocations).set({ status: "CANCELLED", endedAt: now, endReason: "reservation cancelled", updatedAt: now }).where(and(eq(franchiseAllocations.bookingId, bookingId), eq(franchiseAllocations.status, "RESERVED")));
-    await releaseRedemption(tx, bookingId, "reservation cancelled", now);
-    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: bookingId, newValue: { cancelled: true } }, tx);
+    await cancelBookingRows(tx, bookingId, actor, "cancelled before payment");
   });
+}
+
+/** Cancels an unpaid booking (caller holds its lock): the booking, its held slots and its coupon hold. */
+async function cancelBookingRows(tx: DbClient, bookingId: string, actor: Actor, reason: string): Promise<void> {
+  const now = new Date();
+  await tx.update(franchiseBookings).set({ status: "CANCELLED", failureReason: reason, updatedAt: now }).where(eq(franchiseBookings.id, bookingId));
+  await tx
+    .update(franchiseAllocations)
+    .set({ status: "CANCELLED", endedAt: now, endReason: "reservation cancelled", updatedAt: now })
+    .where(and(eq(franchiseAllocations.bookingId, bookingId), inArray(franchiseAllocations.status, ["RESERVED", "PAYMENT_PENDING_VERIFICATION"])));
+  await releaseRedemption(tx, bookingId, "reservation cancelled", now);
+  await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: bookingId, newValue: { cancelled: true } }, tx);
+}
+
+/**
+ * QA D-169: onboarding v2 plan bookings whose checkout was opened but not paid by "held until" (the hold is moved to
+ * the gateway order's own expiry when the payment starts, so the page never promises less). releaseExpiredHolds only
+ * frees RESERVED rows; a booking in PAYMENT_PENDING waited for the gateway order to lapse and be reconciled, which the
+ * page did not say. Here the gateway is asked (a payment that went through activates as usual); an attempt still
+ * open past its expiry is ended — the ended handler frees the slots and the coupon. DEFAULT – confirm with Sanjay:
+ * bookings without a plan (flag off) are not touched: they keep today's release on the gateway's word. Runs from the franchise job (every
+ * minute) and before the same owner reserves again. Returns the number released.
+ */
+export async function releaseLapsedPlanPayments(now: Date, filter: { ownerDealerId?: string } = {}): Promise<number> {
+  const lapsed = await db
+    .select({ id: franchiseBookings.id, intentId: franchiseBookings.paymentIntentId })
+    .from(franchiseBookings)
+    .where(
+      and(
+        eq(franchiseBookings.status, "PAYMENT_PENDING"),
+        isNotNull(franchiseBookings.planId),
+        isNotNull(franchiseBookings.paymentIntentId),
+        lte(franchiseBookings.holdExpiresAt, now),
+        filter.ownerDealerId ? eq(franchiseBookings.ownerDealerId, filter.ownerDealerId) : undefined,
+      ),
+    )
+    .limit(50);
+  if (!lapsed.length) return 0;
+  const { abandonOpenIntent } = await import("@/server/payments/processing");
+  let released = 0;
+  for (const b of lapsed) {
+    try {
+      const status = await abandonOpenIntent(b.intentId!, { to: "EXPIRED", reason: "Not paid by the time the zone was held until", onlyIfPastExpiry: true });
+      const [after] = await db.select({ status: franchiseBookings.status }).from(franchiseBookings).where(eq(franchiseBookings.id, b.id));
+      if (status && after && after.status !== "PAYMENT_PENDING" && after.status !== "PAID") released += 1;
+    } catch (error) {
+      console.error("[franchise] lapsed plan payment not released (the job retries)", b.id, error);
+    }
+  }
+  return released;
+}
+
+/** QA D-169: a buyer's open (unpaid) onboarding v2 plan bookings, for Continue payment / Cancel on his pages. */
+export interface PendingPlanBooking {
+  id: string;
+  status: "RESERVED" | "PAYMENT_PENDING";
+  zones: string[];
+  totalPaise: number;
+  heldUntilIst: string;
+}
+
+/**
+ * QA D-169: the buyer's open plan bookings, after releasing his own checkouts left open past "held until" (so the
+ * page never lists a hold that has run out). Empty for an account without a dealer row.
+ */
+export async function pendingPlanBookings(userId: string): Promise<PendingPlanBooking[]> {
+  const status = await ownerStatusForUser(userId, db, { v2: true });
+  if (!status.dealer) return [];
+  const { config } = await franchiseConfig();
+  const now = franchiseNow(config);
+  await releaseLapsedPlanPayments(now, { ownerDealerId: status.dealer.id }).catch((error: unknown) => console.error("[franchise] lapsed plan payments", error));
+  await releaseExpiredHolds(db, now).catch((error: unknown) => console.error("[franchise] expired holds", error));
+  const rows = await db
+    .select()
+    .from(franchiseBookings)
+    .where(and(eq(franchiseBookings.ownerDealerId, status.dealer.id), isNotNull(franchiseBookings.planId), inArray(franchiseBookings.status, ["RESERVED", "PAYMENT_PENDING"])))
+    .orderBy(desc(franchiseBookings.createdAt))
+    .limit(10);
+  if (!rows.length) return [];
+  const zones = await db
+    .select({ bookingId: franchiseAllocations.bookingId, zoneId: franchiseAllocations.zoneId })
+    .from(franchiseAllocations)
+    .where(inArray(franchiseAllocations.bookingId, rows.map((r) => r.id)));
+  return rows.map((r) => ({
+    id: r.id,
+    status: r.status as PendingPlanBooking["status"],
+    zones: zones.filter((z) => z.bookingId === r.id).map((z) => z.zoneId),
+    totalPaise: r.totalPaise,
+    heldUntilIst: formatIst(r.holdExpiresAt),
+  }));
 }
 
 /* ============================================================= pay */
@@ -500,7 +621,16 @@ export async function startBookingPayment(bookingId: string, actor: Actor) {
   if (booking.ownerDealerId !== owner.id) throw notFound("Booking");
   const { config } = await franchiseConfig();
   const now = franchiseNow(config);
-  if (booking.status === "PAYMENT_PENDING" && booking.paymentIntentId) {
+  if (booking.status === "PAYMENT_PENDING" && booking.paymentIntentId && booking.planId) {
+    // QA D-169 "Continue payment" (onboarding v2): the open checkout is reused while the gateway can still take it;
+    // one past its time is ended first (the slots go back) and the buyer reserves again. DEFAULT – confirm with
+    // Sanjay: a lapsed attempt is not replaced by a new one on the same booking (its slots were already released).
+    const { abandonOpenIntent } = await import("@/server/payments/processing");
+    await abandonOpenIntent(booking.paymentIntentId, { to: "EXPIRED", reason: "Not paid by the time the zone was held until", onlyIfPastExpiry: true });
+    const [after] = await db.select({ status: franchiseBookings.status }).from(franchiseBookings).where(eq(franchiseBookings.id, booking.id));
+    if (after?.status === "PAID") throw conflict("This booking is already paid.");
+    if (after?.status !== "PAYMENT_PENDING") throw conflict("The time to pay ran out and the zone was released. Please reserve it again.");
+  } else if (booking.status === "PAYMENT_PENDING" && booking.paymentIntentId) {
     // The same payment again (idempotent key): the gateway session is reused.
   } else if (booking.status !== "RESERVED") {
     throw conflict(booking.status === "PAID" ? "This booking is already paid." : "This reservation has ended. Please reserve again.");
@@ -533,6 +663,7 @@ export async function startBookingPayment(bookingId: string, actor: Actor) {
     mode: "CHECKOUT",
     returnPath: `/franchise/my?booking=${booking.id}`,
   });
+  const intentExpiresAt = booking.planId ? ((await (await import("@/server/payments/intents")).getPaymentIntentRow(created.intent.id))?.expiresAt ?? null) : null;
   await db.transaction(async (tx) => {
     const t = new Date();
     const moved = await tx
@@ -542,6 +673,15 @@ export async function startBookingPayment(bookingId: string, actor: Actor) {
       .returning({ id: franchiseBookings.id });
     if (moved.length && booking.kind === "NEW") {
       await tx.update(franchiseAllocations).set({ status: "PAYMENT_PENDING_VERIFICATION", updatedAt: t }).where(and(eq(franchiseAllocations.bookingId, booking.id), eq(franchiseAllocations.status, "RESERVED")));
+    }
+    // QA D-169 (onboarding v2): "held until" covers the open checkout — the gateway order may outlive the 15-minute
+    // hold (Cashfree needs at least 16 minutes), so the hold moves to the order's expiry; the job frees it then.
+    if (moved.length && booking.planId && intentExpiresAt) {
+      const heldUntil = new Date(intentExpiresAt.getTime() + (now.getTime() - Date.now()));
+      if (heldUntil.getTime() > booking.holdExpiresAt.getTime()) {
+        await tx.update(franchiseBookings).set({ holdExpiresAt: heldUntil }).where(eq(franchiseBookings.id, booking.id));
+        await tx.update(franchiseAllocations).set({ holdExpiresAt: heldUntil }).where(and(eq(franchiseAllocations.bookingId, booking.id), inArray(franchiseAllocations.status, ["RESERVED", "PAYMENT_PENDING_VERIFICATION"])));
+      }
     }
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { paymentStarted: created.intent.id, amountPaise: booking.totalPaise } }, tx);
   });

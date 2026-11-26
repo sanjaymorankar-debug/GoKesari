@@ -177,6 +177,11 @@ export class SandboxGateway implements PaymentGateway {
       .where(and(eq(paymentSandboxOrders.gatewayOrderId, gatewayLinkId), inArray(paymentSandboxOrders.status, ["CREATED", "PENDING"])));
   }
 
+  /** QA D-169: an unpaid sandbox checkout order stops (reported EXPIRED). */
+  async cancelOrder(gatewayOrderId: string): Promise<void> {
+    await this.cancelPaymentLink(gatewayOrderId);
+  }
+
   async refund(input: GatewayRefundInput): Promise<GatewayRefund> {
     return db.transaction(async (tx) => {
       const [row] = await tx

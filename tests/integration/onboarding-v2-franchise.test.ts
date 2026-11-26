@@ -26,11 +26,25 @@ import {
   franchisePlans,
   franchiseZones,
   onboardingRoleHistory,
+  paymentIntents,
+  paymentSandboxOrders,
   shops,
   userRoleGrants,
 } from "@/server/db/schema";
 import type { PaymentIntentRef } from "@/server/payments/intents";
-import { acceptFranchiseAgreement, onFranchiseFeeCaptured, previewCart, reserveZones, startBookingPayment, sweepFranchiseKyc } from "@/server/franchise/booking";
+import {
+  acceptFranchiseAgreement,
+  cancelReservation,
+  onFranchiseFeeCaptured,
+  pendingPlanBookings,
+  previewCart,
+  releaseLapsedPlanPayments,
+  reserveZones,
+  startBookingPayment,
+  sweepFranchiseKyc,
+} from "@/server/franchise/booking";
+import { getGatewayByName } from "@/server/payments/gateway/registry";
+import type { SandboxGateway } from "@/server/payments/gateway/sandbox";
 import { saveFranchiseConfig } from "@/server/franchise/config";
 import { createCoupon } from "@/server/franchise/coupons";
 import { zoneView } from "@/server/franchise/zones";
@@ -379,5 +393,111 @@ describe("review fixes: shop gate on the booking API, go-live after the capture,
     const history = await db.select().from(onboardingRoleHistory).where(eq(onboardingRoleHistory.userId, o.user.id));
     expect(history.map((h) => `${h.role}:${h.action}`)).toEqual(["franchisee_paid:GRANTED"]);
     expect(await retryV2GoLive()).toEqual({ retried: 0, failed: 0 });
+  });
+});
+
+/* ================================================================ QA D-169 */
+
+describe("QA D-169: an abandoned paid-franchise checkout (plan booking)", () => {
+  async function openCheckout(withCoupon = false) {
+    const o = await paidBuyer();
+    const p = await launchPlan();
+    const c = withCoupon
+      ? await createCoupon({ code: `D9${Math.random().toString(36).slice(2, 6).toUpperCase()}`, name: "Ten off", discountType: "PERCENT", percentBp: 1000, scope: { all: true }, appliesOn: "BOTH", visibility: "PUBLIC", startsAt: new Date(Date.now() - 3_600_000), endsAt: new Date(Date.now() + 86_400_000) }, admin)
+      : null;
+    const r = await reserveZones(o.actor, { zoneIds: [Z7], planId: p.id, couponCode: c?.code ?? null });
+    const started = await startBookingPayment(r.booking.id, o.actor);
+    return { o, p, booking: r.booking, intentId: started.intent.id };
+  }
+
+  const bookingRow = async (id: string) => (await db.select().from(franchiseBookings).where(eq(franchiseBookings.id, id)))[0];
+  const intentRow = async (id: string) => (await db.select().from(paymentIntents).where(eq(paymentIntents.id, id)))[0];
+
+  it("held until covers the open checkout; Continue payment reuses it; it is listed on /franchise/start", async () => {
+    const { o, booking, intentId } = await openCheckout();
+    const b = await bookingRow(booking.id);
+    const intent = await intentRow(intentId);
+    expect(b.status).toBe("PAYMENT_PENDING");
+    expect(b.holdExpiresAt.getTime()).toBeGreaterThanOrEqual(intent.expiresAt!.getTime() - 1_000);
+
+    const again = await startBookingPayment(booking.id, o.actor);
+    expect(again.intent.id).toBe(intentId);
+
+    const pending = await pendingPlanBookings(o.user.id);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ id: booking.id, status: "PAYMENT_PENDING", zones: [Z7] });
+    expect(pending[0].heldUntilIst).toMatch(/IST|\d/);
+  });
+
+  it("Cancel releases the zone and the coupon hold, ends the attempt and stops the gateway order", async () => {
+    const { o, booking, intentId } = await openCheckout(true);
+    await cancelReservation(booking.id, o.actor);
+    expect((await bookingRow(booking.id)).status).toBe("CANCELLED");
+    const allocs = await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, booking.id));
+    expect(allocs.map((a) => a.status)).toEqual(["CANCELLED"]);
+    const [redemption] = await db.select().from(franchiseCouponRedemptions).where(eq(franchiseCouponRedemptions.bookingId, booking.id));
+    expect(redemption.status).toBe("RELEASED");
+    const intent = await intentRow(intentId);
+    expect(intent.status).toBe("FAILED");
+    const [order] = await db.select().from(paymentSandboxOrders).where(eq(paymentSandboxOrders.gatewayOrderId, intent.gatewayOrderId!));
+    expect(order.status).toBe("EXPIRED");
+    expect(await pendingPlanBookings(o.user.id)).toEqual([]);
+    // The same zone can be reserved again at once.
+    const again = await reserveZones(o.actor, { zoneIds: [Z7], planId: (await launchPlan()).id });
+    expect(again.booking.status).toBe("RESERVED");
+  });
+
+  it("Cancel after the payment went through keeps the booking (the gateway is asked first)", async () => {
+    const { o, booking, intentId } = await openCheckout();
+    const sandbox = getGatewayByName("SANDBOX") as SandboxGateway;
+    await sandbox.simulate((await intentRow(intentId)).gatewayOrderId!, "SUCCESS");
+    await expect(cancelReservation(booking.id, o.actor)).rejects.toThrow(/already paid/);
+    expect((await bookingRow(booking.id)).status).toBe("PAID");
+  });
+
+  it("the expiry job releases the zone at held until; Continue then asks to reserve again", async () => {
+    const { o, booking, intentId } = await openCheckout(true);
+    // Not yet: still within the hold, nothing happens.
+    expect(await releaseLapsedPlanPayments(new Date())).toBe(0);
+    expect((await bookingRow(booking.id)).status).toBe("PAYMENT_PENDING");
+
+    // Held until (and the gateway order's own time) has passed; the gateway still reports it open.
+    const past = new Date(Date.now() - 60_000);
+    await db.update(franchiseBookings).set({ holdExpiresAt: past }).where(eq(franchiseBookings.id, booking.id));
+    await db.update(paymentIntents).set({ expiresAt: past }).where(eq(paymentIntents.id, intentId));
+    expect(await releaseLapsedPlanPayments(new Date())).toBe(1);
+
+    const b = await bookingRow(booking.id);
+    expect(b.status).toBe("EXPIRED");
+    const allocs = await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, booking.id));
+    expect(allocs.map((a) => a.status)).toEqual(["RESERVATION_EXPIRED"]);
+    expect((await intentRow(intentId)).status).toBe("EXPIRED");
+    const [redemption] = await db.select().from(franchiseCouponRedemptions).where(eq(franchiseCouponRedemptions.bookingId, booking.id));
+    expect(redemption.status).toBe("RELEASED");
+    await expect(startBookingPayment(booking.id, o.actor)).rejects.toThrow(/reserve again/i);
+    const again = await reserveZones(o.actor, { zoneIds: [Z7], planId: (await launchPlan()).id });
+    expect(again.booking.status).toBe("RESERVED");
+  });
+
+  it("Continue payment on a checkout past its time ends it and asks to reserve again (no wait for the job)", async () => {
+    const { o, booking, intentId } = await openCheckout();
+    const past = new Date(Date.now() - 60_000);
+    await db.update(franchiseBookings).set({ holdExpiresAt: past }).where(eq(franchiseBookings.id, booking.id));
+    await db.update(paymentIntents).set({ expiresAt: past }).where(eq(paymentIntents.id, intentId));
+    await expect(startBookingPayment(booking.id, o.actor)).rejects.toThrow(/reserve it again/);
+    expect((await bookingRow(booking.id)).status).toBe("EXPIRED");
+    expect(await pendingPlanBookings(o.user.id)).toEqual([]);
+  });
+
+  it("bookings without a plan (flag off) are untouched by the new release: they wait for the gateway as before", async () => {
+    const { booking, intentId } = await openCheckout();
+    const past = new Date(Date.now() - 60_000);
+    // As a pre-v2 booking: no plan, hold and gateway time passed, the gateway still reports it open.
+    await db.update(franchiseBookings).set({ planId: null, planCode: null, holdExpiresAt: past }).where(eq(franchiseBookings.id, booking.id));
+    await db.update(paymentIntents).set({ expiresAt: past }).where(eq(paymentIntents.id, intentId));
+    await flag(false);
+    expect(await releaseLapsedPlanPayments(new Date())).toBe(0);
+    expect((await bookingRow(booking.id)).status).toBe("PAYMENT_PENDING");
+    expect((await intentRow(intentId)).status).toBe("PENDING");
   });
 });

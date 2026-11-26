@@ -130,8 +130,8 @@ export function V2IdentityStep({ v2, busy, fields, send }: { v2: V2State; busy: 
         <label className="flex items-start gap-3 text-sm text-ink-700">
           <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={terms} disabled={id.termsAccepted} onChange={(e) => setTerms(e.target.checked)} />
           <span>
-            I accept GoKesari&apos;s <a href="/terms" target="_blank" className="text-kesari-700 underline">Terms &amp; Conditions</a> and{" "}
-            <a href="/privacy" target="_blank" className="text-kesari-700 underline">Privacy Policy</a> (version {id.termsVersion}).
+            I accept GoKesari&apos;s <a href="/legal/terms" target="_blank" rel="noopener" className="text-kesari-700 underline">Terms &amp; Conditions</a> and{" "}
+            <a href="/legal/privacy-policy" target="_blank" rel="noopener" className="text-kesari-700 underline">Privacy Policy</a> (version {id.termsVersion}).
           </span>
         </label>
         {!id.termsAccepted ? (

@@ -9,6 +9,7 @@
  */
 import { and, eq, isNull } from "drizzle-orm";
 
+import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
 import { registrationFeeBreakdown } from "@/lib/registration-fee";
 import { isPlaceholderEmail } from "@/lib/placeholder-email";
 import { safeReturnPath } from "@/lib/onboarding-v2/return-to";
@@ -26,8 +27,12 @@ import { isLive, listIntentsFor } from "@/server/payments/intents";
 import { getRule } from "@/server/services/settings";
 import { formatIstStamp } from "./roles";
 
-/** The Terms the owner ticks on the v2 identity screen (recorded with the time, as consent TERMS_AND_PRIVACY). */
-export const ONBOARDING_V2_TERMS_VERSION = "2026-11-26";
+/**
+ * The Terms the owner ticks on the v2 identity screen (recorded with the time, as consent TERMS_AND_PRIVACY).
+ * QA D-168: one source of truth — the version every other Terms & Privacy consent records (/signin, the checkout
+ * login sheet, consents.ts recordConsent default and hasCurrentConsent): CURRENT_POLICY_VERSION.
+ */
+export const ONBOARDING_V2_TERMS_VERSION = CURRENT_POLICY_VERSION;
 export const DRAFT_FEE_PURPOSE = "SHOP_REGISTRATION_DRAFT_FEE" as const;
 export const WHOLESALE_SHOP_TYPE = "WHOLESALE_STORE";
 export type V2FeeKind = "SHOP" | "WHOLESALE";

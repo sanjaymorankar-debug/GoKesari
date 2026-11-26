@@ -13,7 +13,7 @@ import { sendEmail } from "@/server/email/transport";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
-import { releaseExpiredHolds, sweepFranchiseKyc } from "./booking";
+import { releaseExpiredHolds, releaseLapsedPlanPayments, sweepFranchiseKyc } from "./booking";
 import { closeAllocationCodes } from "./codes";
 import { calculateFranchiseMonth, lockFranchiseMonth, prevMonth } from "./commission";
 import { emailStatements } from "./statements";
@@ -240,6 +240,8 @@ export async function runFranchiseJob(real: Date = new Date()): Promise<Record<s
   const now = franchiseNow(config, real);
   const out: Record<string, unknown> = { at: now.toISOString() };
   out.holdsReleased = await releaseExpiredHolds(db, now);
+  // QA D-169: onboarding v2 plan bookings whose checkout was left open past "held until".
+  out.lapsedPlanPayments = await releaseLapsedPlanPayments(now).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
   // §5.6: scheduled zone status changes due now, and reservations past their expiry back to Available.
   out.zoneStatus = await runZoneStatusJobs(real).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
   out.kyc = await kycSweep(now, config).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
