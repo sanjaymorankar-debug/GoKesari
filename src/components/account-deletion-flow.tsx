@@ -20,6 +20,10 @@ export interface AccountDeletionFlowProps {
   /** Already formatted (₹). Null when there is no promotional credit. */
   promotionalForfeit: string | null;
   maskedEmail: string | null;
+  /** docs/flows-v3/wave5.md (flag flow_f18): a second code goes by SMS to this mobile (masked). */
+  maskedPhone?: string | null;
+  /** docs/flows-v3/wave5.md (flag flow_f18): shops closed with the account. */
+  shopsToHide?: number;
   /** 0199: the reasons offered (a reason is required); "OTHER" needs words. */
   reasons: readonly { code: string; label: string }[];
   /** 0199: days the account stays hidden before it is deleted (rule accountDeletion.coolingOffDays). */
@@ -35,6 +39,9 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
   const [blockers, setBlockers] = useState(props.blockers);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [code, setCode] = useState("");
+  // docs/flows-v3/wave5.md (flag flow_f18): a second code, by SMS, when the server sent one.
+  const [smsSentTo, setSmsSentTo] = useState<string | null>(null);
+  const [smsCode, setSmsCode] = useState("");
   const [confirmText, setConfirmText] = useState("");
   const [reason, setReason] = useState("");
   const [reasonCode, setReasonCode] = useState("");
@@ -59,6 +66,7 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
       return setError(payload?.error?.message ?? "Could not send the code.");
     }
     setSentTo(payload.maskedEmail);
+    setSmsSentTo(typeof payload.maskedPhone === "string" ? payload.maskedPhone : null);
   }
 
   async function confirm(event: React.FormEvent) {
@@ -71,7 +79,7 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
     const res = await fetch("/api/profile/delete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code, confirmText: confirmText.trim(), reasonCode, reason: reason.trim() || null }),
+      body: JSON.stringify({ code, confirmText: confirmText.trim(), reasonCode, reason: reason.trim() || null, ...(smsSentTo ? { smsCode } : {}) }),
     });
     const payload = await res.json().catch(() => null);
     setBusy(false);
@@ -142,12 +150,19 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
               Promotional credit of {props.promotionalForfeit} in your wallet cannot be withdrawn and will lapse.
             </Alert>
           ) : null}
+          {props.shopsToHide ? (
+            <Alert tone="warning">
+              Your {props.shopsToHide === 1 ? "shop" : `${props.shopsToHide} shops`} will be closed and hidden with your account.
+              Money owed to the shop is still settled as usual.
+            </Alert>
+          ) : null}
           {error ? <Alert tone="danger">{error}</Alert> : null}
 
           {!sentTo ? (
             <div>
               <p className="mb-3 text-sm text-ink-700">
-                We will email a code to {props.maskedEmail ?? "your email address"} to make sure it is you.
+                We will email a code to {props.maskedEmail ?? "your email address"}
+                {props.maskedPhone ? ` and send one by SMS to ${props.maskedPhone}` : ""} to make sure it is you.
               </p>
               <Button type="button" variant="danger" disabled={busy} onClick={sendCode}>
                 {busy ? "Sending…" : "Email me the code"}
@@ -171,6 +186,19 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
                   required
                 />
               </Field>
+              {smsSentTo ? (
+                <Field label={`Code sent by SMS to ${smsSentTo}`}>
+                  <input
+                    className={inputClass}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={smsCode}
+                    onChange={(e) => setSmsCode(e.target.value)}
+                    required
+                    data-testid="account-delete-sms-code"
+                  />
+                </Field>
+              ) : null}
               <Field label="Why are you leaving?">
                 <select className={inputClass} value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} required>
                   <option value="">Pick a reason</option>
@@ -204,7 +232,7 @@ export function AccountDeletionFlow(props: AccountDeletionFlowProps) {
                 />
               </Field>
               <div>
-                <Button type="submit" variant="danger" disabled={busy || confirmText.trim() !== "DELETE" || !code.trim() || !reasonCode}>
+                <Button type="submit" variant="danger" disabled={busy || confirmText.trim() !== "DELETE" || !code.trim() || (smsSentTo !== null && !smsCode.trim()) || !reasonCode}>
                   {busy ? "Deleting…" : "Delete my account"}
                 </Button>
               </div>
