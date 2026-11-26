@@ -40,7 +40,7 @@ Additive only: no referral, reward, commission or registration rule was changed.
 | G-5 | Replacing a team lead's code issued a `GKA-` (agent) code | Bug | **Fixed**: team leads get `GKT-`. |
 | G-6 | No deferred deep link (link opened before the app is installed is lost) | Missing | **Built**: app 1.15.0 opens `/app-open` once after install; the server matches the phone's recent click (same network, 24 h, unclaimed, usable, not the account's own) and pre-fills the code. |
 | G-7 | No "Referred by <name>" on registration | Missing | **Built**: banner on sign-in, first-time setup and Add my shop. |
-| G-8 | Expired / closed / unknown links ended in a generic error later in the form | Missing | **Built**: `/invite/<code>` explains why at the click. |
+| G-8 | Expired / closed links ended in a generic error later in the form | Missing | **Built**: `/invite/<code>` explains why at the click. Unknown codes keep the original `/r/` route (fix #598, 26-Nov-2026). |
 | G-9 | A later link overwrote the earlier one (last link won) | Mismatch with "first valid link wins" | **Fixed** (rule on): the first valid link is kept; a later one is logged `KEPT_FIRST`. |
 | G-10 | Admin pages for customer / shop referrals and commission have no date, dealer or code filters | Missing (reports) | Not changed here; the new sharing report has referrer / role / channel / date filters. |
 

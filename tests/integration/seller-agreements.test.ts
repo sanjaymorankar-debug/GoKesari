@@ -37,12 +37,14 @@ import {
   legalSignedFiles,
   outboundTestMessages,
   shopLegalDocuments,
+  shops,
   users,
   type User,
 } from "@/server/db/schema";
 import { deliverDocumentEmails } from "@/server/documents/email";
 import { printHtmlToPdf } from "@/server/legal-agreements/pdf/html-to-pdf";
 import { ensureBundledTemplates, publishChecks, publishTemplate, updateDraft } from "@/server/legal-agreements/registry";
+import { buildShopSnapshot } from "@/server/legal-agreements/snapshot";
 import { assertAgreementsAllowOrders, getAgreementStatus } from "@/server/legal-agreements/requirements";
 import { createSigningLink, resolveSigningLink, sendSigningCode, signAgreements } from "@/server/legal-agreements/signing";
 import { clearFeatureFlagCache, setFeatureFlag } from "@/server/services/feature-flags";
@@ -160,6 +162,23 @@ describe("publishing", () => {
     await publishTemplate((await template("SELLER_SLA", "en")).id, actor(), { acknowledgeWarnings: true });
     for (const lang of ["mr", "hi"] as const) expect((await template("SELLER_SLA", lang)).status).toBe("PUBLISHED");
     expect((await template("MEDICAL_ONBOARDING", "mr")).status).toBe("DRAFT");
+  });
+});
+
+describe("registration fee printed", () => {
+  it("prints the shop's own base fee, else its turnover slab — not a flat figure", async () => {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const registered = await createShop(owner.id, { name: "Fee Snapshot Shop" });
+    await db.update(shops).set({ registrationFeeBasePaise: 99_900, annualTurnoverRupees: 50_00_00_000 }).where(eq(shops.id, registered.id));
+    expect((await buildShopSnapshot(registered.id)).fees.registrationFeePaise).toBe(99_900);
+
+    const declared = await createShop(owner.id, { name: "Fee Turnover Shop" });
+    await db.update(shops).set({ registrationFeeBasePaise: null, annualTurnoverRupees: 5_00_00_000 }).where(eq(shops.id, declared.id));
+    expect((await buildShopSnapshot(declared.id)).fees.registrationFeePaise).toBe(4_99_900);
+
+    await ensureBundledTemplates(admin.id);
+    const check = await publishChecks((await template("SELLER_SLA", "en")).id);
+    expect(check.warnings.some((w) => w.includes("set by turnover"))).toBe(true);
   });
 });
 
