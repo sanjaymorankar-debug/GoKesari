@@ -173,6 +173,11 @@ export const PUBLIC_PAGES = new Set([
   // docs/guest-cart-2026-11 (owner, 23-Nov-2026): with guest_cart_enabled on, a guest's cart (kept in the browser)
   // opens here and sign-in is asked only at "Place order"; off, the page sends a guest to sign-in as before.
   "/cart",
+  // docs/seller-agreements-2026-11: an owner's signing link (staff / a dealer registered the shop). The unguessable
+  // token only shows that owner's agreements; signing needs the SMS code sent to the owner's registered mobile.
+  "/agreements/sign/[token]",
+  // A signed agreement's public verification page (code + hashes, no personal data beyond the shop name).
+  "/agreements/verify/[code]",
 ]);
 
 /**
@@ -198,6 +203,8 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/webhooks/delivery/[provider]": "delivery partner webhook (docs/hdms-2026-11): signature checked over the raw body; an unknown provider is 404",
   "/api/webhooks/whatsapp": "Meta WhatsApp webhook (docs/smart-shopping-2026-11): X-Hub-Signature-256 checked; 503 until META_WA_APP_SECRET is set",
   "/api/dev/settle-registration": "development only: 404 in a production build",
+  "/api/agreements/link/[token]": "owner signing link (docs/seller-agreements-2026-11): unguessable token, and signing needs the SMS code to the owner's registered mobile; a bad token is 404",
+  "/api/agreements/verify/[code]": "public check of a signed agreement's SHA-256 (docs/seller-agreements-2026-11): compares a hash, saves nothing",
   "/api/dev/settle-topup": "development only: 404 in a production build",
   "/api/kyc-mock/digilocker": "DigiLocker stand-in on test sites (#312): 404 on production (QA E-15)",
   "/api/cart/recommendation": "'best shop for this cart' for a guest's browser lines too (docs/guest-checkout-2026-11): reads only; 404 while the guest flags are off",
