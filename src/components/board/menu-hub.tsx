@@ -72,7 +72,7 @@ function HubGroup({
   return (
     <section className="mb-5">
       {title ? <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-ink-700">{title}</h2> : null}
-      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 lg:gap-3">
+      <ul className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 lg:gap-3">
         {items.map((item) => (
           <li key={item.key} className="min-w-0">
             <Link

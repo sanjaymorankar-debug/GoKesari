@@ -1,8 +1,39 @@
-# Production database (gokesari.com) — by hand only
+# Production database (gokesari.com)
 
-Workflow **"Production database"** (`.github/workflows/prod-db.yml`). It
-never runs on its own: there is no push or schedule trigger. You start it,
-from `main`, and choose one of two actions:
+Workflow **"Production database"** (`.github/workflows/prod-db.yml`).
+
+## Automatic (since 25-Nov-2026)
+
+On 25-Nov-2026 code reached gokesari.com twice without its migrations
+(sign-in down 12.59–14.01 IST, 0183–0200 missing; the shop registration-fee
+page down 19.05–22.03 IST, 0201–0203 missing), because this workflow was run
+by hand and was forgotten. It now also runs on its own:
+
+| Event | What it migrates | When |
+|---|---|---|
+| Pull request into `main` (opened, new commits, reopened, ready for review) | the PR's `drizzle/` | **before** the merge: the check **"Production database"** on the PR must be green before anyone merges |
+| Push to `main` | `main`'s `drizzle/` | safety net for a merge that beat the PR's run; it finishes before the server's ~5-minute build |
+
+- A run with nothing to apply passes in seconds and changes nothing (no
+  snapshot either).
+- Automatic runs need no typed confirmation. Every other rail below still
+  applies, plus one more: **same as test, byte for byte** — each pending
+  migration's SHA-256 must be one the test database recorded
+  (`scripts/prod-db/same-as-test.sh`).
+- Only `main`'s copy of the workflow and of the migrator runs
+  (`pull_request_target`); the PR contributes only its `drizzle/*.sql` and
+  journal, never code. Pull requests from forks, from people without write
+  access, and drafts are skipped (shown as "skipped", never migrated).
+- If the check is red, do not merge: read the summary. Usual causes: the
+  migration is not on the test database yet (let the staging queue finish), or
+  the file was changed after staging ran it.
+- A PR closed without merging leaves its migrations on production. They are
+  additive and already on staging, so the live code ignores them — the same
+  as the "migrate first" order below.
+
+## By hand
+
+You start it from `main` and choose one of two actions:
 
 | Action | What it does |
 |---|---|
@@ -11,10 +42,11 @@ from `main`, and choose one of two actions:
 
 ## Safety rails
 
-- **By hand, from `main` only.** A run started on any other branch is skipped
+- **From `main` only.** A run started on any other branch is skipped
   and, if forced, refused by the guard. Only the reviewed copy of the
-  workflow on `main` can touch production.
-- **Typed confirmation** for `migrate`: `MIGRATE PRODUCTION`, exactly.
+  workflow on `main` can touch production (automatic runs use
+  `pull_request_target` and `push` to `main`, both main's copy).
+- **Typed confirmation** for a `migrate` started by hand: `MIGRATE PRODUCTION`, exactly.
 - **Right database only.** The URL's host, port and database name must equal
   the `PROD_DATABASE_HOST` / `PROD_DATABASE_NAME` variables, the live server
   is asked which database it is, and the run stops if the production host and
@@ -122,6 +154,10 @@ backup). Hostinger's build no longer migrates (Blocker #71; DEPLOYMENT.md §4).
    anything, and stops if it can't. The server also backs production up on
    its own (pgBackRest, continuous; a nightly dump). (Until 17-Nov-2026 this
    step was a Neon branch made by hand in the Neon console.)
+Since 25-Nov-2026 steps 3–4 happen on their own when the release PR into
+`main` is opened; wait for its "Production database" check to be green, then
+go on with step 5. By hand, if needed:
+
 3. **Actions → Production database → Run workflow** → branch `main`,
    action `verify`, source `staging`. The summary lists what production lacks.
 4. **Run workflow** again → action `migrate`, source `staging`, confirm

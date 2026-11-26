@@ -18,7 +18,7 @@ function Stars({ value, onChange, label }: { value: number; onChange: (v: number
           aria-checked={value === n}
           aria-label={`${n} star${n === 1 ? "" : "s"}`}
           onClick={() => onChange(n)}
-          className={`text-xl leading-none ${n <= value ? "text-kesari-500" : "text-cream-300"}`}
+          className={`grid h-11 w-11 place-items-center rounded-lg text-3xl leading-none hover:bg-kesari-50 ${n <= value ? "text-kesari-500" : "text-cream-300"}`}
         >
           ★
         </button>
@@ -121,7 +121,7 @@ export function RateOrderForm({
               aria-label="Review"
             />
           ) : null}
-          <Button size="sm" disabled={busy || (shop === 0 && rider === 0)} onClick={submit}>
+          <Button size="sm" className="min-h-11" disabled={busy || (shop === 0 && rider === 0)} onClick={submit}>
             Submit rating
           </Button>
           {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -185,10 +185,10 @@ export function ReportIssueForm({ orderId, lang = "en" }: { orderId: string; lan
             aria-label={tr(C.describe, lang)}
           />
           <div className="flex gap-2">
-            <Button size="sm" disabled={busy || description.trim().length < 10} onClick={submit}>
+            <Button size="sm" className="min-h-11" disabled={busy || description.trim().length < 10} onClick={submit}>
               {tr(C.send, lang)}
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+            <Button size="sm" className="min-h-11" variant="ghost" onClick={() => setOpen(false)}>
               {tr(C.cancel, lang)}
             </Button>
           </div>
@@ -236,7 +236,7 @@ export function ModerateRatingButton({ ratingId, hidden }: { ratingId: string; h
           aria-label="Reason"
         />
       ) : null}
-      <Button size="sm" variant="ghost" disabled={busy || (!hidden && reason.trim().length < 3)} onClick={act}>
+      <Button size="sm" className="min-h-11" variant="ghost" disabled={busy || (!hidden && reason.trim().length < 3)} onClick={act}>
         {hidden ? "Restore" : "Hide"}
       </Button>
       {error ? <span className="text-xs text-red-600">{error}</span> : null}

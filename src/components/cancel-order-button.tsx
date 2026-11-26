@@ -113,7 +113,7 @@ export function CancelOrderButton({ orderId, orderNumber, lang = "en" }: { order
     return (
       <div className="mt-3 flex flex-col gap-2" data-testid="cancel-order">
         <div>
-          <Button size="sm" variant="danger" disabled={busy} onClick={loadQuote}>
+          <Button size="sm" className="min-h-11" variant="danger" disabled={busy} onClick={loadQuote}>
             {tr(busy ? T.checking : T.cancelOrder, lang)}
           </Button>
         </div>
@@ -198,11 +198,11 @@ export function CancelOrderButton({ orderId, orderNumber, lang = "en" }: { order
       ) : null}
       <div className="flex flex-wrap gap-2">
         {quote.allowed ? (
-          <Button size="sm" variant="danger" disabled={busy} onClick={cancel}>
+          <Button size="sm" className="min-h-11" variant="danger" disabled={busy} onClick={cancel}>
             {tr(busy ? T.cancelling : T.yesCancel, lang)}
           </Button>
         ) : null}
-        <Button size="sm" variant="secondary" disabled={busy} onClick={() => setQuote(null)}>
+        <Button size="sm" className="min-h-11" variant="secondary" disabled={busy} onClick={() => setQuote(null)}>
           {tr(T.keep, lang)}
         </Button>
       </div>

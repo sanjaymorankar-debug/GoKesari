@@ -49,7 +49,7 @@ if [ "$missing" -gt 0 ]; then
 2. Each is the right kind: the URL under **Secrets**, host and name under **Variables**.
 3. The names match exactly — upper case, no spaces.
 4. Environments → production → Deployment branches: \`main\` is allowed.
-5. The run was started by hand on \`main\` by a person (not a fork, not Dependabot).
+5. The run is main's copy: started by hand on \`main\`, or automatically for a pull request into / push to \`main\` (not a fork, not Dependabot).
 6. An organisation-level secret is shared with this repository.
 MSG
   echo "::error::Stopped before touching production: $missing required secret/variable value(s) are empty (see the checklist in the run summary)."
