@@ -656,6 +656,11 @@ export const AUDIT_ACTIONS = {
   SUPPORT_ROUTING_CHANGED: "support_routing.changed",
   SUPPORT_TICKET_ROUTED: "support_ticket.routed",
   ACCOUNT_RECOVERY_REQUESTED: "account.recovery_requested",
+  // docs/flows-v3/wave5.md (0222, flag flow_f18): recovery of a lost mobile or e-mail; sign out on all devices.
+  ACCOUNT_RECOVERY_STARTED: "account.recovery_started",
+  ACCOUNT_RECOVERY_VERIFIED: "account.recovery_verified",
+  ACCOUNT_RECOVERY_COMPLETED: "account.recovery_completed",
+  SESSIONS_ENDED_ALL: "auth.sessions_ended_all",
   DUAL_AUTH_REMINDER_SENT: "auth.second_factor_reminder",
   /* ---------------------- rider bank payouts (docs/gig-bank-payouts-2026-10) */
   RIDER_BANK_ACCOUNT_REAUTH: "rider_bank.reauthenticated",

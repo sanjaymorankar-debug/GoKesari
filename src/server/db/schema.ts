@@ -619,6 +619,11 @@ export const users = pgTable(
     /** 0219: last reminder (in-app + SMS) to a mobile-only shop owner to add and verify an e-mail. */
     secondFactorRemindedAt: timestamp("second_factor_reminded_at", { withTimezone: true }),
     /**
+     * docs/flows-v3/wave5.md (0222, flag flow_f18): sessions signed in before this time are ended on their next
+     * request (sign out on all devices after an account recovery). Null = no marker.
+     */
+    sessionsValidAfter: timestamp("sessions_valid_after", { withTimezone: true }),
+    /**
      * Module 6 (migration 0194): language last chosen on the EN / हिं / मरा
      * switch — "en", "hi" or "mr"; null = never chosen (English). The gk_lang
      * cookie wins; this is the fallback on a new device and the language of
@@ -672,7 +677,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */, "LEGAL_ESIGN" /* 0212: seller agreements e-signature */, "LOGIN_EMAIL", "STEP_UP_SMS", "STEP_UP_EMAIL", "DUAL_VERIFY_SMS", "DUAL_VERIFY_EMAIL" /* 0219 dual_auth */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */, "LEGAL_ESIGN" /* 0212: seller agreements e-signature */, "LOGIN_EMAIL", "STEP_UP_SMS", "STEP_UP_EMAIL", "DUAL_VERIFY_SMS", "DUAL_VERIFY_EMAIL" /* 0219 dual_auth */, "RECOVERY_EMAIL", "RECOVERY_SMS", "RECOVERY_NEW_EMAIL", "RECOVERY_NEW_SMS", "PHONE_LINK", "ACCOUNT_DELETE_SMS" /* 0222 flow_f18 */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -3084,7 +3089,7 @@ export const storedImages = pgTable(
     /** RIDER_KYC_DOC (C5): a rider's identity document — served to admins only. */
     /** DISPUTE_EVIDENCE (event layer): a photo on a dispute case — its customer, shop and support only. */
     purpose: text("purpose", {
-      enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO", "DELIVERY_PROOF", "RIDER_KYC_DOC", "DISPUTE_EVIDENCE"],
+      enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO", "DELIVERY_PROOF", "RIDER_KYC_DOC", "DISPUTE_EVIDENCE", "SOCIETY_PROOF" /* 0222 flow_f15 */],
     }).notNull(),
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
@@ -5220,7 +5225,7 @@ export const accountDeletionRequests = pgTable(
     /** 0191: when the daily job anonymises the account. */
     purgeAfter: timestamp("purge_after", { withTimezone: true }),
     /** 0191: what was switched off when the account was hidden, switched back on a restore. */
-    hiddenState: jsonb("hidden_state").$type<{ riderStatuses?: { id: string; status: string }[] }>().notNull().default({}),
+    hiddenState: jsonb("hidden_state").$type<{ riderStatuses?: { id: string; status: string }[]; /** 0222 flow_f18: shops hidden with the account. */ shops?: { id: string; status: string; ordersPaused: boolean }[] }>().notNull().default({}),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     /** The person themselves (restore at sign-in) or the admin who cancelled it. */
     cancelledBy: uuid("cancelled_by"),
@@ -5680,6 +5685,21 @@ export const societies = pgTable(
     notifyCustomerAtGate: boolean("notify_customer_at_gate").notNull().default(true),
     /** GA-001: when true and the rider list is non-empty, only listed riders may deliver here. */
     exclusiveRiders: boolean("exclusive_riders").notNull().default(false),
+    /*
+     * docs/flows-v3/wave5.md (0222, flag flow_f15): the application's authorised person, number of flats and proof
+     * document (REGISTRATION_CERTIFICATE / COMMITTEE_LETTER: its number and an uploaded or scanned image), and the
+     * gate's delivery hours ("HH:MM", India time). requires_proof: applied while the flag was on, so verifying it
+     * needs the proof; false for every society from before.
+     */
+    authorisedPersonName: text("authorised_person_name"),
+    authorisedPersonRole: text("authorised_person_role"),
+    flatCount: integer("flat_count"),
+    proofType: text("proof_type", { enum: ["REGISTRATION_CERTIFICATE", "COMMITTEE_LETTER"] }),
+    proofNumber: text("proof_number"),
+    proofImageUrl: text("proof_image_url"),
+    requiresProof: boolean("requires_proof").notNull().default(false),
+    deliveryHoursStart: text("delivery_hours_start"),
+    deliveryHoursEnd: text("delivery_hours_end"),
     registeredBy: uuid("registered_by").references(() => users.id),
     verifiedBy: uuid("verified_by").references(() => users.id),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
@@ -5737,6 +5757,10 @@ export const societyRiders = pgTable(
     addedBy: uuid("added_by").references(() => users.id),
     revokedBy: uuid("revoked_by").references(() => users.id),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /** docs/flows-v3/wave5.md (0222, flag flow_f15): paused by the society until this time (null = not paused). */
+    suspendedUntil: timestamp("suspended_until", { withTimezone: true }),
+    suspendedReason: text("suspended_reason"),
+    suspendedBy: uuid("suspended_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -11211,6 +11235,12 @@ export const FEATURE_FLAG_KEYS = [
   "flow_f1",
   "flow_f14",
   "flow_f17",
+  // docs/flows-v3/wave5.md (0222): F11 delivery partner (photo, verified mobile / e-mail), F15 society onboarding
+  // (authorised person, proof, gate hours, rider suspension, approved riders only for new societies), F18 account
+  // recovery and closure. Seeded ON on the staging database (gokesari_test), OFF on production.
+  "flow_f11",
+  "flow_f15",
+  "flow_f18",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
