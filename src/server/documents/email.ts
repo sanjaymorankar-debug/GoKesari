@@ -35,6 +35,9 @@ export const DOCUMENT_TYPES = [
   "SHOP_BANNER_UPDATE",
   // docs/seller-agreements-2026-11: the signed agreements (EN / MR / HI PDFs, banners); docId is legal_agreement_emails.id.
   "SELLER_AGREEMENTS",
+  // docs/flows-v3/wave3.md (flag flow_f4): the Seller Terms accepted at registration, in three languages with links
+  // (no PDF engine involved); docId is the shop. Text only.
+  "SELLER_TERMS_ACCEPTED",
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
@@ -152,6 +155,9 @@ export async function renderDocumentAttachments(docType: string, docId: string):
       const doc = await renderPlatformInvoiceById(docId);
       return doc ? { attachments: [{ filename: doc.filename, content: doc.pdf, contentType: "application/pdf" }] } : null;
     }
+    // docs/flows-v3/wave3.md (flag flow_f4): text only — the queued body is the e-mail.
+    case "SELLER_TERMS_ACCEPTED":
+      return { attachments: [] };
     case "SELLER_AGREEMENTS": {
       const { renderAgreementEmail } = await import("@/server/legal-agreements/email");
       return renderAgreementEmail(docId);

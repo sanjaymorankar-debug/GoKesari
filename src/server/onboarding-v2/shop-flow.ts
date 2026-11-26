@@ -717,6 +717,8 @@ export async function acceptV2Agreement(
     newValue: { draftId: draft.id, signedAgreements: signedInAgreements },
   });
   await goLiveV2(draft.shopId);
+  // docs/flows-v3/wave3.md (flag flow_f4): the accepted agreement is e-mailed now, in English, Marathi and Hindi.
+  await (await import("@/server/flows/f4-onboarding")).emailAgreementOnAcceptance(draft.shopId, now);
   const [final] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.id, draft.id));
   return toWizardView(final);
 }

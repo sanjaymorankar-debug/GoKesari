@@ -80,6 +80,8 @@ export interface V2State {
   promiseDueLabel: string;
   sla: { accepted: boolean; acceptedAtIst: string | null; agreementsEnabled: boolean; agreementsRequired: boolean };
   returnTo: string | null;
+  /** docs/flows-v3/wave3.md (flag flow_f4): optional WhatsApp number and payment QR; absent / null = not asked. */
+  contact?: { whatsappNumber: string | null; qrVpa: string | null; qrPayeeName: string | null } | null;
 }
 
 /** What the v2 screens need of the wizard's state. */
@@ -536,14 +538,20 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
       </V2Card>
     );
   }
+  const contact = v2.contact ? <ContactCard contact={v2.contact} /> : null;
   if (v2.sla.agreementsEnabled && v2.sla.agreementsRequired) {
     return (
-      <V2Card title="Accept your seller agreement" intro="Read your shop's personalised agreements (English, मराठी, हिंदी), tick each one and accept with your name — no code needed now.">
-        <AgreementsSigner apiBase={`/api/shops/${state.shop.id}/agreements`} onSigned={reload} registrationAccept />
-      </V2Card>
+      <>
+        {contact}
+        <V2Card title="Accept your seller agreement" intro="Read your shop's personalised agreements (English, मराठी, हिंदी), tick each one and accept with your name — no code needed now.">
+          <AgreementsSigner apiBase={`/api/shops/${state.shop.id}/agreements`} onSigned={reload} registrationAccept />
+        </V2Card>
+      </>
     );
   }
   return (
+    <>
+    {contact}
     <V2Card title="Accept and go live" intro="A copy of your signed agreement is e-mailed to you in English, Marathi and Hindi with your shop's welcome banner and QR code.">
       <details className="rounded-lg border border-[var(--gk-line)] bg-white p-3 text-sm">
         <summary className="cursor-pointer font-semibold text-ink-900">{SELLER_UNDERTAKING_TITLE}</summary>
@@ -564,6 +572,52 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
         data-testid="v2-sla-accept"
       >
         Accept and go live
+      </Button>
+    </V2Card>
+    </>
+  );
+}
+
+/**
+ * docs/flows-v3/wave3.md (F4, flag flow_f4): the shop's WhatsApp number and payment QR, both optional — saved to the
+ * shop's settings (changeable later in My shop); the QR goes on the welcome-kit banner.
+ */
+function ContactCard({ contact }: { contact: NonNullable<V2State["contact"]> }) {
+  const [whatsapp, setWhatsapp] = useState(contact.whatsappNumber ?? "");
+  const [file, setFile] = useState<File | null>(null);
+  const [saved, setSaved] = useState(contact);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setDone(false);
+    const form = new FormData();
+    form.set("whatsappNumber", whatsapp);
+    if (file) form.set("qr", file);
+    const result = await call(`${API}/contact`, form);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setSaved(result.data as NonNullable<V2State["contact"]>);
+    setFile(null);
+    setDone(true);
+  }
+  return (
+    <V2Card title="Shop contact (optional)" intro="Customers can reach you on WhatsApp, and your payment QR is printed on your shop banner. You can skip this or change it later in My shop.">
+      <Field label="WhatsApp number" error={error && !file ? error : undefined}>
+        <input className={inputClass} inputMode="tel" autoComplete="tel" maxLength={14} value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="10-digit mobile" data-testid="v2-contact-whatsapp" />
+      </Field>
+      <Field label="Payment QR (photo or screenshot)" error={error && file ? error : undefined}>
+        <input type="file" accept="image/*" className="block w-full text-sm" onChange={(e) => setFile(e.target.files?.[0] ?? null)} data-testid="v2-contact-qr" />
+      </Field>
+      {saved.qrVpa ? <p className="text-sm text-ink-700">Payment QR saved: {saved.qrPayeeName ? `${saved.qrPayeeName} · ` : ""}{saved.qrVpa}</p> : null}
+      {done ? <Alert tone="success">Saved.</Alert> : null}
+      <Button variant="secondary" className="w-full" disabled={busy} onClick={() => void save()} data-testid="v2-contact-save">
+        Save contact
       </Button>
     </V2Card>
   );
