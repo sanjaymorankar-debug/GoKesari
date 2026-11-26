@@ -102,7 +102,7 @@ const APP_LINK_PATH_PREFIXES = [
  * Pages not (yet) top-level directories of the website, such as the help
  * desk's /support/tickets/…, are listed here so the intent filter has them.
  */
-const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/", "/search/compare", "/dealer/commission-chart", "/dealer", "/shop/register", "/franchise"];
+const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/", "/search/compare", "/dealer/commission-chart", "/dealer", "/shop/registration-fee", "/shop/manage/registration", "/shop/membership/receipt/", "/shop/register", "/franchise"];
 
 const INTENT_PATH_PREFIXES = [...new Set([...APP_LINK_PATH_PREFIXES, ...DEEP_LINK_ROUTE_PREFIXES])];
 
@@ -182,7 +182,10 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   // 1.8.0: card, UPI (the phone's UPI apps) and wallet payments through Cashfree's own mobile SDK
   // (react-native-cashfree-pg-sdk) when the website asks for it (src/cashfree.ts); the website
   // still confirms every payment with its server. Older builds keep Cashfree's web checkout.
-  version: "1.13.0",
+  // 1.14.0: shop registration subscription (owner brief 25-Nov-2026) — registration reminder, payment-link,
+  // renewal and receipt pushes open the shop's registration / fee / receipt pages (deep-link route
+  // "shop-registration"). The card, banners and Pay Now / Renew are the website's pages.
+  version: "1.14.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -191,7 +194,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "14",
+    buildNumber: "15",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -213,7 +216,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 14,
+    versionCode: 15,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",

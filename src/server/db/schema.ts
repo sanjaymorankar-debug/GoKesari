@@ -942,6 +942,28 @@ export const shops = pgTable(
     /** No foreign key: users are customer-side. */
     membershipExemptSetBy: uuid("membership_exempt_set_by"),
     membershipExemptSetAt: timestamp("membership_exempt_set_at", { withTimezone: true }),
+    /**
+     * 0210 shop registration subscription (docs/shop-registration-subscription-2026-11). The expiry is
+     * membershipValidUntil; the fee is registrationFeePaise. Status is kept current by every payment, admin
+     * change and the reminder job (services/shop-registration-subscription.ts recomputes it on read too).
+     */
+    registrationStatus: text("registration_status", { enum: ["UNPAID", "ACTIVE", "EXPIRING_SOON", "GRACE", "EXPIRED", "EXEMPT"] })
+      .notNull()
+      .default("UNPAID"),
+    registrationStartDate: timestamp("registration_start_date", { withTimezone: true }),
+    /** Per-shop renewal fee before GST; null = the shop type's (rule shopRegistrationSubscription), else the shop's registration base fee. */
+    renewalFeePaise: bigint("renewal_fee_paise", { mode: "number" }),
+    /** Per-shop grace days; null = rule shopMembership.graceDays. 0 after "Expire now". */
+    registrationGraceDays: integer("registration_grace_days"),
+    /** Grace given until this moment (the 0210 migration, or an admin); the shop stays online until then. */
+    registrationGraceUntil: timestamp("registration_grace_until", { withTimezone: true }),
+    registrationRemindersEnabled: boolean("registration_reminders_enabled").notNull().default(true),
+    /** No foreign key, as the other payment links on shops. */
+    lastRegistrationPaymentId: uuid("last_registration_payment_id"),
+    lastRegistrationPaymentAt: timestamp("last_registration_payment_at", { withTimezone: true }),
+    registrationStatusAt: timestamp("registration_status_at", { withTimezone: true }),
+    /** What the 0210 migration did to this shop: END_DATE_SET, GRACE_GIVEN, or both. */
+    registrationBackfill: text("registration_backfill"),
     /** D-69: the owner closed the shop permanently (status INACTIVE). No foreign key: users are customer-side. */
     closedAt: timestamp("closed_at", { withTimezone: true }),
     closedBy: uuid("closed_by"),
@@ -4528,6 +4550,79 @@ export const shopMembershipPeriods = pgTable(
   ],
 );
 export type ShopMembershipPeriod = typeof shopMembershipPeriods.$inferSelect;
+
+/**
+ * 0210 (docs/shop-registration-subscription-2026-11): a registration / renewal payment link sent to a shop
+ * owner (by an admin, or by the reminder job). One ACTIVE link per shop; a new one cancels the old.
+ */
+export const shopRegistrationLinks = pgTable(
+  "shop_registration_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id),
+    paymentIntentId: uuid("payment_intent_id").notNull(),
+    kind: text("kind", { enum: ["REGISTRATION", "RENEWAL"] }).notNull(),
+    status: text("status", { enum: ["ACTIVE", "CANCELLED", "EXPIRED", "PAID"] }).notNull().default("ACTIVE"),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    linkUrl: text("link_url"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdBy: uuid("created_by"),
+    createdVia: text("created_via", { enum: ["ADMIN", "REMINDER"] }).notNull().default("ADMIN"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endReason: text("end_reason"),
+  },
+  (t) => [
+    uniqueIndex("shop_registration_links_one_active").on(t.shopId).where(sql`${t.status} = 'ACTIVE'`),
+    uniqueIndex("shop_registration_links_intent_uq").on(t.paymentIntentId),
+    index("shop_registration_links_shop_idx").on(t.shopId, t.createdAt),
+  ],
+);
+export type ShopRegistrationLink = typeof shopRegistrationLinks.$inferSelect;
+
+/** 0210: every registration reminder sent — automatic ones once per shop, stage and day (sent_by null); staff ones always. */
+export const shopRegistrationReminders = pgTable(
+  "shop_registration_reminders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id),
+    kind: text("kind", { enum: ["UNPAID", "RENEWAL"] }).notNull(),
+    stage: text("stage").notNull(),
+    dueOn: date("due_on").notNull(),
+    channels: text("channels").notNull().default("IN_APP,PUSH,EMAIL"),
+    linkId: uuid("link_id"),
+    sentBy: uuid("sent_by"),
+    status: text("status", { enum: ["SENT", "FAILED", "SKIPPED"] }).notNull().default("SENT"),
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_registration_reminders_once").on(t.shopId, t.stage, t.dueOn).where(sql`${t.sentBy} IS NULL`),
+    index("shop_registration_reminders_shop_idx").on(t.shopId, t.createdAt),
+  ],
+);
+export type ShopRegistrationReminder = typeof shopRegistrationReminders.$inferSelect;
+
+/** 0210: one row per day the expiry digest went to the CC list (claimed before sending). */
+export const shopRegistrationDigests = pgTable("shop_registration_digests", {
+  day: date("day").primaryKey(),
+  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  detail: text("detail"),
+});
+
+/** 0210: the migration report — counts per registration status when the migration ran. */
+export const shopRegistrationMigrationReports = pgTable("shop_registration_migration_reports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
+  counts: jsonb("counts").$type<Record<string, number>>().notNull(),
+  backfilled: integer("backfilled").notNull().default(0),
+  graced: integer("graced").notNull().default(0),
+});
 
 /* -------------------------------------------------- excel bulk uploads */
 

@@ -47,8 +47,8 @@ describe("schedule", () => {
         "dealer-scheme-launches",
         "payments-reconcile", "payout-cycle", "payout-reconcile", "payout-retries", "pmd-ingest", "purchase-list-reminders", "push-receipts",
         "rider-monthly-payout", "risk-rules", "seller-verification", "shop-document-follow-up", "timeout-sweep",
-        // docs/shop-membership-renewal-2026-11: yearly membership reminders (daily; no-op while the rule switch is off).
-        "shop-membership-reminders",
+        // docs/shop-registration-subscription-2026-11: statuses, links, reminders from 09:00 IST and the CC digest (every 15 minutes).
+        "shop-registration",
         // docs/smart-shopping-2026-11: list photos deleted after the retention days (daily).
         "smart-list-photo-retention",
         // docs/smart-shopping-2026-11 (Feature 2): add-by-photo photos past the retention days (daily).
@@ -68,13 +68,15 @@ describe("schedule", () => {
     expect(names(dueEveryMinute(at(10)))).toContain("bill-captures");
     expect(names(dueEveryMinute(at(5)))).not.toContain("bill-captures");
     expect(names(dueEveryMinute(at(45)))).toContain("push-receipts");
+    expect(names(dueEveryMinute(at(15)))).toContain("shop-registration");
+    expect(names(dueEveryMinute(at(5)))).not.toContain("shop-registration");
     expect(names(dueEveryMinute(at(20)))).not.toContain("push-receipts");
     expect(names(dueEveryMinute(at(0)))).toEqual(names(EVERY_MINUTE));
   });
 
   it("runs the finance week on Mondays only; the payout cycle every day (it acts on Saturdays)", () => {
-    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "dealer-team-report-weekly", "purchase-list-reminders", "shop-document-follow-up", "shop-membership-reminders", "billing-daily", "smart-list-photo-retention", "photo-listing-purge", "account-deletion-purge"]); // Monday
-    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "purchase-list-reminders", "shop-document-follow-up", "shop-membership-reminders", "billing-daily", "smart-list-photo-retention", "photo-listing-purge", "account-deletion-purge"]); // Saturday
+    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "dealer-team-report-weekly", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention", "photo-listing-purge", "account-deletion-purge"]); // Monday
+    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention", "photo-listing-purge", "account-deletion-purge"]); // Saturday
   });
 });
 
