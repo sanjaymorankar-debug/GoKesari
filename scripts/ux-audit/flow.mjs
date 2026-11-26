@@ -64,8 +64,12 @@ await step("Nothing selected by default; bulk tools hidden", async () => {
 
 await step("Validation: price above MRP shows inline error and blocks save", async () => {
   const row = page.getByTestId("stock-row").first();
-  const mrp = await row.getByLabel(/^MRP \(₹\) for /).inputValue();
-  if (!mrp) throw new Error("first row has no MRP to test against");
+  let mrp = await row.getByLabel(/^MRP \(₹\) for /).inputValue();
+  // A row without an MRP gets one typed in (it is discarded at the end of this check).
+  if (!mrp) {
+    mrp = "100";
+    await row.getByLabel(/^MRP \(₹\) for /).fill(mrp);
+  }
   await row.getByLabel(/^Selling price \(₹\) for /).fill(String(Number(mrp) + 1));
   await row.getByText("Price cannot be more than the MRP.").waitFor();
   const disabled = await page.getByRole("button", { name: /^Save changes/ }).isDisabled();
