@@ -61,11 +61,12 @@ describe("bundled v1.0 templates", () => {
       }
     });
 
-    it(`${doc}: every translation says the English version prevails and is marked pending legal review`, () => {
+    it(`${doc}: every translation says the English version prevails and is marked as a draft translation`, () => {
       for (const lang of ["mr", "hi"]) {
         const body = read(doc, lang);
         expect(body).toContain("In case of any difference between language versions, the English version shall prevail.");
-        expect(body).toMatch(/Pending legal review/);
+        expect(body).toMatch(/legal review pending/);
+        expect(body).toContain("Draft translation");
       }
     });
 

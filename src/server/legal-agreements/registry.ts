@@ -4,8 +4,8 @@
  *
  * Rules:
  * - English is the master. A Marathi / Hindi row of the same version must use exactly the same merge fields
- *   and blocks, starts "Pending legal review", and can be published only after an admin marks it reviewed
- *   and the English row of that version is published.
+ *   and blocks. It is published with its English version as a draft translation (owner decision 26-Nov-2026:
+ *   marked "Draft translation" in the document, English prevails); legal review is recorded when done.
  * - Publishing runs checks (publishChecks): blocking problems stop it; warnings must be acknowledged.
  *   The commission clash between documents (SLA 2 % / medical 3 %) is blocking — the system never picks one.
  * - A new version of a document that already has a published version needs an effective date at least
@@ -383,7 +383,9 @@ export async function publishChecks(id: string): Promise<PublishCheck> {
   }
 
   if (row.language !== "en") {
-    if (row.reviewStatus !== "REVIEWED") blocking.push("This translation is pending legal review. Mark it reviewed once a lawyer has checked it.");
+    // Owner decision 26-Nov-2026: Marathi / Hindi are published as draft translations (marked so in the document,
+    // English prevails); the legal review is a warning, not a block.
+    if (row.reviewStatus !== "REVIEWED") warnings.push("Draft translation: not yet legally reviewed. It is published marked as a draft translation (English prevails). Mark it reviewed once a lawyer has checked it.");
     const [english] = await db
       .select()
       .from(legalDocuments)
@@ -471,6 +473,20 @@ export async function publishTemplate(id: string, actor: Actor, options: { ackno
   });
   let noticeShops = 0;
   if (row.language === "en") {
+    // The Marathi / Hindi drafts of this version go out with it (owner decision 26-Nov-2026), when nothing blocks them.
+    const translations = await db
+      .select({ id: legalDocuments.id })
+      .from(legalDocuments)
+      .where(and(eq(legalDocuments.docType, row.docType), eq(legalDocuments.version, row.version), ne(legalDocuments.language, "en"), eq(legalDocuments.status, "DRAFT")));
+    for (const t of translations) {
+      const tc = await publishChecks(t.id);
+      if (tc.blocking.length) continue;
+      await db
+        .update(legalDocuments)
+        .set({ status: "PUBLISHED", publishedAt: new Date(), publishedBy: actor.id })
+        .where(and(eq(legalDocuments.id, t.id), eq(legalDocuments.status, "DRAFT")));
+      await recordAudit({ actorId: actor.id, actorRole: actor.role as never, action: AUDIT_ACTIONS.AGREEMENT_TEMPLATE_PUBLISHED, entityType: "legal_document", entityId: t.id, newValue: { withEnglish: id, draftTranslation: true, warnings: tc.warnings } });
+    }
     const { sendChangeNotices } = await import("./notices");
     noticeShops = await sendChangeNotices(row);
   }

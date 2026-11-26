@@ -3,7 +3,7 @@
  * Chromium (the PDF tests are skipped, loudly, where no Chromium can start):
  *
  * - publishing: documents stating different commission block each other (owner: 2 % for all); the medical
- *   agreement is executed by e-signature with no stamp paper; a translation needs its legal review and the English version first;
+ *   agreement is executed by e-signature with no stamp paper; Marathi / Hindi go out with English as draft translations;
  * - an existing pharmacy must sign: grace period, licence blockers, OTP to the registered mobile;
  * - signing freezes one snapshot, prints every published language, records hashes that match the stored PDFs,
  *   writes immutable acceptance rows, e-mails the signed copies with CC, and satisfies the requirement;
@@ -42,7 +42,7 @@ import {
 } from "@/server/db/schema";
 import { deliverDocumentEmails } from "@/server/documents/email";
 import { printHtmlToPdf } from "@/server/legal-agreements/pdf/html-to-pdf";
-import { confirmReview, ensureBundledTemplates, publishChecks, publishTemplate, updateDraft } from "@/server/legal-agreements/registry";
+import { ensureBundledTemplates, publishChecks, publishTemplate, updateDraft } from "@/server/legal-agreements/registry";
 import { assertAgreementsAllowOrders, getAgreementStatus } from "@/server/legal-agreements/requirements";
 import { createSigningLink, resolveSigningLink, sendSigningCode, signAgreements } from "@/server/legal-agreements/signing";
 import { clearFeatureFlagCache, setFeatureFlag } from "@/server/services/feature-flags";
@@ -84,15 +84,12 @@ async function template(docType: "SELLER_SLA" | "MEDICAL_ONBOARDING", language: 
   return row;
 }
 
-/** Publishes SLA (en + mr) and the medical agreement (en), resolving the checks the way an admin would. */
+/** Publishes the SLA and the medical agreement (English, with their Marathi / Hindi draft translations). */
 async function publishAll() {
   await ensureBundledTemplates(admin.id);
   const medical = await template("MEDICAL_ONBOARDING", "en");
   await publishTemplate((await template("SELLER_SLA", "en")).id, actor(), { acknowledgeWarnings: true });
   await publishTemplate(medical.id, actor(), { acknowledgeWarnings: true });
-  const mr = await template("SELLER_SLA", "mr");
-  await confirmReview(mr.id, "translation", actor());
-  await publishTemplate(mr.id, actor(), { acknowledgeWarnings: true });
 }
 
 async function pharmacyWithOwner(options: { drugLicence?: boolean } = {}) {
@@ -151,13 +148,18 @@ describe("publishing", () => {
     expect((await publishChecks(medical.id)).blocking).toEqual([]);
   });
 
-  it("TC-AGR-003 a translation waits for its legal review and for the English version", async () => {
+  it("TC-AGR-003 Marathi / Hindi go out with the English version as draft translations (review is a warning)", async () => {
     await ensureBundledTemplates(admin.id);
     const mr = await template("SELLER_SLA", "mr");
     expect(mr.reviewStatus).toBe("PENDING_LEGAL_REVIEW");
+    expect(mr.templateBody).toContain("Draft translation");
     const checks = await publishChecks(mr.id);
-    expect(checks.blocking.join(" ")).toMatch(/pending legal review/);
     expect(checks.blocking.join(" ")).toMatch(/Publish the English version/);
+    expect(checks.blocking.join(" ")).not.toMatch(/legal review/i);
+    expect(checks.warnings.join(" ")).toMatch(/Draft translation: not yet legally reviewed/);
+    await publishTemplate((await template("SELLER_SLA", "en")).id, actor(), { acknowledgeWarnings: true });
+    for (const lang of ["mr", "hi"] as const) expect((await template("SELLER_SLA", lang)).status).toBe("PUBLISHED");
+    expect((await template("MEDICAL_ONBOARDING", "mr")).status).toBe("DRAFT");
   });
 });
 
@@ -191,7 +193,7 @@ describe("signing", () => {
     expect(status.required).toBe(true);
     expect(status.reason).toBe("EXISTING_SHOP");
     expect(status.documents.map((d) => d.docType).sort()).toEqual(["MEDICAL_ONBOARDING", "SELLER_SLA"]);
-    expect(status.documents.find((d) => d.docType === "SELLER_SLA")!.languages).toEqual(["en", "mr"]);
+    expect(status.documents.find((d) => d.docType === "SELLER_SLA")!.languages).toEqual(["en", "mr", "hi"]);
     const grace = new Date(status.graceUntil!).getTime() - Date.now();
     expect(grace).toBeGreaterThan(6.9 * 86_400_000);
 
@@ -228,7 +230,7 @@ describe("signing", () => {
         expect(data.subarray(0, 5).toString()).toBe("%PDF-");
         if (f.language === "mr" && f.kind === "SIGNED") expect(data.toString("latin1")).toMatch(/NotoSansDevanagari/);
       }
-      const langs = row.docType === "SELLER_SLA" ? ["en", "mr"] : ["en"];
+      const langs = ["en", "mr", "hi"];
       expect(files.map((f) => f.language).sort()).toEqual([...langs, ...langs].sort());
     }
 
@@ -248,7 +250,7 @@ describe("signing", () => {
     expect(mail).toBeTruthy();
     expect(mail!.cc).toEqual(["ceo@agtci.com"]);
     expect(mail!.subject).toContain("आपले स्वाक्षरी केलेले करार");
-    expect(mail!.attachments!.filter((a) => a.filename.endsWith(".pdf")).length).toBe(3);
+    expect(mail!.attachments!.filter((a) => a.filename.endsWith(".pdf")).length).toBe(6);
     const [sent] = await db.select().from(documentEmails).where(eq(documentEmails.docType, "SELLER_AGREEMENTS"));
     expect(sent.status).toBe("SENT");
     expect(sent.messageId).toMatch(/^<test-/);

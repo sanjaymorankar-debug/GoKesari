@@ -1,9 +1,9 @@
 # Marathi and Hindi agreement drafts – points for the lawyer (26-Nov-2026)
 
 The Marathi and Hindi versions of the Seller SLA v1.0 and the Medical Shop Onboarding Agreement v1.0 are
-**machine-assisted drafts, status "Pending legal review"**. They are stored as DRAFT rows and cannot be
-published until an admin marks them reviewed (Admin → Agreements). The English version prevails; every
-translated copy says so at the top.
+**machine-assisted drafts**. Owner decision 26-Nov-2026: they are published with the English version,
+marked "Draft translation" at the top of every copy (English prevails). The lawyer's review is still to be done;
+then the admin marks each one reviewed in Admin → Agreements (and publishes a corrected version if needed).
 
 Mechanical check (both languages, both documents): every merge field, every HTML tag and attribute, and every
 number in the English text are present unchanged. No Devanagari digits are used.

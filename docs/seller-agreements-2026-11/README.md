@@ -114,7 +114,7 @@ Fees, commission, settlement days and penalties are read from configuration, not
 - unknown fields;
 - a field that would be empty with the live configuration;
 - an unconfirmed legal-review note on a clause (none in v1.0);
-- a translation not marked reviewed, or whose English version is not yet published, or whose merge fields differ from English;
+- a translation whose English version is not yet published, or whose merge fields differ from English (a translation not yet reviewed by a lawyer is a warning only; it is published with English as a draft translation, owner decision 26-Nov-2026, 11.20 IST);
 - a new version whose effective date is less than `sellerAgreements.noticeDays` (30) after publishing;
 - **the commission clash.** Each English version records the figures its text states ("stated figures", for example SLA 2 %, medical 3 %). Two documents a shop can sign together that state different commission block each other until the admin decides. The admin sets the same figure in both drafts and in Admin → Finance. The system never chooses.
 
@@ -207,7 +207,7 @@ DELETE (trigger `legal_records_immutable`).
 1. Admin → Agreements opens and imports the v1.0 drafts.
 2. Settings (rule `sellerAgreements`): signatory, e-seal, board resolution date if any.
 3. Commission (decided: 2 % for every shop): check that Admin → Finance has a 2 % default and no other rate for PHARMACY.
-4. Publish the SLA (EN), then the medical agreement (EN). Once the MR / HI drafts are reviewed, mark them reviewed and publish them.
+4. Publish the SLA (EN), then the medical agreement (EN). Their Marathi / Hindi draft translations publish with them, marked "Draft translation".
 5. Switch on `seller_agreements_enabled`. It can be limited to districts.
 
 ## Tests
@@ -222,9 +222,15 @@ DELETE (trigger `legal_records_immutable`).
 - `tests/integration/seller-agreements.test.ts`, against PostgreSQL and a real Chromium:
   - TC-AGR-001: the bundled documents agree (2 %); a draft stating 3 % blocks;
   - TC-AGR-002: medical agreement executed by e-signature, no stamp paper, nothing blocks it;
-  - TC-AGR-003: translation review;
+  - TC-AGR-003: Marathi / Hindi publish with English as draft translations;
   - TC-AGR-010: flag off;
   - TC-AGR-011: licence blocker;
   - TC-AGR-012: full signing — hashes match the stored PDFs, Devanagari font embedded, immutable rows, e-mail with CC and Message-ID, re-confirmation after a licence change;
   - TC-AGR-013: grace period blocks new orders;
   - TC-AGR-014: owner link.
+
+## Open items (to do later)
+
+| Item | Owner | Status |
+|---|---|---|
+| **Lawyer review of all agreements and policies:** Seller SLA and Medical Onboarding Agreement (English, and the Marathi / Hindi draft translations — see TRANSLATION_REVIEW.md), Seller Terms, Terms of Use, Privacy Policy, the other `/legal` policies (refund, shipping, wallet, voucher, subscription, cookie, grievance, social welfare) and the seller goods undertaking. Afterwards: mark the translations reviewed in Admin → Agreements, and publish a new version where wording changes (30-day notice). | Owner + lawyer | Pending (added 26-Nov-2026, 11.20 IST) |
