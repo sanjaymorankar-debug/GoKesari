@@ -51,6 +51,8 @@ export const DEEP_LINK_ROUTES = [
   { kind: "shop-register", example: "/shop/register?ref=<code>", prefix: "/shop/register" },
   // docs/franchise (app 1.11.0): the Pune franchise pages; renewal, expiry and booking pushes open /franchise/my.
   { kind: "franchise", example: "/franchise/zones/<zone>", prefix: "/franchise" },
+  // 1.15.0 (docs/referral-sharing-2026-11): a closed or expired referral link's page (My referrals, /referrals, is under /refer).
+  { kind: "referral", example: "/invite/<code>", prefix: "/invite/" },
 ] as const;
 
 /** test.gokesari.com (and any test.* host) is the preview build; everything else the store build. */

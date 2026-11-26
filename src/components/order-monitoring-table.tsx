@@ -34,6 +34,8 @@ export interface MonitoringRow {
   deliveryGps?: {
     delivered: { latitude: number; longitude: number; accuracyM: number | null } | null;
     failed: { latitude: number; longitude: number } | null;
+    /** Why the drop failed (the rider's reason). */
+    failureReason?: string | null;
   } | null;
 }
 
@@ -178,6 +180,11 @@ export function OrderMonitoringTable({
                             <a href={mapLink(order.deliveryGps.failed)} target="_blank" rel="noreferrer" className="block text-xs text-ink-600 hover:underline" data-testid="admin-failed-gps">
                               Failed at {order.deliveryGps.failed.latitude.toFixed(5)}, {order.deliveryGps.failed.longitude.toFixed(5)}
                             </a>
+                          ) : null}
+                          {order.deliveryGps?.failureReason ? (
+                            <p className="text-xs text-red-700" data-testid="admin-failure-reason">
+                              Failed: {order.deliveryGps.failureReason}
+                            </p>
                           ) : null}
                           {order.tripId ? (
                             <p className="text-xs text-kesari-700" data-testid="batched-trip">

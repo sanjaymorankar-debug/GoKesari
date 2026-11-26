@@ -20,8 +20,8 @@ export default async function TrackLookupPage() {
   const lang = await getBoardLang();
   return (
     <div className="mx-auto max-w-md space-y-4">
-      <PageHeader title={tr(GC.trackTitle, lang)} description="Use the reference from your order e-mail (GK-… or DB-…)." />
-      <TrackLookupForm />
+      <PageHeader title={tr(GC.trackTitle, lang)} description={tr(GC.trackIntro, lang)} />
+      <TrackLookupForm lang={lang} />
     </div>
   );
 }

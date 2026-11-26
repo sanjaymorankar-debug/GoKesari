@@ -8,6 +8,8 @@ import { formatPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
 import { canApplyReferralCode, getReferralSummary } from "@/server/services/customer-referrals";
 import { getRule } from "@/server/services/settings";
+import { referralSharingOn } from "@/server/services/referral-links";
+import { getPreferredLang } from "@/server/preferred-lang";
 
 export const metadata = { title: "Refer a friend" };
 export const dynamic = "force-dynamic";
@@ -25,7 +27,14 @@ export default async function ReferPage() {
       </>
     );
   }
-  const [summary, canApply, jar, hdrs] = await Promise.all([getReferralSummary(user.id), canApplyReferralCode(user.id), cookies(), headers()]);
+  const [summary, canApply, jar, hdrs, sharing, lang] = await Promise.all([
+    getReferralSummary(user.id),
+    canApplyReferralCode(user.id),
+    cookies(),
+    headers(),
+    referralSharingOn(),
+    getPreferredLang(user.id),
+  ]);
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "gokesari.com";
   const proto = hdrs.get("x-forwarded-proto") ?? "https";
   const link = `${proto}://${host}/r/${summary.code}`;
@@ -37,6 +46,7 @@ export default async function ReferPage() {
       <ReferralShare
         code={summary.code}
         link={link}
+        share={sharing ? { who: user.name?.trim().split(/\s+/)[0] || "A friend", origin: `${proto}://${host}`, lang } : null}
         rewardText={`You get ${formatPaise(rule.referrerRewardPaise)} and your friend gets ${formatPaise(rule.refereeRewardPaise)} in wallet credit after their first delivered order.`}
       />
       <Card className="grid grid-cols-3 gap-3 p-4 text-center text-sm">

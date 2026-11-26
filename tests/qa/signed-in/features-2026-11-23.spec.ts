@@ -226,7 +226,6 @@ manual("TC-DPLT-054", "A Regional Admin sees only his regions on the dashboard",
 manual("TC-DPLT-055", "dealer_platform_four_eye: off applies at once, on waits for a second admin", "P0, blocked on staging 23-Nov-2026: needs a second staging admin (rbac_v2_four_eye_admin is ON); test account gk-admin2 exists but its ADMIN role awaits the owner's approval (Admin - Approvals)");
 // Smart shopping
 manual("TC-SMART-001", "Guest is sent to sign-in from every wishlist page; the smart-list APIs answer 401", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-SMART-002", "Flag off: no Scan tile, wishlist pages 404, scan / save / compare / order refused", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-003", "“Scan my shopping list” tile on the home pages, in the cart and on My wishlists", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-004", "Scan a two-page handwritten Marathi list: items, quantities and catalogue matches", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-005", "Unreadable list photo is explained with a Retake button, never an empty wishlist", "added 23-Nov-2026 for manual testing; not automated yet");
@@ -249,15 +248,12 @@ manual("TC-SMART-021", "Order from a shop that no longer has any item, or with a
 manual("TC-SMART-022", "Buying the same wishlist again next time", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-023", "List photos are private and deleted after the retention days", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-024", "AI daily limit per person (rule smartShopping.aiCallsPerUserPerDay)", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-SMART-025", "Smart shopping dashboard for admins and operators", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-027", "Photos of a packed product: AI fills every field with its confidence; doubtful fields highlighted", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-028", "Product already in the catalogue: use it, no duplicate; an already-listed product is updated", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-029", "New product from photos is live in the shop at once and waits for admin review", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-030", "Price, stock and unit by voice or typing, read back in three languages", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-031", "Price above the MRP on the pack is refused; packed goods need a price; loose goods may wait", "P0, blocked on staging 23-Nov-2026: flag shop_photo_listing_enabled is OFF and the AI key (ANTHROPIC_API_KEY) is not set on staging");
 manual("TC-SMART-032", "Bulk mode, discard, unreadable photos and upload limits", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-SMART-033", "Products added by photo report and photo retention", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-SMART-034", "Orders on WhatsApp settings: hidden while the flag is off; the shop's owner only", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-035", "Save the owner's and two staff numbers with consent; each number is checked on WhatsApp", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-036", "WhatsApp numbers: wrong mobile, duplicate, staff limit, no consent", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-037", "New order arrives on WhatsApp; Accept accepts it exactly as the app does", "P0, blocked on staging 23-Nov-2026: flag whatsapp_shop_orders_enabled is OFF and the Meta WhatsApp keys, templates and test recipient are not set on staging");

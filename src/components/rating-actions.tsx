@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Button, inputClass } from "@/components/ui";
+import { tr, type Lang } from "@/lib/board/i18n";
+import { ORDER_CARD as C } from "@/lib/order-status-i18n";
 
 function Stars({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
   return (
@@ -130,7 +132,7 @@ export function RateOrderForm({
 }
 
 /** Report a problem with an order — creates a ticket linked to it (GS-056 / WF-007). */
-export function ReportIssueForm({ orderId }: { orderId: string }) {
+export function ReportIssueForm({ orderId, lang = "en" }: { orderId: string; lang?: Lang }) {
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<"ORDER" | "PRODUCT" | "PAYMENT">("PRODUCT");
   const [description, setDescription] = useState("");
@@ -149,14 +151,16 @@ export function ReportIssueForm({ orderId }: { orderId: string }) {
     const payload = await response.json().catch(() => null);
     setBusy(false);
     if (!response.ok) {
-      setError(payload?.error?.message ?? "Could not send your report.");
+      setError(payload?.error?.message ?? tr(C.sendFailed, lang));
       return;
     }
     setResult(payload.ticketNumber);
     setOpen(false);
   }
 
-  if (result) return <p className="mt-2 text-xs text-leaf-700">Reported — ticket {result}. We will get back to you.</p>;
+  if (result) return <p className="mt-2 text-xs text-leaf-700">
+        {tr(C.reportedA, lang)} {result}. {tr(C.reportedB, lang)}
+      </p>;
   return (
     <div className="mt-2 text-sm">
       {open ? (
@@ -165,34 +169,34 @@ export function ReportIssueForm({ orderId }: { orderId: string }) {
             className="rounded-lg border border-cream-200 px-2 py-1 text-sm"
             value={category}
             onChange={(e) => setCategory(e.target.value as typeof category)}
-            aria-label="Problem type"
+            aria-label={tr(C.problemType, lang)}
           >
-            <option value="PRODUCT">Wrong / damaged / missing item</option>
-            <option value="ORDER">Delivery problem</option>
-            <option value="PAYMENT">Payment or refund</option>
+            <option value="PRODUCT">{tr(C.product, lang)}</option>
+            <option value="ORDER">{tr(C.delivery, lang)}</option>
+            <option value="PAYMENT">{tr(C.payment, lang)}</option>
           </select>
           <textarea
             className={inputClass}
             rows={2}
             maxLength={2000}
-            placeholder="What went wrong? (at least 10 characters)"
+            placeholder={tr(C.placeholder, lang)}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            aria-label="Describe the problem"
+            aria-label={tr(C.describe, lang)}
           />
           <div className="flex gap-2">
             <Button size="sm" className="min-h-11" disabled={busy || description.trim().length < 10} onClick={submit}>
-              Send
+              {tr(C.send, lang)}
             </Button>
             <Button size="sm" className="min-h-11" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+              {tr(C.cancel, lang)}
             </Button>
           </div>
           {error ? <Alert tone="danger">{error}</Alert> : null}
         </div>
       ) : (
         <button type="button" className="text-xs font-medium text-kesari-700 underline" onClick={() => setOpen(true)}>
-          Report a problem
+          {tr(C.report, lang)}
         </button>
       )}
     </div>

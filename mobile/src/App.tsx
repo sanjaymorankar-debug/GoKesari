@@ -45,6 +45,7 @@ import { runCashfreeCheckout } from "./cashfree";
 import { parseCashfreeCheckoutRequest } from "./cashfree-request";
 import { APP_SCHEME, APP_VARIANT, APP_VERSION, COLORS, SITE_URL, UA_TOKEN } from "./config";
 import { digilockerCallbackUrl, digilockerResult, isDigilockerUrl } from "./digilocker";
+import { firstPageFor, takeFirstOpen } from "./first-open";
 import { notificationTarget, sitePageUrl as siteLink } from "./deep-links";
 import { signInWithGoogle } from "./google-sign-in";
 import { decideNavigation, decideNewWindow, playStoreUrl, type NavigationDecision } from "./navigation-policy";
@@ -198,7 +199,7 @@ function Shell() {
       .catch(() => null)
       .then((link) => {
         // A tapped notification may already have chosen the first page (below).
-        if (!cancelled) setSource((current) => current ?? { uri: sitePageUrl(link) ?? SITE_URL });
+        if (!cancelled) setSource((current) => current ?? { uri: firstPageFor(sitePageUrl(link), takeFirstOpen(), SITE_URL, SITE_ORIGIN) });
       });
     const subscription = Linking.addEventListener("url", ({ url }) => {
       // `<scheme>://auth-callback` belongs to the sign-in in progress (expo-web-browser handles it).
