@@ -631,6 +631,9 @@ export const AUDIT_ACTIONS = {
   SHOP_CANCELLATION_FEE_CHANGED: "shop.cancellation_fee_changed", // batch-2026-10 WS-C
   ORDER_CANCELLATION_FEE_CHARGED: "order.cancellation_fee_charged", // batch-2026-10 WS-C
   ORDER_REFUND_RECORDED: "order.refund_recorded", // batch-2026-10 WS-C
+  // docs/flows-v3/wave2.md (0222, flag flow_f16): a customer asks the shop to cancel a packed order; the shop's answer.
+  ORDER_CANCEL_REQUESTED: "order.cancel_requested",
+  ORDER_CANCEL_REQUEST_DECIDED: "order.cancel_request_decided",
   SUPPORT_TICKET_CREATED: "support_ticket.created", // batch-2026-10 WS-C
   SUPPORT_TICKET_UPDATED: "support_ticket.updated", // batch-2026-10 WS-C
   SUPPORT_CANNED_REPLY_CHANGED: "support_canned_reply.changed", // batch-2026-10 WS-C

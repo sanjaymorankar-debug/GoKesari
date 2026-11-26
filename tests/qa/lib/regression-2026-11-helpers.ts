@@ -11,7 +11,7 @@
 import { devices, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { randomInt } from "node:crypto";
 
-import { storageFor } from "./actors";
+import { as, storageFor } from "./actors";
 import { BASE_URL, IS_REMOTE } from "./target";
 import type { Role } from "./world";
 
@@ -35,6 +35,7 @@ function settleAfterGoto(page: Page) {
 
 /** A phone page, signed in as `role` (its saved session / minted cookie), or a guest when `role` is null. */
 export async function phonePage(browser: Browser, role: Role | null, extra: ContextOptions = {}): Promise<{ context: BrowserContext; page: Page }> {
+  if (role) await as(role); // the account's factors (dual_auth) before its pages
   const storage = role ? { storageState: await storageFor(role) } : {};
   const context = await browser.newContext(phoneOptions({ ...storage, ...extra }));
   const page = await context.newPage();

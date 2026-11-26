@@ -15,7 +15,7 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { orders, shops, type OrderStatus, type UserRole } from "@/server/db/schema";
 import { cancelOrder, ORDER_STATUS_LABELS } from "@/server/services/orders";
-import { getRule } from "@/server/services/settings";
+import { afterPackingCancellationRule, cancellationRule } from "@/server/flows/wave2-rules";
 import { SELF_CANCEL_MESSAGES, selfCancelBlock } from "@/lib/order-cancellation";
 import {
   computeRefundBreakdown,
@@ -77,8 +77,8 @@ async function blockedReasonFor(status: OrderStatus, selfService: boolean): Prom
   if (!canTransition(status, "CANCELLED")) return `This order is ${ORDER_STATUS_LABELS[status].toLowerCase()} and can no longer be cancelled.`;
   if (!selfService) return null;
   const block = selfCancelBlock(status, {
-    customerMayCancelUntil: (await getRule("cancellation")).customerMayCancelUntil,
-    afterPackingEnabled: (await getRule("afterPackingCancellation")).enabled,
+    customerMayCancelUntil: (await cancellationRule()).customerMayCancelUntil, // docs/flows-v3/wave2.md (flag flow_f16)
+    afterPackingEnabled: (await afterPackingCancellationRule()).enabled,
   });
   return block === "BEING_PREPARED" || block === "CONTACT_SUPPORT" ? SELF_CANCEL_MESSAGES[block] : null;
 }

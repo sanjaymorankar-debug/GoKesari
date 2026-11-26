@@ -53,7 +53,10 @@ const subOption = (l: { name: string }) => new RegExp(l.name.replace(/[.*+?^${}(
 qa("TC-FUL-001", "a new order appears under New on /shop/orders and the shop gets an in-app notice (and an e-mail)", async ({ browser }) => {
   await ensureWallet();
   const since = Date.now();
-  const placed = await placeSimple();
+  // Shop A keeps 06:00–22:00 hours on the test site: at night the order is "placed while closed" and the shop's notice
+  // reads "New order while your shop is closed" (a different case). The order is placed while the shop is open.
+  const restoreHours = await withShopSettings({ openingHours: [] });
+  const placed = await placeSimple().finally(restoreHours);
   const { context, page } = await pageAs(browser, "shop");
   try {
     const card = await shopCard(page, placed.orderNumber, "new");

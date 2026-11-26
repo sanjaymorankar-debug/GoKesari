@@ -43,7 +43,12 @@ function current() {
 
 /** Status of the order as the customer's own order list shows it. */
 async function statusOf(id: string) {
-  return (await orderAs("customer", id))?.status ?? "missing";
+  const row = await orderAs("customer", id);
+  if (row) return row.status;
+  // GET /api/orders lists the customer's newest 25 orders only; the staging customer places many between the desktop
+  // and the phone run (baseline 27-Nov-2026), so the order's own cancellation quote (the buyer may read it) gives its status.
+  const quote = await call(await as("customer"), "GET", `/api/orders/${id}/cancellation-quote`);
+  return quote.status === 200 && typeof quote.body?.status === "string" ? (quote.body.status as string) : "missing";
 }
 
 qa(["TC-CART-001", "TC-CART-002"], "cart: add two products of one shop, change quantity, remove a line, empty", async () => {

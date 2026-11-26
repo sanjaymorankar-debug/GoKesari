@@ -27,6 +27,8 @@ export interface QueuePlan {
   kind: "NEW_ORDER" | "STATUS_UPDATE";
   /** The status line of a STATUS_UPDATE. */
   update?: string;
+  /** docs/flows-v3/wave2.md: sent only while this flow flag is on too. */
+  flowFlag?: "flow_f19";
 }
 
 /** What, if anything, an event sends to the shop's WhatsApp. */
@@ -42,6 +44,15 @@ export function whatsAppPlanFor(type: string, payload: Record<string, unknown>, 
     case "order.assigned": {
       const name = (payload.shopRiderName ?? payload.riderName) as string | null | undefined;
       return { kind: "STATUS_UPDATE", update: `Delivery partner assigned${name ? `: ${name}` : ""}. Keep the order ready for pickup.` };
+    }
+    // docs/flows-v3/wave2.md (flag flow_f19): the half-time acceptance reminder also goes to WhatsApp.
+    case "order.accept_reminder": {
+      const minutes = typeof payload.minutes === "number" ? payload.minutes : null;
+      return {
+        kind: "STATUS_UPDATE",
+        update: `Reminder: accept this order${minutes ? ` within ${minutes} min` : ""}, or it is cancelled automatically.`,
+        flowFlag: "flow_f19",
+      };
     }
     case "order.delivered":
       return {
@@ -69,6 +80,7 @@ export async function queueShopWhatsAppForEvent<T extends EventType>(
   const orderId = (payload as { orderId?: string }).orderId;
   if (!plan || !orderId) return 0;
   try {
+    if (plan.flowFlag && !(await (await import("@/server/flows/wave2-rules")).flowOn(plan.flowFlag))) return 0;
     const [order] = await client
       .select({ shopId: orders.shopId, pincode: shops.pincode })
       .from(orders)

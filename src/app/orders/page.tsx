@@ -43,6 +43,7 @@ import { listMyRatingsByOrder } from "@/server/services/ratings";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
 import { proofPhotosForOrders, signaturesForOrders } from "@/server/services/delivery-proofs";
 import { getRule } from "@/server/services/settings";
+import { afterPackingCancellationRule, cancellationRule as effectiveCancellationRule } from "@/server/flows/wave2-rules";
 import { getBuyerFulfilmentViews } from "@/server/services/fulfilment-options";
 import { OrderFulfilmentCard } from "@/components/order-fulfilment-card";
 
@@ -167,8 +168,8 @@ export default async function OrdersPage({
   const [proofPhotos, invoicingRule, cancellationRule, afterPackingRule, invoiceKinds, gokesariInvoices, signatures] = await Promise.all([
     proofPhotosForOrders(deliveredIds),
     getRule("invoicing"),
-    getRule("cancellation"),
-    getRule("afterPackingCancellation"), // batch-2026-10 WS-C
+    effectiveCancellationRule(), // docs/flows-v3/wave2.md (flag flow_f16)
+    afterPackingCancellationRule(), // batch-2026-10 WS-C
     // Billing v2 (QA D-112, D-113): the invoice's own kind, and GoKesari's s.9(5) invoices.
     invoiceKindsForOrders(deliveredIds),
     platformInvoicesForOrders(deliveredIds),

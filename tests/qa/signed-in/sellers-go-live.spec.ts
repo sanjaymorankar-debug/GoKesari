@@ -112,7 +112,11 @@ qa("TC-ONB-075", "Seller Central shows the shop's registration date as stored (n
   const { context, page } = await pageAs(browser, "shop");
   try {
     await page.goto("/shop/manage/registration");
-    const term = page.getByRole("term").filter({ hasText: "Registration date" });
+    // Since the registration subscription (PR #557, 25-Nov-2026) the page also has the Shop Registration card, whose
+    // "Registration date" is the start of the paid registration period (registration_start_date): read the shop's
+    // own record under "Registration details".
+    const details = page.locator("section").filter({ has: page.getByRole("heading", { name: "Registration details" }) });
+    const term = details.getByRole("term").filter({ hasText: "Registration date" });
     await expect(term.locator("..").getByRole("definition")).toHaveText(shown);
   } finally {
     await context.close();

@@ -64,6 +64,7 @@ import { listOrdersForShop } from "@/server/services/orders";
 import { getReferralCodeById } from "@/server/services/referrals";
 import { registrationFeeDue } from "@/server/services/registration-fee-payment";
 import { getRule } from "@/server/services/settings";
+import { shopAcceptanceRule } from "@/server/flows/wave2-rules";
 import { missedAcceptances30d } from "@/server/services/shop-acceptance";
 import { getShopCategories } from "@/server/services/shop-categories";
 import { checkMembershipRenewalPayment, membershipRenewalView, renewalPeriodKey, shopMembershipStatus } from "@/server/services/shop-membership-renewal";
@@ -149,7 +150,7 @@ export default async function ShopManagePage({
           trading ? getShopDashboard(shop.id, user.id) : Promise.resolve(null),
           listOrdersForShop(shop.id, { source: "DIRECT", limit: 10 }),
           listSubscriptionOrdersForShop(shop.id, today),
-          getRule("shopAcceptance"),
+          shopAcceptanceRule(), // docs/flows-v3/wave2.md (flag flow_f19)
           missedAcceptances30d(shop.id),
           getShopWalletStatus(shop.id),
           getShopLegalStatus(shop.id),

@@ -502,6 +502,23 @@ export const NOTIFICATION_TYPES = {
   SHOP_WHATSAPP_FAILED: "shop.whatsapp_failed",
   /* <<< WhatsApp shop orders */
   //
+  /* >>> docs/flows-v3/wave2.md (flags flow_f2 … flow_f13) */
+  /** To the customer: the shop did not accept in time — a nearby shop lists the same items (F19). */
+  ORDER_ALTERNATIVE_SHOP: "order.alternative_shop",
+  /** To the shop owner: no rider was found and the order was cancelled with a full refund (F19). */
+  SHOP_ORDER_NO_RIDER_CANCELLED: "shop.order_no_rider_cancelled",
+  /** To the shop owner: a pickup order was not collected in time — it may be cancelled (F19). */
+  SHOP_PICKUP_NOT_COLLECTED: "shop.pickup_not_collected",
+  /** To the shop owner: the customer asks to cancel a packed order (F16). */
+  SHOP_CANCEL_REQUESTED: "shop.cancel_requested",
+  /** To the customer: the shop agreed to / declined the cancellation of a packed order (F16). */
+  ORDER_CANCEL_REQUEST_DECIDED: "order.cancel_request_decided",
+  /** To the shop owner: a return on their order was refunded and the shop's share reversed (F16). */
+  SHOP_RETURN_REFUNDED: "shop.return_refunded",
+  /** To the customer: one shop of a multi-shop order declined — the other parts may be cancelled (F20). */
+  ORDER_GROUP_PART_CANCELLED: "order.group_part_cancelled",
+  /* <<< docs/flows-v3/wave2.md */
+  //
   /* >>> RBAC v2 (docs/rbac) */
   /** To the shop owner: Support proposed changes to the shop or its products, waiting for approval. */
   SHOP_CHANGE_REQUESTED: "shop.change_requested",

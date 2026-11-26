@@ -18,13 +18,18 @@ import { join } from "node:path";
 import { as, pageAs } from "../lib/actors";
 import { offerFor, packOrder, pickupCode, placeOrder, riderAction, shopOf, deliveryCode } from "../lib/flows";
 import { call, poll, type Answer } from "../lib/http";
-import { expect, qa } from "../lib/record";
+import { expect, isBlocked, qa } from "../lib/record";
 import { HOST } from "../lib/target";
 
 type Step = { feature: number; step: string; ok: boolean; detail: string };
 const steps: Step[] = [];
 function check(feature: number, step: string, ok: boolean, detail: unknown = "") {
   steps.push({ feature, step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail).slice(0, 400) });
+}
+/** offerFor() blocks when no offer can come now (outside the site's delivery hours): the scenario stops as blocked then. */
+function rethrowBlocked(error: unknown): null {
+  if (isBlocked(error)) throw error;
+  return null;
 }
 const brief = (res: Answer) => `${res.status} ${JSON.stringify(res.body ?? res.text.slice(0, 120)).slice(0, 240)}`;
 
@@ -257,7 +262,15 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
     check(5, "… and to Active", active.status === 200 && active.body?.availability === "ACTIVE", brief(active));
     const ui = await pageAs(browser, "customer2", { permissions: ["geolocation"], geolocation: { latitude: shopLat + 0.001, longitude: shopLng + 0.001 } });
     await ui.page.goto("/delivery-partner");
-    check(5, "dashboard shows the Offline / Active / Ready switch and the verification checklist", (await ui.page.getByTestId("availability-toggle").isVisible()) && (await ui.page.getByTestId("rider-verification-checklist").isVisible()));
+    const toggleShown = await ui.page.getByTestId("availability-toggle").waitFor({ state: "visible", timeout: 30_000 }).then(() => true, () => false);
+    if (await ui.page.getByTestId("rider-home-v2").count()) {
+      // Rider App v2 Home (rule riderAppV2, on on the test site; docs/rider-app-v2-2026-11): the checklist shows only
+      // while checks are outstanding — this partner just passed them all (Ready was accepted above).
+      const checklist = await ui.page.getByTestId("rider-verification-checklist").count();
+      check(5, "dashboard (Rider App v2 Home) shows the Offline / Active / Ready switch; no checklist once every check is done", toggleShown && checklist === 0 && ready.status === 200, { toggleShown, checklist });
+    } else {
+      check(5, "dashboard shows the Offline / Active / Ready switch and the verification checklist", toggleShown && (await ui.page.getByTestId("rider-verification-checklist").isVisible()));
+    }
     await ui.page.getByTestId("availability-ready").click();
     await poll(async () => (await call(rider, "GET", "/api/delivery-partner/me")).body?.availability, (v) => v === "READY", 30_000);
     check(5, "Ready chosen on the dashboard (device location)", (await call(rider, "GET", "/api/delivery-partner/me")).body?.availability === "READY");
@@ -283,7 +296,7 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
     /* ---------------------------------------------------- 6, 9, 10, 11: an order */
     const order = await placeOrder({ role: "customer", method: "WALLET" });
     await packOrder(order.id, "shop");
-    let offer = await offerFor(order.id, "customer2", 90_000).catch(() => null);
+    let offer = await offerFor(order.id, "customer2", 90_000).catch(rethrowBlocked);
     check(6, "the Ready partner inside the zone gets the offer", Boolean(offer), offer ?? "no offer within 90 s");
     if (offer) {
       const accept = await riderAction(offer.deliveryOrderId, "accept", {}, "customer2");
@@ -386,7 +399,7 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       try {
         const order3 = await placeOrder({ role: "customer", method: "WALLET" });
         await packOrder(order3.id, "shop");
-        const offer3 = await offerFor(order3.id, "customer2", 90_000).catch(() => null);
+        const offer3 = await offerFor(order3.id, "customer2", 90_000).catch(rethrowBlocked);
         check(8, "society order offered to the (authorised) partner", Boolean(offer3), offer3 ?? "no offer");
         if (offer3) {
           await riderAction(offer3.deliveryOrderId, "accept", {}, "customer2");
