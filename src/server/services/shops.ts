@@ -954,6 +954,8 @@ async function autoApproveShopIfReadyInner(shopId: string): Promise<boolean> {
   // docs/onboarding-v2-2026-11 (Flow 2): a v2 registration pays its fee before the shop exists and signs the
   // seller agreement after; it never goes live before that agreement is accepted (shop-registration-wizard.ts).
   if (await (await import("@/server/onboarding-v2/shop-view")).v2SlaPendingForShop(shopId)) return false;
+  // Flow 2: the fee paid on the registration draft is on the shop's ledger before any approval check (retried here).
+  await (await import("@/server/onboarding-v2/shop-flow")).ensureV2FeeOnLedger(shopId).catch((error: unknown) => console.error("[onboarding-v2] fee ledger retry failed", shopId, error));
   // docs/dealer-programme (GKS-SH-004): instant approval on government GST/PAN verification + online payment,
   // where that flag is on. When it cannot approve, the existing rule below decides exactly as before.
   if (await approveOnGovVerification(shopId)) return true;

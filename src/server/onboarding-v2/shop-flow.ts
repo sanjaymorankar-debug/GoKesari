@@ -25,7 +25,7 @@
  */
 import { createHash } from "node:crypto";
 
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { parseIndianMobile } from "@/lib/contact";
@@ -42,20 +42,22 @@ import {
   users,
   wallets,
   type LicenceEntryStatus,
+  type PaymentIntentRow,
   type LicenceOption,
   type Shop,
   type ShopRegistrationDraft,
   type UserRole,
 } from "@/server/db/schema";
 import type { PaymentIntentRef } from "@/server/payments/intents";
-import { createPaymentIntent, getPaymentIntentRow, isLive, listIntentsFor, redirectUrlOf } from "@/server/payments/intents";
+import { createPaymentIntent, getPaymentIntentRow, isLive, isPaid, listIntentsFor, redirectUrlOf } from "@/server/payments/intents";
+import { flagPaymentForSupport, lockIntent, transitionIntent } from "@/server/payments/intent-store";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { recordConsent } from "@/server/services/consents";
 import { getRule } from "@/server/services/settings";
 import { auditActorOf, findOpenDraft, lockOpenDraft, message, type Actor } from "@/server/services/shop-registration-draft";
 import { getWizardDraft, submitDraftDocument, submitDraftForPayment, toWizardView, type WizardView } from "@/server/services/shop-registration-wizard";
 import { onboardingV2Enabled, recordRoleChange } from "./roles";
-import { DRAFT_FEE_PURPOSE, ONBOARDING_V2_TERMS_VERSION, v2Details, v2FeeQuote, WHOLESALE_SHOP_TYPE, type V2FeeKind } from "./shop-view";
+import { DRAFT_FEE_PURPOSE, ONBOARDING_V2_TERMS_VERSION, v2Details, v2FeeQuote, WHOLESALE_SHOP_TYPE, type V2FeeKind, type V2FeeQuote } from "./shop-view";
 
 /* ------------------------------------------------------------- helpers */
 
@@ -204,6 +206,9 @@ export async function startDraftFeeCheckout(
 ): Promise<{ intentId: string | null; amountPaise: number; redirectUrl: string | null; view: WizardView }> {
   const draft = await openV2Draft(actor.id);
   if (draft.feePaidAt) throw conflict("The registration fee is already paid.", { reason: "FEE_PAID" });
+  // The fee kind is locked once any payment for this draft was captured (even if the draft is not marked yet).
+  const allIntents = await listIntentsFor(DRAFT_FEE_PURPOSE, draft.id);
+  if (allIntents.some((row) => isPaid(row))) throw conflict("The registration fee is already paid.", { reason: "FEE_PAID" });
   const view = await toWizardView(draft);
   if (view.nextStep !== "FEE") throw conflict("Please finish the earlier steps first.", { reason: "STEP_OPEN", nextStep: view.nextStep });
   const shopName = input.shopName.trim();
@@ -228,8 +233,15 @@ export async function startDraftFeeCheckout(
   if (paidNow) return { intentId: null, amountPaise: 0, redirectUrl: null, view: await toWizardView(saved) };
 
   const owner = await accountOf(actor.id);
-  const previous = (await listIntentsFor(DRAFT_FEE_PURPOSE, draft.id)).filter((r) => r.userId === actor.id);
-  const open = previous.find((row) => isLive(row) && row.amountPaise === quote.totalPaise && row.mode === "CHECKOUT");
+  const previous = allIntents.filter((r) => r.userId === actor.id);
+  const sameQuote = (row: PaymentIntentRow) => {
+    const q = intentQuote(row);
+    return q !== null && q.kind === quote.kind && q.totalPaise === quote.totalPaise && row.amountPaise === quote.totalPaise;
+  };
+  const open = previous.find((row) => isLive(row) && row.mode === "CHECKOUT" && sameQuote(row));
+  // Another kind or amount: the older open checkouts end here, so only the checkout for this quote can be paid. A late
+  // payment of an ended one is not applied (payments/processing.ts flags it to support for a refund).
+  for (const row of allIntents.filter((r) => isLive(r) && r.id !== open?.id)) await expireReplacedCheckout(row.id);
   const openUrl = open ? redirectUrlOf(open) : null;
   let intentId: string;
   let redirectUrl: string | null;
@@ -253,6 +265,8 @@ export async function startDraftFeeCheckout(
       idempotencyKey: `shop-draft-fee:${draft.id}:${previous.length}`,
       mode: "CHECKOUT",
       returnPath: "/shop/register",
+      // What this checkout is for: the capture applies exactly this kind and amount (onDraftFeeCaptured).
+      metadata: { v2Fee: quote },
     });
     const checkout = created.checkout;
     redirectUrl = checkout ? (checkout.kind === "HOSTED_URL" ? checkout.url : (checkout.url ?? null)) : null;
@@ -263,27 +277,52 @@ export async function startDraftFeeCheckout(
   return { intentId, amountPaise: quote.totalPaise, redirectUrl, view: await toWizardView((await findOpenDraft(actor.id))!) };
 }
 
+/** The kind and amount a draft-fee checkout was opened for (its metadata), or null. */
+function intentQuote(row: Pick<PaymentIntentRow, "metadata">): V2FeeQuote | null {
+  const q = (row.metadata as { v2Fee?: V2FeeQuote } | null)?.v2Fee;
+  return q && (q.kind === "SHOP" || q.kind === "WHOLESALE") && Number.isInteger(q.totalPaise) ? q : null;
+}
+
+/** Ends a draft-fee checkout replaced by a newer one (another kind or amount). Already settled: left alone. */
+async function expireReplacedCheckout(intentId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const row = await lockIntent(tx, intentId);
+    if (!row || !isLive(row)) return;
+    await transitionIntent(tx, row, "EXPIRED", { source: "SYSTEM", note: "Replaced: the owner opened a checkout for another fee." });
+  });
+}
+
 /**
- * Capture handler (payments/purpose-handlers.ts), inside the capture transaction: the draft's fee is paid.
- * Idempotent. DEFAULT – confirm with Sanjay: a second capture for an already-paid draft (two checkouts paid, e.g. the
- * kind changed while one was open) is not applied; it is logged (audit + error log) for support to refund.
+ * Capture handler (payments/purpose-handlers.ts), inside the capture transaction: the draft's fee is paid with the kind
+ * and amount the checkout was opened for (its metadata) — the draft's fee kind, amount and shop type follow the money,
+ * so the shop's fee snapshot and ledger always equal what was captured. Idempotent.
+ * Not applied, and flagged to support for a refund (payment.attention): the amount is not the checkout's quote, the
+ * draft is gone, or the draft was already paid by another checkout (DEFAULT – confirm with Sanjay).
  */
 export async function onDraftFeeCaptured(intent: PaymentIntentRef, client: DbClient): Promise<void> {
   const now = new Date();
-  const [current] = await client
-    .select({ id: shopRegistrationDrafts.id, feePaidAt: shopRegistrationDrafts.feePaidAt, feePaymentIntentId: shopRegistrationDrafts.feePaymentIntentId })
-    .from(shopRegistrationDrafts)
-    .where(eq(shopRegistrationDrafts.id, intent.referenceId))
-    .for("update");
-  const duplicate = Boolean(current?.feePaidAt && current.feePaymentIntentId !== intent.id);
-  if (current && !current.feePaidAt) {
+  const row = await getPaymentIntentRow(intent.id, client);
+  const quote = row ? intentQuote(row) : null;
+  const [current] = await client.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.id, intent.referenceId)).for("update");
+  const problem = !current
+    ? "draft_not_found"
+    : !quote || quote.totalPaise !== intent.amountPaise
+      ? "amount_not_the_quote"
+      : current.feePaidAt && current.feePaymentIntentId !== intent.id
+        ? "already_paid_by_another_payment"
+        : null;
+  if (current && quote && !problem && !current.feePaidAt) {
+    const details: Record<string, unknown> = { ...((current.details as Record<string, unknown> | null) ?? {}), v2Fee: quote };
+    if (quote.kind === "WHOLESALE") details.shopType = WHOLESALE_SHOP_TYPE;
+    else if (details.shopType === WHOLESALE_SHOP_TYPE) delete details.shopType;
     await client
       .update(shopRegistrationDrafts)
-      .set({ feePaidAt: now, feePaymentIntentId: intent.id, updatedAt: now })
+      .set({ feePaidAt: now, feePaymentIntentId: intent.id, feeKind: quote.kind, feePaise: quote.basePaise, details, updatedAt: now })
       .where(eq(shopRegistrationDrafts.id, current.id));
   }
-  if (!current || duplicate) {
-    console.error("[onboarding-v2] draft fee capture needs support", intent.id, current ? "already paid by another payment — refund" : "draft not found");
+  if (problem) {
+    console.error("[onboarding-v2] draft fee capture not applied — refund needed", intent.id, problem);
+    if (row) await flagPaymentForSupport(client, row, `Shop registration fee (draft): ${problem.replace(/_/g, " ")} — not applied, refund it`, `draft-fee:${intent.id}`);
   }
   await recordAudit(
     {
@@ -292,7 +331,7 @@ export async function onDraftFeeCaptured(intent: PaymentIntentRef, client: DbCli
       action: AUDIT_ACTIONS.SHOP_REGISTRATION_DRAFT_FEE_PAID,
       entityType: "shop_registration_draft",
       entityId: intent.referenceId,
-      newValue: { intentId: intent.id, amountPaise: intent.amountPaise, gateway: intent.gateway, problem: !current ? "draft_not_found" : duplicate ? "already_paid_refund_needed" : null },
+      newValue: { intentId: intent.id, amountPaise: intent.amountPaise, kind: quote?.kind ?? null, gateway: intent.gateway, applied: !problem, problem },
     },
     client,
   );
@@ -515,7 +554,7 @@ export async function prepareV2Agreement(actor: Actor, input: { ip?: string | nu
 }
 
 /** After registerShop (called by the wizard): ledger entry for the paid fee, the owner's wallet, the role history. */
-export async function afterV2ShopCreated(shop: Shop, draft: ShopRegistrationDraft, actor: Actor): Promise<void> {
+export async function afterV2ShopCreated(shop: Shop, actor: Actor): Promise<void> {
   // The customer side always exists for a shop owner (never a separate sign-up): one wallet per account.
   await db.insert(wallets).values({ userId: shop.ownerId }).onConflictDoNothing();
   await recordRoleChange({
@@ -526,30 +565,77 @@ export async function afterV2ShopCreated(shop: Shop, draft: ShopRegistrationDraf
     actorUserId: actor.staff?.id ?? actor.id,
     reason: `Shop registration ${shop.registrationNumber ?? shop.id} (onboarding v2)`,
   }).catch((error: unknown) => console.error("[onboarding-v2] role history not written", shop.id, error));
-  // The fee paid on the draft: on the shop's immutable ledger (ONLINE, the gateway's payment id) — the same capture
-  // step a shop fee uses, so the fee status, subscription and auto-approval evidence follow. Go-live itself waits
-  // for the agreement (autoApproveShopIfReady refuses while it is pending).
-  if (draft.feePaymentIntentId && (shop.registrationFeePaise ?? 0) > 0) {
-    const intent = await getPaymentIntentRow(draft.feePaymentIntentId);
-    if (intent && intent.status === "CAPTURED") {
-      const { onShopRegistrationFeeCaptured } = await import("@/server/services/operator-limited");
-      await onShopRegistrationFeeCaptured(
-        {
-          id: intent.id,
-          purpose: "SHOP_REGISTRATION_FEE",
-          referenceId: shop.id,
-          userId: intent.userId,
-          amountPaise: intent.amountPaise,
-          refundedPaise: intent.refundedPaise,
-          status: intent.status,
-          gateway: intent.gateway,
-          gatewayOrderId: intent.gatewayOrderId,
-          gatewayPaymentId: intent.gatewayPaymentId,
-        },
-        db,
-      ).catch((error: unknown) => console.error("[onboarding-v2] draft fee not recorded on the shop", shop.id, error));
+  // The fee paid on the draft: on the shop's ledger now; if this fails it is retried (ensureV2FeeOnLedger).
+  await ensureV2FeeOnLedger(shop.id).catch((error: unknown) => console.error("[onboarding-v2] draft fee not on the shop's ledger yet (retried)", shop.id, error));
+}
+
+/**
+ * The fee paid on a v2 draft, on its shop's immutable ledger (ONLINE, the gateway's payment id) — the same capture
+ * step a shop fee uses, so fee status, subscription and auto-approval evidence follow. Idempotent (one ledger row per
+ * gateway payment) and retried until it holds: at shop creation, on every wizard page load, before go-live, in
+ * autoApproveShopIfReady and by the cron safety net (sweepV2FeeLedger). True when the shop owes nothing more.
+ * Go-live itself still waits for the agreement (autoApproveShopIfReady refuses while it is pending).
+ */
+export async function ensureV2FeeOnLedger(shopId: string): Promise<boolean> {
+  const [draft] = await db
+    .select({ intentId: shopRegistrationDrafts.feePaymentIntentId, feePaidAt: shopRegistrationDrafts.feePaidAt })
+    .from(shopRegistrationDrafts)
+    .where(and(eq(shopRegistrationDrafts.shopId, shopId), eq(shopRegistrationDrafts.flowVersion, "v2")))
+    .limit(1);
+  if (!draft?.intentId || !draft.feePaidAt) return false;
+  const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
+  if (!shop) return false;
+  const { registrationFeeDue } = await import("@/server/services/registration-fee-payment");
+  if (registrationFeeDue(shop) === 0) return true;
+  const intent = await getPaymentIntentRow(draft.intentId);
+  if (!intent || !isPaid(intent)) return false;
+  const { onShopRegistrationFeeCaptured } = await import("@/server/services/operator-limited");
+  await onShopRegistrationFeeCaptured(
+    {
+      id: intent.id,
+      purpose: "SHOP_REGISTRATION_FEE",
+      referenceId: shop.id,
+      userId: intent.userId,
+      amountPaise: intent.amountPaise,
+      refundedPaise: intent.refundedPaise,
+      status: intent.status,
+      gateway: intent.gateway,
+      gatewayOrderId: intent.gatewayOrderId,
+      gatewayPaymentId: intent.gatewayPaymentId,
+    },
+    db,
+  );
+  const [after] = await db.select().from(shops).where(eq(shops.id, shopId));
+  return Boolean(after && registrationFeeDue(after) === 0);
+}
+
+/** Cron safety net (every 5 minutes): v2 shops whose draft fee is paid but not yet on the shop's ledger. */
+export async function sweepV2FeeLedger(limit = 100): Promise<{ checked: number; fixed: number; failed: number }> {
+  const rows = await db
+    .select({ shopId: shops.id })
+    .from(shopRegistrationDrafts)
+    .innerJoin(shops, eq(shops.id, shopRegistrationDrafts.shopId))
+    .where(
+      and(
+        eq(shopRegistrationDrafts.flowVersion, "v2"),
+        isNotNull(shopRegistrationDrafts.feePaidAt),
+        isNotNull(shopRegistrationDrafts.feePaymentIntentId),
+        eq(shops.status, "PENDING_APPROVAL"),
+        sql`${shops.amountPaidPaise} < coalesce(${shops.registrationFeePaise}, 0)`,
+      ),
+    )
+    .limit(limit);
+  let fixed = 0;
+  let failed = 0;
+  for (const r of rows) {
+    try {
+      if (await ensureV2FeeOnLedger(r.shopId)) fixed += 1;
+    } catch (error) {
+      failed += 1;
+      console.error("[onboarding-v2] fee ledger safety net failed", r.shopId, error);
     }
   }
+  return { checked: rows.length, fixed, failed };
 }
 
 /**
@@ -570,6 +656,8 @@ export async function acceptV2Agreement(
     .limit(1);
   if (!draft?.shopId) throw notFound("Registration in progress");
   if (draft.slaAcceptedAt) return toWizardView(draft);
+  // The fee the owner paid must be on the shop's ledger before go-live (retried here; an error lets the owner try again).
+  await ensureV2FeeOnLedger(draft.shopId);
   const { getAgreementStatus } = await import("@/server/legal-agreements/requirements");
   const status = await getAgreementStatus(draft.shopId).catch(() => null);
   const signedInAgreements = Boolean(status?.enabled && !status.noPublishedDocuments);

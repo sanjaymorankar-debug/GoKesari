@@ -1633,7 +1633,7 @@ export async function submitDraftForPayment(input: {
     );
   }
   // Flow 2: the fee paid on the draft goes on the shop's ledger; wallet, role history. Go-live waits for the agreement.
-  if (v2) await (await import("@/server/onboarding-v2/shop-flow")).afterV2ShopCreated(shop, open, actor);
+  if (v2) await (await import("@/server/onboarding-v2/shop-flow")).afterV2ShopCreated(shop, actor);
   // Nothing to pay (a full coupon): the approval runs now instead of on the payment webhook.
   else if (registrationFeeDue(shop) === 0) {
     await autoApproveShopIfReady(shop.id).catch((error) => console.error("[registration-wizard] auto-approval check failed", shop.id, error));
