@@ -71,3 +71,35 @@ Choices these rules left open (each marked in code):
 - Production test payments (₹1,000 shop fee, ₹1,50,000 franchise plan) use real money — owner runs them.
 - Real SMS codes on production need an SMS vendor + DLT template.
 - Switching `onboarding_v2` ON on production after the production test pass.
+
+## Flow 2 — shop onboarding (migration 0217, branch ov2/shop)
+
+Only for drafts with `flow_version = 'v2'` (every draft started while `onboarding_v2` is on); older drafts and the flag
+off keep the original wizard. Code: `src/server/onboarding-v2/shop-flow.ts` (actions), `shop-view.ts` (view),
+`src/components/registration/onboarding-v2-steps.tsx`, routes `/api/shops/registration-draft/v2/*`.
+
+| # | Step | v2 behaviour |
+|---|---|---|
+| 1 | `V2_IDENTITY` | Terms tick (consent TERMS_AND_PRIVACY, version + time) + e-mail (Google sign-in, or a code) + mobile SMS code. Skipped for a customer whose e-mail and mobile are both verified. No SMS + `mobileOtpFallbackWhenNoSms` → mobile saved unverified (#8). |
+| 2 | `REFERRAL` | Existing (admin toggle mandatory / optional, "Request a referral code" + e-mail). |
+| 3 | `IDENTITY` / `OWNER` | Existing GST or PAN online check; shop + owner name pre-filled. |
+| 4 | `FEE` | Shop or Wholesale (#10), rule `onboardingV2` (+GST, #9), payment intent `SHOP_REGISTRATION_DRAFT_FEE` on the draft. Not paid → stays here ("pending payment"); the owner keeps the customer side. |
+| 5 | `TYPE` | Existing list; wholesale fee → Wholesale store (type step skipped); a shop fee cannot pick Wholesale store. |
+| 6 | `V2_LICENCES` | Per licence from Admin → Shop documents: Enter / Upload / Scan / Upload later → `registration_licence_entries`. FSSAI, Udyam, Shop Act verified online; others → operator (`PENDING_OPERATOR`). MUST_HAVE: no Upload later (#12). Later sets `documents_promised_at` → the existing follow-up (#11). |
+| 7 | `ADDRESS`, `PIN` | Existing, both mandatory. |
+| 6b | `SLA` | Shop row created here (PENDING_APPROVAL, fee snapshot = the draft fee, fee on the shop ledger). OTP-sign the personalised agreements (flag `seller_agreements_enabled`) or tick the Seller Terms; undertaking tick. `sla_accepted_at`. |
+| 8 | live | Existing auto-approval (GST / PAN verified + fee via gateway) → live + welcome kit (banners, QR, signed EN/MR/HI copies); else `WAITING` (operator review). A v2 shop never goes live before the agreement. |
+
+Background: wallet ensured, `onboarding_role_history` shop_owner GRANTED. `?return=<same-site path>` brings the owner
+back after go-live / review. Admin: Admin → Shop documents → Registration licences (queue, promises with deadline,
+approve / reject, open file).
+
+Flow 2 defaults (also marked in code):
+
+17. The agreement comes after address + pin (the shop row it is built from needs them); still after the licences (#3).
+18. A Google sign-in counts as a verified e-mail; otherwise a code is e-mailed (the owner is already signed in).
+19. Upload / Scan files are read on the device (no server OCR, D-18); kept encrypted in `registration_licence_files`,
+    not copied into the shop's legal-documents register.
+20. An operator's licence decision does not approve the shop by itself; Admin → Shops approves as today.
+21. A second captured fee payment on one draft is not applied; it is logged for support to refund.
+22. Staff continuing a registration (Unfinished registrations) cannot do the owner's identity codes, fee or agreement.
