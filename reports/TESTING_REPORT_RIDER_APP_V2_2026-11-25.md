@@ -26,8 +26,23 @@ PR: https://github.com/sanjaymorankar-debug/GoKesari/pull/568 · Branch `feat/ri
 
 Open: `migrate-on-build.test.ts` (3 cases) timed out connecting to the local test server (CONNECT_TIMEOUT) — environment; decided by CI's own database in the staging queue.
 
+## Run 1b — local, switches ON by default + staging merged (#582), 26-Nov-2026 10.25–11.20 IST
+
+Owner decision 26-Nov-2026 01.50 IST: all eight rider switches ON by default (staging and production). Code defaults changed; tests that needed a switch off now switch it off themselves.
+
+| Suite | Cases | Pass | Fail |
+|---|---|---|---|
+| RV2-000: all eight switches on by default (no saved setting) | 1 | 1 | 0 |
+| Rider pay plans / growth / safety integration (with explicit "admin switches it off" cases) | 24 | 24 | 0 |
+| Whole unit suite | 1,830 | 1,830 | 0 |
+| Typecheck (`npm run typecheck`) | — | clean | — |
+| Full integration suite (commit 4f2f4de5, after merging staging with #582) | 3,151 | 3,149 | 2 |
+
+The 2 failures were `hdms-delivery-routes.test.ts` (HDMS access control), failing in `resetDatabase` under full-suite load. The file passes 6/6 run alone; not rider code.
+Merge with #582: approved riders get the v2 frame and its bottom bar; everyone else on /delivery-partner gets #582's tab bar; never both.
+
 ## Run 2 — test.gokesari.com (staging)
-Pending: PR #568 queued in the staging queue at 15.20 IST (CI, migration, deploy, post-deploy check, guest QA run by the queue). Then: switches ON on staging and rider / admin walk-through (go online → list → ₹ → accept → complete → earnings week; reject; SOS; insurance; slot booking; referral; admin plan → simulate → publish → new offer shows new pay; surge on/off).
+Pending: PR #568 queued in the staging queue at 15.20 IST (CI, migration, deploy, post-deploy check, guest QA run by the queue). Then (switches already ON by default): rider / admin walk-through (go online → list → ₹ → accept → complete → earnings week; reject; SOS; insurance; slot booking; referral; admin plan → simulate → publish → new offer shows new pay; surge on/off).
 
 ## Run 3 — gokesari.com (production)
 Not started. Production release at the 23.00 IST window after staging verification; all eight rider switches are ON by default on production too (owner, 26-Nov-2026 01.50 IST).
