@@ -13,6 +13,8 @@ import { and, asc, desc, eq, inArray, isNotNull, lte, ne, sql } from "drizzle-or
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import {
   FRANCHISE_AGREEMENT_TEXT,
+  FRANCHISE_AGREEMENT_V2_TEXT,
+  FRANCHISE_AGREEMENT_V2_VERSION,
   FRANCHISE_AGREEMENT_VERSION,
   OCCUPYING_STATUSES,
   allocationExpiry,
@@ -32,6 +34,7 @@ import {
   franchiseAllocations,
   franchiseBookings,
   franchiseCampaigns,
+  franchisePlans,
   franchiseZones,
   users,
   type Dealer,
@@ -45,6 +48,7 @@ import type { PaymentIntentRef } from "@/server/payments/intents";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
 import { gstOn, type CartLine } from "@/lib/franchise-zones";
+import { planZoneFeePaise } from "@/lib/franchise-plans";
 import { isPanEncryptionConfigured } from "@/lib/env";
 import { encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
 import { franchiseConfig, franchiseConfigAt, franchiseNow, type FranchiseConfig } from "./config";
@@ -58,6 +62,13 @@ export interface Actor {
 }
 
 export const AGREEMENT_SHA256 = createHash("sha256").update(FRANCHISE_AGREEMENT_TEXT.join("\n")).digest("hex");
+/** Onboarding v2 rules (no 30-day KYC rule): accepted separately, so an owner who accepted the old text accepts again. */
+export const AGREEMENT_V2_SHA256 = createHash("sha256").update(FRANCHISE_AGREEMENT_V2_TEXT.join("\n")).digest("hex");
+
+/** Onboarding v2 (docs/onboarding-v2-2026-11): pay with a plan, live at payment, PAN + bank only before the first payout. */
+interface OwnerOptions {
+  v2?: boolean;
+}
 
 /* ============================================================= owner eligibility */
 
@@ -84,24 +95,27 @@ export function kycMissingFor(dealer: Pick<Dealer, "status" | "panHash" | "bankS
   return missing;
 }
 
-export async function ownerStatusForUser(userId: string, client: DbClient = db): Promise<OwnerStatus> {
+export async function ownerStatusForUser(userId: string, client: DbClient = db, options: OwnerOptions = {}): Promise<OwnerStatus> {
   const [dealer] = await client.select().from(dealers).where(eq(dealers.userId, userId));
   if (!dealer) return { dealer: null, missing: ["your name, mobile and PAN"], kycMissing: kycMissingFor({ status: "DRAFT", panHash: null, bankStatus: "NOT_PROVIDED" }), agreementAccepted: false };
   const missing: string[] = [];
   if (dealer.isInternal) missing.push("a real dealer account (GoKesari Direct cannot book)");
   if (CLOSED_DEALER.includes(dealer.status)) missing.push(`an open dealer account (yours is ${dealer.status.toLowerCase()})`);
-  if (!dealer.panHash) missing.push("PAN");
+  // v2: PAN (with a verified bank) is needed before the first payout only (payeeStatus holds the payout).
+  if (!dealer.panHash && !options.v2) missing.push("PAN");
+  const version = options.v2 ? FRANCHISE_AGREEMENT_V2_VERSION : FRANCHISE_AGREEMENT_VERSION;
+  const sha = options.v2 ? AGREEMENT_V2_SHA256 : AGREEMENT_SHA256;
   const [acc] = await client
     .select({ id: franchiseAgreementAcceptances.id })
     .from(franchiseAgreementAcceptances)
-    .where(and(eq(franchiseAgreementAcceptances.ownerDealerId, dealer.id), eq(franchiseAgreementAcceptances.version, FRANCHISE_AGREEMENT_VERSION), eq(franchiseAgreementAcceptances.textSha256, AGREEMENT_SHA256)))
+    .where(and(eq(franchiseAgreementAcceptances.ownerDealerId, dealer.id), eq(franchiseAgreementAcceptances.version, version), eq(franchiseAgreementAcceptances.textSha256, sha)))
     .limit(1);
   return { dealer, missing, kycMissing: kycMissingFor(dealer), agreementAccepted: !!acc };
 }
 
-async function requireOwner(actor: Actor, client: DbClient = db): Promise<Dealer> {
-  const s = await ownerStatusForUser(actor.id, client);
-  if (!s.dealer) throw forbidden("Give your name, mobile and PAN first — then you can pay for franchise zones.");
+async function requireOwner(actor: Actor, client: DbClient = db, options: OwnerOptions = {}): Promise<Dealer> {
+  const s = await ownerStatusForUser(actor.id, client, options);
+  if (!s.dealer) throw forbidden(options.v2 ? "Start from Become a franchisee (your registered shop's details make your account)." : "Give your name, mobile and PAN first — then you can pay for franchise zones.");
   if (s.missing.length) throw forbidden(`Before paying, complete: ${s.missing.join(", ")}.`);
   return s.dealer;
 }
@@ -178,21 +192,30 @@ export async function sweepFranchiseKyc(now = new Date()): Promise<{ live: numbe
   const rows = await db
     .select({ id: franchiseAllocations.id, zoneId: franchiseAllocations.zoneId, bookingId: franchiseAllocations.bookingId, ownerDealerId: franchiseAllocations.ownerDealerId, dueAt: franchiseAllocations.kycDueAt })
     .from(franchiseAllocations)
-    .where(and(isNotNull(franchiseAllocations.kycDueAt), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"]), eq(franchiseAllocations.isTest, false)));
+    .where(
+      and(
+        isNotNull(franchiseAllocations.kycDueAt),
+        inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"]),
+        eq(franchiseAllocations.isTest, false),
+        // Onboarding v2 bookings (with a plan) have no 30-day KYC rule: never reminded nor reported overdue.
+        sql`not exists (select 1 from franchise_bookings b where b.id = ${franchiseAllocations.bookingId} and b.plan_id is not null)`,
+      ),
+    );
   const waiting = rows.map((r) => ({ ...r, dueAt: r.dueAt!, daysLeft: Math.ceil((r.dueAt!.getTime() - now.getTime()) / 86_400_000) }));
   return { live, waiting };
 }
 
 /** Clickwrap (brief §4.5 step 4): version, text hash, IP and device are stored. */
 export async function acceptFranchiseAgreement(actor: Actor, version: string, device: { ipAddress?: string | null; userAgent?: string | null }): Promise<{ id: string }> {
-  if (version !== FRANCHISE_AGREEMENT_VERSION) throw conflict("The agreement has changed — please read the current version.");
+  if (version !== FRANCHISE_AGREEMENT_VERSION && version !== FRANCHISE_AGREEMENT_V2_VERSION) throw conflict("The agreement has changed — please read the current version.");
+  const sha = version === FRANCHISE_AGREEMENT_V2_VERSION ? AGREEMENT_V2_SHA256 : AGREEMENT_SHA256;
   const s = await ownerStatusForUser(actor.id);
   if (!s.dealer) throw forbidden("Register as a GoKesari dealer first.");
   const [row] = await db
     .insert(franchiseAgreementAcceptances)
-    .values({ ownerDealerId: s.dealer.id, userId: actor.id, version, textSha256: AGREEMENT_SHA256, ipAddress: device.ipAddress?.slice(0, 64) ?? null, userAgent: device.userAgent?.slice(0, 300) ?? null })
+    .values({ ownerDealerId: s.dealer.id, userId: actor.id, version, textSha256: sha, ipAddress: device.ipAddress?.slice(0, 64) ?? null, userAgent: device.userAgent?.slice(0, 300) ?? null })
     .returning({ id: franchiseAgreementAcceptances.id });
-  await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_AGREEMENT_ACCEPTED, entityType: "dealer", entityId: s.dealer.id, newValue: { version, sha256: AGREEMENT_SHA256, ip: device.ipAddress ?? null } });
+  await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_AGREEMENT_ACCEPTED, entityType: "dealer", entityId: s.dealer.id, newValue: { version, sha256: sha, ip: device.ipAddress ?? null } });
   return row;
 }
 
@@ -271,8 +294,11 @@ export interface ReserveResult {
  * (status, reserved for someone else, sold out, fee still provisional, already held by this owner), nothing is
  * reserved and the zones are named. An optional coupon is validated here and held with the slots.
  */
-export async function reserveZones(actor: Actor, input: { zoneIds: string[]; couponCode?: string | null; test?: boolean }): Promise<ReserveResult> {
-  const owner = await requireOwner(actor);
+export async function reserveZones(actor: Actor, input: { zoneIds: string[]; couponCode?: string | null; test?: boolean; planId?: string | null }): Promise<ReserveResult> {
+  // Onboarding v2: a subscription plan is mandatory there and marks the booking (plan_id) — live at payment, no KYC wait.
+  const plan = input.planId ? await planForBooking(input.planId) : null;
+  const v2 = !!plan;
+  const owner = await requireOwner(actor, db, { v2 });
   const { version, config } = await franchiseConfig();
   const zoneIds = [...new Set(input.zoneIds.map((z) => z.trim().toUpperCase()))].filter(Boolean);
   if (!zoneIds.length) throw validationFailed("Choose at least one zone.");
@@ -280,7 +306,7 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
   const isTest = !!input.test;
   if (isTest && actor.role !== "ADMIN") throw forbidden("Only an admin can book the test zone.");
   if (!config.bookingOpen && !isTest) throw conflict("Franchise bookings are not open yet.");
-  const status = await ownerStatusForUser(actor.id);
+  const status = await ownerStatusForUser(actor.id, db, { v2 });
   if (!status.agreementAccepted) throw conflict("Accept the franchise responsibilities and rules first.");
 
   const result = await db.transaction(async (tx) => {
@@ -290,7 +316,8 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
     const c = await launchCounts(tx, now);
     const launch = launchState({ owners: c.owners, areas: c.areas, maxOwners: config.launchMaxOwners, maxAreas: config.launchMaxAreas, closeRule: config.launchCloseRule, closedAt: c.closedAt });
     let launchOffer = false;
-    if (!isTest) {
+    // A plan that is not the launch offer is sold outside the launch counter (DEFAULT – confirm with Sanjay).
+    if (!isTest && (!plan || plan.isLaunchOffer)) {
       if (!launch.open) throw conflict("Launch offer closed – new terms coming soon. WhatsApp or call +91 91751 93009.");
       // Places still free once pending reservations are counted (so the 25th place is never sold twice).
       const ownerIsNew = !(await ownerHasLaunchArea(tx, owner.id)) && !c.pendingOwners.includes(owner.id);
@@ -312,7 +339,7 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
     const views = await zoneViews({ zoneIds, includeTest: isTest, includeInactive: true, client: tx });
 
     const problems: string[] = [];
-    const plan: { zoneId: string; slotNo: number; line: CartLine; feeVersionId: string }[] = [];
+    const lines0: { zoneId: string; slotNo: number; line: CartLine; feeVersionId: string }[] = [];
     for (const zone of locked) {
       const v = views.find((x) => x.zoneId === zone.zoneId);
       if (!v || !config.zoneSetsEnabled.includes(zone.zoneSetCode)) {
@@ -337,19 +364,21 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
         continue;
       }
       const free = [1, 2].filter((s) => s <= zone.maxOwners && !taken.some((t) => t.slotNo === s));
+      const listPaise = plan ? planZoneFeePaise(plan, v, config.gstRateBp) : v.feePaise;
       if (!free.length) problems.push(`${zone.zoneId} is sold out`);
-      else plan.push({ zoneId: zone.zoneId, slotNo: free[0], line: { zoneId: zone.zoneId, zoneSetCode: zone.zoneSetCode, tier: v.tier!, listPaise: v.feePaise! }, feeVersionId: v.feeVersionId! });
+      else if (listPaise == null) problems.push(`${zone.zoneId} has no fee yet`);
+      else lines0.push({ zoneId: zone.zoneId, slotNo: free[0], line: { zoneId: zone.zoneId, zoneSetCode: zone.zoneSetCode, tier: v.tier!, listPaise }, feeVersionId: v.feeVersionId! });
     }
     if (problems.length) throw conflict(`Nothing was reserved: ${problems.join("; ")}. Remove ${problems.length > 1 ? "these zones" : "this zone"} and try again.`);
 
     // §5.7: one coupon per order, validated on the server; the discount comes off the fees before GST.
-    const coupon = input.couponCode?.trim() ? await checkCoupon(input.couponCode, { dealerId: owner.id, kind: "NEW", lines: plan.map((p) => p.line), launchEligible: launchOffer, now }, tx) : null;
-    const lines = plan.map((p, i) => ({ ...p, listPaise: p.line.listPaise, discountPaise: coupon?.discounts[i] ?? 0 }));
+    const coupon = input.couponCode?.trim() ? await checkCoupon(input.couponCode, { dealerId: owner.id, kind: "NEW", lines: lines0.map((p) => p.line), launchEligible: launchOffer, now }, tx) : null;
+    const lines = lines0.map((p, i) => ({ ...p, listPaise: p.line.listPaise, discountPaise: coupon?.discounts[i] ?? 0 }));
     const amounts = cartAmounts(lines, config.gstRateBp);
     const holdExpiresAt = new Date(now.getTime() + config.reservationHoldMinutes * 60_000);
     const [booking] = await tx
       .insert(franchiseBookings)
-      .values({ ownerDealerId: owner.id, kind: "NEW", status: "RESERVED", ...amounts, couponId: coupon?.coupon.id ?? null, couponCode: coupon?.coupon.code ?? null, configVersion: version, launchOffer, holdExpiresAt, isTest, createdBy: actor.id })
+      .values({ ownerDealerId: owner.id, kind: "NEW", status: "RESERVED", ...amounts, couponId: coupon?.coupon.id ?? null, couponCode: coupon?.coupon.code ?? null, configVersion: version, launchOffer, holdExpiresAt, isTest, createdBy: actor.id, planId: plan?.id ?? null })
       .returning();
     const allocations = await tx
       .insert(franchiseAllocations)
@@ -357,7 +386,7 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
       .returning();
     if (coupon) await holdRedemption(tx, { couponId: coupon.coupon.id, dealerId: owner.id, bookingId: booking.id, discountPaise: amounts.discountPaise, heldUntil: holdExpiresAt });
     await recordAudit(
-      { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { reserved: lines.map((l) => ({ zoneId: l.zoneId, slotNo: l.slotNo, tier: l.line.tier, listPaise: l.listPaise, discountPaise: l.discountPaise })), coupon: coupon?.coupon.code ?? null, ...amounts, launchOffer, holdExpiresAt: holdExpiresAt.toISOString(), configVersion: version, isTest } },
+      { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { reserved: lines.map((l) => ({ zoneId: l.zoneId, slotNo: l.slotNo, tier: l.line.tier, listPaise: l.listPaise, discountPaise: l.discountPaise })), coupon: coupon?.coupon.code ?? null, ...amounts, launchOffer, holdExpiresAt: holdExpiresAt.toISOString(), configVersion: version, isTest, plan: plan?.code ?? null } },
       tx,
     );
     return { booking, allocations };
@@ -372,9 +401,10 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
 }
 
 /** Checks a coupon against a cart before reserving (the cart page's "Apply"): the discount per zone and the totals. */
-export async function previewCart(actor: Actor, input: { zoneIds: string[]; couponCode?: string | null }) {
+export async function previewCart(actor: Actor, input: { zoneIds: string[]; couponCode?: string | null; planId?: string | null }) {
+  const plan = input.planId ? await planForBooking(input.planId) : null;
   // A new buyer may see the price before giving his details (pay first, 22-Nov-2026); a closed account may not.
-  const status = await ownerStatusForUser(actor.id);
+  const status = await ownerStatusForUser(actor.id, db, { v2: !!plan });
   if (status.dealer && status.missing.some((m) => m !== "PAN")) throw forbidden(`Before paying, complete: ${status.missing.join(", ")}.`);
   const owner = { id: status.dealer?.id ?? "" };
   if (input.couponCode?.trim() && !status.dealer) throw validationFailed("Give your name, mobile and PAN first, then apply the coupon.");
@@ -387,13 +417,28 @@ export async function previewCart(actor: Actor, input: { zoneIds: string[]; coup
   for (const id of zoneIds) {
     const v = views.find((x) => x.zoneId === id);
     const why = v ? saleProblem(v, owner.id, now, config.allowProvisionalSale) : `${id} is not open for booking`;
+    const listPaise = v && plan ? planZoneFeePaise(plan, v, config.gstRateBp) : v?.feePaise;
     if (why || !v) problems.push(why ?? id);
-    else lines.push({ zoneId: v.zoneId, zoneSetCode: v.zoneSetCode, tier: v.tier!, listPaise: v.feePaise! });
+    else if (listPaise == null) problems.push(`${v.zoneId} has no fee yet.`);
+    else lines.push({ zoneId: v.zoneId, zoneSetCode: v.zoneSetCode, tier: v.tier!, listPaise });
   }
   const launch = (await offerView()).launch;
-  const coupon = input.couponCode?.trim() && lines.length ? await checkCoupon(input.couponCode, { dealerId: owner.id, kind: "NEW", lines, launchEligible: launch.open }) : null;
+  const launchEligible = launch.open && (!plan || plan.isLaunchOffer);
+  const coupon = input.couponCode?.trim() && lines.length ? await checkCoupon(input.couponCode, { dealerId: owner.id, kind: "NEW", lines, launchEligible }) : null;
   const priced = lines.map((l, i) => ({ ...l, discountPaise: coupon?.discounts[i] ?? 0 }));
-  return { lines: priced, problems, coupon: coupon ? { code: coupon.coupon.code, name: coupon.coupon.name } : null, ...cartAmounts(priced, config.gstRateBp) };
+  return { lines: priced, problems, coupon: coupon ? { code: coupon.coupon.code, name: coupon.coupon.name } : null, plan: plan ? { id: plan.id, code: plan.code, name: plan.name, durationMonths: plan.durationMonths } : null, ...cartAmounts(priced, config.gstRateBp) };
+}
+
+/**
+ * Onboarding v2: the active plan a booking is bought on. Refused while the onboarding_v2 flag is off (OFF = exactly
+ * today's booking) or when the plan is inactive / unknown.
+ */
+export async function planForBooking(planId: string, client: DbClient = db) {
+  const { onboardingV2Enabled } = await import("@/server/onboarding-v2/roles");
+  if (!(await onboardingV2Enabled())) throw conflict("Subscription plans are not open yet.");
+  const [plan] = /^[0-9a-f-]{36}$/i.test(planId) ? await client.select().from(franchisePlans).where(eq(franchisePlans.id, planId)) : [];
+  if (!plan || !plan.active) throw validationFailed("Choose one of the subscription plans on offer.", { fields: { planId: "Not available." } });
+  return plan;
 }
 
 async function ownerHasLaunchArea(client: DbClient, ownerId: string): Promise<boolean> {
@@ -441,7 +486,7 @@ export async function cancelReservation(bookingId: string, actor: Actor): Promis
 export async function startBookingPayment(bookingId: string, actor: Actor) {
   const [booking] = await db.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId));
   if (!booking) throw notFound("Booking");
-  const owner = await requireOwner(actor);
+  const owner = await requireOwner(actor, db, { v2: !!booking.planId });
   if (booking.ownerDealerId !== owner.id) throw notFound("Booking");
   const { config } = await franchiseConfig();
   const now = franchiseNow(config);
@@ -473,7 +518,7 @@ export async function startBookingPayment(bookingId: string, actor: Actor) {
     userId: actor.id,
     amountPaise: booking.totalPaise,
     customer: { id: actor.id, name: u?.name ?? null, email: u?.email ?? null, phone: u?.phone ?? null },
-    description: booking.kind === "RENEWAL" ? "GoKesari franchise renewal (12 months)" : `GoKesari franchise — ${zones.join(", ")}${booking.couponCode ? ` (coupon ${booking.couponCode})` : ""}`,
+    description: booking.kind === "RENEWAL" ? "GoKesari franchise renewal (12 months)" : `GoKesari franchise — ${zones.join(", ")}${booking.planId ? ` (${(await db.select({ name: franchisePlans.name }).from(franchisePlans).where(eq(franchisePlans.id, booking.planId)))[0]?.name ?? "plan"})` : ""}${booking.couponCode ? ` (coupon ${booking.couponCode})` : ""}`,
     idempotencyKey: `franchise-booking:${booking.id}`,
     mode: "CHECKOUT",
     returnPath: `/franchise/my?booking=${booking.id}`,
@@ -534,13 +579,21 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
   } else {
     await client.execute(sql`select pg_advisory_xact_lock(hashtext('franchise-launch'))`);
     const allocations = await client.select().from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, booking.id)).orderBy(asc(franchiseAllocations.zoneId)).for("update");
-    const months = bookingConfig.config.validityMonths;
+    // Onboarding v2: the plan's term; no plan = the configured validity, as before.
+    const [plan] = booking.planId ? await client.select().from(franchisePlans).where(eq(franchisePlans.id, booking.planId)) : [];
+    const months = plan?.durationMonths ?? bookingConfig.config.validityMonths;
     const expiresAt = allocationExpiry(now, months);
     const tail = tailEndAt({ chainStartAt: now, expiresAt, mode: config.tailMode, tailYears: config.tailYears });
     const counts = booking.launchOffer && !booking.isTest ? await launchCounts(client, now) : null;
     // Pay first, KYC after (owner 22-Nov-2026): without approved KYC + bank the zone is his but not live yet.
-    const [ownerRow] = await client.select().from(dealers).where(eq(dealers.id, booking.ownerDealerId));
-    const kycPending = !ownerRow || kycMissingFor(ownerRow).length > 0;
+    // Onboarding v2 (booking with a plan): live at payment — the dealer account is approved now, the code issued now,
+    // no kyc_due_at; PAN and the payout bank are asked before the first payout (payeeStatus holds it until then).
+    let [ownerRow] = await client.select().from(dealers).where(eq(dealers.id, booking.ownerDealerId));
+    if (booking.planId && ownerRow) {
+      const v2 = await import("@/server/onboarding-v2/franchise");
+      ownerRow = (await v2.approveDealerInstantly(client, ownerRow, "franchisee_paid", "Onboarding v2: paid franchise live at payment")).dealer;
+    }
+    const kycPending = booking.planId ? false : !ownerRow || kycMissingFor(ownerRow).length > 0;
     const kycDueAt = kycPending ? new Date(now.getTime() + KYC_DAYS_AFTER_PAYMENT * 86_400_000) : null;
     let seq = counts?.areas ?? 0;
     const activated: string[] = [];
@@ -580,7 +633,7 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
     if (counts) await maybeCloseLaunch(client, config, now);
     for (const zoneId of activated) notices.push(() => syncSoldOut(zoneId));
     await recordAudit(
-      { action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { activated, lost, kycDueAt: kycDueAt?.toISOString() ?? null, activatedAt: now.toISOString(), expiresAt: expiresAt.toISOString(), tailEndAt: tail.toISOString(), intentId: intent.id, launchOffer: booking.launchOffer } },
+      { action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { activated, lost, kycDueAt: kycDueAt?.toISOString() ?? null, plan: plan?.code ?? null, months, activatedAt: now.toISOString(), expiresAt: expiresAt.toISOString(), tailEndAt: tail.toISOString(), intentId: intent.id, launchOffer: booking.launchOffer } },
       client,
     );
     if (lost.length) await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { problem: "slot_lost_after_late_payment", zones: lost, refundDuePaise: Math.round((booking.totalPaise * lost.length) / booking.areaCount) } }, client);
@@ -590,7 +643,7 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
         "Franchise booking confirmed",
         kycPending
           ? `Paid ${rupees(booking.totalPaise)}. ${activated.join(", ") || "none"} ${activated.length === 1 ? "is" : "are"} booked for you until ${formatIst(expiresAt)}.${lost.length ? ` ${lost.join(", ")} could not be held (a refund is being arranged).` : ""} Finish your dealer KYC and bank details by ${formatIst(kycDueAt!)} (/dealer/apply) — your franchise goes live as soon as they are approved.`
-          : `Paid ${rupees(booking.totalPaise)}. Active: ${activated.join(", ") || "none"} until ${formatIst(expiresAt)}.${lost.length ? ` ${lost.join(", ")} could not be held (a refund is being arranged).` : ""} Your franchise code and receipt are on your franchise page.`,
+          : `Paid ${rupees(booking.totalPaise)}. Active: ${activated.join(", ") || "none"} until ${formatIst(expiresAt)}.${lost.length ? ` ${lost.join(", ")} could not be held (a refund is being arranged).` : ""} Your franchise code and receipt are on your franchise page.${booking.planId && ownerRow && (!ownerRow.panHash || ownerRow.bankStatus !== "VERIFIED") ? " Add your PAN and payout bank account before your first payout (/dealer)." : ""}`,
         `franchise-paid:${booking.id}`,
       ),
     );

@@ -207,6 +207,7 @@ export async function sendDigest(now: Date, config: FranchiseConfig): Promise<bo
  * Pay first, KYC after (owner 22-Nov-2026): zones whose owner finished KYC go live; owners are reminded 7 days and
  * 1 day before the 30 days end; after that the admins (franchise CC list) are told once a day that the booking is
  * overdue — refund it to free the zone (Admin → Franchise → bookings), or give him more time.
+ * Onboarding v2 (bookings with a plan, flag onboarding_v2) sets no kyc_due_at, so its franchises are skipped here.
  */
 async function kycSweep(now: Date, config: FranchiseConfig): Promise<{ live: number; waiting: number; reminded: number; overdue: number }> {
   const { live, waiting } = await sweepFranchiseKyc(now);

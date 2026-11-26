@@ -12,6 +12,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
 import { originFromHeaders } from "@/server/dealers/http";
 import { ownerDashboard } from "@/server/franchise/dashboard";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 
 export const metadata = { title: "My franchise" };
 export const dynamic = "force-dynamic";
@@ -30,6 +31,8 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
   const origin = originFromHeaders(await headers());
   // docs/referral-sharing-2026-11: the /r/<code> Share buttons while rule referralSharing is on.
   const sharing = await referralSharingOn();
+  // Onboarding v2: "My team" (/dealer/team) from the franchise dashboard; new zones through Become a franchisee.
+  const ov2 = await onboardingV2Enabled();
   const areaCodes = d.codes;
   const qrs = new Map(await Promise.all(areaCodes.filter((c) => c.status === "ACTIVE").map(async (c) => [c.code, await codeQrSvg(origin, c.code)] as const)));
   const maps = ("maps" in d ? d.maps : []) as AreaShape[];
@@ -37,10 +40,19 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
   const pending = d.bookings.filter((b) => b.status === "RESERVED" || b.status === "PAYMENT_PENDING");
   return (
     <div className="mx-auto max-w-5xl space-y-4 px-4 py-6" data-testid="franchise-my">
-      <PageHeader title="My franchise" description={d.status.hasDealer ? `${"dealerName" in d.status ? d.status.dealerName : ""} · Pune franchise zones` : "GoKesari Territory Franchise"} action={<LinkButton href="/franchise/book">Book zones</LinkButton>} />
+      <PageHeader title="My franchise" description={d.status.hasDealer ? `${"dealerName" in d.status ? d.status.dealerName : ""} · Pune franchise zones` : "GoKesari Territory Franchise"} action={
+          <div className="flex flex-wrap gap-2">
+            {ov2 && d.status.hasDealer ? (
+              <LinkButton href="/dealer/team" variant="secondary">
+                My team
+              </LinkButton>
+            ) : null}
+            <LinkButton href={ov2 ? "/franchise/start?model=paid" : "/franchise/book"}>Book zones</LinkButton>
+          </div>
+        } />
       {!d.status.hasDealer ? (
         <Alert tone="info" title="Start with a free dealer account">
-          Franchise areas are booked on a GoKesari dealer account (KYC, PAN and a verified bank account). <Link className="font-semibold underline" href="/dealer/apply">Apply free</Link>.
+          Franchise areas are booked on a GoKesari dealer account (KYC, PAN and a verified bank account). <Link className="font-semibold underline" href={ov2 ? "/franchise/start" : "/dealer/apply"}>{ov2 ? "Become a franchisee" : "Apply free"}</Link>.
         </Alert>
       ) : null}
       {d.status.missing.length && d.status.hasDealer ? <Alert tone="warning">Before you can pay: {d.status.missing.join(", ")}.</Alert> : null}

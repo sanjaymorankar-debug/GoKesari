@@ -106,11 +106,13 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
   // 0151 territory dealers: his exclusive territories (shown once he has one).
   const [territories, territoryRules, held] = await Promise.all([territoryViews(dealer.id), territoryRule(), heldPayoutView(dealer.id, null)]);
   const statements = await Promise.all(months.map((m) => dealerMonthStatement(dealer.id, m)));
+  // Onboarding v2 (docs/onboarding-v2-2026-11): "My team" (built at /dealer/team) and the upgrade through Become a franchisee.
+  const ov2 = await (await import("@/server/onboarding-v2/roles")).onboardingV2Enabled();
   // Dates become ISO strings for the client component.
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" action={<div className="flex flex-wrap gap-2"><LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton><LinkButton href="/franchise" variant="secondary">Upgrade to Paid Franchise</LinkButton></div>} />
+      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" action={<div className="flex flex-wrap gap-2"><LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton>{ov2 ? <LinkButton href="/dealer/team" variant="secondary">My team</LinkButton> : null}<LinkButton href={ov2 ? "/franchise/start?model=paid" : "/franchise"} variant="secondary">Upgrade to Paid Franchise</LinkButton></div>} />
       <p className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
         <Badge tone="success">Approved</Badge>
         {dealer.agreementStart && dealer.agreementEnd ? <span>Agreement {dealer.agreementStart} to {dealer.agreementEnd}</span> : null}

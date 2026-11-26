@@ -101,7 +101,7 @@ export default async function RootLayout({
           .catch(() => []),
       ])
     : null;
-  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled, priceComparison, reconsent] = await Promise.all([
+  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled, priceComparison, reconsent, onboardingV2] = await Promise.all([
     signedIn,
     // The same location every page filters by (cookie, else the default address).
     getCustomerLocation(user?.id).catch(() => null),
@@ -118,6 +118,8 @@ export default async function RootLayout({
     // docs/policy-reconsent-2026-11: a new policy version this user has not accepted (flag policy_reconsent_enabled).
     // One flag read (cached) when off; a failed read never blocks the site.
     user ? getReconsentState(user.id).catch(() => null) : null,
+    // docs/onboarding-v2-2026-11: "Become a franchisee" in the account menu (one cached flag read).
+    user ? isFeatureEnabled("onboarding_v2").catch(() => false) : false,
   ]);
   const [cart, balancePaise, unread, roles, addresses, staffShops, referralLinks] = signedInState ?? [
     { count: 0, totalPaise: null },
@@ -158,6 +160,7 @@ export default async function RootLayout({
           helpsShops={staffShops.length > 0}
           referralLinks={referralLinks}
           barcodeScan={barcodeScan}
+          franchiseEntry={Boolean(user) && onboardingV2}
         />
         <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
           {children}

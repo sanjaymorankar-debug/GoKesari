@@ -502,3 +502,24 @@ export const FRANCHISE_AGREEMENT_TEXT = [
   "Violations: a warning, then a record on my account, then suspension or termination by GoKesari under this agreement. Every step is logged.",
   "Up to two franchise owners may hold the same area; I will not see the other owner's shops, customers or earnings.",
 ];
+
+/**
+ * Onboarding v2 (docs/onboarding-v2-2026-11, flag onboarding_v2): the same rules without the 30-day KYC rule — a paid
+ * franchise goes live as soon as the payment succeeds; PAN and a verified payout bank account are needed before the
+ * first payout only. The fee line names the plan chosen instead of one fixed price.
+ */
+export const FRANCHISE_AGREEMENT_V2_VERSION = "2026-11-26-v2";
+
+export const FRANCHISE_AGREEMENT_V2_TEXT = [
+  "GoKesari Territory Franchise — responsibilities and rules (version 2026-11-26-v2).",
+  "The franchise fee is the subscription plan I choose (per zone, plus GST), paid 100% in advance, online only, and is non-refundable, subject to applicable law.",
+  "Each zone is valid for the plan's term from the verified payment. Renewal is manual, at the fee then in force, from 30 days before expiry until 23:59:59 IST on the expiry day; it is never charged automatically. After expiry the zone ends, the franchise code stops working for new shops in it, and the slot is released to anyone.",
+  FRANCHISE_AGREEMENT_TEXT[3],
+  "Going live: my franchise — my franchise code, my team's shops and commission — is live as soon as the payment succeeds. GoKesari reuses the verified details of my GoKesari account and registered shop; my PAN and a verified payout bank account are needed before my first payout, not before going live.",
+  ...FRANCHISE_AGREEMENT_TEXT.slice(5),
+];
+
+/** The rules text and version a buyer accepts: v2 while onboarding v2 is on, else the current rules. */
+export function franchiseAgreementFor(v2: boolean): { version: string; text: string[] } {
+  return v2 ? { version: FRANCHISE_AGREEMENT_V2_VERSION, text: FRANCHISE_AGREEMENT_V2_TEXT } : { version: FRANCHISE_AGREEMENT_VERSION, text: FRANCHISE_AGREEMENT_TEXT };
+}
