@@ -2961,10 +2961,39 @@
         "TC-SEC-001"
       ],
       "severity": "Low",
-      "found": "staging regression run 26-Nov-2026 21.45–23.20 IST (tests/qa/signed-in/access-roles.spec.ts), test.gokesari.com 03fc4a01; not an onboarding-v2 change",
+      "found": "staging regression run 26-Nov-2026 21.45–23.20 IST (tests/qa/signed-in/access-roles.spec.ts), test.gokesari.com 03fc4a01; not an onboarding-v2 change; again in the staging baseline 27-Nov-2026 01.01–02.27 IST (79e57873) and its triage re-run (03.xx IST, 5b91743d)",
       "actual": "POST /api/admin/dealer-schemes and POST /api/admin/dealer-schemes/<id> with an empty body as a customer or shop owner → 422 VALIDATION_FAILED; the permission is checked only after parseBody (requireSchemePermission / createScheme).",
       "expected": "403 before the body is read, like every other admin write (TC-SEC-001 rule)",
       "fix": "src/app/api/admin/dealer-schemes/route.ts:25-29 and [id]/route.ts:31-33 — check the scheme permission before parseBody",
+      "status": "Open"
+    },
+    {
+      "id": "D-171",
+      "title": "Admin → GoKesari Health (/admin/health) answers HTTP 200 with a 'Not allowed (403)' page to a shop owner instead of refusing (redirect or 403) like every other admin page",
+      "cases": [
+        "TC-RBAC-005"
+      ],
+      "severity": "Low",
+      "found": "staging baseline 27-Nov-2026 01.01–02.27 IST (test.gokesari.com 79e57873) and triage re-run 27-Nov-2026 (5b91743d): tests/qa/signed-in/access-roles.spec.ts sweep of every /admin page as shop owner A",
+      "actual": "GET /admin/health as the shop owner → 200; the page renders the heading 'Not allowed (403)' and a Home link (no health data). Every other /admin page redirects the shop owner (307 → / or /signin).",
+      "expected": "Redirected / 403 (TC-RBAC-005 Expected result), as the other admin pages do",
+      "fix": "src/app/admin/health/page.tsx:25-34 — the HEALTH_MANAGE check renders an in-page 'Not allowed (403)' with status 200; redirect('/') (or forbidden()) like the other admin pages",
+      "status": "Open"
+    },
+    {
+      "id": "D-172",
+      "title": "Cancelling an order restocks a listing that does not track stock: its online stock grows by the cancelled quantity although checkout never took it",
+      "cases": [
+        "TC-ORD-006",
+        "TC-ORD-010",
+        "TC-ORD-011",
+        "TC-FUL-003"
+      ],
+      "severity": "Low",
+      "found": "staging baseline 27-Nov-2026 01.01–02.27 IST (79e57873) and triage re-run 27-Nov-2026 (5b91743d): with the preset Butter Cookies sold out, the checks fell back to 'The Times of India' (shop A, trackInventory false)",
+      "actual": "The Times of India (trackInventory = false): checkout leaves online stock unchanged (consumeOnlineStock skips untracked rows, correct), but each cancel adds the quantity back — TC-ORD-006 186 → 187, TC-ORD-010 190 → 191, TC-FUL-003 263 → 264; the listing's online stock has drifted from ~186 to 265 over the runs.",
+      "expected": "A listing that does not track stock is never restocked on cancel (as releaseStock in src/server/payments/order-payments.ts:120 and the substitution path's trackedUnits in src/server/services/fulfilment.ts already do); stock only returns where it was taken",
+      "fix": "src/server/services/orders.ts:1476-1499 (cancel: restockLines → restockOnline) — skip lines whose shop product has trackInventory = false (select it with unitSizeMilli/kind); restockOnline (src/server/services/catalogue.ts:1622) itself does not check trackInventory",
       "status": "Open"
     },
     {
@@ -2990,6 +3019,67 @@
       "expected": "QA isolation: the check restores a VERIFIED mobile (send + verify through /api/onboarding-v2/customer/mobile with the SMS mock) and asserts the v2 behaviour (checkout → login sheet MOBILE step) while the flag is on",
       "fix": "tests/qa/signed-in/auth-profile.spec.ts TC-AUTH-024 — v2 branch + re-verify in finally; not an app defect",
       "status": "Open"
+    },
+    {
+      "id": "E-43",
+      "title": "QA suite: TC-UX-009 left the staging shop owner's saved language on Marathi (users.preferred_lang); every later Seller Central check of that account read Marathi pages",
+      "cases": [
+        "TC-UX-009",
+        "TC-ADM-006",
+        "TC-SEC-009",
+        "TC-DOC-012",
+        "TC-FIN-010",
+        "TC-SPI-015",
+        "TC-RPAY-008",
+        "TC-FUL-001",
+        "TC-FUL-002",
+        "TC-FUL-003",
+        "TC-FUL-004",
+        "TC-FUL-005",
+        "TC-FUL-007",
+        "TC-FUL-011",
+        "TC-FUL-013",
+        "TC-VPA-015",
+        "TC-VPA-019",
+        "TC-VPA-021",
+        "TC-RGR-009",
+        "TC-RGR-012",
+        "TC-UX-007",
+        "TC-UX-008",
+        "TC-CAT-072",
+        "TC-CAT-075",
+        "TC-CAT-082",
+        "TC-CAT-083",
+        "TC-CAT-084",
+        "TC-CAT-090",
+        "TC-CAT-091"
+      ],
+      "severity": "Info",
+      "found": "staging baseline 27-Nov-2026 01.01–02.27 IST (docs/baseline-2026-11-27.md, 40 failing checks)",
+      "actual": "Module 6 saves the EN / हिं / मरा choice on the account; TC-UX-009 switched the shop owner to मरा and never back, so sessions without a gk_lang cookie opened Seller Central in Marathi",
+      "expected": "QA isolation: checks read English pages; a check that changes the account's language puts it back",
+      "fix": "tests/qa/lib/actors.ts — every session starts with gk_lang=en; tests/qa/signed-in/seller-central.spec.ts TC-UX-009 clicks English in finally. Not an app defect",
+      "status": "Fixed - retest passed",
+      "fixedIn": "fix/qa-baseline-2026-11-27 (34c7379f)",
+      "retest": "27-Nov-2026 re-run 2 (02.57–03.15 IST, test.gokesari.com 5b91743d): all 40 rows pass or are blocked for other reasons; the account is English again"
+    },
+    {
+      "id": "E-44",
+      "title": "QA suite: TC-DPLT-031's 'archive must be refused' request archived the staging Business Partner scheme after the owner's D2 suspended it",
+      "cases": [
+        "TC-DPLT-031",
+        "TC-DPLT-033",
+        "TC-DPLT-035",
+        "TC-DPLT-001"
+      ],
+      "severity": "Low",
+      "found": "staging baseline 27-Nov-2026 (TC-DPLT-031: 'A archived scheme cannot become archived.'; TC-DPLT-001 lists BUSINESS_PARTNER ARCHIVED)",
+      "actual": "The check sent {action: status, to: ARCHIVED} to Business Partner expecting 409 (published). Since migration 0207 (owner D2, 25-Nov-2026) the scheme was SUSPENDED, from which archiving is allowed, so an earlier run archived it (final state).",
+      "expected": "A refusal check never sends a write that the current state would accept; Business Partner stays SUSPENDED",
+      "fix": "tests/qa/signed-in/dealer-platform-2026-11-25.spec.ts — the archive refusal is sent only to a scheme that is PUBLISHED at that moment (Territory Franchise); TC-DPLT-001 blocks while Business Partner is ARCHIVED. Staging reset needed (owner's OK): UPDATE dealer_schemes SET status = 'SUSPENDED' WHERE code = 'BUSINESS_PARTNER' on gokesari_test",
+      "status": "Fixed in part",
+      "fixedIn": "fix/qa-baseline-2026-11-27 (52a68e1e)",
+      "retest": "27-Nov-2026 re-run 2: TC-DPLT-031/033/035 pass (refusal on Territory Franchise); TC-DPLT-001 blocked until the staging reset"
     }
   ]
 }
