@@ -14,13 +14,15 @@ import { BASE_URL } from "../lib/target";
 const RAW = "qa-link-2026";
 const CODE = "QALINK2026";
 
-qa("TC-MKT-018", "signed out, /r/<code> answers 307 to /signin and remembers the code (gk_ref cookie, 30 days, upper-case)", async ({ browser }) => {
+qa("TC-MKT-018", "signed out, /r/<code> answers 307 to /signin (or / with onboarding v2) and remembers the code (gk_ref cookie, 30 days, upper-case)", async ({ browser }) => {
   const guest = await anonymous();
   let header = "";
   try {
     const res = await call(guest, "GET", `/r/${RAW}`);
     expect(res.status, "GET /r/<code> signed out").toBe(307);
-    expect(new URL(res.location ?? "", BASE_URL).pathname, "redirect target").toBe("/signin");
+    // docs/onboarding-v2-2026-11: with onboarding_v2 on a guest is never sent to sign in from a link — the home
+    // page opens instead and the code is remembered the same way. Off: /signin, as before.
+    expect(["/signin", "/"], "redirect target").toContain(new URL(res.location ?? "", BASE_URL).pathname);
     header = res.headers["set-cookie"] ?? "";
     expect(header, "the code in the gk_ref cookie").toMatch(new RegExp(`gk_ref=${CODE}(;|$)`, "m"));
     expect(header, "kept 30 days").toMatch(/Max-Age=2592000/i);
@@ -32,13 +34,13 @@ qa("TC-MKT-018", "signed out, /r/<code> answers 307 to /signin and remembers the
   try {
     const page = await context.newPage();
     await page.goto(`/r/${RAW}`);
-    await page.waitForURL(/\/signin(\?|$)/);
+    await page.waitForURL((u) => u.pathname === "/signin" || u.pathname === "/");
     const cookie = (await context.cookies()).find((c) => c.name === "gk_ref");
     expect(cookie?.value, "the browser keeps the code").toBe(CODE);
     const days = (cookie!.expires * 1000 - Date.now()) / 86_400_000;
     expect(days, "the cookie lasts 30 days").toBeGreaterThan(29.9);
     expect(days).toBeLessThan(30.1);
-    return `/r/${RAW} → 307 /signin; gk_ref=${CODE} for ${days.toFixed(2)} days (${header.split("\n").find((l) => l.startsWith("gk_ref"))?.slice(0, 120)})`;
+    return `/r/${RAW} → 307 ${new URL(page.url()).pathname}; gk_ref=${CODE} for ${days.toFixed(2)} days (${header.split("\n").find((l) => l.startsWith("gk_ref"))?.slice(0, 120)})`;
   } finally {
     await context.close();
   }

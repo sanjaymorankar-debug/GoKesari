@@ -66,7 +66,7 @@ qa("TC-GCART-002", "the guest price preview refuses bad input and prices an unkn
   }
 });
 
-qa("TC-GCART-003", "a guest adds to the cart without signing in, opens /cart, and is asked to sign in only at Place order", async ({ page }) => {
+qa("TC-GCART-003", "a guest adds to the cart without signing in, opens /cart, and is asked to sign in only at Place order (/signin, or the onboarding v2 sheet)", async ({ page }) => {
   if (!(await flagOn())) {
     // Off: the old behaviour — the cart sends a guest to sign in.
     await page.goto("/cart");
@@ -107,6 +107,16 @@ qa("TC-GCART-003", "a guest adds to the cart without signing in, opens /cart, an
   const placeOrder = page.getByTestId("guest-cart-place-order");
   await expect(placeOrder).toBeEnabled();
   await placeOrder.click();
+  // docs/onboarding-v2-2026-11: with onboarding_v2 on, Place order opens the sign-in sheet over the cart (the
+  // cart stays); with it off, the guest goes to /signin with /cart to come back to (the original behaviour).
+  const sheet = page.getByTestId("login-sheet");
+  await Promise.race([sheet.waitFor({ state: "visible", timeout: 15_000 }), page.waitForURL(/\/signin\b/, { timeout: 15_000 })]).catch(() => undefined);
+  if (await sheet.isVisible()) {
+    await expect(page).toHaveURL(/\/cart$/);
+    await expect(page.getByTestId("login-sheet-consent")).toBeVisible();
+    await expect(page.getByTestId("guest-cart-line").first()).toBeAttached();
+    return `/shops/${slug}: Add to cart as a guest (no sign-in), /cart shows the line, Place order → sign-in sheet over /cart (onboarding v2), Terms step first`;
+  }
   await expect(page).toHaveURL(/\/signin\b/);
   const returnTo = (await page.context().cookies()).find((c) => c.name === "gk_return_to")?.value;
   expect(decodeURIComponent(returnTo ?? ""), "page to come back to after sign-in").toBe("/cart");
