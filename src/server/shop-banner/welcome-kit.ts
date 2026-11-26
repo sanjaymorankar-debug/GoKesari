@@ -342,7 +342,7 @@ const SAFETY_NET_BATCH = 50;
 
 /**
  * 26-Nov-2026 owner brief: every shop that went live after this release gets the kit, whatever path made it live.
- * Every 15 minutes: live shops approved on or after rule shopWelcomeKit.safetyNetFrom (set by migration 0212 to the
+ * Every 15 minutes: live shops approved on or after rule shopWelcomeKit.safetyNetFrom (set by migration 0213 to the
  * moment it ran, so shops that were live before are never e-mailed automatically) that have no SHOP_WELCOME_KIT row
  * are queued — normally none, as every go-live path queues it in its own transaction.
  */

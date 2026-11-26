@@ -81,3 +81,6 @@ tests/test-results/
 /.claude/cashfree-skills*.json
 .e2e-auth-local/
 docs/ux-mobile-2026-11/shots/
+
+# A symlink to a shared install (worktrees); "node_modules/" does not match a symlink.
+mobile/node_modules

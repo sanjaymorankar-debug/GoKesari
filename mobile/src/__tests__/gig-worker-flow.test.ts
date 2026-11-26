@@ -35,6 +35,13 @@ describe("1.4.0 — gig worker flow", () => {
     expect(decideNavigation("tel:+919822012345", SITE, true)).toEqual({ action: "open-outside", url: "tel:+919822012345" });
   });
 
+  it("SOS dials 112 outside the app, and the rider v2 pages open inside it (1.14.0)", () => {
+    expect(decideNavigation("tel:112", SITE, true)).toEqual({ action: "open-outside", url: "tel:112" });
+    for (const url of ["/delivery-partner/earnings", "/delivery-partner/slots", "/delivery-partner/refer", "/delivery-partner/insurance"]) {
+      expect(notificationTarget({ url }, SITE), url).toEqual({ action: "open", url: `${SITE}${url}` });
+    }
+  });
+
   it("never opens the KYC or document APIs as pages", () => {
     expect(sitePageUrl(`${SITE}/api/delivery-partner/me/kyc`, SITE)).toBeNull();
     expect(sitePageUrl(`${SITE}/api/admin/rider-background-docs/00000000-0000-0000-0000-000000000000/file`, SITE)).toBeNull();

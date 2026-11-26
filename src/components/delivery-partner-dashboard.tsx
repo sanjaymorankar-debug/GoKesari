@@ -11,6 +11,10 @@ import { SignaturePad, hasInk, signatureToPngBlob, type SignatureStroke } from "
 import { FAILURE_REASON_CODES, FAILURE_REASON_LABELS, type FailureReasonCode } from "@/lib/delivery/failure-reasons";
 import { errorText } from "@/lib/board/error-text";
 import { L, tr, type Lang, type Text } from "@/lib/board/i18n";
+import { requestAvailability, type RiderAvailability } from "@/components/rider-shell/availability";
+import { YouEarn } from "@/components/rider-shell/pay-breakdown";
+import { RejectReasonPicker } from "@/components/rider-shell/reject-reason-picker";
+import type { RiderPayBreakdown } from "@/server/services/rider-job-board";
 
 export interface ActiveDelivery {
   id: string;
@@ -360,8 +364,6 @@ export interface LocationReply {
 const MAX_FIX_AGE_MS = 2 * 60_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const LOCATION_TIMEOUT_MS = 20_000;
-// Outlasts the geolocation timeout, for browsers that never call either callback (Firefox "Not now").
-const GO_ONLINE_WATCHDOG_MS = LOCATION_TIMEOUT_MS + 10_000;
 
 type LocationIssue = "blocked" | "unauthorized" | "unavailable" | null;
 
@@ -583,7 +585,7 @@ function CodeInput({
  * (delivery-system Part 58, Slice C). Location comes only from the
  * browser's native geolocation — never a Google Maps Platform call.
  */
-export type RiderAvailability = "OFFLINE" | "ACTIVE" | "READY";
+export type { RiderAvailability };
 
 const AVAILABILITY_TEXT: Record<RiderAvailability, { title: Text; body: Text }> = {
   OFFLINE: { title: T.offlineTitle, body: T.offlineBody },
@@ -602,6 +604,7 @@ export function DeliveryPartnerDashboard({
   offerLabel,
   pickupQr = false,
   inAppNavigation = false,
+  offerEarn = null,
   lang = "en",
 }: {
   isOnline: boolean;
@@ -621,10 +624,13 @@ export function DeliveryPartnerDashboard({
   pickupQr?: boolean;
   /** batch-2026-10 WS-B: rule riderNavigation on — link to the in-app navigation screen. */
   inAppNavigation?: boolean;
+  /** Rider App v2 (G1): what the rider earns on the OFFERED delivery, worked out on the server (quoteForOwnOffer). */
+  offerEarn?: { earnPaise: number | null; breakdown: RiderPayBreakdown | null; locked: boolean } | null;
   /** Module 6: board language (Hindi / Marathi); English by default. */
   lang?: Lang;
 }) {
   const router = useRouter();
+  const [rejecting, setRejecting] = useState(false);
   const startingAvailability: RiderAvailability = initialAvailability ?? (initialOnline ? "READY" : "OFFLINE");
   const [availability, setAvailability] = useState<RiderAvailability>(startingAvailability);
   const [serverAvailability, setServerAvailability] = useState<RiderAvailability>(startingAvailability);
@@ -662,95 +668,23 @@ export function DeliveryPartnerDashboard({
     },
   );
 
-  async function setStatus(body: Record<string, string | number>, fallback: Text): Promise<boolean> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      const response = await fetch("/api/delivery-partner/status", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (response.ok) return true;
-      const payload = await response.json().catch(() => null);
-      setError(errorText(payload?.error?.message ?? tr(fallback, lang), lang, payload?.error?.code));
-    } catch {
-      setError(tr(T.errNoServer, lang));
-      // The change may have committed before the response was lost; re-read the real online flag.
-      router.refresh();
-    } finally {
-      clearTimeout(timeout);
-    }
-    return false;
-  }
-
+  // Shared with the Rider App v2 header's Online/Offline toggle (rider-shell/availability.ts).
   async function changeAvailability(target: RiderAvailability) {
     setError(null);
     if (target === availability) return;
-    if (target === "OFFLINE") {
-      setBusy(true);
-      try {
-        if (!(await setStatus({ action: "offline" }, T.errOffline))) return;
-        setIsOnline(false);
-        router.refresh();
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
-
-    if (!("geolocation" in navigator)) {
-      setError(tr(T.errNoGeo, lang));
-      return;
-    }
     setBusy(true);
-    // A late callback after the watchdog fired must not submit the PATCH behind the rider's back.
-    let settled = false;
-    const watchdog = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      setBusy(false);
-      setError(tr(T.errNoFix, lang));
-    }, GO_ONLINE_WATCHDOG_MS);
-    const settle = (): boolean => {
-      if (settled) return false;
-      settled = true;
-      clearTimeout(watchdog);
-      return true;
-    };
     try {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          if (!settle()) return;
-          try {
-            const online = await setStatus(
-              { action: target === "ACTIVE" ? "active" : "ready", latitude: position.coords.latitude, longitude: position.coords.longitude },
-              target === "ACTIVE" ? T.errActive : T.errReady,
-            );
-            if (!online) return;
-            setAvailability(target);
-            router.refresh();
-          } finally {
-            setBusy(false);
-          }
-        },
-        (err) => {
-          if (!settle()) return;
-          setBusy(false);
-          setError(
-            err.code === err.PERMISSION_DENIED ? tr(T.errPermission, lang) : tr(T.errNoFix, lang),
-          );
-        },
-        // A position up to a minute old is still live (the zone allows 15 minutes). While Active or
-        // Ready the heartbeat's watchPosition is running, and a request for a brand-new fix next to
-        // it can wait until it times out (seen on test.gokesari.com): Active → Ready never went through.
-        { timeout: LOCATION_TIMEOUT_MS, maximumAge: 60_000 },
-      );
-    } catch {
-      if (!settle()) return;
+      const result = await requestAvailability(target, lang);
+      if (result.ok) {
+        setAvailability(target);
+        router.refresh();
+        return;
+      }
+      if (result.error) setError(result.error);
+      // The change may have committed before the response was lost; re-read the real online flag.
+      if (result.refresh) router.refresh();
+    } finally {
       setBusy(false);
-      setError(tr(T.errNoFix, lang));
     }
   }
 
@@ -981,15 +915,31 @@ export function DeliveryPartnerDashboard({
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            {activeDelivery.status === "OFFERED" ? (
+            {activeDelivery.status === "OFFERED" && offerEarn?.earnPaise != null ? (
+              <div className="w-full">
+                <YouEarn earnPaise={offerEarn.earnPaise} breakdown={offerEarn.breakdown} lang={lang} />
+              </div>
+            ) : null}
+            {activeDelivery.status === "OFFERED" && !rejecting ? (
               <>
                 <Button size="sm" disabled={busy} onClick={() => act("accept")}>
                   {tr(T.accept, lang)}
                 </Button>
-                <Button size="sm" variant="secondary" disabled={busy} onClick={() => act("reject")}>
+                <Button size="sm" variant="secondary" disabled={busy} onClick={() => setRejecting(true)}>
                   {tr(T.reject, lang)}
                 </Button>
               </>
+            ) : null}
+            {activeDelivery.status === "OFFERED" && rejecting ? (
+              <RejectReasonPicker
+                lang={lang}
+                busy={busy}
+                onCancel={() => setRejecting(false)}
+                onPick={(reasonCode, note) => {
+                  setRejecting(false);
+                  void act("reject", note ? { reasonCode, reason: note } : { reasonCode });
+                }}
+              />
             ) : null}
             {activeDelivery.status === "ACCEPTED" && !activeDelivery.arrivedAtShopAt ? (
               <Button size="sm" variant="secondary" disabled={busy} onClick={() => act("arrived_shop")}>

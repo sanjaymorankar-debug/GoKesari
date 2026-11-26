@@ -18,6 +18,8 @@ import { db, type DbClient } from "@/server/db";
 import { deliveryOrders, deliveryPartners, societyPartnerAccess, type DeliveryPartner } from "@/server/db/schema";
 import type { RuleValue } from "@/server/config/rules";
 import { getRule } from "./settings";
+import { bookedPartnerIdsNow } from "./rider-slot-bookings";
+import { priorityPartnerIds } from "./rider-tiers";
 
 type Coords = { latitude: number; longitude: number };
 type ZoningRule = RuleValue<"riderZoning">;
@@ -128,6 +130,21 @@ export async function findEligiblePartnersNearShop(
     })
     .filter((v): v is { partner: DeliveryPartner; distanceToShopKm: number } => v !== null)
     .sort((a, b) => a.distanceToShopKm - b.distanceToShopKm);
+
+  // Rider App v2: riders who booked the running slot (rule riderSlotBooking) or whose tier has
+  // priority (rule riderTiers) are offered first, nearest first within each group. Both sets are
+  // empty while their rules are off, so the order is the plain distance order as before.
+  if (inRange.length > 1) {
+    const ids = inRange.map((c) => c.partner.id);
+    const [booked, tiered] = await Promise.all([
+      bookedPartnerIdsNow(now).catch(() => new Set<string>()),
+      priorityPartnerIds(ids, now).catch(() => new Set<string>()),
+    ]);
+    if (booked.size > 0 || tiered.size > 0) {
+      const rank = (id: string) => (booked.has(id) ? 0 : tiered.has(id) ? 1 : 2);
+      inRange.sort((a, b) => rank(a.partner.id) - rank(b.partner.id) || a.distanceToShopKm - b.distanceToShopKm);
+    }
+  }
 
   const available: { partner: DeliveryPartner; distanceToShopKm: number; activeCount: number }[] = [];
   for (const candidate of inRange) {

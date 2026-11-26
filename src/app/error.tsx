@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useSyncExternalStore } from "react";
 
 import { Icon } from "@/components/board/icons";
+import { recoverFromChunkError } from "@/lib/app-update-policy";
 import { LANG_COOKIE, LANG_TAG, parseLang, tr, UI } from "@/lib/board/i18n";
 
 const noSubscription = () => () => {};
@@ -14,6 +15,8 @@ const noSubscription = () => () => {};
  */
 export default function ErrorPage({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   useEffect(() => {
+    // docs/silent-update-2026-11: a file removed by a deploy — one silent reload instead of this page.
+    if (recoverFromChunkError(error)) return;
     console.error(error);
   }, [error]);
   const lang = useSyncExternalStore(

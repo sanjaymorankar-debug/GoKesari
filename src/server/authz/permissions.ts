@@ -971,7 +971,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
     "Go online/offline and act on own delivery offers (accept, reject, pick up, deliver)",
   [PERMISSIONS.DELIVERY_ORDER_ASSIGN_SHOP]: "Assign a delivery partner to own shop's ready orders",
   [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY]: "Assign or reassign a delivery partner to any order",
-  [PERMISSIONS.DELIVERY_EARNINGS_CONFIG_MANAGE]: "Set the delivery-partner base and per-km earnings rate",
+  [PERMISSIONS.DELIVERY_EARNINGS_CONFIG_MANAGE]: "Set rider pay: base and per-km rate, pay plans, surges, slots and incentives",
   [PERMISSIONS.SHOP_GST_PAN_MANAGE_OWN]: "Submit own shop's GSTIN and PAN for verification",
   [PERMISSIONS.SHOP_GST_PAN_VERIFY]: "Confirm or reject a shop's submitted GSTIN or PAN",
   [PERMISSIONS.SHOP_PAN_REVEAL]: "Decrypt and view a shop's full PAN number",

@@ -38,6 +38,12 @@ export interface SlotInput {
   validFrom?: string | null;
   validTo?: string | null;
   isActive?: boolean;
+  /** Rider App v2: pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. Omitted = keep. */
+  surgeMultiplierBp?: number | null;
+  /** Riders may book this slot ahead (rule riderSlotBooking). Omitted = keep. */
+  bookable?: boolean;
+  /** Most riders who may book this slot; null = no limit. Omitted = keep. */
+  bookingCapacity?: number | null;
 }
 
 export interface IncentiveInput {
@@ -100,6 +106,15 @@ export async function saveSlot(input: SlotInput, actor: Actor, id?: string): Pro
   if (input.orderPercentBp !== undefined && (!Number.isInteger(input.orderPercentBp) || input.orderPercentBp < 0 || input.orderPercentBp > 10_000)) {
     throw validationFailed("Order share must be between 0 and 10000 basis points (100%).");
   }
+  if (input.surgeMultiplierBp != null && (!Number.isInteger(input.surgeMultiplierBp) || input.surgeMultiplierBp < 10_000 || input.surgeMultiplierBp > 30_000)) {
+    throw validationFailed("Pay-plan surge must be between ×1.0 and ×3.0 (10000–30000 basis points).");
+  }
+  if (input.bookingCapacity != null && (!Number.isInteger(input.bookingCapacity) || input.bookingCapacity < 1)) {
+    throw validationFailed("Booking capacity must be a whole number, 1 or more (blank = no limit).");
+  }
+
+  const previous = id ? await db.query.riderEarningSlots.findFirst({ where: eq(riderEarningSlots.id, id) }) : null;
+  if (id && !previous) throw notFound("Earning slot");
 
   const values = {
     name,
@@ -117,11 +132,12 @@ export async function saveSlot(input: SlotInput, actor: Actor, id?: string): Pro
     validFrom: input.validFrom ?? null,
     validTo: input.validTo ?? null,
     isActive: input.isActive ?? true,
+    // Older callers do not send the Rider App v2 fields: keep what the slot already has.
+    surgeMultiplierBp: input.surgeMultiplierBp !== undefined ? input.surgeMultiplierBp : (previous?.surgeMultiplierBp ?? null),
+    bookable: input.bookable ?? previous?.bookable ?? false,
+    bookingCapacity: input.bookingCapacity !== undefined ? input.bookingCapacity : (previous?.bookingCapacity ?? null),
     updatedAt: new Date(),
   };
-
-  const previous = id ? await db.query.riderEarningSlots.findFirst({ where: eq(riderEarningSlots.id, id) }) : null;
-  if (id && !previous) throw notFound("Earning slot");
   const [saved] = id
     ? await db.update(riderEarningSlots).set(values).where(eq(riderEarningSlots.id, id)).returning()
     : await db.insert(riderEarningSlots).values({ ...values, createdBy: actor.id }).returning();
