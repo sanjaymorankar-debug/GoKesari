@@ -36,6 +36,13 @@ export default async function SignInSecurityPage({ searchParams }: { searchParam
         title="Sign-in security"
         description="SMS one-time codes at sign-in (separately for customers and shop owners) and before placing an order. Every change is logged; nothing is asked while SMS codes cannot be sent."
       />
+      {/* docs/dual-auth-2026-11: the dual-authentication report lives one click away (no extra menu entry). */}
+      <p className="text-sm">
+        <Link href="/admin/dual-auth" className="underline" data-testid="dual-auth-report-link">
+          Dual authentication report
+        </Link>{" "}
+        — one-factor accounts, mobile-only shops, account conflicts and the audit trail (IST).
+      </p>
       <SignInSecurityPanel data={data} initialTab={tab === "checkout" || tab === "status" ? tab : "sms"} />
     </div>
   );

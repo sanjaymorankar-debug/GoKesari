@@ -601,8 +601,6 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "consent", label: L("Consent", "सहमति", "संमती"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
       // docs/sms-2fa-2026-11: SMS sign-in code per audience and the checkout code — admin only.
       { key: "signInSecurity", label: L("Sign-in security", "साइन-इन सुरक्षा", "साइन-इन सुरक्षा"), icon: "lock", href: "/admin/sign-in-security", permission: ADMIN_ONLY },
-      // docs/dual-auth-2026-11: one-factor accounts, mobile-only shops, account conflicts, IST audit trail.
-      { key: "dualAuth", label: L("Dual authentication", "दोहरी पुष्टि", "दुहेरी पडताळणी"), icon: "lock", href: "/admin/dual-auth", permission: ADMIN_ONLY },
     ],
     more: [
       // docs/policy-reconsent-2026-11: policy versions and acceptance counts.
