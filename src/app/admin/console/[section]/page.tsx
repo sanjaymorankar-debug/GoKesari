@@ -53,6 +53,7 @@ import { getRule } from "@/server/services/settings";
 import { listShopsByStatus, searchShopsAdmin } from "@/server/services/shops";
 import { countSubscriptionsByStatus } from "@/server/services/subscriptions";
 import { listUsers } from "@/server/services/users";
+import { identityStatusForUsers } from "@/server/services/identity-verification";
 import { getVoucherDashboard, listVouchers } from "@/server/services/vouchers";
 
 export const dynamic = "force-dynamic";
@@ -95,7 +96,7 @@ export default async function AdminConsoleSectionPage({
   searchParams,
 }: {
   params: Promise<{ section: string }>;
-  searchParams: Promise<{ role?: string }>;
+  searchParams: Promise<{ role?: string; idv?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
@@ -518,9 +519,26 @@ export default async function AdminConsoleSectionPage({
     }
 
     case "users": {
-      const { role: roleFilter } = await searchParams;
-      const userList = await listUsers({ limit: 100 });
+      const { role: roleFilter, idv: rawIdv } = await searchParams;
+      // docs/identity-verification-2026-11: identity status column and filter.
+      const idvFilter = (["VERIFIED", "NAME_MISMATCH_REVIEW", "PENDING", "FAILED", "REJECTED", "NONE"] as const).find((s) => s === rawIdv);
+      const userList = await listUsers({ limit: 100, identityStatus: idvFilter });
       const userRoles = await listRolesForUsers(userList.map((u) => u.id));
+      const identity = await identityStatusForUsers(userList.map((u) => u.id));
+      const idvTabs = [
+        { key: "", label: "Any identity status" },
+        { key: "VERIFIED", label: "ID verified" },
+        { key: "NAME_MISMATCH_REVIEW", label: "ID in review" },
+        { key: "NONE", label: "ID not started" },
+        { key: "FAILED", label: "ID not verified" },
+      ];
+      const usersHref = (role: string, idv: string) => {
+        const q = new URLSearchParams();
+        if (role) q.set("role", role);
+        if (idv) q.set("idv", idv);
+        const s = q.toString();
+        return s ? `/admin/console/users?${s}` : "/admin/console/users";
+      };
       const STAFF_ROLES = ["ADMIN", "OPERATOR"];
       const shown = userList.filter((u) =>
         roleFilter === "STAFF" ? STAFF_ROLES.includes(u.role) : roleFilter ? u.role === roleFilter : true,
@@ -538,12 +556,28 @@ export default async function AdminConsoleSectionPage({
             {tabs.map((t) => (
               <Link
                 key={t.key}
-                href={t.key ? `/admin/console/users?role=${t.key}` : "/admin/console/users"}
+                href={usersHref(t.key, idvFilter ?? "")}
                 aria-current={(roleFilter ?? "") === t.key ? "page" : undefined}
                 className={
                   (roleFilter ?? "") === t.key
                     ? "flex h-11 items-center rounded-xl bg-kesari-700 px-4 text-sm font-bold text-white"
                     : "flex h-11 items-center rounded-xl border border-[var(--gk-line)] bg-white px-4 text-sm font-semibold text-ink-900 hover:bg-kesari-50"
+                }
+              >
+                {t.label}
+              </Link>
+            ))}
+          </nav>
+          <nav aria-label="Filter by identity status" className="mb-4 flex flex-wrap gap-2" data-testid="identity-filter">
+            {idvTabs.map((t) => (
+              <Link
+                key={t.key}
+                href={usersHref(roleFilter ?? "", t.key)}
+                aria-current={(idvFilter ?? "") === t.key ? "page" : undefined}
+                className={
+                  (idvFilter ?? "") === t.key
+                    ? "flex h-9 items-center rounded-xl bg-kesari-700 px-3 text-xs font-bold text-white"
+                    : "flex h-9 items-center rounded-xl border border-[var(--gk-line)] bg-white px-3 text-xs font-semibold text-ink-900 hover:bg-kesari-50"
                 }
               >
                 {t.label}
@@ -559,6 +593,7 @@ export default async function AdminConsoleSectionPage({
                 role: u.role,
                 status: u.status,
                 otherRoles: (userRoles.get(u.id) ?? []).filter((r) => r !== u.role),
+                identityStatus: identity.get(u.id),
               }))}
               currentUserId={user.id}
               canSetRole={can(user.role, PERMISSIONS.USER_SET_ROLE)}

@@ -569,6 +569,10 @@ export const consentTypeEnum = pgEnum("consent_type", [
   "MARKETING_COMMUNICATIONS",
   // docs/customer-whatsapp-2026-11 (0193): order, payment and delivery updates on WhatsApp (opt-in, STOP / START).
   "WHATSAPP_NOTIFICATIONS",
+  // docs/seller-undertaking-2026-11 (0209): a shop owner's undertaking to supply only fresh, non-expired,
+  // compliant goods, and their acceptance of the Seller Terms — each with its own version.
+  "SELLER_GOODS_UNDERTAKING",
+  "SELLER_TERMS",
 ]);
 
 /* ------------------------------------------------- auth (Auth.js managed) */
@@ -659,7 +663,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */, "GUEST_MOBILE", "ORDER_TRACK" /* 0184 guest checkout */, "ACCOUNT_DELETE" /* 0183 */, "LOGIN_SMS", "CHECKOUT" /* 0205: SMS second factor, checkout step-up */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -668,6 +672,11 @@ export const loginOtps = pgTable(
     /** Set when the code was used, or when a newer code replaced it. */
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    /**
+     * 0205 (docs/sms-2fa-2026-11): a verified CHECKOUT code is a one-time pass for one order;
+     * the checkout request that used it. A retry of the same request may use it again.
+     */
+    stepUpRequestId: text("step_up_request_id"),
     ipAddress: text("ip_address"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -933,6 +942,28 @@ export const shops = pgTable(
     /** No foreign key: users are customer-side. */
     membershipExemptSetBy: uuid("membership_exempt_set_by"),
     membershipExemptSetAt: timestamp("membership_exempt_set_at", { withTimezone: true }),
+    /**
+     * 0210 shop registration subscription (docs/shop-registration-subscription-2026-11). The expiry is
+     * membershipValidUntil; the fee is registrationFeePaise. Status is kept current by every payment, admin
+     * change and the reminder job (services/shop-registration-subscription.ts recomputes it on read too).
+     */
+    registrationStatus: text("registration_status", { enum: ["UNPAID", "ACTIVE", "EXPIRING_SOON", "GRACE", "EXPIRED", "EXEMPT"] })
+      .notNull()
+      .default("UNPAID"),
+    registrationStartDate: timestamp("registration_start_date", { withTimezone: true }),
+    /** Per-shop renewal fee before GST; null = the shop type's (rule shopRegistrationSubscription), else the shop's registration base fee. */
+    renewalFeePaise: bigint("renewal_fee_paise", { mode: "number" }),
+    /** Per-shop grace days; null = rule shopMembership.graceDays. 0 after "Expire now". */
+    registrationGraceDays: integer("registration_grace_days"),
+    /** Grace given until this moment (the 0210 migration, or an admin); the shop stays online until then. */
+    registrationGraceUntil: timestamp("registration_grace_until", { withTimezone: true }),
+    registrationRemindersEnabled: boolean("registration_reminders_enabled").notNull().default(true),
+    /** No foreign key, as the other payment links on shops. */
+    lastRegistrationPaymentId: uuid("last_registration_payment_id"),
+    lastRegistrationPaymentAt: timestamp("last_registration_payment_at", { withTimezone: true }),
+    registrationStatusAt: timestamp("registration_status_at", { withTimezone: true }),
+    /** What the 0210 migration did to this shop: END_DATE_SET, GRACE_GIVEN, or both. */
+    registrationBackfill: text("registration_backfill"),
     /** D-69: the owner closed the shop permanently (status INACTIVE). No foreign key: users are customer-side. */
     closedAt: timestamp("closed_at", { withTimezone: true }),
     closedBy: uuid("closed_by"),
@@ -3174,6 +3205,88 @@ export const deliveryPartnerKycChecks = pgTable(
 export type DeliveryPartnerKycCheck = typeof deliveryPartnerKycChecks.$inferSelect;
 
 /**
+ * docs/identity-verification-2026-11 (0208): one-time identity verification
+ * of customers and shop owners — Aadhaar through DigiLocker by default, PAN as
+ * the always-offered alternative. One row per attempt; at most one VERIFIED
+ * row and one open (PENDING) row per user (partial unique indexes).
+ *
+ * NEVER stored: the Aadhaar number, OTP, e-KYC XML, photo, date of birth or
+ * address. `maskedId` keeps the last four characters only (a database check
+ * refuses five or more digits in a row); `idToken` is a keyed blind index
+ * (lib/pan-crypto.ts docBlindIndex) of the DigiLocker account id or the PAN,
+ * which finds the same identity on another account without holding it.
+ */
+export const IDENTITY_VERIFICATION_METHODS = ["AADHAAR_DIGILOCKER", "PAN", "DRIVING_LICENCE", "VOTER_ID"] as const;
+export type IdentityVerificationMethod = (typeof IDENTITY_VERIFICATION_METHODS)[number];
+export const IDENTITY_VERIFICATION_STATUSES = ["PENDING", "VERIFIED", "NAME_MISMATCH_REVIEW", "REJECTED", "FAILED"] as const;
+export type IdentityVerificationStatus = (typeof IDENTITY_VERIFICATION_STATUSES)[number];
+
+export const identityVerifications = pgTable(
+  "identity_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Whose gate the attempt was started for: the customer checkout or the shop owner. */
+    subject: text("subject", { enum: ["CUSTOMER", "SHOP_OWNER"] }).notNull(),
+    method: text("method", { enum: IDENTITY_VERIFICATION_METHODS }).notNull(),
+    status: text("status", { enum: IDENTITY_VERIFICATION_STATUSES }).notNull().default("PENDING"),
+    /** "XXXX XXXX 1234" (Aadhaar) or "XXXXXX234F" (PAN): last four only. */
+    maskedId: text("masked_id").notNull(),
+    /** Keyed blind index of the DigiLocker account id / PAN. Never reversible. */
+    idToken: text("id_token"),
+    provider: text("provider").notNull(),
+    providerRef: text("provider_ref"),
+    verifiedName: text("verified_name"),
+    /** The account / shop name the verified name was compared with. */
+    comparedName: text("compared_name"),
+    nameMatchScore: integer("name_match_score"),
+    nameMatchResult: text("name_match_result", { enum: ["MATCH", "MISMATCH", "NO_NAME"] }),
+    errorCode: text("error_code"),
+    consentAt: timestamp("consent_at", { withTimezone: true }).notNull(),
+    consentVersion: text("consent_version").notNull(),
+    consentIp: text("consent_ip"),
+    consentUserAgent: text("consent_user_agent"),
+    /** DigiLocker only: the provider session (shared return link / webhook, server/kyc/digilocker-session.ts). */
+    sessionId: text("session_id"),
+    sessionStatus: text("session_status", { enum: ["created", "succeeded", "failed", "expired"] }),
+    sessionUrl: text("session_url"),
+    sessionExpiresAt: timestamp("session_expires_at", { withTimezone: true }),
+    sessionReturnKey: text("session_return_key"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("identity_verifications_user_idx").on(t.userId, t.createdAt),
+    uniqueIndex("identity_verifications_one_verified").on(t.userId).where(sql`${t.status} = 'VERIFIED'`),
+    uniqueIndex("identity_verifications_one_open").on(t.userId).where(sql`${t.status} = 'PENDING'`),
+    index("identity_verifications_status_idx").on(t.status),
+    index("identity_verifications_session_idx").on(t.sessionId),
+    uniqueIndex("identity_verifications_return_key_unique").on(t.sessionReturnKey),
+    index("identity_verifications_token_idx").on(t.method, t.idToken),
+    check("identity_verifications_masked_id_no_number", sql`length(regexp_replace(${t.maskedId}, '[^0-9]', '', 'g')) <= 4`),
+  ],
+);
+export type IdentityVerification = typeof identityVerifications.$inferSelect;
+
+/**
+ * When a shop owner was first asked to verify (seller grace period, rule
+ * identityVerification.sellerGraceDays). One row per user, written once.
+ */
+export const identityVerificationPrompts = pgTable("identity_verification_prompts", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  firstPromptedAt: timestamp("first_prompted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type IdentityVerificationPrompt = typeof identityVerificationPrompts.$inferSelect;
+
+/**
  * Gig worker flow (0121, feature 3): police verification form and character
  * certificate. The file is encrypted (lib/pan-crypto.ts encryptBytes) in the
  * row — private storage, opened only by an admin, every opening audited.
@@ -4438,6 +4551,79 @@ export const shopMembershipPeriods = pgTable(
 );
 export type ShopMembershipPeriod = typeof shopMembershipPeriods.$inferSelect;
 
+/**
+ * 0210 (docs/shop-registration-subscription-2026-11): a registration / renewal payment link sent to a shop
+ * owner (by an admin, or by the reminder job). One ACTIVE link per shop; a new one cancels the old.
+ */
+export const shopRegistrationLinks = pgTable(
+  "shop_registration_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id),
+    paymentIntentId: uuid("payment_intent_id").notNull(),
+    kind: text("kind", { enum: ["REGISTRATION", "RENEWAL"] }).notNull(),
+    status: text("status", { enum: ["ACTIVE", "CANCELLED", "EXPIRED", "PAID"] }).notNull().default("ACTIVE"),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    linkUrl: text("link_url"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdBy: uuid("created_by"),
+    createdVia: text("created_via", { enum: ["ADMIN", "REMINDER"] }).notNull().default("ADMIN"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endReason: text("end_reason"),
+  },
+  (t) => [
+    uniqueIndex("shop_registration_links_one_active").on(t.shopId).where(sql`${t.status} = 'ACTIVE'`),
+    uniqueIndex("shop_registration_links_intent_uq").on(t.paymentIntentId),
+    index("shop_registration_links_shop_idx").on(t.shopId, t.createdAt),
+  ],
+);
+export type ShopRegistrationLink = typeof shopRegistrationLinks.$inferSelect;
+
+/** 0210: every registration reminder sent — automatic ones once per shop, stage and day (sent_by null); staff ones always. */
+export const shopRegistrationReminders = pgTable(
+  "shop_registration_reminders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id),
+    kind: text("kind", { enum: ["UNPAID", "RENEWAL"] }).notNull(),
+    stage: text("stage").notNull(),
+    dueOn: date("due_on").notNull(),
+    channels: text("channels").notNull().default("IN_APP,PUSH,EMAIL"),
+    linkId: uuid("link_id"),
+    sentBy: uuid("sent_by"),
+    status: text("status", { enum: ["SENT", "FAILED", "SKIPPED"] }).notNull().default("SENT"),
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_registration_reminders_once").on(t.shopId, t.stage, t.dueOn).where(sql`${t.sentBy} IS NULL`),
+    index("shop_registration_reminders_shop_idx").on(t.shopId, t.createdAt),
+  ],
+);
+export type ShopRegistrationReminder = typeof shopRegistrationReminders.$inferSelect;
+
+/** 0210: one row per day the expiry digest went to the CC list (claimed before sending). */
+export const shopRegistrationDigests = pgTable("shop_registration_digests", {
+  day: date("day").primaryKey(),
+  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  detail: text("detail"),
+});
+
+/** 0210: the migration report — counts per registration status when the migration ran. */
+export const shopRegistrationMigrationReports = pgTable("shop_registration_migration_reports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
+  counts: jsonb("counts").$type<Record<string, number>>().notNull(),
+  backfilled: integer("backfilled").notNull().default(0),
+  graced: integer("graced").notNull().default(0),
+});
+
 /* -------------------------------------------------- excel bulk uploads */
 
 /**
@@ -4945,6 +5131,10 @@ export const userConsents = pgTable(
     ipAddress: text("ip_address"),
     /** docs/customer-whatsapp-2026-11 (0193): where the choice was made (PROFILE, WHATSAPP_KEYWORD, ...). NULL on older rows. */
     source: text("source"),
+    /** 0209: the shop the consent was given for (seller consents); null for every other consent. No FK (kept on shop deletion as evidence). */
+    shopId: uuid("shop_id"),
+    /** 0209: the browser / app that recorded the consent, as evidence of the act; null on older rows. */
+    userAgent: text("user_agent"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -4952,6 +5142,8 @@ export const userConsents = pgTable(
   (t) => [
     index("user_consents_user_idx").on(t.userId),
     index("user_consents_type_idx").on(t.consentType),
+    // 0209: "latest consent of this type for this user" (seller undertaking gate, read on every Seller Central page).
+    index("user_consents_user_type_created_idx").on(t.userId, t.consentType, t.createdAt),
   ],
 );
 
@@ -10940,6 +11132,16 @@ export const FEATURE_FLAG_KEYS = [
   // docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off): "Compare N prices", /search/compare,
   // "Lowest price" and price-first sorting between local shops. Seeded OFF by its own migration (0204 at the time of writing).
   "local_price_comparison_enabled",
+  // docs/sms-2fa-2026-11 (0205): sign-in needs an SMS code after the emailed one — one switch per audience
+  // (Admin → Sign-in security). Seeded OFF.
+  "sms_otp_signin_customers_enabled",
+  "sms_otp_signin_shop_owners_enabled",
+  // docs/identity-verification-2026-11 (0208): one-time identity check (Aadhaar by DigiLocker or PAN), switched
+  // separately for customers (first checkout) and shop owners (go-live, order acceptance, grace). Both seeded OFF.
+  "identity_verification_customers_enabled",
+  "identity_verification_shop_owners_enabled",
+  // docs/seller-undertaking-2026-11 (0209): shop owners accept the fresh-goods undertaking before using Seller Central / accepting new orders. Seeded OFF.
+  "seller_undertaking_gate_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13450,4 +13652,5 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
+export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 /* <<< GoKesari Health */

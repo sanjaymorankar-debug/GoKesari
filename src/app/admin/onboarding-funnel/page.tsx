@@ -143,6 +143,11 @@ export default async function OnboardingFunnelPage({ searchParams }: { searchPar
         )}
       </Card>
 
+      <p className="mt-4 text-sm">
+        <Link href="/admin/shop-registrations/unfinished" className="font-semibold text-kesari-800 underline">
+          Continue a registration for the owner, or send them a link →
+        </Link>
+      </p>
       <Card className="mt-4 overflow-x-auto p-0" data-testid="idle-registrations">
         <div className="p-4 pb-2">
           <h2 className="text-base font-semibold text-ink-900">Unfinished registrations to call</h2>

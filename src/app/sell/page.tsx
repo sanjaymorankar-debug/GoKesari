@@ -83,7 +83,7 @@ export default async function SellPage() {
     isReferralRequired("shop").catch(() => false),
   ]);
   const isSeller = shops.length > 0;
-  const start = isSeller ? { href: "/shop", label: "Go to Seller Central" } : { href: "#register", label: "Start selling" };
+  const start = isSeller ? { href: "/shop", label: "Go to Seller Central" } : { href: "/shop/register", label: "Start selling" };
   const signInHref = user ? "/shop" : "/signin";
 
   return (

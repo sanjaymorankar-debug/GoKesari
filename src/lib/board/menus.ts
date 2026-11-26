@@ -433,11 +433,13 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       // docs/nearby-referral-2026-10, feature 1: shops left out of Nearby because they have no map location.
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
       { key: "onboardingFunnel", label: L("Onboarding funnel", "ऑनबोर्डिंग फ़नल", "ऑनबोर्डिंग फनेल"), icon: "chart-line", href: "/admin/onboarding-funnel", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      { key: "unfinishedRegistrations", label: L("Unfinished registrations", "अधूरे पंजीकरण", "अपूर्ण नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations/unfinished", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/shop-welcome-kit-2026-11: the welcome kit (printable QR banners) for shops live before it. Admin only, while its flag is on.
       { key: "welcomeKit", label: L("Send welcome kit", "वेलकम किट भेजें", "वेलकम किट पाठवा"), icon: "megaphone", href: "/admin/shops/welcome-kit", permission: ADMIN_ONLY, feature: "shop_welcome_kit_admin_send_enabled" },
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
       // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "registration-subscriptions", label: L("Unpaid & expiring registrations", "अवैतनिक और समाप्त होते पंजीकरण", "न भरलेल्या व संपणाऱ्या नोंदण्या"), icon: "calendar-clock", href: "/admin/shops/registrations", permission: PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE },
       { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },
@@ -585,6 +587,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "campaigns", label: L("Campaigns", "अभियान", "मोहिमा"), icon: "megaphone", href: "/admin/campaigns", count: "submittedCampaigns", permission: PERMISSIONS.MARKETING_APPROVE },
       { key: "alerts", label: L("Alerts", "अलर्ट", "सूचना"), icon: "triangle-alert", href: "/admin/exceptions", count: "opsExceptions", urgent: true, permission: PERMISSIONS.ORDER_VIEW_ANY },
       { key: "consent", label: L("Consent", "सहमति", "संमती"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
+      // docs/sms-2fa-2026-11: SMS sign-in code per audience and the checkout code — admin only.
+      { key: "signInSecurity", label: L("Sign-in security", "साइन-इन सुरक्षा", "साइन-इन सुरक्षा"), icon: "lock", href: "/admin/sign-in-security", permission: ADMIN_ONLY },
     ],
     more: [
       // docs/policy-reconsent-2026-11: policy versions and acceptance counts.
@@ -600,6 +604,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
       // docs/dealer-programme: the programme's on/off switches, per district — admin only.
       { key: "featureFlags", label: L("Feature flags", "फ़ीचर फ़्लैग", "फीचर फ्लॅग"), icon: "toggle-right", href: "/admin/feature-flags", permission: ADMIN_ONLY },
+      // docs/identity-verification-2026-11: switches (customers / shop owners), review queue and counts — admin only.
+      { key: "identityVerification", label: L("Identity verification", "पहचान सत्यापन", "ओळख पडताळणी"), icon: "user-check", href: "/admin/identity-verification", permission: ADMIN_ONLY },
       // docs/rbac: the two-admin approval queue (roles, suspensions, reactivations, flags).
       { key: "approvals", label: L("Approvals", "स्वीकृतियाँ", "मंजुरी"), icon: "badge-check", href: "/admin/approvals", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
       { key: "staffTeams", label: L("Staff teams", "स्टाफ टीमें", "कर्मचारी टीम"), icon: "users", href: "/admin/staff-teams", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
@@ -645,9 +651,11 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "dealers", label: L("Dealers", "डीलर", "डीलर"), icon: "users", href: "/admin/dealers", permission: PERMISSIONS.REFERRAL_MANAGE, feature: "dealer_programme_enabled" },
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
       { key: "onboardingFunnel", label: L("Onboarding funnel", "ऑनबोर्डिंग फ़नल", "ऑनबोर्डिंग फनेल"), icon: "chart-line", href: "/admin/onboarding-funnel", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      { key: "unfinishedRegistrations", label: L("Unfinished registrations", "अधूरे पंजीकरण", "अपूर्ण नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations/unfinished", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
       // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "registration-subscriptions", label: L("Unpaid & expiring registrations", "अवैतनिक और समाप्त होते पंजीकरण", "न भरलेल्या व संपणाऱ्या नोंदण्या"), icon: "calendar-clock", href: "/admin/shops/registrations", permission: PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE },
       { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },

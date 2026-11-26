@@ -230,6 +230,12 @@ export class CashfreeGateway implements PaymentGateway {
     };
   }
 
+  /** 0210: POST /links/{link_id}/cancel — an unpaid link stops accepting payments (Cashfree reports it CANCELLED). */
+  async cancelPaymentLink(gatewayLinkId: string): Promise<void> {
+    const id = gatewayLinkId.startsWith(LINK_PREFIX) ? gatewayLinkId.slice(LINK_PREFIX.length) : gatewayLinkId;
+    await this.call<CfLink>("POST", `/links/${encodeURIComponent(id)}/cancel`, "cancel link");
+  }
+
   /** UNVERIFIED: a link payment is refunded on the order Cashfree created for it. */
   private async refundOrderId(gatewayOrderId: string): Promise<string> {
     if (!gatewayOrderId.startsWith(LINK_PREFIX)) return gatewayOrderId;

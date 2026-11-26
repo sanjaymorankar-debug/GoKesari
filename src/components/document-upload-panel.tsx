@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
+import { UPLOAD_REQUEST_LIMIT_BYTES, fileTooLargeMessage } from "@/lib/document-upload-limits";
 import { AUTO_DETECT, UPLOAD_DOC_LABELS, type ExtractedFields, type ExtractionFlag, type UploadDocType } from "@/lib/kyc/document-extract";
 import { SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
 
@@ -90,6 +91,14 @@ async function shrinkImage(file: File): Promise<File> {
 /** Uploads a file or photo to be read (docType AUTO: the server works out which document it is). */
 async function readUpload(shopId: string, docType: UploadDocType | typeof AUTO_DETECT, file: File, source: "FILE" | "CAMERA", browserOcr: boolean) {
   const prepared = await shrinkImage(file);
+  // A PDF is sent as it is (only photos are shrunk): one over the upload limit would arrive cut short, so it is
+  // refused here, before a long upload, with the server's own answer (D-165).
+  if (prepared.size > UPLOAD_REQUEST_LIMIT_BYTES) {
+    return new Response(JSON.stringify({ error: { code: "VALIDATION_FAILED", message: fileTooLargeMessage(UPLOAD_REQUEST_LIMIT_BYTES) } }), {
+      status: 422,
+      headers: { "content-type": "application/json" },
+    });
+  }
   const form = new FormData();
   form.set("file", prepared);
   form.set("docType", docType);

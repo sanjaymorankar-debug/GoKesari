@@ -38,6 +38,29 @@ export const RULES = {
       smsEnabled: true,
     },
   },
+  /**
+   * docs/sms-2fa-2026-11 (3b): a fresh code by SMS before an order is placed.
+   * Checked on the server in POST /api/checkout. Works only while SMS codes
+   * can be sent (SMS_PROVIDER + rule otp.smsEnabled); otherwise orders are
+   * placed without it, so checkout never stops for want of an SMS vendor.
+   */
+  checkoutOtp: {
+    description:
+      "Checkout step-up: before placing an order the customer enters a code sent by SMS to their verified mobile (an account without one verifies it in the same step). " +
+      "Mode every_checkout = a new code for every order (a code is good for 10 minutes and one order); once_per_hours = one code covers every order for `hours` hours. " +
+      "Needs SMS codes (SMS_PROVIDER and rule otp.smsEnabled); without them orders go through without the code. Off by default.",
+    schema: z.object({
+      enabled: z.boolean(),
+      mode: z.enum(["every_checkout", "once_per_hours"]),
+      /** once_per_hours: how long one verified code covers further orders. */
+      hours: int(1, 720),
+    }),
+    defaults: {
+      enabled: false,
+      mode: "every_checkout" as "every_checkout" | "once_per_hours",
+      hours: 12,
+    },
+  },
   dispatch: {
     description:
       "Finding a rider: offer lifetime, retry cadence and limits, and when the search stops.",
@@ -1277,7 +1300,8 @@ export const RULES = {
     defaults: {
       enabled: true,
       periodMonths: 12,
-      graceDays: 15,
+      // Owner brief 25-Nov-2026 (registration subscription): 7 days' grace by default (was 15).
+      graceDays: 7,
       reminderDays: 30,
       renewalFeePaise: 0,
       addGst: true,
@@ -1286,6 +1310,34 @@ export const RULES = {
       renewalWindowDays: 30,
       exemptShopTypes: [],
       exemptCategorySlugs: [],
+    },
+  },
+  shopRegistrationSubscription: {
+    description:
+      "Shop registration subscription (owner brief 25-Nov-2026; docs/shop-registration-subscription-2026-11). The registration fee buys 1 year (rule shopMembership: periodMonths, graceDays, renewal checkout and the remindersEnabled switch). Reminders go out once a day from reminderHourIst (IST): to shops whose registration fee is not paid on unpaidReminderDays after registration, then every unpaidRepeatEveryDays until paid; to paid shops expiryReminderDays before the expiry (0 = the expiry day), and every day of the grace period when graceDaily. Each reminder is in-app + push + e-mail (English and Marathi) with a Pay Now link, created when none is active (autoCreateLink). paymentLinkValidityDays: how long a payment link works. ccEmails: copied on the daily expiry digest. renewalFeeByShopType: renewal fee before GST for a shop type (paise), overriding the shop's own registration base fee; a shop's own renewal fee (Admin → Unpaid & expiring registrations) overrides both. payCommissionOnRenewals: dealer / franchise commission on renewal payments (registration commission is unchanged). An expired shop (after the grace, while shopMembership is enabled) is hidden from search, nearby and its shop / QR page; orders already placed finish normally.",
+    schema: z.object({
+      reminderHourIst: int(0, 23),
+      unpaidReminderDays: z.array(int(0, 365)).max(20),
+      unpaidRepeatEveryDays: int(0, 90),
+      expiryReminderDays: z.array(int(0, 365)).max(40),
+      graceDaily: z.boolean(),
+      autoCreateLink: z.boolean(),
+      paymentLinkValidityDays: int(1, 30),
+      ccEmails: z.array(z.string().email()).max(10),
+      renewalFeeByShopType: z.record(z.string().max(60), int(0, 100_000_000)),
+      payCommissionOnRenewals: z.boolean(),
+    }),
+    defaults: {
+      reminderHourIst: 9,
+      unpaidReminderDays: [1, 3, 7],
+      unpaidRepeatEveryDays: 7,
+      expiryReminderDays: [30, 15, 7, 6, 5, 4, 3, 2, 1, 0],
+      graceDaily: true,
+      autoCreateLink: true,
+      paymentLinkValidityDays: 7,
+      ccEmails: ["ceo@agtci.com"],
+      renewalFeeByShopType: {},
+      payCommissionOnRenewals: false,
     },
   },
   bankAccounts: {
@@ -1906,6 +1958,24 @@ export const RULES = {
       digilockerProvider: "kyc_provider",
     },
   },
+  /* >>> identity verification (docs/identity-verification-2026-11) */
+  identityVerification: {
+    description:
+      "One-time identity verification of customers and shop owners, used only while its switch is on (Admin → Identity verification: identity_verification_customers_enabled for customers, identity_verification_shop_owners_enabled for shop owners). LEGAL ADVICE IS PENDING: Aadhaar may be used only voluntarily and only through a licensed KYC provider (GoKesari has no UIDAI licence) — confirm the wording, the retention period and the gates with a lawyer before turning either switch on at gokesari.com. allowedMethods — \"aadhaar_or_alternative\" (default): Aadhaar by DigiLocker is offered first and PAN is always offered instead; \"aadhaar_only\": only Aadhaar by DigiLocker (the voluntary-use requirement makes this risky; keep the default unless a lawyer says otherwise). sellerGraceDays — days an existing shop owner has, from when they are first asked, before their shops stop accepting new orders (orders already taken are unaffected). nameMatchThreshold — 0–100: at or above it the verified name counts as the account's (customers) or the shop owner's / registered name (shop owners); below it the check waits for an admin in Admin → Identity verification. provider — \"kyc_provider\": KYC_PROVIDER's adapter (Sandbox.co.in: DigiLocker Aadhaar and PAN); \"mock\": a local fake DigiLocker page and fake PAN answers, refused on gokesari.com. Off production (test.gokesari.com, local work) the mock is always used, whatever this says, so no real Aadhaar is ever checked there.",
+    schema: z.object({
+      allowedMethods: z.enum(["aadhaar_or_alternative", "aadhaar_only"]),
+      sellerGraceDays: int(0, 365),
+      nameMatchThreshold: int(50, 100),
+      provider: z.enum(["kyc_provider", "mock"]),
+    }),
+    defaults: {
+      allowedMethods: "aadhaar_or_alternative",
+      sellerGraceDays: 30,
+      nameMatchThreshold: 80,
+      provider: "kyc_provider",
+    },
+  },
+  /* <<< identity verification */
   riderZoning: {
     description:
       "Delivery zoning (gig worker flow): an order is offered only to a Ready partner whose live location is within radiusKm of both the pickup (the shop) and the delivery address — and, for the pickup, within the partner's own operating radius. Uses the partner's live location, never the registration address; a location older than maxLocationAgeMinutes is not live, so the partner gets no new offers until the phone sends a fresh one. Each location update re-checks the partner's open offers and withdraws any that are now out of range. Off: the shop-only radius check of before.",

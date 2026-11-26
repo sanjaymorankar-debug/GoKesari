@@ -116,11 +116,11 @@ describe("scheme change (phase 6)", () => {
     await db.transaction((tx) => onJoiningFeeCaptured(intent, tx));
     expect(await currentDealerScheme(d.id)).toMatchObject({ schemeCode: "BUSINESS_PARTNER", source: "UPGRADE" });
     // Back to Free (accepted, no charge): applied at once as a downgrade.
-    const free2 = await versionId("FREE", 2);
-    const [freeRow] = await db.select().from(dealerSchemeVersions).where(eq(dealerSchemeVersions.id, free2));
-    const down = await requestSchemeChange(actor, { versionId: free2, termsHash: freeRow.termsHash });
+    const freeNow = await versionId("FREE", 3);
+    const [freeRow] = await db.select().from(dealerSchemeVersions).where(eq(dealerSchemeVersions.id, freeNow));
+    const down = await requestSchemeChange(actor, { versionId: freeNow, termsHash: freeRow.termsHash });
     expect(down.applied).toBe(true);
-    expect(await currentDealerScheme(d.id)).toMatchObject({ schemeCode: "FREE", version: 2, source: "DOWNGRADE" });
+    expect(await currentDealerScheme(d.id)).toMatchObject({ schemeCode: "FREE", version: 3, source: "DOWNGRADE" });
   });
 });
 

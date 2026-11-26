@@ -148,6 +148,8 @@ export interface PaymentGateway {
   /** Server-side truth for reconciliation — never trust the client or the webhook alone. */
   fetchOrder(gatewayOrderId: string): Promise<GatewayOrderState>;
   createPaymentLink(input: CreatePaymentLinkInput): Promise<GatewayPaymentLink>;
+  /** 0210: stop an unpaid payment link (optional — gateways without it keep the link until it expires). */
+  cancelPaymentLink?(gatewayLinkId: string): Promise<void>;
   refund(input: GatewayRefundInput): Promise<GatewayRefund>;
   fetchRefund(gatewayOrderId: string, merchantRefundId: string): Promise<GatewayRefund>;
   /** Signature check over the raw body; false on any mismatch or a stale timestamp. */

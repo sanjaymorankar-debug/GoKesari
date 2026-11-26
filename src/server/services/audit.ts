@@ -45,6 +45,10 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTRATION_DRAFT_CHECKED: "shop_registration_draft.checked",
   /** docs/shop-onboarding-wizard-2026-10 step 2: the shop created from the wizard's draft, its checks copied. Masked numbers only. */
   SHOP_REGISTRATION_DRAFT_SUBMITTED: "shop_registration_draft.submitted",
+  /** Owner, 25-Nov-2026: staff opened an owner's unfinished registration to continue it for them. */
+  SHOP_REGISTRATION_DRAFT_STAFF_OPENED: "shop_registration_draft.staff_opened",
+  /** Staff sent the owner a link to carry on with an unfinished registration. */
+  SHOP_REGISTRATION_DRAFT_RESUME_SENT: "shop_registration_draft.resume_link_sent",
   SHOP_APPROVED: "shop.approved",
   /** docs/shop-welcome-kit-2026-11: an admin sent the welcome kit (printable QR banners) to a shop that was already live, or to a city / district. */
   SHOP_WELCOME_KIT_SENT: "shop.welcome_kit_sent",
@@ -199,6 +203,13 @@ export const AUDIT_ACTIONS = {
   SHOP_MEMBERSHIP_PERIOD_VOIDED: "shop.membership_period_voided",
   SHOP_MEMBERSHIP_RENEWAL_STARTED: "shop.membership_renewal_started",
   SHOP_MEMBERSHIP_RENEWAL_PAID: "shop.membership_renewal_paid",
+  // 0210 registration subscription (docs/shop-registration-subscription-2026-11)
+  SHOP_REGISTRATION_REMINDER_SENT: "shop.registration_reminder_sent",
+  SHOP_REGISTRATION_LINK_CREATED: "shop.registration_link_created",
+  SHOP_REGISTRATION_LINK_CANCELLED: "shop.registration_link_cancelled",
+  SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",
+  SHOP_REGISTRATION_MARKED_PAID: "shop.registration_marked_paid",
+  SHOP_REGISTRATION_SETTINGS_CHANGED: "shop.registration_settings_changed",
   /* <<< 0189 */
   REFERRAL_CODE_CREATED: "referral_code.created",
   REFERRAL_CODE_UPDATED: "referral_code.updated",
@@ -257,6 +268,9 @@ export const AUDIT_ACTIONS = {
   SHOP_GST_SUBMITTED: "shop.gst_submitted",
   SHOP_GST_VERIFIED: "shop.gst_verified",
   SHOP_GST_REJECTED: "shop.gst_rejected",
+  /** Many GSTINs per shop (owner, 25-Nov-2026). */
+  SHOP_GST_REGISTRATION_ADDED: "shop.gst_registration_added",
+  SHOP_GST_REGISTRATION_REMOVED: "shop.gst_registration_removed",
   SHOP_PAN_SUBMITTED: "shop.pan_submitted",
   SHOP_PAN_VERIFIED: "shop.pan_verified",
   SHOP_PAN_REJECTED: "shop.pan_rejected",
@@ -291,6 +305,9 @@ export const AUDIT_ACTIONS = {
   /* Gig worker flow (docs/gig-worker-2026-10). Never a document number or a file — masked forms only. */
   DELIVERY_PARTNER_KYC_CHECKED: "delivery_partner.kyc_checked",
   DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  /* docs/identity-verification-2026-11: customer / shop owner identity check. Masked ids only, never a number. */
+  IDENTITY_VERIFICATION_CHECKED: "identity.verification_checked",
+  IDENTITY_VERIFICATION_DECIDED: "identity.verification_decided",
   DELIVERY_PARTNER_BACKGROUND_DOC_UPLOADED: "delivery_partner.background_doc_uploaded",
   DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
   DELIVERY_PARTNER_BACKGROUND_DOC_VIEWED: "delivery_partner.background_doc_viewed",

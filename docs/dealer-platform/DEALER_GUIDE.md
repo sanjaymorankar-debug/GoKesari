@@ -6,9 +6,9 @@
 
    | Scheme | Joining charge | Commission |
    |---|---|---|
-   | Free Dealership | free | 20% of each shop's registration fee, and 5% of GoKesari's commission on your shops every month for 12 months |
-   | Business Partner | ₹11,000 + GST = ₹12,980 | 25% one-time, 15% monthly |
-   | Growth Partner | ₹21,000 + GST = ₹24,780 | 30% one-time, 25% monthly, plus team commission |
+   | Free Dealership | free | 20% of each shop's registration fee (one-time) |
+
+   Business Partner and Growth Partner are not open yet.
 
    Want a franchise zone of your own? Use **Book a franchise zone**.
 2. **Fill in your details, verify your mobile, and verify your documents online or upload them.** Answer your scheme's own questions, if it has any.

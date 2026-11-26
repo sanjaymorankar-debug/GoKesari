@@ -1,4 +1,6 @@
 import { SectionTabs } from "@/components/board/section-tabs";
+import { RegistrationCard } from "@/components/seller/registration-status";
+import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -13,6 +15,7 @@ import { ShopCustomerContactForm } from "@/components/shop-customer-contact-form
 import { ShopDashboardView } from "@/components/shop-dashboard";
 import { GstRegistrationType } from "@/components/billing/gst-registration-type";
 import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
+import { ShopGstRegistrations } from "@/components/shop-gst-registrations";
 import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
 import { ShopLogoUpload } from "@/components/delta/shop-logo-upload";
 import { SHOP_LOGO_FLAG } from "@/lib/delta/shop-logo";
@@ -47,6 +50,7 @@ import {
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
+import { listShopGstRegistrations } from "@/server/services/shop-gst-registrations";
 import { getShopRegistration } from "@/server/tax/registration";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { listShopProducts, suggestProductsForShop } from "@/server/services/catalogue";
@@ -508,6 +512,7 @@ export default async function ShopManagePage({
     case "gst-pan": {
       // Billing v2 (docs/billing §3.1): Enrolment ID / PAN-only declaration.
       const registration = (await isFeatureEnabledForShop("billing_v2", shop)) ? await getShopRegistration(shop.id) : null;
+      const gstRegistrations = await listShopGstRegistrations(shop.id);
       return (
         <>
           {header}
@@ -529,6 +534,9 @@ export default async function ShopManagePage({
               <GstRegistrationType shopId={shop.id} initial={registration} />
             </div>
           ) : null}
+          <div className="mb-8">
+            <ShopGstRegistrations shopId={shop.id} initial={gstRegistrations} mode="owner" />
+          </div>
           <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="verification-link">
             <span>
               <span className="font-medium text-ink-900">Shop verification</span>
@@ -570,9 +578,11 @@ export default async function ShopManagePage({
       ]);
       const origin = originFromHeaders(await headers());
       const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+      const registrationView = await ownerRegistrationStatus(shop); // 0205
       return (
         <>
           {header}
+          <RegistrationCard view={registrationView} />
           <div className="mb-8">
             <MembershipRenewalCard
               view={{

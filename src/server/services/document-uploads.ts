@@ -74,6 +74,7 @@ import {
 import { getRule } from "./settings";
 import { documentRequirementsFor } from "./shop-document-rules";
 import { isBuiltInRuleDocKey } from "@/lib/shop-document-rules";
+import { fileTooLargeMessage } from "@/lib/document-upload-limits";
 
 export interface Actor {
   id: string;
@@ -327,9 +328,7 @@ export async function readUploadedDocument(input: ReadUploadInput): Promise<Uplo
   const shop = await loadShopFor(input.shopId, input.actor);
 
   if (input.file.length === 0) throw validationFailed("The file is empty.");
-  if (input.file.length > rule.maxUploadBytes) {
-    throw validationFailed(`The file can be at most ${rule.maxUploadBytes / 1_000_000} MB. Take the photo again at a lower size or upload a smaller PDF.`);
-  }
+  if (input.file.length > rule.maxUploadBytes) throw validationFailed(fileTooLargeMessage(rule.maxUploadBytes));
   const contentType = detectDocumentFile(input.file);
   if (!contentType) throw validationFailed("Upload the document as a PDF, JPEG, PNG or WebP file.");
   if (!auto) await assertKeptFileSize(input.docType, input.file.length);

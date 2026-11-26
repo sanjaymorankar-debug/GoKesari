@@ -1436,6 +1436,48 @@
       "when": 1793270400000,
       "tag": "0204_local_price_comparison_off",
       "breakpoints": true
+    },
+    {
+      "idx": 205,
+      "version": "7",
+      "when": 1793270500000,
+      "tag": "0205_sms_two_factor",
+      "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1793270600000,
+      "tag": "0206_shop_gst_registrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 207,
+      "version": "7",
+      "when": 1793270700000,
+      "tag": "0207_dealer_free_v3",
+      "breakpoints": true
+    },
+    {
+      "idx": 208,
+      "version": "7",
+      "when": 1793270800000,
+      "tag": "0208_identity_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 209,
+      "version": "7",
+      "when": 1793270900000,
+      "tag": "0209_seller_goods_undertaking",
+      "breakpoints": true
+    },
+    {
+      "idx": 210,
+      "version": "7",
+      "when": 1793271000000,
+      "tag": "0210_shop_registration_subscription",
+      "breakpoints": true
     }
   ]
 }

@@ -420,6 +420,8 @@ export async function onShopRegistrationFeeCaptured(
     { id: intent.userId ?? shop.ownerId, role: "SHOP_OWNER" },
     client,
   );
+  // 0210 registration subscription: the link that was paid (if any) is PAID, other open links end.
+  await (await import("./shop-registration-subscription")).markRegistrationLinksPaid(client, shop.id, intent.id);
   const [session] = await client
     .update(shopOnboardingSessions)
     .set({ status: "FEE_PAID", feeStatus: "PAID", feeFailureReason: null, updatedAt: new Date() })
@@ -437,6 +439,12 @@ export async function onShopRegistrationFeeCaptured(
   );
   const finish = async () => {
     await finishFeeCapture(shop.id, intent.id).catch((e) => console.error("[operator-limited] after-capture step failed", shop.id, e));
+    // 0210: status, then the owner's confirmation (valid until …, receipt) by in-app + push + e-mail.
+    if (recorded.feePaymentStatus === "PAID") {
+      await (await import("./shop-registration-subscription")).afterRegistrationPayment(shop.id, { id: recorded.payment.id, reference: recorded.payment.reference, amountPaise: intent.amountPaise, kind: "REGISTRATION" });
+    } else {
+      await (await import("./shop-membership")).refreshRegistrationStatusSafely(shop.id);
+    }
   };
   if (client === db) await finish();
   // Inside the capture transaction: once it has committed (the sweep is the safety net). A timer

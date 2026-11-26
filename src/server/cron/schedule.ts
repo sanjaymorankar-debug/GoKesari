@@ -190,6 +190,11 @@ export const EVERY_MINUTE: readonly Job[] = [
   // and the month before calculated on the 1st from 02:00 IST. Each send is logged once, so a late run catches up.
   { name: "franchise", everyMinutes: 5, run: async () => (await import("@/server/franchise/jobs")).runFranchiseJob() },
   // docs/dealer-platform phase 4: scheme versions scheduled to launch are published when their time comes.
+  // docs/shop-registration-subscription-2026-11 (0210; replaces the 05:00 shop-membership-reminders job): registration
+  // statuses in step with the clock, payment links past their date, open links checked with the gateway, and from
+  // 09:00 IST (rule shopRegistrationSubscription.reminderHourIst) the day's reminders and the CC digest — each sent
+  // once (claimed per shop, stage and day). Reminders are a no-op while rule shopMembership.remindersEnabled is off.
+  { name: "shop-registration", everyMinutes: 15, run: async () => (await import("@/server/services/shop-registration-subscription")).runRegistrationSubscriptionJob() },
   { name: "dealer-scheme-launches", everyMinutes: 5, run: async () => (await import("@/server/dealers/scheme-admin")).runScheduledSchemeLaunches() },
   { name: "pmd-ingest", run: pmdIngest },
 ];
@@ -242,8 +247,6 @@ export const DAILY: readonly Job[] = [
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
   // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.
   { name: "shop-document-follow-up", run: async () => (await import("@/server/services/shop-document-follow-up")).runShopDocumentFollowUp() },
-  // docs/shop-membership-renewal-2026-11: yearly membership reminders (before the end, on the day, grace end) — a no-op while rule shopMembership.remindersEnabled is off.
-  { name: "shop-membership-reminders", run: async () => (await import("@/server/services/shop-membership-renewal")).runMembershipRenewalReminders() },
   // docs/billing: compliance reminders, s.9(5) invoice catch-up, books posting, statements, GST link reminders,
   // credit-note IRNs — a no-op while billing_v2 is off.
   { name: "billing-daily", run: async () => (await import("@/server/tax/daily")).runBillingDaily() },

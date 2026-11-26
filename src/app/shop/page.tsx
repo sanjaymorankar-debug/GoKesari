@@ -24,6 +24,8 @@ import { getShopSetupChecklist } from "@/server/services/shop-setup-checklist";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { registrationFeeDue } from "@/server/services/registration-fee-payment";
+import { RegistrationCard } from "@/components/seller/registration-status";
+import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
 import { listShopsForOwner } from "@/server/services/shops";
 import { getShopToday, listNewOrdersForHome } from "@/server/services/shop-today";
 
@@ -92,6 +94,7 @@ export default async function ShopDashboardPage() {
     getShopSetupChecklist(shop).catch(() => null),
   ]);
 
+  const registration = shop.status === "REJECTED" || shop.status === "INACTIVE" ? null : await ownerRegistrationStatus(shop);
   // Phone home (docs/ux-mobile-2026-11): newest orders to accept, and today's sales for owners who may see reports. Best-effort.
   const [homeNewOrders, today] = await Promise.all([
     listNewOrdersForHome(shop.id, 2).catch(() => []),
@@ -133,6 +136,8 @@ export default async function ShopDashboardPage() {
   return (
     <>
       <HashRedirect map={OLD_SECTIONS} />
+      {/* 0210: the Shop Registration card (status, dates, days left, amount due, Pay / Renew). */}
+      <RegistrationCard view={registration} />
       {/* Touch screens: the approved Tile Board, every menu on one screen. */}
       <div className="lg:hidden">
         <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: publicSlug }} data={board} alerts={boardAlerts} newOrders={homeNewOrders} today={today} />
