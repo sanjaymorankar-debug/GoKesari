@@ -1,5 +1,6 @@
 "use client";
 
+import { AgreementsSigner } from "@/components/agreements/agreements-signer";
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
@@ -56,6 +57,7 @@ type Step =
   | "SHOP"
   | "REVIEW"
   | "DOCUMENTS"
+  | "AGREEMENTS"
   | "PAYMENT"
   | "WAITING"
   | "LIVE"
@@ -167,6 +169,8 @@ export interface WizardState {
   documentNotices?: Record<string, { label: string; level: "MUST_HAVE" | "PROMISE" }[]>;
   /** DF-08: the documents screen (FSSAI must-have, the rest on the owner's promise). */
   documentsStep: DocumentsStepState | null;
+  /** docs/seller-agreements-2026-11: the Agreements step is on (no Seller Terms tick on Payment). */
+  agreementsEnabled?: boolean;
   nextStep: Step;
 }
 
@@ -212,6 +216,7 @@ function tileOf(step: Step): number {
       return 3;
     case "REVIEW":
     case "DOCUMENTS":
+    case "AGREEMENTS":
     case "PAYMENT":
       return 4;
     case "WAITING":
@@ -720,7 +725,13 @@ export function OnboardingWizard({
       ) : null}
       {step === "REVIEW" && state ? <ReviewStep state={state} busy={busy} send={send} goTo={setViewing} /> : null}
       {step === "DOCUMENTS" && state?.shop ? <DocumentsStep shopId={state.shop.id} step={state.documentsStep} busy={busy} send={send} refresh={reloadState} /> : null}
-      {staffDraft && state?.shop && step !== "DOCUMENTS" ? (
+      {/* docs/seller-agreements-2026-11: review and OTP-sign the personalised agreements before paying (staff: send the owner a link). */}
+      {step === "AGREEMENTS" && state?.shop ? (
+        <StepCard title="Your agreements" intro="Read your shop's personalised agreements, tick each one and sign with the code sent to your mobile.">
+          <AgreementsSigner apiBase={`/api/shops/${state.shop.id}/agreements`} onSigned={() => void refresh()} />
+        </StepCard>
+      ) : null}
+      {staffDraft && state?.shop && step !== "DOCUMENTS" && step !== "AGREEMENTS" ? (
         <StepCard title="Shop created — the owner takes it from here">
           <p className="text-sm text-ink-700" data-testid="staff-after-submit">
             <strong>{state.shop.name}</strong>
@@ -1888,6 +1899,11 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
       <WhatYouPay state={state} slab={slab} />
       {/* docs/seller-undertaking-2026-11: both unticked; the server refuses the submit unless both are true. */}
       <div className="space-y-2 text-sm text-ink-700">
+        {state.agreementsEnabled ? (
+          <p className="text-xs text-ink-600" data-testid="terms-in-agreements">
+            You will read and sign the Seller agreements (with the Seller Terms, Terms &amp; Conditions and Privacy Policy) with an OTP in the next steps, before paying.
+          </p>
+        ) : (
         <label className="flex items-start gap-3">
           <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} data-testid="accept-seller-terms" />
           <span>
@@ -1897,6 +1913,7 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
             <a href="/legal/privacy-policy" target="_blank" rel="noopener" className="underline">Privacy Policy</a>.
           </span>
         </label>
+        )}
         <label className="flex items-start gap-3">
           <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={acceptUndertaking} onChange={(e) => setAcceptUndertaking(e.target.checked)} data-testid="accept-seller-undertaking" />
           <span>{SELLER_UNDERTAKING_PROMISE}</span>
@@ -1910,7 +1927,7 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
         type="button"
         size="lg"
         className="w-full"
-        disabled={busy || !docs.canSubmit || !acceptTerms || !acceptUndertaking}
+        disabled={busy || !docs.canSubmit || (!acceptTerms && !state.agreementsEnabled) || !acceptUndertaking}
         onClick={() => void send("/api/shops/registration-draft/submit", { acceptSellerTerms: acceptTerms, acceptUndertaking })}
         data-testid="create-and-pay"
       >

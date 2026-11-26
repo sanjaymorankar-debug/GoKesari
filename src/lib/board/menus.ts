@@ -384,6 +384,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     key: "legal", label: L("Legal documents", "कानूनी दस्तावेज़", "कायदेशीर कागदपत्रे"), short: L("Legal docs", "दस्तावेज़", "कागदपत्रे"), icon: "scroll-text", tone: "blue", href: "/shop/legal-documents", opens: "hub",
     items: [
       { key: "licences", label: L("Licences", "लाइसेंस", "परवाने"), icon: "file-check", href: "/shop/legal-documents" },
+      // docs/seller-agreements-2026-11: the shop's signed Seller SLA / medical agreement (and signing).
+      { key: "agreements", label: L("My Agreements", "मेरे अनुबंध", "माझे करार"), icon: "file-check", href: "/shop/agreements" },
       { key: "terms", label: L("Terms", "शर्तें", "अटी"), icon: "scroll-text", href: "/legal/seller-terms" },
     ],
   },
@@ -418,6 +420,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "documents", label: L("Legal documents", "कानूनी दस्तावेज़", "कायदेशीर कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
+      // docs/seller-agreements-2026-11: agreement templates (versions, publish), signed acceptances, pending shops.
+      { key: "agreements", label: L("Seller agreements", "विक्रेता अनुबंध", "विक्रेता करार"), icon: "scroll-text", href: "/admin/agreements", permission: PERMISSIONS.CONSENT_VIEW },
       // DF-09 (owner, 22-Nov-2026): which documents each kind of shop needs (admin edits, operators see).
       { key: "documentRules", label: L("Document rules", "दस्तावेज़ नियम", "कागदपत्र नियम"), icon: "sliders-horizontal", href: "/admin/shop-documents", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "uploads", label: L("Document uploads", "दस्तावेज़ अपलोड", "कागदपत्र अपलोड"), icon: "file-text", href: "/admin/document-uploads", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },

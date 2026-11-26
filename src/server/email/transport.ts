@@ -27,6 +27,10 @@ export interface OutboundEmail {
    * (the staging QA sign-in reads these codes from the accounts' mailboxes).
    */
   keepRecipient?: boolean;
+  /** docs/seller-agreements-2026-11: copied recipients. Dropped (and named in the note) when the test site redirects mail. */
+  cc?: string[];
+  /** Called with the SMTP Message-ID once the server accepted the message (console mode: null). */
+  onSent?: (info: { messageId: string | null; mailbox: string }) => void;
 }
 
 export interface EmailAttachment {
@@ -77,9 +81,10 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 export function redirectedEmail(message: OutboundEmail, env: RedirectEnv = getEnv()): OutboundEmail {
   const target = message.keepRecipient ? null : emailRedirectTarget(env);
   if (!target || target.toLowerCase() === message.to.trim().toLowerCase()) return message;
-  const note = `Test site: this e-mail was meant for ${message.to}.`;
+  const note = `Test site: this e-mail was meant for ${message.to}${message.cc?.length ? ` (cc ${message.cc.join(", ")})` : ""}.`;
   return {
     ...message,
+    cc: undefined,
     to: target,
     subject: `[for ${message.to}] ${message.subject}`,
     text: `${note}\n\n${message.text}`,
@@ -100,6 +105,8 @@ export async function sendEmail(original: OutboundEmail): Promise<void> {
     if (message.attachments?.length) {
       console.info(`[email:console] attachments: ${message.attachments.map((a) => `${a.filename} (${a.content.length} bytes)`).join(", ")}`);
     }
+    if (message.cc?.length) console.info(`[email:console] cc=${message.cc.join(", ")}`);
+    message.onSent?.({ messageId: null, mailbox: "console" });
     return;
   }
   // AUTH_EMAIL_SERVER, or the next mailbox with room when EMAIL_POOL is set (mailbox-pool.ts).
@@ -111,6 +118,8 @@ export async function sendEmail(original: OutboundEmail): Promise<void> {
       // Every HTML email opens with the GoKesari wordmark.
       html: message.html ? withEmailBrand(message.html) : undefined,
       attachments: message.attachments,
+      cc: message.cc,
+      onSent: message.onSent,
     },
     env,
   );

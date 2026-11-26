@@ -61,6 +61,15 @@ function pgErrorCode(error: unknown): string | undefined {
  */
 /** The tables resetDatabase() names; TRUNCATE … CASCADE reaches the rest through foreign keys. */
 const RESET_TABLES = [
+  // docs/seller-agreements-2026-11 (0212): no foreign keys; TRUNCATE is not blocked by the immutability triggers (UPDATE / DELETE only).
+  "legal_acceptances",
+  "legal_signed_files",
+  "legal_document_snapshots",
+  "legal_signing_requests",
+  "legal_shop_agreement_states",
+  "legal_agreement_emails",
+  "legal_platform_assets",
+  "legal_documents",
   // docs/rbac (0170): the approval engine has no foreign keys to users (TRUNCATE is not blocked by the
   // append-only trigger on approval_decisions, which guards UPDATE / DELETE only).
   "approval_requests",

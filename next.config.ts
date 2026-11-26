@@ -131,7 +131,9 @@ const nextConfig: NextConfig = {
   // docs/document-upload-2026-10: the OCR engine starts a worker thread and
   // loads its WebAssembly and language model from node_modules at run time,
   // so it must not be bundled; the PDF reader likewise.
-  serverExternalPackages: ["tesseract.js", "tesseract.js-core", "unpdf"],
+  // docs/seller-agreements-2026-11: the agreement PDFs are printed by a bundled Chromium (unpacked from its
+  // package at run time) driven by puppeteer-core; neither may be bundled.
+  serverExternalPackages: ["tesseract.js", "tesseract.js-core", "unpdf", "@sparticuz/chromium", "puppeteer-core", "pdf-lib"],
   // The OCR engine reads its WebAssembly and the English model from disk at
   // run time, which the file tracer cannot see. Hostinger deploys only traced
   // files, so without this the reader found no model and its worker hung
@@ -147,7 +149,13 @@ const nextConfig: NextConfig = {
     "/shop/accounts/share": OCR_RUNTIME_FILES,
     // docs/shop-welcome-kit-2026-11: the banner templates and font are read from disk at run time
     // (the e-mail is sent from the approval routes and the every-minute cron).
-    "/api/**": ["./src/server/shop-banner/assets/**"],
+    "/api/**": [
+      "./src/server/shop-banner/assets/**",
+      // docs/seller-agreements-2026-11: agreement fonts, letterhead images and the bundled v1.0 templates.
+      "./src/server/legal-agreements/assets/**",
+      "./src/server/legal-agreements/templates/**",
+      "./node_modules/@sparticuz/chromium/bin/**",
+    ],
   },
   // next/image optimisation would occupy Node processes on Hostinger; serve images as-is.
   images: { unoptimized: true },

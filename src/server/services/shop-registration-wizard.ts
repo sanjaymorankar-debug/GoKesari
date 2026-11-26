@@ -64,6 +64,7 @@
  * no newer check claimed the row. Numbers are kept as ciphertext, masked form
  * and blind index; views carry the masked form only.
  */
+import { isFeatureEnabledForShop } from "./feature-flags";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 
 import { GST_DECLARATION_VERSION, SELLER_VERIFICATION_CONSENT_VERSION } from "@/lib/kyc/consent";
@@ -207,6 +208,8 @@ export const WIZARD_STEPS = [
   "REVIEW",
   // Owner, 21-Nov-2026: an optional documents screen once the shop exists, before payment.
   "DOCUMENTS",
+  // docs/seller-agreements-2026-11 (flag seller_agreements_enabled): review and OTP-sign the personalised agreements before payment.
+  "AGREEMENTS",
   "PAYMENT",
   "WAITING",
   "LIVE",
@@ -238,6 +241,8 @@ export interface WizardLicence {
 }
 
 export interface WizardView extends ShopRegistrationDraftView {
+  /** docs/seller-agreements-2026-11: the Agreements step is on for this registration (no Seller Terms tick on Payment). */
+  agreementsEnabled: boolean;
   /** The shop type chosen (the TYPE step), before the shop details are saved. */
   shopType: string | null;
   licences: WizardLicence[];
@@ -462,6 +467,11 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
 
   // Owner brief 08-Nov-2026: verify (GSTIN or PAN, with the referral code) → owner name if the record
   // gave none → address → map pin → shop name → FSSAI for a food shop → pay → live → products.
+  const agreements =
+    draft.status === "SUBMITTED" && shop?.status === "PENDING_APPROVAL" && shop.feeDuePaise > 0 && draft.shopId
+      ? await (await import("@/server/legal-agreements/requirements")).getAgreementStatus(draft.shopId).catch(() => null)
+      : null;
+  const agreementsEnabled = await isFeatureEnabledForShop("seller_agreements_enabled", { pincode: address?.pincode ?? null });
   let nextStep: WizardStep;
   if (shop?.status === "APPROVED" && setup) {
     nextStep = !setup.location ? "LOCATION" : !setup.products ? "LIVE" : "DONE";
@@ -476,6 +486,10 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     (partialOf(draft).documentsStepDone !== true || (documentsStep !== null && !documentsStep.canContinue))
   ) {
     nextStep = "DOCUMENTS";
+  }
+  // docs/seller-agreements-2026-11: after shop details and licences, before the fee — the owner signs the agreements.
+  else if (draft.status === "SUBMITTED" && shop?.status === "PENDING_APPROVAL" && shop.feeDuePaise > 0 && agreements?.required) {
+    nextStep = "AGREEMENTS";
   }
   else if (draft.status === "SUBMITTED") nextStep = shop && shop.feeDuePaise > 0 ? "PAYMENT" : "WAITING";
   // Owner, 25-Nov-2026: sign in → referral code → GST / PAN → (email) → owner name → shop type →
@@ -527,6 +541,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     documentsPromised: draft.documentsPromisedAt !== null,
     documentsStep,
     setup,
+    agreementsEnabled,
     nextStep,
   };
 }
@@ -1404,7 +1419,9 @@ export async function submitDraftForPayment(input: {
       reason: "IDENTITY_NOT_VERIFIED",
     });
   }
-  if (input.acceptSellerTerms !== true || input.acceptUndertaking !== true) {
+  // docs/seller-agreements-2026-11: with the Agreements step on, the Seller Terms are accepted there (OTP-signed), not ticked here.
+  const termsInAgreements = view.agreementsEnabled;
+  if ((input.acceptSellerTerms !== true && !termsInAgreements) || input.acceptUndertaking !== true) {
     throw validationFailed("Tick both boxes to accept the Seller Terms and the seller undertaking (fresh, non-expired, compliant goods) before payment.", {
       reason: "SELLER_ACCEPTANCE_REQUIRED",
       acceptSellerTerms: input.acceptSellerTerms === true,
@@ -1451,7 +1468,7 @@ export async function submitDraftForPayment(input: {
       })
       .where(eq(shopRegistrationDrafts.id, draft.id));
     // docs/seller-undertaking-2026-11: the owner ticked both boxes; recorded with the shop, in the same transaction.
-    await acceptSellerUndertaking({ userId: actor.id, shopIds: [shop.id], ip: input.ipAddress ?? null, userAgent: input.userAgent ?? null, actorRole: actor.role, client: tx });
+    await acceptSellerUndertaking({ userId: actor.id, shopIds: [shop.id], ip: input.ipAddress ?? null, userAgent: input.userAgent ?? null, actorRole: actor.role, client: tx, includeTerms: !termsInAgreements });
   };
 
   const gstin = open.route === "GSTIN" && open.gstinEncrypted && (!later || CHECKED.has(open.gstStatus)) ? decryptSecret(open.gstinEncrypted) : null;

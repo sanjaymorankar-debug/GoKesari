@@ -502,6 +502,17 @@ export const NOTIFICATION_TYPES = {
   /** To an Operations User: a task was assigned to you. */
   STAFF_TASK_ASSIGNED: "staff.task_assigned",
   /* <<< RBAC v2 */
+  //
+  /* >>> Seller agreements (docs/seller-agreements-2026-11) — text built in English / Marathi / Hindi by the service. */
+  /** To the shop owner: a new agreement version takes effect on a date (30-day change notice), or a signature is due. */
+  SHOP_AGREEMENT_NOTICE: "shop.agreement_notice",
+  /** To the shop owner: staff or a dealer registered the shop — review and sign your agreements (link). */
+  SHOP_AGREEMENT_SIGN_REQUEST: "shop.agreement_sign_request",
+  /** To the shop owner: your signed agreements are in My Agreements (SMS / WhatsApp notice beside the e-mail). */
+  SHOP_AGREEMENT_SIGNED: "shop.agreement_signed",
+  /** To admins: a signed-agreement e-mail could not be delivered after its retries. */
+  STAFF_AGREEMENT_EMAIL_FAILED: "staff.agreement_email_failed",
+  /* <<< Seller agreements */
 } as const;
 
 export type NotificationType =

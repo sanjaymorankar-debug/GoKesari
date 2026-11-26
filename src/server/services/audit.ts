@@ -248,6 +248,15 @@ export const AUDIT_ACTIONS = {
   CONSENT_HISTORY_VIEWED: "consent.history_viewed",
   /** docs/policy-reconsent-2026-11: an admin published a policy version; a user accepted one. */
   POLICY_VERSION_PUBLISHED: "policy_version.published",
+  /** docs/seller-agreements-2026-11: agreement templates and OTP-signed seller agreements. */
+  AGREEMENT_TEMPLATE_SAVED: "agreement_template.saved",
+  AGREEMENT_TEMPLATE_REVIEWED: "agreement_template.reviewed",
+  AGREEMENT_TEMPLATE_PUBLISHED: "agreement_template.published",
+  AGREEMENT_TEMPLATE_RETIRED: "agreement_template.retired",
+  AGREEMENT_SIGNED: "agreement.signed",
+  AGREEMENT_LINK_SENT: "agreement.link_sent",
+  AGREEMENT_COPY_RESENT: "agreement.copy_resent",
+  AGREEMENT_SETTINGS_CHANGED: "agreement.settings_changed",
   POLICY_ACCEPTED: "policy.accepted",
 
   /* --------------------------------------------- seller/food compliance */
