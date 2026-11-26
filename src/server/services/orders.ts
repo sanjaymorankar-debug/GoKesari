@@ -105,6 +105,7 @@ import { registeredGstin } from "./invoices";
 import { isFeatureEnabledForShop } from "./feature-flags";
 import { assertSuppliesAllowed, resolveBuyerGstin, type BuyerGstin } from "@/server/tax/checkout";
 import { recordOrderStatusEvent } from "@/server/events/order-status-record";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 
 /**
  * A delivery assignment is still "in play" — offered, accepted, or already
@@ -217,6 +218,18 @@ export interface CheckoutInput {
    * invoice is B2B. Personal orders only, and only while billing_v2 is on.
    */
   buyerGstin?: string | null;
+  /**
+   * docs/onboarding-v2-2026-11 (flag onboarding_v2): a personal order to a shop that delivers may be placed
+   * without an address — the customer gives the delivery location right after payment. Such orders carry
+   * address_pending_since and rider dispatch waits for it. Ignored unless the flag is on.
+   */
+  addressAfterPayment?: boolean;
+  /**
+   * With `addressAfterPayment`: the best location known before payment (the location the customer chose — device
+   * GPS / map — or a saved address; the route passes getCustomerLocation()). Every delivering shop must serve it,
+   * exactly as GS-026 checks an address, so no paid order is left with a shop that cannot deliver to the customer.
+   */
+  addressLaterLocation?: { pincode: string | null; latitude: number | null; longitude: number | null; state?: string | null } | null;
 }
 
 export interface CheckoutResult {
@@ -273,6 +286,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
   const lap = checkoutTimer();
   const orderType: OrderType = input.orderType ?? "PERSONAL";
+  // docs/onboarding-v2-2026-11: the delivery address is asked after payment (flag re-checked here, not trusted).
+  const addressLater =
+    input.addressAfterPayment === true && orderType === "PERSONAL" && !input.addressId && (await onboardingV2Enabled());
 
   // GAP-019: these reads do not depend on each other, so they run together instead of one round trip after
   // another (the database is far from the web server). Their errors are still raised in the old order below.
@@ -361,6 +377,34 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       })(addressWithSociety)
     : null;
 
+  // docs/onboarding-v2-2026-11: an order whose address follows payment is checked against the best location known
+  // now. None known while a shop of the cart delivers: ask for one first (the cart opens the location picker).
+  const laterLocation = addressLater && !addressSnapshot ? (input.addressLaterLocation ?? null) : null;
+  if (addressLater && !addressSnapshot && !laterLocation?.pincode && (laterLocation?.latitude == null || laterLocation?.longitude == null)) {
+    if (purchasableGroups.some((g) => cartShopById.get(g.shop.id)?.deliveryAvailable)) {
+      throw validationFailed("Set your delivery location (GPS or map) so we can check the shop delivers there.", { missing: "location" });
+    }
+  }
+  if (laterLocation) {
+    const location = {
+      label: "checkout",
+      pincode: laterLocation.pincode,
+      latitude: laterLocation.latitude,
+      longitude: laterLocation.longitude,
+      source: "ADDRESS" as const,
+      addressId: null,
+      societyId: null,
+    };
+    for (const group of purchasableGroups) {
+      const shopRow = cartShopById.get(group.shop.id);
+      if (!shopRow?.deliveryAvailable) continue;
+      const check = shopServiceability(shopRow, location);
+      if (!check.deliversHere) {
+        throw validationFailed(`${shopRow.name} does not deliver to your location. ${check.reason ?? ""}`.trim(), { missing: "location" });
+      }
+    }
+  }
+
   // GS-026: never take payment for a delivery the shop cannot make. Checked
   // per shop against the chosen address (radius, PIN, or society partner
   // shop). Orders without an address (pickup) are unchanged.
@@ -398,7 +442,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     const addressState = input.addressId
       ? (await db.select({ state: addresses.state }).from(addresses).where(eq(addresses.id, input.addressId)))[0]?.state ?? null
       : null;
-    await assertSuppliesAllowed(billingShops, addressSnapshot ? { state: addressState, pincode: addressSnapshot.pincode } : null);
+    await assertSuppliesAllowed(
+      billingShops,
+      addressSnapshot
+        ? { state: addressState, pincode: addressSnapshot.pincode }
+        : laterLocation?.pincode
+          ? { state: laterLocation.state ?? null, pincode: laterLocation.pincode } // docs/onboarding-v2-2026-11
+          : null,
+    );
     if (input.buyerGstin?.trim()) {
       if (orderType !== "PERSONAL") throw validationFailed("A business order uses the buying shop's GSTIN.");
       buyerGstin = await resolveBuyerGstin(input.buyerGstin, { id: input.userId });
@@ -413,7 +464,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     const groupShops = await withWalletGate(cartShopRows);
     // A personal order from a shop that delivers needs a saved delivery address.
     // Business orders and shops that only offer pickup are unchanged.
-    if (orderType === "PERSONAL" && !addressSnapshot && groupShops.some((s) => s.deliveryAvailable)) {
+    if (orderType === "PERSONAL" && !addressSnapshot && !addressLater && groupShops.some((s) => s.deliveryAvailable)) {
       throw validationFailed("Add a delivery address before placing this order.", { missing: "address" });
     }
     // Each shop's legal-document check is started now and read in order below (GAP-019).
@@ -430,7 +481,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       unwrap((await legalChecks.get(shopRow.id)) ?? { ok: true, value: undefined });
       // docs/identity-verification-2026-11: a shop whose owner is past the identity grace period takes no new orders.
       await assertShopIdentityAllowsOrders(shopRow.id);
-      assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null);
+      assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null || (addressLater && shopRow.deliveryAvailable));
     }
   }
 
@@ -462,7 +513,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   let codMaxOrderPaise: number = COD_LIMITS.maxOrderPaise;
   if (paymentMethod === "COD") {
     if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
-    if (!addressSnapshot) throw validationFailed("Choose a delivery address to pay cash on delivery.");
+    if (!addressSnapshot && !addressLater) throw validationFailed("Choose a delivery address to pay cash on delivery.");
     const eligibility = await getCodEligibility(input.userId);
     if (!eligibility.allowed) throw conflict(eligibility.reason ?? "Cash on delivery is not available.");
     codMaxOrderPaise = eligibility.maxOrderPaise;
@@ -622,7 +673,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
       const subtotalPaise = sumPaise(lines.map((l) => l.lineTotalPaise));
       // Again on the lines ordered: the cart may have changed since the check above.
-      assertMinimumOrder(shopRow, subtotalPaise, addressSnapshot != null);
+      assertMinimumOrder(shopRow, subtotalPaise, addressSnapshot != null || (addressLater && shopRow.deliveryAvailable));
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
       // Prices INCLUDE GST. orders.tax_paise is tax charged on top of them and stays 0 — never put
       // the included GST there or into the total (it would charge GST twice). The included GST is
@@ -687,6 +738,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
             shopId: group.shop.id,
             addressId: input.addressId ?? null,
             deliveryAddressSnapshot: addressSnapshot,
+            // docs/onboarding-v2-2026-11: a delivery order waiting for the address the customer gives after payment.
+            ...(addressLater && !addressSnapshot && shopRow.deliveryAvailable ? { addressPendingSince: new Date() } : {}),
             status: "PENDING",
             source: "DIRECT",
             orderType,
@@ -1333,6 +1386,10 @@ export async function cancelOrder(
     // Rule `cancellation.customerMayCancelUntil` = PREPARING opens ACCEPTED and
     // PREPARING (before packing) to the customer too, with the same full refund.
     const beforePacking = SELF_CANCEL_BEFORE_PACKING.includes(order.status);
+    // docs/onboarding-v2-2026-11: an order still waiting for the delivery location the customer gives after payment
+    // (only ever set with the flag on) can always be cancelled by its customer for a full refund — whatever the
+    // shop has done — since without a location it can never be delivered. NULL on every other order: unchanged.
+    const addressPending = order.addressPendingSince != null;
     const { customerMayCancelUntil } = await getRule("cancellation");
     const customerCancelBeforePacking =
       Boolean(options.selfService) && beforePacking && customerMayCancelUntil === "PREPARING";
@@ -1340,10 +1397,10 @@ export async function cancelOrder(
     // customer may also cancel a packed order (READY / ASSIGNED) for a fee.
     // Off (the default): exactly the original D10 block below.
     const customerCancelAfterPacking =
-      Boolean(options.selfService) && (await afterPackingCancellationOpen(order.status));
+      Boolean(options.selfService) && !addressPending && (await afterPackingCancellationOpen(order.status));
     // TC-ORD-008: the one D10 rule (lib/order-cancellation.ts) that My Orders
     // and the cancellation quote read too.
-    const block = options.selfService
+    const block = options.selfService && !addressPending
       ? selfCancelBlock(order.status, {
           customerMayCancelUntil,
           afterPackingEnabled: (await getRule("afterPackingCancellation")).enabled,
@@ -1513,6 +1570,8 @@ export async function cancelOrder(
                   ? "SUPPORT"
                   : "SHOP",
             beforePacking: customerCancelBeforePacking,
+            // docs/onboarding-v2-2026-11: the shop already has the order, so it is told of any cancel.
+            ...(addressPending ? { addressPending: true } : {}),
           },
         },
         tx,

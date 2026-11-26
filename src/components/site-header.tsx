@@ -43,6 +43,8 @@ interface Props {
   referralLinks?: { href: string; key: "referral" | "invite" }[];
   /** docs/search-brand-barcode-favourites-2026-11: the search box's scan button (flag on). */
   barcodeScan?: boolean;
+  /** docs/onboarding-v2-2026-11: "Become a franchisee" in the account menu (signed in, flag onboarding_v2 on). */
+  franchiseEntry?: boolean;
 }
 
 /**
@@ -111,6 +113,7 @@ export function SiteHeader({
   helpsShops = false,
   referralLinks = [],
   barcodeScan = false,
+  franchiseEntry = false,
 }: Props) {
   const pathname = usePathname();
   // docs/guest-cart-2026-11: a guest's cart lives in the browser; the badge counts it there.
@@ -167,6 +170,7 @@ export function SiteHeader({
     ...(isRider ? RIDER_NAV : []),
     ...(helpsShops ? [{ href: "/shop/staff-access", label: UI.shopsIHelp }] : []),
     ...referralLinks.map((r) => ({ href: r.key === "referral" ? "/referral" : "/refer", label: r.key === "referral" ? UI.myReferralCode : UI.inviteFriends })),
+    ...(franchiseEntry ? [{ href: "/franchise/start", label: L("Become a franchisee", "फ्रैंचाइज़ी बनें", "फ्रँचायझी व्हा") }] : []),
   ];
 
   return (

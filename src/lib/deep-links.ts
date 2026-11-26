@@ -53,6 +53,9 @@ export const DEEP_LINK_ROUTES = [
   { kind: "franchise", example: "/franchise/zones/<zone>", prefix: "/franchise" },
   // 1.15.0 (docs/referral-sharing-2026-11): a closed or expired referral link's page (My referrals, /referrals, is under /refer).
   { kind: "referral", example: "/invite/<code>", prefix: "/invite/" },
+  // docs/onboarding-v2-2026-11 (Flow 4): team invite links /team/join/<token> and the request page /team/invitations
+  // (My team itself is /dealer/team, under /dealer).
+  { kind: "team", example: "/team/join/<token>", prefix: "/team/" },
 ] as const;
 
 /** test.gokesari.com (and any test.* host) is the preview build; everything else the store build. */

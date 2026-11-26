@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 
+import { AdminMarketplaceRoles } from "@/components/onboarding-v2/admin-marketplace-roles";
 import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
 import { UserProfileAdminForm } from "@/components/user-profile-admin-form";
 import { LinkButton, PageHeader } from "@/components/ui";
@@ -9,6 +10,8 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { ROLE_LABELS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { users } from "@/server/db/schema";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
+import { adminMarketplaceRoleView } from "@/server/onboarding-v2/team";
 
 export const metadata = { title: "User profile" };
 export const dynamic = "force-dynamic";
@@ -45,6 +48,9 @@ export default async function AdminUserProfilePage({ params }: { params: Promise
   // DELETED accounts are not editable; nothing here can bring one back.
   if (target.status === "DELETED") notFound();
 
+  // Onboarding v2 (docs/onboarding-v2-2026-11): marketplace roles, role history (IST) and the team-role override.
+  const marketplace = (await onboardingV2Enabled()) ? await adminMarketplaceRoleView(target.id) : null;
+
   const loginMobile = target.phoneE164
     ? `${maskPhone(target.phoneE164)}${target.phoneVerifiedAt ? " (verified)" : " (not verified)"}`
     : null;
@@ -70,6 +76,7 @@ export default async function AdminUserProfilePage({ params }: { params: Promise
           initial={{ name: target.name, phone: target.phone, status: target.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE" }}
         />
       </UnsavedChangesProvider>
+      {marketplace ? <AdminMarketplaceRoles userId={target.id} data={marketplace} /> : null}
     </div>
   );
 }

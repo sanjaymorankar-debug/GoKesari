@@ -23,6 +23,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { normalizeReferralCode } from "@/server/services/customer-referrals";
 import { landingPathFor, logReferralEvent, referralSharingOn, resolveReferralLink } from "@/server/services/referral-links";
 import { looksLikeShopCode, shopReferralRule } from "@/server/services/shop-referrals";
+import { onboardingV2Enabled, v2GuestReferralLanding } from "@/server/onboarding-v2/customer";
 
 const cookieOptions = (request: NextRequest) => ({
   httpOnly: true,
@@ -41,13 +42,16 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cod
 /** The original route (rule referralSharing off, and unknown codes with it on). */
 async function originalLink(request: NextRequest, code: string) {
   const clean = normalizeReferralCode(code).slice(0, 16);
+  // docs/onboarding-v2-2026-11 (flag onboarding_v2): a guest is never sent to sign in from a link.
+  const v2Guest = (await onboardingV2Enabled()) && !(await getCurrentUser());
   if (looksLikeShopCode(clean) && (await shopReferralRule()).enabled) {
-    return new NextResponse(null, { status: 307, headers: { Location: `/shop/register?ref=${clean}` } });
+    const shopPage = v2Guest ? await v2GuestReferralLanding({ code: clean, audience: "shop-owner" }) : null;
+    return new NextResponse(null, { status: 307, headers: { Location: shopPage ?? `/shop/register?ref=${clean}` } });
   }
   const user = await getCurrentUser();
   // Relative Location: behind the host's proxy request.url carries the
   // internal address (0.0.0.0:3000), not the public domain.
-  const response = new NextResponse(null, { status: 307, headers: { Location: user ? "/refer" : "/signin" } });
+  const response = new NextResponse(null, { status: 307, headers: { Location: user ? "/refer" : v2Guest ? "/" : "/signin" } });
   if (clean) response.cookies.set(REFERRAL_COOKIE, clean, cookieOptions(request));
   return response;
 }
@@ -85,7 +89,9 @@ async function sharedLink(request: NextRequest, rawCode: string) {
   const keptFirst = winner !== target;
   await log(keptFirst ? "KEPT_FIRST" : "OK");
 
-  const response = new NextResponse(null, { status: 307, headers: { Location: landingPathFor(winner, Boolean(user)) } });
+  // docs/onboarding-v2-2026-11 (flag onboarding_v2): a guest opens the shop / home page instead of sign-in.
+  const v2Landing = !user && (await onboardingV2Enabled()) ? await v2GuestReferralLanding(winner) : null;
+  const response = new NextResponse(null, { status: 307, headers: { Location: v2Landing ?? landingPathFor(winner, Boolean(user)) } });
   if (!keptFirst) {
     response.cookies.set(REFERRAL_LINK_COOKIE, target.code, cookieOptions(request));
     // Customer first-time setup reads gk_ref (unchanged): only customer-audience codes go there.

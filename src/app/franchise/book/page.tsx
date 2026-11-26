@@ -5,6 +5,8 @@ import { FRANCHISE_AGREEMENT_TEXT, FRANCHISE_AGREEMENT_VERSION } from "@/lib/fra
 import { getCurrentUser } from "@/server/authz/guards";
 import { KYC_DAYS_AFTER_PAYMENT, offerView, ownerStatusForUser } from "@/server/franchise/booking";
 import { franchiseConfig, oneTimeRates } from "@/server/franchise/config";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
+import { redirect } from "next/navigation";
 import { zoneFacets, zoneViews } from "@/server/franchise/zones";
 
 export const metadata = { title: "Book a franchise zone — Pune, Mumbai (Konkan), Nashik" };
@@ -18,6 +20,11 @@ export const dynamic = "force-dynamic";
 export default async function FranchiseBookPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
   const user = await getCurrentUser();
+  // Onboarding v2: a signed-in visitor books through Become a franchisee (live shop check, plan, no 30-day KYC rule).
+  if (user && (await onboardingV2Enabled())) {
+    const zonesParam = (Array.isArray(sp.zones) ? sp.zones[0] : sp.zones) ?? "";
+    redirect(`/franchise/start${zonesParam ? `?model=paid&zones=${encodeURIComponent(zonesParam)}` : ""}`);
+  }
   const [zones, offer, status, { config }] = await Promise.all([zoneViews(), offerView(), user ? ownerStatusForUser(user.id) : Promise.resolve(null), franchiseConfig()]);
   const r = await oneTimeRates(config);
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
@@ -43,6 +50,7 @@ export default async function FranchiseBookPage({ searchParams }: { searchParams
         kycDays={KYC_DAYS_AFTER_PAYMENT}
         initialZones={initialZones}
         initialJoin={join === "paid" || join === "free" ? join : null}
+        v2Start={!user && (await onboardingV2Enabled())}
       />
     </div>
   );

@@ -85,6 +85,8 @@ export interface OrderEventPayload {
   /** For order.cancelled: who cancelled, and whether the shop had already started on it. */
   cancelledBy?: "CUSTOMER" | "SHOP" | "SUPPORT" | "SYSTEM";
   beforePacking?: boolean;
+  /** docs/onboarding-v2-2026-11: the order was waiting for the customer's delivery location when it was cancelled. */
+  addressPending?: boolean;
   minutes?: number;
   acceptByLabel?: string;
   /** order.completed (gig worker flow, feature 11): outbound channels besides in-app, from rule orderCompletion. */
@@ -346,7 +348,18 @@ export const EVENTS = {
     // the customer after the shop had started (D6). A customer cancelling an
     // order the shop has not accepted yet stays silent for the shop (D10); a
     // system cancel (acceptance timeout) sends its own shop notice.
-    if (p.cancelledBy === "SUPPORT" || (p.cancelledBy === "CUSTOMER" && p.beforePacking)) {
+    if (p.addressPending && p.cancelledBy !== "SUPPORT") {
+      // docs/onboarding-v2-2026-11: cancelled while waiting for the delivery location (by the customer, or
+      // automatically once the wait ran out). The shop had the order, so it always hears.
+      messages.push({
+        ...forShop(p, N.ORDER_CANCELLED),
+        title: "Order cancelled",
+        body:
+          p.cancelledBy === "SYSTEM"
+            ? `Order ${p.orderNumber} was cancelled: the customer did not give a delivery location in time. Put the items back on the shelf.`
+            : `Order ${p.orderNumber} was cancelled by the customer before giving a delivery location: ${p.reason ?? ""}. Put the items back on the shelf.`.replace(": .", "."),
+      });
+    } else if (p.cancelledBy === "SUPPORT" || (p.cancelledBy === "CUSTOMER" && p.beforePacking)) {
       messages.push({
         ...forShop(p, N.ORDER_CANCELLED),
         title: p.cancelledBy === "CUSTOMER" ? "Order cancelled by the customer" : "Order cancelled by support",

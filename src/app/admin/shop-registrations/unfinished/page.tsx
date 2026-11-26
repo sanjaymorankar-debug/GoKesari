@@ -23,6 +23,11 @@ const STEP: Record<string, string> = {
   REVIEW: "Review",
   DOCUMENTS: "Documents",
   PAYMENT: "Pay the fee",
+  // docs/onboarding-v2-2026-11 (Flow 2).
+  V2_IDENTITY: "Verify mobile / e-mail",
+  FEE: "Pay the fee (pending payment)",
+  V2_LICENCES: "Licences",
+  SLA: "Seller agreement",
 };
 const idle = (h: number) => (h >= 48 ? `${Math.floor(h / 24)} d` : `${h} h`);
 

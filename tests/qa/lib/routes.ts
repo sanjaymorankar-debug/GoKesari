@@ -210,6 +210,7 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/cart/recommendation": "'best shop for this cart' for a guest's browser lines too (docs/guest-checkout-2026-11): reads only; 404 while the guest flags are off",
   "/api/guest-checkout/start": "guest checkout step 1 (docs/guest-checkout-2026-11): sends the contact codes, creates nothing; rate-limited per IP",
   "/api/track/lookup": "find an order without signing in (docs/guest-checkout-2026-11): same reply for every miss, rate-limited per IP and reference; 404 while the guest flags are off",
+  "/api/onboarding-v2/customer/consent": "the checkout sign-in sheet's Terms tick (docs/onboarding-v2-2026-11): a guest's tick is kept in a short-lived signed cookie until the account exists; saves nothing else; 404 while onboarding_v2 is off",
   "/api/health/telephony/webhook": "call-tracking provider webhook (docs/health): HMAC signature checked; mock provider only off production",
 };
 

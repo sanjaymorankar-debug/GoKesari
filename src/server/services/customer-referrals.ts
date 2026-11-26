@@ -16,7 +16,7 @@
  * A reward later found fraudulent can be reversed by an admin (D-25):
  * reverseCustomerReferral takes it back from both wallets.
  */
-import { and, count, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { haversineDistanceKm } from "@/lib/geo/haversine";
@@ -91,13 +91,16 @@ export function sameAddress(a: AddressLike, b: AddressLike): boolean {
 }
 
 /** Why this customer can't apply a code now, or null when they can. */
-async function ineligibility(userId: string, applyWithinDays: number): Promise<string | null> {
+async function ineligibility(userId: string, applyWithinDays: number, firstOrderIds: string[] = []): Promise<string | null> {
   const [user] = await db.select().from(users).where(eq(users.id, userId));
   if (!user) return "Account not found.";
   if (Date.now() - user.createdAt.getTime() > applyWithinDays * 86_400_000) {
     return `Referral codes can only be used within ${applyWithinDays} days of joining.`;
   }
-  const [{ n }] = await db.select({ n: count() }).from(orders).where(eq(orders.userId, userId));
+  const [{ n }] = await db
+    .select({ n: count() })
+    .from(orders)
+    .where(firstOrderIds.length > 0 ? and(eq(orders.userId, userId), notInArray(orders.id, firstOrderIds)) : eq(orders.userId, userId));
   if (n > 0) return "Referral codes can only be used before your first order.";
   const already = await db.query.customerReferrals.findFirst({ where: eq(customerReferrals.refereeUserId, userId) });
   if (already) return "You have already used a referral code.";
@@ -120,14 +123,19 @@ async function refuseOwnCode(userId: string, code: string, reason: "OWN_CODE" | 
 }
 
 /** Applies a friend's code to the signed-in (new) customer. */
-export async function applyReferralCode(userId: string, rawCode: string): Promise<CustomerReferral> {
+export async function applyReferralCode(
+  userId: string,
+  rawCode: string,
+  /** docs/onboarding-v2-2026-11: orders of the first checkout, placed before the code was asked. Omitted: unchanged. */
+  options: { firstOrderIds?: string[] } = {},
+): Promise<CustomerReferral> {
   const rule = await getRule("customerReferrals");
   if (!rule.enabled) throw validationFailed("Referral codes aren't available right now.");
   const code = normalizeReferralCode(rawCode);
   const owner = code ? await db.query.customerReferralCodes.findFirst({ where: eq(customerReferralCodes.code, code) }) : null;
   if (!owner) throw validationFailed("That referral code isn't valid.");
   if (owner.userId === userId) await refuseOwnCode(userId, code, "OWN_CODE");
-  const why = await ineligibility(userId, rule.applyWithinDays);
+  const why = await ineligibility(userId, rule.applyWithinDays, options.firstOrderIds);
   if (why) throw conflict(why);
 
   const people = await db.select().from(users).where(inArray(users.id, [userId, owner.userId]));

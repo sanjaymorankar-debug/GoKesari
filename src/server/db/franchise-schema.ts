@@ -251,6 +251,12 @@ export const franchiseBookings = pgTable("franchise_bookings", {
   agreementAcceptanceId: uuid("agreement_acceptance_id"),
   renewalAllocationId: uuid("renewal_allocation_id"),
   paymentIntentId: uuid("payment_intent_id"),
+  /** docs/onboarding-v2-2026-11 (0215): franchise_plans.id the booking was bought on; null = before plans. */
+  planId: uuid("plan_id"),
+  /** 0218: the plan as reserved (code, term, price per zone before GST; null price = the zone's tier fee). */
+  planCode: text("plan_code"),
+  planDurationMonths: integer("plan_duration_months"),
+  planPricePerZonePaise: money("plan_price_per_zone_paise"),
   holdExpiresAt: ts("hold_expires_at").notNull(),
   paidAt: ts("paid_at"),
   failureReason: text("failure_reason"),

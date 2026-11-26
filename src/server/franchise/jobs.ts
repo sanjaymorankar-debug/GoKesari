@@ -207,6 +207,7 @@ export async function sendDigest(now: Date, config: FranchiseConfig): Promise<bo
  * Pay first, KYC after (owner 22-Nov-2026): zones whose owner finished KYC go live; owners are reminded 7 days and
  * 1 day before the 30 days end; after that the admins (franchise CC list) are told once a day that the booking is
  * overdue — refund it to free the zone (Admin → Franchise → bookings), or give him more time.
+ * Onboarding v2 (bookings with a plan, flag onboarding_v2) sets no kyc_due_at, so its franchises are skipped here.
  */
 async function kycSweep(now: Date, config: FranchiseConfig): Promise<{ live: number; waiting: number; reminded: number; overdue: number }> {
   const { live, waiting } = await sweepFranchiseKyc(now);
@@ -242,6 +243,8 @@ export async function runFranchiseJob(real: Date = new Date()): Promise<Record<s
   // §5.6: scheduled zone status changes due now, and reservations past their expiry back to Available.
   out.zoneStatus = await runZoneStatusJobs(real).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
   out.kyc = await kycSweep(now, config).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+  // Onboarding v2: paid plan bookings whose go-live (dealer approval, GKF code) did not finish at capture.
+  out.v2GoLive = await (await import("@/server/onboarding-v2/franchise")).retryV2GoLive().catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
   out.expired = await expireAreas(now, config);
   out.reminded = await sendReminders(now, config);
   out.digest = await sendDigest(now, config);

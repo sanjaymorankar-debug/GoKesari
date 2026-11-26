@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { useGuestCart } from "@/components/guest-cart/guest-cart-context";
 import { CartShopRecommendation } from "@/components/guest-checkout/cart-shop-recommendation";
 import { GuestCheckoutForm, type GuestCheckoutPrefill } from "@/components/guest-checkout/guest-checkout-form";
+import { useLoginSheet } from "@/components/onboarding-v2/login-sheet-context";
 import { EmptyIllustration } from "@/components/empty-illustrations";
 import { SafeImage } from "@/components/safe-image";
 import { Alert, Button, Card, EmptyState, LinkButton, Money } from "@/components/ui";
@@ -44,8 +45,19 @@ function returnToCartAfterSignIn(): void {
  * docs/guest-checkout-2026-11: `guestCheckout` is set only while guest_checkout_enabled (and
  * guest_cart_enabled) is on — then the cart also offers "Checkout as a guest" and the best-shop panel.
  */
-export function GuestCartView({ lang, guestCheckout = null }: { lang: Lang; guestCheckout?: { prefill: GuestCheckoutPrefill | null } | null }) {
+export function GuestCartView({
+  lang,
+  guestCheckout = null,
+  onboardingV2 = false,
+}: {
+  lang: Lang;
+  guestCheckout?: { prefill: GuestCheckoutPrefill | null } | null;
+  /** docs/onboarding-v2-2026-11: "Place order" opens the login sheet here (cart kept) instead of /signin. */
+  onboardingV2?: boolean;
+}) {
   const router = useRouter();
+  const openLoginSheet = useLoginSheet();
+  const v2 = onboardingV2 && openLoginSheet != null;
   const cart = useGuestCart(true);
   const key = linesKey(cart);
   const [preview, setPreview] = useState<{ key: string; data: GuestCartPreview } | null>(null);
@@ -205,18 +217,22 @@ export function GuestCartView({ lang, guestCheckout = null }: { lang: Lang; gues
           className="mt-3 h-12 w-full text-base font-bold"
           onClick={() => {
             returnToCartAfterSignIn();
-            router.push("/signin");
+            if (v2) openLoginSheet!({ returnTo: "/cart" });
+            else router.push("/signin");
           }}
           disabled={!data || data.groups.length === 0}
           data-testid="guest-cart-place-order"
         >
-          Sign in to place order
+          {v2 ? "Place order" : "Sign in to place order"}
         </Button>
         <p className="mt-2 text-center text-xs text-ink-600">
-          Your cart stays in this browser. After signing in you choose the address and pay — nothing is charged yet.
+          {v2
+            ? "Your cart stays in this browser. Next: accept the terms, verify your email and mobile, choose how to pay. You set the delivery location right after paying."
+            : "Your cart stays in this browser. After signing in you choose the address and pay — nothing is charged yet."}
         </p>
       </Card>
-      {guestCheckout && data && data.groups.length > 0 ? <GuestCheckoutForm lang={lang} prefill={guestCheckout.prefill} /> : null}
+      {/* docs/onboarding-v2-2026-11: with v2 on, the login sheet replaces the guest checkout card (one way to check out). */}
+      {guestCheckout && !v2 && data && data.groups.length > 0 ? <GuestCheckoutForm lang={lang} prefill={guestCheckout.prefill} /> : null}
     </div>
   );
 }

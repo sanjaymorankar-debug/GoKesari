@@ -354,8 +354,11 @@ export async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<Shop
       .for("update");
   const [existing] = await lockOpen();
   if (existing) return existing;
+  // docs/onboarding-v2-2026-11 (Flow 2): a registration started while onboarding_v2 is on follows the v2 order;
+  // one started before keeps the original wizard to the end.
+  const flowVersion = (await (await import("@/server/onboarding-v2/roles")).onboardingV2Enabled()) ? "v2" : null;
   try {
-    await tx.insert(shopRegistrationDrafts).values({ ownerId });
+    await tx.insert(shopRegistrationDrafts).values({ ownerId, flowVersion });
   } catch (error) {
     // Only reachable if a writer bypassed the lock; the other draft wins.
     if (!isUniqueViolation(error)) throw error;

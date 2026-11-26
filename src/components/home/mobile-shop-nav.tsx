@@ -16,6 +16,7 @@ import { usePathname } from "next/navigation";
 import clsx from "clsx";
 
 import { Icon, type IconName } from "@/components/board/icons";
+import { useLoginSheet } from "@/components/onboarding-v2/login-sheet-context";
 import { formatRupees } from "@/lib/board/format";
 import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
 import { HOME } from "@/lib/home-i18n";
@@ -72,6 +73,8 @@ export function MobileShopNav({
   const guestCartOn = useGuestCartEnabled() && !signedIn;
   const guestCart = useGuestCart(guestCartOn);
   const cartCount = guestCartOn ? guestCartItemCount(guestCart) : accountCartCount;
+  // docs/onboarding-v2-2026-11 (flag onboarding_v2): Orders / Account open the login sheet for a guest, not /signin.
+  const openLoginSheet = useLoginSheet();
   if (!showsShoppingNav(pathname)) return null;
 
   const items: { key: string; href: string; label: string; icon: IconName; active: boolean }[] = [
@@ -115,6 +118,14 @@ export function MobileShopNav({
                   aria-current={item.active ? "page" : undefined}
                   data-testid="bottom-nav-item"
                   data-key={item.key}
+                  onClick={
+                    openLoginSheet && !signedIn && item.href === "/signin"
+                      ? (event) => {
+                          event.preventDefault();
+                          openLoginSheet({ returnTo: item.key === "orders" ? "/orders" : "/profile" });
+                        }
+                      : undefined
+                  }
                   className={clsx(
                     "flex h-full flex-col items-center justify-center gap-0.5 text-[0.6875rem] font-semibold leading-tight",
                     item.active ? "text-kesari-800" : "text-ink-600 hover:text-ink-900",

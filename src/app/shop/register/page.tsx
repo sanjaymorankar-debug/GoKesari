@@ -11,6 +11,8 @@ import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { refreshLatestRegistrationFeeAttempt } from "@/server/services/registration-fee-payment";
 import { waitingRegistration, waitingRegistrationMessage } from "@/server/services/shop-registration-draft";
 import { getWizardDraft } from "@/server/services/shop-registration-wizard";
+import { ensureV2FeeOnLedger, refreshDraftFeeAttempt, startV2Draft } from "@/server/onboarding-v2/shop-flow";
+import { safeReturnPath } from "@/lib/onboarding-v2/return-to";
 import { getBoardLang } from "@/server/board-lang";
 import { isPlaceholderEmail } from "@/lib/placeholder-email";
 import { ShopSignInCard } from "./sign-in-card";
@@ -21,7 +23,7 @@ export const dynamic = "force-dynamic";
 export default async function RegisterShopPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string | string[]; code?: string | string[]; new?: string | string[]; form?: string | string[]; wizard?: string | string[] }>;
+  searchParams: Promise<{ ref?: string | string[]; code?: string | string[]; new?: string | string[]; form?: string | string[]; wizard?: string | string[]; return?: string | string[] }>;
 }) {
   const params = await searchParams;
   // docs/dealer-programme: a dealer's share link (/shop/register?ref=CODE) fills in the referral code;
@@ -30,6 +32,8 @@ export default async function RegisterShopPage({
   const ref = typeof rawRef === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/.test(rawRef.trim()) ? rawRef.trim().toUpperCase() : null;
   // The retired long form's addresses land on the one registration, keeping a referral link's code.
   if (params.form !== undefined || params.wizard !== undefined) redirect(ref ? `/shop/register?ref=${ref}` : "/shop/register");
+  // docs/onboarding-v2-2026-11 (Flow 2): ?return=<same-site path> — where the owner goes after go-live.
+  const returnTo = safeReturnPath(typeof params.return === "string" ? params.return : null);
   const user = await getCurrentUser();
   if (!user) {
     // 0120 (FLOW_2026-10-30.md): the owner signs in here — the code comes by email.
@@ -61,8 +65,17 @@ export default async function RegisterShopPage({
   // Onboarding Phase B (G24): "Register another shop" — an owner whose last registration is
   // submitted starts a new one (a registration still open is always resumed instead).
   // On the payment step: a try that failed or went through shows now, without waiting for the webhook.
-  const current =
+  let current =
     firstRead?.nextStep === "PAYMENT" && firstRead.shop && (await refreshLatestRegistrationFeeAttempt(firstRead.shop.id, user.id)) ? await getWizardDraft(user) : firstRead;
+  // Flow 2 (flag onboarding_v2): a new registration opens on the v2 identity screen (the draft is created now so the
+  // screen knows what to ask); an open v2 draft keeps ?return=. Back from the gateway the fee attempt is checked.
+  const wantsNew = current === null || (params.new === "1" && current.status !== "OPEN");
+  if ((wantsNew || (current?.status === "OPEN" && current.v2 && returnTo)) && !(await waitingRegistration(user.id))) {
+    current = (await startV2Draft(user, { returnTo })) ?? current;
+  }
+  if (current?.v2 && current.nextStep === "FEE" && (await refreshDraftFeeAttempt(user.id))) current = await getWizardDraft(user);
+  // A v2 shop whose fee (paid on the draft) did not reach its ledger yet: retried on every visit.
+  if (current?.v2 && current.shop && current.shop.feeDuePaise > 0 && (await ensureV2FeeOnLedger(current.shop.id).catch(() => false))) current = await getWizardDraft(user);
   // docs/referral-sharing-2026-11: a /r/<code> link opened earlier (cookie gk_ref_link), or the app's
   // deferred link, fills in a dealer / team lead / agent / franchise / shop code when the URL has none.
   const shareRef = ref ?? (await sharedShopCode());

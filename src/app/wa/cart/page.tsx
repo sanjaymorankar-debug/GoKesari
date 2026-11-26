@@ -10,6 +10,8 @@ import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { CART_LINK_PATH, claimCartLink, loadCartLink } from "@/server/whatsapp/customer/cart-link";
 import { CUSTOMER_WHATSAPP_FLAG } from "@/server/whatsapp/customer/config";
 import { cartTotalPaise } from "@/server/whatsapp/customer/conversation";
+import { WaCartGuestAdd } from "@/components/onboarding-v2/wa-cart-guest-add";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/customer";
 
 export const metadata = { title: "Your WhatsApp cart" };
 export const dynamic = "force-dynamic";
@@ -103,6 +105,9 @@ export default async function WhatsAppCartPage({ searchParams }: { searchParams:
             {tr(T.add, lang)}
           </button>
         </form>
+      ) : (await onboardingV2Enabled()) ? (
+        // docs/onboarding-v2-2026-11: a guest adds the lines to the browser cart; sign-in only at "Place order".
+        <WaCartGuestAdd lines={link.lines.map((l) => ({ shopProductId: l.shopProductId, quantity: l.quantity }))} label={tr(T.add, lang)} />
       ) : (
         <div className="space-y-2">
           <LinkButton href="/signin" className="w-full">

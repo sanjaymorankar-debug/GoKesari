@@ -10,6 +10,7 @@ import { customerCancellableStatuses } from "@/lib/order-cancellation";
 import { paymentMethodLabel } from "@/lib/payment-methods";
 import { L, tr } from "@/lib/board/i18n";
 import { getCurrentUser } from "@/server/authz/guards";
+import { PendingDeliveryLocation } from "@/components/onboarding-v2/pending-delivery-location";
 import { getBoardLang } from "@/server/board-lang";
 import { assertOrderViewer, listChargesForOrder } from "@/server/aftercare/order-view";
 import { listRefundsForOrder } from "@/server/aftercare/refunds";
@@ -95,6 +96,8 @@ export default async function OrderDetailPage({
           </Link>
         }
       />
+      {/* docs/onboarding-v2-2026-11: an order still waiting for its delivery location asks for it here. */}
+      {order.userId === user.id ? <PendingDeliveryLocation userId={user.id} onlyOrderId={order.id} /> : null}
       {query.cancelled ? (
         <div className="mb-4">
           <Alert tone="success" title={tr(T.cancelledTitle, lang)}>
