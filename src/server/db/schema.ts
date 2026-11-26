@@ -1433,6 +1433,9 @@ export const deliveryPartners = pgTable(
     latitude: text("latitude"),
     longitude: text("longitude"),
     operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
+    /** Rider App v2 (0212, rule riderReferral): this rider's own code, and who referred them. */
+    referralCode: text("referral_code"),
+    referredByPartnerId: uuid("referred_by_partner_id"),
     /** Rating aggregate (GS-060), maintained from visible order_ratings. Average × 100. */
     ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
     ratingCount: integer("rating_count").notNull().default(0),
@@ -2405,6 +2408,13 @@ export const deliveryOrders = pgTable(
     rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
     /** GA-005: the trip this delivery is batched into with the rider's other orders; null = carried alone. */
     tripId: uuid("trip_id").references((): AnyPgColumn => deliveryTrips.id, { onDelete: "set null" }),
+    /* Rider App v2 (0212, rule riderPayPlans): the pay quoted to the rider, locked when they accept. */
+    quotePaise: integer("quote_paise"),
+    quoteBreakdown: jsonb("quote_breakdown").$type<import("@/lib/rider-pay-plan").PayQuote>(),
+    payPlanId: uuid("pay_plan_id"),
+    quotedAt: timestamp("quoted_at", { withTimezone: true }),
+    /** 0212: the reason picked when the rider turned the offer down (TOO_FAR, VEHICLE, ENDING_SHIFT, OTHER). */
+    rejectReasonCode: text("reject_reason_code"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -2867,6 +2877,10 @@ export const deliveryPartnerEarnings = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
     payoutId: uuid("payout_id"),
+    /* Rider App v2 (0212): the locked quote and the pay plan the earning was worked out on (null = flat rate). */
+    quotePaise: integer("quote_paise"),
+    payPlanId: uuid("pay_plan_id"),
+    planBreakdown: jsonb("plan_breakdown").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -3479,6 +3493,11 @@ export const riderEarningSlots = pgTable(
     /** Peak-period component paid on top in this slot. */
     peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
     isPeak: boolean("is_peak").notNull().default(false),
+    /** Rider App v2 (0212): pay-plan surge in this slot, basis points (12000 = ×1.2); null = none. */
+    surgeMultiplierBp: integer("surge_multiplier_bp"),
+    /** 0212 (rule riderSlotBooking): riders may book this slot ahead; capacity null = no limit. */
+    bookable: boolean("bookable").notNull().default(false),
+    bookingCapacity: integer("booking_capacity"),
     /** The highest-priority active slot containing the delivery time wins. */
     priority: integer("priority").notNull().default(0),
     validFrom: date("valid_from"),
@@ -13654,4 +13673,5 @@ export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
 export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
+export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)
 /* <<< GoKesari Health */

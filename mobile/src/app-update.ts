@@ -1,9 +1,15 @@
 /**
  * docs/app-install-2026-10: checks for a newer app build at launch and when
- * the app returns to the screen, and offers it ("Update" opens the Play Store
- * / App Store listing, or the APK download until the app is listed). The
- * update installs over this one: sign-in and settings stay. Rules in
- * ./app-update-policy.ts.
+ * the app returns to the screen. Rules in ./app-update-policy.ts.
+ *
+ * docs/silent-update-2026-11 (1.16.0): no "new version is ready" popup any
+ * more. The page inside the app is the live website, so website changes
+ * reach everyone at once without any app update. A newer native build is
+ * left to the store's own automatic updates (Play Store / App Store). Only a
+ * build below the minimum the website names (MOBILE_APP_*_MINIMUM, set by
+ * the owner for a critical breaking change) still asks: "Update" opens the
+ * store listing, or the APK download until the app is listed. The update
+ * installs over this one: sign-in and settings stay.
  */
 import Constants from "expo-constants";
 import { Alert, AppState, Linking, Platform } from "react-native";
@@ -34,7 +40,6 @@ async function appStoreListing(info: ReleaseInfo | null): Promise<AppStoreListin
 }
 
 let lastCheck = 0;
-let laterFor: string | null = null;
 let showing = false;
 
 export async function checkForUpdate(): Promise<void> {
@@ -44,32 +49,21 @@ export async function checkForUpdate(): Promise<void> {
   const all = (await getJson(`${SITE_URL}/api/app/version`)) as Record<string, ReleaseInfo> | null;
   const info = all?.[platform] ?? null;
   const decision = decideUpdate(APP_VERSION, info, await appStoreListing(info));
-  if (decision.kind === "none" || (decision.kind === "optional" && laterFor === decision.version)) return;
+  // docs/silent-update-2026-11: a newer optional build is never announced (the store updates it in the background).
+  if (decision.kind !== "required") return;
 
   const open = () => {
     showing = false;
     void Linking.openURL(storeOpenUrl(decision.url)).catch(() => Linking.openURL(decision.url).catch(() => {}));
     // A required update stays on screen until the new version is installed.
-    if (decision.kind === "required") lastCheck = 0;
+    lastCheck = 0;
   };
   showing = true;
   Alert.alert(
-    decision.kind === "required" ? "Update GoKesari to continue" : "A new version of GoKesari is ready",
+    "Update GoKesari to continue",
     `Version ${decision.version} is available. It installs over this one — you stay signed in.`,
-    decision.kind === "required"
-      ? [{ text: "Update", onPress: open }]
-      : [
-          {
-            text: "Later",
-            style: "cancel",
-            onPress: () => {
-              showing = false;
-              laterFor = decision.version;
-            },
-          },
-          { text: "Update", onPress: open },
-        ],
-    { cancelable: decision.kind !== "required", onDismiss: () => void (showing = false) },
+    [{ text: "Update", onPress: open }],
+    { cancelable: false, onDismiss: () => void (showing = false) },
   );
 }
 
