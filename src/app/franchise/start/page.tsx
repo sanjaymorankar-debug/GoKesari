@@ -25,11 +25,12 @@ export const dynamic = "force-dynamic";
 export default async function FranchiseStartPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
-  if (!(await onboardingV2Enabled())) redirect("/franchise/book");
   const user = await getCurrentUser();
   const query = new URLSearchParams(Object.entries({ model: one(sp.model), zones: one(sp.zones) }).filter(([, v]) => v)).toString();
   const self = `${FRANCHISE_START_PATH}${query ? `?${query}` : ""}`;
+  // Sign-in first, then the flag: a guest is always sent to sign-in (guest QA); flag off → the existing booking page.
   if (!user) redirect(`/signin?callbackUrl=${encodeURIComponent(self)}`);
+  if (!(await onboardingV2Enabled())) redirect("/franchise/book");
 
   const state = await franchiseStartState(user.id);
   if (!state.shop) {

@@ -26,7 +26,6 @@ import {
   addresses,
   orders,
   policyAcceptances,
-  shopReferralCodes,
   shops,
   userConsents,
   users,
@@ -68,14 +67,8 @@ export async function requireGuestCart(): Promise<void> {
  * Add my shop). DEFAULT – confirm with Sanjay.
  */
 export async function v2GuestReferralLanding(target: { code: string; kind?: string; audience: "shop-owner" | "customer" }): Promise<string | null> {
-  if (target.kind === "SHOP" || (!target.kind && /^SHOP/i.test(target.code))) {
-    const [row] = await db
-      .select({ slug: shops.slug })
-      .from(shopReferralCodes)
-      .innerJoin(shops, eq(shops.id, shopReferralCodes.shopId))
-      .where(eq(shopReferralCodes.code, target.code.toUpperCase()));
-    return row ? `/shops/${encodeURIComponent(row.slug)}` : null;
-  }
+  // Shop codes (SHOP…) invite another shop owner to register: they keep going to Add my shop (TC-SREF-010).
+  // A shop's own QR banner already points at its public page (/shops/<slug>), which never asked for sign-in.
   return target.audience === "customer" ? "/" : null;
 }
 

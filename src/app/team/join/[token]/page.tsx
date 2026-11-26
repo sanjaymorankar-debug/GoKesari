@@ -15,11 +15,12 @@ export const dynamic = "force-dynamic";
  * /team/invitations to accept or decline.
  */
 export default async function JoinTeamPage({ params }: { params: Promise<{ token: string }> }) {
-  if (!(await onboardingV2Enabled())) notFound();
   const { token } = await params;
   const here = `/team/join/${encodeURIComponent(token)}`;
+  // Sign-in first, then the flag: a guest is always sent to sign-in (guest QA).
   const user = await getCurrentUser();
   if (!user) redirect(`/signin?callbackUrl=${encodeURIComponent(here)}`);
+  if (!(await onboardingV2Enabled())) notFound();
   const result = await claimTeamInvitation(user, token).catch((e: unknown) => (e instanceof Error ? e.message : "This invitation cannot be used."));
   if (typeof result !== "string") redirect("/team/invitations");
   return (

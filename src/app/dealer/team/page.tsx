@@ -16,9 +16,10 @@ export const dynamic = "force-dynamic";
  * dealer page's existing team section is unchanged.
  */
 export default async function MyTeamPage() {
-  if (!(await onboardingV2Enabled()) || !(await isFeatureEnabled("dealer_programme_enabled"))) notFound();
+  // Sign-in first, then the flags: a guest is always sent to sign-in (guest QA), whatever the flags say.
   const user = await getCurrentUser();
   if (!user) redirect("/signin?callbackUrl=/dealer/team");
+  if (!(await onboardingV2Enabled()) || !(await isFeatureEnabled("dealer_programme_enabled"))) notFound();
   const data = await teamOverview(user).catch((e: unknown) => (e instanceof Error ? e.message : "Not available."));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">

@@ -12,9 +12,10 @@ export const dynamic = "force-dynamic";
 
 /** A customer's team requests (docs/onboarding-v2-2026-11, Flow 4): accept or decline; the role is added on accept. */
 export default async function TeamInvitationsPage() {
-  if (!(await onboardingV2Enabled())) notFound();
+  // Sign-in first, then the flag: a guest is always sent to sign-in (guest QA).
   const user = await getCurrentUser();
   if (!user) redirect("/signin?callbackUrl=/team/invitations");
+  if (!(await onboardingV2Enabled())) notFound();
   const [{ invitations, missing }, payout] = await Promise.all([listMyTeamInvitations(user), myPayoutReadiness(user.id)]);
   return (
     <div className="mx-auto max-w-xl space-y-4 px-4 py-6">

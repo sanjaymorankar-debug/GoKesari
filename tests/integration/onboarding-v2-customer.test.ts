@@ -268,7 +268,7 @@ describe("flag onboarding_v2 on — guest mode", () => {
     expect(res.body.groups[0].deliveryFeePaise).toBe(2_000);
   });
 
-  it("TC-OV2C-004 a guest's referral link opens the home page (code remembered), a shop's code its shop page", async () => {
+  it("TC-OV2C-004 a guest's referral link opens the home page (code remembered); shop referral codes still open Add my shop", async () => {
     await v2On();
     const referrer = await createUser();
     const code = await getOrCreateReferralCode(referrer.id);
