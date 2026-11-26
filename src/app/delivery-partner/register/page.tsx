@@ -8,6 +8,11 @@ import { getBoardLang } from "@/server/board-lang";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
 import { normaliseReferralCode } from "@/lib/rider-growth";
 import { getRule } from "@/server/services/settings";
+import { flowF11On } from "@/server/flows/wave5-flags";
+import { emailFactorVerified } from "@/server/dual-auth/policy";
+import { db } from "@/server/db";
+import { users } from "@/server/db/schema";
+import { eq } from "drizzle-orm";
 
 export const metadata = { title: "Delivery Partner Registration" };
 export const dynamic = "force-dynamic";
@@ -30,7 +35,16 @@ export default async function DeliveryPartnerRegisterPage({ searchParams }: { se
 
   const existing = await getMyDeliveryPartnerProfile(user.id);
   if (existing) redirect("/delivery-partner");
-  const [lang, referral] = await Promise.all([getBoardLang(), getRule("riderReferral")]);
+  const [lang, referral, flowF11] = await Promise.all([getBoardLang(), getRule("riderReferral"), flowF11On()]);
+  // docs/flows-v3/wave5.md (flag flow_f11): the account's verified mobile and e-mail fill (and lock) the form.
+  let account: { verifiedMobile: string | null; verifiedEmail: string | null } | undefined;
+  if (flowF11) {
+    const [row] = await db.select().from(users).where(eq(users.id, user.id));
+    account = {
+      verifiedMobile: row?.phoneE164 && row.phoneVerifiedAt ? row.phoneE164.slice(3) : null,
+      verifiedEmail: row && (await emailFactorVerified(row)) ? row.email : null,
+    };
+  }
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -38,7 +52,7 @@ export default async function DeliveryPartnerRegisterPage({ searchParams }: { se
         title={tr(T.title, lang)}
         description={tr(T.description, lang)}
       />
-      <DeliveryPartnerRegisterForm lang={lang} referral={referral.enabled ? { code: ref ?? "" } : undefined} />
+      <DeliveryPartnerRegisterForm lang={lang} referral={referral.enabled ? { code: ref ?? "" } : undefined} account={account} />
     </div>
   );
 }
