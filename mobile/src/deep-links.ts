@@ -44,6 +44,9 @@ export const DEEP_LINK_ROUTES = [
   { kind: "franchise", prefix: "/franchise" },
   // 1.15.0 (docs/referral-sharing-2026-11): a closed or expired referral link's page (My referrals, /referrals, is under /refer).
   { kind: "referral", prefix: "/invite/" },
+  // Onboarding v2 (docs/onboarding-v2-2026-11, Flow 4): a team invite link (/team/join/<token>) and the request page
+  // (/team/invitations) a team-request push opens. My team itself (/dealer/team) is under /dealer.
+  { kind: "team", prefix: "/team/" },
 ] as const;
 
 export type DeepLinkKind = (typeof DEEP_LINK_ROUTES)[number]["kind"] | "page";

@@ -36,6 +36,7 @@ import { ShopLogoUpload } from "@/components/delta/shop-logo-upload";
 import { SHOP_LOGO_FLAG } from "@/lib/delta/shop-logo";
 import { describeCharge } from "@/lib/dealer-schemes";
 import { getRule } from "@/server/services/settings";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 import { listShopCategories } from "@/server/services/shop-categories";
 import { listShopTypes } from "@/server/services/shop-types";
 
@@ -101,7 +102,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
     dealerRateView(dealer.id),
   ]);
   // Monthly statements: this month so far and the closed months (owner, 28 Oct 2026).
-  const [months, commissionSettings, tiered] = await Promise.all([statementMonths(), getCommissionSettings(), isTieredDealer(dealer)]);
+  const [months, commissionSettings, tiered, v2Team] = await Promise.all([statementMonths(), getCommissionSettings(), isTieredDealer(dealer), onboardingV2Enabled()]);
   const network = tiered ? await networkProps(dealer, null) : null;
   // 0151 territory dealers: his exclusive territories (shown once he has one).
   const [territories, territoryRules, held] = await Promise.all([territoryViews(dealer.id), territoryRule(), heldPayoutView(dealer.id, null)]);
@@ -110,7 +111,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" action={<div className="flex flex-wrap gap-2"><LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton><LinkButton href="/franchise" variant="secondary">Upgrade to Paid Franchise</LinkButton></div>} />
+      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" action={<div className="flex flex-wrap gap-2">{v2Team ? <LinkButton href="/dealer/team">My team</LinkButton> : null}<LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton><LinkButton href="/franchise" variant="secondary">Upgrade to Paid Franchise</LinkButton></div>} />
       <p className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
         <Badge tone="success">Approved</Badge>
         {dealer.agreementStart && dealer.agreementEnd ? <span>Agreement {dealer.agreementStart} to {dealer.agreementEnd}</span> : null}
@@ -188,7 +189,7 @@ async function MemberPortal({ member, dealer, openStatement }: { member: DealerS
   const statements = await Promise.all(months.map((m) => dealerMonthStatement(dealer.id, m, member.id)));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-      <PageHeader title={member.name} description={`${member.teamRole === "TEAM_LEAD" ? "Team lead" : "Agent"} · ${dealer.legalName}`} action={<LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton>} />
+      <PageHeader title={member.name} description={`${member.teamRole === "TEAM_LEAD" ? "Team lead" : "Agent"} · ${dealer.legalName}`} action={<div className="flex flex-wrap gap-2">{member.teamRole === "TEAM_LEAD" && (await onboardingV2Enabled()) ? <LinkButton href="/dealer/team">My agents</LinkButton> : null}<LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton></div>} />
       {held ? <PayoutHeldBanner {...held} panHref="#payment-details" bankHref="#payment-details" /> : null}
       {code ? (
         <DealerPortal

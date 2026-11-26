@@ -66,6 +66,24 @@ Choices these rules left open (each marked in code):
 15. Free dealer goes live at once with a GKD code; PAN and payout bank are asked before the first payout only.
 16. Production release in the 23.00 IST window (owner rule of 20-Nov), flag OFF until the production test pass.
 
+## Flow 4 — My team (built 26-Nov-2026)
+
+- Dealer / franchisee: **/dealer/team** (linked from /dealer and /franchise/my). Search a customer by exact mobile or
+  e-mail (masked name), choose the role (team lead, or agent under the dealer or one of his leads), send the request.
+  No account → invite link `/team/join/<token>` (sha256 stored, `teamInviteExpiryDays`) shared on WhatsApp / SMS / e-mail.
+- Team lead: adds agents under himself on the same page while `teamLeadsCanAddAgents` is on.
+- Invitee: **/team/invitations** (in-app + e-mail + SMS notice `dealer.team_invitation`) — accept or decline. Accept
+  creates (or reactivates) the `dealer_salespeople` row through `addSalesperson` / `placeNewMember` (GKT / GKA code,
+  mapping history), so the commission chain is unchanged (integration test: 20 / 4 / 3).
+- Dealer only: agent → team lead, team lead → agent after his agents are reassigned, reassign, remove (customer only).
+  Admin → user page: marketplace roles, role history (IST) and an override (OVERRIDE). API: `/api/team`,
+  `/api/team/invitations`, `/api/users/<id>/marketplace-roles`. Code: `src/server/onboarding-v2/team.ts`.
+- Defaults chosen in code (DEFAULT – confirm with Sanjay): mobile must be SMS-verified unless
+  `mobileOtpFallbackWhenNoSms` is on; an invite link only works for the account holding the invited mobile / e-mail;
+  employee ID generated `GK-<8>`; v2 upgrade skips the TIERED promotion minimums and starts no development bonus;
+  inactive former agents of a downgraded lead move under the dealer; admin override is immediate (no four-eye);
+  no `DEALER` role grant on accept (team roles derive from `dealer_salespeople`).
+
 ## Owner-only steps (blocked for an agent)
 
 - Production test payments (₹1,000 shop fee, ₹1,50,000 franchise plan) use real money — owner runs them.

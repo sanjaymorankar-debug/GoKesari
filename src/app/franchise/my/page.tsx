@@ -12,6 +12,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
 import { originFromHeaders } from "@/server/dealers/http";
 import { ownerDashboard } from "@/server/franchise/dashboard";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 
 export const metadata = { title: "My franchise" };
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
   const pending = d.bookings.filter((b) => b.status === "RESERVED" || b.status === "PAYMENT_PENDING");
   return (
     <div className="mx-auto max-w-5xl space-y-4 px-4 py-6" data-testid="franchise-my">
-      <PageHeader title="My franchise" description={d.status.hasDealer ? `${"dealerName" in d.status ? d.status.dealerName : ""} · Pune franchise zones` : "GoKesari Territory Franchise"} action={<LinkButton href="/franchise/book">Book zones</LinkButton>} />
+      <PageHeader title="My franchise" description={d.status.hasDealer ? `${"dealerName" in d.status ? d.status.dealerName : ""} · Pune franchise zones` : "GoKesari Territory Franchise"} action={<div className="flex flex-wrap gap-2">{d.status.hasDealer && (await onboardingV2Enabled()) ? <LinkButton href="/dealer/team" variant="secondary">My team</LinkButton> : null}<LinkButton href="/franchise/book">Book zones</LinkButton></div>} />
       {!d.status.hasDealer ? (
         <Alert tone="info" title="Start with a free dealer account">
           Franchise areas are booked on a GoKesari dealer account (KYC, PAN and a verified bank account). <Link className="font-semibold underline" href="/dealer/apply">Apply free</Link>.
