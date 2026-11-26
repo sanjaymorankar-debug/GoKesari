@@ -47,6 +47,16 @@ async function closeOpenCod() {
     const res = await cancelAsCustomer("customer", o.id, "QA COD clean-up");
     if (res.status !== 200) await call(await as("shop"), "PATCH", `/api/orders/${o.id}/status`, { status: "CANCELLED", note: "QA COD clean-up" });
   }
+  // GET /api/orders lists the customer's newest 25 orders only: open COD orders older than that (left by earlier runs)
+  // cannot be reached from here. They are test data on the site, not a COD fault: block with the reset they need.
+  const left = await call(await as("customer"), "GET", "/api/cod/eligibility");
+  const e = left.body as { allowed?: boolean; openOrders?: number; maxOpenOrders?: number; reason?: string | null } | undefined;
+  if (left.status === 200 && e && !e.allowed && (e.openOrders ?? 0) >= (e.maxOpenOrders ?? Infinity)) {
+    blocked(
+      `the customer test account still has ${e.openOrders} open cash-on-delivery orders older than its newest 25 (limit ${e.maxOpenOrders}): "${e.reason}". ` +
+        "Staging reset: an operator cancels (or delivers) the customer's open COD orders (Admin → Orders, customer gk-lc14)",
+    );
+  }
 }
 
 test.afterAll(async () => {

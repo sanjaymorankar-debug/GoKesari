@@ -162,7 +162,11 @@ export async function resolveCommissionRate(
     active.find((r) => r.scope === "SHOP" && r.shopId === shop.id) ??
     active.find((r) => r.scope === "SHOP_TYPE" && r.shopType === shop.shopType) ??
     active.find((r) => r.scope === "DEFAULT");
-  return pick ? { rateBp: pick.rateBp, rateId: pick.id, scope: pick.scope } : { rateBp: 0, rateId: null, scope: "NONE" };
+  if (pick) return { rateBp: pick.rateBp, rateId: pick.id, scope: pick.scope };
+  // docs/flows-v3/wave2.md (flag flow_f3): no rate configured → the platform commission (rule orderFlowsV3, 2%).
+  const { flowOn, flowsV3Rule } = await import("@/server/flows/wave2-rules");
+  if (await flowOn("flow_f3")) return { rateBp: (await flowsV3Rule()).defaultCommissionBps, rateId: null, scope: "NONE" };
+  return { rateBp: 0, rateId: null, scope: "NONE" };
 }
 
 export function commissionOn(goodsPaise: number, rateBp: number): number {

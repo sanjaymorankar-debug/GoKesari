@@ -11,7 +11,7 @@ import { forbidden } from "@/lib/errors";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
-import { createScheme } from "@/server/dealers/scheme-admin";
+import { createScheme, schemePermissions } from "@/server/dealers/scheme-admin";
 import { listSchemes } from "@/server/dealers/schemes";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,9 @@ export const GET = route(async () => {
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requireUser();
+  // D-170: staff only — answered before the request body is read.
+  const allowed = await schemePermissions(user);
+  if (!allowed.edit && !allowed.publish) throw forbidden();
   enforceRateLimit(`dealer-schemes:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(
     request,

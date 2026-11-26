@@ -631,6 +631,9 @@ export const AUDIT_ACTIONS = {
   SHOP_CANCELLATION_FEE_CHANGED: "shop.cancellation_fee_changed", // batch-2026-10 WS-C
   ORDER_CANCELLATION_FEE_CHARGED: "order.cancellation_fee_charged", // batch-2026-10 WS-C
   ORDER_REFUND_RECORDED: "order.refund_recorded", // batch-2026-10 WS-C
+  // docs/flows-v3/wave2.md (0222, flag flow_f16): a customer asks the shop to cancel a packed order; the shop's answer.
+  ORDER_CANCEL_REQUESTED: "order.cancel_requested",
+  ORDER_CANCEL_REQUEST_DECIDED: "order.cancel_request_decided",
   SUPPORT_TICKET_CREATED: "support_ticket.created", // batch-2026-10 WS-C
   SUPPORT_TICKET_UPDATED: "support_ticket.updated", // batch-2026-10 WS-C
   SUPPORT_CANNED_REPLY_CHANGED: "support_canned_reply.changed", // batch-2026-10 WS-C
@@ -656,7 +659,7 @@ export const AUDIT_ACTIONS = {
   SUPPORT_ROUTING_CHANGED: "support_routing.changed",
   SUPPORT_TICKET_ROUTED: "support_ticket.routed",
   ACCOUNT_RECOVERY_REQUESTED: "account.recovery_requested",
-  // docs/flows-v3/wave5.md (0222, flag flow_f18): recovery of a lost mobile or e-mail; sign out on all devices.
+  // docs/flows-v3/wave5.md (0223, flag flow_f18): recovery of a lost mobile or e-mail; sign out on all devices.
   ACCOUNT_RECOVERY_STARTED: "account.recovery_started",
   ACCOUNT_RECOVERY_VERIFIED: "account.recovery_verified",
   ACCOUNT_RECOVERY_COMPLETED: "account.recovery_completed",

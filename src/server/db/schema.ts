@@ -619,7 +619,7 @@ export const users = pgTable(
     /** 0219: last reminder (in-app + SMS) to a mobile-only shop owner to add and verify an e-mail. */
     secondFactorRemindedAt: timestamp("second_factor_reminded_at", { withTimezone: true }),
     /**
-     * docs/flows-v3/wave5.md (0222, flag flow_f18): sessions signed in before this time are ended on their next
+     * docs/flows-v3/wave5.md (0223, flag flow_f18): sessions signed in before this time are ended on their next
      * request (sign out on all devices after an account recovery). Null = no marker.
      */
     sessionsValidAfter: timestamp("sessions_valid_after", { withTimezone: true }),
@@ -5024,6 +5024,8 @@ export const orderDisputes = pgTable(
     raisedByUserId: uuid("raised_by_user_id").references(() => users.id, { onDelete: "set null" }),
     /** The complaint this case came from, when it came from one. */
     grievanceId: uuid("grievance_id").references(() => grievances.id, { onDelete: "set null" }),
+    /** docs/flows-v3/wave2.md (0222, flag flow_f16): the declined return this case was opened from. Nullable. */
+    returnRequestId: uuid("return_request_id"),
 
     status: text("status", { enum: DISPUTE_STATUSES }).notNull().default("OPEN"),
     level: text("level", { enum: DISPUTE_LEVELS }).notNull().default("L1"),
@@ -5686,7 +5688,7 @@ export const societies = pgTable(
     /** GA-001: when true and the rider list is non-empty, only listed riders may deliver here. */
     exclusiveRiders: boolean("exclusive_riders").notNull().default(false),
     /*
-     * docs/flows-v3/wave5.md (0222, flag flow_f15): the application's authorised person, number of flats and proof
+     * docs/flows-v3/wave5.md (0223, flag flow_f15): the application's authorised person, number of flats and proof
      * document (REGISTRATION_CERTIFICATE / COMMITTEE_LETTER: its number and an uploaded or scanned image), and the
      * gate's delivery hours ("HH:MM", India time). requires_proof: applied while the flag was on, so verifying it
      * needs the proof; false for every society from before.
@@ -5757,7 +5759,7 @@ export const societyRiders = pgTable(
     addedBy: uuid("added_by").references(() => users.id),
     revokedBy: uuid("revoked_by").references(() => users.id),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    /** docs/flows-v3/wave5.md (0222, flag flow_f15): paused by the society until this time (null = not paused). */
+    /** docs/flows-v3/wave5.md (0223, flag flow_f15): paused by the society until this time (null = not paused). */
     suspendedUntil: timestamp("suspended_until", { withTimezone: true }),
     suspendedReason: text("suspended_reason"),
     suspendedBy: uuid("suspended_by"),
@@ -11222,6 +11224,15 @@ export const FEATURE_FLAG_KEYS = [
   // docs/seller-agreements-2026-11 (0213): personalised, OTP-signed Seller SLA (+ medical agreement) at registration and for
   // existing shops (blocking screen; no new orders after the grace period). Seeded OFF.
   "seller_agreements_enabled",
+  // docs/flows-v3/wave2.md (0222): flow spec v3 wave 2. F2 customer order, F20 multi-shop cart, F3 order fulfilment,
+  // F19 order timeouts, F16 cancellations / refunds / returns, F13 product and inventory setup.
+  // Seeded ON on the staging database (gokesari_test), OFF on production.
+  "flow_f2",
+  "flow_f20",
+  "flow_f3",
+  "flow_f19",
+  "flow_f16",
+  "flow_f13",
   // docs/onboarding-v2-2026-11 (0215): rebuilt customer / shop / franchise / team onboarding (owner brief 26-Nov-2026).
   // Seeded ON on the staging database (gokesari_test) and OFF on production until the production test pass.
   "onboarding_v2",
@@ -11235,7 +11246,7 @@ export const FEATURE_FLAG_KEYS = [
   "flow_f1",
   "flow_f14",
   "flow_f17",
-  // docs/flows-v3/wave5.md (0222): F11 delivery partner (photo, verified mobile / e-mail), F15 society onboarding
+  // docs/flows-v3/wave5.md (0223): F11 delivery partner (photo, verified mobile / e-mail), F15 society onboarding
   // (authorised person, proof, gate hours, rider suspension, approved riders only for new societies), F18 account
   // recovery and closure. Seeded ON on the staging database (gokesari_test), OFF on production.
   "flow_f11",
@@ -13764,6 +13775,7 @@ export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)
 export * from "./legal-agreements-schema"; // docs/seller-agreements-2026-11 (0213)
+export * from "./flows-v3-wave2-schema"; // docs/flows-v3/wave2.md (0222)
 export * from "./onboarding-v2-schema"; // docs/onboarding-v2-2026-11 (0215)
 export * from "./dual-auth-schema"; // docs/dual-auth-2026-11 (0219)
 export * from "./flows-v3-schema"; // docs/flows-v3 (0221)

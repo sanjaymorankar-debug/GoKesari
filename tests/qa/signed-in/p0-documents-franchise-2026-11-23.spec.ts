@@ -345,7 +345,8 @@ qa("TC-DOC-043", "only an admin changes the shop document rules: the operator re
 
 /* ================================================================ franchise */
 
-const FRANCHISE_TABS = ["Overview", "Zones", "Zone status", "Fees", "Areas", "Coupons", "Franchises", "Monthly points", "Expiring", "Attribution", "Commission & bonus", "Settings", "Reports", "Send log"];
+// "Plans": onboarding v2 Flow 3 (paid franchise plans, docs/onboarding-v2-2026-11), added 26-Nov-2026.
+const FRANCHISE_TABS = ["Overview", "Zones", "Zone status", "Fees", "Plans", "Areas", "Coupons", "Franchises", "Monthly points", "Expiring", "Attribution", "Commission & bonus", "Settings", "Reports", "Send log"];
 
 /** The tab buttons of Admin → Franchise, without their counts ("Expiring (2)" → "Expiring"). */
 async function franchiseTabs(page: Page): Promise<string[]> {
@@ -684,7 +685,9 @@ qa("TC-DPLT-002", "the published scheme terms read as the owner's decisions D1�
     const scheme = need(list.find((s) => s.code === code), `the ${code} scheme`);
     return need(scheme.versions.find((v) => v.status === "PUBLISHED"), `a published version of ${code}`);
   };
-  expect(published("FREE").version, "Free Dealership's published version").toBe(2);
+  // Owner's D1–D10 answers of 25-Nov-2026 (migration 0207 / 0190, docs/dealer-platform/PHASE_1_SCHEMES.md): Free
+  // Dealership version 3 (v2 without the 5% monthly) replaced version 2; Business / Growth Partner are suspended.
+  expect(published("FREE").version, "Free Dealership's published version (D1: v3)").toBe(3);
   const { context, page } = await pageAs(browser, "admin");
   try {
     await page.goto("/admin/dealers/schemes");
@@ -692,10 +695,12 @@ qa("TC-DPLT-002", "the published scheme terms read as the owner's decisions D1�
     const panel = (code: string, version: number) => page.getByTestId(`scheme-${code}-v${version}`);
 
     await expectTerms(
-      panel("FREE", 2),
+      panel("FREE", 3),
       { "Joining charge": "Free", Validity: "12 months, renewable", Where: "All India · Not exclusive", "Team building": "No", Calculation: "Calculated from these terms" },
-      ["One-time: 20% of shop registration fee", "Recurring: 5% of GoKesari's commission, monthly, 12 months"],
+      ["One-time: 20% of shop registration fee"],
     );
+    const freeLines = (await panel("FREE", 3).getByRole("listitem").allInnerTexts()).map((t) => t.trim());
+    expect(freeLines.filter((l) => l.startsWith("Recurring:")), "D1: no monthly commission on Free Dealership").toEqual([]);
     await expectTerms(
       panel("BUSINESS_PARTNER", published("BUSINESS_PARTNER").version),
       { "Joining charge": "₹11,000 + 18% GST = ₹12,980" },
@@ -724,7 +729,7 @@ qa("TC-DPLT-002", "the published scheme terms read as the owner's decisions D1�
   } finally {
     await context.close();
   }
-  return "Free v2, Business Partner v1, Growth Partner v1, Territory Franchise v1 and Free v1 read as the case's Expected result";
+  return "Free v3 (20% one-time, no monthly — owner D1 25-Nov-2026), Business Partner v1, Growth Partner v1, Territory Franchise v1 and Free v1 read as the case's Expected result";
 }, signed);
 
 const DRAFT_LABEL = "QA draft 23-Nov — delete";

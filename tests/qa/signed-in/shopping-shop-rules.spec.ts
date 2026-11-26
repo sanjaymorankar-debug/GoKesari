@@ -189,7 +189,8 @@ qa("TC-LOC-022", "minimum order ₹200: below it the cart says 'add ₹X more' w
   const bread = listing("sharedA");
   const price = bread.pricePaise!;
   const exact = Math.ceil(20000 / price);
-  return withShop("A", { minOrderPaise: price * exact }, async () => {
+  // No opening hours for the check: at night shop A (06:00–22:00) first asks to confirm a closed-shop order (409).
+  return withShop("A", { minOrderPaise: price * exact, openingHours: [] }, async () => {
     const min = price * exact;
     await fillCart("customer", [{ item: bread, quantity: 2 }]);
     const short = min - 2 * price;
@@ -309,8 +310,11 @@ qa("TC-LOC-026", "opening hours are judged in IST: no hours = open; a closed day
     const { context, page } = await signedPage(browser, "customer", { timezoneId });
     const errors = watchPage(page);
     try {
-      await open(page, `/shops/${shopSlug("A")}`);
-      await expect(page.getByText("Open now", { exact: true }).first(), `no hours → open (${timezoneId})`).toBeVisible();
+      // "No hours" is set here: shop A keeps 06:00–22:00 on the test site, which is closed at night (baseline 27-Nov-2026).
+      await withShop("A", { openingHours: [] }, async () => {
+        await open(page, `/shops/${shopSlug("A")}`);
+        await expect(page.getByText("Open now", { exact: true }).first(), `no hours → open (${timezoneId})`).toBeVisible();
+      });
       await withShop("A", { openingHours: hoursClosedNow() }, async () => {
         await open(page, `/shops/${shopSlug("A")}`);
         await expect(page.getByText("Closed", { exact: true }).first(), `closed today in IST (${timezoneId})`).toBeVisible();

@@ -5,14 +5,14 @@ behaviour sits behind a new feature flag; with the flag off the site behaves exa
 
 | Flag | Area | Seeded by |
 |---|---|---|
-| `flow_f11` | F11 delivery partner | migration **0222** — ON on the staging database (`gokesari_test`), OFF everywhere else |
+| `flow_f11` | F11 delivery partner | migration **0223** — ON on the staging database (`gokesari_test`), OFF everywhere else |
 | `flow_f15` | F15 society onboarding | same |
 | `flow_f18` | F18 account recovery and closure | same |
 
 Switch them in Admin → Feature flags (a reason is required; every change is logged). Account closure itself still
 needs `account_self_deletion_enabled` (unchanged).
 
-## Migration 0222 (`drizzle/0222_flows_v3_wave5.sql`)
+## Migration 0223 (`drizzle/0223_flows_v3_wave5.sql`)
 
 Additive only, safe to re-run:
 

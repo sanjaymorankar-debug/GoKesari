@@ -188,6 +188,8 @@ export interface ShopOrderRow {
   } | null;
   /** Gig worker flow (feature 11): the delivered order was confirmed complete. */
   completedAt?: string | null;
+  /** docs/flows-v3/wave2.md (flag flow_f3): "Packed & ready" is offered straight from Accepted. */
+  packFromAccepted?: boolean;
 }
 
 /** Fulfilment options switched on: the slots and delivery people the planner offers. */
@@ -453,6 +455,11 @@ function OrderRow({
         {order.status === "ACCEPTED" ? (
           <Button size="sm" disabled={busy} onClick={() => fulfil({ action: "start" })}>
             {tr(T.startPicking, lang)}
+          </Button>
+        ) : null}
+        {order.status === "ACCEPTED" && order.packFromAccepted && !fulfilment?.enabled ? (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => fulfil({ action: "ready" })}>
+            {tr(T.packedReady, lang)}
           </Button>
         ) : null}
         {order.status === "PREPARING" && !fulfilment?.enabled ? (

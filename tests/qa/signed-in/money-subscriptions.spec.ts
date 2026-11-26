@@ -36,10 +36,15 @@ qa("TC-SUB-001", "subscribe to milk from the shop page: 2 L/day previews ₹140 
   const { context, page } = await pageAs(browser, "customer");
   let id = "";
   try {
-    // The shop page shows one category at a time, six products a page: the milk is under Dairy.
-    await page.goto(`/shops/${shop.slug}?cat=Dairy`);
-    const card = page.getByRole("article").filter({ hasText: milk.name }).first();
+    // The shop page shows one category at a time, six products a page: the milk is under Dairy. Shop A's Dairy has
+    // grown past one page on the test site (52 products on 27-Nov-2026), so the pages are turned until the milk shows.
+    const card = page.getByRole("article").filter({ hasText: milk.name }).filter({ has: page.getByRole("button", { name: "Subscribe" }) }).first();
     const fallback = page.locator("div").filter({ hasText: milk.name }).filter({ has: page.getByRole("button", { name: "Subscribe" }) }).last();
+    for (let n = 1; n <= 12; n++) {
+      await page.goto(`/shops/${shop.slug}?cat=Dairy${n > 1 ? `&page=${n}` : ""}`);
+      if ((await card.count()) || (await fallback.count())) break;
+      if (!(await page.getByTestId("product-card").count())) break;
+    }
     const target = (await card.count()) ? card : fallback;
     await target.getByRole("button", { name: "Subscribe" }).click();
     await page.waitForURL(/\/subscribe\//);

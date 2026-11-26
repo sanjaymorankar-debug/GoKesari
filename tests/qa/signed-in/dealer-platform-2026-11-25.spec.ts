@@ -17,7 +17,7 @@ import type { Page } from "@playwright/test";
 
 import { as, pageAs } from "../lib/actors";
 import { anonymous, call, expectStatus, type Answer } from "../lib/http";
-import { expect, need, qa } from "../lib/record";
+import { blocked, expect, need, qa } from "../lib/record";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
 const NO_ACCESS_DO = "You do not have access to do that.";
@@ -74,9 +74,17 @@ const PHONE = { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch:
 
 qa("TC-DPLT-001", "Admin → Dealers → Schemes: title, the create card, the four schemes in order with dealer counts, Free Dealership v2 published and v1 superseded, each version with its reason and terms fingerprint", async ({ browser }) => {
   const list = await schemes();
-  expect(list.map((s) => `${s.code} ${s.status} ${s.category}`)).toEqual(["FREE PUBLISHED DEALERSHIP", "BUSINESS_PARTNER PUBLISHED DEALERSHIP", "GROWTH_PARTNER PUBLISHED DEALERSHIP", "TERRITORY_FRANCHISE PUBLISHED FRANCHISE"]);
+  // Owner's D1–D10 answers of 25-Nov-2026 (migration 0207 / 0190): Free Dealership v3 published (v2 without the 5%
+  // monthly), Business Partner and Growth Partner SUSPENDED (no new applicants; an admin can publish them again).
+  if (byCode(list, "BUSINESS_PARTNER").status === "ARCHIVED") {
+    blocked(
+      "Business Partner is ARCHIVED on this site (an earlier run of TC-DPLT-031 sent its archive refusal to the suspended scheme, which accepted it; " +
+        "fixed in the check on 27-Nov-2026). Reset: dealer_schemes BUSINESS_PARTNER back to SUSPENDED (database; an archived scheme cannot be reopened from the screen)",
+    );
+  }
+  expect(list.map((s) => `${s.code} ${s.status} ${s.category}`)).toEqual(["FREE PUBLISHED DEALERSHIP", "BUSINESS_PARTNER SUSPENDED DEALERSHIP", "GROWTH_PARTNER SUSPENDED DEALERSHIP", "TERRITORY_FRANCHISE PUBLISHED FRANCHISE"]);
   const free = byCode(list, "FREE").versions.map((v) => `${v.version} ${v.status} ${v.label}`);
-  expect(free).toEqual(["2 PUBLISHED Brief 23-Nov-2026", "1 SUPERSEDED Terms before 23-Nov-2026"]);
+  expect(free).toEqual(["3 PUBLISHED Owner 25-Nov-2026: 20% one-time only", "2 SUPERSEDED Brief 23-Nov-2026", "1 SUPERSEDED Terms before 23-Nov-2026"]);
 
   const { context, page } = await pageAs(browser, "admin");
   try {
@@ -90,20 +98,21 @@ qa("TC-DPLT-001", "Admin → Dealers → Schemes: title, the create card, the fo
     for (let n = await folded.count(); n > 0; n = await folded.count()) await folded.first().click();
     const text = await mainText(page);
     let at = -1;
-    for (const name of ["Free Dealership published dealership", "Business Partner published dealership", "Growth Partner published dealership", "Territory Franchise published franchise"]) {
+    for (const name of ["Free Dealership published dealership", "Business Partner suspended dealership", "Growth Partner suspended dealership", "Territory Franchise published franchise"]) {
       const i = text.indexOf(name);
       expect(i, `“${name}” after the one before it`).toBeGreaterThan(at);
       at = i;
     }
     expect(text).toMatch(/Free Dealership published dealership \d+ dealers?/);
-    expect(text).toMatch(/Version 2 published Brief 23-Nov-2026/);
+    expect(text).toMatch(/Version 3 published Owner 25-Nov-2026: 20% one-time only/);
+    expect(text).toMatch(/Version 2 superseded Brief 23-Nov-2026/);
     expect(text).toMatch(/Version 1 superseded Terms before 23-Nov-2026 · \d+ dealers?/);
     const why = (text.match(/Why: /g) ?? []).length;
     const prints = text.match(/Terms fingerprint [0-9a-f]{16}\b/g) ?? [];
     const versions = list.reduce((n, s) => n + s.versions.length, 0);
     expect(prints.length, "one terms fingerprint per version").toBe(versions);
     expect(why, "one reason per version").toBe(versions);
-    return `four schemes in order; Free v2 published / v1 superseded; ${versions} versions each with “Why:” and a 16-hex fingerprint`;
+    return `four schemes in order (Business / Growth Partner suspended, D2); Free v3 published / v2, v1 superseded (D1); ${versions} versions each with “Why:” and a 16-hex fingerprint`;
   } finally {
     await context.close();
   }
@@ -133,13 +142,16 @@ qa(["TC-DPLT-031", "TC-DPLT-033", "TC-DPLT-035"], "scheme writes that must be re
   const admin = await as("admin");
   const before = await schemes();
   const free = byCode(before, "FREE");
-  const bp = byCode(before, "BUSINESS_PARTNER");
+  // The archive refusal needs a PUBLISHED scheme other than Free Dealership. Business Partner is SUSPENDED since the
+  // owner's D2 (25-Nov-2026), and a suspended scheme MAY be archived — sending it there archived staging's Business
+  // Partner (baseline 27-Nov-2026). Only a scheme whose status is PUBLISHED right now is used.
+  const target = need(before.find((s) => s.code !== "FREE" && s.status === "PUBLISHED"), "a published scheme other than Free Dealership");
   const published = need(free.versions.find((v) => v.status === "PUBLISHED"), "Free Dealership's published version");
   const bad = { summary: "QA refused terms", calculation: "SCHEME", charge: { kind: "ONE_TIME", amountPaise: 0, gstRateBp: 1800, gstMode: "EXCLUSIVE", refundable: false }, components: [] };
   const tries: [string, string, Record<string, unknown>, number, RegExp][] = [
     ["saveDraft with incomplete terms", free.id, { action: "saveDraft", terms: bad, reason: "QA refused write" }, 422, /^The terms are not complete: /],
     ["deleteDraft of the published version", free.id, { action: "deleteDraft", versionId: published.id, reason: "QA refused write" }, 409, /^Only a draft can be deleted\.$/],
-    ["Business Partner → ARCHIVED", bp.id, { action: "status", to: "ARCHIVED", reason: "QA refused write" }, 409, /^A published scheme cannot become archived\.$/],
+    [`${target.name} → ARCHIVED`, target.id, { action: "status", to: "ARCHIVED", reason: "QA refused write" }, 409, /^A published scheme cannot become archived\.$/],
     ["Free Dealership → EXPIRED", free.id, { action: "status", to: "EXPIRED", reason: "QA refused write" }, 409, /^Free Dealership is the default for new dealers and cannot be expired or archived\. Suspend it instead\.$/],
   ];
   const seen: string[] = [];
@@ -200,17 +212,18 @@ qa("TC-DPLT-037", "the simulator on Free Dealership v2 with its default assumpti
       ["Shop registration fees", "₹4,80,000"],
       ["GoKesari commission on sales", "₹31,20,000"],
       ["Dealer one-time commission", "₹96,000"],
-      ["Dealer monthly commission", "₹1,56,000"],
-      ["Total dealer payout (liability)", "₹2,52,000"],
-      ["GoKesari net revenue before other costs", "₹33,48,000"],
+      // Free Dealership v3 (owner D1, 25-Nov-2026): no 5% monthly commission.
+      ["Dealer monthly commission", "₹0"],
+      ["Total dealer payout (liability)", "₹96,000"],
+      ["GoKesari net revenue before other costs", "₹35,04,000"],
     ]) {
       expect(text, `${label} ${value}`).toMatch(new RegExp(`${label.replace(/[()]/g, "\\$&")}[^₹]*${value.replace(/[₹,]/g, "\\$&")}`));
     }
     expect(text).toContain("₹15,60,00,000");
-    expect(text).toContain("First 12 months: revenue ₹36,00,000, dealer payout ₹2,52,000, net ₹33,48,000. Last month: 480 active shops, net ₹4,88,000 a month.");
+    expect(text).toContain("First 12 months: revenue ₹36,00,000, dealer payout ₹96,000, net ₹35,04,000. Last month: 480 active shops, net ₹5,12,000 a month.");
     await sim.getByLabel("Dealers", { exact: true }).fill("0");
     await expect(sim).toContainText("First 12 months: revenue ₹0, dealer payout ₹0, net ₹0.");
-    return "defaults: fees ₹4,80,000, GMV ₹15,60,00,000, commission ₹31,20,000, payout ₹2,52,000, net ₹33,48,000; 0 dealers → ₹0";
+    return "Free v3 defaults: fees ₹4,80,000, GMV ₹15,60,00,000, commission ₹31,20,000, monthly ₹0, payout ₹96,000, net ₹35,04,000; 0 dealers → ₹0";
   } finally {
     await context.close();
   }

@@ -50,7 +50,8 @@ import { refundDeliveredOrder } from "./finance";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { cancelLivePickup, createPickup, offerPickup, LIVE_PICKUP_STATUSES } from "./return-pickups";
 import { transitionReturn, type ReturnActor } from "./return-transition";
-import { getRule } from "./settings";
+import { returnsRule } from "@/server/flows/wave2-rules";
+import { assertLinesReturnable, notifyShopReturnRefunded } from "@/server/flows/f16-cancellations";
 
 interface Actor {
   id: string;
@@ -106,7 +107,7 @@ export async function requestReturn(input: RequestReturnInput, actor: Actor): Pr
     if (!RETURN_CONDITIONS.includes(item.condition)) throw validationFailed("Say what condition each item is in.");
   }
 
-  const rules = await getRule("returns");
+  const rules = await returnsRule(); // docs/flows-v3/wave2.md (flag flow_f16)
   const policy = rules.reasons[input.reason];
   if (!policy?.allowed) {
     throw validationFailed("Returns for this reason are not accepted. Please choose the reason that fits, or contact support.");
@@ -191,6 +192,8 @@ export async function requestReturn(input: RequestReturnInput, actor: Actor): Pr
         refundPaise: Math.round((effective.totalPaise * wanted.quantityMilli) / effective.milli),
       });
     }
+    // docs/flows-v3/wave2.md (flag flow_f16): food and medicines are not returnable (rule orderFlowsV3).
+    await assertLinesReturnable(tx, rows.map((r) => r.orderItemId), input.reason);
     const refundAmountPaise = rows.reduce((n, r) => n + r.refundPaise, 0);
     if (refundAmountPaise > order.totalPaise) {
       throw validationFailed("The value of these items is more than what is left to refund on this order.");
@@ -285,7 +288,7 @@ export interface ReturnableOrder {
 export async function getReturnableOrder(orderId: string, userId: string): Promise<ReturnableOrder> {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order || order.userId !== userId) throw notFound("Order");
-  const rules = await getRule("returns");
+  const rules = await returnsRule(); // docs/flows-v3/wave2.md (flag flow_f16)
   const [delivered] = await db
     .select({ at: sql<Date>`max(${orderStatusHistory.createdAt})` })
     .from(orderStatusHistory)
@@ -721,7 +724,7 @@ export async function inspectReturn(returnId: string, actor: Actor, input: Inspe
     });
     return updated;
   }
-  const rules = await getRule("returns");
+  const rules = await returnsRule(); // docs/flows-v3/wave2.md (flag flow_f16)
   if (rules.autoRefundAfterInspection) return issueRefund(returnId, actor);
   return updated;
 }
@@ -800,6 +803,8 @@ export async function issueRefund(returnId: string, actor: Actor): Promise<Retur
     actionUrl: "/wallet",
     dedupeKey: `return-refund-completed:${completed.id}`,
   });
+  // docs/flows-v3/wave2.md (flag flow_f16): the shop is told too. Never throws.
+  await notifyShopReturnRefunded(completed);
   return completed;
 }
 

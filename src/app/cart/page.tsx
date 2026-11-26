@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { CartView } from "@/components/cart-view";
 import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { flowOn } from "@/server/flows/wave2-rules"; // docs/flows-v3/wave2.md
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listAddresses } from "@/server/services/addresses";
 import { getCodEligibility } from "@/server/services/cod";
@@ -214,6 +215,7 @@ export default async function CartPage({ searchParams }: { searchParams?: Promis
         codUnavailableReason={codUnavailableReason}
         hasMobile={Boolean(account?.phoneE164)}
         onboardingV2={onboardingV2}
+        explicitPayment={await flowOn("flow_f2")}
         couponsEnabled={(await getRule("coupons")).enabled}
         onlinePaymentsEnabled={(await getRule("onlinePayments")).enabled}
         lang={lang}
