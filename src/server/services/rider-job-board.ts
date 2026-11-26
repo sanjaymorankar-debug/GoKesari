@@ -9,7 +9,8 @@
  *     accepting is ONE conditional UPDATE of the delivery row (REJECTED/CANCELLED → OFFERED to this
  *     rider), then the existing accept. Of two riders pressing Accept at once exactly one matches;
  *     the other gets "Taken".
- * Only jobs within the rider's operating radius (capped by maxRadiusKm), allowed by the society and
+ * Only Ready riders see jobs, and only jobs inside the same zone as a dispatch offer (checkZone: fresh
+ * live location, shop and customer within the zone), within the rider's operating radius (capped by maxRadiusKm), allowed by the society and
  * not declined by this rider are listed, nearest shop first. The rider sees what THEY earn and the
  * cash to collect on COD — never the customer's delivery fee, the order total, commission, shop
  * charges or anyone else's pay (tests/unit/rider-privacy.test.ts).
@@ -32,7 +33,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { acceptOfferInTransaction } from "./delivery-assignment";
 import { previewEarning } from "./delivery-earnings";
-import { blockedPartnerIds, countActiveAssignments } from "./delivery-eligibility";
+import { blockedPartnerIds, checkZone, countActiveAssignments, getZoningRule } from "./delivery-eligibility";
 import { acceptBroadcastOffer, declineBroadcastOffer, effectiveRadiiKm } from "./dispatch-broadcast";
 import { loadQuoteKit, payPlansEnabled, quoteWithKit } from "./rider-pay-plans";
 import { getRule } from "./settings";
@@ -79,7 +80,8 @@ export interface RiderJob {
 export interface JobBoard {
   enabled: boolean;
   /** Why the list is empty for this rider (offline, not verified …), or null. */
-  blockedReason: "OFF" | "NOT_RIDER" | "NOT_VERIFIED" | "OFFLINE" | "NO_LOCATION" | null;
+  /** NOT_READY: online but Active (on duty, no new orders); NO_LOCATION also covers a location older than the zoning limit. */
+  blockedReason: "OFF" | "NOT_RIDER" | "NOT_VERIFIED" | "OFFLINE" | "NOT_READY" | "NO_LOCATION" | null;
   pollSeconds: number;
   jobs: RiderJob[];
 }
@@ -91,6 +93,38 @@ async function loadRider(userId: string) {
   return db.query.deliveryPartners.findFirst({ where: eq(deliveryPartners.userId, userId) });
 }
 
+type Rider = NonNullable<Awaited<ReturnType<typeof loadRider>>>;
+type Point = { latitude: number; longitude: number };
+
+/**
+ * Flow review 26-Nov-2026: a job on the board obeys the same zone as a dispatch offer
+ * (checkZone, rule riderZoning): the rider's live location is fresh, the shop is within the zone
+ * and the rider's own radius, and the customer is within the zone. The board's own cap
+ * (riderJobBoard.maxRadiusKm) still applies on top.
+ */
+function jobInZone(rider: Rider, shopPoint: Point | null, dropSnapshot: unknown, zoning: Awaited<ReturnType<typeof getZoningRule>>, now: Date): boolean {
+  if (!shopPoint) return false;
+  const snap = (dropSnapshot ?? null) as { latitude?: unknown; longitude?: unknown } | null;
+  const coord = (v: unknown) => (typeof v === "number" || typeof v === "string" ? String(v) : null);
+  const drop = parseCoordinates(coord(snap?.latitude), coord(snap?.longitude));
+  return checkZone(rider, shopPoint, drop, zoning, now).ok;
+}
+
+/** acceptJob: the rider must still be Ready and the job still inside their zone. */
+async function assertCanTakeJob(rider: Rider, orderId: string, now: Date): Promise<void> {
+  if (rider.availability !== "READY") throw conflict("Switch to Ready to take new jobs.");
+  const [row] = await db
+    .select({ drop: orders.deliveryAddressSnapshot, shopLat: shops.latitude, shopLng: shops.longitude })
+    .from(orders)
+    .innerJoin(shops, eq(shops.id, orders.shopId))
+    .where(eq(orders.id, orderId));
+  if (!row) throw notFound("Job");
+  const zoning = await getZoningRule();
+  if (!jobInZone(rider, parseCoordinates(row.shopLat, row.shopLng), row.drop, zoning, now)) {
+    throw conflict("This job is outside your zone. Refresh your location and try again.", { reason: "OUT_OF_ZONE" });
+  }
+}
+
 export async function listOpenJobs(userId: string, now: Date = new Date()): Promise<JobBoard> {
   const rule = await getRule("riderJobBoard");
   const base = { enabled: rule.enabled, pollSeconds: rule.pollSeconds, jobs: [] as RiderJob[] };
@@ -99,8 +133,13 @@ export async function listOpenJobs(userId: string, now: Date = new Date()): Prom
   if (!rider || rider.deletedAt) return { ...base, blockedReason: "NOT_RIDER" };
   if (rider.status !== "APPROVED") return { ...base, blockedReason: "NOT_VERIFIED" };
   if (!rider.isOnline || rider.availability === "OFFLINE") return { ...base, blockedReason: "OFFLINE" };
+  // Gig worker flow: an Active rider is on duty but takes no new orders; only Ready riders get offers.
+  if (rider.availability !== "READY") return { ...base, blockedReason: "NOT_READY" };
   const riderPoint = parseCoordinates(rider.lastLocationLatitude, rider.lastLocationLongitude);
   if (!riderPoint) return { ...base, blockedReason: "NO_LOCATION" };
+  const zoning = await getZoningRule();
+  const locationAgeMs = rider.lastLocationAt ? now.getTime() - rider.lastLocationAt.getTime() : Infinity;
+  if (zoning.enabled && locationAgeMs > zoning.maxLocationAgeMinutes * 60_000) return { ...base, blockedReason: "NO_LOCATION" };
   const radiusKm = Math.min(rider.operatingRadiusKm, rule.maxRadiusKm);
 
   // Orders waiting for a rider: an open broadcast, or a delivery row nobody holds (turned down / lapsed).
@@ -113,6 +152,7 @@ export async function listOpenJobs(userId: string, now: Date = new Date()): Prom
       totalPaise: orders.totalPaise,
       paymentMethod: orders.paymentMethod,
       societyId: orders.societyId,
+      dropSnapshot: orders.deliveryAddressSnapshot,
       updatedAt: orders.updatedAt,
       shopName: shops.name,
       shopArea: shops.addressLine2,
@@ -157,7 +197,7 @@ export async function listOpenJobs(userId: string, now: Date = new Date()): Prom
       const shopPoint = parseCoordinates(r.shopLat, r.shopLng);
       return { r, shopPoint, pickupKm: shopPoint ? haversineDistanceKm(riderPoint, shopPoint) : null };
     })
-    .filter((x) => x.pickupKm != null && x.pickupKm <= radiusKm)
+    .filter((x) => x.pickupKm != null && x.pickupKm <= radiusKm && jobInZone(rider, x.shopPoint, x.r.dropSnapshot, zoning, now))
     .sort((a, b) => (a.pickupKm ?? 0) - (b.pickupKm ?? 0));
 
   const societyIds = [...new Set(near.map((x) => x.r.societyId).filter((id): id is string => Boolean(id)))];
@@ -259,6 +299,7 @@ export async function acceptJob(userId: string, jobId: string): Promise<Delivery
     const broadcast = await db.query.deliveryOfferBroadcasts.findFirst({ where: eq(deliveryOfferBroadcasts.id, job.id) });
     if (!broadcast) throw notFound("Job");
     if (broadcast.status !== "OPEN") throw takenError();
+    await assertCanTakeJob(rider, broadcast.orderId, new Date());
     // The rider picked it from the board: they join the broadcast's recipients, then its own lock decides.
     await db
       .insert(deliveryOfferRecipients)
@@ -273,6 +314,9 @@ export async function acceptJob(userId: string, jobId: string): Promise<Delivery
       .onConflictDoNothing();
     accepted = await acceptBroadcastOffer(broadcast.id, userId);
   } else {
+    const row = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, job.id) });
+    if (!row) throw notFound("Job");
+    await assertCanTakeJob(rider, row.orderId, new Date());
     const dispatch = await getRule("dispatch");
     const cap = dispatch.busyRidersAsFallback ? dispatch.maxActiveDeliveriesPerRider : 1;
     accepted = await db.transaction(async (tx) => {
