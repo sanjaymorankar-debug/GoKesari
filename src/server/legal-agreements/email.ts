@@ -120,7 +120,8 @@ export async function afterSigning(input: { shopId: string; signingRequestId: st
   });
   const isNew = input.reason === "REGISTRATION";
   if (isNew && !(await hasPaidRegistration(input.shopId))) return; // sent by onRegistrationFeePaid
-  await queueSignedCopy(input.signingRequestId, { kind: "SIGNED_COPY", includeBanners: isNew });
+  if (isNew) return deliverNewShopAgreements(input.shopId, input.signingRequestId);
+  await queueSignedCopy(input.signingRequestId, { kind: "SIGNED_COPY", includeBanners: false });
 }
 
 /** Registration fee captured: send the new shop its signed agreements (with the welcome banners) once. */
@@ -132,9 +133,121 @@ export async function onRegistrationFeePaid(shopId: string): Promise<void> {
     .orderBy(desc(legalSigningRequests.signedAt))
     .limit(1);
   if (!req) return;
-  const [already] = await db.select({ id: legalAgreementEmails.id }).from(legalAgreementEmails).where(and(eq(legalAgreementEmails.signingRequestId, req.id), eq(legalAgreementEmails.kind, "SIGNED_COPY"))).limit(1);
-  if (already) return;
-  await queueSignedCopy(req.id, { kind: "SIGNED_COPY", includeBanners: true });
+  await deliverNewShopAgreements(shopId, req.id);
+}
+
+/* ------------------------------------------------------------ one mail for a new shop (26-Nov-2026) */
+
+const WELCOME_KIT_DOC_TYPE = "SHOP_WELCOME_KIT";
+
+async function firstSignedCopy(signingRequestId: string) {
+  const [row] = await db
+    .select()
+    .from(legalAgreementEmails)
+    .where(and(eq(legalAgreementEmails.signingRequestId, signingRequestId), eq(legalAgreementEmails.kind, "SIGNED_COPY")))
+    .orderBy(asc(legalAgreementEmails.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Owner rule (26-Nov-2026): a new shop gets ONE e-mail — the welcome kit (personalised banners, both QRs) with
+ * its signed agreements attached — not a signed-copy mail and a welcome mail. So for a REGISTRATION signing:
+ * - the welcome kit is still to be sent (queued, sending or retrying, or not queued yet because the shop is not
+ *   live): it carries the PDFs — renderShopWelcomeKit asks agreementsForWelcomeKit at send time, which also writes
+ *   the SIGNED_COPY log row; a live shop without a kit row (approved before this release's safety net) is queued now;
+ * - the welcome kit already went out without them (the owner signed after the shop went live, e.g. staff
+ *   registered it): the signed copy goes on its own, without banners — the owner already has those.
+ * Once only: an existing SIGNED_COPY log row (either way) ends it.
+ */
+async function deliverNewShopAgreements(shopId: string, signingRequestId: string): Promise<void> {
+  if (await firstSignedCopy(signingRequestId)) return;
+  const [kit] = await db
+    .select({ status: documentEmails.status })
+    .from(documentEmails)
+    .where(and(eq(documentEmails.docType, WELCOME_KIT_DOC_TYPE), eq(documentEmails.docId, shopId)))
+    .limit(1);
+  if (kit && (kit.status === "SENT" || kit.status === "SKIPPED" || kit.status === "DEAD")) {
+    await queueSignedCopy(signingRequestId, { kind: "SIGNED_COPY", includeBanners: false });
+    return;
+  }
+  if (kit) return; // PENDING / SENDING / FAILED (retrying): the kit carries the PDFs.
+  const [shop] = await db
+    .select({ id: shops.id, ownerId: shops.ownerId, name: shops.name, slug: shops.slug, state: shops.state, pincode: shops.pincode, ownerName: shops.ownerName, status: shops.status })
+    .from(shops)
+    .where(eq(shops.id, shopId))
+    .limit(1);
+  if (shop?.status !== "APPROVED") return; // the go-live kit carries them
+  const { queueShopWelcomeKit } = await import("@/server/shop-banner/welcome-kit");
+  if (!(await queueShopWelcomeKit(shop))) {
+    // Not queued (opted out, or the queue failed): never leave the owner without the signed copy.
+    await queueSignedCopy(signingRequestId, { kind: "SIGNED_COPY", includeBanners: false });
+  }
+}
+
+/**
+ * The welcome kit gave up (DEAD). If it was carrying the shop's signed agreements, queue them as a signed copy on
+ * their own (no banners) — that mail has its own retries and, if it dies too, the admin alert. Once only.
+ */
+export async function onWelcomeKitDead(shopId: string): Promise<void> {
+  const req = await registrationSigning(shopId);
+  if (!req) return;
+  const copies = await db.select({ includeBanners: legalAgreementEmails.includeBanners }).from(legalAgreementEmails).where(and(eq(legalAgreementEmails.signingRequestId, req.id), eq(legalAgreementEmails.kind, "SIGNED_COPY")));
+  if (!copies.some((c) => c.includeBanners) || copies.some((c) => !c.includeBanners)) return;
+  await queueSignedCopy(req.id, { kind: "SIGNED_COPY", includeBanners: false });
+}
+
+/** The latest signed REGISTRATION agreements of a shop (what its welcome kit attaches), or null. */
+async function registrationSigning(shopId: string) {
+  const [req] = await db
+    .select()
+    .from(legalSigningRequests)
+    .where(and(eq(legalSigningRequests.shopId, shopId), eq(legalSigningRequests.status, "SIGNED"), eq(legalSigningRequests.reason, "REGISTRATION")))
+    .orderBy(desc(legalSigningRequests.signedAt))
+    .limit(1);
+  return req ?? null;
+}
+
+/**
+ * For the welcome-kit renderer: the shop's signed agreements as attachments (within `sellerAgreements.maxEmailBytes`
+ * after `usedBytes` of banners; over it the English PDFs stay attached and the rest become secure links), an HTML
+ * section for the mail, and the CC list. Records the send on the request's SIGNED_COPY log row (created on the first
+ * render, updated on a retry) so My Agreements shows it. Null when the shop has no signed REGISTRATION agreements,
+ * or its signed copy already went in a separate mail.
+ */
+export async function agreementsForWelcomeKit(shopId: string, usedBytes: number): Promise<{ attachments: EmailAttachment[]; html: string; text: string; cc: string[] } | null> {
+  const req = await registrationSigning(shopId);
+  if (!req) return null;
+  const existing = await firstSignedCopy(req.id);
+  if (existing && !existing.includeBanners) return null; // sent on its own (kit had already gone)
+  const signed = await signedAgreementItems(req.id);
+  if (!signed) return null;
+  const rule = await getRule("sellerAgreements");
+  const budget = Math.max(0, rule.maxEmailBytes - encodedSize(usedBytes));
+  const total = signed.items.reduce((n, i) => n + encodedSize(i.content.length), 0);
+  const attach = total <= budget ? signed.items : signed.items.filter((i) => i.english);
+  const linked = signed.items.filter((i) => !attach.includes(i));
+  const record = signed.items.map((i) => ({ filename: i.filename, bytes: i.content.length, linked: linked.includes(i) }));
+  if (existing) await db.update(legalAgreementEmails).set({ attachments: record }).where(eq(legalAgreementEmails.id, existing.id));
+  else await db.insert(legalAgreementEmails).values({ signingRequestId: req.id, shopId, kind: "SIGNED_COPY", includeBanners: true, attachments: record });
+
+  const list = (rows: string[]) => `<ul style="color:#44403c;line-height:1.5;margin:4px 0 12px;padding-left:20px">${rows.map((r) => `<li>${r}</li>`).join("")}</ul>`;
+  const html =
+    `<h3 style="margin:16px 0 8px;color:#c2410c">Your signed agreements</h3>` +
+    `<p style="color:#44403c;line-height:1.5;margin:0 0 4px">Attached: the agreements you reviewed, digitally signed and accepted on <strong>${e(signed.when)}</strong>. Keep them for your records; they are also in ${`<a href="${e(`${site()}${MY_AGREEMENTS_URL}?shop=${shopId}`)}" style="color:#c2410c">My Agreements</a>`}.</p>` +
+    list(signed.docs.map((d) => `${e(d.title)} – version ${e(d.version)} (${e(d.langs.join(", "))})`)) +
+    (linked.length
+      ? `<p style="color:#44403c;line-height:1.5;margin:0 0 4px">Other languages (secure links, valid ${LINK_DAYS} days):</p>${list(linked.map((i) => `<a href="${e(signedFileLink(i.fileId))}" style="color:#c2410c">${e(i.filename)}</a>`))}`
+      : "") +
+    `<p style="color:#78716c;font-size:12px;line-height:1.5;margin:0 0 12px">In case of any difference between language versions, the English version shall prevail.</p>`;
+  const text = [
+    `Your signed agreements are attached (digitally signed and accepted on ${signed.when}): ${signed.docs.map((d) => `${d.title} v${d.version}`).join("; ")}.`,
+    linked.length ? `Other languages (links valid ${LINK_DAYS} days):\n${linked.map((i) => `${i.filename}: ${signedFileLink(i.fileId)}`).join("\n")}` : "",
+    `My Agreements: ${site()}${MY_AGREEMENTS_URL}?shop=${shopId}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return { attachments: attach.map((i) => ({ filename: i.filename, content: i.content, contentType: "application/pdf" })), html, text, cc: rule.ccEmails };
 }
 
 /** Admin / operator "Resend signed copy". */
@@ -159,33 +272,42 @@ async function compressPdf(data: Buffer): Promise<Buffer> {
 /** Base64 grows a file by 4/3; the limit is on the e-mail as sent. */
 const encodedSize = (bytes: number) => Math.ceil(bytes / 3) * 4;
 
-export async function renderAgreementEmail(emailId: string): Promise<RenderedDocument | null> {
-  const [log] = await db.select().from(legalAgreementEmails).where(eq(legalAgreementEmails.id, emailId)).limit(1);
-  if (!log) return null;
-  const [req] = await db.select().from(legalSigningRequests).where(eq(legalSigningRequests.id, log.signingRequestId)).limit(1);
-  const [shop] = await db.select().from(shops).where(eq(shops.id, log.shopId)).limit(1);
-  if (!req || !shop) return null;
-  const acceptances = await db.select().from(legalAcceptances).where(eq(legalAcceptances.signingRequestId, req.id)).orderBy(asc(legalAcceptances.docType));
+/** One signing request's certified PDFs (English, Marathi, Hindi per document), the document list and the signing time. */
+async function signedAgreementItems(signingRequestId: string) {
+  const acceptances = await db.select().from(legalAcceptances).where(eq(legalAcceptances.signingRequestId, signingRequestId)).orderBy(asc(legalAcceptances.docType));
   if (acceptances.length === 0) return null;
   const files = await db
     .select()
     .from(legalSignedFiles)
     .where(and(inArray(legalSignedFiles.acceptanceId, acceptances.map((a) => a.id)), eq(legalSignedFiles.kind, "CERTIFIED")));
-  const rule = await getRule("sellerAgreements");
-  const isNew = req.reason === "REGISTRATION";
-  const signedAt = acceptances[0].acceptedAt;
-
-  type Item = { filename: string; content: Buffer; english: boolean; banner: boolean; fileId: string | null };
-  const items: Item[] = [];
+  const items: { filename: string; content: Buffer; english: boolean; fileId: string }[] = [];
   const order: LegalLanguage[] = ["en", "mr", "hi"];
   for (const acc of acceptances) {
     for (const lang of order) {
       const f = files.find((x) => x.acceptanceId === acc.id && x.language === lang);
       if (!f) continue;
       const content = await compressPdf(decryptBytes(Buffer.from(f.dataEncrypted)));
-      items.push({ filename: `${acc.docType.toLowerCase().replace(/_/g, "-")}-v${acc.version}-${lang}-signed.pdf`, content, english: lang === "en", banner: false, fileId: f.id });
+      items.push({ filename: `${acc.docType.toLowerCase().replace(/_/g, "-")}-v${acc.version}-${lang}-signed.pdf`, content, english: lang === "en", fileId: f.id });
     }
   }
+  const docs = acceptances.map((a) => ({ title: DOC_TITLES[a.docType as SignedDocType]?.en ?? a.docType, version: a.version, langs: files.filter((f) => f.acceptanceId === a.id).map((f) => LANGUAGE_NAMES[f.language]) }));
+  return { acceptances, items, docs, when: dateTimeIst(acceptances[0].acceptedAt) };
+}
+
+export async function renderAgreementEmail(emailId: string): Promise<RenderedDocument | null> {
+  const [log] = await db.select().from(legalAgreementEmails).where(eq(legalAgreementEmails.id, emailId)).limit(1);
+  if (!log) return null;
+  const [req] = await db.select().from(legalSigningRequests).where(eq(legalSigningRequests.id, log.signingRequestId)).limit(1);
+  const [shop] = await db.select().from(shops).where(eq(shops.id, log.shopId)).limit(1);
+  if (!req || !shop) return null;
+  const signed = await signedAgreementItems(req.id);
+  if (!signed) return null;
+  const { acceptances } = signed;
+  const rule = await getRule("sellerAgreements");
+  const isNew = req.reason === "REGISTRATION";
+
+  type Item = { filename: string; content: Buffer; english: boolean; banner: boolean; fileId: string | null };
+  const items: Item[] = signed.items.map((i) => ({ ...i, banner: false }));
   if (log.includeBanners && shop.status === "APPROVED") {
     try {
       const { renderShopBanner, shopPageUrl, bannerBasename } = await import("@/server/shop-banner/render");
@@ -209,7 +331,7 @@ export async function renderAgreementEmail(emailId: string): Promise<RenderedDoc
     .set({ attachments: items.map((i) => ({ filename: i.filename, bytes: i.content.length, linked: linked.includes(i) })) })
     .where(eq(legalAgreementEmails.id, emailId));
 
-  const docs = acceptances.map((a) => ({ title: DOC_TITLES[a.docType as SignedDocType]?.en ?? a.docType, version: a.version, langs: files.filter((f) => f.acceptanceId === a.id).map((f) => LANGUAGE_NAMES[f.language]) }));
+  const docs = signed.docs;
   const [snapRow] = await db.select({ ids: legalAcceptances.licenceIdsIncluded }).from(legalAcceptances).where(eq(legalAcceptances.id, acceptances[0].id)).limit(1);
   void snapRow;
   const { legalDocumentSnapshots } = await import("@/server/db/schema");
@@ -217,7 +339,7 @@ export async function renderAgreementEmail(emailId: string): Promise<RenderedDoc
     ? await db.select({ data: legalDocumentSnapshots.data }).from(legalDocumentSnapshots).where(eq(legalDocumentSnapshots.id, acceptances[0].dataSnapshotId)).limit(1)
     : [];
   const licences = ((snap?.data as { licences?: { kind: string; number: string }[] } | undefined)?.licences ?? []).map((l) => `${l.kind.replace(/_/g, " ").toLowerCase()} ${l.number}`);
-  const when = dateTimeIst(signedAt);
+  const when = signed.when;
   const dashboard = `${site()}${MY_AGREEMENTS_URL}?shop=${shop.id}`;
   const linkLines = linked.map((i) => `${i.filename}: ${signedFileLink(i.fileId!)}`);
 
@@ -308,8 +430,11 @@ export async function emailLogFor(signingRequestId: string) {
     .select()
     .from(documentEmails)
     .where(and(eq(documentEmails.docType, "SELLER_AGREEMENTS"), inArray(documentEmails.docId, logs.map((l) => l.id))));
+  // A new shop's first signed copy travels inside its welcome kit (no SELLER_AGREEMENTS row): show that send.
+  const shopIds = [...new Set(logs.map((l) => l.shopId))];
+  const kits = await db.select().from(documentEmails).where(and(eq(documentEmails.docType, WELCOME_KIT_DOC_TYPE), inArray(documentEmails.docId, shopIds)));
   return logs.map((l) => {
-    const s = sends.find((x) => x.docId === l.id);
+    const s = sends.find((x) => x.docId === l.id) ?? (l.kind === "SIGNED_COPY" && l.includeBanners ? kits.find((k) => k.docId === l.shopId) : undefined);
     return {
       id: l.id,
       kind: l.kind,
