@@ -95,6 +95,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/wa", // docs/customer-whatsapp-2026-11: cart links sent on WhatsApp (/wa/cart)
   "/track", // docs/guest-checkout-2026-11: order tracking without sign-in (/track, /track/<token>)
   "/account", // docs/account-deletion-2026-11: restore an account during its 90-day cooling-off (/account/restore)
+  "/agreements", // docs/seller-agreements-2026-11: owner signing links (/agreements/sign/<token>) and verification (next app build)
 ];
 
 /**
