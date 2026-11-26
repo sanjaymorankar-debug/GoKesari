@@ -173,21 +173,9 @@ manual("TC-FRN-068", "Verify PAN and GSTIN online: a verified document needs no 
 manual("TC-FRN-069", "Verify the bank account with the bank; approval then needs no bank document and the paid franchise goes live", "P0, blocked on staging 23-Nov-2026: needs a new test account and an owner-agreed test PAN / GSTIN (never a real person's number) - owner decision");
 manual("TC-FRN-070", "Online document checks: guards, limits and a changed number", "added 23-Nov-2026 for manual testing; not automated yet");
 // Referral code moves
-manual("TC-REFM-001", "Open Referral moves from Admin → Dealers", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-REFM-003", "With dealer_programme_enabled off the Referral moves screen is not there", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-REFM-004", "The old one-admin 'move to another dealer' API now refuses and points to Referral moves", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-REFM-005", "Referral moves on a phone", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-REFM-006", "Find shops by name, phone or id and build the list of chosen shops", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-REFM-007", "Raise a request to add a team member's code to a shop that has none", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-REFM-008", "Raise a request to move two shops from one dealer to another dealer's own code", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-REFM-009", "Field and target checks on a shop request", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-REFM-010", "A shop already with that team and code, or already in a waiting request, is refused", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-REFM-011", "Raise a request to move a team member under another dealer's team lead", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-REFM-012", "Checks on a team member request", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-REFM-013", "Upload the signed consent letters; they are stored encrypted and open for admins", "P0, blocked on staging 23-Nov-2026: needs KYC-complete test dealers with linked accounts (and a team / paid franchise in the sandbox); none exist on staging - owner decision on test data");
-manual("TC-REFM-014", "Wrong files and wrong document details are refused", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-REFM-016", "A second admin cannot approve until every consent letter is in", "P0, blocked on staging 23-Nov-2026: needs a second staging admin (rbac_v2_four_eye_admin is ON); test account gk-admin2 exists but its ADMIN role awaits the owner's approval (Admin - Approvals)");
-manual("TC-REFM-017", "Reject, cancel and decided requests", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-REFM-018", "Every step of a move is in the audit log", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-REFM-019", "Approve: a shop with no code gets the team member's code", "P0, blocked on staging 23-Nov-2026: needs a second staging admin (rbac_v2_four_eye_admin is ON); test account gk-admin2 exists but its ADMIN role awaits the owner's approval (Admin - Approvals)");
 manual("TC-REFM-020", "Moving activated shops: earned commission stays with the old team, the new team earns from the move", "P0, blocked on staging 23-Nov-2026: needs a second staging admin (rbac_v2_four_eye_admin is ON); test account gk-admin2 exists but its ADMIN role awaits the owner's approval (Admin - Approvals)");
@@ -197,17 +185,13 @@ manual("TC-REFM-023", "Franchise recurring splits exactly at the move between tw
 manual("TC-REFM-024", "Moved to a team with no franchise in the zone: the shop is detached from the old franchise", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-REFM-025", "A shop moved before it is approved earns the new team's commission at approval", "added 23-Nov-2026 for manual testing; not automated yet");
 // Dealership platform
-manual("TC-DPLT-001", "Admin → Dealers → Schemes lists the four schemes and their versions", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-003", "Migration: every existing dealer has exactly one scheme and no money row changed", "P0, blocked on staging 23-Nov-2026: needs read or write access to the staging database (developer); the QA suite never connects to a site's database");
 manual("TC-DPLT-004", "Published terms, scheme history and acceptances cannot be changed", "P0, blocked on staging 23-Nov-2026: needs read or write access to the staging database (developer); the QA suite never connects to a site's database");
 manual("TC-DPLT-005", "A new dealer starts on Free Dealership version 2; existing ones stay on version 1", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-006", "Buying a franchise zone moves the dealer to Territory Franchise; a refund moves him back to his own Free version", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-007", "The application shows the schemes to compare and choose", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-008", "A Free Dealership applicant submits without paying and his acceptance is recorded", "P0, blocked on staging 23-Nov-2026: needs a new test account and an owner-agreed test PAN / GSTIN (never a real person's number) - owner decision");
 manual("TC-DPLT-009", "Approval puts the dealer on exactly the version he accepted", "P0, blocked on staging 23-Nov-2026: needs a new test account and an owner-agreed test PAN / GSTIN (never a real person's number) - owner decision");
-manual("TC-DPLT-010", "Scheme choice rules for applicants", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-011", "Terms that changed while the applicant was reading, or a scheme closed after he chose it", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-012", "Scheme chooser, joining charge box and questions on a phone", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-013", "Pay the Business Partner joining charge online, then submit", "P0, blocked on staging 23-Nov-2026: needs a new test account and an owner-agreed test PAN / GSTIN (never a real person's number) - owner decision");
 manual("TC-DPLT-014", "The charge counts as paid only on the gateway's confirmation", "P0, blocked on staging 23-Nov-2026: needs a new test account and an owner-agreed test PAN / GSTIN (never a real person's number) - owner decision");
 manual("TC-DPLT-015", "Payment rules: nothing to pay, already paid, another scheme after paying", "added 23-Nov-2026 for manual testing; not automated yet");
@@ -224,16 +208,9 @@ manual("TC-DPLT-025", "Monthly commission: refunds, no sales, the 12-month limit
 manual("TC-DPLT-026", "After the scheme's 12-month validity the dealer earns no scheme commission", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-027", "The commission budget scales one-time lines down", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-028", "Create a new scheme from blank terms", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-029", "Create rules and cloning", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-030", "Edit a draft section by section and see the preview", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-031", "Terms that do not add up cannot be saved", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-032", "Publish now: new applicants get the new version, dealers keep theirs", "P0, blocked on staging 23-Nov-2026: publishing a test scheme version changes what every staging applicant sees - owner decision");
-manual("TC-DPLT-033", "New version from a published one, one draft at a time, delete a draft", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-034", "Schedule a launch; the job publishes it at that time", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-035", "Suspend, reopen, expire and archive; Free Dealership guarded", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-036", "Compare two versions field by field", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-037", "Simulator with the default assumptions on Free Dealership v2", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-039", "Schemes list and builder on a phone", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-040", "A scheme's own questions on the application, shown by their conditions", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-041", "Questions and eligibility are checked on submit", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-042", "Staff see the answers; files are private", "added 23-Nov-2026 for manual testing; not automated yet");
@@ -241,20 +218,12 @@ manual("TC-DPLT-043", "Custom field definitions are validated in the builder", "
 manual("TC-DPLT-044", "The dealer's 'Your scheme' line and card, on desktop and phone", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-045", "Upgrade from Free to Business Partner: accept, pay, moved on capture", "P0, blocked on staging 23-Nov-2026: needs a new test account and an owner-agreed test PAN / GSTIN (never a real person's number) - owner decision");
 manual("TC-DPLT-046", "Move to Free Dealership applies at once", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-047", "Scheme change rules", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-048", "Staff move a dealer only to a version he accepted in the last 30 days", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-049", "Dealer logo follows shop_logo_upload_enabled for the dealer's district", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-050", "Second approver: reject, cancel, a Business Admin's request and decided requests", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-051", "Grant a dealer platform role; the staff member lands on the dealer dashboard", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-052", "What each dealer platform role may change through the website", "P0, blocked on staging 23-Nov-2026: needs staff test users holding the six dealer-platform roles (a role grant) - owner decision");
 manual("TC-DPLT-053", "Record what the guide promises but the website still keeps for admins", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-054", "A Regional Admin sees only his regions on the dashboard", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-DPLT-055", "dealer_platform_four_eye: off applies at once, on waits for a second admin", "P0, blocked on staging 23-Nov-2026: needs a second staging admin (rbac_v2_four_eye_admin is ON); test account gk-admin2 exists but its ADMIN role awaits the owner's approval (Admin - Approvals)");
-manual("TC-DPLT-056", "Dashboard tiles, filters and tables", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-057", "Dashboard money figures add up", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-058", "Download CSV with the same figures and the spreadsheet-formula guard", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-059", "Who may open the dealer platform screens; programme off", "added 23-Nov-2026 for manual testing; not automated yet");
-manual("TC-DPLT-060", "Scheme card and scheme history on the admin dealer page", "added 23-Nov-2026 for manual testing; not automated yet");
 // Smart shopping
 manual("TC-SMART-001", "Guest is sent to sign-in from every wishlist page; the smart-list APIs answer 401", "added 23-Nov-2026 for manual testing; not automated yet");
 manual("TC-SMART-002", "Flag off: no Scan tile, wishlist pages 404, scan / save / compare / order refused", "added 23-Nov-2026 for manual testing; not automated yet");

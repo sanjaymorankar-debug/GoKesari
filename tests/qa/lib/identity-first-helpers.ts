@@ -268,6 +268,9 @@ export async function openIdentityScreen(page: Page, url = "/shop/register") {
   await expect(waiting.or(tiles).first()).toBeVisible();
   if (await waiting.isVisible()) blocked("this account has a shop waiting for its fee or approval, so the registration wizard is not shown");
   const heading = page.getByRole("heading", { name: IDENTITY.heading });
+  // Owner, 25-Nov-2026: a new registration opens on the referral screen first.
+  const referral = page.getByTestId("referral-continue");
+  if (!(await heading.isVisible()) && (await referral.isVisible())) await referral.click();
   if (!(await heading.isVisible())) {
     const tile = tiles.getByRole("button", { name: /2\. Verify/ });
     if (!(await tile.isVisible())) blocked("this account's registration is past the identity step and cannot go back to it");

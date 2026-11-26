@@ -439,6 +439,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
       // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "registration-subscriptions", label: L("Unpaid & expiring registrations", "अवैतनिक और समाप्त होते पंजीकरण", "न भरलेल्या व संपणाऱ्या नोंदण्या"), icon: "calendar-clock", href: "/admin/shops/registrations", permission: PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE },
       { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },
@@ -603,6 +604,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
       // docs/dealer-programme: the programme's on/off switches, per district — admin only.
       { key: "featureFlags", label: L("Feature flags", "फ़ीचर फ़्लैग", "फीचर फ्लॅग"), icon: "toggle-right", href: "/admin/feature-flags", permission: ADMIN_ONLY },
+      // docs/identity-verification-2026-11: switches (customers / shop owners), review queue and counts — admin only.
+      { key: "identityVerification", label: L("Identity verification", "पहचान सत्यापन", "ओळख पडताळणी"), icon: "user-check", href: "/admin/identity-verification", permission: ADMIN_ONLY },
       // docs/rbac: the two-admin approval queue (roles, suspensions, reactivations, flags).
       { key: "approvals", label: L("Approvals", "स्वीकृतियाँ", "मंजुरी"), icon: "badge-check", href: "/admin/approvals", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
       { key: "staffTeams", label: L("Staff teams", "स्टाफ टीमें", "कर्मचारी टीम"), icon: "users", href: "/admin/staff-teams", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
@@ -652,6 +655,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
       // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "registration-subscriptions", label: L("Unpaid & expiring registrations", "अवैतनिक और समाप्त होते पंजीकरण", "न भरलेल्या व संपणाऱ्या नोंदण्या"), icon: "calendar-clock", href: "/admin/shops/registrations", permission: PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE },
       { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },

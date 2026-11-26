@@ -351,6 +351,8 @@ export async function onShopMembershipRenewalCaptured(intent: PaymentIntentRef, 
     client,
   );
   const extendedTo = recorded.membership?.periodEnd ?? null;
+  // 0210 registration subscription: the link that was paid (if any) is PAID, other open links end.
+  await (await import("./shop-registration-subscription")).markRegistrationLinksPaid(client, shop.id, intent.id);
   await recordAudit(
     {
       action: AUDIT_ACTIONS.SHOP_MEMBERSHIP_RENEWAL_PAID,
@@ -364,16 +366,17 @@ export async function onShopMembershipRenewalCaptured(intent: PaymentIntentRef, 
   if (!extendedTo) await flagPaymentForSupport(client, row, "Membership renewal paid but the membership was not extended (fees short after a refund) — check the shop's payments.", "renewal-not-extended");
 
   const finish = async () => {
-    const { accrueRenewalCommissionSafely } = await import("@/server/dealers/tiered");
-    await accrueRenewalCommissionSafely(recorded.payment.id, actor);
+    // 0210: renewal commission only while rule shopRegistrationSubscription.payCommissionOnRenewals is on (default off).
+    if ((await getRule("shopRegistrationSubscription")).payCommissionOnRenewals) {
+      const { accrueRenewalCommissionSafely } = await import("@/server/dealers/tiered");
+      await accrueRenewalCommissionSafely(recorded.payment.id, actor);
+    }
+    const { afterRegistrationPayment } = await import("./shop-registration-subscription");
     if (extendedTo) {
-      await notify({
-        userId: shop.ownerId,
-        type: NOTIFICATION_TYPES.SHOP_MEMBERSHIP_RENEWED,
-        vars: { shopName: shop.name, amount: formatPaise(intent.amountPaise), validUntil: istDate(extendedTo), reference: recorded.payment.reference },
-        actionUrl: `/shop/manage/registration?shop=${shop.id}`,
-        dedupeKey: `shop-membership-renewed:${recorded.payment.id}`,
-      });
+      // 0210: status + confirmation by in-app, push and e-mail (English + Marathi) with the receipt.
+      await afterRegistrationPayment(shop.id, { id: recorded.payment.id, reference: recorded.payment.reference, amountPaise: intent.amountPaise, kind: "RENEWAL" });
+    } else {
+      await (await import("./shop-membership")).refreshRegistrationStatusSafely(shop.id);
     }
   };
   const run = () => finish().catch((e) => console.error("[membership-renewal] after-capture step failed", shop.id, e));

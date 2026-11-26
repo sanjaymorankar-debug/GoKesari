@@ -673,6 +673,8 @@ qa("TC-ONB-066", "registration fee by turnover (default rule): Fee ₹999, ₹4,
     await expect(page.getByTestId("what-you-pay")).toContainText("Registration fee ₹999 + GST");
     // The payment itself is not opened: the gateway call is stopped in the browser.
     await page.route("**/api/shops/*/registration-fee", (route) => route.abort());
+    await page.getByTestId("accept-seller-terms").check();
+    await page.getByTestId("accept-seller-undertaking").check();
     await page.getByTestId("create-and-pay").click();
     await expect(page.getByRole("heading", { name: "Pay the registration fee", exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Pay ₹1,178.82 now" })).toBeVisible();
@@ -755,6 +757,12 @@ qa("TC-ONB-068", "Payment (review) step: every value with Change, kept after goi
       await expect(page.getByRole("button", { name: "Change" })).toHaveCount(7);
       await expect(page.getByText("Your GSTIN is verified: your shop goes live as soon as the payment is confirmed.", { exact: true })).toBeVisible();
       await expect(page.getByTestId("create-and-pay")).toHaveText("Create my shop and pay");
+      // docs/seller-undertaking-2026-11: Seller Terms and the undertaking start unticked; pay waits for both.
+      await expect(page.getByTestId("accept-seller-terms")).not.toBeChecked();
+      await expect(page.getByTestId("accept-seller-undertaking")).not.toBeChecked();
+      await expect(page.getByTestId("create-and-pay")).toBeDisabled();
+      await page.getByTestId("accept-seller-terms").check();
+      await page.getByTestId("accept-seller-undertaking").check();
       await expect(page.getByTestId("create-and-pay")).toBeEnabled();
     };
     await review();

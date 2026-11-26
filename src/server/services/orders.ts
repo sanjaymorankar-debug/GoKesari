@@ -79,6 +79,8 @@ import { shopServiceability, societyPartnerShopIds, withWalletGate } from "./ser
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { assertFulfilmentAllowsStatus } from "./fulfilment-guards";
 import { assertLegalDocsAllowOrders } from "./legal-documents";
+import { assertSellerUndertakingAllowsOrders } from "./seller-undertaking";
+import { assertIdentityVerifiedForCheckout, assertShopIdentityAllowsOrders } from "./identity-verification";
 import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
@@ -285,6 +287,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
   // Mandatory referral code (rule customerSignupReferral.required): a new customer's first order needs one.
   unwrap(await referralCheck);
+  // docs/identity-verification-2026-11 (customers switch, identity_verification_customers_enabled): a verified identity before the first order.
+  await assertIdentityVerifiedForCheckout(input.userId);
   const buyerShopId = unwrap(await buyerShopCheck);
   if (orderType === "PERSONAL" && input.buyerShopId) {
     throw validationFailed("A personal order cannot be placed for a shop.");
@@ -424,6 +428,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       }
       // Mandatory legal documents: a shop past its grace period takes no orders until it uploads them.
       unwrap((await legalChecks.get(shopRow.id)) ?? { ok: true, value: undefined });
+      // docs/identity-verification-2026-11: a shop whose owner is past the identity grace period takes no new orders.
+      await assertShopIdentityAllowsOrders(shopRow.id);
       assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null);
     }
   }
@@ -1057,6 +1063,10 @@ export async function updateOrderStatus(
     if (order.status === "CONFIRMED" && (newStatus === "ACCEPTED" || newStatus === "PREPARING")) {
       await assertShopMayAcceptOrders(order.shopId, tx);
       await assertLegalDocsAllowOrders(order.shopId);
+      // docs/seller-undertaking-2026-11: no NEW order until the owner accepts the fresh-goods undertaking (flag on).
+      await assertSellerUndertakingAllowsOrders(order.shopId);
+      // docs/identity-verification-2026-11: the owner's identity, after the grace period (which starts here if not yet).
+      await assertShopIdentityAllowsOrders(order.shopId, { startGrace: true });
     }
 
     const [updated] = await tx

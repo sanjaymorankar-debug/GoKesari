@@ -119,7 +119,7 @@ async function registerLater() {
   await submitDraftGstin({ gstin: gstinFor("ABCPK5678L"), consentGiven: true, actor: owner });
   await saveDraftDetails({ actor: owner, details: details() });
   await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
-  const submitted = await submitDraftForPayment({ actor: owner });
+  const submitted = await submitDraftForPayment({ actor: owner, acceptSellerTerms: true, acceptUndertaking: true });
   return submitted.shop!.id;
 }
 

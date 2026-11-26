@@ -15,6 +15,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getEnv } from "@/lib/env";
 import { digilockerWebhookSessionId, verifySandboxSignature } from "@/server/kyc/sandbox-webhook";
+import { handleIdentityDigilockerWebhook } from "@/server/services/identity-verification";
 import { handleDigilockerWebhook } from "@/server/services/rider-kyc";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   const sessionId = digilockerWebhookSessionId(payload);
   if (!sessionId) return NextResponse.json({ ok: true, ignored: "not a DigiLocker session" });
-  const result = await handleDigilockerWebhook(sessionId);
+  // The rider check first; a session it doesn't know may be a customer / shop owner identity check.
+  let result = await handleDigilockerWebhook(sessionId);
+  if (result === "unknown_session") result = await handleIdentityDigilockerWebhook(sessionId);
   return NextResponse.json({ ok: true, result });
 }
