@@ -18,7 +18,7 @@ import clsx from "clsx";
 
 import { Icon } from "@/components/board/icons";
 import { tr, type Lang } from "@/lib/board/i18n";
-import type { BannerSlide } from "@/lib/home-banners";
+import { BANNER_ART, bannerSubject, type BannerSlide } from "@/lib/home-banners";
 import { HOME } from "@/lib/home-i18n";
 
 const TONES: Record<BannerSlide["kind"], string> = {
@@ -27,7 +27,6 @@ const TONES: Record<BannerSlide["kind"], string> = {
   NEW_SHOPS: "from-indigo-800 to-indigo-600",
   GENERAL: "from-rose-800 to-kesari-700",
 };
-const EMOJI: Record<BannerSlide["kind"], string> = { DEAL: "🥛", SEASONAL: "🪔", NEW_SHOPS: "🏪", GENERAL: "⚖️" };
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 const prefersReducedMotion = () => window.matchMedia(REDUCED_MOTION).matches;
@@ -122,9 +121,7 @@ export function HeroCarousel({ lang, slides, intervalSeconds = 6 }: { lang: Lang
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span aria-hidden className="grid h-full w-full place-items-center text-6xl opacity-90 sm:text-7xl lg:text-8xl">
-                  {EMOJI[slide.kind]}
-                </span>
+<BannerArt slide={slide} />
               )}
             </div>
           </div>
@@ -163,5 +160,26 @@ export function HeroCarousel({ lang, slides, intervalSeconds = 6 }: { lang: Lang
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * A banner with no photo: four pictures from the banner's own subject (a
+ * dairy banner shows only dairy) set on a soft disc that fills the panel, so
+ * the slide has no large empty area at any width. On phones the pictures
+ * sit above the slide controls, which share the bottom-right corner.
+ */
+function BannerArt({ slide }: { slide: BannerSlide }) {
+  const subject = bannerSubject(slide);
+  const [main, a, b, c] = BANNER_ART[subject];
+  const bubble = "absolute grid place-items-center rounded-full bg-white/20 p-1.5 text-2xl shadow-sm ring-1 ring-white/25 sm:p-2 sm:text-3xl lg:p-3 lg:text-5xl";
+  return (
+    <span aria-hidden data-testid="hero-art" data-subject={subject} className="absolute inset-x-0 bottom-11 top-0 grid place-items-center sm:bottom-0">
+      <span className="absolute aspect-square h-[80%] rounded-full bg-white/10 sm:h-[86%] ring-1 ring-white/15" />
+      <span className="relative text-6xl drop-shadow-md sm:text-7xl lg:text-9xl">{main}</span>
+      <span className={`${bubble} right-[6%] top-[8%]`}>{a}</span>
+      <span className={`${bubble} left-[2%] top-[6%] sm:bottom-[10%] sm:left-[4%] sm:top-auto`}>{b}</span>
+      <span className={`${bubble} left-[8%] top-[6%] hidden sm:grid`}>{c}</span>
+    </span>
   );
 }
