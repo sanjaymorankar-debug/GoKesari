@@ -21,6 +21,13 @@ const schema = z.object({
   latitude: z.number().min(-90).max(90).nullish(),
   longitude: z.number().min(-180).max(180).nullish(),
   unitLabel: z.string().max(60).nullish(),
+  // docs/flows-v3/wave5.md (flag flow_f15; ignored while it is off).
+  authorisedPersonName: z.string().max(120).nullish(),
+  authorisedPersonRole: z.string().max(60).nullish(),
+  flatCount: z.number().int().min(1).max(100_000).nullish(),
+  proofType: z.enum(["REGISTRATION_CERTIFICATE", "COMMITTEE_LETTER"]).nullish(),
+  proofNumber: z.string().max(80).nullish(),
+  proofImageUrl: z.string().max(200).nullish(),
 });
 
 export const GET = route(async (request: NextRequest) => {
