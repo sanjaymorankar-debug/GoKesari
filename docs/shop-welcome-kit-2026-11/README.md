@@ -32,7 +32,7 @@ Built on branch `feat/welcome-kit-personalised-2026-11-26` (PR into `staging`, m
 | G7 | No safety net if a go-live path ever skipped the kit | Cron `welcome-kit-safety-net` (every 15 min): live shops approved since rule `shopWelcomeKit.safetyNetFrom` (= when 0213 ran) without a kit get it |
 | G8 | Shops that had the 20-Nov kit cannot get the new banner by e-mail | Admin → Shops → Send welcome kit → **Resend updated banner** (one shop; own outbox type `SHOP_BANNER_UPDATE`, no second congratulations, 10-minute guard, audited) |
 | G9 | Bulk send needed a city or district | "All live shops" option (≤ 200 per run; run again until none remain) |
-| G10 | "Make the India map clearly visible" | **Open:** the banner templates have no India map. Owner to send the map / design they mean, or confirm it is dropped |
+| G10 | "Make the India map clearly visible" | **Dropped (owner, 26-Nov-2026 12.07 IST: "Leave the map out")** — the templates have no India map and none is added |
 
 ### Decisions
 
