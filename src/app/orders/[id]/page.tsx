@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { RefundTimeline } from "@/components/aftercare/refund-timeline";
 import { TicketList, toRowView } from "@/components/aftercare/ticket-views";
 import { CancelOrderButton } from "@/components/cancel-order-button";
+import { FlowsV3OrderActions } from "@/components/flows-v3/order-actions";
 import { Alert, Card, LinkButton, Money, PageHeader, StatusBadge } from "@/components/ui";
 import { formatQuantity } from "@/lib/money";
 import { customerCancellableStatuses } from "@/lib/order-cancellation";
@@ -19,6 +20,7 @@ import { invoiceKindsForOrders, orderInvoiceLabel } from "@/server/services/invo
 import { getOrder } from "@/server/services/orders";
 import { platformInvoiceLabel, platformInvoicesForOrders } from "@/server/tax/delivery-invoice";
 import { getRule } from "@/server/services/settings";
+import { afterPackingCancellationRule, cancellationRule as effectiveCancellationRule } from "@/server/flows/wave2-rules";
 
 export const metadata = { title: "Order details" };
 
@@ -69,8 +71,8 @@ export default async function OrderDetailPage({
     listRefundsForOrder(id),
     listChargesForOrder(id),
     listTicketsForOrder(id, user),
-    getRule("cancellation"),
-    getRule("afterPackingCancellation"),
+    effectiveCancellationRule(), // docs/flows-v3/wave2.md (flag flow_f16)
+    afterPackingCancellationRule(),
     getRule("invoicing"),
     // Billing v2 (QA D-112, D-113): the invoice's own kind, and GoKesari's s.9(5) invoices.
     invoiceKindsForOrders([id]),
@@ -191,6 +193,8 @@ export default async function OrderDetailPage({
             {isBuyer && order.source !== "SUBSCRIPTION" && cancellable.includes(order.status) ? (
               <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} lang={lang} />
             ) : null}
+            {/* docs/flows-v3/wave2.md: ask the shop to cancel (F16), cancel the rest (F20), referral after payment (F2). */}
+            {isBuyer ? <FlowsV3OrderActions order={order} userId={user.id} /> : null}
           </Card>
 
           <section>

@@ -22,7 +22,7 @@ Migration 0220 and `src/server/onboarding-v2/` already carry these owner decisio
 - Shop Act stays PROMISE and Udyam OPTIONAL (Admin → Shop document rules). "Ready for product upload" e-mail is
   wave 2 (`flow_f13`). The mobile-code fallback without SMS is left to `dual_auth`.
 
-## Flags (migration 0222)
+## Flags (migration 0223)
 
 Seeded **ON** on the staging database (`gokesari_test`) and **OFF** everywhere else
 (`enabled = current_database() = 'gokesari_test'`, `ON CONFLICT DO NOTHING`). The migration has no table changes.
@@ -55,7 +55,7 @@ Seeded **ON** on the staging database (`gokesari_test`) and **OFF** everywhere e
 
 ## Files
 
-- `drizzle/0222_flows_v3_wave3.sql` — flag seeds.
+- `drizzle/0223_flows_v3_wave3.sql` — flag seeds.
 - `src/server/flows/wave3-rules.ts`, `f4-onboarding.ts`, `f5-licences.ts`, `f6-subscription.ts`.
 - `src/app/api/shops/registration-draft/v2/contact/route.ts` — POST JSON `{ whatsappNumber }` or multipart
   (`whatsappNumber`, `qr`); 404 while `flow_f4` is off.

@@ -46,6 +46,7 @@ import { findCapturedIntent, getPaymentIntent, refundPaymentIntent, type Payment
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { postLedger, postRetainedDeliveryFee } from "@/server/services/finance";
 import { getRule } from "@/server/services/settings";
+import { afterPackingCancellationRule } from "@/server/flows/wave2-rules"; // docs/flows-v3/wave2.md (flag flow_f16)
 import { applyWalletMutation, getOrCreateWallet, refundOriginalDebit } from "@/server/services/wallet";
 import { AFTER_PACKING_STATUSES, effectiveFeePolicy, feeFor, type FeeQuote } from "./cancellation-fee";
 import { recordOrderStatusEvent } from "@/server/events/order-status-record";
@@ -194,7 +195,7 @@ export async function computeRefundBreakdown(
         amountPaise: kept,
       });
     }
-  } else if (ctx.selfService && stage === "AFTER_PACKING" && (await getRule("afterPackingCancellation")).enabled) {
+  } else if (ctx.selfService && stage === "AFTER_PACKING" && (await afterPackingCancellationRule()).enabled) {
     const policy = await effectiveFeePolicy(order.shopId, client);
     fee = feeFor(policy, { subtotalPaise: order.subtotalPaise, paidPaise });
     if (fee.amountPaise > 0) {

@@ -12,10 +12,11 @@
  */
 import { as } from "../lib/actors";
 import { blockIfNotTakingOrders, fulfil } from "../lib/flows";
-import { call, expectStatus, poll, why } from "../lib/http";
-import { blocked, expect, need, qa } from "../lib/record";
+import { call, expectStatus, poll, stash, unstash, why } from "../lib/http";
+import { blocked, expect, need, qa, test } from "../lib/record";
+import { IS_PROD } from "../lib/target";
 import { world } from "../lib/world";
-import { onboardingV2On } from "../lib/onboarding-v2-helpers";
+import { onboardingV2On, pickPaymentIfNone } from "../lib/onboarding-v2-helpers";
 import {
   add,
   cancelAsShop,
@@ -32,6 +33,8 @@ import {
   orderOf,
   ordersOf,
   OWNER,
+  patchShop,
+  shopAsOwner,
   chooseDeliveryTime,
   payOnCartPage,
   rupees,
@@ -52,6 +55,25 @@ async function checkoutCart(role: "customer" = "customer", extra: Record<string,
 }
 
 /* --------------------------------------------------------------- the page */
+
+/*
+ * Shop A keeps 06:00–22:00 opening hours on the test site. Outside them checkout first asks to confirm an order to a
+ * closed shop (409 "… is closed right now. Confirm you want to continue"), which none of these cart cases is about
+ * (baseline triage 27-Nov-2026, a night run): the file runs with no opening hours on shop A and puts them back after.
+ * The original hours are stashed once, so a worker restarted after a failure never "restores" the cleared value.
+ */
+const HOURS_KEY = "shopping-cart:shop-A-opening-hours";
+test.beforeAll(async () => {
+  if (IS_PROD) return;
+  const before = await shopAsOwner("A");
+  if (!unstash(HOURS_KEY)) stash(HOURS_KEY, { hours: before.openingHours ?? [] });
+  if ((before.openingHours ?? []).length) expectStatus(await patchShop("A", { openingHours: [] }), 200, "shop A without opening hours");
+});
+test.afterAll(async () => {
+  if (IS_PROD) return;
+  const saved = unstash<{ hours: unknown[] }>(HOURS_KEY);
+  if (saved) await patchShop("A", { openingHours: saved.hours }).catch(() => undefined);
+});
 
 qa(["TC-CART-001", "TC-CART-005"], "/cart groups lines by shop with live prices, quantities, each shop's delivery fee and subtotal; the grand total is their sum", async ({ browser }) => {
   const butter = listing("packaged");
@@ -254,7 +276,8 @@ qa("TC-CART-007", "a line that stops being sold online, runs out, or loses its p
       try {
         await open(page, "/cart");
         await expect(cartLine(page, item.name)).toContainText(reason);
-        await expect(page.getByRole("button", { name: /Pay from wallet/ })).toBeDisabled();
+        await pickPaymentIfNone(page, "Wallet");
+        await expect(page.getByRole("button", { name: /Pay from wallet|Choose how to pay/ })).toBeDisabled();
         await expect(cartGroup(page, shopName("A")).getByRole("button", { name: "Remove unavailable items" })).toBeVisible();
       } finally {
         await context.close();
@@ -416,6 +439,8 @@ qa("TC-CART-012", "double-clicking pay on the cart page places one order and deb
   try {
     await open(page, "/cart");
     await chooseDeliveryTime(page);
+    // onboarding v2 (on on test.gokesari.com) preselects no payment: the wallet is chosen as a customer would.
+    await pickPaymentIfNone(page, "Wallet");
     const pay = page.getByRole("button", { name: /Pay from wallet/ });
     await pay.click();
     const ignore = page.getByRole("button", { name: "Ignore and continue" });

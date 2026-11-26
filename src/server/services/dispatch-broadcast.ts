@@ -50,12 +50,13 @@ import { acceptOfferInTransaction, dispatchReadyOrder } from "./delivery-assignm
 import { previewEarning } from "./delivery-earnings";
 import { blockedPartnerIds, countActiveAssignments, findEligiblePartnersNearShop } from "./delivery-eligibility";
 import { getRule } from "./settings";
+import { dispatchBroadcastRule } from "@/server/flows/wave2-rules";
 import { getSocietyDispatchRules, notifySocietySecurity } from "./societies";
 
 type BroadcastRule = Awaited<ReturnType<typeof getBroadcastRule>>;
 
 function getBroadcastRule() {
-  return getRule("dispatchBroadcast");
+  return dispatchBroadcastRule(); // docs/flows-v3/wave2.md (flag flow_f19)
 }
 
 const SYSTEM = { id: null, role: null } as const;

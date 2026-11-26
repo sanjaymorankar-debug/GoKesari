@@ -14,7 +14,7 @@ import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
 import { dealerFourEyeOn, requestDealerApproval } from "@/server/approvals";
-import { compareVersions, deleteDraft, publishVersion, requireSchemePermission, saveDraft, setSchemeStatus } from "@/server/dealers/scheme-admin";
+import { compareVersions, deleteDraft, publishVersion, requireSchemePermission, saveDraft, schemePermissions, setSchemeStatus } from "@/server/dealers/scheme-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +29,9 @@ const Body = z.discriminatedUnion("action", [
 export const POST = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
   const user = await requireUser();
+  // D-170: staff only — answered before the request body is read.
+  const allowed = await schemePermissions(user);
+  if (!allowed.edit && !allowed.publish) throw forbidden();
   enforceRateLimit(`dealer-scheme:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, Body);
   switch (body.action) {

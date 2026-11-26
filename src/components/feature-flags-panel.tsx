@@ -73,6 +73,13 @@ export type FeatureFlagKey =
   | "identity_verification_shop_owners_enabled"
   // docs/seller-undertaking-2026-11
   | "seller_undertaking_gate_enabled"
+  // docs/flows-v3/wave2.md (0222)
+  | "flow_f2"
+  | "flow_f20"
+  | "flow_f3"
+  | "flow_f19"
+  | "flow_f16"
+  | "flow_f13"
   | "seller_agreements_enabled"
   | "onboarding_v2"
   | "dual_auth"

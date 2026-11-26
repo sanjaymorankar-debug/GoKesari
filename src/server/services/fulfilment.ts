@@ -44,6 +44,7 @@ import { assertFulfilmentChosen } from "./fulfilment-guards";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { cancelOrder, updateOrderStatus } from "./orders";
 import { refundOrderPart, sendRequestedOriginalRefunds, type PartRefundRoute } from "@/server/aftercare/refunds";
+import { flowOn } from "@/server/flows/wave2-rules";
 
 interface Actor {
   id: string;
@@ -94,7 +95,11 @@ export async function markOrderReady(
   options: { beforeReady?: (tx: DbClient, order: Order) => Promise<void> } = {},
 ): Promise<Order> {
   const ready = await db.transaction(async (tx) => {
-    const order = await lockOrder(tx, orderId);
+    let order = await lockOrder(tx, orderId);
+    // docs/flows-v3/wave2.md (flag flow_f3): "Mark packed" straight from Accepted — picking starts on the way.
+    if (order.status === "ACCEPTED" && (await flowOn("flow_f3"))) {
+      order = await updateOrderStatus(orderId, "PREPARING", actor, "Picking started", tx);
+    }
     if (order.status !== "PREPARING") {
       throw conflict("Start preparing the order before marking it ready.");
     }

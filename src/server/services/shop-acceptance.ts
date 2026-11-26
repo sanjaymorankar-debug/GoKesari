@@ -27,14 +27,14 @@ import { orders, shopSlaEvents, shops, type Order } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { emitEvent } from "@/server/events/emit";
 import { cancelOrder } from "./orders";
-import { getRule } from "./settings";
 import { suspensionRecordFor } from "./shop-suspension-guard";
+import { shopAcceptanceRule } from "@/server/flows/wave2-rules";
 
 export const ACCEPT_TIMEOUT_REASON = "The shop did not accept the order in time";
 
 /** The accept-by time for an order confirmed now; null when the rule is off. */
 export async function acceptByFor(now: Date, expectedOpenAt: Date | null): Promise<Date | null> {
-  const rule = await getRule("shopAcceptance");
+  const rule = await shopAcceptanceRule(); // docs/flows-v3/wave2.md (flag flow_f19)
   if (!rule.enabled) return null;
   const from = expectedOpenAt && expectedOpenAt.getTime() > now.getTime() ? expectedOpenAt : now;
   return new Date(from.getTime() + rule.acceptMinutes * 60_000);
@@ -49,7 +49,7 @@ export interface AcceptanceSweepResult {
 
 export async function runShopAcceptanceSweep(now: Date = new Date()): Promise<AcceptanceSweepResult> {
   const result: AcceptanceSweepResult = { reminded: 0, cancelled: 0, escalated: 0, skipped: 0 };
-  const rule = await getRule("shopAcceptance");
+  const rule = await shopAcceptanceRule(); // docs/flows-v3/wave2.md (flag flow_f19)
   if (!rule.enabled) return result;
   const windowMs = rule.acceptMinutes * 60_000;
 
@@ -172,6 +172,9 @@ export async function runShopAcceptanceSweep(now: Date = new Date()): Promise<Ac
       },
       idempotencyKey: `accept-missed:${order.id}`,
     });
+    // docs/flows-v3/wave2.md (flag flow_f19): point the customer to a nearby shop with the same items. Never throws.
+    const { suggestAlternativeShopAfterTimeout } = await import("@/server/flows/f19-timeouts");
+    await suggestAlternativeShopAfterTimeout(order.id);
     result.cancelled += 1;
   }
   return result;

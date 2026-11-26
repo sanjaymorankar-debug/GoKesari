@@ -22,7 +22,7 @@ import { db } from "./db";
 import { shopListings } from "./flows";
 import { call, expectStatus, RUN, why, type Answer } from "./http";
 import { blocked, need } from "./record";
-import { assertWritable, BASE_URL } from "./target";
+import { assertWritable, BASE_URL, IS_LOCAL } from "./target";
 import { world, type Role, type WorldListing } from "./world";
 
 export const SIGNED = { tier: "signed" as const, timeout: 240_000 };
@@ -355,7 +355,13 @@ export async function add(role: Role, shopProductId: string, quantity: number): 
 export async function fillCart(role: Role, lines: { item: WorldListing | { shopProductId: string; name: string }; quantity: number }[]) {
   await clearCart(role);
   for (const { item, quantity } of lines) {
-    const res = await add(role, item.shopProductId, quantity);
+    let res = await add(role, item.shopProductId, quantity);
+    if (res.status === 409 && !IS_LOCAL && item.shopProductId === world().listings.packaged?.shopProductId) {
+      // The E2E bakery's preset sold out between runs (E-33): the shop owner restocks it, then it is added again.
+      const { listingOf } = await import("./orders-helpers");
+      await listingOf("packaged");
+      res = await add(role, item.shopProductId, quantity);
+    }
     if (res.status === 409) blocked(`"${item.name}" cannot be added — ${why(res)}`);
     expectStatus(res, 200, `add ${quantity} × ${item.name}`);
   }
@@ -493,6 +499,7 @@ export async function withSecondBuyer<T>(fn: (addressId: string) => Promise<T>):
 /* -------------------------------------------------------------- the page */
 
 export async function signedPage(browser: Browser, role: Role, options: Parameters<Browser["newContext"]>[0] = {}) {
+  await as(role); // the account's factors (dual_auth) before its pages
   const context = await browser.newContext({ ...options, baseURL: BASE_URL, storageState: await storageFor(role) });
   const page = await context.newPage();
   return { context, page };
@@ -539,6 +546,9 @@ export async function chooseDeliveryTime(page: Page): Promise<boolean> {
  */
 export async function payOnCartPage(page: Page, closed: "yes" | "no" | "none" = "none") {
   await chooseDeliveryTime(page);
+  // onboarding v2 (on on test.gokesari.com) preselects no payment: the wallet is chosen as a customer would.
+  const { pickPaymentIfNone } = await import("./onboarding-v2-helpers");
+  await pickPaymentIfNone(page, "Wallet");
   await page.getByRole("button", { name: /Pay from wallet|Place order/ }).click();
   const ignore = page.getByRole("button", { name: "Ignore and continue" });
   const closedYes = page.getByRole("button", { name: "Yes, continue" });

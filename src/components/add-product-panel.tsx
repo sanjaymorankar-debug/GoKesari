@@ -232,6 +232,7 @@ function NewProductForm({
   const [created, setCreated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [similarWarning, setSimilarWarning] = useState<string[] | null>(null);
+  const [exactMatch, setExactMatch] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [photoWarning, setPhotoWarning] = useState<string | null>(null);
 
@@ -258,7 +259,7 @@ function NewProductForm({
     return <p className="text-sm text-ink-500">Loading categories…</p>;
   }
 
-  async function submit(confirmDuplicate: boolean) {
+  async function submit(confirmDuplicate: boolean, duplicateChoice?: "USE_EXISTING" | "ADD_NEW") {
     if (name.trim().length < 2) {
       setError("Product name must be at least 2 characters.");
       return;
@@ -300,10 +301,17 @@ function NewProductForm({
         onlinePricePaise: onlinePrice ? rupeesToPaise(Number(onlinePrice)) : null,
         offlinePricePaise: offlinePrice ? rupeesToPaise(Number(offlinePrice)) : null,
         confirmDuplicate,
+        ...(duplicateChoice ? { duplicateChoice } : {}),
       }),
     });
     const payload = await response.json().catch(() => null);
 
+    // docs/flows-v3/wave2.md (flag flow_f13): an exact match — the owner picks "use existing" or "add new".
+    if (response.status === 409 && payload?.error?.details?.exactMatch && !duplicateChoice) {
+      setBusy(false);
+      setExactMatch(payload.error.message ?? "This product already exists.");
+      return;
+    }
     if (response.status === 409 && !confirmDuplicate) {
       setBusy(false);
       // The server's message lists the similar names; surface it as an
@@ -346,6 +354,19 @@ function NewProductForm({
       {photoWarning ? (
         <Alert tone="warning" title="Product created, but a photo was not added">
           {photoWarning} Add it with the product&apos;s Photos button in the list below.
+        </Alert>
+      ) : null}
+      {exactMatch ? (
+        <Alert tone="warning" title="This product already exists">
+          {exactMatch}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => { setExactMatch(null); void submit(false, "USE_EXISTING"); }}>
+              Use the existing product
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => { setExactMatch(null); void submit(true, "ADD_NEW"); }}>
+              Add mine as a new product
+            </Button>
+          </div>
         </Alert>
       ) : null}
       {similarWarning ? (

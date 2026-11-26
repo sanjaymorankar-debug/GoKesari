@@ -37,6 +37,7 @@ import { blockedPartnerIds, checkZone, countActiveAssignments, getZoningRule } f
 import { acceptBroadcastOffer, declineBroadcastOffer, effectiveRadiiKm } from "./dispatch-broadcast";
 import { loadQuoteKit, payPlansEnabled, quoteWithKit } from "./rider-pay-plans";
 import { getRule } from "./settings";
+import { dispatchBroadcastRule } from "@/server/flows/wave2-rules";
 import { getSocietyDispatchRules } from "./societies";
 
 export const PASS_REASONS = ["TOO_FAR", "VEHICLE_ISSUE", "ENDING_SHIFT", "OTHER"] as const;
@@ -221,7 +222,7 @@ export async function listOpenJobs(userId: string, now: Date = new Date()): Prom
 
   const plansOn = await payPlansEnabled();
   const kit = plansOn ? await loadQuoteKit(now) : null;
-  const broadcastRule = await getRule("dispatchBroadcast");
+  const broadcastRule = await dispatchBroadcastRule(); // docs/flows-v3/wave2.md (flag flow_f19)
   const radii = effectiveRadiiKm(broadcastRule);
 
   const jobs: RiderJob[] = [];
