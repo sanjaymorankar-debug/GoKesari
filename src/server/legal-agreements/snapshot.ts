@@ -12,7 +12,7 @@ import { db, type DbClient } from "@/server/db";
 import { healthPharmacyProfiles } from "@/server/db/health-schema";
 import { bankAccounts, registrationLicenceEntries, sellerVerifications, shopLegalDocuments, shops, users, type Shop } from "@/server/db/schema";
 import { resolveCommissionRate } from "@/server/services/finance";
-import { resolveFeeForNewRegistration } from "@/server/services/registration-fees";
+import { baseRegistrationFee } from "@/server/services/registration-fee-coupons";
 import { getRule } from "@/server/services/settings";
 
 import { DECLARED_AT_SIGNING, type AgreementSnapshot, type LicenceRow, type LicenceStatus } from "./data";
@@ -84,7 +84,11 @@ export async function buildShopSnapshot(shopId: string, extras: SnapshotExtras =
       .from(bankAccounts)
       .where(and(eq(bankAccounts.shopId, shopId), eq(bankAccounts.isCurrent, true), eq(bankAccounts.method, "BANK_ACCOUNT")))
       .orderBy(desc(bankAccounts.createdAt)),
-    resolveFeeForNewRegistration(client),
+    // The shop's own registration fee before GST (owner, 26-Nov-2026): the base it registered with, else what the
+    // turnover slabs (or the flat fee) give for its declared turnover — never a flat figure most shops did not pay.
+    shop.registrationFeeBasePaise != null
+      ? Promise.resolve({ basePaise: Number(shop.registrationFeeBasePaise) })
+      : baseRegistrationFee(shop.annualTurnoverRupees ?? null, client),
     resolveCommissionRate(shop, client),
     getRule("settlement"),
     getRule("shopAcceptance"),
@@ -208,7 +212,7 @@ export async function buildShopSnapshot(shopId: string, extras: SnapshotExtras =
     licences,
     licencesAsOf: now.toISOString(),
     fees: {
-      registrationFeePaise: fee.amountPaise,
+      registrationFeePaise: fee.basePaise,
       wholesaleRegistrationFeePaise: rule.wholesaleRegistrationFeePaise,
       commissionBp: commission.rateBp,
       settlementDays: settlement.holdDays,
