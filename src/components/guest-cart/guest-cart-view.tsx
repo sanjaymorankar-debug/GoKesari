@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
 import { useGuestCart } from "@/components/guest-cart/guest-cart-context";
 import { CartShopRecommendation } from "@/components/guest-checkout/cart-shop-recommendation";
 import { GuestCheckoutForm, type GuestCheckoutPrefill } from "@/components/guest-checkout/guest-checkout-form";
-import { useLoginSheet } from "@/components/onboarding-v2/login-sheet";
+import { useLoginSheet } from "@/components/onboarding-v2/login-sheet-context";
 import { EmptyIllustration } from "@/components/empty-illustrations";
 import { SafeImage } from "@/components/safe-image";
 import { Alert, Button, Card, EmptyState, LinkButton, Money } from "@/components/ui";

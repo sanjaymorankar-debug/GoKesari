@@ -1534,13 +1534,6 @@
       "when": 1793271800000,
       "tag": "0218_onboarding_v2_franchise",
       "breakpoints": true
-    },
-    {
-      "idx": 219,
-      "version": "7",
-      "when": 1793271900000,
-      "tag": "0219_onboarding_v2_team",
-      "breakpoints": true
     }
   ]
 }

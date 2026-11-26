@@ -12,7 +12,7 @@
  *   4  Done: back to checkout. Returning customers with everything done never see the sheet.
  */
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { createContext, Suspense, useCallback, useContext, useEffect, useState, useTransition, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useState, useTransition, type ReactNode } from "react";
 
 import { Alert, Button, inputClass } from "@/components/ui";
 import { parseIndianMobile } from "@/lib/contact";
@@ -24,25 +24,8 @@ import {
 } from "@/server/onboarding-v2/sheet-actions";
 import type { CustomerLoginStatus, CustomerSheetStep } from "@/server/onboarding-v2/customer";
 
-export interface LoginSheetOptions {
-  /** The page to come back to after the e-mail step (default: this page). */
-  returnTo?: string;
-  /** Called once the sheet is finished (signed in, mobile done). */
-  onDone?: () => void;
-}
-
-const OPEN_EVENT = "gk:open-login-sheet";
-const LoginSheetContext = createContext<((options?: LoginSheetOptions) => void) | null>(null);
-
-/** The opener while onboarding_v2 is on; null when it is off (callers keep their old behaviour). */
-export function useLoginSheet(): ((options?: LoginSheetOptions) => void) | null {
-  return useContext(LoginSheetContext);
-}
-
-/** For code outside React: opens the sheet if the provider is mounted (no-op otherwise). */
-export function openLoginSheet(returnTo?: string): void {
-  window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { returnTo } }));
-}
+export { useLoginSheet, openLoginSheet, type LoginSheetOptions } from "./login-sheet-context";
+import { LoginSheetContext, OPEN_EVENT, type LoginSheetOptions } from "./login-sheet-context";
 
 export interface LoginSheetConfig {
   signedIn: boolean;

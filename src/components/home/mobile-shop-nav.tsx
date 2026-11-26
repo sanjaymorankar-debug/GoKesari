@@ -16,7 +16,7 @@ import { usePathname } from "next/navigation";
 import clsx from "clsx";
 
 import { Icon, type IconName } from "@/components/board/icons";
-import { useLoginSheet } from "@/components/onboarding-v2/login-sheet";
+import { useLoginSheet } from "@/components/onboarding-v2/login-sheet-context";
 import { formatRupees } from "@/lib/board/format";
 import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
 import { HOME } from "@/lib/home-i18n";

@@ -83,9 +83,9 @@ Choices these rules left open (each marked in code):
   employee ID generated `GK-<8>`; v2 upgrade skips the TIERED promotion minimums and starts no development bonus;
   inactive former agents of a downgraded lead move under the dealer; admin override is immediate (no four-eye);
   no `DEALER` role grant on accept (team roles derive from `dealer_salespeople`).
-- Accept is one transaction under advisory locks (account + invitation); migration **0219** adds a partial unique
-  index (one ACTIVE team place per account) — skipped with a NOTICE where old data already has duplicates
-  (rollback `scripts/rollback-0219-onboarding-v2-team.sql`). "Verified e-mail / mobile" is the checkout sheet's
+- Accept is one transaction under advisory locks (account + invitation) and refuses an account already ACTIVE in
+  another team (DEFAULT). No database-wide unique index: the existing rules let one person sit in two dealer
+  networks (admin path, dealer-payouts DP-2), so a 0219 index was dropped before release. "Verified e-mail / mobile" is the checkout sheet's
   definition (Google account counts). Search answers "not found" alike for no account / incomplete / dealer / other
   team. Rate limits (DEFAULT): search 30/hour per dealer + 60/hour per IP; requests 20/day per dealer + 40/day per IP.
 

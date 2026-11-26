@@ -29,7 +29,7 @@ import type { CartSummary } from "@/server/services/cart";
 import type { CartIssue, ShopCartCheck } from "@/server/services/cart-validation";
 import { ConfirmButton } from "@/components/confirm-button";
 import { CheckoutOtpStep, isCheckoutStepUp, type CheckoutStepUpDetails } from "@/components/checkout-otp-step";
-import { useLoginSheet } from "@/components/onboarding-v2/login-sheet";
+import { useLoginSheet } from "@/components/onboarding-v2/login-sheet-context";
 
 type DeliveryWindowKey = "EXPRESS_30" | "STANDARD_60" | "SCHEDULED";
 

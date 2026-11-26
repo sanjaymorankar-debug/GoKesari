@@ -61,6 +61,8 @@ describe("schedule", () => {
         "welcome-kit-safety-net",
         // docs/onboarding-v2-2026-11: orders waiting too long for the customer's delivery location (every 5 minutes).
         "address-pending-orders",
+        // docs/onboarding-v2-2026-11: a v2 registration fee captured on the draft but missing from the shop's ledger (every 5 minutes).
+        "onboarding-v2-fee-ledger",
       ].sort(),
     );
   });
@@ -68,7 +70,7 @@ describe("schedule", () => {
   it("keeps each every-minute job at its own cadence", () => {
     const always = ["timeout-sweep", "consult-holds", "notification-retry", "broadcast-dispatch", "integration-sync", "pmd-ingest"];
     expect(names(dueEveryMinute(at(7)))).toEqual(always);
-    expect(names(dueEveryMinute(at(5)))).toEqual([...always.slice(0, 5), "payments-reconcile", "operator-onboarding", "document-emails", "franchise", "dealer-scheme-launches", "address-pending-orders", "pmd-ingest"]);
+    expect(names(dueEveryMinute(at(5)))).toEqual([...always.slice(0, 5), "payments-reconcile", "operator-onboarding", "document-emails", "onboarding-v2-fee-ledger", "franchise", "dealer-scheme-launches", "address-pending-orders", "pmd-ingest"]);
     expect(names(dueEveryMinute(at(10)))).toContain("bill-captures");
     expect(names(dueEveryMinute(at(5)))).not.toContain("bill-captures");
     expect(names(dueEveryMinute(at(45)))).toContain("push-receipts");

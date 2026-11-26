@@ -431,7 +431,9 @@ export async function respondToTeamInvitation(actor: TeamActor, invitationId: st
   const memberActor = { id: actor.id, role: actor.role };
   // One transaction: the place, the code, the link to the account, the invitation and the history commit together
   // or not at all. Advisory locks on the account and the invitation serialise concurrent accepts (two invitations
-  // from two dealers, or a double tap); every check is repeated under them. 0219's unique index backs this up.
+  // from two dealers, or a double tap); every check is repeated under them.
+  // DEFAULT – confirm with Sanjay: v2 keeps one ACTIVE team per account; the older admin path still allows
+  // one person in two networks (dealer-payouts DP-2), so there is no database-wide unique index.
   const outcome = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`team-accept-user:${actor.id}`}))`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`team-accept-invite:${inv.id}`}))`);

@@ -426,14 +426,6 @@ describe("accept is one transaction", () => {
     expect((await db.select().from(teamInvitations).where(eq(teamInvitations.id, inv.invitationId)))[0].status).toBe("PENDING");
     expect(await history(p.id)).toHaveLength(0);
   });
-
-  it("the database refuses a second ACTIVE place for one account (0219)", async () => {
-    const { actor } = await newDealer();
-    const { dealer: other } = await newDealer("Other Network");
-    const p = await customer("Agent One");
-    await join(actor, p, "AGENT");
-    await expect(db.insert(dealerSalespeople).values({ dealerId: other.id, employeeId: "DUP-1", name: "Dup", userId: p.id })).rejects.toThrow();
-  });
 });
 
 /* ------------------------------------------------------------------ commission */
