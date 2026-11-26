@@ -16,7 +16,7 @@ import { call, expectStatus, poll, stash, unstash, why } from "../lib/http";
 import { blocked, expect, need, qa, test } from "../lib/record";
 import { IS_PROD } from "../lib/target";
 import { world } from "../lib/world";
-import { onboardingV2On } from "../lib/onboarding-v2-helpers";
+import { onboardingV2On, pickPaymentIfNone } from "../lib/onboarding-v2-helpers";
 import {
   add,
   cancelAsShop,
@@ -276,7 +276,8 @@ qa("TC-CART-007", "a line that stops being sold online, runs out, or loses its p
       try {
         await open(page, "/cart");
         await expect(cartLine(page, item.name)).toContainText(reason);
-        await expect(page.getByRole("button", { name: /Pay from wallet/ })).toBeDisabled();
+        await pickPaymentIfNone(page, "Wallet");
+        await expect(page.getByRole("button", { name: /Pay from wallet|Choose how to pay/ })).toBeDisabled();
         await expect(cartGroup(page, shopName("A")).getByRole("button", { name: "Remove unavailable items" })).toBeVisible();
       } finally {
         await context.close();
@@ -438,6 +439,8 @@ qa("TC-CART-012", "double-clicking pay on the cart page places one order and deb
   try {
     await open(page, "/cart");
     await chooseDeliveryTime(page);
+    // onboarding v2 (on on test.gokesari.com) preselects no payment: the wallet is chosen as a customer would.
+    await pickPaymentIfNone(page, "Wallet");
     const pay = page.getByRole("button", { name: /Pay from wallet/ });
     await pay.click();
     const ignore = page.getByRole("button", { name: "Ignore and continue" });

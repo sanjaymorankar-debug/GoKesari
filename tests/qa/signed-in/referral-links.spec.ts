@@ -8,6 +8,7 @@
  * Signed tier: customer 1 reads their own code; the redirect is followed in a
  * throw-away context so the shared session never carries a gk_ref cookie.
  */
+import { onboardingV2On } from "../lib/onboarding-v2-helpers";
 import { request as playwrightRequest } from "@playwright/test";
 
 import { as, pageAs, storageFor } from "../lib/actors";
@@ -66,11 +67,14 @@ qa("TC-MKT-019", "/refer shows the customer's own code and share link; the link 
   try {
     const page2 = await privateWindow.newPage();
     await page2.goto(new URL(link).pathname);
-    await page2.waitForURL(/\/signin(\?|$)/);
+    // docs/onboarding-v2-2026-11 (on on test.gokesari.com): a guest is never sent to sign in from a link — /r/<code>
+    // opens the home page and keeps the code (as tests/qa/guest TC-MKT-018 accepts since #628).
+    const v2 = await onboardingV2On("customer");
+    await page2.waitForURL((u) => u.pathname === "/signin" || (v2 && u.pathname === "/"));
     const cookie = (await privateWindow.cookies()).find((c) => c.name === "gk_ref");
     expect(cookie?.value, "the code is remembered for sign-in").toBe(code);
   } finally {
     await privateWindow.close();
   }
-  return `/refer: code ${code}, link ${link}, Copy link → "Link copied"; the link in a private window → /signin with gk_ref=${code}`;
+  return `/refer: code ${code}, link ${link}, Copy link → "Link copied"; the link in a private window → /signin (or / with onboarding v2) with gk_ref=${code}`;
 }, { ...signed, mobile: true });

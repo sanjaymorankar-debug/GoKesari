@@ -318,6 +318,9 @@ qa("TC-RBAC-004", "every shop-scoped API refuses owner A on shop B (403/404), al
     // Voice price assistant (smart shopping): body first, then assertVoiceAccess.
     "POST /api/shops/[id]/voice-price/interpret": { text: "Bread price 42 rupees" },
     "POST /api/shops/[id]/voice-price/apply": { shopProductId: NO_SUCH_ID, newPricePaise: 4200, offer: null, expectedPricePaise: 4000 },
+    // WhatsApp order alerts for shops: body first, then ownedShop() (src/server/whatsapp/shop-orders/contacts.ts).
+    "PUT /api/shops/[id]/whatsapp": { enabled: false, owner: null, staff: [] },
+    "POST /api/shops/[id]/whatsapp": { action: "recheck", contactId: NO_SUCH_ID },
   };
   const validationFirst = byStatus.get(422) ?? [];
   const retried: string[] = [];
