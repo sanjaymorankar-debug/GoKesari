@@ -9,6 +9,8 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { needsSignupReferralCode, shouldAskSignupReferral } from "@/server/services/customer-signup-referrals";
 import { getProfile, nextOnboardingStep } from "@/server/services/profile";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
+import { isSheetResumePath } from "@/lib/onboarding-v2-sheet";
 
 export const metadata = { title: "Welcome" };
 export const dynamic = "force-dynamic";
@@ -31,6 +33,9 @@ export default async function OnboardingPage() {
   // registration asks for what it needs (name, mobile); the customer profile and the customer
   // referral code can wait — they must not send a new seller away from their registration.
   if (returnTo.startsWith("/shop/register")) redirect(returnTo);
+  // docs/onboarding-v2-2026-11: a customer signing in from the checkout login sheet goes straight back to it —
+  // the sheet asks the mobile there; name and referral code come after payment, not here.
+  if (isSheetResumePath(returnTo) && (await onboardingV2Enabled())) redirect(returnTo);
   const lang = await getBoardLang();
 
   if (step === "MOBILE") {

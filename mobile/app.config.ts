@@ -95,6 +95,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/wa", // docs/customer-whatsapp-2026-11: cart links sent on WhatsApp (/wa/cart)
   "/track", // docs/guest-checkout-2026-11: order tracking without sign-in (/track, /track/<token>)
   "/account", // docs/account-deletion-2026-11: restore an account during its 90-day cooling-off (/account/restore)
+  "/team", // docs/onboarding-v2-2026-11: team invite links (/team/join/<token>) and team requests (/team/invitations)
   "/agreements", // docs/seller-agreements-2026-11: owner signing links (/agreements/sign/<token>) and verification (next app build)
 ];
 
@@ -105,7 +106,7 @@ const APP_LINK_PATH_PREFIXES = [
  * Pages not (yet) top-level directories of the website, such as the help
  * desk's /support/tickets/…, are listed here so the intent filter has them.
  */
-const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/invite/", "/notifications", "/support/tickets/", "/search/compare", "/dealer/commission-chart", "/dealer", "/shop/registration-fee", "/shop/manage/registration", "/shop/membership/receipt/", "/shop/register", "/franchise"];
+const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/invite/", "/notifications", "/support/tickets/", "/search/compare", "/dealer/commission-chart", "/dealer", "/shop/registration-fee", "/shop/manage/registration", "/shop/membership/receipt/", "/shop/register", "/franchise", "/team/"];
 
 const INTENT_PATH_PREFIXES = [...new Set([...APP_LINK_PATH_PREFIXES, ...DEEP_LINK_ROUTE_PREFIXES])];
 

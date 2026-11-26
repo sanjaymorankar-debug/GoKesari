@@ -81,6 +81,7 @@ import {
   shopCategoryMapping,
   shopOnboardingSteps,
   shopProducts,
+  registrationLicenceEntries,
   shopRegistrationDraftChecks,
   shopRegistrationDrafts,
   shops,
@@ -130,6 +131,7 @@ import { assertShopType, listShopTypes, loadShopTypeRegistry } from "./shop-type
 import { loadDocumentRuleSet, requirementsFromRuleSet } from "./shop-document-rules";
 
 import { autoApproveShopIfReady, registerShop } from "./shops";
+import { v2ViewOf, WHOLESALE_SHOP_TYPE, type V2View } from "@/server/onboarding-v2/shop-view";
 import { acceptSellerUndertaking } from "./seller-undertaking";
 
 /* ---------------------------------------------------------------- types */
@@ -218,6 +220,12 @@ export const WIZARD_STEPS = [
   "CATEGORY",
   "PRODUCTS",
   "DONE",
+  // docs/onboarding-v2-2026-11 (Flow 2, flow_version 'v2' only): identity (Terms, e-mail, mobile), the fee paid on
+  // the draft, the licences' four options, and the seller agreement just before go-live.
+  "V2_IDENTITY",
+  "FEE",
+  "V2_LICENCES",
+  "SLA",
 ] as const;
 export type WizardStep = (typeof WIZARD_STEPS)[number];
 
@@ -304,6 +312,8 @@ export interface WizardView extends ShopRegistrationDraftView {
    * owner's promise (within promiseDays, reminded on the 1st / 15th, suspended after the date).
    */
   documentsStep: WizardDocumentsStep | null;
+  /** docs/onboarding-v2-2026-11 (Flow 2): the v2 steps of a draft with flow_version 'v2'; null = the original wizard. */
+  v2: V2View | null;
   nextStep: WizardStep;
 }
 
@@ -508,6 +518,28 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   else if (!details) nextStep = "SHOP";
   else nextStep = "REVIEW";
 
+  // docs/onboarding-v2-2026-11 (Flow 2): a v2 draft follows its own order; the original wizard is untouched.
+  let v2: V2View | null = null;
+  if (draft.flowVersion === "v2") {
+    const agreementsRequired =
+      draft.shopId && shop?.status === "PENDING_APPROVAL"
+        ? Boolean((await (await import("@/server/legal-agreements/requirements")).getAgreementStatus(draft.shopId).catch(() => null))?.required)
+        : false;
+    v2 = await v2ViewOf(draft, { licences, prefillShopName: base.prefill.shopName, ownerName, agreementsEnabled, agreementsRequired });
+    nextStep = v2NextStep({
+      draft,
+      v2,
+      shop,
+      setup,
+      referralAnswered: referral.answered,
+      canContinue: base.canContinue,
+      ownerName,
+      shopType: shopTypeNow,
+      addressConfirmed,
+      location: location !== null,
+    });
+  }
+
   // The onboarding funnel (Phase B, B3): when this registration first reached its current step.
   await recordStepReached(draft.id, nextStep);
   // Phase 2 (WP4): a registration before go-live is reminded 24 h after its last step; else cancelled.
@@ -542,8 +574,39 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
     documentsStep,
     setup,
     agreementsEnabled,
+    v2,
     nextStep,
   };
+}
+
+/** Flow 2: where a v2 registration resumes (docs/onboarding-v2-2026-11, "v2 order"). */
+function v2NextStep(i: {
+  draft: ShopRegistrationDraft;
+  v2: V2View;
+  shop: WizardView["shop"];
+  setup: WizardView["setup"];
+  referralAnswered: boolean;
+  canContinue: boolean;
+  ownerName: string | null;
+  shopType: string | null;
+  addressConfirmed: boolean;
+  location: boolean;
+}): WizardStep {
+  if (i.shop?.status === "APPROVED" && i.setup) return !i.setup.location ? "LOCATION" : !i.setup.products ? "LIVE" : "DONE";
+  if (i.draft.status === "COMPLETED") return "DONE";
+  // The shop row exists (created at the agreement step, PENDING): the agreement, then the team's review if needed.
+  if (i.draft.status === "SUBMITTED") return i.draft.slaAcceptedAt === null ? "SLA" : "WAITING";
+  if (!i.v2.identity.done) return "V2_IDENTITY";
+  if (!i.referralAnswered) return "REFERRAL";
+  if (!i.canContinue) return "IDENTITY";
+  if (!i.ownerName) return "OWNER";
+  // Pending payment: the owner resumes here and can use GoKesari as a customer meanwhile.
+  if (!i.v2.fee.paid) return "FEE";
+  if (!i.shopType) return "TYPE";
+  if (i.v2.licences.some((l) => !l.done)) return "V2_LICENCES";
+  if (!i.addressConfirmed) return "ADDRESS";
+  if (!i.location) return "PIN";
+  return "SLA";
 }
 
 /** Licences checked by number on the draft (the government source or the reader); the rest are uploaded once the shop exists. */
@@ -959,6 +1022,20 @@ export async function saveDraftShopType(input: { actor: Actor; shopType: string 
   await assertShopType(shopType);
   const draft = await findOpenDraft(input.actor.id);
   const old = draft ? partialOf(draft) : {};
+  // docs/onboarding-v2-2026-11 (Flow 2, DEFAULT #10): the fee is paid before the type, so the kind paid fixes it —
+  // a wholesale fee is a Wholesale store; a shop fee cannot pick Wholesale store (DEFAULT – confirm with Sanjay).
+  if (draft?.flowVersion === "v2") {
+    if (draft.feePaidAt === null) throw conflict("Please pay the registration fee first.", { reason: "STEP_OPEN", nextStep: "FEE" });
+    if (draft.feeKind === "WHOLESALE" && shopType !== WHOLESALE_SHOP_TYPE) {
+      throw conflict("You paid the wholesale shop fee, so your shop type is Wholesale store.", { reason: "SHOP_TYPE_FIXED_BY_FEE", fields: { shopType: "Wholesale store" } });
+    }
+    if (draft.feeKind !== "WHOLESALE" && shopType === WHOLESALE_SHOP_TYPE) {
+      throw conflict("A wholesale store pays the wholesale fee. Please choose another shop type, or contact support to change the fee.", {
+        reason: "SHOP_TYPE_FIXED_BY_FEE",
+        fields: { shopType: "Choose a retail shop type." },
+      });
+    }
+  }
   // Another type may ask for other licences: that screen is answered again.
   return mergeDraftDetails(input.actor.id, { shopType, ...(old.shopType && old.shopType !== shopType ? { licencesDone: false } : {}) });
 }
@@ -1410,25 +1487,35 @@ export async function submitDraftForPayment(input: {
     throw notFound("Registration in progress");
   }
   const view = await toWizardView(open);
-  if (view.nextStep !== "REVIEW") {
+  // docs/onboarding-v2-2026-11 (Flow 2): a v2 draft is turned into its shop at the agreement step (fee already paid
+  // on the draft); the Seller Terms and undertaking are accepted on that step, after the shop exists.
+  const v2 = open.flowVersion === "v2";
+  if (v2 ? view.nextStep !== "SLA" : view.nextStep !== "REVIEW") {
     throw conflict("Please finish every step before payment.", { reason: "STEP_OPEN", nextStep: view.nextStep });
   }
+  const v2Shop = v2 ? await v2ShopDetails(open, view) : null;
+  const checksNow = v2 ? await loadChecks(open.id) : [];
+  const v2Threshold = v2 ? (await getRule("sellerVerification")).nameMatchAutoApprove : 0;
+  const v2Identity: SellerDocType = open.route === "PAN_ONLY" ? "PAN" : "GSTIN";
+  const canSubmit = v2
+    ? registrationChecks(open, checksNow, v2Shop!, v2Threshold).some((c) => c.docType === v2Identity && CHECKED.has(c.status))
+    : view.documents.canSubmit;
   // Owner decision 29 Oct 2026 ("follow the brief"): a checked GSTIN, or PAN without one, before payment.
-  if (!view.documents.canSubmit) {
+  if (!canSubmit) {
     throw conflict("A valid PAN or GST is required to register. Please get your GSTIN or PAN verified before paying the registration fee.", {
       reason: "IDENTITY_NOT_VERIFIED",
     });
   }
   // docs/seller-agreements-2026-11: with the Agreements step on, the Seller Terms are accepted there (OTP-signed), not ticked here.
   const termsInAgreements = view.agreementsEnabled;
-  if ((input.acceptSellerTerms !== true && !termsInAgreements) || input.acceptUndertaking !== true) {
+  if (!v2 && ((input.acceptSellerTerms !== true && !termsInAgreements) || input.acceptUndertaking !== true)) {
     throw validationFailed("Tick both boxes to accept the Seller Terms and the seller undertaking (fresh, non-expired, compliant goods) before payment.", {
       reason: "SELLER_ACCEPTANCE_REQUIRED",
       acceptSellerTerms: input.acceptSellerTerms === true,
       acceptUndertaking: input.acceptUndertaking === true,
     });
   }
-  const details = view.details!;
+  const details = v2Shop ?? view.details!;
   const checks = await loadChecks(open.id);
   const row = (t: DraftCheckDocType) => checks.find((c) => c.docType === t);
   const referralCode = await assertRegistrationReferralCode(details.referralCode);
@@ -1468,7 +1555,13 @@ export async function submitDraftForPayment(input: {
       })
       .where(eq(shopRegistrationDrafts.id, draft.id));
     // docs/seller-undertaking-2026-11: the owner ticked both boxes; recorded with the shop, in the same transaction.
-    await acceptSellerUndertaking({ userId: actor.id, shopIds: [shop.id], ip: input.ipAddress ?? null, userAgent: input.userAgent ?? null, actorRole: actor.role, client: tx, includeTerms: !termsInAgreements });
+    // Flow 2: accepted on the agreement step instead, once the shop exists.
+    if (!v2) {
+      await acceptSellerUndertaking({ userId: actor.id, shopIds: [shop.id], ip: input.ipAddress ?? null, userAgent: input.userAgent ?? null, actorRole: actor.role, client: tx, includeTerms: !termsInAgreements });
+    } else {
+      // Flow 2: the licence entries now belong to the shop (no foreign key; checked here).
+      await tx.update(registrationLicenceEntries).set({ shopId: shop.id, updatedAt: new Date() }).where(eq(registrationLicenceEntries.draftId, draft.id));
+    }
   };
 
   const gstin = open.route === "GSTIN" && open.gstinEncrypted && (!later || CHECKED.has(open.gstStatus)) ? decryptSecret(open.gstinEncrypted) : null;
@@ -1504,7 +1597,7 @@ export async function submitDraftForPayment(input: {
         shopActNumber: plain(row("SHOP_ACT"), open.hasShopAct !== false),
       },
       actor,
-      { onSaved },
+      { onSaved, ...(v2 ? { prepaidFee: v2PrepaidFee(open) } : {}) },
     );
   } catch (error) {
     // A second tap (another tab) while the first created the shop: the owner lock made it wait, and
@@ -1539,10 +1632,53 @@ export async function submitDraftForPayment(input: {
       console.error("[registration-wizard] licences promise not carried to the shop", shop.id, error instanceof Error ? error.message : error),
     );
   }
+  // Flow 2: the fee paid on the draft goes on the shop's ledger; wallet, role history. Go-live waits for the agreement.
+  if (v2) await (await import("@/server/onboarding-v2/shop-flow")).afterV2ShopCreated(shop, actor);
   // Nothing to pay (a full coupon): the approval runs now instead of on the payment webhook.
-  if (registrationFeeDue(shop) === 0) {
+  else if (registrationFeeDue(shop) === 0) {
     await autoApproveShopIfReady(shop.id).catch((error) => console.error("[registration-wizard] auto-approval check failed", shop.id, error));
   }
   const [final] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.id, open.id));
   return toWizardView(final);
+}
+
+/* ------------------------------------------------ Flow 2 (onboarding v2) */
+
+/**
+ * docs/onboarding-v2-2026-11 (Flow 2): the shop's details from a v2 draft — the names confirmed on the fee
+ * screen (pre-filled from GST / PAN), the type chosen after the fee, the address and pin, and the account's
+ * mobile (verified on the identity screen) as the shop's phone. No turnover: the v2 fee is by kind.
+ */
+async function v2ShopDetails(open: ShopRegistrationDraft, view: WizardView): Promise<DraftShopDetails> {
+  const partial = partialOf(open);
+  const v2 = view.v2;
+  const address = view.address;
+  const name = v2?.names.shopName ?? view.prefill.shopName;
+  const ownerName = view.ownerName;
+  const phone = view.account.mobile;
+  const shopType = view.shopType;
+  if (!address || !name || !ownerName || !shopType) {
+    throw conflict("Please finish every step first.", { reason: "STEP_OPEN", nextStep: view.nextStep });
+  }
+  if (!phone) throw conflict("Please add your mobile number first.", { reason: "STEP_OPEN", nextStep: "V2_IDENTITY" });
+  return {
+    name,
+    ownerName,
+    phone,
+    email: open.shopEmail ?? (await accountEmail(open.ownerId)),
+    shopType,
+    categoryIds: [],
+    annualTurnoverRupees: null,
+    couponCode: null,
+    referralCode: open.referralCode,
+    employeeId: str(partial.employeeId),
+    ...address,
+  };
+}
+
+/** The fee the owner paid on the draft, as the shop's fee snapshot (registerShop's prepaidFee). */
+function v2PrepaidFee(open: ShopRegistrationDraft): { basePaise: number; gstPaise: number; gstRateBp: number; totalPaise: number } {
+  const quote = (partialOf(open) as { v2Fee?: { basePaise: number; gstPaise: number; gstRateBp: number; totalPaise: number } }).v2Fee;
+  if (!quote || open.feePaidAt === null) throw conflict("Please pay the registration fee first.", { reason: "STEP_OPEN", nextStep: "FEE" });
+  return { basePaise: quote.basePaise, gstPaise: quote.gstPaise, gstRateBp: quote.gstRateBp, totalPaise: quote.totalPaise };
 }

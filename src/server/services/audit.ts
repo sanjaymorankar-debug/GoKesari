@@ -49,6 +49,14 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTRATION_DRAFT_STAFF_OPENED: "shop_registration_draft.staff_opened",
   /** Staff sent the owner a link to carry on with an unfinished registration. */
   SHOP_REGISTRATION_DRAFT_RESUME_SENT: "shop_registration_draft.resume_link_sent",
+  /** docs/onboarding-v2-2026-11 (Flow 2): the v2 registration fee captured on the draft (before the shop exists). */
+  SHOP_REGISTRATION_DRAFT_FEE_PAID: "shop_registration_draft.fee_paid",
+  /** Flow 2: a licence answered on the v2 licences screen (enter / upload / scan / upload later). Masked numbers only. */
+  SHOP_REGISTRATION_LICENCE_SAVED: "shop_registration_draft.licence_saved",
+  /** Flow 2: an operator approved or rejected a licence waiting for the team. */
+  SHOP_REGISTRATION_LICENCE_REVIEWED: "shop_registration_draft.licence_reviewed",
+  /** Flow 2: the owner accepted the seller agreement (step 6b) and the shop went to go-live. */
+  SHOP_REGISTRATION_SLA_ACCEPTED: "shop_registration_draft.sla_accepted",
   SHOP_APPROVED: "shop.approved",
   /** docs/shop-welcome-kit-2026-11: an admin sent the welcome kit (printable QR banners) to a shop that was already live, or to a city / district. */
   SHOP_WELCOME_KIT_SENT: "shop.welcome_kit_sent",
@@ -703,6 +711,8 @@ export const AUDIT_ACTIONS = {
   // docs/customer-whatsapp-2026-11 (0193): an admin re-queued a failed WhatsApp message; a simulated inbound chat message (test site).
   WHATSAPP_MESSAGE_RETRIED: "whatsapp_message.retried",
   WHATSAPP_INBOUND_SIMULATED: "whatsapp_inbound.simulated",
+  /* docs/onboarding-v2-2026-11, Flow 1 (0216): the customer's delivery location given after payment. */
+  ORDER_DELIVERY_ADDRESS_SET: "order.delivery_address_set",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

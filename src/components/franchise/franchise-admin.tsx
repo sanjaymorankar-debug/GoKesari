@@ -12,6 +12,7 @@ import { rupees } from "@/lib/franchise";
 import { AreasTab } from "./admin/areas-tab";
 import { CouponsTab } from "./admin/coupons-tab";
 import { FeesTab } from "./admin/fees-tab";
+import { PlansTab } from "./admin/plans-tab";
 import { SettingsTab } from "./admin/settings-tab";
 import { COUPON_XLSX, STATUS_TONE, call, type Act, type AdminZone, type Ask, type Json, type StatusHistoryRow, type Tier } from "./admin/shared";
 import { StatusTab } from "./admin/status-tab";
@@ -54,7 +55,7 @@ interface Overview {
   configAudit: { atIst: string; actorId: string | null; previous: Json | null; next: Json | null }[];
 }
 
-const TABS = ["Overview", "Zones", "Zone status", "Fees", "Areas", "Coupons", "Franchises", "Monthly points", "Expiring", "Attribution", "Commission & bonus", "Settings", "Reports", "Send log"] as const;
+const TABS = ["Overview", "Zones", "Zone status", "Fees", "Plans", "Areas", "Coupons", "Franchises", "Monthly points", "Expiring", "Attribution", "Commission & bonus", "Settings", "Reports", "Send log"] as const;
 type Tab = (typeof TABS)[number];
 
 const TIERS: Tier[] = ["PREMIER", "STANDARD", "EMERGING"];
@@ -183,6 +184,8 @@ export function FranchiseAdmin({ isAdmin, initialTab }: { isAdmin: boolean; init
       {tab === "Zone status" ? <StatusTab zones={data.zones} history={data.statusHistory} isAdmin={isAdmin} act={act} /> : null}
 
       {tab === "Fees" ? <FeesTab zoneSets={(data.config.config.zoneSetsEnabled as string[]) ?? ["PUN"]} tierNames={tierNames} isAdmin={isAdmin} act={act} /> : null}
+
+      {tab === "Plans" ? <PlansTab isAdmin={isAdmin} act={act} /> : null}
 
       {tab === "Areas" ? <AreasTab zones={data.zones} isAdmin={isAdmin} act={act} ask={ask} /> : null}
 

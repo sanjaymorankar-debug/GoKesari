@@ -27,6 +27,7 @@ import { localizeSlotText, orderStatusText } from "@/lib/order-status-i18n";
 import { CUSTOMER_MENUS } from "@/lib/board/menus";
 import { IN_PROGRESS_ORDER_STATUSES, pickTab } from "@/lib/board/status-groups";
 import { getCurrentUser } from "@/server/authz/guards";
+import { PendingDeliveryLocation } from "@/components/onboarding-v2/pending-delivery-location";
 import { getBoardLang } from "@/server/board-lang";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
@@ -188,6 +189,8 @@ export default async function OrdersPage({
         title={tr(T.title, lang)}
         description={tr(T.description, lang)}
       />
+      {/* docs/onboarding-v2-2026-11: orders still waiting for their delivery location. */}
+      <PendingDeliveryLocation userId={user.id} placed={params.placed === "1"} />
 
       {showBusiness ? (
         <nav className="mb-6 flex gap-2" aria-label={tr(T.orderType, lang)}>

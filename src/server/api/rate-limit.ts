@@ -78,6 +78,14 @@ export const RATE_LIMITS = {
    * dealers' codes (and, signed in, phones), so a script must not walk every PIN: a few PINs a minute.
    */
   REFERRAL_BY_PIN: { limit: 10, windowMs: 60_000 },
+  /**
+   * docs/onboarding-v2-2026-11 (My team). DEFAULT – confirm with Sanjay: a dealer searches 30 contacts an hour
+   * (per dealer, in team.ts) and an IP 60 an hour; an IP sends 40 team requests a day (the dealer's 20 a day is
+   * counted in the database, so it survives a restart).
+   */
+  TEAM_SEARCH_DEALER: { limit: 30, windowMs: 3_600_000 },
+  TEAM_SEARCH_IP: { limit: 60, windowMs: 3_600_000 },
+  TEAM_INVITE_IP: { limit: 40, windowMs: 86_400_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 /**

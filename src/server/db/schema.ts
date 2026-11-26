@@ -2093,6 +2093,12 @@ export const orders = pgTable(
       landmark?: string | null;
       deliveryInstructions?: string | null;
     } | null>(),
+    /**
+     * 0216, onboarding v2 (docs/onboarding-v2-2026-11, flag onboarding_v2): a delivery order placed before the
+     * customer gave the address (asked right after payment). While set, rider dispatch does not start; setting
+     * the address clears it. NULL on every other order.
+     */
+    addressPendingSince: timestamp("address_pending_since", { withTimezone: true }),
     status: orderStatusEnum("status").notNull().default("PENDING"),
     source: orderSourceEnum("source").notNull().default("DIRECT"),
     orderType: orderTypeEnum("order_type").notNull().default("PERSONAL"),
@@ -2217,6 +2223,7 @@ export const orders = pgTable(
       .on(t.shopId)
       .where(sql`${t.placedWhileClosed} AND ${t.shopOpenAlertSentAt} IS NULL`),
     uniqueIndex("orders_checkout_key_unique").on(t.checkoutKey),
+    index("orders_address_pending_idx").on(t.userId).where(sql`${t.addressPendingSince} IS NOT NULL`),
     check(
       "orders_totals_non_negative",
       sql`${t.subtotalPaise} >= 0 AND ${t.totalPaise} >= 0`,
@@ -9309,7 +9316,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0203 PAY-2 */] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "CONSULT_BOOKING", "HEALTH_RX_ORDER", "HEALTH_RENTAL", "HEALTH_PRIME", "FRANCHISE_FEE", "DEALER_JOINING_FEE", "SHOP_MEMBERSHIP_RENEWAL", "WALLET_TOPUP", "SHOP_WALLET_TOPUP" /* 0203 PAY-2 */, "SHOP_REGISTRATION_DRAFT_FEE" /* 0217 onboarding v2 */] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -11173,6 +11180,9 @@ export const FEATURE_FLAG_KEYS = [
   // docs/seller-agreements-2026-11 (0213): personalised, OTP-signed Seller SLA (+ medical agreement) at registration and for
   // existing shops (blocking screen; no new orders after the grace period). Seeded OFF.
   "seller_agreements_enabled",
+  // docs/onboarding-v2-2026-11 (0215): rebuilt customer / shop / franchise / team onboarding (owner brief 26-Nov-2026).
+  // Seeded ON on the staging database (gokesari_test) and OFF on production until the production test pass.
+  "onboarding_v2",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -11955,6 +11965,15 @@ export const shopRegistrationDrafts = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     ownerId: uuid("owner_id").notNull(),
+    /** docs/onboarding-v2-2026-11 (0215): "v2" when the draft follows the onboarding_v2 order; null = the original wizard. */
+    flowVersion: text("flow_version"),
+    identityVerifiedAt: timestamp("identity_verified_at", { withTimezone: true }),
+    /** SHOP or WHOLESALE: picks the v2 registration fee (rule onboardingV2). */
+    feeKind: text("fee_kind", { enum: ["SHOP", "WHOLESALE"] }),
+    feePaise: integer("fee_paise"),
+    feePaymentIntentId: uuid("fee_payment_intent_id"),
+    feePaidAt: timestamp("fee_paid_at", { withTimezone: true }),
+    slaAcceptedAt: timestamp("sla_accepted_at", { withTimezone: true }),
     /** OPEN while the owner fills it in; SUBMITTED once the shop exists (payment next); COMPLETED once the shop is live (0113). */
     status: text("status", { enum: ["OPEN", "SUBMITTED", "COMPLETED", "ABANDONED"] }).notNull().default("OPEN"),
     /** GSTIN: the GST record leads. PAN_ONLY: no GSTIN, PAN + declaration. */
@@ -13687,4 +13706,5 @@ export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)
 export * from "./legal-agreements-schema"; // docs/seller-agreements-2026-11 (0213)
+export * from "./onboarding-v2-schema"; // docs/onboarding-v2-2026-11 (0215)
 /* <<< GoKesari Health */

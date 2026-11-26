@@ -201,6 +201,10 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
   if (order.status !== "READY") {
     throw conflict("Only an order marked READY can be assigned to a delivery partner.");
   }
+  // docs/onboarding-v2-2026-11 (0216): no rider until the customer has given the delivery location.
+  if (order.addressPendingSince) {
+    throw conflict("This order is waiting for the customer's delivery location. A rider is found once it is set.");
+  }
 
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) });
   if (!shop) throw notFound("Shop");
@@ -1450,6 +1454,9 @@ export async function dispatchReadyOrder(
     return null;
   }
 
+  // docs/onboarding-v2-2026-11 (0216): the customer gives the delivery location after payment; until then no
+  // rider is asked. Setting it (setDeliveryLocationAfterPayment) calls this again for a READY order.
+  if (order.addressPendingSince) return null;
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) });
   if (!shop?.deliveryAvailable) return null; // pickup-only / shop hands over itself
   // Fulfilment options: pickup / own delivery never need a rider; a later GoKesari slot waits.

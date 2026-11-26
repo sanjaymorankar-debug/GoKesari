@@ -102,6 +102,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   identity_verification_shop_owners_enabled: "Shop owners: verify identity before going live / accepting orders",
   seller_undertaking_gate_enabled: "Shop owners must accept the fresh-goods undertaking",
   seller_agreements_enabled: "Shop owners sign the personalised Seller SLA (OTP e-signature)",
+  onboarding_v2: "Onboarding v2: sign-in at checkout, shop / franchise / team onboarding",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -203,6 +204,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/seller-undertaking-2026-11: a shop owner who has not accepted the current seller undertaking (fresh, non-expired, compliant goods only; expiry / best-before date always shared) and the current Seller Terms sees a full-page acknowledgement instead of Seller Central, and their shops cannot accept new orders until they accept. Orders already accepted carry on as normal. Bumping the undertaking or Seller Terms version asks every owner again. Off: nobody is asked (new registrations still accept both).",
   seller_agreements_enabled:
     "docs/seller-agreements-2026-11 (Admin → Agreements): registration gets an Agreements step before the fee payment — the owner reads the Seller SLA (and, for medical shops, the Merchant Onboarding Agreement) filled in with their own shop and licence details, in English / मराठी / हिंदी, ticks each one and signs with their name, designation and an SMS code; signed PDFs are e-mailed (copy to ceo@agtci.com). Existing shops see a blocking screen after sign-in and take no new orders once the grace period (rule sellerAgreements.graceDays) has passed. Replaces the Seller Terms tick on the registration Payment step. Needs at least one published Seller SLA version. Off: nobody is asked; registration keeps the Seller Terms tick.",
+  onboarding_v2:
+    "docs/onboarding-v2-2026-11 (owner brief 26-Nov-2026): guests browse and fill a cart with no sign-in anywhere; \"Place order\" opens a sign-in sheet (Terms tick, e-mail by Google or link, mobile code) and returns to the cart; the delivery address is asked after payment. Shop registration: identity → referral → GST/PAN → fee → shop type → licences (enter / upload / scan / later) → Seller SLA → address + pin → live. Franchise needs a live shop; free dealers go live at once; paid zones pay a plan up front and go live on payment (no 30-day KYC refund rule). Dealers build \"My team\" by inviting customers, who must accept. Off: every flow behaves exactly as before.",
 };
 
 export interface FeatureFlagView {

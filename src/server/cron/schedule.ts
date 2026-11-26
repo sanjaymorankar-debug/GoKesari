@@ -187,6 +187,8 @@ export const EVERY_MINUTE: readonly Job[] = [
   { name: "operator-onboarding", everyMinutes: 5, run: async () => (await import("@/server/services/operator-limited")).sweepOnboardingFees() },
   { name: "document-emails", everyMinutes: 5, run: async () => (await import("@/server/documents/email")).deliverDocumentEmails() },
   // docs/shop-welcome-kit-2026-11 (26-Nov-2026): shops that went live after 0214 without a welcome kit get one.
+  // docs/onboarding-v2-2026-11 (Flow 2): a v2 shop whose draft fee is paid but not yet on its ledger gets it (retry).
+  { name: "onboarding-v2-fee-ledger", everyMinutes: 5, run: async () => (await import("@/server/onboarding-v2/shop-flow")).sweepV2FeeLedger() },
   { name: "welcome-kit-safety-net", everyMinutes: 15, run: async () => (await import("@/server/shop-banner/welcome-kit")).runWelcomeKitSafetyNet() },
   { name: "bill-captures", everyMinutes: 10, run: async () => (await import("@/server/accounts/capture/service")).dispatchCaptures(10) },
   { name: "push-receipts", everyMinutes: 15, run: async () => (await import("@/server/notifications/push/receipts")).checkPushReceipts() },
@@ -200,6 +202,9 @@ export const EVERY_MINUTE: readonly Job[] = [
   // once (claimed per shop, stage and day). Reminders are a no-op while rule shopMembership.remindersEnabled is off.
   { name: "shop-registration", everyMinutes: 15, run: async () => (await import("@/server/services/shop-registration-subscription")).runRegistrationSubscriptionJob() },
   { name: "dealer-scheme-launches", everyMinutes: 5, run: async () => (await import("@/server/dealers/scheme-admin")).runScheduledSchemeLaunches() },
+  // docs/onboarding-v2-2026-11: orders still waiting for the customer's delivery location past rule
+  // onboardingV2.addressPendingAutoCancelHours are cancelled with a full refund (nothing waits while the flag is off).
+  { name: "address-pending-orders", everyMinutes: 5, run: async () => (await import("@/server/onboarding-v2/customer")).cancelStaleAddressPendingOrders() },
   { name: "pmd-ingest", run: pmdIngest },
 ];
 

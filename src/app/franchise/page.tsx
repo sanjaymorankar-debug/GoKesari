@@ -6,6 +6,7 @@ import { FRANCHISE_AGREEMENT_TEXT, FRANCHISE_CONTACT_PHONE, ILLUSTRATION_DISCLOS
 import { offerView } from "@/server/franchise/booking";
 import { commissionChart } from "@/server/franchise/chart";
 import { zoneFacets, zoneViews } from "@/server/franchise/zones";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 
 export const metadata = { title: "GoKesari Franchise — Pune, Mumbai (Konkan), Nashik" };
 export const dynamic = "force-dynamic";
@@ -18,7 +19,8 @@ const pct = (bp: number) => `${(bp / 100).toLocaleString("en-IN", { maximumFract
  * and the free dealership. GoKesari pays everyone in the team directly.
  */
 export default async function FranchisePage() {
-  const [offer, chart, zones] = await Promise.all([offerView(), commissionChart(), zoneViews()]);
+  const [offer, chart, zones, start] = await Promise.all([offerView(), commissionChart(), zoneViews(), onboardingV2Enabled()]);
+  // Onboarding v2: both models start at Become a franchisee (sign-in, live shop check, plans, no 30-day KYC rule).
   const facets = zoneFacets(zones);
   const fees = zones.map((z) => z.feePaise).filter((f): f is number => f != null);
   const regular = zones.map((z) => z.regularFeePaise).filter((f): f is number => f != null);
@@ -58,7 +60,14 @@ export default async function FranchisePage() {
         {provisional ? <p className="text-sm text-ink-600">Regular zone rates are provisional while GoKesari finalises the business figures.</p> : null}
         {offer.closedMessage && offer.launch.open ? <Alert tone="info">{offer.closedMessage}</Alert> : null}
         <div className="flex flex-wrap gap-2">
-          <LinkButton href="/franchise/book">See the zones</LinkButton>
+          {start ? (
+            <LinkButton href="/franchise/start">
+              Become a franchisee
+            </LinkButton>
+          ) : null}
+          <LinkButton href="/franchise/book" variant={start ? "secondary" : undefined}>
+            See the zones
+          </LinkButton>
           <LinkButton href="/franchise/my" variant="secondary">
             My franchise
           </LinkButton>
@@ -122,8 +131,8 @@ export default async function FranchisePage() {
         <p className="text-sm text-ink-700">
           Free dealership, anywhere: {pct(r.dealerSelfBp)} of every shop you register, {pct(r.dealerOverrideBp)} when someone directly under you registers one, {pct(r.dealerSecondOverrideBp)} two levels down. Build a team of team leads and agents. You can buy a paid zone later with the same account; your team keeps the same rates.
         </p>
-        <Link className="text-sm font-semibold text-kesari-800 underline" href="/dealer/apply">
-          Apply free as a dealer
+        <Link className="text-sm font-semibold text-kesari-800 underline" href={start ? "/franchise/start?model=free" : "/dealer/apply"}>
+          {start ? "Become a free dealer — live at once" : "Apply free as a dealer"}
         </Link>
       </Card>
 
