@@ -209,6 +209,9 @@ export const EVERY_MINUTE: readonly Job[] = [
 ];
 
 export const HOURLY: readonly Job[] = [
+  // docs/dual-auth-2026-11: shop owners with one verified factor (e.g. mobile-only registrations) are reminded to
+  // verify the missing one — in-app + SMS every dualAuth.reminderEveryDays days, 10:00–19:00 IST. Nothing while not in force.
+  { name: "dual-auth-reminders", run: async () => (await import("@/server/dual-auth/reminders")).runSecondFactorReminders() },
   { name: "risk-rules", run: async () => (await import("@/server/services/risk")).runRiskRules(SYSTEM) },
   { name: "dispute-escalation", run: async () => (await import("@/server/services/disputes")).runDisputeEscalationSweep() },
   { name: "aftercare", run: aftercare },

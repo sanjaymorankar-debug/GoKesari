@@ -159,7 +159,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     verifyRequest: "/signin?check-email=1",
   },
   callbacks: {
-    async signIn({ user, account, email }) {
+    async signIn({ user, account, email, profile }) {
       if (!user.email) return false;
       const record = await db.query.users.findFirst({
         where: eq(users.email, user.email.toLowerCase()),
@@ -172,7 +172,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const linkOpened = account?.provider === EMAIL_PROVIDER_ID && !email?.verificationRequest;
       if (account?.provider === "google" || linkOpened) {
         const { googleSecondFactorGate } = await import("@/server/otp/google-second-factor");
-        return googleSecondFactorGate(user.email);
+        // docs/dual-auth-2026-11: Google's email_verified claim (Google counts as the e-mail factor only when true).
+        const googleVerified = account?.provider === "google" ? (profile as { email_verified?: boolean } | undefined)?.email_verified === true : undefined;
+        return googleSecondFactorGate(user.email, googleVerified);
       }
       return true;
     },

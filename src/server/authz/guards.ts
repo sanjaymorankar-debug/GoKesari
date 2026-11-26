@@ -75,6 +75,18 @@ export async function requireUser(): Promise<AuthenticatedUser> {
   return user;
 }
 
+/**
+ * docs/dual-auth-2026-11 (flag dual_auth): staff (admin, operator and every internal role) and a shop owner on
+ * their own shop need BOTH factors verified on the account; a one-factor account gets 403 with
+ * details.dualAuth = NEEDS_SECOND_FACTOR and the DualVerify link. Customers are gated where they order or
+ * withdraw (checkout route, wallet), so browsing APIs stay open to them.
+ */
+async function dualGate(user: AuthenticatedUser, action: "ADMIN" | "SHOP" | "DEALER"): Promise<void> {
+  const { assertDualVerified, isStaffRole } = await import("@/server/dual-auth/policy");
+  if (action === "ADMIN" && !isStaffRole(user.role)) return;
+  await assertDualVerified(user.id, action);
+}
+
 /** Throws FORBIDDEN if the signed-in user's role lacks the capability. */
 export async function requirePermission(
   permission: Permission,
@@ -84,6 +96,7 @@ export async function requirePermission(
     logDenied(user, permission, "permission");
     throw forbidden("You do not have permission to perform this action.");
   }
+  await dualGate(user, "ADMIN");
   return user;
 }
 
@@ -95,6 +108,7 @@ export async function requireAnyPermission(
     logDenied(user, permissions.join("|"), "permission");
     throw forbidden("You do not have permission to perform this action.");
   }
+  await dualGate(user, "ADMIN");
   return user;
 }
 
@@ -106,6 +120,7 @@ export async function requireRole(
     logDenied(user, roles.join("|"), "role");
     throw forbidden("You do not have access to this area.");
   }
+  await dualGate(user, "ADMIN");
   return user;
 }
 
@@ -128,9 +143,13 @@ export async function requireShopAccess(
   });
   if (!shop) throw notFound("Shop");
 
-  if (shop.ownerId === user.id) return { user, isPrivileged: false };
+  if (shop.ownerId === user.id) {
+    await dualGate(user, "SHOP");
+    return { user, isPrivileged: false };
+  }
 
   if (can(user.role, options.anyPermission)) {
+    await dualGate(user, "ADMIN");
     return { user, isPrivileged: true };
   }
   logDenied(user, `${options.anyPermission}@shop:${shopId}`, "shop");

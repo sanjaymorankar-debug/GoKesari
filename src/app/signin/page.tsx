@@ -17,7 +17,7 @@ import { isTextChannelAvailable } from "@/server/messaging/sms-whatsapp";
 import { verifyLoginOtp } from "@/server/otp/service";
 import { signInFromForm } from "@/server/signin-form";
 import { continueAfterFirstFactor } from "@/server/signin-otp";
-import { GOOGLE_SIGN_UP_NEEDS_CODE } from "@/server/otp/google-second-factor";
+import { GOOGLE_EMAIL_UNVERIFIED, GOOGLE_SIGN_UP_NEEDS_CODE } from "@/server/otp/google-second-factor";
 import { toClientError } from "@/lib/errors";
 import { createRestoreTicket, RESTORE_COOKIE, RESTORE_TICKET_TTL_MS } from "@/server/services/account-deletion";
 import { cookies, headers } from "next/headers";
@@ -58,7 +58,9 @@ export default async function SignInPage({
   // Any other refusal Auth.js or a form here reports (never the raw value).
   // docs/sms-2fa-2026-11: a new account tried Google while the SMS second factor is on.
   const signUpWithCode = query.error === GOOGLE_SIGN_UP_NEEDS_CODE;
-  const signInFailed = Boolean(query.error) && !accessDenied && !signUpWithCode;
+  // docs/dual-auth-2026-11: Google did not confirm the address (email_verified false).
+  const googleUnverified = query.error === GOOGLE_EMAIL_UNVERIFIED;
+  const signInFailed = Boolean(query.error) && !accessDenied && !signUpWithCode && !googleUnverified;
   const devLoginEnabled = env.NODE_ENV !== "production";
   // Module 3: with SMS set up, shops registered with a mobile number alone sign in by SMS code.
   const otpEmailAvailable = emailMode() !== "disabled" || isTextChannelAvailable("SMS");
@@ -68,9 +70,10 @@ export default async function SignInPage({
     const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
     let user: Awaited<ReturnType<typeof verifyLoginOtp>>["user"];
     let restoreFor: string | null = null;
+    let channel: "EMAIL" | "SMS" | undefined;
     try {
       let pendingDeletion: boolean | undefined;
-      ({ user, pendingDeletion } = await verifyLoginOtp({
+      ({ user, pendingDeletion, channel } = await verifyLoginOtp({
         mobile: input?.mobile ?? null,
         email: input?.email ?? null,
         code: String(input?.code ?? ""),
@@ -97,7 +100,7 @@ export default async function SignInPage({
     }
     // docs/sms-2fa-2026-11: the session, or the SMS step when the account needs a second factor.
     try {
-      return await continueAfterFirstFactor(user, ip, AFTER_SIGN_IN);
+      return await continueAfterFirstFactor(user, ip, AFTER_SIGN_IN, channel ?? "EMAIL");
     } catch (error) {
       if (isRedirectError(error)) throw error;
       return { error: toClientError(error).body.error.message };
@@ -136,6 +139,12 @@ export default async function SignInPage({
               contact us through the grievance form
             </a>
             .
+          </p>
+        ) : null}
+
+        {googleUnverified ? (
+          <p role="alert" className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" data-testid="signin-google-unverified">
+            Google has not confirmed this e-mail address, so it cannot be used to sign in. Use the e-mail code below instead.
           </p>
         ) : null}
 

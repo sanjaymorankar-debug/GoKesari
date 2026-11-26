@@ -29,8 +29,9 @@ export async function openSession(userId: string, redirectTo = AFTER_SIGN_IN): P
 }
 
 /** After the first factor: the session, or the SMS step when the account needs it. */
-export async function continueAfterFirstFactor(user: User, ip: string | null, redirectTo = AFTER_SIGN_IN): Promise<SignInStepResult> {
-  const next = await afterEmailFactor(user, ip);
+/** `firstFactor`: how the verified code reached the person (docs/dual-auth-2026-11: SMS first → e-mail second). */
+export async function continueAfterFirstFactor(user: User, ip: string | null, redirectTo = AFTER_SIGN_IN, firstFactor: "EMAIL" | "SMS" = "EMAIL"): Promise<SignInStepResult> {
+  const next = await afterEmailFactor(user, ip, firstFactor);
   if (next.secondFactor) return { secondFactor: next.secondFactor };
   return openSession(user.id, redirectTo);
 }

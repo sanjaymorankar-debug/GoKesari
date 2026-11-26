@@ -175,6 +175,8 @@ export const NOTIFICATION_TYPES = {
   SHOP_REACTIVATED: "shop.reactivated",
   SECURITY_SIGN_IN: "security.sign_in",
   SECURITY_PHONE_CHANGED: "security.phone_changed",
+  /** docs/dual-auth-2026-11: to an account with one verified factor (e.g. a shop registered by mobile only) — verify the missing one; in-app + SMS. */
+  SECURITY_SECOND_FACTOR_NEEDED: "security.second_factor_needed",
   SECURITY_ROLE_CHANGED: "security.role_changed",
   SECURITY_ACCOUNT_STATUS: "security.account_status",
   /* ------------------------------------- event layer (docs/event-driven-2026-10) */

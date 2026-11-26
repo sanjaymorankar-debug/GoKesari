@@ -38,6 +38,8 @@ import {
 import { consumeSmsCode, markPhoneVerified, sendSmsCode, smsCodesAvailable } from "@/server/otp/second-factor";
 import { assertPhoneFree, MOBILE_IN_USE } from "@/server/otp/service";
 import { formatIstStamp, onboardingV2Enabled } from "@/server/onboarding-v2/roles";
+import { dualAuthFlagOn, dualAuthInForce } from "@/server/dual-auth/policy";
+import { confirmMobileFactorCode, sendMobileFactorCode } from "@/server/dual-auth/verify";
 import { createAddress } from "@/server/services/addresses";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { featureNotAvailable, isFeatureEnabled } from "@/server/services/feature-flags";
@@ -211,6 +213,8 @@ export async function mobileState(user: User): Promise<{ done: boolean; smsAvail
   const smsAvailable = await smsCodesAvailable();
   if (user.phoneE164 && user.phoneVerifiedAt) return { done: true, smsAvailable, blockedReason: null };
   if (smsAvailable) return { done: false, smsAvailable, blockedReason: null };
+  // docs/dual-auth-2026-11: with dual_auth on, the mobile code is strictly required (no unverified fallback).
+  if (await dualAuthFlagOn()) return { done: false, smsAvailable, blockedReason: NO_SMS_BLOCKED };
   const { mobileOtpFallbackWhenNoSms } = await getRule("onboardingV2");
   if (mobileOtpFallbackWhenNoSms) return { done: Boolean(user.phoneE164), smsAvailable, blockedReason: null };
   return { done: false, smsAvailable, blockedReason: NO_SMS_BLOCKED };
@@ -261,6 +265,11 @@ export type MobileStartResult =
 export async function startMobileVerification(userId: string, mobile: string, ip: string | null): Promise<MobileStartResult> {
   const user = await loadUser(userId);
   const e164 = parseMobileOrRefuse(mobile);
+  // docs/dual-auth-2026-11: DualVerify's mobile step — no "number taken" answer before the code (account check after).
+  if (await dualAuthInForce()) {
+    const sent = await sendMobileFactorCode(user.id, e164, ip);
+    return { status: "CODE_SENT", maskedPhone: sent.sentTo, resendAfterSeconds: sent.resendAfterSeconds, expiryMinutes: sent.expiryMinutes };
+  }
   await assertPhoneFree(e164, user.id);
   if (await smsCodesAvailable()) {
     const sent = await sendSmsCode(user, e164, "LOGIN_SMS", ip);
@@ -293,6 +302,11 @@ export async function startMobileVerification(userId: string, mobile: string, ip
 export async function confirmMobileVerification(userId: string, mobile: string, code: string, ip: string | null): Promise<CustomerLoginStatus> {
   const user = await loadUser(userId);
   const e164 = parseMobileOrRefuse(mobile);
+  if (await dualAuthInForce()) {
+    await confirmMobileFactorCode(user.id, e164, String(code ?? "").trim(), ip, "checkout_sheet");
+    await ensureCustomerWallet(user.id);
+    return customerLoginStatus(user.id);
+  }
   await consumeSmsCode(user, e164, "LOGIN_SMS", String(code ?? "").trim(), ip);
   await markPhoneVerified(user, e164);
   await ensureCustomerWallet(user.id);
