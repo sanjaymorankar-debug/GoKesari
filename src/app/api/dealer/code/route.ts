@@ -13,6 +13,7 @@ import { PERMISSIONS } from "@/server/authz/permissions";
 import { activeCodeFor, codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
 import { originOf, requireDealerProgramme } from "@/server/dealers/http";
 import { listSalespeople, requireApprovedDealer } from "@/server/dealers/service";
+import { referralSharingOn } from "@/server/services/referral-links";
 
 export const dynamic = "force-dynamic";
 
@@ -31,5 +32,7 @@ export const GET = route(async (request: NextRequest) => {
   const code = await activeCodeFor(dealer.id, salespersonId);
   if (!code) throw notFound("Active code");
   const origin = originOf(request);
-  return ok({ code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, who), qrSvg: await codeQrSvg(origin, code) });
+  // docs/referral-sharing-2026-11: the /r/<code> Share buttons while rule referralSharing is on.
+  const share = (await referralSharingOn()) ? { who, origin } : null;
+  return ok({ code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, who), qrSvg: await codeQrSvg(origin, code), share });
 });

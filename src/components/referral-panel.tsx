@@ -5,8 +5,21 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
+import { ReferralShareButtons } from "@/components/referral-sharing/share-buttons";
+import type { Lang } from "@/lib/board/i18n";
 
-export function ReferralShare({ code, link, rewardText }: { code: string; link: string; rewardText: string }) {
+export function ReferralShare({
+  code,
+  link,
+  rewardText,
+  share,
+}: {
+  code: string;
+  link: string;
+  rewardText: string;
+  /** docs/referral-sharing-2026-11 (rule referralSharing on): WhatsApp, SMS, Email, share sheet and Copy link. */
+  share?: { who: string; origin: string; lang?: Lang | null } | null;
+}) {
   const [copied, setCopied] = useState(false);
   const message = `Join me on GoKesari — local shops delivering to your door. Use my code ${code}: ${link}`;
   return (
@@ -16,24 +29,29 @@ export function ReferralShare({ code, link, rewardText }: { code: string; link: 
         <span className="rounded-lg border border-dashed border-kesari-400 bg-kesari-50 px-4 py-2 font-mono text-lg font-semibold tracking-wider text-kesari-800" data-testid="my-referral-code">
           {code}
         </span>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            void navigator.clipboard?.writeText(link).then(() => setCopied(true));
-          }}
-        >
-          {copied ? "Link copied" : "Copy link"}
-        </Button>
-        <a
-          href={`https://wa.me/?text=${encodeURIComponent(message)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm font-medium text-kesari-700 hover:underline"
-        >
-          Share on WhatsApp
-        </a>
+        {share ? null : (
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                void navigator.clipboard?.writeText(link).then(() => setCopied(true));
+              }}
+            >
+              {copied ? "Link copied" : "Copy link"}
+            </Button>
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(message)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-kesari-700 hover:underline"
+            >
+              Share on WhatsApp
+            </a>
+          </>
+        )}
       </div>
+      {share ? <ReferralShareButtons code={code} who={share.who} audience="customer" origin={share.origin} lang={share.lang} /> : null}
       <p className="break-all text-xs text-ink-500">{link}</p>
     </Card>
   );

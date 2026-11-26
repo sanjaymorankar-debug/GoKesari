@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { MobilePromptDialog, ProfileSetupWizard, type GenderValue } from "@/components/profile-setup";
 import { REFERRAL_COOKIE } from "@/lib/customer-referrals";
+import { ReferredByView, referredByFor } from "@/components/referral-sharing/referred-by-banner";
 import { RETURN_TO_COOKIE, safeReturnPath } from "@/lib/return-to";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
@@ -44,9 +45,12 @@ export default async function OnboardingPage() {
   const askReferral = await shouldAskSignupReferral(user.id);
   const prefill = askReferral ? ((await cookies()).get(REFERRAL_COOKIE)?.value ?? "") : "";
   const requireReferral = askReferral && (await needsSignupReferralCode(user.id));
+  // docs/referral-sharing-2026-11: "Referred by <name>".
+  const referredBy = askReferral ? await referredByFor({ audience: "customer", code: prefill || null }).catch(() => null) : null;
 
   return (
     <div className="mx-auto max-w-2xl py-8">
+      <ReferredByView data={referredBy} />
       <ProfileSetupWizard
         returnTo={returnTo}
         lang={lang}

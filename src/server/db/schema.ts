@@ -13653,4 +13653,5 @@ export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
 export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
+export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 /* <<< GoKesari Health */

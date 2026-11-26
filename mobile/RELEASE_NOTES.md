@@ -1,5 +1,24 @@
 # GoKesari app — release notes
 
+## 1.15.0 (Android versionCode 16, iPhone build 16) — 25 Nov 2026
+
+Referral sharing (owner brief 25 Nov 2026 17.10 IST; docs/referral-sharing-2026-11 at the repository root).
+Built on 1.14.0 (shop registration subscription, PR #557).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Share your GoKesari referral code by WhatsApp, SMS, email or any app, and see
+> your shares, sign-ups and earnings in My referrals. A friend who installs the
+> app from your link is shown as referred by you.
+
+Changes in the app itself:
+- Deferred referral link (src/first-open.ts): on the very first open after an install (no link), the app
+  opens `/app-open`; the website matches that phone's recent referral-link click and fills in the code.
+  A marker file in the app's documents folder makes it once per install.
+- `/invite/<code>` (a closed or expired link's page) and `/app-open` open in the app (App Links prefixes).
+- Share buttons on the pages use the existing native share sheet bridge; WhatsApp / SMS / e-mail links open
+  those apps as before. Nothing else native changed.
+
 ## 1.14.0 (Android versionCode 15, iPhone build 15) — 25 Nov 2026
 
 Shop registration subscription (owner brief 25 Nov 2026 02.02 IST; docs/shop-registration-subscription-2026-11
