@@ -69,3 +69,21 @@ Household 🧴, Puja Samagri 🪔, All 🔎): each icon matches its category, so
 The Android and iOS apps are WebView shells around the website (`mobile/src/App.tsx`), so the
 new banners, icons and image display reach both apps on their next page load, with no store
 build. The app's own images (icon, splash) are the GK logo and were not part of this change.
+
+## Owner decision, 26-Nov-2026 11.10–11.15 IST: where real photos come from
+
+A manufacturer image comes first. Where a product has none, the shop owner uploads a photo, and
+once approved it replaces the sample picture for that shop's customers. No product has a
+manufacturer image today (`pmd.product_image` is empty on both sites), so every product is open to
+shop uploads. This was already how the code worked: a listing's approved photo takes priority
+over the master's (`listingImage ?? productImage`).
+
+Added to PR #603 (11.25 IST):
+- **My products:** "N of your products show no photo or only a sample picture" with a "Show these"
+  filter, plus a "No photo — add one" / "Sample picture — add your photo" badge on each such row.
+  Both link to the product's photo page.
+- **Photo page:** tips for the photo (real product, filling most of a square frame, plain light
+  background, at least 800 × 800 px, no watermarks or other websites' logos).
+- The upload minimum is still the admin rule's 100 px, so uploads that work today are not
+  rejected. Uploads are already converted to WebP (1200 / 600 / 200 px) and checked by an admin
+  before they go live.

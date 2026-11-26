@@ -55,3 +55,16 @@ describe("product fallback icon", () => {
     expect(categoryEmoji("Pharmacy", "Paracetamol 500 mg tablet")).toBe("💊");
   });
 });
+
+describe("shop photo needed (owner rule 26-Nov: no manufacturer image → shop owner uploads and overrides)", () => {
+  it("no image or a shared sample picture needs the shop's own photo", async () => {
+    const { needsOwnPhoto } = await import("@/lib/board/product-look");
+    expect(needsOwnPhoto(null)).toBe(true);
+    expect(needsOwnPhoto("")).toBe(true);
+    expect(needsOwnPhoto("/images/puja/puja-kapur.svg")).toBe(true);
+  });
+  it("a real uploaded photo does not", async () => {
+    const { needsOwnPhoto } = await import("@/lib/board/product-look");
+    expect(needsOwnPhoto("/api/images/e21db1eb-ab34-44d4-9bba-be70d025b0d1")).toBe(false);
+  });
+});

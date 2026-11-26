@@ -40,3 +40,14 @@ export function categoryEmoji(...names: (string | null | undefined)[]): string {
   const text = names.filter(Boolean).join(" ");
   return CATEGORY_EMOJI.find(([re]) => re.test(text))?.[1] ?? "🛍️";
 }
+
+/**
+ * Image audit 26-Nov-2026 (owner: manufacturer image first; where there is
+ * none, the shop owner uploads and their photo overrides): true when what
+ * customers see is not a real photo — no image, or one of the shared sample
+ * pictures (the 15 generic puja drawings).
+ */
+export function needsOwnPhoto(imageUrl: string | null | undefined): boolean {
+  const url = (imageUrl ?? "").trim();
+  return url === "" || url.startsWith("/images/puja/");
+}
