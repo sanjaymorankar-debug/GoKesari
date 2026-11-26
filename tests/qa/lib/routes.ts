@@ -111,6 +111,7 @@ export const PUBLIC_PAGES = new Set([
   "/delivery-partner/apply", // the rider application starts here; submitting needs sign-in
   "/delivery/[token]", // a customer's delivery link, by unguessable token
   "/grievance",
+  "/invite/[code]", // a referral link's closed / expired code: says why (docs/referral-sharing-2026-11)
   "/legal/cookie-policy",
   "/legal/grievance-redressal",
   "/legal/privacy-policy",

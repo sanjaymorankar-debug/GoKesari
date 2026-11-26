@@ -17,6 +17,8 @@
  *   5. "the shop is open now" alerts for orders placed while it was closed;
  *   (batch-2026-10 WS-B) before 2: with rule dispatchBroadcast on, single
  *      offers nobody accepted go to every rider nearby, widening by step.
+ *   (Rider App v2) after them: reminders for booked rider slots starting soon
+ *      (rule riderSlotBooking; skipped while it is off, never fails the sweep).
  * Each part runs even if another fails. Idempotent; overlapping runs are safe.
  * Replaces the shop-acceptance, delivery-dispatch and (with notification-retry)
  * notifications jobs, whose routes stay for rollback.
@@ -27,11 +29,22 @@ import { ok, route } from "@/server/api/handler";
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
 import { timeoutSweep } from "@/server/cron/schedule";
+import { sendSlotReminders } from "@/server/services/rider-slot-bookings";
+
+/** Rider slot reminders: one extra guarded step; an error here is logged and the sweep's result stands. */
+async function slotReminderStep(): Promise<{ enabled: boolean; sent: number } | { error: string }> {
+  try {
+    return await sendSlotReminders();
+  } catch (error) {
+    console.error("[cron:timeout-sweep] rider slot reminders failed", error);
+    return { error: error instanceof Error ? error.message : "failed" };
+  }
+}
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
-  const result = await timeoutSweep();
+  const result = { ...(await timeoutSweep()), riderSlotReminders: await slotReminderStep() };
   console.info("[cron:timeout-sweep]", JSON.stringify(result));
   return ok(result);
 });

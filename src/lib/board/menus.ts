@@ -515,6 +515,10 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "walletAdj", label: L("Wallet adj.", "वॉलेट समायोजन", "वॉलेट बदल"), icon: "wallet", href: "/admin/shop-wallets", permission: PERMISSIONS.WALLET_ADJUST },
     ],
     more: [
+      // Rider App v2 (docs/rider-app-v2-2026-11): next to Rider pay.
+      { key: "riderPayPlans", label: L("Rider pay plans", "राइडर भुगतान योजनाएँ", "रायडर पगार योजना"), short: L("Pay plans", "भुगतान योजना", "पगार योजना"), icon: "sliders-horizontal", href: "/admin/rider-pay-plans", permission: PERMISSIONS.DELIVERY_EARNINGS_CONFIG_MANAGE },
+      { key: "riderSos", label: L("Rider SOS", "राइडर SOS", "रायडर SOS"), icon: "life-buoy", href: "/admin/rider-sos", permission: PERMISSIONS.DELIVERY_PARTNER_MANAGE },
+      { key: "riderInsurance", label: L("Rider insurance", "राइडर बीमा", "रायडर विमा"), icon: "shield-check", href: "/admin/rider-insurance", permission: PERMISSIONS.DELIVERY_PARTNER_MANAGE },
       { key: "payIssues", label: L("Pay issues", "भुगतान समस्याएँ", "पेमेंट अडचणी"), icon: "triangle-alert", href: "/admin/finance/exceptions", permission: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.FINANCE_EXCEPTIONS_VIEW] },
       { key: "bankAccounts", label: L("Bank accounts", "बैंक खाते", "बँक खाती"), icon: "landmark", href: "/admin/bank-accounts", permission: PERMISSIONS.FINANCE_VIEW },
       { key: "cashfree", label: L("Cashfree set-up & tests", "Cashfree सेटअप और टेस्ट", "Cashfree सेटअप आणि चाचण्या"), icon: "landmark", href: "/admin/payments/cashfree", permission: PERMISSIONS.FINANCE_VIEW }, // docs/payments-cashfree-audit-2026-11

@@ -165,8 +165,18 @@ only_known() { # stdin = failing-check lines; 0 if every one is already known
 known_block() { # $1 = failing-check lines to add to KNOWN → the issue body block
   printf '<!-- known-failures\n%s\n-->' "$( { printf '%s\n' "$KNOWN"; qa_titles <<<"$1"; } | grep . | sort -u)"
 }
+LAST_PAUSE="" # the pause issue this run opened or used (GitHub's issue list can lag a new issue)
 pause_issue() { # number of the open pause issue, or empty
-  api "repos/$REPO/issues?state=open&labels=$PAUSED&per_page=1" --jq '.[0].number // empty'
+  local p
+  p="$(api "repos/$REPO/issues?state=open&labels=$PAUSED&per_page=1" --jq '.[0].number // empty')"
+  # 26 Nov 2026: two batches failed in one run; the list did not show the first
+  # one's new issue yet, so the second batch's known failures were not counted
+  # and a second pause issue was opened. Keep using ours while it is open.
+  if [ -z "$p" ] && [ -n "$LAST_PAUSE" ] &&
+     [ "$(api "repos/$REPO/issues/$LAST_PAUSE" --jq .state 2>/dev/null || true)" = open ]; then
+    p="$LAST_PAUSE"
+  fi
+  printf '%s' "$p"
 }
 candidates() { # $1 = label to require; oldest first
   api "repos/$REPO/pulls?state=open&base=$BASE&per_page=100" --jq "
@@ -793,7 +803,8 @@ ${RUN_URL:+
 Run: $RUN_URL}
 
 $(known_block "$fails")" >/dev/null
-    paused="$(pause_issue)"
+    paused="$(printf '%s' "${WRITE_OUT:-}" | jq -r '.number // empty' 2>/dev/null || true)"
+    [ -n "$paused" ] || paused="$(pause_issue)"
   else
     body="$(api "repos/$REPO/issues/$paused" --jq .body | sed '/^<!-- known-failures$/,/^-->$/d')"
     load_known "$paused"
@@ -801,6 +812,7 @@ $(known_block "$fails")" >/dev/null
 $(known_block "$fails")" >/dev/null
     comment "$paused" "❌ $what also failed on $SITE ($(ist)): $why"
   fi
+  LAST_PAUSE="$paused"
   load_known "$paused"
 }
 

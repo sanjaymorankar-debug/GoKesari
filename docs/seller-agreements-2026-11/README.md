@@ -22,14 +22,14 @@ standing owner rule, production stays off until the owner says otherwise.
 | 2 % (SLA) vs 3 % (medical) commission | Never picked by the system: a blocking warning on publishing (see "Publishing checks"). **Owner decided 26-Nov-2026, 11.10 IST: option A, 2 % platform commission for every shop, medical shops included.** The medical agreement v1.0 now states 2 % (`sourceValues.commissionPct`), so the two documents agree. Admin → Finance must hold a 2 % default and no different rate for the PHARMACY shop type; otherwise publishing shows a warning. |
 
 Not as written in the brief:
-- **Database:** the brief says "Neon, seller DB". Since 17-Nov both sites use one database on gk-db-1. This feature adds ordinary tables to it (migration 0212).
+- **Database:** the brief says "Neon, seller DB". Since 17-Nov both sites use one database on gk-db-1. This feature adds ordinary tables to it (migration 0213).
 - **Column names:** the brief names `created_at_ist` / `accepted_at_ist`. The columns are `timestamptz`, which store an absolute instant. Every screen, PDF, CSV and e-mail shows them in IST. This is the project's existing convention.
 
 ## Pieces
 
 | Piece | Where |
 |---|---|
-| Migration (tables, immutability triggers, flag) | `drizzle/0212_seller_agreements.sql`, rollback `scripts/rollback-0212.sql` |
+| Migration (tables, immutability triggers, flag) | `drizzle/0213_seller_agreements.sql`, rollback `scripts/rollback-0213.sql` |
 | Schema | `src/server/db/legal-agreements-schema.ts` |
 | Templates v1.0 (EN master; MR / HI drafts pending legal review) | `src/server/legal-agreements/templates/{seller-sla,medical-onboarding}/v1.0.{en,mr,hi}.html` |
 | Translation review notes for the lawyer | [TRANSLATION_REVIEW.md](TRANSLATION_REVIEW.md) |
@@ -176,7 +176,7 @@ press "Send signing link to the owner". The owner receives an SMS, WhatsApp and 
 - **Send log:** every send has its status, attempts, sent time, SMTP Message-ID, CC and attachment list in `document_emails` + `legal_agreement_emails`. Admin → Agreements → Acceptances → E-mail log shows it.
   - Retries happen after 5 min, 30 min and 2 h. After that the row is DEAD and every admin is alerted.
 
-## Data model (0212)
+## Data model (0213)
 
 **Tables:**
 - `legal_documents`: one row per document type, language and version, with status and review state.

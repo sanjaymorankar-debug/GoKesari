@@ -1,7 +1,7 @@
 # Seller agreements – test results, 26-Nov-2026
 
 Branch `feat/seller-agreements-esign-2026-11-26`. Run on the owner's Mac against a local PostgreSQL 18 test
-database (`gk_sla_test`, all migrations up to 0212) and Playwright's Chromium (macOS). Times are IST.
+database (`gk_sla_test`, all migrations up to 0213) and Playwright's Chromium (macOS). Times are IST.
 
 | Run (IST) | What | Result |
 |---|---|---|

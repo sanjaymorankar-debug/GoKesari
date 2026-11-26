@@ -1,4 +1,4 @@
--- Rollback for drizzle/0212_seller_agreements.sql (docs/seller-agreements-2026-11).
+-- Rollback for drizzle/0213_seller_agreements.sql (docs/seller-agreements-2026-11).
 -- WARNING: drops the signed-agreement evidence (legal_acceptances, legal_signed_files). Export it first
 -- (Admin → Agreements → Acceptances → CSV, and the signed PDFs) and get the owner's OK.
 BEGIN;

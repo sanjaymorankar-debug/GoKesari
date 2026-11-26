@@ -17,7 +17,7 @@
 --
 -- No foreign keys to shops / users (the evidence outlives a deleted shop or account), as for user_consents.
 -- Times are timestamptz (absolute instants); every screen, PDF and e-mail shows them in IST.
--- Additive. Rollback: scripts/rollback-0212.sql.
+-- Additive. Rollback: scripts/rollback-0213.sql.
 CREATE TABLE IF NOT EXISTS "legal_documents" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "doc_type" text NOT NULL,

@@ -1,5 +1,20 @@
 # GoKesari app — release notes
 
+## 1.16.0 (Android versionCode 17, iPhone build 17) — 26 Nov 2026
+
+Silent updates (owner brief 26 Nov 2026 09.55 IST; docs/silent-update-2026-11 at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Updates now happen quietly in the background — no more "new version" pop-ups.
+
+Changes in the app itself:
+- No "A new version of GoKesari is ready — Later / Update" popup (src/app-update.ts). The page inside the app is
+  the live website, so website changes reach everyone without an app update; newer native builds come through
+  the store's own automatic updates.
+- Only a build below the minimum the website names (MOBILE_APP_ANDROID_MINIMUM / MOBILE_APP_IOS_MINIMUM, set by
+  the owner for a critical breaking change) still asks, with "Update" alone — as before.
+
 ## 1.15.0 (Android versionCode 16, iPhone build 16) — 25 Nov 2026
 
 Referral sharing (owner brief 25 Nov 2026 17.10 IST; docs/referral-sharing-2026-11 at the repository root).
@@ -23,11 +38,18 @@ Changes in the app itself:
 
 Shop registration subscription (owner brief 25 Nov 2026 02.02 IST; docs/shop-registration-subscription-2026-11
 at the repository root).
+Rider App v2 + rider pay plans (owner brief 25 Nov 2026 13.11 IST; docs/rider-app-v2-2026-11 at the
+repository root).
 
 For the Play Store "What's new" / App Store "What's New in This Version":
 
 > Shop owners: see your shop registration status, expiry date and days left on your dashboard, get
 > reminders before it ends, and pay or renew in a tap. नोंदणीची मुदत, बाकी दिवस आणि एका टॅपमध्ये नूतनीकरण.
+>
+> Delivery partners: see what you earn on every delivery before you accept,
+> pick jobs from the Available Deliveries list, track your week's earnings day
+> by day, book high-earning slots, refer friends, check your tier and
+> insurance, and press SOS in an emergency.
 
 Changes in the app itself:
 - Registration reminder, payment-link, renewal-confirmation and receipt pushes open the shop's registration
@@ -35,6 +57,11 @@ Changes in the app itself:
   Android App Links prefixes added).
 - The Shop Registration card, the red / amber banners and Pay Now / Renew are the website's pages, so they
   also work in older app versions; the payment opens Cashfree's checkout as before.
+- Rider App v2: nothing native changed: every rider screen is a website page, live in every installed
+  version once the website is deployed and the admin switches (riderAppV2, riderJobBoard, riderPayPlans, …)
+  are on. SOS dials the emergency number through a `tel:` link, which the app already hands to the phone
+  dialler (navigation policy, test "SOS dials 112 outside the app"). Location (1.4.0) and push (1.6.0) are
+  unchanged.
 - The in-app update check offers 1.14.0 once `MOBILE_APP_ANDROID_LATEST` / `MOBILE_APP_IOS_LATEST` are set
   to 1.14.0 on the server after the release.
 

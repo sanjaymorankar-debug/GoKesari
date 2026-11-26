@@ -1,5 +1,5 @@
 /**
- * Seller agreements (drizzle/0212_seller_agreements.sql, docs/seller-agreements-2026-11): versioned agreement
+ * Seller agreements (drizzle/0213_seller_agreements.sql, docs/seller-agreements-2026-11): versioned agreement
  * templates, the frozen shop data they were filled with, signing requests, the immutable acceptance record and
  * the signed PDFs. No foreign keys to shops / users: the evidence outlives a deleted shop or account.
  */

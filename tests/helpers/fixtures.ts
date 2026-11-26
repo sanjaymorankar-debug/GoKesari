@@ -61,7 +61,7 @@ function pgErrorCode(error: unknown): string | undefined {
  */
 /** The tables resetDatabase() names; TRUNCATE … CASCADE reaches the rest through foreign keys. */
 const RESET_TABLES = [
-  // docs/seller-agreements-2026-11 (0212): no foreign keys; TRUNCATE is not blocked by the immutability triggers (UPDATE / DELETE only).
+  // docs/seller-agreements-2026-11 (0213): no foreign keys; TRUNCATE is not blocked by the immutability triggers (UPDATE / DELETE only).
   "legal_acceptances",
   "legal_signed_files",
   "legal_document_snapshots",

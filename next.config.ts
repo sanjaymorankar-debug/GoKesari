@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
@@ -110,13 +111,24 @@ const BROWSER_OCR_FILES = [
   "./node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz",
 ];
 
+/** The checked-out commit (first 12 characters), or null outside a git checkout. */
+function gitCommit(): string | null {
+  try {
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha.slice(0, 12) : null;
+  } catch {
+    return null;
+  }
+}
+
 const nextConfig: NextConfig = {
   // No "X-Powered-By: Next.js": responses do not advertise the framework (TC-SEC-010).
   poweredByHeader: false,
   // docs/app-install-2026-10: one value per build, fixed into the bundle. The service worker
   // (src/app/sw.js/route.ts) carries it, so each deploy is a new worker the installed app picks up.
   env: {
-    GK_BUILD_VERSION: process.env.GK_BUILD_VERSION ?? process.env.GITHUB_SHA?.slice(0, 12) ?? new Date().toISOString(),
+    // docs/silent-update-2026-11: always the commit, never a time — a rebuild of the same commit is not a new version.
+    GK_BUILD_VERSION: process.env.GK_BUILD_VERSION ?? process.env.GITHUB_SHA?.slice(0, 12) ?? gitCommit() ?? "dev",
   },
   experimental: {
     // `next build` starts one worker per CPU minus one, and every worker loads

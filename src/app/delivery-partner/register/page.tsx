@@ -6,6 +6,8 @@ import { L, tr } from "@/lib/board/i18n";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
+import { normaliseReferralCode } from "@/lib/rider-growth";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Delivery Partner Registration" };
 export const dynamic = "force-dynamic";
@@ -19,13 +21,16 @@ const T = {
   ),
 } as const;
 
-export default async function DeliveryPartnerRegisterPage() {
+export default async function DeliveryPartnerRegisterPage({ searchParams }: { searchParams: Promise<{ ref?: string | string[] }> }) {
+  // Rider App v2 (rule riderReferral): a shared link /delivery-partner/register?ref=CODE fills the code.
+  const rawRef = (await searchParams).ref;
+  const ref = normaliseReferralCode(Array.isArray(rawRef) ? rawRef[0] : rawRef);
   const user = await getCurrentUser();
-  if (!user) redirect("/signin");
+  if (!user) redirect(ref ? `/signin?callbackUrl=${encodeURIComponent(`/delivery-partner/register?ref=${ref}`)}` : "/signin");
 
   const existing = await getMyDeliveryPartnerProfile(user.id);
   if (existing) redirect("/delivery-partner");
-  const lang = await getBoardLang();
+  const [lang, referral] = await Promise.all([getBoardLang(), getRule("riderReferral")]);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -33,7 +38,7 @@ export default async function DeliveryPartnerRegisterPage() {
         title={tr(T.title, lang)}
         description={tr(T.description, lang)}
       />
-      <DeliveryPartnerRegisterForm lang={lang} />
+      <DeliveryPartnerRegisterForm lang={lang} referral={referral.enabled ? { code: ref ?? "" } : undefined} />
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { DeliveryEarningsConfigManager } from "@/components/delivery-earnings-config-manager";
@@ -24,6 +25,11 @@ export default async function RiderEarningsRulesPage() {
       <PageHeader
         title="Rider earnings rules"
         description="What a delivery earns: the default rate, time slots with their own rates, and incentives. Changes apply to deliveries completed from now on."
+        action={
+          <Link className="text-sm font-medium text-kesari-600 hover:underline" href="/admin/rider-pay-plans">
+            Rider pay plans →
+          </Link>
+        }
       />
       <section>
         <h2 className="mb-2 text-lg font-semibold text-ink-900">Default rate</h2>
@@ -47,6 +53,9 @@ export default async function RiderEarningsRulesPage() {
           isPeak: s.isPeak,
           priority: s.priority,
           isActive: s.isActive,
+          surgeMultiplierBp: s.surgeMultiplierBp,
+          bookable: s.bookable,
+          bookingCapacity: s.bookingCapacity,
         }))}
         incentives={incentives.map((i) => ({
           id: i.id,

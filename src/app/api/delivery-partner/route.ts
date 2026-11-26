@@ -14,6 +14,7 @@ import {
   listDeliveryPartners,
   registerDeliveryPartner,
 } from "@/server/services/delivery-partners";
+import { recordReferral, resolveReferrerForRegistration } from "@/server/services/rider-referrals";
 
 export const dynamic = "force-dynamic";
 
@@ -46,15 +47,21 @@ const registerSchema = z.object({
   emergencyContactName: z.string().max(120).nullish(),
   emergencyContactMobile: z.string().max(15).nullish(),
   emergencyContactRelation: z.string().max(40).nullish(),
+  // Rider App v2 (rule riderReferral): optional code of the rider who referred this one.
+  referralCode: z.string().max(20).nullish(),
 });
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.DELIVERY_PARTNER_REGISTER);
   enforceRateLimit(`delivery-partner-register:${user.id}`, RATE_LIMITS.MUTATION);
 
-  const body = await parseBody(request, registerSchema);
+  const { referralCode, ...body } = await parseBody(request, registerSchema);
+  // Checked before anything is written: a wrong code is a field error, not a half-made application.
+  const referrerPartnerId = await resolveReferrerForRegistration(referralCode, user.id);
   // Gig worker flow: every detail of the brief, and the device location (feature 4), is required here.
-  return ok(await registerDeliveryPartner(user.id, body, { required: true }), 201);
+  const partner = await registerDeliveryPartner(user.id, body, { required: true });
+  if (referrerPartnerId) await recordReferral(partner.id, referrerPartnerId);
+  return ok(partner, 201);
 });
 
 export const GET = route(async (request: NextRequest) => {

@@ -420,6 +420,22 @@ export const AUDIT_ACTIONS = {
   IMAGE_UPLOADED: "image.uploaded",
   RIDER_EARNING_SLOT_SAVED: "rider_earning_slot.saved",
   RIDER_INCENTIVE_SAVED: "rider_incentive.saved",
+  /* Rider App v2 (0212) */
+  RIDER_PAY_PLAN_SAVED: "rider_pay_plan.saved",
+  RIDER_PAY_PLAN_SIMULATED: "rider_pay_plan.simulated",
+  RIDER_PAY_PLAN_PUBLISHED: "rider_pay_plan.published",
+  RIDER_SURGE_STARTED: "rider_surge.started",
+  RIDER_SURGE_ENDED: "rider_surge.ended",
+  RIDER_JOB_ACCEPTED: "rider_job.accepted",
+  RIDER_JOB_PASSED: "rider_job.passed",
+  RIDER_SLOT_BOOKED: "rider_slot.booked",
+  RIDER_SLOT_CANCELLED: "rider_slot.cancelled",
+  RIDER_REFERRAL_QUALIFIED: "rider_referral.qualified",
+  RIDER_SOS_RAISED: "rider_sos.raised",
+  RIDER_SOS_ACKNOWLEDGED: "rider_sos.acknowledged",
+  RIDER_SOS_CLOSED: "rider_sos.closed",
+  RIDER_INSURANCE_POLICY_SAVED: "rider_insurance_policy.saved",
+  RIDER_NOMINEE_SAVED: "rider_nominee.saved",
 
   /* ------------------------------------ product master data platform */
   PMD_PRODUCT_PROMOTED: "pmd.product_promoted",

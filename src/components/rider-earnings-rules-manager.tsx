@@ -21,6 +21,10 @@ export interface SlotRow {
   isPeak: boolean;
   priority: number;
   isActive: boolean;
+  /** Rider App v2: pay-plan surge in this slot (12000 = ×1.2); null = none. */
+  surgeMultiplierBp: number | null;
+  bookable: boolean;
+  bookingCapacity: number | null;
 }
 
 export interface IncentiveRow {
@@ -126,10 +130,15 @@ function SlotsSection({ slots }: { slots: SlotRow[] }) {
     isPeak: false,
     priority: "0",
     days: [] as number[],
+    surge: "",
+    bookable: false,
+    capacity: "",
   });
   const set = (key: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [key]: e.target.value });
 
   async function add() {
+    const surge = f.surge.trim() === "" ? null : Number(f.surge);
+    const capacity = f.capacity.trim() === "" ? null : Number(f.capacity);
     const ok = await call("/api/admin/rider-earnings/slots", "POST", {
       name: f.name,
       startTime: f.startTime,
@@ -143,8 +152,12 @@ function SlotsSection({ slots }: { slots: SlotRow[] }) {
       peakBonusPaise: rupees(f.peak) ?? 0,
       isPeak: f.isPeak,
       priority: Number(f.priority || 0),
+      // "1.2" → 12000 basis points; blank = no pay-plan surge.
+      surgeMultiplierBp: surge != null && Number.isFinite(surge) ? Math.round(surge * 10000) : null,
+      bookable: f.bookable,
+      bookingCapacity: capacity != null && Number.isFinite(capacity) ? Math.round(capacity) : null,
     });
-    if (ok) setF({ ...f, name: "" });
+    if (ok) setF({ ...f, name: "", surge: "", capacity: "" });
   }
 
   return (
@@ -168,6 +181,8 @@ function SlotsSection({ slots }: { slots: SlotRow[] }) {
                 {s.perKmFeePaise != null ? <Money paise={s.perKmFeePaise} /> : "default"} · min{" "}
                 {s.minEarningPaise != null ? <Money paise={s.minEarningPaise} /> : "—"} · order fee <Money paise={s.orderFeePaise} /> +{" "}
                 {(s.orderPercentBp / 100).toFixed(2)}% · peak bonus <Money paise={s.peakBonusPaise} /> · priority {s.priority}
+                {s.surgeMultiplierBp != null ? ` · pay-plan surge ×${(s.surgeMultiplierBp / 10000).toFixed(2)}` : ""}
+                {s.bookable ? ` · bookable${s.bookingCapacity != null ? ` (up to ${s.bookingCapacity} riders)` : " (no limit)"}` : ""}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -191,6 +206,9 @@ function SlotsSection({ slots }: { slots: SlotRow[] }) {
                     peakBonusPaise: s.peakBonusPaise,
                     isPeak: s.isPeak,
                     priority: s.priority,
+                    surgeMultiplierBp: s.surgeMultiplierBp,
+                    bookable: s.bookable,
+                    bookingCapacity: s.bookingCapacity,
                     isActive: !s.isActive,
                   })
                 }
@@ -235,10 +253,19 @@ function SlotsSection({ slots }: { slots: SlotRow[] }) {
           <Field label="Priority (higher wins)">
             <input className={inputClass} value={f.priority} onChange={set("priority")} inputMode="numeric" />
           </Field>
+          <Field label="Pay-plan surge ×" hint="e.g. 1.2 for ×1.2 (blank = none). Used when rider pay plans are on.">
+            <input className={inputClass} value={f.surge} onChange={set("surge")} inputMode="decimal" placeholder="1.2" />
+          </Field>
+          <Field label="Booking capacity" hint="Riders who may book it (blank = no limit).">
+            <input className={inputClass} value={f.capacity} onChange={set("capacity")} inputMode="numeric" disabled={!f.bookable} />
+          </Field>
         </div>
         <DayPicker value={f.days} onChange={(days) => setF({ ...f, days })} />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={f.isPeak} onChange={(e) => setF({ ...f, isPeak: e.target.checked })} /> This is a peak period
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={f.bookable} onChange={(e) => setF({ ...f, bookable: e.target.checked })} /> Riders may book this slot
         </label>
         {error ? <Alert tone="danger">{error}</Alert> : null}
         <Button disabled={busy || !f.name.trim()} onClick={add}>

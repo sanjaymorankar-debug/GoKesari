@@ -18,6 +18,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { FAILURE_REASON_CODES } from "@/lib/delivery/failure-reasons";
+import { RIDER_REJECT_REASONS } from "@/lib/rider-reject-reasons";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -47,7 +48,7 @@ function positionOf(body: { latitude?: number; longitude?: number; accuracyM?: n
 
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("accept") }),
-  z.object({ action: z.literal("reject"), reason: z.string().max(500).optional() }),
+  z.object({ action: z.literal("reject"), reason: z.string().max(500).optional(), reasonCode: z.enum(RIDER_REJECT_REASONS).optional() }),
   z.object({ action: z.literal("arrived_shop") }),
   z.object({ action: z.literal("pickup"), pickupCode: z.string().max(8).optional() }),
   z.object({ action: z.literal("start") }),
@@ -77,7 +78,7 @@ export const PATCH = route(
       case "accept":
         return ok(toRiderView(await acceptDeliveryOffer(id, user.id)));
       case "reject":
-        return ok(toRiderView(await rejectDeliveryOffer(id, user.id, body.reason)));
+        return ok(toRiderView(await rejectDeliveryOffer(id, user.id, body.reason, body.reasonCode)));
       case "arrived_shop":
         return ok(toRiderView(await markArrivedAtShop(id, user)));
       case "arrived_customer":
