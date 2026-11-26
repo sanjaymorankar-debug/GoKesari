@@ -188,7 +188,9 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   // renewal and receipt pushes open the shop's registration / fee / receipt pages (deep-link route
   // "shop-registration"). The card, banners and Pay Now / Renew are the website's pages.
   // 1.15.0: referral sharing (docs/referral-sharing-2026-11): deferred link /app-open on first open, /invite/ in the app.
-  version: "1.15.0",
+  // 1.16.0: silent updates (docs/silent-update-2026-11): no "A new version of GoKesari is ready" popup; only a
+  // build below the owner-set minimum (MOBILE_APP_*_MINIMUM) still asks, with "Update" alone.
+  version: "1.16.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -197,7 +199,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "16",
+    buildNumber: "17",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -219,7 +221,7 @@ const baseConfig = ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 16,
+    versionCode: 17,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",
