@@ -1352,7 +1352,7 @@ export const RULES = {
   },
   sellerAgreements: {
     description:
-      "Seller agreements (docs/seller-agreements-2026-11; flag seller_agreements_enabled; templates under Admin → Agreements). graceDays: days an existing shop may keep accepting new orders after it is first asked to sign (or re-confirm) its agreements. noticeDays: minimum days between publishing a new version and its effective date (the change notice). linkExpiryDays: how long the signing link sent to an owner (when staff or a dealer registered the shop) works. platformSignatoryName / platformSignatoryDesignation / boardResolutionDate / eSealAssetId: the Platform's signature block on every agreement (e-seal uploaded on the Agreements page). stampDutyBorneBy: who bears stamp duty in the medical agreement's clause 13 (lawyer review pending; publishing the medical agreement needs it). ccEmails: copied on every signed-copy e-mail. supportPhone: printed in that e-mail. maxEmailBytes: attachments above this are replaced by secure download links (English agreements and banners stay attached). Fee and penalty figures printed in the agreements: the registration fee and commission come from Admin → Finance; settlement days from settlement.holdDays; the wallet minimum from shopWallet.minBalancePaise; order acceptance minutes from shopAcceptance; the rest from here (paise; 0 = not offered: billingManagementFeePaise prints 'As agreed separately', perOrderCommissionPaise is left out).",
+      "Seller agreements (docs/seller-agreements-2026-11; flag seller_agreements_enabled; templates under Admin → Agreements). graceDays: days an existing shop may keep accepting new orders after it is first asked to sign (or re-confirm) its agreements. noticeDays: minimum days between publishing a new version and its effective date (the change notice). linkExpiryDays: how long the signing link sent to an owner (when staff or a dealer registered the shop) works. platformSignatoryName / platformSignatoryDesignation / boardResolutionDate / eSealAssetId: the Platform's signature block on every agreement (e-seal uploaded on the Agreements page). ccEmails: copied on every signed-copy e-mail. supportPhone: printed in that e-mail. maxEmailBytes: attachments above this are replaced by secure download links (English agreements and banners stay attached). Fee and penalty figures printed in the agreements: the registration fee and commission come from Admin → Finance; settlement days from settlement.holdDays; the wallet minimum from shopWallet.minBalancePaise; order acceptance minutes from shopAcceptance; the rest from here (paise; 0 = not offered: billingManagementFeePaise prints 'As agreed separately', perOrderCommissionPaise is left out).",
     schema: z.object({
       graceDays: int(0, 90),
       noticeDays: int(0, 365),
@@ -1361,7 +1361,6 @@ export const RULES = {
       platformSignatoryDesignation: z.string().trim().min(2).max(80),
       boardResolutionDate: z.string().trim().max(40),
       eSealAssetId: z.string().trim().max(40),
-      stampDutyBorneBy: z.string().trim().max(120),
       ccEmails: z.array(z.string().email()).max(10),
       supportPhone: z.string().trim().min(5).max(30),
       maxEmailBytes: int(1_000_000, 25_000_000),
@@ -1385,7 +1384,6 @@ export const RULES = {
       platformSignatoryDesignation: "Director",
       boardResolutionDate: "",
       eSealAssetId: "",
-      stampDutyBorneBy: "",
       ccEmails: ["ceo@agtci.com"],
       supportPhone: "+91 91751 93009",
       maxEmailBytes: 10_000_000,

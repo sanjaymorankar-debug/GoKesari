@@ -201,7 +201,6 @@ export async function buildShopSnapshot(shopId: string, extras: SnapshotExtras =
       signatoryName: rule.platformSignatoryName,
       signatoryDesignation: rule.platformSignatoryDesignation,
       boardResolutionDate: rule.boardResolutionDate || null,
-      stampDutyBorneBy: rule.stampDutyBorneBy || null,
       eSealAssetId: rule.eSealAssetId || null,
     },
     place: "Pune",

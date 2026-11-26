@@ -55,10 +55,9 @@ Please check:
 
 ## Also for the lawyer (English master)
 
-- **Medical agreement clause 13 "Stamp duty"** says the agreement is executed on non-judicial stamp paper, while
-  the platform accepts it electronically with an OTP (owner decision 26-Nov-2026: keep the text, flag it). The
-  admin must confirm a lawyer has reviewed it before the medical agreement can be published, and must set who
-  bears the stamp duty (rule `sellerAgreements.stampDutyBorneBy`).
+- **Medical agreement clause 13:** owner decision 26-Nov-2026 — no stamp paper or stamp duty; the agreement is
+  executed by OTP e-signature and acceptance of its terms. The clause now reads "Mode of execution" in EN / MR / HI
+  (the MR / HI wording of this clause was written on 26-Nov-2026 and is part of the same review).
 - **Commission:** the Word documents said 2 % (SLA) and 3 % (medical). Owner decision 26-Nov-2026: 2 % for every
   shop, medical shops included. Both documents print the configured rate (Admin → Finance), now 2 %.
 - **Settlement days:** the SLA says 3 business days; the configured settlement hold is `settlement.holdDays`.

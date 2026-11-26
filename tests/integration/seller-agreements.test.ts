@@ -2,8 +2,8 @@
  * Seller agreements end to end (docs/seller-agreements-2026-11), against PostgreSQL and a real headless
  * Chromium (the PDF tests are skipped, loudly, where no Chromium can start):
  *
- * - publishing: the SLA 2 % / medical 3 % commission clash blocks; the stamp-duty clause needs a lawyer's
- *   confirmation and the stamp-duty setting; a translation needs its legal review and the English version first;
+ * - publishing: documents stating different commission block each other (owner: 2 % for all); the medical
+ *   agreement is executed by e-signature with no stamp paper; a translation needs its legal review and the English version first;
  * - an existing pharmacy must sign: grace period, licence blockers, OTP to the registered mobile;
  * - signing freezes one snapshot, prints every published language, records hashes that match the stored PDFs,
  *   writes immutable acceptance rows, e-mails the signed copies with CC, and satisfies the requirement;
@@ -46,7 +46,7 @@ import { confirmReview, ensureBundledTemplates, publishChecks, publishTemplate, 
 import { assertAgreementsAllowOrders, getAgreementStatus } from "@/server/legal-agreements/requirements";
 import { createSigningLink, resolveSigningLink, sendSigningCode, signAgreements } from "@/server/legal-agreements/signing";
 import { clearFeatureFlagCache, setFeatureFlag } from "@/server/services/feature-flags";
-import { clearRuleCache, getRule, setRule } from "@/server/services/settings";
+import { clearRuleCache } from "@/server/services/settings";
 
 import { createShop, createUser, resetDatabase, uniqueMobile } from "../helpers/fixtures";
 
@@ -87,12 +87,8 @@ async function template(docType: "SELLER_SLA" | "MEDICAL_ONBOARDING", language: 
 /** Publishes SLA (en + mr) and the medical agreement (en), resolving the checks the way an admin would. */
 async function publishAll() {
   await ensureBundledTemplates(admin.id);
-  const rule = await getRule("sellerAgreements");
-  await setRule("sellerAgreements", { ...rule, stampDutyBorneBy: "the Merchant" }, actor() as never);
   const medical = await template("MEDICAL_ONBOARDING", "en");
-  await updateDraft(medical.id, { sourceValues: { ...medical.sourceValues, commissionPct: 2 } }, actor());
   await publishTemplate((await template("SELLER_SLA", "en")).id, actor(), { acknowledgeWarnings: true });
-  await confirmReview(medical.id, "stamp-duty", actor());
   await publishTemplate(medical.id, actor(), { acknowledgeWarnings: true });
   const mr = await template("SELLER_SLA", "mr");
   await confirmReview(mr.id, "translation", actor());
@@ -146,13 +142,13 @@ describe("publishing", () => {
     await expect(publishTemplate(sla.id, actor(), { acknowledgeWarnings: true })).rejects.toThrow(/Commission clash/);
   });
 
-  it("TC-AGR-002 the stamp-duty clause needs a lawyer's confirmation and the stamp-duty setting", async () => {
+  it("TC-AGR-002 the medical agreement is executed by e-signature: no stamp paper, no stamp-duty setting, nothing blocks it", async () => {
     await ensureBundledTemplates(admin.id);
     const medical = await template("MEDICAL_ONBOARDING", "en");
-    await updateDraft(medical.id, { sourceValues: { commissionPct: 2 } }, actor());
-    const before = await publishChecks(medical.id);
-    expect(before.blocking.join(" ")).toMatch(/stamp duty/i);
-    expect(before.blocking.join(" ")).toMatch(/Legal review pending/);
+    expect(medical.templateBody).not.toMatch(/stamp paper of appropriate value|stampDuty/);
+    expect(medical.templateBody).toContain("It is not executed on stamp paper.");
+    expect(medical.reviewNotes).toEqual([]);
+    expect((await publishChecks(medical.id)).blocking).toEqual([]);
   });
 
   it("TC-AGR-003 a translation waits for its legal review and for the English version", async () => {

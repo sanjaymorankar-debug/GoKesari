@@ -106,7 +106,9 @@ describe("bundled v1.0 templates", () => {
     const r = renderAgreementHtml({ templateBody: read("medical-onboarding", "en"), title: "Medical", version: "1.0", language: "en" }, sampleSnapshot(), { effectiveAt: new Date(), signature: { signed: false }, preview: true });
     expect(r.html).toContain("As agreed separately");
     expect(r.html).not.toContain("per Order)");
-    expect(r.html).toContain('data-legal-review="stamp-duty"');
+    // Owner, 26-Nov-2026: e-signature and acceptance of terms; no stamp paper or stamp duty.
+    expect(r.html).toContain("It is not executed on stamp paper.");
+    expect(r.html).not.toMatch(/non-judicial stamp paper|data-legal-review/);
   });
 });
 

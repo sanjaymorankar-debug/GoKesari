@@ -82,12 +82,8 @@ const BUNDLED: Record<SignedDocType, { dir: string; appliesTo: string[]; sourceV
     // Owner decision 26-Nov-2026 (option A): 2 % platform commission for every shop, medical shops included.
     // The Word document said 3 %; the template prints the configured rate (Admin → Finance) either way.
     sourceValues: { commissionPct: 2, registrationFeeRupees: 1000 },
-    reviewNotes: [
-      {
-        key: "stamp-duty",
-        text: "Clause 13 (Stamp duty) says the agreement is executed on non-judicial stamp paper under the Maharashtra Stamp Act, 1958, while it is accepted electronically with an OTP. Owner decision 26-Nov-2026: keep the text; a lawyer must review it before publishing.",
-      },
-    ],
+    // Owner decision 26-Nov-2026: e-signature + acceptance of terms, no stamp paper / stamp duty (clause 13 rewritten).
+    reviewNotes: [],
   },
 };
 
@@ -369,18 +365,13 @@ export async function publishChecks(id: string): Promise<PublishCheck> {
       signatoryName: rule.platformSignatoryName,
       signatoryDesignation: rule.platformSignatoryDesignation,
       boardResolutionDate: rule.boardResolutionDate || null,
-      stampDutyBorneBy: rule.stampDutyBorneBy || null,
       eSealAssetId: rule.eSealAssetId || null,
     },
   });
   try {
     const rendered = renderAgreementHtml(row, sample, { effectiveAt: new Date(), signature: { signed: false }, preview: true });
     for (const m of rendered.missing) {
-      blocking.push(
-        m === "platform.stampDutyBorneBy"
-          ? "Set who bears the stamp duty (Agreements → Settings, 'Stamp duty borne by') before publishing."
-          : `The merge field {{${m}}} would be empty.`,
-      );
+      blocking.push(`The merge field {{${m}}} would be empty.`);
     }
   } catch (error) {
     blocking.push(error instanceof Error ? error.message : "The template could not be rendered.");
@@ -510,7 +501,7 @@ export async function previewTemplateHtml(id: string): Promise<{ html: string; m
   const row = await getTemplate(id);
   const rule = await getRule("sellerAgreements");
   const sample = sampleSnapshot({
-    platform: { signatoryName: rule.platformSignatoryName, signatoryDesignation: rule.platformSignatoryDesignation, boardResolutionDate: rule.boardResolutionDate || null, stampDutyBorneBy: rule.stampDutyBorneBy || "[stamp duty: not set]", eSealAssetId: null },
+    platform: { signatoryName: rule.platformSignatoryName, signatoryDesignation: rule.platformSignatoryDesignation, boardResolutionDate: rule.boardResolutionDate || null, eSealAssetId: null },
   });
   const rendered = renderAgreementHtml(row, sample, { effectiveAt: new Date(), signature: { signed: false }, preview: true });
   return { html: rendered.html, missing: rendered.missing };

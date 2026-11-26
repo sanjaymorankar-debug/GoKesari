@@ -33,7 +33,6 @@ p.note{font-size:8pt;color:#555}
 .ref{font-family:monospace;font-size:7.5pt}
 p.lang-notice{background:#fff7e0;border:0.6pt solid #e6c766;padding:1.5mm 2.5mm;font-size:9pt}
 .draft-banner{border:1pt dashed #c0392b;color:#c0392b;padding:2mm 3mm;margin:0 0 4mm;font-weight:700;font-size:9pt}
-[data-legal-review]{}
 .cert h1{font-size:15pt}
 .cert table td:first-child{width:38%;background:#f6f8fb}
 .cert .hash{font-family:monospace;font-size:7.5pt;word-break:break-all}

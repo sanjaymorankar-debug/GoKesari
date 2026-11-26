@@ -35,7 +35,7 @@ export type LegalSourceValues = {
   slaChargesRupees?: Partial<Record<"lateReady" | "sellerCancel" | "lateThenCancel" | "defect" | "medicineBreach", number>>;
 };
 
-/** A clause the admin must confirm a lawyer has reviewed before publishing (e.g. the stamp-duty clause). */
+/** A clause the admin must confirm a lawyer has reviewed before publishing (none in v1.0). */
 export type LegalReviewNote = { key: string; text: string; confirmedBy?: string | null; confirmedAt?: string | null };
 
 export const legalDocuments = pgTable(

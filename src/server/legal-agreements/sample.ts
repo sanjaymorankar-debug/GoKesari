@@ -46,7 +46,7 @@ export function sampleSnapshot(overrides: Partial<AgreementSnapshot> = {}, at: D
       billingManagementFeePaise: 0,
     },
     slaChargesPaise: { lateReady: 1_500, sellerCancel: 3_000, lateThenCancel: 4_500, defect: 3_000, medicineBreach: 50_000 },
-    platform: { signatoryName: "Sonali Sanjay Morankar", signatoryDesignation: "Director", boardResolutionDate: null, stampDutyBorneBy: "the Merchant", eSealAssetId: null },
+    platform: { signatoryName: "Sonali Sanjay Morankar", signatoryDesignation: "Director", boardResolutionDate: null, eSealAssetId: null },
     place: "Pune",
     ...overrides,
   };

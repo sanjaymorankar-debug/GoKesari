@@ -65,7 +65,7 @@ export type AgreementSnapshot = {
     billingManagementFeePaise: number;
   };
   slaChargesPaise: { lateReady: number; sellerCancel: number; lateThenCancel: number; defect: number; medicineBreach: number };
-  platform: { signatoryName: string; signatoryDesignation: string; boardResolutionDate: string | null; stampDutyBorneBy: string | null; eSealAssetId: string | null };
+  platform: { signatoryName: string; signatoryDesignation: string; boardResolutionDate: string | null; eSealAssetId: string | null };
   place: string;
 };
 
@@ -128,7 +128,6 @@ export function localise(snapshot: AgreementSnapshot, lang: LegalLanguage, effec
       signatoryName: s.platform.signatoryName,
       signatoryDesignation: s.platform.signatoryDesignation,
       boardResolutionDate: s.platform.boardResolutionDate,
-      stampDutyBorneBy: s.platform.stampDutyBorneBy,
     },
   };
 }

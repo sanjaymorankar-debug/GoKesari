@@ -15,7 +15,7 @@ standing owner rule, production stays off until the owner says otherwise.
 | Question | Decision |
 |---|---|
 | The brief ends at "Retry" (section 7) | Nothing more. Failed e-mails are retried after 5 min, 30 min and 2 h, then admins are alerted. |
-| Medical agreement clause 13 (non-judicial stamp paper) vs OTP e-signing | Keep the text. The admin must confirm a lawyer reviewed it before publishing, and must set who bears the stamp duty. |
+| Medical agreement clause 13 (non-judicial stamp paper) vs OTP e-signing | First: keep the text and flag it. **Owner decided 26-Nov-2026, 11.25 IST: no stamp duty; e-signature and acceptance of the terms is the acceptance.** Clause 13 is now "Mode of execution" (EN / MR / HI): executed and accepted electronically by the Merchant's OTP-based e-signature and acceptance of its terms; not executed on stamp paper. The stamp-duty setting and the legal-review block are removed. |
 | Payment step already has Seller Terms + undertaking ticks | The new Agreements step replaces the Seller Terms tick. The goods-undertaking tick stays. |
 | Platform signatory | Sonali Sanjay Morankar, Director (admin-editable). The e-seal image is uploaded by the admin. |
 | PDF engine | A Chromium bundled as an npm package (`@sparticuz/chromium`, driven by `puppeteer-core`). Nothing is installed with apt on gk-db-1. |
@@ -74,7 +74,7 @@ Fields:
 - `agreement.effectiveDateLong` (the date of acceptance), `agreement.place` (Pune)
 - `fees.registrationFee`, `fees.medicalRegistrationFee`, `fees.wholesaleRegistrationFee`, `fees.commissionPct`, `fees.settlementDays`, `fees.acceptMinutes`, `fees.walletMinimum`, `fees.medicineShelfLifeMonths`, `fees.perOrderCommission`, `fees.billingManagementFee`
 - `sla.lateReadyCharge`, `sla.sellerCancelCharge`, `sla.lateThenCancelCharge`, `sla.defectCharge`, `sla.medicineBreachCharge`
-- `platform.signatoryName`, `platform.signatoryDesignation`, `platform.boardResolutionDate`, `platform.stampDutyBorneBy`
+- `platform.signatoryName`, `platform.signatoryDesignation`, `platform.boardResolutionDate`
 
 Blocks:
 - `signatures`
@@ -112,8 +112,8 @@ Fees, commission, settlement days and penalties are read from configuration, not
 - unsafe HTML;
 - template syntax errors;
 - unknown fields;
-- a field that would be empty with the live configuration, such as the stamp duty setting;
-- an unconfirmed legal-review note, such as the medical stamp-duty clause;
+- a field that would be empty with the live configuration;
+- an unconfirmed legal-review note on a clause (none in v1.0);
 - a translation not marked reviewed, or whose English version is not yet published, or whose merge fields differ from English;
 - a new version whose effective date is less than `sellerAgreements.noticeDays` (30) after publishing;
 - **the commission clash.** Each English version records the figures its text states ("stated figures", for example SLA 2 %, medical 3 %). Two documents a shop can sign together that state different commission block each other until the admin decides. The admin sets the same figure in both drafts and in Admin → Finance. The system never chooses.
@@ -205,9 +205,9 @@ DELETE (trigger `legal_records_immutable`).
 ## Switching it on (staging first)
 
 1. Admin → Agreements opens and imports the v1.0 drafts.
-2. Settings (rule `sellerAgreements`): stamp duty borne by, signatory, e-seal, board resolution date if any.
+2. Settings (rule `sellerAgreements`): signatory, e-seal, board resolution date if any.
 3. Commission (decided: 2 % for every shop): check that Admin → Finance has a 2 % default and no other rate for PHARMACY.
-4. Publish the SLA (EN). Confirm the stamp-duty review, then publish the medical agreement (EN). Once a lawyer has reviewed the MR / HI drafts, mark them reviewed and publish them.
+4. Publish the SLA (EN), then the medical agreement (EN). Once the MR / HI drafts are reviewed, mark them reviewed and publish them.
 5. Switch on `seller_agreements_enabled`. It can be limited to districts.
 
 ## Tests
@@ -221,7 +221,7 @@ DELETE (trigger `legal_records_immutable`).
   - blocks and certificate.
 - `tests/integration/seller-agreements.test.ts`, against PostgreSQL and a real Chromium:
   - TC-AGR-001: the bundled documents agree (2 %); a draft stating 3 % blocks;
-  - TC-AGR-002: stamp duty review;
+  - TC-AGR-002: medical agreement executed by e-signature, no stamp paper, nothing blocks it;
   - TC-AGR-003: translation review;
   - TC-AGR-010: flag off;
   - TC-AGR-011: licence blocker;

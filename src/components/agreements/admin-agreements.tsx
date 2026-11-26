@@ -34,7 +34,7 @@ type Overview = {
   flagEnabled: boolean;
   templates: Template[];
   pending: { pending: number; overdue: number; awaitingOwnerLink: number; shops: { shopId: string; name: string; reason: string; graceUntilIst: string; overdue: boolean }[] };
-  settings: Record<string, unknown> & { eSealAssetId: string; platformSignatoryName: string; platformSignatoryDesignation: string; stampDutyBorneBy: string; graceDays: number; ccEmails: string[] };
+  settings: Record<string, unknown> & { eSealAssetId: string; platformSignatoryName: string; platformSignatoryDesignation: string; graceDays: number; ccEmails: string[] };
 };
 type Acceptance = {
   id: string;
@@ -420,7 +420,6 @@ export function AdminAgreements() {
       {tab === "settings" ? (
         <Card className="space-y-3 text-sm">
           <p>Platform signatory: <strong>{overview.settings.platformSignatoryName}</strong>, {overview.settings.platformSignatoryDesignation}</p>
-          <p>Stamp duty borne by (medical agreement, lawyer review pending): <strong>{overview.settings.stampDutyBorneBy || "not set"}</strong></p>
           <p>Grace period: {overview.settings.graceDays} days · CC: {overview.settings.ccEmails.join(", ")}</p>
           <p className="text-xs text-ink-600">Change these in Admin → Settings → rule &quot;sellerAgreements&quot;.</p>
           <div className="space-y-1">
