@@ -223,6 +223,8 @@ export interface OpenDisputeInput {
   grievanceId?: string | null;
   /** Photos uploaded first through /api/images (purpose DISPUTE_EVIDENCE). */
   imageIds?: string[];
+  /** docs/flows-v3/wave2.md (flag flow_f16): the declined return this case is opened from. */
+  returnRequestId?: string | null;
 }
 
 /**
@@ -303,6 +305,7 @@ export async function openDispute(input: OpenDisputeInput, actor: Actor): Promis
         shopId: order.shopId,
         raisedByUserId: actor.id,
         grievanceId: input.grievanceId ?? null,
+        ...(input.returnRequestId ? { returnRequestId: input.returnRequestId } : {}),
         status: escalateNow ? "ESCALATED" : "OPEN",
         level: escalateNow ? "L2" : "L1",
         reason: input.reason,

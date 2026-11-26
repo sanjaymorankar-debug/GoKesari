@@ -27,6 +27,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { getRule } from "@/server/services/settings";
+import { afterPackingCancellationRule } from "@/server/flows/wave2-rules";
 import { upsertRow } from "@/server/db/upsert";
 
 export type FeeType = "FLAT" | "PERCENT";
@@ -62,7 +63,8 @@ export interface FeeQuote {
 /** Whether a customer may cancel a packed order at this status (the rule is on). */
 export async function afterPackingCancellationOpen(status: OrderStatus): Promise<boolean> {
   if (!AFTER_PACKING_STATUSES.includes(status)) return false;
-  return (await getRule("afterPackingCancellation")).enabled;
+  // docs/flows-v3/wave2.md (flag flow_f16): closed — a packed order is cancelled only with the shop's agreement.
+  return (await afterPackingCancellationRule()).enabled;
 }
 
 function clampPolicy(policy: Omit<FeePolicy, "active">, rule: FeeRule): Omit<FeePolicy, "active"> {
