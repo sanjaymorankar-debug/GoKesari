@@ -1483,7 +1483,14 @@
       "idx": 211,
       "version": "7",
       "when": 1793271100000,
-      "tag": "0211_rider_app_v2",
+      "tag": "0211_referral_link_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 212,
+      "version": "7",
+      "when": 1793271200000,
+      "tag": "0212_rider_app_v2",
       "breakpoints": true
     }
   ]

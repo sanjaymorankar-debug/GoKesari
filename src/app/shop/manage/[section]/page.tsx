@@ -9,6 +9,7 @@ import { BankAccountPrompt } from "@/components/bank-account-prompt";
 import { LegalDocumentsBanner } from "@/components/legal-documents-banner";
 import { MembershipRenewalCard } from "@/components/membership-renewal-card";
 import { RegistrationPanel } from "@/components/registration-panel";
+import { referralSharingOn } from "@/server/services/referral-links";
 import { ShopReferralCard } from "@/components/shop-referrals/shop-referral-card";
 import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
 import { ShopCustomerContactForm } from "@/components/shop-customer-contact-form";
@@ -658,6 +659,7 @@ export default async function ShopManagePage({
                   referralRule.referrerMode === "WALLET_CREDIT" ? `${rupees(referralRule.referrerCreditPaise)} promotional credit in your shop wallet` : `${referralRule.referrerExtensionMonths} month(s) more membership`,
               }}
               summary={shopReferral}
+              shareAs={(await referralSharingOn()) ? { who: shop.name, origin } : null}
             />
           ) : null}
         </>

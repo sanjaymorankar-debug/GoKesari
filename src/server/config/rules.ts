@@ -291,6 +291,16 @@ export const RULES = {
       applyWithinDays: 30,
     },
   },
+  referralSharing: {
+    description:
+      "Referral sharing (docs/referral-sharing-2026-11). On: dealers, team leads, agents, franchise owners, shops and customers see Share buttons (WhatsApp, SMS, email, the phone's share sheet, copy link) for their own referral link /r/<code>; every share and link click is logged, a link opened before the app was installed is offered to the new account (deferred link), and the sign-up pages show \"Referred by <name>\". Off: the original WhatsApp / Copy link buttons only and nothing is logged. Rewards and commission are not changed by this switch.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** How long after a link click a new account on the same network may be offered that code (deferred link after an app install). */
+      deferredMatchHours: int(1, 168),
+    }),
+    defaults: { enabled: true, deferredMatchHours: 24 },
+  },
   imageModeration: {
     description:
       "Product photo moderation. Off: shop owners' photos go live at once (the original behaviour). On: photos a shop owner adds or replaces wait in Admin → Image moderation and are shown publicly only once approved; rejected photos carry a reason. Photos already live stay live.",
@@ -1520,7 +1530,7 @@ export const RULES = {
       takenNoticeSeconds: 120,
     },
   },
-  /* >>> Rider App v2 (docs/rider-app-v2-2026-11; drizzle/0211) — every switch ON by default (owner, 26-Nov-2026) */
+  /* >>> Rider App v2 (docs/rider-app-v2-2026-11; drizzle/0212) — every switch ON by default (owner, 26-Nov-2026) */
   riderAppV2: {
     description:
       "Rider App v2 screens. Off: the rider dashboard as before. On (default): riders get the bottom bar (Home · Earnings · My Slots · Refer · More), the header with Online/Offline, Help, SOS and tier badge, the Home tiles, the high-earning-slot banner, the daily incentive ladder, and the Mon–Sun earnings week with cash in hand shown apart.",

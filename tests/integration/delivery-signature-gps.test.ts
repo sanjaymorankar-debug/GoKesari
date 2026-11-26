@@ -163,6 +163,7 @@ describe("GPS at delivery / failure (deliveryProof.captureGps)", () => {
     expect(gps.get(d.order.id)).toEqual({
       delivered: { latitude: AT_DOOR.latitude, longitude: AT_DOOR.longitude, accuracyM: 11 },
       failed: null,
+      failureReason: null,
     });
   });
 
@@ -171,6 +172,12 @@ describe("GPS at delivery / failure (deliveryProof.captureGps)", () => {
     const d = await pickedUpDelivery();
     const failed = await markDeliveryFailed(d.deliveryId, d.rider, "Gate locked", { position: AT_DOOR });
     expect(failed).toMatchObject({ failedLatitude: AT_DOOR.latitude, failedLongitude: AT_DOOR.longitude });
+    // Staging E2E 25-Nov-2026: the admin view also shows why the drop failed.
+    expect((await deliveryGpsForOrders([d.order.id])).get(d.order.id)).toEqual({
+      delivered: null,
+      failed: { latitude: AT_DOOR.latitude, longitude: AT_DOOR.longitude },
+      failureReason: "Gate locked",
+    });
 
     const e = await pickedUpDelivery();
     const bad = await markDeliveryFailed(e.deliveryId, e.rider, "Gate locked", { position: { latitude: 123, longitude: 0 } });

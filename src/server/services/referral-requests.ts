@@ -25,6 +25,7 @@ import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { attributeShopToCode, createReferralCode, resolveCodeForShop } from "./referrals";
 import { looksLikeShopCode, resolveShopReferralCode, shopReferralRule } from "./shop-referrals";
+import { assertFranchiseCodeOpen } from "@/server/franchise/codes";
 import { isReferralRequired } from "./referral-settings";
 import { getRule } from "./settings";
 
@@ -55,6 +56,9 @@ export async function assertRegistrationReferralCode(raw: string | null | undefi
   try {
     // Shop-refers-shop (0137): another shop's code is the one code too, while rule shopReferrals is on.
     if (looksLikeShopCode(code) && (await shopReferralRule()).enabled) return (await resolveShopReferralCode(code)).code;
+    // Referral sharing audit (docs/referral-sharing-2026-11, gap G-4): a closed or expired franchise code gets
+    // its own message ("closed when the franchise … expired on …") instead of the generic "inactive".
+    await assertFranchiseCodeOpen(code);
     return (await resolveCodeForShop(code)).code;
   } catch (error) {
     if (error instanceof AppError && error.code === "VALIDATION_FAILED") {

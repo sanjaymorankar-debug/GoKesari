@@ -1,8 +1,8 @@
 # Testing report — Rider App v2 + Rider Pay Plans (25-Nov-2026)
 
-PR: https://github.com/sanjaymorankar-debug/GoKesari/pull/568 · Branch `feat/rider-app-v2-2026-11-25` · Migration 0211
+PR: https://github.com/sanjaymorankar-debug/GoKesari/pull/568 · Branch `feat/rider-app-v2-2026-11-25` · Migration 0212
 
-## Run 1 — local (gk_rider_v2 test database, all migrations to 0211), 25-Nov-2026 14.55–15.15 IST
+## Run 1 — local (gk_rider_v2 test database, all migrations to 0212), 25-Nov-2026 14.55–15.15 IST
 
 | Suite | Cases | Pass | Fail |
 |---|---|---|---|
