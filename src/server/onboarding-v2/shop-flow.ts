@@ -54,6 +54,8 @@ import { flagPaymentForSupport, lockIntent, transitionIntent } from "@/server/pa
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { recordConsent } from "@/server/services/consents";
 import { getRule } from "@/server/services/settings";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { getOrCreateShopWallet } from "@/server/services/shop-wallet";
 import { auditActorOf, findOpenDraft, lockOpenDraft, message, type Actor } from "@/server/services/shop-registration-draft";
 import { getWizardDraft, submitDraftDocument, submitDraftForPayment, toWizardView, type WizardView } from "@/server/services/shop-registration-wizard";
 import { onboardingV2Enabled, recordRoleChange } from "./roles";
@@ -595,6 +597,11 @@ export async function afterV2ShopCreated(shop: Shop, actor: Actor): Promise<void
   }).catch((error: unknown) => console.error("[onboarding-v2] role history not written", shop.id, error));
   // The fee paid on the draft: on the shop's ledger now; if this fails it is retried (ensureV2FeeOnLedger).
   await ensureV2FeeOnLedger(shop.id).catch((error: unknown) => console.error("[onboarding-v2] draft fee not on the shop's ledger yet (retried)", shop.id, error));
+  // docs/flows-v3 (flag flow_f14): the shop's prepaid wallet exists from the start (zero balance; idempotent).
+  // Off: it is created on first use, as before.
+  if (await isFeatureEnabled("flow_f14").catch(() => false)) {
+    await getOrCreateShopWallet(shop.id).catch((error: unknown) => console.error("[onboarding-v2] shop wallet not created yet (created on first use)", shop.id, error));
+  }
 }
 
 /**
