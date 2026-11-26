@@ -165,7 +165,12 @@ async function rankCandidates(
   // preferred over a free rider up to batch.preferenceKm further away.
   const busy = (c: Candidate) => c.activeCount > 0 && !batch.compatible.has(c.partner.id);
   const batchScore = (c: Candidate) => score(c) - (batch.compatible.has(c.partner.id) ? batch.preferenceKm : 0);
-  return [...pool].sort((a, b) => Number(busy(a)) - Number(busy(b)) || batchScore(a) - batchScore(b));
+  // Rider App v2: within free / busy, a rider who booked the running slot, then a priority-tier
+  // rider, goes before everyone else (findEligiblePartnersNearShop sets `priority`). The score only
+  // orders riders inside one group, so the nudges above never undo that promise.
+  return [...pool].sort(
+    (a, b) => Number(busy(a)) - Number(busy(b)) || a.priority - b.priority || batchScore(a) - batchScore(b),
+  );
 }
 
 /** 4-digit code; crypto-random so it cannot be predicted from timing. */
