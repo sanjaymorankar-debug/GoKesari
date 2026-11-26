@@ -31,6 +31,8 @@ export const DOCUMENT_TYPES = [
   "HEALTH_PRESCRIPTION",
   // docs/shop-welcome-kit-2026-11: the welcome e-mail with the shop's printable banner; docId is the shop.
   "SHOP_WELCOME_KIT",
+  // 26-Nov-2026: an admin's "Resend updated banner" (same banners, no second congratulations); docId is the shop.
+  "SHOP_BANNER_UPDATE",
   // docs/seller-agreements-2026-11: the signed agreements (EN / MR / HI PDFs, banners); docId is legal_agreement_emails.id.
   "SELLER_AGREEMENTS",
 ] as const;
@@ -140,6 +142,10 @@ export async function renderDocumentAttachments(docType: string, docId: string):
     case "SHOP_WELCOME_KIT": {
       const { renderShopWelcomeKit } = await import("@/server/shop-banner/welcome-kit");
       return renderShopWelcomeKit(docId);
+    }
+    case "SHOP_BANNER_UPDATE": {
+      const { renderShopWelcomeKit } = await import("@/server/shop-banner/welcome-kit");
+      return renderShopWelcomeKit(docId, "update");
     }
     case "PLATFORM_INVOICE": {
       const { renderPlatformInvoiceById } = await import("@/server/platform-invoices/service");

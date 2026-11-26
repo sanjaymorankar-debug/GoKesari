@@ -186,6 +186,8 @@ export const EVERY_MINUTE: readonly Job[] = [
   { name: "payments-reconcile", everyMinutes: 5, run: paymentsReconcile },
   { name: "operator-onboarding", everyMinutes: 5, run: async () => (await import("@/server/services/operator-limited")).sweepOnboardingFees() },
   { name: "document-emails", everyMinutes: 5, run: async () => (await import("@/server/documents/email")).deliverDocumentEmails() },
+  // docs/shop-welcome-kit-2026-11 (26-Nov-2026): shops that went live after 0214 without a welcome kit get one.
+  { name: "welcome-kit-safety-net", everyMinutes: 15, run: async () => (await import("@/server/shop-banner/welcome-kit")).runWelcomeKitSafetyNet() },
   { name: "bill-captures", everyMinutes: 10, run: async () => (await import("@/server/accounts/capture/service")).dispatchCaptures(10) },
   { name: "push-receipts", everyMinutes: 15, run: async () => (await import("@/server/notifications/push/receipts")).checkPushReceipts() },
   // 0157 franchise (docs/franchise): holds released, areas expired, reminders from 10:00 IST, the 09:00 IST digest,

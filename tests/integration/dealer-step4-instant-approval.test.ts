@@ -26,6 +26,7 @@ import { submitLegalDocument } from "@/server/services/legal-documents";
 import { runSellerVerificationSweep } from "@/server/services/seller-verification-jobs";
 import { recordPayment } from "@/server/services/shop-payments";
 import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
+import { welcomeKitCount } from "../helpers/welcome-kit";
 
 let admin: { id: string; role: "ADMIN" };
 
@@ -88,6 +89,8 @@ describe("approved with no admin step (scenarios 20, 21)", () => {
 
     await payOnline(shop.id);
     expect(await statusOf(shop.id)).toBe("APPROVED");
+    // TC-WKIT-037 (26-Nov-2026): instant GST/PAN approval queues exactly one welcome kit.
+    expect(await welcomeKitCount(shop.id)).toBe(1);
     const log = await lastLog(shop.id);
     expect(log.outcome).toBe("APPROVED");
     expect(log.evidence).toMatchObject({
@@ -117,6 +120,7 @@ describe("approved with no admin step (scenarios 20, 21)", () => {
     await otherDocuments(shop.id, actor, { noGst: true });
     await payOnline(shop.id);
     expect(await statusOf(shop.id)).toBe("APPROVED");
+    expect(await welcomeKitCount(shop.id)).toBe(1); // TC-WKIT-037, PAN only
     expect((await lastLog(shop.id)).evidence).toMatchObject({ pan: { status: "VERIFIED", sourceStatus: "active" } });
   });
 });

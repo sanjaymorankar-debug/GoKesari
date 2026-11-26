@@ -27,8 +27,13 @@ Brief received 25-Nov-2026 21.10 IST. PR: [#582](https://github.com/sanjaymorank
 | Flow check (Part 3 + tap counts), 9 checks × 5 phone widths | local production build | 21.51 | 21.53 | **45/45 pass** |
 | Shop home: today's sales, Accept and Reject from the card (375, 390 px) | local production build | 22.18 | 22.38 | Pass: UX-6/UX-8 accepted, UX-7/UX-8 rejected (database shows ACCEPTED / CANCELLED); "New orders (5)" → "(3)" |
 | Customer orders + rider: small-target count and audit, 3 screens × 8 widths | local production build | 21.58 | 22.14 | customer 39 → 0 and rider 2 → 0 small targets on phones; rider tabs: applicant Home · Documents · Account, approved rider all five; Earnings/Payouts scroll to their sections (top at 80 px). Approved riders' "KYC" / "Police verification" alert links (17 px tall) enlarged afterwards — typecheck only, to see on staging |
-| Staging run | test.gokesari.com | — | — | waiting in the staging queue |
-| Production run | gokesari.com | — | — | waiting for the 26-Nov 23.00 release |
+| Staging queue, batch #597 (#582 + #583) | test.gokesari.com | 26-Nov 10.04 | 10.51 | merged; marked staging-failed on 3 guest checks (TC-RBAC-002, TC-SREF-002, TC-MKT-018) that belong to #573 — its fix #598 was not yet in the batch. #598 verified 11.29 |
+| After audit, 8 roles/screens × 8 widths | test.gokesari.com (498a0c74) | 26-Nov 10.59 | 11.03 | 64 screens; 0 sideways scroll, 0 inputs < 16 px on every phone width; 0 small targets on admin, operator, rider and customer orders; the 2 on shop screens were on the Seller undertaking page |
+| Flow check, 9 checks × 5 phone widths | test.gokesari.com, test shop "E2E Four Features Bakery" (165 listings) | 26-Nov 11.10 | 11.13 | **45/45 pass** (430 px "Pause → Resume" timed out once, passed on two reruns). Needs Price 137 → 67: about 70 of the test shop's products were priced by the script and are now live on staging |
+| Production release #608 (staging d795be3a, with #558, #572, #573 + #598, #582, #583) | gokesari.com | 26-Nov 11.40 | 11.40 | merged 11.40 (my duplicate #607 closed); live on 8622344c; Post-deploy check passed |
+| Guest QA tier (production-safe) | gokesari.com | 26-Nov 12.08 | 12.20 | **126 pass, 0 fail**, 152 skipped (sign-in / writes not run on production). TC-RBAC-002 first failed on `/invite/[code]` because the local test list predated #598; passed after updating to main |
+| Guest audit, 5 public pages × 8 widths | gokesari.com | 26-Nov 12.10 | 12.14 | 0 sideways scroll, 0 inputs < 16 px on phones; shop page /shops/shriniwas-foods-lz5p3 loads clean (no errors, no broken images) |
+| Signed-in production run (shop owner flow) | gokesari.com | — | — | needs a production test shop account and its sign-in code (owner) |
 
 ## Issues found and fixed (P1 = blocks or misleads, P2 = slows or confuses, P3 = polish)
 
@@ -114,9 +119,9 @@ staging/production list needs a server-side query, because this Mac's SSH key is
 
 ## Open items
 
-1. **Staging and production deploy.** The queue resumes after #581, and #582 has 18 PRs ahead of it.
-   Production goes out in the 23.00 IST window once #582 is verified (earliest 26-Nov). Prod Part 3
-   then runs with test accounts only, followed by cleanup.
+1. **Production signed-in run.** Live on gokesari.com since 26-Nov 11.40 IST. The shop owner flow
+   (Part 3) on production still needs a production test shop account and its sign-in code; nothing
+   was written to production yet, so there is nothing to clean up.
 2. Real-device check on iPhone SE / 15 / 15 Pro Max and two Android phones (owner or tester).
    This includes the app WebView and the first-visit tour.
 4. Fix the 19 pack sizes and decide how master MRPs get filled for the 509 packaged products.

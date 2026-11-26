@@ -53,6 +53,10 @@ export const AUDIT_ACTIONS = {
   /** docs/shop-welcome-kit-2026-11: an admin sent the welcome kit (printable QR banners) to a shop that was already live, or to a city / district. */
   SHOP_WELCOME_KIT_SENT: "shop.welcome_kit_sent",
   SHOP_WELCOME_KIT_BULK_SENT: "shop.welcome_kit_bulk_sent",
+  /** 26-Nov-2026: an admin re-sent one shop its current banners (owner line, UPI QR). */
+  SHOP_BANNER_RESENT: "shop.banner_resent",
+  /** 26-Nov-2026: the owner saved or removed an uploaded payment QR for the banner. */
+  SHOP_BANNER_UPI_QR_CHANGED: "shop.banner_upi_qr_changed",
   SHOP_REJECTED: "shop.rejected",
   SHOP_APPROVED_WITHOUT_DOCUMENTS: "shop.approved_without_documents",
   /** 0159 (owner request 21-Nov-2026): an admin approved a food shop without its FSSAI licence; due date recorded. */
