@@ -90,6 +90,8 @@ export async function needsSignupReferralCode(userId: string): Promise<boolean> 
 
 /** Refuses a first order (checkout, a new subscription) from a customer who still needs a code. */
 export async function assertSignupReferralForFirstOrder(userId: string): Promise<void> {
+  // docs/flows-v3/wave2.md (flag flow_f2): no code before the first order; it is optional after payment.
+  if (await (await import("@/server/flows/wave2-rules")).flowOn("flow_f2")) return;
   if (await needsSignupReferralCode(userId)) {
     throw conflict("Enter your referral code before your first order — or ask us for one in My referral code.", {
       needsReferralCode: true,
