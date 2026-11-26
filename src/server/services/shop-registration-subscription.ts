@@ -859,9 +859,13 @@ export interface MarkPaidInput {
  * becomes owed, so the shop is UNPAID: it gets a payment link now (in-app + push + e-mail) and the
  * automatic unpaid reminders until it pays. The shop stays live meanwhile. Paying opens its 1-year period.
  */
-/** A new shop's registration fee today (no coupon): base + GST — the default when asking a ₹0 shop for its fee. */
+/**
+ * A new shop's registration fee today (no coupon): base + GST — the default when asking a ₹0 shop for its fee.
+ * With the turnover-slab rule on (production), the lowest slab is the standard fee; without a turnover the
+ * scheduled fee alone is ₹0 there, which left the Ask fee dialog empty (27-Nov-2026).
+ */
 export async function newRegistrationFeeQuote(now = new Date()): Promise<{ basePaise: number; gstRateBp: number; gstPaise: number; totalPaise: number }> {
-  const [{ basePaise }, gstRateBp] = await Promise.all([baseRegistrationFee(null), registrationFeeGstRateBp(now)]);
+  const [{ basePaise }, gstRateBp] = await Promise.all([baseRegistrationFee(0), registrationFeeGstRateBp(now)]);
   const gstPaise = Math.round((basePaise * gstRateBp) / 10_000);
   return { basePaise, gstRateBp, gstPaise, totalPaise: basePaise + gstPaise };
 }

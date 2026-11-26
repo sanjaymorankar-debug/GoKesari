@@ -25,6 +25,7 @@ import {
   createRegistrationLink,
   listShopRegistrations,
   markRegistrationPaid,
+  newRegistrationFeeQuote,
   requestRegistrationFee,
   runRegistrationSubscriptionJob,
   sendRegistrationReminders,
@@ -230,6 +231,16 @@ describe("ask a live ₹0 shop for its registration fee (26-Nov-2026)", () => {
     const paid = await shopRow(shop.id);
     expect(paid).toMatchObject({ feePaymentStatus: "PAID", registrationStatus: "ACTIVE", amountPaidPaise: 117_800 });
     expect(paid.membershipValidUntil).not.toBeNull();
+  });
+
+  it("with turnover slabs on, the default fee is the lowest slab with GST (not the ₹0 scheduled fee)", async () => {
+    await setRule("registrationFeeByTurnover", { enabled: true, slabs: [{ upToRupees: 20_000_000, feePaise: 99_900 }, { upToRupees: null, feePaise: 499_900 }] }, admin);
+    const quote = await newRegistrationFeeQuote();
+    expect(quote.basePaise).toBe(99_900);
+    expect(quote.totalPaise).toBe(99_900 + quote.gstPaise);
+    const { shop } = await freeLiveShop("Slab Live Shop");
+    const r = await requestRegistrationFee(shop.id, { reason: "went live without paying" }, admin);
+    expect(r.amountPaise).toBe(quote.totalPaise);
   });
 
   it("weekly unpaid reminder to a live shop leaves out the no-orders line", async () => {
