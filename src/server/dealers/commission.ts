@@ -1143,7 +1143,7 @@ export async function markPayoutPaid(batchId: string, paymentReference: string, 
         entityType: "dealer_payout_batch",
         entityId: batchId,
         previousValue: { status: b.status },
-        newValue: { status: "PAID", paymentReference: ref, viaProvider: Boolean(options.viaProvider), totalPaise: b.totalPaise, tdsPaise: b.tdsPaise, netPaise: b.totalPaise - b.tdsPaise },
+        newValue: { status: "PAID", paymentReference: ref, viaProvider: Boolean(options.viaProvider), totalPaise: b.totalPaise, tdsPaise: b.tdsPaise, netPaise: b.totalPaise + b.gstPaise - b.tdsPaise, ...(b.gstPaise ? { gstPaise: b.gstPaise } : {}) },
       },
       tx,
     );
@@ -1154,7 +1154,7 @@ export async function markPayoutPaid(batchId: string, paymentReference: string, 
     ? await db.select({ userId: dealerSalespeople.userId }).from(dealerSalespeople).where(eq(dealerSalespeople.id, batch.memberId))
     : await db.select({ userId: dealers.userId }).from(dealers).where(eq(dealers.id, batch.dealerId));
   if (payee?.userId) {
-    const net = batch.totalPaise - batch.tdsPaise;
+    const net = batch.totalPaise + batch.gstPaise - batch.tdsPaise;
     await notify({ userId: payee.userId, type: NOTIFICATION_TYPES.DEALER_PAYOUT_PAID, vars: { amount: `₹${(net / 100).toLocaleString("en-IN")}`, reference: ref }, actionUrl: "/dealer", channels: ["PUSH"], dedupeKey: `dealer-payout:${batchId}` });
   }
   return batch;

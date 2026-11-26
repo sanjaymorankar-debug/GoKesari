@@ -39,7 +39,8 @@ interface Actor {
 const SYSTEM = { id: null as string | null, role: null as UserRole | null };
 
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: paise % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
-const net = (b: Pick<DealerPayoutBatch, "totalPaise" | "tdsPaise">) => b.totalPaise - b.tdsPaise;
+/** The transfer: gross + GST (0 unless flag flow_f22 drafted it, docs/flows-v3/wave4.md) − TDS. */
+const net = (b: Pick<DealerPayoutBatch, "totalPaise" | "tdsPaise" | "gstPaise">) => b.totalPaise + (b.gstPaise ?? 0) - b.tdsPaise;
 
 interface Beneficiary {
   name: string;
