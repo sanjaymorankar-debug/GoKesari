@@ -104,6 +104,9 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   seller_agreements_enabled: "Shop owners sign the personalised Seller SLA (OTP e-signature)",
   onboarding_v2: "Onboarding v2: sign-in at checkout, shop / franchise / team onboarding",
   dual_auth: "Dual authentication: verified mobile AND e-mail for every account",
+  flow_f4: "Flows v3 F4: WhatsApp + payment QR at registration, agreement e-mailed on acceptance",
+  flow_f5: "Flows v3 F5: licences given at registration count in the shop's register, promises marked given",
+  flow_f6: "Flows v3 F6: first subscription year from go-live, expiry reminders and online renewal on",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -209,6 +212,12 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/onboarding-v2-2026-11 (owner brief 26-Nov-2026): guests browse and fill a cart with no sign-in anywhere; \"Place order\" opens a sign-in sheet (Terms tick, e-mail by Google or link, mobile code) and returns to the cart; the delivery address is asked after payment. Shop registration: identity → referral → GST/PAN → fee → shop type → licences (enter / upload / scan / later) → Seller SLA → address + pin → live. Franchise needs a live shop; free dealers go live at once; paid zones pay a plan up front and go live on payment (no 30-day KYC refund rule). Dealers build \"My team\" by inviting customers, who must accept. Off: every flow behaves exactly as before.",
   dual_auth:
     "docs/dual-auth-2026-11 (owner brief 26-Nov-2026 23.28 IST): an account counts only with a verified mobile (SMS code) and a verified e-mail (code, link or Google). One-factor accounts can browse but must verify the missing factor before ordering, shop / dealer / admin work or withdrawals. Sign-in on a new device asks both factors; a device that finished both is trusted 30 days (customers, shops, dealers, riders: one factor there; staff always both). Changing mobile / e-mail, bank or payout details, withdrawals, team roles and ownership changes always ask a code by SMS AND by e-mail. In force only where SMS codes can be sent.",
+  flow_f4:
+    "docs/flows-v3/wave3.md (F4, rule shopFlowsV3): the onboarding v2 agreement step offers the shop's WhatsApp number and its payment QR, both optional (saved to the shop's settings; the QR is used on the welcome-kit banner); the seller agreement accepted at registration (no OTP) is e-mailed at once in English, Marathi and Hindi — the signed PDFs when the agreements engine made them, otherwise an e-mail with links to the terms. The fee stays the turnover slabs. Off: unchanged.",
+  flow_f5:
+    "docs/flows-v3/wave3.md (F5, rule shopFlowsV3): a licence entered, uploaded or scanned at an onboarding v2 registration is copied into the shop's licence register (submitted; approved once GoKesari's team or the online check verified it; rejected when the team rejects it) at shop creation and on the team's decision, and the daily documents follow-up back-fills older shops — so no register, reminder or suspension asks again for a licence already given. A licence promised at registration and given later is marked given in the registration-licences queue. Off: unchanged.",
+  flow_f6:
+    "docs/flows-v3/wave3.md (F6, rule shopFlowsV3): a new shop's first 12-month registration period starts the day it goes live (not the day the fee was paid); shops already live keep their dates. Expiry reminders (in-app, push, e-mail, payment link) and online renewal run even if rule shopMembership has them off. Off: unchanged.",
 };
 
 export interface FeatureFlagView {

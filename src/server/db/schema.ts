@@ -11197,6 +11197,12 @@ export const FEATURE_FLAG_KEYS = [
   // docs/dual-auth-2026-11 (0219): every account needs a verified mobile AND e-mail; device trust; two codes for
   // sensitive actions. Seeded ON on the staging database (gokesari_test), OFF on production until its test pass.
   "dual_auth",
+  // docs/flows-v3/wave3.md (0221): flow spec v3 wave 3. F4 shop onboarding (WhatsApp + payment QR at registration,
+  // agreement e-mailed on acceptance), F5 licence reminders (registration licences in the shop's register), F6 shop
+  // subscription (first year from go-live; reminders and online renewal on). Seeded ON on staging, OFF on production.
+  "flow_f4",
+  "flow_f5",
+  "flow_f6",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
