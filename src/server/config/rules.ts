@@ -1530,6 +1530,95 @@ export const RULES = {
       takenNoticeSeconds: 120,
     },
   },
+  /* >>> Rider App v2 (docs/rider-app-v2-2026-11; drizzle/0212) — every switch ON by default (owner, 26-Nov-2026) */
+  riderAppV2: {
+    description:
+      "Rider App v2 screens. Off: the rider dashboard as before. On (default): riders get the bottom bar (Home · Earnings · My Slots · Refer · More), the header with Online/Offline, Help, SOS and tier badge, the Home tiles, the high-earning-slot banner, the daily incentive ladder, and the Mon–Sun earnings week with cash in hand shown apart.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: true },
+  },
+  riderPayPlans: {
+    description:
+      "Rider pay plans (admin: Rider pay plans). Off: riders are paid the flat base + per-km rate with slots and incentives, exactly as before. On (default): every new offer is priced from the active pay plan for the shop's zone, city or the default plan (km slabs, first mile, wait pay, extra drops, long-distance bonus, surge, minimum and cap). The rider sees 'You earn ₹X' on the offer and that quote is locked when they accept; deliveries quoted before the switch keep their amounts.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: true },
+  },
+  riderJobBoard: {
+    description:
+      "Available Deliveries list. Off: riders only get the offers sent to them. On (default): an online, verified rider also sees open jobs near them (within their operating radius, at most maxRadiusKm from the shop, allowed by the society), nearest first, each with 'You earn ₹X', and can accept one (the first rider to accept gets it) or pass with a reason. The list refreshes every pollSeconds.",
+    schema: z.object({
+      enabled: z.boolean(),
+      maxJobs: int(5, 200),
+      maxRadiusKm: z.number().min(0.5).max(50),
+      pollSeconds: int(3, 120),
+    }),
+    defaults: { enabled: true, maxJobs: 50, maxRadiusKm: 8, pollSeconds: 10 },
+  },
+  riderSlotBooking: {
+    description:
+      "Optional slot booking. Off: no booking, as before. On (default): riders see the bookable slots (Rider earnings → slots marked bookable) for the next daysAhead days with their pay boost and may book or cancel (cancel up to cancelCutoffMinutes before the start). A booked rider who is online in that slot is offered jobs before riders who did not book. Riders are reminded reminderMinutes before the slot. Shifts stay optional.",
+    schema: z.object({
+      enabled: z.boolean(),
+      daysAhead: int(1, 14),
+      cancelCutoffMinutes: int(0, 1440),
+      reminderMinutes: int(5, 120),
+    }),
+    defaults: { enabled: true, daysAhead: 7, cancelCutoffMinutes: 60, reminderMinutes: 15 },
+  },
+  riderReferral: {
+    description:
+      "Rider Refer & Earn. Off: no rider referral codes. On (default): every approved rider has a code and link; a new rider who signs up with it and completes deliveriesRequired deliveries within withinDays of approval earns the referrer rewardPaise (paid as an earnings adjustment with the next payout). Terms are fixed for each referral when it is made.",
+    schema: z.object({
+      enabled: z.boolean(),
+      rewardPaise: int(0, 10_000_000),
+      deliveriesRequired: int(1, 1000),
+      withinDays: int(1, 365),
+    }),
+    defaults: { enabled: true, rewardPaise: 50_000, deliveriesRequired: 20, withinDays: 30 },
+  },
+  riderTiers: {
+    description:
+      "Rider tier badge. Off: no tiers. On (default): each rider's tier is worked out from the last 7 days (deliveries, rating, acceptance %, on-time %) against the tiers below, highest first; the rider sees the tier and what the next one needs. Tiers with priority on are offered jobs before lower tiers; extraIncentivePct is shown as a perk (paid through incentive rules).",
+    schema: z.object({
+      enabled: z.boolean(),
+      tiers: z
+        .array(
+          z.object({
+            name: z.string().min(1).max(40),
+            minDeliveries: int(0, 10_000),
+            minRatingX100: int(0, 500),
+            minAcceptancePct: int(0, 100),
+            minOnTimePct: int(0, 100),
+            extraIncentivePct: int(0, 100),
+            priority: z.boolean(),
+          }),
+        )
+        .min(1)
+        .max(8),
+    }),
+    defaults: {
+      enabled: true,
+      tiers: [
+        { name: "Bronze", minDeliveries: 0, minRatingX100: 0, minAcceptancePct: 0, minOnTimePct: 0, extraIncentivePct: 0, priority: false },
+        { name: "Silver", minDeliveries: 30, minRatingX100: 400, minAcceptancePct: 70, minOnTimePct: 80, extraIncentivePct: 2, priority: false },
+        { name: "Gold", minDeliveries: 70, minRatingX100: 440, minAcceptancePct: 80, minOnTimePct: 90, extraIncentivePct: 5, priority: true },
+        { name: "Kesari Star", minDeliveries: 120, minRatingX100: 470, minAcceptancePct: 90, minOnTimePct: 95, extraIncentivePct: 8, priority: true },
+      ],
+    },
+  },
+  riderSos: {
+    description:
+      "Rider SOS. Off: no SOS button. On (default): the rider header shows SOS — one tap, confirm, the phone dials emergencyNumber and operations are alerted at once with the rider's live location, active order and phone; ops acknowledge it on Admin → Rider SOS and the rider is told.",
+    schema: z.object({ enabled: z.boolean(), emergencyNumber: z.string().regex(/^\d{3,12}$/) }),
+    defaults: { enabled: true, emergencyNumber: "112" },
+  },
+  riderInsurance: {
+    description:
+      "Rider insurance screen. Off: hidden. On (default): riders see the active insurance policy (Admin → Rider insurance) — covers, eligibility, nominee, network hospitals, raise a claim (a support ticket). With no active policy the screen says 'Coming soon'.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: true },
+  },
+  /* <<< Rider App v2 */
   pickupQr: {
     description:
       "Pickup by QR code (F4.1.3). Off (default): the rider types the 4-digit pickup code the shop reads out, as before. On: every packed order (ready or rider assigned) shows a signed, single-use QR on the shop's order screen and its printable packing slip; the rider scans it with the phone camera to confirm pickup (the scan's time and the rider's location are recorded and the customer is told at once). A QR stops working after tokenTtlMinutes, once used, or when the order is no longer waiting for pickup. The typed code always remains as a fallback. With requireGps on, a scan without the rider's location is refused (the code still works). Needs the secret PICKUP_QR_SECRET in production.",

@@ -265,8 +265,9 @@ function Partners() {
       <ul className="list-disc pl-5">
         <li><Link className="text-kesari-600 hover:underline" href="/admin/console/riders">Riders and applications</Link></li>
         <li><Link className="text-kesari-600 hover:underline" href="/admin/rider-kyc">Rider documents</Link> · <Link className="text-kesari-600 hover:underline" href="/admin/rider-verification">Rider verification</Link> · <Link className="text-kesari-600 hover:underline" href="/admin/rider-changes">Profile changes</Link></li>
-        <li><Link className="text-kesari-600 hover:underline" href="/admin/rider-earnings">Rider pay rules</Link> · <Link className="text-kesari-600 hover:underline" href="/admin/rider-payouts">Rider payouts</Link></li>
+        <li><Link className="text-kesari-600 hover:underline" href="/admin/rider-earnings">Rider pay rules</Link> · <Link className="text-kesari-600 hover:underline" href="/admin/rider-pay-plans">Rider pay plans</Link> · <Link className="text-kesari-600 hover:underline" href="/admin/rider-payouts">Rider payouts</Link></li>
         <li><Link className="text-kesari-600 hover:underline" href="/admin/ratings">Ratings</Link> · <Link className="text-kesari-600 hover:underline" href="/admin/console/grievances">Complaints</Link> · <Link className="text-kesari-600 hover:underline" href="/admin/disputes">Incidents and disputes</Link></li>
+        <li><Link className="text-kesari-600 hover:underline" href="/admin/rider-sos">Rider SOS</Link> · <Link className="text-kesari-600 hover:underline" href="/admin/rider-insurance">Rider insurance</Link></li>
       </ul>
     </Card>
   );
