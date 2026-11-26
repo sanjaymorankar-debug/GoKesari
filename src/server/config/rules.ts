@@ -291,6 +291,38 @@ export const RULES = {
       applyWithinDays: 30,
     },
   },
+  onboardingV2: {
+    description:
+      "Onboarding v2 (docs/onboarding-v2-2026-11; flag onboarding_v2). Shop registration fee by kind (paid straight after GST/PAN verification, online only), the base delivery fee shown at checkout before the address is known, team invitations and whether team leads may add agents under themselves.",
+    schema: z.object({
+      /** DEFAULT – confirm with Sanjay: brief says ₹1,000 shop / ₹2,500 wholesale; stored before GST like the existing fee rules. */
+      shopFeePaise: int(0, 10_000_000),
+      wholesaleFeePaise: int(0, 10_000_000),
+      /** DEFAULT – confirm with Sanjay: GST is added on top of the fee (as registrationFeeByTurnover does). */
+      feeGstExtra: z.boolean(),
+      /** DEFAULT – confirm with Sanjay: delivery fee estimate when neither GPS nor a saved address is available (default ₹30). */
+      baseDeliveryFeePaise: int(0, 1_000_000),
+      /** Default 5 (brief "Defaults chosen" #5): team leads may add agents under themselves. */
+      teamLeadsCanAddAgents: z.boolean(),
+      /** DEFAULT – confirm with Sanjay: a team invitation link stays valid 7 days. */
+      teamInviteExpiryDays: int(1, 90),
+      /**
+       * DEFAULT – confirm with Sanjay: the customer mobile code is mandatory, but where no SMS provider is set up
+       * (gokesari.com has none today) the mobile is saved unverified instead of blocking every new customer.
+       * Switch off once SMS is live to make the code strictly required.
+       */
+      mobileOtpFallbackWhenNoSms: z.boolean(),
+    }),
+    defaults: {
+      shopFeePaise: 100_000,
+      wholesaleFeePaise: 250_000,
+      feeGstExtra: true,
+      baseDeliveryFeePaise: 3_000,
+      teamLeadsCanAddAgents: true,
+      teamInviteExpiryDays: 7,
+      mobileOtpFallbackWhenNoSms: true,
+    },
+  },
   referralSharing: {
     description:
       "Referral sharing (docs/referral-sharing-2026-11). On: dealers, team leads, agents, franchise owners, shops and customers see Share buttons (WhatsApp, SMS, email, the phone's share sheet, copy link) for their own referral link /r/<code>; every share and link click is logged, a link opened before the app was installed is offered to the new account (deferred link), and the sign-up pages show \"Referred by <name>\". Off: the original WhatsApp / Copy link buttons only and nothing is logged. Rewards and commission are not changed by this switch.",

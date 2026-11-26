@@ -251,6 +251,8 @@ export const franchiseBookings = pgTable("franchise_bookings", {
   agreementAcceptanceId: uuid("agreement_acceptance_id"),
   renewalAllocationId: uuid("renewal_allocation_id"),
   paymentIntentId: uuid("payment_intent_id"),
+  /** docs/onboarding-v2-2026-11 (0215): franchise_plans.id the booking was bought on; null = before plans. */
+  planId: uuid("plan_id"),
   holdExpiresAt: ts("hold_expires_at").notNull(),
   paidAt: ts("paid_at"),
   failureReason: text("failure_reason"),

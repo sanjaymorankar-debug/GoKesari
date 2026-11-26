@@ -1506,6 +1506,13 @@
       "when": 1793271400000,
       "tag": "0214_shop_banner_upi_qr",
       "breakpoints": true
+    },
+    {
+      "idx": 215,
+      "version": "7",
+      "when": 1793271500000,
+      "tag": "0215_onboarding_v2",
+      "breakpoints": true
     }
   ]
 }
