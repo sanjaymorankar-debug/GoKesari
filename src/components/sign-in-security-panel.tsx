@@ -9,7 +9,7 @@ type Audience = "customers" | "shopOwners";
 
 /** Admin → Sign-in security data (src/server/otp/sign-in-security.ts), dates as ISO strings. */
 export interface SignInSecurityData {
-  provider: { mode: "none" | "mock" | "msg91"; configured: string; problem: string | null; ruleSmsEnabled: boolean; available: boolean };
+  provider: { mode: "none" | "mock" | "msg91" | "smsfortius"; configured: string; problem: string | null; ruleSmsEnabled: boolean; available: boolean };
   audiences: {
     audience: Audience;
     flag: string;
@@ -41,6 +41,7 @@ const PROVIDER_LABEL: Record<SignInSecurityData["provider"]["mode"], string> = {
   none: "none — SMS codes cannot be sent",
   mock: "mock — codes go to Admin → Test messages (test site only)",
   msg91: "MSG91 configured (DLT template)",
+  smsfortius: "SMSFortius configured (DLT template)",
 };
 
 function ProviderLine({ provider }: { provider: SignInSecurityData["provider"] }) {

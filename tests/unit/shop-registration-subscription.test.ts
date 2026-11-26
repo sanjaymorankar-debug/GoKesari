@@ -99,6 +99,13 @@ describe("reminderText", () => {
     expect(t.message).toContain("will not receive orders");
     expect(t.message).toContain("आत्ताच भरा: https://x/pay");
   });
+  it("unpaid but already live: asks for the fee without the no-orders line", () => {
+    const t = reminderText({ kind: "UNPAID", shopName: "Ram Dairy", status: "UNPAID", expiresOn: null, amount: "₹1,178.00", link: "https://x/pay", daysLeft: null, live: true });
+    expect(t.message).not.toContain("will not receive orders");
+    expect(t.message).not.toContain("ऑर्डर मिळणार नाहीत");
+    expect(t.message).toContain("Please pay the registration fee of ₹1,178.00");
+    expect(t.message).toContain("Pay now: https://x/pay");
+  });
   it("renewal: days left, expired wording", () => {
     expect(reminderText({ kind: "RENEWAL", shopName: "A", status: "EXPIRING_SOON", expiresOn: "1 Dec 2026", amount: "₹1,000.00", link: "L", daysLeft: 15 }).title).toContain("in 15 days");
     expect(reminderText({ kind: "RENEWAL", shopName: "A", status: "EXPIRED", expiresOn: "1 Dec 2026", amount: "₹1,000.00", link: "L", daysLeft: -9 }).message).toContain("hidden from customers");
