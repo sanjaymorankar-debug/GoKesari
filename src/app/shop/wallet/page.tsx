@@ -10,6 +10,7 @@ import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getShopWalletView } from "@/server/services/shop-wallet";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { listShopsForOwner } from "@/server/services/shops";
 
 export const metadata = { title: "Shop Wallet" };
@@ -61,6 +62,7 @@ const T = {
   reason: L("Reason", "कारण", "कारण"),
   amount: L("Amount", "रकम", "रक्कम"),
   balanceAfter: L("Balance after", "बाद का बैलेंस", "नंतरची शिल्लक"),
+  download: L("Download this month (CSV)", "इस महीने का डाउनलोड (CSV)", "या महिन्याचे डाउनलोड (CSV)"),
 } as const;
 
 const dateTime = (d: Date) =>
@@ -79,7 +81,12 @@ export default async function ShopWalletPage() {
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
   const shop = await activeShop(shops);
-  const [wallet, lang] = await Promise.all([getShopWalletView(shop.id, { limit: 100 }), getBoardLang()]);
+  const [wallet, lang, ledgerDownload] = await Promise.all([
+    getShopWalletView(shop.id, { limit: 100 }),
+    getBoardLang(),
+    // docs/flows-v3 (flag flow_f14): the monthly ledger as CSV, without needing billing v2.
+    isFeatureEnabled("flow_f14").catch(() => false),
+  ]);
 
   return (
     <>
@@ -143,6 +150,17 @@ export default async function ShopWalletPage() {
       ) : null}
 
       <Section id="history" title={tr(T.history, lang)}>
+        {ledgerDownload ? (
+          <p className="mb-3">
+            <a
+              href={`/api/shops/${shop.id}/wallet/statement`}
+              className="inline-flex min-h-11 items-center rounded-xl bg-kesari-700 px-3 text-sm font-bold text-white hover:bg-kesari-800"
+              data-testid="shop-wallet-download"
+            >
+              {tr(T.download, lang)}
+            </a>
+          </p>
+        ) : null}
         {wallet.transactions.length === 0 ? (
           <EmptyState title={tr(T.noEntries, lang)} />
         ) : (

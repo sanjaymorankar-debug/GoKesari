@@ -259,6 +259,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Policy" before the Google redirect or the email-link request can be submitted — that checkbox
       // is the affirmative action DPDPA §6 requires; this is where it gets
       // recorded so it is demonstrable later (§ "Your rights").
+      // docs/flows-v3 (flag flow_f1): the signed tick kept by the /signin action, with its own time, version and
+      // channel. Off, or no tick on this device: recorded as before.
+      const { recordSignUpTermsFromCookie } = await import("@/server/flows/signup-terms");
+      if (await recordSignUpTermsFromCookie(user.id).catch(() => false)) return;
       await recordConsent(user.id, "TERMS_AND_PRIVACY").catch((error) => {
         console.error("[auth] failed to record sign-up consent", error);
       });

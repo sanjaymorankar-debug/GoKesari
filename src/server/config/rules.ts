@@ -2460,6 +2460,35 @@ export const RULES = {
       },
     },
   },
+  /* >>> docs/flows-v3 (wave 1, flag flow_f17): used only while the flag is on. */
+  supportFlows: {
+    description:
+      "Flow spec v3, F17 support (docs/flows-v3/wave1.md; used only while the feature flag flow_f17 is on). autoAssign: a new ticket goes to the least-loaded person named in Admin → Support → Routing for its category and the shop's district (no match: the manual queue, as before). ccAreaDealer: the dealer the shop is attributed to sees the shop's tickets (read-only) and is told when one opens. firstResponseWorkingHours: the first reply is due within this many working hours (workingDays, 0 = Sunday … 6 = Saturday, from workdayStartHour to workdayEndHour, India time), never later than the statutory help-desk acknowledgement deadline; the hourly help-desk job escalates a miss as before. reopenWithinDays: the requester may reopen a resolved or closed ticket within this many days of its resolution. recoveryPerIpPerHour: how many account-recovery requests one address may send in an hour.",
+    schema: z.object({
+      autoAssign: z.boolean(),
+      ccAreaDealer: z.boolean(),
+      firstResponseWorkingHours: int(1, 48),
+      workingDays: z.array(int(0, 6)).min(1).max(7),
+      workdayStartHour: int(0, 23),
+      workdayEndHour: int(1, 24),
+      reopenWithinDays: int(1, 60),
+      recoveryPerIpPerHour: int(1, 50),
+    }),
+    defaults: {
+      autoAssign: true,
+      ccAreaDealer: true,
+      // DEFAULT – confirm with Sanjay: first response within 4 working hours, Monday–Saturday 10:00–19:00 IST.
+      firstResponseWorkingHours: 4,
+      workingDays: [1, 2, 3, 4, 5, 6] as number[],
+      workdayStartHour: 10,
+      workdayEndHour: 19,
+      // DEFAULT – confirm with Sanjay: reopen within 7 days of resolution (closed tickets included).
+      reopenWithinDays: 7,
+      // DEFAULT – confirm with Sanjay: 3 recovery requests per address per hour.
+      recoveryPerIpPerHour: 3,
+    },
+  },
+  /* <<< docs/flows-v3 */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

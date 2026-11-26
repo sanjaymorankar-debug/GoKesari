@@ -124,7 +124,7 @@ export async function syncNeedsSecondFactor(userOrId: User | string): Promise<Fa
 }
 
 /** What a one-factor account is about to do (audit and the message). */
-export type GatedAction = "ORDER" | "SHOP" | "DEALER" | "WITHDRAW" | "ADMIN" | "TEAM" | "SENSITIVE";
+export type GatedAction = "ORDER" | "SHOP" | "DEALER" | "WITHDRAW" | "ADMIN" | "TEAM" | "SENSITIVE" | "RIDER";
 
 export function verifyPathFor(returnTo?: string | null): string {
   const safe = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : null;
@@ -178,4 +178,23 @@ export async function missingFactorsForBanner(userId: string): Promise<Factor[]>
   const user = await loadUser(userId);
   if (!user) return [];
   return (await factorState(user)).missing;
+}
+
+/* ------------------------------------------------- riders (docs/flows-v3, flag flow_f1) */
+
+/** docs/flows-v3/wave1.md (F1 → F11): rider application and rider pages ask for both factors while flow_f1 is on. */
+export async function riderDualGateOn(): Promise<boolean> {
+  return isFeatureEnabled("flow_f1").catch(() => false);
+}
+
+/** The rider gate for APIs: as assertDualVerified (needs dual_auth in force too); nothing while flow_f1 is off. */
+export async function assertRiderDualVerified(userId: string, returnTo?: string | null): Promise<void> {
+  if (!(await riderDualGateOn())) return;
+  await assertDualVerified(userId, "RIDER", returnTo);
+}
+
+/** The rider gate for pages: where to send a one-factor account (null = nothing to do, or flow_f1 off). */
+export async function riderDualVerifyRedirect(userId: string, returnTo: string): Promise<string | null> {
+  if (!(await riderDualGateOn())) return null;
+  return dualVerifyRedirect(userId, returnTo);
 }

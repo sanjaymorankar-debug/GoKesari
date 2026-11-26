@@ -23,6 +23,7 @@ import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
+import { systemTicketHook } from "@/server/aftercare/system-ticket-hook";
 import {
   addresses,
   deliveryOrders,
@@ -138,7 +139,7 @@ export async function registerSociety(input: RegisterSocietyInput, actor: Actor)
   if (!input.city.trim()) throw validationFailed("Enter the city.");
   if (!/^[1-9]\d{5}$/.test(input.pincode.trim())) throw validationFailed("Enter a valid 6-digit PIN code.");
 
-  return db.transaction(async (tx) => {
+  const society = await db.transaction(async (tx) => {
     const duplicate = await tx.query.societies.findFirst({
       where: and(
         ilike(societies.name, name),
@@ -185,6 +186,12 @@ export async function registerSociety(input: RegisterSocietyInput, actor: Actor)
     );
     return society;
   });
+  // docs/flows-v3 (flag flow_f17): a new society application opens an operator review ticket.
+  await systemTicketHook("SOCIETY_REVIEW", society.id, {
+    subject: `Society application: ${society.name}`,
+    description: `${society.name}, ${society.city} ${society.pincode} applied to join GoKesari. Verify or reject it in Admin → Societies.`,
+  });
+  return society;
 }
 
 export type SocietyDecision = "verify" | "reject" | "suspend" | "reinstate";
