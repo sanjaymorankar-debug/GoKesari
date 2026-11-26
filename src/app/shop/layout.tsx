@@ -1,6 +1,8 @@
 import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
+import { dualVerifyRedirect } from "@/server/dual-auth/policy";
+
 import { SellerShell } from "@/components/seller/seller-shell";
 import { IdentityGraceBanner } from "@/components/seller/identity-grace-banner";
 import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
@@ -70,6 +72,12 @@ export default async function SellerCentralLayout({ children }: { children: Reac
     user ? listUserRoles(user.id).catch(() => [user.role]) : Promise.resolve([] as UserRole[]),
     user ? unreadCount(user.id).catch(() => 0) : Promise.resolve(0),
   ]);
+  // docs/dual-auth-2026-11 (flag dual_auth): a shop owner with one verified factor (e.g. registered with a mobile
+  // number alone) verifies the missing one first; the shop stays live meanwhile. Registration is never blocked.
+  if (user && shops.length > 0 && !isRegistrationPath(path)) {
+    const verifyAt = await dualVerifyRedirect(user.id, path || "/shop").catch(() => null);
+    if (verifyAt) redirect(verifyAt);
+  }
   // docs/seller-undertaking-2026-11: with the flag on, an owner who has not accepted the current
   // undertaking + Seller Terms sees the acknowledgement instead of any Seller Central page. Registration
   // (/shop/register, /shop/join) has its own checkboxes and is never blocked. Best-effort: an error never

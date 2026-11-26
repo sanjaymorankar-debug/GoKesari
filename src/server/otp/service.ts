@@ -35,6 +35,8 @@ import { AUDIT_ACTIONS, recordAudit, type AuditAction } from "@/server/services/
 import { recordConsent } from "@/server/services/consents";
 import { NOTIFICATION_TYPES, notifyEvent } from "@/server/services/notifications";
 import { grantRole } from "@/server/services/roles";
+import type { RuleValue } from "@/server/config/rules";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { getRule } from "@/server/services/settings";
 import { getOtpProvider } from "./providers";
 
@@ -62,7 +64,13 @@ export type OtpPurpose =
   | "LOGIN_SMS"
   | "CHECKOUT"
   /** docs/seller-agreements-2026-11: the SMS code a shop owner signs their agreements with. */
-  | "LEGAL_ESIGN";
+  | "LEGAL_ESIGN"
+  /** docs/dual-auth-2026-11 (0219): e-mail as the second sign-in factor; the two codes of a sensitive action; completing a missing factor. */
+  | "LOGIN_EMAIL"
+  | "STEP_UP_SMS"
+  | "STEP_UP_EMAIL"
+  | "DUAL_VERIFY_SMS"
+  | "DUAL_VERIFY_EMAIL";
 type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =
@@ -79,6 +87,8 @@ export type LoginOtpRequestResult =
 export interface VerifiedLogin {
   user: User;
   isNewUser: boolean;
+  /** docs/dual-auth-2026-11: how the code reached the person — the factor this sign-in proved. */
+  channel?: "EMAIL" | "SMS";
   /**
    * docs/account-deletion-2026-11 (0199): the account is hidden in its deletion cooling-off
    * period. Only returned to a caller that passed `allowPendingDeletion`; it must not open a
@@ -91,6 +101,48 @@ export interface VerifiedLogin {
 const isPendingDeletion = (user: Pick<User, "status">) => user.status === "PENDING_DELETION";
 
 /* --------------------------------------------------------------- helpers */
+
+type OtpRules = RuleValue<"otp">;
+
+/**
+ * docs/dual-auth-2026-11 (flag dual_auth): the brief's code limits replace rule `otp`'s for every code while the
+ * flag is on — mobile code 5 min, e-mail code 10 min, resend after 30 s, at most 4 codes (3 resends) per 15 min
+ * per number / e-mail, an IP limit, and a 15-minute lock after 5 wrong codes (rule dualAuth). Flag off: rule `otp`
+ * exactly as before.
+ */
+export async function effectiveOtpRules(channel: "EMAIL" | "SMS"): Promise<OtpRules & { lockout: { wrong: number; minutes: number } | null }> {
+  const base = await getRule("otp");
+  if (!(await isFeatureEnabled("dual_auth").catch(() => false))) return { ...base, lockout: null };
+  const d = await getRule("dualAuth");
+  return {
+    ...base,
+    expiryMinutes: channel === "SMS" ? d.smsExpiryMinutes : d.emailExpiryMinutes,
+    resendCooldownSeconds: d.resendCooldownSeconds,
+    maxResendsPerWindow: d.maxCodesPerWindow,
+    resendWindowMinutes: d.windowMinutes,
+    maxRequestsPerIpPerWindow: d.maxCodesPerIpPerWindow,
+    lockout: { wrong: d.lockoutWrongAttempts, minutes: d.lockoutMinutes },
+  };
+}
+
+export const OTP_LOCKED = (minutes: number) => `Too many wrong codes. For your safety, codes are paused for ${minutes} minutes. Please try again later.`;
+
+/**
+ * dual_auth: wrong codes entered for this number (SMS) or e-mail (EMAIL) in the last `minutes`, across all its
+ * codes. A used code counted one right attempt; every other attempt was wrong.
+ */
+export async function wrongAttemptsFor(key: { channel: "EMAIL" | "SMS"; email: string; phoneE164: string | null }, minutes: number): Promise<number> {
+  const since = new Date(Date.now() - minutes * 60_000);
+  const who =
+    key.channel === "SMS" && key.phoneE164
+      ? and(eq(loginOtps.phoneE164, key.phoneE164), eq(loginOtps.channel, "SMS"))
+      : and(eq(loginOtps.email, key.email), eq(loginOtps.channel, "EMAIL"));
+  const [{ n }] = await db
+    .select({ n: sql<number>`coalesce(sum(${loginOtps.attempts} - case when ${loginOtps.consumedAt} is null then 0 else 1 end), 0)::int` })
+    .from(loginOtps)
+    .where(and(who, gt(loginOtps.createdAt, since)));
+  return Number(n);
+}
 
 function hashCode(salt: string, email: string, code: string): string {
   const mac = createHmac("sha256", getEnv().AUTH_SECRET).update(`${salt}:${email}:${code}`).digest("hex");
@@ -165,15 +217,33 @@ export async function issueCode(input: {
   /** batch-2026-10 WS-D: the email for a purpose other than LOGIN / EMAIL_CHANGE. */
   render?: (code: string, expiryMinutes: number) => RenderedEmail;
 }): Promise<{ resendAfterSeconds: number; expiryMinutes: number }> {
-  const rules = await getRule("otp");
+  const rules = await effectiveOtpRules(input.bySms ? "SMS" : "EMAIL");
   const now = Date.now();
   const windowStart = new Date(now - rules.resendWindowMinutes * 60_000);
+  if (rules.lockout) {
+    const wrong = await wrongAttemptsFor({ channel: input.bySms ? "SMS" : "EMAIL", email: input.email, phoneE164: input.phoneE164 }, rules.lockout.minutes);
+    if (wrong >= rules.lockout.wrong) {
+      await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { ...input, reason: "lockout" });
+      throw new AppError("RATE_LIMITED", OTP_LOCKED(rules.lockout.minutes), { retryAfterSeconds: rules.lockout.minutes * 60 });
+    }
+  }
 
   const recent = await db
     .select({ createdAt: loginOtps.createdAt })
     .from(loginOtps)
     .where(and(eq(loginOtps.email, input.email), eq(loginOtps.purpose, input.purpose), gt(loginOtps.createdAt, windowStart)))
     .orderBy(desc(loginOtps.createdAt));
+  if (rules.lockout && input.bySms && input.phoneE164) {
+    // dual_auth: the resend limit also holds per mobile number, whichever account or purpose asked.
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(loginOtps)
+      .where(and(eq(loginOtps.phoneE164, input.phoneE164), eq(loginOtps.channel, "SMS"), gt(loginOtps.createdAt, windowStart)));
+    if (Number(n) >= rules.maxResendsPerWindow) {
+      await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { ...input, reason: "number_window_limit" });
+      throw new AppError("RATE_LIMITED", "Too many codes were requested for this number. Try again later.", { retryAfterSeconds: rules.resendWindowMinutes * 60 });
+    }
+  }
 
   const last = recent[0]?.createdAt.getTime();
   if (last !== undefined && now - last < rules.resendCooldownSeconds * 1000) {
@@ -327,6 +397,14 @@ export async function consumeCode(input: {
 
   if (!otp) return fail("none");
   if (otp.expiresAt.getTime() <= Date.now()) return fail("expired", { otpId: otp.id });
+  const lockout = (await effectiveOtpRules(otp.channel)).lockout;
+  if (lockout) {
+    const wrong = await wrongAttemptsFor({ channel: otp.channel, email: input.email, phoneE164: otp.phoneE164 }, lockout.minutes);
+    if (wrong >= lockout.wrong) {
+      await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email: input.email, phoneE164: otp.phoneE164, ip: input.ip, reason: "lockout", otpId: otp.id });
+      throw new AppError("RATE_LIMITED", OTP_LOCKED(lockout.minutes), { retryAfterSeconds: lockout.minutes * 60 });
+    }
+  }
   if (input.phoneE164 !== undefined && (otp.phoneE164 ?? null) !== (input.phoneE164 ?? null)) {
     return fail("identifier_mismatch", { otpId: otp.id });
   }
@@ -376,7 +454,7 @@ export async function requestLoginOtp(input: {
 
   if (input.mobile?.trim() && !email) {
     const mobile = parseMobile(input.mobile);
-    const rules = await getRule("otp");
+    const rules = await effectiveOtpRules("EMAIL");
     // Limited per number whether or not it is registered, so hitting the
     // limit tells nothing either.
     enforceRateLimit(`otp-mobile:${mobile.e164}`, {
@@ -417,7 +495,7 @@ export async function requestLoginOtp(input: {
   const phoneE164 = input.mobile?.trim() ? parseMobile(input.mobile).e164 : null;
   const owner = await findLiveUserByEmail(email);
   if (owner && owner.status !== "ACTIVE" && !isPendingDeletion(owner)) {
-    const rules = await getRule("otp");
+    const rules = await effectiveOtpRules("EMAIL");
     await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email, phoneE164, ip, reason: "account_blocked" });
     return {
       status: "SENT",
@@ -532,7 +610,7 @@ export async function verifyLoginOtp(input: {
       at: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: getEnv().APP_TIMEZONE }),
     });
   }
-  return { user, isNewUser };
+  return { user, isNewUser, channel: otp.channel };
 }
 
 export async function assertPhoneFree(e164: string, exceptUserId: string | null): Promise<void> {
@@ -606,6 +684,20 @@ export function readLoginTicket(ticket: string): string | null {
 
 /* ---------------------------------------------------------- email change */
 
+/** docs/dual-auth-2026-11: changing the mobile or e-mail first asks a code by SMS AND by e-mail (flag dual_auth). */
+async function contactChangeStepUp(userId: string): Promise<void> {
+  const { requireDualStepUp } = await import("@/server/dual-auth/step-up");
+  await requireDualStepUp(userId, "CONTACT_CHANGE");
+}
+
+/** docs/dual-auth-2026-11: a changed mobile or e-mail ends every device's trust (both factors again). */
+async function afterContactChange(userId: string, reason: string): Promise<void> {
+  const { revokeTrustedDevices } = await import("@/server/dual-auth/devices");
+  const { syncNeedsSecondFactor } = await import("@/server/dual-auth/policy");
+  await revokeTrustedDevices(userId, reason).catch((e) => console.error("[dual-auth] revoke devices", e));
+  await syncNeedsSecondFactor(userId).catch(() => null);
+}
+
 export async function requestEmailChangeOtp(
   userId: string,
   input: { email: string; ip?: string | null },
@@ -614,6 +706,7 @@ export async function requestEmailChangeOtp(
   const [current] = await db.select().from(users).where(eq(users.id, userId));
   if (!current) throw forbidden();
   if (current.email === email) throw validationFailed("That is already your email address.");
+  await contactChangeStepUp(userId);
   const taken = await findLiveUserByEmail(email);
   if (taken) throw conflict(EMAIL_IN_USE);
   const sent = await issueCode({ email, purpose: "EMAIL_CHANGE", userId, phoneE164: null, ip: input.ip ?? null });
@@ -626,6 +719,7 @@ export async function confirmEmailChange(
   input: { email: string; code: string; ip?: string | null },
 ): Promise<{ email: string }> {
   const email = parseEmail(input.email);
+  await contactChangeStepUp(userId);
   await consumeCode({ email, purpose: "EMAIL_CHANGE", code: input.code, ip: input.ip ?? null, userId });
 
   const [before] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId));
@@ -648,6 +742,7 @@ export async function confirmEmailChange(
     newValue: { email: maskEmailAddress(email) },
     ipAddress: input.ip ?? null,
   });
+  await afterContactChange(userId, "email_changed");
   // Tell the old inbox too: if this was not the owner, that is where they will notice.
   void sendEmail({
     to: before.email,
@@ -670,6 +765,7 @@ export async function linkPhone(
   if (!parsed.ok) throw validationFailed(parsed.error);
   const [current] = await db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, userId));
   if (current?.phoneE164 === parsed.e164) return { phoneE164: parsed.e164 };
+  await contactChangeStepUp(userId);
   await assertPhoneFree(parsed.e164, userId);
   try {
     await db
@@ -688,11 +784,13 @@ export async function linkPhone(
     entityId: userId,
     newValue: { phone: maskPhone(parsed.e164) },
   });
+  await afterContactChange(userId, "mobile_changed");
   await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, { action: current?.phoneE164 ? "changed" : "added" });
   return { phoneE164: parsed.e164 };
 }
 
 export async function unlinkPhone(userId: string, role: User["role"]): Promise<void> {
+  await contactChangeStepUp(userId);
   await db
     .update(users)
     .set({ phoneE164: null, phoneVerifiedAt: null, updatedAt: new Date() })
@@ -705,6 +803,7 @@ export async function unlinkPhone(userId: string, role: User["role"]): Promise<v
     entityId: userId,
     newValue: { phone: null },
   });
+  await afterContactChange(userId, "mobile_removed");
   await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, { action: "removed" });
 }
 

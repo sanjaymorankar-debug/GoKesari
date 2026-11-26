@@ -17,10 +17,12 @@ const buttonClass =
  * is then saved as verified. The session opens only after this code.
  */
 export function SmsSecondFactor({ prompt, onCancel }: { prompt: SecondFactorPrompt; onCancel?: () => void }) {
+  // docs/dual-auth-2026-11: after an SMS first factor the second is a code to the account's e-mail.
+  const byEmail = prompt.kind === "EMAIL";
   const [needsNumber, setNeedsNumber] = useState(prompt.needsPhone);
   const [mobileInput, setMobileInput] = useState("");
   const [mobile, setMobile] = useState<string | null>(null);
-  const [maskedPhone, setMaskedPhone] = useState<string | null>(prompt.maskedPhone);
+  const [maskedPhone, setMaskedPhone] = useState<string | null>(byEmail ? (prompt.maskedEmail ?? null) : prompt.maskedPhone);
   const [codeSent, setCodeSent] = useState(!prompt.needsPhone && !prompt.sendError);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(prompt.sendError);
@@ -62,7 +64,7 @@ export function SmsSecondFactor({ prompt, onCancel }: { prompt: SecondFactorProm
 
   async function submitCode(event: React.FormEvent) {
     event.preventDefault();
-    if (!/^\d{4,8}$/.test(code.trim())) return setError("Enter the code we sent you by SMS.");
+    if (!/^\d{4,8}$/.test(code.trim())) return setError(byEmail ? "Enter the code we e-mailed you." : "Enter the code we sent you by SMS.");
     setBusy(true);
     setError(null);
     // On success the server function opens the session and redirects; it never returns here.
@@ -73,7 +75,7 @@ export function SmsSecondFactor({ prompt, onCancel }: { prompt: SecondFactorProm
 
   return (
     <div data-testid="sms-second-factor">
-      <p className="mb-2 text-sm font-medium text-ink-700">Step 2 of 2: confirm with an SMS code</p>
+      <p className="mb-2 text-sm font-medium text-ink-700">{byEmail ? "Step 2 of 2: confirm with a code from your e-mail" : "Step 2 of 2: confirm with an SMS code"}</p>
       {needsNumber ? (
         <form onSubmit={submitNumber}>
           <p className="mb-2 text-sm text-ink-600">
@@ -98,12 +100,20 @@ export function SmsSecondFactor({ prompt, onCancel }: { prompt: SecondFactorProm
       ) : (
         <form onSubmit={submitCode}>
           <p className="mb-2 text-sm text-ink-600" data-testid="sms-sent-to">
-            {codeSent ? (
+            {byEmail ? (
+              codeSent ? (
+                <>
+                  Your SMS code is right. We e-mailed a code to <strong>{maskedPhone}</strong>.
+                </>
+              ) : (
+                <>Your SMS code is right. Press Resend to get a code by e-mail at {maskedPhone}.</>
+              )
+            ) : codeSent ? (
               <>
-                Your email code is right. We sent a code by SMS to <strong>{maskedPhone}</strong>.
+                Your first code is right. We sent a code by SMS to <strong>{maskedPhone}</strong>.
               </>
             ) : (
-              <>Your email code is right. Press Resend to get a code by SMS on {maskedPhone}.</>
+              <>Your first code is right. Press Resend to get a code by SMS on {maskedPhone}.</>
             )}
           </p>
           <div className="flex gap-2">
@@ -112,8 +122,8 @@ export function SmsSecondFactor({ prompt, onCancel }: { prompt: SecondFactorProm
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
               inputMode="numeric"
               autoComplete="one-time-code"
-              placeholder="SMS code"
-              aria-label="SMS code"
+              placeholder={byEmail ? "E-mail code" : "SMS code"}
+              aria-label={byEmail ? "E-mail code" : "SMS code"}
               maxLength={8}
               className={`${inputClass} flex-1 tracking-widest`}
               required
@@ -129,7 +139,7 @@ export function SmsSecondFactor({ prompt, onCancel }: { prompt: SecondFactorProm
               disabled={busy || now < resendAt}
               onClick={() => send(mobile)}
             >
-              {now < resendAt ? `Resend SMS in ${Math.ceil((resendAt - now) / 1000)}s` : "Resend SMS"}
+              {now < resendAt ? `Resend in ${Math.ceil((resendAt - now) / 1000)}s` : byEmail ? "Resend e-mail" : "Resend SMS"}
             </button>
             {prompt.needsPhone ? (
               <button

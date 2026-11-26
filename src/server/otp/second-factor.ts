@@ -27,7 +27,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { and, eq, isNull } from "drizzle-orm";
 
-import { parseIndianMobile } from "@/lib/contact";
+import { maskEmailAddress, parseIndianMobile } from "@/lib/contact";
 import { getEnv } from "@/lib/env";
 import { conflict, forbidden, isUniqueViolation, validationFailed, AppError } from "@/lib/errors";
 import { isPlaceholderEmail } from "@/lib/placeholder-email";
@@ -73,34 +73,76 @@ export async function secondFactorRequired(user: Pick<User, "role" | "email" | "
 
 /* ------------------------------------------------------------- challenge */
 
+/**
+ * The factor still to give: SMS (the first was the e-mail, Google or the link) or, docs/dual-auth-2026-11, EMAIL
+ * (the first was an SMS code to the mobile).
+ */
+export type SecondFactorKind = "SMS" | "EMAIL";
+
 function challengeMac(payload: string): string {
   return createHmac("sha256", getEnv().AUTH_SECRET).update(`sms-2fa-challenge:${payload}`).digest("base64url");
 }
 
-/** Proof that the emailed code was verified for this user; never a session by itself. */
-export function createSecondFactorChallenge(userId: string, now = Date.now()): string {
-  const payload = `${userId}.${now + SECOND_FACTOR_TTL_MS}`;
+/**
+ * Proof that the first factor was verified for this user; never a session by itself.
+ * SMS step: `<user>.<expires>.<mac>` (unchanged); e-mail step: `<user>.<expires>.E.<mac>`.
+ */
+export function createSecondFactorChallenge(userId: string, now = Date.now(), kind: SecondFactorKind = "SMS"): string {
+  const payload = `${userId}.${now + SECOND_FACTOR_TTL_MS}${kind === "EMAIL" ? ".E" : ""}`;
   return `${payload}.${challengeMac(payload)}`;
 }
 
-export function readSecondFactorChallenge(challenge: string, now = Date.now()): string | null {
+export function readSecondFactorChallengeKind(challenge: string, now = Date.now()): { userId: string; kind: SecondFactorKind } | null {
   const parts = String(challenge ?? "").split(".");
-  if (parts.length !== 3) return null;
-  const [userId, expires, mac] = parts;
+  if (parts.length !== 3 && !(parts.length === 4 && parts[2] === "E")) return null;
+  const kind: SecondFactorKind = parts.length === 4 ? "EMAIL" : "SMS";
+  const [userId, expires] = parts;
+  const mac = parts[parts.length - 1];
   if (!/^[0-9a-f-]{36}$/i.test(userId) || !/^\d+$/.test(expires)) return null;
-  const expected = Buffer.from(challengeMac(`${userId}.${expires}`));
+  const expected = Buffer.from(challengeMac(parts.slice(0, -1).join(".")));
   const given = Buffer.from(mac);
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
   if (!(Number(expires) > now)) return null;
-  return userId;
+  return { userId, kind };
 }
 
-async function challengeUser(challenge: string): Promise<User> {
-  const userId = readSecondFactorChallenge(challenge);
-  if (!userId) throw validationFailed(SECOND_FACTOR_EXPIRED);
-  const [user] = await db.select().from(users).where(and(eq(users.id, userId), isNull(users.deletedAt)));
+export function readSecondFactorChallenge(challenge: string, now = Date.now()): string | null {
+  return readSecondFactorChallengeKind(challenge, now)?.userId ?? null;
+}
+
+async function challengeUserKind(challenge: string): Promise<{ user: User; kind: SecondFactorKind }> {
+  const read = readSecondFactorChallengeKind(challenge);
+  if (!read) throw validationFailed(SECOND_FACTOR_EXPIRED);
+  const [user] = await db.select().from(users).where(and(eq(users.id, read.userId), isNull(users.deletedAt)));
   if (!user || user.status !== "ACTIVE") throw forbidden("This account cannot sign in.");
-  return user;
+  return { user, kind: read.kind };
+}
+
+
+/**
+ * docs/dual-auth-2026-11: which second factor this sign-in still needs before the session opens (null = none).
+ *
+ * dual_auth in force:
+ *   - the factor the account has NOT verified yet is not asked here: the session opens with one factor and the
+ *     DualVerify gate (policy.ts) asks for it before any order, shop / dealer / admin work or withdrawal;
+ *   - otherwise the other factor, unless this browser is trusted for the account and the role may use device
+ *     trust (staff: always both).
+ * dual_auth off: the SMS switches of docs/sms-2fa-2026-11 as before.
+ */
+export async function secondFactorKind(user: User, firstFactor: SecondFactorKind = "EMAIL"): Promise<SecondFactorKind | null> {
+  const { dualAuthInForce, emailFactorVerified, isStaffRole } = await import("@/server/dual-auth/policy");
+  if (await dualAuthInForce()) {
+    const other: SecondFactorKind = firstFactor === "EMAIL" ? "SMS" : "EMAIL";
+    if (other === "SMS" && !hasVerifiedPhone(user)) return null;
+    if (other === "EMAIL" && !(await emailFactorVerified(user))) return null;
+    if (!isStaffRole(user.role)) {
+      const { isDeviceTrusted } = await import("@/server/dual-auth/devices");
+      if (await isDeviceTrusted(user.id)) return null;
+    }
+    return other;
+  }
+  if (firstFactor !== "EMAIL") return null;
+  return (await secondFactorRequired(user)) ? "SMS" : null;
 }
 
 /* ------------------------------------------------------- shared SMS target */
@@ -169,6 +211,10 @@ export async function consumeSmsCode(user: User, target: string, purpose: Extrac
 
 export interface SecondFactorPrompt {
   challenge: string;
+  /** docs/dual-auth-2026-11: SMS (default) or EMAIL — a code to the account's e-mail after an SMS first factor. */
+  kind?: SecondFactorKind;
+  /** EMAIL step: where the code went, masked. */
+  maskedEmail?: string | null;
   /** The account has no verified mobile: ask for the number first. */
   needsPhone: boolean;
   /** Where the code went (verified mobile), masked. */
@@ -187,18 +233,41 @@ export interface SecondFactorPrompt {
 export async function afterEmailFactor(
   user: User,
   ip: string | null,
+  firstFactor: SecondFactorKind = "EMAIL",
 ): Promise<{ ticket: string; secondFactor?: undefined } | { ticket?: undefined; secondFactor: SecondFactorPrompt }> {
-  if (!(await secondFactorRequired(user))) return { ticket: createLoginTicket(user.id) };
-  return { secondFactor: await beginSecondFactor(user, ip) };
+  const kind = await secondFactorKind(user, firstFactor);
+  if (!kind) {
+    await auditDualSignIn(user, ip, { factors: [firstFactor], secondFactor: "not_asked" });
+    return { ticket: createLoginTicket(user.id) };
+  }
+  return { secondFactor: await beginSecondFactor(user, ip, undefined, kind) };
 }
 
-/** The SMS step for a challenge made earlier (the Google path keeps it in a cookie). */
+/** docs/dual-auth-2026-11: every sign-in while the rule is in force, with the factors given (audit, IST in the admin log). */
+export async function auditDualSignIn(user: User, ip: string | null, detail: Record<string, unknown>): Promise<void> {
+  const { dualAuthInForce } = await import("@/server/dual-auth/policy");
+  if (!(await dualAuthInForce())) return;
+  await recordAudit({ actorId: user.id, actorRole: user.role, action: AUDIT_ACTIONS.DUAL_AUTH_SIGN_IN, entityType: "user", entityId: user.id, newValue: detail, ipAddress: ip });
+}
+
+/** The second step for a challenge made earlier (the Google path keeps it in a cookie). */
 export async function resumeSecondFactor(challenge: string, ip: string | null): Promise<SecondFactorPrompt> {
-  return beginSecondFactor(await challengeUser(challenge), ip, challenge);
+  const { user, kind } = await challengeUserKind(challenge);
+  return beginSecondFactor(user, ip, challenge, kind);
 }
 
-export async function beginSecondFactor(user: User, ip: string | null, existingChallenge?: string): Promise<SecondFactorPrompt> {
-  const challenge = existingChallenge ?? createSecondFactorChallenge(user.id);
+export async function beginSecondFactor(user: User, ip: string | null, existingChallenge?: string, kind: SecondFactorKind = "SMS"): Promise<SecondFactorPrompt> {
+  const challenge = existingChallenge ?? createSecondFactorChallenge(user.id, Date.now(), kind);
+  if (kind === "EMAIL") {
+    const maskedEmail = maskEmailAddress(user.email);
+    try {
+      const sent = await issueCode({ email: user.email, purpose: "LOGIN_EMAIL", userId: user.id, phoneE164: null, ip });
+      return { challenge, kind, maskedEmail, needsPhone: false, maskedPhone: null, resendAfterSeconds: sent.resendAfterSeconds, expiryMinutes: sent.expiryMinutes, sendError: null };
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return { challenge, kind, maskedEmail, needsPhone: false, maskedPhone: null, resendAfterSeconds: null, expiryMinutes: null, sendError: error.message };
+    }
+  }
   if (!hasVerifiedPhone(user)) {
     return { challenge, needsPhone: true, maskedPhone: null, resendAfterSeconds: null, expiryMinutes: null, sendError: null };
   }
@@ -213,7 +282,11 @@ export async function beginSecondFactor(user: User, ip: string | null, existingC
 
 /** Sends (or re-sends) the sign-in SMS code. `mobile` is used only when the account has no verified mobile. */
 export async function sendSecondFactorCode(input: { challenge: string; mobile?: string | null; ip?: string | null }) {
-  const user = await challengeUser(input.challenge);
+  const { user, kind } = await challengeUserKind(input.challenge);
+  if (kind === "EMAIL") {
+    const sent = await issueCode({ email: user.email, purpose: "LOGIN_EMAIL", userId: user.id, phoneE164: null, ip: input.ip ?? null });
+    return { maskedPhone: maskEmailAddress(user.email), ...sent };
+  }
   const target = await resolveSmsTarget(user, input.mobile);
   return sendSmsCode(user, target, "LOGIN_SMS", input.ip ?? null);
 }
@@ -223,8 +296,16 @@ export async function sendSecondFactorCode(input: { challenge: string; mobile?: 
  * verified mobile, and the caller opens the session with a login ticket.
  */
 export async function verifySecondFactorCode(input: { challenge: string; code: string; mobile?: string | null; ip?: string | null }): Promise<User> {
-  const user = await challengeUser(input.challenge);
+  const { user, kind } = await challengeUserKind(input.challenge);
+  if (kind === "EMAIL") {
+    const otp = await consumeCode({ email: user.email, purpose: "LOGIN_EMAIL", code: input.code, ip: input.ip ?? null, userId: user.id });
+    await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email: user.email, actorId: user.id, ip: input.ip ?? null, otpId: otp.id, purpose: "LOGIN_EMAIL" });
+    await auditDualSignIn(user, input.ip ?? null, { factors: ["SMS", "EMAIL"] });
+    return user;
+  }
   const target = await resolveSmsTarget(user, input.mobile);
   await consumeSmsCode(user, target, "LOGIN_SMS", input.code, input.ip ?? null);
-  return markPhoneVerified(user, target);
+  const updated = await markPhoneVerified(user, target);
+  await auditDualSignIn(updated, input.ip ?? null, { factors: ["EMAIL", "SMS"] });
+  return updated;
 }

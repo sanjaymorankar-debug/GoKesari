@@ -23,6 +23,8 @@ import {
   sheetVerifyEmailCode,
 } from "@/server/onboarding-v2/sheet-actions";
 import type { CustomerLoginStatus, CustomerSheetStep } from "@/server/onboarding-v2/customer";
+import type { SecondFactorPrompt } from "@/server/otp/second-factor";
+import { SmsSecondFactor } from "@/components/sms-second-factor";
 
 export { useLoginSheet, openLoginSheet, type LoginSheetOptions } from "./login-sheet-context";
 import { LoginSheetContext, OPEN_EVENT, type LoginSheetOptions } from "./login-sheet-context";
@@ -32,6 +34,9 @@ export interface LoginSheetConfig {
   googleEnabled: boolean;
   /** The e-mailed sign-in link is offered (a link sender exists, and not inside the app). */
   magicLinkEnabled: boolean;
+  /** docs/dual-auth-2026-11 (flag dual_auth in force): the e-mail step offers the code AND the link; a returning
+   * account on a new device gives its SMS code right here. */
+  dualAuth?: boolean;
 }
 
 export function LoginSheetProvider({ enabled, config, children }: { enabled: boolean; config: LoginSheetConfig; children: ReactNode }) {
@@ -238,7 +243,9 @@ function EmailStep({ config, returnTo, acceptedAtIst }: { config: LoginSheetConf
   const [linkSent, setLinkSent] = useState(false);
   const [codeSentTo, setCodeSentTo] = useState<string | null>(null);
   const [code, setCode] = useState("");
-  const useCode = !config.magicLinkEnabled;
+  const [preferCode, setPreferCode] = useState(Boolean(config.dualAuth));
+  const [secondFactor, setSecondFactor] = useState<SecondFactorPrompt | null>(null);
+  const useCode = !config.magicLinkEnabled || preferCode;
 
   return (
     <div className="space-y-3" data-testid="login-sheet-email">
@@ -266,7 +273,9 @@ function EmailStep({ config, returnTo, acceptedAtIst }: { config: LoginSheetConf
         {config.googleEnabled ? "or with your email" : "with your email"}
         <span className="h-px flex-1 bg-cream-200" />
       </div>
-      {linkSent ? (
+      {secondFactor ? (
+        <SmsSecondFactor prompt={secondFactor} onCancel={() => setSecondFactor(null)} />
+      ) : linkSent ? (
         <Alert tone="success" title="Check your email">
           We sent a sign-in link to {email}. Open it on this phone or computer — you come back to your cart and continue
           here. It works once and expires in 15 minutes.
@@ -280,6 +289,7 @@ function EmailStep({ config, returnTo, acceptedAtIst }: { config: LoginSheetConf
             startTransition(async () => {
               const result = await sheetVerifyEmailCode(email, code, returnTo);
               if (result?.error) setError(result.error);
+              else if (result?.secondFactor && typeof result.secondFactor === "object") setSecondFactor(result.secondFactor);
               else if (result?.secondFactor) setError("Your account also needs an SMS code at sign-in: please sign in on the Sign in page, then come back to your cart.");
             });
           }}
@@ -318,6 +328,11 @@ function EmailStep({ config, returnTo, acceptedAtIst }: { config: LoginSheetConf
           <Button type="submit" size="lg" className="w-full font-bold" disabled={pending || !email.includes("@")} data-testid="login-sheet-email-send">
             {pending ? "Sending…" : useCode ? "Email me a code" : "Email me a sign-in link"}
           </Button>
+          {config.dualAuth && config.magicLinkEnabled ? (
+            <button type="button" className="w-full text-center text-xs underline" onClick={() => setPreferCode(!preferCode)} data-testid="login-sheet-email-toggle">
+              {preferCode ? "Email me a sign-in link instead" : "Email me a 6-digit code instead"}
+            </button>
+          ) : null}
         </form>
       )}
     </div>

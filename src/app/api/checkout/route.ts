@@ -17,6 +17,7 @@ import { checkout } from "@/server/services/orders";
 import { startOnlineCheckout } from "@/server/payments/order-payments";
 import { claimCheckoutStepUp } from "@/server/otp/checkout-step-up";
 import { assertV2CheckoutReady } from "@/server/onboarding-v2/customer";
+import { assertDualVerified } from "@/server/dual-auth/policy";
 import { getCustomerLocation } from "@/server/location";
 
 /** docs/onboarding-v2-2026-11: the chosen location (GPS / map / PIN), else the default saved address; null if none. */
@@ -64,6 +65,9 @@ export const POST = route(async (request: NextRequest) => {
   // docs/onboarding-v2-2026-11 (flag onboarding_v2): the login sheet finished (Terms, e-mail, mobile), a payment
   // method chosen explicitly, and the delivery address may follow payment. Flag off: null, nothing changes.
   const v2 = await assertV2CheckoutReady(user.id, { paymentMethod: body.paymentMethod, orderType: body.orderType });
+  // docs/dual-auth-2026-11: an order needs a verified mobile AND e-mail (flag dual_auth); 403 + DualVerify link.
+  // After the v2 check, so the login sheet (which asks the same factors) opens first where onboarding_v2 is on.
+  await assertDualVerified(user.id, "ORDER", "/cart");
   const input = {
     userId: user.id,
     actorRole: user.role,

@@ -59,6 +59,8 @@ describe("schedule", () => {
         "rbac-v2",
         // docs/shop-welcome-kit-2026-11 (26 Nov 2026): live shops without a welcome kit since 0214 get one (every 15 minutes).
         "welcome-kit-safety-net",
+        // docs/dual-auth-2026-11: reminders to verify the missing factor (hourly; no-op while dual_auth is not in force).
+        "dual-auth-reminders",
         // docs/onboarding-v2-2026-11: orders waiting too long for the customer's delivery location (every 5 minutes).
         "address-pending-orders",
         // docs/onboarding-v2-2026-11: a v2 registration fee captured on the draft but missing from the shop's ledger (every 5 minutes).

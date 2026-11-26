@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { dualVerifyRedirect } from "@/server/dual-auth/policy";
 
 import { DealerPortal } from "@/components/dealer/dealer-portal";
 import { DealerBoard } from "@/components/dealer/dealer-board";
@@ -53,6 +54,9 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
   if (!(await isFeatureEnabled("dealer_programme_enabled"))) notFound();
   const user = await getCurrentUser();
   if (!user) redirect("/signin?callbackUrl=/dealer");
+  // docs/dual-auth-2026-11: dealer features need both factors verified (flag dual_auth).
+  const verifyAt = await dualVerifyRedirect(user.id, "/dealer").catch(() => null);
+  if (verifyAt) redirect(verifyAt);
   const dealer = await getDealerForUser(user.id);
   // TIERED (0136): a team lead or agent signed in with their own account has their own portal.
   if (!dealer) {
