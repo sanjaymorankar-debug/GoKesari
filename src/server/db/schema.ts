@@ -2093,6 +2093,12 @@ export const orders = pgTable(
       landmark?: string | null;
       deliveryInstructions?: string | null;
     } | null>(),
+    /**
+     * 0216, onboarding v2 (docs/onboarding-v2-2026-11, flag onboarding_v2): a delivery order placed before the
+     * customer gave the address (asked right after payment). While set, rider dispatch does not start; setting
+     * the address clears it. NULL on every other order.
+     */
+    addressPendingSince: timestamp("address_pending_since", { withTimezone: true }),
     status: orderStatusEnum("status").notNull().default("PENDING"),
     source: orderSourceEnum("source").notNull().default("DIRECT"),
     orderType: orderTypeEnum("order_type").notNull().default("PERSONAL"),
@@ -2217,6 +2223,7 @@ export const orders = pgTable(
       .on(t.shopId)
       .where(sql`${t.placedWhileClosed} AND ${t.shopOpenAlertSentAt} IS NULL`),
     uniqueIndex("orders_checkout_key_unique").on(t.checkoutKey),
+    index("orders_address_pending_idx").on(t.userId).where(sql`${t.addressPendingSince} IS NOT NULL`),
     check(
       "orders_totals_non_negative",
       sql`${t.subtotalPaise} >= 0 AND ${t.totalPaise} >= 0`,

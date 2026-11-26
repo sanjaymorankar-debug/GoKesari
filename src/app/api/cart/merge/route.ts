@@ -10,7 +10,7 @@ import { GUEST_CART_MAX_LINES } from "@/lib/guest-cart";
 import { MAX_CART_LINE_QUANTITY } from "@/lib/stock-quantity";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requireUser } from "@/server/authz/guards";
-import { requireFeature } from "@/server/services/feature-flags";
+import { requireGuestCart } from "@/server/onboarding-v2/customer";
 import { mergeGuestCart } from "@/server/services/guest-cart";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,8 @@ const schema = z.object({
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requireUser();
-  await requireFeature("guest_cart_enabled");
+  // docs/onboarding-v2-2026-11: onboarding_v2 implies the guest cart.
+  await requireGuestCart();
   const { lines } = await parseBody(request, schema);
   return ok(await mergeGuestCart(user.id, lines));
 });

@@ -32,6 +32,7 @@ import { VERIFY_IDENTITY_PATH } from "@/lib/kyc/identity";
 import { isIdentityVerificationOn, isIdentityVerified } from "@/server/services/identity-verification";
 import { CartShopRecommendation } from "@/components/guest-checkout/cart-shop-recommendation";
 import { isGuestCheckoutOn } from "@/server/guest-checkout/tracking";
+import { customerLoginStatus, isGuestCartOn, onboardingV2Enabled } from "@/server/onboarding-v2/customer";
 
 export const metadata = { title: "Cart" };
 
@@ -73,7 +74,9 @@ export default async function CartPage({ searchParams }: { searchParams?: Promis
   if (!user) {
     // docs/guest-cart-2026-11: with guest_cart_enabled on, a guest sees the cart kept in their browser
     // and is asked to sign in only at "Place order". Off: sign in first, as before.
-    if (!(await isFeatureEnabled("guest_cart_enabled").catch(() => false))) redirect("/signin");
+    // docs/onboarding-v2-2026-11: onboarding_v2 implies the guest cart (no sign-in before checkout).
+    if (!(await isGuestCartOn())) redirect("/signin");
+    const v2 = await onboardingV2Enabled();
     // docs/guest-checkout-2026-11: with guest_checkout_enabled on too, the guest can also check out here
     // (contact + one-time code) and sees the best-shop panel. The PIN code comes from the chosen location.
     const guestLocation = (await isGuestCheckoutOn()) ? await getCustomerLocation(null) : undefined;
@@ -88,7 +91,7 @@ export default async function CartPage({ searchParams }: { searchParams?: Promis
     return (
       <>
         <PageHeader title="Your cart" description="Items are grouped by shop — each shop becomes its own order." />
-        <GuestCartView lang={await getBoardLang()} guestCheckout={guestCheckout} />
+        <GuestCartView lang={await getBoardLang()} guestCheckout={guestCheckout} onboardingV2={v2} />
       </>
     );
   }
@@ -150,6 +153,10 @@ export default async function CartPage({ searchParams }: { searchParams?: Promis
   ]);
   // docs/guest-checkout-2026-11: /cart?guest=1 is where a guest lands right after verifying.
   const justVerified = (await searchParams)?.guest === "1";
+  // docs/onboarding-v2-2026-11: "Place order" opens the login sheet until Terms, e-mail and mobile are done.
+  const onboardingV2 = (await onboardingV2Enabled())
+    ? { sheetPending: (await customerLoginStatus(user.id).catch(() => null))?.step !== "DONE" }
+    : null;
 
   return (
     <>
@@ -206,6 +213,7 @@ export default async function CartPage({ searchParams }: { searchParams?: Promis
         preferredAddressId={preferredAddressId}
         codUnavailableReason={codUnavailableReason}
         hasMobile={Boolean(account?.phoneE164)}
+        onboardingV2={onboardingV2}
         couponsEnabled={(await getRule("coupons")).enabled}
         onlinePaymentsEnabled={(await getRule("onlinePayments")).enabled}
         lang={lang}
