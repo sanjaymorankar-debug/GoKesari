@@ -83,7 +83,7 @@ export function LanguageSwitch({
   return (
     <>
       <form action={setLanguageAction} className={clsx(variant === "buttons" ? "shrink-0" : "hidden shrink-0 lg:block", className)} data-testid="language-switch">
-        <fieldset className="flex h-10 items-stretch overflow-hidden rounded-full border border-[#f2c9a5] bg-white">
+        <fieldset className="flex items-stretch overflow-hidden rounded-full border border-[#f2c9a5] bg-white">
           <legend className="sr-only">{tr(UI.language, lang)}</legend>
           {LANGUAGES.map((code) => (
             <button
@@ -96,7 +96,7 @@ export function LanguageSwitch({
               title={LANG_NAME[code]}
               aria-label={LANG_NAME[code]}
               className={clsx(
-                "min-w-11 px-2.5 text-sm font-bold leading-none",
+                "min-h-11 min-w-11 px-2.5 text-sm font-bold leading-none",
                 code === lang ? "bg-kesari-700 text-white" : "text-ink-700 hover:bg-kesari-50",
               )}
             >

@@ -10,6 +10,7 @@ import { Icon } from "@/components/board/icons";
 import { CountBadge, TONE_ICON } from "@/components/board/tiles";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { RoleSwitcher } from "@/components/role-switcher";
+import { SellerBottomNav } from "@/components/seller/seller-bottom-nav";
 import { ShopSwitcher } from "@/components/seller/shop-switcher";
 import { ShopUrlSync } from "@/components/seller/shop-url-sync";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
@@ -128,13 +129,22 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, shops, group
   const storeHref = shop?.status === "APPROVED" ? `/shops/${shop.slug}` : null;
 
   return (
-    <div data-seller-central lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-slate-50 text-ink-900">
+    <div
+      data-seller-central
+      data-seller-tabs={withNav ? "" : undefined}
+      lang={LANG_TAG[lang]}
+      className={clsx(
+        "flex min-h-[100svh] flex-col bg-slate-50 text-ink-900",
+        // Phones: room for the bottom tab bar; sticky bottom bars sit on top of it (--gk-bottom-nav).
+        withNav && "pb-[calc(4rem+env(safe-area-inset-bottom))] [--gk-bottom-nav:calc(4rem+env(safe-area-inset-bottom))] lg:pb-0 lg:[--gk-bottom-nav:0px]",
+      )}
+    >
       {shop && shops.length > 1 ? (
         <Suspense fallback={null}>
           <ShopUrlSync currentId={shop.id} shopIds={shops.map((s) => s.id)} />
         </Suspense>
       ) : null}
-      <header className="sticky top-0 z-40 bg-ink-900 text-white shadow-sm" data-testid="seller-topbar">
+      <header className="sticky top-0 z-40 bg-ink-900 pt-[env(safe-area-inset-top)] text-white shadow-sm" data-testid="seller-topbar">
         <div className="flex h-14 items-center gap-1.5 px-2 sm:gap-2 sm:px-4 lg:h-16 lg:px-6">
           {withNav ? (
             <button
@@ -282,7 +292,7 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, shops, group
         {withNav && drawerOpen ? (
           <div className="fixed inset-0 z-50 lg:hidden" id="seller-drawer" role="dialog" aria-modal="true" aria-label={tr(SELLER_TEXT.sellerMenu, lang)}>
             <button type="button" className="absolute inset-0 bg-ink-900/50" aria-label={tr(SELLER_TEXT.closeMenu, lang)} onClick={() => setDrawerOpen(false)} />
-            <div className="absolute inset-y-0 left-0 flex w-80 max-w-[86vw] flex-col bg-white shadow-2xl" data-testid="seller-drawer">
+            <div className="absolute inset-y-0 left-0 flex w-80 max-w-[86vw] flex-col bg-white pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] shadow-2xl" data-testid="seller-drawer">
               <div className="flex h-14 shrink-0 items-center justify-between bg-ink-900 px-3 text-white">
                 <span className="text-sm font-bold uppercase tracking-wider">{tr(SELLER_TEXT.sellerCentral, lang)}</span>
                 <button type="button" onClick={() => setDrawerOpen(false)} className="grid h-11 w-11 place-items-center rounded-lg hover:bg-white/10" aria-label={tr(SELLER_TEXT.closeMenu, lang)}>
@@ -303,6 +313,7 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, shops, group
           </div>
         </div>
       </div>
+      {withNav ? <SellerBottomNav lang={lang} counts={counts} pathname={pathname} moreOpen={drawerOpen} onMore={() => setDrawerOpen(true)} /> : null}
     </div>
   );
 }

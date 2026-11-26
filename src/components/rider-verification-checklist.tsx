@@ -49,7 +49,7 @@ function Row({ label, status, tone, href, hint }: { label: string; status: strin
   return (
     <li className="flex items-start justify-between gap-3 py-2">
       <div>
-        <Link href={href} className="font-medium text-ink-900 underline-offset-2 hover:underline">
+        <Link href={href} className="inline-flex min-h-11 min-w-11 items-center font-medium text-ink-900 underline underline-offset-2">
           {label}
         </Link>
         {hint ? <p className="text-xs text-ink-500">{hint}</p> : null}

@@ -79,3 +79,5 @@ tests/test-results/
 /.claude/skills/upgrade-advisor/
 /.claude/skills/validation-and-testing/
 /.claude/cashfree-skills*.json
+.e2e-auth-local/
+docs/ux-mobile-2026-11/shots/

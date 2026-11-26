@@ -207,6 +207,12 @@ body {
 body:has([data-tile-board]) > header {
   display: none;
 }
+/* The admin and operator consoles have no use for the shopping site's footer
+   (Company, Make Money…): it steps aside there too (docs/ux-mobile-2026-11). */
+body:has([data-tile-board="admin"]) > footer,
+body:has([data-tile-board="operator"]) > footer {
+  display: none;
+}
 main:has(> [data-tile-board]) {
   max-width: none;
   padding: 0;
@@ -280,4 +286,26 @@ html[data-offline] [data-tile-board] a {
 @keyframes gk-progress {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(300%); }
+}
+
+/*
+ * Mobile UX baseline (docs/ux-mobile-2026-11, 25-Nov-2026):
+ *  - iOS Safari zooms into any input whose text is under 16 px; on touch-size
+ *    screens every text box, number box and select uses 16 px.
+ *  - In landscape the notch sits at the side: keep content clear of it.
+ */
+@media (max-width: 1023.98px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
