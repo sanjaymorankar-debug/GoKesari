@@ -5,13 +5,13 @@ new feature flag; with the flag off the site behaves exactly as before.
 
 | Flag | Area | Seeded by |
 |---|---|---|
-| `flow_f1` | F1 sign-up and verification | migration **0220** — ON on the staging database (`gokesari_test`), OFF everywhere else |
+| `flow_f1` | F1 sign-up and verification | migration **0221** — ON on the staging database (`gokesari_test`), OFF everywhere else |
 | `flow_f14` | F14 shop wallet | same |
 | `flow_f17` | F17 support and admin review | same |
 
 Switch them in Admin → Feature flags (a reason is required; every change is logged).
 
-## Migration 0220 (`drizzle/0220_flows_v3_wave1.sql`)
+## Migration 0221 (`drizzle/0221_flows_v3_wave1.sql`)
 
 Additive only, safe to re-run:
 

@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { Alert, Button, inputClass } from "@/components/ui";
 
-/** Renew a franchise (optionally with a renewal coupon), or pay / cancel a reserved booking, from the owner's page. */
+/** Renew a franchise (optionally with a renewal coupon), or pay / continue / cancel an unpaid booking, from the owner's page. */
 export function FranchiseActions({ kind, id, label, cancel, coupon }: { kind: "renew" | "pay"; id: string; label: string; cancel?: boolean; coupon?: boolean }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,9 +27,15 @@ export function FranchiseActions({ kind, id, label, cancel, coupon }: { kind: "r
   }
   async function drop() {
     setBusy(true);
+    setError(null);
     const res = await fetch(`/api/franchise/bookings/${id}`, { method: "DELETE" });
-    if (!res.ok) setError((await res.json().catch(() => null))?.error?.message ?? "Could not cancel.");
-    window.location.reload();
+    if (res.ok) {
+      window.location.reload();
+      return;
+    }
+    // QA D-169: the reason stays on screen (it was lost to the reload before).
+    setError((await res.json().catch(() => null))?.error?.message ?? "Could not cancel.");
+    setBusy(false);
   }
   return (
     <div className="space-y-1">
@@ -39,7 +45,7 @@ export function FranchiseActions({ kind, id, label, cancel, coupon }: { kind: "r
           {busy ? "Please wait…" : label}
         </Button>
         {cancel ? (
-          <Button size="sm" variant="secondary" onClick={drop} disabled={busy}>
+          <Button size="sm" variant="secondary" onClick={drop} disabled={busy} data-testid={`franchise-cancel-${id}`}>
             Cancel
           </Button>
         ) : null}

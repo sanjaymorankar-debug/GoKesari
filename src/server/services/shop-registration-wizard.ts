@@ -131,7 +131,8 @@ import { assertShopType, listShopTypes, loadShopTypeRegistry } from "./shop-type
 import { loadDocumentRuleSet, requirementsFromRuleSet } from "./shop-document-rules";
 
 import { autoApproveShopIfReady, registerShop } from "./shops";
-import { v2ViewOf, WHOLESALE_SHOP_TYPE, type V2View } from "@/server/onboarding-v2/shop-view";
+import { v2ViewOf, WHOLESALE_SHOP_TYPE, type V2FeeQuote, type V2View } from "@/server/onboarding-v2/shop-view";
+import type { PrepaidRegistrationFee } from "@/server/services/shops";
 import { acceptSellerUndertaking } from "./seller-undertaking";
 
 /* ---------------------------------------------------------------- types */
@@ -1023,14 +1024,15 @@ export async function saveDraftShopType(input: { actor: Actor; shopType: string 
   await assertShopType(shopType);
   const draft = await findOpenDraft(input.actor.id);
   const old = draft ? partialOf(draft) : {};
-  // docs/onboarding-v2-2026-11 (Flow 2, DEFAULT #10): the fee is paid before the type, so the kind paid fixes it —
-  // a wholesale fee is a Wholesale store; a shop fee cannot pick Wholesale store (DEFAULT – confirm with Sanjay).
+  // docs/onboarding-v2-2026-11 (Flow 2): the fee is paid before the type. Owner, 27-Nov-2026: the fee is the original
+  // turnover slab for every shop — wholesale stores pay the same and pick Wholesale store here. Only a draft that paid
+  // the earlier fee by kind (fee_kind set, before that decision) keeps the type its fee fixed.
   if (draft?.flowVersion === "v2") {
     if (draft.feePaidAt === null) throw conflict("Please pay the registration fee first.", { reason: "STEP_OPEN", nextStep: "FEE" });
     if (draft.feeKind === "WHOLESALE" && shopType !== WHOLESALE_SHOP_TYPE) {
       throw conflict("You paid the wholesale shop fee, so your shop type is Wholesale store.", { reason: "SHOP_TYPE_FIXED_BY_FEE", fields: { shopType: "Wholesale store" } });
     }
-    if (draft.feeKind !== "WHOLESALE" && shopType === WHOLESALE_SHOP_TYPE) {
+    if (draft.feeKind === "SHOP" && shopType === WHOLESALE_SHOP_TYPE) {
       throw conflict("A wholesale store pays the wholesale fee. Please choose another shop type, or contact support to change the fee.", {
         reason: "SHOP_TYPE_FIXED_BY_FEE",
         fields: { shopType: "Choose a retail shop type." },
@@ -1648,7 +1650,7 @@ export async function submitDraftForPayment(input: {
 /**
  * docs/onboarding-v2-2026-11 (Flow 2): the shop's details from a v2 draft — the names confirmed on the fee
  * screen (pre-filled from GST / PAN), the type chosen after the fee, the address and pin, and the account's
- * mobile (verified on the identity screen) as the shop's phone. No turnover: the v2 fee is by kind.
+ * mobile (verified on the identity screen) as the shop's phone, and the turnover band of the fee screen.
  */
 async function v2ShopDetails(open: ShopRegistrationDraft, view: WizardView): Promise<DraftShopDetails> {
   const partial = partialOf(open);
@@ -1669,7 +1671,8 @@ async function v2ShopDetails(open: ShopRegistrationDraft, view: WizardView): Pro
     email: open.shopEmail ?? (await accountEmail(open.ownerId)),
     shopType,
     categoryIds: [],
-    annualTurnoverRupees: null,
+    // Owner, 27-Nov-2026: the turnover band chosen on the fee screen is recorded as the original wizard records it.
+    annualTurnoverRupees: (partial as { v2Fee?: { turnoverRupees?: number | null } }).v2Fee?.turnoverRupees ?? null,
     couponCode: null,
     referralCode: open.referralCode,
     employeeId: str(partial.employeeId),
@@ -1678,8 +1681,19 @@ async function v2ShopDetails(open: ShopRegistrationDraft, view: WizardView): Pro
 }
 
 /** The fee the owner paid on the draft, as the shop's fee snapshot (registerShop's prepaidFee). */
-function v2PrepaidFee(open: ShopRegistrationDraft): { basePaise: number; gstPaise: number; gstRateBp: number; totalPaise: number } {
-  const quote = (partialOf(open) as { v2Fee?: { basePaise: number; gstPaise: number; gstRateBp: number; totalPaise: number } }).v2Fee;
+function v2PrepaidFee(open: ShopRegistrationDraft): PrepaidRegistrationFee {
+  const quote = (partialOf(open) as { v2Fee?: Partial<V2FeeQuote> & { basePaise: number; gstPaise: number; gstRateBp: number; totalPaise: number } }).v2Fee;
   if (!quote || open.feePaidAt === null) throw conflict("Please pay the registration fee first.", { reason: "STEP_OPEN", nextStep: "FEE" });
-  return { basePaise: quote.basePaise, gstPaise: quote.gstPaise, gstRateBp: quote.gstRateBp, totalPaise: quote.totalPaise };
+  return {
+    basePaise: quote.basePaise,
+    gstPaise: quote.gstPaise,
+    gstRateBp: quote.gstRateBp,
+    totalPaise: quote.totalPaise,
+    // A registration-fee coupon used on the fee screen counts as a use on the shop, as in the original flow.
+    // DEFAULT – confirm with Sanjay: its limits are checked when the fee is quoted (before payment), not again under
+    // the coupon's lock at shop creation — two owners paying at the same moment could both take a coupon's last use.
+    discountPaise: quote.discountPaise ?? 0,
+    couponId: quote.couponId ?? null,
+    couponCode: quote.couponCode ?? null,
+  };
 }

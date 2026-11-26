@@ -148,7 +148,7 @@ export class CashfreeGateway implements PaymentGateway {
     };
   }
 
-  private async call<T>(method: "GET" | "POST", path: string, label: string, body?: unknown): Promise<T> {
+  private async call<T>(method: "GET" | "POST" | "PATCH", path: string, label: string, body?: unknown): Promise<T> {
     const response = await fetch(`${cashfreeApiBase()}${path}`, {
       method,
       headers: this.headers(),
@@ -234,6 +234,16 @@ export class CashfreeGateway implements PaymentGateway {
   async cancelPaymentLink(gatewayLinkId: string): Promise<void> {
     const id = gatewayLinkId.startsWith(LINK_PREFIX) ? gatewayLinkId.slice(LINK_PREFIX.length) : gatewayLinkId;
     await this.call<CfLink>("POST", `/links/${encodeURIComponent(id)}/cancel`, "cancel link");
+  }
+
+  /**
+   * QA D-169: PATCH /orders/{order_id} { order_status: "TERMINATED" } — an unpaid order stops accepting payments
+   * (Cashfree then reports TERMINATED / TERMINATION_REQUESTED, mapped to FAILED). UNVERIFIED against the live API;
+   * callers treat it as best effort. A payment link is cancelled instead.
+   */
+  async cancelOrder(gatewayOrderId: string): Promise<void> {
+    if (gatewayOrderId.startsWith(LINK_PREFIX)) return this.cancelPaymentLink(gatewayOrderId);
+    await this.call<CfOrder>("PATCH", `/orders/${encodeURIComponent(gatewayOrderId)}`, "terminate order", { order_status: "TERMINATED" });
   }
 
   /** UNVERIFIED: a link payment is refunded on the order Cashfree created for it. */

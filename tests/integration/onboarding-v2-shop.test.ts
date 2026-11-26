@@ -1,15 +1,17 @@
 /**
  * Onboarding v2, Flow 2 — shop onboarding (docs/onboarding-v2-2026-11). With the flag onboarding_v2 on a new
- * registration follows: identity → referral → GST / PAN → owner name → fee (Shop / Wholesale, paid on the draft)
+ * registration follows: identity → referral → GST / PAN → owner name → fee (turnover band, paid on the draft)
  * → shop type → licences (enter / upload / scan / later) → address → pin → seller agreement → live.
  *
  *   - flag off: a new draft is the original wizard (flow_version null, no v2 view)
  *   - identity: Terms + e-mail code + mobile (SMS code, or saved unverified with no SMS — DEFAULT #8); skipped for
  *     a verified customer
- *   - fee by kind from rule onboardingV2 (+GST when feeGstExtra); wholesale fixes the type; pending payment resumes
- *   - each licence option; MUST_HAVE refuses "Upload later"; the promise reaches the document follow-up
- *   - go-live: GST verified + fee paid → live after the agreement (never before); else the team's review, with the
- *     operator queue for a licence waiting on the team
+ *   - fee (owner 27-Nov-2026): the original turnover slab (₹999 / ₹4,999 / ₹9,999) + GST, or the flat fee with that
+ *     rule off, with an optional registration-fee coupon; wholesale pays the same and picks its type; pending
+ *     payment resumes
+ *   - each licence option; every licence (MUST_HAVE / FSSAI too) may be uploaded later; the promise reaches the
+ *     document follow-up, which suspends after the period and the shop is reinstated automatically once given
+ *   - go-live: GST verified + fee paid → live after the agreement (never before); no licence or operator check holds it
  *   - background: wallet + role history; return-to only for same-site paths
  */
 import { randomUUID } from "node:crypto";
@@ -45,7 +47,11 @@ import { gstinCheckChar } from "@/lib/kyc/doc-formats";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import {
+  auditLogs,
+  notifications,
   onboardingRoleHistory,
+  sellerVerifications,
+  shopSuspensions,
   paymentIntents,
   outboundTestMessages,
   registrationLicenceEntries,
@@ -53,9 +59,12 @@ import {
   shopPayments,
   shopRegistrationDrafts,
   shops,
+  userConsents,
   users,
   wallets,
 } from "@/server/db/schema";
+import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { hasCurrentConsent } from "@/server/services/consents";
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
@@ -77,9 +86,13 @@ import {
   startV2Draft,
 } from "@/server/onboarding-v2/shop-flow";
 import { v2FeeQuote } from "@/server/onboarding-v2/shop-view";
+import { baseRegistrationFee, quoteRegistrationFee, registrationFeeGstRateBp, saveRegistrationFeeCoupon } from "@/server/services/registration-fee-coupons";
 import { setFeatureFlag } from "@/server/services/feature-flags";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { runShopDocumentFollowUp } from "@/server/services/shop-document-follow-up";
+import { suspendShopWithPolicy } from "@/server/services/shop-suspension";
+import { submitSellerDocument } from "@/server/services/seller-verification";
+import { reactivateIfDocumentsGiven } from "@/server/onboarding-v2/document-reactivation";
 import { submitDraftGstin } from "@/server/services/shop-registration-draft";
 import {
   answerDraftReferral,
@@ -148,8 +161,9 @@ async function walkToFee(who: Owner = owner) {
   return saveDraftOwner({ actor: who, ownerName: "Test Seller" });
 }
 
-async function payFee(kind: "SHOP" | "WHOLESALE", outcome: "SUCCESS" | "FAILURE" = "SUCCESS", who: Owner = owner) {
-  const started = await startDraftFeeCheckout(who, { kind, shopName: "V2 Test Mart" });
+/** Pays the fee for a turnover band (1 = up to ₹2 crore, ₹999 + GST by default). */
+async function payFee(slab: number | null = 1, outcome: "SUCCESS" | "FAILURE" = "SUCCESS", who: Owner = owner) {
+  const started = await startDraftFeeCheckout(who, { slab, shopName: "V2 Test Mart" });
   expect(started.redirectUrl).toBeTruthy();
   await simulateSandboxCheckout({ ref: started.intentId!, viewerId: who.id, outcome });
   return started;
@@ -200,6 +214,16 @@ describe("step 1: identity", () => {
 
     v = await acceptV2Terms(who, { accept: true });
     expect(v.v2?.identity.termsAccepted).toBe(true);
+    // QA D-168: one Terms version for the same consent — the one /signin and the checkout login sheet record.
+    expect(v.v2?.identity.termsVersion).toBe(CURRENT_POLICY_VERSION);
+    const [tick] = await db
+      .select()
+      .from(userConsents)
+      .where(and(eq(userConsents.userId, who.id), eq(userConsents.consentType, "TERMS_AND_PRIVACY")))
+      .orderBy(desc(userConsents.createdAt))
+      .limit(1);
+    expect(tick).toMatchObject({ version: CURRENT_POLICY_VERSION, granted: true });
+    expect(await hasCurrentConsent(who.id, "TERMS_AND_PRIVACY")).toBe(true);
     await requestV2EmailCode(who, {});
     const emailed = [...state.outbox].reverse().find((m) => m.to === who.email)!;
     const code = emailed.text.match(/\b(\d{4,8})\b/)![1];
@@ -239,38 +263,74 @@ describe("step 1: identity", () => {
   });
 });
 
-describe("step 4: the fee, paid on the draft", () => {
-  it("charges the rule's amount by kind, with GST on top when feeGstExtra is on", async () => {
-    await setRule("onboardingV2", { shopFeePaise: 100_000, wholesaleFeePaise: 250_000, feeGstExtra: true }, admin);
+describe("step 4: the fee, paid on the draft (owner 27-Nov-2026: the original turnover slabs)", () => {
+  it("charges the turnover slab + GST — ₹999 for the first band — exactly as the original fee", async () => {
     const v = await walkToFee();
     expect(v.nextStep).toBe("FEE");
     expect(v.v2?.names.shopName).toBeTruthy();
-    const shopQuote = await v2FeeQuote("SHOP");
-    expect(shopQuote.basePaise).toBe(100_000);
-    expect(shopQuote.totalPaise).toBe(100_000 + shopQuote.gstPaise);
-    expect(shopQuote.gstPaise).toBeGreaterThan(0);
-    const started = await startDraftFeeCheckout(owner, { kind: "WHOLESALE", shopName: "V2 Wholesale" });
-    const wholesale = await v2FeeQuote("WHOLESALE");
-    expect(wholesale.basePaise).toBe(250_000);
-    expect(started.amountPaise).toBe(wholesale.totalPaise);
+    expect(v.v2?.fee.byTurnover).toBe(true);
+    expect(v.v2?.fee.slabs.map((s) => s.basePaise)).toEqual([99_900, 4_99_900, 9_99_900]);
+    const gstRateBp = await registrationFeeGstRateBp();
+    expect(gstRateBp).toBeGreaterThan(0);
+    const first = await v2FeeQuote({ ownerId: owner.id, slab: 1 });
+    expect(first).toMatchObject({ slab: 1, basePaise: 99_900, discountPaise: 0, gstRateBp });
+    expect(first.gstPaise).toBe(Math.round((99_900 * gstRateBp) / 10_000));
+    expect(first.totalPaise).toBe(99_900 + first.gstPaise);
+    // The same figure the original registration charges for that turnover.
+    const original = await quoteRegistrationFee({ ownerId: owner.id, turnoverRupees: first.turnoverRupees });
+    expect(original.totalPaise).toBe(first.totalPaise);
+    // A band must be chosen while fees by turnover are on.
+    await expect(startDraftFeeCheckout(owner, { slab: null, shopName: "V2 Test Mart" })).rejects.toMatchObject({ details: { fields: { annualTurnover: expect.any(String) } } });
 
-    await setRule("onboardingV2", { feeGstExtra: false }, admin);
-    expect((await v2FeeQuote("SHOP")).totalPaise).toBe(100_000);
+    const started = await startDraftFeeCheckout(owner, { slab: 2, shopName: "V2 Test Mart" });
+    expect(started.amountPaise).toBe((await v2FeeQuote({ ownerId: owner.id, slab: 2 })).totalPaise);
+    expect(started.amountPaise).toBeGreaterThan(4_99_900);
   });
 
-  it("wholesale fixes the shop type to Wholesale store and skips the type step", async () => {
+  it("with fees by turnover off: the flat fee (+ GST), no band asked", async () => {
+    await setRule("registrationFeeByTurnover", { enabled: false }, admin);
+    const v = await walkToFee();
+    expect(v.v2?.fee).toMatchObject({ byTurnover: false, slabs: [] });
+    const flat = await baseRegistrationFee(null);
+    expect(v.v2?.fee.flat?.basePaise).toBe(flat.basePaise);
+    const started = await startDraftFeeCheckout(owner, { slab: null, shopName: "V2 Test Mart" });
+    expect(started.amountPaise).toBe(v.v2!.fee.flat!.totalPaise);
+  });
+
+  it("a registration-fee coupon lowers the fee as in the original flow and is recorded on the shop", async () => {
+    await saveRegistrationFeeCoupon({ code: "V2HALF", discountType: "PERCENT", percent: 50 }, admin);
     await walkToFee();
-    await payFee("WHOLESALE");
-    const v = await view();
-    expect(v.v2?.fee).toMatchObject({ paid: true, chosen: "WHOLESALE" });
+    const quote = await v2FeeQuote({ ownerId: owner.id, slab: 1, couponCode: "v2half" });
+    expect(quote).toMatchObject({ couponCode: "V2HALF", discountPaise: 49_950 });
+    await expect(v2FeeQuote({ ownerId: owner.id, slab: 1, couponCode: "NOSUCH" })).rejects.toThrow(/isn't valid/);
+    const started = await startDraftFeeCheckout(owner, { slab: 1, couponCode: "V2HALF", shopName: "V2 Test Mart" });
+    expect(started.amountPaise).toBe(quote.totalPaise);
+    await simulateSandboxCheckout({ ref: started.intentId!, viewerId: owner.id, outcome: "SUCCESS" });
+    await saveDraftShopType({ actor: owner, shopType: "GENERAL_TRADING" });
+    await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
+    await addressAndPin();
+    const v = await prepareV2Agreement(owner);
+    const [shop] = await db.select().from(shops).where(eq(shops.id, v.shop!.id));
+    expect(shop).toMatchObject({ registrationFeePaise: quote.totalPaise, registrationFeeDiscountPaise: 49_950, registrationFeeCouponCode: "V2HALF" });
+    expect(shop.registrationFeeCouponId).toBeTruthy();
+    expect(shop.annualTurnoverRupees).toBe(quote.turnoverRupees);
+  });
+
+  it("wholesale pays the same slab and picks Wholesale store at the normal type step", async () => {
+    await walkToFee();
+    await payFee(1);
+    let v = await view();
+    expect(v.v2?.fee).toMatchObject({ paid: true, chosenSlab: 1, legacyWholesale: false });
+    expect(v.v2?.fee.paidPaise).toBe((await v2FeeQuote({ ownerId: owner.id, slab: 1 })).totalPaise);
+    expect(v.nextStep).toBe("TYPE");
+    v = await saveDraftShopType({ actor: owner, shopType: "WHOLESALE_STORE" });
     expect(v.shopType).toBe("WHOLESALE_STORE");
-    expect(v.nextStep).toBe("V2_LICENCES");
-    await expect(saveDraftShopType({ actor: owner, shopType: "GENERAL_TRADING" })).rejects.toMatchObject({ details: { reason: "SHOP_TYPE_FIXED_BY_FEE" } });
+    expect((await draftRow()).feeKind).toBeNull();
   });
 
   it("a failed payment leaves the draft pending payment; the owner resumes and pays", async () => {
     await walkToFee();
-    await payFee("SHOP", "FAILURE");
+    await payFee(1, "FAILURE");
     let v = await view();
     expect(v.status).toBe("OPEN");
     expect(v.nextStep).toBe("FEE");
@@ -279,7 +339,7 @@ describe("step 4: the fee, paid on the draft", () => {
     // No shop exists yet: the owner is still only a customer.
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
 
-    await payFee("SHOP");
+    await payFee(1);
     v = await view();
     expect(v.v2?.fee.paid).toBe(true);
     expect(v.nextStep).toBe("TYPE");
@@ -291,7 +351,7 @@ describe("step 6: licences, four options", () => {
     // The FSSAI-for-food rule as it ships (on): FSSAI is MUST_HAVE for a food shop.
     await setRule("documentUpload", { fssaiMandatoryForFood: true }, admin);
     await walkToFee();
-    await payFee("SHOP");
+    await payFee(1);
     return saveDraftShopType({ actor: owner, shopType });
   }
 
@@ -300,10 +360,10 @@ describe("step 6: licences, four options", () => {
     expect(v.nextStep).toBe("V2_LICENCES");
     const keys = v.v2!.licences.map((l) => l.key).sort();
     expect(keys).toEqual(["FSSAI", "SHOP_ACT"]);
-    expect(v.v2!.licences.find((l) => l.key === "FSSAI")).toMatchObject({ level: "MUST_HAVE", laterAllowed: false });
-
-    // MUST_HAVE: no "Upload later" (DEFAULT #12).
-    await expect(saveLicenceEntry(owner, { licenceKey: "FSSAI", option: "LATER", promise: true })).rejects.toMatchObject({ details: { reason: "LICENCE_MUST_HAVE" } });
+    // Owner, 27-Nov-2026: every licence may be uploaded later — FSSAI (MUST_HAVE) too.
+    expect(v.v2!.licences.find((l) => l.key === "FSSAI")).toMatchObject({ level: "MUST_HAVE", laterAllowed: true });
+    v = await saveLicenceEntry(owner, { licenceKey: "FSSAI", option: "LATER", promise: true });
+    expect(v.v2!.licences.find((l) => l.key === "FSSAI")!.entry).toMatchObject({ option: "LATER", status: "PROMISED" });
 
     // Scan: the device read it, the owner confirmed, verified online like a typed number.
     v = await saveLicenceEntry(owner, {
@@ -351,7 +411,7 @@ describe("steps 6b–8: agreement and go-live", () => {
     // The customer side first: an owner who never had a wallet gets one in the background.
     await db.delete(wallets).where(eq(wallets.userId, owner.id));
     await walkToFee();
-    await payFee("SHOP");
+    await payFee(1);
     await saveDraftShopType({ actor: owner, shopType: "GENERAL_TRADING" });
     await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
     let v = await addressAndPin();
@@ -397,18 +457,21 @@ describe("steps 6b–8: agreement and go-live", () => {
     expect(result.reminded + result.waiting).toBeGreaterThanOrEqual(1);
   });
 
-  it("goes to the team's review when a must-have licence waits for an operator; the operator decides it", async () => {
+  it("a must-have licence waiting for the team's check does not hold go-live; the team still checks it (owner 27-Nov-2026)", async () => {
     await setRule("documentUpload", { fssaiMandatoryForFood: true }, admin);
     await walkToFee();
-    await payFee("SHOP");
+    await payFee(1);
     await saveDraftShopType({ actor: owner, shopType: "GROCERY_KIRANA" });
     await saveLicenceEntry(owner, { licenceKey: "FSSAI", option: "UPLOAD", file: { data: PNG, source: "FILE" } });
     await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
     await addressAndPin();
     await prepareV2Agreement(owner);
     const v = await acceptV2Agreement(owner, { acceptSellerTerms: true, acceptUndertaking: true });
-    expect(v.shop?.status).toBe("PENDING_APPROVAL");
-    expect(v.nextStep).toBe("WAITING");
+    expect(v.shop?.status).toBe("APPROVED");
+    // The FSSAI file given at registration is with the team: the follow-up does not chase it.
+    const { shopsMissingDocuments } = await import("@/server/services/shop-document-follow-up");
+    const chased = (await shopsMissingDocuments()).find((c) => c.shop.id === v.shop!.id);
+    expect(chased?.missing ?? []).not.toContain("FSSAI");
 
     const queue = await listRegistrationLicences({ status: "PENDING_OPERATOR" });
     const fssai = queue.find((r) => r.licenceKey === "FSSAI" && r.shopId === v.shop!.id)!;
@@ -419,6 +482,94 @@ describe("steps 6b–8: agreement and go-live", () => {
     await expect(reviewRegistrationLicence(fssai.id, { approve: false }, admin)).rejects.toThrow(/reason/);
     const decided = await reviewRegistrationLicence(fssai.id, { approve: true }, admin);
     expect(decided.status).toBe("VERIFIED");
+  });
+});
+
+describe("owner 27-Nov-2026: licences after go-live, suspension and automatic reinstatement", () => {
+  /** A live v2 food shop that promised FSSAI (MUST_HAVE) and the Shop Act at registration. */
+  async function liveFoodShopWithPromises() {
+    await setRule("documentUpload", { fssaiMandatoryForFood: true }, admin);
+    await walkToFee();
+    await payFee(1);
+    await saveDraftShopType({ actor: owner, shopType: "GROCERY_KIRANA" });
+    await saveLicenceEntry(owner, { licenceKey: "FSSAI", option: "LATER", promise: true });
+    await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
+    await addressAndPin();
+    await prepareV2Agreement(owner);
+    const v = await acceptV2Agreement(owner, { acceptSellerTerms: true, acceptUndertaking: true });
+    // GST verified + fee paid: live at once, FSSAI and the Shop Act promised (no admin approval).
+    expect(v.shop?.status).toBe("APPROVED");
+    return v.shop!.id;
+  }
+
+  /** A reminder day well after the promise period (graceDays from go-live, 90 by default). */
+  const afterThePeriod = () => {
+    const at = new Date(Date.now() + 130 * 86_400_000);
+    const day = `${at.toISOString().slice(0, 8)}01`;
+    return { day, now: new Date(`${day}T00:30:00Z`) };
+  };
+  const shopStatus = async (id: string) => (await db.select({ status: shops.status }).from(shops).where(eq(shops.id, id)))[0].status;
+  const asOwner = () => ({ id: owner.id, role: "SHOP_OWNER" as const });
+
+  it("FSSAI upload later → live; suspended after the period; reinstated automatically once every document is given", async () => {
+    const shopId = await liveFoodShopWithPromises();
+    const { day, now } = afterThePeriod();
+    const run = await runShopDocumentFollowUp(day as never, now);
+    expect(run.suspended).toBeGreaterThanOrEqual(1);
+    expect(await shopStatus(shopId)).toBe("SUSPENDED");
+    const [suspension] = await db.select().from(shopSuspensions).where(and(eq(shopSuspensions.shopId, shopId), eq(shopSuspensions.status, "ACTIVE")));
+    expect(suspension.source).toBe("DOCUMENT_FOLLOW_UP");
+    expect(suspension.suspendedBy).toBeNull();
+
+    // FSSAI given (verified online); the Shop Act is still missing: still suspended.
+    await submitSellerDocument({ shopId, docType: "FSSAI", number: FSSAI, consentGiven: true, actor: asOwner() });
+    expect(await shopStatus(shopId)).toBe("SUSPENDED");
+    // The Shop Act sent (Maharashtra: checked by the team — given): live again at once, no person.
+    await submitSellerDocument({ shopId, docType: "SHOP_ACT", number: SHOP_ACT, consentGiven: true, actor: asOwner() });
+    expect(await shopStatus(shopId)).toBe("APPROVED");
+    const [lifted] = await db.select().from(shopSuspensions).where(eq(shopSuspensions.id, suspension.id));
+    expect(lifted).toMatchObject({ status: "LIFTED", liftedBy: null });
+    const audits = await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, shopId), eq(auditLogs.action, "shop.reactivated")));
+    expect(audits.at(-1)?.newValue).toMatchObject({ automatic: true, source: "DOCUMENT_FOLLOW_UP" });
+    const told = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, "shop.reactivated")));
+    expect(told.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("the daily run is the safety net: a suspended shop whose documents arrived some other way comes back", async () => {
+    const shopId = await liveFoodShopWithPromises();
+    const { day, now } = afterThePeriod();
+    await runShopDocumentFollowUp(day as never, now);
+    expect(await shopStatus(shopId)).toBe("SUSPENDED");
+    // Documents recorded without the upload hooks (e.g. a data fix): the next daily run reinstates the shop.
+    await db.insert(sellerVerifications).values([
+      { shopId, docType: "FSSAI", status: "VERIFIED" },
+      { shopId, docType: "SHOP_ACT", status: "MANUAL_REVIEW" },
+    ] as never);
+    const next = await runShopDocumentFollowUp("2026-12-02" as never, new Date());
+    expect(next.reactivated).toBe(1);
+    expect(await shopStatus(shopId)).toBe("APPROVED");
+  });
+
+  it("a shop suspended for any other reason is never reinstated automatically", async () => {
+    const shopId = await liveFoodShopWithPromises();
+    await suspendShopWithPolicy(shopId, { reason: "Repeated customer complaints" }, admin);
+    await db.insert(sellerVerifications).values([
+      { shopId, docType: "FSSAI", status: "VERIFIED" },
+      { shopId, docType: "SHOP_ACT", status: "VERIFIED" },
+    ] as never);
+    expect(await reactivateIfDocumentsGiven(shopId)).toBe(false);
+    expect((await runShopDocumentFollowUp("2026-12-02" as never, new Date())).reactivated).toBe(0);
+    expect(await shopStatus(shopId)).toBe("SUSPENDED");
+  });
+
+  it("flag off: a documents suspension waits for a person, as before", async () => {
+    const shopId = await liveFoodShopWithPromises();
+    const { day, now } = afterThePeriod();
+    await runShopDocumentFollowUp(day as never, now);
+    await setV2(false);
+    await submitSellerDocument({ shopId, docType: "FSSAI", number: FSSAI, consentGiven: true, actor: asOwner() });
+    await submitSellerDocument({ shopId, docType: "SHOP_ACT", number: SHOP_ACT, consentGiven: true, actor: asOwner() });
+    expect(await shopStatus(shopId)).toBe("SUSPENDED");
   });
 });
 
@@ -439,7 +590,7 @@ describe("one draft per owner", () => {
     const other = await verifiedCustomer();
     await walkToFee();
     await walkToFee(other);
-    await payFee("SHOP", "SUCCESS", other);
+    await payFee(1, "SUCCESS", other);
     expect((await view()).v2?.fee.paid).toBe(false);
     expect((await view(other)).v2?.fee.paid).toBe(true);
     expect(randomUUID()).toBeTruthy();
@@ -455,10 +606,10 @@ describe("fee money safety", () => {
     return addressAndPin();
   }
 
-  it("switching the kind ends the older checkout; paying it is not applied; the new one sets kind, snapshot and ledger", async () => {
+  it("switching the band ends the older checkout; paying it is not applied; the new one sets the band, snapshot and ledger", async () => {
     await walkToFee();
-    const shopCheckout = await startDraftFeeCheckout(owner, { kind: "SHOP", shopName: "V2 Test Mart" });
-    const wholesaleCheckout = await startDraftFeeCheckout(owner, { kind: "WHOLESALE", shopName: "V2 Test Mart" });
+    const shopCheckout = await startDraftFeeCheckout(owner, { slab: 1, shopName: "V2 Test Mart" });
+    const wholesaleCheckout = await startDraftFeeCheckout(owner, { slab: 2, shopName: "V2 Test Mart" });
     expect(wholesaleCheckout.intentId).not.toBe(shopCheckout.intentId);
     expect((await getPaymentIntent(shopCheckout.intentId!))!.status).toBe("EXPIRED");
 
@@ -470,10 +621,10 @@ describe("fee money safety", () => {
     await simulateSandboxCheckout({ ref: wholesaleCheckout.intentId!, viewerId: owner.id, outcome: "SUCCESS" });
     const paid = await draftRow();
     expect(paid.feePaidAt).not.toBeNull();
-    expect(paid.feeKind).toBe("WHOLESALE");
+    expect((paid.details as { v2Fee: { slab: number } }).v2Fee.slab).toBe(2);
     expect(paid.feePaymentIntentId).toBe(wholesaleCheckout.intentId);
-    // Locked once paid: no new checkout, whatever the kind.
-    await expect(startDraftFeeCheckout(owner, { kind: "SHOP", shopName: "V2 Test Mart" })).rejects.toMatchObject({ details: { reason: "FEE_PAID" } });
+    // Locked once paid: no new checkout, whatever the band.
+    await expect(startDraftFeeCheckout(owner, { slab: 1, shopName: "V2 Test Mart" })).rejects.toMatchObject({ details: { reason: "FEE_PAID" } });
 
     await toAgreement();
     const v = await prepareV2Agreement(owner);
@@ -483,21 +634,23 @@ describe("fee money safety", () => {
     expect(ledger.reduce((sum, p) => sum + Number(p.amountPaise), 0)).toBe(wholesaleCheckout.amountPaise);
   });
 
-  it("the kind follows the checkout actually captured, even if the screen changed it meanwhile", async () => {
+  it("the band follows the checkout actually captured, even if the screen changed it meanwhile", async () => {
     await walkToFee();
-    const shopCheckout = await startDraftFeeCheckout(owner, { kind: "SHOP", shopName: "V2 Test Mart" });
-    // The screen's kind moves to wholesale without a new checkout (e.g. a second tab before the switch).
-    await db.update(shopRegistrationDrafts).set({ feeKind: "WHOLESALE" }).where(eq(shopRegistrationDrafts.ownerId, owner.id));
+    const shopCheckout = await startDraftFeeCheckout(owner, { slab: 1, shopName: "V2 Test Mart" });
+    // The screen's band moves to 3 without a new checkout (e.g. a second tab before the switch).
+    const before = await draftRow();
+    const third = await v2FeeQuote({ ownerId: owner.id, slab: 3 });
+    await db.update(shopRegistrationDrafts).set({ details: { ...(before.details as object), v2Fee: third } }).where(eq(shopRegistrationDrafts.id, before.id));
     await simulateSandboxCheckout({ ref: shopCheckout.intentId!, viewerId: owner.id, outcome: "SUCCESS" });
     const paid = await draftRow();
-    expect(paid.feeKind).toBe("SHOP");
+    expect((paid.details as { v2Fee: { slab: number } }).v2Fee.slab).toBe(1);
     expect((paid.details as { v2Fee: { totalPaise: number } }).v2Fee.totalPaise).toBe(shopCheckout.amountPaise);
   });
 
   it("a second capture, or a capture whose amount is not its quote, is not applied", async () => {
     await walkToFee();
     const draft = await draftRow();
-    const quote = await v2FeeQuote("SHOP");
+    const quote = await v2FeeQuote({ ownerId: owner.id, slab: 1 });
     // Amount ≠ the checkout's quote.
     const wrong = await createPaymentIntent({
       purpose: "SHOP_REGISTRATION_DRAFT_FEE",
@@ -513,7 +666,7 @@ describe("fee money safety", () => {
     await onDraftFeeCaptured((await getPaymentIntent(wrong.intent.id))!, db);
     expect((await draftRow()).feePaidAt).toBeNull();
 
-    const first = await payFee("SHOP");
+    const first = await payFee(1);
     const second = await createPaymentIntent({
       purpose: "SHOP_REGISTRATION_DRAFT_FEE",
       referenceId: draft.id,
@@ -535,7 +688,7 @@ describe("fee money safety", () => {
 
   it("a failed ledger write is retried (safety net, go-live) and never doubles", async () => {
     await walkToFee();
-    const paid = await payFee("SHOP");
+    const paid = await payFee(1);
     await saveDraftShopType({ actor: owner, shopType: "GENERAL_TRADING" });
     await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
     await addressAndPin();
@@ -559,7 +712,7 @@ describe("fee money safety", () => {
 
   it("go-live itself retries the ledger write when the safety net has not run yet", async () => {
     await walkToFee();
-    await payFee("SHOP");
+    await payFee(1);
     await saveDraftShopType({ actor: owner, shopType: "GENERAL_TRADING" });
     await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
     await addressAndPin();

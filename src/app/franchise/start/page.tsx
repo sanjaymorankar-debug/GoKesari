@@ -8,7 +8,8 @@ import { planPriceLabel } from "@/lib/franchise-plans";
 import { getCurrentUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
-import { KYC_DAYS_AFTER_PAYMENT, offerView, ownerStatusForUser } from "@/server/franchise/booking";
+import { KYC_DAYS_AFTER_PAYMENT, offerView, ownerStatusForUser, pendingPlanBookings } from "@/server/franchise/booking";
+import { FranchiseActions } from "@/components/franchise/franchise-actions";
 import { franchiseConfig, oneTimeRates } from "@/server/franchise/config";
 import { zoneFacets, zoneViews } from "@/server/franchise/zones";
 import { FRANCHISE_START_PATH, SHOP_REGISTER_FOR_FRANCHISE, franchiseStartState, listPlans } from "@/server/onboarding-v2/franchise";
@@ -48,6 +49,8 @@ export default async function FranchiseStartPage({ searchParams }: { searchParam
     );
   }
 
+  // QA D-169: an open (unpaid) booking is shown with Continue payment / Cancel, after lapsed ones are released.
+  const pending = await pendingPlanBookings(user.id);
   const [zones, launchOffer, owner, { config }, allPlans] = await Promise.all([zoneViews(), offerView(), ownerStatusForUser(user.id, undefined, { v2: true }), franchiseConfig(), listPlans({ activeOnly: true })]);
   // A launch-offer plan is on sale only while the launch offer is open; any other plan whenever bookings are open.
   const plans = allPlans.filter((p) => !p.isLaunchOffer || launchOffer.launch.open);
@@ -64,6 +67,20 @@ export default async function FranchiseStartPage({ searchParams }: { searchParam
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <PageHeader title="Become a franchisee" description={`Using your shop ${state.shop.name} and your verified account details. Free dealer: live at once. Paid franchise: own up to ${offer.maxOwnersPerZone === 1 ? "the only slot" : `one of ${offer.maxOwnersPerZone} slots`} in a zone, live as soon as you pay. All times IST.`} />
+      {pending.length ? (
+        <div className="mb-4 space-y-2 rounded-lg border border-kesari-200 bg-kesari-50 p-4" data-testid="franchise-pending-bookings">
+          <h2 className="text-base font-bold text-ink-900">Your booking is waiting for payment</h2>
+          {pending.map((b) => (
+            <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cream-200 bg-white p-2 text-sm" data-testid={`franchise-pending-${b.id}`}>
+              <span>
+                {b.zones.join(", ")} · {rupees(b.totalPaise)} · held until {b.heldUntilIst}
+              </span>
+              <FranchiseActions kind="pay" id={b.id} label={b.status === "PAYMENT_PENDING" ? "Continue payment" : "Pay now"} cancel />
+            </div>
+          ))}
+          <p className="text-xs text-ink-600">Not paid by then, the zone is released and can be reserved again.</p>
+        </div>
+      ) : null}
       <FranchiseStart
         state={state}
         initialModel={model === "free" || model === "paid" ? model : initialZones.length ? "paid" : null}

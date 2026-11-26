@@ -5,6 +5,8 @@
  *   GET                                  → status, documents to sign, licence blockers, grace, signed history
  *   POST { action: "otp" }               → SMS code to the registered mobile (owner only)
  *   POST { action: "sign", … }           → e-sign with the code (owner only); see signBody
+ *   POST { action: "accept", … }         → onboarding v2 registration only: accept with the ticks and the name, no
+ *                                          code (owner 27-Nov-2026); any later review or re-sign uses "sign" + OTP
  *   POST { action: "link" }              → staff / the dealer who registered the shop: send the owner a signing link
  */
 import type { NextRequest } from "next/server";
@@ -15,8 +17,8 @@ import { ok, route, type RouteContext } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { clientIp, ownerAgreementsView, signBody } from "@/server/legal-agreements/http";
-import { createSigningLink, loadOwner, sendSigningCode, signAgreements } from "@/server/legal-agreements/signing";
+import { clientIp, ownerAgreementsView, registrationAcceptBody, signBody } from "@/server/legal-agreements/http";
+import { acceptAgreementsAtRegistration, createSigningLink, loadOwner, sendSigningCode, signAgreements } from "@/server/legal-agreements/signing";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -63,6 +65,29 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
           { shopId: id, owner: a.owner },
           {
             code: body.code,
+            signerName: body.signerName,
+            designation: body.designation,
+            constitution: body.constitution,
+            pharmacist: body.pharmacist ?? null,
+            accepted: body.accepted.map(({ docType, version }) => ({ docType, version })),
+            languageViewed: body.languageViewed,
+            ip: clientIp(request),
+            userAgent: request.headers.get("user-agent"),
+            geo: body.geo ?? null,
+          },
+        ),
+      );
+    }
+    case "accept": {
+      if (!a.isOwner) throw forbidden("Only the shop owner can accept the shop's agreements.");
+      const parsed = registrationAcceptBody.safeParse(raw);
+      if (!parsed.success) throw validationFailed(parsed.error.issues[0]?.message ?? "Check the form.");
+      const body = parsed.data;
+      enforceRateLimit(`agreements-sign:${a.user.id}`, RATE_LIMITS.PAYMENT);
+      return ok(
+        await acceptAgreementsAtRegistration(
+          { shopId: id, owner: a.owner },
+          {
             signerName: body.signerName,
             designation: body.designation,
             constitution: body.constitution,

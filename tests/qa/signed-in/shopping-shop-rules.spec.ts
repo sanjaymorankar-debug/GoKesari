@@ -13,6 +13,7 @@ import type { Page } from "@playwright/test";
 import { expectStatus, RUN, why } from "../lib/http";
 import { expect, qa } from "../lib/record";
 import { BASE_URL } from "../lib/target";
+import { pickPaymentIfNone } from "../lib/onboarding-v2-helpers";
 import {
   cancelOwn,
   cartGroup,
@@ -199,7 +200,9 @@ qa("TC-LOC-022", "minimum order ₹200: below it the cart says 'add ₹X more' w
       const warning = cartGroup(page, shopName("A")).getByTestId("delivery-warning");
       await expect(warning).toContainText(`needs a minimum order of ₹${min / 100} — add ₹${short / 100} more`);
       await expect(warning.getByRole("button", { name: "Add items" })).toBeVisible();
-      await expect(page.getByRole("button", { name: /Pay from wallet/ })).toBeDisabled();
+      // onboarding v2 (on on test.gokesari.com) preselects no payment: the wallet is chosen as a customer would.
+      await pickPaymentIfNone(page, "Wallet");
+      await expect(page.getByRole("button", { name: /Pay from wallet|Choose how to pay/ })).toBeDisabled();
       const refused = await checkoutAs("customer", { addressId: await homeAddressId(), paymentMethod: "WALLET" });
       expect(refused.status, why(refused)).toBe(422);
       expect(refused.body?.error?.message).toMatch(/minimum order/i);
@@ -209,6 +212,7 @@ qa("TC-LOC-022", "minimum order ₹200: below it the cart says 'add ₹X more' w
       await open(page, "/cart");
       await expect(cartGroup(page, shopName("A")).getByTestId("delivery-warning")).toHaveCount(0);
       await chooseDeliveryTime(page);
+      await pickPaymentIfNone(page, "Wallet");
       await expect(page.getByRole("button", { name: /Pay from wallet/ })).toBeEnabled();
       const res = await checkoutAs("customer", { addressId: await homeAddressId(), paymentMethod: "WALLET" });
       expectStatus(res, 201, `exactly ₹${min / 100}`);

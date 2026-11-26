@@ -13,6 +13,13 @@
 > Since 22-Nov-2026 an admin sets each document to must-have, on the promise or optional per shop type (or for all
 > shops, food shops, doctors) in Admin → Shops → **Document rules** (DF-09, PR #471). The admin's "Approve without
 > documents" (30 days) is the only exception to a must-have (DF-06).
+>
+> **Onboarding v2 (owner, confirmed 27-Nov-2026 00.30 IST: "Yes, FSSAI can be uploaded later"; flag `onboarding_v2`):**
+> for a shop registered through the v2 flow, **every** licence — must-have ones and FSSAI for food included — may be
+> uploaded later within the same promise period. The shop goes live on GST/PAN verified + fee paid; at the deadline
+> the follow-up suspends it, and it is reactivated automatically once the documents are provided — no admin or
+> operator approval in any of these steps (docs/onboarding-v2-2026-11/README.md, PR #642). Only the GSTIN / PAN
+> stays a before-live check. The 21-Nov must-have rule above still applies to the original wizard (flag off).
 
 > **29 Oct 2026, later the same day:** shops registered through the onboarding wizard no longer use
 > this gate — they pay once their GSTIN / PAN is checked and go live on a verified GSTIN / PAN + payment

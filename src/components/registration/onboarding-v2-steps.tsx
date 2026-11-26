@@ -17,13 +17,13 @@ import { SELLER_TERMS_ACCEPT_TEXT, SELLER_UNDERTAKING_PROMISE, SELLER_UNDERTAKIN
 import { SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
 import { extractLicenceFields } from "@/lib/onboarding-v2/licence-ocr";
 
-type FeeKind = "SHOP" | "WHOLESALE";
 /** ₹1,180 / ₹1,180.50 from paise. */
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
-interface FeeQuote {
-  kind: FeeKind;
+/** One annual turnover band and its registration fee (shop-view.ts V2FeeSlab). */
+interface FeeSlab {
+  slab: number;
+  label: string;
   basePaise: number;
-  gstRateBp: number;
   gstPaise: number;
   totalPaise: number;
 }
@@ -63,10 +63,12 @@ export interface V2State {
   };
   names: { shopName: string | null; ownerName: string | null };
   fee: {
-    shop: FeeQuote;
-    wholesale: FeeQuote;
-    gstExtra: boolean;
-    chosen: FeeKind | null;
+    byTurnover: boolean;
+    slabs: FeeSlab[];
+    flat: { basePaise: number; gstPaise: number; totalPaise: number } | null;
+    chosenSlab: number | null;
+    couponCode: string | null;
+    legacyWholesale: boolean;
     paid: boolean;
     paidAtIst: string | null;
     paidPaise: number | null;
@@ -130,8 +132,8 @@ export function V2IdentityStep({ v2, busy, fields, send }: { v2: V2State; busy: 
         <label className="flex items-start gap-3 text-sm text-ink-700">
           <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={terms} disabled={id.termsAccepted} onChange={(e) => setTerms(e.target.checked)} />
           <span>
-            I accept GoKesari&apos;s <a href="/terms" target="_blank" className="text-kesari-700 underline">Terms &amp; Conditions</a> and{" "}
-            <a href="/privacy" target="_blank" className="text-kesari-700 underline">Privacy Policy</a> (version {id.termsVersion}).
+            I accept GoKesari&apos;s <a href="/legal/terms" target="_blank" rel="noopener" className="text-kesari-700 underline">Terms &amp; Conditions</a> and{" "}
+            <a href="/legal/privacy-policy" target="_blank" rel="noopener" className="text-kesari-700 underline">Privacy Policy</a> (version {id.termsVersion}).
           </span>
         </label>
         {!id.termsAccepted ? (
@@ -221,14 +223,17 @@ export function V2IdentityStep({ v2, busy, fields, send }: { v2: V2State; busy: 
 /* ----------------------------------------------------------------- 4. fee */
 
 export function FeeStep({ v2, ownerName, onError }: { v2: V2State; ownerName: string | null; onError: (message: string, fields?: Record<string, string>) => void }) {
-  const [kind, setKind] = useState<FeeKind>(v2.fee.chosen ?? "SHOP");
+  // Owner, 27-Nov-2026: the original fee — the annual turnover band (the same bands and fees as the original
+  // registration), + GST; the flat fee when fees by turnover are off. Wholesale stores pay the same.
+  const [slab, setSlab] = useState<number | null>(v2.fee.chosenSlab);
+  const [coupon, setCoupon] = useState(v2.fee.couponCode ?? "");
   const [shopName, setShopName] = useState(v2.names.shopName ?? "");
   const [owner, setOwner] = useState(ownerName ?? "");
   const [busy, setBusy] = useState(false);
-  const quote = kind === "WHOLESALE" ? v2.fee.wholesale : v2.fee.shop;
+  const chosen = v2.fee.byTurnover ? v2.fee.slabs.find((s) => s.slab === slab) ?? null : v2.fee.flat;
   async function pay() {
     setBusy(true);
-    const result = await call(`${API}/fee`, { kind, shopName, ownerName: owner || null });
+    const result = await call(`${API}/fee`, { slab: v2.fee.byTurnover ? slab : null, couponCode: coupon.trim() || null, shopName, ownerName: owner || null });
     if (!result.ok) {
       setBusy(false);
       onError(result.error, result.fields);
@@ -238,21 +243,8 @@ export function FeeStep({ v2, ownerName, onError }: { v2: V2State; ownerName: st
     if (typeof url === "string" && url) window.location.assign(url);
     else window.location.reload();
   }
-  const option = (k: FeeKind, title: string, sub: string, q: FeeQuote) => (
-    <label className={`flex min-h-14 cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm ${kind === k ? "border-kesari-600 bg-kesari-50" : "border-[var(--gk-line)] bg-white"}`}>
-      <input type="radio" name="fee-kind" className="mt-1 h-5 w-5" checked={kind === k} onChange={() => setKind(k)} data-testid={`v2-fee-${k.toLowerCase()}`} />
-      <span>
-        <strong className="block text-ink-900">{title}</strong>
-        <span className="text-ink-600">{sub}</span>
-        <span className="mt-1 block font-semibold text-ink-900">
-          {rupees(q.basePaise)}
-          {q.gstPaise > 0 ? ` + GST ${rupees(q.gstPaise)} = ${rupees(q.totalPaise)}` : ""}
-        </span>
-      </span>
-    </label>
-  );
   return (
-    <V2Card title="Pay the registration fee" intro="Your business is verified. Confirm your shop's name, choose the kind of shop and pay online (UPI, card or net banking).">
+    <V2Card title="Pay the registration fee" intro="Your business is verified. Confirm your shop's name, choose your annual turnover and pay online (UPI, card or net banking).">
       {v2.fee.lastFailed ? (
         <Alert tone="danger" title="Your last payment did not go through">
           No money was taken for it. You can try again below.
@@ -265,12 +257,44 @@ export function FeeStep({ v2, ownerName, onError }: { v2: V2State; ownerName: st
       <Field label="Owner's name">
         <input className={inputClass} value={owner} onChange={(e) => setOwner(e.target.value)} />
       </Field>
-      <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Shop or wholesale shop?">
-        {option("SHOP", "Shop", "A shop selling to customers.", v2.fee.shop)}
-        {option("WHOLESALE", "Wholesale shop", "Sells to other shops. Your shop type is Wholesale store.", v2.fee.wholesale)}
-      </div>
-      <Button className="w-full" disabled={busy || shopName.trim().length < 2} onClick={() => void pay()} data-testid="v2-fee-pay">
-        Pay {rupees(quote.totalPaise)}
+      {v2.fee.byTurnover ? (
+        <fieldset>
+          <legend className="mb-1 text-sm font-medium text-ink-700">Annual turnover — sets your yearly registration fee</legend>
+          <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" data-testid="v2-turnover-slabs">
+            {v2.fee.slabs.map((s) => (
+              <button
+                key={s.slab}
+                type="button"
+                role="radio"
+                aria-checked={slab === s.slab}
+                onClick={() => setSlab(s.slab)}
+                className={`min-h-14 rounded-xl border px-3 py-1.5 text-left ${slab === s.slab ? "border-kesari-600 bg-kesari-50" : "border-[var(--gk-line)] bg-white"}`}
+                data-testid={`v2-fee-slab-${s.slab}`}
+              >
+                <span className="block text-sm font-semibold text-ink-900">{s.label}</span>
+                <span className="block text-xs text-ink-700">
+                  Fee {rupees(s.basePaise)}
+                  {s.gstPaise > 0 ? ` + GST ${rupees(s.gstPaise)} = ${rupees(s.totalPaise)}` : ""}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-ink-500">Wholesale stores pay the same fee and choose &quot;Wholesale store&quot; as the shop type next.</p>
+        </fieldset>
+      ) : v2.fee.flat ? (
+        <p className="text-sm font-semibold text-ink-900" data-testid="v2-fee-flat">
+          Registration fee {rupees(v2.fee.flat.basePaise)}
+          {v2.fee.flat.gstPaise > 0 ? ` + GST ${rupees(v2.fee.flat.gstPaise)} = ${rupees(v2.fee.flat.totalPaise)}` : ""}
+        </p>
+      ) : null}
+      <details className="text-sm text-ink-700">
+        <summary className="cursor-pointer font-medium">Coupon code (optional)</summary>
+        <Field label="Coupon code (optional)">
+          <input className={`${inputClass} uppercase`} value={coupon} onChange={(e) => setCoupon(e.target.value)} maxLength={40} data-testid="v2-fee-coupon" />
+        </Field>
+      </details>
+      <Button className="w-full" disabled={busy || shopName.trim().length < 2 || !chosen} onClick={() => void pay()} data-testid="v2-fee-pay">
+        {chosen ? (coupon.trim() ? "Apply the coupon and pay" : `Pay ${rupees(chosen.totalPaise)}`) : "Choose your annual turnover"}
       </Button>
       <Alert tone="warning" title="Pending until the fee is paid">
         Your registration waits here until the payment clears. You can still shop on GoKesari as a customer and come back to finish.
@@ -514,8 +538,8 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
   }
   if (v2.sla.agreementsEnabled && v2.sla.agreementsRequired) {
     return (
-      <V2Card title="Sign your seller agreement" intro="Read your shop's personalised agreements (English, मराठी, हिंदी), tick each one and sign with the code sent to your mobile.">
-        <AgreementsSigner apiBase={`/api/shops/${state.shop.id}/agreements`} onSigned={reload} />
+      <V2Card title="Accept your seller agreement" intro="Read your shop's personalised agreements (English, मराठी, हिंदी), tick each one and accept with your name — no code needed now.">
+        <AgreementsSigner apiBase={`/api/shops/${state.shop.id}/agreements`} onSigned={reload} registrationAccept />
       </V2Card>
     );
   }
@@ -548,12 +572,12 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
 /** Flow 2, the team's review: what still waits for GoKesari's team, and the way back (?return=). */
 export function V2WaitingStep({ state }: { state: V2WizardLike }) {
   const v2 = state.v2!;
-  const waiting = v2.licences.filter((l) => l.entry?.status === "PENDING_OPERATOR").map((l) => l.label);
+  // Owner, 27-Nov-2026: licences never hold go-live (they follow within the documents period); what waits is the
+  // GST / PAN check.
   return (
     <V2Card title="Your shop is with GoKesari's team">
       <Alert tone="warning">
-        {state.shop?.name} is waiting for a quick check{waiting.length ? ` of ${waiting.join(", ")}` : ""}. Your fee is paid. We&apos;ll e-mail you as soon as your shop is
-        live.
+        {state.shop?.name} is waiting for a quick check of your GST / PAN details. Your fee is paid. We&apos;ll e-mail you as soon as your shop is live.
       </Alert>
       <p className="text-sm text-ink-700">Until then your shop receives no orders; you can still shop on GoKesari as a customer.</p>
       <ReturnToLink returnTo={v2.returnTo} />

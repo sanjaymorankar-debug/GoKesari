@@ -2933,6 +2933,8 @@ export const shopSuspensions = pgTable(
     /** Policy in force and the counts it produced — a snapshot, not a live view. */
     policy: jsonb("policy").$type<Record<string, string>>().notNull().default({}),
     impact: jsonb("impact").$type<Record<string, number>>().notNull().default({}),
+    /** 0220: what suspended the shop — DOCUMENT_FOLLOW_UP (reinstated automatically with onboarding_v2), else null. */
+    source: text("source", { enum: ["DOCUMENT_FOLLOW_UP"] }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -9857,7 +9859,7 @@ export const supportTickets = pgTable(
     changeRequestId: uuid("change_request_id"),
     opsTaskId: uuid("ops_task_id"),
     raisedByStaff: boolean("raised_by_staff"),
-    /* docs/flows-v3 (0220, flag flow_f17): a ticket the system opened for an event elsewhere — one per
+    /* docs/flows-v3 (0221, flag flow_f17): a ticket the system opened for an event elsewhere — one per
      * (source, source_ref) — and the area dealer copied on a shop's ticket (read-only). All nullable. */
     source: text("source"),
     sourceRef: text("source_ref"),
@@ -11202,7 +11204,7 @@ export const FEATURE_FLAG_KEYS = [
   // docs/dual-auth-2026-11 (0219): every account needs a verified mobile AND e-mail; device trust; two codes for
   // sensitive actions. Seeded ON on the staging database (gokesari_test), OFF on production until its test pass.
   "dual_auth",
-  // docs/flows-v3 (0220): flow spec v3 wave 1. F1 sign-up and verification (rider gate, Terms record for Google /
+  // docs/flows-v3 (0221): flow spec v3 wave 1. F1 sign-up and verification (rider gate, Terms record for Google /
   // e-mail-link sign-ups, referral link to sign-up); F14 shop wallet (created with the shop, ledger download); F17
   // support (auto-assign, area dealer copied, system tickets, working-hours SLA, reopen, account recovery).
   // Seeded ON on the staging database (gokesari_test), OFF on production.
@@ -13734,5 +13736,5 @@ export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)
 export * from "./legal-agreements-schema"; // docs/seller-agreements-2026-11 (0213)
 export * from "./onboarding-v2-schema"; // docs/onboarding-v2-2026-11 (0215)
 export * from "./dual-auth-schema"; // docs/dual-auth-2026-11 (0219)
-export * from "./flows-v3-schema"; // docs/flows-v3 (0220)
+export * from "./flows-v3-schema"; // docs/flows-v3 (0221)
 /* <<< GoKesari Health */

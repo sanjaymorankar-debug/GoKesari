@@ -772,7 +772,7 @@ export function OnboardingWizard({
             setState(next as WizardState);
             setViewing(null);
           }}
-          back={state.v2.fee.chosen === "WHOLESALE" ? null : back("TYPE")}
+          back={state.v2.fee.legacyWholesale ? null : back("TYPE")}
         />
       ) : null}
       {step === "SLA" && state?.v2 ? (

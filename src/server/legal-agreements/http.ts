@@ -58,6 +58,12 @@ export const signBody = z.object({
   geo: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0).max(100_000).optional() }).nullable().optional(),
 });
 
+/**
+ * Onboarding v2 registration (owner, 27-Nov-2026): the same form without the SMS code — accepted with the ticks and
+ * the typed name, only while the shop's v2 registration is at its agreement step (acceptAgreementsAtRegistration).
+ */
+export const registrationAcceptBody = signBody.omit({ action: true, code: true }).extend({ action: z.literal("accept") });
+
 /** Everything the Agreements screen needs for one shop. */
 export async function ownerAgreementsView(shopId: string) {
   const [status, history, link] = await Promise.all([getAgreementStatus(shopId), shopAgreementHistory(shopId), openLinkRequest(shopId)]);
