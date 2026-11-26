@@ -42,6 +42,7 @@ import { bestNameMatch } from "@/lib/kyc/name-match";
 import { isMobileAppScheme, type MobileAppScheme } from "@/lib/mobile-app";
 import { docBlindIndex } from "@/lib/pan-crypto";
 import { db } from "@/server/db";
+import { systemTicketHook } from "@/server/aftercare/system-ticket-hook";
 import {
   featureFlagChanges,
   identityVerificationPrompts,
@@ -483,6 +484,13 @@ async function afterSettled(before: IdentityVerification, row: IdentityVerificat
     });
   }
   if (row.status === "VERIFIED") await releasePendingShops(row.userId);
+  // docs/flows-v3 (flag flow_f17): a check sent to a person's review opens a support ticket (once per attempt).
+  if (row.status === "NAME_MISMATCH_REVIEW") {
+    await systemTicketHook("IDENTITY_REVIEW", row.id, {
+      subject: "Identity check needs review",
+      description: `An identity check (${row.method}) needs a person's review${row.errorCode ? ` (${row.errorCode})` : ""}. Decide it in Admin → Identity verification.`,
+    });
+  }
 }
 
 /** A newly verified shop owner: their shops waiting only for this may now go live (best-effort). */

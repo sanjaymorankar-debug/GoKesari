@@ -24,7 +24,7 @@ import { LIVE_TICKET_STATUSES, TICKET_PRIORITIES, canMoveTicket, type TicketStat
 import { db } from "@/server/db";
 import { shops, staffTeamMembers, supportTickets, users, type StaffTeam, type SupportTicket, type UserRole } from "@/server/db/schema";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { announceCreated, appendEvent, assignTicket, moveTicket, slaDeadlines } from "@/server/aftercare/support-tickets";
+import { afterTicketOpened, announceCreated, appendEvent, assignTicket, moveTicket, slaDeadlines } from "@/server/aftercare/support-tickets";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { listUserRoles } from "@/server/services/roles";
 import { isFeatureEnabled, requireFeatureForRole } from "@/server/services/feature-flags";
@@ -262,7 +262,8 @@ export async function raiseStaffTicket(input: StaffTicketInput, actor: Actor): P
       dedupeKey: `staff-ticket:${ticket.id}:new:${m.id}`,
     });
   }
-  return ticket;
+  // docs/flows-v3 (flag flow_f17): auto-assignment and the area dealer copied. Off: the ticket as raised.
+  return afterTicketOpened(ticket);
 }
 
 async function priorityDue(from: Date, priority: string, statutoryResolveBy: Date): Promise<Date> {

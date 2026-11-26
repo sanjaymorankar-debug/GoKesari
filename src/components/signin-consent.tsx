@@ -44,8 +44,11 @@ export function SignInConsentCheckbox({ className = "" }: { className?: string }
   );
 }
 
-/** A submit button that stays disabled until the consent box is ticked. */
+/**
+ * A submit button that stays disabled until the consent box is ticked. It submits acceptedTerms=1 with its form, so
+ * the server can record the tick (docs/flows-v3, flag flow_f1).
+ */
 export function ConsentSubmitButton({ disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   const agreed = useContext(ConsentContext);
-  return <button type="submit" {...props} disabled={disabled || !agreed} />;
+  return <button type="submit" name="acceptedTerms" value="1" {...props} disabled={disabled || !agreed} />;
 }
