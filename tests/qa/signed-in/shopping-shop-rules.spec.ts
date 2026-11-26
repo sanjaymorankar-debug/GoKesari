@@ -189,7 +189,8 @@ qa("TC-LOC-022", "minimum order ₹200: below it the cart says 'add ₹X more' w
   const bread = listing("sharedA");
   const price = bread.pricePaise!;
   const exact = Math.ceil(20000 / price);
-  return withShop("A", { minOrderPaise: price * exact }, async () => {
+  // No opening hours for the check: at night shop A (06:00–22:00) first asks to confirm a closed-shop order (409).
+  return withShop("A", { minOrderPaise: price * exact, openingHours: [] }, async () => {
     const min = price * exact;
     await fillCart("customer", [{ item: bread, quantity: 2 }]);
     const short = min - 2 * price;

@@ -116,7 +116,12 @@ export async function checkoutLines(
   const role = options.role ?? "customer";
   await emptyCart(role);
   for (const line of lines) {
-    const added = await addToCart(role, line.listing.shopProductId, line.quantity ?? 1);
+    let added = await addToCart(role, line.listing.shopProductId, line.quantity ?? 1);
+    if (added.status === 409 && !IS_LOCAL && line.listing.shopProductId === world().listings.packaged?.shopProductId) {
+      // The E2E bakery's preset sold out between runs (E-33): restocked by listingOf("packaged"), then added again.
+      await listingOf("packaged");
+      added = await addToCart(role, line.listing.shopProductId, line.quantity ?? 1);
+    }
     if (added.status === 409 || added.status === 422) blocked(`"${line.listing.name}" cannot be added to the cart — ${why(added)}`);
     expectStatus(added, [200, 201], `add ${line.listing.name}`);
   }
