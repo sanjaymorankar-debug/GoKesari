@@ -27,6 +27,34 @@ export async function bannerQr(png: Buffer): Promise<string | null> {
   return jsQR(new Uint8ClampedArray(data), info.width, info.height)?.data ?? null;
 }
 
+/** 26-Nov-2026: the "Pay here (UPI)" QR beside the shop QR (≈ x 908–1058, y 523–673), or null when the banner has none. */
+export async function bannerUpiQr(png: Buffer): Promise<string | null> {
+  const meta = await sharp(png).metadata();
+  const sx = (meta.width ?? 1536) / 1536;
+  const sy = (meta.height ?? 1024) / 1024;
+  const { data, info } = await sharp(png)
+    .extract({ left: Math.round(880 * sx), top: Math.round(500 * sy), width: Math.round(200 * sx), height: Math.round(200 * sy) })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return jsQR(new Uint8ClampedArray(data), info.width, info.height)?.data ?? null;
+}
+
+/** A PNG holding one QR code of `text` (for the payment-QR upload checks). */
+export async function qrPng(text: string): Promise<Buffer> {
+  const { toBuffer } = await import("qrcode");
+  return toBuffer(text, { errorCorrectionLevel: "M", margin: 2, width: 400 });
+}
+
+/** POST a payment-QR image to the shop's banner as `ctx`. */
+export async function uploadUpiQr(ctx: APIRequestContext, shopId: string, png: Buffer): Promise<{ status: number; body: Record<string, unknown> }> {
+  const res = await ctx.post(new URL(`/api/shops/${shopId}/banner/upi-qr`, BASE_URL).toString(), {
+    failOnStatusCode: false,
+    multipart: { file: { name: "payment-qr.png", mimeType: "image/png", buffer: png } },
+  });
+  return { status: res.status(), body: await res.json().catch(() => ({})) };
+}
+
 /** GET /api/shops/<id>/banner as `ctx`, with the file name from Content-Disposition. */
 export async function bannerFile(ctx: APIRequestContext, shopId: string, query = ""): Promise<{ status: number; type: string; body: Buffer; filename: string | null }> {
   const res = await ctx.get(new URL(`/api/shops/${shopId}/banner${query}`, BASE_URL).toString(), { failOnStatusCode: false, maxRedirects: 0 });

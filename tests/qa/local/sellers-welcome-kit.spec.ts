@@ -7,6 +7,8 @@
  *   TC-WKIT-003        once per shop, ever (suspended and approved again)
  *   TC-WKIT-008        local language: Marathi (Maharashtra / Goa, PIN 40–44), Hindi elsewhere
  *   TC-WKIT-009        admin "Send welcome kit": off by default, admin only, once per shop, bulk by city
+ *   TC-WKIT-032        26-Nov-2026: admin "Resend updated banner" (no second welcome, 10-minute guard)
+ *   TC-WKIT-023        26-Nov-2026: the go-live e-mail is personalised (Dear <owner>, contact line, ASMY footer)
  */
 import { readFileSync } from "node:fs";
 
@@ -161,6 +163,35 @@ qa("TC-WKIT-009", "Admin 'Send welcome kit': off by default, admin only, once pe
     seen.push(`bulk "${city}": preview 1, queued 1, other city untouched`);
   });
   return seen.join("; ");
+}, local);
+
+qa(["TC-WKIT-032", "TC-WKIT-023"], "Admin 'Resend updated banner': a shop that had the kit gets the current banners once, without a second welcome; a second press at once is refused", async () => {
+  const s = await approvedShopOfNewOwner("wkit-resend");
+  const kit = await kitSettled(s.shop.id);
+  expect(kit.map((r) => r.status), "the go-live welcome kit").toEqual(["SENT"]);
+  const [welcome] = await db()<{ body: string }[]>`select body from document_emails where doc_type = 'SHOP_WELCOME_KIT' and doc_id = ${s.shop.id}`;
+  expect(welcome.body, "personalised opening").toMatch(/\n\nDear [^\n]+, congratulations! [^\n]+ is now live on GoKesari\.com/);
+  expect(welcome.body).toContain("+91 91751 93009");
+  expect(welcome.body).toContain("gokesari.com is a unit of ASMY GLOBAL TRADING & CONSULTANCY INDIA PRIVATE LIMITED");
+  const admin = await as("admin");
+  return withWelcomeKitFlag(true, async () => {
+    const first = await call(admin, "POST", "/api/admin/shops/welcome-kit", { resendShopId: s.shop.id });
+    expectStatus(first, 200, "resend updated banner");
+    const again = await call(admin, "POST", "/api/admin/shops/welcome-kit", { resendShopId: s.shop.id });
+    expect(again.status, "a second press at once").toBe(409);
+    const until = Date.now() + 60_000;
+    let row: { status: string; subject: string; body: string } | undefined;
+    while (Date.now() < until) {
+      [row] = await db()<{ status: string; subject: string; body: string }[]>`select status, subject, body from document_emails where doc_type = 'SHOP_BANNER_UPDATE' and doc_id = ${s.shop.id}`;
+      if (row && !["PENDING", "SENDING"].includes(row.status)) break;
+      await new Promise((r) => setTimeout(r, 1_500));
+    }
+    expect(row?.status, "the updated-banner e-mail").toBe("SENT");
+    expect(row?.subject).toMatch(/updated GoKesari banners/);
+    expect(row?.body).not.toMatch(/congratulations/);
+    expect(await kitRows(s.shop.id), "the welcome kit itself is untouched").toHaveLength(1);
+    return "welcome SENT and personalised; resend 200 → SENT (no congratulations); second press 409";
+  });
 }, local);
 
 manual("TC-WKIT-010", "Scanning the printed QR with a phone opens the shop (browser, and the app when installed)", "needs a phone camera and the installed Android / iOS app; the app half also needs the real Apple Team ID and Android signing fingerprint on the server (docs/deep-links-activation.md)");

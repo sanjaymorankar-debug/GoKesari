@@ -19,7 +19,10 @@ import {
   listShopCampaigns,
 } from "@/server/services/marketing";
 import { listShopsForOwner } from "@/server/services/shops";
+import { ShopBannerUpiQr } from "@/components/shop-banner-upi-qr";
+import { getSettings } from "@/server/accounts/books";
 import { localBannerLanguage } from "@/server/shop-banner/render";
+import { bannerUpiQrInfo } from "@/server/shop-banner/upi-qr";
 
 export const metadata = { title: "Marketing" };
 export const dynamic = "force-dynamic";
@@ -51,10 +54,12 @@ export default async function ShopMarketingPage() {
   // Item B: live limits (rules `marketing` and `cod`).
   const [MARKETING_LIMITS, COD_LIMITS] = await Promise.all([getRule("marketing"), getCodLimits()]);
 
-  const [overview, segments, campaigns] = await Promise.all([
+  const [overview, segments, campaigns, bannerSettings, uploadedUpiQr] = await Promise.all([
     getShopCustomerOverview(shop.id),
     listSegments(shop.id),
     listShopCampaigns(shop.id),
+    shop.status === "APPROVED" ? getSettings(shop.id) : null,
+    shop.status === "APPROVED" ? bannerUpiQrInfo(shop.id) : null,
   ]);
 
   return (
@@ -69,8 +74,9 @@ export default async function ShopMarketingPage() {
         <Card className="mb-8 p-4" data-testid="shop-banner">
           <h2 className="text-base font-bold text-ink-900">Your shop banner with QR code</h2>
           <p className="mt-1 text-sm text-ink-600">
-            Print it in colour on A4 landscape (&ldquo;Fit to page&rdquo;) and put it up at your counter or entrance. Customers scan the QR code and come straight to
-            your shop on GoKesari. Scan it with your phone first to check it opens your shop.
+            Print it in colour on A4 landscape (&ldquo;Fit to page&rdquo;) and put it up at your counter or entrance. Customers scan the &ldquo;Order online&rdquo; QR code
+            and come straight to your shop on GoKesari. It shows your shop&rsquo;s name, your name and, when you have one, a &ldquo;Pay here (UPI)&rdquo; QR. Scan both
+            with your phone first to check them.
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-sm font-medium">
             <a className="inline-flex min-h-11 items-center rounded-lg bg-kesari-700 px-3 py-2 text-white" href={`/api/shops/${shop.id}/banner?lang=en`} data-testid="banner-en-pdf">
@@ -86,6 +92,7 @@ export default async function ShopMarketingPage() {
               {localLanguage} (PNG)
             </a>
           </div>
+          <ShopBannerUpiQr shopId={shop.id} upiVpa={bannerSettings?.upiVpa ?? null} uploaded={uploadedUpiQr} />
         </Card>
       ) : null}
 

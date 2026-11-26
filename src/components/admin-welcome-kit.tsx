@@ -20,6 +20,8 @@ export interface WelcomeKitShopRow {
   ownerHasEmail: boolean;
   local: "mr" | "hi";
   welcomeKit: { status: string; sentAt: string | null; createdAt: string; lastError: string | null } | null;
+  /** 26-Nov-2026: the latest "Resend updated banner" e-mail. */
+  bannerUpdate?: { status: string; sentAt: string | null; createdAt: string; lastError: string | null } | null;
 }
 
 const LANGUAGE = { mr: "Marathi", hi: "Hindi" } as const;
@@ -57,6 +59,7 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
 
   const [city, setCity] = useState("");
   const [district, setDistrict] = useState("");
+  const [allShops, setAllShops] = useState(false);
   const [preview, setPreview] = useState<{ total: number; key: string } | null>(null);
   const [told, setTold] = useState(false);
 
@@ -99,16 +102,35 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
     }
   }
 
-  const bulkKey = `${city.trim().toLowerCase()}|${district}`;
+  async function resend(row: WelcomeKitShopRow) {
+    if (!window.confirm(`E-mail ${row.name} its current banners again (owner name, UPI QR)? This is not the welcome kit and does not congratulate again.`)) return;
+    setBusy(`resend-${row.id}`);
+    setMessage(null);
+    try {
+      const data = await call<{ bannerUpdate: WelcomeKitShopRow["bannerUpdate"] }>("/api/admin/shops/welcome-kit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ resendShopId: row.id }),
+      });
+      setRows((current) => current?.map((r) => (r.id === row.id ? { ...r, bannerUpdate: data.bannerUpdate } : r)) ?? null);
+      say("ok", `Updated banner queued for ${row.name}. It goes out within a minute.`);
+    } catch (error) {
+      say("error", error instanceof Error ? error.message : "Could not resend.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const bulkKey = allShops ? "all" : `${city.trim().toLowerCase()}|${district}`;
 
   async function previewBulk() {
-    if (!city.trim() && !district) return say("error", "Choose a city or a district.");
+    if (!allShops && !city.trim() && !district) return say("error", "Choose a city or a district, or tick All live shops.");
     setBusy("preview");
     setMessage(null);
     try {
       const params = new URLSearchParams({ notWelcomed: "1" });
-      if (city.trim()) params.set("city", city.trim());
-      if (district) params.set("district", district);
+      if (!allShops && city.trim()) params.set("city", city.trim());
+      if (!allShops && district) params.set("district", district);
       const data = await call<{ total: number; shops: WelcomeKitShopRow[] }>(`/api/admin/shops/welcome-kit?${params}`);
       setPreview({ total: data.total, key: bulkKey });
       setRows(data.shops);
@@ -130,7 +152,7 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
       const data = await call<{ matched: number; queued: number; notQueued: number; remaining: number }>("/api/admin/shops/welcome-kit", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ bulk: { ...(city.trim() ? { city: city.trim() } : {}), ...(district ? { districtCode: district } : {}) } }),
+        body: JSON.stringify({ bulk: allShops ? { all: true } : { ...(city.trim() ? { city: city.trim() } : {}), ...(district ? { districtCode: district } : {}) } }),
       });
       say(
         "ok",
@@ -186,11 +208,14 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
         <p className="mt-1 text-sm text-ink-700">
           Every live shop there that never had the welcome kit, up to 200 per run. The e-mails go out over the next minutes. On gokesari.com, tell the owner before you run it.
         </p>
+        <label className="mt-2 flex min-h-11 items-center gap-2 text-sm text-ink-800">
+          <input type="checkbox" checked={allShops} onChange={(e) => setAllShops(e.target.checked)} data-testid="welcome-kit-all" /> All live shops (any city) — run again until none remain
+        </label>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label className="sr-only" htmlFor="wk-city">City</label>
-          <input id="wk-city" className={input} value={city} onChange={(e) => setCity(e.target.value)} placeholder="City, e.g. Pune" />
+          <input id="wk-city" className={input} disabled={allShops} value={city} onChange={(e) => setCity(e.target.value)} placeholder="City, e.g. Pune" />
           <label className="sr-only" htmlFor="wk-district">District</label>
-          <select id="wk-district" className={input} value={district} onChange={(e) => setDistrict(e.target.value)}>
+          <select id="wk-district" className={input} disabled={allShops} value={district} onChange={(e) => setDistrict(e.target.value)}>
             <option value="">Any district</option>
             {districts.map((d) => (
               <option key={d.code} value={d.code}>
@@ -237,10 +262,20 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
                   {statusText(row.welcomeKit)}
                   {!row.ownerHasEmail ? " · The owner has no e-mail address: the outbox will skip it." : ""}
                 </p>
+                {row.bannerUpdate ? (
+                  <p className="text-xs text-ink-700" data-testid="banner-update-status">
+                    Updated banner: {statusText(row.bannerUpdate)}
+                  </p>
+                ) : null}
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button type="button" className={primary} disabled={!enabled || Boolean(row.welcomeKit) || busy !== null} onClick={() => sendOne(row)}>
                     <Icon name="megaphone" size={16} /> {busy === row.id ? "Sending…" : "Send welcome kit"}
                   </button>
+                  {row.welcomeKit ? (
+                    <button type="button" className={secondary} disabled={!enabled || busy !== null} onClick={() => resend(row)} data-testid="resend-banner">
+                      {busy === `resend-${row.id}` ? "Sending…" : "Resend updated banner"}
+                    </button>
+                  ) : null}
                   <a className={secondary} href={`/api/shops/${row.id}/banner?lang=en`}>
                     English PDF
                   </a>

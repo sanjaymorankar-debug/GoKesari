@@ -1,14 +1,15 @@
 /**
  * docs/shop-welcome-kit-2026-11: rewrites the white line on the orange ribbon of a local-language shop-banner
  * template ("We are available on" on the English design). Owner's correction of 21-Nov-2026 for Marathi:
- * "आमचे दुकान आता ऑनलाइन" → "आपले दुकान आता ऑनलाइन".
+ * "आमचे दुकान आता ऑनलाइन" → "आपले दुकान आता ऑनलाइन". Owner brief of 26-Nov-2026: the headline on every
+ * template is "This shop is now live on GoKesari.com" (Marathi / Hindi below, to be checked by a native speaker).
  *
  * The old white letters are removed column by column: each letter pixel takes the ribbon colour interpolated
  * between the nearest ribbon pixels above and below it (the ribbon's shading runs top to bottom), then the filled
  * pixels are softened. The new line is drawn centred where the old one was, in white Poppins Bold at the old
  * line's height. Run on a template that has the line, then look at it and commit:
  *
- *     node --import tsx scripts/shop-banner/set-ribbon.ts mr
+ *     node --import tsx scripts/shop-banner/set-ribbon.ts en   (and mr, hi)
  *
  * make-local-templates.py has the same words in TEXTS; after re-running it this script is not needed.
  */
@@ -21,18 +22,28 @@ const FONT_FILE = path.join(ASSETS, "Poppins-Bold.ttf");
 process.env.FONTCONFIG_FILE ??= path.join(ASSETS, "fonts.conf");
 process.env.PANGOCAIRO_BACKEND ??= "fc";
 
-export const RIBBON_TEXT: Record<string, string> = { mr: "आपले दुकान आता ऑनलाइन" };
+export const RIBBON_TEXT: Record<string, string> = {
+  en: "This shop is now live on",
+  mr: "हे दुकान आता लाइव्ह आहे",
+  hi: "यह दुकान अब लाइव है",
+};
 
-// Pixel geometry of the 1536 x 1024 templates: the ribbon line's letters (measured on template-mr.png).
-const AREA = { x0: 440, x1: 1110, y0: 308, y1: 382 }; // the old line incl. the ु under दु (GoKesari.com starts at y 384)
-const LINE = { centreX: 775, inkTop: 312, inkHeight: 72, maxWidth: 655 }; // old line: x 447-1102, y 312-380
+// Pixel geometry of the 1536 x 1024 templates: the ribbon line's letters (measured 21-Nov on template-mr.png and
+// 26-Nov on template.png / template-hi.png). AREA holds the old line (incl. a ु under दु; GoKesari.com starts at
+// y 383, its K at y 377); LINE is where the new one goes: Devanagari gets the taller box of the old Marathi line.
+const GEOMETRY: Record<string, { area: { x0: number; x1: number; y0: number; y1: number }; line: { centreX: number; inkTop: number; inkHeight: number; maxWidth: number } }> = {
+  en: { area: { x0: 403, x1: 1141, y0: 314, y1: 372 }, line: { centreX: 772, inkTop: 318, inkHeight: 53, maxWidth: 720 } },
+  mr: { area: { x0: 440, x1: 1110, y0: 308, y1: 382 }, line: { centreX: 775, inkTop: 312, inkHeight: 66, maxWidth: 680 } },
+  hi: { area: { x0: 458, x1: 1088, y0: 308, y1: 382 }, line: { centreX: 772, inkTop: 312, inkHeight: 66, maxWidth: 680 } },
+};
 const isLetter = (r: number, g: number, b: number) => b > 70 || (r > 230 && g > 200); // the ribbon's orange has b < 40
 
 async function main(): Promise<void> {
   const lang = process.argv[2] ?? "mr";
   const words = RIBBON_TEXT[lang];
   if (!words) throw new Error(`no ribbon text for ${lang}`);
-  const target = path.join(ASSETS, `template-${lang}.png`);
+  const { area: AREA, line: LINE } = GEOMETRY[lang];
+  const target = path.join(ASSETS, lang === "en" ? "template.png" : `template-${lang}.png`);
   const { data, info } = await sharp(target).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const W = info.width;
   const at = (x: number, y: number) => (y * W + x) * 3;
@@ -59,6 +70,29 @@ async function main(): Promise<void> {
       for (let k = 0; k < y - start; k++) {
         const t = (k + 1) / n, i = at(x, start + k);
         for (let c = 0; c < 3; c++) data[i + c] = Math.round(data[a + c] * (1 - t) + data[b + c] * t);
+      }
+    }
+  }
+  // 2b. English (26-Nov): the old line is much wider than the new one, so its whole box is repainted as a
+  // top-to-bottom blend of the ribbon just above and below it. The two anchor rows carry the old letters' soft
+  // shadow, so each is first averaged over ±40 px across.
+  if (lang === "en") {
+    const anchor = (y: number) => {
+      const row: number[][] = [];
+      for (let x = AREA.x0; x <= AREA.x1; x++) {
+        const sum = [0, 0, 0];
+        let n = 0;
+        for (let k = x - 40; k <= x + 40; k++, n++) for (let c = 0; c < 3; c++) sum[c] += data[at(k, y) + c];
+        row.push(sum.map((v) => v / n));
+      }
+      return row;
+    };
+    const top = anchor(AREA.y0 - 2), bottom = anchor(AREA.y1 + 2), n = AREA.y1 - AREA.y0 + 4;
+    for (let x = AREA.x0; x <= AREA.x1; x++) {
+      for (let y = AREA.y0 - 1; y <= AREA.y1 + 1; y++) {
+        const t = (y - AREA.y0 + 2) / n, i = at(x, y);
+        for (let c = 0; c < 3; c++) data[i + c] = Math.round(top[x - AREA.x0][c] * (1 - t) + bottom[x - AREA.x0][c] * t);
+        mask[y * W + x] = 1;
       }
     }
   }
@@ -95,7 +129,7 @@ async function main(): Promise<void> {
     .png({ compressionLevel: 9 })
     .toBuffer();
   await sharp(out).toFile(target);
-  console.log(`template-${lang}.png: ribbon "${words}" (Poppins Bold ${size}, ${line.width} px wide)`);
+  console.log(`${path.basename(target)}: ribbon "${words}" (Poppins Bold ${size}, ${line.width} px wide)`);
 }
 
 main().catch((error) => {
