@@ -49,7 +49,10 @@ qa("TC-MKT-019", "/refer shows the customer's own code and share link; the link 
     const url = new URL(link);
     expect(url.host, "the link is on this site").toBe(new URL(BASE_URL).host);
     expect(url.pathname).toBe(`/r/${code}`);
-    await expect(page.getByRole("link", { name: "Share on WhatsApp" })).toHaveAttribute("href", new RegExp(`^https://wa\\.me/\\?text=.*${code}`));
+    // Referral sharing (rule referralSharing, on since 26-Nov-2026): WhatsApp / SMS / Email / Copy link buttons
+    // (docs/referral-sharing-2026-11); before it, one "Share on WhatsApp" link.
+    const whatsapp = page.getByTestId("referral-share-buttons").getByTestId("share-whatsapp").or(page.getByRole("link", { name: "Share on WhatsApp" }));
+    await expect(whatsapp).toHaveAttribute("href", new RegExp(`^https://wa\\.me/\\?text=.*${code}`));
     await page.getByRole("button", { name: "Copy link" }).click();
     await expect(page.getByRole("button", { name: "Link copied" })).toBeVisible();
     const copied = await page.evaluate(() => navigator.clipboard.readText()).catch(() => null);

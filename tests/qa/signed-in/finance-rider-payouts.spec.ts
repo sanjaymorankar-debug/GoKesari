@@ -11,6 +11,7 @@
  * to the owner's mailbox) and "Run now" is only proven with a month that is
  * not over, so no payout run is started on the site.
  */
+import { blockAtDualStepUp } from "../lib/dual-auth";
 import { as, me, pageAs } from "../lib/actors";
 import { call, expectStatus } from "../lib/http";
 import { blocked, expect, qa } from "../lib/record";
@@ -47,6 +48,8 @@ qa(
       await card.getByLabel("Account number", { exact: true }).fill(SECURE_ID_SAMPLE.accountNumber);
       await card.getByRole("textbox", { name: "Re-enter account number" }).fill(SECURE_ID_SAMPLE.accountNumber);
       await card.getByRole("button", { name: "Save", exact: true }).click();
+      // dual_auth (on on test.gokesari.com): adding or changing a payout account is a sensitive action (SMS + e-mail codes).
+      await blockAtDualStepUp(page, "saving the rider's bank account");
       await expect(card.getByText("Saved and verified with your bank — no ₹1 payment needed.", { exact: true })).toBeVisible({ timeout: 60_000 });
       await expect(card.getByText("Verified", { exact: true })).toBeVisible();
       await expect(card.getByTestId("bank-check-verified")).toContainText("Verified with your bank");

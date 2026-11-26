@@ -86,6 +86,17 @@ qa("TC-SREF-001", "shop owner: My Shop → Registration and fee has the shop's o
     await expect(page.getByTestId("shop-referral-code")).toHaveText(/^SHOP[A-HJ-NP-Z2-9]{5}$/);
     const code = (await page.getByTestId("shop-referral-code").innerText()).trim();
     await expect(page.getByTestId("shop-referral-link")).toContainText(`/r/${code}`);
+    // Referral sharing (rule referralSharing, on on both sites since 26-Nov-2026; docs/referral-sharing-2026-11): the
+    // card's buttons are WhatsApp / SMS / Email / Copy link, each carrying the code and its /r/ link; before it,
+    // "Share on WhatsApp", "Share" and "Copy link".
+    const shared = card.getByTestId("share-whatsapp");
+    if (await shared.count()) {
+      await expect(shared).toHaveAttribute("href", new RegExp(`^https://wa\\.me/\\?text=.*${code}.*%2Fr%2F${code}`));
+      await expect(card.getByTestId("share-sms")).toHaveAttribute("href", new RegExp(`^sms:.*${code}`));
+      await expect(card.getByTestId("share-email")).toHaveAttribute("href", new RegExp(`^mailto:.*${code}`));
+      await expect(card.getByRole("button", { name: /Copy link|Link copied/ })).toBeVisible();
+      return `code ${code}; WhatsApp / SMS / Email links carry the code and /r/${code}; Copy link`;
+    }
     await expect(card.getByRole("link", { name: "Share on WhatsApp" })).toBeVisible();
     await expect(card.getByRole("button", { name: /Copy link|Link copied/ })).toBeVisible();
     return `code ${code}`;

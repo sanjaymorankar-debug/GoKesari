@@ -704,7 +704,12 @@ qa("TC-CAT-089", "barcode look-up: a code shorter than 6 digits is refused ('Ent
   const short = await call(owner, "GET", `/api/shops/${shop.id}/barcode-lookup?code=12345`);
   expect(short.status, why(short)).toBe(422);
   expect(short.body?.error?.message).toBe("Enter the barcode number (at least 6 digits).");
-  const code = `99${String(Date.now()).slice(-11)}`;
+  // An EAN-13 with a correct GS1 check digit: since docs/search-brand-barcode-favourites-2026-11 a code shaped like a
+  // GTIN with a wrong check digit is answered with invalidCheckDigit: true (that is not "unknown").
+  const body = `99${String(Date.now()).slice(-10)}`;
+  let sum = 0;
+  for (let i = body.length - 1, w = 3; i >= 0; i--, w = w === 3 ? 1 : 3) sum += (body.charCodeAt(i) - 48) * w;
+  const code = `${body}${(10 - (sum % 10)) % 10}`;
   const unknown = await call(owner, "GET", `/api/shops/${shop.id}/barcode-lookup?code=${code}`);
   expectStatus(unknown, 200, "unknown code");
   expect(unknown.body).toEqual({ code, match: null });

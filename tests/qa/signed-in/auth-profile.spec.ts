@@ -17,6 +17,7 @@ import { db } from "../lib/db";
 import { addToCart, emptyCart, sellable } from "../lib/flows";
 import { call, expectStatus, RUN } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
+import { blockAtDualStepUp } from "../lib/dual-auth";
 import { onboardingV2On, reverifyMobile } from "../lib/onboarding-v2-helpers";
 import { IS_LOCAL } from "../lib/target";
 import { world, type Role } from "../lib/world";
@@ -182,6 +183,8 @@ qa("TC-AUTH-024", "change the mobile, then remove it: the new number shows, then
     await phone.getByRole("button", { name: "Change" }).click();
     await phone.getByLabel("Mobile number").fill(mobile);
     await phone.getByRole("button", { name: "Save" }).click();
+    // dual_auth (on on test.gokesari.com): changing a verified mobile is a sensitive action — SMS + e-mail codes first.
+    await blockAtDualStepUp(page, "changing the mobile");
     await expect(phone).toContainText(`Mobile: +91 ${mobile.slice(0, 5)} ${mobile.slice(5)}`);
     const notes = await call(await as("customer"), "GET", "/api/notifications");
     const changed = (notes.body.notifications as { title: string; createdAt: string }[]).find((n) => n.title === "Mobile number changed" && new Date(n.createdAt).getTime() >= before - 5000);
@@ -312,6 +315,8 @@ qa("TC-AUTH-026", "changing the email to one another account uses is refused: 'T
     await box.getByRole("button", { name: "Change email" }).click();
     await box.getByLabel("New email address").fill(other.email);
     await box.getByRole("button", { name: "Send code" }).click();
+    // dual_auth (on on test.gokesari.com): an e-mail change is a sensitive action — SMS + e-mail codes come first.
+    await blockAtDualStepUp(page, "changing the e-mail");
     await expect(box).toContainText("This email address is already used by another account.");
     const api = await call(page.request, "POST", "/api/profile/email", { email: other.email });
     expect(api.status).toBe(409);

@@ -639,6 +639,13 @@ qa(["TC-RBAC-002", "TC-SEC-001"], "a forged session cookie (claiming ADMIN, sign
         inPage.push(path);
         continue;
       }
+      // Guest cart (docs/guest-cart-2026-11; implied by onboarding_v2, both on on test.gokesari.com): /cart is open to
+      // a signed-out visitor and shows the browser's own cart — the forged cookie must get exactly that page.
+      if (path === "/cart" && res.status === 200 && res.text.includes('data-testid="guest-cart"')) {
+        if (res.text.includes("Wallet balance")) bad.push("/cart → the signed-in cart (wallet balance) for a forged cookie");
+        else inPage.push("/cart (the guest cart, as for any signed-out visitor)");
+        continue;
+      }
       if (!(res.status === 401 || res.status === 403 || ([302, 303, 307, 308].includes(res.status) && /\/signin/.test(to)))) bad.push(`${path} → ${res.status} ${to}`);
     }
     out.push(`10 portal pages → sign-in${inPage.length ? ` (${inPage.join(", ")} by a redirect in a 200 page, no shop data in it)` : ""}`);
