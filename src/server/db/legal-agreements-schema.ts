@@ -93,6 +93,10 @@ export const legalDocumentSnapshots = pgTable(
 );
 export type LegalDocumentSnapshot = typeof legalDocumentSnapshots.$inferSelect;
 
+/** How an agreement was signed (0219, owner 27-Nov-2026). */
+export const SIGNATURE_METHODS = ["SMS_OTP", "REGISTRATION_ACCEPT"] as const;
+export type SignatureMethod = (typeof SIGNATURE_METHODS)[number];
+
 export const legalSigningRequests = pgTable(
   "legal_signing_requests",
   {
@@ -108,6 +112,8 @@ export const legalSigningRequests = pgTable(
     linkSentAt: timestamp("link_sent_at", { withTimezone: true }),
     snapshotId: uuid("snapshot_id"),
     otpId: uuid("otp_id"),
+    /** 0219: SMS_OTP (e-signed with the code) or REGISTRATION_ACCEPT (v2 shop registration: ticks + name, no OTP). */
+    signatureMethod: text("signature_method", { enum: SIGNATURE_METHODS }).notNull().default("SMS_OTP"),
     signedAt: timestamp("signed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -139,6 +145,8 @@ export const legalAcceptances = pgTable(
     userAgent: text("user_agent"),
     appPlatform: text("app_platform", { enum: APP_PLATFORMS }).notNull(),
     otpVerificationRef: uuid("otp_verification_ref"),
+    /** 0219: SMS_OTP (e-signed with the code) or REGISTRATION_ACCEPT (v2 shop registration: ticks + name, no OTP). */
+    signatureMethod: text("signature_method", { enum: SIGNATURE_METHODS }).notNull().default("SMS_OTP"),
     signerName: text("signer_name").notNull(),
     signerDesignation: text("signer_designation").notNull(),
     dataSnapshotId: uuid("data_snapshot_id"),

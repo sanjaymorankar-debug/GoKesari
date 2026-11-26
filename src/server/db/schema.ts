@@ -2924,6 +2924,8 @@ export const shopSuspensions = pgTable(
     /** Policy in force and the counts it produced — a snapshot, not a live view. */
     policy: jsonb("policy").$type<Record<string, string>>().notNull().default({}),
     impact: jsonb("impact").$type<Record<string, number>>().notNull().default({}),
+    /** 0219: what suspended the shop — DOCUMENT_FOLLOW_UP (reinstated automatically with onboarding_v2), else null. */
+    source: text("source", { enum: ["DOCUMENT_FOLLOW_UP"] }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

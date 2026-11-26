@@ -88,7 +88,7 @@ qa(["TC-OV2-002"], "guest: the v2 account APIs refuse a caller without a session
       ["GET", "/api/team", undefined],
       ["GET", "/api/team/invitations", undefined],
       ["POST", "/api/franchise/start", { model: "free" }],
-      ["POST", "/api/shops/registration-draft/v2/fee", { kind: "SHOP", shopName: "QA" }],
+      ["POST", "/api/shops/registration-draft/v2/fee", { slab: 1, shopName: "QA" }],
     ];
     for (const [method, path, body] of calls) {
       await pace();

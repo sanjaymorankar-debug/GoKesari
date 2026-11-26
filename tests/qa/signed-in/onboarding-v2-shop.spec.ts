@@ -15,17 +15,27 @@ async function draft() {
   const res = await call(await as(OWNER), "GET", "/api/shops/registration-draft");
   expectStatus(res, 200, "GET /api/shops/registration-draft");
   if (!res.body?.v2) blocked("gk-shop has no open v2 registration draft (open /shop/register?new=1 as gk-shop to start one)");
-  return res.body as { status: string; nextStep: string; v2: { identity: { termsAccepted: boolean; termsVersion: string; done: boolean }; fee: { shop: Quote; wholesale: Quote; gstExtra: boolean; paid: boolean } } };
+  return res.body as {
+    status: string;
+    nextStep: string;
+    v2: { identity: { termsAccepted: boolean; termsVersion: string; done: boolean }; fee: { byTurnover: boolean; slabs: Slab[]; flat: Omit<Slab, "slab" | "label"> | null; paid: boolean } };
+  };
 }
-interface Quote { kind: string; basePaise: number; gstRateBp: number; gstPaise: number; totalPaise: number }
+interface Slab { slab: number; label: string; basePaise: number; gstPaise: number; totalPaise: number }
 
-qa(["TC-OV2-031"], "fee step amounts: Shop ₹1,000 and Wholesale ₹2,500, GST 18% on top (₹1,180 / ₹2,950)", async () => {
+qa(["TC-OV2-031"], "fee step amounts (owner 27-Nov-2026): the original turnover slabs ₹999 / ₹4,999 / ₹9,999 + GST 18% (₹1,178.82 for the first band)", async () => {
   const d = await draft();
-  const { shop, wholesale, gstExtra } = d.v2.fee;
-  expect(gstExtra).toBe(true);
-  expect([shop.basePaise, shop.gstRateBp, shop.gstPaise, shop.totalPaise]).toEqual([100_000, 1_800, 18_000, 118_000]);
-  expect([wholesale.basePaise, wholesale.gstRateBp, wholesale.gstPaise, wholesale.totalPaise]).toEqual([250_000, 1_800, 45_000, 295_000]);
-  return `draft ${d.status}/${d.nextStep}: Shop ₹1,000 + ₹180 = ₹1,180; Wholesale ₹2,500 + ₹450 = ₹2,950 (rule onboardingV2, GST extra)`;
+  const { byTurnover, slabs, flat } = d.v2.fee;
+  if (!byTurnover) {
+    expect(flat, "flat fee when fees by turnover are off").toBeTruthy();
+    return `fees by turnover off on this site: flat ₹${flat!.basePaise / 100} + GST = ₹${flat!.totalPaise / 100}`;
+  }
+  expect(slabs.map((s) => s.basePaise)).toEqual([99_900, 4_99_900, 9_99_900]);
+  for (const s of slabs) {
+    expect(s.gstPaise, `GST on ${s.label}`).toBe(Math.round(s.basePaise * 0.18));
+    expect(s.totalPaise).toBe(s.basePaise + s.gstPaise);
+  }
+  return slabs.map((s) => `${s.label}: ₹${s.basePaise / 100} + ₹${s.gstPaise / 100} = ₹${s.totalPaise / 100}`).join("; ");
 }, { tier: "signed", partial: "the amounts on the Pay screen and the sandbox payment itself are not reached (GST / PAN step, TC-OV2-036)" });
 
 qa(["TC-OV2-032"], "the v2 steps refuse to run out of order: fee, licences and agreement before GST / PAN → 409 STEP_OPEN", async () => {
@@ -34,7 +44,7 @@ qa(["TC-OV2-032"], "the v2 steps refuse to run out of order: fee, licences and a
   const owner = await as(OWNER);
   const seen: string[] = [];
   for (const [path, body] of [
-    ["/api/shops/registration-draft/v2/fee", { kind: "SHOP", shopName: "QA OV2 Shop" }],
+    ["/api/shops/registration-draft/v2/fee", { slab: 1, shopName: "QA OV2 Shop" }],
     ["/api/shops/registration-draft/v2/licences", { licenceKey: "FSSAI", option: "LATER", promise: true }],
     ["/api/shops/registration-draft/v2/agreement", { action: "prepare" }],
   ] as const) {
@@ -49,7 +59,8 @@ qa(["TC-OV2-032"], "the v2 steps refuse to run out of order: fee, licences and a
 qa(["TC-OV2-033"], "identity step done once: Terms version recorded; a returning owner with verified e-mail and mobile skips the screen", async ({ browser }) => {
   const d = await draft();
   expect(d.v2.identity.termsAccepted).toBe(true);
-  expect(d.v2.identity.termsVersion).toBe("2026-11-26");
+  // QA D-168: the same Terms version /signin and the checkout sheet record (CURRENT_POLICY_VERSION).
+  expect(d.v2.identity.termsVersion).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   expect(d.v2.identity.done).toBe(true);
   const { page, context } = await pageAs(browser, OWNER);
   try {

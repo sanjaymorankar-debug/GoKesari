@@ -293,13 +293,8 @@ export const RULES = {
   },
   onboardingV2: {
     description:
-      "Onboarding v2 (docs/onboarding-v2-2026-11; flag onboarding_v2). Shop registration fee by kind (paid straight after GST/PAN verification, online only), the base delivery fee shown at checkout before the address is known, team invitations and whether team leads may add agents under themselves.",
+      "Onboarding v2 (docs/onboarding-v2-2026-11; flag onboarding_v2). The base delivery fee shown at checkout before the address is known, team invitations and whether team leads may add agents under themselves.",
     schema: z.object({
-      /** DEFAULT – confirm with Sanjay: brief says ₹1,000 shop / ₹2,500 wholesale; stored before GST like the existing fee rules. */
-      shopFeePaise: int(0, 10_000_000),
-      wholesaleFeePaise: int(0, 10_000_000),
-      /** DEFAULT – confirm with Sanjay: GST is added on top of the fee (as registrationFeeByTurnover does). */
-      feeGstExtra: z.boolean(),
       /** DEFAULT – confirm with Sanjay: delivery fee estimate when neither GPS nor a saved address is available (default ₹30). */
       baseDeliveryFeePaise: int(0, 1_000_000),
       /** Default 5 (brief "Defaults chosen" #5): team leads may add agents under themselves. */
@@ -320,9 +315,6 @@ export const RULES = {
       addressPendingAutoCancelHours: int(0, 72),
     }),
     defaults: {
-      shopFeePaise: 100_000,
-      wholesaleFeePaise: 250_000,
-      feeGstExtra: true,
       baseDeliveryFeePaise: 3_000,
       teamLeadsCanAddAgents: true,
       teamInviteExpiryDays: 7,

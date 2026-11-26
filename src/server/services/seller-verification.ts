@@ -668,8 +668,10 @@ export async function submitSellerDocument(input: SubmitDocumentInput): Promise<
     consentVersion: input.consentVersion ?? SELLER_VERIFICATION_CONSENT_VERSION,
     force: false,
   });
-  if (claim.kind === "done") return toView(claim.row);
-  return toView(await runCheck(claim, shop, parsed.value, actor, ip, input.extra));
+  const checked = claim.kind === "done" ? claim.row : await runCheck(claim, shop, parsed.value, actor, ip, input.extra);
+  // Onboarding v2 (owner, 27-Nov-2026): a shop the documents follow-up suspended is live again once all are given.
+  await (await import("@/server/onboarding-v2/document-reactivation")).afterShopDocumentGiven(shop.id);
+  return toView(checked);
 }
 
 /**
@@ -991,6 +993,7 @@ export async function uploadShopActCertificate(input: {
     const shop = await db.query.shops.findFirst({ where: eq(shops.id, input.shopId) });
     if (shop) await announceResult(shop, row.updated, row.from, input.actor);
   }
+  await (await import("@/server/onboarding-v2/document-reactivation")).afterShopDocumentGiven(input.shopId);
   return toView(row.updated);
 }
 
@@ -1257,6 +1260,7 @@ export async function adminDecideVerification(
         console.error("[seller-verification] auto-approval check failed", shop.id, error),
       );
     }
+    await (await import("@/server/onboarding-v2/document-reactivation")).afterShopDocumentGiven(shop.id);
   };
   // The decision is saved: a follow-up that fails is logged, never turned into a failed answer.
   const runFollowUp = () =>

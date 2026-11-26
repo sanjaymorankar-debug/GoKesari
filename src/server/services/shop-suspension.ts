@@ -119,6 +119,8 @@ export async function suspendShopWithPolicy(
     expectedAction?: string | null;
     /** The owner's notice is sent even with shop e-mails switched off (the documents follow-up). */
     mandatoryNotice?: boolean;
+    /** 0219: DOCUMENT_FOLLOW_UP — the documents follow-up (reinstated automatically once the documents are given, onboarding v2). */
+    source?: "DOCUMENT_FOLLOW_UP" | null;
   },
   actor: Actor | null,
 ): Promise<SuspensionResult> {
@@ -144,7 +146,7 @@ export async function suspendShopWithPolicy(
 
     const [suspension] = await tx
       .insert(shopSuspensions)
-      .values({ shopId, reason, expectedAction, suspendedBy: actor?.id ?? null, policy: actions })
+      .values({ shopId, reason, expectedAction, suspendedBy: actor?.id ?? null, policy: actions, source: input.source ?? null })
       .returning();
 
     const open = await tx
@@ -248,44 +250,72 @@ export async function reactivateShop(shopId: string, note: string, actor: Actor)
   const trimmed = note.trim();
   if (trimmed.length < 3) throw validationFailed("A reinstatement note is required.");
 
-  const shop = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(shops)
-      .set({ status: "APPROVED", statusActorId: actor.id, updatedAt: new Date() })
-      .where(and(eq(shops.id, shopId), eq(shops.status, "SUSPENDED"), sql`${shops.deletedAt} IS NULL`))
-      .returning();
-    if (!row) return null;
-    const [active] = await tx
-      .update(shopSuspensions)
-      .set({ status: "LIFTED", liftedAt: new Date(), liftedBy: actor.id, liftNote: trimmed })
-      .where(and(eq(shopSuspensions.shopId, shopId), eq(shopSuspensions.status, "ACTIVE")))
-      .returning();
-    if (active) {
-      await tx
-        .update(shopSuspensionOrders)
-        .set({ outcome: "CONTINUING", note: "Returned to the shop when the suspension was lifted.", resolvedBy: actor.id, resolvedAt: new Date() })
-        .where(and(eq(shopSuspensionOrders.suspensionId, active.id), eq(shopSuspensionOrders.outcome, "AWAITING_REVIEW")));
-    }
-    await recordAudit(
-      {
-        actorId: actor.id,
-        actorRole: actor.role,
-        action: AUDIT_ACTIONS.SHOP_REACTIVATED,
-        entityType: "shop",
-        entityId: shopId,
-        previousValue: { status: "SUSPENDED" },
-        newValue: { status: "APPROVED", note: trimmed },
-      },
-      tx,
-    );
-    return row;
-  });
+  const shop = await liftSuspension(shopId, trimmed, actor);
   if (!shop) {
     const exists = await db.query.shops.findFirst({ where: eq(shops.id, shopId), columns: { id: true } });
     if (!exists) throw notFound("Shop");
     throw conflict("Only a suspended shop can be reinstated.");
   }
   await notifyEvent(NOTIFICATION_TYPES.SHOP_REACTIVATED, shop.ownerId, { shopName: shop.name }, { actionUrl: "/shop" });
+  return shop;
+}
+
+/**
+ * The reinstatement itself, in one transaction: the shop APPROVED again, its active suspension LIFTED, orders held
+ * for review back to the shop, an audit row. `actor` null: reinstated automatically (no person). `onlySource`: lift
+ * only an active suspension of that source — any other suspension is left as it is (null returned).
+ */
+async function liftSuspension(shopId: string, note: string, actor: Actor | null, onlySource?: "DOCUMENT_FOLLOW_UP"): Promise<Shop | null> {
+  return db.transaction(async (tx) => {
+    if (onlySource) {
+      const [active] = await tx
+        .select({ id: shopSuspensions.id, source: shopSuspensions.source })
+        .from(shopSuspensions)
+        .where(and(eq(shopSuspensions.shopId, shopId), eq(shopSuspensions.status, "ACTIVE")))
+        .for("update");
+      if (!active || active.source !== onlySource) return null;
+    }
+    const [row] = await tx
+      .update(shops)
+      .set({ status: "APPROVED", statusActorId: actor?.id ?? null, updatedAt: new Date() })
+      .where(and(eq(shops.id, shopId), eq(shops.status, "SUSPENDED"), sql`${shops.deletedAt} IS NULL`))
+      .returning();
+    if (!row) return null;
+    const [active] = await tx
+      .update(shopSuspensions)
+      .set({ status: "LIFTED", liftedAt: new Date(), liftedBy: actor?.id ?? null, liftNote: note })
+      .where(and(eq(shopSuspensions.shopId, shopId), eq(shopSuspensions.status, "ACTIVE")))
+      .returning();
+    if (active) {
+      await tx
+        .update(shopSuspensionOrders)
+        .set({ outcome: "CONTINUING", note: "Returned to the shop when the suspension was lifted.", resolvedBy: actor?.id ?? null, resolvedAt: new Date() })
+        .where(and(eq(shopSuspensionOrders.suspensionId, active.id), eq(shopSuspensionOrders.outcome, "AWAITING_REVIEW")));
+    }
+    await recordAudit(
+      {
+        actorId: actor?.id ?? null,
+        actorRole: actor?.role ?? null,
+        action: AUDIT_ACTIONS.SHOP_REACTIVATED,
+        entityType: "shop",
+        entityId: shopId,
+        previousValue: { status: "SUSPENDED" },
+        newValue: { status: "APPROVED", note, automatic: actor === null, suspensionId: active?.id ?? null, source: active?.source ?? null },
+      },
+      tx,
+    );
+    return row;
+  });
+}
+
+/**
+ * Onboarding v2 (owner, 27-Nov-2026): a shop the documents follow-up suspended is reinstated with no person once
+ * its documents are given. Only that suspension (source DOCUMENT_FOLLOW_UP); any other is left alone. The caller
+ * decides that nothing is chased any more (onboarding-v2/document-reactivation.ts). The owner is told.
+ */
+export async function reactivateShopAfterDocuments(shopId: string, note: string): Promise<Shop | null> {
+  const shop = await liftSuspension(shopId, note, null, "DOCUMENT_FOLLOW_UP");
+  if (shop) await notifyEvent(NOTIFICATION_TYPES.SHOP_REACTIVATED, shop.ownerId, { shopName: shop.name }, { actionUrl: "/shop", mandatory: true });
   return shop;
 }
 
