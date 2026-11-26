@@ -13,6 +13,7 @@ import {
   istTime,
   latestMigrationReport,
   listShopRegistrations,
+  newRegistrationFeeQuote,
   REGISTRATION_FILTERS,
   type RegistrationFilter,
 } from "@/server/services/shop-registration-subscription";
@@ -23,6 +24,7 @@ export const dynamic = "force-dynamic";
 const FILTER_LABEL: Record<RegistrationFilter, string> = {
   ALL: "All",
   UNPAID: "Unpaid",
+  NO_FEE: "Never paid (₹0)",
   EXPIRING_30: "Expiring in 30 days",
   EXPIRING_15: "15 days",
   EXPIRING_7: "7 days",
@@ -60,7 +62,8 @@ export default async function ShopRegistrationsPage({
     return sp.toString();
   };
   const count = (f: RegistrationFilter) =>
-    f === "ALL" ? null : f === "EXPIRING_30" ? counts.EXPIRING_30 : f === "EXPIRING_15" ? counts.EXPIRING_15 : f === "EXPIRING_7" ? counts.EXPIRING_7 : counts[f];
+    f === "ALL" ? null : f === "EXPIRING_30" ? counts.EXPIRING_30 : f === "EXPIRING_15" ? counts.EXPIRING_15 : f === "EXPIRING_7" ? counts.EXPIRING_7 : f === "NO_FEE" ? counts.NO_FEE : counts[f];
+  const newFee = await newRegistrationFeeQuote();
   const tableRows: RegistrationTableRow[] = rows.map((r) => ({
     shopId: r.shopId,
     shopName: r.shopName,
@@ -83,6 +86,7 @@ export default async function ShopRegistrationsPage({
     lastReminder: r.lastReminderAt ? istTime(r.lastReminderAt) : "never",
     link: r.link ? { status: r.link.status, amount: formatPaise(r.link.amountPaise), until: istTime(r.link.expiresAt), url: r.link.url } : null,
     remindersEnabled: r.remindersEnabled,
+    canRequestFee: r.canRequestFee,
   }));
 
   return (
@@ -151,7 +155,7 @@ export default async function ShopRegistrationsPage({
           Filter
         </button>
       </form>
-      {tableRows.length === 0 ? <EmptyState title="No shops match." /> : <ShopRegistrationsTable rows={tableRows} linkValidityDays={sub.paymentLinkValidityDays} />}
+      {tableRows.length === 0 ? <EmptyState title="No shops match." /> : <ShopRegistrationsTable rows={tableRows} linkValidityDays={sub.paymentLinkValidityDays} newFeePaise={newFee.totalPaise} />}
     </div>
   );
 }
