@@ -31,6 +31,21 @@ after #518. All times IST.
 | 6. Commission on renewals: setting, default **No** | `shopRegistrationSubscription.payCommissionOnRenewals` gates the TIERED renewal commission (registration commission unchanged) |
 | 7. Apps | app 1.14.0 (Android versionCode 15, iPhone build 15): deep links for the registration pages; the card / banners / payment are web pages, so older app versions show them too |
 
+## Shops live without paying (fee ₹0) — "Ask fee" (26-Nov-2026)
+
+Some shops went live in October with a registration fee of ₹0 marked paid. The system counts them as paid, so they got no unpaid reminder
+and the **Link** button would have made a *renewal* link. Their row now shows **Ask fee**:
+
+- the amount defaults to the current fee for a new shop (base + GST; editable) and a reason is required;
+- the fee becomes owed (fee status Pending → registration status **Unpaid**), audited as
+  `shop.registration_fee_requested`;
+- a payment link is created and sent to the owner at once (in-app, push, e-mail; English + Marathi);
+- the automatic unpaid reminders then follow (weekly for these older shops, each with the Pay Now link) until
+  paid — reminder text for a live shop asks for the fee without saying orders stop;
+- the shop stays live; paying the link opens its 1-year registration.
+
+API: `POST /api/admin/registration-subscription { action: "REQUEST_FEE", shopIds[], amountPaise?, validityDays?, reason }`.
+
 ## Switches before go-live (per site)
 
 1. Migration 0210 runs with the deploy (staging queue / production release).

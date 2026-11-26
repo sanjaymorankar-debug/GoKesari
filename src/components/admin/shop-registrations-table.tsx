@@ -32,6 +32,8 @@ export interface RegistrationTableRow {
   lastReminder: string;
   link: { status: string; amount: string; until: string; url: string | null } | null;
   remindersEnabled: boolean;
+  /** Live without ever paying (fee ₹0): "Ask fee" puts the registration fee on it and sends a payment link. */
+  canRequestFee: boolean;
 }
 
 const STATUS_LABEL: Record<RegistrationTableRow["status"], string> = {
@@ -53,6 +55,7 @@ const STATUS_TONE: Record<RegistrationTableRow["status"], "success" | "warning" 
 
 type Dialog =
   | { kind: "LINK"; shopIds: string[]; single: RegistrationTableRow | null }
+  | { kind: "REQUEST_FEE"; shopIds: string[]; single: RegistrationTableRow | null }
   | { kind: "EXPIRY"; row: RegistrationTableRow }
   | { kind: "PAID"; row: RegistrationTableRow }
   | { kind: "HISTORY"; row: RegistrationTableRow }
@@ -79,7 +82,7 @@ function rupeesToPaise(v: string): number | null {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
 }
 
-export function ShopRegistrationsTable({ rows, linkValidityDays }: { rows: RegistrationTableRow[]; linkValidityDays: number }) {
+export function ShopRegistrationsTable({ rows, linkValidityDays, newFeePaise = 0 }: { rows: RegistrationTableRow[]; linkValidityDays: number; newFeePaise?: number }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -216,6 +219,11 @@ export function ShopRegistrationsTable({ rows, linkValidityDays }: { rows: Regis
                     <Button size="sm" variant="secondary" disabled={busy || r.status === "EXEMPT"} onClick={() => setDialog({ kind: "LINK", shopIds: [r.shopId], single: r })}>
                       Link
                     </Button>
+                    {r.canRequestFee ? (
+                      <Button size="sm" disabled={busy} onClick={() => setDialog({ kind: "REQUEST_FEE", shopIds: [r.shopId], single: r })}>
+                        Ask fee
+                      </Button>
+                    ) : null}
                     <Button size="sm" variant="secondary" disabled={busy} onClick={() => setDialog({ kind: "EXPIRY", row: r })}>
                       Expiry
                     </Button>
@@ -234,6 +242,7 @@ export function ShopRegistrationsTable({ rows, linkValidityDays }: { rows: Regis
       </Card>
 
       {dialog?.kind === "LINK" ? <LinkDialog dialog={dialog} validityDays={linkValidityDays} busy={busy} onClose={() => setDialog(null)} onSubmit={(body) => run(body, linkDone)} /> : null}
+      {dialog?.kind === "REQUEST_FEE" ? <RequestFeeDialog dialog={dialog} validityDays={linkValidityDays} defaultPaise={newFeePaise} busy={busy} onClose={() => setDialog(null)} onSubmit={(body) => run(body, requestFeeDone)} /> : null}
       {dialog?.kind === "EXPIRY" ? <ExpiryDialog row={dialog.row} busy={busy} onClose={() => setDialog(null)} onSubmit={(body) => run(body, () => `Expiry of ${dialog.row.shopName} changed; the owner was told.`)} /> : null}
       {dialog?.kind === "PAID" ? <PaidDialog row={dialog.row} busy={busy} onClose={() => setDialog(null)} onSubmit={(body) => run(body, (d) => `Recorded as paid (receipt ${String(d.reference ?? "")}). ${d.extendedTo ? "Registration extended." : "Not extended yet: the amount does not cover the fee."}`)} /> : null}
       {dialog?.kind === "HISTORY" ? <HistoryDialog row={dialog.row} onClose={() => setDialog(null)} /> : null}
@@ -245,6 +254,12 @@ function linkDone(d: Record<string, unknown>): string {
   const created = (d.created as unknown[] | undefined)?.length ?? 0;
   const failed = (d.failed as { reason: string }[] | undefined) ?? [];
   return `${created} payment link(s) created and sent to the owner by in-app alert, push and e-mail; older links cancelled.${failed.length ? ` ${failed.length} failed: ${failed.map((f) => f.reason).join("; ")}` : ""}`;
+}
+
+function requestFeeDone(d: Record<string, unknown>): string {
+  const created = (d.created as unknown[] | undefined)?.length ?? 0;
+  const failed = (d.failed as { reason: string }[] | undefined) ?? [];
+  return `${created} shop(s) now owe the registration fee; a payment link was sent to the owner by in-app alert, push and e-mail, and the unpaid reminders follow until it is paid.${failed.length ? ` ${failed.length} failed: ${failed.map((f) => f.reason).join("; ")}` : ""}`;
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
@@ -302,6 +317,49 @@ function LinkDialog({ dialog, validityDays, busy, onClose, onSubmit }: { dialog:
         }
       >
         Create and send link
+      </Button>
+    </Modal>
+  );
+}
+
+function RequestFeeDialog({ dialog, validityDays, defaultPaise, busy, onClose, onSubmit }: { dialog: Extract<Dialog, { kind: "REQUEST_FEE" }>; validityDays: number; defaultPaise: number; busy: boolean; onClose: () => void; onSubmit: (body: unknown) => void }) {
+  const single = dialog.single;
+  const [amount, setAmount] = useState(defaultPaise > 0 ? (defaultPaise / 100).toFixed(2) : "");
+  const [days, setDays] = useState(String(validityDays));
+  const [reason, setReason] = useState("");
+  return (
+    <Modal title={single ? `Ask for the registration fee — ${single.shopName}` : `Ask for the registration fee — ${dialog.shopIds.length} shops`} onClose={onClose}>
+      <p className="mb-3 text-sm text-ink-700">
+        This shop is live but has never paid a registration fee (₹0). The fee below becomes owed (status Unpaid), a payment link is sent to the owner now by in-app alert, push and
+        e-mail, and the automatic unpaid reminders follow until it is paid. The shop stays live. Paying starts its 1-year registration.
+      </p>
+      {single ? (
+        <label className="mb-3 block text-sm font-medium text-ink-800">
+          Registration fee (₹, with GST) — the current fee for a new shop; editable
+          <input className={inputClass} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </label>
+      ) : null}
+      <label className="mb-3 block text-sm font-medium text-ink-800">
+        Link valid for (days)
+        <input className={inputClass} inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} />
+      </label>
+      <label className="mb-3 block text-sm font-medium text-ink-800">
+        Reason (recorded)
+        <input className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. went live without paying the fee" />
+      </label>
+      <Button
+        disabled={busy || reason.trim().length < 5}
+        onClick={() =>
+          onSubmit({
+            action: "REQUEST_FEE",
+            shopIds: dialog.shopIds,
+            amountPaise: single ? rupeesToPaise(amount) : null,
+            validityDays: Math.min(30, Math.max(1, Number(days) || validityDays)),
+            reason: reason.trim(),
+          })
+        }
+      >
+        Ask for the fee and send link
       </Button>
     </Modal>
   );

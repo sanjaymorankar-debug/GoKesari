@@ -25,6 +25,7 @@ import {
   createRegistrationLink,
   listShopRegistrations,
   markRegistrationPaid,
+  requestRegistrationFee,
   runRegistrationSubscriptionJob,
   sendRegistrationReminders,
   syncRegistrationStatuses,
@@ -186,6 +187,63 @@ describe("unpaid reminders and payment links", () => {
     const row = await shopRow(shop.id);
     expect(row.registrationStatus).toBe("UNPAID");
     expect(row.membershipValidUntil).toBeNull();
+  });
+});
+
+describe("ask a live ₹0 shop for its registration fee (26-Nov-2026)", () => {
+  /** Approved and live with fee ₹0 marked paid (went live during the free weeks). */
+  async function freeLiveShop(name = "Free Live Shop") {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, { status: "APPROVED", registrationFeePaise: 0, name });
+    await db.update(shops).set({ feePaymentStatus: "PAID", amountPaidPaise: 0, createdAt: new Date(Date.now() - 31 * DAY) }).where(eq(shops.id, shop.id));
+    await syncRegistrationStatuses();
+    return { owner, shop };
+  }
+
+  it("the list offers it; asking makes the fee owed, sends a link, stays live; paying opens the year", async () => {
+    const { owner, shop } = await freeLiveShop();
+    const before = (await listShopRegistrations({ q: "Free Live Shop" })).rows[0];
+    expect(before).toMatchObject({ status: "ACTIVE", canRequestFee: true });
+
+    await expect(requestRegistrationFee(shop.id, { reason: "no" }, admin)).rejects.toMatchObject({ status: 422 });
+    const r = await requestRegistrationFee(shop.id, { amountPaise: 117_800, reason: "went live without paying" }, admin);
+    expect(r.amountPaise).toBe(117_800);
+    const row = await shopRow(shop.id);
+    expect(row).toMatchObject({ registrationFeePaise: 117_800, feePaymentStatus: "PENDING", registrationStatus: "UNPAID", status: "APPROVED" });
+    const [link] = await db.select().from(shopRegistrationLinks).where(eq(shopRegistrationLinks.shopId, shop.id));
+    expect(link).toMatchObject({ kind: "REGISTRATION", status: "ACTIVE", amountPaise: 117_800, createdVia: "ADMIN" });
+    const [sent] = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, "shop.registration_payment_link")));
+    expect(sent.body).toContain("₹1,178");
+    const audit = await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, shop.id), eq(auditLogs.action, "shop.registration_fee_requested")));
+    expect(audit).toHaveLength(1);
+    expect((await listShopRegistrations({ q: "Free Live Shop" })).rows[0]).toMatchObject({ status: "UNPAID", canRequestFee: false, amountDuePaise: 117_800 });
+
+    // Asking twice is refused; still live in search meanwhile.
+    await expect(requestRegistrationFee(shop.id, { reason: "again please" }, admin)).rejects.toMatchObject({ status: 409 });
+
+    await simulateSandboxCheckout({ ref: link.paymentIntentId, viewerId: null, outcome: "SUCCESS" });
+    const paid = await shopRow(shop.id);
+    expect(paid).toMatchObject({ feePaymentStatus: "PAID", registrationStatus: "ACTIVE", amountPaidPaise: 117_800 });
+    expect(paid.membershipValidUntil).not.toBeNull();
+  });
+
+  it("weekly unpaid reminder to a live shop leaves out the no-orders line", async () => {
+    await remindersOn();
+    const { owner, shop } = await freeLiveShop("Weekly Live Shop");
+    await requestRegistrationFee(shop.id, { amountPaise: 117_800, reason: "went live without paying" }, admin);
+    await db.update(shops).set({ createdAt: new Date(Date.now() - 14 * DAY) }).where(eq(shops.id, shop.id));
+    await runRegistrationSubscriptionJob(tenAmIst());
+    const [notice] = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, "shop.registration_reminder")));
+    expect(notice.body).toContain("Please pay the registration fee");
+    expect(notice.body).not.toContain("will not receive orders");
+  });
+
+  it("a shop that paid before, or is unpaid already, is refused", async () => {
+    const { shop: paid } = await liveShop(200, "Paid Before");
+    expect((await listShopRegistrations({ q: "Paid Before" })).rows[0].canRequestFee).toBe(false);
+    await expect(requestRegistrationFee(paid.id, { reason: "should fail" }, admin)).rejects.toMatchObject({ status: 409 });
+    const { shop: unpaid } = await unpaidShop(2, "Already Unpaid");
+    await expect(requestRegistrationFee(unpaid.id, { reason: "should fail" }, admin)).rejects.toMatchObject({ status: 409 });
   });
 });
 

@@ -4,6 +4,7 @@
  * GET  ?filter=ALL|UNPAID|EXPIRING_30|EXPIRING_15|EXPIRING_7|GRACE|EXPIRED|ACTIVE|EXEMPT&shopType=&area=&dealerCode=&q=[&format=csv]
  * POST { action: "REMIND", shopIds[] }                                  reminder (in-app + push + e-mail), bulk
  *      { action: "LINK", shopIds[], amountPaise?, validityDays? }        new payment link (cancels the old), bulk
+ *      { action: "REQUEST_FEE", shopIds[], amountPaise?, validityDays?, reason }  a live shop that paid ₹0 now owes its fee + link
  *      { action: "EXPIRY", shopId, change, reason }                      extend / shorten / set date / expire now
  *      { action: "MARK_PAID", shopId, reference, note, method, amountPaise?, paidOn? }
  *      { action: "SETTINGS", shopId, remindersEnabled?, renewalFeePaise?, graceDays?, reason }
@@ -22,6 +23,7 @@ import {
   markRegistrationPaid,
   REGISTRATION_FILTERS,
   registrationRowsCsv,
+  requestRegistrationFee,
   sendRegistrationReminders,
   updateShopRegistrationSettings,
 } from "@/server/services/shop-registration-subscription";
@@ -62,6 +64,13 @@ const body = z.discriminatedUnion("action", [
     amountPaise: z.number().int().min(100).max(100_000_000).nullish(),
     validityDays: z.number().int().min(1).max(30).nullish(),
     reason: z.string().max(500).nullish(),
+  }),
+  z.object({
+    action: z.literal("REQUEST_FEE"),
+    shopIds: ids,
+    amountPaise: z.number().int().min(100).max(100_000_000).nullish(),
+    validityDays: z.number().int().min(1).max(30).nullish(),
+    reason: z.string().min(5).max(500),
   }),
   z.object({
     action: z.literal("EXPIRY"),
@@ -107,6 +116,19 @@ export const POST = route(async (request: NextRequest) => {
         try {
           const r = await createRegistrationLink(shopId, { amountPaise: input.shopIds.length === 1 ? input.amountPaise : null, validityDays: input.validityDays, reason: input.reason }, actor);
           created.push({ shopId, linkId: r.link.id, url: r.url });
+        } catch (error) {
+          failed.push({ shopId, reason: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      return ok({ created, failed });
+    }
+    case "REQUEST_FEE": {
+      const created: { shopId: string; amountPaise: number; linkId: string; url: string | null }[] = [];
+      const failed: { shopId: string; reason: string }[] = [];
+      for (const shopId of [...new Set(input.shopIds)]) {
+        try {
+          const r = await requestRegistrationFee(shopId, { amountPaise: input.shopIds.length === 1 ? input.amountPaise : null, validityDays: input.validityDays, reason: input.reason }, actor);
+          created.push({ shopId, amountPaise: r.amountPaise, linkId: r.link.id, url: r.url });
         } catch (error) {
           failed.push({ shopId, reason: error instanceof Error ? error.message : String(error) });
         }
