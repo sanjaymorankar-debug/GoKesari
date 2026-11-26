@@ -99,3 +99,82 @@ export const DEFAULT_BANNERS: readonly {
     href: "/shops?type=DAIRY",
   },
 ];
+
+/* ------------------------------------------------------------ banner art
+ * Image audit 26-Nov-2026: a banner with no photo used one emoji per *kind*,
+ * so "Daily milk, delivered" (SEASONAL) showed a diya. Each banner now gets
+ * a picture set drawn from its own subject — dairy banners show only dairy,
+ * puja banners only puja items — and the set fills the picture panel. */
+
+export type BannerSubject =
+  | "dailyNeeds"
+  | "dairy"
+  | "bakery"
+  | "grocery"
+  | "fruitVeg"
+  | "sweets"
+  | "pharmacy"
+  | "puja"
+  | "household"
+  | "compare"
+  | "newShops"
+  | "general";
+
+/** Four pictures per subject: the first is the large one. Every picture belongs to that subject only. */
+export const BANNER_ART: Record<BannerSubject, readonly [string, string, string, string]> = {
+  dailyNeeds: ["🥛", "🍞", "🥚", "🧈"],
+  dairy: ["🥛", "🧈", "🧀", "🍦"],
+  bakery: ["🍞", "🥐", "🎂", "🍪"],
+  grocery: ["🍚", "🌾", "🫘", "🧂"],
+  fruitVeg: ["🥬", "🍅", "🍌", "🥕"],
+  sweets: ["🍬", "🍮", "🍩", "🍫"],
+  pharmacy: ["💊", "🩹", "🌡️", "🩺"],
+  puja: ["🪔", "🌼", "🔔", "🥥"],
+  household: ["🧴", "🧽", "🧻", "🧼"],
+  compare: ["⚖️", "🏷️", "🏪", "💰"],
+  newShops: ["🏪", "🛍️", "📍", "🛒"],
+  general: ["🛍️", "🏪", "🛒", "📦"],
+};
+
+const SUBJECT_BY_DEFAULT_ID: Record<string, BannerSubject> = {
+  "default-daily": "dailyNeeds",
+  "default-compare": "compare",
+  "default-subscribe": "dairy",
+};
+
+const SUBJECT_BY_SHOP_TYPE: Record<string, BannerSubject> = {
+  DAIRY: "dairy",
+  BAKERY: "bakery",
+  GROCERY_KIRANA: "grocery",
+  FRUIT_VEGETABLE: "fruitVeg",
+  SWEET_SHOP: "sweets",
+  PHARMACY: "pharmacy",
+  PUJA_SAMAGRI: "puja",
+  SUPERMARKET: "household",
+};
+
+const SUBJECT_BY_WORDS: [RegExp, BannerSubject][] = [
+  [/puja|pooja|samagri|diya|temple|festival|diwali/i, "puja"],
+  [/medic|pharma|health|doctor|tablet/i, "pharmacy"],
+  [/milk|dairy|paneer|curd|ghee/i, "dairy"],
+  [/bread|bakery|cake|biscuit/i, "bakery"],
+  [/fruit|vegetable|sabzi/i, "fruitVeg"],
+  [/sweet|mithai/i, "sweets"],
+  [/grocery|kirana|atta|rice|dal/i, "grocery"],
+  [/household|clean|detergent/i, "household"],
+  [/compare|price/i, "compare"],
+];
+
+/** What a banner is about, from its built-in id, the shop type it links to, then its words. */
+export function bannerSubject(slide: Pick<BannerSlide, "id" | "title" | "subtitle" | "ctaHref" | "kind">): BannerSubject {
+  const builtIn = SUBJECT_BY_DEFAULT_ID[slide.id];
+  if (builtIn) return builtIn;
+  const type = /[?&]type=([A-Z_]+)/.exec(slide.ctaHref)?.[1];
+  if (type && SUBJECT_BY_SHOP_TYPE[type]) return SUBJECT_BY_SHOP_TYPE[type];
+  if (/^\/puja/.test(slide.ctaHref)) return "puja";
+  if (/^\/health|^\/medicines?/.test(slide.ctaHref)) return "pharmacy";
+  const words = `${slide.title} ${slide.subtitle ?? ""}`;
+  const hit = SUBJECT_BY_WORDS.find(([re]) => re.test(words));
+  if (hit) return hit[1];
+  return slide.kind === "NEW_SHOPS" ? "newShops" : "general";
+}

@@ -17,6 +17,8 @@ export function priceUnitLabel(unit: string | null | undefined): string {
 }
 
 const CATEGORY_EMOJI: [RegExp, string][] = [
+  // First, so "Camphor Tablets" or "Diya oil" read as puja, not medicine or grocery (image audit 26-Nov-2026).
+  [/puja|pooja|samagri|agarbatti|dhoop|diya|kapur|camphor|kumkum|havan/i, "🪔"],
   [/milk|dairy|curd|paneer|ghee|butter|cheese/i, "🥛"],
   [/bread|bakery|cake|biscuit|bun/i, "🍞"],
   [/fruit|vegetable|veg|sabzi/i, "🥬"],
@@ -26,6 +28,11 @@ const CATEGORY_EMOJI: [RegExp, string][] = [
   [/rice|atta|flour|dal|pulse|grain|grocery|kirana|oil|spice|masala|sugar/i, "🍚"],
   [/egg|meat|chicken|fish/i, "🥚"],
   [/stationery|book|pen/i, "📒"],
+  // Image audit 26-Nov-2026: shop types that fell back to the shopping bag.
+  [/hardware|building|cement|paint|tool/i, "🧰"],
+  [/agri|seed|fertili[sz]er|pesticide/i, "🌱"],
+  [/newspaper|magazine/i, "📰"],
+  [/restaurant|meal|thali|food/i, "🍽️"],
 ];
 
 /** A picture for a product with no photo yet, chosen from its category (instead of one grey placeholder for all). */

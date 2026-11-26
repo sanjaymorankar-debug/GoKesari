@@ -255,7 +255,7 @@ export function ProductCard({
             size="medium"
             alt={product.productName}
             fallbackEmoji={categoryEmoji(product.categoryName, product.productName)}
-            className="mb-2 h-24 w-full rounded-lg bg-cream-100 object-cover sm:mb-3 sm:h-32"
+            className="mb-2 h-24 w-full rounded-lg bg-white object-contain p-1 ring-1 ring-cream-100 sm:mb-3 sm:h-32"
           />
           <FavouriteHeart productId={product.favouriteProductId} productName={product.productName} signedIn={signedIn} className="absolute right-1 top-1" />
         </div>
@@ -265,7 +265,7 @@ export function ProductCard({
           size="medium"
           alt={product.productName}
           fallbackEmoji={categoryEmoji(product.categoryName, product.productName)}
-          className="mb-2 h-24 w-full rounded-lg bg-cream-100 object-cover sm:mb-3 sm:h-32"
+          className="mb-2 h-24 w-full rounded-lg bg-white object-contain p-1 ring-1 ring-cream-100 sm:mb-3 sm:h-32"
         />
       )}
       <div className="mb-2 flex flex-col items-start gap-1 sm:flex-row sm:justify-between sm:gap-2">
