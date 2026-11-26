@@ -123,7 +123,13 @@ export interface ConsentEvidence {
  * where an admin published one, else the site's CURRENT_POLICY_VERSION) with the channel. Times are stored as UTC
  * instants and shown in IST.
  */
-export async function recordCheckoutConsent(userId: string, tick: TermsTick, evidence: ConsentEvidence): Promise<TermsTick> {
+export async function recordCheckoutConsent(
+  userId: string,
+  tick: TermsTick,
+  evidence: ConsentEvidence,
+  /** docs/flows-v3 (flag flow_f1): SIGNIN_PAGE for a tick given on /signin before Google or the e-mailed link. */
+  source: string = V2_CONSENT_SOURCE,
+): Promise<TermsTick> {
   const current = await listCurrentVersions().catch(() => []);
   const versionOf = (doc: "terms" | "privacy-policy") => current.find((c) => c.doc === doc)?.latest?.version ?? tick.version;
   const userAgent = evidence.userAgent ? evidence.userAgent.slice(0, 500) : null;
@@ -134,7 +140,7 @@ export async function recordCheckoutConsent(userId: string, tick: TermsTick, evi
       version: tick.version,
       granted: true,
       ipAddress: evidence.ip ?? null,
-      source: V2_CONSENT_SOURCE,
+      source,
       userAgent,
       createdAt: tick.acceptedAt,
     });
@@ -155,7 +161,7 @@ export async function recordCheckoutConsent(userId: string, tick: TermsTick, evi
         action: AUDIT_ACTIONS.CONSENT_RECORDED,
         entityType: "user",
         entityId: userId,
-        newValue: { consentType: "TERMS_AND_PRIVACY", version: tick.version, source: V2_CONSENT_SOURCE, channel: evidence.channel, acceptedAt: tick.acceptedAt.toISOString() },
+        newValue: { consentType: "TERMS_AND_PRIVACY", version: tick.version, source, channel: evidence.channel, acceptedAt: tick.acceptedAt.toISOString() },
         ipAddress: evidence.ip ?? null,
       },
       tx,

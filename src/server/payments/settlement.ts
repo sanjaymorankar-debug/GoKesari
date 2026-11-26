@@ -30,6 +30,7 @@ import {
   type PaymentSettlementState,
 } from "@/lib/payment-intent-states";
 import { db, type DbClient } from "@/server/db";
+import { systemTicketHook } from "@/server/aftercare/system-ticket-hook";
 import { paymentChargebacks, paymentIntentEvents, paymentIntents, type PaymentChargebackRow, type PaymentIntentRow } from "@/server/db/schema";
 import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
@@ -144,7 +145,7 @@ async function dueForCheck(now: Date) {
 export async function reconcileSettlement(intent: PaymentIntentRow, maxChecks: number, now: Date = new Date()): Promise<SettlementCheck | "ALREADY_SET"> {
   const state = await getGatewayByName(intent.gateway).fetchOrder(intent.gatewayOrderId!);
   const check = compareWithGateway(intent, state);
-  return db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     const row = await lockIntent(tx, intent.id);
     if (!row || row.settlementState) return "ALREADY_SET" as const;
     const counters = { settlementCheckedAt: now, settlementChecks: row.settlementChecks + 1 };
@@ -170,6 +171,15 @@ export async function reconcileSettlement(intent: PaymentIntentRow, maxChecks: n
     }
     return check;
   });
+  // docs/flows-v3 (flag flow_f17): a payment the gateway does not confirm opens a support ticket (once per payment).
+  if (outcome !== "CONFIRMED" && outcome !== "ALREADY_SET") {
+    await systemTicketHook("PAYMENT_MISMATCH", intent.id, {
+      priority: "HIGH",
+      subject: `Payment not reconciled (${outcome})`,
+      description: `Payment intent ${intent.id} (${intent.description ?? "payment"}) could not be reconciled with the gateway: ${outcome}. See Admin → Payments.`,
+    });
+  }
+  return outcome;
 }
 
 /** The RECONCILED step of the payments job. A no-op while the flag is off. */

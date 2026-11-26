@@ -8,7 +8,7 @@ Everything new is behind a feature flag. With a flag off the site behaves exactl
 Admin → Finance commission table) keep their stored values and defaults; wave 2 never changes them. Its values
 live in a new rule group, `orderFlowsV3`, read only while the matching flag is on.
 
-## Flags (migration 0221)
+## Flags (migration 0222)
 
 Seeded **ON** on the staging database (`gokesari_test`) and **OFF** everywhere else
 (`enabled = current_database() = 'gokesari_test'`, `ON CONFLICT DO NOTHING`).
@@ -55,11 +55,11 @@ How the older rules read while a flag is on (`src/server/flows/wave2-rules.ts`):
 Unchanged on purpose: the shop's own delivery fee (shown per shop before payment, as today — no GPS estimate, no base
 fee); the settlement hold (3 days on production).
 
-## Migration 0221 (`drizzle/0221_flows_v3_wave2.sql`)
+## Migration 0222 (`drizzle/0222_flows_v3_wave2.sql`)
 
 Additive only: new table `order_cancel_requests` (one PENDING request per order, partial unique index), nullable
 column `order_disputes.return_request_id` with a partial index, and the six flag rows. Nothing is dropped, renamed or
-deleted. If wave 1 (0221) is merged first, this file is renumbered to 0222 by the staging queue.
+deleted. If wave 1 (0222) is merged first, this file is renumbered to 0222 by the staging queue.
 
 ## Where it lives
 

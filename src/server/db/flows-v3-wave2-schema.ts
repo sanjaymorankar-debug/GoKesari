@@ -1,5 +1,5 @@
 /**
- * Flow spec v3, wave 2 (docs/flows-v3/wave2.md; drizzle/0221_flows_v3_wave2.sql; flag flow_f16).
+ * Flow spec v3, wave 2 (docs/flows-v3/wave2.md; drizzle/0222_flows_v3_wave2.sql; flag flow_f16).
  *
  * order_cancel_requests: a customer asks the shop to cancel an order that is already packed (READY / ASSIGNED).
  * The shop agrees (the order is cancelled through the normal cancel path with a full refund — the after-packing

@@ -110,6 +110,9 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   flow_f13: "Flows v3 F13: category adds items at stock 100, duplicate choice, own product types, product-upload e-mail",
   onboarding_v2: "Onboarding v2: sign-in at checkout, shop / franchise / team onboarding",
   dual_auth: "Dual authentication: verified mobile AND e-mail for every account",
+  flow_f1: "Flows v3 F1: rider verification gate, sign-up Terms record, referral link to sign-up",
+  flow_f14: "Flows v3 F14: shop wallet created with the shop, wallet ledger download",
+  flow_f17: "Flows v3 F17: support auto-assign, area dealer, system tickets, working-hours SLA, recovery form",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -227,6 +230,12 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/onboarding-v2-2026-11 (owner brief 26-Nov-2026): guests browse and fill a cart with no sign-in anywhere; \"Place order\" opens a sign-in sheet (Terms tick, e-mail by Google or link, mobile code) and returns to the cart; the delivery address is asked after payment. Shop registration: identity → referral → GST/PAN → fee → shop type → licences (enter / upload / scan / later) → Seller SLA → address + pin → live. Franchise needs a live shop; free dealers go live at once; paid zones pay a plan up front and go live on payment (no 30-day KYC refund rule). Dealers build \"My team\" by inviting customers, who must accept. Off: every flow behaves exactly as before.",
   dual_auth:
     "docs/dual-auth-2026-11 (owner brief 26-Nov-2026 23.28 IST): an account counts only with a verified mobile (SMS code) and a verified e-mail (code, link or Google). One-factor accounts can browse but must verify the missing factor before ordering, shop / dealer / admin work or withdrawals. Sign-in on a new device asks both factors; a device that finished both is trusted 30 days (customers, shops, dealers, riders: one factor there; staff always both). Changing mobile / e-mail, bank or payout details, withdrawals, team roles and ownership changes always ask a code by SMS AND by e-mail. In force only where SMS codes can be sent.",
+  flow_f1:
+    "docs/flows-v3/wave1.md (F1): with dual_auth also in force, rider application and rider pages ask for a verified mobile AND e-mail first; a Google or e-mail-link sign-up keeps a server-side record of the Terms & Privacy tick (signed, time-stamped); a referral link opened by a signed-out visitor goes to sign-up with the code kept. Off: every flow behaves exactly as before.",
+  flow_f14:
+    "docs/flows-v3/wave1.md (F14): a shop registered through onboarding v2 gets its prepaid shop wallet at once (zero balance), and /shop/wallet offers the monthly ledger as a CSV download (without needing billing v2). Off: the wallet appears on first use and the download stays on the billing v2 statements page only.",
+  flow_f17:
+    "docs/flows-v3/wave1.md (F17): new tickets are assigned automatically by category and the shop's district (Admin → Support → Routing; least-loaded person; no match = manual queue); the shop's area dealer is copied (read-only); the system opens tickets for failed GST/PAN or document checks, identity reviews, payment mismatches, disputes, delivery-code locks and society applications; first response due within working hours (rule supportFlows); reopen within 7 days, closed tickets too; a public form at /account/recover for people who lost both mobile and e-mail. Off: the help desk behaves exactly as before.",
 };
 
 export interface FeatureFlagView {

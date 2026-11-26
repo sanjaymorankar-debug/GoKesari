@@ -1,5 +1,5 @@
 /**
- * Flow spec v3, wave 2 (docs/flows-v3/wave2.md; migration 0221). Every item with its flag ON, and the same path with
+ * Flow spec v3, wave 2 (docs/flows-v3/wave2.md; migration 0222). Every item with its flag ON, and the same path with
  * the flag OFF behaving exactly as before.
  *   F19 (flow_f19): 10-minute acceptance, WhatsApp reminder plan, alternative shop, rider search timings, no-rider
  *                   cancel, pickup not collected.

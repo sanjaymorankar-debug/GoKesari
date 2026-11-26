@@ -9,7 +9,8 @@ import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { assertOrderViewer } from "@/server/aftercare/order-view";
-import { listMyTickets, listShopTickets } from "@/server/aftercare/support-tickets";
+import { flowF17On, listMyTickets, listShopTickets } from "@/server/aftercare/support-tickets";
+import { SHOP_OWNER_FLOW_CATEGORIES, type RaisableTicketCategory } from "@/lib/support-ticket-states";
 import { getRule } from "@/server/services/settings";
 import { listShopsForOwner } from "@/server/services/shops";
 
@@ -46,7 +47,18 @@ export default async function ShopSupportPage({ searchParams }: { searchParams: 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
   const shop = await activeShop(shops);
-  const [awaiting, mine, rule, params] = await Promise.all([listShopTickets(user), listMyTickets(user), getRule("helpdesk"), searchParams]);
+  const [awaiting, mine, rule, params, flowsOn] = await Promise.all([listShopTickets(user), listMyTickets(user), getRule("helpdesk"), searchParams, flowF17On()]);
+  // docs/flows-v3 (flag flow_f17): General / Product upload / Price update on the shop owner's form.
+  const categories: RaisableTicketCategory[] = [
+    ...(flowsOn ? SHOP_OWNER_FLOW_CATEGORIES : []),
+    "SHOP_PAYOUT",
+    "ORDER",
+    "DELIVERY",
+    "CANCELLATION",
+    "REFUND_PAYMENT",
+    "ACCOUNT",
+    "OTHER",
+  ];
   const lang = await getBoardLang();
   // Raised from the shop's order screen: only an order of one of this owner's shops.
   const order =
@@ -75,7 +87,7 @@ export default async function ShopSupportPage({ searchParams }: { searchParams: 
         <section id="new">
           <h2 className="mb-3 text-lg font-semibold text-ink-900">{tr(T.raise, lang)}</h2>
           <TicketForm
-            categories={["SHOP_PAYOUT", "ORDER", "DELIVERY", "CANCELLATION", "REFUND_PAYMENT", "ACCOUNT", "OTHER"]}
+            categories={categories}
             orderId={ownOrder?.id ?? null}
             orderLabel={ownOrder?.orderNumber ?? null}
             shopId={ownOrder ? null : shop.id}

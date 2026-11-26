@@ -16,6 +16,7 @@ import { emailMode } from "@/server/email/transport";
 import { isTextChannelAvailable } from "@/server/messaging/sms-whatsapp";
 import { verifyLoginOtp } from "@/server/otp/service";
 import { signInFromForm } from "@/server/signin-form";
+import { rememberSignUpTermsTick } from "@/server/flows/signup-terms";
 import { continueAfterFirstFactor } from "@/server/signin-otp";
 import { GOOGLE_EMAIL_UNVERIFIED, GOOGLE_SIGN_UP_NEEDS_CODE } from "@/server/otp/google-second-factor";
 import { toClientError } from "@/lib/errors";
@@ -171,8 +172,10 @@ export default async function SignInPage({
         {googleEnabled ? (
           <form
             className="mt-6"
-            action={async () => {
+            action={async (formData: FormData) => {
               "use server";
+              // docs/flows-v3 (flag flow_f1): keep the Terms tick for the account record. Off: nothing.
+              await rememberSignUpTermsTick(formData);
               await signInFromForm(() => signIn("google", { redirectTo: AFTER_SIGN_IN }));
             }}
           >
@@ -210,6 +213,7 @@ export default async function SignInPage({
             className="mt-6 border-t border-cream-200 pt-6"
             action={async (formData: FormData) => {
               "use server";
+              await rememberSignUpTermsTick(formData);
               // A suspended or closed account is refused here: shown as the notice above (TC-AUTH-027).
               await signInFromForm(() =>
                 signIn(EMAIL_PROVIDER_ID, {

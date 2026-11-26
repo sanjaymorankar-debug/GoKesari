@@ -631,7 +631,7 @@ export const AUDIT_ACTIONS = {
   SHOP_CANCELLATION_FEE_CHANGED: "shop.cancellation_fee_changed", // batch-2026-10 WS-C
   ORDER_CANCELLATION_FEE_CHARGED: "order.cancellation_fee_charged", // batch-2026-10 WS-C
   ORDER_REFUND_RECORDED: "order.refund_recorded", // batch-2026-10 WS-C
-  // docs/flows-v3/wave2.md (0221, flag flow_f16): a customer asks the shop to cancel a packed order; the shop's answer.
+  // docs/flows-v3/wave2.md (0222, flag flow_f16): a customer asks the shop to cancel a packed order; the shop's answer.
   ORDER_CANCEL_REQUESTED: "order.cancel_requested",
   ORDER_CANCEL_REQUEST_DECIDED: "order.cancel_request_decided",
   SUPPORT_TICKET_CREATED: "support_ticket.created", // batch-2026-10 WS-C
@@ -655,6 +655,10 @@ export const AUDIT_ACTIONS = {
   DUAL_AUTH_STEP_UP_REQUIRED: "auth.step_up_required",
   DUAL_AUTH_ACCOUNT_CONFLICT: "auth.account_conflict",
   DUAL_AUTH_GATE_BLOCKED: "auth.dual_gate_blocked",
+  // docs/flows-v3 (0221, flag flow_f17): help-desk routing rules, automatic assignment, account recovery requests.
+  SUPPORT_ROUTING_CHANGED: "support_routing.changed",
+  SUPPORT_TICKET_ROUTED: "support_ticket.routed",
+  ACCOUNT_RECOVERY_REQUESTED: "account.recovery_requested",
   DUAL_AUTH_REMINDER_SENT: "auth.second_factor_reminder",
   /* ---------------------- rider bank payouts (docs/gig-bank-payouts-2026-10) */
   RIDER_BANK_ACCOUNT_REAUTH: "rider_bank.reauthenticated",

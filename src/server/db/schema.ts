@@ -5019,7 +5019,7 @@ export const orderDisputes = pgTable(
     raisedByUserId: uuid("raised_by_user_id").references(() => users.id, { onDelete: "set null" }),
     /** The complaint this case came from, when it came from one. */
     grievanceId: uuid("grievance_id").references(() => grievances.id, { onDelete: "set null" }),
-    /** docs/flows-v3/wave2.md (0221, flag flow_f16): the declined return this case was opened from. Nullable. */
+    /** docs/flows-v3/wave2.md (0222, flag flow_f16): the declined return this case was opened from. Nullable. */
     returnRequestId: uuid("return_request_id"),
 
     status: text("status", { enum: DISPUTE_STATUSES }).notNull().default("OPEN"),
@@ -9861,11 +9861,18 @@ export const supportTickets = pgTable(
     changeRequestId: uuid("change_request_id"),
     opsTaskId: uuid("ops_task_id"),
     raisedByStaff: boolean("raised_by_staff"),
+    /* docs/flows-v3 (0221, flag flow_f17): a ticket the system opened for an event elsewhere — one per
+     * (source, source_ref) — and the area dealer copied on a shop's ticket (read-only). All nullable. */
+    source: text("source"),
+    sourceRef: text("source_ref"),
+    ccDealerUserId: uuid("cc_dealer_user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("support_tickets_number_unique").on(t.ticketNumber),
+    uniqueIndex("support_tickets_source_ref_unique").on(t.source, t.sourceRef).where(sql`${t.source} IS NOT NULL`),
+    index("support_tickets_cc_dealer_idx").on(t.ccDealerUserId).where(sql`${t.ccDealerUserId} IS NOT NULL`),
     index("support_tickets_status_idx").on(t.status),
     index("support_tickets_requester_idx").on(t.requesterId),
     index("support_tickets_shop_idx").on(t.shopId),
@@ -11193,7 +11200,7 @@ export const FEATURE_FLAG_KEYS = [
   // docs/seller-agreements-2026-11 (0213): personalised, OTP-signed Seller SLA (+ medical agreement) at registration and for
   // existing shops (blocking screen; no new orders after the grace period). Seeded OFF.
   "seller_agreements_enabled",
-  // docs/flows-v3/wave2.md (0221): flow spec v3 wave 2. F2 customer order, F20 multi-shop cart, F3 order fulfilment,
+  // docs/flows-v3/wave2.md (0222): flow spec v3 wave 2. F2 customer order, F20 multi-shop cart, F3 order fulfilment,
   // F19 order timeouts, F16 cancellations / refunds / returns, F13 product and inventory setup.
   // Seeded ON on the staging database (gokesari_test), OFF on production.
   "flow_f2",
@@ -11208,6 +11215,13 @@ export const FEATURE_FLAG_KEYS = [
   // docs/dual-auth-2026-11 (0219): every account needs a verified mobile AND e-mail; device trust; two codes for
   // sensitive actions. Seeded ON on the staging database (gokesari_test), OFF on production until its test pass.
   "dual_auth",
+  // docs/flows-v3 (0221): flow spec v3 wave 1. F1 sign-up and verification (rider gate, Terms record for Google /
+  // e-mail-link sign-ups, referral link to sign-up); F14 shop wallet (created with the shop, ledger download); F17
+  // support (auto-assign, area dealer copied, system tickets, working-hours SLA, reopen, account recovery).
+  // Seeded ON on the staging database (gokesari_test), OFF on production.
+  "flow_f1",
+  "flow_f14",
+  "flow_f17",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13731,7 +13745,8 @@ export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)
 export * from "./legal-agreements-schema"; // docs/seller-agreements-2026-11 (0213)
-export * from "./flows-v3-wave2-schema"; // docs/flows-v3/wave2.md (0221)
+export * from "./flows-v3-wave2-schema"; // docs/flows-v3/wave2.md (0222)
 export * from "./onboarding-v2-schema"; // docs/onboarding-v2-2026-11 (0215)
 export * from "./dual-auth-schema"; // docs/dual-auth-2026-11 (0219)
+export * from "./flows-v3-schema"; // docs/flows-v3 (0221)
 /* <<< GoKesari Health */

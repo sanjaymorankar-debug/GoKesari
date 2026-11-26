@@ -73,7 +73,7 @@ export type FeatureFlagKey =
   | "identity_verification_shop_owners_enabled"
   // docs/seller-undertaking-2026-11
   | "seller_undertaking_gate_enabled"
-  // docs/flows-v3/wave2.md (0221)
+  // docs/flows-v3/wave2.md (0222)
   | "flow_f2"
   | "flow_f20"
   | "flow_f3"
@@ -82,7 +82,11 @@ export type FeatureFlagKey =
   | "flow_f13"
   | "seller_agreements_enabled"
   | "onboarding_v2"
-  | "dual_auth";
+  | "dual_auth"
+  // docs/flows-v3 (0221)
+  | "flow_f1"
+  | "flow_f14"
+  | "flow_f17";
 
 interface FlagValue {
   enabled: boolean;
