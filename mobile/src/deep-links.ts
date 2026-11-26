@@ -32,6 +32,12 @@ export const DEEP_LINK_ROUTES = [
   // 1.12.0 (franchise brief 21-Nov-2026): the public commission chart (before /dealer: the first match wins).
   { kind: "commission-chart", prefix: "/dealer/commission-chart" },
   { kind: "dealer", prefix: "/dealer" },
+  // 1.14.0 (registration subscription, owner brief 25-Nov-2026): reminder, payment-link, renewal and receipt
+  // pushes open the shop's registration page, the fee page or a receipt. Before /shop/register: the
+  // fee page's path starts with it, and the first match wins.
+  { kind: "shop-registration", prefix: "/shop/registration-fee" },
+  { kind: "shop-registration", prefix: "/shop/manage/registration" },
+  { kind: "shop-registration", prefix: "/shop/membership/receipt/" },
   { kind: "shop-register", prefix: "/shop/register" },
   // 1.11.0 (docs/franchise): the Pune franchise pages — booking, my franchise, renewal and expiry pushes;
   // 1.12.0: the 50 zone pages /franchise/zones/<GKZ-PUN-nn> too.

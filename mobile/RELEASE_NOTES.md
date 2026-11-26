@@ -2,23 +2,34 @@
 
 ## 1.14.0 (Android versionCode 15, iPhone build 15) — 25 Nov 2026
 
-Rider App v2 + rider pay plans (owner brief 25 Nov 2026 13.11 IST; docs/rider-app-v2-2026-11 at the repository root).
+Shop registration subscription (owner brief 25 Nov 2026 02.02 IST; docs/shop-registration-subscription-2026-11
+at the repository root).
+Rider App v2 + rider pay plans (owner brief 25 Nov 2026 13.11 IST; docs/rider-app-v2-2026-11 at the
+repository root).
 
 For the Play Store "What's new" / App Store "What's New in This Version":
 
+> Shop owners: see your shop registration status, expiry date and days left on your dashboard, get
+> reminders before it ends, and pay or renew in a tap. नोंदणीची मुदत, बाकी दिवस आणि एका टॅपमध्ये नूतनीकरण.
+>
 > Delivery partners: see what you earn on every delivery before you accept,
 > pick jobs from the Available Deliveries list, track your week's earnings day
 > by day, book high-earning slots, refer friends, check your tier and
 > insurance, and press SOS in an emergency.
 
 Changes in the app itself:
-- Nothing native changed: every rider screen is a website page, live in every installed version once
-  the website is deployed and the admin switches (riderAppV2, riderJobBoard, riderPayPlans, …) are on.
-- SOS dials the emergency number through a `tel:` link, which the app already hands to the phone
-  dialler (navigation policy, test "SOS dials 112 outside the app"). Location (1.4.0) and push (1.6.0)
-  are unchanged.
-- The in-app update check offers 1.14.0 once `MOBILE_APP_ANDROID_LATEST` / `MOBILE_APP_IOS_LATEST` are
-  set to 1.14.0 on the server after the store release.
+- Registration reminder, payment-link, renewal-confirmation and receipt pushes open the shop's registration
+  page, the registration-fee page or the receipt inside the app (deep-link route "shop-registration";
+  Android App Links prefixes added).
+- The Shop Registration card, the red / amber banners and Pay Now / Renew are the website's pages, so they
+  also work in older app versions; the payment opens Cashfree's checkout as before.
+- Rider App v2: nothing native changed: every rider screen is a website page, live in every installed
+  version once the website is deployed and the admin switches (riderAppV2, riderJobBoard, riderPayPlans, …)
+  are on. SOS dials the emergency number through a `tel:` link, which the app already hands to the phone
+  dialler (navigation policy, test "SOS dials 112 outside the app"). Location (1.4.0) and push (1.6.0) are
+  unchanged.
+- The in-app update check offers 1.14.0 once `MOBILE_APP_ANDROID_LATEST` / `MOBILE_APP_IOS_LATEST` are set
+  to 1.14.0 on the server after the release.
 
 ## 1.13.0 (Android versionCode 14, iPhone build 14) — 22 Nov 2026
 

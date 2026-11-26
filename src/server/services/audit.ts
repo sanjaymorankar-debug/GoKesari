@@ -203,6 +203,13 @@ export const AUDIT_ACTIONS = {
   SHOP_MEMBERSHIP_PERIOD_VOIDED: "shop.membership_period_voided",
   SHOP_MEMBERSHIP_RENEWAL_STARTED: "shop.membership_renewal_started",
   SHOP_MEMBERSHIP_RENEWAL_PAID: "shop.membership_renewal_paid",
+  // 0210 registration subscription (docs/shop-registration-subscription-2026-11)
+  SHOP_REGISTRATION_REMINDER_SENT: "shop.registration_reminder_sent",
+  SHOP_REGISTRATION_LINK_CREATED: "shop.registration_link_created",
+  SHOP_REGISTRATION_LINK_CANCELLED: "shop.registration_link_cancelled",
+  SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",
+  SHOP_REGISTRATION_MARKED_PAID: "shop.registration_marked_paid",
+  SHOP_REGISTRATION_SETTINGS_CHANGED: "shop.registration_settings_changed",
   /* <<< 0189 */
   REFERRAL_CODE_CREATED: "referral_code.created",
   REFERRAL_CODE_UPDATED: "referral_code.updated",
@@ -404,7 +411,7 @@ export const AUDIT_ACTIONS = {
   IMAGE_UPLOADED: "image.uploaded",
   RIDER_EARNING_SLOT_SAVED: "rider_earning_slot.saved",
   RIDER_INCENTIVE_SAVED: "rider_incentive.saved",
-  /* Rider App v2 (0210) */
+  /* Rider App v2 (0211) */
   RIDER_PAY_PLAN_SAVED: "rider_pay_plan.saved",
   RIDER_PAY_PLAN_SIMULATED: "rider_pay_plan.simulated",
   RIDER_PAY_PLAN_PUBLISHED: "rider_pay_plan.published",

@@ -142,6 +142,11 @@ export const PERMISSIONS = {
   PAYMENT_VIEW_ANY: "payment:view:any",
   /** Record a received payment, or a reversal/refund. */
   PAYMENT_RECORD: "payment:record",
+  /**
+   * 0210 (owner brief 25-Nov-2026): the Unpaid & expiring registrations screen — reminders, payment links,
+   * expiry changes (reason required) and offline "Mark as paid". ADMIN and OPERATOR only.
+   */
+  SHOP_REGISTRATION_SUBSCRIPTION_MANAGE: "shop-registration-subscription:manage",
 
   /* --------------------------------------------------- referral codes (§4.3) */
   REFERRAL_MANAGE: "referral:manage",
@@ -508,6 +513,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
 ];
 
 const OPERATOR_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE, // 0210 registration subscription (owner brief 25-Nov-2026)
   PERMISSIONS.CONSULT_MANAGE, // consultant appointments: operators run consultant onboarding and bookings with admins
   PERMISSIONS.CONSULT_ONBOARD,
   PERMISSIONS.HEALTH_MANAGE, // GoKesari Health: operators verify providers and keep the lists with admins (no clinical content; break-glass is admin-only)
@@ -946,6 +952,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.PAYMENT_VIEW_OWN]: "View own shop's payment history",
   [PERMISSIONS.PAYMENT_VIEW_ANY]: "View any shop's payment history",
   [PERMISSIONS.PAYMENT_RECORD]: "Record a payment, refund or reversal",
+  [PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE]: "Unpaid & expiring shop registrations: reminders, payment links, expiry changes, mark as paid",
   [PERMISSIONS.REFERRAL_MANAGE]: "Create and assign referral codes",
   [PERMISSIONS.AUDIT_LOG_VIEW_LIMITED]: "View operational audit entries",
   [PERMISSIONS.VOUCHER_MANAGE]: "Create, edit, and activate or deactivate vouchers",

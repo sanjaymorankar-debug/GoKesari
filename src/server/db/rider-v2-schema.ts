@@ -1,5 +1,5 @@
 /**
- * Rider App v2 + Rider Pay Plans (docs/rider-app-v2-2026-11; drizzle/0210_rider_app_v2.sql).
+ * Rider App v2 + Rider Pay Plans (docs/rider-app-v2-2026-11; drizzle/0211_rider_app_v2.sql).
  * Re-exported by schema.ts. Zones are HDMS delivery_zones (no foreign key: a zone can be removed
  * while an old, read-only plan version still names it).
  */
