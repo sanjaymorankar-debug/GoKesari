@@ -44,6 +44,11 @@ export function blocked(reason: string): never {
   throw new Blocked(reason);
 }
 
+/** Whether `error` is blocked()'s (for code that catches errors around a step that may block). */
+export function isBlocked(error: unknown): boolean {
+  return error instanceof Blocked;
+}
+
 /** Blocks the case unless `value` is present. */
 export function need<T>(value: T | null | undefined, what: string): T {
   if (value === null || value === undefined) blocked(`needs ${what}`);

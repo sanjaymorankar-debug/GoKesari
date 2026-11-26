@@ -195,9 +195,16 @@ qa(["TC-NTF-013", "TC-NTF-014"], "SMS and WhatsApp for order events: the message
   await cancelAsCustomer("customer", order.id);
   const me = await call(await as("customer"), "GET", "/api/profile");
   const phone = String(me.body?.phoneE164 ?? me.body?.user?.phoneE164 ?? "").replace(/^\+91/, "");
-  const outbox = await call(await as("admin"), "GET", `/api/admin/test-messages?to=${encodeURIComponent(phone)}`);
-  expectStatus(outbox, 200, "the mock outbox");
-  const mine = (outbox.body.messages as { channel: string; body: string }[]).filter((m) => m.body.includes(order.orderNumber));
+  // SMS / WhatsApp may wait in the outbox (notification_deliveries) for the every-minute cron job's queued sends
+  // (docs/crontab.txt): wait up to 3 minutes for them to reach the mock outbox.
+  let mine: { channel: string; body: string }[] = [];
+  for (const until = Date.now() + 180_000; ; ) {
+    const outbox = await call(await as("admin"), "GET", `/api/admin/test-messages?to=${encodeURIComponent(phone)}`);
+    expectStatus(outbox, 200, "the mock outbox");
+    mine = (outbox.body.messages as { channel: string; body: string }[]).filter((m) => m.body.includes(order.orderNumber));
+    if (mine.length || Date.now() > until) break;
+    await new Promise((r) => setTimeout(r, 10_000));
+  }
   for (const c of [sms, wa]) if (c.available && !c.enabled) await call(await as("customer"), "PUT", "/api/notifications/preferences", { category: "ORDERS", channel: c.channel, enabled: false });
   expect(mine.length, "an SMS / WhatsApp mentioning the order").toBeGreaterThan(0);
   return mine.map((m) => `${m.channel}: "${m.body.slice(0, 100)}"`).join("; ");

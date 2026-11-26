@@ -304,6 +304,23 @@ qa("TC-RBAC-004", "every shop-scoped API refuses owner A on shop B (403/404), al
     "POST /api/shops/[id]/product-categories": { categoryId: category },
     "PATCH /api/shops/[id]/profile-setup": { ownerName: "QA Intruder", addressLine1: "1 QA Road", city: "Pune", pincode: "411038", shopType: "GROCERY_KIRANA" },
     "POST /api/shops/[id]/staff": { identifier: `qa-intruder-${RUN}@test.local` },
+    // Smart shopping photo listing and Module 10 staff roles (added 22–26 Nov 2026): the body is checked first, then
+    // the shop (assertPhotoListingAccess / requireStaffManager) — a valid body proves the shop check.
+    "POST /api/shops/[id]/photo-listing/voice": { text: "Bread 40 rupees" },
+    "POST /api/shops/[id]/photo-listing/drafts/[draftId]/publish": {
+      fields: { name: `QA intruder ${RUN}` },
+      price: { pricePaise: 100, priceUnit: "piece", stock: 1, stockUnit: "piece" },
+    },
+    "POST /api/shops/[id]/photo-listing/drafts": {
+      __multipart: { photo: { name: "front.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a", "hex") }, side: "FRONT" },
+    },
+    "PATCH /api/shops/[id]/staff/[staffId]": { suspended: true },
+    // Voice price assistant (smart shopping): body first, then assertVoiceAccess.
+    "POST /api/shops/[id]/voice-price/interpret": { text: "Bread price 42 rupees" },
+    "POST /api/shops/[id]/voice-price/apply": { shopProductId: NO_SUCH_ID, newPricePaise: 4200, offer: null, expectedPricePaise: 4000 },
+    // WhatsApp order alerts for shops: body first, then ownedShop() (src/server/whatsapp/shop-orders/contacts.ts).
+    "PUT /api/shops/[id]/whatsapp": { enabled: false, owner: null, staff: [] },
+    "POST /api/shops/[id]/whatsapp": { action: "recheck", contactId: NO_SUCH_ID },
   };
   const validationFirst = byStatus.get(422) ?? [];
   const retried: string[] = [];
@@ -315,8 +332,10 @@ qa("TC-RBAC-004", "every shop-scoped API refuses owner A on shop B (403/404), al
       bad.push(`${line}: 422 with an empty body (no valid body known to retry)`);
       continue;
     }
-    const { __query: query = "", ...payload } = body as Record<string, unknown> & { __query?: string };
-    const res = await call(await as("shop"), method as "POST", fillRoute(path, B.id) + query, method === "GET" ? undefined : payload);
+    const { __query: query = "", __multipart: multipart, ...payload } = body as Record<string, unknown> & { __query?: string; __multipart?: Record<string, unknown> };
+    const res = multipart
+      ? await call(await as("shop"), method as "POST", fillRoute(path, B.id), undefined, { multipart: multipart as never })
+      : await call(await as("shop"), method as "POST", fillRoute(path, B.id) + query, method === "GET" ? undefined : payload);
     retried.push(`${method} ${path} ${res.status}`);
     if (res.status !== 403 && res.status !== 404) bad.push(`${method} ${path} with a valid body → ${why(res)}`);
   }
