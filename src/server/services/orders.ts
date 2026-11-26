@@ -1476,7 +1476,7 @@ export async function cancelOrder(
     const unitSizes =
       restockLines.length > 0
         ? await tx
-            .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli, kind: products.kind })
+            .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli, kind: products.kind, trackInventory: shopProducts.trackInventory })
             .from(shopProducts)
             .innerJoin(products, eq(shopProducts.productId, products.id))
             .where(inArray(shopProducts.id, restockLines.map((l) => l.shopProductId)))
@@ -1487,7 +1487,8 @@ export async function cancelOrder(
       unitSizeMilli: productById.get(l.shopProductId)?.unitSizeMilli ?? 1000,
       kind: productById.get(l.shopProductId)?.kind ?? ("PACKAGED" as const),
     }));
-    for (const line of onlinePolicy?.stockAlreadyReleased ? [] : lines) {
+    // D-172: a listing that does not track stock was never taken from stock, so nothing goes back.
+    for (const line of onlinePolicy?.stockAlreadyReleased ? [] : lines.filter((l) => productById.get(l.shopProductId)?.trackInventory !== false)) {
       const quantityUnits = milliToStockUnits(line.quantityMilli, line.unitSizeMilli, line.kind);
       if (quantityUnits > 0) {
         await restockOnline(
