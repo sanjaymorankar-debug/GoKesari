@@ -3,7 +3,7 @@
  *
  * Covers: /r/<code> for customer, shop-owner (dealer GKD- / team lead GKT- / agent) and GoKesari codes —
  * landing, cookies and the click log with its channel; hyphenated dealer codes; expired, closed and
- * unknown codes (the /invite page with the reason); self-referral; first valid link wins; the share log
+ * an unknown code (logged INVALID, then the original route: sign-in with gk_ref, or Add my shop for SHOP…); self-referral; first valid link wins; the share log
  * (owner only, a dealer for his employees' codes); the deferred link after an app install (/app-open,
  * claimed once); "My referrals" numbers from the existing tables; the admin report's filters; the
  * franchise message before the generic "inactive" in registration; and the rule switched off (the
@@ -135,7 +135,7 @@ describe("/r/<code> with referral sharing on (default)", () => {
     expect((await resolveReferralLink(d.lead.code)).referrerUserId).toBe(d.lead.user.id);
   });
 
-  it("expired, closed and unknown codes go to /invite with the reason, logged as such", async () => {
+  it("expired and closed codes go to /invite with the reason; an unknown code keeps the original route; all logged", async () => {
     const expired = await createReferralCode({ code: "OLDCODE1" }, admin);
     await db.update(referralCodes).set({ expiresAt: "2026-01-31" }).where(eq(referralCodes.id, expired.id));
     const closed = await createReferralCode({ code: "SHUTCODE" }, admin);
@@ -149,7 +149,10 @@ describe("/r/<code> with referral sharing on (default)", () => {
     expect(r2.headers.get("location")).toBe("/invite/SHUTCODE");
     expect((await resolveReferralLink("SHUTCODE")).message).toMatch(/inactive/);
     const r3 = await open("NOSUCH99");
-    expect(r3.headers.get("location")).toBe("/invite/NOSUCH99");
+    // Unknown: the original behaviour (QA TC-MKT-018 / TC-SREF-002): sign in, code remembered for the form to check.
+    expect(r3.headers.get("location")).toBe("/signin");
+    expect(r3.cookies.get("gk_ref")?.value).toBe("NOSUCH99");
+    expect(r3.cookies.get("gk_ref_link")).toBeUndefined();
     const outcomes = (await events()).map((e) => `${e.code}:${e.outcome}`).sort();
     expect(outcomes).toEqual(["NOSUCH99:INVALID", "OLDCODE1:EXPIRED", "SHUTCODE:CLOSED"]);
   });

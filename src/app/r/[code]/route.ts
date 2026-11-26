@@ -7,7 +7,8 @@
  * Referral sharing (docs/referral-sharing-2026-11, rule referralSharing):
  *   - dealer, team lead, agent and franchise codes (GKD- / GKT- / GKA- / GKF-, hyphen kept) go to
  *     Add my shop with the code filled in, like a dealer's /shop/register?ref= link;
- *   - a closed, expired or unknown code goes to /invite/<code>, which says why;
+ *   - a closed or expired code goes to /invite/<code>, which says why; an unknown code keeps the
+ *     original behaviour (remembered, checked later by the form it reaches), as before;
  *   - first valid link wins: a gk_ref cookie from an earlier valid link is kept;
  *   - opening your own link is logged as SELF and changes nothing;
  *   - every click is logged with its channel (?c=wa|sms|em|sh|cp|qr).
@@ -34,8 +35,11 @@ const cookieOptions = (request: NextRequest) => ({
 export async function GET(request: NextRequest, context: { params: Promise<{ code: string }> }) {
   const { code } = await context.params;
   if (await referralSharingOn()) return sharedLink(request, code);
+  return originalLink(request, code);
+}
 
-  // The original route (rule referralSharing off).
+/** The original route (rule referralSharing off, and unknown codes with it on). */
+async function originalLink(request: NextRequest, code: string) {
   const clean = normalizeReferralCode(code).slice(0, 16);
   if (looksLikeShopCode(clean) && (await shopReferralRule()).enabled) {
     return new NextResponse(null, { status: 307, headers: { Location: `/shop/register?ref=${clean}` } });
@@ -57,6 +61,11 @@ async function sharedLink(request: NextRequest, rawCode: string) {
   const log = (outcome: string) =>
     logReferralEvent({ code: target.code, kind: target.kind, event: "CLICK", channel, outcome, referrerUserId: target.referrerUserId, actorUserId: user?.id ?? null, ip, inApp });
 
+  if (target.outcome === "INVALID") {
+    // Not a code we know: logged, then the original behaviour (the form it reaches says it is not valid).
+    await log(target.outcome);
+    return originalLink(request, rawCode);
+  }
   if (!target.usable) {
     await log(target.outcome);
     return new NextResponse(null, { status: 307, headers: { Location: `/invite/${encodeURIComponent(target.code || "-")}` } });
