@@ -57,6 +57,8 @@ describe("schedule", () => {
         "account-deletion-purge",
         // docs/rbac: rate activations, change-request reminders / expiry, ticket SLA alerts (hourly; no-op while flags are off).
         "rbac-v2",
+        // docs/shop-welcome-kit-2026-11 (26 Nov 2026): live shops without a welcome kit since 0212 get one (every 15 minutes).
+        "welcome-kit-safety-net",
       ].sort(),
     );
   });
