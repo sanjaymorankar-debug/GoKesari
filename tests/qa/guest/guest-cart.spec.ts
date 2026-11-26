@@ -106,9 +106,16 @@ qa("TC-GCART-003", "a guest adds to the cart without signing in, opens /cart, an
   await expect(page.getByTestId("guest-cart-line").first()).toBeVisible();
   const placeOrder = page.getByTestId("guest-cart-place-order");
   await expect(placeOrder).toBeEnabled();
+  // docs/onboarding-v2-2026-11 (flag onboarding_v2): "Place order" opens the login sheet over the cart instead of /signin.
+  const v2 = /^Place order$/.test((await placeOrder.innerText()).trim());
   await placeOrder.click();
-  await expect(page).toHaveURL(/\/signin\b/);
+  if (v2) {
+    await expect(page.getByTestId("login-sheet")).toBeVisible();
+    await expect(page).toHaveURL(/\/cart$/);
+  } else {
+    await expect(page).toHaveURL(/\/signin\b/);
+  }
   const returnTo = (await page.context().cookies()).find((c) => c.name === "gk_return_to")?.value;
   expect(decodeURIComponent(returnTo ?? ""), "page to come back to after sign-in").toBe("/cart");
-  return `/shops/${slug}: Add to cart as a guest (no sign-in), /cart shows the line, Place order → /signin, return-to /cart`;
+  return `/shops/${slug}: Add to cart as a guest (no sign-in), /cart shows the line, Place order → ${v2 ? "login sheet on /cart (onboarding v2)" : "/signin"}, return-to /cart`;
 }, { mobile: true });
