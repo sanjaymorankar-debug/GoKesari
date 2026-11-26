@@ -90,7 +90,7 @@ export function ProductTiles({ lang, items, signedIn, testId }: { lang: Lang; it
                 <span className="mb-2 grid aspect-square w-full place-items-center overflow-hidden rounded-xl bg-kesari-50 text-kesari-700">
                   {item.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.imageUrl} alt="" width={160} height={160} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                    <img src={item.imageUrl} alt={item.name} width={160} height={160} loading="lazy" decoding="async" className="h-full w-full bg-white object-contain p-1" />
                   ) : (
                     <Icon name="package" size={36} />
                   )}

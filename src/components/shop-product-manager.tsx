@@ -15,6 +15,7 @@ import {
   Money,
   inputClass,
 } from "@/components/ui";
+import { needsOwnPhoto } from "@/lib/board/product-look";
 import { paiseToRupees } from "@/lib/money";
 import { MAX_STOCK_UNITS, parsePriceInput } from "@/lib/price-rules";
 import { formatStock, type ProductKind } from "@/lib/stock-quantity";
@@ -71,8 +72,12 @@ export function ShopProductManager({
   const [view, setView] = useState<"mine" | "add">("mine");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [photosOnly, setPhotosOnly] = useState(false);
   const needle = query.trim().toLowerCase();
-  const matching = needle ? products.filter((p) => `${p.productName} ${p.categoryName}`.toLowerCase().includes(needle)) : products;
+  const needPhoto = products.filter((p) => needsOwnPhoto(p.imageUrl)).length;
+  const matching = (needle ? products.filter((p) => `${p.productName} ${p.categoryName}`.toLowerCase().includes(needle)) : products).filter(
+    (p) => !photosOnly || needsOwnPhoto(p.imageUrl),
+  );
   const pageCount = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
   const current = Math.min(page, pageCount);
   const shown = matching.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
@@ -112,6 +117,27 @@ export function ShopProductManager({
             <EmptyState title="No products listed yet — add some below." />
           ) : (
             <>
+              {needPhoto > 0 ? (
+                <div className="mb-3">
+                <Alert tone="info">
+                  <span data-testid="photos-needed">
+                    {needPhoto} of your products show no photo or only a sample picture. Add your own photo so customers see what they are
+                    buying — once approved it replaces the sample.
+                  </span>{" "}
+                  <button
+                    type="button"
+                    aria-pressed={photosOnly}
+                    onClick={() => {
+                      setPhotosOnly((v) => !v);
+                      setPage(1);
+                    }}
+                    className="font-bold text-kesari-700 underline"
+                  >
+                    {photosOnly ? "Show all products" : "Show these"}
+                  </button>
+                </Alert>
+                </div>
+              ) : null}
               <input
                 type="search"
                 value={query}
@@ -276,6 +302,11 @@ function ProductRow({ product }: { product: ManagedProduct }) {
           <div>
             <p className="font-medium text-ink-900">{product.productName}</p>
             <p className="text-xs text-ink-500">{product.categoryName}</p>
+            {needsOwnPhoto(product.imageUrl) ? (
+              <a href={`/shop/products/${product.id}/images`} className="mt-1 inline-block" data-testid="needs-photo">
+                <Badge tone="warning">{product.imageUrl ? "Sample picture — add your photo" : "No photo — add one"}</Badge>
+              </a>
+            ) : null}
             {product.paused ? (
               <p className="mt-1 text-xs font-medium text-amber-700" data-testid="listing-paused">
                 Paused — this shop no longer carries {product.categoryName}. Add the category back to sell it again.

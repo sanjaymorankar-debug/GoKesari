@@ -48,7 +48,10 @@ function proxyRefused(res: Answer) {
   return res.status === 429 && res.body?.error === "Too many requests";
 }
 
-type CallOptions = { headers?: Record<string, string>; form?: Record<string, string>; multipart?: Parameters<APIRequestContext["fetch"]>[1] extends infer O ? O extends { multipart?: infer M } ? M : never : never; maxRedirects?: number };
+type CallOptions = {
+  /** POST /api/checkout: return the SMS-code / identity refusal as it is instead of passing it (checkout-checks.ts). */
+  rawCheckout?: boolean;
+  headers?: Record<string, string>; form?: Record<string, string>; multipart?: Parameters<APIRequestContext["fetch"]>[1] extends infer O ? O extends { multipart?: infer M } ? M : never : never; maxRedirects?: number };
 
 export async function call(ctx: APIRequestContext, method: Method, path: string, data?: unknown, options: CallOptions = {}): Promise<Answer> {
   await paceApiCall(path);
@@ -58,6 +61,12 @@ export async function call(ctx: APIRequestContext, method: Method, path: string,
   for (let i = 0; i < 3 && proxyRefused(answer); i++) {
     await new Promise((r) => setTimeout(r, (Number(answer.headers["retry-after"]) || 60) * 1000 + 2_000));
     answer = await send(ctx, method, path, data, options);
+  }
+  // docs/sms-2fa-2026-11 + docs/identity-verification-2026-11: with those switches on (the test site), a
+  // checkout first asks for an SMS code and an identity check; pass them as a customer would and send again.
+  if (method === "POST" && !options.rawCheckout && new URL(path, BASE_URL).pathname === "/api/checkout" && (answer.status === 403 || answer.status === 409)) {
+    const { passCheckoutChecks } = await import("./checkout-checks");
+    answer = await passCheckoutChecks(ctx, (c, m, p, d, o) => call(c, m, p, d, o), answer, () => call(ctx, method, path, data, { ...options, rawCheckout: true }));
   }
   return answer;
 }

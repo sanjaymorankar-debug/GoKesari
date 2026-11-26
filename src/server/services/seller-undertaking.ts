@@ -127,16 +127,19 @@ export async function acceptSellerUndertaking(input: {
   userAgent?: string | null;
   actorRole?: UserRole | null;
   client?: DbClient;
+  /** docs/seller-agreements-2026-11: false when the Seller Terms are accepted in the OTP-signed Agreements step instead. Default true. */
+  includeTerms?: boolean;
 }): Promise<{ recorded: number; shopIds: (string | null)[] }> {
   const write = async (tx: DbClient) => {
     const shopIds: (string | null)[] = input.shopIds?.length ? input.shopIds : (await ownedShops(input.userId, tx)).map((s) => s.id);
     const targets = shopIds.length ? shopIds : [null];
     let recorded = 0;
     for (const shopId of targets) {
-      for (const [consentType, version] of [
+      const types = [
         ["SELLER_GOODS_UNDERTAKING", SELLER_UNDERTAKING_VERSION],
         ["SELLER_TERMS", SELLER_TERMS_VERSION],
-      ] as const) {
+      ] as const;
+      for (const [consentType, version] of types.filter(([t]) => input.includeTerms !== false || t !== "SELLER_TERMS")) {
         await recordConsent(input.userId, consentType, { version, shopId, ipAddress: input.ip ?? null, userAgent: input.userAgent ?? null, client: tx });
         recorded += 1;
       }

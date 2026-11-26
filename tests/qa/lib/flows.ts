@@ -179,6 +179,9 @@ export async function placeOrder(
     ...options.extra,
   });
   if (res.status === 409 || res.status === 422) blocked(`checkout (${options.method ?? "WALLET"}) refused — ${why(res)}`);
+  // call() passes checkout's SMS code step itself (lib/checkout-checks.ts); still asked means no code could be had
+  // (e.g. the site's 5-codes-an-hour limit with rule checkoutOtp at every checkout).
+  if (res.status === 403 && res.body?.error?.details?.stepUp === "CHECKOUT_OTP") blocked(`checkout's SMS code step could not be passed — ${why(res)}`);
   expectStatus(res, 201, "checkout");
   const order = res.body.orders?.[0];
   expect(order?.id, "an order was created").toBeTruthy();

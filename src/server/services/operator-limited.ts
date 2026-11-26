@@ -468,6 +468,10 @@ export async function finishFeeCapture(shopId: string, intentId: string): Promis
     payload: { shopName: shop.name, ownerId: shop.ownerId, operatorId: session?.operatorId ?? null, amountPaise: session?.feeAmountPaise ?? shop.amountPaidPaise, approved: shop.status === "APPROVED" },
     idempotencyKey: `shop-fee-paid:${shopId}:${intentId}`,
   });
+  // docs/seller-agreements-2026-11: a new shop's signed agreements (and welcome banners) are e-mailed once the fee is paid.
+  await import("@/server/legal-agreements/email")
+    .then((m) => m.onRegistrationFeePaid(shopId))
+    .catch((error: unknown) => console.error("[seller-agreements] signed-copy e-mail after fee failed", error));
   return { approved: approved || shop.status === "APPROVED" };
 }
 

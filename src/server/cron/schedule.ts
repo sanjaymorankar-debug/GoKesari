@@ -103,11 +103,13 @@ export async function sellerVerification() {
   const result = await (await import("@/server/services/seller-verification-jobs")).runSellerVerificationSweep();
   // Mandatory legal documents (docs/four-features-2026-10): grace periods and expiry reminders.
   const legalDocuments = await (await import("@/server/services/legal-documents")).runLegalDocumentSweep().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  // docs/seller-agreements-2026-11: start the signing grace period for shops that still have to sign; remind before it ends.
+  const sellerAgreements = await (await import("@/server/legal-agreements/notices")).runAgreementSweep().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
   // docs/document-upload-2026-10: uploads never submitted lose their file and read fields after the retention period.
   const staleUploadsPurged = await (await import("@/server/services/document-uploads")).purgeStaleUploads().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
   // docs/product-import-2026-10: bulk-upload files and staged rows are deleted after the retention period.
   const productImportsPurged = await (await import("@/server/services/product-import")).purgeOldProductImports().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-  return { ...result, legalDocuments, staleUploadsPurged, productImportsPurged };
+  return { ...result, legalDocuments, sellerAgreements, staleUploadsPurged, productImportsPurged };
 }
 
 /** Closes a payout cycle that has ended (weekly, Saturday) and drafts its batch; retries failed transfers. */
