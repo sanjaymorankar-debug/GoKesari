@@ -49,6 +49,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { toStateCode } from "./seller-verification-checks";
+import { invoiceGstinFor } from "./shop-gst-registrations";
 import { getRule } from "./settings";
 import { documentNumbering, formatDocumentNumber, hsnFallbackRate } from "@/server/gst/rules";
 import { uqcFor } from "@/server/integrations/canonical";
@@ -218,8 +219,8 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   // its GSTIN goes on the bill (Rule 46/49 CGST Rules).
   const compositionGstin =
     !gstin && shop.gstStatus === "COMPOSITION" && shop.gstin && /^\d{2}[A-Z0-9]{13}$/.test(shop.gstin) ? shop.gstin : null;
-  const printedGstin = gstin ?? compositionGstin;
-  const sellerState = printedGstin ? toStateCode(printedGstin.slice(0, 2)) : toStateCode(shop.state);
+  let printedGstin = gstin ?? compositionGstin;
+  let sellerState = printedGstin ? toStateCode(printedGstin.slice(0, 2)) : toStateCode(shop.state);
   const address = order.addressId
     ? await client.query.addresses.findFirst({ where: eq(addresses.id, order.addressId) })
     : undefined;
@@ -239,6 +240,14 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
     });
     buyerState = pos.state;
     placeOfSupplySource = pos.source;
+  }
+  // Owner, 25-Nov-2026 (many GSTINs per shop): a GST-registered shop with a VERIFIED GSTIN for the
+  // delivery state invoices under it, with that outlet's name and address; otherwise the main GSTIN.
+  const hasDelivery = Boolean(order.addressId || order.deliveryAddressSnapshot);
+  const outlet = gstin && hasDelivery && buyerState && buyerState !== sellerState ? await invoiceGstinFor(shop.id, buyerState, client) : null;
+  if (outlet) {
+    printedGstin = outlet.gstin;
+    sellerState = toStateCode(outlet.stateCode);
   }
   const supplyType: InvoiceSnapshot["supplyType"] =
     sellerState && buyerState && sellerState !== buyerState ? "INTER" : "INTRA";
@@ -267,7 +276,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   };
   for (const { item, hsn: masterHsn, gstRateBp: masterRate, shopHsn, shopGstRateBp, shopCessBp } of items) {
     if (item.fulfilmentStatus === "REMOVED") continue;
-    // The checkout snapshot first (migration 0183: the classification when the order was placed),
+    // The checkout snapshot first (migration 0185: the classification when the order was placed),
     // then today's: the shop's, the product's, the dated HSN table, then the rule default (marked).
     const snapshotRated = item.gstRateBp != null;
     const hsn = item.hsnCode ?? shopHsn ?? masterHsn;
@@ -349,10 +358,11 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
     orderDate: order.createdAt.toISOString(),
     seller: {
       name: shop.name,
-      legalName: shop.legalBusinessName ?? shop.name,
-      address: [shop.addressLine1, shop.addressLine2, shop.area, shop.city, shop.state, shop.pincode].filter(Boolean).join(", "),
+      legalName: outlet?.legalName ?? shop.legalBusinessName ?? shop.name,
+      address: outlet?.outletAddress ?? [shop.addressLine1, shop.addressLine2, shop.area, shop.city, shop.state, shop.pincode].filter(Boolean).join(", "),
       gstin: printedGstin,
-      panMasked: shop.panLast4 ? `XXXXXX${shop.panLast4}` : null,
+      // An outlet's GSTIN may be on another PAN (a chain of companies): its own PAN is printed.
+      panMasked: outlet ? `XXXXXX${outlet.gstin.slice(8, 12)}` : shop.panLast4 ? `XXXXXX${shop.panLast4}` : null,
       fssai: shop.fssaiLicenseNumber,
       stateCode: sellerState,
       registrationNumber: shop.registrationNumber,

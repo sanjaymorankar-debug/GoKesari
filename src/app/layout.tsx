@@ -10,6 +10,7 @@ import { MobileShopNav } from "@/components/home/mobile-shop-nav";
 import { RememberReturnTo } from "@/components/remember-return-to";
 import { GuestCartMerge } from "@/components/guest-cart/guest-cart-merge";
 import { GuestCartProvider } from "@/components/guest-cart/guest-cart-context";
+import { PolicyReconsentGate } from "@/components/policy-reconsent-gate";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -26,6 +27,7 @@ import { listShopsWhereStaff } from "@/server/services/shop-staff";
 import { getWalletByUserId } from "@/server/services/wallet";
 import { isSignupReferralAsked } from "@/server/services/customer-signup-referrals";
 import { getRule } from "@/server/services/settings";
+import { getReconsentState } from "@/server/services/policy-versions";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -96,16 +98,23 @@ export default async function RootLayout({
           .catch(() => []),
       ])
     : null;
-  const [signedInState, location, lang, homeDiscovery, guestCartEnabled] = await Promise.all([
+  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled, priceComparison, reconsent] = await Promise.all([
     signedIn,
     // The same location every page filters by (cookie, else the default address).
     getCustomerLocation(user?.id).catch(() => null),
     getBoardLang(),
     // docs/homepage-uiux-2026-10: phones' bottom navigation and floating cart bar (rule homeDiscovery).
     homeDiscoveryRule,
+    // docs/search-brand-barcode-favourites-2026-11: the barcode scan button in the header search.
+    isFeatureEnabled("brand_barcode_favourites_enabled").catch(() => false),
     // docs/guest-cart-2026-11: guests fill a browser cart (sign-in at Place order); signed-in users
     // need it only to move a guest cart left in this browser into their account cart.
     isFeatureEnabled("guest_cart_enabled").catch(() => false),
+    // docs/price-comparison-off-2026-11: the phones' Compare tab only while the flag is on.
+    isFeatureEnabled("local_price_comparison_enabled").catch(() => false),
+    // docs/policy-reconsent-2026-11: a new policy version this user has not accepted (flag policy_reconsent_enabled).
+    // One flag read (cached) when off; a failed read never blocks the site.
+    user ? getReconsentState(user.id).catch(() => null) : null,
   ]);
   const [cart, balancePaise, unread, roles, addresses, staffShops, referralLinks] = signedInState ?? [
     { count: 0, totalPaise: null },
@@ -145,6 +154,7 @@ export default async function RootLayout({
           }))}
           helpsShops={staffShops.length > 0}
           referralLinks={referralLinks}
+          barcodeScan={barcodeScan}
         />
         <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
           {children}
@@ -162,8 +172,9 @@ export default async function RootLayout({
           cartBar={cartCount > 0 && Boolean(user)}
         />
         <AppUpdatePrompt lang={lang} />
-        {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} /> : null}
+        {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} priceComparison={priceComparison} /> : null}
         {guestCartEnabled && user ? <GuestCartMerge /> : null}
+        {reconsent?.needsReconsent ? <PolicyReconsentGate lang={lang} pending={reconsent.pending} /> : null}
         </GuestCartProvider>
       </body>
     </html>

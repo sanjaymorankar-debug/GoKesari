@@ -18,7 +18,8 @@ import {
 } from "@/components/ui";
 import { EmptyIllustration } from "@/components/empty-illustrations";
 import { SafeImage } from "@/components/safe-image";
-import { tr, type Lang } from "@/lib/board/i18n";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang, type Text } from "@/lib/board/i18n";
 import { payButtonLabel } from "@/lib/checkout-payment";
 import { HOME } from "@/lib/home-i18n";
 import { formatQuantity } from "@/lib/money";
@@ -27,6 +28,7 @@ import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import type { CartSummary } from "@/server/services/cart";
 import type { CartIssue, ShopCartCheck } from "@/server/services/cart-validation";
 import { ConfirmButton } from "@/components/confirm-button";
+import { CheckoutOtpStep, isCheckoutStepUp, type CheckoutStepUpDetails } from "@/components/checkout-otp-step";
 
 type DeliveryWindowKey = "EXPRESS_30" | "STANDARD_60" | "SCHEDULED";
 
@@ -48,10 +50,132 @@ interface SlotOption {
   remaining: number | null;
 }
 
-const WINDOW_LABEL: Record<DeliveryWindowKey, string> = {
-  EXPRESS_30: "Express (30 min)",
-  STANDARD_60: "Standard (60 min)",
-  SCHEDULED: "Scheduled",
+const WINDOW_LABEL: Record<DeliveryWindowKey, Text> = {
+  EXPRESS_30: L("Express (30 min)", "एक्सप्रेस (30 मिनट)", "एक्सप्रेस (30 मिनिटे)"),
+  STANDARD_60: L("Standard (60 min)", "सामान्य (60 मिनट)", "साधारण (60 मिनिटे)"),
+  SCHEDULED: L("Scheduled", "तय समय पर", "ठरलेल्या वेळी"),
+};
+
+/** Module 6 (docs/hindi-marathi-2026-11): the cart and checkout wording. */
+const T = {
+  changeAddress: L("Change address", "पता बदलें", "पत्ता बदला"),
+  removeTheseItems: L("Remove these items", "ये चीज़ें हटाएँ", "या वस्तू काढा"),
+  removeUnavailable: L("Remove unavailable items", "न मिलने वाली चीज़ें हटाएँ", "उपलब्ध नसलेल्या वस्तू काढा"),
+  addItems: L("Add items", "चीज़ें जोड़ें", "वस्तू जोडा"),
+  perUnit: L("per unit", "प्रति यूनिट", "प्रति युनिट"),
+  decrease: L("Decrease {name}", "{name} कम करें", "{name} कमी करा"),
+  increase: L("Increase {name}", "{name} बढ़ाएँ", "{name} वाढवा"),
+  subtotal: L("Subtotal", "उप-योग", "उप-एकूण"),
+  delivery: L("Delivery", "डिलीवरी", "डिलिव्हरी"),
+  taxes: L("Taxes", "टैक्स", "कर"),
+  free: L("Free", "मुफ़्त", "मोफत"),
+  deliveryTime: L("Delivery time", "डिलीवरी का समय", "डिलिव्हरीची वेळ"),
+  full: L("Full", "भर गया", "भरले"),
+  orderSummary: L("Order summary", "ऑर्डर सारांश", "ऑर्डर सारांश"),
+  coupon: L("Coupon", "कूपन", "कूपन"),
+  grandTotal: L("Grand total", "कुल योग", "एकूण रक्कम"),
+  couponCode: L("Coupon code", "कूपन कोड", "कूपन कोड"),
+  remove: L("Remove", "हटाएँ", "काढा"),
+  apply: L("Apply", "लगाएँ", "लावा"),
+  walletBalance: L("Wallet balance", "वॉलेट बैलेंस", "वॉलेट शिल्लक"),
+  noAddress: L("No saved delivery address.", "कोई डिलीवरी पता सहेजा नहीं है।", "डिलिव्हरीचा पत्ता जतन केलेला नाही."),
+  addOne: L("Add one", "एक जोड़ें", "एक जोडा"),
+  beforeCheckout: L("before checking out.", "ऑर्डर करने से पहले।", "ऑर्डर देण्यापूर्वी."),
+  deliverTo: L("Deliver to", "डिलीवरी का पता", "डिलिव्हरीचा पत्ता"),
+  orderingFor: L("Ordering for", "किसके लिए ऑर्डर", "कोणासाठी ऑर्डर"),
+  myself: L("Myself (personal order)", "खुद के लिए (निजी ऑर्डर)", "स्वतःसाठी (वैयक्तिक ऑर्डर)"),
+  businessOrder: L("(business order)", "(व्यापार ऑर्डर)", "(व्यवसाय ऑर्डर)"),
+  businessSeparate: L(
+    "Business orders are kept separate from your personal orders.",
+    "व्यापार ऑर्डर आपके निजी ऑर्डर से अलग रखे जाते हैं।",
+    "व्यवसाय ऑर्डर तुमच्या वैयक्तिक ऑर्डरपासून वेगळ्या ठेवल्या जातात.",
+  ),
+  payWith: L("Pay with", "भुगतान का तरीका", "पेमेंटची पद्धत"),
+  wallet: L("Wallet", "वॉलेट", "वॉलेट"),
+  cod: L("Cash on delivery", "कैश ऑन डिलीवरी", "कॅश ऑन डिलिव्हरी"),
+  payOnline: L("Pay online (UPI / card / netbanking)", "ऑनलाइन भुगतान (UPI / कार्ड / नेटबैंकिंग)", "ऑनलाइन पेमेंट (UPI / कार्ड / नेटबँकिंग)"),
+  businessWallet: L("Business orders are paid from the wallet.", "व्यापार ऑर्डर का भुगतान वॉलेट से होता है।", "व्यवसाय ऑर्डरचे पेमेंट वॉलेटमधून होते."),
+  chooseAddressCod: L(
+    "Choose a delivery address for cash on delivery.",
+    "कैश ऑन डिलीवरी के लिए डिलीवरी का पता चुनें।",
+    "कॅश ऑन डिलिव्हरीसाठी डिलिव्हरीचा पत्ता निवडा.",
+  ),
+  noteForShop: L("Note for the shop (optional)", "दुकान के लिए संदेश (वैकल्पिक)", "दुकानासाठी सूचना (ऐच्छिक)"),
+  notePlaceholder: L(
+    "e.g. ring the bell twice, leave at the gate",
+    "जैसे: घंटी दो बार बजाएँ, गेट पर छोड़ दें",
+    "उदा. बेल दोनदा वाजवा, गेटवर ठेवा",
+  ),
+  someUnavailable: L(
+    "Some items cannot be ordered online and will not be charged.",
+    "कुछ चीज़ें ऑनलाइन ऑर्डर नहीं हो सकतीं; उनका पैसा नहीं लिया जाएगा।",
+    "काही वस्तू ऑनलाइन ऑर्डर करता येत नाहीत; त्यांचे पैसे घेतले जाणार नाहीत.",
+  ),
+  insufficient: L("Insufficient wallet balance", "वॉलेट में पर्याप्त बैलेंस नहीं", "वॉलेटमध्ये पुरेशी शिल्लक नाही"),
+  addAtLeast: L("Add at least", "कम से कम", "किमान"),
+  toPlace: L("to place this order.", "जोड़ें, तभी यह ऑर्डर होगा।", "भरा, तरच ही ऑर्डर होईल."),
+  openOrderTitle: L("You already have an open order", "आपका एक ऑर्डर पहले से चालू है", "तुमची एक ऑर्डर आधीच सुरू आहे"),
+  yesCancel: L("Yes, cancel it", "हाँ, रद्द करें", "हो, रद्द करा"),
+  keepOrder: L("Keep order", "ऑर्डर रखें", "ऑर्डर ठेवा"),
+  cancelling: L("Cancelling…", "रद्द हो रहा है…", "रद्द होत आहे…"),
+  cancelThis: L("Cancel this order", "यह ऑर्डर रद्द करें", "ही ऑर्डर रद्द करा"),
+  beingPrepared: L(
+    "Being prepared — contact the shop to cancel it.",
+    "तैयार हो रहा है — रद्द करने के लिए दुकान से संपर्क करें।",
+    "तयार होत आहे — रद्द करण्यासाठी दुकानाशी संपर्क करा.",
+  ),
+  onItsWay: L(
+    "Already on its way: cancelling refunds the goods, not the delivery fee.",
+    "ऑर्डर रास्ते में है: रद्द करने पर सामान का पैसा लौटेगा, डिलीवरी शुल्क नहीं।",
+    "ऑर्डर वाटेत आहे: रद्द केल्यास वस्तूंचे पैसे परत मिळतील, डिलिव्हरी शुल्क नाही.",
+  ),
+  ignoreContinue: L("Ignore and continue", "अनदेखा कर आगे बढ़ें", "दुर्लक्ष करून पुढे जा"),
+  goBack: L("Go back", "वापस जाएँ", "मागे जा"),
+  opens: L("opens", "खुलेगी", "उघडेल"),
+  closedNow: L(
+    "might be closed now. Your order may be processed once the shop opens. The shop is alerted immediately and again when it opens. Do you want to continue?",
+    "अभी बंद हो सकती है। दुकान खुलने पर आपका ऑर्डर आगे बढ़ेगा। दुकान को अभी और खुलने पर फिर सूचना दी जाएगी। क्या आप आगे बढ़ना चाहते हैं?",
+    "सध्या बंद असू शकते. दुकान उघडल्यावर तुमची ऑर्डर पुढे जाईल. दुकानाला आत्ता आणि उघडल्यावर पुन्हा सूचना दिली जाईल. तुम्हाला पुढे जायचे आहे का?",
+  ),
+  yesContinue: L("Yes, continue", "हाँ, आगे बढ़ें", "हो, पुढे जा"),
+  noGoBack: L("No, go back", "नहीं, वापस जाएँ", "नाही, मागे जा"),
+  addMobileFirst: L(
+    "Add your mobile number before ordering — the delivery partner needs it to reach you.",
+    "ऑर्डर से पहले अपना मोबाइल नंबर जोड़ें — डिलीवरी पार्टनर को आपसे संपर्क करना होता है।",
+    "ऑर्डर देण्यापूर्वी तुमचा मोबाइल नंबर जोडा — डिलिव्हरी पार्टनरला तुमच्याशी संपर्क करावा लागतो.",
+  ),
+  addMobile: L("Add mobile number", "मोबाइल नंबर जोड़ें", "मोबाइल नंबर जोडा"),
+  addAddressFirst: L("Add a delivery address before ordering.", "ऑर्डर से पहले डिलीवरी का पता जोड़ें।", "ऑर्डर देण्यापूर्वी डिलिव्हरीचा पत्ता जोडा."),
+  addAddress: L("Add address", "पता जोड़ें", "पत्ता जोडा"),
+  chooseTimeTitle: L(
+    "Choose a delivery time for your scheduled delivery",
+    "तय डिलीवरी के लिए समय चुनें",
+    "ठरलेल्या डिलिव्हरीसाठी वेळ निवडा",
+  ),
+  addMoneyWallet: L("Add money to wallet", "वॉलेट में पैसे जोड़ें", "वॉलेटमध्ये पैसे भरा"),
+  continueShopping: L("Continue shopping", "खरीदारी जारी रखें", "खरेदी सुरू ठेवा"),
+  noSlots: L(
+    "No delivery times are left in the coming days — choose another delivery option.",
+    "आने वाले दिनों में डिलीवरी का कोई समय खाली नहीं है — दूसरा डिलीवरी विकल्प चुनें।",
+    "पुढील दिवसांत डिलिव्हरीची वेळ उपलब्ध नाही — दुसरा डिलिव्हरी पर्याय निवडा.",
+  ),
+  chooseDay: L("Choose a day", "दिन चुनें", "दिवस निवडा"),
+  chooseTime: L("Choose a time", "समय चुनें", "वेळ निवडा"),
+  left: L("left", "बाकी", "शिल्लक"),
+  pickTime: L("Pick a delivery time to place the order.", "ऑर्डर के लिए डिलीवरी का समय चुनें।", "ऑर्डरसाठी डिलिव्हरीची वेळ निवडा."),
+  orderCancelled: L(
+    "Order {n} cancelled. Any refund goes to your wallet.",
+    "ऑर्डर {n} रद्द हो गया। रिफंड आपके वॉलेट में जाएगा।",
+    "ऑर्डर {n} रद्द झाली. परतावा तुमच्या वॉलेटमध्ये जाईल.",
+  ),
+  placing: L("Placing order…", "ऑर्डर हो रहा है…", "ऑर्डर देत आहे…"),
+} as const;
+
+/** The pay button's words (lib/checkout-payment.ts) in each language. */
+const PAY_LABEL: Record<"WALLET" | "COD" | "ONLINE", Text> = {
+  WALLET: L("Pay from wallet", "वॉलेट से भुगतान करें", "वॉलेटमधून पैसे द्या"),
+  COD: L("Place order — pay cash on delivery", "ऑर्डर करें — डिलीवरी पर नकद दें", "ऑर्डर द्या — डिलिव्हरीवेळी रोख द्या"),
+  ONLINE: L("Pay online", "ऑनलाइन भुगतान करें", "ऑनलाइन पेमेंट करा"),
 };
 
 /** C3: an open order shown before paying for a new one (rule openOrderCheck). */
@@ -121,6 +245,8 @@ export function CartView({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** docs/sms-2fa-2026-11: the order needs an SMS code first (rule checkoutOtp); the closed shops it was confirmed for. */
+  const [stepUp, setStepUp] = useState<{ details: CheckoutStepUpDetails; ack: string[] } | null>(null);
   const [requestId] = useState(() => crypto.randomUUID());
   const [addressId, setAddressId] = useState<string | null>(
     preferredAddressId ?? addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id ?? null,
@@ -268,7 +394,7 @@ export function CartView({
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
-      setError(payload?.error?.message ?? "Could not update the cart.");
+      setError(errorText(payload?.error?.message ?? "Could not update the cart.", lang, payload?.error?.code));
     }
     setBusy(false);
     router.refresh();
@@ -284,7 +410,7 @@ export function CartView({
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
       setCoupon(null);
-      setCouponError(payload?.error?.message ?? "That coupon can't be used.");
+      setCouponError(errorText(payload?.error?.message ?? "That coupon can't be used.", lang, payload?.error?.code));
       return;
     }
     setCoupon({ code: payload.code, discountPaise: payload.discountPaise, forTotal: cart.subtotalPaise });
@@ -316,10 +442,10 @@ export function CartView({
     const payload = await response.json().catch(() => null);
     setCancellingOrderId(null);
     if (!response.ok) {
-      setOpenOrderMessage({ tone: "danger", text: payload?.error?.message ?? "Could not cancel that order." });
+      setOpenOrderMessage({ tone: "danger", text: errorText(payload?.error?.message ?? "Could not cancel that order.", lang, payload?.error?.code) });
       return;
     }
-    setOpenOrderMessage({ tone: "success", text: `Order ${order.orderNumber} cancelled. Any refund goes to your wallet.` });
+    setOpenOrderMessage({ tone: "success", text: tr(T.orderCancelled, lang).replace("{n}", order.orderNumber) });
     router.refresh();
   }
 
@@ -349,9 +475,20 @@ export function CartView({
     setBusy(false);
 
     if (!response.ok) {
-      setError(payload?.error?.message ?? "Checkout failed. Please try again.");
+      if (isCheckoutStepUp(payload?.error?.details)) {
+        setStepUp({ details: payload.error.details, ack: acknowledgeClosedShopIds });
+        return;
+      }
+      // docs/identity-verification-2026-11: the one-time identity check first, then back to the cart.
+      const verifyUrl = payload?.error?.details?.needsIdentityVerification ? payload.error.details.verifyUrl : null;
+      if (typeof verifyUrl === "string" && verifyUrl.startsWith("/")) {
+        router.push(verifyUrl);
+        return;
+      }
+      setError(errorText(payload?.error?.message ?? "Checkout failed. Please try again.", lang, payload?.error?.code));
       return;
     }
+    setStepUp(null);
     // batch-2026-10 WS-A: an online payment continues on the gateway's page (kept in-app by the mobile WebView).
     if (payload?.payment?.redirectUrl) {
       window.location.assign(payload.payment.redirectUrl);
@@ -415,7 +552,7 @@ export function CartView({
               <div className="space-y-2 px-4 pt-3" data-testid="delivery-warning">
                 {checkFor(group.shop.id)!.issues.map((issue) => (
                   <Alert key={issue.code} tone={issue.blocking ? "warning" : "info"}>
-                    <span>{issue.message}</span>
+                    <span>{errorText(issue.message, lang)}</span>
                     {issue.action !== "NONE" ? (
                       <button
                         type="button"
@@ -424,12 +561,12 @@ export function CartView({
                         onClick={() => runAction(issue, group)}
                       >
                         {issue.action === "CHANGE_ADDRESS"
-                          ? "Change address"
+                          ? tr(T.changeAddress, lang)
                           : issue.action === "REMOVE_SHOP_ITEMS"
-                            ? "Remove these items"
+                            ? tr(T.removeTheseItems, lang)
                             : issue.action === "REMOVE_UNAVAILABLE_ITEMS"
-                              ? "Remove unavailable items"
-                              : "Add items"}
+                              ? tr(T.removeUnavailable, lang)
+                              : tr(T.addItems, lang)}
                       </button>
                     ) : null}
                   </Alert>
@@ -451,7 +588,7 @@ export function CartView({
                     </p>
                     <p className="text-xs text-ink-500">
                       {line.categoryName} ·{" "}
-                      {formatQuantity(line.unitSizeMilli, line.unit)} per unit
+                      {formatQuantity(line.unitSizeMilli, line.unit)} {tr(T.perUnit, lang)}
                     </p>
 
                     {line.purchasable ? (
@@ -470,7 +607,7 @@ export function CartView({
                       </p>
                     ) : (
                       <p className="mt-1">
-                        <Badge tone="danger">{line.unavailableReason}</Badge>
+                        <Badge tone="danger">{errorText(line.unavailableReason, lang)}</Badge>
                       </p>
                     )}
                   </div>
@@ -489,7 +626,7 @@ export function CartView({
                         size="sm"
                         variant="secondary"
                         disabled={busy}
-                        aria-label={`Decrease ${line.productName}`}
+                        aria-label={tr(T.decrease, lang).replace("{name}", line.productName)}
                         onClick={() =>
                           updateQuantity(line.cartItemId, Math.max(0, roundStock(line.quantity - line.quantityStep)))
                         }
@@ -503,7 +640,7 @@ export function CartView({
                         size="sm"
                         variant="secondary"
                         disabled={busy}
-                        aria-label={`Increase ${line.productName}`}
+                        aria-label={tr(T.increase, lang).replace("{name}", line.productName)}
                         onClick={() =>
                           updateQuantity(line.cartItemId, roundStock(line.quantity + line.quantityStep))
                         }
@@ -517,16 +654,16 @@ export function CartView({
             </ul>
 
             <div className="space-y-1 border-t border-cream-200 px-4 py-3 text-sm">
-              <Row label="Subtotal" paise={group.subtotalPaise} />
-              <Row label="Delivery" paise={group.deliveryFeePaise} />
+              <Row label={tr(T.subtotal, lang)} paise={group.subtotalPaise} free={tr(T.free, lang)} />
+              <Row label={tr(T.delivery, lang)} paise={group.deliveryFeePaise} free={tr(T.free, lang)} />
               {group.taxPaise > 0 ? (
-                <Row label="Taxes" paise={group.taxPaise} />
+                <Row label={tr(T.taxes, lang)} paise={group.taxPaise} free={tr(T.free, lang)} />
               ) : null}
             </div>
 
             {feasibility[group.shop.id] ? (
               <div className="border-t border-cream-200 px-4 py-3">
-                <p className="mb-2 text-xs font-medium text-ink-500">Delivery time</p>
+                <p className="mb-2 text-xs font-medium text-ink-500">{tr(T.deliveryTime, lang)}</p>
                 <div className="flex flex-wrap gap-2">
                   {(["EXPRESS_30", "STANDARD_60", "SCHEDULED"] as const)
                     .filter((key) => feasibility[group.shop.id][key] || feasibility[group.shop.id].full?.[key])
@@ -538,7 +675,7 @@ export function CartView({
                           data-testid={`slot-full-${key}`}
                           className="cursor-not-allowed rounded-full border border-cream-200 px-3 py-1.5 text-xs font-medium text-ink-500 line-through"
                         >
-                          {WINDOW_LABEL[key]} · Full
+                          {tr(WINDOW_LABEL[key], lang)} · {tr(T.full, lang)}
                         </span>
                       ) : (
                       <button
@@ -553,7 +690,7 @@ export function CartView({
                             : "border-cream-200 text-ink-600 hover:border-kesari-300"
                         }`}
                       >
-                        {WINDOW_LABEL[key]}
+                        {tr(WINDOW_LABEL[key], lang)}
                       </button>
                       ),
                     )}
@@ -565,6 +702,7 @@ export function CartView({
                     chosen={scheduledSlots[group.shop.id]}
                     onDay={(d) => setSlotDay((prev) => ({ ...prev, [group.shop.id]: d }))}
                     onChoose={(key) => setScheduledSlots((prev) => ({ ...prev, [group.shop.id]: key }))}
+                    lang={lang}
                   />
                 ) : null}
               </div>
@@ -575,22 +713,22 @@ export function CartView({
 
       <div className="lg:sticky lg:top-24 lg:self-start">
         <Card className="p-4">
-          <h2 className="text-base font-semibold text-ink-900">Order summary</h2>
+          <h2 className="text-base font-semibold text-ink-900">{tr(T.orderSummary, lang)}</h2>
 
           <div className="mt-3 space-y-1 text-sm">
-            <Row label="Subtotal" paise={cart.subtotalPaise} />
-            <Row label="Delivery" paise={cart.deliveryFeePaise} />
-            {cart.taxPaise > 0 ? <Row label="Taxes" paise={cart.taxPaise} /> : null}
+            <Row label={tr(T.subtotal, lang)} paise={cart.subtotalPaise} free={tr(T.free, lang)} />
+            <Row label={tr(T.delivery, lang)} paise={cart.deliveryFeePaise} free={tr(T.free, lang)} />
+            {cart.taxPaise > 0 ? <Row label={tr(T.taxes, lang)} paise={cart.taxPaise} free={tr(T.free, lang)} /> : null}
             {couponDiscountPaise > 0 && coupon ? (
               <div className="flex justify-between text-leaf-700" data-testid="coupon-discount">
-                <span>Coupon {coupon.code}</span>
+                <span>{tr(T.coupon, lang)} {coupon.code}</span>
                 <span>
                   −<Money paise={couponDiscountPaise} />
                 </span>
               </div>
             ) : null}
             <div className="mt-2 flex justify-between border-t border-cream-200 pt-2 text-base font-semibold text-ink-900">
-              <span>Grand total</span>
+              <span>{tr(T.grandTotal, lang)}</span>
               <Money paise={payablePaise} />
             </div>
           </div>
@@ -600,18 +738,18 @@ export function CartView({
               <div className="flex gap-2">
                 <input
                   className={inputClass}
-                  placeholder="Coupon code"
+                  placeholder={tr(T.couponCode, lang)}
                   value={couponInput}
                   onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
                   data-testid="coupon-input"
                 />
                 {couponDiscountPaise > 0 ? (
                   <Button variant="secondary" onClick={() => { setCoupon(null); setCouponInput(""); }}>
-                    Remove
+                    {tr(T.remove, lang)}
                   </Button>
                 ) : (
                   <Button variant="secondary" onClick={() => void applyCoupon()} disabled={!couponInput.trim()}>
-                    Apply
+                    {tr(T.apply, lang)}
                   </Button>
                 )}
               </div>
@@ -621,7 +759,7 @@ export function CartView({
 
           <div className="mt-4 rounded-lg bg-cream-50 p-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-ink-600">Wallet balance</span>
+              <span className="text-ink-600">{tr(T.walletBalance, lang)}</span>
               <Money paise={walletBalancePaise} className="font-medium" />
             </div>
           </div>
@@ -629,14 +767,14 @@ export function CartView({
           <div className="mt-4">
             {addresses.length === 0 ? (
               <Alert tone="info">
-                No saved delivery address.{" "}
+                {tr(T.noAddress, lang)}{" "}
                 <a href="/profile/addresses" className="underline">
-                  Add one
+                  {tr(T.addOne, lang)}
                 </a>{" "}
-                before checking out.
+                {tr(T.beforeCheckout, lang)}
               </Alert>
             ) : (
-              <Field label="Deliver to">
+              <Field label={tr(T.deliverTo, lang)}>
                 <select
                   id="deliver-to"
                   className={inputClass}
@@ -656,24 +794,24 @@ export function CartView({
 
           {buyerShops.length > 0 ? (
             <div className="mt-3">
-              <Field label="Ordering for">
+              <Field label={tr(T.orderingFor, lang)}>
                 <select
                   className={inputClass}
                   value={buyerShopId}
                   onChange={(e) => setBuyerShopId(e.target.value)}
                   data-testid="order-for"
                 >
-                  <option value="">Myself (personal order)</option>
+                  <option value="">{tr(T.myself, lang)}</option>
                   {buyerShops.map((shop) => (
                     <option key={shop.id} value={shop.id}>
-                      {shop.name} (business order)
+                      {shop.name} {tr(T.businessOrder, lang)}
                     </option>
                   ))}
                 </select>
               </Field>
               {buyerShopId ? (
                 <p className="mt-1 text-xs text-ink-500">
-                  Business orders are kept separate from your personal orders.
+                  {tr(T.businessSeparate, lang)}
                 </p>
               ) : null}
             </div>
@@ -681,7 +819,7 @@ export function CartView({
 
           {/* A fieldset, not a <label>: each radio is named by its own text, not by all three. */}
           <fieldset className="mt-3" data-testid="payment-method">
-            <legend className="mb-1 block text-sm font-medium text-ink-700">Pay with</legend>
+            <legend className="mb-1 block text-sm font-medium text-ink-700">{tr(T.payWith, lang)}</legend>
             <div className="space-y-1 text-sm">
               <label className="flex items-center gap-2">
                 <input
@@ -690,7 +828,7 @@ export function CartView({
                   checked={!payingCod && !payingOnline}
                   onChange={() => setPaymentMethod("WALLET")}
                 />
-                Wallet
+                {tr(T.wallet, lang)}
               </label>
               <label className={`flex items-center gap-2 ${codPossible ? "" : "text-ink-500"}`}>
                 <input
@@ -700,7 +838,7 @@ export function CartView({
                   checked={payingCod}
                   onChange={() => setPaymentMethod("COD")}
                 />
-                Cash on delivery
+                {tr(T.cod, lang)}
               </label>
               {onlinePaymentsEnabled && !buyerShopId ? (
                 <label className="flex items-center gap-2" data-testid="pay-online-option">
@@ -710,25 +848,28 @@ export function CartView({
                     checked={payingOnline}
                     onChange={() => setPaymentMethod("ONLINE")}
                   />
-                  Pay online (UPI / card / netbanking)
+                  {tr(T.payOnline, lang)}
                 </label>
               ) : null}
               {!codPossible ? (
                 <p className="text-xs text-ink-500">
-                  {codUnavailableReason ??
-                    (buyerShopId ? "Business orders are paid from the wallet." : "Choose a delivery address for cash on delivery.")}
+                  {codUnavailableReason != null
+                    ? errorText(codUnavailableReason, lang)
+                    : buyerShopId
+                      ? tr(T.businessWallet, lang)
+                      : tr(T.chooseAddressCod, lang)}
                 </p>
               ) : null}
             </div>
           </fieldset>
 
           <div className="mt-3">
-            <Field label="Note for the shop (optional)">
+            <Field label={tr(T.noteForShop, lang)}>
               <textarea
                 className={inputClass}
                 rows={2}
                 maxLength={500}
-                placeholder="e.g. ring the bell twice, leave at the gate"
+                placeholder={tr(T.notePlaceholder, lang)}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 data-testid="order-notes"
@@ -739,15 +880,15 @@ export function CartView({
           {cart.hasUnavailableItems ? (
             <div className="mt-3">
               <Alert tone="warning">
-                Some items cannot be ordered online and will not be charged.
+                {tr(T.someUnavailable, lang)}
               </Alert>
             </div>
           ) : null}
 
           {!affordable ? (
             <div className="mt-3">
-              <Alert tone="danger" title="Insufficient wallet balance">
-                Add at least <Money paise={shortfall} /> to place this order.
+              <Alert tone="danger" title={tr(T.insufficient, lang)}>
+                {tr(T.addAtLeast, lang)} <Money paise={shortfall} /> {tr(T.toPlace, lang)}
               </Alert>
             </div>
           ) : null}
@@ -758,13 +899,27 @@ export function CartView({
             </div>
           ) : null}
 
+          {stepUp ? (
+            <div className="mt-3">
+              <CheckoutOtpStep
+                details={stepUp.details}
+                onVerified={() => {
+                  const ack = stepUp.ack;
+                  setStepUp(null);
+                  void checkout(ack);
+                }}
+                onCancel={() => setStepUp(null)}
+              />
+            </div>
+          ) : null}
+
           <div className="mt-4 space-y-2">
             {openOrderMessage && !(confirmingOpenOrders && relevantOpenOrders.length > 0) ? (
               <Alert tone={openOrderMessage.tone}>{openOrderMessage.text}</Alert>
             ) : null}
             {affordable && confirmingOpenOrders && relevantOpenOrders.length > 0 ? (
               <div className="space-y-2" data-testid="open-order-confirm">
-                <Alert tone="warning" title="You already have an open order">
+                <Alert tone="warning" title={tr(T.openOrderTitle, lang)}>
                   <ul className="mt-1 space-y-2">
                     {relevantOpenOrders.map((o) => (
                       <li key={o.id} className="flex flex-wrap items-center justify-between gap-2" data-testid="open-order">
@@ -778,17 +933,17 @@ export function CartView({
                           <ConfirmButton
                             disabled={busy || cancellingOrderId !== null}
                             onConfirm={() => cancelOpenOrder(o)}
-                            confirmLabel="Yes, cancel it"
-                            keepLabel="Keep order"
+                            confirmLabel={tr(T.yesCancel, lang)}
+                            keepLabel={tr(T.keepOrder, lang)}
                           >
-                            {cancellingOrderId === o.id ? "Cancelling…" : "Cancel this order"}
+                            {cancellingOrderId === o.id ? tr(T.cancelling, lang) : tr(T.cancelThis, lang)}
                           </ConfirmButton>
                         ) : (
-                          <span className="text-xs">Being prepared — contact the shop to cancel it.</span>
+                          <span className="text-xs">{tr(T.beingPrepared, lang)}</span>
                         )}
                         {o.customerMayCancel && (o.status === "PICKED_UP" || o.status === "OUT_FOR_DELIVERY") ? (
                           <span className="w-full text-xs">
-                            Already on its way: cancelling refunds the goods, not the delivery fee.
+                            {tr(T.onItsWay, lang)}
                           </span>
                         ) : null}
                       </li>
@@ -806,7 +961,7 @@ export function CartView({
                       proceedToPay();
                     }}
                   >
-                    Ignore and continue
+                    {tr(T.ignoreContinue, lang)}
                   </Button>
                   <Button
                     className="flex-1"
@@ -814,7 +969,7 @@ export function CartView({
                     disabled={busy || cancellingOrderId !== null}
                     onClick={() => setConfirmingOpenOrders(false)}
                   >
-                    Go back
+                    {tr(T.goBack, lang)}
                   </Button>
                 </div>
               </div>
@@ -825,11 +980,10 @@ export function CartView({
                     {closedGroups
                       .map((g) => {
                         const opens = nextOpeningAt(g.shop);
-                        return `${g.shop.name}${opens ? ` (opens ${formatShopTime(opens)})` : ""}`;
+                        return `${g.shop.name}${opens ? ` (${tr(T.opens, lang)} ${formatShopTime(opens)})` : ""}`;
                       })
                       .join(", ")}{" "}
-                    might be closed now. Your order may be processed once the shop opens. The shop is alerted
-                    immediately and again when it opens. Do you want to continue?
+                    {tr(T.closedNow, lang)}
                   </span>
                 </Alert>
                 <div className="flex gap-2">
@@ -838,10 +992,10 @@ export function CartView({
                     disabled={busy}
                     onClick={() => checkout(closedGroups.map((g) => g.shop.id))}
                   >
-                    Yes, continue
+                    {tr(T.yesContinue, lang)}
                   </Button>
                   <Button className="flex-1" variant="secondary" disabled={busy} onClick={() => setConfirmingClosed(false)}>
-                    No, go back
+                    {tr(T.noGoBack, lang)}
                   </Button>
                 </div>
               </div>
@@ -849,17 +1003,17 @@ export function CartView({
               <div className="grid gap-2" data-testid="checkout-missing-details">
                 {!hasMobile ? (
                   <Alert tone="warning">
-                    Add your mobile number before ordering — the delivery partner needs it to reach you.{" "}
+                    {tr(T.addMobileFirst, lang)}{" "}
                     <a href="/profile" className="font-medium underline">
-                      Add mobile number
+                      {tr(T.addMobile, lang)}
                     </a>
                   </Alert>
                 ) : null}
                 {needsAddress ? (
                   <Alert tone="warning">
-                    Add a delivery address before ordering.{" "}
+                    {tr(T.addAddressFirst, lang)}{" "}
                     <a href="/profile/addresses" className="font-medium underline">
-                      Add address
+                      {tr(T.addAddress, lang)}
                     </a>
                   </Alert>
                 ) : null}
@@ -869,14 +1023,18 @@ export function CartView({
                 className="w-full"
                 size="lg"
                 disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue || missingSlot}
-                title={missingSlot ? "Choose a delivery time for your scheduled delivery" : undefined}
+                title={missingSlot ? tr(T.chooseTimeTitle, lang) : undefined}
                 onClick={startPay}
               >
-                {payButtonLabel(payingCod ? "COD" : payingOnline ? "ONLINE" : "WALLET", busy)}
+                {lang === "en"
+                  ? payButtonLabel(payingCod ? "COD" : payingOnline ? "ONLINE" : "WALLET", busy)
+                  : busy
+                    ? tr(T.placing, lang)
+                    : tr(PAY_LABEL[payingCod ? "COD" : payingOnline ? "ONLINE" : "WALLET"], lang)}
               </Button>
             ) : (
               <LinkButton href="/wallet" className="w-full justify-center">
-                Add money to wallet
+                {tr(T.addMoneyWallet, lang)}
               </LinkButton>
             )}
             <LinkButton
@@ -884,7 +1042,7 @@ export function CartView({
               variant="secondary"
               className="w-full justify-center"
             >
-              Continue shopping
+              {tr(T.continueShopping, lang)}
             </LinkButton>
           </div>
         </Card>
@@ -893,11 +1051,11 @@ export function CartView({
   );
 }
 
-function Row({ label, paise }: { label: string; paise: number }) {
+function Row({ label, paise, free = "Free" }: { label: string; paise: number; free?: string }) {
   return (
     <div className="flex justify-between text-ink-600">
       <span>{label}</span>
-      {paise === 0 ? <span>Free</span> : <Money paise={paise} />}
+      {paise === 0 ? <span>{free}</span> : <Money paise={paise} />}
     </div>
   );
 }
@@ -912,17 +1070,19 @@ function SlotPicker({
   chosen,
   onDay,
   onChoose,
+  lang = "en",
 }: {
   slots: SlotOption[];
   day: string | undefined;
   chosen: string | undefined;
   onDay: (day: string) => void;
   onChoose: (key: string) => void;
+  lang?: Lang;
 }) {
   if (slots.length === 0) {
     return (
       <p className="mt-2 text-xs text-ink-500" data-testid="no-slots">
-        No delivery times are left in the coming days — choose another delivery option.
+        {tr(T.noSlots, lang)}
       </p>
     );
   }
@@ -934,7 +1094,7 @@ function SlotPicker({
     }`;
   return (
     <div className="mt-3 space-y-2" data-testid="slot-picker">
-      <p className="text-xs font-medium text-ink-500">Choose a day</p>
+      <p className="text-xs font-medium text-ink-500">{tr(T.chooseDay, lang)}</p>
       <div className="flex flex-wrap gap-2">
         {days.map((d) => (
           <button key={d} type="button" className={chip(d === activeDay)} onClick={() => onDay(d)}>
@@ -942,7 +1102,7 @@ function SlotPicker({
           </button>
         ))}
       </div>
-      <p className="text-xs font-medium text-ink-500">Choose a time</p>
+      <p className="text-xs font-medium text-ink-500">{tr(T.chooseTime, lang)}</p>
       <div className="flex flex-wrap gap-2">
         {slots
           .filter((s) => s.date === activeDay)
@@ -955,11 +1115,11 @@ function SlotPicker({
               onClick={() => onChoose(s.key)}
             >
               {s.label.split(", ")[1]}
-              {s.remaining != null && s.remaining <= 3 ? ` · ${s.remaining} left` : ""}
+              {s.remaining != null && s.remaining <= 3 ? ` · ${s.remaining} ${tr(T.left, lang)}` : ""}
             </button>
           ))}
       </div>
-      {!chosen ? <p className="text-xs text-amber-700">Pick a delivery time to place the order.</p> : null}
+      {!chosen ? <p className="text-xs text-amber-700">{tr(T.pickTime, lang)}</p> : null}
     </div>
   );
 }

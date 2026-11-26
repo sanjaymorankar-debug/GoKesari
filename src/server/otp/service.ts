@@ -46,7 +46,21 @@ export const EMAIL_IN_USE = "This email address is already used by another accou
 /** batch-2026-10 WS-D: SHOP_ONBOARDING_CONSENT — a shop owner authorises an operator to onboard their shop. */
 /** SHOP_EMAIL (0120): the shop registration's email, when it is not the account's own. */
 /** RIDER_BANK_CHANGE / RIDER_WITHDRAWAL (0124): a delivery partner confirms a bank change or a withdrawal. */
-type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT" | "SHOP_EMAIL" | "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL";
+/** ACCOUNT_DELETE (0183): a signed-in person confirms deleting their own account. */
+/** GUEST_MOBILE / ORDER_TRACK (0184): guest checkout's mobile check and tracking look-up. */
+/** LOGIN_SMS / CHECKOUT (0205, docs/sms-2fa-2026-11): the SMS second factor at sign-in and the checkout step-up. */
+export type OtpPurpose =
+  | "LOGIN"
+  | "EMAIL_CHANGE"
+  | "SHOP_ONBOARDING_CONSENT"
+  | "SHOP_EMAIL"
+  | "RIDER_BANK_CHANGE"
+  | "RIDER_WITHDRAWAL"
+  | "GUEST_MOBILE"
+  | "ORDER_TRACK"
+  | "ACCOUNT_DELETE"
+  | "LOGIN_SMS"
+  | "CHECKOUT";
 type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =
@@ -63,7 +77,16 @@ export type LoginOtpRequestResult =
 export interface VerifiedLogin {
   user: User;
   isNewUser: boolean;
+  /**
+   * docs/account-deletion-2026-11 (0199): the account is hidden in its deletion cooling-off
+   * period. Only returned to a caller that passed `allowPendingDeletion`; it must not open a
+   * session, only offer the restore screen.
+   */
+  pendingDeletion?: boolean;
 }
+
+/** An account hidden in its deletion cooling-off period: it gets a code only to restore itself. */
+const isPendingDeletion = (user: Pick<User, "status">) => user.status === "PENDING_DELETION";
 
 /* --------------------------------------------------------------- helpers */
 
@@ -107,7 +130,7 @@ async function findLiveUserByPhone(e164: string): Promise<User | undefined> {
   return row;
 }
 
-function auditOtp(
+export function auditOtp(
   action: AuditAction,
   details: { email: string; phoneE164?: string | null; actorId?: string | null; ip?: string | null } & Record<string, unknown>,
 ) {
@@ -129,7 +152,7 @@ function auditOtp(
  * Issues and emails a code. Throttled per destination email: a cooldown
  * between codes and a cap per window. Callers add a per-IP limit.
  */
-async function issueCode(input: {
+export async function issueCode(input: {
   email: string;
   purpose: OtpPurpose;
   userId: string | null;
@@ -160,7 +183,7 @@ async function issueCode(input: {
   }
   if (recent.length >= rules.maxResendsPerWindow) {
     await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { ...input, reason: "window_limit" });
-    throw new AppError("RATE_LIMITED", "Too many codes were requested for this email. Try again later.", {
+    throw new AppError("RATE_LIMITED", `Too many codes were requested for this ${input.bySms ? "account" : "email"}. Try again later.`, {
       retryAfterSeconds: rules.resendWindowMinutes * 60,
     });
   }
@@ -219,7 +242,10 @@ async function issueCode(input: {
     console.error("[otp] delivery failed", error);
     await db.update(loginOtps).set({ supersededAt: new Date() }).where(eq(loginOtps.id, id));
     await auditOtp(AUDIT_ACTIONS.OTP_FAILED, { ...input, reason: "delivery_failed", otpId: id });
-    throw new AppError("INTERNAL", "We could not send the email just now. Please try again in a minute.");
+    throw new AppError(
+      "INTERNAL",
+      input.bySms ? "We could not send the SMS just now. Please try again in a minute." : "We could not send the email just now. Please try again in a minute.",
+    );
   }
 
   await auditOtp(AUDIT_ACTIONS.OTP_REQUESTED, { ...input, purpose: input.purpose, otpId: id, known: Boolean(input.userId) });
@@ -259,7 +285,7 @@ async function enforceDbLimits(
  * Checks a code for `email` + `purpose` and consumes it. Every failure throws
  * the same message; the reason is audited.
  */
-async function consumeCode(input: {
+export async function consumeCode(input: {
   email: string;
   purpose: OtpPurpose;
   code: string;
@@ -358,7 +384,7 @@ export async function requestLoginOtp(input: {
     const owner = await findLiveUserByPhone(mobile.e164);
     const followUp = async () => {
       if (!owner) return;
-      if (owner.status !== "ACTIVE") {
+      if (owner.status !== "ACTIVE" && !isPendingDeletion(owner)) {
         await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email: owner.email, phoneE164: mobile.e164, ip, reason: "account_blocked" });
         return;
       }
@@ -383,7 +409,7 @@ export async function requestLoginOtp(input: {
   // accounts. Verifying links the number only if it is free.
   const phoneE164 = input.mobile?.trim() ? parseMobile(input.mobile).e164 : null;
   const owner = await findLiveUserByEmail(email);
-  if (owner && owner.status !== "ACTIVE") {
+  if (owner && owner.status !== "ACTIVE" && !isPendingDeletion(owner)) {
     const rules = await getRule("otp");
     await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email, phoneE164, ip, reason: "account_blocked" });
     return {
@@ -399,6 +425,9 @@ export async function requestLoginOtp(input: {
 
 const ACCOUNT_BLOCKED =
   "This account is suspended or closed, so it cannot sign in. If you think this is a mistake, contact us through the grievance form.";
+
+export const ACCOUNT_PENDING_DELETION =
+  "This account is scheduled for deletion. To restore it, sign in on the main Sign in page with the code we email you.";
 
 export const TERMS_REQUIRED =
   "To create your account, tick “I agree to the Terms & Conditions and Privacy Policy”, then press Sign in again with the same code.";
@@ -419,6 +448,12 @@ export async function verifyLoginOtp(input: {
    * (DPDPA §6); an existing account signing in again does not need it.
    */
   acceptedTerms?: boolean;
+  /**
+   * docs/account-deletion-2026-11 (0199): the sign-in page passes true so an account in its
+   * deletion cooling-off period comes back with `pendingDeletion` (for the restore screen)
+   * instead of being refused. Nothing is changed on such an account here.
+   */
+  allowPendingDeletion?: boolean;
 }): Promise<VerifiedLogin> {
   const ip = input.ip ?? null;
   const mobile = input.mobile?.trim() ? parseIndianMobile(input.mobile) : null;
@@ -456,6 +491,11 @@ export async function verifyLoginOtp(input: {
   let user: User;
   let isNewUser = false;
   if (existing) {
+    if (isPendingDeletion(existing)) {
+      if (!input.allowPendingDeletion) throw forbidden(ACCOUNT_PENDING_DELETION);
+      await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, phoneE164, actorId: existing.id, ip, otpId: otp.id, pendingDeletion: true });
+      return { user: existing, isNewUser: false, pendingDeletion: true };
+    }
     if (existing.status !== "ACTIVE") throw forbidden(ACCOUNT_BLOCKED);
     const patch: Partial<typeof users.$inferInsert> = {};
     if (!existing.emailVerified) patch.emailVerified = new Date();
@@ -488,7 +528,7 @@ export async function verifyLoginOtp(input: {
   return { user, isNewUser };
 }
 
-async function assertPhoneFree(e164: string, exceptUserId: string | null): Promise<void> {
+export async function assertPhoneFree(e164: string, exceptUserId: string | null): Promise<void> {
   const conditions = [eq(users.phoneE164, e164), isNull(users.deletedAt)];
   if (exceptUserId) conditions.push(ne(users.id, exceptUserId));
   const [taken] = await db.select({ id: users.id }).from(users).where(and(...conditions));
@@ -750,7 +790,7 @@ export async function verifyShopEmailOtp(input: { email: string; code: string; u
 export async function requestAccountActionOtp(input: {
   email: string;
   userId: string;
-  purpose: "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL";
+  purpose: "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL" | "ACCOUNT_DELETE";
   ip?: string | null;
   render: (code: string, expiryMinutes: number) => RenderedEmail;
 }): Promise<{ maskedEmail: string; resendAfterSeconds: number; expiryMinutes: number }> {
@@ -763,11 +803,63 @@ export async function requestAccountActionOtp(input: {
 export async function verifyAccountActionOtp(input: {
   email: string;
   userId: string;
-  purpose: "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL";
+  purpose: "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL" | "ACCOUNT_DELETE";
   code: string;
   ip?: string | null;
 }): Promise<void> {
   const email = parseEmail(input.email);
   const otp = await consumeCode({ email, purpose: input.purpose, code: input.code, ip: input.ip ?? null, userId: input.userId });
   await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, actorId: input.userId, ip: input.ip ?? null, otpId: otp.id, purpose: input.purpose });
+}
+
+/* ------------------------------------------ guest checkout (0184) */
+
+/**
+ * docs/guest-checkout-2026-11: can a guest's mobile number be proven with an SMS code right now? Only
+ * when SMS_PROVIDER is set and rule otp.smsEnabled is on — the mock outbox on the test site
+ * (codes at /admin/test-messages). No real SMS vendor / DLT template exists yet, so on the live
+ * site this is false and the number is saved unverified, exactly as e-mail sign-in does today.
+ */
+export async function guestMobileCodesAvailable(): Promise<boolean> {
+  return (await getOtpProvider("SMS")) !== null;
+}
+
+/**
+ * Guest checkout: a code by SMS to `mobile`, keyed by the guest's e-mail (codes are looked up by
+ * e-mail) and bound to the number. Same hashing, expiry, attempt cap, cooldown and audit as sign-in.
+ */
+export async function requestGuestMobileOtp(input: {
+  email: string;
+  mobile: string;
+  ip?: string | null;
+}): Promise<{ resendAfterSeconds: number; expiryMinutes: number }> {
+  const email = parseEmail(input.email);
+  const mobile = parseMobile(input.mobile);
+  return issueCode({ email, purpose: "GUEST_MOBILE", userId: null, phoneE164: mobile.e164, ip: input.ip ?? null, bySms: true });
+}
+
+/** Checks and consumes the guest's mobile code; throws the standard OTP_INVALID on any failure. Returns the E.164 number. */
+export async function verifyGuestMobileOtp(input: { email: string; mobile: string; code: string; ip?: string | null }): Promise<string> {
+  const email = parseEmail(input.email);
+  const parsed = parseIndianMobile(input.mobile);
+  if (!parsed.ok) throw validationFailed(OTP_INVALID);
+  const otp = await consumeCode({ email, purpose: "GUEST_MOBILE", code: input.code, ip: input.ip ?? null, phoneE164: parsed.e164 });
+  await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, phoneE164: parsed.e164, ip: input.ip ?? null, otpId: otp.id, purpose: "GUEST_MOBILE" });
+  return parsed.e164;
+}
+
+/**
+ * Guest order tracking by e-mail: a code to the e-mail of the account that placed the order. The
+ * caller has already checked the reference belongs to that e-mail, and answers the same either way.
+ */
+export async function requestOrderTrackOtp(input: { email: string; userId: string; ip?: string | null }): Promise<void> {
+  const email = parseEmail(input.email);
+  await issueCode({ email, purpose: "ORDER_TRACK", userId: input.userId, phoneE164: null, ip: input.ip ?? null });
+}
+
+/** Checks and consumes a tracking code for `email`, bound to the account; throws OTP_INVALID on any failure. */
+export async function verifyOrderTrackOtp(input: { email: string; userId: string; code: string; ip?: string | null }): Promise<void> {
+  const email = parseEmail(input.email);
+  const otp = await consumeCode({ email, purpose: "ORDER_TRACK", code: input.code, ip: input.ip ?? null, userId: input.userId });
+  await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, actorId: input.userId, ip: input.ip ?? null, otpId: otp.id, purpose: "ORDER_TRACK" });
 }

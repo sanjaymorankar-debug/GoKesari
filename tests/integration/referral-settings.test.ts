@@ -41,7 +41,6 @@ vi.mock("@/server/auth", () => ({
 import { GET as adminGet, PUT as adminPut } from "@/app/api/admin/referral-settings/route";
 import { POST as signupPost } from "@/app/api/me/signup-referral/route";
 import { GET as publicGet } from "@/app/api/referral-settings/route";
-import { POST as referralCheckRoute } from "@/app/api/shop-registrations/referral-check/route";
 import { POST as shopRegisterRoute } from "@/app/api/shops/route";
 import { POST as webhookRoute } from "@/app/api/webhooks/cashfree/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
@@ -63,7 +62,7 @@ import { addToCart } from "@/server/services/cart";
 import { needsSignupReferralCode } from "@/server/services/customer-signup-referrals";
 import { checkout } from "@/server/services/orders";
 import { sendRegistrationOtp } from "@/server/registration/otp";
-import { createRegistration, registrationStatus, startRegistrationPayment } from "@/server/registration/service";
+import { checkJoinReferral, createRegistration, registrationStatus, startRegistrationPayment } from "@/server/registration/service";
 import { createReferralCode } from "@/server/services/referrals";
 import { getReferralSettings, setReferralSetting } from "@/server/services/referral-settings";
 import { clearRuleCache, setRule } from "@/server/services/settings";
@@ -255,7 +254,7 @@ async function selfRegister(referralCode: string | undefined) {
   const mobile = uniqueMobile();
   await sendRegistrationOtp(`+91${mobile}`, null);
   const otp = await latestCode(`+91${mobile}`);
-  return createRegistration({ shopName: `Sai Kirana ${++counter}`, mobile, referralCode, tierCode: "BASIC", otp, acceptTerms: true }, "127.0.0.1");
+  return createRegistration({ shopName: `Sai Kirana ${++counter}`, mobile, referralCode, tierCode: "BASIC", otp, acceptTerms: true, acceptUndertaking: true }, "127.0.0.1");
 }
 
 function webhook(orderId: string) {
@@ -285,7 +284,8 @@ describe("shop self-registration (/shop/join) and auto-approval follow referral_
 
   it.each(COMBOS)("customer %s / shop %s: blank, invalid and valid codes; payment approves", async (customer, shop) => {
     await setBoth(customer, shop);
-    const check = (code: string) => call(referralCheckRoute, "/api/shop-registrations/referral-check", { method: "POST", body: { code } });
+    // Typed loosely, as the JSON body of the retired referral-check route was.
+    const check = async (code: string) => ({ body: (await checkJoinReferral(code)) as Record<string, unknown> });
 
     // Blank
     const blankCheck = await check("");

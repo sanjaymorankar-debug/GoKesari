@@ -15,7 +15,7 @@
  */
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, not, or, sql } from "drizzle-orm";
 
 import { LIVE_PAYMENT_INTENT_STATUSES } from "@/lib/payment-intent-states";
 import { canMove } from "@/lib/state-machines";
@@ -34,7 +34,7 @@ import { getGatewayByName, parseGatewayName, sandboxAllowed } from "./gateway/re
 import type { GatewayOrderState, GatewayWebhookEvent, PaymentGateway } from "./gateway/types";
 import { flagPaymentForSupport, lockIntent, toIntentRef, transitionIntent, type IntentSource } from "./intent-store";
 import { getPaymentIntentRow, settleRefund, submitRefund } from "./intents";
-import { CAPTURED_HANDLERS } from "./purpose-handlers";
+import { CAPTURED_HANDLERS, LATE_CAPTURE_HANDLERS } from "./purpose-handlers";
 
 export type ApplyOutcome = "MOVED" | "NO_CHANGE" | "AMOUNT_MISMATCH" | "LATE_CAPTURE" | "NOT_FOUND";
 
@@ -91,6 +91,11 @@ export async function applyGatewayState(
 
     if (state.status === "CAPTURED") {
       if (row.status === "FAILED" || row.status === "EXPIRED") {
+        // PAY-2: a purpose that can still settle a late payment (a top-up is simply credited).
+        const late = LATE_CAPTURE_HANDLERS[row.purpose];
+        if (late && (await late(row, { amountPaise: state.amountPaise, gatewayPaymentId: state.gatewayPaymentId }, tx, (task) => void tasks.push(task)))) {
+          return { outcome: "LATE_CAPTURE" as const, status: row.status };
+        }
         // Money taken after we had given up on the attempt (and released the order).
         await flagPaymentForSupport(
           tx,
@@ -192,6 +197,8 @@ async function findIntentForEvent(gateway: PaymentGateway, event: GatewayWebhook
 }
 
 async function processEvent(gateway: PaymentGateway, event: GatewayWebhookEvent, webhookEventId: string): Promise<{ outcome: string; intentId: string | null }> {
+  // PAY-SM: disputes / chargebacks (settlement.ts; a no-op while flag payment_settlement_states is off).
+  if (event.kind === "DISPUTE") return (await import("./settlement")).applyDisputeEvent(gateway.name, event, webhookEventId);
   if (event.kind === "REFUND_SUCCESS" || event.kind === "REFUND_FAILED") {
     const conditions = [];
     if (event.merchantRef) conditions.push(eq(paymentRefunds.merchantRefundId, event.merchantRef));
@@ -322,6 +329,9 @@ export async function runPaymentReconciliation(now: Date = new Date()): Promise<
       and(
         inArray(paymentIntents.status, [...LIVE_PAYMENT_INTENT_STATUSES]),
         or(lt(paymentIntents.createdAt, cutoff), lt(paymentIntents.expiresAt, now)),
+        // 0210: a payment link valid for days is not "stuck" while it lasts (no support flag after N checks);
+        // the registration reminder job checks open registration links itself, and this picks it up at expiry.
+        not(and(eq(paymentIntents.mode, "LINK"), gt(paymentIntents.expiresAt, now), inArray(paymentIntents.purpose, ["SHOP_REGISTRATION_FEE", "SHOP_MEMBERSHIP_RENEWAL"]))!),
       ),
     )
     .orderBy(asc(paymentIntents.createdAt))

@@ -45,6 +45,10 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTRATION_DRAFT_CHECKED: "shop_registration_draft.checked",
   /** docs/shop-onboarding-wizard-2026-10 step 2: the shop created from the wizard's draft, its checks copied. Masked numbers only. */
   SHOP_REGISTRATION_DRAFT_SUBMITTED: "shop_registration_draft.submitted",
+  /** Owner, 25-Nov-2026: staff opened an owner's unfinished registration to continue it for them. */
+  SHOP_REGISTRATION_DRAFT_STAFF_OPENED: "shop_registration_draft.staff_opened",
+  /** Staff sent the owner a link to carry on with an unfinished registration. */
+  SHOP_REGISTRATION_DRAFT_RESUME_SENT: "shop_registration_draft.resume_link_sent",
   SHOP_APPROVED: "shop.approved",
   /** docs/shop-welcome-kit-2026-11: an admin sent the welcome kit (printable QR banners) to a shop that was already live, or to a city / district. */
   SHOP_WELCOME_KIT_SENT: "shop.welcome_kit_sent",
@@ -74,6 +78,14 @@ export const AUDIT_ACTIONS = {
   SHOP_MEDIA_IMPORT_APPLIED: "shop_media_import.applied",
   SHOP_STAFF_ADDED: "shop_staff.added",
   SHOP_STAFF_REMOVED: "shop_staff.removed",
+  // Module 10 (docs/shop-staff-roles-2026-11): invitations, roles, suspension, and staff actions in a shop.
+  SHOP_STAFF_INVITED: "shop_staff.invited",
+  SHOP_STAFF_INVITE_ACCEPTED: "shop_staff.invite_accepted",
+  SHOP_STAFF_INVITE_CANCELLED: "shop_staff.invite_cancelled",
+  SHOP_STAFF_ROLE_CHANGED: "shop_staff.role_changed",
+  SHOP_STAFF_SUSPENDED: "shop_staff.suspended",
+  SHOP_STAFF_REACTIVATED: "shop_staff.reactivated",
+  SHOP_STAFF_ACTION: "shop_staff.action",
 
   /* ------------------------------ Module 2: accounting integration & GST */
   INTEGRATION_CONNECTED: "integration.connected",
@@ -185,6 +197,20 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTRATION_UPDATED: "shop.registration_updated",
   SHOP_PAYMENT_RECORDED: "shop_payment.recorded",
   SHOP_PAYMENT_REVERSED: "shop_payment.reversed",
+  /* >>> 0197 shop membership renewal (docs/shop-membership-renewal-2026-11) */
+  SHOP_MEMBERSHIP_EXEMPTION_CHANGED: "shop.membership_exemption_changed",
+  SHOP_MEMBERSHIP_PERIOD_OPENED: "shop.membership_period_opened",
+  SHOP_MEMBERSHIP_PERIOD_VOIDED: "shop.membership_period_voided",
+  SHOP_MEMBERSHIP_RENEWAL_STARTED: "shop.membership_renewal_started",
+  SHOP_MEMBERSHIP_RENEWAL_PAID: "shop.membership_renewal_paid",
+  // 0210 registration subscription (docs/shop-registration-subscription-2026-11)
+  SHOP_REGISTRATION_REMINDER_SENT: "shop.registration_reminder_sent",
+  SHOP_REGISTRATION_LINK_CREATED: "shop.registration_link_created",
+  SHOP_REGISTRATION_LINK_CANCELLED: "shop.registration_link_cancelled",
+  SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",
+  SHOP_REGISTRATION_MARKED_PAID: "shop.registration_marked_paid",
+  SHOP_REGISTRATION_SETTINGS_CHANGED: "shop.registration_settings_changed",
+  /* <<< 0189 */
   REFERRAL_CODE_CREATED: "referral_code.created",
   REFERRAL_CODE_UPDATED: "referral_code.updated",
   REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
@@ -220,6 +246,9 @@ export const AUDIT_ACTIONS = {
   /** Operations read one person's consent trail (NAV-019). Access to a
    *  consent record is itself worth a trail — see getUserConsentTrail(). */
   CONSENT_HISTORY_VIEWED: "consent.history_viewed",
+  /** docs/policy-reconsent-2026-11: an admin published a policy version; a user accepted one. */
+  POLICY_VERSION_PUBLISHED: "policy_version.published",
+  POLICY_ACCEPTED: "policy.accepted",
 
   /* --------------------------------------------- seller/food compliance */
   SHOP_COMPLIANCE_UPDATED: "shop.compliance_updated",
@@ -239,6 +268,9 @@ export const AUDIT_ACTIONS = {
   SHOP_GST_SUBMITTED: "shop.gst_submitted",
   SHOP_GST_VERIFIED: "shop.gst_verified",
   SHOP_GST_REJECTED: "shop.gst_rejected",
+  /** Many GSTINs per shop (owner, 25-Nov-2026). */
+  SHOP_GST_REGISTRATION_ADDED: "shop.gst_registration_added",
+  SHOP_GST_REGISTRATION_REMOVED: "shop.gst_registration_removed",
   SHOP_PAN_SUBMITTED: "shop.pan_submitted",
   SHOP_PAN_VERIFIED: "shop.pan_verified",
   SHOP_PAN_REJECTED: "shop.pan_rejected",
@@ -273,6 +305,9 @@ export const AUDIT_ACTIONS = {
   /* Gig worker flow (docs/gig-worker-2026-10). Never a document number or a file — masked forms only. */
   DELIVERY_PARTNER_KYC_CHECKED: "delivery_partner.kyc_checked",
   DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  /* docs/identity-verification-2026-11: customer / shop owner identity check. Masked ids only, never a number. */
+  IDENTITY_VERIFICATION_CHECKED: "identity.verification_checked",
+  IDENTITY_VERIFICATION_DECIDED: "identity.verification_decided",
   DELIVERY_PARTNER_BACKGROUND_DOC_UPLOADED: "delivery_partner.background_doc_uploaded",
   DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
   DELIVERY_PARTNER_BACKGROUND_DOC_VIEWED: "delivery_partner.background_doc_viewed",
@@ -396,6 +431,14 @@ export const AUDIT_ACTIONS = {
   PHONE_LINKED: "auth.phone_linked",
   PHONE_RELEASED: "auth.phone_released",
   EMAIL_CHANGED: "auth.email_changed",
+  // docs/account-deletion-2026-11 (0191): self-service account deletion.
+  ACCOUNT_DELETION_REQUESTED: "account.deletion_requested",
+  ACCOUNT_DELETION_BLOCKED: "account.deletion_blocked",
+  ACCOUNT_DELETED: "account.deleted",
+  // 0191 (owner 23-Nov-2026): 90-day cooling-off before the anonymisation.
+  ACCOUNT_DELETION_COOLING_OFF: "account.deletion_cooling_off",
+  ACCOUNT_DELETION_RESTORED: "account.deletion_restored",
+  ACCOUNT_DELETION_PURGE_BLOCKED: "account.deletion_purge_blocked",
   SIGNED_OUT: "auth.signed_out", // QA TC-AUTH-045: Sign out, recorded like a sign-in (auth.otp_verified)
   PROFILE_UPDATED: "user.profile_updated",
   /* ------------------------------------------------- docs/four-features-2026-10 */
@@ -454,6 +497,7 @@ export const AUDIT_ACTIONS = {
   DEALER_ATTRIBUTION_CHANGED: "dealer.attribution_changed", // docs/dealer-programme
   DEALER_LEAD_SAVED: "dealer.lead_saved", // docs/dealer-programme
   DEALER_ASSISTED_STEP: "dealer.assisted_registration", // docs/dealer-programme
+  ONBOARDING_ASSISTED_STEP: "onboarding.assisted_step", // docs/onboarding-waves-2-3-2026-11 (WP7)
   DEALER_DISPUTE_SAVED: "dealer.dispute_saved", // docs/dealer-programme
   DEALER_COMMISSION_SETTINGS_CHANGED: "dealer.commission_settings_changed", // docs/dealer-programme
   DEALER_COMMISSION_RULE_CHANGED: "dealer.commission_rule_changed", // docs/dealer-programme
@@ -557,6 +601,8 @@ export const AUDIT_ACTIONS = {
   PAYMENT_WEBHOOK_REJECTED: "payment.webhook_rejected", // batch-2026-10 WS-A
   PAYMENT_REFUND_REQUESTED: "payment.refund_requested", // batch-2026-10 WS-A
   PAYMENT_REFUND_SETTLED: "payment.refund_settled", // batch-2026-10 WS-A
+  PAYMENT_SETTLEMENT_STATE_CHANGED: "payment.settlement_state_changed", // PAY-SM
+  PAYMENT_CHARGEBACK_RECORDED: "payment.chargeback_recorded", // PAY-SM
   OTP_PURGED: "auth.otp_purged", // batch-2026-10 WS-A
   /* ---------------------- rider bank payouts (docs/gig-bank-payouts-2026-10) */
   RIDER_BANK_ACCOUNT_REAUTH: "rider_bank.reauthenticated",
@@ -622,6 +668,12 @@ export const AUDIT_ACTIONS = {
   HEALTH_CARE_PROVIDER: "health.care_provider",
   HEALTH_EQUIPMENT_STORE: "health.equipment_store",
   /* <<< GoKesari Health */
+  /* docs/guest-checkout-2026-11 (0192) */
+  GUEST_CHECKOUT_VERIFIED: "guest_checkout.verified",
+  GUEST_TRACKING_LOOKUP: "guest_checkout.tracking_lookup",
+  // docs/customer-whatsapp-2026-11 (0193): an admin re-queued a failed WhatsApp message; a simulated inbound chat message (test site).
+  WHATSAPP_MESSAGE_RETRIED: "whatsapp_message.retried",
+  WHATSAPP_INBOUND_SIMULATED: "whatsapp_inbound.simulated",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

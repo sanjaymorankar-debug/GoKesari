@@ -73,6 +73,7 @@ const RESET_TABLES = [
   "tax_param_approvals",
   "ca_action_items",
   "ca_action_item_notes",
+  "fin_auto_postings",
   "staff_team_members",
   // Mailbox rotation (0158): per-mailbox send counts, no foreign keys.
   "email_mailbox_sends",
@@ -91,6 +92,8 @@ const RESET_TABLES = [
   "shop_registration_drafts",
   "grievances",
   "user_consents",
+  // docs/policy-reconsent-2026-11 (0185): no foreign key to users.
+  "policy_acceptances",
   "delivery_partner_earnings",
   "delivery_earnings_config",
   "delivery_orders",
@@ -150,6 +153,7 @@ const RESET_TABLES = [
   "seller_verification_files",
   "seller_verification_events",
   "seller_verifications",
+  "shop_gst_registrations",
   "shop_classification_history",
   "shops",
   "addresses",

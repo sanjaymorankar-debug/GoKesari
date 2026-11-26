@@ -5,7 +5,7 @@ import { ShopBoard } from "@/components/board/shop-board";
 import { RegisterOptions } from "@/components/seller/register-options";
 import { SellerHome, type ShopAlert } from "@/components/seller/seller-home";
 import { SetupChecklist } from "@/components/seller/setup-checklist";
-import { tr, UI, type Lang } from "@/lib/board/i18n";
+import { L, tr, UI, type Lang } from "@/lib/board/i18n";
 import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
 import { groupSellerMenus, SELLER_TEXT } from "@/lib/seller/nav";
 import { ONBOARDING_STAGE_LABELS, ownerNextAction } from "@/lib/shop-onboarding";
@@ -24,6 +24,8 @@ import { getShopSetupChecklist } from "@/server/services/shop-setup-checklist";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { registrationFeeDue } from "@/server/services/registration-fee-payment";
+import { RegistrationCard } from "@/components/seller/registration-status";
+import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
 import { listShopsForOwner } from "@/server/services/shops";
 
 export const metadata = { title: { absolute: "Seller Central · GoKesari" } };
@@ -46,22 +48,29 @@ const OLD_SECTIONS: Record<string, string> = {
  * registration. The sections of the old long dashboard live on their own
  * pages under /shop/manage.
  */
+/** Module 6: the welcome before a shop exists (English unchanged). */
+const WELCOME = {
+  title: L("Welcome to Seller Central", "सेलर सेंट्रल में आपका स्वागत है", "सेलर सेंट्रलमध्ये तुमचे स्वागत आहे"),
+  text: L(
+    "You haven't registered a shop yet. Register it in a few steps — once your shop is set up, your orders, products, payments and every other seller tool will be here.",
+    "आपने अभी कोई दुकान रजिस्टर नहीं की है। कुछ आसान चरणों में रजिस्टर करें — दुकान तैयार होते ही आपके ऑर्डर, उत्पाद, भुगतान और सेलर के सभी टूल यहाँ होंगे।",
+    "तुम्ही अजून दुकान नोंदवलेले नाही. काही सोप्या टप्प्यांत नोंदणी करा — दुकान तयार होताच तुमच्या ऑर्डर, उत्पादने, पेमेंट आणि विक्रेत्याची सर्व साधने इथे असतील.",
+  ),
+} as const;
+
 export default async function ShopDashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) {
-    const referralRequired = await isReferralRequired("shop").catch(() => false);
+    const [referralRequired, welcomeLang] = await Promise.all([isReferralRequired("shop").catch(() => false), getBoardLang()]);
     return (
       <div data-testid="seller-welcome">
-        <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Welcome to Seller Central</h1>
-        <p className="mt-1 max-w-2xl text-ink-600">
-          You haven&apos;t registered a shop yet. Register it in a few steps — once your shop is set up, your
-          orders, products, payments and every other seller tool will be here.
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">{tr(WELCOME.title, welcomeLang)}</h1>
+        <p className="mt-1 max-w-2xl text-ink-600">{tr(WELCOME.text, welcomeLang)}</p>
         <div className="mt-6">
-          <RegisterOptions referralRequired={referralRequired} signedIn />
+          <RegisterOptions referralRequired={referralRequired} signedIn lang={welcomeLang} />
         </div>
       </div>
     );
@@ -84,6 +93,7 @@ export default async function ShopDashboardPage() {
     getShopSetupChecklist(shop).catch(() => null),
   ]);
 
+  const registration = shop.status === "REJECTED" || shop.status === "INACTIVE" ? null : await ownerRegistrationStatus(shop);
   const alerts = shopAlerts(lang, {
     status: shop.status,
     feeDue: registrationFeeDue(shop) > 0,
@@ -119,6 +129,8 @@ export default async function ShopDashboardPage() {
   return (
     <>
       <HashRedirect map={OLD_SECTIONS} />
+      {/* 0210: the Shop Registration card (status, dates, days left, amount due, Pay / Renew). */}
+      <RegistrationCard view={registration} />
       {/* Touch screens: the approved Tile Board, every menu on one screen. */}
       <div className="lg:hidden">
         <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: publicSlug }} data={board} alerts={boardAlerts} />

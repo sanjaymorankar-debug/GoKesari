@@ -48,6 +48,7 @@ import {
   shopCarriesProductCategory,
 } from "./product-categories";
 import { checkCommissionMilestonesSafely } from "@/server/dealers/commission";
+import { registrationListed } from "./shop-membership";
 
 /* ------------------------------------------------------------ categories */
 
@@ -1190,6 +1191,15 @@ interface StorefrontFilters {
   query?: string;
   subscribableOnly?: boolean;
   onlineOnly?: boolean;
+  /**
+   * docs/search-brand-barcode-favourites-2026-11 (flag brand_barcode_favourites_enabled): a typed word
+   * may also match the product's brand name. Callers pass it only while the flag is on.
+   */
+  matchBrands?: boolean;
+  /** Only products of this brand (the brand filter on /search and the /brand/[slug] page). */
+  brandId?: string;
+  /** Only these catalogue products (favourites, barcode matches). */
+  productIds?: readonly string[];
 }
 
 /** A listing a customer can put in the cart right now (the §14 rule's stock and price half). */
@@ -1211,6 +1221,7 @@ function storefrontConditions(options: StorefrontFilters) {
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
+    registrationListed, // 0210: an expired registration's listings are not shown
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(products.isActive, true),
@@ -1228,6 +1239,8 @@ function storefrontConditions(options: StorefrontFilters) {
   if (options.shopId) conditions.push(eq(shopProducts.shopId, options.shopId));
   if (options.shopIds) conditions.push(inArray(shopProducts.shopId, [...options.shopIds]));
   if (options.productId) conditions.push(eq(shopProducts.productId, options.productId));
+  if (options.productIds) conditions.push(inArray(shopProducts.productId, [...options.productIds]));
+  if (options.brandId) conditions.push(eq(products.brandId, options.brandId));
   if (options.subscribableOnly) conditions.push(eq(products.subscribable, true));
   if (options.onlineOnly) {
     conditions.push(eq(shopProducts.onlineSaleEnabled, true));
@@ -1248,6 +1261,10 @@ function storefrontConditions(options: StorefrontFilters) {
           eq(shops.pincode, word),
           // docs/puja-samagri-2026-11: Hindi / Marathi names and synonyms ("kapur" finds camphor, "मोमबत्ती" candles).
           sql`EXISTS (SELECT 1 FROM product_local_names pln WHERE pln.product_id = "products"."id" AND pln.search_text ILIKE ${term})`,
+          // docs/search-brand-barcode-favourites-2026-11: "amul" finds every Amul product (flag on only).
+          ...(options.matchBrands
+            ? [sql`EXISTS (SELECT 1 FROM brands b WHERE b.id = "products"."brand_id" AND b.deleted_at IS NULL AND b.is_active AND b.name ILIKE ${term})`]
+            : []),
         )!,
       );
     }
@@ -1290,6 +1307,7 @@ export async function listStorefrontProducts(
   },
 ): Promise<StorefrontProduct[]> {
   if (options.shopIds && options.shopIds.length === 0) return [];
+  if (options.productIds && options.productIds.length === 0) return [];
   const conditions = storefrontConditions(options);
 
   const rows = await db
@@ -1346,6 +1364,74 @@ export async function listStorefrontProducts(
     // A shop's own MRP applies to that shop only.
     mrpPaise: r.shopMrpPaise ?? r.product.mrpPaise,
   }));
+}
+
+/** The best offer of one catalogue product, and how many shops list it (favourites, barcode search). */
+export interface LowestOffer {
+  productId: string;
+  shopProductId: string;
+  shopId: string;
+  shopName: string;
+  shopSlug: string;
+  onlinePricePaise: number | null;
+  offlinePricePaise: number | null;
+  /** In the cart right now: online, priced, available and in stock. */
+  buyable: boolean;
+  /** Shops listing it (Live), within `shopIds` when given. */
+  shopCount: number;
+}
+
+/**
+ * docs/search-brand-barcode-favourites-2026-11: for each product, the cheapest buyable Live listing
+ * (else the cheapest Live one) and the number of shops listing it — two queries for any number of
+ * products. `shopIds` limits it to the shops that deliver to the customer.
+ */
+export async function lowestOffersForProducts(
+  productIds: readonly string[],
+  options: { shopIds?: readonly string[] } = {},
+): Promise<Map<string, LowestOffer>> {
+  const out = new Map<string, LowestOffer>();
+  const ids = [...new Set(productIds)];
+  if (ids.length === 0 || (options.shopIds && options.shopIds.length === 0)) return out;
+  const where = and(...storefrontConditions({ productIds: ids, shopIds: options.shopIds }));
+  const [best, counts] = await Promise.all([
+    db
+      .selectDistinctOn([shopProducts.productId], {
+        productId: shopProducts.productId,
+        shopProductId: shopProducts.id,
+        shopId: shops.id,
+        shopName: shops.name,
+        shopSlug: shops.slug,
+        onlinePricePaise: shopProducts.onlinePricePaise,
+        offlinePricePaise: shopProducts.offlinePricePaise,
+        buyable: storefrontBuyable,
+      })
+      .from(shopProducts)
+      .innerJoin(products, eq(shopProducts.productId, products.id))
+      .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
+      .innerJoin(shops, eq(shopProducts.shopId, shops.id))
+      .where(where)
+      .orderBy(
+        shopProducts.productId,
+        desc(storefrontBuyable),
+        sql`${shopProducts.onlinePricePaise} ASC NULLS LAST`,
+        sql`${shopProducts.offlinePricePaise} ASC NULLS LAST`,
+        asc(shopProducts.id),
+      ),
+    db
+      .select({ productId: shopProducts.productId, shopCount: sql<number>`count(distinct ${shopProducts.shopId})::int`.mapWith(Number) })
+      .from(shopProducts)
+      .innerJoin(products, eq(shopProducts.productId, products.id))
+      .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
+      .innerJoin(shops, eq(shopProducts.shopId, shops.id))
+      .where(where)
+      .groupBy(shopProducts.productId),
+  ]);
+  const countOf = new Map(counts.map((c) => [c.productId, c.shopCount]));
+  for (const row of best) {
+    out.set(row.productId, { ...row, buyable: Boolean(row.buyable), shopCount: countOf.get(row.productId) ?? 1 });
+  }
+  return out;
 }
 
 /* ------------------------------------------- online purchasability rules */

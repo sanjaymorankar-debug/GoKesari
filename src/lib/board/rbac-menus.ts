@@ -75,6 +75,18 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
     ],
   },
   {
+    // Owner, 25-Nov-2026: the Operations Manager works shop registrations and documents (as the Operator does).
+    key: "shopOnboarding", label: L("Shop registrations and documents", "दुकान पंजीकरण और दस्तावेज़", "दुकान नोंदणी व दस्तऐवज"), short: L("Registrations", "पंजीकरण", "नोंदण्या"), icon: "file-check", tone: "kesari", href: "/admin/shop-registrations/unfinished",
+    permission: [PERMISSIONS.SHOP_REGISTRATION_MANAGE, PERMISSIONS.SHOP_GST_PAN_VERIFY],
+    items: [
+      { key: "unfinished", label: L("Unfinished registrations", "अधूरे पंजीकरण", "अपूर्ण नोंदण्या"), short: L("Unfinished", "अधूरे", "अपूर्ण"), icon: "user-plus", href: "/admin/shop-registrations/unfinished", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      { key: "registrations", label: L("Registrations", "पंजीकरण", "नोंदण्या"), icon: "clipboard-check", href: "/admin/shop-registrations", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      { key: "funnel", label: L("Onboarding funnel", "ऑनबोर्डिंग फ़नल", "ऑनबोर्डिंग फनेल"), short: L("Funnel", "फ़नल", "फनेल"), icon: "chart-line", href: "/admin/onboarding-funnel", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      { key: "uploads", label: L("Document uploads", "दस्तावेज़ अपलोड", "दस्तऐवज अपलोड"), short: L("Uploads", "अपलोड", "अपलोड"), icon: "file-check", href: "/admin/document-uploads", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
+      { key: "verify", label: L("Verification queue", "सत्यापन कतार", "पडताळणी रांग"), short: L("Verify", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
+    ],
+  },
+  {
     key: "ops", label: L("Operations team", "ऑपरेशंस टीम", "ऑपरेशन्स टीम"), short: L("Operations", "ऑपरेशंस", "ऑपरेशन्स"), icon: "map", tone: "amber", href: "/staff/operations",
     permission: [PERMISSIONS.OPS_TEAM_MANAGE, PERMISSIONS.OPS_TASK_WORK_OWN],
     feature: "rbac_v2_operations",

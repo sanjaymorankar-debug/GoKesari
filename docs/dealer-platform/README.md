@@ -4,6 +4,14 @@ Owner brief "Unified Dealership & Franchise Management Platform" (23-Nov-2026).
 - **09.20 IST:** "Yes, use defaults" (decisions D1–D10, [PHASE_1_SCHEMES.md](PHASE_1_SCHEMES.md)).
 - **09.40 IST:** "start all remaining phases do not wait for my approval / confirmations".
 
+> **Status (24-Nov-2026):** phases P1–P6 (PR #503, migrations 0177–0181) are **live on gokesari.com** since
+> 23-Nov-2026 23.21 IST (release #511, with the shop-logo reuse #492 and CF-006 #498). On production the flags
+> `dealer_platform_four_eye` and `shop_logo_upload_enabled` are **off**. Since migration 0179, new dealers start on
+> **Free Dealership v2** (20% one-time + 5% of GoKesari's commission monthly for 12 months, no team commission);
+> Business Partner and Growth Partner are open; dealers who existed before stay on Free v1 (their earlier terms:
+> the standard model, or the 20 / 4 / 3 TIERED model if an admin moved them) or Territory Franchise v1 with a paid
+> zone. The test register (row 11–12 below) is not written yet.
+
 | Deliverable (brief §17) | Where |
 |---|---|
 | 1. Existing system gap analysis | [GAP_ANALYSIS_2026-11-23.md](GAP_ANALYSIS_2026-11-23.md) (+ xlsx in the owner's Devlopment_Trackers folder) |
@@ -16,7 +24,7 @@ Owner brief "Unified Dealership & Franchise Management Platform" (23-Nov-2026).
 | 8. Dynamic scheme configuration specification | §7 below |
 | 9. Admin user guide | [ADMIN_GUIDE.md](ADMIN_GUIDE.md) |
 | 10. Dealer user guide | [DEALER_GUIDE.md](DEALER_GUIDE.md) |
-| 11–12. Testing documentation, test execution report | [TEST_REGISTER.md](TEST_REGISTER.md) (+ xlsx in Test_Cases_Tracking) |
+| 11–12. Testing documentation, test execution report | TEST_REGISTER.md — *not written yet (24-Nov-2026)* |
 | 13–14. Deployment plan, rollback plan | §8 below |
 | 15. Technical documentation | this file + the phase notes + code headers |
 
@@ -38,7 +46,8 @@ The existing dealer, franchise, ledger and payout code stays. Schemes sit on top
 | Existing | In the platform |
 |---|---|
 | Free dealer (STANDARD 40% / milestone rules / TIERED 20-4-3) | **Free Dealership v1** (`LEGACY_DEALER`). Existing dealers stay on it (D8). |
-| Brief's free terms (20% + 5% monthly) | **Free Dealership v2** (`SCHEME`). New dealers get it from migration 0179. |
+| Brief's free terms (20% + 5% monthly) | **Free Dealership v2** (`SCHEME`), from migration 0179; superseded on 25-Nov-2026 |
+| Owner 25-Nov-2026 (D1): 20% one-time only | **Free Dealership v3** (`SCHEME`). New dealers get it from migration 0206; v2 dealers move to it. Business / Growth Partner suspended (D2). |
 | — | **Business Partner** (₹11,000 + GST) and **Growth Partner** (₹21,000 + GST), both `SCHEME` |
 | ₹1.5 lakh franchise (Model B, `franchise_config_versions`) | **Territory Franchise v1** (`LEGACY_FRANCHISE`; amounts follow Franchise settings) |
 | Retired pincode territory dealer | Left as it is (off, no data); to be removed later |
@@ -180,6 +189,9 @@ The terms are a JSON document (`schemeTermsSchema`):
 
 ## 8. Deployment and rollback
 
+> **Done (24-Nov-2026):** steps 1–4 were carried out — staging through the queue, then production release #511
+> (merged 23-Nov-2026, live 23.21 IST) with both flags off. The list is kept as the record and for the rollback.
+
 1. **Before opening the PRs:** #487 (RBAC 0171–0175) and #492 (logo card props) are on `origin/staging`.
    - Rebase onto staging; the local base commits drop out.
    - Renumber the migrations to the next free numbers, and check the journal (`migration-journal.test.ts`).
@@ -193,6 +205,7 @@ The terms are a JSON document (`schemeTermsSchema`):
 5. **What changes for real users at release:**
    - new dealers start on Free v2, with 20% one-time and 5% monthly;
    - Business Partner and Growth Partner are open for applications.
+   - Since migration 0206 (owner, 25-Nov-2026): Free v3, 20% one-time only; Business / Growth Partner suspended.
    - Existing dealers are unchanged.
 6. **Rollback, step by step:**
    1. Suspend Business / Growth Partner in Admin → Dealers → Schemes. Applicants then see only Free.

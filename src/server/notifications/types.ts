@@ -10,6 +10,18 @@ export const NOTIFICATION_TYPES = {
    * missing, reminder N of 3, then automatic suspension. Sent even when shop e-mails are off.
    */
   SHOP_DOCUMENTS_FOLLOW_UP: "shop.documents_follow_up",
+  /** 0189: to the shop owner — the yearly membership ends soon / ended / its grace ends (rule shopMembership.remindersEnabled). */
+  SHOP_MEMBERSHIP_RENEWAL_DUE: "shop.membership_renewal_due",
+  /** 0189: to the shop owner — the renewal was paid and the membership extended. */
+  SHOP_MEMBERSHIP_RENEWED: "shop.membership_renewed",
+  /** 0210 (registration subscription): reminder to pay the registration fee / renew the registration (English + Marathi). */
+  SHOP_REGISTRATION_REMINDER: "shop.registration_reminder",
+  /** 0210: a payment link for the registration / renewal fee was created for the shop. */
+  SHOP_REGISTRATION_PAYMENT_LINK: "shop.registration_payment_link",
+  /** 0210: an admin changed the shop's registration expiry. */
+  SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",
+  /** 0210: registration / renewal received (online or recorded offline) — valid until the new date. */
+  SHOP_REGISTRATION_CONFIRMED: "shop.registration_confirmed",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",
   /** To the shop: a customer subscribed (one product, or several newspapers together) — docs/newspaper-subscriptions-2026-11. */
@@ -111,6 +123,8 @@ export const NOTIFICATION_TYPES = {
   /* Gig worker flow (docs/gig-worker-2026-10). */
   /** To the partner: an admin decided their PAN or Aadhaar check by hand. */
   DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  /** docs/identity-verification-2026-11: to the customer / shop owner — their identity check finished or was decided by an admin. */
+  IDENTITY_VERIFICATION_DECIDED: "identity.verification_decided",
   /** To the partner: their police verification form or character certificate was approved or rejected. */
   DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
   /** To the customer and the shop: the delivered order is complete (push + SMS + in-app). */
@@ -121,6 +135,14 @@ export const NOTIFICATION_TYPES = {
   /** To the person added: they may now edit a shop's product photos and descriptions. */
   SHOP_STAFF_ADDED: "shop.staff_added",
   SHOP_STAFF_REMOVED: "shop.staff_removed",
+  /** Module 10 (docs/shop-staff-roles-2026-11): an invitation to join a shop's staff with a role; accept on /shop/staff-access (or /staff-invite from the e-mailed link). */
+  SHOP_STAFF_INVITED: "shop.staff_invited",
+  /** To the person: their role in a shop changed, or their access was suspended / restored. */
+  SHOP_STAFF_ROLE_CHANGED: "shop.staff_role_changed",
+  SHOP_STAFF_SUSPENDED: "shop.staff_suspended",
+  SHOP_STAFF_REACTIVATED: "shop.staff_reactivated",
+  /** To the owner: a person accepted their invitation. */
+  SHOP_STAFF_INVITE_ACCEPTED: "shop.staff_invite_accepted",
   /** To the uploader: a bulk photo/description upload finished applying. */
   SHOP_MEDIA_IMPORT_FINISHED: "shop.media_import_finished",
   /** To the shop owner, and to the operator/admin who ran it: a bulk product upload finished (docs/product-import-2026-10). */
@@ -254,6 +276,8 @@ export const NOTIFICATION_TYPES = {
   ORDER_PAYMENT_REFUNDED: "order.payment_refunded",
   /** To support: a payment needs a person (amount mismatch, late capture, stuck refund). */
   SUPPORT_PAYMENT_ATTENTION: "support.payment_attention",
+  /** PAY-SM, to admins: a payment was disputed / charged back, or the dispute's outcome changed. */
+  ADMIN_PAYMENT_CHARGEBACK: "support.payment_chargeback",
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */

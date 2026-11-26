@@ -69,6 +69,7 @@ import { TAX_RULE_FIELDS } from "@/server/tax-register/rules";
 import { payoutHoldReason } from "./shop-onboarding";
 import { onRefundRecorded } from "@/server/integrations/hooks";
 import { recordOrderMoneyFlow } from "@/server/tax/money-flow";
+import { queuePosting, riderPosting, shopSettlementPosting } from "@/server/rbac-accounting/auto-post";
 
 interface Actor {
   id: string;
@@ -1043,6 +1044,8 @@ export async function decideShopSettlement(
         actor.id,
         tx,
       );
+      const [shopRow] = await tx.select({ name: shops.name }).from(shops).where(eq(shops.id, current.shopId));
+      await queuePosting(shopSettlementPosting({ id: settlementId, shopName: shopRow?.name ?? "shop", netPayablePaise: current.netPayablePaise, commissionPaise: current.commissionPaise, paidAt: new Date(), reference: note ?? null }), tx);
     }
     if (action === "reverse") {
       await postLedger(
@@ -1104,6 +1107,8 @@ export async function decideRiderPayout(
         actor.id,
         tx,
       );
+      const [partnerRow] = await tx.select({ name: deliveryPartners.fullName }).from(deliveryPartners).where(eq(deliveryPartners.id, current.deliveryPartnerId));
+      await queuePosting(riderPosting({ sourceType: "rider_payouts", id: payoutId, riderName: partnerRow?.name ?? "rider", grossPaise: current.amountPaise + current.tdsPaise, tdsPaise: current.tdsPaise, feePaise: 0, netPaise: current.amountPaise, paidAt: new Date(), reference: note ?? null }), tx);
     }
     if (action === "reverse") {
       await postLedger(
@@ -1950,6 +1955,8 @@ async function onlinePaymentsForOrder(order: { id: string; orderGroupId: string 
     purpose: i.purpose,
     gateway: i.gateway,
     status: i.status,
+    /** PAY-SM: RECONCILED / CHARGEBACK, or null while not confirmed. */
+    settlementState: i.settlementState,
     amountPaise: i.amountPaise,
     refundedPaise: i.refundedPaise,
     method: i.method,

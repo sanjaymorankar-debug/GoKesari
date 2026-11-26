@@ -147,7 +147,8 @@ describe("D-69: the owner closes the shop, and an unrenewed membership is not on
   it("a fee or renewal sets the membership; past its end plus the grace days the shop is not online until renewed", async () => {
     const admin = await createUser({ role: "ADMIN" });
     const owner = await createUser({ role: "SHOP_OWNER" });
-    const shop = await createShop(owner.id, { status: "APPROVED" });
+    // 0189: a period opens only once its fee is fully paid — the fee here is the ₹999 paid below.
+    const shop = await createShop(owner.id, { status: "APPROVED", registrationFeePaise: 99_900 });
     const asAdmin = { id: admin.id, role: "ADMIN" as const };
     expect((await withWalletGate([shop]))[0].ordersPaused).toBe(false); // no end date: never affected
 
@@ -156,8 +157,8 @@ describe("D-69: the owner closes the shop, and an unrenewed membership is not on
     let [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
     expect(row.membershipValidUntil?.toISOString()).toBe("2027-01-31T10:00:00.000Z");
 
-    // Ended 10 days ago: in the 15-day grace, still online.
-    await db.update(shops).set({ membershipValidUntil: new Date(Date.now() - 10 * 86_400_000) }).where(eq(shops.id, shop.id));
+    // Ended 5 days ago: in the grace (default 7 days since the owner's brief of 25-Nov-2026), still online.
+    await db.update(shops).set({ membershipValidUntil: new Date(Date.now() - 5 * 86_400_000) }).where(eq(shops.id, shop.id));
     [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
     expect(membershipStatus(row, { enabled: true, graceDays: 15, reminderDays: 30 }).state).toBe("GRACE");
     expect((await withWalletGate([row]))[0].ordersPaused).toBe(false);

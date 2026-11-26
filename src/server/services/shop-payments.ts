@@ -26,7 +26,15 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { extendMembership } from "./shop-membership";
+import {
+  noteRegistrationPayment,
+  refreshRegistrationStatusSafely,
+  rollBackUnpaidMembershipPeriods,
+  settleMembershipAfterPayment,
+  type MembershipSettlement,
+  type RenewalQuote,
+} from "./shop-membership";
+import { getRule } from "./settings";
 import { autoApproveShopIfReady } from "./shops";
 import { reverseShopCommissionSafely, reverseWaivedFeeCommissionSafely } from "@/server/dealers/commission";
 import { accrueRenewalCommissionSafely } from "@/server/dealers/tiered";
@@ -118,6 +126,8 @@ export interface RecordPaymentInput {
   paidAt?: Date;
   note?: string | null;
   receiptUrl?: string | null;
+  /** 0189: an online renewal's fee quote (the period's fee and its GST) and its payment intent. */
+  membership?: { quote?: RenewalQuote | null; paymentIntentId?: string | null };
 }
 
 /**
@@ -136,7 +146,7 @@ export async function recordPayment(
    * transaction and the check straight after, as before.
    */
   client: DbClient = db,
-): Promise<{ payment: ShopPayment; amountPaidPaise: number; feePaymentStatus: FeePaymentStatus }> {
+): Promise<{ payment: ShopPayment; amountPaidPaise: number; feePaymentStatus: FeePaymentStatus; membership: MembershipSettlement | null }> {
   if (!Number.isInteger(input.amountPaise) || input.amountPaise <= 0) {
     throw validationFailed("Payment amount must be a positive whole number of paise.");
   }
@@ -150,6 +160,11 @@ export async function recordPayment(
         id: shops.id,
         ownerId: shops.ownerId,
         registrationFeePaise: shops.registrationFeePaise,
+        registrationFeeBasePaise: shops.registrationFeeBasePaise,
+        registrationFeeGstRateBp: shops.registrationFeeGstRateBp,
+        // 0210: the shop's own / its type's renewal fee.
+        renewalFeePaise: shops.renewalFeePaise,
+        shopType: shops.shopType,
       })
       .from(shops)
       .where(and(eq(shops.id, input.shopId), isNull(shops.deletedAt)))
@@ -200,9 +215,18 @@ export async function recordPayment(
       .returning();
 
     const settlement = await recomputeShopSettlement(tx, shop.id);
-    // D-69: a registration fee or renewal extends the membership.
+    // D-69: a registration fee or renewal extends the membership — 0189: only once the period's fee is
+    // fully paid (a part payment waits for the rest); a refund that leaves periods unpaid takes them back.
+    let membership: MembershipSettlement | null = null;
     if (input.paymentType === "REGISTRATION_FEE" || input.paymentType === "RENEWAL") {
-      await extendMembership(tx, shop.id, payment.paidAt);
+      membership = await settleMembershipAfterPayment(tx, shop, payment, {
+        quote: input.membership?.quote ?? null,
+        paymentIntentId: input.membership?.paymentIntentId ?? null,
+      });
+      // 0210 registration subscription: last payment, start date, overrides ended by a new period.
+      await noteRegistrationPayment(tx, shop.id, payment, membership.periodEnd);
+    } else if (input.paymentType === "REFUND") {
+      await rollBackUnpaidMembershipPeriods(tx, shop.id, payment.id, `refund ${payment.reference}`);
     }
 
     await recordAudit(
@@ -219,12 +243,13 @@ export async function recordPayment(
           amountPaise: payment.amountPaise,
           method: payment.method,
           feePaymentStatus: settlement.feePaymentStatus,
+          membershipUntil: membership?.periodEnd?.toISOString() ?? null,
         },
       },
       tx,
     );
 
-    return { payment, ...settlement };
+    return { payment, ...settlement, membership };
   });
   // Event layer: a settled fee may be the last thing a pending shop was waiting for.
   if (recorded.feePaymentStatus === "PAID" && client === db) {
@@ -235,7 +260,12 @@ export async function recordPayment(
   // docs/dealer-programme: a refunded registration fee takes back the dealer's commission for the shop.
   if (input.paymentType === "REFUND" && client === db) await reverseShopCommissionSafely(input.shopId, "registration fee refunded", actor);
   // TIERED (0136): a paid renewal of a shop still active earns its direct earner the renewal commission.
-  if (input.paymentType === "RENEWAL" && client === db) await accrueRenewalCommissionSafely(recorded.payment.id, actor);
+  // 0210: only while rule shopRegistrationSubscription.payCommissionOnRenewals is on (owner brief 25-Nov-2026, default off).
+  if (input.paymentType === "RENEWAL" && client === db && (await getRule("shopRegistrationSubscription")).payCommissionOnRenewals) {
+    await accrueRenewalCommissionSafely(recorded.payment.id, actor);
+  }
+  // 0210: the stored registration status follows every fee payment, refund and reversal (after commit).
+  if (client === db) await refreshRegistrationStatusSafely(input.shopId);
   return recorded;
 }
 
@@ -282,6 +312,10 @@ export async function reversePayment(
       .returning();
 
     const settlement = await recomputeShopSettlement(tx, original.shopId);
+    // 0189: reversing a fee payment takes back the membership period(s) it no longer pays for.
+    if (original.paymentType === "REGISTRATION_FEE" || original.paymentType === "RENEWAL") {
+      await rollBackUnpaidMembershipPeriods(tx, original.shopId, reversal.id, `reversal ${reversal.reference}: ${reason}`);
+    }
 
     await recordAudit(
       {
@@ -303,6 +337,7 @@ export async function reversePayment(
   });
   // docs/dealer-programme: a fee no longer settled takes back the dealer's commission for the shop.
   if (result.feePaymentStatus !== "PAID") await reverseShopCommissionSafely(result.reversal.shopId, `registration fee payment reversed: ${reason}`, actor);
+  await refreshRegistrationStatusSafely(result.reversal.shopId); // 0206
   return result;
 }
 

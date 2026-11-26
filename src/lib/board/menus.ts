@@ -132,10 +132,10 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       // docs/nearby-referral-2026-10: shops near the device's real position (asks for location).
       { key: "nearby", label: L("Nearby", "पास में", "जवळची"), icon: "map-pin", href: "/shops/nearby", count: "nearbyShops" },
       { key: "openNow", label: L("Open now", "अभी खुली", "आता उघडी"), icon: "clock", href: "/shops?open=1", count: "openNowShops" },
-      // Mockup: "Favourites" — no favourites feature exists; nearest real destination.
+      // Mockup: "Favourites" — now under Orders → Favourites (docs/search-brand-barcode-favourites-2026-11, flag-gated).
       { key: "deliversHere", label: L("Delivers here", "यहाँ डिलीवरी", "इथे डिलिव्हरी"), short: { en: "Delivers" }, icon: "truck", href: "/shops?delivery=true", count: "deliveringShops" },
       // Was the "Compare prices near you" section under the old home page.
-      { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare" },
+      { key: "compare", label: L("Compare prices", "दाम तुलना", "दर तुलना"), short: { en: "Compare" }, icon: "scale", href: "/search/compare", feature: "local_price_comparison_enabled" },
       // docs/consult-booking-2026-11: doctors, lawyers, CAs and other professionals near you, with free times.
       { key: "consultants", label: L("Consultants", "सलाहकार", "सल्लागार"), icon: "calendar-days", href: "/consult" },
       // GoKesari Health (docs/health/): verified doctors near you (the board keeps 6 tiles — one screen on a phone).
@@ -150,6 +150,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "returns", label: L("Returns", "वापसी", "परतावा"), icon: "undo-2", href: "/returns", count: "openReturns", auth: true },
       // docs/purchase-lists-2026-10: weekly / monthly shopping and medicine lists, reordered in a few taps.
       { key: "lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या"), short: { en: "Lists" }, icon: "clipboard-check", href: "/lists", auth: true },
+      // docs/search-brand-barcode-favourites-2026-11: products saved with the heart (guests' stay in the browser). Only while its flag is on.
+      { key: "favourites", label: L("Favourites", "पसंदीदा", "आवडती"), icon: "heart", href: "/favourites", feature: "brand_barcode_favourites_enabled" },
       // docs/consult-booking-2026-11: the customer's consultant appointments.
       { key: "appointments", label: L("Appointments", "अपॉइंटमेंट", "भेटी"), short: { en: "Bookings" }, icon: "calendar-clock", href: "/consult/bookings", auth: true },
     ],
@@ -431,10 +433,14 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       // docs/nearby-referral-2026-10, feature 1: shops left out of Nearby because they have no map location.
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
       { key: "onboardingFunnel", label: L("Onboarding funnel", "ऑनबोर्डिंग फ़नल", "ऑनबोर्डिंग फनेल"), icon: "chart-line", href: "/admin/onboarding-funnel", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      { key: "unfinishedRegistrations", label: L("Unfinished registrations", "अधूरे पंजीकरण", "अपूर्ण नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations/unfinished", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/shop-welcome-kit-2026-11: the welcome kit (printable QR banners) for shops live before it. Admin only, while its flag is on.
       { key: "welcomeKit", label: L("Send welcome kit", "वेलकम किट भेजें", "वेलकम किट पाठवा"), icon: "megaphone", href: "/admin/shops/welcome-kit", permission: ADMIN_ONLY, feature: "shop_welcome_kit_admin_send_enabled" },
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
+      // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "registration-subscriptions", label: L("Unpaid & expiring registrations", "अवैतनिक और समाप्त होते पंजीकरण", "न भरलेल्या व संपणाऱ्या नोंदण्या"), icon: "calendar-clock", href: "/admin/shops/registrations", permission: PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE },
+      { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },
   {
@@ -504,6 +510,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "payIssues", label: L("Pay issues", "भुगतान समस्याएँ", "पेमेंट अडचणी"), icon: "triangle-alert", href: "/admin/finance/exceptions", permission: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.FINANCE_EXCEPTIONS_VIEW] },
       { key: "bankAccounts", label: L("Bank accounts", "बैंक खाते", "बँक खाती"), icon: "landmark", href: "/admin/bank-accounts", permission: PERMISSIONS.FINANCE_VIEW },
       { key: "cashfree", label: L("Cashfree set-up & tests", "Cashfree सेटअप और टेस्ट", "Cashfree सेटअप आणि चाचण्या"), icon: "landmark", href: "/admin/payments/cashfree", permission: PERMISSIONS.FINANCE_VIEW }, // docs/payments-cashfree-audit-2026-11
+      { key: "chargebacks", label: L("Chargebacks", "चार्जबैक", "चार्जबॅक"), icon: "triangle-alert", href: "/admin/payments/chargebacks", permission: PERMISSIONS.FINANCE_VIEW, feature: "payment_settlement_states" }, // PAY-SM
       { key: "subscriptions", label: L("Subscriptions", "सब्सक्रिप्शन", "सदस्यता"), short: { en: "Subscription" }, icon: "calendar-clock", href: "/admin/subscriptions", permission: PERMISSIONS.SUBSCRIPTION_MANAGE_ANY },
       { key: "commissions", label: L("Referral commissions", "रेफ़रल कमीशन", "रेफरल कमिशन"), icon: "receipt", href: "/admin/referral-commissions", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "payouts", label: L("Payouts", "भुगतान", "पेमेंट"), icon: "landmark", href: "/admin/payouts", permission: PERMISSIONS.PAYOUT_VIEW }, // batch-2026-10 WS-E
@@ -580,8 +587,12 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "campaigns", label: L("Campaigns", "अभियान", "मोहिमा"), icon: "megaphone", href: "/admin/campaigns", count: "submittedCampaigns", permission: PERMISSIONS.MARKETING_APPROVE },
       { key: "alerts", label: L("Alerts", "अलर्ट", "सूचना"), icon: "triangle-alert", href: "/admin/exceptions", count: "opsExceptions", urgent: true, permission: PERMISSIONS.ORDER_VIEW_ANY },
       { key: "consent", label: L("Consent", "सहमति", "संमती"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
+      // docs/sms-2fa-2026-11: SMS sign-in code per audience and the checkout code — admin only.
+      { key: "signInSecurity", label: L("Sign-in security", "साइन-इन सुरक्षा", "साइन-इन सुरक्षा"), icon: "lock", href: "/admin/sign-in-security", permission: ADMIN_ONLY },
     ],
     more: [
+      // docs/policy-reconsent-2026-11: policy versions and acceptance counts.
+      { key: "policyVersions", label: L("Policy versions", "नीति संस्करण", "धोरण आवृत्त्या"), icon: "file-text", href: "/admin/policy-versions", permission: PERMISSIONS.CONSENT_VIEW },
       { key: "vouchers", label: L("Vouchers", "वाउचर", "व्हाउचर"), icon: "ticket", href: "/admin/console/vouchers", count: "activeVouchers", permission: PERMISSIONS.VOUCHER_VIEW },
       { key: "gst", label: L("GST settings", "जीएसटी सेटिंग", "जीएसटी सेटिंग्ज"), icon: "file-text", href: "/admin/gst-config", permission: PERMISSIONS.GST_CONFIG_MANAGE },
       { key: "productGst", label: L("Product GST rates", "उत्पाद जीएसटी दरें", "उत्पाद जीएसटी दर"), icon: "receipt", href: "/admin/product-gst", permission: PERMISSIONS.GST_CONFIG_MANAGE },
@@ -593,6 +604,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
       // docs/dealer-programme: the programme's on/off switches, per district — admin only.
       { key: "featureFlags", label: L("Feature flags", "फ़ीचर फ़्लैग", "फीचर फ्लॅग"), icon: "toggle-right", href: "/admin/feature-flags", permission: ADMIN_ONLY },
+      // docs/identity-verification-2026-11: switches (customers / shop owners), review queue and counts — admin only.
+      { key: "identityVerification", label: L("Identity verification", "पहचान सत्यापन", "ओळख पडताळणी"), icon: "user-check", href: "/admin/identity-verification", permission: ADMIN_ONLY },
       // docs/rbac: the two-admin approval queue (roles, suspensions, reactivations, flags).
       { key: "approvals", label: L("Approvals", "स्वीकृतियाँ", "मंजुरी"), icon: "badge-check", href: "/admin/approvals", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
       { key: "staffTeams", label: L("Staff teams", "स्टाफ टीमें", "कर्मचारी टीम"), icon: "users", href: "/admin/staff-teams", permission: PERMISSIONS.APPROVAL_VIEW_ANY },
@@ -638,8 +651,12 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "dealers", label: L("Dealers", "डीलर", "डीलर"), icon: "users", href: "/admin/dealers", permission: PERMISSIONS.REFERRAL_MANAGE, feature: "dealer_programme_enabled" },
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
       { key: "onboardingFunnel", label: L("Onboarding funnel", "ऑनबोर्डिंग फ़नल", "ऑनबोर्डिंग फनेल"), icon: "chart-line", href: "/admin/onboarding-funnel", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      { key: "unfinishedRegistrations", label: L("Unfinished registrations", "अधूरे पंजीकरण", "अपूर्ण नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations/unfinished", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
+      // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
+      { key: "registration-subscriptions", label: L("Unpaid & expiring registrations", "अवैतनिक और समाप्त होते पंजीकरण", "न भरलेल्या व संपणाऱ्या नोंदण्या"), icon: "calendar-clock", href: "/admin/shops/registrations", permission: PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE },
+      { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },
   {
@@ -705,6 +722,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "consent", label: L("Consent records", "सहमति रिकॉर्ड", "संमती नोंदी"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
+      { key: "policyVersions", label: L("Policy versions", "नीति संस्करण", "धोरण आवृत्त्या"), icon: "file-text", href: "/admin/policy-versions", permission: PERMISSIONS.CONSENT_VIEW },
       { key: "helpdesk", label: L("Help desk", "हेल्प डेस्क", "मदत कक्ष"), icon: "life-buoy", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE }, // batch-2026-10 WS-C
       // docs/dealer-programme (GKS-SP-001): paid support services — charges, requests, refunds. Only while that flag is on.
       { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/admin/support-services", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE, feature: "paid_support_services_enabled" },

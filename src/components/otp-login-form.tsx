@@ -4,15 +4,76 @@ import { useEffect, useState } from "react";
 
 import { useSignInConsent } from "@/components/signin-consent";
 import { EMAIL_HINT, isValidEmail, parseIndianMobile } from "@/lib/contact";
+import { SmsSecondFactor } from "@/components/sms-second-factor";
+import type { SecondFactorPrompt } from "@/server/otp/second-factor";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang } from "@/lib/board/i18n";
 
-type Step = "identify" | "email" | "code";
+/** Module 6 (docs/hindi-marathi-2026-11): the code sign-in wording. */
+const T = {
+  sendFailed: L("Could not send a code. Please try again.", "कोड नहीं भेजा जा सका। फिर कोशिश करें।", "कोड पाठवता आला नाही. पुन्हा प्रयत्न करा."),
+  unreachable: L(
+    "Could not reach the server. Please try again.",
+    "सर्वर से संपर्क नहीं हो सका। फिर कोशिश करें।",
+    "सर्व्हरशी संपर्क झाला नाही. पुन्हा प्रयत्न करा.",
+  ),
+  tickAgree: L("Tick “I agree” above to continue.", "आगे बढ़ने के लिए ऊपर “मैं सहमत हूँ” पर टिक करें।", "पुढे जाण्यासाठी वर “मी सहमत आहे” वर टिक करा."),
+  emailHint: L(
+    "Enter a valid email address, e.g. name@example.com.",
+    "सही ईमेल पता डालें, जैसे name@example.com।",
+    "योग्य ईमेल पत्ता टाका, उदा. name@example.com.",
+  ),
+  mobileHint: L(
+    "Enter a 10-digit Indian mobile number starting with 6, 7, 8 or 9.",
+    "6, 7, 8 या 9 से शुरू होने वाला 10 अंकों का भारतीय मोबाइल नंबर डालें।",
+    "6, 7, 8 किंवा 9 ने सुरू होणारा 10 अंकी भारतीय मोबाइल नंबर टाका.",
+  ),
+  orEmail: L("Or enter your email address.", "या अपना ईमेल पता डालें।", "किंवा तुमचा ईमेल पत्ता टाका."),
+  enterCode: L("Enter the code we sent you.", "हमारा भेजा कोड डालें।", "आम्ही पाठवलेला कोड टाका."),
+  heading: L("Login with mobile number or email", "मोबाइल नंबर या ईमेल से लॉग इन करें", "मोबाइल नंबर किंवा ईमेलने लॉग इन करा"),
+  idPlaceholder: L("10-digit mobile number or email", "10 अंकों का मोबाइल नंबर या ईमेल", "10 अंकी मोबाइल नंबर किंवा ईमेल"),
+  idLabel: L("Mobile number or email", "मोबाइल नंबर या ईमेल", "मोबाइल नंबर किंवा ईमेल"),
+  sending: L("Sending…", "भेज रहे हैं…", "पाठवत आहे…"),
+  getCode: L("Get code", "कोड पाएँ", "कोड मिळवा"),
+  codeByEmail: L(
+    "The sign-in code is sent to your email (by SMS for shops registered with a mobile number only).",
+    "साइन इन कोड आपके ईमेल पर भेजा जाता है (सिर्फ़ मोबाइल नंबर से रजिस्टर दुकानों को SMS से)।",
+    "साइन इन कोड तुमच्या ईमेलवर पाठवला जातो (फक्त मोबाइल नंबरने नोंदलेल्या दुकानांना SMS ने).",
+  ),
+  enterEmail: L(
+    "Enter your email address. We'll send the code there and link +91 {mobile} to your account.",
+    "अपना ईमेल पता डालें। हम कोड वहीं भेजेंगे और +91 {mobile} को आपके खाते से जोड़ देंगे।",
+    "तुमचा ईमेल पत्ता टाका. आम्ही कोड तिथे पाठवू आणि +91 {mobile} तुमच्या खात्याशी जोडू.",
+  ),
+  emailLabel: L("Email address", "ईमेल पता", "ईमेल पत्ता"),
+  sendCode: L("Send code", "कोड भेजें", "कोड पाठवा"),
+  changeNumber: L("Change number", "नंबर बदलें", "नंबर बदला"),
+  otpSent: L("OTP sent to your email", "OTP आपके ईमेल पर भेजा गया", "OTP तुमच्या ईमेलवर पाठवला"),
+  otpSentMobile: L(
+    "OTP sent to your email: if +91 {mobile} is registered, the code went to the email address on that account — or by SMS, for a shop registered with its mobile number only.",
+    "OTP आपके ईमेल पर भेजा गया: अगर +91 {mobile} रजिस्टर है, तो कोड उस खाते के ईमेल पर गया है — या सिर्फ़ मोबाइल नंबर से रजिस्टर दुकान के लिए SMS से।",
+    "OTP तुमच्या ईमेलवर पाठवला: +91 {mobile} नोंदलेला असल्यास कोड त्या खात्याच्या ईमेलवर गेला आहे — किंवा फक्त मोबाइल नंबरने नोंदलेल्या दुकानासाठी SMS ने.",
+  ),
+  codePlaceholder: L("Enter code", "कोड डालें", "कोड टाका"),
+  codeLabel: L("One-time code", "एक बार का कोड", "एक-वेळ कोड"),
+  checking: L("Checking…", "जाँच रहे हैं…", "तपासत आहे…"),
+  signIn: L("Sign in", "साइन इन", "साइन इन"),
+  resendIn: L("Resend code in {n}s", "{n} सेकंड में कोड फिर भेजें", "{n} सेकंदांत कोड पुन्हा पाठवा"),
+  resend: L("Resend code", "कोड फिर भेजें", "कोड पुन्हा पाठवा"),
+  different: L("Use a different number or email", "दूसरा नंबर या ईमेल डालें", "दुसरा नंबर किंवा ईमेल वापरा"),
+  newHere: L("New to GoKesari, or no email after a minute?", "GoKesari पर नए हैं, या एक मिनट बाद भी ईमेल नहीं आया?", "GoKesari वर नवीन आहात, किंवा एका मिनिटानंतरही ईमेल आला नाही?"),
+  signUpEmail: L("Sign up with your email", "अपने ईमेल से साइन अप करें", "तुमच्या ईमेलने साइन अप करा"),
+} as const;
+
+type Step = "identify" | "email" | "code" | "sms";
 export type VerifyLoginCode = (input: {
   mobile: string | null;
   email: string | null;
   code: string;
   /** The Terms & Privacy box: the server creates a new account only when it is ticked (TC-FLD-004). */
   acceptedTerms: boolean;
-}) => Promise<{ error?: string } | void>;
+  /** docs/sms-2fa-2026-11: the SMS step, when the account needs a second factor. */
+}) => Promise<{ error?: string; secondFactor?: SecondFactorPrompt } | void>;
 
 const inputClass =
   "min-w-0 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none";
@@ -25,7 +86,8 @@ const buttonClass =
  * code step by giving an email. Verification is a server action that opens
  * the session.
  */
-export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
+export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode; lang?: Lang }) {
+  const emailHint = lang === "en" ? EMAIL_HINT : tr(T.emailHint, lang);
   const [step, setStep] = useState<Step>("identify");
   const [identifier, setIdentifier] = useState("");
   const agreed = useSignInConsent();
@@ -34,6 +96,8 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
   const [emailInput, setEmailInput] = useState("");
   /** Where the code went: the email given, masked, or null for "the account's email, if registered". */
   const [sentTo, setSentTo] = useState<string | null>(null);
+  /** docs/sms-2fa-2026-11: the SMS step's prompt once the emailed code is right. */
+  const [secondFactor, setSecondFactor] = useState<SecondFactorPrompt | null>(null);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -58,7 +122,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(body?.error?.message ?? "Could not send a code. Please try again.");
+        setError(body?.error?.message != null ? errorText(body.error.message, lang, body.error.code) : tr(T.sendFailed, lang));
         return;
       }
       setMobile(next.mobile);
@@ -69,7 +133,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
       setCode("");
       setStep("code");
     } catch {
-      setError("Could not reach the server. Please try again.");
+      setError(tr(T.unreachable, lang));
     } finally {
       setBusy(false);
     }
@@ -79,37 +143,45 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
     event.preventDefault();
     setError(null);
     // The button is disabled until then; this also covers a form submitted another way (TC-FLD-004).
-    if (!agreed) return setError("Tick “I agree” above to continue.");
+    if (!agreed) return setError(tr(T.tickAgree, lang));
     const value = identifier.trim();
     if (value.includes("@")) {
-      if (!isValidEmail(value)) return setError(EMAIL_HINT);
+      if (!isValidEmail(value)) return setError(emailHint);
       void requestCode({ mobile: null, email: value });
       return;
     }
     const parsed = parseIndianMobile(value);
-    if (!parsed.ok) return setError(`${parsed.error} Or enter your email address.`);
+    if (!parsed.ok)
+      return setError(
+        lang === "en" ? `${parsed.error} Or enter your email address.` : `${tr(T.mobileHint, lang)} ${tr(T.orEmail, lang)}`,
+      );
     void requestCode({ mobile: parsed.national, email: null });
   }
 
   function submitEmail(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
-    if (!isValidEmail(emailInput)) return setError(EMAIL_HINT);
+    if (!isValidEmail(emailInput)) return setError(emailHint);
     void requestCode({ mobile, email: emailInput.trim() });
   }
 
   async function submitCode(event: React.FormEvent) {
     event.preventDefault();
-    if (!/^\d{4,8}$/.test(code.trim())) return setError("Enter the code we sent you.");
+    if (!/^\d{4,8}$/.test(code.trim())) return setError(tr(T.enterCode, lang));
     setBusy(true);
     setError(null);
     const result = await verify({ mobile, email, code: code.trim(), acceptedTerms: agreed });
-    // On success the server action redirects and never returns here.
-    if (result?.error) setError(result.error);
+    // On success the server action redirects and never returns here — unless the SMS step comes next.
+    if (result?.error) setError(errorText(result.error, lang));
+    else if (result?.secondFactor) {
+      setSecondFactor(result.secondFactor);
+      setStep("sms");
+    }
     setBusy(false);
   }
 
   function startOver() {
+    setSecondFactor(null);
     setStep("identify");
     setCode("");
     setEmailInput("");
@@ -120,7 +192,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
 
   return (
     <div className="mt-6 border-t border-cream-200 pt-6" data-testid="otp-signin">
-      <p className="mb-2 text-sm font-medium text-ink-700">Login with mobile number or email</p>
+      <p className="mb-2 text-sm font-medium text-ink-700">{tr(T.heading, lang)}</p>
 
       {step === "identify" ? (
         <form onSubmit={submitIdentifier}>
@@ -129,25 +201,25 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               autoComplete="username"
-              placeholder="10-digit mobile number or email"
-              aria-label="Mobile number or email"
+              placeholder={tr(T.idPlaceholder, lang)}
+              aria-label={tr(T.idLabel, lang)}
               className={`${inputClass} min-h-11 flex-1 text-base`}
               required
             />
             <button type="submit" disabled={busy || !agreed} className={buttonClass}>
-              {busy ? "Sending…" : "Get code"}
+              {busy ? tr(T.sending, lang) : tr(T.getCode, lang)}
             </button>
           </div>
           {/* Why the button cannot be used yet (it used to just look faded). */}
-          {!agreed ? <p className="mt-2 text-sm font-medium text-ink-700">Tick “I agree” above to continue.</p> : null}
-          <p className="mt-2 text-sm text-ink-600">The sign-in code is sent to your email (by SMS for shops registered with a mobile number only).</p>
+          {!agreed ? <p className="mt-2 text-sm font-medium text-ink-700">{tr(T.tickAgree, lang)}</p> : null}
+          <p className="mt-2 text-sm text-ink-600">{tr(T.codeByEmail, lang)}</p>
         </form>
       ) : null}
 
       {step === "email" ? (
         <form onSubmit={submitEmail}>
           <p className="mb-2 text-sm text-ink-600">
-            Enter your email address. We&apos;ll send the code there and link +91 {mobile} to your account.
+            {tr(T.enterEmail, lang).replace("{mobile}", mobile ?? "")}
           </p>
           <div className="flex gap-2">
             <input
@@ -156,16 +228,16 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               onChange={(e) => setEmailInput(e.target.value)}
               autoComplete="email"
               placeholder="you@example.com"
-              aria-label="Email address"
+              aria-label={tr(T.emailLabel, lang)}
               className={`${inputClass} flex-1`}
               required
             />
             <button type="submit" disabled={busy} className={buttonClass}>
-              {busy ? "Sending…" : "Send code"}
+              {busy ? tr(T.sending, lang) : tr(T.sendCode, lang)}
             </button>
           </div>
           <button type="button" className="mt-2 text-xs underline" onClick={startOver}>
-            Change number
+            {tr(T.changeNumber, lang)}
           </button>
         </form>
       ) : null}
@@ -175,11 +247,11 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
           <p className="mb-2 text-sm text-ink-600" data-testid="otp-sent-to">
             {sentTo ? (
               <>
-                OTP sent to your email <strong>{sentTo}</strong>.
+                {tr(T.otpSent, lang)} <strong>{sentTo}</strong>.
               </>
             ) : (
               <>
-                OTP sent to your email: if +91 {mobile} is registered, the code went to the email address on that account — or by SMS, for a shop registered with its mobile number only.
+                {tr(T.otpSentMobile, lang).replace("{mobile}", mobile ?? "")}
               </>
             )}
           </p>
@@ -189,14 +261,14 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
               inputMode="numeric"
               autoComplete="one-time-code"
-              placeholder="Enter code"
-              aria-label="One-time code"
+              placeholder={tr(T.codePlaceholder, lang)}
+              aria-label={tr(T.codeLabel, lang)}
               maxLength={8}
               className={`${inputClass} flex-1 tracking-widest`}
               required
             />
             <button type="submit" disabled={busy} className={buttonClass}>
-              {busy ? "Checking…" : "Sign in"}
+              {busy ? tr(T.checking, lang) : tr(T.signIn, lang)}
             </button>
           </div>
           <div className="mt-2 flex gap-3 text-xs">
@@ -206,15 +278,17 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               disabled={busy || now < resendAt}
               onClick={() => requestCode({ mobile, email })}
             >
-              {now < resendAt ? `Resend code in ${Math.ceil((resendAt - now) / 1000)}s` : "Resend code"}
+              {now < resendAt
+                ? tr(T.resendIn, lang).replace("{n}", String(Math.ceil((resendAt - now) / 1000)))
+                : tr(T.resend, lang)}
             </button>
             <button type="button" className="underline" onClick={startOver}>
-              Use a different number or email
+              {tr(T.different, lang)}
             </button>
           </div>
           {sentTo === null ? (
             <p className="mt-3 text-xs text-ink-600">
-              New to GoKesari, or no email after a minute?{" "}
+              {tr(T.newHere, lang)}{" "}
               <button
                 type="button"
                 className="font-medium text-kesari-700 underline"
@@ -223,14 +297,16 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
                   setStep("email");
                 }}
               >
-                Sign up with your email
+                {tr(T.signUpEmail, lang)}
               </button>
             </p>
           ) : null}
         </form>
       ) : null}
 
-      {error ? (
+      {step === "sms" && secondFactor ? <SmsSecondFactor prompt={secondFactor} onCancel={startOver} /> : null}
+
+      {error && step !== "sms" ? (
         <p role="alert" className="mt-2 text-sm text-red-700">
           {error}
         </p>

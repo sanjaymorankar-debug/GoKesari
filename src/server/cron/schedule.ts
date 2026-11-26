@@ -84,7 +84,11 @@ export async function paymentsReconcile() {
   const bankChecks = await (await import("@/server/services/bank-accounts"))
     .sweepBankVerifications()
     .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-  return { ...payments, orderRefunds, cashfreeTopUps, registrationFees, bankChecks };
+  // PAY-SM: paid payments confirmed with the gateway (RECONCILED); a no-op while flag payment_settlement_states is off.
+  const settlement = await (await import("@/server/payments/settlement"))
+    .runSettlementReconciliation()
+    .catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  return { ...payments, orderRefunds, cashfreeTopUps, registrationFees, bankChecks, settlement };
 }
 
 /** Help-desk deadlines (acknowledge / resolve, auto-close) and refund retries. */
@@ -186,6 +190,11 @@ export const EVERY_MINUTE: readonly Job[] = [
   // and the month before calculated on the 1st from 02:00 IST. Each send is logged once, so a late run catches up.
   { name: "franchise", everyMinutes: 5, run: async () => (await import("@/server/franchise/jobs")).runFranchiseJob() },
   // docs/dealer-platform phase 4: scheme versions scheduled to launch are published when their time comes.
+  // docs/shop-registration-subscription-2026-11 (0210; replaces the 05:00 shop-membership-reminders job): registration
+  // statuses in step with the clock, payment links past their date, open links checked with the gateway, and from
+  // 09:00 IST (rule shopRegistrationSubscription.reminderHourIst) the day's reminders and the CC digest — each sent
+  // once (claimed per shop, stage and day). Reminders are a no-op while rule shopMembership.remindersEnabled is off.
+  { name: "shop-registration", everyMinutes: 15, run: async () => (await import("@/server/services/shop-registration-subscription")).runRegistrationSubscriptionJob() },
   { name: "dealer-scheme-launches", everyMinutes: 5, run: async () => (await import("@/server/dealers/scheme-admin")).runScheduledSchemeLaunches() },
   { name: "pmd-ingest", run: pmdIngest },
 ];
@@ -245,6 +254,9 @@ export const DAILY: readonly Job[] = [
   { name: "smart-list-photo-retention", run: async () => (await import("@/server/services/smart-list/scan")).sweepExpiredScanPhotos() },
   // docs/smart-shopping-2026-11 (Feature 2): add-by-photo photos not used for a product, after rule smartShopping.photoRetentionDays.
   { name: "photo-listing-purge", run: async () => (await import("@/server/services/shop-photo-listing")).purgeExpiredPhotoListingPhotos() },
+  // docs/account-deletion-2026-11 (0199): accounts whose deletion cooling-off period (rule accountDeletion.coolingOffDays)
+  // is over are anonymised; one where a blocker appeared is held (BLOCKED) and ops are alerted. A no-op when none is due.
+  { name: "account-deletion-purge", run: async () => (await import("@/server/services/account-deletion")).runDueAccountPurges() },
 ];
 
 /** The jobs of an every-minute run at `now`. */

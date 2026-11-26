@@ -6,6 +6,11 @@
  * any live shop offer — what the cart would charge), cheapest first. Loose
  * goods without a price, out-of-stock and offline-only listings are left out.
  * Off (rule "homePriceComparison") → nothing is shown.
+ *
+ * docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026): the whole
+ * comparison between local shops sits behind flag
+ * `local_price_comparison_enabled` (seeded OFF). Off → this service returns
+ * nothing whatever the caller asks, so no page or API can leak the data.
  */
 import { and, asc, eq, gt, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 
@@ -14,8 +19,10 @@ import { products, shopProducts, shops } from "@/server/db/schema";
 import type { CustomerLocation } from "@/lib/location";
 import { shopCarriesProductCategory } from "./product-categories";
 import { serviceableShopIds } from "./serviceability";
+import { isFeatureEnabled } from "./feature-flags";
 import { getRule } from "./settings";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
+import { registrationListed } from "./shop-membership";
 
 export interface ComparedPrice {
   shopProductId: string;
@@ -65,6 +72,7 @@ function comparableListing(shopIds: string[]): SQL {
     inArray(shopProducts.shopId, shopIds),
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
+    registrationListed, // 0210 registration subscription: expired shops are not compared
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(shopProducts.isAvailable, true),
@@ -129,6 +137,14 @@ function topListingsAtListPrice(shopIds: string[], limit: number): Promise<Listi
     );
 }
 
+/**
+ * docs/price-comparison-off-2026-11: is price comparison between local shops on?
+ * A flag table that cannot be read counts as off.
+ */
+export async function isLocalPriceComparisonEnabled(): Promise<boolean> {
+  return isFeatureEnabled("local_price_comparison_enabled").catch(() => false);
+}
+
 export async function homePriceComparison(
   location: CustomerLocation | null,
   options: {
@@ -142,6 +158,7 @@ export async function homePriceComparison(
   } = {},
 ): Promise<ComparedProduct[]> {
   if (!location) return [];
+  if (!(await isLocalPriceComparisonEnabled())) return [];
   if (!options.productId) {
     const rule = await getRule("homePriceComparison");
     if (!rule.enabled) return [];

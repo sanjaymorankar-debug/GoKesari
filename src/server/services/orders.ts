@@ -65,6 +65,7 @@ import { reserveSlot, slotFullError } from "./delivery-slots";
 import { reserveScheduledSlot } from "./scheduled-slots";
 import { acceptByFor } from "./shop-acceptance";
 import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
+import { guestTrackingLinkFor } from "@/server/guest-checkout/tracking";
 import { quoteCoupon, redeemCouponForOrder } from "./coupons";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
 import { rewardReferralOnDelivery } from "./customer-referrals";
@@ -78,6 +79,8 @@ import { shopServiceability, societyPartnerShopIds, withWalletGate } from "./ser
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { assertFulfilmentAllowsStatus } from "./fulfilment-guards";
 import { assertLegalDocsAllowOrders } from "./legal-documents";
+import { assertSellerUndertakingAllowsOrders } from "./seller-undertaking";
+import { assertIdentityVerifiedForCheckout, assertShopIdentityAllowsOrders } from "./identity-verification";
 import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
@@ -284,6 +287,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
   // Mandatory referral code (rule customerSignupReferral.required): a new customer's first order needs one.
   unwrap(await referralCheck);
+  // docs/identity-verification-2026-11 (customers switch, identity_verification_customers_enabled): a verified identity before the first order.
+  await assertIdentityVerifiedForCheckout(input.userId);
   const buyerShopId = unwrap(await buyerShopCheck);
   if (orderType === "PERSONAL" && input.buyerShopId) {
     throw validationFailed("A personal order cannot be placed for a shop.");
@@ -423,6 +428,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       }
       // Mandatory legal documents: a shop past its grace period takes no orders until it uploads them.
       unwrap((await legalChecks.get(shopRow.id)) ?? { ok: true, value: undefined });
+      // docs/identity-verification-2026-11: a shop whose owner is past the identity grace period takes no new orders.
+      await assertShopIdentityAllowsOrders(shopRow.id);
       assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null);
     }
   }
@@ -488,6 +495,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       ? await getOrCreateOrderGroup(input.userId, input.requestId)
       : null;
 
+  // docs/guest-checkout-2026-11: null unless guest_checkout_enabled is on and the account was made by guest checkout.
+  const guestTrackLink = await guestTrackingLinkFor(input.userId);
+
   // One transaction per shop: a problem with one shop's order must not roll back
   // a sibling shop's successful order.
   for (const group of purchasableGroups) {
@@ -537,7 +547,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     let scheduledSlot: { start: Date; end: Date; date: string } | null = null;
     const acceptBy = await acceptByFor(new Date(), closedShops.get(group.shop.id) ?? null);
 
-    // Tax snapshot (migration 0183): each listing's GST classification, read before the
+    // Tax snapshot (migration 0185): each listing's GST classification, read before the
     // transaction so it holds no lock longer; a line added to the cart meanwhile is read inside.
     const [invoicingRule, taxClasses] = await Promise.all([
       getRule("invoicing"),
@@ -824,7 +834,11 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
             type: NOTIFICATION_TYPES.ORDER_CONFIRMED,
             title: "Order confirmed",
             body: `Your order ${orderRow.orderNumber} from ${shopRow.name} is confirmed.`,
-            actionUrl: `/orders`,
+            // docs/guest-checkout-2026-11: a guest-created account's e-mail links to tracking without sign-in.
+            actionUrl: guestTrackLink ? guestTrackLink({ orderId: orderRow.id, orderGroupId: orderGroup?.id ?? null }) : `/orders`,
+            // Module 6: Hindi / Marathi for a customer who chose it; English text above unchanged.
+            vars: { orderNumber: orderRow.orderNumber, shopName: shopRow.name },
+            lang: "auto",
             // TC-SPI-004: the e-mail lists what was ordered and what it costs.
             emailDetail: orderConfirmedEmailRows({
               lines: lines.map((l) => ({ name: l.productName, unit: l.unit, quantityMilli: l.quantityMilli, lineTotalPaise: l.lineTotalPaise })),
@@ -1049,6 +1063,10 @@ export async function updateOrderStatus(
     if (order.status === "CONFIRMED" && (newStatus === "ACCEPTED" || newStatus === "PREPARING")) {
       await assertShopMayAcceptOrders(order.shopId, tx);
       await assertLegalDocsAllowOrders(order.shopId);
+      // docs/seller-undertaking-2026-11: no NEW order until the owner accepts the fresh-goods undertaking (flag on).
+      await assertSellerUndertakingAllowsOrders(order.shopId);
+      // docs/identity-verification-2026-11: the owner's identity, after the grace period (which starts here if not yet).
+      await assertShopIdentityAllowsOrders(order.shopId, { startGrace: true });
     }
 
     const [updated] = await tx

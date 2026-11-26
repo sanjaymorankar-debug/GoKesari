@@ -25,7 +25,7 @@ export const PAYMENT_INTENT_STATUSES = [
 ] as const;
 export type PaymentIntentStatusValue = (typeof PAYMENT_INTENT_STATUSES)[number];
 
-export const PAYMENT_PURPOSES = ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE"] as const; // SUPPORT_SERVICE: docs/dealer-programme step 7; TERRITORY_FEE: docs/dealer-programme/TERRITORY_DEALER.md
+export const PAYMENT_PURPOSES = ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE", "TERRITORY_FEE", "WALLET_TOPUP", "SHOP_WALLET_TOPUP"] as const; // SUPPORT_SERVICE: docs/dealer-programme step 7; TERRITORY_FEE: docs/dealer-programme/TERRITORY_DEALER.md
 
 export const PAYMENT_GATEWAYS = ["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE", "HDFC"] as const;
 
@@ -59,3 +59,35 @@ export const PAYMENT_INTENT_STATUS_LABELS: Record<PaymentIntentStatusValue, stri
   FAILED: "Payment failed",
   EXPIRED: "Payment expired",
 };
+
+/*
+ * PAY-SM (docs/payment-settlement-states-2026-11.md): what happened after the money was taken, kept apart
+ * from the status above so refunds and reports are unchanged.
+ *
+ *   (none) ──→ RECONCILED ──→ CHARGEBACK
+ *      └───────────────────────↗
+ *
+ * RECONCILED: the gateway's own status check confirmed the captured payment (same amount, same payment).
+ * CHARGEBACK: the customer's bank disputed it; it stays CHARGEBACK whatever the dispute's outcome
+ * (payment_chargebacks keeps the outcome).
+ */
+export const PAYMENT_SETTLEMENT_STATES = ["RECONCILED", "CHARGEBACK"] as const;
+export type PaymentSettlementState = (typeof PAYMENT_SETTLEMENT_STATES)[number];
+
+const SETTLEMENT_TRANSITIONS: Record<"NONE" | PaymentSettlementState, readonly PaymentSettlementState[]> = {
+  NONE: ["RECONCILED", "CHARGEBACK"],
+  RECONCILED: ["CHARGEBACK"],
+  CHARGEBACK: [],
+};
+
+export function canMoveSettlement(from: PaymentSettlementState | null, to: PaymentSettlementState): boolean {
+  return SETTLEMENT_TRANSITIONS[from ?? "NONE"].includes(to);
+}
+
+export const PAYMENT_SETTLEMENT_LABELS: Record<PaymentSettlementState, string> = {
+  RECONCILED: "Reconciled with the gateway",
+  CHARGEBACK: "Chargeback",
+};
+
+export const CHARGEBACK_OUTCOMES = ["OPEN", "WON", "LOST", "CLOSED"] as const;
+export type ChargebackOutcome = (typeof CHARGEBACK_OUTCOMES)[number];

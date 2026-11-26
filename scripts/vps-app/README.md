@@ -233,7 +233,7 @@ Each run is `gk-cron-call <site> <job> <max-time> <first domain>`, as the site's
 
 `gk-site cron <site> on|off|status`. Turn a site's timers on in the same minute as its hPanel lines go off (plan, C3 / D3). Avoid :47 and 05.00 IST.
 
-`--cron-preset gokesari` is docs/crontab.txt's production schedule. For staging's `0 */6` every-minute line, use `--cron 'every-minute=0 */6 * * *' --cron 'hourly=17 * * * *' --cron 'daily=30 23 * * *'`.
+`--cron-preset gokesari` is docs/crontab.txt's schedule, used by **both** sites since 17-Nov-2026 (owner, decision D7: staging every minute again). The staging-only `0 */6` every-minute line (16-Nov-2026, a Neon cost cut) is history; if ever needed again: `--cron 'every-minute=0 */6 * * *' --cron 'hourly=17 * * * *' --cron 'daily=30 23 * * *'`.
 
 ### TLS
 

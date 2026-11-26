@@ -1,10 +1,13 @@
 import { SectionTabs } from "@/components/board/section-tabs";
+import { RegistrationCard } from "@/components/seller/registration-status";
+import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { BankAccountPrompt } from "@/components/bank-account-prompt";
 import { LegalDocumentsBanner } from "@/components/legal-documents-banner";
+import { MembershipRenewalCard } from "@/components/membership-renewal-card";
 import { RegistrationPanel } from "@/components/registration-panel";
 import { ShopReferralCard } from "@/components/shop-referrals/shop-referral-card";
 import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
@@ -12,6 +15,7 @@ import { ShopCustomerContactForm } from "@/components/shop-customer-contact-form
 import { ShopDashboardView } from "@/components/shop-dashboard";
 import { GstRegistrationType } from "@/components/billing/gst-registration-type";
 import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
+import { ShopGstRegistrations } from "@/components/shop-gst-registrations";
 import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
 import { ShopLogoUpload } from "@/components/delta/shop-logo-upload";
 import { SHOP_LOGO_FLAG } from "@/lib/delta/shop-logo";
@@ -46,6 +50,7 @@ import {
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
+import { listShopGstRegistrations } from "@/server/services/shop-gst-registrations";
 import { getShopRegistration } from "@/server/tax/registration";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { listShopProducts, suggestProductsForShop } from "@/server/services/catalogue";
@@ -60,7 +65,7 @@ import { registrationFeeDue } from "@/server/services/registration-fee-payment";
 import { getRule } from "@/server/services/settings";
 import { missedAcceptances30d } from "@/server/services/shop-acceptance";
 import { getShopCategories } from "@/server/services/shop-categories";
-import { membershipStatus } from "@/server/services/shop-membership";
+import { checkMembershipRenewalPayment, membershipRenewalView, renewalPeriodKey, shopMembershipStatus } from "@/server/services/shop-membership-renewal";
 import { getShopOnboarding } from "@/server/services/shop-onboarding";
 import { listPaymentsForShop } from "@/server/services/shop-payments";
 import { shopReferralSummary } from "@/server/services/shop-referrals";
@@ -105,7 +110,7 @@ export default async function ShopManagePage({
   searchParams,
 }: {
   params: Promise<{ section: string }>;
-  searchParams: Promise<{ shop?: string }>;
+  searchParams: Promise<{ shop?: string; intent?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
@@ -116,7 +121,8 @@ export default async function ShopManagePage({
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
   // A link may name one of the owner's shops (?shop=, e.g. "Add new product" from an Excel upload); anything else is ignored.
-  const shop = await activeShop(shops, (await searchParams).shop);
+  const query = await searchParams;
+  const shop = await activeShop(shops, query.shop);
   const header = (
     <PageHeader
       title={SECTIONS[key]}
@@ -400,7 +406,6 @@ export default async function ShopManagePage({
           <div id="products">
             <ShopProductManager
               shopId={shop.id}
-              department={shop.shopType}
               products={products.map((p) => ({
                 id: p.id,
                 productName: p.product.name,
@@ -459,7 +464,7 @@ export default async function ShopManagePage({
 
     case "hours": {
       // D-69: open / close for now, membership, close permanently.
-      const membership = membershipStatus(shop, await getRule("shopMembership"));
+      const membership = await shopMembershipStatus(shop);
       const day = (d: Date | null) =>
         d ? d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: getEnv().APP_TIMEZONE }) : null;
       const state: ShopOpenState =
@@ -484,7 +489,7 @@ export default async function ShopManagePage({
                 shopName: shop.name,
                 state,
                 closedOn: day(shop.closedAt),
-                membership: { state: membership.state, validUntil: day(membership.validUntil), offlineFrom: day(membership.offlineFrom) },
+                membership: { state: membership.state, validUntil: day(membership.validUntil), offlineFrom: day(membership.offlineFrom), enforced: membership.enforced },
               }}
             />
           </div>
@@ -507,6 +512,7 @@ export default async function ShopManagePage({
     case "gst-pan": {
       // Billing v2 (docs/billing §3.1): Enrolment ID / PAN-only declaration.
       const registration = (await isFeatureEnabledForShop("billing_v2", shop)) ? await getShopRegistration(shop.id) : null;
+      const gstRegistrations = await listShopGstRegistrations(shop.id);
       return (
         <>
           {header}
@@ -528,6 +534,9 @@ export default async function ShopManagePage({
               <GstRegistrationType shopId={shop.id} initial={registration} />
             </div>
           ) : null}
+          <div className="mb-8">
+            <ShopGstRegistrations shopId={shop.id} initial={gstRegistrations} mode="owner" />
+          </div>
           <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="verification-link">
             <span>
               <span className="font-medium text-ink-900">Shop verification</span>
@@ -554,6 +563,13 @@ export default async function ShopManagePage({
     }
 
     case "registration": {
+      // docs/shop-membership-renewal-2026-11: back from the gateway with ?intent= — ask how the renewal went.
+      if (typeof query.intent === "string") await checkMembershipRenewalPayment(shop.id, query.intent, user.id).catch(() => undefined);
+      const renewal = await membershipRenewalView(shop, user.id);
+      const dayOf = (d: Date | null) =>
+        d ? d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: getEnv().APP_TIMEZONE }) : null;
+      const attempt = renewal.latestAttempt;
+      const currentAttempt = attempt && attempt.periodKey === renewalPeriodKey(shop.membershipValidUntil) ? attempt : null;
       const [payments, referral, shopReferral, referralRule] = await Promise.all([
         listPaymentsForShop(shop.id),
         shop.referralCodeId ? getReferralCodeById(shop.referralCodeId) : null,
@@ -562,9 +578,44 @@ export default async function ShopManagePage({
       ]);
       const origin = originFromHeaders(await headers());
       const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+      const registrationView = await ownerRegistrationStatus(shop); // 0205
       return (
         <>
           {header}
+          <RegistrationCard view={registrationView} />
+          <div className="mb-8">
+            <MembershipRenewalCard
+              view={{
+                shopId: shop.id,
+                state: renewal.status.state,
+                enforced: renewal.status.enforced,
+                validUntil: dayOf(renewal.status.validUntil),
+                offlineFrom: dayOf(renewal.status.offlineFrom),
+                periodMonths: renewal.periodMonths,
+                quote: renewal.quote,
+                canRenew: renewal.refusal === null,
+                refusalText: renewal.refusalText,
+                checkoutEnabled: renewal.checkoutEnabled,
+                attempt:
+                  currentAttempt && (currentAttempt.status === "FAILED" || currentAttempt.status === "EXPIRED")
+                    ? "FAILED"
+                    : currentAttempt?.live && typeof query.intent === "string"
+                      ? "CHECKING"
+                      : null,
+                history: renewal.history.map((h) => ({
+                  id: h.id,
+                  kind: h.kind,
+                  from: dayOf(h.periodStart)!,
+                  to: dayOf(h.periodEnd)!,
+                  feePaise: h.feePaise,
+                  paidOn: dayOf(h.paidAt),
+                  reference: h.paymentReference,
+                  method: h.method,
+                  voided: h.voidedAt ? `${dayOf(h.voidedAt)}${h.voidReason ? ` (${h.voidReason})` : ""}` : null,
+                })),
+              }}
+            />
+          </div>
           <div id="registration">
             <RegistrationPanel
               details={{

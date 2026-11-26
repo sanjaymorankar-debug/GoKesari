@@ -4,10 +4,23 @@ Features: **F1.7.3** direct online payment of orders and **F1.8.4** payment
 state machine (GS-028, NEW-007, SM-005, GS-073). Status: built, **OFF by
 default** (rule `onlinePayments.enabled = false`).
 
-> **Production stays OFF** until (1) the gateway is chosen, (2) the merchant
-> account is open, (3) the live keys and (4) the webhook secret are set on
-> gokesari.com. Until then customers pay from the wallet or cash on delivery,
-> exactly as before.
+> **Current state (24-Nov-2026):**
+> - **gokesari.com:** `PAYMENT_GATEWAY=CASHFREE` with the live Cashfree keys (`CASHFREE_ENV=production`), set
+>   on the server on 19-Nov-2026 20.25 IST and applied with `gk-deploy restart gokesari-prod`. Before that the
+>   variable was unset, so the site fell back to `SANDBOX`, which the guard in `gateway/registry.ts` refuses on
+>   gokesari.com ("The sandbox payment gateway is not allowed on this site.") and the wizard's registration fee
+>   could not be paid. The registration fee, support-service payments and operator fee requests now go to live
+>   Cashfree. Customer **order** checkout online still also needs rule `onlinePayments.enabled` (Admin →
+>   Settings), which was not changed then.
+> - **test.gokesari.com:** Cashfree **sandbox** keys only (`CASHFREE_ENV=sandbox`), with the test data in
+>   [testing/cashfree-sandbox-test-data.md](testing/cashfree-sandbox-test-data.md). With `PAYMENT_GATEWAY=SANDBOX`
+>   the fee and order payments open the app's built-in test page (`/orders/pay/sandbox/…`, "Pay (success)"); with
+>   `PAYMENT_GATEWAY=CASHFREE` they would open the Cashfree sandbox checkout (`/orders/pay/session/…`). Staging runs
+>   **`SANDBOX`** (owner, 24-Nov-2026), shown on `/admin/payments/cashfree` ("Order payments gateway").
+> - Sandbox keys or test data are never used on gokesari.com (`cashfreeEnvProblem`, `src/lib/env.ts`).
+>
+> *Superseded (24-Nov-2026):* "Production stays OFF until (1) the gateway is chosen, (2) the merchant account is
+> open, (3) the live keys and (4) the webhook secret are set on gokesari.com" — all four are done.
 
 ## 1. Architecture
 
@@ -36,7 +49,7 @@ Card, UPI and bank details are only ever typed into the gateway's own page —
 never into GoKesari. Money is integer paise everywhere; adapters convert to
 rupees only at the gateway boundary (Cashfree).
 
-### Tables (customer database, migration `drizzle/0079_batch_a_payments.sql`)
+### Tables (migration `drizzle/0079_batch_a_payments.sql`; one database since Nov 2026, see CLAUDE.md)
 
 | Table | What |
 |---|---|
@@ -164,7 +177,9 @@ https://<host>/api/webhooks/payments/hdfc         (HDFC SmartGateway dashboard �
 The existing wallet top-up webhook `/api/webhooks/cashfree` is unchanged and
 separate. The notify URL is also sent with each Cashfree order.
 
-Cron (add to the server crontab, `docs/event-driven-2026-10/crontab.test.txt` style):
+Cron: *superseded (24-Nov-2026)* — the jobs run as systemd timers on GoKesari's own server
+(`gk-cron@<site>-<job>`), not from a crontab; the schedule is [docs/crontab.txt](crontab.txt). The original
+lines, for the record:
 
 ```
 */5 * * * *  $HOME/gokesari-cron/run.sh payments-reconcile    # stuck intents, refunds, orphan orders
@@ -175,7 +190,7 @@ Cron (add to the server crontab, `docs/event-driven-2026-10/crontab.test.txt` st
 
 **Sandbox gateway (no keys needed):**
 
-1. Admin → Settings → `onlinePayments` → `enabled: true` (leave `PAYMENT_GATEWAY` unset = SANDBOX).
+1. Admin → Settings → `onlinePayments` → `enabled: true`. The built-in sandbox page opens only while the site runs `PAYMENT_GATEWAY=SANDBOX` (unset = SANDBOX); check `/admin/payments/cashfree` first.
 2. As a customer, add items to the cart → **Pay with: Pay online (UPI / card / netbanking)** → Pay.
 3. The sandbox page opens (`/orders/pay/sandbox/gk_…`): press **Pay (success)**, **Fail** or **Let it expire**.
    Each one posts a signed webhook through the real webhook handler.
@@ -196,6 +211,12 @@ use only the test data in [testing/cashfree-sandbox-test-data.md](testing/cashfr
 Never use real cards, UPI IDs or bank accounts on staging, and never sandbox keys on gokesari.com.
 
 ## 6. Going live (owner checklist)
+
+> **Status (24-Nov-2026):** steps 1–3 are done for Cashfree on gokesari.com (`PAYMENT_GATEWAY=CASHFREE` since
+> 19-Nov-2026; webhook answered on the first live fee payment the same evening). The reconcile job runs as a
+> server timer. Step 6 (`onlinePayments.enabled` for customer order checkout) is the owner's switch. Server
+> environment changes are made with `gk-site env set` and applied with `gk-deploy restart` (no rebuild); see
+> [scripts/vps-app/README.md](../scripts/vps-app/README.md).
 
 1. Choose the gateway; open the merchant account; complete KYC.
 2. Set on gokesari.com: `PAYMENT_GATEWAY`, that gateway's live keys, its webhook secret, `PAYMENT_PUBLIC_BASE_URL=https://gokesari.com`.

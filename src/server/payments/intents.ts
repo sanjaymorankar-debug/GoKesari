@@ -53,7 +53,7 @@ export { PAYMENT_INTENT_STATUSES } from "@/lib/payment-intent-states";
 export type PaymentIntentStatus = PaymentIntentStatusValue;
 
 /** What a payment is for. Each purpose's capture handler lives in purpose-handlers.ts. */
-export type PaymentPurpose = "ORDER" | "ORDER_GROUP" | "SHOP_REGISTRATION_FEE" | "SUPPORT_SERVICE" | "TERRITORY_FEE" | "CONSULT_BOOKING" | "HEALTH_RX_ORDER" | "HEALTH_RENTAL" | "HEALTH_PRIME" | "FRANCHISE_FEE" | "DEALER_JOINING_FEE";
+export type PaymentPurpose = "ORDER" | "ORDER_GROUP" | "SHOP_REGISTRATION_FEE" | "SUPPORT_SERVICE" | "TERRITORY_FEE" | "CONSULT_BOOKING" | "HEALTH_RX_ORDER" | "HEALTH_RENTAL" | "HEALTH_PRIME" | "FRANCHISE_FEE" | "DEALER_JOINING_FEE" | "SHOP_MEMBERSHIP_RENEWAL" | "WALLET_TOPUP" | "SHOP_WALLET_TOPUP" /* PAY-2: payment-intents top-ups */;
 
 export interface PaymentIntentRef {
   id: string;
@@ -81,6 +81,10 @@ export interface CreatePaymentIntentInput {
   /** CHECKOUT: hosted page / SDK now. LINK: a payment link to send (e.g. to a shop owner). */
   mode: "CHECKOUT" | "LINK";
   returnPath?: string;
+  /** 0210: when the payment (link) stops working; default rule onlinePayments.intentExpiryMinutes from now. */
+  expiresAt?: Date;
+  /** 0210: extra metadata stored with the intent (merged next to the customer). */
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreatedPaymentIntent {
@@ -176,8 +180,9 @@ export async function createPaymentIntent(input: CreatePaymentIntentInput, clien
         idempotencyKey: key,
         description: input.description.slice(0, 200),
         returnPath: input.returnPath ?? null,
-        expiresAt: new Date(Date.now() + rules.intentExpiryMinutes * 60_000),
+        expiresAt: input.expiresAt ?? new Date(Date.now() + rules.intentExpiryMinutes * 60_000),
         metadata: {
+          ...(input.metadata ?? {}),
           customer: { id: input.customer.id, name: input.customer.name ?? null, email: input.customer.email ?? null, phone: input.customer.phone ?? null },
         },
       })

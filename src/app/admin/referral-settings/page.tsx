@@ -17,7 +17,7 @@ const HINTS = {
   referral_required_customer:
     "New customers' first-time setup. Mandatory: a valid code is needed before the first order. Optional: the field is shown as optional; a code that is entered must still be valid.",
   referral_required_shop:
-    "Add my shop and shop self-registration (/shop/join). Mandatory: a valid code is needed to register, and for auto-approval with the payment. Optional: registration and auto-approval go ahead without one.",
+    "Add my shop and shop registration (/shop/register). Mandatory: a valid code is needed to register, and for auto-approval with the payment. Optional: registration and auto-approval go ahead without one.",
 } as const;
 
 /**

@@ -78,12 +78,29 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rbac_v2_accounting: "Accounting: journal entries, period close, rate proposals",
   tax_register: "Tax register: Accountant proposes, CA approves tax settings",
   payout_deductions: "TDS / TCS withheld on every payout (riders, referrals, services)",
+  auto_journals: "GoKesari's books: paid payouts queue journal postings for the Accountant",
   rbac_v2_support: "Support desk: manager queue and Support Users",
   rbac_v2_shop_change_requests: "Support-proposed shop changes approved by the shop owner",
   rbac_v2_operations: "Operations: tasks, zones, onboarding reports",
   dealer_platform_four_eye: "Dealer schemes: second approver for publishing, scheme changes and refunds",
+  shop_staff_roles_enabled: "Shop staff roles and permissions",
+  whatsapp_customer_enabled: "Customer updates and shopping on WhatsApp",
+  brand_barcode_favourites_enabled: "Customers: brand search, barcode search and favourites",
+  onboarding_referral_by_pin_enabled: "Shop registration: find a referral code by PIN code",
+  onboarding_assisted_mode_enabled: "Shop registration: dealer / operator fills in the wizard for the owner",
+  onboarding_scan_first_enabled: "Shop registration: open the document scan first on phones",
+  policy_reconsent_enabled: "Ask signed-in users to accept a new policy version",
   guest_cart_enabled: "Guests can fill a cart; sign-in only at Place order",
   hdms_enabled: "Delivery management: allocation engine and delivery partners (Shadowfax, Pidge, Porter, Borzo)",
+  guest_checkout_enabled: "Guest checkout: order with a one-time code, track without signing in",
+  account_self_deletion_enabled: "Self-service account deletion from My Profile",
+  payment_settlement_states: "Online payments: reconciled and chargeback states",
+  local_price_comparison_enabled: "Price comparison between local shops",
+  sms_otp_signin_customers_enabled: "Customers: email + SMS code at sign-in",
+  sms_otp_signin_shop_owners_enabled: "Shop owners: email + SMS code at sign-in",
+  identity_verification_customers_enabled: "Customers: verify identity before first checkout",
+  identity_verification_shop_owners_enabled: "Shop owners: verify identity before going live / accepting orders",
+  seller_undertaking_gate_enabled: "Shop owners must accept the fresh-goods undertaking",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -142,14 +159,47 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/tax-register: the Accountant proposes changes to tax settings (statutory TCS / TDS rows, TDS on commission, GST rules, HSN rates, product GST, tax fields of the settings) and answers questions for the CA; the CA approves (never their own) and the change is applied. On: those settings are changed only through the register (direct edits on the admin screens are refused). Off: the register screens work, and the admin screens edit directly as today.",
   payout_deductions:
     "docs/tax-register/PAYOUT_DEDUCTIONS.md: weekly rider payouts deduct TDS s.194C (rule riderPayouts), referral commissions deduct TDS s.194H (statutory row IT_TDS_194H) when paid, and the payout cycle deducts TDS s.194-O (and TCS where the CA's row covers services) on appointment, rental and prescription earnings. Shops are then paid only through the payout cycle (the weekly shop settlement refuses). On gokesari.com a deduction whose rate the CA has not approved holds the payout. Off: as before.",
+  auto_journals:
+    "docs/tax-register/BOOKS.md: every payout that is paid (shops, riders, dealers, referrals) queues a balanced posting — payables, bank, commission income, TCS / TDS payable by section, GST output. The Accountant turns it into a journal draft on Accounting → Auto postings (the CA approves it) or dismisses it. Off: nothing is queued.",
   rbac_v2_support: "docs/rbac Phase 4: the Support Manager's queue and the Support User's assigned work.",
   rbac_v2_shop_change_requests: "docs/rbac Phase 5: changes proposed by Support wait for the shop owner's approval item by item; nothing is applied until approved.",
   rbac_v2_operations: "docs/rbac Phase 6–7: Operations tasks, zones, customer assists, onboarding reports and the handover to Support.",
   dealer_platform_four_eye: "docs/dealer-platform Phase 6: publishing a scheme version, changing a scheme's status, moving a dealer to another scheme and refunding a franchise booking wait for a second approver in Admin → Approvals (never the requester).",
+  shop_staff_roles_enabled:
+    "docs/shop-staff-roles-2026-11: shop owners invite staff with a role (manager, orders, billing, stock, delivery, support, catalogue or custom) and the server checks each permission on orders, stock, catalogue, billing, delivery, reports and settings. Off: staff can only edit product photos and descriptions, as before.",
+  whatsapp_customer_enabled:
+    "docs/customer-whatsapp-2026-11: customers opt in to WhatsApp updates on My Profile (or by sending START; STOP opts out). Order placed / accepted, payment received, status changes, out for delivery, delivered, cancelled, refund issued and subscription renewal reminders go out as the approved templates named in rule whatsappCustomer (which must also be enabled). Customers can also search, pick, set a quantity and get a signed checkout link by chat. Needs the Meta keys (WHATSAPP_PROVIDER=meta); on the test site WHATSAPP_PROVIDER=mock writes every message to Admin → Test messages instead. Off: nothing changes.",
+  brand_barcode_favourites_enabled:
+    "docs/search-brand-barcode-favourites-2026-11: search finds products by brand name, the search box suggests brands and each brand has a page (/brand/…); customers scan or type a product barcode in the search box; customers save products with a heart and see them, with the lowest price nearby, on /favourites (guests' hearts stay in the browser and move to the account at sign-in). Off: none of it shows and its APIs answer 404.",
+  onboarding_referral_by_pin_enabled:
+    "docs/onboarding-waves-2-3-2026-11 (WP6): on the wizard's first screen an owner without a referral code types the shop's PIN code and sees the approved dealers who cover that area (closest area first), with their active code to tap and use; the dealer's phone is shown only to a signed-in user. Rate-limited. Off: the panel is hidden and GET /api/referral-codes/by-pincode answers 404.",
+  onboarding_assisted_mode_enabled:
+    "docs/onboarding-waves-2-3-2026-11 (WP7): a dealer, dealer employee or operator who holds a valid owner-consent session (the owner's one-time code) fills in the registration wizard for the owner. The draft records who helped, the helper's referral code is locked onto it and the owner pays the fee by a link / QR on their own phone. Every assisted step is in the audit log. Off: the wizard is the owner's alone, as today; the dealer and operator flat forms are unchanged either way.",
+  onboarding_scan_first_enabled:
+    "docs/onboarding-waves-2-3-2026-11 (WP10): on a phone the wizard's Verify screen opens the GST / PAN photo scan first and loads the reading model in the background. Typing the number stays one tap away. Off: the scan stays folded as today.",
+  policy_reconsent_enabled:
+    "docs/policy-reconsent-2026-11: when an admin publishes a new Terms, Privacy Policy or Seller Terms version that needs acceptance (Admin → Policy versions), signed-in users who accepted an older one see a short page with the change summary and a link, and must accept before going on. Every acceptance is recorded with its version, time and channel. Off: nobody is asked; the admin page still reports.",
   guest_cart_enabled:
     "docs/guest-cart-2026-11 (owner, 23-Nov-2026): a shopper who is not signed in can tap Add to cart and open the cart. The guest cart is kept only in their browser (up to 50 items, 7 days); nothing is saved on the server. Place order asks them to sign in, then moves the items into their account cart (quantities added, capped at stock) and returns to checkout. Off: Add to cart asks for sign-in first, as before.",
   hdms_enabled:
     "docs/hdms-2026-11: when no shop rider or GoKesari rider takes a ready order, the allocation engine books an enabled delivery partner (Admin → Delivery management). Off: dispatch works exactly as before; the admin pages stay readable.",
+  guest_checkout_enabled:
+    "docs/guest-checkout-2026-11: needs guest_cart_enabled ON too. A guest checks out from the cart with name, mobile, e-mail and address and a one-time code (e-mail; plus a mobile code where SMS is set up — mock on the test site). That makes a normal customer account (marked guest-created), signs them in and continues to the usual payment choice. Adds: tracking links without sign-in (/track), the combined timeline on multi-shop orders, the \"Best shop for this cart\" panel and Admin → Payments → Order-group reconciliation. Off: the site behaves as before.",
+  account_self_deletion_enabled: "docs/account-deletion-2026-11: a signed-in person deletes their own account (My Profile → Delete my account) after the checks pass and an emailed code. The account is hidden at once (signed out everywhere, not shown to anyone else; admins see it \"Under cooling period\" with the reason) and anonymised after the cooling-off period (rule accountDeletion.coolingOffDays, 90 days) by the daily job; signing in again with an emailed code during that time offers to restore it. Orders, invoices, payments and ledgers are kept for legal retention (rule accountDeletion.retentionYears). Off: the section is hidden and the APIs answer 404; accounts already in their cooling-off period can still be restored and are still purged when due.",
+  payment_settlement_states:
+    "docs/payment-settlement-states-2026-11.md (PAY-SM): the payments job asks the gateway about each paid online payment and marks it Reconciled when the gateway confirms the same amount; a dispute / chargeback webhook marks the payment Chargeback, records the amount, reason and respond-by date in Admin → Payments → Chargebacks and alerts the admins. Timing: rule paymentSettlement. Off: nothing is marked and dispute webhooks are only logged, as before.",
+  local_price_comparison_enabled:
+    "docs/price-comparison-off-2026-11 (owner decision 24-Nov-2026: off). On: product cards show \"Compare N prices\", /search/compare and its menu entries are open, the home page shows the comparison block (rule homePriceComparison) and the product page ranks shops by price with a \"Lowest price\" tag. Off: none of these; /search/compare answers 404 and the product page lists shops nearest-first. The smart shopping list keeps its own flag (smart_list_scan_enabled).",
+  sms_otp_signin_customers_enabled:
+    "docs/sms-2fa-2026-11 (Admin → Sign-in security): after the emailed code, a CUSTOMER account also enters a code sent by SMS to its mobile; an account without a verified mobile adds and verifies one then. Google and the emailed link ask for it too. Works only while SMS codes can be sent (SMS_PROVIDER=msg91 with the DLT keys, or mock on the test site, and rule otp.smsEnabled); otherwise sign-in stays email-only, so nobody is locked out. Off: email only at once; verified numbers stay verified. Keep OFF on gokesari.com until MSG91 and DLT are live.",
+  sms_otp_signin_shop_owners_enabled:
+    "docs/sms-2fa-2026-11 (Admin → Sign-in security): the same SMS sign-in code for SHOP_OWNER accounts. Works only while SMS codes can be sent; otherwise email-only. Off: email only at once; verified numbers stay verified.",
+  identity_verification_customers_enabled:
+    "docs/identity-verification-2026-11 (Admin → Identity verification): customers verify their identity once, before their first order — Aadhaar shared from DigiLocker through the licensed KYC provider, or PAN instead (Aadhaar is voluntary). Only the last four digits, the verified name, the method and the provider reference are kept. Legal advice is pending: keep off on gokesari.com until it is given. On test.gokesari.com the mock provider is always used. Off: no customer is asked or blocked; verifications already done are kept.",
+  identity_verification_shop_owners_enabled:
+    "docs/identity-verification-2026-11 (Admin → Identity verification): a new shop goes live only once its owner's identity is verified; an existing owner is asked at sign-in and has rule identityVerification.sellerGraceDays from the first time they are asked after this was switched on, then their shops take no new orders until they verify (orders already accepted are unaffected). Legal advice is pending. Off: no shop owner is asked or blocked, no banner; verifications already done are kept.",
+  seller_undertaking_gate_enabled:
+    "docs/seller-undertaking-2026-11: a shop owner who has not accepted the current seller undertaking (fresh, non-expired, compliant goods only; expiry / best-before date always shared) and the current Seller Terms sees a full-page acknowledgement instead of Seller Central, and their shops cannot accept new orders until they accept. Orders already accepted carry on as normal. Bumping the undertaking or Seller Terms version asks every owner again. Off: nobody is asked (new registrations still accept both).",
 };
 
 export interface FeatureFlagView {

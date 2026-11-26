@@ -5,7 +5,8 @@ import { useState } from "react";
 
 import { EmptyIllustration } from "@/components/empty-illustrations";
 import { Alert, Button, Card, Money, inputClass } from "@/components/ui";
-import { tr, type Lang } from "@/lib/board/i18n";
+import { errorText } from "@/lib/board/error-text";
+import { L, tr, type Lang } from "@/lib/board/i18n";
 import { HOME } from "@/lib/home-i18n";
 import { openCashfreeCheckout } from "@/lib/cashfree-checkout";
 import { TOPUP_PRESETS_PAISE, formatPaiseCompact } from "@/lib/money";
@@ -28,6 +29,52 @@ interface VoucherPreview {
   bonusAmountPaise: number;
   totalCreditPaise: number;
 }
+
+/** Module 6 (docs/hindi-marathi-2026-11): the wallet screen's wording. */
+const T = {
+  enterVoucher: L("Enter a voucher code.", "वाउचर कोड डालें।", "व्हाउचर कोड टाका."),
+  voucherFailed: L("That voucher could not be applied.", "यह वाउचर नहीं लग सका।", "हा व्हाउचर लावता आला नाही."),
+  addedBonus: L(
+    "{amount} added, plus a {bonus} voucher bonus.",
+    "{amount} जुड़ गए, साथ में {bonus} वाउचर बोनस।",
+    "{amount} जमा झाले, सोबत {bonus} व्हाउचर बोनस.",
+  ),
+  added: L("{amount} added to your wallet.", "{amount} आपके वॉलेट में जुड़ गए।", "{amount} तुमच्या वॉलेटमध्ये जमा झाले."),
+  validAmount: L("Enter a valid amount.", "सही रकम डालें।", "योग्य रक्कम टाका."),
+  available: L("Available balance", "उपलब्ध बैलेंस", "उपलब्ध शिल्लक"),
+  fromPayments: L("from your payments", "आपके भुगतान से", "तुमच्या पेमेंटमधून"),
+  voucherCredit: L("voucher credit", "वाउचर क्रेडिट", "व्हाउचर क्रेडिट"),
+  todaysDeduction: L("Today's deduction", "आज की कटौती", "आजची वजावट"),
+  nextDays: L("Next {n} days of subscriptions", "अगले {n} दिनों के सब्सक्रिप्शन", "पुढील {n} दिवसांच्या सदस्यता"),
+  lowBalance: L("Low balance", "बैलेंस कम है", "शिल्लक कमी आहे"),
+  belowYour: L("Your balance is below your", "आपका बैलेंस आपकी", "तुमची शिल्लक तुमच्या"),
+  reminder: L("reminder threshold.", "याद दिलाने की सीमा से कम है।", "आठवण मर्यादेपेक्षा कमी आहे."),
+  notCovered: L("Upcoming subscriptions may not be covered", "आने वाले सब्सक्रिप्शन के लिए पैसे कम पड़ सकते हैं", "पुढील सदस्यतांसाठी पैसे कमी पडू शकतात"),
+  insufficientFor: L(
+    "Your wallet may be insufficient for the next {n} days. We recommend adding",
+    "अगले {n} दिनों के लिए आपका वॉलेट कम पड़ सकता है। हमारा सुझाव है कि आप जोड़ें",
+    "पुढील {n} दिवसांसाठी तुमचे वॉलेट कमी पडू शकते. आम्ही सुचवतो की तुम्ही भरा",
+  ),
+  addAmount: L("Add {amount}", "{amount} जोड़ें", "{amount} भरा"),
+  transactions: L("Transactions", "लेन-देन", "व्यवहार"),
+  bal: L("bal", "बैलेंस", "शिल्लक"),
+  addMoney: L("Add money", "पैसे जोड़ें", "पैसे भरा"),
+  amountPlaceholder: L("Amount (₹)", "रकम (₹)", "रक्कम (₹)"),
+  amountLabel: L("Amount in rupees", "रुपये में रकम", "रुपयांमध्ये रक्कम"),
+  voucherPlaceholder: L("Voucher code (optional)", "वाउचर कोड (वैकल्पिक)", "व्हाउचर कोड (ऐच्छिक)"),
+  voucherLabel: L("Voucher code", "वाउचर कोड", "व्हाउचर कोड"),
+  apply: L("Apply", "लगाएँ", "लावा"),
+  topUp: L("Top-up", "टॉप-अप", "टॉप-अप"),
+  voucherBonus: L("Voucher bonus", "वाउचर बोनस", "व्हाउचर बोनस"),
+  totalCredit: L("Total wallet credit", "कुल वॉलेट क्रेडिट", "एकूण वॉलेट क्रेडिट"),
+  processing: L("Processing…", "प्रोसेस हो रहा है…", "प्रक्रिया सुरू आहे…"),
+  proceed: L("Proceed to payment", "भुगतान पर आगे बढ़ें", "पेमेंटकडे पुढे जा"),
+  cashfreeNote: L(
+    "Payments are processed by Cashfree. Your wallet is credited only after the payment is verified.",
+    "भुगतान Cashfree से होता है। भुगतान की पुष्टि के बाद ही वॉलेट में पैसे जुड़ते हैं।",
+    "पेमेंट Cashfree मार्फत होते. पेमेंट पडताळल्यानंतरच वॉलेटमध्ये पैसे जमा होतात.",
+  ),
+} as const;
 
 /** Wallet screen per requirements §19, §20, §24, §37, and Part B (§18–§20). */
 export function WalletView({
@@ -63,7 +110,7 @@ export function WalletView({
   /** §18: compute and show the bonus before any payment starts. */
   async function applyVoucher(amountPaise: number) {
     if (!voucherCode.trim()) {
-      setVoucherError("Enter a voucher code.");
+      setVoucherError(tr(T.enterVoucher, lang));
       return;
     }
     setVoucherBusy(true);
@@ -77,11 +124,11 @@ export function WalletView({
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload?.error?.message ?? "That voucher could not be applied.");
+        throw new Error(errorText(payload?.error?.message ?? "That voucher could not be applied.", lang, payload?.error?.code));
       }
       setVoucherPreview(payload);
     } catch (caught) {
-      setVoucherError(caught instanceof Error ? caught.message : "That voucher could not be applied.");
+      setVoucherError(caught instanceof Error ? caught.message : tr(T.voucherFailed, lang));
     } finally {
       setVoucherBusy(false);
     }
@@ -114,7 +161,7 @@ export function WalletView({
       });
       const intent = await createResponse.json();
       if (!createResponse.ok) {
-        throw new Error(intent?.error?.message ?? "Could not start the payment.");
+        throw new Error(errorText(intent?.error?.message ?? "Could not start the payment.", lang, intent?.error?.code));
       }
 
       if (intent.mock) {
@@ -125,13 +172,20 @@ export function WalletView({
         });
         const settled = await settleResponse.json();
         if (!settleResponse.ok) {
-          throw new Error(settled?.error?.message ?? "Payment could not be verified.");
+          throw new Error(errorText(settled?.error?.message ?? "Payment could not be verified.", lang, settled?.error?.code));
         }
         setNotice(topUpSuccessMessage(amountPaise, settled.voucherBonusPaise));
         setCustom("");
         setVoucherCode("");
         setVoucherPreview(null);
         router.refresh();
+        return;
+      }
+
+      // PAY-2: a top-up through a payment intent on a hosted page (e.g. the sandbox gateway).
+      // The payment return page shows the result; the wallet is credited server-side.
+      if (intent.redirectUrl && !intent.paymentSessionId) {
+        window.location.assign(intent.redirectUrl);
         return;
       }
 
@@ -149,7 +203,7 @@ export function WalletView({
       });
       const verified = await verifyResponse.json();
       if (!verifyResponse.ok) {
-        throw new Error(verified?.error?.message ?? "Payment could not be verified.");
+        throw new Error(errorText(verified?.error?.message ?? "Payment could not be verified.", lang, verified?.error?.code));
       }
 
       setNotice(topUpSuccessMessage(amountPaise, verified.voucherBonusPaise));
@@ -158,7 +212,7 @@ export function WalletView({
       setVoucherPreview(null);
       router.refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Something went wrong.");
+      setError(caught instanceof Error ? caught.message : errorText("Something went wrong.", lang));
     } finally {
       setBusy(false);
     }
@@ -166,16 +220,18 @@ export function WalletView({
 
   function topUpSuccessMessage(amountPaise: number, bonusPaise: number): string {
     if (bonusPaise > 0) {
-      return `${formatPaiseCompact(amountPaise)} added, plus a ${formatPaiseCompact(bonusPaise)} voucher bonus.`;
+      return tr(T.addedBonus, lang)
+        .replace("{amount}", formatPaiseCompact(amountPaise))
+        .replace("{bonus}", formatPaiseCompact(bonusPaise));
     }
-    return `${formatPaiseCompact(amountPaise)} added to your wallet.`;
+    return tr(T.added, lang).replace("{amount}", formatPaiseCompact(amountPaise));
   }
 
   /** TC-FLD-030: at most two decimals (paise) — 10.555 is refused with a message, not rounded and charged. */
   function typedPaise(onError: (message: string) => void): number | null {
     const parsed = parseRupeeInput(custom);
     if (parsed.ok === true && parsed.paise > 0) return parsed.paise;
-    onError(parsed.ok === false ? parsed.error : "Enter a valid amount.");
+    onError(parsed.ok === false ? parsed.error : tr(T.validAmount, lang));
     return null;
   }
 
@@ -191,28 +247,27 @@ export function WalletView({
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="min-w-0 space-y-6">
         <Card className="p-6">
-          <p className="text-sm text-ink-500">Available balance</p>
+          <p className="text-sm text-ink-500">{tr(T.available, lang)}</p>
           <p className="mt-1 text-4xl font-bold text-ink-900">
             <Money paise={balancePaise} />
           </p>
           {promotionalBalancePaise > 0 ? (
             <p className="mt-1 text-xs text-ink-500">
-              <Money paise={balancePaise - promotionalBalancePaise} /> from your
-              payments · <Money paise={promotionalBalancePaise} /> voucher
-              credit
+              <Money paise={balancePaise - promotionalBalancePaise} /> {tr(T.fromPayments, lang)}
+              {" · "}<Money paise={promotionalBalancePaise} /> {tr(T.voucherCredit, lang)}
             </p>
           ) : null}
 
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg bg-cream-50 p-3">
-              <p className="text-ink-500">Today&apos;s deduction</p>
+              <p className="text-ink-500">{tr(T.todaysDeduction, lang)}</p>
               <p className="mt-0.5 font-semibold text-ink-900">
                 <Money paise={todaysDeductionPaise} />
               </p>
             </div>
             <div className="rounded-lg bg-cream-50 p-3">
               <p className="text-ink-500">
-                Next {forecast.horizonDays} days of subscriptions
+                {tr(T.nextDays, lang).replace("{n}", String(forecast.horizonDays))}
               </p>
               <p className="mt-0.5 font-semibold text-ink-900">
                 <Money paise={forecast.upcomingCostPaise} />
@@ -222,18 +277,17 @@ export function WalletView({
 
           {isLow ? (
             <div className="mt-4">
-              <Alert tone="warning" title="Low balance">
-                Your balance is below your{" "}
-                <Money paise={lowBalanceThresholdPaise} /> reminder threshold.
+              <Alert tone="warning" title={tr(T.lowBalance, lang)}>
+                {tr(T.belowYour, lang)}{" "}
+                <Money paise={lowBalanceThresholdPaise} /> {tr(T.reminder, lang)}
               </Alert>
             </div>
           ) : null}
 
           {!forecast.sufficient ? (
             <div className="mt-3">
-              <Alert tone="danger" title="Upcoming subscriptions may not be covered">
-                Your wallet may be insufficient for the next{" "}
-                {forecast.horizonDays} days. We recommend adding{" "}
+              <Alert tone="danger" title={tr(T.notCovered, lang)}>
+                {tr(T.insufficientFor, lang).replace("{n}", String(forecast.horizonDays))}{" "}
                 <Money paise={forecast.recommendedTopUpPaise} />.
                 <div className="mt-2">
                   <Button
@@ -241,7 +295,7 @@ export function WalletView({
                     disabled={busy}
                     onClick={() => addMoney(forecast.recommendedTopUpPaise)}
                   >
-                    Add {formatPaiseCompact(forecast.recommendedTopUpPaise)}
+                    {tr(T.addAmount, lang).replace("{amount}", formatPaiseCompact(forecast.recommendedTopUpPaise))}
                   </Button>
                 </div>
               </Alert>
@@ -251,7 +305,7 @@ export function WalletView({
 
         <Card id="history" className="p-6">
           <h2 className="mb-3 text-base font-semibold text-ink-900">
-            Transactions
+            {tr(T.transactions, lang)}
           </h2>
           {transactions.length === 0 ? (
             // docs/homepage-uiux-2026-10 (F3): a picture and the next step.
@@ -293,7 +347,7 @@ export function WalletView({
                       <Money paise={Math.abs(t.amountPaise)} />
                     </p>
                     <p className="text-xs text-ink-500">
-                      bal <Money paise={t.newBalancePaise} />
+                      {tr(T.bal, lang)} <Money paise={t.newBalancePaise} />
                     </p>
                   </div>
                 </li>
@@ -305,7 +359,7 @@ export function WalletView({
 
       <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">
         <Card id="add-money" className="p-5">
-          <h2 className="text-base font-semibold text-ink-900">Add money</h2>
+          <h2 className="text-base font-semibold text-ink-900">{tr(T.addMoney, lang)}</h2>
 
           <div className="mt-3 grid grid-cols-3 gap-2">
             {TOPUP_PRESETS_PAISE.map((paise) => (
@@ -329,8 +383,8 @@ export function WalletView({
               min={1}
               step={0.01}
               inputMode="decimal"
-              placeholder="Amount (₹)"
-              aria-label="Amount in rupees"
+              placeholder={tr(T.amountPlaceholder, lang)}
+              aria-label={tr(T.amountLabel, lang)}
               value={custom}
               onChange={(e) => {
                 setCustom(e.target.value);
@@ -344,8 +398,8 @@ export function WalletView({
             <input
               value={voucherCode}
               onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-              placeholder="Voucher code (optional)"
-              aria-label="Voucher code"
+              placeholder={tr(T.voucherPlaceholder, lang)}
+              aria-label={tr(T.voucherLabel, lang)}
               className={`${inputClass} min-w-0`}
             />
             <Button
@@ -356,7 +410,7 @@ export function WalletView({
                 if (paise !== null) applyVoucher(paise);
               }}
             >
-              Apply
+              {tr(T.apply, lang)}
             </Button>
           </div>
           {voucherError ? (
@@ -366,22 +420,22 @@ export function WalletView({
             <div className="mt-2 rounded-lg bg-leaf-50 p-3 text-sm">
               <p className="font-medium text-leaf-800">{voucherPreview.name}</p>
               <div className="mt-1 flex justify-between text-ink-700">
-                <span>Top-up</span>
+                <span>{tr(T.topUp, lang)}</span>
                 <Money paise={voucherPreview.totalCreditPaise - voucherPreview.bonusAmountPaise} />
               </div>
               <div className="flex justify-between text-leaf-700">
-                <span>Voucher bonus ({voucherPreview.bonusPercent}%)</span>
+                <span>{tr(T.voucherBonus, lang)} ({voucherPreview.bonusPercent}%)</span>
                 <Money paise={voucherPreview.bonusAmountPaise} />
               </div>
               <div className="mt-1 flex justify-between border-t border-leaf-200 pt-1 font-semibold text-ink-900">
-                <span>Total wallet credit</span>
+                <span>{tr(T.totalCredit, lang)}</span>
                 <Money paise={voucherPreview.totalCreditPaise} />
               </div>
             </div>
           ) : null}
 
           <Button className="mt-3 w-full" disabled={busy || !custom} onClick={addCustom}>
-            {busy ? "Processing…" : "Proceed to payment"}
+            {busy ? tr(T.processing, lang) : tr(T.proceed, lang)}
           </Button>
 
           {notice ? (
@@ -396,8 +450,7 @@ export function WalletView({
           ) : null}
 
           <p className="mt-3 text-xs text-ink-500">
-            Payments are processed by Cashfree. Your wallet is credited only
-            after the payment is verified.
+            {tr(T.cashfreeNote, lang)}
           </p>
         </Card>
       </div>

@@ -3,6 +3,24 @@
 GoKesari Authorized Dealer & Merchant Acquisition Programme. For GoKesari admins and operators.
 Last updated 28 Oct 2026. Design and decisions: [REUSE_GAP_ANALYSIS.md](REUSE_GAP_ANALYSIS.md).
 
+> **Current rules (24-Nov-2026)** — parts of this guide are superseded:
+> - **Commission models:** besides the standard (base %) and milestone models below there are the 3-level TIERED
+>   model, 20% / 4% / 3% with no per-shop cap ([TIERED_COMMISSION.md](TIERED_COMMISSION.md)), the paid franchise
+>   ([../franchise/README.md](../franchise/README.md)) and, since 23-Nov-2026, the scheme platform: new dealers start
+>   on Free Dealership v2 (20% one-time + 5% monthly) and can choose Business / Growth Partner
+>   ([../dealer-platform/ADMIN_GUIDE.md](../dealer-platform/ADMIN_GUIDE.md)). The territory dealer is retired.
+> - **Dealer codes:** new dealer codes are `GKD-` + 6 characters (team leads `GKT-`, agents `GKA-`, franchises
+>   `GKF-`) since 21-Nov-2026; `GKS-…` and 8-character codes issued earlier keep working.
+> - **Instant approval:** the flag `gov_verification_auto_approval_enabled` is retired (decision log DI-11): a shop
+>   registered through the wizard goes live on a verified GSTIN / PAN and the fee paid online, in every district.
+>   Documents follow the must-have / promise rules (DF-08, DF-09): see
+>   [../shop-onboarding-identity-first-2026-11/BRIEF.md](../shop-onboarding-identity-first-2026-11/BRIEF.md).
+> - **Payouts:** one per PAN each month on the 5th, with optional automatic bank transfer and TDS
+>   ([MONTHLY_PAYOUT.md](MONTHLY_PAYOUT.md), [../referrals-dealer-2026-11/ADMIN_GUIDE.md](../referrals-dealer-2026-11/ADMIN_GUIDE.md)).
+> - **Applications:** documents can be verified online (PAN, GSTIN, bank) instead of uploaded
+>   ([ONLINE_VERIFICATION.md](ONLINE_VERIFICATION.md)); shops and team members are moved between teams through
+>   Referral moves ([REFERRAL_MOVES.md](REFERRAL_MOVES.md)).
+
 **Who can do what**
 
 | | Admin | Operator | Dealer |
@@ -25,7 +43,7 @@ Every change needs a written reason and is kept in the audit log.
 | Flag | What it switches on |
 |---|---|
 | `dealer_programme_enabled` | Dealer application, dealer portal, codes, attribution, commission, dealer analytics |
-| `gov_verification_auto_approval_enabled` | Instant shop approval on government GST/PAN check + online fee payment |
+| ~~`gov_verification_auto_approval_enabled`~~ | *Retired 08-Nov-2026 (DI-11): instant approval is always on for wizard shops* |
 | `dealer_rating_bonus_enabled` | The rating bonus on top of commission |
 | `paid_support_services_enabled` | The paid Support services page for shops |
 
@@ -34,7 +52,7 @@ Each flag can be on for **all of India**, or only for chosen **states** and **di
 districts added later; a district (the Pune pilot is `MH-PUN`) covers only itself.
 Off means the site behaves exactly as before. Turn a flag off at any time; nothing is deleted.
 
-**Production:** all four are off. Switch them on only in an approved window, Pune first.
+**Production (28 Oct 2026):** all four were off. Switch them on only in an approved window, Pune first.
 
 ---
 
@@ -92,6 +110,10 @@ distributor sit under **GoKesari Direct** (internal; earns no commission).
 ---
 
 ## 4. Instant approval on GST/PAN (where its flag is on)
+
+> *Superseded (24-Nov-2026):* there is no flag any more (DI-11), and the documents needed before go-live are now a
+> verified GSTIN or PAN and, for a food shop, FSSAI; the rest follow on the owner's promise or as Admin → Shops →
+> Document rules says (DF-08, DF-09).
 
 **Admin → Shops → Instant approvals** (`/admin/shops/instant-approvals`).
 

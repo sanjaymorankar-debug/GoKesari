@@ -5,6 +5,7 @@
  * client-facing message. Raw errors and stack traces never reach the client
  * (requirement §53).
  */
+import { redactForLog, redactIdentityNumbers } from "@/lib/kyc/identity-mask";
 
 export type AppErrorCode =
   | "UNAUTHENTICATED"
@@ -128,12 +129,13 @@ export function toClientError(error: unknown): {
     return { status: 404, body: { error: { code: "NOT_FOUND", message: "Not found." } } };
   }
 
-  console.error("[unhandled]", error);
+  // docs/identity-verification-2026-11: identity numbers (Aadhaar-like 12-digit runs, PANs) are masked in the log.
+  console.error("[unhandled]", redactForLog(error));
   // Drizzle's "Failed query" hides the driver's reason (auth, TLS, network).
   const cause = error instanceof Error ? error.cause : undefined;
   if (cause instanceof Error) {
     const code = (cause as { code?: unknown }).code;
-    console.error(`[unhandled] cause: ${cause.name}: ${cause.message}${code ? ` (code ${String(code)})` : ""}`);
+    console.error(redactIdentityNumbers(`[unhandled] cause: ${cause.name}: ${cause.message}${code ? ` (code ${String(code)})` : ""}`));
   }
   return {
     status: 500,

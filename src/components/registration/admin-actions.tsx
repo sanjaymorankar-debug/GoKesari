@@ -82,3 +82,26 @@ export function CommissionStatus({ id, status, canChange }: { id: string; status
     </select>
   );
 }
+
+/** Owner, 25-Nov-2026: send the owner of an unfinished registration a link to carry on where it stopped. */
+export function SendResumeLinkButton({ draftId }: { draftId: string }) {
+  const [state, setState] = useState<"idle" | "busy" | "sent">("idle");
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      disabled={state !== "idle"}
+      data-testid="send-resume-link"
+      onClick={async () => {
+        setState("busy");
+        const error = await act(`/api/admin/registration-drafts/${draftId}`, { action: "resume-link" });
+        if (error) {
+          window.alert(error);
+          setState("idle");
+        } else setState("sent");
+      }}
+    >
+      {state === "sent" ? "Link sent ✓" : state === "busy" ? "Sending…" : "Send owner the link"}
+    </Button>
+  );
+}

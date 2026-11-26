@@ -39,6 +39,8 @@ export interface HomePageData {
   referralCode: string | null;
   /** docs/smart-shopping-2026-11: show the "Scan my shopping list" tile (flag smart_list_scan_enabled). */
   scanList?: boolean;
+  /** docs/price-comparison-off-2026-11: flag local_price_comparison_enabled — off hides the "Compare prices" chip. */
+  priceComparison?: boolean;
 }
 
 function SectionHeading({ id, title, href, linkLabel }: { id: string; title: string; href?: string; linkLabel?: string }) {
@@ -58,9 +60,9 @@ function SectionHeading({ id, title, href, linkLabel }: { id: string; title: str
 }
 
 /** Nearby · Open now · Delivers here · Compare prices — the last one the accent "Smart tool". */
-function ShopChips({ lang, counts }: { lang: Lang; counts: Counts }) {
+function ShopChips({ lang, counts, priceComparison }: { lang: Lang; counts: Counts; priceComparison: boolean }) {
   const shopsMenu = CUSTOMER_MENUS.find((m) => m.key === "shops");
-  const chips = (shopsMenu?.items ?? []).map((item) => ({
+  const chips = (shopsMenu?.items ?? []).filter((item) => item.key !== "compare" || priceComparison).map((item) => ({
     key: item.key,
     href: item.href,
     label: tr(item.label, lang),
@@ -137,7 +139,7 @@ function JoinCards({ lang }: { lang: Lang }) {
   );
 }
 
-export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNavProps & { unreadCount: number; cartCount: number; locationLabel: string | null; savedAddresses: { id: string; label: string }[] }; data: HomePageData }) {
+export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNavProps & { unreadCount: number; cartCount: number; locationLabel: string | null; savedAddresses: { id: string; label: string }[]; barcodeScan?: boolean }; data: HomePageData }) {
   const signedIn = Boolean(header.user);
   const popularTitle =
     data.popular.scope === "area"
@@ -198,7 +200,7 @@ export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNa
             href="/shops"
             linkLabel={tr(HOME.seeAll, lang)}
           />
-          <ShopChips lang={lang} counts={data.counts} />
+          <ShopChips lang={lang} counts={data.counts} priceComparison={Boolean(data.priceComparison)} />
           {!data.hasLocation ? (
             <p className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm text-ink-700" data-testid="home-set-location">
               <Icon name="map-pin" size={16} className="text-kesari-700" />

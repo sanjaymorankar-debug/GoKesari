@@ -16,7 +16,6 @@ import { and, eq, inArray } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { POST as otpRoute } from "@/app/api/shop-registrations/otp/route";
 import { POST as webhookRoute } from "@/app/api/webhooks/cashfree/route";
 import { db } from "@/server/db";
 import {
@@ -41,6 +40,8 @@ import {
 import { requestLoginOtp, verifyLoginOtp } from "@/server/otp/service";
 import { sendRegistrationOtp } from "@/server/registration/otp";
 import {
+  assertSelfRegistrationOpen,
+  checkJoinReferral,
   checkReferralCode,
   createRegistration,
   registrationReceiptPdf,
@@ -49,7 +50,6 @@ import {
 } from "@/server/registration/service";
 import { deliverPending } from "@/server/services/notifications";
 import { clearRuleCache, setRule } from "@/server/services/settings";
-import { call } from "../helpers/http";
 import { createUser, resetDatabase, uniqueMobile } from "../helpers/fixtures";
 
 let admin = { id: "", role: "ADMIN" as const };
@@ -99,7 +99,7 @@ async function register(opts: { referral: string; tier?: string; shopName?: stri
   await sendRegistrationOtp(`+91${mobile}`, null);
   const otp = await latestCode(`+91${mobile}`);
   const { token, registration } = await createRegistration(
-    { shopName: opts.shopName ?? "Shree Ganesh Kirana", mobile, referralCode: opts.referral, tierCode: opts.tier ?? "BASIC", otp, acceptTerms: true },
+    { shopName: opts.shopName ?? "Shree Ganesh Kirana", mobile, referralCode: opts.referral, tierCode: opts.tier ?? "BASIC", otp, acceptTerms: true, acceptUndertaking: true },
     "127.0.0.1",
   );
   return { token, registration, mobile };
@@ -148,11 +148,8 @@ describe("referral code is checked before anything else", () => {
     await register({ referral: "ONCEONLY" });
     expect(await checkReferralCode("ONCEONLY")).toMatchObject({ ok: false, reason: "LIMIT_REACHED" });
 
-    const mobile = uniqueMobile();
-    const res = await call(otpRoute as never, "/api/shop-registrations/otp", { method: "POST", body: { mobile, referralCode: "OLDCODE" } });
-    expect(res.status).toBe(422);
-    expect(res.body.error.message).toMatch(/expired/);
-    expect(await db.select().from(outboundTestMessages).where(eq(outboundTestMessages.toAddress, `+91${mobile}`))).toHaveLength(0);
+    // The sign-up API that sent the code is gone (legacy cleanup, 24-Nov-2026); the check it ran first stays.
+    expect(await checkJoinReferral("OLDCODE")).toMatchObject({ ok: false, reason: "EXPIRED", message: expect.stringMatching(/expired/) });
     expect(await db.select().from(shopRegistrations)).toHaveLength(1);
   });
 
@@ -166,7 +163,7 @@ describe("referral code is checked before anything else", () => {
     }
     const results = await Promise.allSettled(
       applicants.map((a) =>
-        createRegistration({ shopName: "Race Shop", mobile: a.mobile, referralCode: "LASTSLOT", tierCode: "BASIC", otp: a.otp, acceptTerms: true }, "127.0.0.1"),
+        createRegistration({ shopName: "Race Shop", mobile: a.mobile, referralCode: "LASTSLOT", tierCode: "BASIC", otp: a.otp, acceptTerms: true, acceptUndertaking: true }, "127.0.0.1"),
       ),
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
@@ -192,10 +189,10 @@ describe("referral code is checked before anything else", () => {
     await sendRegistrationOtp(`+91${mobile}`, null);
     const otp = await latestCode(`+91${mobile}`);
     const wrong = otp === "000000" ? "111111" : "000000";
-    await expect(createRegistration({ shopName: "A Shop", mobile, referralCode: "PUNE2026", tierCode: "BASIC", otp: wrong, acceptTerms: true }, null)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(createRegistration({ shopName: "A Shop", mobile, referralCode: "PUNE2026", tierCode: "BASIC", otp: wrong, acceptTerms: true, acceptUndertaking: true }, null)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     await sendRegistrationOtp(`+91${mobile}`, null).catch(() => undefined); // cooldown may refuse; the old code is still the latest
     const fresh = await latestCode(`+91${mobile}`);
-    await expect(createRegistration({ shopName: "A Shop", mobile, referralCode: "PUNE2026", tierCode: "SILVER", otp: fresh, acceptTerms: true }, null)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(createRegistration({ shopName: "A Shop", mobile, referralCode: "PUNE2026", tierCode: "SILVER", otp: fresh, acceptTerms: true, acceptUndertaking: true }, null)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });
 
@@ -452,8 +449,6 @@ describe("after approval", () => {
 
     await setRule("selfRegistration", { enabled: false, holdHours: 24, maxPendingPerMobile: 3, classification: "GREEN" }, admin);
     clearRuleCache();
-    const res = await call(otpRoute as never, "/api/shop-registrations/otp", { method: "POST", body: { mobile: uniqueMobile(), referralCode: "CITY1" } });
-    expect(res.status).toBe(422);
-    expect(res.body.error.message).toMatch(/not open/);
+    await expect(assertSelfRegistrationOpen()).rejects.toThrow(/not open/);
   });
 });

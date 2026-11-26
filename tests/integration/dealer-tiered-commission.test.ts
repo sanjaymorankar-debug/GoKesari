@@ -510,6 +510,12 @@ describe("the owner's structure (5 Nov 2026; main dealer 3% since 20 Nov 2026): 
 });
 
 describe("renewal commission", () => {
+  // Owner, 25-Nov-2026: renewal commission is paid only while shopRegistrationSubscription.payCommissionOnRenewals is on (default off).
+  beforeEach(async () => {
+    await setRule("shopRegistrationSubscription", { payCommissionOnRenewals: true }, admin);
+    clearRuleCache();
+  });
+
   it("10% of a paid renewal (before GST) to the direct earner, 1% to the main dealer while the shop is active; off → nothing", async () => {
     const dealer = await newDealer();
     const a = await member(dealer.id, "Agent", "AGENT");
