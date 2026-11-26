@@ -244,6 +244,7 @@ qa("TC-CAT-074", "the stock and price editor refuses MRP 0, a price above the MR
       for (const pct of ["0", "100"]) {
         await page.reload();
         row = await stockRow(page, item.name);
+        await row.getByLabel(`Select ${item.name}`, { exact: true }).check(); // the bulk tools show once a row is picked
         await discount.fill(pct);
         await applyDiscount.click();
         await expect(page.getByText("Enter a discount from 1 to 99 percent.", { exact: true }), `discount ${pct}%`).toBeVisible();

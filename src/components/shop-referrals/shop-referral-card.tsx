@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Badge, Button, Card } from "@/components/ui";
+import { ReferralShareButtons } from "@/components/referral-sharing/share-buttons";
 
 const rs = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
@@ -15,7 +16,10 @@ export function ShopReferralCard({
   link,
   offer,
   summary,
+  shareAs,
 }: {
+  /** docs/referral-sharing-2026-11 (rule referralSharing on): WhatsApp, SMS, Email, share sheet, Copy link — logged. */
+  shareAs?: { who: string; origin: string } | null;
   code: string;
   link: string;
   /** "10% off their registration fee" / "₹100 welcome credit" and "₹200 promotional credit" / "1 month more membership". */
@@ -49,6 +53,9 @@ export function ShopReferralCard({
       <p className="break-all text-sm text-ink-700" data-testid="shop-referral-link">
         {link}
       </p>
+      {shareAs ? (
+        <ReferralShareButtons code={code} who={shareAs.who} audience="shop-owner" origin={shareAs.origin} subject="Register your shop on GoKesari" />
+      ) : (
       <div className="flex flex-wrap gap-2">
         <a
           className="inline-flex min-h-11 items-center rounded-lg bg-leaf-700 px-4 text-sm font-semibold text-white"
@@ -65,6 +72,7 @@ export function ShopReferralCard({
           {copied ? "Link copied" : "Copy link"}
         </Button>
       </div>
+      )}
       <p className="flex flex-wrap gap-2 text-sm" data-testid="shop-referral-summary">
         <Badge tone="info">{summary.pending} waiting</Badge>
         <Badge tone="success">{summary.rewarded} rewarded</Badge>

@@ -332,6 +332,23 @@ export async function shopCounts(shopId: string): Promise<Counts> {
     shopOpenDisputes: () =>
       one(db.select({ n: count() }).from(orderDisputes).where(and(eq(orderDisputes.shopId, shopId), notInArray(orderDisputes.status, [...DISPUTE_TERMINAL])))),
     shopLowStock: () => one(db.select({ n: count() }).from(stockAlerts).where(and(eq(stockAlerts.shopId, shopId), eq(stockAlerts.status, "OPEN")))),
+    // docs/ux-mobile-2026-11: listings with neither an online nor a shop price ("Needs Price").
+    shopNeedsPrice: () =>
+      one(
+        db
+          .select({ n: count() })
+          .from(shopProducts)
+          .where(
+            and(
+              eq(shopProducts.shopId, shopId),
+              isNull(shopProducts.deletedAt),
+              eq(shopProducts.isActive, true),
+              eq(shopProducts.ownerPaused, false),
+              isNull(shopProducts.onlinePricePaise),
+              isNull(shopProducts.offlinePricePaise),
+            ),
+          ),
+      ),
     shopNeedsStock: () =>
       one(
         db

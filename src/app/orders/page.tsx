@@ -23,6 +23,7 @@ import { customerCancellableStatuses } from "@/lib/order-cancellation";
 import { DISPUTE_STATUS_LABELS } from "@/lib/dispute-states";
 import { isTrackableOrderStatus } from "@/lib/tracking";
 import { L, tr, UI, type Text } from "@/lib/board/i18n";
+import { localizeSlotText, orderStatusText } from "@/lib/order-status-i18n";
 import { CUSTOMER_MENUS } from "@/lib/board/menus";
 import { IN_PROGRESS_ORDER_STATUSES, pickTab } from "@/lib/board/status-groups";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -262,7 +263,7 @@ export default async function OrdersPage({
             <Card key={order.id} id={`order-${order.orderNumber}`} className="p-5" data-testid="order-card">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={order.status} />
+                  <StatusBadge status={order.status} label={orderStatusText(order.status, lang)} />
                   {/* Gig worker flow (feature 11): the delivered order was confirmed complete. */}
                   {order.completedAt ? <Badge tone="success">{tr(T.completed, lang)}</Badge> : null}
                   {order.source === "SUBSCRIPTION" ? (
@@ -305,24 +306,24 @@ export default async function OrdersPage({
                 {order.deliveryDate && !order.scheduledSlotStart ? tr(T.forDate, lang).replace("{n}", order.deliveryDate) : ""}
               </p>
               {order.status === "DELIVERED" && (invoicingRule.enabled || proofPhotos.has(order.id) || gokesariInvoices.has(order.id) || signatures.has(order.id)) ? (
-                <p className="mt-1 flex flex-wrap gap-3 text-xs" data-testid="order-documents">
+                <p className="mt-1 flex flex-wrap gap-x-4 text-sm" data-testid="order-documents">
                   {invoicingRule.enabled ? (
-                    <a href={`/api/orders/${order.id}/invoice`} className="font-medium text-kesari-700 hover:underline">
+                    <a href={`/api/orders/${order.id}/invoice`} className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline">
                       {orderInvoiceLabel(invoiceKinds.get(order.id))}
                     </a>
                   ) : null}
                   {(gokesariInvoices.get(order.id) ?? []).map((g) => (
-                    <a key={g.id} href={`/api/delivery-invoices/${g.id}/pdf`} className="font-medium text-kesari-700 hover:underline">
+                    <a key={g.id} href={`/api/delivery-invoices/${g.id}/pdf`} className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline">
                       {platformInvoiceLabel(g.kind)}
                     </a>
                   ))}
                   {proofPhotos.has(order.id) ? (
-                    <a href={proofPhotos.get(order.id)!.url} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline">
+                    <a href={proofPhotos.get(order.id)!.url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline">
                       {tr(T.photoAtDelivery, lang)}
                     </a>
                   ) : null}
                   {signatures.has(order.id) ? (
-                    <a href={signatures.get(order.id)!.url} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline" data-testid="order-signature">
+                    <a href={signatures.get(order.id)!.url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline" data-testid="order-signature">
                       {tr(SIGNATURE_LINK, lang)} · {formatProofTime(signatures.get(order.id)!.takenAt)}
                     </a>
                   ) : null}
@@ -330,7 +331,7 @@ export default async function OrdersPage({
               ) : null}
               {order.scheduledSlotStart && order.scheduledSlotEnd ? (
                 <p className="text-xs font-medium text-kesari-700" data-testid="order-scheduled-slot">
-                  {tr(T.delivery, lang)} {formatScheduledSlot(order.scheduledSlotStart, order.scheduledSlotEnd)}
+                  {tr(T.delivery, lang)} {localizeSlotText(formatScheduledSlot(order.scheduledSlotStart, order.scheduledSlotEnd), lang)}
                 </p>
               ) : null}
 
@@ -383,18 +384,18 @@ export default async function OrdersPage({
               ) : null}
 
               {/* batch-2026-10 WS-C: refund timeline, charges and help for this order. */}
-              <p className="mt-3 flex flex-wrap gap-3 text-xs">
-                <Link href={`/orders/${order.id}`} className="font-medium text-kesari-700 hover:underline" data-testid="order-details-link">
+              <p className="mt-2 flex flex-wrap gap-x-4 text-sm">
+                <Link href={`/orders/${order.id}`} className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline" data-testid="order-details-link">
                   {tr(T.details, lang)}
                 </Link>
-                <Link href={`/support?orderId=${order.id}`} className="font-medium text-kesari-700 hover:underline">
+                <Link href={`/support?orderId=${order.id}`} className="inline-flex min-h-11 items-center font-semibold text-kesari-700 underline-offset-2 hover:underline">
                   {tr(T.getHelp, lang)}
                 </Link>
               </p>
 
               {fulfilmentPlans.has(order.id) &&
               !["CANCELLED", "REFUNDED", "REFUND_PENDING"].includes(order.status) ? (
-                <OrderFulfilmentCard orderId={order.id} info={fulfilmentPlans.get(order.id)!} />
+                <OrderFulfilmentCard orderId={order.id} info={fulfilmentPlans.get(order.id)!} lang={lang} />
               ) : null}
 
               {order.status === "OUT_FOR_DELIVERY" && deliveryCodes.get(order.id) ? (
@@ -474,7 +475,7 @@ export default async function OrdersPage({
                       </LinkButton>
                     </div>
                   ) : null}
-                  <ReportIssueForm orderId={order.id} />
+                  <ReportIssueForm orderId={order.id} lang={lang} />
                 </>
               ) : null}
 

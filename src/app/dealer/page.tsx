@@ -24,6 +24,7 @@ import { Alert, Badge, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { activeCodeFor, codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
 import { originFromHeaders } from "@/server/dealers/http";
+import { referralSharingOn } from "@/server/services/referral-links";
 import { listDisputes } from "@/server/dealers/disputes";
 import { listLeads } from "@/server/dealers/leads";
 import { dealerView, getDealerForUser, listSalespeople } from "@/server/dealers/service";
@@ -138,7 +139,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
       />
       <DealerPortal
         legalName={dealer.legalName}
-        code={code ? { code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, dealer.legalName), qrSvg: await codeQrSvg(origin, code) } : null}
+        code={code ? { code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, dealer.legalName), qrSvg: await codeQrSvg(origin, code), share: (await referralSharingOn()) ? { who: dealer.legalName, origin } : null } : null}
         employees={employees}
       />
       {network ? <TeamPerformance endpoint="/api/dealer/team?view=performance" /> : null}
@@ -192,7 +193,7 @@ async function MemberPortal({ member, dealer, openStatement }: { member: DealerS
       {code ? (
         <DealerPortal
           legalName={`${dealer.legalName}: ${member.name}`}
-          code={{ code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, member.name), qrSvg: await codeQrSvg(origin, code) }}
+          code={{ code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, member.name), qrSvg: await codeQrSvg(origin, code), share: (await referralSharingOn()) ? { who: `${member.name} (${dealer.legalName})`, origin } : null }}
           employees={[]}
           showEmployees={false}
         />

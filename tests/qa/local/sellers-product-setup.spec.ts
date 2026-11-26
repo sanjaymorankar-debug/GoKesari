@@ -119,6 +119,8 @@ qa("TC-CAT-071", "a new shop with no products: choose 2 categories (lists nothin
     await page.getByRole("button", { name: "Continue with 5 selected" }).click();
     await expect(progress).toContainText("Step 3 of 3: Set stock and price");
     await expect(page.getByTestId("stock-row")).toHaveCount(5);
+    // Nothing is selected at first (owner brief 25-Nov-2026): pick the five, then the bulk tools show.
+    await page.getByLabel(/^Select this page/).check();
     const stock = page.getByLabel("Same stock for selected");
     await stock.fill("10");
     await stock.locator("xpath=ancestor::div[1]").getByRole("button", { name: "Apply" }).click();

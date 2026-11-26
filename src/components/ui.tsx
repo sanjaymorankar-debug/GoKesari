@@ -99,8 +99,11 @@ export function Section({
 
 export function ClassificationBadge({
   value,
+  lang = "en",
 }: {
   value: "KESARI" | "GREEN" | null;
+  /** docs/hindi-marathi-2026-11: the badge in the reader's language. */
+  lang?: "en" | "hi" | "mr";
 }) {
   if (!value) return null;
   const isKesari = value === "KESARI";
@@ -113,7 +116,7 @@ export function ClassificationBadge({
           : "bg-leaf-100 text-leaf-700",
       )}
     >
-      {isKesari ? "Kesari" : "Green"}
+      {isKesari ? { en: "Kesari", hi: "केसरी", mr: "केसरी" }[lang] : { en: "Green", hi: "हरित", mr: "हरित" }[lang]}
     </span>
   );
 }
@@ -186,7 +189,8 @@ const DANGER_STATUSES = new Set([
 ]);
 const WARNING_STATUSES = new Set(["PENDING", "PENDING_APPROVAL", "RETURNED", "PARTIAL", "PROCESSING", "UNPAID"]);
 
-export function StatusBadge({ status }: { status: string }) {
+/** `label`: the status in the reader's language (lib/order-status-i18n); default is the status in lower case. */
+export function StatusBadge({ status, label }: { status: string; label?: string }) {
   const tone = SUCCESS_STATUSES.has(status)
     ? "success"
     : DANGER_STATUSES.has(status)
@@ -194,7 +198,7 @@ export function StatusBadge({ status }: { status: string }) {
       : WARNING_STATUSES.has(status)
         ? "warning"
         : "info";
-  return <Badge tone={tone}>{status.replace(/_/g, " ").toLowerCase()}</Badge>;
+  return <Badge tone={tone}>{label ?? status.replace(/_/g, " ").toLowerCase()}</Badge>;
 }
 
 /* -------------------------------------------------------------- controls */

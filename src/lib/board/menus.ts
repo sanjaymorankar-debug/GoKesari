@@ -43,7 +43,7 @@ export const COUNT_KEYS = [
   "activeSubscriptions", "shopCategories", "unread",
   // shop owner
   "shopActiveOrders", "shopNew", "shopPacking", "shopReady", "shopOut", "shopOpenReturns",
-  "shopReturnRequests", "shopReturnPickups", "shopOpenDisputes", "shopLowStock", "shopNeedsStock", "shopPendingPhotos",
+  "shopReturnRequests", "shopReturnPickups", "shopOpenDisputes", "shopLowStock", "shopNeedsStock", "shopNeedsPrice", "shopPendingPhotos",
   "shopPriceRequests", "shopActiveOffers", "shopRiders",
   // admin & operator
   "pendingShops", "allShops", "sellerReviews", "activeSuspensions", "users", "customers", "owners",
@@ -189,6 +189,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "addresses", label: L("Addresses", "पते", "पत्ते"), icon: "map-pin", href: "/profile/addresses", auth: true },
       { key: "society", label: L("Society", "सोसाइटी", "सोसायटी"), icon: "building-2", href: "/society", auth: true },
       { key: "refer", label: L("Refer & earn", "रेफ़र करें", "रेफर करा"), short: { en: "Refer" }, icon: "gift", href: "/refer", auth: true },
+      // docs/referral-sharing-2026-11: shares, link opens, sign-ups and earnings for every code the person owns.
+      { key: "myReferrals", label: L("My referrals", "मेरे रेफ़रल", "माझे रेफरल"), short: { en: "Referrals" }, icon: "gift", href: "/referrals", auth: true },
       // GoKesari Health (docs/health/): the family's health record, prescriptions, medicines, home care, equipment.
       { key: "health", label: L("My Health", "मेरा स्वास्थ्य", "माझे आरोग्य"), short: { en: "Health" }, icon: "shield-check", href: "/health", auth: true },
       // Mockup: "App theme" — no theme setting exists; nearest real destination.
@@ -460,6 +462,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "customerReferrals", label: L("Customer referrals", "ग्राहक रेफ़रल", "ग्राहक रेफरल"), icon: "gift", href: "/admin/customer-referrals", permission: PERMISSIONS.WALLET_ADJUST },
       { key: "tdsCommission", label: L("TDS on commission", "कमीशन पर TDS", "कमिशनवर TDS"), icon: "landmark", href: "/admin/tds-commission", permission: PERMISSIONS.COMMISSION_TDS_MANAGE },
       { key: "shopReferrals", label: L("Shop-refers-shop rewards", "दुकान-से-दुकान रेफ़रल इनाम", "दुकान-ते-दुकान रेफरल बक्षीस"), icon: "gift", href: "/admin/shop-referrals", permission: ADMIN_ONLY },
+      // docs/referral-sharing-2026-11: shares and link opens by referrer, role, channel and date.
+      { key: "referralLinks", label: L("Referral sharing report", "रेफ़रल शेयर रिपोर्ट", "रेफरल शेअर अहवाल"), icon: "gift", href: "/admin/referral-links", permission: PERMISSIONS.REPORT_VIEW_OPERATIONAL },
       { key: "societies", label: L("Societies", "सोसाइटी", "सोसायट्या"), icon: "building-2", href: "/admin/societies", count: "societiesApplied", permission: PERMISSIONS.SOCIETY_MANAGE_ANY },
     ],
   },

@@ -146,7 +146,7 @@ export function ChooseCategories({ shopId, tiles, nextHref }: { shopId: string; 
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <div className="sticky bottom-0 z-20 -mx-4 border-t border-cream-200 bg-white p-3 sm:mx-0 sm:rounded-xl sm:border">
+      <div className="sticky bottom-[var(--gk-bottom-nav,0px)] z-20 -mx-4 border-t border-cream-200 bg-white p-3 sm:mx-0 sm:rounded-xl sm:border">
         <Button className="w-full" disabled={busy || total === 0} onClick={next}>
           {busy ? "Saving…" : `Continue with ${total} ${total === 1 ? "category" : "categories"}`}
         </Button>

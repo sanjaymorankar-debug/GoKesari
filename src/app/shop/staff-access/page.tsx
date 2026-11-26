@@ -9,6 +9,7 @@ import { SHOP_STAFF_ROLE_LABELS } from "@/lib/shop-staff/permissions";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listingsContentSummary } from "@/server/services/shop-media";
 import { catalogueAccessFor, listMyInvitations, listShopsWhereStaff, myStaffPermissions } from "@/server/services/shop-staff";
+import { shopStaffRolesEnabled } from "@/server/services/shop-staff-access";
 
 export const metadata = { title: "Shops I help with" };
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function StaffAccessPage({ searchParams }: { searchParams: 
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   const { shopId, view } = await searchParams;
-  const [shops, invitations] = await Promise.all([listShopsWhereStaff(user.id), listMyInvitations(user)]);
+  const [shops, invitations, rolesOn] = await Promise.all([listShopsWhereStaff(user.id), listMyInvitations(user), shopStaffRolesEnabled()]);
   const selected = shopId && /^[0-9a-f-]{36}$/i.test(shopId) ? shopId : shops.length === 1 && invitations.length === 0 ? shops[0].shopId : null;
 
   // Module 10: the person's role in the selected shop (null with the flag off — catalogue only, as before).
@@ -37,7 +38,13 @@ export default async function StaffAccessPage({ searchParams }: { searchParams: 
   if (!selected) {
     return (
       <div className="mx-auto max-w-2xl">
-        <PageHeader title="Shops I help with" description="Shops whose product photos and descriptions you can edit." />
+        <PageHeader
+          title="Shops I help with"
+          description={
+            // Module 10 (staging E2E 25-Nov-2026): with staff roles on, a role can be much more than catalogue editing.
+            rolesOn ? "Shops you work in. Open one to see what your role lets you do." : "Shops whose product photos and descriptions you can edit."
+          }
+        />
         {invitations.length > 0 ? (
           <Card className="mb-4 divide-y divide-cream-100">
             {invitations.map((inv) => (
