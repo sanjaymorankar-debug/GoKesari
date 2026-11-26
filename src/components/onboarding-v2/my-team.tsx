@@ -16,14 +16,11 @@ type Role = "TEAM_LEAD" | "AGENT";
 
 const STATE_TEXT: Record<string, string> = {
   AVAILABLE: "Registered customer — can be added.",
-  NOT_READY: "Registered, but the account is not complete yet. You can still send the request; they accept once it is complete.",
   SELF: "That is your own account.",
-  IS_DEALER: "This person is a dealer and cannot join a team.",
   IN_YOUR_TEAM: "Already in your team.",
-  IN_ANOTHER_TEAM: "Already in another dealer's team.",
   ALREADY_INVITED: "A request is already waiting for this person.",
 };
-const CAN_INVITE = new Set(["AVAILABLE", "NOT_READY"]);
+const CAN_INVITE = new Set(["AVAILABLE"]);
 
 const ACTION_TEXT: Record<string, string> = {
   GRANTED: "joined",
@@ -116,10 +113,9 @@ export function MyTeam({ data }: { data: TeamOverview }) {
                 {candidate.found ? (
                   <p className="text-sm">
                     <span className="font-semibold">{candidate.maskedName}</span> ({candidate.contact}) — {STATE_TEXT[candidate.state]}
-                    {candidate.missing.length ? ` Missing: ${candidate.missing.join(", ")}.` : ""}
                   </p>
                 ) : (
-                  <p className="text-sm">No GoKesari account uses {candidate.contact}. Send an invite link: they sign up, then accept.</p>
+                  <p className="text-sm">No account ready to join under {candidate.contact}. Send an invite link: they sign up or complete their account, then accept.</p>
                 )}
                 {!candidate.found || CAN_INVITE.has(candidate.state) ? (
                   <div className="space-y-3">

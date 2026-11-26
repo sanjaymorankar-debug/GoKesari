@@ -11647,6 +11647,9 @@ export const dealerSalespeople = pgTable(
     uniqueIndex("dealer_salespeople_dealer_key").on(t.dealerId, t.id),
     index("dealer_salespeople_parent_idx").on(t.parentId).where(sql`${t.parentId} IS NOT NULL`),
     index("dealer_salespeople_user_idx").on(t.userId).where(sql`${t.userId} IS NOT NULL`),
+    // 0219 (onboarding v2 My team): one ACTIVE team place per account. Skipped by the migration (NOTICE) where old
+    // data already breaks it; the v2 accept's advisory lock covers new accepts either way.
+    uniqueIndex("dealer_salespeople_active_user_unique").on(t.userId).where(sql`${t.status} = 'ACTIVE' AND ${t.userId} IS NOT NULL`),
     foreignKey({
       name: "dealer_salespeople_parent_fk",
       columns: [t.dealerId, t.parentId, t.parentDepth, t.parentRole],

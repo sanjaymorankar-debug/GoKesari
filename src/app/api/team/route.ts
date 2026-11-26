@@ -4,8 +4,8 @@
  *
  * GET → teamOverview: members with role, lead, code and what stops their first payout; leads; requests; role history (IST).
  * POST { action, … }:
- *   search {query}                          exact mobile / e-mail search, masked name only
- *   invite {contact, role, parentId?}       request (registered customer) or invite link (anyone else)
+ *   search {query}                          exact mobile / e-mail search, masked name only (rate-limited per dealer and IP)
+ *   invite {contact, role, parentId?}       request or invite link (20 a day per dealer, 40 a day per IP)
  *   cancel {invitationId}
  *   upgrade {memberId}                      agent → team lead (dealer only)
  *   downgrade {memberId, parentId?}         team lead → agent, once his agents are reassigned (dealer only)
@@ -16,6 +16,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, parseBody, route } from "@/server/api/handler";
+import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
 import { originOf, requireDealerProgramme } from "@/server/dealers/http";
 import {
@@ -59,8 +60,10 @@ export const POST = route(async (request: NextRequest) => {
   const body = await parseBody(request, schema);
   switch (body.action) {
     case "search":
+      enforceRateLimit(clientKey(request, "team-search-ip"), RATE_LIMITS.TEAM_SEARCH_IP);
       return ok(await searchTeamCandidate(user, body.query));
     case "invite":
+      enforceRateLimit(clientKey(request, "team-invite-ip"), RATE_LIMITS.TEAM_INVITE_IP);
       return ok(await inviteTeamMember(user, { contact: body.contact, role: body.role, parentId: body.parentId ?? null, origin: originOf(request) }), 201);
     case "cancel":
       await cancelTeamInvitation(user, body.invitationId);

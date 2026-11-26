@@ -1135,7 +1135,19 @@ export async function requireApprovedDealer(actor: DealerActor): Promise<Dealer>
  */
 export async function addSalesperson(
   dealerId: string,
-  input: { employeeId: string; name: string; mobile?: string | null; role?: TeamRole; parentId?: string | null; recruitedById?: string | null },
+  input: SalespersonInput,
+  actor: DealerActor,
+): Promise<SalespersonView> {
+  return db.transaction((tx) => addSalespersonIn(tx, dealerId, input, actor));
+}
+
+type SalespersonInput = { employeeId: string; name: string; mobile?: string | null; role?: TeamRole; parentId?: string | null; recruitedById?: string | null; userId?: string | null };
+
+/** addSalesperson inside the caller's transaction (onboarding v2 accept: one transaction with the invitation). */
+export async function addSalespersonIn(
+  tx: DbClient,
+  dealerId: string,
+  input: SalespersonInput,
   actor: DealerActor,
 ): Promise<SalespersonView> {
   const employeeId = clean(input.employeeId, 48);
@@ -1148,7 +1160,7 @@ export async function addSalesperson(
     if (!MOBILE.test(m)) throw validationFailed("Enter a 10-digit mobile number, or leave it blank.", { fields: { mobile: "10 digits." } });
     mobileE164 = `+91${m}`;
   }
-  return db.transaction(async (tx) => {
+  {
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
     if (!dealer) throw notFound("Dealer");
     if (dealer.status !== "APPROVED") throw forbidden("Employees can be added only while the dealer is approved.");
@@ -1167,7 +1179,7 @@ export async function addSalesperson(
     }
     const [person] = await tx
       .insert(dealerSalespeople)
-      .values({ dealerId, employeeId, name, mobileE164, source: actor.role === "ADMIN" ? "ADMIN" : "DEALER" })
+      .values({ dealerId, employeeId, name, mobileE164, userId: input.userId ?? null, source: actor.role === "ADMIN" ? "ADMIN" : "DEALER" })
       .returning();
     // TIERED (0136): a place in the tree — at most 3 levels (refused here and by the database).
     if (input.role || input.parentId || input.recruitedById) {
@@ -1181,7 +1193,7 @@ export async function addSalesperson(
       tx,
     );
     return (await salespersonViews(dealerId, tx)).find((p) => p.id === person.id)!;
-  });
+  }
 }
 
 /**
@@ -1190,7 +1202,12 @@ export async function addSalesperson(
  * theirs. An employee of another dealer is "not found".
  */
 export async function setSalespersonStatus(dealerId: string, salespersonId: string, status: "ACTIVE" | "INACTIVE", actor: DealerActor): Promise<SalespersonView> {
-  return db.transaction(async (tx) => {
+  return db.transaction((tx) => setSalespersonStatusIn(tx, dealerId, salespersonId, status, actor));
+}
+
+/** setSalespersonStatus inside the caller's transaction (onboarding v2 accept / remove). */
+export async function setSalespersonStatusIn(tx: DbClient, dealerId: string, salespersonId: string, status: "ACTIVE" | "INACTIVE", actor: DealerActor): Promise<SalespersonView> {
+  {
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
     if (!dealer) throw notFound("Dealer");
     const [person] = await tx
@@ -1233,7 +1250,7 @@ export async function setSalespersonStatus(dealerId: string, salespersonId: stri
       );
     }
     return (await salespersonViews(dealerId, tx)).find((p) => p.id === salespersonId)!;
-  });
+  }
 }
 
 /** Users named on the dealer (for staff screens): the applicant's account email. */
