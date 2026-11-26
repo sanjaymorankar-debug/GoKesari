@@ -26,6 +26,7 @@ import { maskEmailAddress } from "@/lib/contact";
 import { getEnv } from "@/lib/env";
 import { AppError, conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
+import { systemTicketHook } from "@/server/aftercare/system-ticket-hook";
 import {
   deliveryOrders,
   deliveryPartners,
@@ -240,6 +241,7 @@ export async function checkDeliveryCode(row: DeliveryOrder, otp: string | undefi
   if (row.deliveryOtpLockedAt || row.deliveryOtpAttempts >= rules.maxAttempts) {
     // Also covers a drop locked before 0059, or after the limit was lowered: it gets its ticket now.
     const ticketNumber = await db.transaction((tx) => lockDelivery(row.id, row.deliveryOtpAttempts, actor, tx));
+    await lockoutTicket(row, ticketNumber);
     throw lockedError(ticketNumber);
   }
 
@@ -283,11 +285,24 @@ export async function checkDeliveryCode(row: DeliveryOrder, otp: string | undefi
     if (attempts < rules.maxAttempts) return { locked: false as const, attemptsLeft: rules.maxAttempts - attempts };
     return { locked: true as const, ticketNumber: await lockDelivery(row.id, attempts, actor, tx) };
   });
-  if (outcome.locked) throw lockedError(outcome.ticketNumber);
+  if (outcome.locked) {
+    await lockoutTicket(row, outcome.ticketNumber);
+    throw lockedError(outcome.ticketNumber);
+  }
   throw validationFailed(
     `That delivery code does not match. ${outcome.attemptsLeft} attempt${outcome.attemptsLeft === 1 ? "" : "s"} left — ask the customer for the latest code in their order.`,
     { attemptsLeft: outcome.attemptsLeft },
   );
+}
+
+/** docs/flows-v3 (flag flow_f17): the locked drop also opens a help-desk ticket (once per delivery). */
+async function lockoutTicket(row: DeliveryOrder, grievanceNumber: string | null): Promise<void> {
+  await systemTicketHook("DELIVERY_CODE_LOCKOUT", row.id, {
+    orderId: row.orderId,
+    priority: "HIGH",
+    subject: `Delivery code locked${grievanceNumber ? ` (${grievanceNumber})` : ""}`,
+    description: `Too many wrong delivery codes were entered, so the drop is locked. Call the customer, then confirm the delivery with a proof note or mark it failed from the operations exceptions queue.${grievanceNumber ? ` Grievance ${grievanceNumber}.` : ""}`,
+  });
 }
 
 /**

@@ -10,7 +10,7 @@ import { useState } from "react";
 
 import { shrinkImage } from "@/components/image-uploader";
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
-import { TICKET_CATEGORY_LABELS, type TicketCategory } from "@/lib/support-ticket-states";
+import { ticketCategoryLabel, type RaisableTicketCategory } from "@/lib/support-ticket-states";
 
 export function TicketForm({
   categories,
@@ -19,7 +19,7 @@ export function TicketForm({
   shopId,
   detailBase,
 }: {
-  categories: TicketCategory[];
+  categories: RaisableTicketCategory[];
   orderId?: string | null;
   orderLabel?: string | null;
   shopId?: string | null;
@@ -27,7 +27,7 @@ export function TicketForm({
   detailBase: string;
 }) {
   const router = useRouter();
-  const [category, setCategory] = useState<TicketCategory | "">(orderId ? "ORDER" : "");
+  const [category, setCategory] = useState<RaisableTicketCategory | "">(orderId ? "ORDER" : "");
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -67,11 +67,11 @@ export function TicketForm({
       <form className="space-y-4" onSubmit={submit} data-testid="ticket-form">
         {orderLabel ? <p className="text-sm text-ink-600">About order <strong>{orderLabel}</strong></p> : null}
         <Field label="What is it about?">
-          <select className={inputClass} value={category} onChange={(e) => setCategory(e.target.value as TicketCategory)}>
+          <select className={inputClass} value={category} onChange={(e) => setCategory(e.target.value as RaisableTicketCategory)}>
             <option value="">Choose</option>
             {categories.map((c) => (
               <option key={c} value={c}>
-                {TICKET_CATEGORY_LABELS[c]}
+                {ticketCategoryLabel(c)}
               </option>
             ))}
           </select>

@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { RiderBottomNav } from "@/components/rider-bottom-nav";
 import { RiderShell, type RiderShellProps } from "@/components/rider-shell/rider-shell";
@@ -12,6 +13,7 @@ import { deliveryPartners, orders } from "@/server/db/schema";
 import { getMyActiveDeliveryOrder } from "@/server/services/delivery-assignment";
 import { getAvailabilityGate, getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
 import { getRule } from "@/server/services/settings";
+import { riderDualVerifyRedirect } from "@/server/dual-auth/policy";
 
 /** Rider pages that never get the v2 frame: the application and sign-up forms. */
 const NO_SHELL = ["/delivery-partner/apply", "/delivery-partner/register"];
@@ -52,6 +54,13 @@ async function loadShell(): Promise<RiderShellProps | null> {
   };
 }
 
+async function riderVerifyAt(): Promise<string | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const path = (await headers()).get(REQUEST_PATH_HEADER) || "/delivery-partner";
+  return riderDualVerifyRedirect(user.id, path);
+}
+
 /** The phone tab bar of docs/ux-mobile-2026-11, for delivery partners who do not get the v2 frame. */
 async function plainTabBar(): Promise<React.ReactNode> {
   const user = await getCurrentUser();
@@ -68,6 +77,10 @@ async function plainTabBar(): Promise<React.ReactNode> {
  * never both. Each page still runs its own sign-in and checks.
  */
 export default async function DeliveryPartnerLayout({ children }: { children: React.ReactNode }) {
+  // docs/flows-v3 (flag flow_f1, with dual_auth in force): applying and working as a rider need a verified mobile
+  // AND e-mail first. Off, or on error: the pages behave as before.
+  const verifyAt = await riderVerifyAt().catch(() => null);
+  if (verifyAt) redirect(verifyAt);
   const shell = await loadShell().catch((error) => {
     console.error("[rider-shell] frame skipped", error);
     return null;

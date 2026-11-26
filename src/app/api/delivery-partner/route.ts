@@ -7,6 +7,7 @@ import { VEHICLE_TYPE_KEYS } from "@/lib/vehicle-types";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
+import { assertRiderDualVerified } from "@/server/dual-auth/policy";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { toStaffPartnerView } from "@/server/services/delivery-partner-kyc";
 import {
@@ -54,6 +55,8 @@ const registerSchema = z.object({
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.DELIVERY_PARTNER_REGISTER);
   enforceRateLimit(`delivery-partner-register:${user.id}`, RATE_LIMITS.MUTATION);
+  // docs/flows-v3 (flag flow_f1, with dual_auth in force): a rider application needs both factors verified.
+  await assertRiderDualVerified(user.id, "/delivery-partner/apply");
 
   const { referralCode, ...body } = await parseBody(request, registerSchema);
   // Checked before anything is written: a wrong code is a field error, not a half-made application.

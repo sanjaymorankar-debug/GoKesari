@@ -6,10 +6,9 @@ import Link from "next/link";
 
 import { Badge, Card, EmptyState } from "@/components/ui";
 import {
-  TICKET_CATEGORY_LABELS,
+  ticketCategoryLabel,
   TICKET_STATUS_LABELS,
   TICKET_STATUS_STAFF_LABELS,
-  type TicketCategory,
   type TicketStatus,
 } from "@/lib/support-ticket-states";
 import { SlaCountdown } from "./sla-countdown";
@@ -72,7 +71,7 @@ export function TicketList({
                 </Link>
                 <p className="truncate text-sm text-ink-900">{t.subject}</p>
                 <p className="text-xs text-ink-500">
-                  {TICKET_CATEGORY_LABELS[t.category as TicketCategory] ?? t.category}
+                  {ticketCategoryLabel(t.category)}
                   {t.orderNumber ? ` · order ${t.orderNumber}` : ""}
                   {staff && t.requesterLabel ? ` · ${t.requesterLabel}` : ""}
                   {staff ? ` · ${t.assigneeName ?? "unassigned"}` : ""}
