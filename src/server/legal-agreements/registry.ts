@@ -79,7 +79,9 @@ const BUNDLED: Record<SignedDocType, { dir: string; appliesTo: string[]; sourceV
   MEDICAL_ONBOARDING: {
     dir: "medical-onboarding",
     appliesTo: DEFAULT_MEDICAL_SHOP_TYPES,
-    sourceValues: { commissionPct: 3, registrationFeeRupees: 1000 },
+    // Owner decision 26-Nov-2026 (option A): 2 % platform commission for every shop, medical shops included.
+    // The Word document said 3 %; the template prints the configured rate (Admin → Finance) either way.
+    sourceValues: { commissionPct: 2, registrationFeeRupees: 1000 },
     reviewNotes: [
       {
         key: "stamp-duty",

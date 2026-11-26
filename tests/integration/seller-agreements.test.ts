@@ -133,9 +133,14 @@ async function lastSmsCode(e164: string): Promise<string> {
 }
 
 describe("publishing", () => {
-  it("TC-AGR-001 the commission clash (SLA 2 % vs medical 3 %) blocks; the system never picks a value", async () => {
+  it("TC-AGR-001 documents stating different commission block each other; the system never picks a value", async () => {
     await ensureBundledTemplates(admin.id);
     const sla = await template("SELLER_SLA", "en");
+    // Owner decision 26-Nov-2026: 2 % for every shop — the bundled documents agree.
+    expect((await publishChecks(sla.id)).blocking.join(" ")).not.toMatch(/Commission clash/);
+    // A medical draft stating 3 % (as the original Word document did) blocks the SLA again.
+    const medical = await template("MEDICAL_ONBOARDING", "en");
+    await updateDraft(medical.id, { sourceValues: { ...medical.sourceValues, commissionPct: 3 } }, actor());
     const checks = await publishChecks(sla.id);
     expect(checks.blocking.join(" ")).toMatch(/Commission clash: .* states 2% .* states 3%/);
     await expect(publishTemplate(sla.id, actor(), { acknowledgeWarnings: true })).rejects.toThrow(/Commission clash/);

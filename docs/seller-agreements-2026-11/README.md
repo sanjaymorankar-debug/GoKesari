@@ -19,7 +19,7 @@ standing owner rule, production stays off until the owner says otherwise.
 | Payment step already has Seller Terms + undertaking ticks | The new Agreements step replaces the Seller Terms tick. The goods-undertaking tick stays. |
 | Platform signatory | Sonali Sanjay Morankar, Director (admin-editable). The e-seal image is uploaded by the admin. |
 | PDF engine | A Chromium bundled as an npm package (`@sparticuz/chromium`, driven by `puppeteer-core`). Nothing is installed with apt on gk-db-1. |
-| 2 % (SLA) vs 3 % (medical) commission | Never picked by the system. It is a blocking warning on publishing (see "Publishing checks"). |
+| 2 % (SLA) vs 3 % (medical) commission | Never picked by the system: a blocking warning on publishing (see "Publishing checks"). **Owner decided 26-Nov-2026, 11.10 IST: option A, 2 % platform commission for every shop, medical shops included.** The medical agreement v1.0 now states 2 % (`sourceValues.commissionPct`), so the two documents agree. Admin → Finance must hold a 2 % default and no different rate for the PHARMACY shop type; otherwise publishing shows a warning. |
 
 Not as written in the brief:
 - **Database:** the brief says "Neon, seller DB". Since 17-Nov both sites use one database on gk-db-1. This feature adds ordinary tables to it (migration 0212).
@@ -206,7 +206,7 @@ DELETE (trigger `legal_records_immutable`).
 
 1. Admin → Agreements opens and imports the v1.0 drafts.
 2. Settings (rule `sellerAgreements`): stamp duty borne by, signatory, e-seal, board resolution date if any.
-3. Resolve the commission clash: decide the figure and make both documents' stated commission and Admin → Finance agree.
+3. Commission (decided: 2 % for every shop): check that Admin → Finance has a 2 % default and no other rate for PHARMACY.
 4. Publish the SLA (EN). Confirm the stamp-duty review, then publish the medical agreement (EN). Once a lawyer has reviewed the MR / HI drafts, mark them reviewed and publish them.
 5. Switch on `seller_agreements_enabled`. It can be limited to districts.
 
@@ -220,7 +220,7 @@ DELETE (trigger `legal_records_immutable`).
   - Annexure fingerprint;
   - blocks and certificate.
 - `tests/integration/seller-agreements.test.ts`, against PostgreSQL and a real Chromium:
-  - TC-AGR-001: commission clash blocks;
+  - TC-AGR-001: the bundled documents agree (2 %); a draft stating 3 % blocks;
   - TC-AGR-002: stamp duty review;
   - TC-AGR-003: translation review;
   - TC-AGR-010: flag off;

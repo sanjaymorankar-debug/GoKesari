@@ -59,7 +59,7 @@ Please check:
   the platform accepts it electronically with an OTP (owner decision 26-Nov-2026: keep the text, flag it). The
   admin must confirm a lawyer has reviewed it before the medical agreement can be published, and must set who
   bears the stamp duty (rule `sellerAgreements.stampDutyBorneBy`).
-- **Commission:** the Seller SLA says 2 %, the medical agreement 3 %. Publishing is blocked until the admin
-  resolves this (see README, "Publishing checks"); the system never picks one.
+- **Commission:** the Word documents said 2 % (SLA) and 3 % (medical). Owner decision 26-Nov-2026: 2 % for every
+  shop, medical shops included. Both documents print the configured rate (Admin → Finance), now 2 %.
 - **Settlement days:** the SLA says 3 business days; the configured settlement hold is `settlement.holdDays`.
   Shown to the admin as a warning when they differ.
