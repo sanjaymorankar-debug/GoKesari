@@ -483,3 +483,34 @@ describe("Admin → Sign-in security (GET/PUT /api/admin/sign-in-security)", () 
 afterEach(async () => {
   await db.delete(outboundTestMessages).where(like(outboundTestMessages.body, "%is your GoKesari code%"));
 });
+
+describe("mobile-number sign-in by SMS (owner 26-Nov-2026)", () => {
+  it("TC-SMSLOGIN-001 a mobile already verified by SMS gets its sign-in code by SMS, and the code signs in", async () => {
+    const user = await verifiedCustomer();
+    const mobile = user.phoneE164!.slice(3);
+    state.outbox = [];
+    await requestLoginOtp({ mobile });
+    const code = await lastSmsCode(user.phoneE164!);
+    expect(state.outbox.filter((m) => m.to === user.email)).toHaveLength(0);
+    const { user: signedIn } = await verifyLoginOtp({ mobile, email: null, code });
+    expect(signedIn.id).toBe(user.id);
+  });
+
+  it("TC-SMSLOGIN-002 a mobile never verified by SMS still gets the code by e-mail (a typed number cannot take an account)", async () => {
+    const mobile = uniqueMobile();
+    const user = await createUser({ mobile });
+    await db.delete(outboundTestMessages).where(eq(outboundTestMessages.toAddress, `+91${mobile}`));
+    state.outbox = [];
+    await requestLoginOtp({ mobile });
+    expect(lastEmailCode(user.email)).toMatch(/^\d{4,8}$/);
+    await expect(lastSmsCode(`+91${mobile}`)).rejects.toThrow(/no SMS code/);
+  });
+
+  it("TC-SMSLOGIN-003 with SMS switched off (rule otp.smsEnabled) a verified mobile falls back to e-mail", async () => {
+    const user = await verifiedCustomer();
+    await setRule("otp", { smsEnabled: false } as never, admin);
+    state.outbox = [];
+    await requestLoginOtp({ mobile: user.phoneE164!.slice(3) });
+    expect(lastEmailCode(user.email)).toMatch(/^\d{4,8}$/);
+  });
+});

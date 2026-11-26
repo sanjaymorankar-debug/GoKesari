@@ -11,7 +11,7 @@
  * here; callers do not change. WhatsApp's Meta Cloud API mode is used only by
  * the shop-order alerts (notifications/providers/whatsapp-meta.ts).
  */
-import { getEnv, messagingConfigProblem, msg91ConfigProblem } from "@/lib/env";
+import { getEnv, messagingConfigProblem, msg91ConfigProblem, smsFortiusConfigProblem } from "@/lib/env";
 import { db } from "@/server/db";
 import { outboundTestMessages } from "@/server/db/schema";
 
@@ -34,9 +34,10 @@ export function textChannelMode(channel: TextChannel): "none" | "mock" {
  * docs/sms-2fa-2026-11: how one-time codes go by SMS — the mock outbox, MSG91
  * (only with all its keys), or not at all.
  */
-export function smsOtpMode(): "none" | "mock" | "msg91" {
+export function smsOtpMode(): "none" | "mock" | "msg91" | "smsfortius" {
   const env = getEnv();
   if (env.SMS_PROVIDER === "msg91") return msg91ConfigProblem(env) ? "none" : "msg91";
+  if (env.SMS_PROVIDER === "smsfortius") return smsFortiusConfigProblem(env) ? "none" : "smsfortius";
   return textChannelMode("SMS");
 }
 

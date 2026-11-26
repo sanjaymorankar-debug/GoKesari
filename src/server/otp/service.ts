@@ -391,7 +391,12 @@ export async function requestLoginOtp(input: {
         return;
       }
       // Module 3: an owner registered from a mobile number alone gets the code by SMS.
-      const bySms = owner.emailPlaceholder || isPlaceholderEmail(owner.email);
+      // Owner 26-Nov-2026 ("mobile number log-in and authentication using OTP"): once real SMS is set up on this
+      // server (SMSFortius / MSG91 + rule otp.smsEnabled), signing in with a mobile number that this account has
+      // already proven by an SMS code sends the code to that mobile. A number never verified by SMS still gets
+      // the code by e-mail, so a typed-in number can never take over an account.
+      const placeholder = owner.emailPlaceholder || isPlaceholderEmail(owner.email);
+      const bySms = placeholder || (owner.phoneVerifiedAt !== null && (await getOtpProvider("SMS")) !== null);
       await issueCode({ email: owner.email, purpose: "LOGIN", userId: owner.id, phoneE164: mobile.e164, ip, bySms }).catch(
         (error: unknown) => {
           // Cooldowns and failed sends are audited by issueCode; the reply stays the same.
