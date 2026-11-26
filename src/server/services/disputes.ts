@@ -48,6 +48,7 @@ import {
 import { formatPaise } from "@/lib/money";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
+import { systemTicketHook } from "@/server/aftercare/system-ticket-hook";
 import {
   disputeAttachments,
   disputeComments,
@@ -241,7 +242,7 @@ export async function openDispute(input: OpenDisputeInput, actor: Actor): Promis
 
   const rules = await getRule("disputes");
 
-  return db.transaction(async (tx) => {
+  const opened = await db.transaction(async (tx) => {
     const [order] = await tx
       .select({
         id: orders.id,
@@ -356,6 +357,14 @@ export async function openDispute(input: OpenDisputeInput, actor: Actor): Promis
 
     return dispute;
   });
+  // docs/flows-v3 (flag flow_f17): every new dispute also opens a support ticket (once per case).
+  await systemTicketHook("DISPUTE_OPENED", opened.id, {
+    orderId: opened.orderId,
+    shopId: opened.shopId,
+    subject: `Dispute ${opened.caseNumber} opened`,
+    description: `Dispute ${opened.caseNumber} was opened on an order (${opened.reason}). Follow it in Admin → Disputes.`,
+  });
+  return opened;
 }
 
 export interface AdvanceDisputeInput {

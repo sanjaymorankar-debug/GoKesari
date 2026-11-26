@@ -37,6 +37,7 @@ import { listShopTypes, loadShopTypeRegistry } from "./shop-types";
 import { runOrDefer, type Defer } from "@/server/api/defer";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
+import { systemTicketHook } from "@/server/aftercare/system-ticket-hook";
 import {
   productCategories,
   sellerVerificationEvents,
@@ -492,6 +493,14 @@ async function runCheck(
     return latest ?? claim.row;
   }
   if (status !== claim.previousStatus) await announceResult(shop, updated, claim.previousStatus, actor);
+  // docs/flows-v3 (flag flow_f17): a check that failed or needs a person opens a support ticket (once per check).
+  if (status !== claim.previousStatus && (status === "FAILED" || status === "MANUAL_REVIEW")) {
+    await systemTicketHook(docType === "GSTIN" || docType === "PAN" ? "GST_PAN_CHECK" : "SHOP_DOCUMENT_CHECK", `${updated.id}:${claim.idempotencyKey}`, {
+      shopId: shop.id,
+      subject: `${docType} check ${status === "FAILED" ? "failed" : "needs review"} — ${shop.name}`,
+      description: `The ${docType} check for shop ${shop.name} ended as ${status}${errorCode ? ` (${errorCode})` : ""}. Review it in the shop's verification screen and contact the shop owner if needed.`,
+    });
+  }
   return updated;
 }
 

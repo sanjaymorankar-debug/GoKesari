@@ -33,7 +33,8 @@ export interface ThreadFile {
 
 export interface ThreadProps {
   ticketId: string;
-  access: "STAFF" | "REQUESTER" | "SHOP";
+  /** DEALER: the area dealer copied on the ticket (docs/flows-v3, read-only: `can` offers nothing). */
+  access: "STAFF" | "REQUESTER" | "SHOP" | "DEALER";
   messages: ThreadMessage[];
   files: ThreadFile[];
   can: { reply: boolean; close: boolean; reopen: boolean; rate: boolean; manage: boolean; assign: boolean; escalate: boolean; nextStatuses: TicketStatus[] };
