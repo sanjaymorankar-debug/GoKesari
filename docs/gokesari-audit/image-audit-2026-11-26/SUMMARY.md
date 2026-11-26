@@ -78,7 +78,7 @@ manufacturer image today (`pmd.product_image` is empty on both sites), so every 
 shop uploads. This was already how the code worked: a listing's approved photo takes priority
 over the master's (`listingImage ?? productImage`).
 
-Added to PR #603 (11.25 IST):
+Added to PR #603 (11.14 IST):
 - **My products:** "N of your products show no photo or only a sample picture" with a "Show these"
   filter, plus a "No photo — add one" / "Sample picture — add your photo" badge on each such row.
   Both link to the product's photo page.
