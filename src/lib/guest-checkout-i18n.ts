@@ -25,4 +25,28 @@ export const GC = {
   bestShop: L("Best shop for this cart", "इस कार्ट के लिए सबसे अच्छी दुकान", "या कार्टसाठी सर्वोत्तम दुकान"),
   move: L("Move my cart to this shop", "मेरा कार्ट इस दुकान पर ले जाएँ", "माझा कार्ट या दुकानात हलवा"),
   trackTitle: L("Track your order", "अपना ऑर्डर ट्रैक करें", "तुमची ऑर्डर ट्रॅक करा"),
+  trackIntro: L(
+    "Use the reference from your order e-mail (GK-… or DB-…).",
+    "अपने ऑर्डर ई-मेल में दिया रेफ़रेंस डालें (GK-… या DB-…)।",
+    "तुमच्या ऑर्डर ई-मेलमधील रेफरन्स टाका (GK-… किंवा DB-…).",
+  ),
+  trackReference: L("Order reference", "ऑर्डर रेफ़रेंस", "ऑर्डर रेफरन्स"),
+  trackByMobile: L("Mobile number", "मोबाइल नंबर", "मोबाइल नंबर"),
+  trackByEmail: L("E-mail + code", "ई-मेल + कोड", "ई-मेल + कोड"),
+  trackLast4: L("Last 4 digits of your mobile number", "आपके मोबाइल नंबर के आख़िरी 4 अंक", "तुमच्या मोबाइल नंबरचे शेवटचे 4 अंक"),
+  trackButton: L("Track order", "ऑर्डर ट्रैक करें", "ऑर्डर ट्रॅक करा"),
+  trackEmail: L("E-mail used for the order", "ऑर्डर में दिया ई-मेल", "ऑर्डरसाठी दिलेला ई-मेल"),
+  trackCode: L("Code", "कोड", "कोड"),
+  trackCodeSentA: L("If", "अगर", "जर"),
+  trackCodeSentB: L(
+    "is the e-mail on this order, a code is on its way.",
+    "इस ऑर्डर का ई-मेल है, तो कोड भेजा जा रहा है।",
+    "हा या ऑर्डरचा ई-मेल असेल, तर कोड पाठवला जात आहे.",
+  ),
+  trackFailed: L("Could not look up the order.", "ऑर्डर नहीं मिल सका।", "ऑर्डर शोधता आली नाही."),
+  trackOffline: L(
+    "Could not look up the order. Check your connection.",
+    "ऑर्डर नहीं मिल सका। अपना इंटरनेट कनेक्शन जाँचें।",
+    "ऑर्डर शोधता आली नाही. तुमचे इंटरनेट कनेक्शन तपासा.",
+  ),
 } as const;

@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui";
 import { formatPaise } from "@/lib/money";
+import { tr, type Lang } from "@/lib/board/i18n";
+import { FULFILMENT_OPTION_TEXT, localizeSlotText, ORDER_CARD as C } from "@/lib/order-status-i18n";
 
 /** services/fulfilment-options.ts BuyerFulfilmentView, as the customer's order card shows it. */
 export interface OrderFulfilmentInfo {
@@ -25,34 +27,34 @@ export interface OrderFulfilmentInfo {
  * how and when the order arrives, the pickup code to show at the shop, and
  * the delivery code for the shop's own delivery person.
  */
-export function OrderFulfilmentCard({ orderId, info }: { orderId: string; info: OrderFulfilmentInfo }) {
+export function OrderFulfilmentCard({ orderId, info, lang = "en" }: { orderId: string; info: OrderFulfilmentInfo; lang?: Lang }) {
   return (
     <div className="mt-3 rounded-lg border border-kesari-100 bg-kesari-50 px-3 py-2 text-sm text-ink-800" data-testid="order-fulfilment">
       <p>
-        <span className="font-medium">{info.optionLabel}</span>
-        {info.staffName ? ` · ${info.staffName}` : ""} · {info.whenLabel}
-        {info.updated && !info.completed ? <span className="ml-1 text-xs text-kesari-700">(updated)</span> : null}
+        <span className="font-medium">{lang === "en" ? info.optionLabel : tr(FULFILMENT_OPTION_TEXT[info.option], lang)}</span>
+        {info.staffName ? ` · ${info.staffName}` : ""} · {localizeSlotText(info.whenLabel, lang)}
+        {info.updated && !info.completed ? <span className="ml-1 text-xs text-kesari-700">{tr(C.updated, lang)}</span> : null}
       </p>
       {info.option === "PICKUP" && info.shopAddress && !info.completed ? (
-        <p className="mt-0.5 text-xs text-ink-600">Collect from: {info.shopAddress}</p>
+        <p className="mt-0.5 text-xs text-ink-600">{tr(C.collectFrom, lang)} {info.shopAddress}</p>
       ) : null}
       {info.deliveryFeeRefundedPaise ? (
         <p className="mt-0.5 text-xs text-ink-600" data-testid="pickup-fee-refunded-customer">
-          No delivery for this order: your {formatPaise(info.deliveryFeeRefundedPaise)} delivery fee was given back.
+          {tr(C.feeBackA, lang)} {formatPaise(info.deliveryFeeRefundedPaise)} {tr(C.feeBackB, lang)}
         </p>
       ) : null}
       {info.pickupCode ? (
         <p className="mt-2" data-testid="pickup-code-customer">
-          Pickup code: <span className="font-mono text-lg font-bold tracking-widest">{info.pickupCode}</span>
-          <span className="block text-xs text-ink-600">Show this at the shop when you collect your order — not before.</span>
+          {tr(C.pickupCode, lang)} <span className="font-mono text-lg font-bold tracking-widest">{info.pickupCode}</span>
+          <span className="block text-xs text-ink-600">{tr(C.pickupHint, lang)}</span>
         </p>
       ) : null}
-      {info.deliveryCode ? <OwnDeliveryCode orderId={orderId} state={info.deliveryCode} /> : null}
+      {info.deliveryCode ? <OwnDeliveryCode orderId={orderId} state={info.deliveryCode} lang={lang} /> : null}
     </div>
   );
 }
 
-function OwnDeliveryCode({ orderId, state }: { orderId: string; state: NonNullable<OrderFulfilmentInfo["deliveryCode"]> }) {
+function OwnDeliveryCode({ orderId, state, lang }: { orderId: string; state: NonNullable<OrderFulfilmentInfo["deliveryCode"]>; lang: Lang }) {
   const [code, setCode] = useState<string | null>(null);
   const [left, setLeft] = useState(state.resendsLeft);
   const [busy, setBusy] = useState(false);
@@ -61,7 +63,7 @@ function OwnDeliveryCode({ orderId, state }: { orderId: string; state: NonNullab
   if (state.locked) {
     return (
       <p className="mt-2 text-sm text-amber-900" data-testid="own-delivery-code-locked">
-        Too many wrong delivery codes were entered, so this delivery is on hold. Our support team will contact you.
+        {tr(C.locked, lang)}
       </p>
     );
   }
@@ -72,11 +74,11 @@ function OwnDeliveryCode({ orderId, state }: { orderId: string; state: NonNullab
     try {
       const response = await fetch(`/api/orders/${orderId}/fulfilment-plan/code`, { method: "POST" });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error?.message ?? "Could not get a new code.");
+      if (!response.ok) throw new Error(payload?.error?.message ?? tr(C.codeFailed, lang));
       setCode(payload.code);
       setLeft(payload.resendsLeft);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not get a new code.");
+      setError(caught instanceof Error ? caught.message : tr(C.codeFailed, lang));
     } finally {
       setBusy(false);
     }
@@ -86,16 +88,17 @@ function OwnDeliveryCode({ orderId, state }: { orderId: string; state: NonNullab
     <div className="mt-2 text-sm" data-testid="own-delivery-code">
       {code ? (
         <p>
-          Delivery code: <span className="font-mono text-lg font-bold tracking-widest">{code}</span> — give it to the delivery
-          person only when you receive your order. Your earlier code no longer works.
+          {tr(C.newCodeA, lang)} <span className="font-mono text-lg font-bold tracking-widest">{code}</span> {tr(C.newCodeB, lang)}
         </p>
       ) : (
-        <p>Your delivery code was emailed to {state.maskedEmail}. Give it to the delivery person only when you receive your order.</p>
+        <p>
+          {tr(C.emailedA, lang)} {state.maskedEmail}. {tr(C.emailedB, lang)}
+        </p>
       )}
       {left > 0 ? (
         <div className="mt-1">
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => void newCode()}>
-            {busy ? "Sending…" : code ? "Get another code" : "Get a new code"}
+            {tr(busy ? C.sending : code ? C.another : C.newCode, lang)}
           </Button>
         </div>
       ) : null}

@@ -1079,7 +1079,9 @@ export async function replaceDealerCode(dealerId: string, dealerCodeId: string, 
     const dealer = await getDealer(dealerId, tx);
     const [dc] = await tx.select().from(dealerCodes).where(and(eq(dealerCodes.id, dealerCodeId), eq(dealerCodes.dealerId, dealerId)));
     if (!dc) throw notFound("Code");
-    return replaceCode(tx, dealerCodeId, () => prefixedCode(dc.salespersonId ? "GKA" : "GKD"), `Dealer: ${dealer.legalName}`, actor, why);
+    // Referral sharing audit (gap G-5): a team lead keeps the GKT- prefix (it was re-issued as GKA-).
+    const teamLead = dc.salespersonId ? (await tx.select({ role: dealerSalespeople.teamRole }).from(dealerSalespeople).where(eq(dealerSalespeople.id, dc.salespersonId)))[0]?.role === "TEAM_LEAD" : false;
+    return replaceCode(tx, dealerCodeId, () => prefixedCode(dc.salespersonId ? (teamLead ? "GKT" : "GKA") : "GKD"), `Dealer: ${dealer.legalName}`, actor, why);
   });
 }
 

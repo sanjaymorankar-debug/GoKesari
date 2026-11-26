@@ -42,6 +42,8 @@ export const DEEP_LINK_ROUTES = [
   // 1.11.0 (docs/franchise): the Pune franchise pages — booking, my franchise, renewal and expiry pushes;
   // 1.12.0: the 50 zone pages /franchise/zones/<GKZ-PUN-nn> too.
   { kind: "franchise", prefix: "/franchise" },
+  // 1.15.0 (docs/referral-sharing-2026-11): a closed or expired referral link's page (My referrals, /referrals, is under /refer).
+  { kind: "referral", prefix: "/invite/" },
 ] as const;
 
 export type DeepLinkKind = (typeof DEEP_LINK_ROUTES)[number]["kind"] | "page";

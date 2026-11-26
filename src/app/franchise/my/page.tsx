@@ -1,4 +1,6 @@
 import { headers } from "next/headers";
+import { ReferralShareButtons } from "@/components/referral-sharing/share-buttons";
+import { referralSharingOn } from "@/server/services/referral-links";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -26,6 +28,8 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
   const d = await ownerDashboard(user.id);
   const sp = await searchParams;
   const origin = originFromHeaders(await headers());
+  // docs/referral-sharing-2026-11: the /r/<code> Share buttons while rule referralSharing is on.
+  const sharing = await referralSharingOn();
   const areaCodes = d.codes;
   const qrs = new Map(await Promise.all(areaCodes.filter((c) => c.status === "ACTIVE").map(async (c) => [c.code, await codeQrSvg(origin, c.code)] as const)));
   const maps = ("maps" in d ? d.maps : []) as AreaShape[];
@@ -172,7 +176,9 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
                     <Link className="underline" href={`/franchise/zones/${encodeURIComponent(c.zoneId)}`}>Zone {c.zoneId}</Link> · {c.status === "ACTIVE" ? "open for new shops" : "closed for new shops"}
                   </p>
                   <p className="text-ink-700">{d.shops.filter((x) => x.zoneId === c.zoneId).length} shops tagged</p>
-                  {c.status === "ACTIVE" ? (
+                  {c.status === "ACTIVE" && sharing ? (
+                    <ReferralShareButtons code={c.code} who={"dealerName" in d.status ? (d.status.dealerName ?? "GoKesari") : "GoKesari"} audience="shop-owner" origin={origin} subject="Register your shop on GoKesari" />
+                  ) : c.status === "ACTIVE" ? (
                     <div className="flex flex-wrap gap-2">
                       <a className="font-semibold text-kesari-800 underline" href={shareLinkFor(origin, c.code)}>Registration link</a>
                       <a className="font-semibold text-kesari-800 underline" href={whatsappShareFor(origin, c.code, "dealerName" in d.status ? (d.status.dealerName ?? "GoKesari") : "GoKesari")}>WhatsApp</a>

@@ -23,6 +23,7 @@ import { customerCancellableStatuses } from "@/lib/order-cancellation";
 import { DISPUTE_STATUS_LABELS } from "@/lib/dispute-states";
 import { isTrackableOrderStatus } from "@/lib/tracking";
 import { L, tr, UI, type Text } from "@/lib/board/i18n";
+import { localizeSlotText, orderStatusText } from "@/lib/order-status-i18n";
 import { CUSTOMER_MENUS } from "@/lib/board/menus";
 import { IN_PROGRESS_ORDER_STATUSES, pickTab } from "@/lib/board/status-groups";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -262,7 +263,7 @@ export default async function OrdersPage({
             <Card key={order.id} id={`order-${order.orderNumber}`} className="p-5" data-testid="order-card">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={order.status} />
+                  <StatusBadge status={order.status} label={orderStatusText(order.status, lang)} />
                   {/* Gig worker flow (feature 11): the delivered order was confirmed complete. */}
                   {order.completedAt ? <Badge tone="success">{tr(T.completed, lang)}</Badge> : null}
                   {order.source === "SUBSCRIPTION" ? (
@@ -330,7 +331,7 @@ export default async function OrdersPage({
               ) : null}
               {order.scheduledSlotStart && order.scheduledSlotEnd ? (
                 <p className="text-xs font-medium text-kesari-700" data-testid="order-scheduled-slot">
-                  {tr(T.delivery, lang)} {formatScheduledSlot(order.scheduledSlotStart, order.scheduledSlotEnd)}
+                  {tr(T.delivery, lang)} {localizeSlotText(formatScheduledSlot(order.scheduledSlotStart, order.scheduledSlotEnd), lang)}
                 </p>
               ) : null}
 
@@ -394,7 +395,7 @@ export default async function OrdersPage({
 
               {fulfilmentPlans.has(order.id) &&
               !["CANCELLED", "REFUNDED", "REFUND_PENDING"].includes(order.status) ? (
-                <OrderFulfilmentCard orderId={order.id} info={fulfilmentPlans.get(order.id)!} />
+                <OrderFulfilmentCard orderId={order.id} info={fulfilmentPlans.get(order.id)!} lang={lang} />
               ) : null}
 
               {order.status === "OUT_FOR_DELIVERY" && deliveryCodes.get(order.id) ? (
@@ -474,7 +475,7 @@ export default async function OrdersPage({
                       </LinkButton>
                     </div>
                   ) : null}
-                  <ReportIssueForm orderId={order.id} />
+                  <ReportIssueForm orderId={order.id} lang={lang} />
                 </>
               ) : null}
 
