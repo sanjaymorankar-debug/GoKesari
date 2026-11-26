@@ -35,6 +35,8 @@ export const DOCUMENT_TYPES = [
   "SHOP_BANNER_UPDATE",
   // docs/seller-agreements-2026-11: the signed agreements (EN / MR / HI PDFs, banners); docId is legal_agreement_emails.id.
   "SELLER_AGREEMENTS",
+  // docs/flows-v3/wave2.md (flag flow_f13): "your shop is live — add your products"; docId is the shop id. Text only.
+  "SHOP_READY_FOR_PRODUCTS",
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
@@ -143,6 +145,9 @@ export async function renderDocumentAttachments(docType: string, docId: string):
       const { renderShopWelcomeKit } = await import("@/server/shop-banner/welcome-kit");
       return renderShopWelcomeKit(docId);
     }
+    // docs/flows-v3/wave2.md (flag flow_f13): text only — the queued body is the e-mail.
+    case "SHOP_READY_FOR_PRODUCTS":
+      return { attachments: [] };
     case "SHOP_BANNER_UPDATE": {
       const { renderShopWelcomeKit } = await import("@/server/shop-banner/welcome-kit");
       return renderShopWelcomeKit(docId, "update");
