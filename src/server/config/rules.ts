@@ -312,6 +312,12 @@ export const RULES = {
        * Switch off once SMS is live to make the code strictly required.
        */
       mobileOtpFallbackWhenNoSms: z.boolean(),
+      /**
+       * DEFAULT – confirm with Sanjay: a delivery order still waiting for the customer's delivery location (given
+       * after payment) this many hours after it was placed is cancelled automatically with a full refund, and the
+       * shop is told. 0 = never.
+       */
+      addressPendingAutoCancelHours: int(0, 72),
     }),
     defaults: {
       shopFeePaise: 100_000,
@@ -321,6 +327,7 @@ export const RULES = {
       teamLeadsCanAddAgents: true,
       teamInviteExpiryDays: 7,
       mobileOtpFallbackWhenNoSms: true,
+      addressPendingAutoCancelHours: 2,
     },
   },
   referralSharing: {

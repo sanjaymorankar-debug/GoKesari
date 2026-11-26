@@ -13,6 +13,7 @@ import type { UserRole } from "@/server/db/schema";
 
 const state = vi.hoisted(() => ({
   outbox: [] as { to: string; subject: string; text: string }[],
+  cookies: new Map<string, string>(),
   session: null as null | {
     user: { id: string; email: string; name: string | null; image: null; role: UserRole; status: "ACTIVE" };
   },
@@ -24,6 +25,15 @@ vi.mock("@/server/email/transport", () => ({
     state.outbox.push(message);
   },
   EmailUnavailableError: class extends Error {},
+}));
+
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) => (state.cookies.has(name) ? { name, value: state.cookies.get(name)! } : undefined),
+    set: (name: string, value: string) => void state.cookies.set(name, value),
+    delete: (name: string) => void state.cookies.delete(name),
+  }),
+  headers: async () => new Headers(),
 }));
 
 vi.mock("@/server/auth", () => ({
@@ -42,11 +52,14 @@ import { POST as deliveryLocationRoute } from "@/app/api/onboarding-v2/orders/de
 import { GET as referralLinkRoute } from "@/app/r/[code]/route";
 import { POST as webhookRoute } from "@/app/api/webhooks/payments/[gateway]/route";
 import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { LOCATION_COOKIE } from "@/lib/location";
+import { PATCH as orderStatusRoute } from "@/app/api/orders/[id]/status/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import {
   addresses,
   deliveryOrders,
+  notifications,
   outboundTestMessages,
   paymentIntents,
   policyAcceptances,
@@ -59,7 +72,16 @@ import {
 } from "@/server/db/schema";
 import { getGatewayByName } from "@/server/payments/gateway/registry";
 import type { SandboxGateway } from "@/server/payments/gateway/sandbox";
-import { customerLoginStatus, NO_SMS_BLOCKED, V2_TERMS_COOKIE } from "@/server/onboarding-v2/customer";
+import {
+  ADDRESS_PENDING_TIMEOUT_REASON,
+  cancelStaleAddressPendingOrders,
+  customerLoginStatus,
+  firstCheckoutOrderIds,
+  NO_SMS_BLOCKED,
+  V2_TERMS_COOKIE,
+} from "@/server/onboarding-v2/customer";
+import { NOTIFICATION_TYPES } from "@/server/services/notifications";
+import { listCurrentVersions } from "@/server/services/policy-versions";
 import { requestLoginOtp, verifyLoginOtp } from "@/server/otp/service";
 import { addToCart } from "@/server/services/cart";
 import { getOrCreateReferralCode } from "@/server/services/customer-referrals";
@@ -85,6 +107,9 @@ let seq = 0;
 beforeEach(async () => {
   state.outbox = [];
   state.session = null;
+  // The location chosen in the header (PIN 411001, where the fixture shops are): checked before payment.
+  state.cookies.clear();
+  setLocation("411001");
   resetRateLimits();
   await resetDatabase();
   clearRuleCache();
@@ -99,6 +124,15 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+function setLocation(pincode: string | null) {
+  if (!pincode) state.cookies.delete(LOCATION_COOKIE);
+  else
+    state.cookies.set(
+      LOCATION_COOKIE,
+      JSON.stringify({ label: `PIN ${pincode}`, pincode, latitude: null, longitude: null, source: "PINCODE", addressId: null, societyId: null }),
+    );
+}
 
 const adminActor = () => ({ id: admin.id, role: "ADMIN" as const });
 
@@ -156,6 +190,7 @@ async function post(handler: (r: NextRequest) => Promise<Response>, path: string
  * (as the sheet does in the app), the status call that writes the tick, and the mobile code.
  */
 async function guestThroughSheet(email = `guest-${++seq}@test.local`) {
+  state.session = null;
   const consent = await post(consentRoute as never, "/api/onboarding-v2/customer/consent", { accepted: true });
   expect(consent.status).toBe(200);
   expect(consent.body).toMatchObject({ version: CURRENT_POLICY_VERSION, recorded: false });
@@ -257,7 +292,12 @@ describe("flag onboarding_v2 on — login sheet", () => {
     expect(Date.now() - sheet!.createdAt.getTime()).toBeLessThan(60_000);
     const accepted = await db.select().from(policyAcceptances).where(eq(policyAcceptances.userId, user.id));
     expect(accepted.map((a) => a.doc).sort()).toEqual(["privacy-policy", "terms"]);
-    expect(accepted.every((a) => a.channel === "WEB" && a.version === CURRENT_POLICY_VERSION)).toBe(true);
+    // The published version of each document (Admin → Policy versions), else the site's CURRENT_POLICY_VERSION.
+    const published = await listCurrentVersions();
+    for (const a of accepted) {
+      expect(a.channel).toBe("WEB");
+      expect(a.version).toBe(published.find((c) => c.doc === a.doc)?.latest?.version ?? CURRENT_POLICY_VERSION);
+    }
 
     const status = await customerLoginStatus(user.id);
     expect(status.step).toBe("DONE");
@@ -451,5 +491,94 @@ describe("flag onboarding_v2 on — order, then the delivery location", () => {
     const [order] = await db.select().from(orders).where(eq(orders.id, placed.body.orders[0].id));
     expect(order.addressId).toBe(address.id);
     expect(order.addressPendingSince).toBeNull();
+  });
+});
+
+describe("flag onboarding_v2 on — money safety for orders placed before the address", () => {
+  async function pendingOrder(paymentMethod: "COD" | "ONLINE" = "COD") {
+    const { listing, owner } = await shopWithMilk();
+    const { user } = await guestThroughSheet();
+    await addToCart(user.id, listing.id, 1);
+    const placed = await placeViaRoute({ paymentMethod });
+    expect(placed.status).toBe(201);
+    return { user, owner, placed, orderId: placed.body.orders[0].id as string };
+  }
+
+  it("TC-OV2C-030 checkout is refused when no location is known or the shop does not deliver there", async () => {
+    await v2On();
+    const { listing } = await shopWithMilk();
+    const { user } = await guestThroughSheet();
+    await addToCart(user.id, listing.id, 1);
+    setLocation(null);
+    const none = await placeViaRoute({ paymentMethod: "COD" });
+    expect(none.status).toBe(422);
+    expect(none.body.error.details).toMatchObject({ missing: "location" });
+    setLocation("400001");
+    const far = await placeViaRoute({ paymentMethod: "COD" });
+    expect(far.status).toBe(422);
+    expect(far.body.error.message).toMatch(/does not deliver to your location/);
+    expect(await db.select().from(orders)).toHaveLength(0);
+    setLocation("411001");
+    expect((await placeViaRoute({ paymentMethod: "COD" })).status).toBe(201);
+  });
+
+  it("TC-OV2C-031 the customer may cancel a waiting order after the shop accepted it; the shop is told", async () => {
+    await v2On();
+    const { user, owner, orderId } = await pendingOrder("COD");
+    await db.update(orders).set({ status: "READY" }).where(eq(orders.id, orderId));
+    signInAs(user);
+    const res = await call(orderStatusRoute as never, `/api/orders/${orderId}/status`, { method: "PATCH", params: { id: orderId }, body: { status: "CANCELLED", note: "No address" } });
+    expect(res.status).toBe(200);
+    expect((await db.select().from(orders).where(eq(orders.id, orderId)))[0].status).toBe("CANCELLED");
+    const shopNotes = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, NOTIFICATION_TYPES.ORDER_CANCELLED)));
+    expect(shopNotes).toHaveLength(1);
+  });
+
+  it("TC-OV2C-032 a paid online order cancelled while waiting is refunded in full", async () => {
+    await v2On();
+    await setRule("onlinePayments", { enabled: true }, adminActor());
+    const { user, placed, orderId } = await pendingOrder("ONLINE");
+    const [intent] = await db.select().from(paymentIntents).where(eq(paymentIntents.id, placed.body.payment.intentId));
+    const webhook = await sandbox.simulate(intent.gatewayOrderId!, "SUCCESS", "UPI");
+    await webhookRoute(new NextRequest("http://localhost/api/webhooks/payments/sandbox", { method: "POST", body: webhook.rawBody, headers: webhook.headers }), {
+      params: Promise.resolve({ gateway: "sandbox" }),
+    });
+    await db.update(orders).set({ status: "ACCEPTED" }).where(eq(orders.id, orderId));
+    signInAs(user);
+    const res = await call(orderStatusRoute as never, `/api/orders/${orderId}/status`, { method: "PATCH", params: { id: orderId }, body: { status: "CANCELLED" } });
+    expect(res.status).toBe(200);
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+    expect(["REFUND_PENDING", "REFUNDED"]).toContain(order.status);
+    const [after] = await db.select().from(paymentIntents).where(eq(paymentIntents.id, intent.id));
+    // Full refund to the original method: everything captured comes back.
+    expect(after.refundedPaise).toBe(after.amountPaise);
+  });
+
+  it("TC-OV2C-033 waiting past onboardingV2.addressPendingAutoCancelHours: cancelled automatically, shop told", async () => {
+    await v2On();
+    const { owner, orderId } = await pendingOrder("COD");
+    const recent = await pendingOrder("COD");
+    await db.update(orders).set({ addressPendingSince: new Date(Date.now() - 3 * 3_600_000) }).where(eq(orders.id, orderId));
+    expect(await cancelStaleAddressPendingOrders()).toEqual({ cancelled: 1, failed: 0 });
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order).toMatchObject({ status: "CANCELLED", cancellationReason: ADDRESS_PENDING_TIMEOUT_REASON });
+    expect((await db.select().from(orders).where(eq(orders.id, recent.orderId)))[0].status).toBe("CONFIRMED");
+    const shopNotes = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, NOTIFICATION_TYPES.ORDER_CANCELLED)));
+    expect(shopNotes).toHaveLength(1);
+
+    await setRule("onboardingV2", { addressPendingAutoCancelHours: 0 }, adminActor());
+    await db.update(orders).set({ addressPendingSince: new Date(Date.now() - 10 * 3_600_000) }).where(eq(orders.id, recent.orderId));
+    expect(await cancelStaleAddressPendingOrders()).toEqual({ cancelled: 0, failed: 0 });
+  });
+
+  it("TC-OV2C-034 the referral exemption covers the first checkout only, never a later order", async () => {
+    await v2On();
+    const { user, orderId } = await pendingOrder("COD");
+    expect(await firstCheckoutOrderIds(user.id, [orderId])).toEqual([orderId]);
+    const { listing } = await shopWithMilk();
+    await addToCart(user.id, listing.id, 1);
+    const second = await placeViaRoute({ paymentMethod: "COD" });
+    const secondId = second.body.orders[0].id as string;
+    expect(await firstCheckoutOrderIds(user.id, [secondId])).toEqual([]);
   });
 });

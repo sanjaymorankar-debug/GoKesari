@@ -77,6 +77,30 @@ export function DeliveryLocationPrompt({
   const newReady = pin != null && line1.trim() !== "" && city.trim() !== "" && /^[1-9]\d{5}$/.test(pincode.trim());
   const ready = mode === "saved" ? Boolean(addressId) : newReady;
 
+  const [cancelling, setCancelling] = useState(false);
+  /** Until the location is set the customer may always cancel for a full refund (cancelOrder, address pending). */
+  async function cancelAll() {
+    if (!window.confirm("Cancel this order? You get a full refund.")) return;
+    setCancelling(true);
+    setError(null);
+    for (const o of orders) {
+      const response = await fetch(`/api/orders/${o.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "CANCELLED", note: "Cancelled by the customer before giving a delivery location" }),
+      }).catch(() => null);
+      if (!response?.ok) {
+        const payload = await response?.json().catch(() => null);
+        setCancelling(false);
+        setError(payload?.error?.message ?? `Could not cancel ${o.orderNumber}. Please try again.`);
+        return;
+      }
+    }
+    setCancelling(false);
+    router.push("/orders?cancelled=1");
+    router.refresh();
+  }
+
   async function submit() {
     setBusy(true);
     setError(null);
@@ -212,6 +236,11 @@ export function DeliveryLocationPrompt({
       ) : (
         <Button size="lg" className="w-full font-bold" disabled={!ready || busy} onClick={submit} data-testid="delivery-location-save">
           {busy ? "Saving…" : "Deliver here"}
+        </Button>
+      )}
+      {referralNote ? null : (
+        <Button variant="ghost" className="w-full" disabled={busy || cancelling} onClick={cancelAll} data-testid="delivery-location-cancel">
+          {cancelling ? "Cancelling…" : "Cancel the order instead (full refund)"}
         </Button>
       )}
     </Card>

@@ -14,7 +14,7 @@
  * External side effects (SMS, rider dispatch) never run inside a db.transaction here.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lte } from "drizzle-orm";
 
 import { conflict, forbidden, isUniqueViolation, notFound, validationFailed } from "@/lib/errors";
 import { getEnv } from "@/lib/env";
@@ -522,7 +522,7 @@ export async function setDeliveryLocationAfterPayment(
   if (input.referralCode?.trim()) {
     const { applySignupReferralCode } = await import("@/server/services/customer-signup-referrals");
     try {
-      await applySignupReferralCode(actor.id, input.referralCode, actor, { firstOrderIds: ids });
+      await applySignupReferralCode(actor.id, input.referralCode, actor, { firstOrderIds: await firstCheckoutOrderIds(actor.id, ids) });
       referral = { applied: true, message: null };
     } catch (error) {
       // The address is saved either way; the referral answer is shown next to its box.
@@ -531,6 +531,33 @@ export async function setDeliveryLocationAfterPayment(
   }
 
   return { orders: updated.map((o) => ({ id: o.id, orderNumber: o.orderNumber })), addressId: addressId!, referral };
+}
+
+/**
+ * The orders of the customer's FIRST checkout (one request id; a multi-shop checkout is one order per shop) when
+ * `ids` belong to it, else none — the referral exemption covers that first checkout, never a later order.
+ */
+export async function firstCheckoutOrderIds(userId: string, ids: string[]): Promise<string[]> {
+  const [first] = await db
+    .select({ id: orders.id, checkoutKey: orders.checkoutKey, orderGroupId: orders.orderGroupId })
+    .from(orders)
+    .where(eq(orders.userId, userId))
+    .orderBy(orders.createdAt, orders.id)
+    .limit(1);
+  if (!first) return [];
+  const all = await db
+    .select({ id: orders.id, checkoutKey: orders.checkoutKey, orderGroupId: orders.orderGroupId })
+    .from(orders)
+    .where(eq(orders.userId, userId));
+  // checkout key = "checkout:<user>:<request id>:<shop>" (orders.ts).
+  const requestOf = (key: string | null) => (key?.startsWith(`checkout:${userId}:`) ? key.slice(0, key.lastIndexOf(":")) : null);
+  const firstRequest = requestOf(first.checkoutKey);
+  const sameCheckout = all.filter(
+    (o) => o.id === first.id || (firstRequest != null && requestOf(o.checkoutKey) === firstRequest) || (first.orderGroupId != null && o.orderGroupId === first.orderGroupId),
+  );
+  // Only when these orders belong to that first checkout; then all of it is exempt (e.g. its pickup order too).
+  const firstIds = sameCheckout.map((o) => o.id);
+  return firstIds.some((id) => ids.includes(id)) ? firstIds : [];
 }
 
 /* ------------------------------------------------------ step 4: checkout */
@@ -554,4 +581,39 @@ export async function assertV2CheckoutReady(
   }
   if (!body.paymentMethod) throw validationFailed(CHOOSE_PAYMENT, { fields: { paymentMethod: CHOOSE_PAYMENT } });
   return { v2: true };
+}
+
+/* --------------------------------------------- safety net: auto-cancel */
+
+export const ADDRESS_PENDING_TIMEOUT_REASON = "No delivery location was given in time";
+
+/**
+ * Cron (every 5 minutes): delivery orders still waiting for the customer's delivery location longer than rule
+ * onboardingV2.addressPendingAutoCancelHours are cancelled by the system with a full refund (online: to the
+ * original method; wallet: back to the wallet; COD: nothing was paid) and the shop is told (order.cancelled).
+ * Each order is cancelled in its own transaction (cancelOrder); refunds go through the existing refund paths.
+ */
+export async function cancelStaleAddressPendingOrders(now: Date = new Date()): Promise<{ cancelled: number; failed: number }> {
+  const { addressPendingAutoCancelHours } = await getRule("onboardingV2");
+  if (!addressPendingAutoCancelHours) return { cancelled: 0, failed: 0 };
+  const cutoff = new Date(now.getTime() - addressPendingAutoCancelHours * 3_600_000);
+  const stale = await db
+    .select({ id: orders.id })
+    .from(orders)
+    .where(and(isNotNull(orders.addressPendingSince), lte(orders.addressPendingSince, cutoff), inArray(orders.status, [...ADDRESS_OPEN_STATUSES])))
+    .limit(100);
+  const { cancelOrder } = await import("@/server/services/orders");
+  let cancelled = 0;
+  let failed = 0;
+  for (const { id } of stale) {
+    try {
+      await cancelOrder(id, null, ADDRESS_PENDING_TIMEOUT_REASON);
+      cancelled += 1;
+    } catch (error) {
+      // An online order with a payment attempt still open is retried on the next run.
+      failed += 1;
+      console.error("[onboarding-v2] auto-cancel of an address-pending order failed", id, error);
+    }
+  }
+  return { cancelled, failed };
 }
