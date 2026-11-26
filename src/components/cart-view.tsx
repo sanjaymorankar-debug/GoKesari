@@ -541,7 +541,7 @@ export function CartView({
                 >
                   {group.shop.name}
                 </Link>
-                <ClassificationBadge value={group.shop.classification} />
+                <ClassificationBadge value={group.shop.classification} lang={lang} />
               </div>
               <span className="text-sm text-ink-500">
                 <Money paise={group.totalPaise} />

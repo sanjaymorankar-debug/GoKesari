@@ -105,3 +105,17 @@ The owner should name one Hindi and one Marathi reviewer. Points to look at firs
   - The pickup-QR camera restarts when the language changes.
 - **Not checked visually:** nothing was rendered in a browser. English output was kept identical by reading the code
   and by the lint, type and test checks.
+
+## Staging E2E follow-up (25-Nov-2026)
+
+The flags-on run on test.gokesari.com found English left on customer screens; now translated:
+- `/track` lookup form (labels, tabs, buttons, messages) — `src/lib/guest-checkout-i18n.ts`.
+- `/orders`: status badges (`src/lib/order-status-i18n.ts`, `StatusBadge` takes an optional `label`), the delivery-slot
+  line and the order card (way of delivery, pickup / delivery codes), and "Report a problem".
+- `/wallet`: entry types and the known stored descriptions (`src/lib/wallet-i18n.ts`; order numbers, shop names and
+  reasons are kept as stored; unknown descriptions are shown unchanged).
+- `/cart`: "Save as a list" card and the Kesari / Green badge.
+
+Same PR: `/shop/staff-access` intro no longer says "product photos and descriptions" when staff roles are on, and
+Admin → Order Monitoring shows the reason of a failed delivery (`deliveryGpsForOrders` returns `failureReason`).
+Tests: `tests/unit/customer-i18n-gaps.test.ts`, `tests/integration/delivery-signature-gps.test.ts` (TC-M4-I20/I21).
