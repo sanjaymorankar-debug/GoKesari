@@ -2,6 +2,7 @@
 # Production-database workflow: reports which migrations production has and
 # which of the release's it still lacks, to the job summary. Read-only.
 # With --expect-latest it fails unless production has the release's newest.
+# In GitHub Actions it also sets PENDING (the number still to apply) for later steps.
 # Usage: state.sh <path to the release's drizzle/meta/_journal.json> [--expect-latest]
 set -euo pipefail
 
@@ -35,6 +36,11 @@ release_tag=${release#* }
     echo "| Not yet on production | none |"
   fi
 } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+# For the workflow's later steps: how many release migrations production lacks.
+if [ -n "${GITHUB_ENV:-}" ]; then
+  echo "PENDING=$(printf '%s' "$pending" | grep -c . || true)" >> "$GITHUB_ENV"
+fi
 
 if [ "${2:-}" = "--expect-latest" ] && [ "$newest" != "$release_when" ]; then
   echo "::error::Production is on migration $newest; the release's newest is $release_when ($release_tag)."

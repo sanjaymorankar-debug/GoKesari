@@ -233,8 +233,12 @@ once it is checked, so:
    other staging → main PR being merged, and gokesari.com serving `main`'s
    head with no deploy running (`sudo gk-deploy status`, or `/sw.js`'s
    `VERSION` against `main`).
-2. Merge **one** release.
-3. Wait for the post-deploy check below to pass before the next merge into
+2. Wait for the release PR's **"Production database"** check to be green: it
+   applied the PR's migrations to production (automatic since 25-Nov-2026,
+   after two outages that day from code going live without them). Never
+   merge while it is red, pending or missing.
+3. Merge **one** release.
+4. Wait for the post-deploy check below to pass before the next merge into
    `main`, even a docs-only one (it still rebuilds the site).
 
 ### After every production deploy
@@ -281,7 +285,7 @@ Actions workflows**, never during a build (on the server or anywhere else):
 | Site | How its databases are migrated |
 |---|---|
 | test.gokesari.com | **"Test database"** (`.github/workflows/test-db.yml`), automatically on every push to `staging` that adds a migration: backup (`pg_dump`), then migrate the database, then verify. By hand: Actions → "Test database" → Run workflow → `migrate`. Setup: `docs/event-driven-2026-10/DB_AUTOMATION.md`. |
-| gokesari.com | **"Production database"** (`.github/workflows/prod-db.yml`), by hand only: `migrate`, source `staging`, confirm `MIGRATE PRODUCTION`, **before** merging staging into `main`. It refuses a migration the test database does not already have. Setup: `docs/event-driven-2026-10/PROD_DB.md`. |
+| gokesari.com | **"Production database"** (`.github/workflows/prod-db.yml`), **automatically** on every pull request into `main` (before the merge — its check must be green) and on every push to `main` (safety net), since 25-Nov-2026; only migrations the test database already ran, byte for byte. By hand if needed: `migrate`, source `staging`, confirm `MIGRATE PRODUCTION`, **before** merging staging into `main`. It refuses a migration the test database does not already have. Setup: `docs/event-driven-2026-10/PROD_DB.md`. |
 
 For a local or new database:
 
