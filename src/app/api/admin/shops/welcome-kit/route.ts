@@ -4,6 +4,8 @@
  *
  * GET  ?q=&city=&district=&notWelcomed=1   → { enabled, total, shops } (live shops + welcome-kit status)
  * POST { shopId }                          → send to one live shop (once per shop, ever)
+ * POST { resendShopId }                    → 26-Nov-2026: "Resend updated banner" to one live shop
+ * POST { bulk: { all: true } }             → 26-Nov-2026: every live shop that never had it (≤ 200 per run)
  * POST { bulk: { city?, districtCode? } }  → every live shop there that never had it (≤ 200 per run;
  *                                            sent by the outbox sweep). Tell the owner before a bulk
  *                                            run on gokesari.com.
@@ -13,7 +15,7 @@ import { z } from "zod";
 
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requireRole } from "@/server/authz/guards";
-import { findWelcomeKitShops, sendWelcomeKitBulk, sendWelcomeKitToShop, welcomeKitAdminSendEnabled } from "@/server/shop-banner/admin-send";
+import { findWelcomeKitShops, resendUpdatedBanner, sendWelcomeKitBulk, sendWelcomeKitToShop, welcomeKitAdminSendEnabled } from "@/server/shop-banner/admin-send";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,8 @@ export const GET = route(async (request: NextRequest) => {
 
 const body = z.union([
   z.object({ shopId: z.string().uuid() }).strict(),
+  z.object({ resendShopId: z.string().uuid() }).strict(),
+  z.object({ bulk: z.object({ all: z.literal(true) }).strict() }).strict(),
   z
     .object({
       bulk: z
@@ -45,5 +49,6 @@ export const POST = route(async (request: NextRequest) => {
   const user = await requireRole("ADMIN");
   const input = await parseBody(request, body);
   if ("shopId" in input) return ok(await sendWelcomeKitToShop(input.shopId, user));
+  if ("resendShopId" in input) return ok(await resendUpdatedBanner(input.resendShopId, user));
   return ok(await sendWelcomeKitBulk(input.bulk, user));
 });

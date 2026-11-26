@@ -554,5 +554,15 @@
   "expected": "The ticket is linked to the task; the assignment is accepted (PR #500); the ticket goes Awaiting Shop Owner → Resolved after the owner approves; the changes are live only after approval; the Operations User is told at each step; “Confirm and close” → Closed; the task is DONE; all three histories are complete and append-only.",
   "preconditions": "Flags `rbac_v2_operations`, `rbac_v2_support` and `rbac_v2_shop_change_requests` ON; gk-ops (Operations Manager + Support Manager) and gk-oplim (Operations User + Support User) put in both teams on Admin → Staff teams; shop A and its owner's account.",
   "origin": "Added 23-Nov-2026"
+ },
+ {
+  "id": "SC-64",
+  "title": "New shop (wizard, dealer link or admin on behalf) → sandbox fee → live → one personalised welcome e-mail → both QRs scan",
+  "features": "WKIT-02",
+  "priority": "P0",
+  "journey": "1. Register a shop in the owner's wizard, through a dealer's fee link, and by an admin on the owner's behalf; pay each with the sandbox 'Pay (success)'\n2. Each shop goes live\n3. Read the testing inbox: one e-mail per shop, 'Dear <owner>, congratulations! <shop> is now live on GoKesari.com'\n4. Open the EN and MR banners (HI for a shop outside Maharashtra): owner line, headline, Order online QR, Pay here (UPI) QR when the shop has a UPI ID\n5. Scan both QRs with a phone\n6. Admin: Resend updated banner for one shop; bulk send to all live shops",
+  "expected": "One personalised e-mail per shop with both banners; the shop QR opens the shop (app when installed), the UPI QR opens a UPI app with the shop as payee and no amount; resend gives one updated-banner e-mail; bulk counts sent and skipped.",
+  "preconditions": "test.gokesari.com, PAYMENT_GATEWAY=SANDBOX, mail redirected to the testing inbox, flag shop_welcome_kit_admin_send_enabled on.",
+  "origin": "Added 26-Nov-2026"
  }
 ]

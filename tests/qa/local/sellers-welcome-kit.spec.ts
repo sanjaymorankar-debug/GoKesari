@@ -7,6 +7,8 @@
  *   TC-WKIT-003        once per shop, ever (suspended and approved again)
  *   TC-WKIT-008        local language: Marathi (Maharashtra / Goa, PIN 40–44), Hindi elsewhere
  *   TC-WKIT-009        admin "Send welcome kit": off by default, admin only, once per shop, bulk by city
+ *   TC-WKIT-032        26-Nov-2026: admin "Resend updated banner" (no second welcome, 10-minute guard)
+ *   TC-WKIT-023        26-Nov-2026: the go-live e-mail is personalised (Dear <owner>, contact line, ASMY footer)
  */
 import { readFileSync } from "node:fs";
 
@@ -163,7 +165,57 @@ qa("TC-WKIT-009", "Admin 'Send welcome kit': off by default, admin only, once pe
   return seen.join("; ");
 }, local);
 
+qa(["TC-WKIT-032", "TC-WKIT-023"], "Admin 'Resend updated banner': a shop that had the kit gets the current banners once, without a second welcome; a second press at once is refused", async () => {
+  const s = await approvedShopOfNewOwner("wkit-resend");
+  const kit = await kitSettled(s.shop.id);
+  expect(kit.map((r) => r.status), "the go-live welcome kit").toEqual(["SENT"]);
+  const [welcome] = await db()<{ body: string }[]>`select body from document_emails where doc_type = 'SHOP_WELCOME_KIT' and doc_id = ${s.shop.id}`;
+  expect(welcome.body, "personalised opening").toMatch(/\n\nDear [^\n]+, congratulations! [^\n]+ is now live on GoKesari\.com/);
+  expect(welcome.body).toContain("+91 91751 93009");
+  expect(welcome.body).toContain("gokesari.com is a unit of ASMY GLOBAL TRADING & CONSULTANCY INDIA PRIVATE LIMITED");
+  const admin = await as("admin");
+  return withWelcomeKitFlag(true, async () => {
+    const first = await call(admin, "POST", "/api/admin/shops/welcome-kit", { resendShopId: s.shop.id });
+    expectStatus(first, 200, "resend updated banner");
+    const again = await call(admin, "POST", "/api/admin/shops/welcome-kit", { resendShopId: s.shop.id });
+    expect(again.status, "a second press at once").toBe(409);
+    const until = Date.now() + 60_000;
+    let row: { status: string; subject: string; body: string } | undefined;
+    while (Date.now() < until) {
+      [row] = await db()<{ status: string; subject: string; body: string }[]>`select status, subject, body from document_emails where doc_type = 'SHOP_BANNER_UPDATE' and doc_id = ${s.shop.id}`;
+      if (row && !["PENDING", "SENDING"].includes(row.status)) break;
+      await new Promise((r) => setTimeout(r, 1_500));
+    }
+    expect(row?.status, "the updated-banner e-mail").toBe("SENT");
+    expect(row?.subject).toMatch(/updated GoKesari banners/);
+    expect(row?.body).not.toMatch(/congratulations/);
+    expect(await kitRows(s.shop.id), "the welcome kit itself is untouched").toHaveLength(1);
+    return "welcome SENT and personalised; resend 200 → SENT (no congratulations); second press 409";
+  });
+}, local);
+
 manual("TC-WKIT-010", "Scanning the printed QR with a phone opens the shop (browser, and the app when installed)", "needs a phone camera and the installed Android / iOS app; the app half also needs the real Apple Team ID and Android signing fingerprint on the server (docs/deep-links-activation.md)");
 manual("TC-WKIT-011", "The PDF prints in colour on A4 landscape and stays readable and scannable", "needs a colour printer");
 manual("TC-WKIT-012", "A native speaker approves the Marathi and Hindi wording", "needs a Marathi and a Hindi speaker (owner action; phrases listed in docs/shop-welcome-kit-2026-11/README.md)");
 manual("TC-WKIT-013", "Production: the first real go-live e-mail is SENT", "read on gokesari.com's database after the next real shop goes live (no test payments on production)");
+
+// Personalised kit (26-Nov-2026, PR #605): proven by Vitest, declared here so the plan stays complete (TC-QA-001).
+const UNIT = "proven by tests/unit/shop-welcome-kit.test.ts (renderer and e-mail body; no browser step)";
+const PATHS = "proven by tests/integration/shop-welcome-kit-paths.test.ts (needs the test database and a fee capture)";
+manual("TC-WKIT-019", "Owner line: printed only for a real name (no blank, null, placeholder or e-mail); capitals in title case", UNIT);
+manual("TC-WKIT-020", "UPI QR text: upi://pay with the shop's UPI ID, payee = shop name, no amount; uploaded QR checked", UNIT);
+manual("TC-WKIT-022", "No UPI panel without a UPI ID; the owner line only with a printable name", UNIT);
+manual("TC-WKIT-024", "E-mail names the UPI QR, or tells the owner how to add a UPI ID in Settings", UNIT);
+manual("TC-WKIT-025", "Admin 'mark as paid' → shop live → one personalised welcome e-mail", PATHS);
+manual("TC-WKIT-026", "Admin payment link paid (sandbox) → one welcome e-mail; a replayed capture adds none", PATHS);
+manual("TC-WKIT-027", "Dealer fee link (assisted registration) paid → one welcome e-mail", PATHS);
+manual("TC-WKIT-028", "Automatic approval when the fee is recorded → one welcome e-mail", PATHS);
+manual("TC-WKIT-029", "Queuing failure never blocks the approval; the safety net queues it later", PATHS);
+manual("TC-WKIT-030", "A failed send is retried with backoff and then sent once", PATHS);
+manual("TC-WKIT-031", "Safety net: only shops live since the release without a kit; older shops never e-mailed; off switch", PATHS);
+manual("TC-WKIT-033", "Bulk send to all live shops that never had the kit (≤ 200 per run)", PATHS);
+manual("TC-WKIT-035", "Owner wizard + sandbox checkout → live → one welcome kit", "proven by tests/integration/shop-registration-flow.test.ts");
+manual("TC-WKIT-036", "Staff registering on the owner's behalf, fee captured → one welcome kit (replay adds none)", "proven by tests/integration/batch-d-operator-limited.test.ts (D-010)");
+manual("TC-WKIT-037", "Instant GST/PAN approval → one welcome kit", "proven by tests/integration/dealer-step4-instant-approval.test.ts");
+manual("TC-WKIT-038", "Paid self-registration (duplicate / concurrent webhooks) → one welcome kit", "proven by tests/integration/shop-self-registration.test.ts");
+manual("SC-64", "New shop (wizard, dealer link or admin on behalf) → sandbox fee → live → one personalised welcome e-mail → both QRs scan", "end-to-end on test.gokesari.com with the sandbox 'Pay (success)' page and the testing inbox; each path is also proven by the Vitest tests above");

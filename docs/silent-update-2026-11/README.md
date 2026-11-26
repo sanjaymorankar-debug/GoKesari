@@ -72,4 +72,4 @@ Before (26-Nov-2026 10.16 IST) — identical on both sites:
 | `/api/cart` (user data) | `private, no-store` |
 | `/api/app/version` (public, no user data) | `public, max-age=300` |
 
-After: see TEST_RESULTS.md in this folder.
+After (26-Nov 13.23 IST, test.gokesari.com): unchanged — see TEST_RESULTS.md in this folder.

@@ -13,7 +13,7 @@ import { call } from "../lib/http";
 import { expect, need, qa } from "../lib/record";
 import { phonePage, sideways } from "../lib/regression-2026-11-helpers";
 import { BASE_URL } from "../lib/target";
-import { bannerFile, bannerQr } from "../lib/welcome-kit-helpers";
+import { bannerFile, bannerQr, bannerUpiQr, qrPng, uploadUpiQr } from "../lib/welcome-kit-helpers";
 import { world } from "../lib/world";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
@@ -115,3 +115,40 @@ qa("TC-WKIT-009", "Admin → Send welcome kit: the route is ADMIN only and repor
   }
   return seen.join("; ");
 }, { ...signed, partial: "sending itself (flag on, once per shop, bulk) runs in the local tier" });
+
+qa(["TC-WKIT-034", "TC-WKIT-021"], "Marketing: the owner's payment-QR upload — non-UPI and fixed-amount QRs refused, a UPI QR printed as the banner's 'Pay here (UPI)' QR beside the shop QR; removed again", async ({ browser }) => {
+  const shop = await shopA();
+  const owner = await as("shop");
+  const seen: string[] = [];
+  const { context, page } = await pageAs(browser, "shop");
+  try {
+    await page.goto("/shop/marketing");
+    await expect(page.getByTestId("banner-upi"), "the UPI section on the banner card").toBeVisible();
+    seen.push(`UPI section: ${(await page.getByTestId("banner-upi-source").innerText()).slice(0, 80)}`);
+  } finally {
+    await context.close();
+  }
+  const notUpi = await uploadUpiQr(owner, shop.id, await qrPng("https://example.com/not-a-payment"));
+  expect(notUpi.status, "a QR that is not UPI").toBe(422);
+  const fixed = await uploadUpiQr(owner, shop.id, await qrPng("upi://pay?pa=qa.shop@ybl&pn=QA&am=150.00"));
+  expect(fixed.status, "a QR with a fixed amount").toBe(422);
+  const customer = await uploadUpiQr(await as("customer"), shop.id, await qrPng("upi://pay?pa=qa.shop@ybl&pn=QA"));
+  expect(customer.status, "a customer").toBe(403);
+  const merchant = "upi://pay?pa=qa.shop@ybl&pn=QA%20Shop&mc=5411&mode=02";
+  const saved = await uploadUpiQr(owner, shop.id, await qrPng(merchant));
+  try {
+    expect(saved.status, "a UPI payment QR").toBe(200);
+    expect(saved.body.vpa).toBe("qa.shop@ybl");
+    for (const query of ["?lang=en&format=png", "?lang=local&format=png"]) {
+      const file = await bannerFile(owner, shop.id, query);
+      expect(file.status).toBe(200);
+      expect(await bannerQr(file.body), `shop QR on banner${query}`).toBe(`${BASE_URL}/shops/${shop.slug}`);
+      expect(await bannerUpiQr(file.body), `UPI QR on banner${query}`).toBe(merchant);
+    }
+    seen.push("non-UPI 422, fixed amount 422, customer 403; UPI QR saved and both banners carry shop QR + UPI QR");
+  } finally {
+    const del = await owner.delete(new URL(`/api/shops/${shop.id}/banner/upi-qr`, BASE_URL).toString(), { failOnStatusCode: false });
+    expect(del.status(), "remove the uploaded QR again").toBe(200);
+  }
+  return seen.join("; ");
+}, { ...signed, partial: "scanning with a real phone camera is TC-WKIT-010 (manual)" });

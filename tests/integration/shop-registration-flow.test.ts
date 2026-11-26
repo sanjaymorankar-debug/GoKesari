@@ -85,6 +85,7 @@ import {
 import type { KycAdapter } from "@/server/kyc/types";
 import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
 import { call } from "../helpers/http";
+import { welcomeKitCount } from "../helpers/welcome-kit";
 
 const gstinFor = (pan: string) => {
   const first14 = `27${pan}1Z`;
@@ -305,6 +306,8 @@ describe("Flow 1 with a GSTIN", () => {
     await payInSandbox(shopId);
     expect(await shopRow(shopId)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID" });
     expect((await getWizardDraft(owner))!.nextStep).toBe("LIVE");
+    // TC-WKIT-035 (26-Nov-2026): the owner's wizard + checkout path queues exactly one welcome kit.
+    expect(await welcomeKitCount(shopId)).toBe(1);
     const [ready] = await db.select().from(notifications).where(eq(notifications.type, "shop.ready_for_product_upload"));
     expect(ready.body).toContain("Your onboarding is complete. Your shop is now live and accepting orders.");
     expect(ready.body).toContain("Add your products now so customers can find them and place orders with you");

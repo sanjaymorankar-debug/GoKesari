@@ -1499,6 +1499,13 @@
       "when": 1793271300000,
       "tag": "0213_seller_agreements",
       "breakpoints": true
+    },
+    {
+      "idx": 214,
+      "version": "7",
+      "when": 1793271400000,
+      "tag": "0214_shop_banner_upi_qr",
+      "breakpoints": true
     }
   ]
 }

@@ -68,6 +68,7 @@ import { setRegistrationFee } from "@/server/services/registration-fees";
 import { setRule } from "@/server/services/settings";
 import { updateUserPrivileges } from "@/server/services/users";
 import { call } from "../helpers/http";
+import { welcomeKitCount } from "../helpers/welcome-kit";
 import { createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
 
 function signIn(user: { id: string; email: string; name: string | null; role: UserRole }) {
@@ -316,6 +317,8 @@ describe("Operator-Limited role (F8.4.2)", () => {
     const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
     expect(shop.status).toBe("APPROVED");
     expect(shop.feePaymentStatus).toBe("PAID");
+    // TC-WKIT-036 (26-Nov-2026): staff registering on the owner's behalf — one welcome kit, not two after the replay.
+    expect(await welcomeKitCount(shopId)).toBe(1);
     const [session] = await db.select().from(shopOnboardingSessions).where(eq(shopOnboardingSessions.id, sessionId));
     expect(session.status).toBe("COMPLETED");
     expect(await auditCount(AUDIT_ACTIONS.OPLTD_FEE_PAID)).toBe(1);
