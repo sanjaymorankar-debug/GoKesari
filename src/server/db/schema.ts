@@ -11211,6 +11211,18 @@ export const FEATURE_FLAG_KEYS = [
   "flow_f1",
   "flow_f14",
   "flow_f17",
+  // docs/flows-v3/wave4.md (0222): flow spec v3 wave 4. F7 franchise (live shop for every paid booking, renewal
+  // without PAN), F8 team (downgrade moves the agents), F9 recurring commission (own shops anywhere, the zone's first
+  // franchise keeps the others), F10 renewal (3-year cap on the tail), F12 referral codes for every dealer, shop and
+  // customer, F21 zone hold (one hold per dealer, 15 minutes, refund of a lost slot), F22 commission (held 3 days,
+  // GST on commission and its invoice). Seeded ON on the staging database (gokesari_test), OFF on production.
+  "flow_f7",
+  "flow_f8",
+  "flow_f9",
+  "flow_f10",
+  "flow_f12",
+  "flow_f21",
+  "flow_f22",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -12371,6 +12383,11 @@ export const dealerPayoutBatches = pgTable(
     paidBy: uuid("paid_by"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** 0222 (docs/flows-v3/wave4.md, flag flow_f22): GST added for a GST-registered dealer; net = gross + GST − TDS. */
+    gstPaise: integer("gst_paise").notNull().default(0),
+    gstRateBp: integer("gst_rate_bp").notNull().default(0),
+    /** 0222: the commission invoice (dealer_commission_invoices) issued for this payout. */
+    gstInvoiceId: uuid("gst_invoice_id"),
   },
   (t) => [
     index("dealer_payout_batches_dealer_idx").on(t.dealerId, t.createdAt),
@@ -13737,4 +13754,5 @@ export * from "./legal-agreements-schema"; // docs/seller-agreements-2026-11 (02
 export * from "./onboarding-v2-schema"; // docs/onboarding-v2-2026-11 (0215)
 export * from "./dual-auth-schema"; // docs/dual-auth-2026-11 (0219)
 export * from "./flows-v3-schema"; // docs/flows-v3 (0221)
+export * from "./flows-v3-wave4-schema"; // docs/flows-v3/wave4.md (0222)
 /* <<< GoKesari Health */

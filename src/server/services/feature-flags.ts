@@ -107,6 +107,13 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   flow_f1: "Flows v3 F1: rider verification gate, sign-up Terms record, referral link to sign-up",
   flow_f14: "Flows v3 F14: shop wallet created with the shop, wallet ledger download",
   flow_f17: "Flows v3 F17: support auto-assign, area dealer, system tickets, working-hours SLA, recovery form",
+  flow_f7: "Flows v3 F7: a live shop for every paid franchise booking; renewal without PAN for onboarding v2 franchisees",
+  flow_f8: "Flows v3 F8: downgrading a team lead moves his agents instead of refusing",
+  flow_f9: "Flows v3 F9: recurring on the franchisee's own shops in any area; the zone's first franchise keeps the other shops",
+  flow_f10: "Flows v3 F10: commission after a franchise lapses stops 3 years after its first start",
+  flow_f12: "Flows v3 F12: every account's customer and shop referral codes made when its codes are listed",
+  flow_f21: "Flows v3 F21: one zone hold per dealer, released after 15 minutes, lost slot refunded automatically",
+  flow_f22: "Flows v3 F22: commission payable 3 days after it is earned; GST and invoice for GST-registered dealers",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -218,6 +225,20 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/flows-v3/wave1.md (F14): a shop registered through onboarding v2 gets its prepaid shop wallet at once (zero balance), and /shop/wallet offers the monthly ledger as a CSV download (without needing billing v2). Off: the wallet appears on first use and the download stays on the billing v2 statements page only.",
   flow_f17:
     "docs/flows-v3/wave1.md (F17): new tickets are assigned automatically by category and the shop's district (Admin → Support → Routing; least-loaded person; no match = manual queue); the shop's area dealer is copied (read-only); the system opens tickets for failed GST/PAN or document checks, identity reviews, payment mismatches, disputes, delivery-code locks and society applications; first response due within working hours (rule supportFlows); reopen within 7 days, closed tickets too; a public form at /account/recover for people who lost both mobile and e-mail. Off: the help desk behaves exactly as before.",
+  flow_f7:
+    "docs/flows-v3/wave4.md (F7): every paid franchise booking needs a live registered shop of the buyer, with or without a subscription plan (\"no shop, no franchise\"), at reserve and at payment; a franchisee who bought on a plan (onboarding v2) may renew before giving a PAN (PAN + bank are still needed before the first payout), and the renewal runs for the plan's own term. Off: unchanged.",
+  flow_f8:
+    "docs/flows-v3/wave4.md (F8): changing a team lead to an agent moves his active agents to the team lead chosen (or to the dealer) in the same step, instead of refusing until they are moved by hand. Off: unchanged.",
+  flow_f9:
+    "docs/flows-v3/wave4.md (F9): a paid franchise earns its recurring share on the owner's own shops (registered with his codes) in any area — outside his zones through his earliest franchise — and on the other shops of his zone; when a second franchise is bought in the zone the other shops stay with the first one (no 50/50 split) and the new owner earns only on the shops he registers himself; franchises sold after the first 25 get the launch recurring rate (20% + bonus up to 5%). Off: unchanged (shops of the zone shared between its franchises).",
+  flow_f10:
+    "docs/flows-v3/wave4.md (F10, rule franchiseFlowsV3.tailCapYears): the commission tail after a paid franchise lapses ends at most 3 years after the franchise first started — a renewal does not start a new 3 years (while the franchise is paid up it keeps earning). Free dealers: one-time commission for 12 months, no tail (unchanged). Off: tail = 2 years after the last expiry.",
+  flow_f12:
+    "docs/flows-v3/wave4.md (F12): the account's referral codes are completed whenever they are listed (Refer and share pages): a customer code for every account and a shop code for each live shop (while shop referrals are on), next to the dealer, team and franchise codes made at approval, so there is always a code to share by WhatsApp / SMS / e-mail. Off: customer and shop codes are made on first use of their own page only.",
+  flow_f21:
+    "docs/flows-v3/wave4.md (F21, rule franchiseFlowsV3): a dealer may hold one booking at a time; the hold is 15 minutes with a live countdown, and the slot is released 2 minutes after it even while the payment page is open (the gateway order ends with the hold, at the gateway's minimum); held slots show \"on hold\" to others. A payment that arrives later takes a slot that is still free (either slot of the zone), else the money for the lost zone(s) is refunded in full automatically through the payment gateway, and the admins are alerted. Off: unchanged.",
+  flow_f22:
+    "docs/flows-v3/wave4.md (F22, rule franchiseFlowsV3): a commission entry becomes payable 3 days after it is earned (return window + 1 day) — the month close leaves newer entries for the next month; a full refund of a shop fee through the payment gateway takes back the commission of everyone in the chain; a GST-registered dealer's payout adds GST (rate set by the admin, confirmed by the CA) with a commission invoice, and the statement shows gross, reversals, TDS, GST and net. Payouts on the 5th stay drafts for an admin. Off: unchanged.",
 };
 
 export interface FeatureFlagView {
