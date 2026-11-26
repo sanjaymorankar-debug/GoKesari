@@ -1227,6 +1227,8 @@ function approveShopTransaction(
       })
       .where(eq(shops.id, shopId))
       .returning();
+    // docs/flows-v3/wave3.md (flag flow_f6): on a first go-live the 1-year subscription starts today, not at payment.
+    await (await import("@/server/flows/f6-subscription")).anchorSubscriptionAtGoLive(tx, shop, updated.approvedAt ?? new Date());
 
     // An automatic approval has nobody to record as the changer; its audit row says what was assigned.
     if (actor.id) {

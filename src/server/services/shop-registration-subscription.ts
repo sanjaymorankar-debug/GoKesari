@@ -1066,7 +1066,9 @@ export async function registrationAuditTrail(shopId: string, limit = 100) {
  * per shop, stage and day, so a late or repeated run catches up without sending twice.
  */
 export async function runRegistrationSubscriptionJob(now: Date = new Date()) {
-  const [rule, sub] = await Promise.all([getRule("shopMembership"), getRule("shopRegistrationSubscription")]);
+  // docs/flows-v3/wave3.md (flag flow_f6): reminders run even when rule shopMembership has them off.
+  const { shopMembershipRuleForFlows } = await import("@/server/flows/wave3-rules");
+  const [rule, sub] = await Promise.all([shopMembershipRuleForFlows(), getRule("shopRegistrationSubscription")]);
   const out: Record<string, unknown> = {};
   out.statusesChanged = await syncRegistrationStatuses();
   const expired = await db
