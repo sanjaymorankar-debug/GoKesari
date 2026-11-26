@@ -20,24 +20,37 @@ import { and, eq, isNull } from "drizzle-orm";
 import { bootstrapAdminEmails, getEnv } from "@/lib/env";
 import { db } from "@/server/db";
 import { users } from "@/server/db/schema";
-import { createSecondFactorChallenge, readSecondFactorChallenge, secondFactorRequired, SECOND_FACTOR_TTL_MS } from "./second-factor";
+import { createSecondFactorChallenge, readSecondFactorChallenge, secondFactorKind, secondFactorRequired, SECOND_FACTOR_TTL_MS } from "./second-factor";
 
 export const SECOND_FACTOR_COOKIE = "gk_2fa_challenge";
 export const SECOND_FACTOR_PAGE = "/signin/second-factor";
 /** /signin?error=… shown when a new account tries Google while the SMS factor is on. */
 export const GOOGLE_SIGN_UP_NEEDS_CODE = "SmsSignUpWithCode";
 
-/** true = let Auth.js open the session; a string = where to send the browser instead. */
-export async function googleSecondFactorGate(rawEmail: string): Promise<true | string> {
+/** /signin?error=… when Google did not confirm the address (docs/dual-auth-2026-11). */
+export const GOOGLE_EMAIL_UNVERIFIED = "GoogleEmailUnverified";
+
+/**
+ * true = let Auth.js open the session; a string = where to send the browser instead.
+ * `googleEmailVerified`: Google's email_verified claim (undefined for the e-mailed link, which proves the address).
+ */
+export async function googleSecondFactorGate(rawEmail: string, googleEmailVerified?: boolean): Promise<true | string> {
   const email = rawEmail.toLowerCase().trim();
+  const { dualAuthInForce } = await import("@/server/dual-auth/policy");
+  const dual = await dualAuthInForce();
+  // docs/dual-auth-2026-11: Google counts as the e-mail factor only with email_verified = true.
+  if (dual && googleEmailVerified === false) return `/signin?error=${GOOGLE_EMAIL_UNVERIFIED}`;
   const [record] = await db.select().from(users).where(and(eq(users.email, email), isNull(users.deletedAt)));
   if (!record) {
     if (bootstrapAdminEmails().includes(email)) return true;
+    // dual_auth: a new account is created from the verified Google address and asks for the mobile code before
+    // anything else (DualVerify gate) — "mobile OTP + Google" for a new customer.
+    if (dual) return true;
     const newAccountNeedsIt = await secondFactorRequired({ role: "CUSTOMER", email, emailPlaceholder: false });
     return newAccountNeedsIt ? `/signin?error=${GOOGLE_SIGN_UP_NEEDS_CODE}` : true;
   }
   if (record.status !== "ACTIVE") return true; // refused by the signIn callback's own status check
-  if (!(await secondFactorRequired(record))) return true;
+  if (!(await secondFactorKind(record, "EMAIL"))) return true;
   (await cookies()).set(SECOND_FACTOR_COOKIE, createSecondFactorChallenge(record.id), {
     httpOnly: true,
     sameSite: "lax",

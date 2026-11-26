@@ -89,6 +89,7 @@ import { grantRole } from "@/server/services/roles";
 import { addMonths } from "@/server/services/shop-membership";
 import { getRule } from "@/server/services/settings";
 import { DOCUMENTS_HOLD_NOTE, feeBasePaise, ratingAdjustmentBp } from "./commission";
+import { requireDualStepUp } from "@/server/dual-auth/step-up";
 
 interface Actor {
   id: string;
@@ -1416,6 +1417,8 @@ export async function promoteToTeamLead(memberId: string, input: { reason: strin
  * Promoting earlier stays an admin's override.
  */
 export async function dealerPromotesAgent(actor: Actor, memberId: string, reason: string): Promise<{ member: DealerSalesperson; movedAgents: number; developmentId: string | null }> {
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  await requireDualStepUp(actor.id, "TEAM_ROLE");
   const { getDealerForUser } = await import("./service");
   const dealer = await getDealerForUser(actor.id);
   if (!dealer || dealer.status !== "APPROVED") throw forbidden("Only the main dealer promotes an agent of his network.");
@@ -1630,6 +1633,8 @@ export async function saveMemberPayee(memberId: string, input: { pan?: string | 
   const [member] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId));
   if (!member) throw notFound("Team member");
   if (actor.role !== "ADMIN" && member.userId !== actor.id) throw forbidden("You can change only your own payment details.");
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  if (member.userId === actor.id) await requireDualStepUp(actor.id, "BANK_CHANGE");
   const patch: Partial<typeof dealerSalespeople.$inferInsert> = { updatedAt: new Date() };
   if (input.pan) {
     const pan = input.pan.trim().toUpperCase();

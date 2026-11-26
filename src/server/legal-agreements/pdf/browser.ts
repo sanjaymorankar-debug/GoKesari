@@ -32,6 +32,12 @@ async function resolveLaunch(): Promise<{ executablePath: string; args: string[]
   const explicit = process.env.LEGAL_PDF_CHROMIUM_PATH?.trim();
   if (explicit) return { executablePath: explicit, args: [...common, "--no-sandbox", "--disable-gpu"] };
   if (process.platform === "linux") {
+    // gk-db-1 (Ubuntu, no apt): Chromium needs libnspr4 / libnss3 and friends, which @sparticuz/chromium
+    // carries in al2023.tar.br but unpacks (and adds to LD_LIBRARY_PATH) only where it detects an Amazon
+    // Linux 2023 runtime. Without them Chromium exits at once ("libnspr4.so: cannot open shared object
+    // file") — seen on gokesari.com 27-Nov-2026. This detection variable is read only by that package; it
+    // must be set before the first import, which runs the check.
+    process.env.CODEBUILD_BUILD_IMAGE ??= "nodejs22-gokesari-bundled-libs";
     const { default: chromium } = await import("@sparticuz/chromium");
     return { executablePath: await chromium.executablePath(), args: [...chromium.args, ...common] };
   }

@@ -60,6 +60,7 @@ import { assertCashfreeEnvSafe } from "@/server/payments/cashfree-env";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
 import { assertNoFailedBankCheck, latestBankCheck, runBankAccountCheckOnSave, type BankCheckView } from "./bank-account-check";
+import { requireDualStepUp } from "@/server/dual-auth/step-up";
 
 interface Actor {
   id: string;
@@ -200,6 +201,8 @@ export async function saveBankAccount(
 ): Promise<BankAccountView> {
   if (owner.shopId) await assertOwnerOf(owner.shopId, actor);
   else if (owner.userId !== actor.id) throw forbidden("You can only change your own bank account.");
+  // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
+  if (actor.id === owner.userId || owner.shopId) await requireDualStepUp(actor.id, "BANK_CHANGE");
 
   const fields: Record<string, string> = {};
   const holder = checkHolderName(input.accountHolderName);

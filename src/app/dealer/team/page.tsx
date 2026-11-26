@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { dualVerifyRedirect } from "@/server/dual-auth/policy";
 
 import { MyTeam } from "@/components/onboarding-v2/my-team";
 import { Alert, LinkButton, PageHeader } from "@/components/ui";
@@ -19,6 +20,9 @@ export default async function MyTeamPage() {
   // Sign-in first, then the flags: a guest is always sent to sign-in (guest QA), whatever the flags say.
   const user = await getCurrentUser();
   if (!user) redirect("/signin?callbackUrl=/dealer/team");
+  // docs/dual-auth-2026-11: team / franchise features need both factors verified (flag dual_auth).
+  const verifyAt = await dualVerifyRedirect(user.id, "/dealer/team").catch(() => null);
+  if (verifyAt) redirect(verifyAt);
   if (!(await onboardingV2Enabled()) || !(await isFeatureEnabled("dealer_programme_enabled"))) notFound();
   const data = await teamOverview(user).catch((e: unknown) => (e instanceof Error ? e.message : "Not available."));
   return (

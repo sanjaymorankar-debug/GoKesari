@@ -35,8 +35,9 @@ export function ShopSignInCard() {
     "use server";
     const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
     let user: Awaited<ReturnType<typeof verifyLoginOtp>>["user"];
+    let channel: "EMAIL" | "SMS" | undefined;
     try {
-      ({ user } = await verifyLoginOtp({
+      ({ user, channel } = await verifyLoginOtp({
         mobile: input?.mobile ?? null,
         email: input?.email ?? null,
         code: String(input?.code ?? ""),
@@ -48,7 +49,7 @@ export function ShopSignInCard() {
     }
     // docs/sms-2fa-2026-11: the session, or the SMS step when the account needs a second factor.
     try {
-      return await continueAfterFirstFactor(user, ip, AFTER_SIGN_IN);
+      return await continueAfterFirstFactor(user, ip, AFTER_SIGN_IN, channel ?? "EMAIL");
     } catch (error) {
       if (isRedirectError(error)) throw error;
       return { error: toClientError(error).body.error.message };

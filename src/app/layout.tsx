@@ -34,6 +34,9 @@ import { getEnv } from "@/lib/env";
 import { isMobileAppUserAgent } from "@/lib/mobile-app";
 import { emailSignInMode } from "@/server/auth-email";
 import { headers } from "next/headers";
+import { DualAuthBanner } from "@/components/dual-verify/dual-auth-banner";
+import { DualAuthFetchGuard } from "@/components/dual-verify/fetch-guard";
+import { dualAuthInForce, missingFactorsForBanner } from "@/server/dual-auth/policy";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -107,7 +110,7 @@ export default async function RootLayout({
           .catch(() => []),
       ])
     : null;
-  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled, priceComparison, reconsent, onboardingV2] = await Promise.all([
+  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled, priceComparison, reconsent, onboardingV2, dualAuth] = await Promise.all([
     signedIn,
     // The same location every page filters by (cookie, else the default address).
     getCustomerLocation(user?.id).catch(() => null),
@@ -127,6 +130,12 @@ export default async function RootLayout({
     user ? getReconsentState(user.id).catch(() => null) : null,
     // docs/onboarding-v2-2026-11: the checkout login sheet (flag onboarding_v2).
     onboardingV2Enabled(),
+    // docs/dual-auth-2026-11: the missing-factor banner and the two-code dialog (flag dual_auth, in force).
+    user
+      ? dualAuthInForce()
+          .then(async (on) => ({ on, missing: on ? await missingFactorsForBanner(user.id) : [] }))
+          .catch(() => ({ on: false, missing: [] as ("MOBILE" | "EMAIL")[] }))
+      : { on: false, missing: [] as ("MOBILE" | "EMAIL")[] },
   ]);
   const env = getEnv();
   const inMobileApp = onboardingV2 ? isMobileAppUserAgent((await headers()).get("user-agent")) : false;
@@ -135,6 +144,8 @@ export default async function RootLayout({
     googleEnabled: Boolean(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET),
     // The e-mailed link is hidden in the app (as on /signin); there the e-mailed code verifies the e-mail.
     magicLinkEnabled: emailSignInMode(env) !== "disabled" && !inMobileApp,
+    // docs/dual-auth-2026-11: the code and the link both offered; the SMS step on a new device inside the sheet.
+    dualAuth: await dualAuthInForce().catch(() => false),
   };
   const [cart, balancePaise, unread, roles, addresses, staffShops, referralLinks] = signedInState ?? [
     { count: 0, totalPaise: null },
@@ -178,6 +189,8 @@ export default async function RootLayout({
           barcodeScan={barcodeScan}
           franchiseEntry={Boolean(user) && onboardingV2}
         />
+        <DualAuthBanner missing={dualAuth.missing} />
+        {dualAuth.on ? <DualAuthFetchGuard /> : null}
         <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
           {children}
         </main>

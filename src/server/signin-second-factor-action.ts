@@ -47,6 +47,16 @@ export async function verifySignInSmsCode(input: { challenge: string; mobile: st
   } catch (error) {
     return failure(error);
   }
+  // docs/dual-auth-2026-11: both factors were just given on this browser — trust it for 30 days (rule dualAuth).
+  try {
+    const { dualAuthInForce } = await import("@/server/dual-auth/policy");
+    if (await dualAuthInForce()) {
+      const { trustThisDevice } = await import("@/server/dual-auth/devices");
+      await trustThisDevice(userId, "sign_in_both_factors");
+    }
+  } catch (error) {
+    console.error("[dual-auth] could not trust the device", error);
+  }
   // The Google / emailed-link path (challenge in the cookie): drop it, and in the app's Google flow
   // (system browser) continue to /mobile-auth/complete, which hands the app its code.
   const jar = await cookies();
