@@ -493,6 +493,7 @@ export async function withSecondBuyer<T>(fn: (addressId: string) => Promise<T>):
 /* -------------------------------------------------------------- the page */
 
 export async function signedPage(browser: Browser, role: Role, options: Parameters<Browser["newContext"]>[0] = {}) {
+  await as(role); // the account's factors (dual_auth) before its pages
   const context = await browser.newContext({ ...options, baseURL: BASE_URL, storageState: await storageFor(role) });
   const page = await context.newPage();
   return { context, page };
