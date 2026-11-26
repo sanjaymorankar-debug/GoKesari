@@ -218,7 +218,20 @@ const serverEnvSchema = z.object({
    * sent. Needs MSG91_AUTH_KEY, MSG91_SENDER_ID and MSG91_OTP_TEMPLATE_ID;
    * with any missing, SMS codes report themselves unavailable (msg91ConfigProblem).
    */
-  SMS_PROVIDER: z.enum(["none", "mock", "msg91"]).default("none"),
+  SMS_PROVIDER: z.enum(["none", "mock", "msg91", "smsfortius"]).default("none"),
+  /**
+   * `smsfortius` (owner, 26-Nov-2026): the owner's DLT-registered SMS vendor, same scope as `msg91` (one-time
+   * codes only, with the DLT-approved OTP template). Needs SMSFORTIUS_API_KEY, SMSFORTIUS_SENDER_ID and
+   * SMSFORTIUS_OTP_TEMPLATE_ID; with any missing, SMS codes report themselves unavailable.
+   */
+  /** SMSFortius API key. Server environment only, never in code. */
+  SMSFORTIUS_API_KEY: z.string().optional(),
+  /** The DLT-registered 6-letter sender header, e.g. GOKSRI. */
+  SMSFORTIUS_SENDER_ID: z.string().optional(),
+  /** The DLT content-template id of the OTP text (docs/sms-2fa-2026-11/DLT_SETUP.md). */
+  SMSFORTIUS_OTP_TEMPLATE_ID: z.string().optional(),
+  /** SMSFortius V2 send URL (overridable for tests). */
+  SMSFORTIUS_API_URL: z.string().default("https://smsfortius.org/V2/apikey.php"),
   /** MSG91 → API → Auth key. Server environment only, never in code. */
   MSG91_AUTH_KEY: z.string().optional(),
   /** The DLT-registered 6-letter sender header, e.g. GOKSRI. */
@@ -561,6 +574,16 @@ export function messagingConfigProblem(env: ServerEnv = getEnv()): string | null
   if (isProductionHost && (env.SMS_PROVIDER === "mock" || env.WHATSAPP_PROVIDER === "mock")) {
     return "SMS_PROVIDER / WHATSAPP_PROVIDER=mock is not allowed on the production site.";
   }
+  return null;
+}
+
+/** Why SMSFortius must not send one-time codes with these settings, or null. Keys come from the environment only. */
+export function smsFortiusConfigProblem(env: ServerEnv = getEnv()): string | null {
+  if (env.SMS_PROVIDER !== "smsfortius") return `SMS_PROVIDER is "${env.SMS_PROVIDER}", not "smsfortius".`;
+  const missing = (["SMSFORTIUS_API_KEY", "SMSFORTIUS_SENDER_ID", "SMSFORTIUS_OTP_TEMPLATE_ID"] as const).filter((key) => !env[key]?.trim());
+  if (missing.length > 0) return `Missing ${missing.join(", ")}.`;
+  if (!/^[A-Za-z]{6}$/.test(env.SMSFORTIUS_SENDER_ID!.trim())) return "SMSFORTIUS_SENDER_ID must be the 6-letter DLT sender header, e.g. GOKSRI.";
+  if (!/^\d{12,25}$/.test(env.SMSFORTIUS_OTP_TEMPLATE_ID!.trim())) return "SMSFORTIUS_OTP_TEMPLATE_ID must be the DLT content template id (digits).";
   return null;
 }
 

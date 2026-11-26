@@ -14,6 +14,7 @@
 import { sendEmail } from "@/server/email/transport";
 import { sendText, smsOtpMode } from "@/server/messaging/sms-whatsapp";
 import { Msg91Error, sendMsg91Otp } from "@/server/messaging/msg91";
+import { SmsFortiusError, sendSmsFortiusText } from "@/server/messaging/smsfortius";
 import { renderEmailChangeOtpEmail, renderOtpEmail } from "@/server/notifications/templates";
 import { getRule } from "@/server/services/settings";
 
@@ -86,8 +87,22 @@ export const msg91OtpProvider: OtpProvider = new SmsOtpProvider();
 /** @deprecated the former Phase 2 stub's name; now the MSG91 provider. */
 export const phase2SmsOtpProvider = msg91OtpProvider;
 
+/**
+ * SMSFortius (owner's DLT vendor, 26-Nov-2026): the same DLT-approved OTP text, sent through its V2 API.
+ * Available only with SMS_PROVIDER=smsfortius and all its keys.
+ */
+export const smsFortiusOtpProvider: OtpProvider = {
+  channel: "SMS",
+  isAvailable: () => smsOtpMode() === "smsfortius",
+  async send({ to, code, expiryMinutes }) {
+    if (smsOtpMode() !== "smsfortius") throw new SmsFortiusError("SMSFortius is not set up on this server (SMS_PROVIDER and the SMSFORTIUS_* keys).");
+    await sendSmsFortiusText({ toE164: to, text: smsOtpText(code, expiryMinutes) });
+  },
+};
+
 export function smsProvider(): OtpProvider | null {
   if (msg91OtpProvider.isAvailable()) return msg91OtpProvider;
+  if (smsFortiusOtpProvider.isAvailable()) return smsFortiusOtpProvider;
   return mockSmsOtpProvider.isAvailable() ? mockSmsOtpProvider : null;
 }
 

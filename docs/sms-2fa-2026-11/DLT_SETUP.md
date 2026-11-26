@@ -86,6 +86,28 @@ sudo gk-deploy restart gokesari-prod
 This changes the server, so it needs the owner's OK (CLAUDE.md). The app never
 logs the key, the code or the full number.
 
+### 5b. SMSFortius instead of MSG91 (owner, 26-Nov-2026)
+
+The owner's DLT registration is done with **SMSFortius** (`https://smsfortius.org/V2/apikey.php`). It sends the
+same DLT-approved text (section 3) with the sender header and the DLT content template id. Same rules: values
+typed hidden on the server, never in code or chat logs, never committed (the repository is public).
+
+```
+sudo gk-site env set gokesari-staging SMS_PROVIDER               # smsfortius (staging first, then prod)
+sudo gk-site env set gokesari-staging SMSFORTIUS_API_KEY         # the SMSFortius API key
+sudo gk-site env set gokesari-staging SMSFORTIUS_SENDER_ID       # the 6-letter DLT header, e.g. GOKSRI
+sudo gk-site env set gokesari-staging SMSFORTIUS_OTP_TEMPLATE_ID # the DLT content template id (19 digits)
+sudo gk-deploy restart gokesari-staging
+```
+
+Then the same for `gokesari-prod`. Admin → Settings → Sign-in security must say "SMSFortius configured".
+
+With SMS live, **signing in with a mobile number** sends the code by SMS to that number when the account has
+already verified it by an SMS code; a number never verified still gets the code by e-mail (no account can be
+taken over by typing a number). Onboarding v2's mobile step (checkout sign-in sheet, shop identity step) uses
+the same provider, and with rule `onboardingV2.mobileOtpFallbackWhenNoSms` switched **off** the code becomes
+strictly mandatory.
+
 ## 6. Check, then switch on
 
 1. Admin → Settings → **Sign-in security** → the SMS provider line must say
