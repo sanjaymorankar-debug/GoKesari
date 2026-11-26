@@ -12,8 +12,10 @@ import { dualVerifyRedirect, isStaffRole } from "./policy";
 
 export async function StaffDualAuthGate({ children, fallbackPath }: { children: React.ReactNode; fallbackPath: string }) {
   const user = await getCurrentUser();
-  if (user && isStaffRole(user.role)) {
-    const path = (await headers()).get(REQUEST_PATH_HEADER) || fallbackPath;
+  const path = (await headers()).get(REQUEST_PATH_HEADER) || fallbackPath;
+  // The test site's mock SMS outbox (SMS_PROVIDER=mock only) is where a staff account reads its own SMS code.
+  const mockOutbox = path.startsWith("/admin/test-messages") && process.env.SMS_PROVIDER === "mock";
+  if (user && isStaffRole(user.role) && !mockOutbox) {
     const verifyAt = await dualVerifyRedirect(user.id, path).catch(() => null);
     if (verifyAt) redirect(verifyAt);
   }
