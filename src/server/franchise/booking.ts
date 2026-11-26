@@ -298,6 +298,8 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
   // Onboarding v2: a subscription plan is mandatory there and marks the booking (plan_id) — live at payment, no KYC wait.
   const plan = input.planId ? await planForBooking(input.planId) : null;
   const v2 = !!plan;
+  // The same gate as /franchise/start: a plan booking (live at payment) needs a live registered shop.
+  if (v2) await requireV2Buyer(actor.id);
   const owner = await requireOwner(actor, db, { v2 });
   const { version, config } = await franchiseConfig();
   const zoneIds = [...new Set(input.zoneIds.map((z) => z.trim().toUpperCase()))].filter(Boolean);
@@ -378,7 +380,7 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
     const holdExpiresAt = new Date(now.getTime() + config.reservationHoldMinutes * 60_000);
     const [booking] = await tx
       .insert(franchiseBookings)
-      .values({ ownerDealerId: owner.id, kind: "NEW", status: "RESERVED", ...amounts, couponId: coupon?.coupon.id ?? null, couponCode: coupon?.coupon.code ?? null, configVersion: version, launchOffer, holdExpiresAt, isTest, createdBy: actor.id, planId: plan?.id ?? null })
+      .values({ ownerDealerId: owner.id, kind: "NEW", status: "RESERVED", ...amounts, couponId: coupon?.coupon.id ?? null, couponCode: coupon?.coupon.code ?? null, configVersion: version, launchOffer, holdExpiresAt, isTest, createdBy: actor.id, planId: plan?.id ?? null, planCode: plan?.code ?? null, planDurationMonths: plan?.durationMonths ?? null, planPricePerZonePaise: plan?.pricePerZonePaise ?? null })
       .returning();
     const allocations = await tx
       .insert(franchiseAllocations)
@@ -433,6 +435,13 @@ export async function previewCart(actor: Actor, input: { zoneIds: string[]; coup
  * Onboarding v2: the active plan a booking is bought on. Refused while the onboarding_v2 flag is off (OFF = exactly
  * today's booking) or when the plan is inactive / unknown.
  */
+/** Onboarding v2 buyer gate (as /franchise/start): the flag is on and the account owns a live registered shop. */
+async function requireV2Buyer(userId: string): Promise<void> {
+  const { onboardingV2Enabled } = await import("@/server/onboarding-v2/roles");
+  if (!(await onboardingV2Enabled())) throw conflict("Subscription plans are not open yet.");
+  await (await import("@/server/onboarding-v2/franchise")).requireLiveShop(userId);
+}
+
 export async function planForBooking(planId: string, client: DbClient = db) {
   const { onboardingV2Enabled } = await import("@/server/onboarding-v2/roles");
   if (!(await onboardingV2Enabled())) throw conflict("Subscription plans are not open yet.");
@@ -486,6 +495,7 @@ export async function cancelReservation(bookingId: string, actor: Actor): Promis
 export async function startBookingPayment(bookingId: string, actor: Actor) {
   const [booking] = await db.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId));
   if (!booking) throw notFound("Booking");
+  if (booking.planId) await requireV2Buyer(actor.id);
   const owner = await requireOwner(actor, db, { v2: !!booking.planId });
   if (booking.ownerDealerId !== owner.id) throw notFound("Booking");
   const { config } = await franchiseConfig();
@@ -518,7 +528,7 @@ export async function startBookingPayment(bookingId: string, actor: Actor) {
     userId: actor.id,
     amountPaise: booking.totalPaise,
     customer: { id: actor.id, name: u?.name ?? null, email: u?.email ?? null, phone: u?.phone ?? null },
-    description: booking.kind === "RENEWAL" ? "GoKesari franchise renewal (12 months)" : `GoKesari franchise — ${zones.join(", ")}${booking.planId ? ` (${(await db.select({ name: franchisePlans.name }).from(franchisePlans).where(eq(franchisePlans.id, booking.planId)))[0]?.name ?? "plan"})` : ""}${booking.couponCode ? ` (coupon ${booking.couponCode})` : ""}`,
+    description: booking.kind === "RENEWAL" ? "GoKesari franchise renewal (12 months)" : `GoKesari franchise — ${zones.join(", ")}${booking.planId ? ` (plan ${booking.planCode ?? "v2"})` : ""}${booking.couponCode ? ` (coupon ${booking.couponCode})` : ""}`,
     idempotencyKey: `franchise-booking:${booking.id}`,
     mode: "CHECKOUT",
     returnPath: `/franchise/my?booking=${booking.id}`,
@@ -579,20 +589,16 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
   } else {
     await client.execute(sql`select pg_advisory_xact_lock(hashtext('franchise-launch'))`);
     const allocations = await client.select().from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, booking.id)).orderBy(asc(franchiseAllocations.zoneId)).for("update");
-    // Onboarding v2: the plan's term; no plan = the configured validity, as before.
-    const [plan] = booking.planId ? await client.select().from(franchisePlans).where(eq(franchisePlans.id, booking.planId)) : [];
-    const months = plan?.durationMonths ?? bookingConfig.config.validityMonths;
+    // Onboarding v2: the plan's term as snapshotted at reserve (0218); no plan = the configured validity, as before.
+    const months = booking.planId ? (booking.planDurationMonths ?? bookingConfig.config.validityMonths) : bookingConfig.config.validityMonths;
     const expiresAt = allocationExpiry(now, months);
     const tail = tailEndAt({ chainStartAt: now, expiresAt, mode: config.tailMode, tailYears: config.tailYears });
     const counts = booking.launchOffer && !booking.isTest ? await launchCounts(client, now) : null;
     // Pay first, KYC after (owner 22-Nov-2026): without approved KYC + bank the zone is his but not live yet.
-    // Onboarding v2 (booking with a plan): live at payment — the dealer account is approved now, the code issued now,
-    // no kyc_due_at; PAN and the payout bank are asked before the first payout (payeeStatus holds it until then).
+    // Onboarding v2 (booking with a plan): live at payment, no kyc_due_at; the dealer approval, codes and upgrade
+    // shops run after the allocations below, in a savepoint (goLiveV2Booking) — a failure there never rolls the
+    // capture back; the 5-minute franchise job retries it. PAN + payout bank come before the first payout only.
     let [ownerRow] = await client.select().from(dealers).where(eq(dealers.id, booking.ownerDealerId));
-    if (booking.planId && ownerRow) {
-      const v2 = await import("@/server/onboarding-v2/franchise");
-      ownerRow = (await v2.approveDealerInstantly(client, ownerRow, "franchisee_paid", "Onboarding v2: paid franchise live at payment")).dealer;
-    }
     const kycPending = booking.planId ? false : !ownerRow || kycMissingFor(ownerRow).length > 0;
     const kycDueAt = kycPending ? new Date(now.getTime() + KYC_DAYS_AFTER_PAYMENT * 86_400_000) : null;
     let seq = counts?.areas ?? 0;
@@ -618,7 +624,7 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
         .update(franchiseAllocations)
         .set({ status: "ACTIVE", holdExpiresAt: null, activatedAt: now, periodStart: now, expiresAt, tailEndAt: tail, launchSeq: booking.launchOffer && !booking.isTest ? seq : null, kycDueAt, updatedAt: now })
         .where(eq(franchiseAllocations.id, a.id));
-      if (!kycPending) {
+      if (!kycPending && !booking.planId) {
         // One franchise code per owner per franchise (an alias of his own code; closed at expiry).
         await ensureAllocationCode(client, a);
         // §7: an upgrade from the free dealership — his team's earlier shops in this zone attach for recurring.
@@ -628,12 +634,24 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
       await client.update(franchiseZones).set({ status: "AVAILABLE", reservedForDealerId: null, reservedUntil: null, statusReason: "Reserved dealer bought the zone", updatedAt: now }).where(and(eq(franchiseZones.zoneId, a.zoneId), eq(franchiseZones.status, "RESERVED"), eq(franchiseZones.reservedForDealerId, a.ownerDealerId)));
       activated.push(a.zoneId);
     }
+    if (booking.planId && activated.length) {
+      const v2 = await import("@/server/onboarding-v2/franchise");
+      const done = await client.transaction((sp) => v2.goLiveV2Booking(sp, booking.id)).then(
+        () => true,
+        (e: unknown) => {
+          console.error("[franchise] v2 go-live failed; the franchise job retries it", booking.id, e);
+          return false;
+        },
+      );
+      if (!done) await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { problem: "v2_go_live_failed", retry: "franchise job", error: "see server log" } }, client);
+      [ownerRow] = await client.select().from(dealers).where(eq(dealers.id, booking.ownerDealerId));
+    }
     await client.update(franchiseBookings).set({ status: "PAID", paidAt: now, failureReason: lost.length ? `slot lost for ${lost.join(", ")} — refund due` : null, updatedAt: now }).where(eq(franchiseBookings.id, booking.id));
     await markRedemptionUsed(client, booking.id, now);
     if (counts) await maybeCloseLaunch(client, config, now);
     for (const zoneId of activated) notices.push(() => syncSoldOut(zoneId));
     await recordAudit(
-      { action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { activated, lost, kycDueAt: kycDueAt?.toISOString() ?? null, plan: plan?.code ?? null, months, activatedAt: now.toISOString(), expiresAt: expiresAt.toISOString(), tailEndAt: tail.toISOString(), intentId: intent.id, launchOffer: booking.launchOffer } },
+      { action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { activated, lost, kycDueAt: kycDueAt?.toISOString() ?? null, plan: booking.planCode ?? null, months, activatedAt: now.toISOString(), expiresAt: expiresAt.toISOString(), tailEndAt: tail.toISOString(), intentId: intent.id, launchOffer: booking.launchOffer } },
       client,
     );
     if (lost.length) await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { problem: "slot_lost_after_late_payment", zones: lost, refundDuePaise: Math.round((booking.totalPaise * lost.length) / booking.areaCount) } }, client);

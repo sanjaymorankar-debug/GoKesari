@@ -30,11 +30,11 @@ import {
   userRoleGrants,
 } from "@/server/db/schema";
 import type { PaymentIntentRef } from "@/server/payments/intents";
-import { acceptFranchiseAgreement, onFranchiseFeeCaptured, previewCart, reserveZones, sweepFranchiseKyc } from "@/server/franchise/booking";
+import { acceptFranchiseAgreement, onFranchiseFeeCaptured, previewCart, reserveZones, startBookingPayment, sweepFranchiseKyc } from "@/server/franchise/booking";
 import { saveFranchiseConfig } from "@/server/franchise/config";
 import { createCoupon } from "@/server/franchise/coupons";
 import { zoneView } from "@/server/franchise/zones";
-import { SHOP_REGISTER_FOR_FRANCHISE, becomeFreeDealer, createPlan, franchiseStartState, setPlanActive, startPaidFranchise, updatePlan } from "@/server/onboarding-v2/franchise";
+import { SHOP_REGISTER_FOR_FRANCHISE, becomeFreeDealer, createPlan, franchiseStartState, retryV2GoLive, setPlanActive, startPaidFranchise, updatePlan } from "@/server/onboarding-v2/franchise";
 import { listMarketplaceRoles } from "@/server/onboarding-v2/roles";
 import { setFeatureFlag } from "@/server/services/feature-flags";
 import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
@@ -321,5 +321,63 @@ describe("flag off: exactly today's paid flow (30-day KYC rule)", () => {
     expect(d.status).toBe("DRAFT");
     expect(await db.select().from(onboardingRoleHistory).where(eq(onboardingRoleHistory.userId, user.id))).toHaveLength(0);
     expect((await sweepFranchiseKyc()).waiting.map((w) => w.bookingId)).toContain(r.booking.id);
+  });
+});
+
+/* ================================================================ review fixes */
+
+describe("review fixes: shop gate on the booking API, go-live after the capture, plan snapshot", () => {
+  it("a DRAFT dealer without a live shop cannot book on a plan (no GKD by the back door)", async () => {
+    const user = await createUser({ role: "CUSTOMER" });
+    const actor = { id: user.id, role: "CUSTOMER" as const };
+    await db.insert(dealers).values({ userId: user.id, legalName: "No Shop", contactName: "No Shop", dealerType: "INDIVIDUAL", status: "DRAFT" });
+    await acceptFranchiseAgreement(actor, FRANCHISE_AGREEMENT_V2_VERSION, { ipAddress: null, userAgent: null });
+    await expect(reserveZones(actor, { zoneIds: [Z7], planId: (await launchPlan()).id })).rejects.toMatchObject({ details: { reason: "SHOP_REQUIRED" } });
+    expect(await db.select().from(franchiseBookings)).toHaveLength(0);
+  });
+
+  it("paying a plan booking re-checks the live shop", async () => {
+    const o = await paidBuyer();
+    const r = await reserveZones(o.actor, { zoneIds: [Z7], planId: (await launchPlan()).id });
+    await db.update(shops).set({ status: "SUSPENDED" }).where(eq(shops.id, o.shop.id));
+    await expect(startBookingPayment(r.booking.id, o.actor)).rejects.toThrow(/Register your shop first/);
+  });
+
+  it("the plan is snapshotted at reserve: an admin edit before payment does not change the term", async () => {
+    const o = await paidBuyer();
+    const t = await plan({ durationMonths: 24, pricePerZonePaise: 12_000_000 });
+    const r = await reserveZones(o.actor, { zoneIds: [Z7], planId: t.id });
+    expect(r.booking).toMatchObject({ planCode: t.code, planDurationMonths: 24, planPricePerZonePaise: 12_000_000 });
+    await updatePlan(t.id, { code: t.code, name: t.name, durationMonths: 6, pricePerZonePaise: 1_000_000, gstExtra: true, isLaunchOffer: false, active: true, sortOrder: 0 }, admin);
+    await capture(r.booking.id);
+    const [a] = await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, r.booking.id));
+    expect(Math.round((a.expiresAt!.getTime() - a.activatedAt!.getTime()) / (30.44 * 86_400_000))).toBe(24);
+    expect(Number(a.feePaise)).toBe(12_000_000);
+  });
+
+  it("a go-live failure never undoes the capture; the franchise job finishes it", async () => {
+    const o = await paidBuyer();
+    const r = await reserveZones(o.actor, { zoneIds: [Z7], planId: (await launchPlan()).id });
+    const [d] = await db.select().from(dealers).where(eq(dealers.userId, o.user.id));
+    // No account on the dealer row: code issue fails inside the go-live.
+    await db.update(dealers).set({ userId: null }).where(eq(dealers.id, d.id));
+    await capture(r.booking.id);
+    const [b] = await db.select().from(franchiseBookings).where(eq(franchiseBookings.id, r.booking.id));
+    expect(b.status).toBe("PAID");
+    const [a] = await db.select().from(franchiseAllocations).where(eq(franchiseAllocations.bookingId, r.booking.id));
+    expect(a.status).toBe("ACTIVE");
+    expect(a.kycDueAt).toBeNull();
+    expect(await db.select().from(franchiseCodes).where(eq(franchiseCodes.allocationId, a.id))).toHaveLength(0);
+    const problems = await db.select().from(auditLogs).where(and(eq(auditLogs.entityType, "franchise_booking"), eq(auditLogs.entityId, r.booking.id)));
+    expect(problems.some((p) => (p.newValue as { problem?: string } | null)?.problem === "v2_go_live_failed")).toBe(true);
+
+    await db.update(dealers).set({ userId: o.user.id }).where(eq(dealers.id, d.id));
+    expect(await retryV2GoLive()).toEqual({ retried: 1, failed: 0 });
+    expect(await db.select().from(franchiseCodes).where(eq(franchiseCodes.allocationId, a.id))).toHaveLength(1);
+    expect((await db.select().from(dealers).where(eq(dealers.id, d.id)))[0].status).toBe("APPROVED");
+    expect((await listMarketplaceRoles(o.user.id)).roles).toContain("franchisee_paid");
+    const history = await db.select().from(onboardingRoleHistory).where(eq(onboardingRoleHistory.userId, o.user.id));
+    expect(history.map((h) => `${h.role}:${h.action}`)).toEqual(["franchisee_paid:GRANTED"]);
+    expect(await retryV2GoLive()).toEqual({ retried: 0, failed: 0 });
   });
 });

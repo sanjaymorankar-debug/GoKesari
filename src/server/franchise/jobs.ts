@@ -243,6 +243,8 @@ export async function runFranchiseJob(real: Date = new Date()): Promise<Record<s
   // §5.6: scheduled zone status changes due now, and reservations past their expiry back to Available.
   out.zoneStatus = await runZoneStatusJobs(real).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
   out.kyc = await kycSweep(now, config).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+  // Onboarding v2: paid plan bookings whose go-live (dealer approval, GKF code) did not finish at capture.
+  out.v2GoLive = await (await import("@/server/onboarding-v2/franchise")).retryV2GoLive().catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
   out.expired = await expireAreas(now, config);
   out.reminded = await sendReminders(now, config);
   out.digest = await sendDigest(now, config);

@@ -10,12 +10,12 @@
  *  4. KYC: no 30-day rule. PAN and a verified payout bank are asked before the first payout only (payeeStatus).
  * Every role given here is written to onboarding_role_history (recordRoleChange); every change is audited.
  */
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { istDate } from "@/lib/franchise";
 import { db, type DbClient } from "@/server/db";
-import { dealers, franchisePlans, shops, users, type Dealer, type UserRole } from "@/server/db/schema";
+import { dealers, franchiseAllocations, franchiseBookings, franchiseCodes, franchisePlans, onboardingRoleHistory, shops, users, type Dealer, type UserRole } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
@@ -50,7 +50,7 @@ export async function liveShopForUser(userId: string, client: DbClient = db) {
   return shop && !shop.deletedAt ? shop : null;
 }
 
-async function requireLiveShop(userId: string, client: DbClient = db) {
+export async function requireLiveShop(userId: string, client: DbClient = db) {
   const shop = await liveShopForUser(userId, client);
   if (!shop) throw conflict("Register your shop first — a live GoKesari shop is needed to become a dealer or franchisee.", { reason: "SHOP_REQUIRED", redirect: SHOP_REGISTER_FOR_FRANCHISE });
   return shop;
@@ -133,7 +133,7 @@ export async function ensureDealerFromShop(actor: Actor, client: DbClient = db):
 /**
  * Approves a DRAFT / PENDING dealer at once (no admin step) — the parts of decideDealer's APPROVE that make a dealer
  * live: status APPROVED, the GKD dealer code, the DEALER role, the default scheme (Free Dealership) — and writes the
- * marketplace role to the history. An APPROVED dealer only gets the role history row. A closed dealer is left as it
+ * marketplace role to the history. An APPROVED dealer is returned unchanged. A closed dealer is left as it
  * is (never throws on a payment path). Call inside the caller's transaction; the notice goes after the commit.
  */
 export async function approveDealerInstantly(
@@ -145,10 +145,7 @@ export async function approveDealerInstantly(
   const actorId = dealer.userId;
   const existingCode = async () => (await listDealerCodes(dealer.id, client)).find((c) => c.kind !== "SALESPERSON" && c.status === "ACTIVE")?.code ?? null;
   if (dealer.isInternal || CLOSED_DEALER.includes(dealer.status)) return { dealer, code: null, approvedNow: false };
-  if (dealer.status === "APPROVED") {
-    if (actorId) await recordRoleChange({ userId: actorId, role, action: "GRANTED", dealerId: dealer.id, actorUserId: actorId, reason }, client);
-    return { dealer, code: await existingCode(), approvedNow: false };
-  }
+  if (dealer.status === "APPROVED") return { dealer, code: await existingCode(), approvedNow: false };
   const now = new Date();
   const actor = { id: actorId ?? dealer.id, role: "CUSTOMER" as UserRole };
   const code =
@@ -170,6 +167,71 @@ export async function approveDealerInstantly(
   await schemes.assignOnApproval(row, actor.id, client);
   await recordAudit({ actorId: dealer.userId, actorRole: "CUSTOMER", action: AUDIT_ACTIONS.DEALER_STATUS_CHANGED, entityType: "dealer", entityId: dealer.id, previousValue: { status: dealer.status }, newValue: { status: "APPROVED", code, reason, via: "onboarding_v2_instant", role } }, client);
   return { dealer: row, code, approvedNow: true };
+}
+
+/* ============================================================= paid franchise go-live */
+
+/**
+ * Onboarding v2 paid booking, after its allocations are ACTIVE: the dealer approved (GKD code, DEALER role), one
+ * GKF code per franchise, the free team's earlier shops attached, and franchisee_paid GRANTED in the role history
+ * (once per dealer). Idempotent. Run in a savepoint of the capture (a failure never undoes the payment) and again
+ * by the 5-minute franchise job until it succeeds.
+ */
+export async function goLiveV2Booking(client: DbClient, bookingId: string): Promise<{ codes: number }> {
+  const [booking] = await client.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId));
+  if (!booking?.planId || booking.kind !== "NEW") return { codes: 0 };
+  const [dealer] = await client.select().from(dealers).where(eq(dealers.id, booking.ownerDealerId)).for("update");
+  if (!dealer) return { codes: 0 };
+  const approved = (await approveDealerInstantly(client, dealer, "franchisee_paid", "Onboarding v2: paid franchise live at payment")).dealer;
+  if (approved.status !== "APPROVED") return { codes: 0 }; // a closed dealer account stays closed (admin decides)
+  if (approved.userId) {
+    const [seen] = await client
+      .select({ id: onboardingRoleHistory.id })
+      .from(onboardingRoleHistory)
+      .where(and(eq(onboardingRoleHistory.userId, approved.userId), eq(onboardingRoleHistory.role, "franchisee_paid"), eq(onboardingRoleHistory.action, "GRANTED"), eq(onboardingRoleHistory.dealerId, approved.id)))
+      .limit(1);
+    if (!seen) await recordRoleChange({ userId: approved.userId, role: "franchisee_paid", action: "GRANTED", dealerId: approved.id, actorUserId: approved.userId, reason: "Onboarding v2: paid franchise live at payment" }, client);
+  }
+  const { ensureAllocationCode } = await import("@/server/franchise/codes");
+  const { attachUpgradeShops } = await import("@/server/franchise/booking");
+  const live = await client.select().from(franchiseAllocations).where(and(eq(franchiseAllocations.bookingId, booking.id), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"])));
+  for (const a of live) {
+    await ensureAllocationCode(client, a);
+    await attachUpgradeShops(client, a);
+  }
+  return { codes: live.length };
+}
+
+/** 5-minute franchise job: v2 paid bookings whose go-live did not finish at capture (no code yet, or dealer not approved). */
+export async function retryV2GoLive(): Promise<{ retried: number; failed: number }> {
+  const rows = await db
+    .selectDistinct({ id: franchiseBookings.id })
+    .from(franchiseBookings)
+    .innerJoin(franchiseAllocations, eq(franchiseAllocations.bookingId, franchiseBookings.id))
+    .innerJoin(dealers, eq(dealers.id, franchiseBookings.ownerDealerId))
+    .leftJoin(franchiseCodes, eq(franchiseCodes.allocationId, franchiseAllocations.id))
+    .where(
+      and(
+        eq(franchiseBookings.status, "PAID"),
+        eq(franchiseBookings.kind, "NEW"),
+        sql`${franchiseBookings.planId} is not null`,
+        inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"]),
+        sql`(${franchiseCodes.id} is null or ${dealers.status} in ('DRAFT', 'PENDING'))`,
+        isNull(franchiseAllocations.kycDueAt),
+      ),
+    );
+  let retried = 0;
+  let failed = 0;
+  for (const r of rows) {
+    try {
+      await db.transaction((tx) => goLiveV2Booking(tx, r.id));
+      retried++;
+    } catch (e) {
+      failed++;
+      console.error("[onboarding-v2] franchise go-live retry failed", r.id, e);
+    }
+  }
+  return { retried, failed };
 }
 
 /* ============================================================= flow */

@@ -1527,6 +1527,13 @@
       "when": 1793271700000,
       "tag": "0217_onboarding_v2_shop",
       "breakpoints": true
+    },
+    {
+      "idx": 218,
+      "version": "7",
+      "when": 1793271800000,
+      "tag": "0218_onboarding_v2_franchise",
+      "breakpoints": true
     }
   ]
 }
