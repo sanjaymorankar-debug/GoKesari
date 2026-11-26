@@ -3,7 +3,7 @@
 ## 1.15.0 (Android versionCode 16, iPhone build 16) — 25 Nov 2026
 
 Referral sharing (owner brief 25 Nov 2026 17.10 IST; docs/referral-sharing-2026-11 at the repository root).
-1.14.0 is the Rider App v2 build (PR #568); this build includes it once both are merged.
+Built on 1.14.0 (shop registration subscription, PR #557).
 
 For the Play Store "What's new" / App Store "What's New in This Version":
 
@@ -18,6 +18,25 @@ Changes in the app itself:
 - `/invite/<code>` (a closed or expired link's page) and `/app-open` open in the app (App Links prefixes).
 - Share buttons on the pages use the existing native share sheet bridge; WhatsApp / SMS / e-mail links open
   those apps as before. Nothing else native changed.
+
+## 1.14.0 (Android versionCode 15, iPhone build 15) — 25 Nov 2026
+
+Shop registration subscription (owner brief 25 Nov 2026 02.02 IST; docs/shop-registration-subscription-2026-11
+at the repository root).
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Shop owners: see your shop registration status, expiry date and days left on your dashboard, get
+> reminders before it ends, and pay or renew in a tap. नोंदणीची मुदत, बाकी दिवस आणि एका टॅपमध्ये नूतनीकरण.
+
+Changes in the app itself:
+- Registration reminder, payment-link, renewal-confirmation and receipt pushes open the shop's registration
+  page, the registration-fee page or the receipt inside the app (deep-link route "shop-registration";
+  Android App Links prefixes added).
+- The Shop Registration card, the red / amber banners and Pay Now / Renew are the website's pages, so they
+  also work in older app versions; the payment opens Cashfree's checkout as before.
+- The in-app update check offers 1.14.0 once `MOBILE_APP_ANDROID_LATEST` / `MOBILE_APP_IOS_LATEST` are set
+  to 1.14.0 on the server after the release.
 
 ## 1.13.0 (Android versionCode 14, iPhone build 14) — 22 Nov 2026
 

@@ -18,6 +18,8 @@ import { listUserRoles } from "@/server/services/roles";
 import { listShopsForOwner } from "@/server/services/shops";
 import { noteSellerIdentityPrompt } from "@/server/services/identity-verification";
 import { shopMenuFeatures } from "@/server/board-data";
+import { RegistrationBanner } from "@/components/seller/registration-status";
+import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
 import { SellerUndertakingGate } from "@/components/seller/seller-undertaking-gate";
 import { sellerUndertakingGateApplies } from "@/server/services/seller-undertaking";
 
@@ -65,6 +67,10 @@ export default async function SellerCentralLayout({ children }: { children: Reac
   const counts = shop ? await loadShopCounts(shop.id).catch(() => ({})) : {};
   const features = user && shop ? await shopMenuFeatures(shop) : [];
   const groups = user && shop ? groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug, features }, "shop")) : [];
+  // 0210 registration subscription: red (unpaid / grace / expired) or amber (expiring) banner on every screen until paid.
+  const registration =
+    user && shop && (shop.status === "APPROVED" || shop.status === "PENDING_APPROVAL" || shop.status === "SUSPENDED") ? await ownerRegistrationStatus(shop) : null;
+
   // docs/identity-verification-2026-11 (flag on): an unverified shop owner is asked here; the grace period starts once.
   const identity = user && shops.length > 0 ? await noteSellerIdentityPrompt(user.id).catch(() => null) : null;
 
@@ -78,6 +84,7 @@ export default async function SellerCentralLayout({ children }: { children: Reac
       shops={shops.map((s) => ({ id: s.id, name: s.name }))}
       groups={groups}
       counts={counts}
+      banner={<RegistrationBanner view={registration} />}
     >
       {identity?.required ? <IdentityGraceBanner graceEndsAt={identity.graceEndsAt} graceOver={identity.graceOver} /> : null}
       {children}

@@ -157,8 +157,8 @@ describe("D-69: the owner closes the shop, and an unrenewed membership is not on
     let [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
     expect(row.membershipValidUntil?.toISOString()).toBe("2027-01-31T10:00:00.000Z");
 
-    // Ended 10 days ago: in the 15-day grace, still online.
-    await db.update(shops).set({ membershipValidUntil: new Date(Date.now() - 10 * 86_400_000) }).where(eq(shops.id, shop.id));
+    // Ended 5 days ago: in the grace (default 7 days since the owner's brief of 25-Nov-2026), still online.
+    await db.update(shops).set({ membershipValidUntil: new Date(Date.now() - 5 * 86_400_000) }).where(eq(shops.id, shop.id));
     [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
     expect(membershipStatus(row, { enabled: true, graceDays: 15, reminderDays: 30 }).state).toBe("GRACE");
     expect((await withWalletGate([row]))[0].ordersPaused).toBe(false);

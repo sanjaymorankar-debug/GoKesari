@@ -1310,7 +1310,8 @@ export const RULES = {
     defaults: {
       enabled: true,
       periodMonths: 12,
-      graceDays: 15,
+      // Owner brief 25-Nov-2026 (registration subscription): 7 days' grace by default (was 15).
+      graceDays: 7,
       reminderDays: 30,
       renewalFeePaise: 0,
       addGst: true,
@@ -1319,6 +1320,34 @@ export const RULES = {
       renewalWindowDays: 30,
       exemptShopTypes: [],
       exemptCategorySlugs: [],
+    },
+  },
+  shopRegistrationSubscription: {
+    description:
+      "Shop registration subscription (owner brief 25-Nov-2026; docs/shop-registration-subscription-2026-11). The registration fee buys 1 year (rule shopMembership: periodMonths, graceDays, renewal checkout and the remindersEnabled switch). Reminders go out once a day from reminderHourIst (IST): to shops whose registration fee is not paid on unpaidReminderDays after registration, then every unpaidRepeatEveryDays until paid; to paid shops expiryReminderDays before the expiry (0 = the expiry day), and every day of the grace period when graceDaily. Each reminder is in-app + push + e-mail (English and Marathi) with a Pay Now link, created when none is active (autoCreateLink). paymentLinkValidityDays: how long a payment link works. ccEmails: copied on the daily expiry digest. renewalFeeByShopType: renewal fee before GST for a shop type (paise), overriding the shop's own registration base fee; a shop's own renewal fee (Admin → Unpaid & expiring registrations) overrides both. payCommissionOnRenewals: dealer / franchise commission on renewal payments (registration commission is unchanged). An expired shop (after the grace, while shopMembership is enabled) is hidden from search, nearby and its shop / QR page; orders already placed finish normally.",
+    schema: z.object({
+      reminderHourIst: int(0, 23),
+      unpaidReminderDays: z.array(int(0, 365)).max(20),
+      unpaidRepeatEveryDays: int(0, 90),
+      expiryReminderDays: z.array(int(0, 365)).max(40),
+      graceDaily: z.boolean(),
+      autoCreateLink: z.boolean(),
+      paymentLinkValidityDays: int(1, 30),
+      ccEmails: z.array(z.string().email()).max(10),
+      renewalFeeByShopType: z.record(z.string().max(60), int(0, 100_000_000)),
+      payCommissionOnRenewals: z.boolean(),
+    }),
+    defaults: {
+      reminderHourIst: 9,
+      unpaidReminderDays: [1, 3, 7],
+      unpaidRepeatEveryDays: 7,
+      expiryReminderDays: [30, 15, 7, 6, 5, 4, 3, 2, 1, 0],
+      graceDaily: true,
+      autoCreateLink: true,
+      paymentLinkValidityDays: 7,
+      ccEmails: ["ceo@agtci.com"],
+      renewalFeeByShopType: {},
+      payCommissionOnRenewals: false,
     },
   },
   bankAccounts: {

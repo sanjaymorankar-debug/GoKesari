@@ -43,6 +43,11 @@ export const DEEP_LINK_ROUTES = [
   // Franchise brief 21-Nov-2026 (app 1.12.0): the public commission chart, both models side by side.
   { kind: "commission-chart", example: "/dealer/commission-chart", prefix: "/dealer/commission-chart" },
   { kind: "dealer", example: "/dealer", prefix: "/dealer" },
+  // Registration subscription (owner brief 25-Nov-2026, app 1.14.0): reminder / link / renewal / receipt pushes.
+  // Before /shop/register — "/shop/registration-fee" starts with it and the first match wins.
+  { kind: "shop-registration", example: "/shop/registration-fee?shop=<id>", prefix: "/shop/registration-fee" },
+  { kind: "shop-registration", example: "/shop/manage/registration?shop=<id>", prefix: "/shop/manage/registration" },
+  { kind: "shop-registration", example: "/shop/membership/receipt/<id>", prefix: "/shop/membership/receipt/" },
   { kind: "shop-register", example: "/shop/register?ref=<code>", prefix: "/shop/register" },
   // docs/franchise (app 1.11.0): the Pune franchise pages; renewal, expiry and booking pushes open /franchise/my.
   { kind: "franchise", example: "/franchise/zones/<zone>", prefix: "/franchise" },
