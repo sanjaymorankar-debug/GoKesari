@@ -124,6 +124,9 @@ export function welcomeKitText(c: WelcomeKitContent): string {
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
+/** Where renderShopWelcomeKit puts the signed-agreements section (empty for shops without one). */
+const AGREEMENTS_SLOT = "<!--signed-agreements-->";
+
 export function welcomeKitHtml(c: WelcomeKitContent): string {
   const name = escapeHtml(c.shopName);
   const base = siteBase();
@@ -154,6 +157,7 @@ export function welcomeKitHtml(c: WelcomeKitContent): string {
     `<h3 style="margin:16px 0 8px;color:#c2410c">Print them in colour and put them up at your shop</h3>` +
     `<ol style="color:#44403c;line-height:1.5;margin:0 0 12px;padding-left:20px">${PRINT_STEPS.map((step) => `<li style="margin:0 0 6px">${escapeHtml(step)}</li>`).join("")}</ol>` +
     p(`<strong>${escapeHtml(LOCAL_PRINT_LINE[c.local])}</strong>`) +
+    AGREEMENTS_SLOT +
     p(`Your shop page: ${link(c.shopUrl, c.shopUrl)}`) +
     `<p style="margin:16px 0"><a href="${base}/shop/manage/products" style="background:#c2410c;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;display:inline-block">Add your products</a></p>` +
     p(`Questions? Write to ${link(`mailto:${SUPPORT_EMAIL}`, SUPPORT_EMAIL)} or call ${link(`tel:${SUPPORT_PHONE.replace(/\s+/g, "")}`, SUPPORT_PHONE)}.`) +
@@ -426,11 +430,26 @@ export async function shopBannerFiles(shopId: string) {
 export async function renderShopWelcomeKit(shopId: string, kind: WelcomeKitContent["kind"] = "welcome"): Promise<RenderedDocument | null> {
   const files = await shopBannerFiles(shopId);
   if (!files) return null;
+  const attachments: RenderedDocument["attachments"] = files.banners.flatMap((b) => [
+    { filename: `${b.basename}.pdf`, content: b.banner.pdf, contentType: "application/pdf" },
+    { filename: `${b.basename}.jpg`, content: b.banner.jpeg, contentType: "image/jpeg", cid: welcomeBannerCid(b.lang) },
+  ]);
+  // One mail for a new shop (owner, 26-Nov-2026): the welcome kit carries its signed agreements (seller agreements,
+  // docs/seller-agreements-2026-11) instead of a second "signed copy" e-mail. Never for the banner update.
+  const agreements =
+    kind === "welcome"
+      ? await import("@/server/legal-agreements/email")
+          .then((m) => m.agreementsForWelcomeKit(shopId, attachments.reduce((n, a) => n + a.content.length, 0)))
+          .catch((error: unknown) => {
+            console.error("[welcome-kit] signed agreements not attached", shopId, error);
+            return null;
+          })
+      : null;
+  const html = welcomeKitHtml({ ...files.content, kind });
   return {
-    html: welcomeKitHtml({ ...files.content, kind }),
-    attachments: files.banners.flatMap((b) => [
-      { filename: `${b.basename}.pdf`, content: b.banner.pdf, contentType: "application/pdf" },
-      { filename: `${b.basename}.jpg`, content: b.banner.jpeg, contentType: "image/jpeg", cid: welcomeBannerCid(b.lang) },
-    ]),
+    html: agreements ? html.replace(AGREEMENTS_SLOT, agreements.html) : html.replace(AGREEMENTS_SLOT, ""),
+    attachments: agreements ? [...attachments, ...agreements.attachments] : attachments,
+    ...(agreements ? { text: `${welcomeKitText({ ...files.content, kind })}\n\n${agreements.text}` } : {}),
+    ...(agreements?.cc.length ? { cc: agreements.cc } : {}),
   };
 }

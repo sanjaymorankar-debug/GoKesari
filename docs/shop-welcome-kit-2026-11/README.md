@@ -228,3 +228,13 @@ to open; set `MOBILE_IOS_APP_IDS` with the Team ID when it is.
   owner's design; on 21-Nov-2026 the owner chose "Everything For Everyone, Everywhere"
   (Marathi "सर्वांसाठी सर्व काही, सर्वत्र", Hindi "सबके लिए सब कुछ, हर जगह"), written on all three
   templates by `scripts/shop-banner/set-everywhere-label.ts`.
+
+## One e-mail for a new shop: the kit carries the signed agreements (26-Nov-2026)
+
+Owner rule: a new shop gets **one** e-mail. With seller agreements on (`seller_agreements_enabled`, docs/seller-agreements-2026-11), the welcome kit attaches the shop's signed REGISTRATION agreements (certified PDFs, EN/MR/HI) and is CC'd to `sellerAgreements.ccEmails`; no separate "signed agreements" e-mail goes out.
+
+- `onRegistrationFeePaid` / `afterSigning` (src/server/legal-agreements/email.ts → `deliverNewShopAgreements`): kit still to be sent (queued / retrying, or the shop not live yet) → the kit carries them; live shop with no kit row → the kit is queued now; kit already sent (the owner signed after go-live, e.g. staff registered the shop) → the signed copy is sent alone, **without** banners.
+- The renderer (`renderShopWelcomeKit` → `agreementsForWelcomeKit`) attaches them at send time and writes the SIGNED_COPY row in `legal_agreement_emails`, so My Agreements' send log shows the kit's status. Over `sellerAgreements.maxEmailBytes` (after the banners) only the English PDFs are attached; the others become 30-day secure links.
+- The banner update ("Resend updated banner") and existing shops' kits never carry agreements.
+- A shop that pays but is never approved gets its signed copy with the go-live kit only; until then it is in My Agreements (and admins can "Resend signed copy").
+- Tests: tests/integration/welcome-kit-one-mail.test.ts (TC-WKIT-039…042).
