@@ -167,7 +167,46 @@ export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNa
           </Link>
         ) : null}
 
+        {/* Owner, 26-Nov-2026: the shops come first; the category tiles move to the end of the page. */}
+        <section aria-labelledby="home-shops" data-testid="home-shops">
+          <SectionHeading
+            id="home-shops"
+            title={tr(data.hasLocation ? HOME.shopsNearYou : HOME.shopsOnGoKesari, lang)}
+            href="/shops"
+            linkLabel={tr(HOME.seeAll, lang)}
+          />
+          <ShopChips lang={lang} counts={data.counts} priceComparison={Boolean(data.priceComparison)} />
+          {!data.hasLocation ? (
+            <p className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm text-ink-700" data-testid="home-set-location">
+              <Icon name="map-pin" size={16} className="text-kesari-700" />
+              <span className="min-w-0 flex-1">{tr(HOME.setLocationPrompt, lang)}</span>
+              <FindLocationButton lang={lang} />
+            </p>
+          ) : null}
+          {data.shops.length > 0 ? (
+            <ShopGrid shops={data.shops} viewToggle={false} rail />
+          ) : (
+            <p className="rounded-xl bg-white px-4 py-6 text-center text-sm text-ink-700">{tr(HOME.noShopsNearby, lang)}</p>
+          )}
+        </section>
+
         <HeroCarousel lang={lang} slides={data.banners} intervalSeconds={data.bannerSeconds} />
+
+        {data.buyAgain.length > 0 ? (
+          <section aria-labelledby="home-buy-again" data-testid="buy-again">
+            <SectionHeading id="home-buy-again" title={tr(UI.buyAgain, lang)} href="/orders?tab=past" linkLabel={tr(HOME.seeAll, lang)} />
+            <ProductTiles lang={lang} items={data.buyAgain} signedIn={signedIn} testId="buy-again-grid" />
+          </section>
+        ) : (
+          <section id="popular" aria-labelledby="home-popular" data-testid="popular-in-area" data-scope={data.popular.scope} className="scroll-mt-32">
+            <SectionHeading id="home-popular" title={tr(popularTitle, lang)} href="/shops" linkLabel={tr(HOME.seeAll, lang)} />
+            {data.popular.items.length > 0 ? (
+              <ProductTiles lang={lang} items={data.popular.items} signedIn={signedIn} testId="popular-grid" />
+            ) : (
+              <p className="rounded-xl bg-white px-4 py-6 text-center text-sm text-ink-700">{tr(HOME.popularEmpty, lang)}</p>
+            )}
+          </section>
+        )}
 
         <section aria-labelledby="home-categories">
           <SectionHeading id="home-categories" title={tr(HOME.shopByCategory, lang)} href="/categories" linkLabel={tr(HOME.allCategories, lang)} />
@@ -192,44 +231,6 @@ export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNa
             ))}
           </ul>
         </section>
-
-        <section aria-labelledby="home-shops" data-testid="home-shops">
-          <SectionHeading
-            id="home-shops"
-            title={tr(data.hasLocation ? HOME.shopsNearYou : HOME.shopsOnGoKesari, lang)}
-            href="/shops"
-            linkLabel={tr(HOME.seeAll, lang)}
-          />
-          <ShopChips lang={lang} counts={data.counts} priceComparison={Boolean(data.priceComparison)} />
-          {!data.hasLocation ? (
-            <p className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm text-ink-700" data-testid="home-set-location">
-              <Icon name="map-pin" size={16} className="text-kesari-700" />
-              <span className="min-w-0 flex-1">{tr(HOME.setLocationPrompt, lang)}</span>
-              <FindLocationButton lang={lang} />
-            </p>
-          ) : null}
-          {data.shops.length > 0 ? (
-            <ShopGrid shops={data.shops} viewToggle={false} rail />
-          ) : (
-            <p className="rounded-xl bg-white px-4 py-6 text-center text-sm text-ink-700">{tr(HOME.noShopsNearby, lang)}</p>
-          )}
-        </section>
-
-        {data.buyAgain.length > 0 ? (
-          <section aria-labelledby="home-buy-again" data-testid="buy-again">
-            <SectionHeading id="home-buy-again" title={tr(UI.buyAgain, lang)} href="/orders?tab=past" linkLabel={tr(HOME.seeAll, lang)} />
-            <ProductTiles lang={lang} items={data.buyAgain} signedIn={signedIn} testId="buy-again-grid" />
-          </section>
-        ) : (
-          <section id="popular" aria-labelledby="home-popular" data-testid="popular-in-area" data-scope={data.popular.scope} className="scroll-mt-32">
-            <SectionHeading id="home-popular" title={tr(popularTitle, lang)} href="/shops" linkLabel={tr(HOME.seeAll, lang)} />
-            {data.popular.items.length > 0 ? (
-              <ProductTiles lang={lang} items={data.popular.items} signedIn={signedIn} testId="popular-grid" />
-            ) : (
-              <p className="rounded-xl bg-white px-4 py-6 text-center text-sm text-ink-700">{tr(HOME.popularEmpty, lang)}</p>
-            )}
-          </section>
-        )}
 
         <JoinCards lang={lang} />
       </div>
