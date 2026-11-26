@@ -11,7 +11,7 @@
  */
 import { as, pageAs } from "../lib/actors";
 import { anonymous, call, expectStatus } from "../lib/http";
-import { expect, manual, need, qa } from "../lib/record";
+import { blocked, expect, manual, need, qa } from "../lib/record";
 import { world } from "../lib/world";
 
 const signed = { tier: "signed" as const, timeout: 240_000 };
@@ -95,7 +95,6 @@ qa("TC-REGSUB-004", "Settings carry the brief's defaults", async () => {
   expectStatus(res, 200, "settings");
   const { membership: m, subscription: s } = res.body;
   expect(m.periodMonths).toBe(12);
-  expect(m.graceDays).toBe(7);
   expect(s.unpaidReminderDays).toEqual([1, 3, 7]);
   expect(s.unpaidRepeatEveryDays).toBe(7);
   expect(s.expiryReminderDays).toEqual([30, 15, 7, 6, 5, 4, 3, 2, 1, 0]);
@@ -104,6 +103,16 @@ qa("TC-REGSUB-004", "Settings carry the brief's defaults", async () => {
   expect(s.ccEmails).toContain("ceo@agtci.com");
   expect(s.payCommissionOnRenewals).toBe(false);
   expect(s.reminderHourIst).toBe(9);
+  if (m.graceDays !== 7) {
+    // The default is 7 (src/server/config/rules.ts, owner brief 25-Nov-2026; it was 15 before). A site whose
+    // shopMembership rule was saved before that keeps its stored value: that is the site's setting, not the default.
+    const rules = await call(await as("admin"), "GET", "/api/admin/settings");
+    const rule = (rules.body?.rules ?? []).find((r: { key: string }) => r.key === "shopMembership") as { overridden?: boolean } | undefined;
+    if (rule?.overridden) {
+      blocked(`this site stores shopMembership.graceDays = ${m.graceDays} (saved before the 7-day default of 25-Nov-2026); reset: Admin → Settings → shopMembership → graceDays 7 (or "Use default"), with a second admin's approval`);
+    }
+  }
+  expect(m.graceDays).toBe(7);
   return `grace ${m.graceDays}, reminders ${m.remindersEnabled ? "on" : "off"}, renewal checkout ${m.renewalCheckoutEnabled ? "on" : "off"}`;
 }, signed);
 

@@ -309,8 +309,11 @@ qa("TC-LOC-026", "opening hours are judged in IST: no hours = open; a closed day
     const { context, page } = await signedPage(browser, "customer", { timezoneId });
     const errors = watchPage(page);
     try {
-      await open(page, `/shops/${shopSlug("A")}`);
-      await expect(page.getByText("Open now", { exact: true }).first(), `no hours → open (${timezoneId})`).toBeVisible();
+      // "No hours" is set here: shop A keeps 06:00–22:00 on the test site, which is closed at night (baseline 27-Nov-2026).
+      await withShop("A", { openingHours: [] }, async () => {
+        await open(page, `/shops/${shopSlug("A")}`);
+        await expect(page.getByText("Open now", { exact: true }).first(), `no hours → open (${timezoneId})`).toBeVisible();
+      });
       await withShop("A", { openingHours: hoursClosedNow() }, async () => {
         await open(page, `/shops/${shopSlug("A")}`);
         await expect(page.getByText("Closed", { exact: true }).first(), `closed today in IST (${timezoneId})`).toBeVisible();

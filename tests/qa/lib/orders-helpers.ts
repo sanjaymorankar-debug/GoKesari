@@ -57,12 +57,27 @@ function project(): string {
 type ListingKey = keyof NonNullable<ReturnType<typeof world>["listings"]>;
 
 /** A named listing of the world with its shop (blocks where this site's world has none). */
+/** The E2E bakery's preset listing is restocked by RESTOCK_BY units when below RESTOCK_BELOW (staging; E-33). */
+const RESTOCK_BELOW = 20;
+const RESTOCK_BY = 100;
+
 export async function listingOf(key: ListingKey): Promise<Listing> {
   const preset = world().listings[key] as WorldListing | undefined;
   if (key === "packaged" && !IS_LOCAL) {
     // The named listing while it is on sale: the shop's cheapest can be the "sharedA" product, and two lines of one product merge in the cart.
     const shop = await shopOf("A");
-    const live = preset && (await shopListings(shop.id, true)).find((r) => r.shopProductId === preset.shopProductId);
+    let live = preset && (await shopListings(shop.id)).find((r) => r.shopProductId === preset.shopProductId);
+    // E-33 / baseline 27-Nov-2026: the runs sell the E2E bakery's Butter Cookies out (stock 0, "unavailable online"), and
+    // the cheapest fallback was then a newspaper that does not track stock, so every stock check read a listing whose
+    // stock never moves at checkout. The shop owner restocks the preset first (a stock movement on the E2E test shop,
+    // as on the inventory screen), as flows.sellable() does on the local server.
+    if (live && live.onlineSaleEnabled && live.trackInventory && (live.onlineStock < RESTOCK_BELOW || !live.isAvailable)) {
+      assertWritable("restock the E2E shop's preset listing");
+      const stock = Math.max(0, live.onlineStock) + RESTOCK_BY;
+      const res = await call(await as("shop"), "PATCH", `/api/shop-products/${preset!.shopProductId}`, { onlineStock: stock, isAvailable: true });
+      if (res.status === 200) live = { ...live, onlineStock: stock, isAvailable: true };
+      else console.error(`[orders-helpers] could not restock "${preset!.name}": ${why(res)}`);
+    }
     if (!live || !live.onlineSaleEnabled || !live.isAvailable || (live.trackInventory && live.onlineStock < 3)) return sellable("A");
     return { ...preset!, pricePaise: live.onlinePricePaise, shopId: shop.id, shopName: shop.name };
   }
@@ -565,6 +580,13 @@ export async function withRule(key: string, value: Record<string, unknown>): Pro
   const rule = (before.body?.rules ?? []).find((r: { key: string }) => r.key === key) as { overridden: boolean; value: Record<string, unknown> } | undefined;
   expect(rule, `rule ${key} exists`).toBeTruthy();
   const res = await call(admin, "PUT", "/api/admin/settings", { key, value });
+  if (res.status === 202 && res.body?.pendingApproval) {
+    // RBAC v2 four-eye (flag rbac_v2_four_eye_admin, ON on test.gokesari.com since 23-Nov-2026): a rule change waits
+    // for a second admin. QA never approves anything on staging (README: rule changes are local-tier there), so the
+    // request is withdrawn by the admin who raised it and the case is blocked here.
+    const withdrawn = await call(admin, "POST", `/api/approvals/${res.body.approvalId}/cancel`, { comment: "QA run: rule change withdrawn (local-tier)" });
+    blocked(`rule ${key} cannot be changed on this site without a second admin's approval (four-eye on); request ${res.body.approvalId} withdrawn (HTTP ${withdrawn.status}) — run this case locally`);
+  }
   expectStatus(res, 200, `set rule ${key}`);
   return async () => {
     if (rule!.overridden) await call(admin, "PUT", "/api/admin/settings", { key, value: rule!.value });
