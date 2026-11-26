@@ -14,7 +14,7 @@
  *     and reward apply unchanged.
  * Once per customer, and only before their first order.
  */
-import { count, eq, sql } from "drizzle-orm";
+import { and, count, eq, notInArray, sql } from "drizzle-orm";
 
 import { AppError, conflict, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
@@ -98,7 +98,16 @@ export async function assertSignupReferralForFirstOrder(userId: string): Promise
 }
 
 /** Checks the code a new customer gave and records it. */
-export async function applySignupReferralCode(userId: string, raw: string, actor: Actor): Promise<SignupReferralView> {
+export async function applySignupReferralCode(
+  userId: string,
+  raw: string,
+  actor: Actor,
+  /**
+   * docs/onboarding-v2-2026-11 (flag onboarding_v2): the code is asked right after the first order is paid, so
+   * these orders (that first checkout) do not count as "an order already placed". Omitted: unchanged.
+   */
+  options: { firstOrderIds?: string[] } = {},
+): Promise<SignupReferralView> {
   if (!(await isSignupReferralAsked())) throw conflict("Referral codes aren't asked for right now.");
   // Issued codes keep hyphens / underscores (referrals.ts); friends' codes are letters and digits only.
   const entered = raw.trim().toUpperCase();
@@ -109,7 +118,11 @@ export async function applySignupReferralCode(userId: string, raw: string, actor
     if (existing.code === entered || existing.code === friendCode) return existing;
     throw conflict("You have already given a referral code.");
   }
-  const [{ n }] = await db.select({ n: count() }).from(orders).where(eq(orders.userId, userId));
+  const firstOrderIds = options.firstOrderIds ?? [];
+  const [{ n }] = await db
+    .select({ n: count() })
+    .from(orders)
+    .where(firstOrderIds.length > 0 ? and(eq(orders.userId, userId), notInArray(orders.id, firstOrderIds)) : eq(orders.userId, userId));
   if (n > 0) throw conflict("A referral code can only be given when you join, before your first order.");
 
   // A code GoKesari issued first; then a friend's code.
@@ -125,7 +138,7 @@ export async function applySignupReferralCode(userId: string, raw: string, actor
     if (!friend || !(await getRule("customerReferrals")).enabled) {
       throw validationFailed("This referral code is not valid.", { fields: { referralCode: "This referral code is not valid." } });
     }
-    await applyReferralCode(userId, friendCode).catch((error) => {
+    await applyReferralCode(userId, friendCode, firstOrderIds.length > 0 ? { firstOrderIds } : undefined).catch((error) => {
       throw invalid(error);
     });
   }

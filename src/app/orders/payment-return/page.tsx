@@ -7,6 +7,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { PaymentReturnStatus } from "@/components/payment-return-status";
+import { PendingDeliveryLocation } from "@/components/onboarding-v2/pending-delivery-location";
 import { Card, PageHeader } from "@/components/ui";
 import { AppError } from "@/lib/errors";
 import { L, tr } from "@/lib/board/i18n";
@@ -38,6 +39,8 @@ export default async function PaymentReturnPage({ searchParams }: { searchParams
       <Card className="p-4">
         <PaymentReturnStatus intentId={intent} initial={view} lang={lang} />
       </Card>
+      {/* docs/onboarding-v2-2026-11: delivery orders paid before the address — ask for the location right here. */}
+      <PendingDeliveryLocation userId={user.id} placed />
     </div>
   );
 }

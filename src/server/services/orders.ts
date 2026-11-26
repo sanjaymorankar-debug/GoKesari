@@ -105,6 +105,7 @@ import { registeredGstin } from "./invoices";
 import { isFeatureEnabledForShop } from "./feature-flags";
 import { assertSuppliesAllowed, resolveBuyerGstin, type BuyerGstin } from "@/server/tax/checkout";
 import { recordOrderStatusEvent } from "@/server/events/order-status-record";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 
 /**
  * A delivery assignment is still "in play" — offered, accepted, or already
@@ -217,6 +218,12 @@ export interface CheckoutInput {
    * invoice is B2B. Personal orders only, and only while billing_v2 is on.
    */
   buyerGstin?: string | null;
+  /**
+   * docs/onboarding-v2-2026-11 (flag onboarding_v2): a personal order to a shop that delivers may be placed
+   * without an address — the customer gives the delivery location right after payment. Such orders carry
+   * address_pending_since and rider dispatch waits for it. Ignored unless the flag is on.
+   */
+  addressAfterPayment?: boolean;
 }
 
 export interface CheckoutResult {
@@ -273,6 +280,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
   const lap = checkoutTimer();
   const orderType: OrderType = input.orderType ?? "PERSONAL";
+  // docs/onboarding-v2-2026-11: the delivery address is asked after payment (flag re-checked here, not trusted).
+  const addressLater =
+    input.addressAfterPayment === true && orderType === "PERSONAL" && !input.addressId && (await onboardingV2Enabled());
 
   // GAP-019: these reads do not depend on each other, so they run together instead of one round trip after
   // another (the database is far from the web server). Their errors are still raised in the old order below.
@@ -413,7 +423,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     const groupShops = await withWalletGate(cartShopRows);
     // A personal order from a shop that delivers needs a saved delivery address.
     // Business orders and shops that only offer pickup are unchanged.
-    if (orderType === "PERSONAL" && !addressSnapshot && groupShops.some((s) => s.deliveryAvailable)) {
+    if (orderType === "PERSONAL" && !addressSnapshot && !addressLater && groupShops.some((s) => s.deliveryAvailable)) {
       throw validationFailed("Add a delivery address before placing this order.", { missing: "address" });
     }
     // Each shop's legal-document check is started now and read in order below (GAP-019).
@@ -430,7 +440,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       unwrap((await legalChecks.get(shopRow.id)) ?? { ok: true, value: undefined });
       // docs/identity-verification-2026-11: a shop whose owner is past the identity grace period takes no new orders.
       await assertShopIdentityAllowsOrders(shopRow.id);
-      assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null);
+      assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null || (addressLater && shopRow.deliveryAvailable));
     }
   }
 
@@ -462,7 +472,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   let codMaxOrderPaise: number = COD_LIMITS.maxOrderPaise;
   if (paymentMethod === "COD") {
     if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
-    if (!addressSnapshot) throw validationFailed("Choose a delivery address to pay cash on delivery.");
+    if (!addressSnapshot && !addressLater) throw validationFailed("Choose a delivery address to pay cash on delivery.");
     const eligibility = await getCodEligibility(input.userId);
     if (!eligibility.allowed) throw conflict(eligibility.reason ?? "Cash on delivery is not available.");
     codMaxOrderPaise = eligibility.maxOrderPaise;
@@ -622,7 +632,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
       const subtotalPaise = sumPaise(lines.map((l) => l.lineTotalPaise));
       // Again on the lines ordered: the cart may have changed since the check above.
-      assertMinimumOrder(shopRow, subtotalPaise, addressSnapshot != null);
+      assertMinimumOrder(shopRow, subtotalPaise, addressSnapshot != null || (addressLater && shopRow.deliveryAvailable));
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
       // Prices INCLUDE GST. orders.tax_paise is tax charged on top of them and stays 0 — never put
       // the included GST there or into the total (it would charge GST twice). The included GST is
@@ -687,6 +697,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
             shopId: group.shop.id,
             addressId: input.addressId ?? null,
             deliveryAddressSnapshot: addressSnapshot,
+            // docs/onboarding-v2-2026-11: a delivery order waiting for the address the customer gives after payment.
+            ...(addressLater && !addressSnapshot && shopRow.deliveryAvailable ? { addressPendingSince: new Date() } : {}),
             status: "PENDING",
             source: "DIRECT",
             orderType,

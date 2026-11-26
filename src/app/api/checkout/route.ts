@@ -16,6 +16,7 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { checkout } from "@/server/services/orders";
 import { startOnlineCheckout } from "@/server/payments/order-payments";
 import { claimCheckoutStepUp } from "@/server/otp/checkout-step-up";
+import { assertV2CheckoutReady } from "@/server/onboarding-v2/customer";
 
 const schema = z.object({
   /** Stable per attempt — resubmitting the same id will not charge twice. */
@@ -50,6 +51,9 @@ export const POST = route(async (request: NextRequest) => {
   if (body.orderType === "B2B" && !can(user.role, PERMISSIONS.ORDER_PLACE_B2B)) {
     throw forbidden("Your account cannot place business orders.");
   }
+  // docs/onboarding-v2-2026-11 (flag onboarding_v2): the login sheet finished (Terms, e-mail, mobile), a payment
+  // method chosen explicitly, and the delivery address may follow payment. Flag off: null, nothing changes.
+  const v2 = await assertV2CheckoutReady(user.id, { paymentMethod: body.paymentMethod, orderType: body.orderType });
   const input = {
     userId: user.id,
     actorRole: user.role,
@@ -64,6 +68,7 @@ export const POST = route(async (request: NextRequest) => {
     acknowledgeClosedShopIds: body.acknowledgeClosedShopIds,
     couponCode: body.couponCode ?? null,
     buyerGstin: body.buyerGstin ?? null,
+    ...(v2 && !body.addressId && (body.orderType ?? "PERSONAL") === "PERSONAL" ? { addressAfterPayment: true } : {}),
   };
   // batch-2026-10 WS-A: "Pay online" goes through its own service; wallet / COD unchanged.
   const { paymentMethod: _method, ...onlineInput } = input;
@@ -97,6 +102,8 @@ export const POST = route(async (request: NextRequest) => {
         promisedByAt: o.promisedByAt,
         ...(o.scheduledSlotStart ? { scheduledSlotStart: o.scheduledSlotStart, scheduledSlotEnd: o.scheduledSlotEnd } : {}),
         ...(o.discountPaise > 0 ? { discountPaise: o.discountPaise, couponCode: o.couponCode } : {}),
+        // docs/onboarding-v2-2026-11: the delivery location is asked right after payment (only ever set with the flag on).
+        ...(o.addressPendingSince ? { addressPending: true } : {}),
       })),
       deduplicated: result.deduplicated,
       // F6: present only for a multi-shop checkout with parent orders on.

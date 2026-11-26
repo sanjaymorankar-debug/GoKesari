@@ -29,6 +29,7 @@ import type { CartSummary } from "@/server/services/cart";
 import type { CartIssue, ShopCartCheck } from "@/server/services/cart-validation";
 import { ConfirmButton } from "@/components/confirm-button";
 import { CheckoutOtpStep, isCheckoutStepUp, type CheckoutStepUpDetails } from "@/components/checkout-otp-step";
+import { useLoginSheet } from "@/components/onboarding-v2/login-sheet";
 
 type DeliveryWindowKey = "EXPRESS_30" | "STANDARD_60" | "SCHEDULED";
 
@@ -219,6 +220,7 @@ export function CartView({
   openOrders = [],
   onlinePaymentsEnabled = false,
   lang = "en",
+  onboardingV2 = null,
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
@@ -241,8 +243,16 @@ export function CartView({
   onlinePaymentsEnabled?: boolean;
   /** docs/homepage-uiux-2026-10: the empty cart's wording. */
   lang?: Lang;
+  /**
+   * docs/onboarding-v2-2026-11 (flag onboarding_v2; null when off — the cart is unchanged): "Place order" opens the
+   * login sheet while `sheetPending`; online or cash on delivery is chosen explicitly (nothing preselected); the
+   * delivery address may be given after payment.
+   */
+  onboardingV2?: { sheetPending: boolean } | null;
 }) {
   const router = useRouter();
+  const openLoginSheet = useLoginSheet();
+  const v2 = onboardingV2 != null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** docs/sms-2fa-2026-11: the order needs an SMS code first (rule checkoutOtp); the closed shops it was confirmed for. */
@@ -259,7 +269,7 @@ export function CartView({
   const [slotOptions, setSlotOptions] = useState<Record<string, SlotOption[] | null>>({});
   const [scheduledSlots, setScheduledSlots] = useState<Record<string, string>>({});
   const [slotDay, setSlotDay] = useState<Record<string, string>>({});
-  const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD" | "ONLINE">("WALLET");
+  const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD" | "ONLINE" | null>(v2 ? null : "WALLET");
   // F7: an applied coupon is a server-priced preview; checkout re-validates it.
   const [couponInput, setCouponInput] = useState("");
   const [coupon, setCoupon] = useState<{ code: string; discountPaise: number; forTotal: number } | null>(null);
@@ -302,8 +312,9 @@ export function CartView({
   const [openOrderMessage, setOpenOrderMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const hasBlockingIssue = checks.some((c) => c.issues.some((i) => i.blocking));
   // Checkout enforces both server-side; shown here so the customer can fix them first.
-  const needsAddress = !buyerShopId && !addressId && cart.groups.some((g) => g.shop.deliveryAvailable);
-  const missingDetails = !hasMobile || needsAddress;
+  // v2: the mobile comes from the login sheet and the delivery address may follow payment.
+  const needsAddress = !v2 && !buyerShopId && !addressId && cart.groups.some((g) => g.shop.deliveryAvailable);
+  const missingDetails = (!v2 && !hasMobile) || needsAddress;
 
   async function removeShop(shopId: string) {
     setBusy(true);
@@ -374,14 +385,18 @@ export function CartView({
   );
 
   // Cash on delivery: personal orders to a saved address only.
-  const codPossible = codUnavailableReason == null && !buyerShopId && addressId != null;
+  const codPossible = codUnavailableReason == null && !buyerShopId && (addressId != null || v2);
   const payingCod = paymentMethod === "COD" && codPossible;
   // batch-2026-10 WS-A: personal orders only, like cash on delivery.
   const payingOnline = paymentMethod === "ONLINE" && onlinePaymentsEnabled && !buyerShopId;
   // A coupon priced for a different cart is dropped (the customer re-applies it).
   const couponDiscountPaise = coupon && coupon.forTotal === cart.subtotalPaise ? coupon.discountPaise : 0;
   const payablePaise = cart.grandTotalPaise - couponDiscountPaise;
-  const affordable = payingCod || payingOnline || walletBalancePaise >= payablePaise;
+  // DEFAULT – confirm with Sanjay: v2 offers online and cash on delivery, plus the wallet only when it covers the total.
+  const walletOffered = !v2 || walletBalancePaise >= payablePaise || Boolean(buyerShopId);
+  const payingWallet = v2 ? paymentMethod === "WALLET" || Boolean(buyerShopId) : !payingCod && !payingOnline;
+  const choiceMissing = v2 && !payingCod && !payingOnline && !payingWallet;
+  const affordable = payingCod || payingOnline || choiceMissing || walletBalancePaise >= payablePaise;
   const shortfall = Math.max(0, payablePaise - walletBalancePaise);
 
   async function updateQuantity(cartItemId: string, quantity: number) {
@@ -423,6 +438,11 @@ export function CartView({
   }
 
   function startPay() {
+    // docs/onboarding-v2-2026-11: Terms, e-mail and mobile first; the cart stays as it is.
+    if (v2 && onboardingV2?.sheetPending && !buyerShopId && openLoginSheet) {
+      openLoginSheet({ returnTo: "/cart" });
+      return;
+    }
     if (relevantOpenOrders.length > 0 && !openOrdersAcknowledged) {
       setOpenOrderMessage(null);
       setConfirmingOpenOrders(true);
@@ -464,7 +484,7 @@ export function CartView({
         scheduledSlots: Object.fromEntries(
           Object.entries(scheduledSlots).filter(([shopId]) => deliveryWindows[shopId] === "SCHEDULED"),
         ),
-        paymentMethod: payingCod ? "COD" : payingOnline ? "ONLINE" : "WALLET",
+        paymentMethod: payingCod ? "COD" : payingOnline ? "ONLINE" : payingWallet ? "WALLET" : undefined,
         acknowledgeClosedShopIds,
         ...(couponDiscountPaise > 0 && coupon ? { couponCode: coupon.code } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
@@ -475,6 +495,10 @@ export function CartView({
     setBusy(false);
 
     if (!response.ok) {
+      if (v2 && payload?.error?.details?.loginSheet && openLoginSheet) {
+        openLoginSheet({ returnTo: "/cart" });
+        return;
+      }
       if (isCheckoutStepUp(payload?.error?.details)) {
         setStepUp({ details: payload.error.details, ack: acknowledgeClosedShopIds });
         return;
@@ -496,6 +520,12 @@ export function CartView({
     }
     if (payload?.payment?.intentId) {
       router.push(`/orders/payment-return?intent=${payload.payment.intentId}`);
+      return;
+    }
+    // docs/onboarding-v2-2026-11: delivery orders placed before the address — ask for the location straight away.
+    if (v2 && Array.isArray(payload?.orders) && payload.orders.some((o: { addressPending?: boolean }) => o.addressPending)) {
+      router.push("/orders/delivery-location?placed=1");
+      router.refresh();
       return;
     }
     // F6: a multi-shop order with one parent reference opens that reference.
@@ -765,7 +795,9 @@ export function CartView({
           </div>
 
           <div className="mt-4">
-            {addresses.length === 0 ? (
+            {v2 && addresses.length === 0 ? (
+              <Alert tone="info">You set the delivery location (GPS or map pin) right after paying. Pickup orders need no address.</Alert>
+            ) : addresses.length === 0 ? (
               <Alert tone="info">
                 {tr(T.noAddress, lang)}{" "}
                 <a href="/profile/addresses" className="underline">
@@ -781,6 +813,7 @@ export function CartView({
                   value={addressId ?? ""}
                   onChange={(e) => setAddressId(e.target.value || null)}
                 >
+                  {v2 ? <option value="">Set the location after paying (GPS or map pin)</option> : null}
                   {addresses.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.label ? `${a.label} — ` : ""}
@@ -821,15 +854,17 @@ export function CartView({
           <fieldset className="mt-3" data-testid="payment-method">
             <legend className="mb-1 block text-sm font-medium text-ink-700">{tr(T.payWith, lang)}</legend>
             <div className="space-y-1 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="payment-method"
-                  checked={!payingCod && !payingOnline}
-                  onChange={() => setPaymentMethod("WALLET")}
-                />
-                {tr(T.wallet, lang)}
-              </label>
+              {walletOffered ? (
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="payment-method"
+                    checked={payingWallet}
+                    onChange={() => setPaymentMethod("WALLET")}
+                  />
+                  {tr(T.wallet, lang)}
+                </label>
+              ) : null}
               <label className={`flex items-center gap-2 ${codPossible ? "" : "text-ink-500"}`}>
                 <input
                   type="radio"
@@ -1022,11 +1057,14 @@ export function CartView({
               <Button
                 className="w-full"
                 size="lg"
-                disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue || missingSlot}
+                disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue || missingSlot || choiceMissing}
                 title={missingSlot ? tr(T.chooseTimeTitle, lang) : undefined}
                 onClick={startPay}
+                data-testid={v2 ? "checkout-place-order-v2" : undefined}
               >
-                {lang === "en"
+                {choiceMissing
+                  ? "Choose how to pay"
+                  : lang === "en"
                   ? payButtonLabel(payingCod ? "COD" : payingOnline ? "ONLINE" : "WALLET", busy)
                   : busy
                     ? tr(T.placing, lang)

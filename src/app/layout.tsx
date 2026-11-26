@@ -28,6 +28,12 @@ import { getWalletByUserId } from "@/server/services/wallet";
 import { isSignupReferralAsked } from "@/server/services/customer-signup-referrals";
 import { getRule } from "@/server/services/settings";
 import { getReconsentState } from "@/server/services/policy-versions";
+import { LoginSheetProvider } from "@/components/onboarding-v2/login-sheet";
+import { isGuestCartOn, onboardingV2Enabled } from "@/server/onboarding-v2/customer";
+import { getEnv } from "@/lib/env";
+import { isMobileAppUserAgent } from "@/lib/mobile-app";
+import { emailSignInMode } from "@/server/auth-email";
+import { headers } from "next/headers";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -101,7 +107,7 @@ export default async function RootLayout({
           .catch(() => []),
       ])
     : null;
-  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled, priceComparison, reconsent] = await Promise.all([
+  const [signedInState, location, lang, homeDiscovery, barcodeScan, guestCartEnabled, priceComparison, reconsent, onboardingV2] = await Promise.all([
     signedIn,
     // The same location every page filters by (cookie, else the default address).
     getCustomerLocation(user?.id).catch(() => null),
@@ -112,13 +118,24 @@ export default async function RootLayout({
     isFeatureEnabled("brand_barcode_favourites_enabled").catch(() => false),
     // docs/guest-cart-2026-11: guests fill a browser cart (sign-in at Place order); signed-in users
     // need it only to move a guest cart left in this browser into their account cart.
-    isFeatureEnabled("guest_cart_enabled").catch(() => false),
+    // docs/onboarding-v2-2026-11: onboarding_v2 implies the guest cart.
+    isGuestCartOn(),
     // docs/price-comparison-off-2026-11: the phones' Compare tab only while the flag is on.
     isFeatureEnabled("local_price_comparison_enabled").catch(() => false),
     // docs/policy-reconsent-2026-11: a new policy version this user has not accepted (flag policy_reconsent_enabled).
     // One flag read (cached) when off; a failed read never blocks the site.
     user ? getReconsentState(user.id).catch(() => null) : null,
+    // docs/onboarding-v2-2026-11: the checkout login sheet (flag onboarding_v2).
+    onboardingV2Enabled(),
   ]);
+  const env = getEnv();
+  const inMobileApp = onboardingV2 ? isMobileAppUserAgent((await headers()).get("user-agent")) : false;
+  const loginSheetConfig = {
+    signedIn: Boolean(user),
+    googleEnabled: Boolean(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET),
+    // The e-mailed link is hidden in the app (as on /signin); there the e-mailed code verifies the e-mail.
+    magicLinkEnabled: emailSignInMode(env) !== "disabled" && !inMobileApp,
+  };
   const [cart, balancePaise, unread, roles, addresses, staffShops, referralLinks] = signedInState ?? [
     { count: 0, totalPaise: null },
     null,
@@ -135,6 +152,7 @@ export default async function RootLayout({
     <html lang="en">
       <body className="min-h-screen bg-cream-50">
         <GuestCartProvider enabled={guestCartEnabled && !user}>
+        <LoginSheetProvider enabled={onboardingV2} config={loginSheetConfig}>
         {/* docs/app-install-2026-10: holds Chrome's install event until the install prompt mounts. */}
         <script dangerouslySetInnerHTML={{ __html: INSTALL_EVENT_CATCHER }} />
         <OfflineBanner lang={lang} />
@@ -179,6 +197,7 @@ export default async function RootLayout({
         {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} priceComparison={priceComparison} /> : null}
         {guestCartEnabled && user ? <GuestCartMerge /> : null}
         {reconsent?.needsReconsent ? <PolicyReconsentGate lang={lang} pending={reconsent.pending} /> : null}
+        </LoginSheetProvider>
         </GuestCartProvider>
       </body>
     </html>

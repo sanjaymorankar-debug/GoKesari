@@ -703,6 +703,8 @@ export const AUDIT_ACTIONS = {
   // docs/customer-whatsapp-2026-11 (0193): an admin re-queued a failed WhatsApp message; a simulated inbound chat message (test site).
   WHATSAPP_MESSAGE_RETRIED: "whatsapp_message.retried",
   WHATSAPP_INBOUND_SIMULATED: "whatsapp_inbound.simulated",
+  /* docs/onboarding-v2-2026-11, Flow 1 (0216): the customer's delivery location given after payment. */
+  ORDER_DELIVERY_ADDRESS_SET: "order.delivery_address_set",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
