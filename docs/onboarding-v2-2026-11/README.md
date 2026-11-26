@@ -49,7 +49,8 @@ All times in this document and in every v2 screen are IST.
 2. **Licences** — "all documents there should be grace period as per the earlier defined policy … suspended … activated
    post documents are provided … no additional admin approval is required": every licence of a v2 registration,
    MUST_HAVE ones included, may be uploaded later within the existing `shopDocumentFollowUp` period. **This reverses
-   the 21-Nov rule "FSSAI before live" for v2 registrations.** No licence and no operator check holds a v2 shop's
+   the 21-Nov rule "FSSAI before live" for v2 registrations — owner-confirmed 27-Nov-2026 00.30 IST: "Yes, FSSAI can be
+   uploaded later".** No licence and no operator check holds a v2 shop's
    go-live (GST / PAN verified + fee paid still decide the instant go-live). The follow-up reminds and suspends as
    before (suspension tagged `source = DOCUMENT_FOLLOW_UP`, migration 0219); with the flag on, such a shop is
    **reinstated automatically** (audit + owner notice) as soon as nothing is chased — right after a document is
