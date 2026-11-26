@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { AGENT_AGREEMENT_VERSION } from "@/lib/dealer-tiers";
 import { db } from "@/server/db";
 import {
+  accounts,
   dealerCommissionLedger,
   dealerCommissionMonths,
   dealerSalespeople,
@@ -28,6 +29,7 @@ import {
   teamInvitations,
   users,
 } from "@/server/db/schema";
+import { resetRateLimits } from "@/server/api/rate-limit";
 import { setCommissionSettings } from "@/server/dealers/commission";
 import { setDealerCommissionModel } from "@/server/dealers/tiered";
 import { listMarketplaceRoles } from "@/server/onboarding-v2/roles";
@@ -43,6 +45,7 @@ import {
   removeTeamRole,
   respondToTeamInvitation,
   searchTeamCandidate,
+  TEAM_INVITES_PER_DEALER_PER_DAY,
   teamOverview,
   upgradeToTeamLead,
 } from "@/server/onboarding-v2/team";
@@ -58,6 +61,7 @@ const ORIGIN = "https://test.gokesari.com";
 
 beforeEach(async () => {
   await resetDatabase();
+  resetRateLimits();
   await db.delete(dealerCommissionLedger);
   await db.delete(dealerCommissionMonths);
   await db.delete(teamInvitations);
@@ -81,10 +85,10 @@ beforeEach(async () => {
   clearRuleCache();
 });
 
-/** A registered customer: verified e-mail and SMS-verified mobile. */
+/** A registered customer: SMS-verified mobile, and (ready) a verified e-mail. */
 async function customer(name: string, ready = true) {
   const u = await createUser({ name });
-  if (ready) await db.update(users).set({ emailVerified: new Date(), phoneVerifiedAt: new Date() }).where(eq(users.id, u.id));
+  await db.update(users).set({ phoneVerifiedAt: new Date(), ...(ready ? { emailVerified: new Date() } : {}) }).where(eq(users.id, u.id));
   const [row] = await db.select().from(users).where(eq(users.id, u.id));
   return { ...row, actor: { id: row.id, role: row.role } };
 }
@@ -133,8 +137,40 @@ describe("search and request", () => {
     expect(await searchTeamCandidate(actor, p.email.toUpperCase())).toMatchObject({ found: true, state: "AVAILABLE" });
     expect(await searchTeamCandidate(actor, "9000000001")).toMatchObject({ found: false });
     await expect(searchTeamCandidate(actor, "Ramesh")).rejects.toThrow(/mobile number or e-mail/);
+    // One answer for "no account", "not complete", "a dealer", "in another team" (no enumeration).
     const notReady = await customer("Suresh", false);
-    expect(await searchTeamCandidate(actor, mobileOf(notReady))).toMatchObject({ state: "NOT_READY", missing: ["a verified e-mail address"] });
+    expect(await searchTeamCandidate(actor, mobileOf(notReady))).toEqual({ found: false, contact: expect.any(String) });
+    const { actor: other } = await newDealer("Other Network");
+    const elsewhere = await customer("Elsewhere");
+    await join(other, elsewhere, "AGENT");
+    expect(await searchTeamCandidate(actor, mobileOf(elsewhere))).toEqual({ found: false, contact: expect.any(String) });
+    const [otherDealerUser] = await db.select().from(users).where(eq(users.id, other.id));
+    await db.update(users).set({ emailVerified: new Date(), phoneVerifiedAt: new Date() }).where(eq(users.id, other.id));
+    expect(await searchTeamCandidate(actor, otherDealerUser.email)).toEqual({ found: false, contact: expect.any(String) });
+    await expect(inviteTeamMember(actor, { contact: mobileOf(elsewhere), role: "AGENT", origin: ORIGIN })).rejects.toThrow("This person cannot be added to your team.");
+    await expect(inviteTeamMember(actor, { contact: otherDealerUser.email, role: "AGENT", origin: ORIGIN })).rejects.toThrow("This person cannot be added to your team.");
+    // A request to a not-complete account reaches them, but the dealer is not told the account exists.
+    const inv = await inviteTeamMember(actor, { contact: mobileOf(notReady), role: "AGENT", origin: ORIGIN });
+    expect(inv).toMatchObject({ notified: false, maskedName: null });
+    expect((await listMyTeamInvitations(notReady.actor)).invitations).toHaveLength(1);
+  });
+
+  it("a linked Google account counts as a verified e-mail, as at checkout", async () => {
+    const { actor } = await newDealer();
+    const p = await customer("Google User", false);
+    expect((await searchTeamCandidate(actor, mobileOf(p))).found).toBe(false);
+    await db.insert(accounts).values({ userId: p.id, type: "oidc", provider: "google", providerAccountId: `g-${p.id}` });
+    expect(await searchTeamCandidate(actor, mobileOf(p))).toMatchObject({ found: true, state: "AVAILABLE" });
+  });
+
+  it("rate limits: 30 searches an hour per dealer, 20 requests a day per dealer", async () => {
+    const { dealer, actor } = await newDealer();
+    for (let i = 0; i < 30; i++) await searchTeamCandidate(actor, `90000000${String(i).padStart(2, "0")}`);
+    await expect(searchTeamCandidate(actor, "9000000099")).rejects.toThrow(/Too many requests/);
+    await db.insert(teamInvitations).values(
+      Array.from({ length: TEAM_INVITES_PER_DEALER_PER_DAY }, (_, i) => ({ dealerId: dealer.id, invitedByUserId: actor.id, inviteeEmail: `p${i}@example.com`, role: "AGENT" as const, tokenHash: `h${i}-${dealer.id}`, status: "CANCELLED" as const, expiresAt: new Date(Date.now() + 86_400_000) })),
+    );
+    await expect(inviteTeamMember(actor, { contact: "late@example.com", role: "AGENT", origin: ORIGIN })).rejects.toThrow(/20 requests a day/);
   });
 
   it("adds a team lead only when he accepts: notified in the app, then customer + team lead with a GKT code", async () => {
@@ -359,6 +395,44 @@ describe("role changes (dealer only), each in the history", () => {
     expect(view.history[0].atIst).toMatch(/ IST$/);
     await adminOverrideTeamRole(admin, p.id, { to: "REMOVE", reason: "left the company" });
     expect((await adminMarketplaceRoleView(p.id)).roles).toEqual(["customer"]);
+  });
+});
+
+describe("accept is one transaction", () => {
+  it("two dealers' requests accepted at the same moment: exactly one place, no orphan row", async () => {
+    const { actor: d1 } = await newDealer("Network One");
+    const { actor: d2 } = await newDealer("Network Two");
+    const p = await customer("Popular Person");
+    const i1 = await inviteTeamMember(d1, { contact: mobileOf(p), role: "AGENT", origin: ORIGIN });
+    const i2 = await inviteTeamMember(d2, { contact: p.email, role: "TEAM_LEAD", origin: ORIGIN });
+    const results = await Promise.allSettled([respondToTeamInvitation(p.actor, i1.invitationId, true), respondToTeamInvitation(p.actor, i2.invitationId, true)]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect(String(failed.reason)).toMatch(/already in a team/);
+    expect(await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.userId, p.id))).toHaveLength(1);
+    expect((await history(p.id)).filter((h) => h.action === "GRANTED")).toHaveLength(1);
+    const statuses = (await db.select().from(teamInvitations)).map((i) => i.status).sort();
+    expect(statuses).toEqual(["ACCEPTED", "PENDING"]);
+  });
+
+  it("a failure inside accept leaves nothing behind: no member row, no code, the request still waiting", async () => {
+    const { dealer, actor } = await newDealer();
+    const p = await customer("Same Mobile");
+    const inv = await inviteTeamMember(actor, { contact: p.email, role: "AGENT", origin: ORIGIN });
+    // The dealer's own mobile is the person's: addSalesperson refuses it (one mobile once in a team) after the locks.
+    await db.update(dealers).set({ mobileE164: p.phoneE164 }).where(eq(dealers.id, dealer.id));
+    await expect(respondToTeamInvitation(p.actor, inv.invitationId, true)).rejects.toThrow(/already in your team/);
+    expect(await db.select().from(dealerSalespeople)).toHaveLength(0);
+    expect((await db.select().from(teamInvitations).where(eq(teamInvitations.id, inv.invitationId)))[0].status).toBe("PENDING");
+    expect(await history(p.id)).toHaveLength(0);
+  });
+
+  it("the database refuses a second ACTIVE place for one account (0219)", async () => {
+    const { actor } = await newDealer();
+    const { dealer: other } = await newDealer("Other Network");
+    const p = await customer("Agent One");
+    await join(actor, p, "AGENT");
+    await expect(db.insert(dealerSalespeople).values({ dealerId: other.id, employeeId: "DUP-1", name: "Dup", userId: p.id })).rejects.toThrow();
   });
 });
 

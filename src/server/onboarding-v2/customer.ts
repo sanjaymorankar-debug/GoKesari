@@ -197,7 +197,8 @@ export interface CustomerLoginStatus {
   blockedReason: string | null;
 }
 
-async function emailIsVerified(user: User): Promise<boolean> {
+/** Also used by My team (team.ts): the same "verified e-mail" the checkout sheet asks for. */
+export async function emailIsVerified(user: User): Promise<boolean> {
   if (user.emailPlaceholder) return false;
   if (user.emailVerified) return true;
   // Google proves the address; Auth.js leaves emailVerified empty for an OAuth sign-up.
@@ -213,7 +214,7 @@ async function emailIsVerified(user: User): Promise<boolean> {
  * Mobile step done: a verified mobile; or — no SMS can be sent and rule onboardingV2.mobileOtpFallbackWhenNoSms is
  * on (DEFAULT, documented in the README) — any mobile saved on the account.
  */
-async function mobileState(user: User): Promise<{ done: boolean; smsAvailable: boolean; blockedReason: string | null }> {
+export async function mobileState(user: User): Promise<{ done: boolean; smsAvailable: boolean; blockedReason: string | null }> {
   const smsAvailable = await smsCodesAvailable();
   if (user.phoneE164 && user.phoneVerifiedAt) return { done: true, smsAvailable, blockedReason: null };
   if (smsAvailable) return { done: false, smsAvailable, blockedReason: null };

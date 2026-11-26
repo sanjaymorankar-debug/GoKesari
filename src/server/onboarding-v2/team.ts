@@ -15,9 +15,9 @@
  * Everything here runs only while the onboarding_v2 flag is on.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
-import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { maskEmail, maskPhone } from "@/lib/phone";
 import { maskPersonName, parseTeamContact, teamInviteLink, teamInviteMessage, teamInviteShareLinks, type TeamContact } from "@/lib/onboarding-v2/team";
 import { db, type DbClient } from "@/server/db";
@@ -31,15 +31,18 @@ import {
   type DealerSalesperson,
   type MarketplaceRole,
   type RoleHistoryAction,
+  type User,
   type UserRole,
 } from "@/server/db/schema";
+import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { payeeStatus } from "@/server/dealers/commission";
-import { addSalesperson, getDealerForUser, listSalespeople, setSalespersonStatus } from "@/server/dealers/service";
+import { addSalespersonIn, getDealerForUser, listSalespeople, setSalespersonStatusIn } from "@/server/dealers/service";
 import { getMemberForUser, placeNewMember, recordMapping } from "@/server/dealers/tiered";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { requireFeature } from "@/server/services/feature-flags";
 import { NOTIFICATION_TYPES, notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
+import { emailIsVerified, mobileState } from "./customer";
 import { ONBOARDING_V2_FLAG, formatIstStamp, listMarketplaceRoles, recordRoleChange } from "./roles";
 
 export interface TeamActor {
@@ -75,27 +78,9 @@ export async function teamContextFor(userId: string): Promise<TeamContext> {
 
 /* ============================================================ eligibility */
 
-interface CustomerRow {
-  id: string;
-  name: string | null;
-  email: string;
-  emailVerified: Date | null;
-  emailPlaceholder: boolean;
-  phoneE164: string | null;
-  phoneVerifiedAt: Date | null;
-  status: string;
-}
+type CustomerRow = User;
 
-const customerColumns = {
-  id: users.id,
-  name: users.name,
-  email: users.email,
-  emailVerified: users.emailVerified,
-  emailPlaceholder: users.emailPlaceholder,
-  phoneE164: users.phoneE164,
-  phoneVerifiedAt: users.phoneVerifiedAt,
-  status: users.status,
-};
+const customerColumns = getTableColumns(users);
 
 async function findCustomer(contact: TeamContact, client: DbClient = db): Promise<CustomerRow | null> {
   const [row] = await client
@@ -108,16 +93,15 @@ async function findCustomer(contact: TeamContact, client: DbClient = db): Promis
 
 /**
  * What a person still needs before they can join a team: a registered customer with a verified e-mail and a
- * mobile number. DEFAULT – confirm with Sanjay: the mobile must be SMS-verified, except while rule
- * onboardingV2.mobileOtpFallbackWhenNoSms is on (gokesari.com has no SMS provider yet), where a saved mobile is
- * enough — the same fallback v2 sign-in uses.
+ * mobile — exactly what the v2 checkout sheet asks (onboarding-v2/customer.ts): e-mail verified by link / code or a
+ * linked Google account; mobile SMS-verified, or (no SMS on the site and rule mobileOtpFallbackWhenNoSms on) saved.
  */
 export async function customerReadiness(user: CustomerRow): Promise<string[]> {
   const missing: string[] = [];
   if (user.status !== "ACTIVE") missing.push("an active account");
-  if (!user.emailVerified || user.emailPlaceholder) missing.push("a verified e-mail address");
+  if (!(await emailIsVerified(user))) missing.push("a verified e-mail address");
   if (!user.phoneE164) missing.push("a mobile number");
-  else if (!user.phoneVerifiedAt && !(await getRule("onboardingV2")).mobileOtpFallbackWhenNoSms) missing.push("a verified mobile number");
+  else if (!(await mobileState(user)).done) missing.push("a verified mobile number");
   return missing;
 }
 
@@ -137,31 +121,40 @@ async function ownsDealer(userId: string, client: DbClient = db): Promise<boolea
 
 /* ================================================================= search */
 
-export type CandidateState = "AVAILABLE" | "NOT_READY" | "SELF" | "IS_DEALER" | "IN_YOUR_TEAM" | "IN_ANOTHER_TEAM" | "ALREADY_INVITED";
+export type CandidateState = "AVAILABLE" | "SELF" | "IN_YOUR_TEAM" | "ALREADY_INVITED";
 
+/**
+ * found:false is the one answer for "no account", "account not complete", "a dealer" and "in another team" — a
+ * search must not tell a dealer which of those it is (enumeration). He can still send an invite link; the person
+ * sees it on their own account.
+ */
 export type CandidateView =
   | { found: false; contact: string }
-  | { found: true; contact: string; maskedName: string; state: CandidateState; missing: string[] };
+  | { found: true; contact: string; maskedName: string; state: CandidateState };
 
 const contactLabel = (c: TeamContact) => (c.kind === "email" ? maskEmail(c.email) : maskPhone(c.e164));
 
-/** Exact search by mobile or e-mail (mandatory). Shows only a masked name and whether the person can be added. */
+/** Exact search by mobile or e-mail (mandatory). Shows only a masked name, and only for someone who can be added. */
 export async function searchTeamCandidate(actor: TeamActor, query: string): Promise<CandidateView> {
   await requireOnboardingV2();
   const ctx = await teamContextFor(actor.id);
+  enforceRateLimit(`team-search:${ctx.dealer.id}`, RATE_LIMITS.TEAM_SEARCH_DEALER);
   const contact = parseTeamContact(query);
   if (!contact) throw validationFailed("Enter the person's 10-digit mobile number or e-mail address.", { fields: { query: "Mobile or e-mail." } });
   const user = await findCustomer(contact);
-  if (!user) return { found: false, contact: contactLabel(contact) };
-  const missing = await customerReadiness(user);
-  let state: CandidateState = missing.length ? "NOT_READY" : "AVAILABLE";
+  const none = { found: false as const, contact: contactLabel(contact) };
+  if (!user) return none;
+  const shown = (state: CandidateState): CandidateView => ({ found: true, contact: contactLabel(contact), maskedName: maskPersonName(user.name), state });
+  if (user.id === actor.id) return shown("SELF");
   const member = await activeMemberOf(user.id);
-  if (user.id === actor.id) state = "SELF";
-  else if (await ownsDealer(user.id)) state = "IS_DEALER";
-  else if (member) state = member.dealerId === ctx.dealer.id ? "IN_YOUR_TEAM" : "IN_ANOTHER_TEAM";
-  else if (await pendingInviteFor(ctx.dealer.id, { userId: user.id, contact })) state = "ALREADY_INVITED";
-  return { found: true, contact: contactLabel(contact), maskedName: maskPersonName(user.name), state, missing };
+  if (member?.dealerId === ctx.dealer.id) return shown("IN_YOUR_TEAM");
+  if (member || (await ownsDealer(user.id)) || (await customerReadiness(user)).length) return none;
+  if (await pendingInviteFor(ctx.dealer.id, { userId: user.id, contact })) return shown("ALREADY_INVITED");
+  return shown("AVAILABLE");
 }
+
+/** The same answer for "a dealer" and "in another team" (enumeration). */
+const CANNOT_ADD = "This person cannot be added to your team.";
 
 async function pendingInviteFor(dealerId: string, who: { userId: string | null; contact: TeamContact }): Promise<boolean> {
   const byContact = who.contact.kind === "email" ? sql`lower(${teamInvitations.inviteeEmail}) = ${who.contact.email}` : eq(teamInvitations.inviteeMobileE164, who.contact.e164);
@@ -188,6 +181,8 @@ async function requireLead(client: DbClient, dealerId: string, leadId: string): 
   if (lead.teamRole !== "TEAM_LEAD" || lead.status !== "ACTIVE") throw conflict("That person is not an active team lead of this team.", { fields: { parentId: "Choose a team lead." } });
   return lead;
 }
+
+export const TEAM_INVITES_PER_DEALER_PER_DAY = 20;
 
 export interface InviteResult {
   invitationId: string;
@@ -230,10 +225,16 @@ export async function inviteTeamMember(
   const user = await findCustomer(contact);
   if (user) {
     if (user.id === actor.id || user.id === ctx.dealer.userId) throw conflict("You cannot invite yourself.");
-    if (await ownsDealer(user.id)) throw conflict("This person is a dealer; a dealer cannot join another team.");
     const member = await activeMemberOf(user.id);
-    if (member) throw conflict(member.dealerId === ctx.dealer.id ? "This person is already in your team." : "This person is already in another dealer's team.");
+    if (member?.dealerId === ctx.dealer.id) throw conflict("This person is already in your team.");
+    if (member || (await ownsDealer(user.id))) throw conflict(CANNOT_ADD);
   }
+  // DEFAULT – confirm with Sanjay: at most 20 team requests a day per dealer (team leads' count too), counted here.
+  const [{ sent }] = await db
+    .select({ sent: sql<number>`count(*)::int` })
+    .from(teamInvitations)
+    .where(and(eq(teamInvitations.dealerId, ctx.dealer.id), sql`${teamInvitations.createdAt} > now() - interval '24 hours'`));
+  if (sent >= TEAM_INVITES_PER_DEALER_PER_DAY) throw new AppError("RATE_LIMITED", `Your team can send ${TEAM_INVITES_PER_DEALER_PER_DAY} requests a day. Try again tomorrow.`, { retryAfterSeconds: 3600 });
   if (await pendingInviteFor(ctx.dealer.id, { userId: user?.id ?? null, contact })) throw conflict("This person already has a request waiting. Cancel it first to send a new one.");
 
   const token = randomBytes(24).toString("base64url");
@@ -265,6 +266,9 @@ export async function inviteTeamMember(
     newValue: { dealerId: ctx.dealer.id, role, parentId: parent?.id ?? null, inviteeUserId: user?.id ?? null, contact: contactLabel(contact), status: "PENDING", expiresAt: expiresAt.toISOString(), byLead: ctx.lead?.id ?? null },
   });
   const expiresIst = formatIstStamp(expiresAt);
+  // The person is told in the app whatever the state of their account; the dealer sees a name only for someone
+  // the search would show too (ready to join), so the reply does not reveal an incomplete account.
+  const revealed = user ? (await customerReadiness(user)).length === 0 : false;
   if (user) {
     await notify({
       userId: user.id,
@@ -277,7 +281,7 @@ export async function inviteTeamMember(
   }
   const link = teamInviteLink(input.origin, token);
   const message = teamInviteMessage({ dealerName: ctx.dealer.legalName, role, link, expiresIst });
-  return { invitationId: inv.id, notified: Boolean(user), maskedName: user ? maskPersonName(user.name) : null, link, message, share: teamInviteShareLinks(message), expiresAt, expiresIst };
+  return { invitationId: inv.id, notified: revealed, maskedName: revealed && user ? maskPersonName(user.name) : null, link, message, share: teamInviteShareLinks(message), expiresAt, expiresIst };
 }
 
 /** The dealer (or the team lead who sent it) withdraws a request that is still waiting. */
@@ -419,74 +423,82 @@ export async function respondToTeamInvitation(actor: TeamActor, invitationId: st
   }
 
   if (dealer.status !== "APPROVED") throw conflict("This dealer is not active at present.");
-  const [me] = await db.select(customerColumns).from(users).where(eq(users.id, actor.id));
+  const [me] = await db.select().from(users).where(eq(users.id, actor.id));
   if (!me) throw notFound("Account");
   const missing = await customerReadiness(me);
   if (missing.length) throw conflict(`Before you can join a team your account needs ${missing.join(" and ")}. Add it on your profile, then accept.`, { reason: "NOT_READY", missing });
-  if (await ownsDealer(actor.id)) throw conflict("A dealer cannot join another team.");
-  const already = await activeMemberOf(actor.id);
-  if (already) throw conflict("You are already in a team. Leave it before joining another.");
-  const parent = inv.role === "AGENT" && inv.parentSalespersonId ? await requireLead(db, dealer.id, inv.parentSalespersonId).catch(() => null) : null;
-  if (inv.role === "AGENT" && inv.parentSalespersonId && !parent) throw conflict("The team lead you were to report to has changed. Ask the dealer to send a new request.");
 
   const memberActor = { id: actor.id, role: actor.role };
-  // An earlier place of this person in the same team (removed before) is reactivated, keeping its code and payee details.
-  const [previous] = await db
-    .select()
-    .from(dealerSalespeople)
-    .where(and(eq(dealerSalespeople.dealerId, dealer.id), eq(dealerSalespeople.userId, actor.id), eq(dealerSalespeople.status, "INACTIVE")))
-    .orderBy(desc(dealerSalespeople.updatedAt))
-    .limit(1);
-  // DEFAULT – confirm with Sanjay: the employee ID is generated (GK-<first 8 of the invitation>) — the dealer can
-  // still see it on My team; the unique (dealer, employee ID) index also stops a double accept.
-  const employeeId = `GK-${inv.id.slice(0, 8).toUpperCase()}`;
-  let memberId: string;
-  if (previous) {
-    await setSalespersonStatus(dealer.id, previous.id, "ACTIVE", memberActor);
-    memberId = previous.id;
-  } else {
-    const [made] = await db.select({ id: dealerSalespeople.id }).from(dealerSalespeople).where(and(eq(dealerSalespeople.dealerId, dealer.id), eq(dealerSalespeople.employeeId, employeeId)));
-    if (made) memberId = made.id;
-    else {
+  // One transaction: the place, the code, the link to the account, the invitation and the history commit together
+  // or not at all. Advisory locks on the account and the invitation serialise concurrent accepts (two invitations
+  // from two dealers, or a double tap); every check is repeated under them. 0219's unique index backs this up.
+  const outcome = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`team-accept-user:${actor.id}`}))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`team-accept-invite:${inv.id}`}))`);
+    const [cur] = await tx.select().from(teamInvitations).where(eq(teamInvitations.id, inv.id)).for("update");
+    if (!cur || cur.inviteeUserId !== actor.id) throw notFound("Invitation");
+    if (cur.status === "PENDING" && cur.expiresAt.getTime() <= Date.now()) return { expired: true as const };
+    if (cur.status !== "PENDING") throw conflict(STATUS_MESSAGE[cur.status] ?? "This invitation is closed.", { reason: cur.status });
+    const [d] = await tx.select().from(dealers).where(eq(dealers.id, cur.dealerId)).for("update");
+    if (!d || d.status !== "APPROVED") throw conflict("This dealer is not active at present.");
+    if (await ownsDealer(actor.id, tx)) throw conflict("A dealer cannot join another team.");
+    if (await activeMemberOf(actor.id, tx)) throw conflict("You are already in a team. Leave it before joining another.");
+    const parent = cur.role === "AGENT" && cur.parentSalespersonId ? await requireLead(tx, d.id, cur.parentSalespersonId).catch(() => null) : null;
+    if (cur.role === "AGENT" && cur.parentSalespersonId && !parent) throw conflict("The team lead you were to report to has changed. Ask the dealer to send a new request.");
+
+    // An earlier place of this person in the same team (removed before) is reactivated, keeping its code and payee details.
+    const [previous] = await tx
+      .select()
+      .from(dealerSalespeople)
+      .where(and(eq(dealerSalespeople.dealerId, d.id), eq(dealerSalespeople.userId, actor.id), eq(dealerSalespeople.status, "INACTIVE")))
+      .orderBy(desc(dealerSalespeople.updatedAt))
+      .limit(1);
+    let memberId: string;
+    if (previous) {
+      await setSalespersonStatusIn(tx, d.id, previous.id, "ACTIVE", memberActor);
+      memberId = previous.id;
+      await clearChildren(tx, memberId, actor.id, "re-joined: earlier agents stay under the dealer");
+      await placeNewMember(tx, d.id, memberId, cur.role, parent?.id ?? null, previous.recruitedById);
+      await recordMapping(tx, memberId, "re-joined the team (invitation accepted)", actor.id);
+    } else {
+      // DEFAULT – confirm with Sanjay: the employee ID is generated (GK-<first 8 of the invitation>); the dealer sees it on My team.
+      // No DEALER grant in user_role_grants (linkMemberAccount gives one): the team role is derived from this row
+      // (roles.ts) and the member portal finds him through getMemberForUser.
       const mobile = me.phoneE164?.startsWith("+91") ? me.phoneE164.slice(3) : null;
-      const created = await addSalesperson(dealer.id, { employeeId, name: me.name?.trim() || me.email.split("@")[0], mobile, role: inv.role, parentId: parent?.id ?? null }, memberActor);
+      const created = await addSalespersonIn(
+        tx,
+        d.id,
+        { employeeId: `GK-${cur.id.slice(0, 8).toUpperCase()}`, name: me.name?.trim() || me.email.split("@")[0], mobile, role: cur.role, parentId: parent?.id ?? null, userId: actor.id },
+        memberActor,
+      );
       memberId = created.id;
     }
-  }
-
-  await db.transaction(async (tx) => {
-    const done = await tx
-      .update(teamInvitations)
-      .set({ status: "ACCEPTED", decidedAt: new Date(), salespersonId: memberId })
-      .where(and(eq(teamInvitations.id, inv.id), eq(teamInvitations.status, "PENDING")))
-      .returning({ id: teamInvitations.id });
-    if (!done.length) throw conflict("This invitation is no longer open.");
-    // DEFAULT – confirm with Sanjay: no DEALER grant in user_role_grants (linkMemberAccount gives one); the team role is
-    // derived from this row (roles.ts) and the member portal finds him through getMemberForUser.
     await tx.update(dealerSalespeople).set({ userId: actor.id, updatedAt: new Date() }).where(eq(dealerSalespeople.id, memberId));
-    if (previous) {
-      await clearChildren(tx, memberId, actor.id, "re-joined: earlier agents stay under the dealer");
-      await placeNewMember(tx, dealer.id, memberId, inv.role, parent?.id ?? null, previous.recruitedById);
-      await recordMapping(tx, memberId, "re-joined the team (invitation accepted)", actor.id);
-    }
+    await tx.update(teamInvitations).set({ status: "ACCEPTED", decidedAt: new Date(), salespersonId: memberId }).where(eq(teamInvitations.id, cur.id));
     await recordRoleChange(
       {
         userId: actor.id,
-        role: marketplaceRoleOf(inv.role),
+        role: marketplaceRoleOf(cur.role),
         action: "GRANTED",
-        toValue: parent ? `${inv.role} under ${parent.name}` : `${inv.role} under the dealer`,
-        dealerId: dealer.id,
+        toValue: parent ? `${cur.role} under ${parent.name}` : `${cur.role} under the dealer`,
+        dealerId: d.id,
         salespersonId: memberId,
         actorUserId: actor.id,
-        reason: `accepted the request of ${formatIstStamp(inv.createdAt)}`,
+        reason: `accepted the request of ${formatIstStamp(cur.createdAt)}`,
       },
       tx,
     );
     await recordAudit(
-      { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_TEAM_CHANGED, entityType: "dealer_salesperson", entityId: memberId, previousValue: { invitation: inv.id, status: "PENDING" }, newValue: { status: "ACCEPTED", role: inv.role, parentId: parent?.id ?? null, userId: actor.id, reactivated: Boolean(previous) } },
+      { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_TEAM_CHANGED, entityType: "dealer_salesperson", entityId: memberId, previousValue: { invitation: cur.id, status: "PENDING" }, newValue: { status: "ACCEPTED", role: cur.role, parentId: parent?.id ?? null, userId: actor.id, reactivated: Boolean(previous) } },
       tx,
     );
+    return { expired: false as const, memberId, parent };
   });
+  if (outcome.expired) {
+    await expireStale(eq(teamInvitations.id, inv.id));
+    throw conflict(STATUS_MESSAGE.EXPIRED, { reason: "EXPIRED" });
+  }
+  const { memberId, parent } = outcome;
   const who = `${me.name?.trim() || "The person"} accepted and joined your team as ${inv.role === "TEAM_LEAD" ? "a team lead" : `an agent${parent ? ` under ${parent.name}` : ""}`}.`;
   for (const to of new Set([inv.invitedByUserId, dealer.userId].filter((v): v is string => Boolean(v)))) {
     await notify({ userId: to, type: NOTIFICATION_TYPES.DEALER_TEAM_CHANGED, vars: { message: who }, actionUrl: "/dealer/team", dedupeKey: `team-accepted:${inv.id}:${to}` });
@@ -659,9 +671,9 @@ export async function removeTeamRole(actor: TeamActor, memberId: string, opts: C
   const agents = member.teamRole === "TEAM_LEAD"
     ? await db.select().from(dealerSalespeople).where(and(eq(dealerSalespeople.parentId, memberId), eq(dealerSalespeople.status, "ACTIVE")))
     : [];
-  await setSalespersonStatus(dealer.id, memberId, "INACTIVE", { id: actor.id, role: actor.role });
   const why = reasonOf(opts, "role removed: back to customer");
   await db.transaction(async (tx) => {
+    await setSalespersonStatusIn(tx, dealer.id, memberId, "INACTIVE", { id: actor.id, role: actor.role });
     if (member.userId) {
       await recordRoleChange({ userId: member.userId, role: marketplaceRoleOf(member.teamRole), action: historyAction(opts, "REVOKED"), fromValue: member.teamRole === "TEAM_LEAD" ? "team_lead" : "agent", toValue: "customer", dealerId: dealer.id, salespersonId: memberId, actorUserId: actor.id, reason: why }, tx);
     }
