@@ -427,8 +427,15 @@ export async function publishChecks(id: string): Promise<PublishCheck> {
   if (sv.settlementDays !== undefined && sv.settlementDays !== settlement.holdDays) {
     warnings.push(`The document states settlement within ${sv.settlementDays} business days; settlement.holdDays is ${settlement.holdDays}. Agreements print the configured value.`);
   }
-  if (sv.registrationFeeRupees !== undefined && sv.registrationFeeRupees * 100 !== fee.amountPaise) {
-    warnings.push(`The document states a ₹${sv.registrationFeeRupees} registration fee; the configured fee is ₹${fee.amountPaise / 100}. Agreements print the configured fee.`);
+  if (sv.registrationFeeRupees !== undefined) {
+    // Each agreement prints the shop's own fee (its registration base fee, or its turnover slab).
+    const turnover = await getRule("registrationFeeByTurnover");
+    if (turnover.enabled) {
+      const slabs = turnover.slabs.map((x) => `₹${x.feePaise / 100}`).join(" / ");
+      warnings.push(`The registration fee is set by turnover (${slabs} plus GST): each agreement prints the shop's own fee, not the ₹${sv.registrationFeeRupees} the document states.`);
+    } else if (sv.registrationFeeRupees * 100 !== fee.amountPaise) {
+      warnings.push(`The document states a ₹${sv.registrationFeeRupees} registration fee; the configured fee is ₹${fee.amountPaise / 100}. Agreements print the configured fee.`);
+    }
   }
   if (sv.wholesaleRegistrationFeeRupees !== undefined && sv.wholesaleRegistrationFeeRupees * 100 !== rule.wholesaleRegistrationFeePaise) {
     warnings.push(`The document states a ₹${sv.wholesaleRegistrationFeeRupees} wholesale fee; the configured one is ₹${rule.wholesaleRegistrationFeePaise / 100}.`);
