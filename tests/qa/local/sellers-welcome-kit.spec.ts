@@ -219,3 +219,11 @@ manual("TC-WKIT-036", "Staff registering on the owner's behalf, fee captured →
 manual("TC-WKIT-037", "Instant GST/PAN approval → one welcome kit", "proven by tests/integration/dealer-step4-instant-approval.test.ts");
 manual("TC-WKIT-038", "Paid self-registration (duplicate / concurrent webhooks) → one welcome kit", "proven by tests/integration/shop-self-registration.test.ts");
 manual("SC-64", "New shop (wizard, dealer link or admin on behalf) → sandbox fee → live → one personalised welcome e-mail → both QRs scan", "end-to-end on test.gokesari.com with the sandbox 'Pay (success)' page and the testing inbox; each path is also proven by the Vitest tests above");
+
+// One e-mail for a new shop (26-Nov-2026): the welcome kit carries the signed seller agreements.
+const ONE_MAIL = "proven by tests/integration/welcome-kit-one-mail.test.ts (signed agreements inserted directly; needs the test database)";
+manual("TC-WKIT-039", "New shop signed + fee paid + live → exactly one e-mail: welcome kit with banners and the signed agreement PDFs", ONE_MAIL);
+manual("TC-WKIT-040", "Live shop without a welcome kit row: the fee hook queues the kit, which carries the signed PDFs", ONE_MAIL);
+manual("TC-WKIT-041", "Kit already sent before the owner signed: the signed copy follows on its own without banners", ONE_MAIL);
+manual("TC-WKIT-042", "Over the e-mail size limit: English agreement stays attached, Marathi and Hindi become secure links", ONE_MAIL);
+manual("TC-WKIT-043", "The welcome kit carrying the signed agreements ends DEAD → the signed copy is sent on its own (once)", ONE_MAIL);

@@ -1,0 +1,99 @@
+{
+  "date": "2026-11-26",
+  "note": "One e-mail for a new shop (owner rule 26-Nov-2026): the welcome kit carries the signed seller agreements (follow-up to PR #605 and #600).",
+  "features": [
+    {
+      "id": "WKIT-05",
+      "module": "Shop welcome kit",
+      "feature": "One e-mail for a new shop: the welcome kit carries the signed seller agreements (no separate signed-copy mail)",
+      "status": "PR into staging (26-Nov-2026)"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "TS-WKIT-03",
+      "module": "Shop welcome kit",
+      "title": "A new shop gets one e-mail: banners and signed agreements together",
+      "description": "With seller agreements on, a new shop's welcome kit carries its signed agreements; a separate signed copy is sent only when the kit had already gone out."
+    }
+  ],
+  "cases": [
+    {
+      "scenario": "TS-WKIT-03",
+      "module": "Shop welcome kit",
+      "features": "WKIT-05",
+      "type": "Functional",
+      "role": "System",
+      "method": "Integration",
+      "source": "tests/integration/welcome-kit-one-mail.test.ts (Vitest, real PostgreSQL)",
+      "id": "TC-WKIT-039",
+      "priority": "P0",
+      "title": "New shop signed + fee paid + live → exactly one e-mail: welcome kit with banners and the signed agreement PDFs (CC), logged in My Agreements",
+      "preconditions": "Seller agreements signed at registration (REGISTRATION)",
+      "steps": "1. Sign the agreements\n2. Pay the registration fee; the shop goes live\n3. Replay the fee hook\n4. Deliver the outbox",
+      "expected": "One e-mail ('… is now live on GoKesari.com') with both banners and the signed SLA in EN/MR/HI, CC to sellerAgreements.ccEmails; no separate 'signed agreements' e-mail; My Agreements send log shows it SENT"
+    },
+    {
+      "scenario": "TS-WKIT-03",
+      "module": "Shop welcome kit",
+      "features": "WKIT-05",
+      "type": "Functional",
+      "role": "System",
+      "method": "Integration",
+      "source": "tests/integration/welcome-kit-one-mail.test.ts (Vitest, real PostgreSQL)",
+      "id": "TC-WKIT-040",
+      "priority": "P1",
+      "title": "Live shop without a welcome kit row: the fee hook queues the kit, which carries the signed PDFs",
+      "preconditions": "Shop live before the safety-net date, no kit row",
+      "steps": "1. Shop live, no kit\n2. Sign (REGISTRATION), fee paid\n3. Deliver",
+      "expected": "One welcome kit with the three signed PDFs"
+    },
+    {
+      "scenario": "TS-WKIT-03",
+      "module": "Shop welcome kit",
+      "features": "WKIT-05",
+      "type": "Functional",
+      "role": "System",
+      "method": "Integration",
+      "source": "tests/integration/welcome-kit-one-mail.test.ts (Vitest, real PostgreSQL)",
+      "id": "TC-WKIT-041",
+      "priority": "P1",
+      "title": "Kit already sent before the owner signed: the signed copy follows on its own without banners; the banner update never carries agreements",
+      "preconditions": "Staff registered the shop; it went live and got its kit before the owner signed",
+      "steps": "1. Shop live, kit delivered\n2. Owner signs\n3. Deliver\n4. Admin 'Resend updated banner'",
+      "expected": "One 'signed agreements' e-mail with the three PDFs and no banners; the banner update has no agreement PDFs"
+    },
+    {
+      "scenario": "TS-WKIT-03",
+      "module": "Shop welcome kit",
+      "features": "WKIT-05",
+      "type": "Functional",
+      "role": "System",
+      "method": "Integration",
+      "source": "tests/integration/welcome-kit-one-mail.test.ts (Vitest, real PostgreSQL)",
+      "id": "TC-WKIT-042",
+      "priority": "P2",
+      "title": "Over the e-mail size limit: English agreement stays attached, Marathi and Hindi become secure links",
+      "preconditions": "sellerAgreements.maxEmailBytes smaller than banners + agreements",
+      "steps": "1. Large signed PDFs\n2. Shop goes live\n3. Deliver",
+      "expected": "English PDF attached; MR/HI as /api/agreements/files links (30 days) in HTML and text; log marks them linked"
+    },
+    {
+      "scenario": "TS-WKIT-03",
+      "module": "Shop welcome kit",
+      "features": "WKIT-05",
+      "type": "Functional",
+      "role": "System",
+      "method": "Integration",
+      "source": "tests/integration/welcome-kit-one-mail.test.ts (Vitest, real PostgreSQL)",
+      "id": "TC-WKIT-043",
+      "priority": "P1",
+      "title": "The welcome kit carrying the signed agreements ends DEAD → the signed copy is sent on its own (once)",
+      "preconditions": "SMTP keeps rejecting the welcome kit",
+      "steps": "1. Sign, pay, go live\n2. The kit fails until DEAD\n3. Deliver",
+      "expected": "One 'signed agreements' e-mail with the three PDFs (no banners); its own retries and admin alert apply"
+    }
+  ],
+  "e2e": [],
+  "overrides": []
+}
