@@ -317,6 +317,9 @@ export interface MyCode {
 
 /** Every code the account owns: its customer code (when it has one), its shops' codes, its dealer / team / franchise codes. */
 export async function myReferralCodes(userId: string): Promise<MyCode[]> {
+  // docs/flows-v3/wave4.md F12 (flag flow_f12): every account has its own codes to share — the customer code, and
+  // a code for each live shop (while shop referrals are on); dealer, team and franchise codes come with approval.
+  if (await (await import("@/server/flows/wave4")).flow4On("flow_f12")) await ensureOwnCodes(userId).catch((e: unknown) => console.error("[referral-links] codes not completed", userId, e));
   const out: MyCode[] = [];
   const [cust] = await db.select().from(customerReferralCodes).where(eq(customerReferralCodes.userId, userId));
   if (cust) out.push({ code: cust.code, kind: "CUSTOMER", level: "Customer", audience: "customer" });
@@ -352,6 +355,17 @@ export async function myReferralCodes(userId: string): Promise<MyCode[]> {
     .where(and(eq(dealers.userId, userId), eq(franchiseCodes.status, "ACTIVE")));
   for (const f of fr) out.push({ code: f.code, kind: "FRANCHISE", level: "Franchise", audience: "shop-owner", dealerId: f.dealerId, referralCodeId: f.rcId });
   return out;
+}
+
+/** F12: creates the account's missing customer code and live shops' codes (each made once; safe to repeat). */
+export async function ensureOwnCodes(userId: string): Promise<void> {
+  const [user] = await db.select({ id: users.id, deletedAt: users.deletedAt }).from(users).where(eq(users.id, userId));
+  if (!user || user.deletedAt) return;
+  await (await import("./customer-referrals")).getOrCreateReferralCode(userId);
+  const live = await db.select({ id: shops.id }).from(shops).where(and(eq(shops.ownerId, userId), eq(shops.status, "APPROVED"), isNull(shops.deletedAt)));
+  if (!live.length) return;
+  const { getOrCreateShopReferralCode } = await import("./shop-referrals");
+  for (const s of live) await getOrCreateShopReferralCode(s.id);
 }
 
 export interface CodeStats {
