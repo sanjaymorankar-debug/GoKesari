@@ -10,6 +10,8 @@ import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
 import { KYC_DAYS_AFTER_PAYMENT, offerView, ownerStatusForUser, pendingPlanBookings } from "@/server/franchise/booking";
 import { FranchiseActions } from "@/components/franchise/franchise-actions";
+import { HoldCountdown } from "@/components/franchise/hold-countdown";
+import { flow4On } from "@/server/flows/wave4";
 import { franchiseConfig, oneTimeRates } from "@/server/franchise/config";
 import { zoneFacets, zoneViews } from "@/server/franchise/zones";
 import { FRANCHISE_START_PATH, SHOP_REGISTER_FOR_FRANCHISE, franchiseStartState, listPlans } from "@/server/onboarding-v2/franchise";
@@ -51,6 +53,8 @@ export default async function FranchiseStartPage({ searchParams }: { searchParam
 
   // QA D-169: an open (unpaid) booking is shown with Continue payment / Cancel, after lapsed ones are released.
   const pending = await pendingPlanBookings(user.id);
+  // docs/flows-v3/wave4.md F21 (flag flow_f21): live countdown on a hold, "on hold" on zones another buyer is paying for.
+  const holdLabels = await flow4On("flow_f21");
   const [zones, launchOffer, owner, { config }, allPlans] = await Promise.all([zoneViews(), offerView(), ownerStatusForUser(user.id, undefined, { v2: true }), franchiseConfig(), listPlans({ activeOnly: true })]);
   // A launch-offer plan is on sale only while the launch offer is open; any other plan whenever bookings are open.
   const plans = allPlans.filter((p) => !p.isLaunchOffer || launchOffer.launch.open);
@@ -74,6 +78,12 @@ export default async function FranchiseStartPage({ searchParams }: { searchParam
             <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cream-200 bg-white p-2 text-sm" data-testid={`franchise-pending-${b.id}`}>
               <span>
                 {b.zones.join(", ")} · {rupees(b.totalPaise)} · held until {b.heldUntilIst}
+                {holdLabels ? (
+                  <>
+                    {" · "}
+                    <HoldCountdown until={b.heldUntil} />
+                  </>
+                ) : null}
               </span>
               <FranchiseActions kind="pay" id={b.id} label={b.status === "PAYMENT_PENDING" ? "Continue payment" : "Pay now"} cancel />
             </div>
@@ -94,6 +104,7 @@ export default async function FranchiseStartPage({ searchParams }: { searchParam
           rates: { freeSelfBp: r.dealerSelfBp, freeOverrideBp: r.dealerOverrideBp, freeSecondBp: r.dealerSecondOverrideBp, ownerSelfBp: r.ownerSelfBp, ownerOverrideBp: r.ownerOverrideBp, ownerSecondBp: r.ownerSecondOverrideBp, recurringBp: config.recurringBaseBp },
           kycDays: KYC_DAYS_AFTER_PAYMENT,
           initialZones,
+          holdLabels,
           plans: plans.map((p) => ({ id: p.id, name: p.name, description: p.description, label: planPriceLabel(p, rupees), durationMonths: p.durationMonths, isLaunchOffer: p.isLaunchOffer })),
         }}
       />

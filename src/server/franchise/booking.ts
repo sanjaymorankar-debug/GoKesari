@@ -52,6 +52,7 @@ import { planZoneFeePaise } from "@/lib/franchise-plans";
 import { isPanEncryptionConfigured } from "@/lib/env";
 import { encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
 import { franchiseConfig, franchiseConfigAt, franchiseNow, type FranchiseConfig } from "./config";
+import { cappedTailEnd, flow4On, wave4Rule } from "@/server/flows/wave4";
 import { closeAllocationCodes, ensureAllocationCode } from "./codes";
 import { checkCoupon, extendHold, holdRedemption, markRedemptionUsed, releaseRedemption } from "./coupons";
 import { currentFee, saleProblem, syncSoldOut, zoneViews } from "./zones";
@@ -300,6 +301,11 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
   const v2 = !!plan;
   // The same gate as /franchise/start: a plan booking (live at payment) needs a live registered shop.
   if (v2) await requireV2Buyer(actor.id);
+  // docs/flows-v3/wave4.md F7 (flag flow_f7): "no shop, no franchise" for every paid booking, with or without a plan.
+  else if (!input.test && (await flow4On("flow_f7"))) await (await import("@/server/onboarding-v2/franchise")).requireLiveShop(actor.id);
+  // docs/flows-v3/wave4.md F21 (flag flow_f21): one active hold per dealer; a slot is released at hold + grace.
+  const f21 = await flow4On("flow_f21");
+  const holdGraceMinutes = f21 ? (await wave4Rule()).holdGraceMinutes : 0;
   const owner = await requireOwner(actor, db, { v2 });
   const { version, config } = await franchiseConfig();
   const zoneIds = [...new Set(input.zoneIds.map((z) => z.trim().toUpperCase()))].filter(Boolean);
@@ -317,6 +323,23 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
     const now = franchiseNow(config);
     // Launch counters are serialised with activation (one place at a time).
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('franchise-launch'))`);
+    if (f21 && !isTest) {
+      // Serialised by the lock above: a second hold of the same dealer waits for the first and is refused.
+      const [open] = await tx
+        .select({ id: franchiseBookings.id, holdExpiresAt: franchiseBookings.holdExpiresAt })
+        .from(franchiseBookings)
+        .where(
+          and(
+            eq(franchiseBookings.ownerDealerId, owner.id),
+            eq(franchiseBookings.kind, "NEW"),
+            eq(franchiseBookings.isTest, false),
+            inArray(franchiseBookings.status, ["RESERVED", "PAYMENT_PENDING"]),
+            sql`${franchiseBookings.holdExpiresAt} + make_interval(mins => ${holdGraceMinutes}) > ${now.toISOString()}::timestamptz`,
+          ),
+        )
+        .limit(1);
+      if (open) throw conflict(`You already have zones on hold until ${formatIst(open.holdExpiresAt)}. Pay for them or cancel the hold first — one booking at a time.`, { reason: "HOLD_ACTIVE", bookingId: open.id });
+    }
     const c = await launchCounts(tx, now);
     const launch = launchState({ owners: c.owners, areas: c.areas, maxOwners: config.launchMaxOwners, maxAreas: config.launchMaxAreas, closeRule: config.launchCloseRule, closedAt: c.closedAt });
     let launchOffer = false;
@@ -340,6 +363,7 @@ export async function reserveZones(actor: Actor, input: { zoneIds: string[]; cou
     const missingIds = zoneIds.filter((z) => !locked.some((l) => l.zoneId === z));
     if (missingIds.length) throw validationFailed(`Unknown zone${missingIds.length > 1 ? "s" : ""}: ${missingIds.join(", ")}.`);
     await releaseExpiredHolds(tx, now, zoneIds);
+    if (f21) await releaseHeldPaymentSlots(tx, now, holdGraceMinutes, zoneIds);
     const views = await zoneViews({ zoneIds, includeTest: isTest, includeInactive: true, client: tx });
 
     const problems: string[] = [];
@@ -475,6 +499,32 @@ export async function releaseExpiredHolds(client: DbClient, now: Date, zoneIds?:
   return expired.length;
 }
 
+/**
+ * docs/flows-v3/wave4.md F21 (flag flow_f21; the caller checks it): a slot held for a payment that has started is
+ * released `graceMinutes` after its hold, even while the gateway page is still open — the hold really is 15 minutes.
+ * The booking stays PAYMENT_PENDING with its coupon hold: a payment that still arrives takes a slot that is free then,
+ * else its money is refunded automatically (onFranchiseFeeCaptured); an attempt that ends releases the rest as today.
+ * Returns the zones released.
+ */
+export async function releaseHeldPaymentSlots(client: DbClient, now: Date, graceMinutes: number, zoneIds?: string[]): Promise<string[]> {
+  const released = await client
+    .update(franchiseAllocations)
+    .set({ status: "RESERVATION_EXPIRED", endedAt: now, endReason: "hold ended while paying", updatedAt: now })
+    .where(
+      and(
+        eq(franchiseAllocations.status, "PAYMENT_PENDING_VERIFICATION"),
+        isNotNull(franchiseAllocations.holdExpiresAt),
+        sql`${franchiseAllocations.holdExpiresAt} + make_interval(mins => ${graceMinutes}) <= ${now.toISOString()}::timestamptz`,
+        zoneIds?.length ? inArray(franchiseAllocations.zoneId, zoneIds) : undefined,
+      ),
+    )
+    .returning({ id: franchiseAllocations.id, zoneId: franchiseAllocations.zoneId, bookingId: franchiseAllocations.bookingId });
+  if (released.length) {
+    await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: released[0].bookingId, newValue: { holdReleasedWhilePaying: released.map((r) => ({ allocationId: r.id, zoneId: r.zoneId, bookingId: r.bookingId })), graceMinutes, at: now.toISOString() } }, client);
+  }
+  return [...new Set(released.map((r) => r.zoneId))];
+}
+
 /** The owner gives up a reservation before paying: the slots are free at once. */
 export async function cancelReservation(bookingId: string, actor: Actor): Promise<void> {
   // QA D-169 (onboarding v2 plan bookings only): a checkout opened but not paid can be cancelled too. The gateway is
@@ -577,6 +627,8 @@ export interface PendingPlanBooking {
   zones: string[];
   totalPaise: number;
   heldUntilIst: string;
+  /** docs/flows-v3/wave4.md F21: the same instant (ISO), for the live countdown. */
+  heldUntil: string;
 }
 
 /**
@@ -607,6 +659,7 @@ export async function pendingPlanBookings(userId: string): Promise<PendingPlanBo
     zones: zones.filter((z) => z.bookingId === r.id).map((z) => z.zoneId),
     totalPaise: r.totalPaise,
     heldUntilIst: formatIst(r.holdExpiresAt),
+    heldUntil: r.holdExpiresAt.toISOString(),
   }));
 }
 
@@ -617,10 +670,16 @@ export async function startBookingPayment(bookingId: string, actor: Actor) {
   const [booking] = await db.select().from(franchiseBookings).where(eq(franchiseBookings.id, bookingId));
   if (!booking) throw notFound("Booking");
   if (booking.planId) await requireV2Buyer(actor.id);
-  const owner = await requireOwner(actor, db, { v2: !!booking.planId });
+  // docs/flows-v3/wave4.md F7 (flag flow_f7): a new paid booking needs a live shop at payment too.
+  else if (booking.kind === "NEW" && !booking.isTest && (await flow4On("flow_f7"))) await (await import("@/server/onboarding-v2/franchise")).requireLiveShop(actor.id);
+  // F7: a renewal of a franchise bought on a plan is paid without a PAN (as startRenewal allows).
+  const renewsPlan = booking.kind === "RENEWAL" && !!booking.renewalAllocationId && (await flow4On("flow_f7")) && (await allocationBoughtOnPlan(booking.renewalAllocationId));
+  const owner = await requireOwner(actor, db, { v2: !!booking.planId || renewsPlan });
   if (booking.ownerDealerId !== owner.id) throw notFound("Booking");
   const { config } = await franchiseConfig();
   const now = franchiseNow(config);
+  // docs/flows-v3/wave4.md F21 (flag flow_f21): the gateway order ends with the hold (at the gateway's minimum).
+  const f21 = await flow4On("flow_f21");
   if (booking.status === "PAYMENT_PENDING" && booking.paymentIntentId && booking.planId) {
     // QA D-169 "Continue payment" (onboarding v2): the open checkout is reused while the gateway can still take it;
     // one past its time is ended first (the slots go back) and the buyer reserves again. DEFAULT – confirm with
@@ -662,8 +721,10 @@ export async function startBookingPayment(bookingId: string, actor: Actor) {
     idempotencyKey: `franchise-booking:${booking.id}`,
     mode: "CHECKOUT",
     returnPath: `/franchise/my?booking=${booking.id}`,
+    ...(f21 ? { expiresAt: new Date(Math.max(booking.holdExpiresAt.getTime() + (Date.now() - now.getTime()), Date.now() + 60_000)) } : {}),
   });
-  const intentExpiresAt = booking.planId ? ((await (await import("@/server/payments/intents")).getPaymentIntentRow(created.intent.id))?.expiresAt ?? null) : null;
+  // F21: the hold is not moved to the gateway order's time — the slot is released at hold + grace (QA D-169 kept off).
+  const intentExpiresAt = booking.planId && !f21 ? ((await (await import("@/server/payments/intents")).getPaymentIntentRow(created.intent.id))?.expiresAt ?? null) : null;
   await db.transaction(async (tx) => {
     const t = new Date();
     const moved = await tx
@@ -705,16 +766,34 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
   const now = franchiseNow(config);
   const bookingConfig = await franchiseConfigAt(booking.createdAt, client);
   const notices: (() => Promise<void>)[] = [];
+  // docs/flows-v3/wave4.md (flags read once per capture): F7 plan term on renewal, F10 tail cap, F21 automatic refund.
+  const [f7, f10, f21] = [await flow4On("flow_f7"), await flow4On("flow_f10"), await flow4On("flow_f21")];
+  const rule4 = f10 || f21 ? await wave4Rule() : null;
+  const capTail = (firstStartAt: Date, expiresAt: Date, tail: Date) => (f10 && rule4 ? cappedTailEnd({ firstStartAt, expiresAt, tailEnd: tail, capYears: rule4.tailCapYears }) : tail);
 
   if (booking.kind === "RENEWAL") {
     const [alloc] = await client.select().from(franchiseAllocations).where(eq(franchiseAllocations.id, booking.renewalAllocationId!)).for("update");
     if (!alloc || !alloc.expiresAt || !["ACTIVE", "SUSPENDED"].includes(alloc.status)) {
+      if (f21) {
+        // F21: a renewal paid after the franchise ended is refunded in full, automatically (after commit).
+        const refund = await refundLostSlots(client, intent, booking, booking.totalPaise, "Franchise renewal paid after the franchise ended", afterCommit);
+        await client.update(franchiseBookings).set({ status: "REFUNDED", paidAt: now, failureReason: `paid after the area ended — refund of ${rupees(refund.amountPaise)} started automatically`, updatedAt: now }).where(eq(franchiseBookings.id, booking.id));
+        await releaseRedemption(client, booking.id, "renewal refunded", now);
+        await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_allocation", entityId: booking.renewalAllocationId ?? booking.id, newValue: { problem: "renewal_paid_after_end", bookingId: booking.id, refundId: refund.id, refundPaise: refund.amountPaise, automatic: true } }, client);
+        const msg = `Your renewal payment of ${rupees(booking.totalPaise)} arrived after the franchise had ended, so it is being refunded to your payment method automatically.`;
+        const run = () => tellOwner(booking.ownerDealerId, "Franchise renewal refunded", msg, `franchise-renewal-refund:${booking.id}`).catch((e) => console.error("[franchise] notice failed", booking.id, e));
+        if (client === db) await run();
+        else afterCommit?.(run);
+        return;
+      }
       await client.update(franchiseBookings).set({ status: "PAID", paidAt: now, failureReason: "paid after the area ended — refund due", updatedAt: now }).where(eq(franchiseBookings.id, booking.id));
       await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_allocation", entityId: booking.renewalAllocationId ?? booking.id, newValue: { problem: "renewal_paid_after_end", bookingId: booking.id, refundDue: booking.totalPaise } }, client);
       return;
     }
-    const newExpiry = renewedExpiry(alloc.expiresAt, bookingConfig.config.validityMonths);
-    const tail = tailEndAt({ chainStartAt: alloc.activatedAt!, expiresAt: newExpiry, mode: config.tailMode, tailYears: config.tailYears });
+    // F7 (flag flow_f7): a franchise bought on a plan renews for the plan's own term.
+    const planMonths = f7 ? await planMonthsOf(client, alloc.bookingId) : null;
+    const newExpiry = renewedExpiry(alloc.expiresAt, planMonths ?? bookingConfig.config.validityMonths);
+    const tail = capTail(alloc.activatedAt!, newExpiry, tailEndAt({ chainStartAt: alloc.activatedAt!, expiresAt: newExpiry, mode: config.tailMode, tailYears: config.tailYears }));
     // §5.5: the renewal pays the zone's current list fee, locked for the new term (the coupon is this payment only).
     const fee = await currentFee(alloc.zoneId, client);
     await client
@@ -732,7 +811,7 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
     // Onboarding v2: the plan's term as snapshotted at reserve (0218); no plan = the configured validity, as before.
     const months = booking.planId ? (booking.planDurationMonths ?? bookingConfig.config.validityMonths) : bookingConfig.config.validityMonths;
     const expiresAt = allocationExpiry(now, months);
-    const tail = tailEndAt({ chainStartAt: now, expiresAt, mode: config.tailMode, tailYears: config.tailYears });
+    const tail = capTail(now, expiresAt, tailEndAt({ chainStartAt: now, expiresAt, mode: config.tailMode, tailYears: config.tailYears }));
     const counts = booking.launchOffer && !booking.isTest ? await launchCounts(client, now) : null;
     // Pay first, KYC after (owner 22-Nov-2026): without approved KYC + bank the zone is his but not live yet.
     // Onboarding v2 (booking with a plan): live at payment, no kyc_due_at; the dealer approval, codes and upgrade
@@ -744,6 +823,7 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
     let seq = counts?.areas ?? 0;
     const activated: string[] = [];
     const lost: string[] = [];
+    const lostAllocs: FranchiseAllocation[] = [];
     for (const a of allocations) {
       if (a.status === "ACTIVE") continue;
       // A late capture after the hold was released: take the slot back only if it is still free.
@@ -754,8 +834,11 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
             return true;
           })
           .catch(() => false);
-        if (!ok) {
+        // F21 (flag flow_f21): its own slot number was taken — the zone's other slot, when free, is taken instead.
+        const moved = !ok && f21 ? await retakeAnyFreeSlot(client, a, now) : false;
+        if (!ok && !moved) {
           lost.push(a.zoneId);
+          lostAllocs.push(a);
           continue;
         }
       }
@@ -786,16 +869,27 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
       if (!done) await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { problem: "v2_go_live_failed", retry: "franchise job", error: "see server log" } }, client);
       [ownerRow] = await client.select().from(dealers).where(eq(dealers.id, booking.ownerDealerId));
     }
-    await client.update(franchiseBookings).set({ status: "PAID", paidAt: now, failureReason: lost.length ? `slot lost for ${lost.join(", ")} — refund due` : null, updatedAt: now }).where(eq(franchiseBookings.id, booking.id));
-    await markRedemptionUsed(client, booking.id, now);
+    // F21 (flag flow_f21): the money for the zones lost is refunded automatically — all of it when every zone was
+    // lost, else pro rata per lost zone (its fee less its coupon share, plus GST) — through the payments refund path,
+    // recorded in this transaction and sent to the gateway after the commit. The admins are alerted.
+    const autoRefund = f21 && lost.length ? await refundLostSlots(client, intent, booking, activated.length ? lostSlotsRefundPaise(booking, lostAllocs) : booking.totalPaise, `Franchise zone${lost.length > 1 ? "s" : ""} ${lost.join(", ")} taken while the payment was late`, afterCommit) : null;
+    const allLost = !!autoRefund && !activated.length;
+    await client
+      .update(franchiseBookings)
+      .set({ status: allLost ? "REFUNDED" : "PAID", paidAt: now, failureReason: autoRefund ? `slot lost for ${lost.join(", ")} — refund of ${rupees(autoRefund.amountPaise)} started automatically` : lost.length ? `slot lost for ${lost.join(", ")} — refund due` : null, updatedAt: now })
+      .where(eq(franchiseBookings.id, booking.id));
+    if (allLost) await releaseRedemption(client, booking.id, "every zone lost — refunded", now);
+    else await markRedemptionUsed(client, booking.id, now);
     if (counts) await maybeCloseLaunch(client, config, now);
     for (const zoneId of activated) notices.push(() => syncSoldOut(zoneId));
     await recordAudit(
       { action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { activated, lost, kycDueAt: kycDueAt?.toISOString() ?? null, plan: booking.planCode ?? null, months, activatedAt: now.toISOString(), expiresAt: expiresAt.toISOString(), tailEndAt: tail.toISOString(), intentId: intent.id, launchOffer: booking.launchOffer } },
       client,
     );
-    if (lost.length) await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { problem: "slot_lost_after_late_payment", zones: lost, refundDuePaise: Math.round((booking.totalPaise * lost.length) / booking.areaCount) } }, client);
-    notices.push(() =>
+    if (lost.length) await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_BOOKING_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { problem: "slot_lost_after_late_payment", zones: lost, refundDuePaise: autoRefund ? autoRefund.amountPaise : Math.round((booking.totalPaise * lost.length) / booking.areaCount), ...(autoRefund ? { refundId: autoRefund.id, automatic: true } : {}) } }, client);
+    if (allLost) {
+      notices.push(() => tellOwner(booking.ownerDealerId, "Franchise payment refunded", `Your payment of ${rupees(booking.totalPaise)} arrived after the 15-minute hold and ${lost.join(", ")} ${lost.length === 1 ? "was" : "were"} taken meanwhile. The full amount is being refunded to your payment method automatically.`, `franchise-refund:${booking.id}`));
+    } else notices.push(() =>
       tellOwner(
         booking.ownerDealerId,
         "Franchise booking confirmed",
@@ -854,6 +948,68 @@ export async function onFranchiseFeeEnded(intent: PaymentIntentRow, to: "FAILED"
   }
 }
 
+/* ============================================================= docs/flows-v3/wave4.md helpers */
+
+/** F21: what the lost zones of a booking cost — each zone's fee less its coupon share, plus GST at the booking's rate. */
+export function lostSlotsRefundPaise(booking: Pick<FranchiseBooking, "gstRateBp" | "totalPaise">, lostAllocs: Pick<FranchiseAllocation, "feePaise" | "discountPaise">[]): number {
+  const base = lostAllocs.reduce((s, a) => s + Number(a.feePaise) - Number(a.discountPaise), 0);
+  return Math.min(booking.totalPaise, base + gstOn(base, booking.gstRateBp));
+}
+
+/**
+ * F21: records the refund of a late franchise payment in the capture transaction (payments refund path, one per
+ * booking: idempotency key), sends it to the gateway after the commit (the payments reconciliation job retries it),
+ * and alerts the admins (payment.attention). Returns the refund.
+ */
+async function refundLostSlots(client: DbClient, intent: PaymentIntentRef, booking: FranchiseBooking, amountPaise: number, reason: string, afterCommit?: (task: () => Promise<void>) => void) {
+  const payments = await import("@/server/payments/intents");
+  const refund = await payments.refundPaymentIntent({ intentId: intent.id, amountPaise, reason, idempotencyKey: `franchise-late-payment:${booking.id}` }, client);
+  const row = await payments.getPaymentIntentRow(intent.id, client);
+  if (row) {
+    const { flagPaymentForSupport } = await import("@/server/payments/intent-store");
+    await flagPaymentForSupport(client, row, `${reason}: an automatic refund of ${rupees(amountPaise)} was started (franchise booking ${booking.id}). Check it reaches the buyer.`, `franchise-late-payment:${booking.id}`);
+  }
+  const send = async () => {
+    await payments.submitRefund(refund.id).catch((e: unknown) => console.error("[franchise] refund not sent yet; the reconciliation job retries it", refund.id, e));
+  };
+  if (client === db) await send();
+  else afterCommit?.(send);
+  return refund;
+}
+
+/** F21: a late payment's allocation whose slot number was taken takes the zone's other slot when it is still free. */
+async function retakeAnyFreeSlot(client: DbClient, a: FranchiseAllocation, now: Date): Promise<boolean> {
+  const [zone] = await client.select({ maxOwners: franchiseZones.maxOwners }).from(franchiseZones).where(eq(franchiseZones.zoneId, a.zoneId));
+  if (!zone) return false;
+  const taken = await client.select({ slotNo: franchiseAllocations.slotNo }).from(franchiseAllocations).where(and(eq(franchiseAllocations.zoneId, a.zoneId), inArray(franchiseAllocations.status, [...OCCUPYING_STATUSES]), ne(franchiseAllocations.id, a.id)));
+  for (const slotNo of [1, 2].filter((s) => s <= zone.maxOwners && !taken.some((t) => t.slotNo === s))) {
+    const ok = await client
+      .transaction(async (sp) => {
+        await sp.update(franchiseAllocations).set({ slotNo, status: "PAYMENT_PENDING_VERIFICATION", endedAt: null, endReason: null, updatedAt: now }).where(eq(franchiseAllocations.id, a.id));
+        return true;
+      })
+      .catch(() => false);
+    if (ok) return true;
+  }
+  return false;
+}
+
+/** F7: whether a franchise was bought on an onboarding v2 subscription plan. */
+async function allocationBoughtOnPlan(allocationId: string, client: DbClient = db): Promise<boolean> {
+  const [r] = await client
+    .select({ planId: franchiseBookings.planId })
+    .from(franchiseAllocations)
+    .innerJoin(franchiseBookings, eq(franchiseBookings.id, franchiseAllocations.bookingId))
+    .where(eq(franchiseAllocations.id, allocationId));
+  return !!r?.planId;
+}
+
+/** F7: the term of the plan a franchise was bought on (months), or null without a plan. */
+async function planMonthsOf(client: DbClient, bookingId: string): Promise<number | null> {
+  const [b] = await client.select({ planId: franchiseBookings.planId, months: franchiseBookings.planDurationMonths }).from(franchiseBookings).where(eq(franchiseBookings.id, bookingId));
+  return b?.planId && b.months ? b.months : null;
+}
+
 async function tellOwner(ownerDealerId: string, title: string, message: string, dedupeKey: string): Promise<void> {
   const [owner] = await db.select({ userId: dealers.userId }).from(dealers).where(eq(dealers.id, ownerDealerId));
   if (!owner?.userId) return;
@@ -879,7 +1035,10 @@ async function renewalLines(booking: FranchiseBooking): Promise<CartLine[]> {
  * zone's current published fee, with an optional renewal coupon. Blocked when the zone is Inactive (§5.6).
  */
 export async function startRenewal(allocationId: string, actor: Actor, input: { couponCode?: string | null } = {}) {
-  const owner = await requireOwner(actor);
+  // docs/flows-v3/wave4.md F7 (flag flow_f7): a franchise bought on a plan (onboarding v2) renews without a PAN —
+  // the PAN and bank are asked before the first payout, as for the purchase.
+  const v2 = (await flow4On("flow_f7")) && (await allocationBoughtOnPlan(allocationId));
+  const owner = await requireOwner(actor, db, { v2 });
   const { version, config } = await franchiseConfig();
   const now = franchiseNow(config);
   const booking = await db.transaction(async (tx) => {
@@ -918,6 +1077,16 @@ export async function startRenewal(allocationId: string, actor: Actor, input: { 
  * franchise for recurring commission. Shops already attached to an earlier franchise of his are not restored (§4.2).
  */
 export async function attachUpgradeShops(client: DbClient, allocation: Pick<FranchiseAllocation, "id" | "zoneId" | "ownerDealerId"> & { activatedAt: Date | null }): Promise<number> {
+  // docs/flows-v3/wave4.md F9 (flag flow_f9): when another franchise of the zone is already live, the shops it earns
+  // on stay with it — the new owner earns only on the shops he registers from now (nothing is attached).
+  if (await flow4On("flow_f9")) {
+    const [first] = await client
+      .select({ id: franchiseAllocations.id })
+      .from(franchiseAllocations)
+      .where(and(eq(franchiseAllocations.zoneId, allocation.zoneId), ne(franchiseAllocations.ownerDealerId, allocation.ownerDealerId), inArray(franchiseAllocations.status, ["ACTIVE", "SUSPENDED"]), isNotNull(franchiseAllocations.activatedAt), sql`${franchiseAllocations.kycDueAt} is null`))
+      .limit(1);
+    if (first) return 0;
+  }
   const rows = (await client.execute(sql`
     insert into franchise_shop_attributions (shop_id, owner_dealer_id, allocation_id, zone_id, origin, member_id, status, registered_at, activated_at)
     select sa.shop_id, ${allocation.ownerDealerId}::uuid, ${allocation.id}::uuid, ${allocation.zoneId}, 'UPGRADE', sa.salesperson_id, 'ACTIVE', s.created_at, s.approved_at

@@ -71,6 +71,8 @@ export interface ZoneView {
   occupied: number;
   /** Active (or suspended) franchises. */
   active: number;
+  /** docs/flows-v3/wave4.md F21: slots held for a buyer who is paying now (reserved, or payment being verified). */
+  held: number;
   slotsFree: number;
   reservedForDealerId: string | null;
   reservedUntil: Date | null;
@@ -131,6 +133,7 @@ export async function zoneViews(options: { includeTest?: boolean; zoneIds?: stri
     const zoneAllocs = allocs.filter((a) => a.zoneId === z.zoneId);
     const occupied = zoneAllocs.length;
     const active = zoneAllocs.filter((a) => a.status === "ACTIVE" || a.status === "SUSPENDED").length;
+    const held = zoneAllocs.filter((a) => a.status === "RESERVED" || a.status === "PAYMENT_PENDING_VERIFICATION").length;
     const zoneAreas = areas.filter((a) => a.zoneId === z.zoneId);
     const pts = zoneAreas.filter((a) => a.lat != null && a.lng != null).map((a) => [Number(a.lat), Number(a.lng)] as LatLng);
     const centre: LatLng | null = pts.length ? [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length] : null;
@@ -152,6 +155,7 @@ export async function zoneViews(options: { includeTest?: boolean; zoneIds?: stri
       maxOwners: z.maxOwners,
       occupied,
       active,
+      held,
       slotsFree,
       reservedForDealerId: z.status === "RESERVED" ? z.reservedForDealerId : null,
       reservedUntil: z.status === "RESERVED" ? z.reservedUntil : null,
