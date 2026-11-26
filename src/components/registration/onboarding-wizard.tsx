@@ -1967,15 +1967,18 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
   const rule = state.feeRule;
   const names = (list: string[]) => list.map((t) => SELLER_DOC_LABELS[t as SellerDocType] ?? t).join(", ");
   const slab = rule.enabled && d.annualTurnoverRupees != null ? turnoverSlab(d.annualTurnoverRupees, rule) : null;
-  const row = (label: string, value: ReactNode, step: Step) => (
+  // step null: the row cannot be changed here (owner, 26-Nov-2026: an entered referral code is fixed).
+  const row = (label: string, value: ReactNode, step: Step | null, action = "Change") => (
     <div className="flex items-start justify-between gap-3 border-b border-cream-100 py-1 last:border-0">
       <div className="min-w-0">
         <p className="text-xs text-ink-500">{label}</p>
         <div className="text-sm text-ink-900">{value}</div>
       </div>
-      <button type="button" className="min-h-11 text-sm text-kesari-700 underline" onClick={() => goTo(step)}>
-        Change
-      </button>
+      {step ? (
+        <button type="button" className="min-h-11 text-sm text-kesari-700 underline" onClick={() => goTo(step)}>
+          {action}
+        </button>
+      ) : null}
     </div>
   );
   const identity = state.route === "PAN_ONLY" ? state.pan : state.gstin;
@@ -1985,7 +1988,15 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
     <StepCard title="Payment" intro="Check your details, then continue to pay the registration fee by UPI or card.">
       <div>
         {row(state.route === "PAN_ONLY" ? "PAN (no GST)" : "GSTIN", identity ? <StatusLine check={{ ...identity, message: null }} /> : "—", "IDENTITY")}
-        {row("Referral code", state.referral.code ?? "None", "IDENTITY")}
+        {state.referral.code
+          ? row(
+              "Referral code",
+              <span data-testid="review-referral-locked">
+                {state.referral.code} <span className="text-xs text-ink-500">· fixed; only GoKesari admin can change it</span>
+              </span>,
+              null,
+            )
+          : row("Referral code", "None", "REFERRAL", "Add")}
         {row("Owner", d.ownerName, state.prefill.ownerName ? "IDENTITY" : "OWNER")}
         {row("Shop address", `${d.addressLine1}, ${d.city} ${d.pincode}`, "ADDRESS")}
         {row("Map pin", state.location ? "Placed" : "—", "PIN")}

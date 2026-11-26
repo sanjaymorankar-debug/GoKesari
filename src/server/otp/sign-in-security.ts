@@ -13,7 +13,7 @@
  */
 import { and, count, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
 
-import { getEnv, messagingConfigProblem, msg91ConfigProblem } from "@/lib/env";
+import { getEnv, messagingConfigProblem, msg91ConfigProblem, smsFortiusConfigProblem } from "@/lib/env";
 import { forbidden, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { auditLogs, users, type FeatureFlagKey, type UserRole } from "@/server/db/schema";
@@ -31,7 +31,7 @@ export const SIGN_IN_AUDIENCES = {
 export type SignInAudience = keyof typeof SIGN_IN_AUDIENCES;
 
 export interface SmsProviderStatus {
-  mode: "none" | "mock" | "msg91";
+  mode: "none" | "mock" | "msg91" | "smsfortius";
   /** SMS_PROVIDER as configured (msg91 with a missing key shows mode none + the problem). */
   configured: string;
   problem: string | null;
@@ -47,6 +47,7 @@ export async function smsProviderStatus(): Promise<SmsProviderStatus> {
   let problem: string | null = null;
   if (env.SMS_PROVIDER === "none") problem = "No SMS provider is set on this server (SMS_PROVIDER=none).";
   else if (env.SMS_PROVIDER === "msg91") problem = msg91ConfigProblem(env);
+  else if (env.SMS_PROVIDER === "smsfortius") problem = smsFortiusConfigProblem(env);
   else problem = messagingConfigProblem(env);
   if (!problem && !ruleSmsEnabled) problem = "Rule otp.smsEnabled is off: one-time codes are not sent by SMS.";
   return { mode, configured: env.SMS_PROVIDER, problem, ruleSmsEnabled, available: await smsCodesAvailable() };

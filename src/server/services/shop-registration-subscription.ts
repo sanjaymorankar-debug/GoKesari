@@ -43,6 +43,7 @@ import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { createPaymentIntent, getPaymentIntentRow, isLive } from "@/server/payments/intents";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { notify } from "./notifications";
+import { baseRegistrationFee, registrationFeeGstRateBp } from "./registration-fee-coupons";
 import { registrationFeeDue } from "./registration-fee-payment";
 import { getRule } from "./settings";
 import {
@@ -143,15 +144,23 @@ export function reminderText(input: {
   amount: string;
   link: string;
   daysLeft: number | null;
+  /** The shop is already live (approved): it keeps its orders, so the "no orders until paid" line is left out. */
+  live?: boolean;
 }): { title: string; message: string } {
   if (input.kind === "UNPAID") {
+    const en = input.live
+      ? `${input.shopName}: registration payment pending. Please pay the registration fee of ${input.amount}. Your registration is valid for 1 year from the day you pay.`
+      : `${input.shopName}: registration payment pending. Your shop will not receive orders until the registration fee of ${input.amount} is paid. Your registration is valid for 1 year from the day you pay.`;
+    const mr = input.live
+      ? `${input.shopName}: नोंदणी शुल्क भरणे बाकी आहे. कृपया ${input.amount} नोंदणी शुल्क भरा. शुल्क भरल्याच्या दिवसापासून नोंदणी 1 वर्षासाठी वैध राहील.`
+      : `${input.shopName}: नोंदणी शुल्क भरणे बाकी आहे. ${input.amount} नोंदणी शुल्क भरेपर्यंत तुमच्या दुकानाला ऑर्डर मिळणार नाहीत. शुल्क भरल्याच्या दिवसापासून नोंदणी 1 वर्षासाठी वैध राहील.`;
     return {
       title: `Complete your registration payment — ${input.shopName}`,
       message: [
-        `${input.shopName}: registration payment pending. Your shop will not receive orders until the registration fee of ${input.amount} is paid. Your registration is valid for 1 year from the day you pay.`,
+        en,
         `Pay now: ${input.link}`,
         "",
-        `${input.shopName}: नोंदणी शुल्क भरणे बाकी आहे. ${input.amount} नोंदणी शुल्क भरेपर्यंत तुमच्या दुकानाला ऑर्डर मिळणार नाहीत. शुल्क भरल्याच्या दिवसापासून नोंदणी 1 वर्षासाठी वैध राहील.`,
+        mr,
         `आत्ताच भरा: ${input.link}`,
       ].join("\n"),
     };
@@ -206,7 +215,7 @@ export async function syncRegistrationStatuses(): Promise<number> {
 
 /* ================================================================ list */
 
-export const REGISTRATION_FILTERS = ["ALL", "UNPAID", "EXPIRING_30", "EXPIRING_15", "EXPIRING_7", "GRACE", "EXPIRED", "ACTIVE", "EXEMPT"] as const;
+export const REGISTRATION_FILTERS = ["ALL", "UNPAID", "NO_FEE", "EXPIRING_30", "EXPIRING_15", "EXPIRING_7", "GRACE", "EXPIRED", "ACTIVE", "EXEMPT"] as const;
 export type RegistrationFilter = (typeof REGISTRATION_FILTERS)[number];
 
 export interface RegistrationRow {
@@ -235,6 +244,8 @@ export interface RegistrationRow {
   lastReminderAt: Date | null;
   link: { id: string; status: string; amountPaise: number; expiresAt: Date; url: string | null; createdAt: Date } | null;
   remindersEnabled: boolean;
+  /** Live without ever paying (fee ₹0, no period): staff can ask for the registration fee (requestRegistrationFee). */
+  canRequestFee: boolean;
   renewalFeeOverridePaise: number | null;
   graceDaysOverride: number | null;
   graceUntil: Date | null;
@@ -254,7 +265,7 @@ export interface RegistrationListFilter {
 export async function listShopRegistrations(
   input: RegistrationListFilter = {},
   now = new Date(),
-): Promise<{ rows: RegistrationRow[]; counts: Record<RegistrationStatus, number> & { EXPIRING_7: number; EXPIRING_15: number; EXPIRING_30: number } }> {
+): Promise<{ rows: RegistrationRow[]; counts: Record<RegistrationStatus, number> & { EXPIRING_7: number; EXPIRING_15: number; EXPIRING_30: number; NO_FEE: number } }> {
   const rule = await getRule("shopMembership");
   const conds: SQL[] = [isNull(shops.deletedAt), sql`${shops.status} in ('PENDING_APPROVAL', 'APPROVED', 'SUSPENDED')`];
   if (input.shopType) conds.push(eq(shops.shopType, input.shopType));
@@ -295,7 +306,7 @@ export async function listShopRegistrations(
   ]);
   const lastReminder = new Map(reminders.map((r) => [r.shopId, r.at ? new Date(r.at) : null]));
   const linkBy = new Map(links.map((l) => [l.shopId, l]));
-  const counts = { UNPAID: 0, ACTIVE: 0, EXPIRING_SOON: 0, GRACE: 0, EXPIRED: 0, EXEMPT: 0, EXPIRING_7: 0, EXPIRING_15: 0, EXPIRING_30: 0 };
+  const counts = { UNPAID: 0, ACTIVE: 0, EXPIRING_SOON: 0, GRACE: 0, EXPIRED: 0, EXEMPT: 0, EXPIRING_7: 0, EXPIRING_15: 0, EXPIRING_30: 0, NO_FEE: 0 };
   const rows: RegistrationRow[] = [];
   for (const { shop, ownerEmail, dealerCode } of list) {
     const status = registrationStatusOf(shop, membershipStatus(shop, rule, now, slugs.get(shop.id) ?? []));
@@ -306,7 +317,10 @@ export async function listShopRegistrations(
       if (left <= 15) counts.EXPIRING_15 += 1;
       if (left <= 7) counts.EXPIRING_7 += 1;
     }
-    if (!matchesFilter(input.filter ?? "ALL", status, left)) continue;
+    // Live without ever paying (fee ₹0, no period): "Never paid (₹0)" — staff can Ask fee.
+    const canRequestFee = status === "ACTIVE" && !shop.membershipValidUntil && (shop.amountPaidPaise ?? 0) === 0 && (shop.registrationFeePaise ?? 0) === 0;
+    if (canRequestFee) counts.NO_FEE += 1;
+    if (input.filter === "NO_FEE" ? !canRequestFee : !matchesFilter(input.filter ?? "ALL", status, left)) continue;
     const dueKind = status === "UNPAID" ? "REGISTRATION" : "RENEWAL";
     const amountDuePaise =
       status === "UNPAID" ? registrationFeeDue(shop) : status === "EXEMPT" ? 0 : renewalQuoteFrom(shop, rule, rule.addGst ? gstRate ?? shop.registrationFeeGstRateBp ?? 0 : 0, sub.renewalFeeByShopType).totalPaise;
@@ -338,6 +352,7 @@ export async function listShopRegistrations(
         ? { id: link.id, status: link.status === "ACTIVE" && link.expiresAt <= now ? "EXPIRED" : link.status, amountPaise: link.amountPaise, expiresAt: link.expiresAt, url: link.linkUrl, createdAt: link.createdAt }
         : null,
       remindersEnabled: shop.registrationRemindersEnabled,
+      canRequestFee,
       renewalFeeOverridePaise: shop.renewalFeePaise,
       graceDaysOverride: shop.registrationGraceDays,
       graceUntil: shop.registrationGraceUntil,
@@ -679,6 +694,7 @@ async function sendReminder(
     amount: formatPaise(due.amountPaise),
     link: payUrl,
     daysLeft: daysLeft(shop.membershipValidUntil, now, tz()),
+    live: shop.status === "APPROVED",
   });
   await notify({
     userId: shop.ownerId,
@@ -834,6 +850,72 @@ export interface MarkPaidInput {
   amountPaise?: number | null;
   /** IST date (YYYY-MM-DD) the money was received; default now. */
   paidOn?: string | null;
+}
+
+/**
+ * Ask for the registration fee (owner, 26-Nov-2026): a shop that went live without paying anything (fee
+ * ₹0, marked paid — e.g. approved during the free launch weeks) is asked for its registration fee. The fee
+ * (default: a new shop's registration fee today with GST, as the sign-up charges it; or the amount the admin types)
+ * becomes owed, so the shop is UNPAID: it gets a payment link now (in-app + push + e-mail) and the
+ * automatic unpaid reminders until it pays. The shop stays live meanwhile. Paying opens its 1-year period.
+ */
+/** A new shop's registration fee today (no coupon): base + GST — the default when asking a ₹0 shop for its fee. */
+export async function newRegistrationFeeQuote(now = new Date()): Promise<{ basePaise: number; gstRateBp: number; gstPaise: number; totalPaise: number }> {
+  const [{ basePaise }, gstRateBp] = await Promise.all([baseRegistrationFee(null), registrationFeeGstRateBp(now)]);
+  const gstPaise = Math.round((basePaise * gstRateBp) / 10_000);
+  return { basePaise, gstRateBp, gstPaise, totalPaise: basePaise + gstPaise };
+}
+
+export async function requestRegistrationFee(
+  shopId: string,
+  input: { amountPaise?: number | null; validityDays?: number | null; reason: string },
+  actor: StaffActor,
+  now = new Date(),
+): Promise<{ amountPaise: number; link: ShopRegistrationLink; url: string | null }> {
+  assertStaff(actor);
+  const reason = input.reason.trim();
+  if (reason.length < 5) throw validationFailed("Give a reason (at least 5 characters).", { fields: { reason: "Give a reason." } });
+  const [shop] = await db.select().from(shops).where(and(eq(shops.id, shopId), isNull(shops.deletedAt)));
+  if (!shop) throw notFound("Shop");
+  const due = await amountDue(shop, now);
+  if (due.status === "EXEMPT") throw conflict(`${shop.name} is exempt from the registration fee.`);
+  if (due.status === "UNPAID") throw conflict(`${shop.name} already owes its registration fee — send a payment link instead.`);
+  if (shop.membershipValidUntil || (shop.amountPaidPaise ?? 0) > 0 || (shop.registrationFeePaise ?? 0) > 0) {
+    throw conflict(`${shop.name} has already paid a registration fee — use a renewal link instead.`);
+  }
+  const quote = await newRegistrationFeeQuote(now);
+  const amountPaise = input.amountPaise ?? quote.totalPaise;
+  if (!Number.isInteger(amountPaise) || amountPaise < 100) throw validationFailed("The amount must be at least ₹1.", { fields: { amountPaise: "Enter an amount of at least ₹1." } });
+  // The fee's breakdown (base + GST), as a new registration keeps it; an admin amount is taken as GST-inclusive.
+  const basePaise = amountPaise === quote.totalPaise ? quote.basePaise : Math.round((amountPaise * 10_000) / (10_000 + quote.gstRateBp));
+
+  const [updated] = await db
+    .update(shops)
+    .set({
+      registrationFeePaise: amountPaise,
+      registrationFeeBasePaise: basePaise,
+      registrationFeeDiscountPaise: 0,
+      registrationFeeGstPaise: amountPaise - basePaise,
+      registrationFeeGstRateBp: quote.gstRateBp,
+      feePaymentStatus: "PENDING",
+      registrationStatus: "UNPAID",
+      registrationStatusAt: now,
+      updatedAt: now,
+    })
+    .where(and(eq(shops.id, shop.id), eq(shops.amountPaidPaise, 0), sql`${shops.membershipValidUntil} is null`))
+    .returning({ id: shops.id });
+  if (!updated) throw conflict(`${shop.name} changed meanwhile — reload the list.`);
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.SHOP_REGISTRATION_FEE_REQUESTED,
+    entityType: "shop",
+    entityId: shop.id,
+    previousValue: { registrationFeePaise: shop.registrationFeePaise, feePaymentStatus: shop.feePaymentStatus },
+    newValue: { registrationFeePaise: amountPaise, feePaymentStatus: "PENDING", reason },
+  });
+  const { link, url } = await createRegistrationLink(shop.id, { validityDays: input.validityDays, reason }, actor, now);
+  return { amountPaise, link, url };
 }
 
 /**

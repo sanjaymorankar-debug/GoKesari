@@ -222,6 +222,7 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",
   SHOP_REGISTRATION_MARKED_PAID: "shop.registration_marked_paid",
   SHOP_REGISTRATION_SETTINGS_CHANGED: "shop.registration_settings_changed",
+  SHOP_REGISTRATION_FEE_REQUESTED: "shop.registration_fee_requested",
   /* <<< 0189 */
   REFERRAL_CODE_CREATED: "referral_code.created",
   REFERRAL_CODE_UPDATED: "referral_code.updated",
