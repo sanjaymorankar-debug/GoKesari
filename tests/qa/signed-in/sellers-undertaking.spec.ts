@@ -24,7 +24,7 @@ qa("TC-SUND-003", "a signed-in shop owner reads their undertaking status: versio
   return `version ${res.body.version}, gate ${res.body.gateEnabled ? "on" : "off"}, accepted ${res.body.accepted}`;
 }, { tier: "signed" });
 
-qa("TC-SUND-004", "acceptance is refused unless both boxes are explicitly ticked; a customer without a shop is refused", async () => {
+qa("TC-SUND-004", "acceptance is refused unless both boxes are explicitly ticked; a user without a shop is refused", async () => {
   const shop = await as("shop");
   const seen: string[] = [];
   for (const body of [{}, { acceptUndertaking: true }, { acceptTerms: true }, { acceptUndertaking: true, acceptTerms: false }]) {
@@ -34,8 +34,9 @@ qa("TC-SUND-004", "acceptance is refused unless both boxes are explicitly ticked
     seen.push(`${JSON.stringify(body)} → 422`);
   }
   await pace();
-  const customer = await call(await as("customer"), "GET", "/api/seller/undertaking");
-  expect(customer.status).toBe(403);
-  seen.push("customer GET → 403");
+  // The rider: on the test site the QA customers have shops of their own from signup checks (26-Nov-2026).
+  const noShop = await call(await as("rider"), "GET", "/api/seller/undertaking");
+  expect(noShop.status).toBe(403);
+  seen.push("rider (no shop) GET → 403");
   return seen.join("; ");
 }, { tier: "signed" });

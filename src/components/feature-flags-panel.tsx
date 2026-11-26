@@ -72,7 +72,8 @@ export type FeatureFlagKey =
   | "identity_verification_customers_enabled"
   | "identity_verification_shop_owners_enabled"
   // docs/seller-undertaking-2026-11
-  | "seller_undertaking_gate_enabled";
+  | "seller_undertaking_gate_enabled"
+  | "seller_agreements_enabled";
 
 interface FlagValue {
   enabled: boolean;

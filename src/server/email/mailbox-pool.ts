@@ -50,6 +50,10 @@ export interface PoolMail {
   text: string;
   html?: string;
   attachments?: { filename: string; content: Buffer; contentType: string; cid?: string }[];
+  /** docs/seller-agreements-2026-11: copied recipients (signed agreements → ceo@agtci.com). */
+  cc?: string[];
+  /** Called once the server accepted the message, with its Message-ID (the signed-agreement send log). */
+  onSent?: (info: { messageId: string | null; mailbox: string }) => void;
 }
 
 type PoolEnv = Pick<ServerEnv, "AUTH_EMAIL_FROM" | "AUTH_EMAIL_SERVER" | "EMAIL_POOL" | "EMAIL_POOL_PASSWORD" | "EMAIL_POOL_DAILY_CAP">;
@@ -237,6 +241,7 @@ async function sendFrom(box: Mailbox, mail: PoolMail): Promise<void> {
     from: box.from,
     ...(box.replyTo ? { replyTo: box.replyTo } : {}),
     to: mail.to,
+    ...(mail.cc?.length ? { cc: mail.cc } : {}),
     subject: mail.subject,
     text: mail.text,
     html: mail.html,
@@ -246,6 +251,7 @@ async function sendFrom(box: Mailbox, mail: PoolMail): Promise<void> {
   });
   const failed = [...(result.rejected ?? []), ...(result.pending ?? [])].filter(Boolean);
   if (failed.length) throw new DeliveryFailedError();
+  mail.onSent?.({ messageId: typeof result.messageId === "string" ? result.messageId : null, mailbox: box.address });
 }
 
 /**

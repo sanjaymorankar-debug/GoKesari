@@ -232,7 +232,8 @@ describe("menu definitions", () => {
     // Add product by photo (docs/smart-shopping-2026-11, Feature 2): shop +1, Inventory → "Add product by photo" (flagged).
     // RBAC v2 (docs/rbac, Phase 5): shop +1, Price updates → "Pending changes" (flagged rbac_v2_shop_change_requests).
     // Subscription plans (docs/subscription-plans-2026-11): shop +1, Product categories → "Subscription plans".
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(50);
+    // Seller agreements (docs/seller-agreements-2026-11): shop +1, Legal docs → "My Agreements".
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(51);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
     // Consultant appointments and Puja Samagri: admin +1 and operator +1 each; 21-Nov-2026 (owner): Categories is
     // only Shop and Product, so Puja Samagri, Consultants and Health leave the board (admin -3, operator -3) and

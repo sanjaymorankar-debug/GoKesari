@@ -533,6 +533,11 @@ export const TEMPLATES: Record<string, Template> = {
   /* <<< GoKesari Health */
   [T.SHOP_WHATSAPP_FAILED]: t("WhatsApp alert not delivered — {{orderNumber}}", "{{text}}"),
   [T.STAFF_TASK_ASSIGNED]: t("New task: {{title}}", "{{assignedBy}} assigned you \"{{title}}\"{{due}}. Open My work to start it."),
+  // docs/seller-agreements-2026-11: the text is built in English / Marathi / Hindi by src/server/legal-agreements.
+  [T.SHOP_AGREEMENT_NOTICE]: t("{{title}}", "{{message}}"),
+  [T.SHOP_AGREEMENT_SIGN_REQUEST]: t("{{title}}", "{{message}}"),
+  [T.SHOP_AGREEMENT_SIGNED]: t("{{title}}", "{{message}}"),
+  [T.STAFF_AGREEMENT_EMAIL_FAILED]: t("Signed-agreement e-mail failed: {{shopName}}", "The signed agreements e-mail to {{shopName}} could not be delivered after {{attempts}} attempts ({{error}}). Resend it from Admin → Agreements → Acceptances."),
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */

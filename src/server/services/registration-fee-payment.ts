@@ -60,6 +60,8 @@ export async function startRegistrationFeeCheckout(
   if (due === 0) throw conflict("Nothing is due: the registration fee is already settled.");
   // Owner decision 29 Oct 2026: documents verified (or the 30-day promise) before the fee.
   await assertDocumentsAllowPayment(shop);
+  // docs/seller-agreements-2026-11: the agreements are signed before the fee (flag on).
+  await (await import("@/server/legal-agreements/requirements")).assertAgreementsSignedForPayment(shop.id);
 
   const previous = await listIntentsFor("SHOP_REGISTRATION_FEE", shop.id);
   // A checkout still open for this owner and amount is reused — pressing Pay

@@ -1067,6 +1067,8 @@ export async function updateOrderStatus(
       await assertSellerUndertakingAllowsOrders(order.shopId);
       // docs/identity-verification-2026-11: the owner's identity, after the grace period (which starts here if not yet).
       await assertShopIdentityAllowsOrders(order.shopId, { startGrace: true });
+      // docs/seller-agreements-2026-11: no NEW order once the grace period to sign the shop's agreements has passed (flag on).
+      await (await import("@/server/legal-agreements/requirements")).assertAgreementsAllowOrders(order.shopId);
     }
 
     const [updated] = await tx

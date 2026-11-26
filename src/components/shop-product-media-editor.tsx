@@ -389,6 +389,10 @@ export function ShopProductMediaEditor({ shopId, initial }: { shopId: string; in
         ) : (
           <p className="text-xs text-ink-500">Up to {maxPhotos} photos. Remove one to add another.</p>
         )}
+        <p className="text-xs text-ink-600" data-testid="photo-tips">
+          Best photo: the real product you sell, filling most of a square frame, on a plain white or light background, at least 800 × 800 px. No
+          watermarks or other websites&apos; logos. Your approved photo replaces GoKesari&apos;s sample picture for your customers.
+        </p>
         <p className="text-xs text-ink-500">
           JPG, PNG or WebP, up to {Math.round(maxUploadBytes / (1024 * 1024))} MB each. Location and camera details are removed from every photo.
         </p>

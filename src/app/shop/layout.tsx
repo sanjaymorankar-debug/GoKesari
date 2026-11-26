@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
 import { SellerShell } from "@/components/seller/seller-shell";
@@ -22,8 +22,22 @@ import { RegistrationBanner } from "@/components/seller/registration-status";
 import { ownerRegistrationStatus } from "@/server/services/shop-registration-subscription";
 import { SellerUndertakingGate } from "@/components/seller/seller-undertaking-gate";
 import { sellerUndertakingGateApplies } from "@/server/services/seller-undertaking";
+import { AgreementsGate } from "@/components/agreements/agreements-gate";
+import { AGREEMENT_GATE_OPEN_PATHS, AGREEMENT_REASON_TEXT, AGREEMENTS_LATER_COOKIE } from "@/lib/seller-agreements";
 
 /** Registration pages carry their own undertaking checkbox, so the gate never covers them. */
+/** The first live shop (of at most five) whose owner must sign its agreements now. */
+async function agreementsGateFor(shops: { id: string; status: string }[]) {
+  const { getAgreementStatus } = await import("@/server/legal-agreements/requirements");
+  for (const shop of shops.filter((s) => s.status === "APPROVED" || s.status === "SUSPENDED").slice(0, 5)) {
+    const status = await getAgreementStatus(shop.id);
+    if (status.required && status.reason && status.reason !== "REGISTRATION") {
+      return { shopId: shop.id, shopName: status.shopName, graceUntil: status.graceUntil, overdue: status.overdue, reason: status.reason };
+    }
+  }
+  return null;
+}
+
 function isRegistrationPath(path: string): boolean {
   return ["/shop/register", "/shop/join"].some((p) => path === p || path.startsWith(`${p}/`));
 }
@@ -62,6 +76,17 @@ export default async function SellerCentralLayout({ children }: { children: Reac
   // locks an owner out.
   if (user && shops.length > 0 && !isRegistrationPath(path) && (await sellerUndertakingGateApplies(user.id).catch(() => false))) {
     return <SellerUndertakingGate ownerName={user.name} />;
+  }
+  // docs/seller-agreements-2026-11 (flag on): an existing shop that must sign (or re-confirm) its agreements gets a
+  // blocking screen; postponable for the day during the grace period. Best-effort: an error never locks an owner out.
+  if (user && shops.length > 0 && !AGREEMENT_GATE_OPEN_PATHS.some((p) => path.startsWith(p))) {
+    const gate = await agreementsGateFor(shops).catch(() => null);
+    if (gate) {
+      const later = (await cookies()).get(AGREEMENTS_LATER_COOKIE)?.value;
+      if (gate.overdue || later !== gate.shopId) {
+        return <AgreementsGate shopId={gate.shopId} shopName={gate.shopName} graceUntil={gate.graceUntil} overdue={gate.overdue} reasonText={AGREEMENT_REASON_TEXT[gate.reason]} />;
+      }
+    }
   }
   const shop = shops.length > 0 ? await activeShop(shops) : null;
   const counts = shop ? await loadShopCounts(shop.id).catch(() => ({})) : {};
