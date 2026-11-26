@@ -23546,5 +23546,19 @@
   "steps": "1. Large signed PDFs\n2. Shop goes live\n3. Deliver",
   "expected": "English PDF attached; MR/HI as /api/agreements/files links (30 days) in HTML and text; log marks them linked",
   "source": "Added 26-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-WKIT-03; docs/testing/manual/README.md)"
+ },
+ {
+  "id": "TC-WKIT-043",
+  "module": "Shop welcome kit",
+  "features": "WKIT-05",
+  "title": "The welcome kit carrying the signed agreements ends DEAD → the signed copy is sent on its own (once)",
+  "type": "Functional",
+  "priority": "P1",
+  "role": "System",
+  "method": "Integration",
+  "preconditions": "SMTP keeps rejecting the welcome kit",
+  "steps": "1. Sign, pay, go live\n2. The kit fails until DEAD\n3. Deliver",
+  "expected": "One 'signed agreements' e-mail with the three PDFs (no banners); its own retries and admin alert apply",
+  "source": "Added 26-Nov-2026: feature on staging after the 08-Nov plan (test scenario TS-WKIT-03; docs/testing/manual/README.md)"
  }
 ]

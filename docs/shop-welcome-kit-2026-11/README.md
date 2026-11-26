@@ -237,4 +237,5 @@ Owner rule: a new shop gets **one** e-mail. With seller agreements on (`seller_a
 - The renderer (`renderShopWelcomeKit` → `agreementsForWelcomeKit`) attaches them at send time and writes the SIGNED_COPY row in `legal_agreement_emails`, so My Agreements' send log shows the kit's status. Over `sellerAgreements.maxEmailBytes` (after the banners) only the English PDFs are attached; the others become 30-day secure links.
 - The banner update ("Resend updated banner") and existing shops' kits never carry agreements.
 - A shop that pays but is never approved gets its signed copy with the go-live kit only; until then it is in My Agreements (and admins can "Resend signed copy").
-- Tests: tests/integration/welcome-kit-one-mail.test.ts (TC-WKIT-039…042).
+- A kit that ends DEAD while carrying them: the signed copy is queued on its own (no banners; own retries and admin alert) — `onWelcomeKitDead`.
+- Tests: tests/integration/welcome-kit-one-mail.test.ts (TC-WKIT-039…043).

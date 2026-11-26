@@ -11,6 +11,7 @@ import { PDFDocument } from "pdf-lib";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sent = vi.hoisted(() => ({
+  failKit: false,
   emails: [] as { to: string; cc?: string[]; subject: string; text: string; html?: string; attachments?: { filename: string; contentType: string; content: Buffer; cid?: string }[] }[],
 }));
 vi.mock("@/server/email/transport", async (importOriginal) => {
@@ -19,6 +20,7 @@ vi.mock("@/server/email/transport", async (importOriginal) => {
     ...actual,
     emailMode: () => "smtp" as const,
     sendEmail: vi.fn(async (message: (typeof sent.emails)[number]) => {
+      if (sent.failKit && message.subject.includes("is now live on GoKesari.com")) throw new Error("SMTP 554 rejected");
       sent.emails.push(message);
     }),
   };
@@ -38,6 +40,7 @@ beforeEach(async () => {
   await resetDatabase();
   clearRuleCache();
   sent.emails.length = 0;
+  sent.failKit = false;
 });
 
 const KIT = "is now live on GoKesari.com";
@@ -167,6 +170,27 @@ describe("TC-WKIT-039 … 042: one e-mail for a new shop — the welcome kit car
     const update = sent.emails.find((m) => m.subject.includes("updated GoKesari banners"));
     expect(update).toBeTruthy();
     expect(pdfs(update!).some((f) => f.includes("seller-sla"))).toBe(false);
+  });
+
+  it("TC-WKIT-043 the kit carrying the agreements ends DEAD → the signed copy is sent on its own (once)", async () => {
+    const { admin, owner, shop } = await newShop();
+    const requestId = await signRegistration(shop.id, owner.id);
+    await goLive(shop.id, admin);
+    await onRegistrationFeePaid(shop.id);
+    sent.failKit = true;
+    for (let i = 0; i < 10; i += 1) {
+      await db.update(documentEmails).set({ nextAttemptAt: new Date(0) }).where(and(eq(documentEmails.docType, "SHOP_WELCOME_KIT"), eq(documentEmails.docId, shop.id)));
+      await deliverDocumentEmails();
+      const [kit] = await rows(shop.id, "SHOP_WELCOME_KIT");
+      if (kit.status === "DEAD") break;
+    }
+    expect((await rows(shop.id, "SHOP_WELCOME_KIT"))[0].status).toBe("DEAD");
+    await deliverDocumentEmails();
+    const copies = ours().filter((m) => m.subject.includes(SIGNED_COPY));
+    expect(copies).toHaveLength(1);
+    expect(pdfs(copies[0])).toHaveLength(3);
+    const logs = await db.select().from(legalAgreementEmails).where(eq(legalAgreementEmails.signingRequestId, requestId));
+    expect(logs.map((l) => l.includeBanners).sort()).toEqual([false, true]);
   });
 
   it("TC-WKIT-042 over the size limit: English agreements stay attached, Marathi and Hindi become secure links", async () => {

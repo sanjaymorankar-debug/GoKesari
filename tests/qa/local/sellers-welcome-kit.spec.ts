@@ -226,3 +226,4 @@ manual("TC-WKIT-039", "New shop signed + fee paid + live → exactly one e-mail:
 manual("TC-WKIT-040", "Live shop without a welcome kit row: the fee hook queues the kit, which carries the signed PDFs", ONE_MAIL);
 manual("TC-WKIT-041", "Kit already sent before the owner signed: the signed copy follows on its own without banners", ONE_MAIL);
 manual("TC-WKIT-042", "Over the e-mail size limit: English agreement stays attached, Marathi and Hindi become secure links", ONE_MAIL);
+manual("TC-WKIT-043", "The welcome kit carrying the signed agreements ends DEAD → the signed copy is sent on its own (once)", ONE_MAIL);

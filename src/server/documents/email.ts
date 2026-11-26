@@ -260,6 +260,11 @@ async function sendDocumentEmail(row: DocumentEmail): Promise<"sent" | "failed" 
         const { alertAgreementEmailFailed } = await import("@/server/legal-agreements/email");
         await alertAgreementEmailFailed(row.docId, attempts, message).catch((alertError) => console.error("[document-emails] agreement alert failed", alertError));
       }
+      if (row.docType === "SHOP_WELCOME_KIT") {
+        // The kit may have carried the shop's signed agreements: send them on their own (with their own retries and alert).
+        const { onWelcomeKitDead } = await import("@/server/legal-agreements/email");
+        await onWelcomeKitDead(row.docId).catch((followError) => console.error("[document-emails] signed copy after dead welcome kit failed", followError));
+      }
       return "dead";
     }
     const schedule = BACKOFF_BY_TYPE[row.docType] ?? BACKOFF_SECONDS;

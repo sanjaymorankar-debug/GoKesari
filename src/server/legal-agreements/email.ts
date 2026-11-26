@@ -185,6 +185,18 @@ async function deliverNewShopAgreements(shopId: string, signingRequestId: string
   }
 }
 
+/**
+ * The welcome kit gave up (DEAD). If it was carrying the shop's signed agreements, queue them as a signed copy on
+ * their own (no banners) — that mail has its own retries and, if it dies too, the admin alert. Once only.
+ */
+export async function onWelcomeKitDead(shopId: string): Promise<void> {
+  const req = await registrationSigning(shopId);
+  if (!req) return;
+  const copies = await db.select({ includeBanners: legalAgreementEmails.includeBanners }).from(legalAgreementEmails).where(and(eq(legalAgreementEmails.signingRequestId, req.id), eq(legalAgreementEmails.kind, "SIGNED_COPY")));
+  if (!copies.some((c) => c.includeBanners) || copies.some((c) => !c.includeBanners)) return;
+  await queueSignedCopy(req.id, { kind: "SIGNED_COPY", includeBanners: false });
+}
+
 /** The latest signed REGISTRATION agreements of a shop (what its welcome kit attaches), or null. */
 async function registrationSigning(shopId: string) {
   const [req] = await db
