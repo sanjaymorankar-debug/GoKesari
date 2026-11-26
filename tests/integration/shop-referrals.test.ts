@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { encryptSecret } from "@/lib/pan-crypto";
 import { db } from "@/server/db";
-import { bankAccounts, orders, sellerVerifications, shopReferrals, shopWallets, shops, type Shop } from "@/server/db/schema";
+import { bankAccounts, orders, referralCodes, sellerVerifications, shopReferrals, shopWallets, shops, type Shop } from "@/server/db/schema";
 import { RULES, type RuleValue } from "@/server/config/rules";
 import { updateOrderStatus } from "@/server/services/orders";
 import { assertRegistrationReferralCode } from "@/server/services/referral-requests";
@@ -149,6 +149,25 @@ describe("registration with a shop code", () => {
     expect((await answerDraftReferral({ actor, referralCode: r.code })).referral).toMatchObject({ code: r.code, locked: true });
     await expect(answerDraftReferral({ actor, referralCode: other.code })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "REFERRAL_CODE_LOCKED" } });
     expect((await answerDraftReferral({ actor, referralCode: r.code })).referral.code).toBe(r.code);
+  });
+
+  it("owner, 26-Nov-2026: an entered code is fixed even with the rule off — not changed, not removed; no code may still add one", async () => {
+    // Rule off: shop codes are not accepted, so use two operator-issued (dealer) codes.
+    await enable({ enabled: false });
+    const [r, other] = await db
+      .insert(referralCodes)
+      .values([{ code: "DLRLOCK1", createdBy: admin.id }, { code: "DLRLOCK2", createdBy: admin.id }])
+      .returning();
+    const owner = await createUser({ role: "CUSTOMER" });
+    const actor = { id: owner.id, role: "CUSTOMER" as const };
+    expect((await answerDraftReferral({ actor, referralCode: r.code })).referral).toMatchObject({ code: r.code, locked: true });
+    await expect(answerDraftReferral({ actor, referralCode: other.code })).rejects.toMatchObject({ details: { reason: "REFERRAL_CODE_LOCKED" } });
+    await expect(answerDraftReferral({ actor, referralCode: null })).rejects.toMatchObject({ details: { reason: "REFERRAL_CODE_LOCKED" } });
+
+    const owner2 = await createUser({ role: "CUSTOMER" });
+    const actor2 = { id: owner2.id, role: "CUSTOMER" as const };
+    expect((await answerDraftReferral({ actor: actor2, referralCode: null })).referral).toMatchObject({ code: null, locked: false });
+    expect((await answerDraftReferral({ actor: actor2, referralCode: r.code })).referral).toMatchObject({ code: r.code, locked: true });
   });
 });
 

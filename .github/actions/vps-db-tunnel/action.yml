@@ -96,18 +96,30 @@ runs:
         printf '[Interface]\nPrivateKey = %s\nAddress = %s/32\n\n[Peer]\nPublicKey = %s\nEndpoint = %s\nAllowedIPs = %s/32\nPersistentKeepalive = 25\n' \
           "$(printf '%s' "$WG_PRIVATE_KEY" | tr -d '\r\n')" "$WG_ADDRESS" "$WG_SERVER_PUBLIC_KEY" "$WG_ENDPOINT" "$WG_SERVER" | sudo tee "$conf" > /dev/null
         sudo wg-quick up gkdb
-        sudo rm -f "$conf"
 
-        # Wait for the handshake; any packet into the tunnel starts one.
+        # Wait for the handshake; any packet into the tunnel starts one. A lost first handshake (26-Nov-2026
+        # 21.00 IST, staging migration for #624: the same keys worked on a re-run minutes later) is retried by
+        # taking the tunnel down and up again — up to 3 attempts of about 30 s each — before giving up (as in
+        # .github/workflows/test-db.yml since #626).
         probe=${ports%% *}
         hs=0
-        for _ in $(seq 30); do
-          hs=$(sudo wg show gkdb latest-handshakes | awk '{ print $2 }')
+        for attempt in 1 2 3; do
+          for _ in $(seq 10); do
+            hs=$(sudo wg show gkdb latest-handshakes | awk '{ print $2 }')
+            [ "${hs:-0}" -gt 0 ] && break
+            timeout 2 bash -c ": < /dev/tcp/$WG_SERVER/$probe" 2>/dev/null || true
+            sleep 1
+          done
           [ "${hs:-0}" -gt 0 ] && break
-          timeout 2 bash -c ": < /dev/tcp/$WG_SERVER/$probe" 2>/dev/null || true
-          sleep 1
+          if [ "$attempt" -lt 3 ]; then
+            echo "No WireGuard handshake yet (attempt $attempt of 3); restarting the tunnel."
+            sudo wg-quick down gkdb || true
+            sleep 5
+            sudo wg-quick up gkdb
+          fi
         done
-        [ "${hs:-0}" -gt 0 ] || fail "No WireGuard handshake with the database server ($WG_ENDPOINT) in 30 s. Check $WG_KEY_NAME, VPS_WG_SERVER_PUBLIC_KEY and the server's peer $WG_PEER (gk-peer list). Stopping before any change."
+        sudo rm -f "$conf"
+        [ "${hs:-0}" -gt 0 ] || fail "No WireGuard handshake with the database server ($WG_ENDPOINT) after 3 attempts. Check $WG_KEY_NAME, VPS_WG_SERVER_PUBLIC_KEY and the server's peer $WG_PEER (gk-peer list). Stopping before any change."
 
         pinned=""
         for name in $names; do
