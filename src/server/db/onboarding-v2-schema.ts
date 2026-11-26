@@ -12,7 +12,7 @@
  * Re-exported by schema.ts.
  */
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, customType, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 /** The marketplace roles of the brief (staff roles stay in user_role_grants). */
 export const MARKETPLACE_ROLES = [
@@ -137,6 +137,9 @@ export const registrationLicenceEntries = pgTable(
     promiseAcceptedAt: timestamp("promise_accepted_at", { withTimezone: true }),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
     verifyRef: text("verify_ref"),
+    /** 0217: the operator who decided a PENDING_OPERATOR entry (Admin → Shop documents → Registration licences). */
+    reviewedBy: uuid("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -146,3 +149,33 @@ export const registrationLicenceEntries = pgTable(
     index("registration_licence_entries_status_idx").on(t.status),
   ],
 );
+
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+/**
+ * 0217 (Flow 2): a licence file uploaded or scanned during registration, before the shop exists — encrypted
+ * (encryptBytes), opened by operators from the registration-licences queue. `registration_licence_entries.file_ref`
+ * holds this row's id.
+ */
+export const registrationLicenceFiles = pgTable(
+  "registration_licence_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    draftId: uuid("draft_id").notNull(),
+    ownerUserId: uuid("owner_user_id").notNull(),
+    licenceKey: text("licence_key").notNull(),
+    /** FILE: chosen from files / photos; CAMERA: taken with the camera (Scan). */
+    source: text("source", { enum: ["FILE", "CAMERA"] }).notNull().default("FILE"),
+    contentType: text("content_type", { enum: ["application/pdf", "image/jpeg", "image/png", "image/webp"] }).notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    dataEncrypted: bytea("data_encrypted").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("registration_licence_files_draft_idx").on(t.draftId, t.licenceKey)],
+);
+export type RegistrationLicenceEntry = typeof registrationLicenceEntries.$inferSelect;

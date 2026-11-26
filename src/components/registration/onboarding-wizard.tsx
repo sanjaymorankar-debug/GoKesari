@@ -25,6 +25,7 @@ import { LegalDocumentsPanel, type LegalDocCard } from "@/components/legal-docum
 import { DocumentScan } from "./document-scan";
 import { ReferralByPin } from "./referral-by-pin";
 import { StarterShelf } from "./starter-shelf";
+import { FeeStep, ReturnToLink, SlaStep, V2IdentityStep, V2LicencesStep, V2WaitingStep, type V2State } from "./onboarding-v2-steps";
 
 /**
  * Shop onboarding wizard — owner brief 08-Nov-2026 (docs/shop-onboarding-identity-first-2026-11):
@@ -64,7 +65,12 @@ type Step =
   | "LOCATION"
   | "CATEGORY"
   | "PRODUCTS"
-  | "DONE";
+  | "DONE"
+  // docs/onboarding-v2-2026-11 (Flow 2, flag onboarding_v2): the v2 order's own screens.
+  | "V2_IDENTITY"
+  | "FEE"
+  | "V2_LICENCES"
+  | "SLA";
 
 interface CheckView {
   numberMasked: string | null;
@@ -171,6 +177,8 @@ export interface WizardState {
   documentsStep: DocumentsStepState | null;
   /** docs/seller-agreements-2026-11: the Agreements step is on (no Seller Terms tick on Payment). */
   agreementsEnabled?: boolean;
+  /** docs/onboarding-v2-2026-11 (Flow 2): set for a v2 registration; null / missing = the original wizard. */
+  v2?: V2State | null;
   nextStep: Step;
 }
 
@@ -198,6 +206,47 @@ const TILES = [
   { n: 4, label: { en: "Pay", hi: "भुगतान", mr: "पेमेंट" }, icon: "💳" },
   { n: 5, label: { en: "Live", hi: "लाइव", mr: "लाइव्ह" }, icon: "🚀" },
 ] as const;
+
+/** Flow 2 (onboarding v2): identity, verify, pay, licences, address, live — the fee comes before the shop type. */
+const V2_TILES = [
+  { n: 1, label: { en: "Sign in", hi: "साइन इन", mr: "साइन इन" }, icon: "🔐" },
+  { n: 2, label: { en: "Verify", hi: "सत्यापन", mr: "पडताळणी" }, icon: "🛡️" },
+  { n: 3, label: { en: "Pay", hi: "भुगतान", mr: "पेमेंट" }, icon: "💳" },
+  { n: 4, label: { en: "Licences", hi: "लाइसेंस", mr: "परवाने" }, icon: "📄" },
+  { n: 5, label: { en: "Address", hi: "पता", mr: "पत्ता" }, icon: "📍" },
+  { n: 6, label: { en: "Live", hi: "लाइव", mr: "लाइव्ह" }, icon: "🚀" },
+] as const;
+
+function v2TileOf(step: Step): number {
+  switch (step) {
+    case "V2_IDENTITY":
+      return 1;
+    case "REFERRAL":
+    case "IDENTITY":
+    case "EMAIL":
+    case "OWNER":
+      return 2;
+    case "FEE":
+      return 3;
+    case "TYPE":
+    case "V2_LICENCES":
+    case "LICENCES":
+      return 4;
+    case "ADDRESS":
+    case "PIN":
+      return 5;
+    case "SLA":
+    case "WAITING":
+    case "LIVE":
+    case "LOCATION":
+      return 6;
+    case "CATEGORY":
+    case "PRODUCTS":
+      return 7;
+    default:
+      return 8;
+  }
+}
 
 /** The tile a wizard step belongs to. */
 function tileOf(step: Step): number {
@@ -228,6 +277,14 @@ function tileOf(step: Step): number {
       return 6;
     case "DONE":
       return 7;
+    case "V2_IDENTITY":
+      return 1;
+    case "FEE":
+      return 4;
+    case "V2_LICENCES":
+      return 2;
+    case "SLA":
+      return 5;
   }
 }
 
@@ -535,22 +592,24 @@ function StepCard({ title, intro, children }: { title: string; intro?: ReactNode
 }
 
 function TileSteps({ step, state, onOpen, lang }: { step: Step; state: WizardState | null; onOpen: (s: Step) => void; lang: Lang }) {
-  const at = tileOf(step);
-  const shown = Math.min(at, TILES.length);
+  const v2 = Boolean(state?.v2);
+  const tiles: readonly { n: number; label: { en: string; hi: string; mr: string }; icon: string }[] = v2 ? V2_TILES : TILES;
+  const at = v2 ? v2TileOf(step) : tileOf(step);
+  const shown = Math.min(at, tiles.length);
   return (
     <div className="space-y-1.5">
-      {at <= TILES.length ? (
+      {at <= tiles.length ? (
         <p className="text-sm text-ink-600" data-testid="registration-progress">
           <strong className="text-ink-900">
-            {tr({ en: "Step", hi: "चरण", mr: "टप्पा" }, lang)} {shown} {lang === "en" ? "of" : "/"} {TILES.length}
+            {tr({ en: "Step", hi: "चरण", mr: "टप्पा" }, lang)} {shown} {lang === "en" ? "of" : "/"} {tiles.length}
           </strong>
         </p>
       ) : null}
-      <ol className="grid grid-cols-5 gap-1.5 sm:gap-2" aria-label="Registration steps" data-testid="registration-tiles">
-        {TILES.map((t) => {
+      <ol className={`grid ${v2 ? "grid-cols-6" : "grid-cols-5"} gap-1 sm:gap-2`} aria-label="Registration steps" data-testid="registration-tiles">
+        {tiles.map((t) => {
           const done = t.n < at;
           const current = t.n === at;
-          const target = state ? stepForTile(t.n, state) : null;
+          const target = state ? (v2 ? (state.status === "OPEN" && t.n === 2 && state.v2?.identity.done ? "IDENTITY" : null) : stepForTile(t.n, state)) : null;
           const tone = current
             ? "border-kesari-600 bg-kesari-600 text-white shadow-sm"
             : done
@@ -641,6 +700,12 @@ export function OnboardingWizard({
     setViewing(null);
     setNotice(noticeFor(path, result.data));
     if ((path.endsWith("/submit") || path.endsWith("/documents-step")) && result.data.nextStep === "PAYMENT") setOpenPayment(true);
+    // Flow 2: once live (or with the team), an owner who came from another flow (?return=) goes back there.
+    const returnTo = result.data.v2?.returnTo;
+    if (path.endsWith("/v2/agreement") && returnTo && !staffDraftOnPage() && ["LIVE", "DONE", "LOCATION", "WAITING"].includes(result.data.nextStep)) {
+      window.location.assign(returnTo);
+      return true;
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
     return true;
   }
@@ -683,6 +748,41 @@ export function OnboardingWizard({
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {notice && !error && step !== "IDENTITY" ? <Alert tone="warning">{notice}</Alert> : null}
 
+      {/* docs/onboarding-v2-2026-11 (Flow 2): the v2 screens. */}
+      {step === "V2_IDENTITY" && state?.v2 ? <V2IdentityStep v2={state.v2} busy={busy} fields={fields} send={send} /> : null}
+      {step === "FEE" && state?.v2 && !staffDraft ? (
+        <FeeStep
+          v2={state.v2}
+          ownerName={state.ownerName}
+          onError={(message, f) => {
+            setError(message);
+            setFields(f ?? {});
+          }}
+        />
+      ) : null}
+      {step === "FEE" && state?.v2 && staffDraft ? (
+        <StepCard title="Registration fee">
+          <p className="text-sm text-ink-700">The owner pays the registration fee from their own account (Register your shop → Pay). Send them the link to continue.</p>
+        </StepCard>
+      ) : null}
+      {step === "V2_LICENCES" && state?.v2 ? (
+        <V2LicencesStep
+          v2={state.v2}
+          onState={(next) => {
+            setState(next as WizardState);
+            setViewing(null);
+          }}
+          back={state.v2.fee.chosen === "WHOLESALE" ? null : back("TYPE")}
+        />
+      ) : null}
+      {step === "SLA" && state?.v2 ? (
+        <SlaStep
+          state={state}
+          busy={busy}
+          send={send}
+          reload={() => void refresh()}
+        />
+      ) : null}
       {step === "REFERRAL" ? (
         <VerifyStep
           mode="referral"
@@ -718,7 +818,9 @@ export function OnboardingWizard({
       {step === "OWNER" && state ? <OwnerStep state={state} busy={busy} fields={fields} send={send} back={back("IDENTITY")} /> : null}
       {step === "TYPE" && state ? <TypeStep state={state} busy={busy} fields={fields} send={send} back={back(state.prefill.ownerName ? "IDENTITY" : "OWNER")} lang={lang} /> : null}
       {step === "LICENCES" && state ? <LicencesStep state={state} busy={busy} fields={fields} send={send} back={back("TYPE")} staff={Boolean(staffDraft)} /> : null}
-      {step === "ADDRESS" && state ? <AddressStep state={state} busy={busy} fields={fields} send={send} back={back(state.shopType ? "LICENCES" : state.prefill.ownerName ? "IDENTITY" : "OWNER")} /> : null}
+      {step === "ADDRESS" && state ? (
+        <AddressStep state={state} busy={busy} fields={fields} send={send} back={back(state.v2 ? "V2_LICENCES" : state.shopType ? "LICENCES" : state.prefill.ownerName ? "IDENTITY" : "OWNER")} />
+      ) : null}
       {step === "PIN" && state ? <PinStep state={state} busy={busy} fields={fields} send={send} back={back("ADDRESS")} /> : null}
       {step === "SHOP" && state ? (
         <ShopStep state={state} busy={busy} fields={fields} send={send} changeEmail={() => setViewing("EMAIL")} back={back("PIN")} lang={lang} />
@@ -765,7 +867,8 @@ export function OnboardingWizard({
           </Link>
         </StepCard>
       ) : null}
-      {step === "WAITING" && state?.shop && !staffDraft ? (
+      {step === "WAITING" && state?.shop && state.v2 && !staffDraft ? <V2WaitingStep state={state} /> : null}
+      {step === "WAITING" && state?.shop && !state.v2 && !staffDraft ? (
         <StepCard title="Payment received — pending admin approval">
           <Alert tone="warning">
             {state.documents.missing.length > 0
@@ -788,6 +891,8 @@ export function OnboardingWizard({
       {step === "LIVE" && state?.shop && !staffDraft ? (
         <LiveStep state={state} lang={lang} addProducts={() => setViewing(state.setup?.categories ? "PRODUCTS" : "CATEGORY")} />
       ) : null}
+      {/* Flow 2: /shop/register?return=… — back to where the owner came from (the franchise flow). */}
+      {(step === "LIVE" || step === "DONE") && state?.v2?.returnTo && !staffDraft ? <ReturnToLink returnTo={state.v2.returnTo} /> : null}
       {step === "LOCATION" && state?.shop && !staffDraft ? (
         <ShopLocationStep
           title="6. Your shop's address and map pin"

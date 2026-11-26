@@ -243,6 +243,12 @@ export async function registerShop(
      * resubmitted), so the draft's checks are copied with it or not at all.
      */
     onSaved?: (tx: DbClient, shop: Shop) => Promise<void>;
+    /**
+     * docs/onboarding-v2-2026-11 (Flow 2): the fee the owner already paid on the registration draft (rule
+     * onboardingV2, by Shop / Wholesale). Set only by server code (shop-registration-wizard.ts), never from a
+     * request body: the shop's fee snapshot is this, not the schedule's, and no coupon applies.
+     */
+    prepaidFee?: { basePaise: number; gstPaise: number; gstRateBp: number; totalPaise: number };
   } = {},
 ): Promise<RegisterShopResult> {
   if (!/^[1-9]\d{5}$/.test(input.pincode)) {
@@ -322,7 +328,8 @@ export async function registerShop(
   // never alter what this shop was charged. Owner, 27 Oct 2026: the base fee
   // (flat, or by turnover when that rule is on), less a coupon, plus GST — the
   // total is registration_fee_paise. An operator's fee is taken as the total.
-  const override = privileged && input.registrationFeePaise !== undefined ? input.registrationFeePaise : null;
+  const prepaid = options.prepaidFee ?? null;
+  const override = privileged && input.registrationFeePaise !== undefined ? input.registrationFeePaise : prepaid ? prepaid.totalPaise : null;
   if (override !== null && (override < 0 || !Number.isInteger(override))) {
     throw validationFailed("Registration fee must be a whole number of paise.");
   }
@@ -330,7 +337,7 @@ export async function registerShop(
     override === null ? await Promise.all([baseRegistrationFee(turnover), registrationFeeGstRateBp()]) : [null, 0];
   const couponCode = override === null ? input.couponCode?.trim() || null : null;
   // Shop-refers-shop (0137, rule shopReferrals): the code typed may be another shop's — one code only.
-  const shopReferralCode = override === null && looksLikeShopCode(input.referralCode) ? normalizeShopCode(input.referralCode) : null;
+  const shopReferralCode = (override === null || prepaid !== null) && looksLikeShopCode(input.referralCode) ? normalizeShopCode(input.referralCode) : null;
   const shopReferral = shopReferralCode ? await shopReferralRule() : null;
   if (shopReferral?.enabled) await resolveShopReferralCode(shopReferralCode!);
 
@@ -487,10 +494,10 @@ export async function registerShop(
           registrationFeePaise,
           // Provenance: the schedule row only when the base came from it.
           registrationFeeId: base?.feeId ?? null,
-          registrationFeeBasePaise: fee?.basePaise ?? null,
-          registrationFeeDiscountPaise: fee?.discountPaise ?? null,
-          registrationFeeGstPaise: fee?.gstPaise ?? null,
-          registrationFeeGstRateBp: fee?.gstRateBp ?? null,
+          registrationFeeBasePaise: fee?.basePaise ?? prepaid?.basePaise ?? null,
+          registrationFeeDiscountPaise: fee?.discountPaise ?? (prepaid ? 0 : null),
+          registrationFeeGstPaise: fee?.gstPaise ?? prepaid?.gstPaise ?? null,
+          registrationFeeGstRateBp: fee?.gstRateBp ?? prepaid?.gstRateBp ?? null,
           registrationFeeCouponId: coupon?.id ?? null,
           registrationFeeCouponCode: coupon?.code ?? null,
           annualTurnoverRupees: turnover,
@@ -944,6 +951,9 @@ export async function autoApproveShopIfReady(shopId: string): Promise<boolean> {
 }
 
 async function autoApproveShopIfReadyInner(shopId: string): Promise<boolean> {
+  // docs/onboarding-v2-2026-11 (Flow 2): a v2 registration pays its fee before the shop exists and signs the
+  // seller agreement after; it never goes live before that agreement is accepted (shop-registration-wizard.ts).
+  if (await (await import("@/server/onboarding-v2/shop-view")).v2SlaPendingForShop(shopId)) return false;
   // docs/dealer-programme (GKS-SH-004): instant approval on government GST/PAN verification + online payment,
   // where that flag is on. When it cannot approve, the existing rule below decides exactly as before.
   if (await approveOnGovVerification(shopId)) return true;

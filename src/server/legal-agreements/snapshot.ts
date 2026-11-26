@@ -3,14 +3,14 @@
  * (docs/seller-agreements-2026-11, brief §2): names, address, owner, identity numbers, every licence on file,
  * the verified bank account (last 4 only), and the fee / penalty figures from the admin configuration.
  */
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
 import { maskPhone } from "@/lib/phone";
 import { decryptSecret } from "@/lib/pan-crypto";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { db, type DbClient } from "@/server/db";
 import { healthPharmacyProfiles } from "@/server/db/health-schema";
-import { bankAccounts, sellerVerifications, shopLegalDocuments, shops, users, type Shop } from "@/server/db/schema";
+import { bankAccounts, registrationLicenceEntries, sellerVerifications, shopLegalDocuments, shops, users, type Shop } from "@/server/db/schema";
 import { resolveCommissionRate } from "@/server/services/finance";
 import { resolveFeeForNewRegistration } from "@/server/services/registration-fees";
 import { getRule } from "@/server/services/settings";
@@ -132,6 +132,28 @@ export async function buildShopSnapshot(shopId: string, extras: SnapshotExtras =
   }
   if (shop.udyamNumber) {
     licences.push({ kind: "UDYAM", customName: null, number: shop.udyamNumber, authority: "Ministry of MSME", validFrom: null, validUntil: null, status: vStatus("UDYAM"), reference: "Udyam check", sourceId: verification("UDYAM")?.id ?? null });
+  }
+  // docs/onboarding-v2-2026-11 (Flow 2): licences given at registration (entered / uploaded / scanned) that are not on
+  // file yet any other way — the agreement lists what the owner entered. "Upload later" ones have no number.
+  const registrationLicences = await client
+    .select()
+    .from(registrationLicenceEntries)
+    .where(and(eq(registrationLicenceEntries.shopId, shopId), isNotNull(registrationLicenceEntries.licenceNumber)))
+    .catch(() => []);
+  for (const e of registrationLicences) {
+    if (!e.licenceNumber || e.status === "REJECTED" || licences.some((l) => l.kind === e.licenceKey)) continue;
+    const custom = e.licenceKey.startsWith("DOC:");
+    licences.push({
+      kind: custom ? "OTHER_LICENCE" : e.licenceKey,
+      customName: custom ? e.licenceKey.slice(4) : null,
+      number: e.licenceNumber,
+      authority: e.issuingAuthority,
+      validFrom: null,
+      validUntil: e.validUntil,
+      status: e.status === "VERIFIED" ? "VERIFIED" : "SUBMITTED",
+      reference: "Shop registration",
+      sourceId: e.id,
+    });
   }
   const profile = pharmacy[0];
   const pharmacist = profile

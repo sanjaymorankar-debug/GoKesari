@@ -99,6 +99,10 @@ const RESET_TABLES = [
   "dealers",
   // docs/shop-onboarding-wizard-2026-10: owner_id has no foreign key to users either.
   "shop_registration_drafts",
+  // docs/onboarding-v2-2026-11 (0215, 0217): Flow 2 licence entries and their files — no foreign keys.
+  "registration_licence_entries",
+  "registration_licence_files",
+  "onboarding_role_history",
   "grievances",
   "user_consents",
   // docs/policy-reconsent-2026-11 (0185): no foreign key to users.

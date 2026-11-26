@@ -71,6 +71,12 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   WALLET_TOPUP: async (intent, client, afterCommit) => (await import("./topup-intents")).onTopUpCaptured(intent, client, afterCommit),
   SHOP_WALLET_TOPUP: async (intent, client, afterCommit) => (await import("./topup-intents")).onTopUpCaptured(intent, client, afterCommit),
   /* <<< PAY-2 */
+  //
+  /* >>> onboarding v2, Flow 2 (docs/onboarding-v2-2026-11) */
+  // The shop registration fee paid on the registration draft (before the shop exists): the draft is marked paid in the
+  // capture transaction; the fee goes on the shop's ledger when the shop is created from the draft.
+  SHOP_REGISTRATION_DRAFT_FEE: async (intent, client) => (await import("@/server/onboarding-v2/shop-flow")).onDraftFeeCaptured(intent, client),
+  /* <<< onboarding v2 */
 };
 
 /**
