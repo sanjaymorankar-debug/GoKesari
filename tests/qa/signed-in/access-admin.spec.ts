@@ -19,6 +19,7 @@ import { IS_LOCAL, IS_REMOTE } from "../lib/target";
 import { world, type Role } from "../lib/world";
 import { brief, getAs, listRules, openPage, redirectPath, sidewaysOverflow, societyId, watchErrors } from "../lib/access-helpers";
 import { pageRouteOf } from "../lib/routes";
+import { PAY_BUTTON, pickPaymentIfNone } from "../lib/onboarding-v2-helpers";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
 
@@ -580,8 +581,10 @@ qa("TC-UX-002", "phone viewport, signed in: home → search → shop → cart �
     }
     expectStatus(await addToCart("customer", listing.shopProductId, 1), [200, 201], "add to cart");
     await openPage(page, "/cart");
-    await expect(page.getByRole("button", { name: /Pay from wallet|Place order/i }).first(), "the pay button on the cart").toBeVisible();
-    const box = await page.getByRole("button", { name: /Pay from wallet|Place order/i }).first().boundingBox();
+    // onboarding v2 (on on test.gokesari.com) preselects no payment: the wallet is chosen as a customer would.
+    await pickPaymentIfNone(page, "Wallet");
+    await expect(page.getByRole("button", { name: PAY_BUTTON }).first(), "the pay button on the cart").toBeVisible();
+    const box = await page.getByRole("button", { name: PAY_BUTTON }).first().boundingBox();
     expect((box?.height ?? 0) >= 40, "checkout button is tappable (40px+)").toBe(true);
     if ((await sidewaysOverflow(page)) > 2) wide.push(`/cart +${await sidewaysOverflow(page)}px`);
     steps.push("/cart");

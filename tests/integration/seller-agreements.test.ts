@@ -37,6 +37,7 @@ import {
   legalSignedFiles,
   outboundTestMessages,
   shopLegalDocuments,
+  shopRegistrationDrafts,
   shops,
   users,
   type User,
@@ -46,7 +47,7 @@ import { printHtmlToPdf } from "@/server/legal-agreements/pdf/html-to-pdf";
 import { ensureBundledTemplates, publishChecks, publishTemplate, updateDraft } from "@/server/legal-agreements/registry";
 import { buildShopSnapshot } from "@/server/legal-agreements/snapshot";
 import { assertAgreementsAllowOrders, getAgreementStatus } from "@/server/legal-agreements/requirements";
-import { createSigningLink, resolveSigningLink, sendSigningCode, signAgreements } from "@/server/legal-agreements/signing";
+import { acceptAgreementsAtRegistration, createSigningLink, resolveSigningLink, sendSigningCode, signAgreements } from "@/server/legal-agreements/signing";
 import { clearFeatureFlagCache, setFeatureFlag } from "@/server/services/feature-flags";
 import { clearRuleCache } from "@/server/services/settings";
 
@@ -280,6 +281,56 @@ describe("signing", () => {
     expect(changed.required).toBe(true);
     expect(changed.reason).toBe("ANNEXURE_UPDATE");
   }, 240_000);
+
+  it("onboarding v2 (owner 27-Nov-2026): accepted at registration with ticks + name, no OTP; any later review still asks the OTP", async (ctx) => {
+    if (!pdfAvailable) ctx.skip();
+    await publishAll();
+    await flag(true);
+    const { owner, shop, mobile } = await pharmacyWithOwner();
+    const status = await getAgreementStatus(shop.id);
+    const input = {
+      signerName: "Asha Test Owner",
+      designation: "PROPRIETOR" as const,
+      constitution: "PROPRIETORSHIP" as const,
+      pharmacist: { name: "Ravi Pharmacist", registrationNumber: "MSPC-777" },
+      accepted: status.documents.map((d) => ({ docType: d.docType, version: d.version })),
+      languageViewed: "en" as const,
+      ip: "203.0.113.5",
+      userAgent: "Mozilla/5.0",
+      geo: null,
+    };
+    // Not a shop at its v2 registration's agreement step: no acceptance without the code.
+    await expect(acceptAgreementsAtRegistration({ shopId: shop.id, owner }, input)).rejects.toMatchObject({ details: { reason: "OTP_REQUIRED" } });
+
+    // The shop's v2 registration waits for its agreement: ticks + name are enough, and no SMS is sent.
+    const [draft] = await db.insert(shopRegistrationDrafts).values({ ownerId: owner.id, flowVersion: "v2", status: "SUBMITTED", shopId: shop.id }).returning();
+    const result = await acceptAgreementsAtRegistration({ shopId: shop.id, owner }, input);
+    expect(result.documents).toHaveLength(2);
+    const rows = await db.select().from(legalAcceptances).where(eq(legalAcceptances.shopId, shop.id));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.signatureMethod).toBe("REGISTRATION_ACCEPT");
+      expect(row.otpVerificationRef).toBeNull();
+      expect(row.signerName).toBe("Asha Test Owner");
+    }
+    // No SMS code was sent (the signed-copy notice may follow by SMS; it is not a code).
+    expect(await db.select().from(outboundTestMessages).where(and(eq(outboundTestMessages.toAddress, mobile), eq(outboundTestMessages.purpose, "otp")))).toHaveLength(0);
+    expect((await getAgreementStatus(shop.id)).required).toBe(false);
+
+    // Registration over (agreement accepted): a later review / re-sign from the dashboard needs the SMS code.
+    await db.update(shopRegistrationDrafts).set({ slaAcceptedAt: new Date() }).where(eq(shopRegistrationDrafts.id, draft.id));
+    await db.insert(shopLegalDocuments).values({ shopId: shop.id, docType: "FSSAI", status: "SUBMITTED", numberEncrypted: encryptSecret("11526999000123"), numberLast4: "0123", expiryDate: "2031-01-01", submittedAt: new Date() });
+    const changed = await getAgreementStatus(shop.id);
+    expect(changed.required).toBe(true);
+    const again = { ...input, accepted: changed.documents.filter((d) => !d.signed).map((d) => ({ docType: d.docType, version: d.version })) };
+    await expect(acceptAgreementsAtRegistration({ shopId: shop.id, owner }, again)).rejects.toMatchObject({ details: { reason: "OTP_REQUIRED" } });
+    await expect(signAgreements({ shopId: shop.id, owner }, { ...again, code: "000000" })).rejects.toThrow();
+    await sendSigningCode({ shopId: shop.id, owner }, "203.0.113.5");
+    await signAgreements({ shopId: shop.id, owner }, { ...again, code: await lastSmsCode(mobile) });
+    const latest = await db.select().from(legalAcceptances).where(eq(legalAcceptances.shopId, shop.id)).orderBy(desc(legalAcceptances.acceptedAt)).limit(1);
+    expect(latest[0]).toMatchObject({ signatureMethod: "SMS_OTP" });
+    expect(latest[0].otpVerificationRef).toBeTruthy();
+  }, 300_000);
 
   it("TC-AGR-013 after the grace period the shop takes no new orders", async () => {
     await publishAll();

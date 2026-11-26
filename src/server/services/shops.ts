@@ -54,7 +54,7 @@ import { applyShopCategories } from "./shop-categories";
 import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateBp } from "./registration-fee-coupons";
 import { assertShopType, isKnownShopType } from "./shop-types";
 import { getRule } from "./settings";
-import { getShopOnboarding, missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { getShopOnboarding, isV2RegisteredShop, missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
 import { documentsDueLabel } from "./shop-document-gate";
 import { formatDisplayDate, todayIn } from "@/lib/dates";
 import { licenceGraceMessage } from "@/lib/shop-licences";
@@ -160,6 +160,17 @@ export interface RegisterShopInput {
  */
 export type RegisterShopResult = Shop & { resubmitted: boolean };
 
+/** docs/onboarding-v2-2026-11: a registration fee already paid on the draft (registerShop's prepaidFee). */
+export interface PrepaidRegistrationFee {
+  basePaise: number;
+  gstPaise: number;
+  gstRateBp: number;
+  totalPaise: number;
+  discountPaise?: number;
+  couponId?: string | null;
+  couponCode?: string | null;
+}
+
 /**
  * Columns a shop row carries for the platform's own use: the PAN ciphertext
  * and its blind index, the Shop Act matching key, and staff and internal ids.
@@ -244,11 +255,11 @@ export async function registerShop(
      */
     onSaved?: (tx: DbClient, shop: Shop) => Promise<void>;
     /**
-     * docs/onboarding-v2-2026-11 (Flow 2): the fee the owner already paid on the registration draft (rule
-     * onboardingV2, by Shop / Wholesale). Set only by server code (shop-registration-wizard.ts), never from a
-     * request body: the shop's fee snapshot is this, not the schedule's, and no coupon applies.
+     * docs/onboarding-v2-2026-11 (Flow 2): the fee the owner already paid on the registration draft (owner,
+     * 27-Nov-2026: the original turnover slab / flat fee, with any coupon applied on the fee screen). Set only by
+     * server code (shop-registration-wizard.ts), never from a request body: the shop's fee snapshot is this.
      */
-    prepaidFee?: { basePaise: number; gstPaise: number; gstRateBp: number; totalPaise: number };
+    prepaidFee?: PrepaidRegistrationFee;
   } = {},
 ): Promise<RegisterShopResult> {
   if (!/^[1-9]\d{5}$/.test(input.pincode)) {
@@ -495,11 +506,11 @@ export async function registerShop(
           // Provenance: the schedule row only when the base came from it.
           registrationFeeId: base?.feeId ?? null,
           registrationFeeBasePaise: fee?.basePaise ?? prepaid?.basePaise ?? null,
-          registrationFeeDiscountPaise: fee?.discountPaise ?? (prepaid ? 0 : null),
+          registrationFeeDiscountPaise: fee?.discountPaise ?? (prepaid ? (prepaid.discountPaise ?? 0) : null),
           registrationFeeGstPaise: fee?.gstPaise ?? prepaid?.gstPaise ?? null,
           registrationFeeGstRateBp: fee?.gstRateBp ?? prepaid?.gstRateBp ?? null,
-          registrationFeeCouponId: coupon?.id ?? null,
-          registrationFeeCouponCode: coupon?.code ?? null,
+          registrationFeeCouponId: coupon?.id ?? prepaid?.couponId ?? null,
+          registrationFeeCouponCode: coupon?.code ?? prepaid?.couponCode ?? null,
           annualTurnoverRupees: turnover,
           feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
           slug: uniqueSlug(input.name),
@@ -1184,8 +1195,12 @@ function approveShopTransaction(
     }
     // An FSSAI waiver still running (this approval's or an earlier one): its due date follows instead.
     const fssaiWaived = (await activeFssaiWaiver(shop.id, tx)) !== null;
+    // Onboarding v2 (owner, 27-Nov-2026): a v2 registration's licences — must-have and FSSAI included — follow
+    // go-live within the documents follow-up's period; the follow-up suspends and reinstates the shop. No licence,
+    // and no operator's check, holds its go-live.
+    const licencesFollowGoLive = await isV2RegisteredShop(shop.id, tx);
     // DF-09: the admin's other must-have documents for this kind of shop are on file, or waived as above.
-    if (!fssaiWaived) {
+    if (!fssaiWaived && !licencesFollowGoLive) {
       const missingMust = await missingMustHaveDocuments(shop, tx);
       if (missingMust.length > 0) {
         throw conflict(
@@ -1196,8 +1211,8 @@ function approveShopTransaction(
     }
     // Mandatory legal documents (FSSAI / drug licence / medical registration) are submitted.
     await assertLegalDocsAllowApproval(shop, tx, { waived: fssaiWaived ? ["FSSAI"] : [] });
-    // Task 3 (docs/document-upload-2026-10): a food shop needs a valid FSSAI licence on file.
-    await assertFssaiAllowsApproval(shop, tx);
+    // Task 3 (docs/document-upload-2026-10): a food shop needs a valid FSSAI licence on file (not a v2 registration).
+    if (!licencesFollowGoLive) await assertFssaiAllowsApproval(shop, tx);
 
     const [updated] = await tx
       .update(shops)

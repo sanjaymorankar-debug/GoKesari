@@ -15,6 +15,7 @@ import { blockIfNotTakingOrders, fulfil } from "../lib/flows";
 import { call, expectStatus, poll, why } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
 import { world } from "../lib/world";
+import { onboardingV2On } from "../lib/onboarding-v2-helpers";
 import {
   add,
   cancelAsShop,
@@ -383,6 +384,15 @@ qa("TC-CART-011", "the cart page shows the shortfall and a top-up link instead o
   const { context, page } = await signedPage(browser, "customer");
   try {
     await open(page, "/cart");
+    if (await onboardingV2On("customer")) {
+      // onboarding v2 (on on test.gokesari.com): the wallet is offered only when it covers the total, nothing is
+      // preselected, and the button asks to choose online or cash on delivery — no wallet pay, no shortfall alert.
+      await expect(page.getByTestId("payment-method")).toBeVisible();
+      await expect(page.getByTestId("payment-method").getByRole("radio", { name: "Wallet", exact: true }), "wallet not offered").toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Choose how to pay" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: /Pay from wallet/ })).toHaveCount(0);
+      return `onboarding v2: ${quantity} × ${rupees(item.pricePaise!)} = ${rupees(total)} > wallet ${rupees(balance)}: wallet not offered, "Choose how to pay" (online / cash on delivery), no wallet pay`;
+    }
     const alert = page.getByRole("alert").filter({ hasText: "Insufficient wallet balance" }).or(page.getByText("Insufficient wallet balance")).first();
     await expect(alert).toBeVisible();
     await expect(page.getByText(`Add at least ${rupees(total - balance)} to place this order.`)).toBeVisible();

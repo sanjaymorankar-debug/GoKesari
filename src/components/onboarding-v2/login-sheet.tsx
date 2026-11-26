@@ -96,7 +96,7 @@ function LoginSheet({ config, options, onClose }: { config: LoginSheetConfig; op
   const returnTo = options.returnTo ?? pathname;
   const [step, setStep] = useState<CustomerSheetStep | null>(config.signedIn ? null : "CONSENT");
   const [status, setStatus] = useState<CustomerLoginStatus | null>(null);
-  const [acceptedAtIst, setAcceptedAtIst] = useState<string | null>(null);
+  const [accepted, setAccepted] = useState<{ atIst: string; version: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const finish = useCallback(() => {
@@ -165,8 +165,8 @@ function LoginSheet({ config, options, onClose }: { config: LoginSheetConfig; op
           {error ? <Alert tone="danger">{error}</Alert> : null}
           {step === "CONSENT" ? (
             <ConsentStep
-              onAccepted={(ist, recorded) => {
-                setAcceptedAtIst(ist);
+              onAccepted={(tick, recorded) => {
+                setAccepted(tick);
                 if (recorded) void loadStatus();
                 else setStep("EMAIL");
               }}
@@ -182,7 +182,7 @@ function LoginSheet({ config, options, onClose }: { config: LoginSheetConfig; op
                 , then come back to the cart.
               </Alert>
             ) : (
-              <EmailStep config={config} returnTo={returnTo} acceptedAtIst={acceptedAtIst} />
+              <EmailStep config={config} returnTo={returnTo} accepted={accepted} />
             )
           ) : null}
           {step === "MOBILE" ? <MobileStep status={status} onVerified={loadStatus} /> : null}
@@ -192,7 +192,7 @@ function LoginSheet({ config, options, onClose }: { config: LoginSheetConfig; op
   );
 }
 
-function ConsentStep({ onAccepted }: { onAccepted: (acceptedAtIst: string, recorded: boolean) => void }) {
+function ConsentStep({ onAccepted }: { onAccepted: (tick: { atIst: string; version: string }, recorded: boolean) => void }) {
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -210,7 +210,7 @@ function ConsentStep({ onAccepted }: { onAccepted: (acceptedAtIst: string, recor
       setError(payload?.error?.message ?? "Could not save your choice. Please try again.");
       return;
     }
-    onAccepted(payload.acceptedAtIst, Boolean(payload.recorded));
+    onAccepted({ atIst: payload.acceptedAtIst, version: payload.version }, Boolean(payload.recorded));
   }
   return (
     <div className="space-y-3" data-testid="login-sheet-consent">
@@ -236,7 +236,15 @@ function ConsentStep({ onAccepted }: { onAccepted: (acceptedAtIst: string, recor
   );
 }
 
-function EmailStep({ config, returnTo, acceptedAtIst }: { config: LoginSheetConfig; returnTo: string; acceptedAtIst: string | null }) {
+function EmailStep({
+  config,
+  returnTo,
+  accepted,
+}: {
+  config: LoginSheetConfig;
+  returnTo: string;
+  accepted: { atIst: string; version: string } | null;
+}) {
   const [pending, startTransition] = useTransition();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -249,7 +257,12 @@ function EmailStep({ config, returnTo, acceptedAtIst }: { config: LoginSheetConf
 
   return (
     <div className="space-y-3" data-testid="login-sheet-email">
-      {acceptedAtIst ? <p className="text-xs text-ink-600">Terms accepted {acceptedAtIst}.</p> : null}
+      {/* QA D-168: the Terms tick is shown with its version and time (IST). */}
+      {accepted ? (
+        <p className="text-xs text-ink-600" data-testid="login-sheet-terms-accepted">
+          Terms accepted (version {accepted.version}) {accepted.atIst}.
+        </p>
+      ) : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {config.googleEnabled ? (
         <Button

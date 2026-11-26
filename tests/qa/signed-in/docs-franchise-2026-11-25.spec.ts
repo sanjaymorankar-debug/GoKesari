@@ -18,6 +18,7 @@ import { as, pageAs } from "../lib/actors";
 import { anonymous, call, expectStatus, why, type Answer } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
 import { world } from "../lib/world";
+import { onboardingV2On } from "../lib/onboarding-v2-helpers";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
 const guestUi = { timeout: 300_000 };
@@ -488,10 +489,26 @@ qa(["TC-FRN-011", "TC-FRN-013"], "a guest's paid and free choices go to sign-in 
   const paidHref = await page.getByTestId("join-paid").getByRole("link", { name: "Sign in to pay" }).getAttribute("href");
   expect(paidHref).toBe("/signin?callbackUrl=%2Ffranchise%2Fbook%3Fzones%3DGKZ-PUN-17%26join%3Dpaid");
   const freeHref = await page.getByTestId("join-free").getByRole("link", { name: "Apply free as a dealer" }).getAttribute("href");
-  expect(freeHref).toBe("/signin?callbackUrl=%2Fdealer%2Fapply%3Fzone%3DGKZ-PUN-17");
+  const v2 = await onboardingV2On("customer");
+  // onboarding v2 (on on test.gokesari.com): the free choice signs in to Become a franchisee (/franchise/start).
+  expect(freeHref).toBe(v2 ? "/signin?callbackUrl=%2Ffranchise%2Fstart%3Fmodel%3Dfree" : "/signin?callbackUrl=%2Fdealer%2Fapply%3Fzone%3DGKZ-PUN-17");
 
   const { context, page: c1 } = await pageAs(browser, "customer");
   try {
+    if (v2) {
+      // v2: a signed-in visitor books through /franchise/start (paid, zones kept); without a live shop he is sent to
+      // shop registration first (return=/franchise/start), or told his shop is not live yet.
+      await c1.goto("/franchise/book?zones=GKZ-PUN-17,BAD-1&join=paid");
+      await c1.waitForURL(/\/(franchise\/start|shop\/register)/, { timeout: 60_000 });
+      const landed = new URL(c1.url());
+      if (landed.pathname === "/franchise/start") {
+        expect(landed.searchParams.get("model")).toBe("paid");
+        expect(landed.searchParams.get("zones") ?? "").toContain("GKZ-PUN-17");
+      } else {
+        expect(landed.searchParams.get("return")).toBe("/franchise/start");
+      }
+      return `onboarding v2: guest → ${paidHref} and ${freeHref}; signed in, /franchise/book → ${landed.pathname}${landed.search}`;
+    }
     await c1.goto("/franchise/book?zones=GKZ-PUN-17,BAD-1&join=paid");
     const summary = c1.getByTestId("franchise-summary");
     await expect(summary.getByRole("heading", { name: "Your cart" })).toBeVisible({ timeout: 60_000 });

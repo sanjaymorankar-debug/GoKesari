@@ -177,6 +177,7 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
             })),
             fulfilmentPlan: plans.get(o.id) ?? null,
             hasAddress: o.deliveryAddressSnapshot != null,
+            addressPending: o.addressPendingSince != null,
             notes: o.notes,
             completedAt: o.completedAt ? o.completedAt.toISOString() : null,
             deliveryPartner: partners.has(o.id) ? { label: partners.get(o.id)!.label, partner: partners.get(o.id)!.partner } : null,

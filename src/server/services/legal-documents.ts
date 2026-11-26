@@ -671,6 +671,8 @@ async function approvalCheckAfterLicence(shopId: string): Promise<void> {
   } catch (error) {
     console.error("[legal-documents] auto-approval check failed", shopId, error);
   }
+  // Onboarding v2 (owner, 27-Nov-2026): a shop the documents follow-up suspended is live again once all are given.
+  await (await import("@/server/onboarding-v2/document-reactivation")).afterShopDocumentGiven(shopId);
 }
 
 /** An uploaded licence, for its shop's owner or a reviewer. Reviewer views are audited. */

@@ -173,6 +173,27 @@ export async function isWizardRegisteredShop(shopId: string, client: DbClient = 
 }
 
 /**
+ * Onboarding v2 (docs/onboarding-v2-2026-11): the shop was created from a v2 registration draft. Owner, 27-Nov-2026:
+ * every licence such a shop needs — must-have ones and FSSAI included — may follow go-live on the promise within the
+ * documents follow-up's period (reminders, then suspension, then automatic reinstatement once given); none, and no
+ * person, holds its go-live. Its GSTIN / PAN check and the fee still decide the instant go-live as for every wizard shop.
+ */
+export async function isV2RegisteredShop(shopId: string, client: DbClient = db): Promise<boolean> {
+  const [row] = await client
+    .select({ id: shopRegistrationDrafts.id })
+    .from(shopRegistrationDrafts)
+    .where(
+      and(
+        eq(shopRegistrationDrafts.shopId, shopId),
+        eq(shopRegistrationDrafts.flowVersion, "v2"),
+        inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"]),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
  * 0120: the shop was registered through the wizard with "upload documents later". It goes live on
  * payment (FSSAI still needed for a food shop); its payouts wait for a verified GSTIN or PAN.
  */

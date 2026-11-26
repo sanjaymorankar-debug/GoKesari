@@ -122,6 +122,12 @@ export async function quoteRegistrationFee(
   };
 }
 
+/** The id of a registration-fee coupon by its code (onboarding v2 records it on the shop the prepaid fee creates). */
+export async function findRegistrationFeeCouponId(code: string): Promise<string | undefined> {
+  const row = await db.query.registrationFeeCoupons.findFirst({ where: eq(registrationFeeCoupons.code, normalizeCouponCode(code)), columns: { id: true } });
+  return row?.id;
+}
+
 /**
  * Inside registerShop's transaction: lock the coupon, check it again for this
  * owner, and return it. The shop row written in the same transaction is the use.

@@ -84,6 +84,14 @@ export function feeForTurnover(turnoverRupees: number, rule: TurnoverFeeRule): n
   return rule.slabs[turnoverSlab(turnoverRupees, rule) - 1].feePaise;
 }
 
+/**
+ * The turnover sent for a slab the owner picked: the slab's own limit (the last slab: just above the one before) —
+ * the same value the original wizard's SHOP step sends, so turnoverSlab() of it is that slab again.
+ */
+export function turnoverForSlab(slab: number, rule: TurnoverFeeRule): number {
+  return rule.slabs[slab - 1]?.upToRupees ?? (slab > 1 ? (rule.slabs[slab - 2]?.upToRupees ?? 0) + 1 : 0);
+}
+
 /** "Up to ₹2 crore", "₹2 crore – ₹10 crore", "Above ₹10 crore" (one slab only: "Any turnover"). */
 export function turnoverSlabLabel(slab: number, rule: TurnoverFeeRule): string {
   const own = rule.slabs[slab - 1]?.upToRupees ?? null;
