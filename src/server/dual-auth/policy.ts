@@ -24,6 +24,7 @@ import { accounts, users, type User, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { getOtpProvider } from "@/server/otp/providers";
+import { getRule } from "@/server/services/settings";
 
 export const DUAL_AUTH_FLAG = "dual_auth" as const;
 /** The DualVerify page: verifies the missing factor(s) and comes back to `?return=`. */
@@ -86,15 +87,25 @@ export function mobileFactorVerified(user: Pick<User, "phoneE164" | "phoneVerifi
   return Boolean(user.phoneE164 && user.phoneVerifiedAt);
 }
 
+/**
+ * Owner 27-Nov-2026 23.40 IST: rule dualAuth.adminMobileOptional (on by default) — an ADMIN account is not asked for
+ * the mobile; its verified e-mail is enough. Best-effort: a settings read error keeps the mobile asked.
+ */
+export async function mobileOptionalFor(user: Pick<User, "role">): Promise<boolean> {
+  if (user.role !== "ADMIN") return false;
+  return (await getRule("dualAuth").catch(() => null))?.adminMobileOptional === true;
+}
+
 export async function factorState(user: User): Promise<FactorState> {
   const emailVerified = await emailFactorVerified(user);
   const mobileVerified = mobileFactorVerified(user);
   const placeholderEmail = !hasRealEmail(user);
+  const mobileAsked = !mobileVerified && !(await mobileOptionalFor(user));
   return {
     mobileVerified,
     emailVerified,
     placeholderEmail,
-    missing: [...(mobileVerified ? [] : (["MOBILE"] as const)), ...(emailVerified ? [] : (["EMAIL"] as const))],
+    missing: [...(mobileAsked ? (["MOBILE"] as const) : []), ...(emailVerified ? [] : (["EMAIL"] as const))],
     maskedPhone: user.phoneE164 ? maskPhone(user.phoneE164) : null,
     maskedEmail: placeholderEmail ? null : maskEmailAddress(user.email),
   };
