@@ -8,7 +8,8 @@ import { and, count, eq, isNull } from "drizzle-orm";
 import { notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { addresses, users, type UserRole } from "@/server/db/schema";
-import { linkPhone, unlinkPhone } from "@/server/otp/service";
+import { linkPhoneChecked } from "@/server/flows/phone-link";
+import { unlinkPhone } from "@/server/otp/service";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
 export const GENDERS = ["MALE", "FEMALE", "OTHER"] as const;
@@ -57,6 +58,8 @@ export interface ProfileUpdate {
   gender?: Gender | null;
   /** 10-digit Indian mobile; empty string or null removes it. Omit to leave unchanged. */
   mobile?: string | null;
+  /** docs/flows-v3/wave5.md (flag flow_f18): the SMS code sent to a new mobile. */
+  mobileCode?: string | null;
   /** Marks the first-time details form as done, so it is not shown again. */
   markComplete?: boolean;
 }
@@ -76,7 +79,7 @@ export async function updateProfile(userId: string, role: UserRole, input: Profi
   // The mobile number goes first: if it is taken, nothing else is saved and the form can be corrected.
   if (input.mobile !== undefined) {
     const mobile = input.mobile?.trim() ?? "";
-    if (mobile) await linkPhone(userId, role, { mobile });
+    if (mobile) await linkPhoneChecked(userId, role, { mobile, code: input.mobileCode ?? null });
     else {
       const [current] = await db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, userId));
       if (current?.phoneE164) await unlinkPhone(userId, role);

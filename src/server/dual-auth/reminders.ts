@@ -1,19 +1,23 @@
 /**
- * docs/dual-auth-2026-11: reminders for shop owners whose account has one verified factor — mostly shops registered
- * with a mobile number alone, which must add and verify an e-mail. In-app notice + SMS, every rule
- * dualAuth.reminderEveryDays (3) days between 10:00 and 19:00 IST, until both are verified. The shop is never taken
- * offline. Hourly job (cron/schedule.ts); nothing is sent while dual_auth is not in force.
+ * docs/dual-auth-2026-11: reminders for every live account with a missing factor (needs_second_factor) — shop owners
+ * first, and since 27-Nov-2026 (owner, login & auth item 7) customers and every other role too. Every rule
+ * dualAuth.reminderEveryDays (3) days between 10:00 and 19:00 IST, until both are verified. Shop owners: in-app +
+ * SMS (as before). Everyone else: in-app + e-mail (a real address only), SMS only when a number is on file
+ * // DEFAULT – confirm with Sanjay. The shop is never taken offline. Hourly job (cron/schedule.ts); nothing is sent
+ * while dual_auth is not in force.
  */
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+
+import { isPlaceholderEmail } from "@/lib/placeholder-email";
 
 import { db } from "@/server/db";
-import { shops, users } from "@/server/db/schema";
+import { users } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { NOTIFICATION_TYPES, notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { dualAuthInForce, syncNeedsSecondFactor } from "./policy";
 
-const BATCH = 200;
+const BATCH = 500;
 
 function istHour(now: Date): number {
   return Number(new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", hour12: false }).format(now)) % 24;
@@ -25,23 +29,24 @@ export async function runSecondFactorReminders(now: Date = new Date()): Promise<
   if (hour < 10 || hour >= 19) return { checked: 0, reminded: 0, skipped: "outside_10_19_ist" };
   const { reminderEveryDays } = await getRule("dualAuth");
   const due = new Date(now.getTime() - reminderEveryDays * 24 * 3_600_000);
+  // Shop owners with a live shop first (as before), then every other account.
+  // Written out in full: inside a one-table select, drizzle leaves column names unqualified.
+  const shopOwner = sql<boolean>`exists (select 1 from shops s where s.owner_id = "users"."id" and s.deleted_at is null and s.status in ('APPROVED', 'PENDING_APPROVAL', 'SUSPENDED'))`;
   const owners = await db
-    .selectDistinct({ id: users.id })
+    .select({ id: users.id, shopOwner, email: users.email, emailPlaceholder: users.emailPlaceholder, phoneE164: users.phoneE164 })
     .from(users)
-    .innerJoin(shops, eq(shops.ownerId, users.id))
     .where(
       and(
         eq(users.needsSecondFactor, true),
         isNull(users.deletedAt),
         eq(users.status, "ACTIVE"),
-        isNull(shops.deletedAt),
-        inArray(shops.status, ["APPROVED", "PENDING_APPROVAL", "SUSPENDED"]),
         or(isNull(users.secondFactorRemindedAt), lt(users.secondFactorRemindedAt, due)),
       ),
     )
+    .orderBy(sql`${shopOwner} desc`, users.createdAt)
     .limit(BATCH);
   let reminded = 0;
-  for (const { id } of owners) {
+  for (const { id, shopOwner: ownsShop, email, emailPlaceholder, phoneE164 } of owners) {
     const state = await syncNeedsSecondFactor(id);
     if (!state || state.missing.length === 0) continue;
     // Claim first, so two runs never remind twice.
@@ -55,12 +60,18 @@ export async function runSecondFactorReminders(now: Date = new Date()): Promise<
     await notify({
       userId: id,
       type: NOTIFICATION_TYPES.SECURITY_SECOND_FACTOR_NEEDED,
-      vars: { missing },
+      vars: { missing, shopNote: ownsShop ? " Your shop stays live meanwhile." : "" },
       actionUrl: "/account/verify",
-      channels: ["IN_APP", "SMS"],
+      channels: ownsShop
+        ? ["IN_APP", "SMS"]
+        : [
+            "IN_APP",
+            ...(!emailPlaceholder && !isPlaceholderEmail(email) ? (["EMAIL"] as const) : []),
+            ...(phoneE164 ? (["SMS"] as const) : []),
+          ],
       dedupeKey: `dual-auth-reminder:${id}:${now.toISOString().slice(0, 10)}`,
     });
-    await recordAudit({ action: AUDIT_ACTIONS.DUAL_AUTH_REMINDER_SENT, entityType: "user", entityId: id, newValue: { missing: state.missing } });
+    await recordAudit({ action: AUDIT_ACTIONS.DUAL_AUTH_REMINDER_SENT, entityType: "user", entityId: id, newValue: { missing: state.missing, shopOwner: ownsShop } });
     reminded += 1;
   }
   return { checked: owners.length, reminded };

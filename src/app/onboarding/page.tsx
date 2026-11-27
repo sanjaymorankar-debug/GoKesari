@@ -6,6 +6,7 @@ import { REFERRAL_COOKIE } from "@/lib/customer-referrals";
 import { ReferredByView, referredByFor } from "@/components/referral-sharing/referred-by-banner";
 import { RETURN_TO_COOKIE, safeReturnPath } from "@/lib/return-to";
 import { getCurrentUser } from "@/server/authz/guards";
+import { dualVerifyRedirect } from "@/server/dual-auth/policy";
 import { getBoardLang } from "@/server/board-lang";
 import { needsSignupReferralCode, shouldAskSignupReferral } from "@/server/services/customer-signup-referrals";
 import { getProfile, nextOnboardingStep } from "@/server/services/profile";
@@ -28,6 +29,14 @@ export default async function OnboardingPage() {
   const profile = await getProfile(user.id);
   const step = nextOnboardingStep(profile);
   const returnTo = safeReturnPath((await cookies()).get(RETURN_TO_COOKIE)?.value) ?? "/";
+  // Login & auth item 3 (owner 27-Nov-2026): while dual_auth is in force, an account missing a verified mobile or
+  // e-mail verifies it on /account/verify straight after signing in (no skip), then comes back here. The shop
+  // registration and the checkout login sheet keep their own steps (their pages ask for it themselves).
+  const keepsOwnSteps = returnTo.startsWith("/shop/register") || (isSheetResumePath(returnTo) && (await onboardingV2Enabled()));
+  if (!keepsOwnSteps) {
+    const verifyAt = await dualVerifyRedirect(user.id, "/onboarding").catch(() => null);
+    if (verifyAt) redirect(verifyAt);
+  }
   if (step === "DONE") redirect(returnTo);
   // Onboarding Phase B (G2): someone registering a shop goes straight back to it. The shop
   // registration asks for what it needs (name, mobile); the customer profile and the customer

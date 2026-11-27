@@ -307,8 +307,12 @@ export const RULES = {
       lockoutMinutes: int(1, 1440),
       /** DEFAULT – confirm with Sanjay: codes per IP per window (all numbers and e-mails together). */
       maxCodesPerIpPerWindow: int(1, 500),
-      /** DEFAULT – confirm with Sanjay: a device that finished both factors is trusted for 30 days. */
+      /** DEFAULT – confirm with Sanjay: a device that finished both factors is trusted for 30 days (shop owners, dealers, riders, society admins; fixed). */
       trustDays: int(1, 365),
+      /** Owner 27-Nov-2026: customers' devices are trusted for 180 days, renewed at every sign-in on that device (rolling). */
+      customerTrustDays: int(1, 730),
+      /** DEFAULT – confirm with Sanjay: a customer's rolling trust never runs past 365 days from the first trust. */
+      customerTrustMaxDays: int(1, 1095),
       /** DEFAULT – confirm with Sanjay: the two codes of a sensitive action stay good for 10 minutes. */
       stepUpMinutes: int(1, 60),
       /** DEFAULT – confirm with Sanjay: mobile-only shop owners get the "add your e-mail" SMS reminder every 3 days. */
@@ -324,6 +328,8 @@ export const RULES = {
       lockoutMinutes: 15,
       maxCodesPerIpPerWindow: 30,
       trustDays: 30,
+      customerTrustDays: 180,
+      customerTrustMaxDays: 365,
       stepUpMinutes: 10,
       reminderEveryDays: 3,
     },

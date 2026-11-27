@@ -48,6 +48,15 @@ FEATURES = [
     ("D7.2", "Testing", "Test pass on test.gokesari.com"),
     ("D7.3", "Testing", "Production deploy + Prod pass"),
     ("D7.4", "Release", "Flag dual_auth ON in Prod (needs real SMS on gokesari.com)"),
+    # Login & auth finish (owner prompt 27-Nov-2026 13.34 IST)
+    ("L1", "Login & auth", "Sign-in page: one box (mobile or email) + I agree + Get code; no Google / link on /signin (replaces #662)"),
+    ("L2", "Login & auth", "Safety step: SMS to a never-verified number on an account with a real e-mail also asks that e-mail's code"),
+    ("L3", "Login & auth", "Missing factor verified straight after sign-in (/onboarding -> /account/verify, no skip; dual_auth on)"),
+    ("L4", "Login & auth", "E-mail by link for mobile-only accounts adding a new address (single use, 15 min, duplicate check)"),
+    ("L5", "Login & auth", "Profile: a mobile is added / changed only through an SMS code (whenever SMS works)"),
+    ("L6", "Login & auth", "Device trust by role: customers 180 days rolling (max 365); others 30 fixed; staff never"),
+    ("L7", "Login & auth", "Reminders for every account with a missing factor (customers: in-app + e-mail, SMS if number)"),
+    ("L8", "Login & auth", "Android + iOS: same flow through the WebView; /account links open in the app (no new build)"),
 ]
 
 FILL = {
