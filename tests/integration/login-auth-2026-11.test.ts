@@ -48,6 +48,8 @@ vi.mock("next/navigation", async (orig) => ({
 }));
 
 import OnboardingPage from "@/app/onboarding/page";
+import { PUT as phonePut } from "@/app/api/me/phone/route";
+import { POST as phoneCodePost } from "@/app/api/me/phone/code/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import { auditLogs, featureFlags, loginOtps, notificationDeliveries, notifications, platformSettings, trustedDevices, users, type User } from "@/server/db/schema";
@@ -60,6 +62,17 @@ import { placeholderEmailFor } from "@/lib/placeholder-email";
 import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { clearRuleCache } from "@/server/services/settings";
 import { createShop, createUser, resetDatabase, uniqueMobile } from "../helpers/fixtures";
+import { call } from "../helpers/http";
+import { codeFromSmsOtpText } from "@/server/otp/providers";
+import { outboundTestMessages } from "@/server/db/schema";
+import { setRule } from "@/server/services/settings";
+
+async function lastSmsCode(e164: string): Promise<string> {
+  const [row] = await db.select().from(outboundTestMessages).where(and(eq(outboundTestMessages.toAddress, e164), eq(outboundTestMessages.purpose, "otp"))).orderBy(desc(outboundTestMessages.createdAt)).limit(1);
+  const code = row ? codeFromSmsOtpText(row.body) : null;
+  if (!code) throw new Error(`no SMS code was sent to ${e164.slice(-4)}`);
+  return code;
+}
 
 const DAY = 86_400_000;
 
@@ -298,5 +311,47 @@ describe("LA-3 verification straight after sign-in", () => {
     signInAs(user);
     const result = await OnboardingPage().catch((e: Error) => e);
     expect(result instanceof Error ? result.message : "").not.toMatch(/account\/verify/);
+  });
+});
+
+describe("LA-5 profile: a mobile is added or changed only through an SMS code", () => {
+  it("LA-5.1 SMS works: refused without the code; with it the number is saved verified", async () => {
+    const user = await createUser({ mobile: null });
+    signInAs(user);
+    const mobile = uniqueMobile();
+    const refused = await call(phonePut, "/api/me/phone", { method: "PUT", body: { mobile } });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error.details).toMatchObject({ reason: "PHONE_CODE_REQUIRED" });
+    expect((await call(phoneCodePost, "/api/me/phone/code", { method: "POST", body: { mobile } })).status).toBe(200);
+    expect((await call(phonePut, "/api/me/phone", { method: "PUT", body: { mobile, code: "000001" } })).status).toBe(422);
+    const ok = await call(phonePut, "/api/me/phone", { method: "PUT", body: { mobile, code: await lastSmsCode(`+91${mobile}`) } });
+    expect(ok.status).toBe(200);
+    const [after] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(after.phoneE164).toBe(`+91${mobile}`);
+    expect(after.phoneVerifiedAt).not.toBeNull();
+  });
+
+  it("LA-5.2 a number on another account: the code is sent, then DIFFERENT_ACCOUNTS, logged, nothing saved", async () => {
+    const mobile = uniqueMobile();
+    await createUser({ mobile });
+    const user = await createUser({ mobile: null });
+    signInAs(user);
+    expect((await call(phoneCodePost, "/api/me/phone/code", { method: "POST", body: { mobile } })).status).toBe(200);
+    const res = await call(phonePut, "/api/me/phone", { method: "PUT", body: { mobile, code: await lastSmsCode(`+91${mobile}`) } });
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toBe(DIFFERENT_ACCOUNTS);
+    const [after] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(after.phoneE164).toBeNull();
+  });
+
+  it("LA-5.3 SMS cannot be sent on the site: linked at once, unverified, as before; no code route", async () => {
+    await setRule("otp", { smsEnabled: false } as never, await createUser({ role: "ADMIN" }));
+    const user = await createUser({ mobile: null });
+    signInAs(user);
+    const mobile = uniqueMobile();
+    expect((await call(phonePut, "/api/me/phone", { method: "PUT", body: { mobile } })).status).toBe(200);
+    const [after] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(after).toMatchObject({ phoneE164: `+91${mobile}`, phoneVerifiedAt: null });
+    expect((await call(phoneCodePost, "/api/me/phone/code", { method: "POST", body: { mobile } })).status).toBe(404);
   });
 });
