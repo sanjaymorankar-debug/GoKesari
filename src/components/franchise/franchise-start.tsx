@@ -1,7 +1,7 @@
 "use client";
 /**
  * Onboarding v2 — Become a franchisee (docs/onboarding-v2-2026-11). Choose the model (mandatory): free dealer (no
- * area; live at once with a GKD code) or paid franchise (zones + subscription plan + optional coupon, pay online,
+ * area; a request an admin approves, then a GKD code — owner, 27-Nov-2026) or paid franchise (zones + subscription plan + optional coupon, pay online,
  * live at payment). The paid path reuses the zone booking (list / map / cart / coupon / pay) in its v2 mode.
  */
 import Link from "next/link";
@@ -21,6 +21,7 @@ export function FranchiseStart({ state, initialModel, booking }: { state: StartS
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [freeCode, setFreeCode] = useState<string | null>(state.isFreeDealer || state.isFranchisee ? state.dealer?.code ?? null : null);
+  const [requested, setRequested] = useState(state.dealer?.status === "PENDING" && !state.isFranchisee);
   const { plans, ...zoneProps } = booking;
   const rates = booking.rates;
 
@@ -39,7 +40,10 @@ export function FranchiseStart({ state, initialModel, booking }: { state: StartS
         }
         throw new Error(payload?.error?.message ?? "Something went wrong. Please try again.");
       }
-      if (which === "free") setFreeCode(payload?.code ?? null);
+      if (which === "free") {
+        if (payload?.code) setFreeCode(payload.code);
+        else setRequested(true);
+      }
       else setStep("zones");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -62,6 +66,14 @@ export function FranchiseStart({ state, initialModel, booking }: { state: StartS
   const live = state.isFreeDealer || state.isFranchisee || !!freeCode;
   return (
     <div className="space-y-4" data-testid="franchise-start">
+      {requested && !live ? (
+        <Card className="space-y-2 p-4" data-testid="franchise-start-requested">
+          <Badge tone="info">Request sent</Badge>
+          <p className="text-sm text-ink-700">
+            Your request to become a free franchisee is with the GoKesari team. Once an admin approves it you are promoted to dealer and get your dealer code (GKD-…) by e-mail and here.
+          </p>
+        </Card>
+      ) : null}
       {live ? (
         <Card className="space-y-2 p-4" data-testid="franchise-start-live">
           <div className="flex flex-wrap items-center gap-2">
@@ -92,7 +104,7 @@ export function FranchiseStart({ state, initialModel, booking }: { state: StartS
 
       <h2 className="text-lg font-bold text-ink-900">{live ? "Own a zone too?" : "Choose how you want to work"}</h2>
       <div className="grid gap-3 md:grid-cols-2">
-        {!live ? (
+        {!live && !requested ? (
           <Card className={`flex flex-col gap-3 p-4 ${model === "free" ? "ring-2 ring-kesari-500" : ""}`} data-testid="model-free">
             <div>
               <Badge tone="success">No fee</Badge>
@@ -100,14 +112,14 @@ export function FranchiseStart({ state, initialModel, booking }: { state: StartS
             </div>
             <ul className="list-disc space-y-1 pl-5 text-sm text-ink-700">
               <li>No zone to choose — work anywhere.</li>
-              <li>Your dealer code (GKD-…) at once; you are live straight away.</li>
+              <li>Send a request; once GoKesari approves it you get your dealer code (GKD-…).</li>
               <li>
                 One-time commission on each shop&apos;s registration fee: <strong>{pct(rates.freeSelfBp)}</strong> on shops you register, <strong>{pct(rates.freeOverrideBp)}</strong> and <strong>{pct(rates.freeSecondBp)}</strong> on your team&apos;s shops.
               </li>
               <li>PAN and payout bank account only before your first payout.</li>
             </ul>
             <Button className="mt-auto" onClick={() => void start("free")} disabled={busy} data-testid="model-free-go">
-              {busy && model === "free" ? "Please wait…" : "Become a free dealer"}
+              {busy && model === "free" ? "Please wait…" : "Request to become a free franchisee"}
             </Button>
           </Card>
         ) : null}

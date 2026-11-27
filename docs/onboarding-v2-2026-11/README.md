@@ -17,7 +17,7 @@ All times in this document and in every v2 screen are IST.
 | Address | Chosen before payment | Delivery address after payment (GPS + pin or saved address); not asked for pickup |
 | Shop registration | Sign-in → referral → GST/PAN → type → licences → address → pin → shop → documents → SLA → pay | Identity → referral → GST/PAN → **fee** → type → licences (4 options) → SLA → address + pin → live |
 | Fee | By turnover (₹999 / ₹4,999 / ₹9,999 + GST) | Unchanged amounts and slabs (owner 27-Nov): the same turnover slabs + GST, paid on the draft right after GST / PAN |
-| Franchise | No shop needed; paid goes live after KYC (30-day KYC rule); free dealer waits for admin approval | Live shop required (else shop onboarding, then back); free dealer live at once; paid live on payment; plan table; no 30-day KYC rule (decided by owner 27-Nov) |
+| Franchise | No shop needed; paid goes live after KYC (30-day KYC rule); free dealer waits for admin approval | Live shop required (else shop onboarding, then back); free dealer = a request an admin approves (owner 27-Nov 17.30, replaces "live at once"); paid live on payment; plan table; no 30-day KYC rule (decided by owner 27-Nov) |
 | Team | Dealer adds employees by ID; admin placement | "My team": search customer by mobile / e-mail, invite, member accepts; upgrade / downgrade / remove with IST audit |
 | Roles | `user_role_grants` + dealer tables | Derived marketplace roles (`src/server/onboarding-v2/roles.ts`) + `onboarding_role_history` |
 
@@ -62,7 +62,7 @@ All times in this document and in every v2 screen are IST.
    accepted with the ticks and the typed name, no SMS code (`signature_method = REGISTRATION_ACCEPT`, 0220); the
    signed copies (EN / MR / HI) are still e-mailed with the welcome kit. Reviewing or re-signing later from the shop
    dashboard keeps the OTP.
-4. Free dealer live at once; paid franchise live on payment without the 30-day KYC rule — decided by owner 27-Nov
+4. Free dealer: a request an admin approves, then the GKD code (owner 27-Nov 17.30; was "live at once"); paid franchise live on payment without the 30-day KYC rule — decided by owner 27-Nov
    (already built).
 5. Mobile OTP unchanged (production flag stays off until the SMS provider PR #632 is live).
 
@@ -95,7 +95,7 @@ Choices these rules left open (each marked in code):
 13. Address after payment: the order goes to the shop at once; rider dispatch waits until the customer sets the
     address (the confirmation page asks for it straight away).
 14. Team invite links last 7 days (`onboardingV2.teamInviteExpiryDays`).
-15. Free dealer goes live at once with a GKD code; PAN and payout bank are asked before the first payout only —
+15. ~~Free dealer goes live at once~~ → replaced 27-Nov-2026: the free dealer request waits for an admin's approval, which issues the GKD code; PAN and payout bank are asked before the first payout only —
     decided by owner 27-Nov.
 16. Production release in the 23.00 IST window (owner rule of 20-Nov), flag OFF until the production test pass.
 

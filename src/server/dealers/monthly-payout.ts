@@ -140,6 +140,8 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
     const territory = await accrueTerritoryIncome(tx, month, start, end, actor);
     // ...and (docs/dealer-platform phase 3) every scheme dealer's monthly commission from his scheme's terms.
     const scheme = await (await import("./scheme-calculator")).accrueSchemeRecurring(tx, month, start, end, actor);
+    // ...and (0226) each super franchisee's share of his team's fees and of GoKesari's order commission on its shops.
+    await (await import("./super-franchisee")).accrueSuperFranchiseeMonth(tx, month, start, end, actor);
 
     // 1. The month's earned accruals, approved first when the setting says so.
     let autoApproved: string[] = [];

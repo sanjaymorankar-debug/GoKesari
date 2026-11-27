@@ -17,6 +17,10 @@ export const FULFILMENT_OPTION_LABELS: Record<FulfilmentOptionKey, string> = {
   GOKESARI_PARTNER: "GoKesari delivery partner",
 };
 
+/** docs/pico-xpress-2026-11: GOKESARI_PARTNER booked with the Pico Xpress delivery partner. */
+export const PICO_PARTNER_LABEL = "gokesari.com delivery partner (Pico Xpress)";
+export const PICO_PARTNER_HINT = "Booked now with our delivery partner; a rider collects from your shop with a pickup code.";
+
 /** One line for the shop's chooser. */
 export const FULFILMENT_OPTION_HINTS: Record<FulfilmentOptionKey, string> = {
   PICKUP: "The customer collects from your shop and shows a pickup code.",

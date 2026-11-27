@@ -13,6 +13,7 @@ import { FRANCHISE_AGREEMENT_V2_VERSION, FRANCHISE_AGREEMENT_VERSION } from "@/l
 import { encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
 import { db } from "@/server/db";
 import {
+  notifications,
   auditLogs,
   dealers,
   franchiseAllocations,
@@ -51,6 +52,7 @@ import { zoneView } from "@/server/franchise/zones";
 import { SHOP_REGISTER_FOR_FRANCHISE, becomeFreeDealer, createPlan, franchiseStartState, retryV2GoLive, setPlanActive, startPaidFranchise, updatePlan } from "@/server/onboarding-v2/franchise";
 import { listMarketplaceRoles } from "@/server/onboarding-v2/roles";
 import { setFeatureFlag } from "@/server/services/feature-flags";
+import { setRule } from "@/server/services/settings";
 import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 type PaymentIntentRefT = PaymentIntentRef;
@@ -149,36 +151,60 @@ describe("a live registered shop is mandatory", () => {
 
 /* ================================================================ free dealer */
 
-describe("free dealer: live at once with a GKD code (DEFAULT #15)", () => {
-  it("approved now from the shop's details, DEALER role, role history, idempotent", async () => {
+describe("free franchisee: a request an admin approves, then a GKD code (owner, 27-Nov-2026)", () => {
+  const approve = async (dealerId: string) =>
+    (await import("@/server/dealers/service")).decideDealer(dealerId, { action: "APPROVE", agreementStart: "2026-11-27", agreementEnd: "2027-11-26" }, admin);
+
+  it("the request waits (PENDING, no code, no DEALER role); an admin approves it on the shop's details: code, role, history, notice", async () => {
     const o = await shopOwner({ withPan: true });
     const r = await becomeFreeDealer(o.actor);
-    expect(r.approvedNow).toBe(true);
-    expect(r.code).toMatch(/^GKD-[23456789A-Z]{6}$/);
+    expect(r).toMatchObject({ approvedNow: false, code: null, status: "PENDING" });
     const [d] = await db.select().from(dealers).where(eq(dealers.userId, o.user.id));
-    expect(d).toMatchObject({ status: "APPROVED", gstin: "27ABCDE1234F1Z5", dealerType: "PROPRIETORSHIP", city: "Pune", pincode: "411001" });
-    expect(d.mobileE164).toBe(o.user.phoneE164);
+    expect(d).toMatchObject({ status: "PENDING", source: "SHOP_REQUEST", gstin: "27ABCDE1234F1Z5", dealerType: "PROPRIETORSHIP", city: "Pune", pincode: "411001" });
     expect(d.panHash).not.toBeNull(); // the shop's PAN, not asked again
-    expect(d.preferredZoneId).toBeNull(); // no area
+    expect(await db.select().from(userRoleGrants).where(and(eq(userRoleGrants.userId, o.user.id), eq(userRoleGrants.role, "DEALER")))).toHaveLength(0);
+    expect((await franchiseStartState(o.user.id)).dealer?.status).toBe("PENDING");
+    // A second tap returns the same request.
+    expect(await becomeFreeDealer(o.actor)).toEqual({ dealerId: d.id, code: null, approvedNow: false, status: "PENDING" });
+    expect(await db.select().from(dealers).where(eq(dealers.userId, o.user.id))).toHaveLength(1);
+
+    // The admin approves: no documents, mobile call or bank check for a shop request.
+    const decided = await approve(d.id);
+    expect(decided.code).toMatch(/^GKD-[23456789A-Z]{6}$/);
+    const [after] = await db.select().from(dealers).where(eq(dealers.id, d.id));
+    expect(after.status).toBe("APPROVED");
     const [grant] = await db.select().from(userRoleGrants).where(and(eq(userRoleGrants.userId, o.user.id), eq(userRoleGrants.role, "DEALER")));
     expect(grant.status).toBe("ACTIVE");
     const history = await db.select().from(onboardingRoleHistory).where(eq(onboardingRoleHistory.userId, o.user.id));
     expect(history.map((h) => `${h.role}:${h.action}`)).toEqual(["dealer_free:GRANTED"]);
     expect((await listMarketplaceRoles(o.user.id)).roles).toEqual(expect.arrayContaining(["customer", "dealer_free"]));
-    const audit = await db.select().from(auditLogs).where(and(eq(auditLogs.entityType, "dealer"), eq(auditLogs.entityId, d.id)));
-    expect(audit.some((a) => (a.newValue as { via?: string } | null)?.via === "onboarding_v2_instant")).toBe(true);
-
-    const again = await becomeFreeDealer(o.actor);
-    expect(again).toEqual({ dealerId: d.id, code: r.code, approvedNow: false });
-    expect(await db.select().from(dealers).where(eq(dealers.userId, o.user.id))).toHaveLength(1);
+    const notes = await db.select().from(notifications).where(and(eq(notifications.userId, o.user.id), eq(notifications.type, "dealer.status_changed"), eq(notifications.channel, "IN_APP")));
+    expect(notes.some((n) => n.body.includes(decided.code!))).toBe(true);
+    expect(await becomeFreeDealer(o.actor)).toEqual({ dealerId: d.id, code: decided.code, approvedNow: false, status: "APPROVED" });
   });
 
-  it("without a PAN on the shop the dealer is still live; PAN + bank are asked before the first payout only", async () => {
+  it("without a PAN on the shop he is still approved; PAN + bank are asked before the first payout only", async () => {
     const o = await shopOwner();
-    await becomeFreeDealer(o.actor);
+    const r = await becomeFreeDealer(o.actor);
+    await approve(r.dealerId);
     const s = await franchiseStartState(o.user.id);
     expect(s.isFreeDealer).toBe(true);
     expect(s.payoutMissing).toEqual(["PAN", "payout bank account"]);
+  });
+
+  it("a request whose shop is no longer live cannot be approved", async () => {
+    const o = await shopOwner();
+    const r = await becomeFreeDealer(o.actor);
+    await db.update(shops).set({ status: "SUSPENDED" }).where(eq(shops.ownerId, o.user.id));
+    await expect(approve(r.dealerId)).rejects.toThrow(/no longer live/);
+  });
+
+  it("the full dealer application also needs a live shop (rule dealerApplication)", async () => {
+    await setRule("dealerApplication", { requireLiveShop: true }, admin);
+    const u = await createUser({ role: "CUSTOMER" });
+    await db.insert(dealers).values({ userId: u.id, legalName: "No Shop", contactName: "No Shop", dealerType: "INDIVIDUAL", status: "DRAFT" });
+    const { submitApplication } = await import("@/server/dealers/service");
+    await expect(submitApplication({ id: u.id, role: "CUSTOMER" } as never, "x", { smsAvailable: false })).rejects.toThrow(/Register your shop first/);
   });
 });
 
@@ -224,6 +250,7 @@ describe("paid franchise: zones + plan + coupon + payment → live at payment", 
   it("a free dealer upgrading keeps his GKD code and gets the GKF code at payment", async () => {
     const o = await shopOwner();
     const free = await becomeFreeDealer(o.actor);
+    free.code = (await (await import("@/server/dealers/service")).decideDealer(free.dealerId, { action: "APPROVE", agreementStart: "2026-11-27", agreementEnd: "2027-11-26" }, admin)).code;
     await startPaidFranchise(o.actor);
     await acceptFranchiseAgreement(o.actor, FRANCHISE_AGREEMENT_V2_VERSION, { ipAddress: null, userAgent: null });
     const r = await reserveZones(o.actor, { zoneIds: [Z7], planId: (await launchPlan()).id });

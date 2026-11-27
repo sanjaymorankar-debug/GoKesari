@@ -35,6 +35,7 @@ import { getEnv } from "@/lib/env";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import {
   FULFILMENT_OPTION_LABELS,
+  PICO_PARTNER_LABEL,
   availableSlotDays,
   formatFulfilmentWindow,
   isAvailableSlot,
@@ -239,6 +240,15 @@ export interface PlanInput {
   slotKey: string;
   /** SHOP_DELIVERY: one of the shop's active delivery people. */
   staffId?: string | null;
+  /**
+   * docs/pico-xpress-2026-11: GOKESARI_PARTNER booked with Pico Xpress ("gokesari.com delivery partner"):
+   * no GoKesari rider search; Pico is booked straight after the plan is saved (flag delivery_partner_picoxpress_enabled).
+   */
+  partner?: "PICO" | null;
+  /** Pico: the 12-digit Part-A e-way bill number (goods over ₹50,000). */
+  ewayBillNo?: string | null;
+  /** Pico: number of boxes (default 1). */
+  numBoxes?: number | null;
 }
 
 /** Statuses in which the plan can be set or changed (see also the per-option checks). */
@@ -248,8 +258,13 @@ export async function getSlotRules(): Promise<SlotRules & { enabled: boolean; go
   return getRule("fulfilmentOptions");
 }
 
-function labelFor(plan: Pick<OrderFulfilmentArrangement, "option" | "scheduledStart" | "scheduledEnd">): { optionLabel: string; whenLabel: string } {
-  return { optionLabel: FULFILMENT_OPTION_LABELS[plan.option], whenLabel: formatFulfilmentWindow(plan.scheduledStart, plan.scheduledEnd) };
+function labelFor(
+  plan: Pick<OrderFulfilmentArrangement, "option" | "scheduledStart" | "scheduledEnd"> & { externalPartner?: OrderFulfilmentArrangement["externalPartner"] },
+): { optionLabel: string; whenLabel: string } {
+  return {
+    optionLabel: plan.externalPartner === "PICO" ? PICO_PARTNER_LABEL : FULFILMENT_OPTION_LABELS[plan.option],
+    whenLabel: formatFulfilmentWindow(plan.scheduledStart, plan.scheduledEnd),
+  };
 }
 
 const nonce = () => randomBytes(12).toString("hex");
@@ -346,7 +361,8 @@ async function savePlan(
   const timeMoves = previous == null || previous.scheduledStart.getTime() !== window.start.getTime();
   // A rider offered or assigned keeps the order only while it stays a GoKesari delivery for about now.
   const gokesariLater = window.start.getTime() - rules.gokesariLeadMinutes * 60_000 > Date.now();
-  const releaseRider = riderRow != null && (input.option !== "GOKESARI_PARTNER" || (timeMoves && gokesariLater));
+  const viaPico = input.option === "GOKESARI_PARTNER" && input.partner === "PICO";
+  const releaseRider = riderRow != null && (input.option !== "GOKESARI_PARTNER" || viaPico || (timeMoves && gokesariLater));
 
   const now = new Date();
   const fields = {
@@ -354,6 +370,7 @@ async function savePlan(
     scheduledStart: window.start,
     scheduledEnd: window.end,
     staffId: input.option === "SHOP_DELIVERY" ? staff!.id : null,
+    externalPartner: viaPico ? ("PICO" as const) : null,
     // A new delivery person gets a new link (the old one stops working).
     staffLinkNonce:
       input.option === "SHOP_DELIVERY"
@@ -376,7 +393,8 @@ async function savePlan(
     previous != null &&
     previous.option === fields.option &&
     previous.scheduledStart.getTime() === fields.scheduledStart.getTime() &&
-    (previous.staffId ?? null) === fields.staffId;
+    (previous.staffId ?? null) === fields.staffId &&
+    (previous.externalPartner ?? null) === fields.externalPartner;
   if (unchanged) return { plan: previous!, previous, riderReleased: false };
 
   const [plan] = previous
@@ -392,12 +410,12 @@ async function savePlan(
 
   if (releaseRider) await releaseRiderFor(tx, order, riderRow!, actor, "The shop changed the delivery plan.");
   const feeRefund = await refundDeliveryFeeForPickup(tx, order, plan, actor);
-  if (input.option !== "GOKESARI_PARTNER") {
+  if (input.option !== "GOKESARI_PARTNER" || viaPico) {
     await tx
       .update(riderSearches)
       .set({ status: "STOPPED", stopReason: "STOPPED_BY_SHOP", stoppedAt: now, updatedAt: now })
       .where(and(eq(riderSearches.orderId, order.id), eq(riderSearches.status, "SEARCHING")));
-  } else if (previous == null || previous.option !== "GOKESARI_PARTNER" || releaseRider) {
+  } else if (previous == null || previous.option !== "GOKESARI_PARTNER" || previous.externalPartner != null || releaseRider) {
     // A fresh automatic search when the rider is needed: now, or at the slot's lead time.
     const dispatchRules = await getRule("dispatch");
     const startAt = new Date(Math.max(now.getTime(), window.start.getTime() - rules.gokesariLeadMinutes * 60_000));
@@ -595,7 +613,9 @@ async function releaseRiderFor(
 /** After commit: rider search follow-up for a GoKesari plan (never undoes the plan). */
 async function afterPlanSaved(orderId: string, plan: OrderFulfilmentArrangement, previous: OrderFulfilmentArrangement | null, actor: Actor) {
   try {
-    if (plan.option === "GOKESARI_PARTNER") {
+    if (plan.option === "GOKESARI_PARTNER" && plan.externalPartner) {
+      // Booked with Pico straight after (planFulfilment); a GoKesari rider is not looked for.
+    } else if (plan.option === "GOKESARI_PARTNER") {
       await dispatchReadyOrder(orderId, actor, "AUTO_READY");
     } else if (previous?.option === "GOKESARI_PARTNER") {
       await stopRiderSearch(orderId, actor);
@@ -610,7 +630,44 @@ async function afterPlanSaved(orderId: string, plan: OrderFulfilmentArrangement,
  * step (the plan and READY commit together); or sets / changes the plan of an
  * order that is ACCEPTED, PREPARING, READY or ASSIGNED (before pickup).
  */
+export interface PicoPlanOutcome {
+  booked: boolean;
+  awbNumber?: string;
+  /** Why the booking did not go through (the plan is saved; the shop can book again or change it). */
+  error?: string;
+}
+
+/**
+ * docs/pico-xpress-2026-11 around the plan: a Pico choice is checked with Pico before anything is saved; a live
+ * Pico booking is cancelled (before pickup only) when the shop switches to another option; after the plan is
+ * saved on a READY order, Pico is booked at once.
+ */
 export async function planFulfilment(
+  orderId: string,
+  input: PlanInput & { markReady?: boolean },
+  actor: Actor,
+): Promise<{ order: Pick<Order, "id" | "orderNumber" | "status">; plan: OrderFulfilmentArrangement; pico?: PicoPlanOutcome }> {
+  const viaPico = input.partner === "PICO";
+  if (viaPico && input.option !== "GOKESARI_PARTNER") throw validationFailed("The delivery partner is a delivery option.");
+  const pico = await import("@/server/delivery/pico/service");
+  if (viaPico) {
+    const option = await pico.picoOptionForOrder(orderId);
+    if (!option.available && !option.booked) throw conflict(option.reason ?? "The gokesari.com delivery partner is not available for this order.");
+  } else {
+    const live = await pico.livePicoShipment(orderId);
+    if (live) await pico.cancelPicoShipment(orderId, "SHOP", "Shop switched to another delivery option", actor);
+  }
+  const result = await planFulfilmentCore(orderId, input, actor);
+  if (!viaPico || result.order.status !== "READY") return result;
+  try {
+    const booked = await pico.bookPicoShipment(orderId, actor, { ewayBillNo: input.ewayBillNo, numBoxes: input.numBoxes });
+    return { ...result, pico: { booked: true, awbNumber: booked.awbNumber } };
+  } catch (error) {
+    return { ...result, pico: { booked: false, error: error instanceof Error ? error.message : "The delivery partner could not be booked." } };
+  }
+}
+
+async function planFulfilmentCore(
   orderId: string,
   input: PlanInput & { markReady?: boolean },
   actor: Actor,
@@ -1192,6 +1249,8 @@ export interface ShopFulfilmentView {
   riderSearchFrom: string | null;
   /** Pickup: the customer's delivery fee given back (paise), once. */
   deliveryFeeRefundedPaise: number | null;
+  /** docs/pico-xpress-2026-11: "PICO" when booked with the Pico Xpress delivery partner. */
+  partner: "PICO" | null;
 }
 
 export async function getShopFulfilmentViews(orderIds: string[]): Promise<Map<string, ShopFulfilmentView>> {
@@ -1217,8 +1276,9 @@ export async function getShopFulfilmentViews(orderIds: string[]): Promise<Map<st
           outForDelivery: plan.outForDeliveryAt != null,
           completed: plan.completedAt != null,
           locked: plan.codeLockedAt != null,
-          riderSearchFrom: plan.option === "GOKESARI_PARTNER" && from > Date.now() ? new Date(from).toISOString() : null,
+          riderSearchFrom: plan.option === "GOKESARI_PARTNER" && !plan.externalPartner && from > Date.now() ? new Date(from).toISOString() : null,
           deliveryFeeRefundedPaise: plan.deliveryFeeRefundedPaise ?? null,
+          partner: plan.externalPartner ?? null,
         },
       ] as const;
     }),
@@ -1239,6 +1299,8 @@ export interface BuyerFulfilmentView {
   updated: boolean;
   /** Pickup: the delivery fee given back (paise), once. */
   deliveryFeeRefundedPaise: number | null;
+  /** docs/pico-xpress-2026-11: "PICO" when booked with the Pico Xpress delivery partner. */
+  partner: "PICO" | null;
 }
 
 export async function getBuyerFulfilmentViews(orderIds: string[], buyer: { id: string; email: string }): Promise<Map<string, BuyerFulfilmentView>> {
@@ -1263,6 +1325,7 @@ export async function getBuyerFulfilmentViews(orderIds: string[], buyer: { id: s
     const waitingAtShop = plan.option === "PICKUP" && orderStatus === "READY" && !plan.completedAt && !plan.codeLockedAt;
     result.set(plan.orderId, {
       option: plan.option,
+      partner: plan.externalPartner ?? null,
       ...labelFor(plan),
       staffName: plan.option === "SHOP_DELIVERY" ? staffName : null,
       shopAddress: plan.option === "PICKUP" ? [shop.line1, shop.area, shop.city, shop.pincode].filter(Boolean).join(", ") : null,

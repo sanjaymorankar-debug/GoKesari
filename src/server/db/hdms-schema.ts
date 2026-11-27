@@ -11,7 +11,7 @@ import { bigint, boolean, date, index, integer, jsonb, numeric, pgTable, text, t
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
-export const DELIVERY_PROVIDER_CODES = ["SHADOWFAX", "PIDGE", "PORTER", "BORZO", "MOCK"] as const;
+export const DELIVERY_PROVIDER_CODES = ["SHADOWFAX", "PIDGE", "PORTER", "BORZO", "MOCK", "PICO"] as const;
 export type DeliveryProviderCode = (typeof DELIVERY_PROVIDER_CODES)[number];
 
 export interface DeliveryProviderCapabilities {

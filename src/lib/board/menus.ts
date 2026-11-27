@@ -562,6 +562,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "settlements", label: L("Settlements", "सेटलमेंट", "सेटलमेंट"), icon: "receipt", href: "/admin/delivery/settlements", permission: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.SYSTEM_CONFIG] },
     ],
     more: [
+      // docs/pico-xpress-2026-11: the gokesari.com delivery partner — shipments, AWB pool, settings, API calls, webhooks.
+      { key: "pico", label: L("Pico Xpress", "Pico Xpress", "Pico Xpress"), icon: "truck", href: "/admin/delivery/pico", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
       { key: "providerApi", label: L("Provider API configuration", "पार्टनर API सेटिंग", "भागीदार API सेटिंग"), icon: "settings", href: "/admin/delivery/providers", permission: PERMISSIONS.SYSTEM_CONFIG },
       { key: "shopRiders", label: L("Shop delivery personnel", "दुकान डिलीवरी स्टाफ़", "दुकान डिलिव्हरी कर्मचारी"), icon: "bike", href: "/admin/delivery/shop-riders", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },
       { key: "partners", label: L("GoKesari delivery partners", "GoKesari डिलीवरी पार्टनर", "GoKesari डिलिव्हरी भागीदार"), icon: "bike", href: "/admin/delivery/partners", permission: [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY, PERMISSIONS.SYSTEM_CONFIG] },

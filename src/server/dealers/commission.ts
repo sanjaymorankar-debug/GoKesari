@@ -519,6 +519,8 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
   const flag = await getFeatureFlag("dealer_programme_enabled");
   const [row] = await db.select({ a: shopAttributions, shop: shops }).from(shopAttributions).innerJoin(shops, eq(shops.id, shopAttributions.shopId)).where(eq(shopAttributions.shopId, shopId));
   if (!row || row.a.status !== "ACTIVE") return [];
+  // 0226 super franchisee: GoKesari's extra share of the fee to the head of the dealer's team (own rule, own gate).
+  if (row.shop.feePaymentStatus === "PAID") await (await import("./super-franchisee")).accrueSuperShopFeeSafely(shopId, actor);
   // Franchise brief 21-Nov-2026 §3.2: a shop in its dealer's paid franchise zone is Model B and earns even where
   // the free dealer programme is off; the franchise owner's team is paid by GoKesari directly.
   const { franchiseModelFor } = await import("@/server/franchise/model");

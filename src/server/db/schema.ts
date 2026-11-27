@@ -7640,6 +7640,8 @@ export const orderFulfilmentArrangements = pgTable(
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
     option: text("option", { enum: FULFILMENT_OPTIONS }).notNull(),
+    /** 0228 (docs/pico-xpress-2026-11): "PICO" when the GoKesari-partner delivery is booked with Pico Xpress (no GoKesari rider search). */
+    externalPartner: text("external_partner").$type<"PICO">(),
     scheduledStart: timestamp("scheduled_start", { withTimezone: true }).notNull(),
     scheduledEnd: timestamp("scheduled_end", { withTimezone: true }).notNull(),
     staffId: uuid("staff_id").references(() => shopDeliveryStaff.id, { onDelete: "set null" }),
@@ -11270,6 +11272,11 @@ export const FEATURE_FLAG_KEYS = [
   "flow_f12",
   "flow_f21",
   "flow_f22",
+  // docs/pico-xpress-2026-11 (0228): Pico Xpress as the "gokesari.com delivery partner" — serviceability, booking,
+  // tracking webhooks, cancel. Seeded ON on the staging database (gokesari_test), OFF on production until its prod test.
+  "delivery_partner_picoxpress_enabled",
+  // Pico's live-location webhook is a paid add-on (charged per push): built, seeded OFF on both sites.
+  "pico_live_location_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -11412,7 +11419,7 @@ export const dealers = pgTable(
     /** GoKesari Direct: holds codes that had no distributor; earns no commission. */
     isInternal: boolean("is_internal").notNull().default(false),
     legacyDistributorId: uuid("legacy_distributor_id").references(() => distributors.id, { onDelete: "set null" }),
-    source: text("source", { enum: ["APPLICATION", "LEGACY_MIGRATION", "ADMIN"] }).notNull().default("APPLICATION"),
+    source: text("source", { enum: ["APPLICATION", "LEGACY_MIGRATION", "ADMIN", "SHOP_REQUEST"] }).notNull().default("APPLICATION"),
     /** 0107: onboarding rating (0–10, steps of 0.5). start_rating is the floor an admin may set; rating_override a manual downgrade until the next slab. */
     startRating: numeric("start_rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
     rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
@@ -11462,7 +11469,7 @@ export const dealers = pgTable(
     check("dealers_status", sql`${t.status} in ('DRAFT', 'PENDING', 'APPROVED', 'SUSPENDED', 'REJECTED', 'TERMINATED')`),
     check("dealers_bank_status", sql`${t.bankStatus} in ('NOT_PROVIDED', 'PENDING', 'VERIFIED', 'FAILED')`),
     check("dealers_mobile_method", sql`${t.mobileVerificationMethod} IS NULL OR ${t.mobileVerificationMethod} in ('OTP', 'ADMIN_CALL', 'LEGACY')`),
-    check("dealers_source", sql`${t.source} in ('APPLICATION', 'LEGACY_MIGRATION', 'ADMIN')`),
+    check("dealers_source", sql`${t.source} in ('APPLICATION', 'LEGACY_MIGRATION', 'ADMIN', 'SHOP_REQUEST')`),
     check("dealers_agreement_dates", sql`${t.agreementEnd} IS NULL OR ${t.agreementStart} IS NULL OR ${t.agreementEnd} >= ${t.agreementStart}`),
     check("dealers_commission_percent", sql`${t.commissionPercentBp} IS NULL OR ${t.commissionPercentBp} BETWEEN 0 AND 10000`),
     check("dealers_rating_step", sql`${t.ratingStepBp} IS NULL OR ${t.ratingStepBp} BETWEEN 0 AND 1000`),
@@ -11780,6 +11787,61 @@ export const dealerCodes = pgTable(
   ],
 );
 export type DealerCode = typeof dealerCodes.$inferSelect;
+
+/**
+ * 0226 super franchisee (owner, 27-Nov-2026; docs/super-franchisee/): a dealer an admin made the head of a team
+ * of other dealers. GoKesari pays him extra (rule superFranchisee) on his own team's fees and order commission.
+ * Null rates = the rule's. Removing him keeps the row (REMOVED) so the history and his earned lines stay.
+ */
+export const superFranchisees = pgTable(
+  "super_franchisees",
+  {
+    dealerId: uuid("dealer_id")
+      .primaryKey()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["ACTIVE", "REMOVED"] }).notNull().default("ACTIVE"),
+    feeShareBp: integer("fee_share_bp"),
+    orderShareBp: integer("order_share_bp"),
+    reason: text("reason").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removedBy: uuid("removed_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("super_franchisees_fee_bp", sql`${t.feeShareBp} IS NULL OR (${t.feeShareBp} >= 0 AND ${t.feeShareBp} <= 10000)`),
+    check("super_franchisees_order_bp", sql`${t.orderShareBp} IS NULL OR (${t.orderShareBp} >= 0 AND ${t.orderShareBp} <= 10000)`),
+  ],
+);
+export type SuperFranchisee = typeof superFranchisees.$inferSelect;
+
+/** 0226: which super franchisee's team a dealer is in, and since when. One open row (ends_at null) per dealer. */
+export const superFranchiseeMembers = pgTable(
+  "super_franchisee_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    superDealerId: uuid("super_dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    memberDealerId: uuid("member_dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    reason: text("reason").notNull(),
+    assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
+    endReason: text("end_reason"),
+    endedBy: uuid("ended_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("super_franchisee_members_open_unique").on(t.memberDealerId).where(sql`${t.endsAt} IS NULL`),
+    index("super_franchisee_members_super_idx").on(t.superDealerId, t.startsAt),
+    check("super_franchisee_members_not_self", sql`${t.superDealerId} <> ${t.memberDealerId}`),
+  ],
+);
+export type SuperFranchiseeMember = typeof superFranchiseeMembers.$inferSelect;
 
 /** A dealer's documented lead (0105): reserves the shop for the attribution window, with the owner's consent. */
 export const dealerLeads = pgTable(
@@ -13794,6 +13856,7 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
+export * from "./pico-schema"; // docs/pico-xpress-2026-11 (0228)
 export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)

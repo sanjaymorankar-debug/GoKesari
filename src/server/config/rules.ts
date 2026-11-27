@@ -940,6 +940,22 @@ export const RULES = {
     }),
     defaults: { leadWindowDays: 30, maxOpenLeadsPerDealer: 200, duplicateDistanceMeters: 150, nameSimilarity: 80, assistedConsentMinutes: 60 },
   },
+  dealerApplication: {
+    description:
+      "Becoming a dealer / franchisee (owner, 27-Nov-2026): requireLiveShop — only an account with its own live (approved) GoKesari shop may submit a dealer application or a free franchisee request; without one he is sent to register his shop first. Free franchisee requests from a live shop wait for an admin's approval (Admin → Dealers → Pending approval), who then issues the dealer code.",
+    schema: z.object({ requireLiveShop: z.boolean() }),
+    defaults: { requireLiveShop: true },
+  },
+  superFranchisee: {
+    description:
+      "Super franchisee (owner, 27-Nov-2026; docs/super-franchisee/). Only an admin makes a dealer a super franchisee (Admin → Dealers → the dealer) and assigns or moves other dealers (free or paid franchisees) into his team; a dealer is in at most one team. GoKesari pays the super franchisee EXTRA — nothing is taken from the franchisee's share — on his own team only: feeShareBp of every fee paid in his team (a team dealer's shop registration fee before GST after coupons, and a team dealer's own joining or franchise fee before GST), earned when the fee is paid and reversed if it is refunded; and orderShareBp of GoKesari's order commission on his team's activated shops, every month at the month close (net of refunds). A super franchisee may have his own rates (Admin → the dealer); empty = these. 0 switches that part off. Off: nothing is earned; an admin can still set up super franchisees and their teams.",
+    schema: z.object({
+      enabled: z.boolean(),
+      feeShareBp: int(0, 10_000),
+      orderShareBp: int(0, 10_000),
+    }),
+    defaults: { enabled: false, feeShareBp: 300, orderShareBp: 200 },
+  },
   dealerTieredCommission: {
     description:
       "TIERED dealer commission (docs/dealer-programme/TIERED_COMMISSION.md), for dealers an admin moved to TIERED (Admin → Dealers → Commission). A network has at most 3 levels: main dealer → team lead → agent. On every paid shop registration (% of the fee actually paid, before GST, after coupons): directBp to whoever signed the shop (moved by the dealer's rating, as today), leadOverrideBp to the agent's team lead, mainOverrideBp to the main dealer — a missing level is not paid and nobody earns twice on a shop. With tradingOrders 0 (owner, 5 Nov 2026) everything — the whole direct part and every override — is earned when the shop pays and is activated, and paid with that month's payout. With tradingOrders above 0, firstPartBp of the direct part is earned at ACTIVATED; the rest of it, and the overrides, at TRADING: tradingOrders delivered orders within tradingDays of activation, or it lapses. Renewal (renewalEnabled): when a shop that is still active pays its renewal, renewalBp of it (before GST) to whoever signed it, renewalLeadBp to the agent's team lead and renewalMainBp to the main dealer (a missing level is not paid) — for renewals paid within renewalYears of the shop's activation. Promotion: an agent with promotionMinShops activated shops and at least promotionMinAgents active agents he recruited who have accepted the agent agreement can be made a team lead (an admin may override with a reason); his former lead earns developmentBp on the new team's shops for developmentMonths — for each calendar month in which the new team (the lead and his agents) activates at least developmentMinShopsPerMonth shops (0 = no minimum); a month below it pays no development bonus. Monthly target bonuses (targetBonusesEnabled), counted afresh every calendar month: targets lists { role, minShops, bonusPaise, bonusBp } — an agent counts the shops he signed, a team lead his team's (his own and his agents'), the main dealer the whole network; the highest target reached in the month is paid: bonusPaise plus bonusBp of the direct and override commission the person earned in that month. Everyone accepts the agent agreement before earning; no joining fees and no payment for recruiting. Off: no dealer can be moved to TIERED, and TIERED dealers earn under the standard model. Defaults per dealer can be set on the dealer.",
@@ -2526,6 +2542,67 @@ export const RULES = {
     },
   },
   /* <<< hdms-2026-11 */
+  /* >>> pico-xpress-2026-11 */
+  picoXpress: {
+    description:
+      "Pico Xpress, the gokesari.com delivery partner (docs/pico-xpress-2026-11; flag delivery_partner_picoxpress_enabled). AWB pool: refilled from Pico when fewer than awbRefillThreshold numbers are left (checked at every booking), awbFetchBatch at a time (max 1,000). billTo: AGTCI's billing address and GSTIN sent on every shipment. Pickup type per shop type (RETAIL_STORE, DARK_STORE, WAREHOUSE, MALL_STORE). Box weight used when products have no weight. nonGstShops: HIDE_OPTION hides Pico for shops registered with PAN only (Pico needs the pickup GSTIN); USE_AGTCI_GSTIN sends AGTCI's GSTIN instead — use only after Pico confirms it in writing. Above ewayBillThresholdPaise the shop must give the Part-A e-way bill number. cancelReasons: the reasons operations choose from. webhookIpAllowlist: only these addresses may call the webhooks (empty = any IP, token still required). Pico sends from 4.187.148.44 (sandbox → test.gokesari.com) and 4.188.191.141 (production → gokesari.com).",
+    schema: z.object({
+      awbRefillThreshold: int(0, 10_000),
+      awbFetchBatch: int(1, 1000),
+      nonGstShops: z.enum(["HIDE_OPTION", "USE_AGTCI_GSTIN"]),
+      billTo: z.object({
+        representativePersonName: z.string().trim().min(2).max(80),
+        unitName: z.string().trim().min(2).max(120),
+        contactNumPrimary: z.string().regex(/^[6-9]\d{9}$/, "10-digit mobile number"),
+        gstNumber: z.string().regex(/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "15-character GSTIN"),
+        addressLine1: z.string().trim().min(3).max(120),
+        addressLine2: z.string().trim().min(3).max(120),
+        city: z.string().trim().min(2).max(60),
+        state: z.string().trim().min(2).max(60),
+        pincode: z.string().regex(/^\d{6}$/, "6-digit PIN code"),
+      }),
+      defaultPickupType: z.enum(["RETAIL_STORE", "DARK_STORE", "WAREHOUSE", "MALL_STORE"]),
+      pickupTypeByShopType: z.record(z.string(), z.enum(["RETAIL_STORE", "DARK_STORE", "WAREHOUSE", "MALL_STORE"])),
+      defaultBoxWeightGrams: int(50, 50_000),
+      boxWeightGramsByShopType: z.record(z.string(), int(50, 50_000)),
+      maxBoxes: int(1, 20),
+      ewayBillThresholdPaise: int(0, 100_000_000),
+      cancelReasons: z.array(z.string().trim().min(3).max(120)).min(1).max(20),
+      webhookIpAllowlist: z.array(z.string().trim().min(3).max(64)).max(50),
+    }),
+    defaults: {
+      awbRefillThreshold: 200,
+      awbFetchBatch: 500,
+      nonGstShops: "HIDE_OPTION",
+      billTo: {
+        representativePersonName: "GoKesari Accounts",
+        unitName: LEGAL_ENTITY.legalName,
+        contactNumPrimary: LEGAL_ENTITY.grievanceOfficer.phone,
+        gstNumber: LEGAL_ENTITY.gstin,
+        addressLine1: "Flat No B-1102, Yin Yang CHS",
+        addressLine2: "Opp EoN IT Park Phase II, Kharadi",
+        city: "Pune",
+        state: "Maharashtra",
+        pincode: "411014",
+      },
+      defaultPickupType: "RETAIL_STORE",
+      pickupTypeByShopType: {},
+      defaultBoxWeightGrams: 1000,
+      boxWeightGramsByShopType: {},
+      maxBoxes: 10,
+      ewayBillThresholdPaise: 5_000_000,
+      cancelReasons: [
+        "Customer cancelled the order",
+        "Shop cannot fulfil the order",
+        "Wrong shipment details",
+        "Shop switched to another delivery option",
+        "Duplicate booking",
+        "Rider did not arrive in time",
+      ],
+      webhookIpAllowlist: [],
+    },
+  },
+  /* <<< pico-xpress-2026-11 */
   accountDeletion: {
     description:
       "Self-service account deletion (docs/account-deletion-2026-11; owner 23-Nov-2026). coolingOffDays: after the person confirms, the account is hidden (cannot sign in except to restore it, not shown to anyone else; admins see it as \"Under cooling period\") and is anonymised by the daily job this many days later (90 = 3 months). retentionYears: how long each class of record that is kept after deletion must be held, as per law — Income-tax Act s.44AA + Rule 6F (books, 8 years from the end of the assessment year; TDS records), CGST Act s.36 (72 months from the annual return due date), the longer one applying; DPDP Act 2023 s.8(7) requires erasure once the purpose is served unless a law requires retention. Informational for now: no job purges retained records yet (needs owner / legal sign-off).",

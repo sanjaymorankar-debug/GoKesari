@@ -102,7 +102,9 @@ export type FeatureFlagKey =
   | "flow_f10"
   | "flow_f12"
   | "flow_f21"
-  | "flow_f22";
+  | "flow_f22"
+  | "delivery_partner_picoxpress_enabled"
+  | "pico_live_location_enabled";
 
 interface FlagValue {
   enabled: boolean;
