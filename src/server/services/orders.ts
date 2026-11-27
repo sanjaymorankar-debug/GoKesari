@@ -206,6 +206,8 @@ export interface CheckoutInput {
   actorRole?: UserRole;
   /** WALLET (default) or COD — cash on delivery, within the COD limits (GS-030). */
   paymentMethod?: PaymentMethod;
+  /** Owner 27-Nov-2026: no delivery address because the customer collects the order from the shop. */
+  pickupAtShop?: boolean;
   /**
    * Shops the customer has been warned are closed right now and chose to order
    * from anyway. A closed shop NOT listed here refuses the checkout — the
@@ -465,7 +467,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     const groupShops = await withWalletGate(cartShopRows);
     // A personal order from a shop that delivers needs a saved delivery address.
     // Business orders and shops that only offer pickup are unchanged.
-    if (orderType === "PERSONAL" && !addressSnapshot && !addressLater && groupShops.some((s) => s.deliveryAvailable)) {
+    if (orderType === "PERSONAL" && !addressSnapshot && !addressLater && !input.pickupAtShop && groupShops.some((s) => s.deliveryAvailable)) {
       throw validationFailed("Add a delivery address before placing this order.", { missing: "address" });
     }
     // Each shop's legal-document check is started now and read in order below (GAP-019).
@@ -514,7 +516,11 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   let codMaxOrderPaise: number = COD_LIMITS.maxOrderPaise;
   if (paymentMethod === "COD") {
     if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
-    if (!addressSnapshot && !addressLater) throw validationFailed("Choose a delivery address to pay cash on delivery.");
+    // Owner 27-Nov-2026: cash on delivery needs the delivery address first, or the customer picks the order up
+    // from the shop; never "address later" (no order waiting for its address).
+    if (!addressSnapshot && !input.pickupAtShop) {
+      throw validationFailed("Choose a delivery address, or pick the order up from the shop, to pay cash on delivery.", { missing: "address" });
+    }
     const eligibility = await getCodEligibility(input.userId);
     if (!eligibility.allowed) throw conflict(eligibility.reason ?? "Cash on delivery is not available.");
     codMaxOrderPaise = eligibility.maxOrderPaise;

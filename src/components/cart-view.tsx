@@ -101,6 +101,16 @@ const T = {
     "कैश ऑन डिलीवरी के लिए डिलीवरी का पता चुनें।",
     "कॅश ऑन डिलिव्हरीसाठी डिलिव्हरीचा पत्ता निवडा.",
   ),
+  codPickup: L(
+    "I will pick up the order from the shop (no delivery address)",
+    "मैं दुकान से ऑर्डर ले लूँगा (डिलीवरी का पता नहीं)",
+    "मी दुकानातून ऑर्डर घेईन (डिलिव्हरीचा पत्ता नाही)",
+  ),
+  codNeedsAddressOrPickup: L(
+    "For cash on delivery, choose a delivery address or tick that you will pick up from the shop.",
+    "कैश ऑन डिलीवरी के लिए डिलीवरी का पता चुनें या दुकान से लेने का विकल्प चुनें।",
+    "कॅश ऑन डिलिव्हरीसाठी डिलिव्हरीचा पत्ता निवडा किंवा दुकानातून घेण्याचा पर्याय निवडा.",
+  ),
   noteForShop: L("Note for the shop (optional)", "दुकान के लिए संदेश (वैकल्पिक)", "दुकानासाठी सूचना (ऐच्छिक)"),
   notePlaceholder: L(
     "e.g. ring the bell twice, leave at the gate",
@@ -275,6 +285,7 @@ export function CartView({
   const [scheduledSlots, setScheduledSlots] = useState<Record<string, string>>({});
   const [slotDay, setSlotDay] = useState<Record<string, string>>({});
   const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD" | "ONLINE" | null>(explicitPay ? null : "WALLET");
+  const [codPickup, setCodPickup] = useState(false);
   // F7: an applied coupon is a server-priced preview; checkout re-validates it.
   const [couponInput, setCouponInput] = useState("");
   const [coupon, setCoupon] = useState<{ code: string; discountPaise: number; forTotal: number } | null>(null);
@@ -389,9 +400,12 @@ export function CartView({
     ([shopId, w]) => w === "SCHEDULED" && Array.isArray(slotOptions[shopId]) && !scheduledSlots[shopId],
   );
 
-  // Cash on delivery: personal orders to a saved address only.
-  const codPossible = codUnavailableReason == null && !buyerShopId && (addressId != null || v2);
+  // Cash on delivery (owner 27-Nov-2026): personal orders to a saved address, or picked up from the shop by the
+  // customer; never "address later".
+  const codPossible = codUnavailableReason == null && !buyerShopId;
   const payingCod = paymentMethod === "COD" && codPossible;
+  const codPickupChosen = payingCod && !addressId && codPickup;
+  const codNeedsAddress = payingCod && !addressId && !codPickup;
   // batch-2026-10 WS-A: personal orders only, like cash on delivery.
   const payingOnline = paymentMethod === "ONLINE" && onlinePaymentsEnabled && !buyerShopId;
   // A coupon priced for a different cart is dropped (the customer re-applies it).
@@ -490,6 +504,7 @@ export function CartView({
           Object.entries(scheduledSlots).filter(([shopId]) => deliveryWindows[shopId] === "SCHEDULED"),
         ),
         paymentMethod: payingCod ? "COD" : payingOnline ? "ONLINE" : payingWallet ? "WALLET" : undefined,
+        ...(codPickupChosen ? { pickupAtShop: true } : {}),
         acknowledgeClosedShopIds,
         ...(couponDiscountPaise > 0 && coupon ? { couponCode: coupon.code } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
@@ -882,6 +897,13 @@ export function CartView({
                 />
                 {tr(T.cod, lang)}
               </label>
+              {payingCod && !addressId ? (
+                <label className="ml-6 flex items-center gap-2 text-sm" data-testid="cod-pickup-option">
+                  <input type="checkbox" checked={codPickup} onChange={(e) => setCodPickup(e.target.checked)} />
+                  {tr(T.codPickup, lang)}
+                </label>
+              ) : null}
+              {codNeedsAddress ? <p className="ml-6 text-xs text-ink-500">{tr(T.codNeedsAddressOrPickup, lang)}</p> : null}
               {onlinePaymentsEnabled && !buyerShopId ? (
                 <label className="flex items-center gap-2" data-testid="pay-online-option">
                   <input
@@ -1064,7 +1086,7 @@ export function CartView({
               <Button
                 className="w-full"
                 size="lg"
-                disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue || missingSlot || choiceMissing}
+                disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue || missingSlot || choiceMissing || codNeedsAddress}
                 title={missingSlot ? tr(T.chooseTimeTitle, lang) : undefined}
                 onClick={startPay}
                 data-testid={v2 ? "checkout-place-order-v2" : undefined}
