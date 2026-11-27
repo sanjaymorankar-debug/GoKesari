@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { DealerAdminDetail } from "@/components/dealer/dealer-admin-detail";
 import { DealerCommissionRates } from "@/components/dealer/dealer-commission-rates";
+import { SuperFranchiseeAdmin } from "@/components/dealer/super-franchisee-admin";
 import { SchemeTermsPanel } from "@/components/dealer/scheme-terms";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -14,6 +15,7 @@ import { db } from "@/server/db";
 import { dealerSchemeVersions } from "@/server/db/schema";
 import { dealerCustomFilesFor, reportableAnswers } from "@/server/dealers/custom-fields";
 import { dealerSchemeHistory } from "@/server/dealers/schemes";
+import { superFranchiseeView } from "@/server/dealers/super-franchisee";
 import { dealerAccountEmail, dealerView, getDealer, listSalespeople } from "@/server/dealers/service";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 
@@ -45,6 +47,8 @@ export default async function AdminDealerPage({ params }: { params: Promise<{ id
     dealerSchemeHistory(dealer.id),
   ]);
   const scheme = schemes.find((h) => h.status === "ACTIVE") ?? null;
+  // 0226 super franchisee: his team, or the team he is in (not for GoKesari's own dealer account).
+  const superView = dealer.isInternal ? null : await superFranchiseeView(dealer.id);
   // Phase 5: his answers to the scheme's own questions (fields marked for reports).
   // An applicant's answers belong to the scheme he applied for (his assignment changes only on approval).
   const [requested] = dealer.requestedVersionId && ["DRAFT", "PENDING", "REJECTED"].includes(dealer.status) ? await db.select({ terms: dealerSchemeVersions.terms }).from(dealerSchemeVersions).where(eq(dealerSchemeVersions.id, dealer.requestedVersionId)) : [];
@@ -124,6 +128,11 @@ export default async function AdminDealerPage({ params }: { params: Promise<{ id
           />
         </div>
       )}
+      {superView ? (
+        <div className="mt-4">
+          <SuperFranchiseeAdmin dealerId={dealer.id} dealerName={dealer.legalName} isAdmin={user.role === "ADMIN"} view={superView} />
+        </div>
+      ) : null}
     </div>
   );
 }
