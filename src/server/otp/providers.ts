@@ -49,9 +49,19 @@ export const emailOtpProvider: OtpProvider = {
   },
 };
 
-/** The SMS text of every one-time code; the same wording as the DLT template (docs/sms-2fa-2026-11/DLT_SETUP.md). */
+/**
+ * The SMS text of every one-time code. It must be the DLT content template registered for sender GOKSRI, word for
+ * word, with only its two {#var#} filled in — any other wording is rejected by the operator (SMSFortius error 633).
+ * Registered template (owner, 27-Nov-2026; docs/sms-2fa-2026-11/DLT_SETUP.md):
+ *   Dear Customer, your GoKesari account verification OTP is {#var#}. This OTP is valid for {#var#} minutes. Please do not share it with anyone. - Team GoKesari
+ */
 export function smsOtpText(code: string, expiryMinutes: number): string {
-  return `${code} is your GoKesari code. It expires in ${expiryMinutes} minutes. Do not share it with anyone. -GoKesari`;
+  return `Dear Customer, your GoKesari account verification OTP is ${code}. This OTP is valid for ${expiryMinutes} minutes. Please do not share it with anyone. - Team GoKesari`;
+}
+
+/** The code inside an SMS written by smsOtpText (test outbox readers); also reads the former wording. */
+export function codeFromSmsOtpText(body: string): string | null {
+  return body.match(/verification OTP is (\d{4,8})\./)?.[1] ?? body.match(/^(\d{4,8}) is your GoKesari code/)?.[1] ?? null;
 }
 
 /**
