@@ -58,7 +58,9 @@ BUILD_MEM=9G
 # next build needs more than Node's default heap (about 2 GB here): it ran out at 2 GB on
 # 17-Nov-2026, and the type check at 3.5 GB. Hostinger's builds had a larger NODE_OPTIONS heap. Builds only; the sites keep
 # the default.
-BUILD_NODE_OPTIONS=--max-old-space-size=6144
+# 6144 → 7168 on 27-Nov-2026 (owner OK): staging builds of 323b949f, bea6443c and ad49711b ran out of the
+# 6 GB heap (exit 134) after #670; the 9G cgroup cap leaves room for Node's off-heap memory.
+BUILD_NODE_OPTIONS=--max-old-space-size=7168
 BUILD_CPU=150%
 BUILD_NICE=10
 BUILD_TIMEOUT=${GK_BUILD_TIMEOUT:-20min}
@@ -189,6 +191,12 @@ $tls_line
 		output file $CADDY_LOG_DIR/site-$SITE_NAME.log {
 			roll_size 50MiB
 			roll_keep_for 336h
+		}
+		# Hide webhook secrets passed in the URL (?token=, Pico Xpress) from the access log.
+		format filter {
+			request>uri query {
+				replace token REDACTED
+			}
 		}
 	}
 	# Active colour; gk-deploy moves it (blue $SITE_PORT_BLUE, green $SITE_PORT_GREEN).
