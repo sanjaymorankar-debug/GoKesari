@@ -10,7 +10,7 @@
  *  - The ID card shows photo, name, rider ID and the societies that list the
  *    rider, so the gate can check it.
  */
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -310,6 +310,8 @@ export async function getMyRiderIdCard(userId: string): Promise<RiderIdCard | nu
       and(
         eq(societyRiders.deliveryPartnerId, partner.id),
         eq(societyRiders.status, "ACTIVE"),
+        // docs/flows-v3/wave5.md (flow_f15): not while the society has paused the rider.
+        or(isNull(societyRiders.suspendedUntil), sql`${societyRiders.suspendedUntil} <= now()`),
         eq(societies.status, "VERIFIED"),
         isNull(societies.deletedAt),
       ),

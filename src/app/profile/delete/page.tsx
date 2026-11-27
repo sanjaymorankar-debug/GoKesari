@@ -87,6 +87,8 @@ export default async function DeleteAccountPage() {
         subscriptionsToCancel={precheck.subscriptionsToCancel}
         promotionalForfeit={precheck.promotionalForfeitPaise > 0 ? formatPaise(precheck.promotionalForfeitPaise) : null}
         maskedEmail={precheck.maskedEmail}
+        maskedPhone={precheck.maskedPhone ?? null}
+        shopsToHide={precheck.shopsToHide ?? 0}
         reasons={ACCOUNT_DELETION_REASONS}
         coolingOffDays={coolingOffDays}
       />

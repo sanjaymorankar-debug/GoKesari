@@ -5,6 +5,9 @@
  *   PROFILE_PHOTO   — a delivery partner, for their own profile photo (F2)
  *   DISPUTE_EVIDENCE — any signed-in user, for photos on a dispute case they
  *                     are part of (attached by the dispute service, which checks that)
+ *   SOCIETY_PROOF    — docs/flows-v3/wave5.md (flag flow_f15): someone registering a society, for a photo or
+ *                     scan of its registration certificate or committee letter (operations and the uploader only)
+ * docs/flows-v3/wave5.md (flag flow_f11): someone applying as a rider may upload their PROFILE_PHOTO in the form.
  * The browser shrinks images first; the server validates them again.
  */
 import type { NextRequest } from "next/server";
@@ -16,6 +19,7 @@ import { requireUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { imageUrl, saveImage } from "@/server/services/image-store";
+import { flowF11On, flowF15On } from "@/server/flows/wave5-flags";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +31,17 @@ export const POST = route(async (request: NextRequest) => {
   const file = form?.get("file");
   const purpose = form?.get("purpose");
   if (!(file instanceof File)) throw validationFailed("Attach an image file.");
-  if (purpose !== "RETURN_EVIDENCE" && purpose !== "PRODUCT" && purpose !== "PROFILE_PHOTO" && purpose !== "DISPUTE_EVIDENCE") {
+  const societyProof = purpose === "SOCIETY_PROOF" && (await flowF15On());
+  if (purpose !== "RETURN_EVIDENCE" && purpose !== "PRODUCT" && purpose !== "PROFILE_PHOTO" && purpose !== "DISPUTE_EVIDENCE" && !societyProof) {
     throw validationFailed("Unknown image purpose.");
   }
-  // F2: a rider's own profile photo.
-  if (purpose === "PROFILE_PHOTO" && !can(user.role, PERMISSIONS.DELIVERY_PARTNER_VIEW_OWN)) {
+  if (societyProof && !can(user.role, PERMISSIONS.SOCIETY_REGISTER)) throw forbidden("You cannot upload a society document.");
+  // F2: a rider's own profile photo; docs/flows-v3 (flag flow_f11): also an applicant's, in the application form.
+  if (
+    purpose === "PROFILE_PHOTO" &&
+    !can(user.role, PERMISSIONS.DELIVERY_PARTNER_VIEW_OWN) &&
+    !(can(user.role, PERMISSIONS.DELIVERY_PARTNER_REGISTER) && (await flowF11On()))
+  ) {
     throw forbidden("You cannot upload a profile photo.");
   }
   if (

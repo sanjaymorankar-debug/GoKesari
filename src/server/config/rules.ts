@@ -2607,6 +2607,31 @@ export const RULES = {
     },
   },
   /* <<< docs/flows-v3/wave3.md */
+  /* >>> docs/flows-v3 (wave 5, flags flow_f11 / flow_f15 / flow_f18): used only while the matching flag is on. */
+  flowsWave5: {
+    description:
+      "Flow spec v3, wave 5 (docs/flows-v3/wave5.md; each setting is used only while its feature flag is on). recoveryWindowMinutes (flow_f18): after the code to the working mobile or e-mail is accepted, how long the person has to set the new one. recoveryPerIpPerHour (flow_f18): how many recovery attempts one address may start in an hour. closureSmsCode (flow_f18): account closure also asks a code sent by SMS to the verified mobile (where SMS codes can be sent). societyRiderSuspendMaxDays (flow_f15): the longest a society may pause a rider at once. newSocietiesExclusiveRiders (flow_f15): a society that applies while the flag is on lets only its approved riders deliver there (once it has any). riderPhotoAtApproval (flow_f11): an application without a profile photo cannot be approved.",
+    schema: z.object({
+      recoveryWindowMinutes: int(5, 60),
+      recoveryPerIpPerHour: int(1, 50),
+      closureSmsCode: z.boolean(),
+      societyRiderSuspendMaxDays: int(1, 365),
+      newSocietiesExclusiveRiders: z.boolean(),
+      riderPhotoAtApproval: z.boolean(),
+    }),
+    defaults: {
+      // DEFAULT – confirm with Sanjay: 15 minutes to finish a recovery after the first code.
+      recoveryWindowMinutes: 15,
+      // DEFAULT – confirm with Sanjay: 5 recovery starts per address per hour.
+      recoveryPerIpPerHour: 5,
+      closureSmsCode: true,
+      // DEFAULT – confirm with Sanjay: a society may pause a rider for up to 90 days at a time.
+      societyRiderSuspendMaxDays: 90,
+      newSocietiesExclusiveRiders: true,
+      riderPhotoAtApproval: true,
+    },
+  },
+  /* <<< docs/flows-v3 wave 5 */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

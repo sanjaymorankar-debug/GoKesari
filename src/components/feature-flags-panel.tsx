@@ -91,7 +91,11 @@ export type FeatureFlagKey =
   | "flow_f4"
   | "flow_f5"
   | "flow_f6"
-  // docs/flows-v3/wave4.md (0224)
+  // docs/flows-v3/wave5.md (0224)
+  | "flow_f11"
+  | "flow_f15"
+  | "flow_f18"
+  // docs/flows-v3/wave4.md (0225)
   | "flow_f7"
   | "flow_f8"
   | "flow_f9"

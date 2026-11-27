@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { AddressForm } from "@/components/address-manager";
+import { PhoneCodeField, phoneCodeRequired, sendPhoneLinkCode } from "@/components/phone-code-field";
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
 import { INDIAN_MOBILE_HINT, mobileFieldDigits, parseIndianMobile } from "@/lib/contact";
 import { errorText } from "@/lib/board/error-text";
@@ -87,6 +88,9 @@ const T = {
 /** The mobile-number hint (lib/contact.ts) in the visitor's language. */
 const mobileHintText = (lang: Lang) => (lang === "en" ? INDIAN_MOBILE_HINT : tr(T.mobileHint, lang));
 
+/** docs/flows-v3/wave5.md (flag flow_f18): NEEDS_PHONE_CODE — the server asked for the new number's SMS code. */
+const NEEDS_PHONE_CODE = "NEEDS_PHONE_CODE";
+
 async function patchProfile(body: Record<string, unknown>, lang: Lang = "en"): Promise<string | null> {
   const res = await fetch("/api/profile", {
     method: "PATCH",
@@ -95,6 +99,7 @@ async function patchProfile(body: Record<string, unknown>, lang: Lang = "en"): P
   });
   if (res.ok) return null;
   const payload = await res.json().catch(() => null);
+  if (phoneCodeRequired(payload)) return NEEDS_PHONE_CODE;
   return payload?.error?.message != null ? errorText(payload.error.message, lang, payload.error.code) : tr(T.saveFailed, lang);
 }
 
@@ -188,6 +193,8 @@ export function ProfileSetupWizard({
   const [name, setName] = useState(initial.name);
   const [gender, setGender] = useState<GenderValue | "">(initial.gender);
   const [mobile, setMobile] = useState(initial.mobile);
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(null);
+  const [mobileCode, setMobileCode] = useState("");
   const [referralCode, setReferralCode] = useState(referral?.prefill ?? "");
   const [referralError, setReferralError] = useState<string | null>(null);
   // Mandatory code (customerSignupReferral.required): without one, setup ends on My referral code.
@@ -231,10 +238,19 @@ export function ProfileSetupWizard({
       name: name.trim() || null,
       gender: gender || null,
       ...(mobile ? { mobile } : {}),
+      ...(mobile && codeSentTo ? { mobileCode } : {}),
       markComplete: true,
     }, lang);
+    if (failure === NEEDS_PHONE_CODE && !codeSentTo) {
+      try {
+        setCodeSentTo(await sendPhoneLinkCode(mobile));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : tr(T.saveFailed, lang));
+      }
+      return setBusy(false);
+    }
     setBusy(false);
-    if (failure) return setError(failure);
+    if (failure) return setError(failure === NEEDS_PHONE_CODE ? tr(T.saveFailed, lang) : failure);
     if (hasDefaultAddress) finishSetup();
     else setStep("address");
   }
@@ -266,6 +282,7 @@ export function ProfileSetupWizard({
             mobileHint={tr(T.setupMobileHint, lang)}
             lang={lang}
           />
+          {codeSentTo ? <PhoneCodeField sentTo={codeSentTo} value={mobileCode} onChange={setMobileCode} /> : null}
           {referral ? (
             <Field
               label={referral.required ? tr(T.referralCode, lang) : tr(T.referralOptional, lang)}
@@ -317,6 +334,8 @@ export function MobilePromptDialog({ returnTo = "/", lang = "en" }: { returnTo?:
   const [mobile, setMobile] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(null);
+  const [code, setCode] = useState("");
 
   const close = () => {
     router.replace(returnTo);
@@ -331,11 +350,19 @@ export function MobilePromptDialog({ returnTo = "/", lang = "en" }: { returnTo?:
     const res = await fetch("/api/me/phone", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mobile }),
+      body: JSON.stringify({ mobile, ...(codeSentTo ? { code } : {}) }),
     });
-    setBusy(false);
     if (!res.ok) {
       const payload = await res.json().catch(() => null);
+      if (!codeSentTo && phoneCodeRequired(payload)) {
+        try {
+          setCodeSentTo(await sendPhoneLinkCode(mobile));
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : tr(T.numberFailed, lang));
+        }
+        return setBusy(false);
+      }
+      setBusy(false);
       return setError(payload?.error?.message != null ? errorText(payload.error.message, lang, payload.error.code) : tr(T.numberFailed, lang));
     }
     close();
@@ -365,6 +392,7 @@ export function MobilePromptDialog({ returnTo = "/", lang = "en" }: { returnTo?:
               autoFocus
             />
           </div>
+          {codeSentTo ? <PhoneCodeField sentTo={codeSentTo} value={code} onChange={setCode} /> : null}
           <div className="flex gap-2">
             <Button type="submit" disabled={busy}>
               {busy ? tr(T.saving, lang) : tr(T.save, lang)}
