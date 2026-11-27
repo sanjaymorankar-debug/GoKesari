@@ -122,7 +122,9 @@ function MobileStep({ onVerified, knownMasked }: { onVerified: (s: DualVerifySta
 }
 
 /** Step: the e-mail by a code (the account's address, or the one a mobile-only account adds). */
-function EmailStep({ state, onVerified, linkAction }: { state: DualVerifyState; onVerified: (s: DualVerifyState) => void; linkAction?: () => Promise<{ error?: string; sent?: boolean }> }) {
+type LinkAction = (email?: string | null) => Promise<{ error?: string; sent?: boolean; sentTo?: string }>;
+
+function EmailStep({ state, onVerified, linkAction }: { state: DualVerifyState; onVerified: (s: DualVerifyState) => void; linkAction?: LinkAction }) {
   const needsAddress = state.placeholderEmail;
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -158,11 +160,13 @@ function EmailStep({ state, onVerified, linkAction }: { state: DualVerifyState; 
 
   async function sendLink() {
     if (!linkAction) return;
+    if (needsAddress && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError("Enter a valid email address, e.g. name@example.com.");
     setBusy(true);
     setError(null);
-    const res = await linkAction();
+    const res = await linkAction(needsAddress ? email.trim() : null);
     setBusy(false);
     if (res.error) setError(res.error);
+    else if (needsAddress) setInfo(`We e-mailed a link to ${res.sentTo ?? email.trim()}. Open it within 15 minutes and press Confirm (it works once). Then come back here.`);
     else setInfo(`We e-mailed a sign-in link to ${state.maskedEmail}. Open it on this device within 15 minutes (it works once).`);
   }
 
@@ -191,7 +195,7 @@ function EmailStep({ state, onVerified, linkAction }: { state: DualVerifyState; 
           <button type="submit" className={buttonClass} disabled={busy} data-testid="dual-verify-email-send">
             {busy ? "Sending…" : "E-mail me a code"}
           </button>
-          {linkAction && !needsAddress ? (
+          {linkAction ? (
             <button type="button" className="min-h-11 rounded-lg border border-cream-200 px-4 py-2 text-sm" disabled={busy} onClick={sendLink} data-testid="dual-verify-email-link">
               E-mail me a link instead
             </button>
@@ -227,7 +231,7 @@ function EmailStep({ state, onVerified, linkAction }: { state: DualVerifyState; 
  * docs/dual-auth-2026-11 — DualVerify: the missing factor(s) of a signed-in account, then back to `returnTo`.
  * The same component on web and in the Android / iOS apps (WebView).
  */
-export function DualVerifyPanel({ initial, returnTo, linkAction }: { initial: DualVerifyState; returnTo: string; linkAction?: () => Promise<{ error?: string; sent?: boolean }> }) {
+export function DualVerifyPanel({ initial, returnTo, linkAction }: { initial: DualVerifyState; returnTo: string; linkAction?: LinkAction }) {
   const [state, setState] = useState(initial);
   const done = state.missing.length === 0;
 

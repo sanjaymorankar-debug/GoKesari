@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Alert, Button } from "@/components/ui";
 import { formatIndianMobile, INDIAN_MOBILE_HINT, mobileFieldDigits, parseIndianMobile } from "@/lib/contact";
+import { PhoneCodeField, phoneCodeRequired, sendPhoneLinkCode } from "./phone-code-field";
 
 const inputClass =
   "min-w-0 flex-1 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none";
@@ -17,6 +18,9 @@ export function PhoneLinkForm({ current, verified = false }: { current: string |
   const [editing, setEditing] = useState(!current);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // docs/flows-v3/wave5.md (flag flow_f18): the SMS code of the new number, once the server asks for it.
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(null);
+  const [code, setCode] = useState("");
 
   async function save(method: "PUT" | "DELETE") {
     setError(null);
@@ -25,11 +29,21 @@ export function PhoneLinkForm({ current, verified = false }: { current: string |
     const res = await fetch("/api/me/phone", {
       method,
       headers: { "content-type": "application/json" },
-      body: method === "PUT" ? JSON.stringify({ mobile }) : undefined,
+      body: method === "PUT" ? JSON.stringify({ mobile, ...(codeSentTo ? { code } : {}) }) : undefined,
     });
     const body = await res.json().catch(() => ({}));
+    if (!res.ok && method === "PUT" && !codeSentTo && phoneCodeRequired(body)) {
+      try {
+        setCodeSentTo(await sendPhoneLinkCode(mobile));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Could not send the code.");
+      }
+      return setBusy(false);
+    }
     setBusy(false);
     if (!res.ok) return setError(body?.error?.message ?? "Could not update the number.");
+    setCodeSentTo(null);
+    setCode("");
     setLinked(method === "PUT" ? body.phoneE164 : null);
     setEditing(method === "DELETE");
     setMobile("");
@@ -72,7 +86,11 @@ export function PhoneLinkForm({ current, verified = false }: { current: string |
           <span className="rounded-lg border border-cream-200 bg-cream-50 px-3 py-2 text-sm text-ink-600">+91</span>
           <input
             value={mobile}
-            onChange={(e) => setMobile(mobileFieldDigits(e.target.value))}
+            onChange={(e) => {
+              setMobile(mobileFieldDigits(e.target.value));
+              setCodeSentTo(null);
+              setCode("");
+            }}
             inputMode="numeric"
             autoComplete="tel-national"
             placeholder="10-digit mobile number"
@@ -87,6 +105,11 @@ export function PhoneLinkForm({ current, verified = false }: { current: string |
               Cancel
             </Button>
           ) : null}
+        </div>
+      ) : null}
+      {editing && codeSentTo ? (
+        <div className="mt-2">
+          <PhoneCodeField sentTo={codeSentTo} value={code} onChange={setCode} />
         </div>
       ) : null}
       {error ? (

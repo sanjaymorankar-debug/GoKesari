@@ -143,7 +143,7 @@ qa("SC-28", "field validation along the first-order journey: each invalid entry 
     await id.fill(mobile);
     await page.getByRole("button", { name: "Get code" }).click();
     await expect(page.getByTestId("otp-sent-to")).toBeVisible();
-    await page.getByRole("button", { name: "Sign up with your email" }).click();
+    await page.getByRole("button", { name: "Use your email instead" }).click();
     const emailField = page.getByLabel("Email address");
     await emailField.fill("qa-sc28@");
     await page.getByRole("button", { name: "Send code" }).click();

@@ -92,22 +92,19 @@ test.describe("mobile app", () => {
     expect((await request.get("/mobile-auth/start?app=other&challenge=" + "a".repeat(43))).status()).toBe(400);
   });
 
-  test("the sign-in page leaves out the emailed link inside the app", async ({ browser }) => {
+  test("the sign-in page offers no emailed link, on the website or inside the app (one box, owner 27-Nov-2026)", async ({ browser }) => {
     const website = await browser.newContext();
     const app = await browser.newContext({ userAgent: APP_USER_AGENT });
     const emailLink = (page: Page) => page.getByRole("button", { name: "Email me a link" });
 
     const websitePage = await website.newPage();
     await websitePage.goto("/signin");
-    const offeredOnWebsite = await emailLink(websitePage).count();
+    expect(await emailLink(websitePage).count()).toBe(0);
 
     const appPage = await app.newPage();
     await appPage.goto("/signin");
     await expect(appPage.getByRole("heading", { name: "Sign in" })).toBeVisible();
     expect(await emailLink(appPage).count()).toBe(0);
-    // Only meaningful where the server has an email sender configured.
-    test.skip(offeredOnWebsite === 0, "emailed sign-in links are not configured on this server");
-    expect(offeredOnWebsite).toBe(1);
 
     await website.close();
     await app.close();
