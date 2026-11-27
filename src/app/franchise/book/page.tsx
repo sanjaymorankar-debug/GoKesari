@@ -5,6 +5,7 @@ import { FRANCHISE_AGREEMENT_TEXT, FRANCHISE_AGREEMENT_VERSION } from "@/lib/fra
 import { getCurrentUser } from "@/server/authz/guards";
 import { KYC_DAYS_AFTER_PAYMENT, offerView, ownerStatusForUser } from "@/server/franchise/booking";
 import { franchiseConfig, oneTimeRates } from "@/server/franchise/config";
+import { flow4On } from "@/server/flows/wave4";
 import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 import { redirect } from "next/navigation";
 import { zoneFacets, zoneViews } from "@/server/franchise/zones";
@@ -51,6 +52,7 @@ export default async function FranchiseBookPage({ searchParams }: { searchParams
         initialZones={initialZones}
         initialJoin={join === "paid" || join === "free" ? join : null}
         v2Start={!user && (await onboardingV2Enabled())}
+        holdLabels={await flow4On("flow_f21")}
       />
     </div>
   );

@@ -38,6 +38,7 @@ import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { payeeStatus } from "@/server/dealers/commission";
 import { addSalespersonIn, getDealerForUser, listSalespeople, setSalespersonStatusIn } from "@/server/dealers/service";
 import { getMemberForUser, placeNewMember, recordMapping } from "@/server/dealers/tiered";
+import { flow4On } from "@/server/flows/wave4";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { requireFeature } from "@/server/services/feature-flags";
 import { NOTIFICATION_TYPES, notify } from "@/server/services/notifications";
@@ -593,10 +594,14 @@ export async function upgradeToTeamLead(actor: TeamActor, memberId: string, opts
  * Team lead → agent, under the dealer (parentId null) or another team lead. Refused while he still has active
  * agents: the dealer reassigns them first (reassignAgent).
  */
-export async function downgradeToAgent(actor: TeamActor, memberId: string, input: { parentId?: string | null }, opts: ChangeOptions = {}): Promise<DealerSalesperson> {
+export async function downgradeToAgent(actor: TeamActor, memberId: string, input: { parentId?: string | null; agentsTo?: string | null }, opts: ChangeOptions = {}): Promise<DealerSalesperson> {
   // docs/dual-auth-2026-11: a code by SMS AND a code by e-mail first (flag dual_auth).
   if (!opts.override) await requireDualStepUp(actor.id, "TEAM_ROLE");
   const { member } = await memberForChange(actor, memberId, opts);
+  // docs/flows-v3/wave4.md F8 (flag flow_f8): his agents move in the same step (to `agentsTo`, a team lead, or to
+  // the dealer) instead of the change being refused until they are moved by hand.
+  const moveAgents = await flow4On("flow_f8");
+  const movedAgents: { id: string; name: string; userId: string | null }[] = [];
   const after = await db.transaction(async (tx) => {
     const [before] = await tx.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, memberId)).for("update");
     if (before.status !== "ACTIVE") throw conflict("Only an active member can be changed.");
@@ -605,13 +610,37 @@ export async function downgradeToAgent(actor: TeamActor, memberId: string, input
       .select({ id: dealerSalespeople.id, name: dealerSalespeople.name })
       .from(dealerSalespeople)
       .where(and(eq(dealerSalespeople.parentId, memberId), eq(dealerSalespeople.status, "ACTIVE")));
-    if (agents.length) {
+    if (agents.length && !moveAgents) {
       throw conflict(`${before.name} still leads ${agents.length} agent(s). Move them to yourself or another team lead first.`, { reason: "AGENTS_TO_REASSIGN", agents: agents.map((a) => a.id) });
     }
     const parentId = input.parentId ?? null;
     if (parentId === memberId) throw validationFailed("A member cannot report to themselves.");
     const parent = parentId ? await requireLead(tx, before.dealerId, parentId) : null;
     const why = reasonOf(opts, "changed to agent");
+    if (agents.length) {
+      // F8: the new lead must be another active team lead of the same dealer (never the one being changed).
+      const agentsTo = input.agentsTo ?? null;
+      if (agentsTo === memberId) throw validationFailed("Choose another team lead (or yourself) for his agents.");
+      const lead = agentsTo ? await requireLead(tx, before.dealerId, agentsTo) : null;
+      const now = new Date();
+      for (const a of agents) {
+        const [moved] = await tx
+          .update(dealerSalespeople)
+          .set({ depth: lead ? 3 : 2, parentId: lead?.id ?? null, parentDepth: lead ? 2 : null, parentRole: lead ? "TEAM_LEAD" : null, updatedAt: now })
+          .where(eq(dealerSalespeople.id, a.id))
+          .returning();
+        const moveWhy = `moved from ${before.name} to ${lead?.name ?? "the dealer"} (team lead ${why})`;
+        await recordMapping(tx, a.id, `v2: ${moveWhy}`, actor.id, now);
+        if (moved.userId) {
+          await recordRoleChange({ userId: moved.userId, role: "agent", action: historyAction(opts, "REASSIGNED"), fromValue: `agent under ${before.name}`, toValue: `agent under ${lead?.name ?? "the dealer"}`, dealerId: before.dealerId, salespersonId: a.id, actorUserId: actor.id, reason: moveWhy }, tx);
+        }
+        await recordAudit(
+          { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_TEAM_CHANGED, entityType: "dealer_salesperson", entityId: a.id, previousValue: { parentId: memberId }, newValue: { parentId: lead?.id ?? null, v2: true, flow: "F8", reason: moveWhy } },
+          tx,
+        );
+        movedAgents.push({ id: a.id, name: a.name, userId: moved.userId });
+      }
+    }
     // DEFAULT – confirm with Sanjay: his former agents who are no longer active move under the dealer silently.
     await clearChildren(tx, memberId, actor.id, `v2: former lead ${before.name} ${why}`);
     const now = new Date();
@@ -631,6 +660,9 @@ export async function downgradeToAgent(actor: TeamActor, memberId: string, input
     return row;
   });
   await tell(member, "You are now an agent. Shops already registered keep their commission as it was.");
+  for (const a of movedAgents) {
+    if (a.userId) await notify({ userId: a.userId, type: NOTIFICATION_TYPES.DEALER_TEAM_CHANGED, vars: { message: "Your team lead changed. Shops already registered keep their commission as it was." }, actionUrl: "/dealer" }).catch((e: unknown) => console.error("[team] notice failed", a.id, e));
+  }
   return after;
 }
 

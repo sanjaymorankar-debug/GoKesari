@@ -434,6 +434,33 @@ export const RULES = {
     }),
     defaults: { enabled: true, deferredMatchHours: 24 },
   },
+  /* >>> docs/flows-v3 (wave 4): read only while the matching flow_f* feature flag is on. */
+  franchiseFlowsV3: {
+    description:
+      "Flow spec v3, wave 4 (docs/flows-v3/wave4.md). Each value is used only while its feature flag is on; with the flag off the franchise settings (Admin → Franchise), the dealer commission settings and the payout rules apply unchanged. flow_f21: holdGraceMinutes (a zone held for payment is released this long after its 15-minute hold ends, even while the gateway page is still open; a payment that arrives later takes a slot that is still free, else it is refunded automatically). flow_f10: tailCapYears (a paid franchise's commission after it lapses stops this many years after its first start, renewals included). flow_f22: commissionHoldDays (a commission entry becomes payable only this many days after it is earned — the return window + 1 day); commissionGstRateBp (GST added to the commission payout of a GST-registered dealer; the CA confirms the rate), commissionSac (the service code printed on the commission invoice) and commissionInvoicePrefix (its number series).",
+    schema: z.object({
+      holdGraceMinutes: int(0, 30),
+      tailCapYears: int(1, 10),
+      commissionHoldDays: int(0, 60),
+      commissionGstRateBp: int(0, 2800),
+      commissionSac: z.string().regex(/^\d{4,8}$/),
+      commissionInvoicePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/, "1–4 capital letters or digits."),
+    }),
+    defaults: {
+      // DEFAULT – confirm with Sanjay: the slot is released 2 minutes after the 15-minute hold (owner: "15 min + small grace").
+      holdGraceMinutes: 2,
+      // Owner 27-Nov-2026: 12 months + 2-year tail = commission stops 3 years after the first start.
+      tailCapYears: 3,
+      // Owner 27-Nov-2026: the return window (2 days) + 1 day = 3 days, the same as the settlement hold.
+      commissionHoldDays: 3,
+      // DEFAULT – confirm with Sanjay (and the CA): 18% GST on commission (SAC 996111) for GST-registered dealers.
+      commissionGstRateBp: 1800,
+      commissionSac: "996111",
+      // DEFAULT – confirm with Sanjay: number series GKC/<yyYY>/<000001>.
+      commissionInvoicePrefix: "GKC",
+    },
+  },
+  /* <<< docs/flows-v3 (wave 4) */
   shopWelcomeKit: {
     description:
       "Shop welcome kit (docs/shop-welcome-kit-2026-11). Every shop gets one welcome e-mail with its printable banners when it goes live. Safety net on: every 15 minutes, live shops approved since `safetyNetFrom` (set by migration 0214 to the moment that release ran) that never had the kit get it — normally none. Shops that were live before that time are never e-mailed automatically (Admin → Shops → Send welcome kit).",

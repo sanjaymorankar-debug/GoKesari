@@ -13,7 +13,8 @@ import { sendEmail } from "@/server/email/transport";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { notify } from "@/server/services/notifications";
-import { releaseExpiredHolds, releaseLapsedPlanPayments, sweepFranchiseKyc } from "./booking";
+import { flow4On, wave4Rule } from "@/server/flows/wave4";
+import { releaseExpiredHolds, releaseHeldPaymentSlots, releaseLapsedPlanPayments, sweepFranchiseKyc } from "./booking";
 import { closeAllocationCodes } from "./codes";
 import { calculateFranchiseMonth, lockFranchiseMonth, prevMonth } from "./commission";
 import { emailStatements } from "./statements";
@@ -240,6 +241,15 @@ export async function runFranchiseJob(real: Date = new Date()): Promise<Record<s
   const now = franchiseNow(config, real);
   const out: Record<string, unknown> = { at: now.toISOString() };
   out.holdsReleased = await releaseExpiredHolds(db, now);
+  // docs/flows-v3/wave4.md F21 (flag flow_f21): slots held for a payment still open are released at hold + grace.
+  if (await flow4On("flow_f21")) {
+    out.heldWhilePaying = await releaseHeldPaymentSlots(db, now, (await wave4Rule()).holdGraceMinutes)
+      .then(async (zones) => {
+        for (const z of zones) await syncSoldOut(z).catch((e: unknown) => console.error("[franchise] sold-out sync failed", z, e));
+        return zones.length;
+      })
+      .catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+  }
   // QA D-169: onboarding v2 plan bookings whose checkout was left open past "held until".
   out.lapsedPlanPayments = await releaseLapsedPlanPayments(now).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
   // §5.6: scheduled zone status changes due now, and reservations past their expiry back to Available.

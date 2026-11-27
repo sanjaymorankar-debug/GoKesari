@@ -39,7 +39,8 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("invite"), contact: z.string().min(1).max(254), role, parentId: z.string().uuid().nullish() }),
   z.object({ action: z.literal("cancel"), invitationId: z.string().uuid() }),
   z.object({ action: z.literal("upgrade"), memberId: z.string().uuid() }),
-  z.object({ action: z.literal("downgrade"), memberId: z.string().uuid(), parentId: z.string().uuid().nullish() }),
+  // docs/flows-v3/wave4.md F8 (flag flow_f8): agentsTo — the team lead his agents move to (absent / null: the dealer).
+  z.object({ action: z.literal("downgrade"), memberId: z.string().uuid(), parentId: z.string().uuid().nullish(), agentsTo: z.string().uuid().nullish() }),
   z.object({ action: z.literal("reassign"), memberId: z.string().uuid(), parentId: z.string().uuid().nullable() }),
   z.object({ action: z.literal("remove"), memberId: z.string().uuid() }),
 ]);
@@ -71,7 +72,7 @@ export const POST = route(async (request: NextRequest) => {
     case "upgrade":
       return ok({ member: { id: (await upgradeToTeamLead(user, body.memberId)).id } });
     case "downgrade":
-      return ok({ member: { id: (await downgradeToAgent(user, body.memberId, { parentId: body.parentId ?? null })).id } });
+      return ok({ member: { id: (await downgradeToAgent(user, body.memberId, { parentId: body.parentId ?? null, agentsTo: body.agentsTo ?? null })).id } });
     case "reassign":
       return ok({ member: { id: (await reassignAgent(user, body.memberId, { parentId: body.parentId })).id } });
     case "remove":

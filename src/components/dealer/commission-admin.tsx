@@ -67,6 +67,8 @@ interface Payout {
   totalPaise: number;
   /** 0136 / 0139 / 0142: TDS, the automatic transfer and its review flag, the TDS block. */
   tdsPaise?: number;
+  /** 0225 (docs/flows-v3/wave4.md, flag flow_f22): GST added for a GST-registered dealer. */
+  gstPaise?: number;
   needsReview?: boolean;
   failureReason?: string | null;
   tdsFlag?: string | null;
@@ -593,7 +595,7 @@ export function CommissionAdmin({
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>
                   {ledger.find((e) => e.dealerId === p.dealerId && (e.payeeMemberId ?? null) === (p.memberId ?? null))?.payeeName ?? ledger.find((e) => e.dealerId === p.dealerId)?.dealerName ?? "Dealer"} · gross {rs(p.totalPaise)}
-                  {p.tdsPaise ? ` · TDS ${rs(p.tdsPaise)} · net ${rs(p.totalPaise - p.tdsPaise)}` : ""} · {p.periodMonth ? `${p.periodMonth} · ` : ""}
+                  {p.tdsPaise || p.gstPaise ? `${p.tdsPaise ? ` · TDS ${rs(p.tdsPaise)}` : ""}${p.gstPaise ? ` · GST ${rs(p.gstPaise)}` : ""} · net ${rs(p.totalPaise + (p.gstPaise ?? 0) - (p.tdsPaise ?? 0))}` : ""} · {p.periodMonth ? `${p.periodMonth} · ` : ""}
                   {p.createdAt.slice(0, 10)} <Badge tone={p.status === "PAID" ? "success" : p.status === "FAILED" ? "danger" : "neutral"}>{p.status.toLowerCase()}</Badge>
                   {p.needsReview ? <Badge tone="warning">needs review</Badge> : null}
                   {p.tdsFlag && !p.tdsOverrideReason ? <Badge tone="warning">TDS: {p.tdsFlag.toLowerCase().replace(/_/g, " ")}</Badge> : null}

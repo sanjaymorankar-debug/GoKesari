@@ -48,6 +48,8 @@ interface Props {
   v2?: { plans: PlanOption[]; payoutMissing: string[] } | null;
   /** Onboarding v2 on, signed out (/franchise/book): "free dealer" signs in to /franchise/start instead of /dealer/apply. */
   v2Start?: boolean;
+  /** docs/flows-v3/wave4.md F21 (flag flow_f21): slots held for a buyer who is paying show as "on hold". */
+  holdLabels?: boolean;
 }
 
 export interface PlanOption {
@@ -82,11 +84,11 @@ interface CartView {
 }
 
 /** Whether this signed-in dealer may put the zone in the cart now (the server checks again). */
-function buyable(z: ZoneView, dealerId: string | null, allowProvisional: boolean): { ok: boolean; why: string | null } {
+function buyable(z: ZoneView, dealerId: string | null, allowProvisional: boolean, holdLabels = false): { ok: boolean; why: string | null } {
   if (z.status === "RESERVED") {
     if (!dealerId || z.reservedForDealerId !== dealerId) return { ok: false, why: "Reserved for another dealer" };
   } else if (z.status !== "AVAILABLE") return { ok: false, why: ZONE_BADGE_LABELS[z.badge] };
-  if (z.slotsFree <= 0) return { ok: false, why: "Sold out" };
+  if (z.slotsFree <= 0) return { ok: false, why: holdLabels && z.held > 0 ? "On hold — another buyer is paying; it may free up in 15 minutes" : "Sold out" };
   if (z.feePaise == null) return { ok: false, why: "Fee not set yet" };
   if (z.provisional && z.promoFeePaise == null && !allowProvisional) return { ok: false, why: "Fees being finalised" };
   return { ok: true, why: null };
@@ -97,7 +99,7 @@ function buyable(z: ZoneView, dealerId: string | null, allowProvisional: boolean
  * fee filters; select zones → the server-priced cart (fee, tier, coupon, GST, total) → rules (clickwrap) → reserve
  * (15-minute hold) and pay 100% online. Every amount shown comes from the server.
  */
-export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, agreement, rates, kycDays, initialZones = [], initialJoin = null, v2 = null, v2Start = false }: Props) {
+export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, agreement, rates, kycDays, initialZones = [], initialJoin = null, v2 = null, v2Start = false, holdLabels = false }: Props) {
   const [region, setRegion] = useState("ALL");
   const [tier, setTier] = useState<ZoneTier | "ALL">("ALL");
   const [slots, setSlots] = useState<"any" | "available" | "1">("any");
@@ -539,7 +541,7 @@ export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, a
       {view === "list" ? (
         <div className="grid gap-3 md:grid-cols-2">
           {shown.map((z) => (
-            <ZoneCard key={z.zoneId} zone={z} colour={z.tier ? (tierFacet.get(z.tier)?.colour ?? null) : null} selected={cart.includes(z.zoneId)} canBook={canBook} sale={buyable(z, dealerId, offer.allowProvisionalSale)} onToggle={() => toggle(z.zoneId)} />
+            <ZoneCard key={z.zoneId} zone={z} colour={z.tier ? (tierFacet.get(z.tier)?.colour ?? null) : null} selected={cart.includes(z.zoneId)} canBook={canBook} sale={buyable(z, dealerId, offer.allowProvisionalSale, holdLabels)} holdLabels={holdLabels} onToggle={() => toggle(z.zoneId)} />
           ))}
         </div>
       ) : null}
@@ -575,7 +577,7 @@ export function ZoneBooking({ zones, facets, offer, signedIn, dealerId, owner, a
   );
 }
 
-function ZoneCard({ zone: z, colour, selected, canBook, sale, onToggle }: { zone: ZoneView; colour: string | null; selected: boolean; canBook: boolean; sale: { ok: boolean; why: string | null }; onToggle: () => void }) {
+function ZoneCard({ zone: z, colour, selected, canBook, sale, onToggle, holdLabels = false }: { zone: ZoneView; colour: string | null; selected: boolean; canBook: boolean; sale: { ok: boolean; why: string | null }; onToggle: () => void; holdLabels?: boolean }) {
   return (
     <Card className={`space-y-2 p-3 ${selected ? "ring-2 ring-kesari-500" : ""}`} data-testid={`zone-card-${z.zoneId}`}>
       <div className="flex flex-wrap items-center gap-2">
@@ -604,6 +606,7 @@ function ZoneCard({ zone: z, colour, selected, canBook, sale, onToggle }: { zone
       <p className="text-xs text-ink-600">Areas: {z.areas.join(", ") || "—"}</p>
       <p className="text-sm text-ink-700">
         {z.slotsFree} of {z.maxOwners} slot{z.maxOwners === 1 ? "" : "s"} left
+        {holdLabels && z.held > 0 ? <span data-testid={`zone-on-hold-${z.zoneId}`}> · {z.held} on hold</span> : null}
         {z.status === "RESERVED" && z.reservedUntil ? ` · reserved until ${new Date(z.reservedUntil).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}
       </p>
       {canBook ? (
