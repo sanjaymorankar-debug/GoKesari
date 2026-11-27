@@ -301,7 +301,8 @@ describe("skip and fill in later", () => {
 });
 
 describe("profile edit", () => {
-  it("updates name, gender and mobile through PATCH /api/profile", async () => {
+  it("updates name, gender and mobile through PATCH /api/profile (no SMS on the site: saved unverified)", async () => {
+    await smsOff();
     const user = await createUser({ name: "Old", mobile: null });
     signInAs(user);
     const r = await call(profilePatchRoute, "/api/profile", {
@@ -363,6 +364,7 @@ describe("profile edit", () => {
 
 describe("duplicate mobile or email", () => {
   it("refuses a mobile number already on another account", async () => {
+    await smsOff();
     await createUser({ mobile: "9555555555" });
     const other = await createUser({ mobile: null });
     await expect(updateProfile(other.id, other.role, { mobile: "9555555555" })).rejects.toThrow(MOBILE_IN_USE);

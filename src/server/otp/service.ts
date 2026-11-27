@@ -80,7 +80,9 @@ export type OtpPurpose =
   | "RECOVERY_NEW_EMAIL"
   | "RECOVERY_NEW_SMS"
   | "PHONE_LINK"
-  | "ACCOUNT_DELETE_SMS";
+  | "ACCOUNT_DELETE_SMS"
+  /** Login & auth 27-Nov-2026: the e-mail verified by a link from /account/verify (dual-auth/verify.ts). */
+  | "DUAL_VERIFY_EMAIL_LINK";
 type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =
@@ -606,8 +608,13 @@ export async function verifyLoginOtp(input: {
     if (existing.status !== "ACTIVE") throw forbidden(ACCOUNT_BLOCKED);
     const patch: Partial<typeof users.$inferInsert> = {};
     // A code that went by SMS proves the mobile, not the e-mail (owner 27-Nov-2026: mobile sign-in by SMS).
+    // Login & auth (owner 27-Nov-2026, item 2): a number never verified before, on an account with a real e-mail, is
+    // NOT verified by this code alone — the account's e-mail code is asked next (second-factor.ts safety step) and
+    // only then is phone_verified_at set, so a number typed into someone else's account never opens it.
     if (otp.channel === "SMS") {
-      if (otp.phoneE164 && existing.phoneE164 === otp.phoneE164 && !existing.phoneVerifiedAt) patch.phoneVerifiedAt = new Date();
+      if (otp.phoneE164 && existing.phoneE164 === otp.phoneE164 && !existing.phoneVerifiedAt && (existing.emailPlaceholder || isPlaceholderEmail(existing.email))) {
+        patch.phoneVerifiedAt = new Date();
+      }
     } else if (!existing.emailVerified) {
       patch.emailVerified = new Date();
     }

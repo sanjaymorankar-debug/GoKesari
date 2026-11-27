@@ -189,14 +189,15 @@ describe("sign-in: new device, trusted device, staff", () => {
     expect(audit?.newValue).toMatchObject({ factors: ["EMAIL", "SMS"] });
   });
 
-  it("TC-DUAL-011 trusted device (30 days): customer and shop owner sign in with one factor; a new browser needs both", async () => {
+  it("TC-DUAL-011 trusted device (customers 180 days, others 30): customer and shop owner sign in with one factor; a new browser needs both", async () => {
     for (const role of ["CUSTOMER", "SHOP_OWNER", "DEALER"] as const) {
       state.cookies.clear();
       const user = await dualVerified(role);
       expect(await trustThisDevice(user.id, "test")).toBe(true);
       expect(state.cookies.get(DEVICE_COOKIE)).toMatch(/^[A-Za-z0-9_-]{43}$/);
       const [row] = await db.select().from(trustedDevices).where(eq(trustedDevices.userId, user.id));
-      expect(Math.round((row.expiresAt.getTime() - row.trustedAt.getTime()) / 86_400_000)).toBe(30);
+      // Owner 27-Nov-2026: customers 180 days (rolling), other roles 30 days (fixed).
+      expect(Math.round((row.expiresAt.getTime() - row.trustedAt.getTime()) / 86_400_000)).toBe(role === "CUSTOMER" ? 180 : 30);
       expect(await secondFactorKind(user, "EMAIL")).toBeNull();
       // Another browser (no cookie): both again.
       state.cookies.clear();

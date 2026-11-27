@@ -9,8 +9,7 @@ import { z } from "zod";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { clientKey, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
-import { requestPhoneLinkCode } from "@/server/flows/phone-link";
-import { flowF18On } from "@/server/flows/wave5-flags";
+import { phoneLinkNeedsCode, requestPhoneLinkCode } from "@/server/flows/phone-link";
 import { featureNotAvailable } from "@/server/services/feature-flags";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +17,7 @@ export const dynamic = "force-dynamic";
 const schema = z.object({ mobile: z.string().min(10).max(20) });
 
 export const POST = route(async (request: NextRequest) => {
-  if (!(await flowF18On())) throw featureNotAvailable("flow_f18");
+  if (!(await phoneLinkNeedsCode())) throw featureNotAvailable("flow_f18");
   const user = await requireUser();
   enforceRateLimit(`phone-link-code:${user.id}`, { limit: 10, windowMs: 15 * 60_000 });
   enforceRateLimit(clientKey(request, "phone-link-code"), { limit: 30, windowMs: 15 * 60_000 });

@@ -128,6 +128,22 @@ Choices made while building (each marked in code):
 17. Admin → Dual authentication is open to ADMIN (menu) and OPERATOR / operations / support managers (direct link).
 18. Production: flag switched on only after the production test pass AND with real SMS (SMSFortius keys, PR #632).
 
+## Login & auth finish (owner, 27-Nov-2026)
+
+The sign-in and verification flow the owner approved on 27-Nov-2026 (prompt 13.34 IST). Tests:
+`tests/integration/login-auth-2026-11.test.ts` (LA-*), TC-SMSLOGIN-002/006/007, F18-11, TC-DUAL-011.
+
+| # | What | Where |
+|---|---|---|
+| L1 | **One box** on `/signin`: mobile number or email ID, the "I agree" tick, Get code. Continue with Google and "Or get a sign-in link by email" are gone from the page (Google still works from the app / checkout sheet; emailed links stay for verifying an address). A mobile number always gets its code by SMS (#665); "No SMS after a minute? Use your email instead" stays as the fallback. | `src/app/signin/page.tsx`, `src/components/otp-login-form.tsx` |
+| L2 | **Safety step** (flag on or off): an SMS code to a number the account never verified, on an account with a real e-mail, does not open the session — that e-mail's code is asked next (no device trust skips it). Only then is `phone_verified_at` set (and the e-mail verified). Mobile-only accounts (placeholder e-mail) are verified by the SMS code alone. | `otp/service.ts` verifyLoginOtp, `otp/second-factor.ts` needsSafetyStep |
+| L3 | **Straight after sign-in** (dual_auth in force): `/onboarding` sends an account missing a factor to `/account/verify?return=/onboarding` — no skip. The shop registration and the checkout login sheet keep their own steps. If SMS fails the person can still browse; orders, shop / dealer / admin work and withdrawals stay blocked by `assertDualVerified`. | `src/app/onboarding/page.tsx` |
+| L4 | **E-mail by link for mobile-only accounts**: "E-mail me a link instead" on `/account/verify` with the new address. Single use, 15 minutes, only the newest works, 30 s between links, 4 per 15 min. The link page needs a Confirm press (mail scanners open links). Duplicate address → "This mobile and email belong to different accounts", logged (`auth.account_conflict`, where `verify_email_link`). Opened where this account is not signed in: verified, nothing trusted. | `dual-auth/verify.ts` sendEmailFactorLink / confirmEmailFactorLink, `src/app/account/verify/email/page.tsx` (purpose `DUAL_VERIFY_EMAIL_LINK`, no migration) |
+| L5 | **Profile mobile only by SMS**: `PUT /api/me/phone` needs the SMS code whenever SMS works on the site (no longer only with flow_f18). Same unverified number can be verified; a number on another account → DIFFERENT_ACCOUNTS after the code, logged. Changing a verified number still asks both codes first; removing is unchanged. | `src/server/flows/phone-link.ts`, `src/app/api/me/phone/code/route.ts` |
+| L6 | **Device trust by role**: customers `customerTrustDays` 180, renewed at every sign-in on the device, never past first trust + `customerTrustMaxDays` 365 (DEFAULT – confirm with Sanjay); shop owners, dealers, riders, society admins `trustDays` 30, fixed (a customer who becomes one gets 30 days from the next sign-in); staff never. Shown in Admin → Sign-in security. | `dual-auth/devices.ts`, rule `dualAuth` |
+| L7 | **Reminders for everyone** with `needs_second_factor`: every 3 days, 10:00–19:00 IST. Shop owners in-app + SMS (as before); others in-app + e-mail (real address only), SMS when a number is on file (DEFAULT – confirm with Sanjay). | `dual-auth/reminders.ts` |
+| L8 | **Apps**: the Android / iOS apps show the website, so all of the above reaches them with the website deploy — no new build or OTA update. `/account/…` is already an app link (Android intent filter since the account-deletion release; iOS AASA covers every path but the exclusions), so the e-mailed link opens in the app. | `mobile/app.config.ts` |
+
 ## Rollback
 
 Switch `dual_auth` off (instant). Schema rollback: `scripts/rollback-0219-dual-auth.sql` (drops only what 0219 added).

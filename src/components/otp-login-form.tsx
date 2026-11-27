@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { useSignInConsent } from "@/components/signin-consent";
 import { EMAIL_HINT, isValidEmail, parseIndianMobile } from "@/lib/contact";
@@ -61,8 +61,8 @@ const T = {
   resendIn: L("Resend code in {n}s", "{n} सेकंड में कोड फिर भेजें", "{n} सेकंदांत कोड पुन्हा पाठवा"),
   resend: L("Resend code", "कोड फिर भेजें", "कोड पुन्हा पाठवा"),
   different: L("Use a different number or email", "दूसरा नंबर या ईमेल डालें", "दुसरा नंबर किंवा ईमेल वापरा"),
-  newHere: L("New to GoKesari, or no email after a minute?", "GoKesari पर नए हैं, या एक मिनट बाद भी ईमेल नहीं आया?", "GoKesari वर नवीन आहात, किंवा एका मिनिटानंतरही ईमेल आला नाही?"),
-  signUpEmail: L("Sign up with your email", "अपने ईमेल से साइन अप करें", "तुमच्या ईमेलने साइन अप करा"),
+  noSms: L("No SMS after a minute?", "एक मिनट बाद भी SMS नहीं आया?", "एका मिनिटानंतरही SMS आला नाही?"),
+  useEmail: L("Use your email instead", "इसकी जगह अपना ईमेल इस्तेमाल करें", "त्याऐवजी तुमचा ईमेल वापरा"),
 } as const;
 
 type Step = "identify" | "email" | "code" | "sms";
@@ -81,12 +81,11 @@ const buttonClass =
   "min-h-11 rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800 disabled:bg-cream-200 disabled:text-ink-600";
 
 /**
- * Mobile number or email → code from email. A mobile number gets the same
- * reply whether or not it is registered, so a new number signs up from the
- * code step by giving an email. Verification is a server action that opens
- * the session.
+ * One box: mobile number or email → one-time code (owner, 27-Nov-2026). A mobile number always gets its code by
+ * SMS — a new number signs up that way (#665); an email gets its code by email. Verification is a server action that opens the session. `consent`, when given, is the
+ * "I agree" box, shown between the field and the button.
  */
-export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode; lang?: Lang }) {
+export function OtpLoginForm({ verify, lang = "en", consent }: { verify: VerifyLoginCode; lang?: Lang; consent?: ReactNode }) {
   const emailHint = lang === "en" ? EMAIL_HINT : tr(T.emailHint, lang);
   const [step, setStep] = useState<Step>("identify");
   const [identifier, setIdentifier] = useState("");
@@ -191,25 +190,45 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
   }
 
   return (
-    <div className="mt-6 border-t border-cream-200 pt-6" data-testid="otp-signin">
+    <div className={consent ? "mt-6" : "mt-6 border-t border-cream-200 pt-6"} data-testid="otp-signin">
       <p className="mb-2 text-sm font-medium text-ink-700">{tr(T.heading, lang)}</p>
 
       {step === "identify" ? (
         <form onSubmit={submitIdentifier}>
-          <div className="flex gap-2">
-            <input
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              autoComplete="username"
-              placeholder={tr(T.idPlaceholder, lang)}
-              aria-label={tr(T.idLabel, lang)}
-              className={`${inputClass} min-h-11 flex-1 text-base`}
-              required
-            />
-            <button type="submit" disabled={busy || !agreed} className={buttonClass}>
-              {busy ? tr(T.sending, lang) : tr(T.getCode, lang)}
-            </button>
-          </div>
+          {consent ? (
+            <>
+              {/* One box, then "I agree", then the button (owner, 27-Nov-2026). */}
+              <input
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                autoComplete="username"
+                autoFocus
+                placeholder={tr(T.idPlaceholder, lang)}
+                aria-label={tr(T.idLabel, lang)}
+                className={`${inputClass} min-h-11 w-full text-base`}
+                required
+              />
+              {consent}
+              <button type="submit" disabled={busy || !agreed} className={`${buttonClass} mt-3 w-full`}>
+                {busy ? tr(T.sending, lang) : tr(T.getCode, lang)}
+              </button>
+            </>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                autoComplete="username"
+                placeholder={tr(T.idPlaceholder, lang)}
+                aria-label={tr(T.idLabel, lang)}
+                className={`${inputClass} min-h-11 flex-1 text-base`}
+                required
+              />
+              <button type="submit" disabled={busy || !agreed} className={buttonClass}>
+                {busy ? tr(T.sending, lang) : tr(T.getCode, lang)}
+              </button>
+            </div>
+          )}
           {/* Why the button cannot be used yet (it used to just look faded). */}
           {!agreed ? <p className="mt-2 text-sm font-medium text-ink-700">{tr(T.tickAgree, lang)}</p> : null}
           <p className="mt-2 text-sm text-ink-600">{tr(T.codeByEmail, lang)}</p>
@@ -288,7 +307,7 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
           </div>
           {sentTo === null ? (
             <p className="mt-3 text-xs text-ink-600">
-              {tr(T.newHere, lang)}{" "}
+              {tr(T.noSms, lang)}{" "}
               <button
                 type="button"
                 className="font-medium text-kesari-700 underline"
@@ -297,7 +316,7 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
                   setStep("email");
                 }}
               >
-                {tr(T.signUpEmail, lang)}
+                {tr(T.useEmail, lang)}
               </button>
             </p>
           ) : null}

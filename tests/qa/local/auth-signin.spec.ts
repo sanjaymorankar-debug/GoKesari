@@ -68,7 +68,7 @@ async function userRow(email: string) {
 
 /* ================================================================ sign-up */
 
-qa("TC-AUTH-001", "new user by mobile: the generic code-step reply, 'Sign up with your email', masked email, code subject, details form with the mobile", async ({ browser }) => {
+qa("TC-AUTH-001", "new user by mobile: the SMS code step, then the email fallback ('Use your email instead'), masked email, code subject, details form with the mobile", async ({ browser }) => {
   const mobile = uniqueMobile();
   const email = uniqueEmail("mobile-signup");
   const { context, page } = await guestContext(browser, { geolocation: HOME, permissions: ["geolocation"] });
@@ -78,9 +78,9 @@ qa("TC-AUTH-001", "new user by mobile: the generic code-step reply, 'Sign up wit
     await page.getByLabel("Mobile number or email").fill(mobile);
     await page.getByRole("button", { name: "Get code" }).click();
     const sentTo = page.getByTestId("otp-sent-to");
-    await expect(sentTo).toContainText(`if +91 ${mobile} is registered`);
+    await expect(sentTo).toContainText(`OTP sent by SMS to +91 ${mobile}`);
     const stepText = (await sentTo.innerText()).trim();
-    await page.getByRole("button", { name: "Sign up with your email" }).click();
+    await page.getByRole("button", { name: "Use your email instead" }).click();
     await expect(page.getByText(`link +91 ${mobile} to your account`)).toBeVisible();
     await page.getByLabel("Email address").fill(email);
     const since = Date.now();
@@ -106,7 +106,7 @@ qa("TC-AUTH-001", "new user by mobile: the generic code-step reply, 'Sign up wit
 }, {
   ...local,
   partial:
-    "step 2 no longer says 'not registered yet': the reply is the same for every number (expected result superseded by docs/login-profile/DEPLOY_AND_TEST.md 'New user via mobile' and src/components/otp-login-form.tsx) — the sign-up starts from 'Sign up with your email'",
+    "a new number signs up by SMS where SMS works (#665; integration TC-SMSLOGIN-005/007); this case covers the email fallback ('Use your email instead', owner 27-Nov-2026) when no SMS arrives",
 });
 
 qa("TC-AUTH-002", "first-time details and a geo-tagged address: home, then My Profile shows them and a zero wallet exists", async ({ browser }) => {
@@ -478,7 +478,7 @@ qa(["TC-FLD-001", "TC-AUTH-019"], "sign-in mobile: blank, wrong length, first di
     await field.fill(`+91 ${mobile.slice(0, 5)} ${mobile.slice(5)}`);
     await page.getByRole("button", { name: "Get code" }).click();
     await expect(page.getByTestId("otp-sent-to")).toContainText(`if +91 ${mobile} is registered`);
-    await page.getByRole("button", { name: "Sign up with your email" }).click();
+    await page.getByRole("button", { name: "Use your email instead" }).click();
     await page.getByLabel("Email address").fill(email);
     const since = Date.now();
     await page.getByRole("button", { name: "Send code" }).click();
@@ -581,7 +581,7 @@ qa("TC-AUTH-003", "returning user by mobile: the code goes to the account's emai
   const { context, page } = await guestContext(browser);
   try {
     const signIn = await signInWithCode(page, user.mobile!, { codeEmail: user.email });
-    expect(signIn.sentTo, "the code step").toContain(`if +91 ${user.mobile} is registered, the code went to the email address on that account`);
+    expect(signIn.sentTo, "the code step").toContain(`OTP sent by SMS to +91 ${user.mobile}`);
     expect(signIn.sentTo, "the address is not shown").not.toContain("***@");
     await expect(page).toHaveURL((u) => u.pathname === "/");
     await expect(page.getByRole("heading", { name: "Tell us about you" })).toHaveCount(0);
@@ -700,37 +700,7 @@ qa("TC-AUTH-006", "an account from before the details form is asked for its deta
   }
 }, { ...local, partial: "signed in by emailed code; the magic link is TC-AUTH-009, Google needs a Google account (TC-AUTH-008)" });
 
-qa("TC-AUTH-009", "email magic link signs in; the link cannot be used again after signing out", async ({ browser }) => {
-  const user = await localUser("magic");
-  const { context, page } = await guestContext(browser);
-  try {
-    await openSignIn(page);
-    await agreeToTerms(page);
-    const since = Date.now();
-    await page.getByLabel("Or get a sign-in link by email").fill(user.email);
-    await page.getByRole("button", { name: "Email me a link" }).click();
-    await expect(page.getByTestId("check-email")).toBeVisible({ timeout: 30_000 });
-    let link: string | null = null;
-    for (let i = 0; i < 40 && !link; i++) {
-      link = messagesTo(user.email, since).map((m) => m.body.match(/https?:\/\/[^\s"<>]+\/api\/auth\/callback\/email[^\s"<>]+/)?.[0]).find(Boolean) ?? null;
-      if (!link) await page.waitForTimeout(500);
-    }
-    if (!link) blocked("no sign-in link reached the local mail catcher");
-    const url = link.replace(/&amp;/g, "&");
-    await page.goto(url);
-    await page.waitForLoadState("networkidle").catch(() => {});
-    expect((await sessionUser(context.request))?.id, "signed in by the link").toBe(user.id);
-    await page.goto("/profile");
-    await signOutFromMenu(page);
-    expect(await sessionUser(context.request)).toBeNull();
-    await page.goto(url);
-    await page.waitForLoadState("networkidle").catch(() => {});
-    expect(await sessionUser(context.request), "the used link does not sign in again").toBeNull();
-    return `link mailed and signed in; after signing out the same link → ${new URL(page.url()).pathname}${new URL(page.url()).search}, not signed in`;
-  } finally {
-    await context.close();
-  }
-}, local);
+manual("TC-AUTH-009", "email magic link signs in; the link cannot be used again after signing out", "the sign-in page has one box since 27-Nov-2026 (owner): the 'Email me a link' form is no longer offered there; emailed links remain only for verifying an email address (/account/verify, tests/integration/login-auth-2026-11.test.ts LA-4)", { tier: "local" });
 
 /* ====================================================== blocked accounts */
 
@@ -758,34 +728,9 @@ qa("TC-AUTH-027", "a suspended account gets no sign-in code by email or mobile, 
   } finally {
     await context.close();
   }
-}, { ...local, partial: "Google sign-in is not configured on the local server (needs a Google account and OAuth keys); the emailed link is the next check" });
+}, { ...local, partial: "Continue with Google and the emailed link are no longer on the sign-in page (one box, owner 27-Nov-2026)" });
 
-qa("TC-AUTH-027", "the emailed sign-in link asked for a suspended account lands on the suspended notice (/signin?error=AccessDenied), not an error page, and opens no session", async ({ browser }) => {
-  const user = await localUser("suspended-link");
-  expectStatus(await call(await as("admin"), "POST", `/api/users/${user.id}/suspend`, { reason: "QA suspended-account link check" }), 200, "admin suspends");
-  const { context, page } = await guestContext(browser);
-  try {
-    await openSignIn(page);
-    await agreeToTerms(page);
-    await page.getByLabel("Or get a sign-in link by email").fill(user.email);
-    await page.getByRole("button", { name: "Email me a link" }).click();
-    await page.waitForURL(/error=AccessDenied/, { timeout: 15_000 }).catch(() => {});
-    await page.waitForLoadState("networkidle").catch(() => {});
-    expect(await sessionUser(context.request), "no session").toBeNull();
-    const errorPage = await page.getByText("Something went wrong on our side").isVisible().catch(() => false);
-    const ref = errorPage ? ((await page.getByText(/^Ref: /).innerText().catch(() => "")) || "") : "";
-    expect(
-      page.url(),
-      errorPage
-        ? `"Email me a link" for the suspended account showed the error page "Something went wrong on our side" (${ref}) at ${page.url().replace(/^https?:\/\/[^/]+/, "")} instead of the suspended notice; the server logged AccessDenied thrown by the link form's signIn (src/app/signin/page.tsx)`
-        : `landed on ${page.url()}`,
-    ).toMatch(/error=AccessDenied/);
-    await expect(page.getByTestId("signin-access-denied")).toBeVisible();
-    return "link request refused → /signin?error=AccessDenied with the notice; no session";
-  } finally {
-    await context.close();
-  }
-}, local);
+manual("TC-AUTH-027", "the emailed sign-in link asked for a suspended account lands on the suspended notice", "the sign-in page has one box since 27-Nov-2026 (owner): the 'Email me a link' form is no longer offered there; the code request for a suspended account is the TC-AUTH-027 check above", { tier: "local" });
 
 /* ========================================================= audit trail */
 
@@ -914,7 +859,7 @@ qa("TC-AUTH-051", "SMS unavailable for a mobile-only account: the failure is rec
   const { context, page } = await guestContext(browser);
   try {
     const step = await requestCodeOnPage(page, user.mobile!, { codeEmail: user.email });
-    await expect(page.getByRole("button", { name: "Sign up with your email" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Use your email instead" })).toBeVisible();
     return `reply ${JSON.stringify(res.body)}; SMS code ${row.id} withdrawn, audited auth.otp_failed delivery_failed; the page says: "${step.sentTo.slice(0, 120)}…" and offers email sign-up`;
   } finally {
     await context.close();

@@ -61,7 +61,7 @@ import { approveDeliveryPartner, registerDeliveryPartner } from "@/server/servic
 import { clearFeatureFlagCache } from "@/server/services/feature-flags";
 import { getMyRiderIdCard } from "@/server/services/rider-files";
 import { grantRole } from "@/server/services/roles";
-import { clearRuleCache } from "@/server/services/settings";
+import { clearRuleCache, setRule } from "@/server/services/settings";
 import {
   addSocietyRider,
   decideSociety,
@@ -458,8 +458,9 @@ describe("F18-10 recovery after losing the e-mail (flow_f18)", () => {
   });
 });
 
-describe("F18-11 a new mobile needs a code sent to it (flow_f18)", () => {
-  it("off: linked at once, unverified, as before", async () => {
+describe("F18-11 a new mobile needs a code sent to it (since 27-Nov-2026 whenever SMS works, flag or not)", () => {
+  it("SMS cannot be sent on the site: linked at once, unverified, as before", async () => {
+    await setRule("otp", { smsEnabled: false } as never, await createUser({ role: "ADMIN" }));
     const user = await createUser({ mobile: null });
     signInAs(user);
     const mobile = uniqueMobile();
@@ -468,6 +469,34 @@ describe("F18-11 a new mobile needs a code sent to it (flow_f18)", () => {
     const [after] = await db.select().from(users).where(eq(users.id, user.id));
     expect(after).toMatchObject({ phoneE164: `+91${mobile}`, phoneVerifiedAt: null });
     expect((await call(phoneCodePost, "/api/me/phone/code", { method: "POST", body: { mobile } })).status).toBe(404);
+  });
+
+  it("flow_f18 off but SMS works: refused without the code; with it saved verified (owner 27-Nov-2026, login & auth item 5)", async () => {
+    const user = await createUser({ mobile: null });
+    signInAs(user);
+    const mobile = uniqueMobile();
+    const refused = await call(phonePut, "/api/me/phone", { method: "PUT", body: { mobile } });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error.details).toMatchObject({ reason: "PHONE_CODE_REQUIRED" });
+    expect((await call(phoneCodePost, "/api/me/phone/code", { method: "POST", body: { mobile } })).status).toBe(200);
+    const ok = await call(phonePut, "/api/me/phone", { method: "PUT", body: { mobile, code: await lastSmsCode(`+91${mobile}`) } });
+    expect(ok.status).toBe(200);
+    const [after] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(after.phoneE164).toBe(`+91${mobile}`);
+    expect(after.phoneVerifiedAt).not.toBeNull();
+  });
+
+  it("a number on another account: the code is sent, then the link stops with DIFFERENT_ACCOUNTS and is logged", async () => {
+    const mobile = uniqueMobile();
+    await createUser({ mobile });
+    const user = await createUser({ mobile: null });
+    signInAs(user);
+    expect((await call(phoneCodePost, "/api/me/phone/code", { method: "POST", body: { mobile } })).status).toBe(200);
+    const res = await call(phonePut, "/api/me/phone", { method: "PUT", body: { mobile, code: await lastSmsCode(`+91${mobile}`) } });
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toBe("This mobile and email belong to different accounts. Log in with one, or contact support.");
+    const [after] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(after.phoneE164).toBeNull();
   });
 
   it("on: refused without the code; with it the number is saved verified and the old number is told", async () => {
