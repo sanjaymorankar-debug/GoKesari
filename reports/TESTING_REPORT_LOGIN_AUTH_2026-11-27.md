@@ -2,7 +2,7 @@
 
 Owner brief 27-Nov-2026 01.34 PM IST ("GoKesari — finish login and authentication"), items 1–9.
 Code: staging [#667](https://github.com/sanjaymorankar-debug/GoKesari/pull/667) + [#669](https://github.com/sanjaymorankar-debug/GoKesari/pull/669) (both `staging-verified`), production hotfix [#668](https://github.com/sanjaymorankar-debug/GoKesari/pull/668) (merged into `main` 17.34 IST, live 17.46 IST as `c6a8e5bd`).
-Follow-up fix: [#675](https://github.com/sanjaymorankar-debug/GoKesari/pull/675) (plain message when the e-mail quota is used up), in the staging queue.
+Follow-up fix: [#675](https://github.com/sanjaymorankar-debug/GoKesari/pull/675) (plain message when the e-mail quota is used up): on staging in `1cdaec44`; production hotfix [#680](https://github.com/sanjaymorankar-debug/GoKesari/pull/680), live 20.53 IST.
 
 ## Result in one line
 
@@ -75,6 +75,8 @@ Not run on staging (e-mail codes for the staging test accounts are not readable 
 | **`dual_auth` switched ON** (owner in chat: "carry on with prod tests and dual_auth on"); `feature_flag_changes` + `audit_logs` rows written | **17.51** | done |
 | Re-run P1–P5 with the flag on; page config `dualAuth: true`; `/`, `/shops`, `/robots.txt` 200; no errors in the app log | 17.52 | PASS |
 | Reminder run (hourly at :47, first with the flag on) | 18.47 | PASS (in-app + e-mail); SMS skipped, see below |
+| #680 (copy of #675) merged into `main` (CI + prod-db green, no migrations) | 20.45 | done |
+| Server deploy `62700387` live; post-deploy check script 5/5 + workflow green | 20.53–20.58 | PASS |
 
 Production accounts at the switch (17.50 IST): 45 users, all `needs_second_factor`; 3 admins (0 verified mobile, 2 verified e-mail), 25 customers (0 / 5), 17 shop owners (2 / 3). Each is asked for the missing factor at the next sign-in; staff (admins) will add a mobile by SMS code. Mail capacity: 35 of 990 sends used in the last 24 h.
 
@@ -110,5 +112,6 @@ Real SMS codes reach only the owner's mobile, so these three are for the owner (
 
 - The three owner-phone cases above.
 - Reminder / notification SMS on gokesari.com: register a DLT template for the reminder text with SMSFortius (owner), then configure it; until then reminders go in-app + e-mail.
-- #675 (e-mail quota message) in the staging queue; to production in the next release.
+- #675 / #680 (e-mail quota message): live on both sites. The 503 message itself is covered by the unit test; it shows on a site only when every mailbox is at its cap.
+- Staging build memory: builds of `323b949f` and `bea6443c` ran out of the 6 GB Node heap (the batch #676 failure); `1cdaec44` built. Raising the build heap to 7 GB inside the 9 GB cap needs the owner's OK.
 - Staging mail pool is at its daily cap (11 × 90); e-mail tests on staging resume when it frees up.
