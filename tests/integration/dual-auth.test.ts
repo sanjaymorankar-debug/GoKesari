@@ -172,7 +172,25 @@ describe("rule and gate", () => {
     expect(row.needsSecondFactor).toBe(false);
     expect(row.needsSecondFactorSince).toBeNull();
   });
+  it("TC-DUAL-005 admin: the mobile is optional (rule dualAuth.adminMobileOptional, owner 27-Nov-2026); off asks it again", async () => {
+    const boss = await createUser({ role: "ADMIN", mobile: null });
+    await db.update(users).set({ emailVerified: new Date() }).where(eq(users.id, boss.id));
+    const [fresh] = await db.select().from(users).where(eq(users.id, boss.id));
+    expect((await factorState(fresh)).missing).toEqual([]);
+    await expect(assertDualVerified(boss.id, "ADMIN")).resolves.toBeUndefined();
+    expect(await secondFactorKind(fresh, "EMAIL")).toBeNull();
+    // Not for other roles: an operator without a mobile is still asked for it.
+    const op = await createUser({ role: "OPERATOR", mobile: null });
+    await db.update(users).set({ emailVerified: new Date() }).where(eq(users.id, op.id));
+    const [opRow] = await db.select().from(users).where(eq(users.id, op.id));
+    expect((await factorState(opRow)).missing).toEqual(["MOBILE"]);
+    // Switched off: the admin is asked for the mobile again.
+    await setRule("dualAuth", { adminMobileOptional: false }, admin);
+    clearRuleCache();
+    expect((await factorState(fresh)).missing).toEqual(["MOBILE"]);
+  });
 });
+
 
 describe("sign-in: new device, trusted device, staff", () => {
   it("TC-DUAL-010 returning customer on a new device: e-mail code, then SMS code before the session", async () => {

@@ -382,6 +382,10 @@ export const RULES = {
       stepUpMinutes: int(1, 60),
       /** DEFAULT – confirm with Sanjay: mobile-only shop owners get the "add your e-mail" SMS reminder every 3 days. */
       reminderEveryDays: int(1, 60),
+      /** Owner 27-Nov-2026 23.40 IST ("for admin make mobile number optional as of now"): an ADMIN account counts as
+       *  verified with its e-mail alone — no mobile asked at sign-in, on admin pages or before orders. Turn off to ask
+       *  admins for the mobile again. Sensitive actions (bank, withdrawal …) still need a verified mobile. */
+      adminMobileOptional: z.boolean(),
     }),
     defaults: {
       smsExpiryMinutes: 5,
@@ -397,6 +401,7 @@ export const RULES = {
       customerTrustMaxDays: 365,
       stepUpMinutes: 10,
       reminderEveryDays: 3,
+      adminMobileOptional: true,
     },
   },
   onboardingV2: {
