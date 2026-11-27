@@ -8,6 +8,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { codeFromSmsOtpText } from "@/server/otp/providers";
 
 import type { UserRole } from "@/server/db/schema";
 
@@ -169,7 +170,7 @@ async function lastSmsCode(e164: string): Promise<string> {
     .where(and(eq(outboundTestMessages.toAddress, e164), eq(outboundTestMessages.purpose, "otp")))
     .orderBy(desc(outboundTestMessages.createdAt))
     .limit(1);
-  const code = row?.body.match(/^(\d{4,8}) is your GoKesari code/)?.[1];
+  const code = (row ? codeFromSmsOtpText(row.body) : null);
   if (!code) throw new Error("no SMS code was sent");
   return code;
 }

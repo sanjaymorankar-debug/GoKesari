@@ -98,7 +98,7 @@ async function smsCodeFromOutbox(last4: string, since: number): Promise<string |
     if (!res.ok()) return null;
     const body = (await res.json().catch(() => null)) as { messages?: { body: string; purpose: string; createdAt: string }[] } | null;
     const hit = (body?.messages ?? []).find((m) => m.purpose === "otp" && new Date(m.createdAt).getTime() >= since - 5_000);
-    return hit?.body.match(/^(\d{4,8}) is your GoKesari code/)?.[1] ?? null;
+    return hit?.body.match(/verification OTP is (\d{4,8})\./)?.[1] ?? hit?.body.match(/^(\d{4,8}) is your GoKesari code/)?.[1] ?? null;
   } finally {
     await ctx.dispose();
   }

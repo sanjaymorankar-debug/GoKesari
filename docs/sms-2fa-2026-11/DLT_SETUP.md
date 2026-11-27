@@ -40,8 +40,14 @@ Register one template, linked to the header above:
 - **Text — exactly** (the app sends this wording; `{#var#}` are the variables):
 
   ```
-  {#var#} is your GoKesari code. It expires in {#var#} minutes. Do not share it with anyone. -GoKesari
+  Dear Customer, your GoKesari account verification OTP is {#var#}. This OTP is valid for {#var#} minutes. Please do not share it with anyone. - Team GoKesari
   ```
+
+  This is the template registered and approved for `GOKSRI` (Content Template ID
+  1777179567470170016, owner 27-Nov-2026). Any other wording — even one word or
+  space different — is rejected by the operator (SMSFortius error **633**).
+  When testing by hand, URL-encode the message (`curl -G --data-urlencode`):
+  a raw space cuts the text to "Dear" and it is rejected the same way.
 
 - Variables: first = the code (6 digits), second = minutes (5 by default, rule
   `otp.expiryMinutes`).
@@ -60,7 +66,7 @@ shops registered with a mobile number only.
    `{#var#}`:
 
    ```
-   ##otp## is your GoKesari code. It expires in ##minutes## minutes. Do not share it with anyone. -GoKesari
+   Dear Customer, your GoKesari account verification OTP is ##otp##. This OTP is valid for ##minutes## minutes. Please do not share it with anyone. - Team GoKesari
    ```
 
    Link it to the DLT Content Template ID and the header. MSG91 shows a
