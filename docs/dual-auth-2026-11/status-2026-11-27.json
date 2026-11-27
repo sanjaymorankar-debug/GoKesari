@@ -1,0 +1,296 @@
+{
+ "D0.1": {
+  "status": "Done",
+  "test": "ON",
+  "prod": "ON since 27-Nov 17.51 IST",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": "Owner OK in chat 27-Nov"
+ },
+ "D0.2": {
+  "status": "Done",
+  "test": "Queued (PR #637)",
+  "prod": "Not yet",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": "Applied cleanly on a fresh local DB"
+ },
+ "D0.3": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D1.1": {
+  "status": "Done",
+  "test": "Queued",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D1.2": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": "Existing ticks reused (checkout sheet, sign-in, shop identity)"
+ },
+ "D1.3": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D1.4": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": "E-mail code added to the web sheet; Google checked for email_verified"
+ },
+ "D1.5": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D2.1": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D2.2": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D2.3": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D2.4": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D2.5": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D3.1": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D3.2": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D3.3": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D3.4": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D3.5": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D3.6": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": "Rider withdrawal + customer refund to bank (no customer wallet cash-out exists)"
+ },
+ "D3.7": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D3.8": {
+  "status": "Blocked",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": "No shop ownership transfer flow exists in the code; guard OWNERSHIP_TRANSFER ready"
+ },
+ "D4.1": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": "Counts known after migration runs on each site"
+ },
+ "D4.2": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D4.3": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": "SMS reminder on prod needs a DLT template; in-app works"
+ },
+ "D4.4": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D5.1": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D5.2": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D5.3": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": ""
+ },
+ "D6.1": {
+  "status": "Done",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": "WebView shells: shipped with the website deploy"
+ },
+ "D6.2": {
+  "status": "Blocked",
+  "test": "",
+  "prod": "",
+  "at": "27-Nov-2026 00.03 IST",
+  "notes": "Native SMS Retriever needs app hash in DLT template + store build"
+ },
+ "D7.1": {
+  "status": "Done",
+  "test": "LA 19/19; auth files 148/148; full regression 5,437 passed",
+  "prod": "CI #668 green",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ },
+ "D7.2": {
+  "status": "Done",
+  "test": "#637, #667, #669 staging-verified; E2E 5 PASS, 1 env FAIL (mail quota) \u2192 #675",
+  "prod": "",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ },
+ "D7.3": {
+  "status": "Done",
+  "test": "",
+  "prod": "#668 live 17.46 IST; post-deploy PASS; guest checks 5/5",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": "3 phone cases for owner"
+ },
+ "D7.4": {
+  "status": "Done",
+  "test": "ON",
+  "prod": "ON 27-Nov-2026 17.51 IST",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": "SMSFortius live; flag change + audit rows written"
+ },
+ "L1": {
+  "status": "Done",
+  "test": "PASS",
+  "prod": "PASS",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ },
+ "L2": {
+  "status": "Done",
+  "test": "Integration TC-SMSLOGIN-002/006/007",
+  "prod": "Owner phone case",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ },
+ "L3": {
+  "status": "Done",
+  "test": "PASS (no skip)",
+  "prod": "Owner phone case",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ },
+ "L4": {
+  "status": "Done",
+  "test": "Logic LA-4.x PASS; staging send blocked by mail quota \u2192 #675",
+  "prod": "Invalid-link page PASS",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ },
+ "L5": {
+  "status": "Done",
+  "test": "Integration LA-5.1\u20135.3",
+  "prod": "Owner phone case",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ },
+ "L6": {
+  "status": "Done",
+  "test": "Integration LA-6.1\u20136.5",
+  "prod": "Owner: admin both codes",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ },
+ "L7": {
+  "status": "Done",
+  "test": "Integration LA-7.1\u20137.2",
+  "prod": "PASS \u2014 18.47 IST: 43 reminded, in-app 43 + e-mail 43 sent; SMS 28 skipped (no DLT reminder template)",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ },
+ "L8": {
+  "status": "Done",
+  "test": "WebView, no build",
+  "prod": "WebView, no build",
+  "at": "27-Nov-2026 18.55 IST",
+  "notes": ""
+ }
+}
