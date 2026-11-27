@@ -45,6 +45,8 @@ export interface SessionClaims {
   sub?: string | null;
   sid?: unknown;
   jti?: unknown;
+  /** docs/flows-v3/wave5.md (0224): when this session was signed in (ms). Older tokens have none. */
+  sat?: unknown;
 }
 
 /** The session's id: its `sid`, else (a token from before session ids) its `jti`; null when it has neither. */
@@ -58,6 +60,7 @@ export function sessionIdOf(token: SessionClaims): string | null {
 export function startSession<T extends SessionClaims>(token: T, userId: string): T {
   token.sub = userId;
   token.sid = randomUUID();
+  token.sat = Date.now();
   return token;
 }
 
@@ -87,6 +90,9 @@ export async function readSession(token: SessionClaims): Promise<{ user: User | 
     // docs/account-deletion-2026-11: a deleted account — or one hidden in its cooling-off period
     // (0191, PENDING_DELETION) — ends every session it had, on every device.
     if (row.user.status === "DELETED" || row.user.status === "PENDING_DELETION" || row.user.deletedAt) return null;
+    // docs/flows-v3/wave5.md (0224, flag flow_f18): "signed out on all devices" — a session signed in before the
+    // account's marker ends. No marker (every account until a recovery sets one): as before.
+    if (signedInBefore(token, row.user.sessionsValidAfter)) return null;
     return { user: row.user };
   } catch (error) {
     // The revocation list could not be read (a database the 0088 migration has not reached, or
@@ -102,6 +108,22 @@ export async function readSession(token: SessionClaims): Promise<{ user: User | 
 }
 
 let revocationFailureLogged = false;
+
+/** True when the account has a sign-out-everywhere marker and this session was signed in before it (or is older than sign-in times). */
+export function signedInBefore(token: SessionClaims, validAfter: Date | null | undefined): boolean {
+  if (!validAfter) return false;
+  const at = typeof token.sat === "number" ? token.sat : null;
+  return at === null || at < validAfter.getTime();
+}
+
+/**
+ * docs/flows-v3/wave5.md (flag flow_f18): ends every session the account has, on every device, from their next
+ * request. Called after an account recovery replaced the mobile or e-mail.
+ */
+export async function endAllSessions(userId: string, reason: string, now: Date = new Date()): Promise<void> {
+  await db.update(users).set({ sessionsValidAfter: now, updatedAt: now }).where(eq(users.id, userId));
+  await recordAudit({ actorId: userId, action: AUDIT_ACTIONS.SESSIONS_ENDED_ALL, entityType: "user", entityId: userId, newValue: { reason } });
+}
 
 /** Lists the session as signed out. False when it already was (a second click on Sign out). */
 export async function revokeSession(userId: string, sessionId: string, now: Date = new Date()): Promise<boolean> {

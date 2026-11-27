@@ -116,6 +116,9 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   flow_f4: "Flows v3 F4: WhatsApp + payment QR at registration, agreement e-mailed on acceptance",
   flow_f5: "Flows v3 F5: licences given at registration count in the shop's register, promises marked given",
   flow_f6: "Flows v3 F6: first subscription year from go-live, expiry reminders and online renewal on",
+  flow_f11: "Flows v3 F11: rider photo, rider mobile and e-mail from the verified account",
+  flow_f15: "Flows v3 F15: society authorised person, proof document, gate hours, rider suspension",
+  flow_f18: "Flows v3 F18: recovery of a lost mobile or e-mail, code to a new mobile, closure codes to both",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -237,6 +240,12 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/flows-v3/wave1.md (F1): with dual_auth also in force, rider application and rider pages ask for a verified mobile AND e-mail first; a Google or e-mail-link sign-up keeps a server-side record of the Terms & Privacy tick (signed, time-stamped); a referral link opened by a signed-out visitor goes to sign-up with the code kept. Off: every flow behaves exactly as before.",
   flow_f14:
     "docs/flows-v3/wave1.md (F14): a shop registered through onboarding v2 gets its prepaid shop wallet at once (zero balance), and /shop/wallet offers the monthly ledger as a CSV download (without needing billing v2). Off: the wallet appears on first use and the download stays on the billing v2 statements page only.",
+  flow_f11:
+    "docs/flows-v3/wave5.md (F11): a new rider application needs a profile photo (uploaded in the form) and is checked for it again at approval; the application's mobile must be the account's verified mobile (SMS code) and its e-mail the account's verified e-mail; approved riders without a photo see a reminder on rider pages. Off: the application works exactly as before.",
+  flow_f15:
+    "docs/flows-v3/wave5.md (F15): a society application asks for the authorised person (name and role), the number of flats (optional) and a proof document (registration certificate or committee letter: number plus an uploaded or scanned photo), which operations must see before verifying it; the society sets delivery hours at the gate, can pause a rider for some days instead of removing them, and a society that applies while this is on lets only its approved riders deliver there once it has any. Existing societies are unchanged. Off: everything as before.",
+  flow_f18:
+    "docs/flows-v3/wave5.md (F18): /account/recover offers \"lost my mobile\" and \"lost my e-mail\": a code to the one still working (shop owners also confirm a GSTIN or PAN of their shop), then a code to the new mobile or e-mail, after which the account is signed out on every device and the old contact is told. Linking or changing a mobile needs a code sent to the new number. Account closure (with account_self_deletion_enabled) asks a code by e-mail and by SMS, hides the owner's shops itself, checks dealer / franchise balances for anyone with a dealer record, and removes role grants at the final deletion. Off: everything as before.",
   flow_f17:
     "docs/flows-v3/wave1.md (F17): new tickets are assigned automatically by category and the shop's district (Admin → Support → Routing; least-loaded person; no match = manual queue); the shop's area dealer is copied (read-only); the system opens tickets for failed GST/PAN or document checks, identity reviews, payment mismatches, disputes, delivery-code locks and society applications; first response due within working hours (rule supportFlows); reopen within 7 days, closed tickets too; a public form at /account/recover for people who lost both mobile and e-mail. Off: the help desk behaves exactly as before.",
   flow_f4:

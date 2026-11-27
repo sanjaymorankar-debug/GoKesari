@@ -14,6 +14,7 @@ import { AppError } from "@/lib/errors";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getSocietyDashboard } from "@/server/services/societies";
+import { flowF15On } from "@/server/flows/wave5-flags";
 import { searchShops } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
 import { riderDisplayId, uploadedPhotoId } from "@/server/services/rider-files";
@@ -47,6 +48,8 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
   const partnerIds = new Set(partnerShops.map((s) => s.shopId));
   // docs/delta CF-006: riders asking to join, only while the flag is on for this society's district.
   const joinRequests = (await joinRequestsEnabledFor(society)) ? await listSocietyJoinRequests(society.id, user) : null;
+  // docs/flows-v3/wave5.md (flag flow_f15): gate delivery hours and pausing a rider.
+  const flowF15 = await flowF15On();
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -71,7 +74,10 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
           <Card className="p-4">
             <SocietySettingsForm
               societyId={society.id}
+              withHours={flowF15}
               initial={{
+                deliveryHoursStart: society.deliveryHoursStart,
+                deliveryHoursEnd: society.deliveryHoursEnd,
                 deliveryInstructions: society.deliveryInstructions,
                 gateEntryMode: society.gateEntryMode,
                 gateContactName: society.gateContactName,
@@ -144,7 +150,16 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
                     <RatingBadge avgX100={r.ratingAvgX100} count={r.ratingCount} />
                   </span>
                 </span>
-                {isAdmin ? <RiderLinkActions linkId={r.id} status={r.status} preferred={r.preferred} /> : <StatusBadge status={r.status} />}
+                {isAdmin ? (
+                  <RiderLinkActions
+                    linkId={r.id}
+                    status={r.status}
+                    preferred={r.preferred}
+                    pause={flowF15 ? { until: r.suspendedUntil && r.suspendedUntil > new Date() ? r.suspendedUntil.toISOString() : null } : undefined}
+                  />
+                ) : (
+                  <StatusBadge status={r.status} />
+                )}
               </div>
             ))}
           </Card>

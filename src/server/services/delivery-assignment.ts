@@ -2195,7 +2195,13 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
       precise: pickedUp,
     },
     gate: society
-      ? { entryMode: society.entryMode, contactName: society.contactName, contactPhone: society.contactPhone }
+      ? {
+          entryMode: society.entryMode,
+          contactName: society.contactName,
+          contactPhone: society.contactPhone,
+          // docs/flows-v3/wave5.md (flow_f15): the gate's delivery hours, when the society set them (new, optional field).
+          ...(society.deliveryHours ? { deliveryHours: society.deliveryHours } : {}),
+        }
       : null,
   };
 }

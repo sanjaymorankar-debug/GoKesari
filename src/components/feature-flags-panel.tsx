@@ -90,7 +90,11 @@ export type FeatureFlagKey =
   // docs/flows-v3/wave3.md
   | "flow_f4"
   | "flow_f5"
-  | "flow_f6";
+  | "flow_f6"
+  // docs/flows-v3/wave5.md (0224)
+  | "flow_f11"
+  | "flow_f15"
+  | "flow_f18";
 
 interface FlagValue {
   enabled: boolean;

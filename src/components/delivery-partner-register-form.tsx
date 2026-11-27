@@ -83,6 +83,17 @@ const T = {
   submitting: L("Submitting…", "जमा हो रहा है…", "जमा होत आहे…"),
   submit: L("Submit and continue to KYC", "जमा करें और KYC पर आगे बढ़ें", "जमा करा आणि KYC कडे पुढे जा"),
   shareToContinue: L("Share your location to continue", "आगे बढ़ने के लिए अपनी लोकेशन साझा करें", "पुढे जाण्यासाठी तुमचे लोकेशन शेअर करा"),
+  // docs/flows-v3/wave5.md (flag flow_f11)
+  photo: L("Your photo", "आपकी फ़ोटो", "तुमचा फोटो"),
+  photoHint: L("A clear photo of your face. It goes on your rider ID card.", "आपके चेहरे की साफ़ फ़ोटो। यह आपके राइडर ID कार्ड पर आती है।", "तुमच्या चेहऱ्याचा स्पष्ट फोटो. तो तुमच्या रायडर ID कार्डवर येतो."),
+  photoAdded: L("Photo added", "फ़ोटो जुड़ गई", "फोटो जोडला"),
+  uploading: L("Uploading…", "अपलोड हो रहा है…", "अपलोड होत आहे…"),
+  mobileFromAccount: L("Your account's verified mobile", "आपके खाते का सत्यापित मोबाइल", "तुमच्या खात्याचा पडताळलेला मोबाइल"),
+  emailFromAccount: L("Your account's verified e-mail", "आपके खाते का सत्यापित ई-मेल", "तुमच्या खात्याचा पडताळलेला ई-मेल"),
+  sendCode: L("Send code by SMS", "SMS से कोड भेजें", "SMS ने कोड पाठवा"),
+  codeLabel: L("Code from the SMS", "SMS का कोड", "SMS मधील कोड"),
+  verify: L("Verify", "सत्यापित करें", "पडताळा"),
+  verifyEmailFirst: L("Verify your e-mail first", "पहले अपना ई-मेल सत्यापित करें", "आधी तुमचा ई-मेल पडताळा"),
 } as const;
 
 const GENDER_TEXT: Record<string, Text> = {
@@ -166,10 +177,16 @@ function locationErrorMessage(error: GeolocationPositionError | null, lang: Lang
 export function DeliveryPartnerRegisterForm({
   lang = "en",
   referral,
+  account,
 }: {
   lang?: Lang;
   /** Rider App v2 (rule riderReferral on): show the optional referral code, prefilled from ?ref=. */
   referral?: { code: string };
+  /**
+   * docs/flows-v3/wave5.md (flag flow_f11 on): the account's verified mobile (10 digits) and e-mail. The form then
+   * uses them (locked), verifies the mobile by SMS code when the account has none, and asks for a photo.
+   */
+  account?: { verifiedMobile: string | null; verifiedEmail: string | null };
 } = {}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -177,6 +194,39 @@ export function DeliveryPartnerRegisterForm({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [vehicleType, setVehicleType] = useState("");
   const [location, setLocation] = useState<LocationState>({ kind: "none" });
+  // docs/flows-v3/wave5.md (flag flow_f11)
+  const [verifiedMobile, setVerifiedMobile] = useState<string | null>(account?.verifiedMobile ?? null);
+  const [mobileDraft, setMobileDraft] = useState("");
+  const [mobileCodeSent, setMobileCodeSent] = useState(false);
+  const [mobileCode, setMobileCode] = useState("");
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  async function dualVerify(body: Record<string, unknown>): Promise<boolean> {
+    setError(null);
+    const response = await fetch("/api/dual-auth/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      setError(payload?.error?.message ? errorText(payload.error.message, lang, payload?.error?.code) : tr(T.submitFailed, lang));
+      return false;
+    }
+    return true;
+  }
+
+  async function uploadPhoto(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setPhotoBusy(true);
+    setError(null);
+    const data = new FormData();
+    data.set("file", file);
+    data.set("purpose", "PROFILE_PHOTO");
+    const response = await fetch("/api/images", { method: "POST", body: data });
+    const payload = await response.json().catch(() => null);
+    setPhotoBusy(false);
+    if (!response.ok) return setError(payload?.error?.message ?? tr(T.submitFailed, lang));
+    setPhotoUrl(String(payload.url));
+  }
 
   function shareLocation() {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -219,8 +269,9 @@ export function DeliveryPartnerRegisterForm({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         fullName: get("fullName"),
-        mobile: get("mobile"),
-        email: get("email") || null,
+        mobile: account ? (verifiedMobile ?? "") : get("mobile"),
+        email: account ? account.verifiedEmail : get("email") || null,
+        ...(account ? { profilePhotoUrl: photoUrl } : {}),
         dateOfBirth: get("dateOfBirth") || null,
         gender: get("gender") || null,
         addressLine: get("addressLine") || null,
@@ -274,12 +325,81 @@ export function DeliveryPartnerRegisterForm({
         <Field label={t(T.fullName)} error={fe("fullName")}>
           <input name="fullName" required autoComplete="name" className={inputClass} />
         </Field>
-        <Field label={t(T.mobile)} hint={t(T.mobileHint)} error={fe("mobile")}>
-          <input name="mobile" required inputMode="numeric" autoComplete="tel-national" pattern="[6-9][0-9]{9}" maxLength={10} className={inputClass} />
-        </Field>
-        <Field label={t(T.email)} error={fe("email")}>
-          <input name="email" type="email" required autoComplete="email" className={inputClass} />
-        </Field>
+        {account ? (
+          <Field label={t(T.mobileFromAccount)} error={fe("mobile")}>
+            {verifiedMobile ? (
+              <input value={verifiedMobile} readOnly aria-readonly className={`${inputClass} bg-cream-50`} data-testid="rider-mobile-locked" />
+            ) : (
+              <div className="grid gap-2">
+                <div className="flex gap-2">
+                  <input
+                    value={mobileDraft}
+                    onChange={(e) => setMobileDraft(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    inputMode="numeric"
+                    autoComplete="tel-national"
+                    maxLength={10}
+                    className={inputClass}
+                    aria-label={t(T.mobile)}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={!/^[6-9]\d{9}$/.test(mobileDraft)}
+                    onClick={async () => setMobileCodeSent(await dualVerify({ action: "mobile-code", mobile: mobileDraft }))}
+                  >
+                    {t(T.sendCode)}
+                  </Button>
+                </div>
+                {mobileCodeSent ? (
+                  <div className="flex gap-2">
+                    <input
+                      value={mobileCode}
+                      onChange={(e) => setMobileCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      className={inputClass}
+                      aria-label={t(T.codeLabel)}
+                      placeholder={t(T.codeLabel)}
+                    />
+                    <Button
+                      type="button"
+                      disabled={!mobileCode}
+                      onClick={async () => {
+                        if (await dualVerify({ action: "mobile-verify", mobile: mobileDraft, code: mobileCode })) setVerifiedMobile(mobileDraft);
+                      }}
+                    >
+                      {t(T.verify)}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </Field>
+        ) : (
+          <Field label={t(T.mobile)} hint={t(T.mobileHint)} error={fe("mobile")}>
+            <input name="mobile" required inputMode="numeric" autoComplete="tel-national" pattern="[6-9][0-9]{9}" maxLength={10} className={inputClass} />
+          </Field>
+        )}
+        {account ? (
+          <Field label={t(T.emailFromAccount)} error={fe("email")}>
+            {account.verifiedEmail ? (
+              <input value={account.verifiedEmail} readOnly aria-readonly className={`${inputClass} bg-cream-50`} data-testid="rider-email-locked" />
+            ) : (
+              <a href="/account/verify?return=/delivery-partner/register" className="text-sm text-kesari-700 underline">
+                {t(T.verifyEmailFirst)}
+              </a>
+            )}
+          </Field>
+        ) : (
+          <Field label={t(T.email)} error={fe("email")}>
+            <input name="email" type="email" required autoComplete="email" className={inputClass} />
+          </Field>
+        )}
+        {account ? (
+          <Field label={t(T.photo)} hint={photoUrl ? t(T.photoAdded) : t(T.photoHint)} error={fe("profilePhotoUrl")}>
+            <input type="file" accept="image/jpeg,image/png,image/webp" capture="user" onChange={uploadPhoto} disabled={photoBusy} className="block w-full text-sm" data-testid="rider-photo-file" />
+          </Field>
+        ) : null}
         <Field label={t(T.dob)} hint={t(T.dobHint)} error={fe("dateOfBirth")}>
           <input name="dateOfBirth" type="date" required autoComplete="bday" className={inputClass} />
         </Field>
@@ -414,7 +534,12 @@ export function DeliveryPartnerRegisterForm({
         ) : null}
 
         <div className="sm:col-span-2">
-          <Button type="submit" size="lg" disabled={busy || location.kind !== "shared"} className="w-full">
+          <Button
+            type="submit"
+            size="lg"
+            disabled={busy || location.kind !== "shared" || (account !== undefined && (!photoUrl || !verifiedMobile || !account.verifiedEmail || photoBusy))}
+            className="w-full"
+          >
             {busy ? t(T.submitting) : location.kind === "shared" ? t(T.submit) : t(T.shareToContinue)}
           </Button>
         </div>

@@ -21,6 +21,8 @@ const schema = z.object({
   confirmText: z.string().trim().max(20),
   reasonCode: z.string().trim().max(40).nullish(),
   reason: z.string().trim().max(500).nullish(),
+  /** docs/flows-v3/wave5.md (flag flow_f18): the code sent by SMS to the verified mobile. */
+  smsCode: z.string().trim().max(12).nullish(),
 });
 
 function ipOf(request: NextRequest): string | null {
@@ -39,7 +41,7 @@ export const POST = route(async (request: NextRequest) => {
   return ok(
     await deleteAccount(
       { id: user.id, role: user.role },
-      { code: body.code, confirmText: body.confirmText, reasonCode: body.reasonCode ?? null, reason: body.reason ?? null },
+      { code: body.code, confirmText: body.confirmText, reasonCode: body.reasonCode ?? null, reason: body.reason ?? null, smsCode: body.smsCode ?? null },
       { ip: ipOf(request), userAgent: request.headers.get("user-agent") },
     ),
   );

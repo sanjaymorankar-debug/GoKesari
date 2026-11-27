@@ -70,7 +70,17 @@ export type OtpPurpose =
   | "STEP_UP_SMS"
   | "STEP_UP_EMAIL"
   | "DUAL_VERIFY_SMS"
-  | "DUAL_VERIFY_EMAIL";
+  | "DUAL_VERIFY_EMAIL"
+  /**
+   * docs/flows-v3/wave5.md (0224, flag flow_f18): account recovery — a code to the factor still working, then to the
+   * new mobile / e-mail; a code to a new mobile before it is linked; the SMS half of the account-closure code.
+   */
+  | "RECOVERY_EMAIL"
+  | "RECOVERY_SMS"
+  | "RECOVERY_NEW_EMAIL"
+  | "RECOVERY_NEW_SMS"
+  | "PHONE_LINK"
+  | "ACCOUNT_DELETE_SMS";
 type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =

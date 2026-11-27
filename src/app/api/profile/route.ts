@@ -17,6 +17,8 @@ const schema = z.object({
   name: z.string().max(100).nullish(),
   gender: z.enum(GENDERS).nullish(),
   mobile: z.string().max(20).nullish(),
+  /** docs/flows-v3/wave5.md (flag flow_f18): the SMS code sent to a new mobile (POST /api/me/phone/code). */
+  mobileCode: z.string().trim().max(12).nullish(),
   markComplete: z.boolean().optional(),
 });
 
@@ -34,6 +36,7 @@ export const PATCH = route(async (request: NextRequest) => {
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.gender !== undefined ? { gender: body.gender } : {}),
       ...(body.mobile !== undefined ? { mobile: body.mobile } : {}),
+      ...(body.mobileCode ? { mobileCode: body.mobileCode } : {}),
       markComplete: body.markComplete,
     }),
   );

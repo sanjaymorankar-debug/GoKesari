@@ -49,6 +49,23 @@ export default async function AdminSocietiesPage({ searchParams }: { searchParam
                   {[s.addressLine1, s.area, s.city].filter(Boolean).join(", ")} {s.pincode} · {members} active members
                   {s.rejectionReason ? ` · ${s.rejectionReason}` : ""}
                 </p>
+                {s.authorisedPersonName || s.proofType ? (
+                  // docs/flows-v3/wave5.md (flag flow_f15): what the application gave, for the review.
+                  <p className="text-xs text-ink-700" data-testid="society-application-details">
+                    {s.authorisedPersonName ? `Authorised: ${s.authorisedPersonName}${s.authorisedPersonRole ? ` (${s.authorisedPersonRole})` : ""}` : ""}
+                    {s.flatCount ? ` · ${s.flatCount} flats` : ""}
+                    {s.proofType ? ` · ${s.proofType === "REGISTRATION_CERTIFICATE" ? "Registration certificate" : "Committee letter"}` : ""}
+                    {s.proofNumber ? ` no. ${s.proofNumber}` : ""}
+                    {s.proofImageUrl ? (
+                      <>
+                        {" · "}
+                        <a href={s.proofImageUrl} target="_blank" rel="noreferrer" className="underline">
+                          view document
+                        </a>
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
               </div>
               <span className="flex items-center gap-2">
                 <StatusBadge status={s.status} />

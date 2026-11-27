@@ -21,6 +21,9 @@ const schema = z.object({
   boundaryRadiusMeters: z.number().int().min(50).max(3000).optional(),
   latitude: z.number().min(-90).max(90).nullish(),
   longitude: z.number().min(-180).max(180).nullish(),
+  // docs/flows-v3/wave5.md (flag flow_f15): delivery hours at the gate ("HH:MM").
+  deliveryHoursStart: z.string().max(5).nullish(),
+  deliveryHoursEnd: z.string().max(5).nullish(),
 });
 
 export const GET = route(async (_request: NextRequest, context: RouteContext<{ id: string }>) => {

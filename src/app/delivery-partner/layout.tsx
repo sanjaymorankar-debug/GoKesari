@@ -14,6 +14,9 @@ import { getMyActiveDeliveryOrder } from "@/server/services/delivery-assignment"
 import { getAvailabilityGate, getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
 import { getRule } from "@/server/services/settings";
 import { riderDualVerifyRedirect } from "@/server/dual-auth/policy";
+import { flowF11On } from "@/server/flows/wave5-flags";
+import { Alert } from "@/components/ui";
+import Link from "next/link";
 
 /** Rider pages that never get the v2 frame: the application and sign-up forms. */
 const NO_SHELL = ["/delivery-partner/apply", "/delivery-partner/register"];
@@ -61,6 +64,28 @@ async function riderVerifyAt(): Promise<string | null> {
   return riderDualVerifyRedirect(user.id, path);
 }
 
+/**
+ * docs/flows-v3/wave5.md (flag flow_f11): an approved rider with no photo is asked for one on every rider page
+ * until it is added. Non-blocking: the page works as usual.
+ */
+async function photoReminder(): Promise<React.ReactNode> {
+  if (!(await flowF11On())) return null;
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const profile = await getMyDeliveryPartnerProfile(user.id);
+  if (!profile || profile.status !== "APPROVED" || profile.profilePhotoUrl) return null;
+  return (
+    <div className="mx-auto mb-3 max-w-4xl px-4" data-testid="rider-photo-reminder">
+      <Alert tone="warning">
+        Please add your photo — it goes on your rider ID card.{" "}
+        <Link href="/gig/profile" className="font-medium underline">
+          Add photo
+        </Link>
+      </Alert>
+    </div>
+  );
+}
+
 /** The phone tab bar of docs/ux-mobile-2026-11, for delivery partners who do not get the v2 frame. */
 async function plainTabBar(): Promise<React.ReactNode> {
   const user = await getCurrentUser();
@@ -85,10 +110,19 @@ export default async function DeliveryPartnerLayout({ children }: { children: Re
     console.error("[rider-shell] frame skipped", error);
     return null;
   });
-  if (shell) return <RiderShell {...shell}>{children}</RiderShell>;
+  const reminder = await photoReminder().catch(() => null);
+  if (shell) {
+    return (
+      <RiderShell {...shell}>
+        {reminder}
+        {children}
+      </RiderShell>
+    );
+  }
   const tabBar = await plainTabBar().catch(() => null);
   return (
     <>
+      {reminder}
       {children}
       {tabBar}
     </>

@@ -5,6 +5,7 @@ import { JoinSocietyForm, MemberActions, RegisterSocietyForm } from "@/component
 import { Card, PageHeader, Section, StatusBadge } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listMySocieties } from "@/server/services/societies";
+import { flowF15On } from "@/server/flows/wave5-flags";
 
 export const metadata = { title: "My Society" };
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function SocietyPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  const memberships = await listMySocieties(user.id);
+  const [memberships, withProof] = await Promise.all([listMySocieties(user.id), flowF15On()]);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -73,7 +74,7 @@ export default async function SocietyPage() {
           <p className="mb-3 text-sm text-ink-500">
             You become its admin. Our team verifies the society before residents can join.
           </p>
-          <RegisterSocietyForm />
+          <RegisterSocietyForm withProof={withProof} />
         </Card>
       </Section>
     </div>

@@ -11,11 +11,11 @@
  * decided, so the checkout-time feasibility preview and actual dispatch can
  * no longer disagree about it.
  */
-import { and, count, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
 import { db, type DbClient } from "@/server/db";
-import { deliveryOrders, deliveryPartners, societyPartnerAccess, type DeliveryPartner } from "@/server/db/schema";
+import { deliveryOrders, deliveryPartners, societyPartnerAccess, societyRiders, type DeliveryPartner } from "@/server/db/schema";
 import type { RuleValue } from "@/server/config/rules";
 import { getRule } from "./settings";
 import { bookedPartnerIdsNow } from "./rider-slot-bookings";
@@ -71,7 +71,13 @@ export async function blockedPartnerIds(societyId: string | null | undefined, cl
     .select({ id: societyPartnerAccess.deliveryPartnerId })
     .from(societyPartnerAccess)
     .where(and(eq(societyPartnerAccess.societyId, societyId), eq(societyPartnerAccess.access, "BLOCKED")));
-  return new Set(rows.map((r) => r.id));
+  // docs/flows-v3/wave5.md (flow_f15): a rider the society paused stays off its orders until the pause ends.
+  // Nobody is paused unless the flag was on, so with it off this adds nothing.
+  const paused = await client
+    .select({ id: societyRiders.deliveryPartnerId })
+    .from(societyRiders)
+    .where(and(eq(societyRiders.societyId, societyId), eq(societyRiders.status, "ACTIVE"), sql`${societyRiders.suspendedUntil} > now()`));
+  return new Set([...rows.map((r) => r.id), ...paused.map((r) => r.id)]);
 }
 
 /** A partner holding any of these on ANY order counts as "busy" — cannot take a new assignment. */
