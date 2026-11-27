@@ -801,9 +801,12 @@ export async function linkPhone(
 ): Promise<{ phoneE164: string }> {
   const parsed = parseIndianMobile(input.mobile);
   if (!parsed.ok) throw validationFailed(parsed.error);
-  const [current] = await db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, userId));
+  const [current] = await db.select({ phoneE164: users.phoneE164, phoneVerifiedAt: users.phoneVerifiedAt }).from(users).where(eq(users.id, userId));
   if (current?.phoneE164 === parsed.e164) return { phoneE164: parsed.e164 };
-  await contactChangeStepUp(userId);
+  // Login & auth 27-Nov-2026: the two codes are for CHANGING a verified number; adding a first number (or replacing
+  // one never verified) is proven by the new number's own SMS code (flows/phone-link.ts) — an account with one
+  // factor could otherwise never add its mobile from My Profile.
+  if (current?.phoneVerifiedAt) await contactChangeStepUp(userId);
   await assertPhoneFree(parsed.e164, userId);
   try {
     await db
