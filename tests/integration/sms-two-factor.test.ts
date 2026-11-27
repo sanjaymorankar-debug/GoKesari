@@ -497,14 +497,54 @@ describe("mobile-number sign-in by SMS (owner 26-Nov-2026)", () => {
     expect(signedIn.id).toBe(user.id);
   });
 
-  it("TC-SMSLOGIN-002 a mobile never verified by SMS still gets the code by e-mail (a typed number cannot take an account)", async () => {
+  it("TC-SMSLOGIN-002 a mobile never verified by SMS gets the code by SMS (owner 27-Nov-2026); using it verifies the mobile, not the e-mail", async () => {
     const mobile = uniqueMobile();
     const user = await createUser({ mobile });
+    await db.update(users).set({ emailVerified: null }).where(eq(users.id, user.id));
     await db.delete(outboundTestMessages).where(eq(outboundTestMessages.toAddress, `+91${mobile}`));
     state.outbox = [];
     await requestLoginOtp({ mobile });
-    expect(lastEmailCode(user.email)).toMatch(/^\d{4,8}$/);
+    const code = await lastSmsCode(`+91${mobile}`);
+    expect(state.outbox.filter((m) => m.to === user.email)).toHaveLength(0);
+    const { user: signedIn, channel } = await verifyLoginOtp({ mobile, code });
+    expect(channel).toBe("SMS");
+    expect(signedIn.id).toBe(user.id);
+    const [row] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(row.phoneVerifiedAt).not.toBeNull();
+    expect(row.emailVerified).toBeNull();
+  });
+
+  it("TC-SMSLOGIN-004 a new mobile number gets its code by SMS; with the Terms ticked the code creates a mobile-only account", async () => {
+    const mobile = uniqueMobile();
+    await db.delete(outboundTestMessages).where(eq(outboundTestMessages.toAddress, `+91${mobile}`));
+    state.outbox = [];
+    await requestLoginOtp({ mobile });
+    const code = await lastSmsCode(`+91${mobile}`);
+    expect(state.outbox).toHaveLength(0);
+    await expect(verifyLoginOtp({ mobile, code })).rejects.toThrow(/Terms/);
+    await requestLoginOtp({ mobile }).catch(() => undefined);
+    const { user, isNewUser, channel } = await verifyLoginOtp({ mobile, code: await lastSmsCode(`+91${mobile}`), acceptedTerms: true });
+    expect(isNewUser).toBe(true);
+    expect(channel).toBe("SMS");
+    expect(user.phoneE164).toBe(`+91${mobile}`);
+    expect(user.phoneVerifiedAt).toBeInstanceOf(Date);
+    expect(user.emailPlaceholder).toBe(true);
+    expect(user.emailVerified).toBeNull();
+    // Signing in again with the same number finds that account.
+    await db.delete(loginOtps).where(eq(loginOtps.phoneE164, `+91${mobile}`));
+    resetRateLimits();
+    await requestLoginOtp({ mobile });
+    const again = await verifyLoginOtp({ mobile, code: await lastSmsCode(`+91${mobile}`) });
+    expect(again.user.id).toBe(user.id);
+  });
+
+  it("TC-SMSLOGIN-005 a new mobile number with SMS switched off: nothing is sent", async () => {
+    await setRule("otp", { smsEnabled: false } as never, admin);
+    const mobile = uniqueMobile();
+    state.outbox = [];
+    await requestLoginOtp({ mobile });
     await expect(lastSmsCode(`+91${mobile}`)).rejects.toThrow(/no SMS code/);
+    expect(state.outbox).toHaveLength(0);
   });
 
   it("TC-SMSLOGIN-003 with SMS switched off (rule otp.smsEnabled) a verified mobile falls back to e-mail", async () => {

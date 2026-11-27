@@ -59,6 +59,7 @@ import { addToCart } from "@/server/services/cart";
 import { deliverPending } from "@/server/services/notifications";
 import { checkout } from "@/server/services/orders";
 import { getProfile, nextOnboardingStep, updateProfile } from "@/server/services/profile";
+import { setRule } from "@/server/services/settings";
 import { call } from "../helpers/http";
 import {
   createCategory,
@@ -115,6 +116,15 @@ function signInAs(user: { id: string; email: string; name: string | null; role: 
   state.session = { user: { id: user.id, email: user.email, name: user.name, image: null, role: user.role, status: "ACTIVE" } };
 }
 
+/**
+ * Owner 27-Nov-2026: with SMS available, a mobile number always gets its code by SMS (tests/integration/
+ * sms-two-factor.test.ts). These cases are the e-mail path, used when SMS cannot be sent (rule otp.smsEnabled off).
+ */
+async function smsOff() {
+  const admin = await createUser({ role: "ADMIN" });
+  await setRule("otp", { smsEnabled: false } as never, admin);
+}
+
 describe("new user via mobile number", () => {
   it("gets the same reply as a registered number, then signs up with an email and gets the number and a wallet", async () => {
     expect(await requestLoginOtp({ mobile: "98765 43210" })).toMatchObject({ status: "SENT_IF_REGISTERED" });
@@ -138,7 +148,8 @@ describe("new user via mobile number", () => {
     expect(nextOnboardingStep(await getProfile(user.id))).toBe("DETAILS");
   });
 
-  it("next time, the registered number gets its code at the account's email without the reply naming it", async () => {
+  it("next time, the registered number gets its code at the account's email without the reply naming it" + " (SMS off)", async () => {
+    await smsOff();
     const existing = await createUser({ email: "priya@gmail.com", mobile: "9123456789" });
     const sent = await requestLoginOtp({ mobile: "+91 91234 56789" });
     expect(sent).toMatchObject({ status: "SENT_IF_REGISTERED" });
@@ -182,7 +193,8 @@ describe("new user via mobile number", () => {
 });
 
 describe("mobile number on its own", () => {
-  it("gives the same reply whether or not the number is registered", async () => {
+  it("gives the same reply whether or not the number is registered" + " (SMS off)", async () => {
+    await smsOff();
     await createUser({ email: "known@example.com", mobile: "9555555555" });
     const registered = await requestLoginOtp({ mobile: "9555555555" });
     const unregistered = await requestLoginOtp({ mobile: "9666666666" });
@@ -190,7 +202,8 @@ describe("mobile number on its own", () => {
     expect(state.outbox.map((m) => m.to)).toEqual(["known@example.com"]);
   });
 
-  it("runs the lookup's follow-up through defer, so the reply does not wait for the email", async () => {
+  it("runs the lookup's follow-up through defer, so the reply does not wait for the email" + " (SMS off)", async () => {
+    await smsOff();
     await createUser({ email: "later@example.com", mobile: "9555500000" });
     const deferred: (() => Promise<void>)[] = [];
     const reply = await requestLoginOtp({ mobile: "9555500000", defer: (task) => deferred.push(task) });
@@ -214,7 +227,8 @@ describe("mobile number on its own", () => {
     }
   });
 
-  it("a resend inside the cooldown still gets the same reply", async () => {
+  it("a resend inside the cooldown still gets the same reply" + " (SMS off)", async () => {
+    await smsOff();
     await createUser({ email: "again@example.com", mobile: "9555522222" });
     await requestLoginOtp({ mobile: "9555522222" });
     expect(await requestLoginOtp({ mobile: "9555522222" })).toMatchObject({ status: "SENT_IF_REGISTERED" });
@@ -414,7 +428,8 @@ describe("wrong or expired code", () => {
     await expect(verifyLoginOtp({ email: "once@example.com", code: second, acceptedTerms: true })).rejects.toThrow(OTP_INVALID);
   });
 
-  it("a code requested for one mobile number cannot sign in with another", async () => {
+  it("a code requested for one mobile number cannot sign in with another" + " (SMS off)", async () => {
+    await smsOff();
     await createUser({ email: "a@example.com", mobile: "9777777777" });
     await requestLoginOtp({ mobile: "9777777777" });
     await expect(
@@ -455,7 +470,8 @@ describe("POST /api/otp/request", () => {
     expect(info.body).toMatchObject({ email: true, codeLength: 6 });
   });
 
-  it("answers a registered number exactly as an unregistered one, and emails the code after replying", async () => {
+  it("answers a registered number exactly as an unregistered one, and emails the code after replying" + " (SMS off)", async () => {
+    await smsOff();
     await createUser({ email: "member@example.com", mobile: "9812300000" });
     const registered = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "9812300000" } });
     const unregistered = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "9812399999" } });
