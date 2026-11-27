@@ -193,6 +193,7 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/otp/request": "asks for a sign-in code",
   "/api/grievances": "the public grievance form (Consumer Protection rules)",
   "/api/account/recover": "account recovery request (docs/flows-v3, flow_f17): for signed-out people, rate-limited; 404 while the flag is off",
+  "/api/account/recover/factor": "recovery after losing one factor (docs/flows-v3/wave5.md, flow_f18): for signed-out people, rate-limited; 404 while the flag is off",
   "/api/shop-registrations/[token]": "a self-registration by its unguessable token",
   "/api/shop-registrations/[token]/pay": "pays a self-registration by its unguessable token",
   "/api/shop-registrations/[token]/check-payment": "asks Cashfree whether a self-registration's fee was paid, by its unguessable token",
