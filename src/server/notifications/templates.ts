@@ -129,7 +129,7 @@ export const TEMPLATES: Record<string, Template> = {
   ),
   [T.SECURITY_SIGN_IN]: t("New sign-in to your account", "Someone signed in to your Gokesari account at {{at}}. If this was not you, contact support."),
   [T.SECURITY_PHONE_CHANGED]: t("Mobile number changed", "The mobile number on your account was {{action}}. If this was not you, contact support."),
-  [T.SECURITY_SECOND_FACTOR_NEEDED]: t("Verify your {{missing}}", "GoKesari now needs both your mobile number and your e-mail verified. Please verify your {{missing}} on gokesari.com/account/verify. Your shop stays live meanwhile."),
+  [T.SECURITY_SECOND_FACTOR_NEEDED]: t("Verify your {{missing}}", "GoKesari now needs both your mobile number and your e-mail verified. Please verify your {{missing}} on gokesari.com/account/verify.{{shopNote}}"),
   [T.SECURITY_ROLE_CHANGED]: t("Account role changed", "Your account role was changed: {{detail}}."),
   [T.SECURITY_ACCOUNT_STATUS]: t("Account status changed", "Your account was {{status}}. {{detail}}"),
   [T.SHOP_APPROVED]: t("Shop approved", "{{shopName}} is approved and can start selling."),

@@ -131,7 +131,7 @@ export interface CodeSignIn {
 /**
  * Requests a code on /signin for `identifier` (a mobile or an email) and
  * moves to the code step. With `signupEmail`, a mobile with no account signs
- * up from the code step ("Sign up with your email").
+ * up from the code step ("Use your email instead").
  */
 export async function requestCodeOnPage(page: Page, identifier: string, options: { signupEmail?: string; codeEmail?: string } = {}): Promise<Omit<CodeSignIn, "code"> & { code: () => Promise<string> }> {
   await openSignIn(page);
@@ -142,7 +142,7 @@ export async function requestCodeOnPage(page: Page, identifier: string, options:
   const sentTo = page.getByTestId("otp-sent-to");
   await expect(sentTo, "the code step opens").toBeVisible();
   if (options.signupEmail) {
-    await page.getByRole("button", { name: "Sign up with your email" }).click();
+    await page.getByRole("button", { name: "Use your email instead" }).click();
     await page.getByLabel("Email address").fill(options.signupEmail);
     since = Date.now();
     await page.getByRole("button", { name: "Send code" }).click();

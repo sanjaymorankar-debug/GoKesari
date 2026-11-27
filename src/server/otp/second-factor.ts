@@ -131,18 +131,30 @@ async function challengeUserKind(challenge: string): Promise<{ user: User; kind:
  */
 export async function secondFactorKind(user: User, firstFactor: SecondFactorKind = "EMAIL"): Promise<SecondFactorKind | null> {
   const { dualAuthInForce, emailFactorVerified, isStaffRole } = await import("@/server/dual-auth/policy");
+  // Login & auth item 2 (owner 27-Nov-2026), with dual_auth on or off: the SMS code went to a number this account
+  // never verified, and the account has a real e-mail → that e-mail's code is asked too (no device trust skips it).
+  if (needsSafetyStep(user, firstFactor)) return "EMAIL";
   if (await dualAuthInForce()) {
     const other: SecondFactorKind = firstFactor === "EMAIL" ? "SMS" : "EMAIL";
     if (other === "SMS" && !hasVerifiedPhone(user)) return null;
     if (other === "EMAIL" && !(await emailFactorVerified(user))) return null;
     if (!isStaffRole(user.role)) {
       const { isDeviceTrusted } = await import("@/server/dual-auth/devices");
-      if (await isDeviceTrusted(user.id)) return null;
+      if (await isDeviceTrusted(user.id, { renew: true })) return null;
     }
     return other;
   }
   if (firstFactor !== "EMAIL") return null;
   return (await secondFactorRequired(user)) ? "SMS" : null;
+}
+
+/**
+ * The safety step: the first factor was an SMS code to the account's mobile, which was never verified (typed in on a
+ * profile or registration earlier), and the account has a real e-mail. Until that e-mail's code is given too, the
+ * number is not trusted to open the account.
+ */
+export function needsSafetyStep(user: Pick<User, "phoneE164" | "phoneVerifiedAt" | "email" | "emailPlaceholder">, firstFactor: SecondFactorKind): boolean {
+  return firstFactor === "SMS" && Boolean(user.phoneE164) && !user.phoneVerifiedAt && !user.emailPlaceholder && !isPlaceholderEmail(user.email);
 }
 
 /* ------------------------------------------------------- shared SMS target */
@@ -300,8 +312,21 @@ export async function verifySecondFactorCode(input: { challenge: string; code: s
   if (kind === "EMAIL") {
     const otp = await consumeCode({ email: user.email, purpose: "LOGIN_EMAIL", code: input.code, ip: input.ip ?? null, userId: user.id });
     await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email: user.email, actorId: user.id, ip: input.ip ?? null, otpId: otp.id, purpose: "LOGIN_EMAIL" });
-    await auditDualSignIn(user, input.ip ?? null, { factors: ["SMS", "EMAIL"] });
-    return user;
+    // An e-mail step is only ever started after an SMS code to user.phoneE164 was right (afterEmailFactor with
+    // firstFactor SMS): with this e-mail code both are proven, so the number (safety step) and the address are
+    // verified now.
+    let updated = user;
+    if (user.phoneE164 && !user.phoneVerifiedAt) {
+      updated = await markPhoneVerified(user, user.phoneE164);
+      await recordAudit({ actorId: user.id, actorRole: user.role, action: AUDIT_ACTIONS.DUAL_AUTH_FACTOR_VERIFIED, entityType: "user", entityId: user.id, newValue: { factor: "MOBILE", where: "sign_in_safety_step" }, ipAddress: input.ip ?? null });
+    }
+    if (!updated.emailVerified) {
+      [updated] = await db.update(users).set({ emailVerified: new Date(), updatedAt: new Date() }).where(eq(users.id, user.id)).returning();
+    }
+    await auditDualSignIn(updated, input.ip ?? null, { factors: ["SMS", "EMAIL"] });
+    const { syncNeedsSecondFactor } = await import("@/server/dual-auth/policy");
+    await syncNeedsSecondFactor(updated).catch(() => null);
+    return updated;
   }
   const target = await resolveSmsTarget(user, input.mobile);
   await consumeSmsCode(user, target, "LOGIN_SMS", input.code, input.ip ?? null);

@@ -497,7 +497,7 @@ describe("mobile-number sign-in by SMS (owner 26-Nov-2026)", () => {
     expect(signedIn.id).toBe(user.id);
   });
 
-  it("TC-SMSLOGIN-002 a mobile never verified by SMS gets the code by SMS (owner 27-Nov-2026); using it verifies the mobile, not the e-mail", async () => {
+  it("TC-SMSLOGIN-002 a mobile never verified by SMS gets the code by SMS; the account's e-mail code is asked too (safety step, owner 27-Nov-2026), and only then is the mobile verified", async () => {
     const mobile = uniqueMobile();
     const user = await createUser({ mobile });
     await db.update(users).set({ emailVerified: null }).where(eq(users.id, user.id));
@@ -509,9 +509,44 @@ describe("mobile-number sign-in by SMS (owner 26-Nov-2026)", () => {
     const { user: signedIn, channel } = await verifyLoginOtp({ mobile, code });
     expect(channel).toBe("SMS");
     expect(signedIn.id).toBe(user.id);
-    const [row] = await db.select().from(users).where(eq(users.id, user.id));
+    // The SMS code alone does not prove a number that was typed in: not verified yet, no session yet.
+    let [row] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(row.phoneVerifiedAt).toBeNull();
+    const next = await afterEmailFactor(row, null, "SMS");
+    expect(next.secondFactor?.kind).toBe("EMAIL");
+    expect(next.ticket).toBeUndefined();
+    const emailCode = lastEmailCode(user.email);
+    await expect(verifySecondFactorCode({ challenge: next.secondFactor!.challenge, code: emailCode === "000000" ? "111111" : "000000" })).rejects.toThrow(OTP_INVALID);
+    expect((await verifySecondFactorCode({ challenge: next.secondFactor!.challenge, code: emailCode })).id).toBe(user.id);
+    [row] = await db.select().from(users).where(eq(users.id, user.id));
     expect(row.phoneVerifiedAt).not.toBeNull();
-    expect(row.emailVerified).toBeNull();
+    expect(row.emailVerified).not.toBeNull();
+  });
+
+  it("TC-SMSLOGIN-006 safety step with dual_auth off and on a trusted device too; once verified, the SMS code alone signs in", async () => {
+    const mobile = uniqueMobile();
+    const user = await createUser({ mobile });
+    await requestLoginOtp({ mobile });
+    const { user: first } = await verifyLoginOtp({ mobile, code: await lastSmsCode(`+91${mobile}`) });
+    const step = await afterEmailFactor(first, null, "SMS");
+    expect(step.secondFactor?.kind).toBe("EMAIL");
+    await verifySecondFactorCode({ challenge: step.secondFactor!.challenge, code: lastEmailCode(user.email) });
+    // Next time (dual_auth off): the verified number signs in with its SMS code alone.
+    await db.update(loginOtps).set({ createdAt: new Date(Date.now() - 2 * 60 * 60_000) });
+    resetRateLimits();
+    await requestLoginOtp({ mobile });
+    const { user: again } = await verifyLoginOtp({ mobile, code: await lastSmsCode(`+91${mobile}`) });
+    expect((await afterEmailFactor(again, null, "SMS")).ticket).toBeTruthy();
+  });
+
+  it("TC-SMSLOGIN-007 a mobile-only account (placeholder e-mail) is verified by its SMS code alone — no e-mail to ask", async () => {
+    const mobile = uniqueMobile();
+    await requestLoginOtp({ mobile });
+    const { user, isNewUser } = await verifyLoginOtp({ mobile, code: await lastSmsCode(`+91${mobile}`), acceptedTerms: true });
+    expect(isNewUser).toBe(true);
+    expect(user.phoneVerifiedAt).not.toBeNull();
+    expect(user.emailPlaceholder).toBe(true);
+    expect((await afterEmailFactor(user, null, "SMS")).ticket).toBeTruthy();
   });
 
   it("TC-SMSLOGIN-004 a new mobile number gets its code by SMS; with the Terms ticked the code creates a mobile-only account", async () => {

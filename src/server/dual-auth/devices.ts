@@ -8,15 +8,20 @@
  *
  * Changing the mobile or e-mail revokes the account's trusted devices (both factors again everywhere).
  * // DEFAULT – confirm with Sanjay.
+ *
+ * By role (owner 27-Nov-2026): customers 180 days (customerTrustDays), renewed at every sign-in on the device but
+ * never past first trust + 365 days (customerTrustMaxDays); shop owners, dealers, riders and society admins 30 days
+ * (trustDays), fixed — also for a customer who became one (checked against trusted_at at the next sign-in); staff are
+ * never trusted (policy.ts).
  */
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 
 import { getEnv } from "@/lib/env";
 import { db } from "@/server/db";
-import { trustedDevices } from "@/server/db/schema";
+import { trustedDevices, users, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { getRule } from "@/server/services/settings";
 
@@ -67,22 +72,45 @@ async function requestMeta(): Promise<{ ip: string | null; userAgent: string | n
   }
 }
 
-/** Is this browser trusted for the account right now? */
-export async function isDeviceTrusted(userId: string): Promise<boolean> {
+const DAY_MS = 24 * 3_600_000;
+
+async function roleOf(userId: string): Promise<UserRole | null> {
+  const [row] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
+  return row?.role ?? null;
+}
+
+/**
+ * Is this browser trusted for the account right now? At sign-in (`renew`), a customer's trust is moved to now +
+ * customerTrustDays, never past trusted_at + customerTrustMaxDays. Any other role is trusted only within trustDays
+ * of trusted_at (fixed), so a customer who became a shop owner gets the 30-day rule from the next sign-in.
+ */
+export async function isDeviceTrusted(userId: string, options: { renew?: boolean } = {}): Promise<boolean> {
   const token = await readToken();
   if (!token) return false;
+  const now = new Date();
+  const role = await roleOf(userId);
+  const rules = await getRule("dualAuth");
+  const customer = role === "CUSTOMER";
+  const conditions = [
+    eq(trustedDevices.userId, userId),
+    eq(trustedDevices.deviceHash, deviceHash(token)),
+    isNull(trustedDevices.revokedAt),
+    gt(trustedDevices.expiresAt, now),
+  ];
+  if (!customer) conditions.push(gt(trustedDevices.trustedAt, new Date(now.getTime() - rules.trustDays * DAY_MS)));
+  const renewTo = new Date(now.getTime() + rules.customerTrustDays * DAY_MS);
   const [row] = await db
     .update(trustedDevices)
-    .set({ lastUsedAt: new Date() })
-    .where(
-      and(
-        eq(trustedDevices.userId, userId),
-        eq(trustedDevices.deviceHash, deviceHash(token)),
-        isNull(trustedDevices.revokedAt),
-        gt(trustedDevices.expiresAt, new Date()),
-      ),
-    )
-    .returning({ id: trustedDevices.id });
+    .set({
+      lastUsedAt: now,
+      ...(customer && options.renew
+        ? {
+            expiresAt: sql`least(${renewTo.toISOString()}::timestamptz, ${trustedDevices.trustedAt} + make_interval(days => ${rules.customerTrustMaxDays}))`,
+          }
+        : {}),
+    })
+    .where(and(...conditions))
+    .returning({ id: trustedDevices.id, expiresAt: trustedDevices.expiresAt });
   return Boolean(row);
 }
 
@@ -90,10 +118,12 @@ export async function isDeviceTrusted(userId: string): Promise<boolean> {
 export async function trustThisDevice(userId: string, reason: string): Promise<boolean> {
   const token = await ensureToken();
   if (!token) return false;
-  const { trustDays } = await getRule("dualAuth");
+  const rules = await getRule("dualAuth");
+  const customer = (await roleOf(userId)) === "CUSTOMER";
+  const trustDays = customer ? rules.customerTrustDays : rules.trustDays;
   const { ip, userAgent } = await requestMeta();
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + trustDays * 24 * 3_600_000);
+  const expiresAt = new Date(now.getTime() + trustDays * DAY_MS);
   const [row] = await db
     .insert(trustedDevices)
     .values({ userId, deviceHash: deviceHash(token), userAgent, ipAddress: ip, trustedAt: now, expiresAt, lastUsedAt: now })

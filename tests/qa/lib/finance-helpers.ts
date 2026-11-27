@@ -1157,7 +1157,7 @@ export async function ageLoginCodes(email: string) {
 /**
  * Signs in on the page with a code mailed to `email` (local mail catcher):
  * `identifier` is the email, or a mobile number that signs up from the code
- * step with `email` ("Sign up with your email"). Returns once the page has
+ * step with `email` ("Use your email instead"). Returns once the page has
  * left /signin.
  */
 export async function signInOnPage(page: Page, identifier: string, email: string, options: { path?: string; signUp?: boolean } = {}) {
@@ -1168,7 +1168,7 @@ export async function signInOnPage(page: Page, identifier: string, email: string
   await page.getByRole("button", { name: "Get code" }).click();
   await expect(page.getByTestId("otp-sent-to"), "the code step opens").toBeVisible();
   if (options.signUp) {
-    await page.getByRole("button", { name: "Sign up with your email" }).click();
+    await page.getByRole("button", { name: "Use your email instead" }).click();
     await page.getByLabel("Email address").fill(email);
     since = Date.now();
     await page.getByRole("button", { name: "Send code" }).click();

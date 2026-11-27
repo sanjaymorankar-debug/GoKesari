@@ -7,7 +7,9 @@ import { Card } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { signIn } from "@/server/auth";
 import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
-import { dualVerifyStatus } from "@/server/dual-auth/verify";
+import { dualVerifyStatus, sendEmailFactorLink } from "@/server/dual-auth/verify";
+import { toClientError } from "@/lib/errors";
+import { headers } from "next/headers";
 
 export const metadata = { title: "Verify your mobile and e-mail" };
 export const dynamic = "force-dynamic";
@@ -27,12 +29,23 @@ export default async function DualVerifyPage({ searchParams }: { searchParams: P
   const user = await getCurrentUser();
   if (!user) redirect(`/signin?callbackUrl=${encodeURIComponent(`/account/verify?return=${encodeURIComponent(returnTo)}`)}`);
   const status = await dualVerifyStatus(user.id);
-  const linkAvailable = emailSignInMode() !== "disabled" && !status.placeholderEmail && !status.emailVerified;
+  // Login & auth item 4 (owner 27-Nov-2026): the link also for a mobile-only account adding a new address.
+  const linkAvailable = emailSignInMode() !== "disabled" && !status.emailVerified;
 
-  async function emailLink(): Promise<{ error?: string; sent?: boolean }> {
+  async function emailLink(email?: string | null): Promise<{ error?: string; sent?: boolean; sentTo?: string }> {
     "use server";
     const me = await getCurrentUser();
     if (!me) return { error: "Please sign in again." };
+    if ((await dualVerifyStatus(me.id)).placeholderEmail) {
+      // Our own single-use link, bound to this account and the new address (dual-auth/verify.ts).
+      try {
+        const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+        const sent = await sendEmailFactorLink(me.id, email ?? null, ip, returnTo);
+        return { sent: true, sentTo: sent.sentTo };
+      } catch (error) {
+        return { error: toClientError(error).body.error.message };
+      }
+    }
     try {
       // Opening the link signs this same account in again and marks its e-mail verified (Auth.js).
       await signIn(EMAIL_PROVIDER_ID, { email: me.email, redirectTo: `/account/verify?return=${encodeURIComponent(returnTo)}`, redirect: false });
