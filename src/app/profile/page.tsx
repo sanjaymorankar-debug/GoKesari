@@ -150,7 +150,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       </Card>
       <Card className="mb-6 grid gap-5 p-6">
         <h2 className="text-base font-semibold text-ink-900">{tr(T.loginContact, lang)}</h2>
-        <PhoneLinkForm current={profile.phoneE164} />
+        <PhoneLinkForm current={profile.phoneE164} verified={profile.phoneVerified} />
         <EmailChangeForm current={profile.email} lang={lang} />
       </Card>
       {bankStatus ? (
