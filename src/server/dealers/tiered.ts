@@ -420,6 +420,8 @@ const ENTRY_WORDS: Record<CommissionEntryType, string> = {
   SCHEME_TEAM: "scheme team commission",
   SCHEME_RECURRING: "scheme monthly commission",
   SCHEME_BONUS: "scheme bonus",
+  SUPER_FEE: "super franchisee share of fees",
+  SUPER_ORDER: "super franchisee share of order commission",
 };
 
 /* ============================================================= activation */

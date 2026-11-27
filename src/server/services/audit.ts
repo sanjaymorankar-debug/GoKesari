@@ -511,6 +511,8 @@ export const AUDIT_ACTIONS = {
   DEALER_APPLICATION_SUBMITTED: "dealer.application_submitted", // docs/dealer-programme
   DEALER_STATUS_CHANGED: "dealer.status_changed", // docs/dealer-programme
   DEALER_CREATED_BY_ADMIN: "dealer.created_by_admin", // docs/dealer-programme, all-India
+  SUPER_FRANCHISEE_CHANGED: "super_franchisee.changed", // 0226 super franchisee: promoted, removed, rates
+  SUPER_FRANCHISEE_TEAM_CHANGED: "super_franchisee.team_changed", // 0226: a dealer assigned, moved or removed
   DEALER_DOCUMENT_UPLOADED: "dealer.document_uploaded", // docs/dealer-programme
   DEALER_DOCUMENT_REVIEWED: "dealer.document_reviewed", // docs/dealer-programme
   DEALER_DOCUMENT_VIEWED: "dealer.document_viewed", // docs/dealer-programme
