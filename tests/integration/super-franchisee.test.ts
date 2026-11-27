@@ -12,7 +12,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { dealerCommissionLedger, dealerCommissionMonths, dealers, orders, sellerVerifications, shopAttributions, shops, superFranchiseeMembers, superFranchisees } from "@/server/db/schema";
+import { dealerCommissionLedger, dealerCommissionMonths, dealers, notifications, orders, sellerVerifications, shopAttributions, shops, superFranchiseeMembers, superFranchisees } from "@/server/db/schema";
 import { reverseShopCommission, setCommissionSettings } from "@/server/dealers/commission";
 import {
   accrueSuperFranchiseeMonth,
@@ -206,5 +206,37 @@ describe("super franchisee", () => {
     await promoteSuperFranchisee(sanjay.id, { reason: "owner decision" }, admin);
     await expect(assignToSuperFranchisee(deepak.id, sanjay.id, { reason: "not allowed" }, admin)).rejects.toThrow(/super franchisee/i);
     await expect(assignToSuperFranchisee(deepak.id, deepak.id, { reason: "not allowed" }, admin)).rejects.toThrow(/own team/i);
+  });
+
+  it("reports: the team and its shops by name; the month-end report once, on the last day from 20:00 IST", async () => {
+    const { isMonthEndWindow, sendMonthEndReports, superTeamLines } = await import("@/server/dealers/report-extras");
+    expect(isMonthEndWindow(new Date("2026-11-30T15:00:00Z"))).toBe(true); // 20:30 IST, 30 Nov
+    expect(isMonthEndWindow(new Date("2026-11-30T13:00:00Z"))).toBe(false); // 18:30 IST
+    expect(isMonthEndWindow(new Date("2026-11-29T16:00:00Z"))).toBe(false); // 29 Nov
+    expect(isMonthEndWindow(new Date("2026-12-31T15:00:00Z"))).toBe(true);
+
+    const deepak = await dealer("Deepak");
+    const dolke = await dealer("Dolke");
+    await promoteSuperFranchisee(deepak.id, { reason: "owner decision" }, admin);
+    await assignToSuperFranchisee(deepak.id, dolke.id, { reason: "his reference" }, admin);
+    const shop = await signedShop(dolke.id, 100_000);
+    const from = new Date(Date.now() - 86_400_000);
+    const to = new Date(Date.now() + 60_000);
+    const team = await superTeamLines(deepak.id, from, to);
+    expect(team.active).toBe(true);
+    expect(team.lines.map((l) => `${l.label}|${l.value}`).join("\n")).toMatch(/Team: Dolke\|1 shops live/);
+    expect(team.lines.some((l) => l.value.startsWith(shop.name))).toBe(true);
+    expect(team.lines.find((l) => l.label === "Your super franchisee share")?.value).toBe("₹30.00");
+
+    // The last day of this month (IST), 21:00 IST.
+    const ist = new Date(Date.now() + 330 * 60_000);
+    const last = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() + 1, 0, 15, 30));
+    expect(await sendMonthEndReports(new Date(last.getTime() - 3 * 3_600_000))).toEqual({ skipped: "not the month-end window" });
+    const first = await sendMonthEndReports(last);
+    expect(first).toMatchObject({ sent: 2 });
+    const rows = await db.select().from(notifications).where(and(eq(notifications.type, "dealer.team_report"), eq(notifications.channel, "IN_APP")));
+    expect(rows.find((n) => n.userId === dolke.userId)?.title).toMatch(/^Month-end team report: 1 registered, ₹/);
+    await sendMonthEndReports(last); // a re-run sends nothing new
+    expect(await db.select().from(notifications).where(and(eq(notifications.type, "dealer.team_report"), eq(notifications.channel, "IN_APP")))).toHaveLength(rows.length);
   });
 });

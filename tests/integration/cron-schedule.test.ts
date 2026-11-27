@@ -40,6 +40,8 @@ describe("schedule", () => {
         "dealer-territory-daily",
         // Owner, 5 Nov 2026: dealer team reports (daily, and weekly on Mondays).
         "dealer-team-report-daily", "dealer-team-report-weekly",
+        // Owner, 27 Nov 2026: dealers' month-end report on the last day from 20:00 IST (every 15 minutes, a no-op otherwise).
+        "dealer-month-end-report",
         "document-emails", "finance-weekly", "gst-reminders", "integration-sync", "notification-retry", "operator-onboarding",
         // 0157 franchise (21 Nov 2026): holds, expiry, reminders, digest and the monthly run (every 5 minutes).
         "franchise",
