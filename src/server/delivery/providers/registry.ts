@@ -18,6 +18,7 @@ import { getRule } from "@/server/services/settings";
 
 import { mockAdapter } from "./mock";
 import { borzoAdapter, pidgeAdapter, porterAdapter, shadowfaxAdapter } from "./partners";
+import { picoAdapter } from "./pico";
 import { ProviderError, type DeliveryProviderAdapter, type ProviderContext } from "./types";
 
 const ADAPTERS: Record<DeliveryProviderCode, DeliveryProviderAdapter> = {
@@ -26,6 +27,7 @@ const ADAPTERS: Record<DeliveryProviderCode, DeliveryProviderAdapter> = {
   PORTER: porterAdapter,
   BORZO: borzoAdapter,
   MOCK: mockAdapter,
+  PICO: picoAdapter,
 };
 
 export function adapterFor(code: string): DeliveryProviderAdapter | null {

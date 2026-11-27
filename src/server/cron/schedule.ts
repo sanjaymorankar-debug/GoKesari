@@ -53,6 +53,9 @@ export async function timeoutSweep() {
     shopOpening: await step("timeout-sweep", "shop-opening", errors, async () => (await import("@/server/services/shop-opening")).sendShopOpeningAlerts()),
     // docs/hdms-2026-11: delivery-partner bookings — status poll (webhooks are primary). Only while hdms_enabled is on.
     partnerBookings: await step("timeout-sweep", "partner-bookings", errors, async () => (await import("@/server/delivery/sweep")).runPartnerBookingSweep()),
+    // docs/pico-xpress-2026-11: safety net for missed Pico webhooks — pulls live shipments silent for 5+ minutes
+    // (webhooks are primary and processed at once). Only while delivery_partner_picoxpress_enabled is on.
+    picoShipments: await step("timeout-sweep", "pico-shipments", errors, async () => (await import("@/server/delivery/pico/service")).sweepSilentShipments()),
     // docs/flows-v3/wave2.md: no-rider cancels, uncollected pickups, failed-delivery refunds (each a no-op while its flag is off).
     flowsV3: await step("timeout-sweep", "flows-v3", errors, async () => (await import("@/server/flows/sweep")).runFlowsV3Sweep()),
     errors,

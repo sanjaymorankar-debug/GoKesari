@@ -86,6 +86,8 @@ export async function holdsRiderDispatch(orderId: string, trigger: string, now: 
   const plan = await arrangementFor(orderId);
   if (!plan) return false;
   if (plan.option !== "GOKESARI_PARTNER") return true;
+  // docs/pico-xpress-2026-11: booked with the Pico Xpress delivery partner — never a GoKesari rider as well.
+  if (plan.externalPartner) return true;
   if (trigger === "SHOP_MANUAL") return false;
   const { gokesariLeadMinutes } = await getRule("fulfilmentOptions");
   return now.getTime() < plan.scheduledStart.getTime() - gokesariLeadMinutes * 60_000;

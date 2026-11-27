@@ -49,7 +49,7 @@ describe("timeout-sweep", () => {
     const res = await sweepPost(cron("/api/cron/timeout-sweep", "POST"));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(Object.keys(body).sort()).toEqual(["dispatch", "errors", "flowsV3", "partnerBookings", "returnPickups", "riderSearchAlerts", "riderSlotReminders", "shopAcceptance", "shopOpening"]);
+    expect(Object.keys(body).sort()).toEqual(["dispatch", "errors", "flowsV3", "partnerBookings", "picoShipments", "returnPickups", "riderSearchAlerts", "riderSlotReminders", "shopAcceptance", "shopOpening"]);
     expect(body.errors).toEqual([]);
   });
 });
