@@ -108,5 +108,28 @@ export const TICKET_CATEGORY_LABELS: Record<TicketCategory, string> = {
   BOOKING: "An appointment booking",
 };
 
+/**
+ * docs/flows-v3 (flag flow_f17): extra topics a shop owner can pick on the ticket form while the flag is on. The
+ * service refuses them while it is off, and for anyone who is not raising the ticket as a shop owner.
+ */
+export const SHOP_OWNER_FLOW_CATEGORIES = ["GENERAL", "PRODUCT_UPLOAD", "PRICE_UPDATE"] as const;
+export type ShopOwnerFlowCategory = (typeof SHOP_OWNER_FLOW_CATEGORIES)[number];
+export type RaisableTicketCategory = TicketCategory | ShopOwnerFlowCategory;
+
+export const SHOP_OWNER_FLOW_CATEGORY_LABELS: Record<ShopOwnerFlowCategory, string> = {
+  GENERAL: "General question",
+  PRODUCT_UPLOAD: "Product upload",
+  PRICE_UPDATE: "Price update",
+};
+
+/** The label of any ticket category (an unknown one shows as stored). */
+export function ticketCategoryLabel(category: string): string {
+  return (
+    (TICKET_CATEGORY_LABELS as Record<string, string>)[category] ??
+    (SHOP_OWNER_FLOW_CATEGORY_LABELS as Record<string, string>)[category] ??
+    category
+  );
+}
+
 export const TICKET_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
 export type TicketPriority = (typeof TICKET_PRIORITIES)[number];

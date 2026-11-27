@@ -439,7 +439,9 @@ export async function settleRefund(
   status: "SUCCESS" | "FAILED",
   options: { gatewayRefundId?: string | null; failureReason?: string | null; source: "WEBHOOK" | "RECONCILE" | "REFUND"; webhookEventId?: string | null },
 ): Promise<PaymentRefundRow> {
-  return db.transaction(async (tx) => {
+  // docs/flows-v3/wave4.md F22: a shop fee refunded in full here takes back the chain's commission (after commit).
+  let feeRefunded: { purpose: string; referenceId: string; amountPaise: number; refundedPaise: number } | null = null;
+  const result = await db.transaction(async (tx) => {
     const [peek] = await tx.select({ intentId: paymentRefunds.intentId }).from(paymentRefunds).where(eq(paymentRefunds.id, refundId));
     if (!peek) throw notFound("Refund");
     // Lock order: intent, then refund (the same order refundPaymentIntent uses).
@@ -475,6 +477,7 @@ export async function settleRefund(
       return settled;
     }
     const refundedPaise = intent.refundedPaise + refund.amountPaise;
+    if (intent.purpose === "SHOP_REGISTRATION_FEE" || intent.purpose === "SHOP_REGISTRATION_DRAFT_FEE") feeRefunded = { purpose: intent.purpose, referenceId: intent.referenceId, amountPaise: intent.amountPaise, refundedPaise };
     await transitionIntent(tx, intent, refundedPaise >= intent.amountPaise ? "REFUNDED" : "PARTIALLY_REFUNDED", {
       source: options.source === "REFUND" ? "REFUND" : options.source,
       note: `Refund ${refund.merchantRefundId}: ${formatPaise(refund.amountPaise)}`,
@@ -500,6 +503,8 @@ export async function settleRefund(
     }
     return settled;
   });
+  if (feeRefunded) await (await import("@/server/flows/f22-commission")).clawBackShopFeeRefund(feeRefunded);
+  return result;
 }
 
 /**

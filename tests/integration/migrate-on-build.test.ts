@@ -116,6 +116,8 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
+    // docs/flows-v3/wave4.md (0225): commission invoice tables point at dealer_payout_batches and dealers.
+    await sql.unsafe(readFileSync("scripts/rollback-0225-flows-v3-wave4.sql", "utf8"));
     // Dealer platform roles (0181): a table and a flag row.
     await sql.unsafe(readFileSync("scripts/rollback-0181.sql", "utf8"));
     // Dealer custom fields (0180): a column on dealers and a table pointing at them.

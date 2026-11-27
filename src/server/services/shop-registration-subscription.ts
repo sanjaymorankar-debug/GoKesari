@@ -859,9 +859,13 @@ export interface MarkPaidInput {
  * becomes owed, so the shop is UNPAID: it gets a payment link now (in-app + push + e-mail) and the
  * automatic unpaid reminders until it pays. The shop stays live meanwhile. Paying opens its 1-year period.
  */
-/** A new shop's registration fee today (no coupon): base + GST — the default when asking a ₹0 shop for its fee. */
+/**
+ * A new shop's registration fee today (no coupon): base + GST — the default when asking a ₹0 shop for its fee.
+ * With the turnover-slab rule on (production), the lowest slab is the standard fee; without a turnover the
+ * scheduled fee alone is ₹0 there, which left the Ask fee dialog empty (27-Nov-2026).
+ */
 export async function newRegistrationFeeQuote(now = new Date()): Promise<{ basePaise: number; gstRateBp: number; gstPaise: number; totalPaise: number }> {
-  const [{ basePaise }, gstRateBp] = await Promise.all([baseRegistrationFee(null), registrationFeeGstRateBp(now)]);
+  const [{ basePaise }, gstRateBp] = await Promise.all([baseRegistrationFee(0), registrationFeeGstRateBp(now)]);
   const gstPaise = Math.round((basePaise * gstRateBp) / 10_000);
   return { basePaise, gstRateBp, gstPaise, totalPaise: basePaise + gstPaise };
 }
@@ -1062,7 +1066,9 @@ export async function registrationAuditTrail(shopId: string, limit = 100) {
  * per shop, stage and day, so a late or repeated run catches up without sending twice.
  */
 export async function runRegistrationSubscriptionJob(now: Date = new Date()) {
-  const [rule, sub] = await Promise.all([getRule("shopMembership"), getRule("shopRegistrationSubscription")]);
+  // docs/flows-v3/wave3.md (flag flow_f6): reminders run even when rule shopMembership has them off.
+  const { shopMembershipRuleForFlows } = await import("@/server/flows/wave3-rules");
+  const [rule, sub] = await Promise.all([shopMembershipRuleForFlows(), getRule("shopRegistrationSubscription")]);
   const out: Record<string, unknown> = {};
   out.statusesChanged = await syncRegistrationStatuses();
   const expired = await db

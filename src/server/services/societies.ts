@@ -23,6 +23,8 @@ import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
+import { systemTicketHook } from "@/server/aftercare/system-ticket-hook";
+import { flowF15On } from "@/server/flows/wave5-flags";
 import {
   addresses,
   deliveryOrders,
@@ -34,6 +36,7 @@ import {
   societyPartnerAccess,
   societyRiders,
   societyShops,
+  storedImages,
   users,
   type Society,
   type SocietyMember,
@@ -128,6 +131,64 @@ export interface RegisterSocietyInput {
   latitude?: number | null;
   longitude?: number | null;
   unitLabel?: string | null;
+  /* docs/flows-v3/wave5.md (flag flow_f15; ignored while it is off). */
+  authorisedPersonName?: string | null;
+  /** Secretary, chairman, treasurer … (free text). */
+  authorisedPersonRole?: string | null;
+  flatCount?: number | null;
+  proofType?: "REGISTRATION_CERTIFICATE" | "COMMITTEE_LETTER" | null;
+  proofNumber?: string | null;
+  /** The registrant's own upload (POST /api/images, purpose SOCIETY_PROOF): a photo or scan of the document. */
+  proofImageUrl?: string | null;
+}
+
+export const SOCIETY_PROOF_TYPES = ["REGISTRATION_CERTIFICATE", "COMMITTEE_LETTER"] as const;
+
+/** "/api/images/<uuid>" → the id; anything else → null. */
+function uploadedImageId(url: string | null | undefined): string | null {
+  const m = /^\/api\/images\/([0-9a-f-]{36})$/i.exec(url ?? "");
+  return m ? m[1] : null;
+}
+
+/**
+ * docs/flows-v3/wave5.md (flag flow_f15): the application's extra details — authorised person (name and role),
+ * flats (optional, 1–100000), the proof document type and its number and/or the registrant's own uploaded image.
+ * // DEFAULT – confirm with Sanjay: either the document number or an image is enough at application; operations
+ * see both before verifying.
+ */
+async function societyApplicationDetails(input: RegisterSocietyInput, actor: Actor) {
+  const fields: Record<string, string> = {};
+  const personName = input.authorisedPersonName?.trim() ?? "";
+  const personRole = input.authorisedPersonRole?.trim() ?? "";
+  if (personName.length < 2) fields.authorisedPersonName = "Enter the name of the society's authorised person.";
+  if (personRole.length < 2) fields.authorisedPersonRole = "Enter their role, e.g. Secretary or Chairman.";
+  const flats = input.flatCount ?? null;
+  if (flats !== null && (!Number.isInteger(flats) || flats < 1 || flats > 100_000)) fields.flatCount = "Enter the number of flats (or leave it empty).";
+  if (!input.proofType || !(SOCIETY_PROOF_TYPES as readonly string[]).includes(input.proofType)) fields.proofType = "Choose the proof document.";
+  const proofNumber = input.proofNumber?.trim().slice(0, 80) || null;
+  const proofImageUrl = input.proofImageUrl?.trim() || null;
+  if (!proofNumber && !proofImageUrl) fields.proofNumber = "Enter the document's number, or upload or scan it.";
+  if (Object.keys(fields).length) throw validationFailed("Please check the highlighted fields.", { fields });
+  if (proofImageUrl) {
+    const imageId = uploadedImageId(proofImageUrl);
+    const [image] = imageId
+      ? await db.select({ ownerId: storedImages.ownerId, purpose: storedImages.purpose }).from(storedImages).where(eq(storedImages.id, imageId))
+      : [];
+    if (!image || image.ownerId !== actor.id || image.purpose !== "SOCIETY_PROOF") {
+      throw validationFailed("Upload or scan the proof document here.", { fields: { proofImageUrl: "Upload or scan the document here." } });
+    }
+  }
+  const { newSocietiesExclusiveRiders } = await getRule("flowsWave5");
+  return {
+    authorisedPersonName: personName.slice(0, 120),
+    authorisedPersonRole: personRole.slice(0, 60),
+    flatCount: flats,
+    proofType: input.proofType!,
+    proofNumber,
+    proofImageUrl,
+    requiresProof: true,
+    exclusiveRiders: newSocietiesExclusiveRiders,
+  };
 }
 
 /** Anyone signed in may register a society; they become its first ADMIN. Operator verifies it (GS-044). */
@@ -137,8 +198,9 @@ export async function registerSociety(input: RegisterSocietyInput, actor: Actor)
   if (!input.addressLine1.trim()) throw validationFailed("Enter the society's address.");
   if (!input.city.trim()) throw validationFailed("Enter the city.");
   if (!/^[1-9]\d{5}$/.test(input.pincode.trim())) throw validationFailed("Enter a valid 6-digit PIN code.");
+  const extra = (await flowF15On()) ? await societyApplicationDetails(input, actor) : {};
 
-  return db.transaction(async (tx) => {
+  const society = await db.transaction(async (tx) => {
     const duplicate = await tx.query.societies.findFirst({
       where: and(
         ilike(societies.name, name),
@@ -161,6 +223,7 @@ export async function registerSociety(input: RegisterSocietyInput, actor: Actor)
         latitude: input.latitude != null ? String(input.latitude) : null,
         longitude: input.longitude != null ? String(input.longitude) : null,
         registeredBy: actor.id,
+        ...extra,
       })
       .returning();
     await tx.insert(societyMembers).values({
@@ -185,6 +248,12 @@ export async function registerSociety(input: RegisterSocietyInput, actor: Actor)
     );
     return society;
   });
+  // docs/flows-v3 (flag flow_f17): a new society application opens an operator review ticket.
+  await systemTicketHook("SOCIETY_REVIEW", society.id, {
+    subject: `Society application: ${society.name}`,
+    description: `${society.name}, ${society.city} ${society.pincode} applied to join GoKesari. Verify or reject it in Admin → Societies.`,
+  });
+  return society;
 }
 
 export type SocietyDecision = "verify" | "reject" | "suspend" | "reinstate";
@@ -214,6 +283,10 @@ export async function decideSociety(
     if (!current) throw notFound("Society");
     if (!step.from.includes(current.status)) {
       throw conflict(`A ${current.status.toLowerCase()} society cannot be ${decision === "verify" ? "verified" : decision + "ed"}.`);
+    }
+    // docs/flows-v3/wave5.md (flow_f15): a society that applied with the proof step is verified only with its proof.
+    if (decision === "verify" && current.requiresProof && !current.proofNumber && !current.proofImageUrl) {
+      throw conflict("This society has no proof document yet (registration certificate or committee letter).");
     }
     const [row] = await tx
       .update(societies)
@@ -270,7 +343,12 @@ export interface SocietySettingsInput {
   boundaryRadiusMeters?: number;
   latitude?: number | null;
   longitude?: number | null;
+  /** docs/flows-v3/wave5.md (flag flow_f15): delivery hours at the gate, "HH:MM" India time; null clears. */
+  deliveryHoursStart?: string | null;
+  deliveryHoursEnd?: string | null;
 }
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /** Society ADMIN (or platform staff) edits rules and instructions. */
 export async function updateSocietySettings(societyId: string, input: SocietySettingsInput, actor: Actor): Promise<Society> {
@@ -284,6 +362,17 @@ export async function updateSocietySettings(societyId: string, input: SocietySet
   // TC-FLD-105: a mobile, or a landline with its STD code (10 digits after +91 / the trunk 0) — "123456" is neither.
   if (input.gateContactPhone && !isIndianPhone(input.gateContactPhone)) {
     throw validationFailed("Enter the gate contact's 10-digit mobile number, or a landline with its STD code.");
+  }
+  // docs/flows-v3/wave5.md (flag flow_f15): gate delivery hours. Off: not taken.
+  const hours: { deliveryHoursStart?: string | null; deliveryHoursEnd?: string | null } = {};
+  if ((input.deliveryHoursStart !== undefined || input.deliveryHoursEnd !== undefined) && (await flowF15On())) {
+    const start = input.deliveryHoursStart?.trim() || null;
+    const end = input.deliveryHoursEnd?.trim() || null;
+    if ((start && !HHMM.test(start)) || (end && !HHMM.test(end))) throw validationFailed("Use the 24-hour time, e.g. 07:00 and 21:30.");
+    if (Boolean(start) !== Boolean(end)) throw validationFailed("Give both the opening and the closing time, or neither.");
+    if (start && end && start >= end) throw validationFailed("The closing time must be after the opening time.");
+    hours.deliveryHoursStart = start;
+    hours.deliveryHoursEnd = end;
   }
   const [updated] = await db
     .update(societies)
@@ -301,6 +390,7 @@ export async function updateSocietySettings(societyId: string, input: SocietySet
       ...(input.boundaryRadiusMeters !== undefined ? { boundaryRadiusMeters: input.boundaryRadiusMeters } : {}),
       ...(input.latitude !== undefined ? { latitude: input.latitude != null ? String(input.latitude) : null } : {}),
       ...(input.longitude !== undefined ? { longitude: input.longitude != null ? String(input.longitude) : null } : {}),
+      ...hours,
       updatedAt: new Date(),
     })
     .where(eq(societies.id, societyId))
@@ -318,6 +408,7 @@ export async function updateSocietySettings(societyId: string, input: SocietySet
       securityNotifyEnabled: society.securityNotifyEnabled,
       exclusiveRiders: society.exclusiveRiders,
       boundaryRadiusMeters: society.boundaryRadiusMeters,
+      ...(hours.deliveryHoursStart !== undefined ? { deliveryHoursStart: society.deliveryHoursStart, deliveryHoursEnd: society.deliveryHoursEnd } : {}),
     },
     newValue: input,
   });
@@ -592,7 +683,15 @@ export async function addSocietyRider(societyId: string, mobile: string, preferr
 /** Revoke (effective immediately) or change the preferred flag of a listed rider. */
 export async function updateSocietyRider(
   riderLinkId: string,
-  change: { revoke?: boolean; preferred?: boolean },
+  change: {
+    revoke?: boolean;
+    preferred?: boolean;
+    /** docs/flows-v3/wave5.md (flag flow_f15): pause the rider here for this many days (with a reason). */
+    suspendDays?: number;
+    suspendReason?: string | null;
+    /** docs/flows-v3/wave5.md (flag flow_f15): end a pause now. */
+    resume?: boolean;
+  },
   actor: Actor,
 ) {
   const link = await db.query.societyRiders.findFirst({ where: eq(societyRiders.id, riderLinkId) });
@@ -600,11 +699,29 @@ export async function updateSocietyRider(
   const { society } = await requireSocietyRole(link.societyId, actor, ["ADMIN"]);
   // Revoking is always allowed; changing who is preferred needs a verified society (C2).
   if (change.preferred !== undefined) await assertSocietyMayListRiders(society);
+  const suspension: Partial<typeof societyRiders.$inferInsert> = {};
+  if (change.suspendDays !== undefined || change.resume) {
+    if (!(await flowF15On())) throw validationFailed("Pausing a rider is not available.");
+    if (link.status !== "ACTIVE") throw conflict("Only a rider on the list can be paused.");
+    if (change.resume) {
+      Object.assign(suspension, { suspendedUntil: null, suspendedReason: null, suspendedBy: null });
+    } else {
+      const { societyRiderSuspendMaxDays } = await getRule("flowsWave5");
+      const days = change.suspendDays!;
+      if (!Number.isInteger(days) || days < 1 || days > societyRiderSuspendMaxDays) {
+        throw validationFailed(`Pause for 1 to ${societyRiderSuspendMaxDays} days.`);
+      }
+      const reason = change.suspendReason?.trim() ?? "";
+      if (reason.length < 3) throw validationFailed("Give a reason for the pause.");
+      Object.assign(suspension, { suspendedUntil: new Date(Date.now() + days * 86_400_000), suspendedReason: reason.slice(0, 300), suspendedBy: actor.id });
+    }
+  }
   const [row] = await db
     .update(societyRiders)
     .set({
       ...(change.revoke ? { status: "REVOKED" as const, revokedBy: actor.id, revokedAt: new Date() } : {}),
       ...(change.preferred !== undefined ? { preferred: change.preferred } : {}),
+      ...suspension,
       updatedAt: new Date(),
     })
     .where(eq(societyRiders.id, riderLinkId))
@@ -615,8 +732,12 @@ export async function updateSocietyRider(
     action: AUDIT_ACTIONS.SOCIETY_RIDER_CHANGED,
     entityType: "society_rider",
     entityId: riderLinkId,
-    previousValue: { status: link.status, preferred: link.preferred },
-    newValue: { status: row.status, preferred: row.preferred },
+    previousValue: { status: link.status, preferred: link.preferred, ...(Object.keys(suspension).length ? { suspendedUntil: link.suspendedUntil?.toISOString() ?? null } : {}) },
+    newValue: {
+      status: row.status,
+      preferred: row.preferred,
+      ...(Object.keys(suspension).length ? { suspendedUntil: row.suspendedUntil?.toISOString() ?? null, suspendedReason: row.suspendedReason } : {}),
+    },
   });
   return row;
 }
@@ -750,6 +871,8 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
         id: societyRiders.id,
         status: societyRiders.status,
         preferred: societyRiders.preferred,
+        suspendedUntil: societyRiders.suspendedUntil,
+        suspendedReason: societyRiders.suspendedReason,
         name: deliveryPartners.fullName,
         vehicleType: deliveryPartners.vehicleType,
         ratingAvgX100: deliveryPartners.ratingAvgX100,
@@ -814,7 +937,7 @@ export async function getSocietyDispatchRules(societyId: string | null, client: 
   const rows = await client
     .select({ deliveryPartnerId: societyRiders.deliveryPartnerId, preferred: societyRiders.preferred })
     .from(societyRiders)
-    .where(and(eq(societyRiders.societyId, societyId), eq(societyRiders.status, "ACTIVE")));
+    .where(and(eq(societyRiders.societyId, societyId), eq(societyRiders.status, "ACTIVE"), notSuspended()));
   // Gig worker flow (features 7 and 8): GoKesari admin's decisions — AUTHORISED counts as listed,
   // BLOCKED takes the partner off the list whatever the society's own list says.
   const access = await client
@@ -834,6 +957,11 @@ export async function getSocietyDispatchRules(societyId: string | null, client: 
   };
 }
 
+/** docs/flows-v3/wave5.md (flow_f15): a rider the society paused is off its list until the pause ends. */
+export function notSuspended() {
+  return or(isNull(societyRiders.suspendedUntil), sql`${societyRiders.suspendedUntil} <= now()`);
+}
+
 /** Society gate/parking notes for the rider of an active job (GS-047). */
 export async function getSocietyDeliveryNotes(societyId: string | null) {
   if (!societyId) return null;
@@ -847,6 +975,8 @@ export async function getSocietyDeliveryNotes(societyId: string | null) {
     contactName: society.shareGateContactWithRider ? society.gateContactName : null,
     contactPhone: society.shareGateContactWithRider ? society.gateContactPhone : null,
     notifyCustomer: society.notifyCustomerAtGate,
+    // docs/flows-v3/wave5.md (flow_f15): delivery hours at the gate, when the society set them.
+    ...(society.deliveryHoursStart && society.deliveryHoursEnd ? { deliveryHours: { start: society.deliveryHoursStart, end: society.deliveryHoursEnd } } : {}),
   };
 }
 

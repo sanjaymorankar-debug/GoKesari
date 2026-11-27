@@ -27,6 +27,7 @@ import {
   deliveryPartnerDocuments,
   deliveryPartnerSessions,
   deliveryPartners,
+  users,
   type DeliveryPartner,
   type DeliveryPartnerStatus,
   type UserRole,
@@ -39,6 +40,7 @@ import { encryptKycInput, toPublicPartner, type PublicDeliveryPartner } from "./
 import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getRule } from "./settings";
+import { flowF11On } from "@/server/flows/wave5-flags";
 
 interface Actor {
   id: string;
@@ -128,6 +130,33 @@ function validate(input: RegisterDeliveryPartnerInput, options: RegisterOptions 
 
 const clean = (value: string | null | undefined) => value?.trim() || null;
 
+export const RIDER_FLOW_F11_MESSAGES = {
+  photo: "Add your photo — a clear photo of your face.",
+  mobile: "Use your account's mobile number, verified with an SMS code.",
+  email: "Use your account's verified e-mail.",
+} as const;
+
+/**
+ * docs/flows-v3/wave5.md (F11; flag flow_f11): a new application needs the applicant's own profile photo, the
+ * account's verified mobile (SMS code — /account/verify or the form's own step) and the account's verified e-mail.
+ */
+async function checkFlowF11Application(userId: string, input: RegisterDeliveryPartnerInput): Promise<void> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId));
+  if (!user) throw forbidden();
+  const fields: Record<string, string> = {};
+  if (!input.profilePhotoUrl?.trim()) fields.profilePhotoUrl = RIDER_FLOW_F11_MESSAGES.photo;
+  const verifiedNational = user.phoneE164 && user.phoneVerifiedAt ? user.phoneE164.slice(3) : null;
+  if (!verifiedNational || verifiedNational !== String(input.mobile ?? "").replace(/\D/g, "").slice(-10)) {
+    fields.mobile = RIDER_FLOW_F11_MESSAGES.mobile;
+  }
+  const { emailFactorVerified } = await import("@/server/dual-auth/policy");
+  const emailOk = (await emailFactorVerified(user)) && (input.email ?? "").trim().toLowerCase() === user.email.toLowerCase();
+  if (!emailOk) fields.email = RIDER_FLOW_F11_MESSAGES.email;
+  if (Object.keys(fields).length) {
+    throw validationFailed("Please check the highlighted fields.", { fields, reason: "RIDER_ACCOUNT_DETAILS" });
+  }
+}
+
 /**
  * Self-service registration. Promotes a plain CUSTOMER to DELIVERY_PARTNER —
  * same pattern as registering a shop promotes CUSTOMER to SHOP_OWNER — so
@@ -141,6 +170,8 @@ export async function registerDeliveryPartner(
   options: RegisterOptions = {},
 ): Promise<PublicDeliveryPartner> {
   const details = validate(input, options);
+  // docs/flows-v3/wave5.md (flag flow_f11): photo, verified mobile and verified e-mail. Off: as before.
+  if (await flowF11On()) await checkFlowF11Application(userId, input);
 
   const existing = await db.query.deliveryPartners.findFirst({
     where: and(eq(deliveryPartners.userId, userId), isNull(deliveryPartners.deletedAt)),
@@ -375,6 +406,10 @@ export async function approveDeliveryPartner(
         throw conflict(
           "This rider has no identity document on file. Ask them to upload an Aadhaar, PAN, driving licence or other identity document (Profile → Documents) before approving.",
         );
+      }
+      // docs/flows-v3/wave5.md (flag flow_f11): no approval without the rider's photo.
+      if (!current.profilePhotoUrl && (await flowF11On()) && (await getRule("flowsWave5")).riderPhotoAtApproval) {
+        throw conflict("This rider has no photo yet. Ask them to add one (Profile → Photo) before approving.");
       }
     },
   );

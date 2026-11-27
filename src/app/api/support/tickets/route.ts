@@ -11,13 +11,14 @@ import { z } from "zod";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
-import { TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES } from "@/lib/support-ticket-states";
+import { SHOP_OWNER_FLOW_CATEGORIES, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES } from "@/lib/support-ticket-states";
 import { createTicket, listMyTickets, listShopTickets, listTicketQueue } from "@/server/aftercare/support-tickets";
 
 export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
-  category: z.enum(TICKET_CATEGORIES),
+  // docs/flows-v3: the shop-owner topics are accepted by the service only while flow_f17 is on.
+  category: z.enum([...TICKET_CATEGORIES, ...SHOP_OWNER_FLOW_CATEGORIES]),
   subject: z.string().min(3).max(200),
   description: z.string().min(10).max(5000),
   orderId: z.string().uuid().nullish(),

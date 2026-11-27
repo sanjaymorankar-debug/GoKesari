@@ -37,6 +37,7 @@ import { listShopTypes, loadShopTypeRegistry } from "./shop-types";
 import { runOrDefer, type Defer } from "@/server/api/defer";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
+import { systemTicketHook } from "@/server/aftercare/system-ticket-hook";
 import {
   productCategories,
   sellerVerificationEvents,
@@ -492,6 +493,14 @@ async function runCheck(
     return latest ?? claim.row;
   }
   if (status !== claim.previousStatus) await announceResult(shop, updated, claim.previousStatus, actor);
+  // docs/flows-v3 (flag flow_f17): a check that failed or needs a person opens a support ticket (once per check).
+  if (status !== claim.previousStatus && (status === "FAILED" || status === "MANUAL_REVIEW")) {
+    await systemTicketHook(docType === "GSTIN" || docType === "PAN" ? "GST_PAN_CHECK" : "SHOP_DOCUMENT_CHECK", `${updated.id}:${claim.idempotencyKey}`, {
+      shopId: shop.id,
+      subject: `${docType} check ${status === "FAILED" ? "failed" : "needs review"} — ${shop.name}`,
+      description: `The ${docType} check for shop ${shop.name} ended as ${status}${errorCode ? ` (${errorCode})` : ""}. Review it in the shop's verification screen and contact the shop owner if needed.`,
+    });
+  }
   return updated;
 }
 
@@ -668,8 +677,10 @@ export async function submitSellerDocument(input: SubmitDocumentInput): Promise<
     consentVersion: input.consentVersion ?? SELLER_VERIFICATION_CONSENT_VERSION,
     force: false,
   });
-  if (claim.kind === "done") return toView(claim.row);
-  return toView(await runCheck(claim, shop, parsed.value, actor, ip, input.extra));
+  const checked = claim.kind === "done" ? claim.row : await runCheck(claim, shop, parsed.value, actor, ip, input.extra);
+  // Onboarding v2 (owner, 27-Nov-2026): a shop the documents follow-up suspended is live again once all are given.
+  await (await import("@/server/onboarding-v2/document-reactivation")).afterShopDocumentGiven(shop.id);
+  return toView(checked);
 }
 
 /**
@@ -991,6 +1002,7 @@ export async function uploadShopActCertificate(input: {
     const shop = await db.query.shops.findFirst({ where: eq(shops.id, input.shopId) });
     if (shop) await announceResult(shop, row.updated, row.from, input.actor);
   }
+  await (await import("@/server/onboarding-v2/document-reactivation")).afterShopDocumentGiven(input.shopId);
   return toView(row.updated);
 }
 
@@ -1257,6 +1269,7 @@ export async function adminDecideVerification(
         console.error("[seller-verification] auto-approval check failed", shop.id, error),
       );
     }
+    await (await import("@/server/onboarding-v2/document-reactivation")).afterShopDocumentGiven(shop.id);
   };
   // The decision is saved: a follow-up that fails is logged, never turned into a failed answer.
   const runFollowUp = () =>

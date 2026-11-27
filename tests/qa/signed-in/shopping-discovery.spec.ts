@@ -8,6 +8,7 @@
  * Signed-in tier. Shop settings changed for a check (shop B's radius, a
  * listing's stock, shop A's delivery options) are put back in `finally`.
  */
+import { listingOf } from "../lib/orders-helpers";
 import type { Page } from "@playwright/test";
 
 import { anonymous, call, expectStatus } from "../lib/http";
@@ -191,6 +192,8 @@ qa("TC-DISC-006", "product search lists only offers from shops that deliver to t
 
 qa(["TC-DISC-007", "TC-FLD-022"], "search box signed in: blank and no-match give clear messages, outer spaces are ignored, symbols are text", async ({ browser }) => {
   const a = listing("packaged");
+  // The preset is searched for by name; a sold-out listing is not shown (E-33): the E2E bakery restocks it first.
+  await listingOf("packaged");
   const { context, page } = await signedPage(browser, "customer");
   try {
     await open(page, "/search?q=");
@@ -337,7 +340,8 @@ qa("TC-DISC-013", "shop page: profile, catalogue, opening hours with the closed-
       await context.close();
     }
   });
-  await withShop("A", { deliveryAvailable: false }, async () => {
+  // "Open now" needs a shop without opening hours (shop A has 06:00–22:00 on the test site, so at night it is closed).
+  await withShop("A", { deliveryAvailable: false, openingHours: [] }, async () => {
     const { context, page } = await signedPage(browser, "customer");
     try {
       await open(page, `/shops/${shopSlug("A")}`);

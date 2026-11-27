@@ -47,6 +47,16 @@ async function closeOpenCod() {
     const res = await cancelAsCustomer("customer", o.id, "QA COD clean-up");
     if (res.status !== 200) await call(await as("shop"), "PATCH", `/api/orders/${o.id}/status`, { status: "CANCELLED", note: "QA COD clean-up" });
   }
+  // GET /api/orders lists the customer's newest 25 orders only: open COD orders older than that (left by earlier runs)
+  // cannot be reached from here. They are test data on the site, not a COD fault: block with the reset they need.
+  const left = await call(await as("customer"), "GET", "/api/cod/eligibility");
+  const e = left.body as { allowed?: boolean; openOrders?: number; maxOpenOrders?: number; reason?: string | null } | undefined;
+  if (left.status === 200 && e && !e.allowed && (e.openOrders ?? 0) >= (e.maxOpenOrders ?? Infinity)) {
+    blocked(
+      `the customer test account still has ${e.openOrders} open cash-on-delivery orders older than its newest 25 (limit ${e.maxOpenOrders}): "${e.reason}". ` +
+        "Staging reset: an operator cancels (or delivers) the customer's open COD orders (Admin → Orders, customer gk-lc14)",
+    );
+  }
 }
 
 test.afterAll(async () => {
@@ -173,7 +183,20 @@ qa("TC-COD-003", "COD refusals with the reason: business order, no address, shop
   const a = await sellable("A", 3);
   // 1. Without an address.
   await fillCart("customer", [{ listing: a }]);
-  refusal("no address", (await checkoutNow("customer", "COD", [a.shopId], { addressId: null })).res);
+  const noAddress = (await checkoutNow("customer", "COD", [a.shopId], { addressId: null })).res;
+  // Owner 27-Nov-2026: cash on delivery needs a delivery address, or the customer picks the order up from the shop —
+  // also with onboarding v2 (no COD order waiting for its address).
+  refusal("no address", noAddress);
+  expect(String(noAddress.body?.error?.message ?? ""), "the refusal names the pickup alternative").toMatch(/pick the order up from the shop|delivery address/i);
+  // ...but "I will pick up from the shop" is accepted with no address and nothing waits; cancelled again so it does
+  // not count as an open COD order below.
+  await fillCart("customer", [{ listing: a }]);
+  const pickup = (await checkoutNow("customer", "COD", [a.shopId], { addressId: null, pickupAtShop: true })).res;
+  expectStatus(pickup, 201, "COD with pickup from the shop and no address");
+  const po = pickup.body.orders[0] as { id: string; addressPending?: boolean };
+  expect(po.addressPending, "a pickup COD order never waits for an address").toBeFalsy();
+  expectStatus(await cancelAsCustomer("customer", po.id, "QA COD-003: pickup COD order cancelled"), 200, "cancel the pickup COD order");
+  out.push("no address → refused; COD with pickup from the shop → 201 (no address pending), cancelled again");
   // 2. From a shop that has not opted in (shop B).
   if (world().shops.B) {
     const b = await sellable("B", 3);

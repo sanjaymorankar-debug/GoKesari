@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { wallets } from "@/server/db/schema";
+import { shopProducts, wallets } from "@/server/db/schema";
 import { addToCart } from "@/server/services/cart";
 import { cancelOrder, checkout } from "@/server/services/orders";
 import { applyWalletMutation } from "@/server/services/wallet";
@@ -73,6 +73,30 @@ describe("cancelOrder refund (TEST 8)", () => {
     const afterRefund = await balanceOf(customer.id);
     expect(afterRefund.balancePaise).toBe(14000); // full ₹140 restored
     expect(afterRefund.promotionalBalancePaise).toBe(7000); // the ₹70 promo restored, not customer-funded
+  });
+});
+
+describe("cancelOrder restock (D-172)", () => {
+  it("does not put stock back on a listing that does not track stock", async () => {
+    const { customer } = await setupOneShop(500_000);
+    await db.update(shopProducts).set({ trackInventory: false }).where(eq(shopProducts.id, customer.shopProductId));
+    await addToCart(customer.id, customer.shopProductId, 1);
+    const { orders } = await checkout({ userId: customer.id, requestId: "req-d172", addressId: await deliveryAddressId(customer.id) });
+    const before = (await db.query.shopProducts.findFirst({ where: eq(shopProducts.id, customer.shopProductId) }))!.onlineStock;
+
+    await cancelOrder(orders[0].id, { id: customer.id, role: "CUSTOMER" }, "Changed my mind");
+
+    const after = (await db.query.shopProducts.findFirst({ where: eq(shopProducts.id, customer.shopProductId) }))!.onlineStock;
+    expect(after).toBe(before);
+  });
+
+  it("still restocks a listing that tracks stock", async () => {
+    const { customer } = await setupOneShop(500_000);
+    await addToCart(customer.id, customer.shopProductId, 1);
+    const { orders } = await checkout({ userId: customer.id, requestId: "req-d172b", addressId: await deliveryAddressId(customer.id) });
+    await cancelOrder(orders[0].id, { id: customer.id, role: "CUSTOMER" }, "Changed my mind");
+    const after = (await db.query.shopProducts.findFirst({ where: eq(shopProducts.id, customer.shopProductId) }))!.onlineStock;
+    expect(after).toBe(50);
   });
 });
 

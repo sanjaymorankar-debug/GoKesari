@@ -29,6 +29,7 @@ import { db, type DbClient } from "@/server/db";
 import { documentEmails, invSettings, shops } from "@/server/db/schema";
 import { queueDocumentEmail, type RenderedDocument } from "@/server/documents/email";
 import { renderEmail } from "@/server/notifications/templates";
+import { queueReadyForProductsEmail } from "@/server/flows/f13-products";
 import { getRule } from "@/server/services/settings";
 
 import {
@@ -236,6 +237,9 @@ export async function queueShopWelcomeKit(
   options: { deliverNow?: boolean } = {},
 ): Promise<boolean> {
   try {
+    // docs/flows-v3/wave2.md (flag flow_f13): the "ready for product upload" e-mail, once per shop, whatever path
+    // made it live. Its own savepoint; never throws.
+    await queueReadyForProductsEmail(shop, client, options);
     // A savepoint: if queuing fails, only it is rolled back — never the approval around it.
     return await client.transaction(async (sp) => {
       // Once per shop, ever: the outbox's own key is shop + recipient, so a shop that changed hands

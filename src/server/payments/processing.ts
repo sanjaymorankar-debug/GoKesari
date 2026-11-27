@@ -172,6 +172,41 @@ export async function reconcileIntent(intentId: string, source: IntentSource = "
   return applyGatewayState(row.id, state, { source });
 }
 
+/**
+ * QA D-169: the purpose gives up on an attempt that is still open (the buyer cancelled, or the hold it promised ran
+ * out). The gateway is asked first, so a payment that did go through is captured as usual and nothing is ended.
+ * Then, under the intent's lock: an attempt still open is ended (FAILED / EXPIRED, running the purpose's ended
+ * handler) — with `onlyIfPastExpiry`, only once its time at the gateway has passed (nothing can be paid after it).
+ * `beforeEnd` runs in that transaction first (e.g. the purpose records the cancel itself). After commit, an attempt
+ * ended before its expiry is stopped at the gateway too (best effort; a late payment would be flagged for support).
+ * A gateway that cannot be reached throws: nothing is ended without asking it.
+ */
+export async function abandonOpenIntent(
+  intentId: string,
+  input: { to: "FAILED" | "EXPIRED"; reason: string; onlyIfPastExpiry?: boolean; now?: Date; beforeEnd?: (tx: DbClient) => Promise<void> },
+): Promise<PaymentIntentRow["status"] | null> {
+  const first = await getPaymentIntentRow(intentId);
+  if (!first) return null;
+  if (!LIVE_PAYMENT_INTENT_STATUSES.includes(first.status)) return first.status;
+  await reconcileIntent(intentId, "SYSTEM");
+  const now = input.now ?? new Date();
+  const outcome = await db.transaction(async (tx) => {
+    const row = await lockIntent(tx, intentId);
+    if (!row) return { status: null, stop: null };
+    if (!LIVE_PAYMENT_INTENT_STATUSES.includes(row.status)) return { status: row.status, stop: null };
+    const pastExpiry = row.expiresAt != null && row.expiresAt.getTime() <= now.getTime();
+    if (input.onlyIfPastExpiry && !pastExpiry) return { status: row.status, stop: null };
+    await input.beforeEnd?.(tx);
+    const ended = await endIntent(tx, row, input.to, "SYSTEM", input.reason, null);
+    return { status: ended.status, stop: !pastExpiry && row.gatewayOrderId ? { gateway: row.gateway, orderId: row.gatewayOrderId } : null };
+  });
+  if (outcome.stop) {
+    const gateway = getGatewayByName(outcome.stop.gateway);
+    await gateway.cancelOrder?.(outcome.stop.orderId).catch((error: unknown) => console.error("[payments] could not stop the gateway order", intentId, error));
+  }
+  return outcome.status;
+}
+
 /* ------------------------------------------------------------- webhook */
 
 export interface WebhookResponse {

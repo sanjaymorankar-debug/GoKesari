@@ -28,9 +28,11 @@ import {
   franchiseShopAttributions,
   franchiseShopTeamPeriods,
   referralCodes,
+  shopAttributions,
   type FranchiseAllocation,
   type UserRole,
 } from "@/server/db/schema";
+import { flow4On } from "@/server/flows/wave4";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { bonusSettingsOf, franchiseConfig, franchiseConfigAt, franchiseNow, type FranchiseConfig } from "./config";
 
@@ -159,6 +161,65 @@ export function earnersAt(ctx: ZoneContext, shopId: string, t: number): { alloca
 
 const shareOf = (earners: { allocationId: string; share: number }[], allocationId: string) => earners.find((e) => e.allocationId === allocationId)?.share ?? 0;
 
+/* ============================================================= docs/flows-v3/wave4.md F9 (flag flow_f9) */
+
+/**
+ * Who earns on a shop under flow spec v3 (owner 27-Nov-2026) — one franchise, whole share, never split:
+ *   1. a shop of a franchise's team (franchise_shop_attributions / referral-move periods): that franchise, while it is
+ *      active or in its tail (as today);
+ *   2. the owner's OWN shop in any area — registered with his codes (shop_attributions) once his franchise was live:
+ *      his franchise in the shop's zone, else his earliest one (active or in its tail);
+ *   3. any other shop of a zone: the zone's FIRST franchise (earliest live) among those active then. A second buyer
+ *      inherits nobody's shops, later free-dealer shops of the zone included; they stay with the first. DEFAULT –
+ *      confirm with Sanjay: when the first lapses, the next-earliest active franchise of the zone takes them over.
+ */
+export interface F9Context {
+  allocations: FranchiseAllocation[];
+  team: Map<string, TeamPeriod[]>;
+  /** shop → the dealer it is attributed to and when (franchise owners' shops only). */
+  dealerOf: Map<string, { dealerId: string; registeredAt: number }>;
+}
+
+export async function f9Context(client: DbClient, isTest: boolean): Promise<F9Context> {
+  const allocations = (await client.select().from(franchiseAllocations).where(eq(franchiseAllocations.isTest, isTest))).filter((a) => !!liveFrom(a) && a.status !== "CANCELLED");
+  const team = new Map<string, TeamPeriod[]>();
+  const addPeriod = (shopId: string, p: TeamPeriod) => team.set(shopId, [...(team.get(shopId) ?? []), p]);
+  for (const r of await client.select().from(franchiseShopAttributions).where(eq(franchiseShopAttributions.status, "ACTIVE"))) {
+    addPeriod(r.shopId, { allocationId: r.allocationId, ownerDealerId: r.ownerDealerId, from: r.attachedFrom?.getTime() ?? -Infinity, to: Infinity });
+  }
+  for (const r of await client.select().from(franchiseShopTeamPeriods)) {
+    addPeriod(r.shopId, { allocationId: r.allocationId, ownerDealerId: r.ownerDealerId, from: r.validFrom?.getTime() ?? -Infinity, to: r.validTo.getTime() });
+  }
+  const owners = [...new Set(allocations.map((a) => a.ownerDealerId))];
+  const dealerOf = new Map<string, { dealerId: string; registeredAt: number }>();
+  if (owners.length) {
+    for (const r of await client.select({ shopId: shopAttributions.shopId, dealerId: shopAttributions.dealerId, createdAt: shopAttributions.createdAt }).from(shopAttributions).where(and(inArray(shopAttributions.dealerId, owners), eq(shopAttributions.status, "ACTIVE")))) {
+      dealerOf.set(r.shopId, { dealerId: r.dealerId, registeredAt: r.createdAt.getTime() });
+    }
+  }
+  return { allocations, team, dealerOf };
+}
+
+const liveMs = (a: FranchiseAllocation) => liveFrom(a)?.getTime() ?? Infinity;
+const earliest = (list: FranchiseAllocation[]) => [...list].sort((x, y) => liveMs(x) - liveMs(y) || x.slotNo - y.slotNo || x.id.localeCompare(y.id))[0] ?? null;
+
+/** The one franchise earning on `shopId` (in zone `zoneId`, or none) at `t`, or null. */
+export function f9EarnerAt(ctx: F9Context, shopId: string, zoneId: string | null, t: number): string | null {
+  const own = ctx.team.get(shopId)?.find((p) => p.from <= t && t < p.to);
+  if (own) {
+    const a = ctx.allocations.find((x) => x.id === own.allocationId);
+    if (a && (isActiveAt(a, t) || inTailAt(a, t))) return a.id;
+  }
+  const mine = ctx.dealerOf.get(shopId);
+  if (mine) {
+    const held = ctx.allocations.filter((a) => a.ownerDealerId === mine.dealerId && liveMs(a) <= mine.registeredAt && (isActiveAt(a, t) || inTailAt(a, t)));
+    const pick = held.find((a) => a.zoneId === zoneId) ?? earliest(held);
+    if (pick) return pick.id;
+  }
+  if (!zoneId) return null;
+  return earliest(ctx.allocations.filter((a) => a.zoneId === zoneId && isActiveAt(a, t)))?.id ?? null;
+}
+
 /* ============================================================= the month of one franchise */
 
 interface ShopLine {
@@ -196,6 +257,10 @@ export async function calculateAllocationMonth(client: DbClient, allocation: Fra
   const versioned = await franchiseConfigAt(start, client); // the settings in force when the month began
   const settings = bonusSettingsOf(versioned.config);
   const ctx = await zoneContext(client, allocation.zoneId, versioned.config.recurringSplitMode);
+  // docs/flows-v3/wave4.md F9 (flag flow_f9): one earner per shop (own shops anywhere, the zone's first franchise).
+  const f9 = await flow4On("flow_f9");
+  const v3 = f9 ? await f9Context(client, allocation.isTest) : null;
+  const shareAt = (shopId: string, zoneId: string | null, t: number) => (v3 ? (f9EarnerAt(v3, shopId, zoneId, t) === allocation.id ? 1 : 0) : shareOf(earnersAt(ctx, shopId, t), allocation.id));
   const s = start.toISOString();
   const e = end.toISOString();
 
@@ -210,11 +275,11 @@ export async function calculateAllocationMonth(client: DbClient, allocation: Fra
   const openingShopIds =
     frozenOpening ??
     shops
-      .filter((r) => r.status === "APPROVED" && approvedAt(r) != null && approvedAt(r)! < start.getTime() && r.zone_at_start === allocation.zoneId && shareOf(earnersAt(ctx, r.id, start.getTime()), allocation.id) > 0)
+      .filter((r) => r.status === "APPROVED" && approvedAt(r) != null && approvedAt(r)! < start.getTime() && r.zone_at_start === allocation.zoneId && shareAt(r.id, allocation.zoneId, start.getTime()) > 0)
       .map((r) => r.id)
       .sort();
   const newShopIds = shops
-    .filter((r) => r.status === "APPROVED" && approvedAt(r) != null && approvedAt(r)! >= start.getTime() && approvedAt(r)! < end.getTime() && r.zone_at_approval === allocation.zoneId && shareOf(earnersAt(ctx, r.id, approvedAt(r)!), allocation.id) > 0)
+    .filter((r) => r.status === "APPROVED" && approvedAt(r) != null && approvedAt(r)! >= start.getTime() && approvedAt(r)! < end.getTime() && r.zone_at_approval === allocation.zoneId && shareAt(r.id, allocation.zoneId, approvedAt(r)!) > 0)
     .map((r) => r.id)
     .sort();
 
@@ -232,8 +297,18 @@ export async function calculateAllocationMonth(client: DbClient, allocation: Fra
     join franchise_shop_area_periods p on p.shop_id = o.shop_id and p.zone_id = ${allocation.zoneId}
       and o.delivered_at >= p.valid_from and (p.valid_to is null or o.delivered_at < p.valid_to)
     where o.delivered_at >= ${s}::timestamptz and o.delivered_at < ${e}::timestamptz`)) as unknown as { shop_id: string; goods: string | number; delivered_at: string | Date }[];
-  for (const d of delivered) {
-    const share = shareOf(earnersAt(ctx, d.shop_id, new Date(d.delivered_at).getTime()), allocation.id);
+  // F9: the owner's own shops outside this zone (registered with his codes), with their zone at delivery.
+  const ownElsewhere = v3
+    ? ((await client.execute(sql`
+    select o.shop_id, o.goods_paise as goods, o.delivered_at,
+      (select p.zone_id from franchise_shop_area_periods p where p.shop_id = o.shop_id and o.delivered_at >= p.valid_from and (p.valid_to is null or o.delivered_at < p.valid_to) order by p.valid_from desc limit 1) as zone_id
+    from order_financials o
+    join shop_attributions sa on sa.shop_id = o.shop_id and sa.dealer_id = ${allocation.ownerDealerId}::uuid and sa.status = 'ACTIVE'
+    where o.delivered_at >= ${s}::timestamptz and o.delivered_at < ${e}::timestamptz`)) as unknown as { shop_id: string; goods: string | number; delivered_at: string | Date; zone_id: string | null }[]).filter((d) => d.zone_id !== allocation.zoneId)
+    : [];
+  for (const d of [...delivered.map((x) => ({ ...x, zone_id: allocation.zoneId as string | null })), ...ownElsewhere]) {
+    const at = new Date(d.delivered_at).getTime();
+    const share = shareAt(d.shop_id, d.zone_id, at);
     if (share <= 0) continue;
     const l = line(d.shop_id);
     l.netPaise += Number(d.goods) * share;
@@ -249,9 +324,20 @@ export async function calculateAllocationMonth(client: DbClient, allocation: Fra
     where adj.type in ('REFUND_SHOP', 'REFUND_PLATFORM') and o.delivered_at is not null
       and adj.created_at >= ${s}::timestamptz and adj.created_at < ${e}::timestamptz`)) as unknown as { shop_id: string; goods: string | number; refund: string | number; delivered_at: string | Date }[];
   const paidRates = new Map((await client.select({ month: franchiseMonthlySnapshots.month, rate: franchiseMonthlySnapshots.commissionRateBp }).from(franchiseMonthlySnapshots).where(and(eq(franchiseMonthlySnapshots.allocationId, allocation.id), eq(franchiseMonthlySnapshots.status, "LOCKED")))).map((r) => [r.month, r.rate]));
-  for (const r of refunds) {
+  // F9: refunds on the owner's own shops outside this zone, as above.
+  const ownRefunds = v3
+    ? ((await client.execute(sql`
+    select o.shop_id, o.goods_paise as goods, adj.customer_refund_paise as refund, o.delivered_at,
+      (select p.zone_id from franchise_shop_area_periods p where p.shop_id = o.shop_id and o.delivered_at >= p.valid_from and (p.valid_to is null or o.delivered_at < p.valid_to) order by p.valid_from desc limit 1) as zone_id
+    from financial_adjustments adj
+    join order_financials o on o.order_id = adj.order_id
+    join shop_attributions sa on sa.shop_id = o.shop_id and sa.dealer_id = ${allocation.ownerDealerId}::uuid and sa.status = 'ACTIVE'
+    where adj.type in ('REFUND_SHOP', 'REFUND_PLATFORM') and o.delivered_at is not null
+      and adj.created_at >= ${s}::timestamptz and adj.created_at < ${e}::timestamptz`)) as unknown as { shop_id: string; goods: string | number; refund: string | number; delivered_at: string | Date; zone_id: string | null }[]).filter((d) => d.zone_id !== allocation.zoneId)
+    : [];
+  for (const r of [...refunds.map((x) => ({ ...x, zone_id: allocation.zoneId as string | null })), ...ownRefunds]) {
     const at = new Date(r.delivered_at);
-    const share = shareOf(earnersAt(ctx, r.shop_id, at.getTime()), allocation.id);
+    const share = shareAt(r.shop_id, r.zone_id, at.getTime());
     if (share <= 0) continue;
     const refunded = Math.min(Number(r.refund), Number(r.goods));
     if (at.getTime() >= start.getTime()) {

@@ -226,6 +226,11 @@ async function placeViaRoute(body: Record<string, unknown>) {
   return call(checkoutRoute as never, "/api/checkout", { method: "POST", body: { requestId: `req-ov2-${++seq}`, orderType: "PERSONAL", ...body } });
 }
 
+/** Owner 27-Nov-2026: cash on delivery never waits for an address, so the "address later" orders here are paid from the wallet. */
+async function fundWallet(userId: string) {
+  await db.update(wallets).set({ balancePaise: 100_000 }).where(eq(wallets.userId, userId));
+}
+
 const NEW_ADDRESS = { line1: "12 MG Road", area: "Camp", city: "Pune", pincode: "411001", latitude: 18.52, longitude: 73.87 };
 
 /* ------------------------------------------------------------------ flag off */
@@ -369,15 +374,16 @@ describe("flag onboarding_v2 on — login sheet", () => {
 });
 
 describe("flag onboarding_v2 on — order, then the delivery location", () => {
-  it("TC-OV2C-020 COD without an address: shop gets the order, no rider until the location is set", async () => {
+  it("TC-OV2C-020 wallet without an address: shop gets the order, no rider until the location is set", async () => {
     await v2On();
     const { listing, shop } = await shopWithMilk();
     const { user } = await guestThroughSheet();
     await addToCart(user.id, listing.id, 2);
-    const placed = await placeViaRoute({ paymentMethod: "COD" });
+    await fundWallet(user.id);
+    const placed = await placeViaRoute({ paymentMethod: "WALLET" });
     expect(placed.status).toBe(201);
     expect(placed.body.orders).toHaveLength(1);
-    expect(placed.body.orders[0]).toMatchObject({ paymentMethod: "COD", status: "CONFIRMED", addressPending: true, totalPaise: 16_000 });
+    expect(placed.body.orders[0]).toMatchObject({ paymentMethod: "WALLET", status: "CONFIRMED", addressPending: true, totalPaise: 16_000 });
     const orderId = placed.body.orders[0].id as string;
     let [order] = await db.select().from(orders).where(eq(orders.id, orderId));
     expect(order.shopId).toBe(shop.id);
@@ -455,7 +461,8 @@ describe("flag onboarding_v2 on — order, then the delivery location", () => {
     const { listing } = await shopWithMilk();
     const { user } = await guestThroughSheet();
     await addToCart(user.id, listing.id, 1);
-    const placed = await placeViaRoute({ paymentMethod: "COD" });
+    await fundWallet(user.id);
+    const placed = await placeViaRoute({ paymentMethod: "WALLET" });
     const orderId = placed.body.orders[0].id as string;
     const far = await call(deliveryLocationRoute as never, "/api/onboarding-v2/orders/delivery-location", {
       method: "POST",
@@ -493,13 +500,31 @@ describe("flag onboarding_v2 on — order, then the delivery location", () => {
     expect(order.addressId).toBe(address.id);
     expect(order.addressPendingSince).toBeNull();
   });
+
+  it("TC-OV2C-025 cash on delivery needs a delivery address or the customer's pickup from the shop (owner 27-Nov-2026)", async () => {
+    await v2On();
+    const { listing } = await shopWithMilk();
+    const { user } = await guestThroughSheet();
+    await addToCart(user.id, listing.id, 1);
+    const refused = await placeViaRoute({ paymentMethod: "COD" });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error.message).toMatch(/delivery address, or pick the order up from the shop/);
+    expect(await db.select().from(orders)).toHaveLength(0);
+    // pickupAtShop only counts with cash on delivery; a wallet order still waits for its address as before.
+    const pickup = await placeViaRoute({ paymentMethod: "COD", pickupAtShop: true });
+    expect(pickup.status).toBe(201);
+    expect(pickup.body.orders[0].addressPending).toBeUndefined();
+    const [order] = await db.select().from(orders).where(eq(orders.id, pickup.body.orders[0].id));
+    expect(order).toMatchObject({ paymentMethod: "COD", addressId: null, addressPendingSince: null });
+  });
 });
 
 describe("flag onboarding_v2 on — money safety for orders placed before the address", () => {
-  async function pendingOrder(paymentMethod: "COD" | "ONLINE" = "COD") {
+  async function pendingOrder(paymentMethod: "WALLET" | "ONLINE" = "WALLET") {
     const { listing, owner } = await shopWithMilk();
     const { user } = await guestThroughSheet();
     await addToCart(user.id, listing.id, 1);
+    if (paymentMethod === "WALLET") await fundWallet(user.id);
     const placed = await placeViaRoute({ paymentMethod });
     expect(placed.status).toBe(201);
     return { user, owner, placed, orderId: placed.body.orders[0].id as string };
@@ -510,27 +535,29 @@ describe("flag onboarding_v2 on — money safety for orders placed before the ad
     const { listing } = await shopWithMilk();
     const { user } = await guestThroughSheet();
     await addToCart(user.id, listing.id, 1);
+    await fundWallet(user.id);
     setLocation(null);
-    const none = await placeViaRoute({ paymentMethod: "COD" });
+    const none = await placeViaRoute({ paymentMethod: "WALLET" });
     expect(none.status).toBe(422);
     expect(none.body.error.details).toMatchObject({ missing: "location" });
     setLocation("400001");
-    const far = await placeViaRoute({ paymentMethod: "COD" });
+    const far = await placeViaRoute({ paymentMethod: "WALLET" });
     expect(far.status).toBe(422);
     expect(far.body.error.message).toMatch(/does not deliver to your location/);
     expect(await db.select().from(orders)).toHaveLength(0);
     setLocation("411001");
-    expect((await placeViaRoute({ paymentMethod: "COD" })).status).toBe(201);
+    expect((await placeViaRoute({ paymentMethod: "WALLET" })).status).toBe(201);
   });
 
   it("TC-OV2C-031 the customer may cancel a waiting order after the shop accepted it; the shop is told", async () => {
     await v2On();
-    const { user, owner, orderId } = await pendingOrder("COD");
+    const { user, owner, orderId } = await pendingOrder();
     await db.update(orders).set({ status: "READY" }).where(eq(orders.id, orderId));
     signInAs(user);
     const res = await call(orderStatusRoute as never, `/api/orders/${orderId}/status`, { method: "PATCH", params: { id: orderId }, body: { status: "CANCELLED", note: "No address" } });
     expect(res.status).toBe(200);
-    expect((await db.select().from(orders).where(eq(orders.id, orderId)))[0].status).toBe("CANCELLED");
+    // Paid from the wallet: cancelled and refunded to the wallet in full.
+    expect((await db.select().from(orders).where(eq(orders.id, orderId)))[0].status).toBe("REFUNDED");
     const shopNotes = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, NOTIFICATION_TYPES.ORDER_CANCELLED)));
     expect(shopNotes).toHaveLength(1);
   });
@@ -557,12 +584,12 @@ describe("flag onboarding_v2 on — money safety for orders placed before the ad
 
   it("TC-OV2C-033 waiting past onboardingV2.addressPendingAutoCancelHours: cancelled automatically, shop told", async () => {
     await v2On();
-    const { owner, orderId } = await pendingOrder("COD");
-    const recent = await pendingOrder("COD");
+    const { owner, orderId } = await pendingOrder();
+    const recent = await pendingOrder();
     await db.update(orders).set({ addressPendingSince: new Date(Date.now() - 3 * 3_600_000) }).where(eq(orders.id, orderId));
     expect(await cancelStaleAddressPendingOrders()).toEqual({ cancelled: 1, failed: 0 });
     const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
-    expect(order).toMatchObject({ status: "CANCELLED", cancellationReason: ADDRESS_PENDING_TIMEOUT_REASON });
+    expect(order).toMatchObject({ status: "REFUNDED", cancellationReason: ADDRESS_PENDING_TIMEOUT_REASON });
     expect((await db.select().from(orders).where(eq(orders.id, recent.orderId)))[0].status).toBe("CONFIRMED");
     const shopNotes = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, NOTIFICATION_TYPES.ORDER_CANCELLED)));
     expect(shopNotes).toHaveLength(1);
@@ -574,11 +601,12 @@ describe("flag onboarding_v2 on — money safety for orders placed before the ad
 
   it("TC-OV2C-034 the referral exemption covers the first checkout only, never a later order", async () => {
     await v2On();
-    const { user, orderId } = await pendingOrder("COD");
+    const { user, orderId } = await pendingOrder();
     expect(await firstCheckoutOrderIds(user.id, [orderId])).toEqual([orderId]);
     const { listing } = await shopWithMilk();
     await addToCart(user.id, listing.id, 1);
-    const second = await placeViaRoute({ paymentMethod: "COD" });
+    await fundWallet(user.id);
+    const second = await placeViaRoute({ paymentMethod: "WALLET" });
     const secondId = second.body.orders[0].id as string;
     expect(await firstCheckoutOrderIds(user.id, [secondId])).toEqual([]);
   });

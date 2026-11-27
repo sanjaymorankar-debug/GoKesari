@@ -63,6 +63,11 @@ const T = {
   yesCancel: L("Yes, cancel and refund", "हाँ, रद्द करें और रिफंड दें", "होय, रद्द करा आणि परतावा द्या"),
   cancelQ: L("Cancel and refund the customer?", "ऑर्डर रद्द करके ग्राहक को रिफंड दें?", "ऑर्डर रद्द करून ग्राहकाला परतावा द्यायचा?"),
   cancelRefund: L("Cancel & refund customer", "रद्द करें और ग्राहक को रिफंड दें", "रद्द करा आणि ग्राहकाला परतावा द्या"),
+  addressPending: L(
+    "Waiting for the customer's delivery location. Pack the order and mark it ready — the delivery starts once the location is set.",
+    "ग्राहक के डिलीवरी लोकेशन का इंतज़ार है। ऑर्डर पैक करके तैयार करें — लोकेशन मिलते ही डिलीवरी शुरू होगी।",
+    "ग्राहकाच्या डिलिव्हरी लोकेशनची वाट पाहत आहोत. ऑर्डर पॅक करून तयार करा — लोकेशन मिळताच डिलिव्हरी सुरू होईल.",
+  ),
   waitingSub: L("Waiting for the customer to approve or reject a substitute.", "ग्राहक के बदले हुए सामान को मंज़ूर या मना करने का इंतज़ार है।", "बदली वस्तू ग्राहक मंजूर करतो की नाकारतो याची वाट पाहत आहोत."),
   reasonPh: L("Reason, shown to the customer", "कारण (ग्राहक को दिखेगा)", "कारण (ग्राहकाला दिसेल)"),
   reasonAria: L("Reason for rejecting the order", "ऑर्डर अस्वीकार करने का कारण", "ऑर्डर नाकारण्याचे कारण"),
@@ -163,6 +168,8 @@ export interface ShopOrderRow {
   fulfilmentPlan?: PlannerPlan | null;
   /** The order has a delivery address (own delivery and GoKesari need one). */
   hasAddress?: boolean;
+  /** Onboarding v2 (QA D-166): a paid delivery order still waiting for the customer's delivery location. */
+  addressPending?: boolean;
   /** The customer's delivery fee still on the order (pickup gives it back). */
   deliveryFeePaise?: number;
   /** batch-2026-10 WS-B (rule pickupQr): the signed single-use pickup QR for a packed order (SVG markup from the server). */
@@ -181,6 +188,8 @@ export interface ShopOrderRow {
   } | null;
   /** Gig worker flow (feature 11): the delivered order was confirmed complete. */
   completedAt?: string | null;
+  /** docs/flows-v3/wave2.md (flag flow_f3): "Packed & ready" is offered straight from Accepted. */
+  packFromAccepted?: boolean;
 }
 
 /** Fulfilment options switched on: the slots and delivery people the planner offers. */
@@ -289,6 +298,7 @@ function OrderRow({
   // Fulfilment options: a planned order is handed over from its plan; riders only for a GoKesari plan.
   const plan = order.fulfilmentPlan ?? null;
   const riderPlan = !plan || plan.option === "GOKESARI_PARTNER";
+  const plannerShown = Boolean(fulfilment && ((fulfilment.enabled && order.status === "PREPARING") || plan));
 
   return (
     <Card className="p-4" data-testid="shop-order">
@@ -447,6 +457,11 @@ function OrderRow({
             {tr(T.startPicking, lang)}
           </Button>
         ) : null}
+        {order.status === "ACCEPTED" && order.packFromAccepted && !fulfilment?.enabled ? (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => fulfil({ action: "ready" })}>
+            {tr(T.packedReady, lang)}
+          </Button>
+        ) : null}
         {order.status === "PREPARING" && !fulfilment?.enabled ? (
           <Button size="sm" disabled={busy || waitingOnCustomer} onClick={() => fulfil({ action: "ready" })}>
             {tr(T.packedReady, lang)}
@@ -480,7 +495,7 @@ function OrderRow({
         ) : null}
       </div>
 
-      {fulfilment && ((fulfilment.enabled && order.status === "PREPARING") || plan) ? (
+      {fulfilment && plannerShown ? (
         <FulfilmentPlanner
           orderId={order.id}
           status={order.status}
@@ -488,12 +503,19 @@ function OrderRow({
           days={fulfilment.days}
           staff={fulfilment.staff}
           hasAddress={order.hasAddress ?? true}
+          addressPending={order.addressPending ?? false}
           shopDelivers={deliveryAvailable}
           cashOnDelivery={order.paymentMethod === "COD" && !order.cashCollected}
           pickupRefundPaise={fulfilment.refundDeliveryFeeOnPickup ? (order.deliveryFeePaise ?? 0) : 0}
           waitingOnCustomer={waitingOnCustomer}
           onChanged={onChanged}
         />
+      ) : null}
+
+      {order.addressPending && !plannerShown && !["CANCELLED", "REFUND_PENDING", "REFUNDED", "REJECTED"].includes(order.status) ? (
+        <p className="mt-2 text-xs font-medium text-kesari-800" data-testid="address-pending-note">
+          {tr(T.addressPending, lang)}
+        </p>
       ) : null}
 
       {waitingOnCustomer ? (

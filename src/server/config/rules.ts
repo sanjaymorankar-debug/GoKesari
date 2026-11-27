@@ -172,6 +172,71 @@ export const RULES = {
       maxHandoverAttempts: 5,
     },
   },
+  /* >>> docs/flows-v3 (wave 2): read only while the matching flow_f* feature flag is on. */
+  orderFlowsV3: {
+    description:
+      "Flow spec v3, wave 2 (docs/flows-v3/wave2.md). Each value is used only while its feature flag is on; with the flag off the older rules (shopAcceptance, dispatch, dispatchBroadcast, cancellation, afterPackingCancellation, returns, Admin → Finance commission) apply unchanged. flow_f19: shopAcceptMinutes (the shop must accept within this; reminder at acceptReminderAtFraction of it, in the app and on the shop's WhatsApp where that is on; a silent shop's order is cancelled with a full refund) and suggestAnotherShop (point the customer to the nearest shop within suggestRadiusKm that lists every item); riderWidenAfterMinutes (the rider offer goes out to a wider radius every this many minutes), riderGiveUpMinutes (the rider search stops), noRiderCancelAfterMinutes (after the search stops, the shop has this long to switch to its own delivery or pickup, else the order is cancelled with a full refund; 0 = never); pickupGraceMinutes (after a pickup slot ends, the shop may cancel an uncollected order). flow_f16: a packed order is cancelled only when the shop agrees, with no charge (owner 27-Nov-2026); returnWindowHours, returnPhotoReasons (the return reasons that need a photo), nonReturnableDepartments / nonReturnableCategorySlugs (product categories — by shop type of the category, or by category slug — that cannot be returned) except for nonReturnableExceptReasons, failedDeliveryRefundAfterMinutes (a failed delivery still not retried after this long is cancelled with a full refund). flow_f3: defaultCommissionBps (commission when Admin → Finance has no rate for the shop). flow_f13: defaultListingStock (stock given to products listed from a chosen category or the master list).",
+    schema: z.object({
+      shopAcceptMinutes: int(1, 240),
+      acceptReminderAtFraction: z.number().min(0.1).max(0.95),
+      suggestAnotherShop: z.boolean(),
+      suggestRadiusKm: z.number().min(0.5).max(50),
+      riderWidenAfterMinutes: int(1, 60),
+      riderGiveUpMinutes: int(1, 720),
+      noRiderCancelAfterMinutes: int(0, 720),
+      pickupGraceMinutes: int(0, 1440),
+      returnWindowHours: int(1, 24 * 30),
+      returnPhotoReasons: z.array(z.string().min(1).max(40)).max(10),
+      nonReturnableDepartments: z.array(z.string().min(1).max(60)).max(100),
+      nonReturnableCategorySlugs: z.array(z.string().min(1).max(120)).max(500),
+      nonReturnableExceptReasons: z.array(z.string().min(1).max(40)).max(10),
+      failedDeliveryRefundAfterMinutes: int(0, 1440),
+      defaultCommissionBps: int(0, 5000),
+      defaultListingStock: int(0, 100_000),
+    }),
+    defaults: {
+      // Owner 27-Nov-2026: accept within 10 minutes, reminder at half time.
+      shopAcceptMinutes: 10,
+      acceptReminderAtFraction: 0.5,
+      suggestAnotherShop: true,
+      // DEFAULT – confirm with Sanjay: suggest a shop within 5 km (the Nearby radius).
+      suggestRadiusKm: 5,
+      // Owner 27-Nov-2026: widen after 5 minutes, give up after 20.
+      riderWidenAfterMinutes: 5,
+      riderGiveUpMinutes: 20,
+      // DEFAULT – confirm with Sanjay: 10 minutes for the shop to switch to own delivery / pickup.
+      noRiderCancelAfterMinutes: 10,
+      // Owner 27-Nov-2026: 60 minutes after the pickup slot ends.
+      pickupGraceMinutes: 60,
+      // Owner 27-Nov-2026: 2 days.
+      returnWindowHours: 48,
+      // Owner 27-Nov-2026: photo optional except damaged / wrong item.
+      returnPhotoReasons: ["DAMAGED", "WRONG_ITEM"] as string[],
+      // Owner 27-Nov-2026: food and medicines are not returnable. DEFAULT – confirm with Sanjay: the shop types
+      // counted as food / medicine below (mixed-goods types such as kirana and supermarket are left out).
+      nonReturnableDepartments: [
+        "FRUIT_VEGETABLE",
+        "DAIRY",
+        "BAKERY",
+        "MEAT_SHOP",
+        "SWEET_SHOP",
+        "RESTAURANT",
+        "FAST_FOOD",
+        "CAFE",
+        "PHARMACY",
+      ] as string[],
+      nonReturnableCategorySlugs: [] as string[],
+      // DEFAULT – confirm with Sanjay: a damaged, wrong or expired food / medicine item may still be returned.
+      nonReturnableExceptReasons: ["DAMAGED", "WRONG_ITEM", "EXPIRED"] as string[],
+      // DEFAULT – confirm with Sanjay: a failed delivery not retried within 30 minutes is refunded automatically.
+      failedDeliveryRefundAfterMinutes: 30,
+      // Owner (seller agreements, 26-Nov-2026): commission 2% on every shop.
+      defaultCommissionBps: 200,
+      // Owner policy: starter shelf / listings start at stock 100.
+      defaultListingStock: 100,
+    },
+  },
+  /* <<< docs/flows-v3 (wave 2) */
   images: {
     description: "Uploaded images: size and dimension limits and counts.",
     schema: z.object({
@@ -336,13 +401,8 @@ export const RULES = {
   },
   onboardingV2: {
     description:
-      "Onboarding v2 (docs/onboarding-v2-2026-11; flag onboarding_v2). Shop registration fee by kind (paid straight after GST/PAN verification, online only), the base delivery fee shown at checkout before the address is known, team invitations and whether team leads may add agents under themselves.",
+      "Onboarding v2 (docs/onboarding-v2-2026-11; flag onboarding_v2). The base delivery fee shown at checkout before the address is known, team invitations and whether team leads may add agents under themselves.",
     schema: z.object({
-      /** DEFAULT – confirm with Sanjay: brief says ₹1,000 shop / ₹2,500 wholesale; stored before GST like the existing fee rules. */
-      shopFeePaise: int(0, 10_000_000),
-      wholesaleFeePaise: int(0, 10_000_000),
-      /** DEFAULT – confirm with Sanjay: GST is added on top of the fee (as registrationFeeByTurnover does). */
-      feeGstExtra: z.boolean(),
       /** DEFAULT – confirm with Sanjay: delivery fee estimate when neither GPS nor a saved address is available (default ₹30). */
       baseDeliveryFeePaise: int(0, 1_000_000),
       /** Default 5 (brief "Defaults chosen" #5): team leads may add agents under themselves. */
@@ -363,9 +423,6 @@ export const RULES = {
       addressPendingAutoCancelHours: int(0, 72),
     }),
     defaults: {
-      shopFeePaise: 100_000,
-      wholesaleFeePaise: 250_000,
-      feeGstExtra: true,
       baseDeliveryFeePaise: 3_000,
       teamLeadsCanAddAgents: true,
       teamInviteExpiryDays: 7,
@@ -383,6 +440,33 @@ export const RULES = {
     }),
     defaults: { enabled: true, deferredMatchHours: 24 },
   },
+  /* >>> docs/flows-v3 (wave 4): read only while the matching flow_f* feature flag is on. */
+  franchiseFlowsV3: {
+    description:
+      "Flow spec v3, wave 4 (docs/flows-v3/wave4.md). Each value is used only while its feature flag is on; with the flag off the franchise settings (Admin → Franchise), the dealer commission settings and the payout rules apply unchanged. flow_f21: holdGraceMinutes (a zone held for payment is released this long after its 15-minute hold ends, even while the gateway page is still open; a payment that arrives later takes a slot that is still free, else it is refunded automatically). flow_f10: tailCapYears (a paid franchise's commission after it lapses stops this many years after its first start, renewals included). flow_f22: commissionHoldDays (a commission entry becomes payable only this many days after it is earned — the return window + 1 day); commissionGstRateBp (GST added to the commission payout of a GST-registered dealer; the CA confirms the rate), commissionSac (the service code printed on the commission invoice) and commissionInvoicePrefix (its number series).",
+    schema: z.object({
+      holdGraceMinutes: int(0, 30),
+      tailCapYears: int(1, 10),
+      commissionHoldDays: int(0, 60),
+      commissionGstRateBp: int(0, 2800),
+      commissionSac: z.string().regex(/^\d{4,8}$/),
+      commissionInvoicePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/, "1–4 capital letters or digits."),
+    }),
+    defaults: {
+      // DEFAULT – confirm with Sanjay: the slot is released 2 minutes after the 15-minute hold (owner: "15 min + small grace").
+      holdGraceMinutes: 2,
+      // Owner 27-Nov-2026: 12 months + 2-year tail = commission stops 3 years after the first start.
+      tailCapYears: 3,
+      // Owner 27-Nov-2026: the return window (2 days) + 1 day = 3 days, the same as the settlement hold.
+      commissionHoldDays: 3,
+      // DEFAULT – confirm with Sanjay (and the CA): 18% GST on commission (SAC 996111) for GST-registered dealers.
+      commissionGstRateBp: 1800,
+      commissionSac: "996111",
+      // DEFAULT – confirm with Sanjay: number series GKC/<yyYY>/<000001>.
+      commissionInvoicePrefix: "GKC",
+    },
+  },
+  /* <<< docs/flows-v3 (wave 4) */
   shopWelcomeKit: {
     description:
       "Shop welcome kit (docs/shop-welcome-kit-2026-11). Every shop gets one welcome e-mail with its printable banners when it goes live. Safety net on: every 15 minutes, live shops approved since `safetyNetFrom` (set by migration 0214 to the moment that release ran) that never had the kit get it — normally none. Shops that were live before that time are never e-mailed automatically (Admin → Shops → Send welcome kit).",
@@ -2474,6 +2558,86 @@ export const RULES = {
       },
     },
   },
+  /* >>> docs/flows-v3 (wave 1, flag flow_f17): used only while the flag is on. */
+  supportFlows: {
+    description:
+      "Flow spec v3, F17 support (docs/flows-v3/wave1.md; used only while the feature flag flow_f17 is on). autoAssign: a new ticket goes to the least-loaded person named in Admin → Support → Routing for its category and the shop's district (no match: the manual queue, as before). ccAreaDealer: the dealer the shop is attributed to sees the shop's tickets (read-only) and is told when one opens. firstResponseWorkingHours: the first reply is due within this many working hours (workingDays, 0 = Sunday … 6 = Saturday, from workdayStartHour to workdayEndHour, India time), never later than the statutory help-desk acknowledgement deadline; the hourly help-desk job escalates a miss as before. reopenWithinDays: the requester may reopen a resolved or closed ticket within this many days of its resolution. recoveryPerIpPerHour: how many account-recovery requests one address may send in an hour.",
+    schema: z.object({
+      autoAssign: z.boolean(),
+      ccAreaDealer: z.boolean(),
+      firstResponseWorkingHours: int(1, 48),
+      workingDays: z.array(int(0, 6)).min(1).max(7),
+      workdayStartHour: int(0, 23),
+      workdayEndHour: int(1, 24),
+      reopenWithinDays: int(1, 60),
+      recoveryPerIpPerHour: int(1, 50),
+    }),
+    defaults: {
+      autoAssign: true,
+      ccAreaDealer: true,
+      // DEFAULT – confirm with Sanjay: first response within 4 working hours, Monday–Saturday 10:00–19:00 IST.
+      firstResponseWorkingHours: 4,
+      workingDays: [1, 2, 3, 4, 5, 6] as number[],
+      workdayStartHour: 10,
+      workdayEndHour: 19,
+      // DEFAULT – confirm with Sanjay: reopen within 7 days of resolution (closed tickets included).
+      reopenWithinDays: 7,
+      // DEFAULT – confirm with Sanjay: 3 recovery requests per address per hour.
+      recoveryPerIpPerHour: 3,
+    },
+  },
+  /* <<< docs/flows-v3 */
+  /* >>> docs/flows-v3/wave3.md (flags flow_f4, flow_f5, flow_f6): read only while the matching flag is on. */
+  shopFlowsV3: {
+    description:
+      "Flow spec v3, wave 3 (docs/flows-v3/wave3.md; each switch is read only while its feature flag is on; off, the site behaves as before). flow_f4 — askContactAtRegistration: the onboarding v2 agreement step offers two optional fields, the shop's WhatsApp number and its payment QR (saved to the shop's settings, used on the welcome-kit banner); agreementEmailOnAcceptance: the seller agreement accepted at registration is e-mailed at once in English, Marathi and Hindi (the signed PDFs when the agreements engine made them, else an e-mail with links to the terms). flow_f5 — registrationLicencesToRegister: a licence entered, uploaded or scanned at an onboarding v2 registration is copied into the shop's licence register (as submitted; as approved once verified) when the shop is created and when GoKesari's team decides it, and the daily documents follow-up back-fills shops created before; a licence promised at registration and given later is marked given. flow_f6 — subscriptionStartsAtGoLive: a new shop's first 12-month period starts the day it goes live instead of the day its fee was paid (shops already live are unchanged); remindersAndRenewalOn: expiry reminders (with the payment link) and online renewal run even when rule shopMembership has them off.",
+    schema: z.object({
+      askContactAtRegistration: z.boolean(),
+      agreementEmailOnAcceptance: z.boolean(),
+      registrationLicencesToRegister: z.boolean(),
+      subscriptionStartsAtGoLive: z.boolean(),
+      remindersAndRenewalOn: z.boolean(),
+    }),
+    defaults: {
+      // Owner, 27-Nov-2026: WhatsApp number and payment QR asked at registration, both optional.
+      askContactAtRegistration: true,
+      // Owner, 27-Nov-2026: the accepted agreement is e-mailed in three languages on acceptance.
+      agreementEmailOnAcceptance: true,
+      // Owner, 27-Nov-2026: a licence given at registration is never chased again.
+      registrationLicencesToRegister: true,
+      // Owner, 27-Nov-2026: the 1-year subscription starts at go-live.
+      subscriptionStartsAtGoLive: true,
+      // DEFAULT – confirm with Sanjay: with flow_f6 on, expiry reminders and online renewal run whatever rule
+      // shopMembership says (spec F6 steps 2-4); switch this off to leave them to rule shopMembership.
+      remindersAndRenewalOn: true,
+    },
+  },
+  /* <<< docs/flows-v3/wave3.md */
+  /* >>> docs/flows-v3 (wave 5, flags flow_f11 / flow_f15 / flow_f18): used only while the matching flag is on. */
+  flowsWave5: {
+    description:
+      "Flow spec v3, wave 5 (docs/flows-v3/wave5.md; each setting is used only while its feature flag is on). recoveryWindowMinutes (flow_f18): after the code to the working mobile or e-mail is accepted, how long the person has to set the new one. recoveryPerIpPerHour (flow_f18): how many recovery attempts one address may start in an hour. closureSmsCode (flow_f18): account closure also asks a code sent by SMS to the verified mobile (where SMS codes can be sent). societyRiderSuspendMaxDays (flow_f15): the longest a society may pause a rider at once. newSocietiesExclusiveRiders (flow_f15): a society that applies while the flag is on lets only its approved riders deliver there (once it has any). riderPhotoAtApproval (flow_f11): an application without a profile photo cannot be approved.",
+    schema: z.object({
+      recoveryWindowMinutes: int(5, 60),
+      recoveryPerIpPerHour: int(1, 50),
+      closureSmsCode: z.boolean(),
+      societyRiderSuspendMaxDays: int(1, 365),
+      newSocietiesExclusiveRiders: z.boolean(),
+      riderPhotoAtApproval: z.boolean(),
+    }),
+    defaults: {
+      // DEFAULT – confirm with Sanjay: 15 minutes to finish a recovery after the first code.
+      recoveryWindowMinutes: 15,
+      // DEFAULT – confirm with Sanjay: 5 recovery starts per address per hour.
+      recoveryPerIpPerHour: 5,
+      closureSmsCode: true,
+      // DEFAULT – confirm with Sanjay: a society may pause a rider for up to 90 days at a time.
+      societyRiderSuspendMaxDays: 90,
+      newSocietiesExclusiveRiders: true,
+      riderPhotoAtApproval: true,
+    },
+  },
+  /* <<< docs/flows-v3 wave 5 */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

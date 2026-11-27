@@ -97,6 +97,7 @@ export function apiRoutes(): ApiRoute[] {
  */
 export const PUBLIC_PAGES = new Set([
   "/",
+  "/account/recover", // account recovery when the mobile and/or e-mail is lost (docs/flows-v3, flags flow_f17 / flow_f18): for signed-out people by design; 404 while the flags are off
   "/favourites", // guests see the hearts kept in their browser (docs/search-brand-barcode-favourites-2026-11); 404 while the flag is off
   "/staff-invite", // an invitation e-mail's landing page: a signed-out visitor signs in here (docs/shop-staff-roles-2026-11)
   "/track", // find an order without signing in (docs/guest-checkout-2026-11); 404 while the guest flags are off
@@ -191,6 +192,8 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/cart/preview": "prices a guest's browser cart (docs/guest-cart-2026-11): reads only, nothing saved; 404 while guest_cart_enabled is off",
   "/api/otp/request": "asks for a sign-in code",
   "/api/grievances": "the public grievance form (Consumer Protection rules)",
+  "/api/account/recover": "account recovery request (docs/flows-v3, flow_f17): for signed-out people, rate-limited; 404 while the flag is off",
+  "/api/account/recover/factor": "recovery after losing one factor (docs/flows-v3/wave5.md, flow_f18): for signed-out people, rate-limited; 404 while the flag is off",
   "/api/shop-registrations/[token]": "a self-registration by its unguessable token",
   "/api/shop-registrations/[token]/pay": "pays a self-registration by its unguessable token",
   "/api/shop-registrations/[token]/check-payment": "asks Cashfree whether a self-registration's fee was paid, by its unguessable token",

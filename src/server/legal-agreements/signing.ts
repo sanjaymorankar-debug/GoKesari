@@ -36,6 +36,7 @@ import {
   type AppPlatform,
   type LegalDocumentRow,
   type LegalLanguage,
+  type SignatureMethod,
   type SigningInitiator,
   type User,
 } from "@/server/db/schema";
@@ -254,7 +255,34 @@ async function registeredByOf(shop: typeof shops.$inferSelect, linkRequestId: st
 
 export type SignResult = { signingRequestId: string; acceptanceIds: string[]; signedAt: string; documents: { docType: SignedDocType; version: string; verifyCode: string; languages: LegalLanguage[] }[] };
 
+/**
+ * What the certificate shows in place of the OTP reference for an acceptance at a v2 registration (no code was used:
+ * ticks + typed name, signature_method REGISTRATION_ACCEPT).
+ */
+export const REGISTRATION_ACCEPT_REF = "None — accepted at shop registration with ticks and typed name (no OTP)";
+
+/** E-signs with the SMS code (the existing flow: the shop dashboard's review / re-sign, owner links). */
 export async function signAgreements(ctx: SigningContext, input: SignInput): Promise<SignResult> {
+  return signWith(ctx, input, "SMS_OTP");
+}
+
+/**
+ * Onboarding v2 (owner, 27-Nov-2026: "while shop registration to see the terms and condition OTP is not required"):
+ * the agreements of a shop whose v2 registration is still at its agreement step are accepted with the ticks and the
+ * owner's typed name, without an SMS code (signature_method REGISTRATION_ACCEPT, 0220). Everything else is as the
+ * e-sign: the same snapshot, PDFs in every published language with their hashes, the certificate (saying how it was
+ * accepted), immutable acceptances and the signed copies e-mailed. Any later review or re-sign — from the shop
+ * dashboard, a changed licence, a new version — goes through signAgreements with the OTP.
+ */
+export async function acceptAgreementsAtRegistration(ctx: SigningContext, input: Omit<SignInput, "code">): Promise<SignResult> {
+  const { v2SlaPendingForShop } = await import("@/server/onboarding-v2/shop-view");
+  if (!(await v2SlaPendingForShop(ctx.shopId))) {
+    throw conflict("Accepting without a code is only for a new shop's registration. Sign with the code sent to your mobile.", { reason: "OTP_REQUIRED" });
+  }
+  return signWith(ctx, { ...input, code: "" }, "REGISTRATION_ACCEPT");
+}
+
+async function signWith(ctx: SigningContext, input: SignInput, method: SignatureMethod): Promise<SignResult> {
   const signerName = input.signerName.trim().replace(/\s+/g, " ");
   if (signerName.length < 3 || signerName.length > 120 || !/\p{L}/u.test(signerName)) throw validationFailed("Type your full name as it should appear on the agreement.");
   const status = await getAgreementStatus(ctx.shopId);
@@ -274,25 +302,20 @@ export async function signAgreements(ctx: SigningContext, input: SignInput): Pro
 
   // The certificate names the OTP reference: read the code row that is about to be checked (the same row
   // consumeCode looks up), so every PDF is printed once, inside beforeConsume.
-  const [pendingOtp] = await db
-    .select({ id: loginOtps.id })
-    .from(loginOtps)
-    .where(and(eq(loginOtps.email, owner.email), eq(loginOtps.purpose, "LEGAL_ESIGN"), isNull(loginOtps.consumedAt), isNull(loginOtps.supersededAt)))
-    .orderBy(desc(loginOtps.createdAt))
-    .limit(1);
-  const otpRef = pendingOtp?.id ?? "none";
+  const byOtp = method === "SMS_OTP";
+  const [pendingOtp] = byOtp
+    ? await db
+        .select({ id: loginOtps.id })
+        .from(loginOtps)
+        .where(and(eq(loginOtps.email, owner.email), eq(loginOtps.purpose, "LEGAL_ESIGN"), isNull(loginOtps.consumedAt), isNull(loginOtps.supersededAt)))
+        .orderBy(desc(loginOtps.createdAt))
+        .limit(1)
+    : [];
+  const otpRef = byOtp ? (pendingOtp?.id ?? "none") : REGISTRATION_ACCEPT_REF;
 
   type Prepared = { snapshot: AgreementSnapshot; snapshotJson: string; snapshotHash: string; rendered: RenderedDoc[]; acceptedAt: Date };
   let prepared: Prepared | null = null;
-  const otp = await consumeCode({
-    email: owner.email,
-    purpose: "LEGAL_ESIGN",
-    code: input.code,
-    ip: input.ip,
-    phoneE164: target,
-    userId: owner.id,
-    // Runs once the code is right and before it is used up: if printing fails, the code stays valid.
-    beforeConsume: async () => {
+  const prepare = async () => {
       const acceptedAt = new Date();
       const snapshot = await buildShopSnapshot(ctx.shopId, {
         constitution: input.constitution,
@@ -309,11 +332,25 @@ export async function signAgreements(ctx: SigningContext, input: SignInput): Pro
         registeredBy: registeredBy.label,
       });
       prepared = { snapshot, snapshotJson, snapshotHash, rendered, acceptedAt };
-    },
-  });
+  };
+  let otp: { id: string } | null = null;
+  if (byOtp) {
+    otp = await consumeCode({
+      email: owner.email,
+      purpose: "LEGAL_ESIGN",
+      code: input.code,
+      ip: input.ip,
+      phoneE164: target,
+      userId: owner.id,
+      // Runs once the code is right and before it is used up: if printing fails, the code stays valid.
+      beforeConsume: prepare,
+    });
+  } else {
+    await prepare();
+  }
   const p = prepared as Prepared | null;
   if (!p) throw new Error("Signing was not prepared");
-  if (otp.id !== otpRef) throw conflict("A new code was requested while you were signing. Please enter the newest code.");
+  if (otp && otp.id !== otpRef) throw conflict("A new code was requested while you were signing. Please enter the newest code.");
   const finalRendered = p.rendered;
 
   const reason = status.reason ?? "EXISTING_SHOP";
@@ -335,14 +372,14 @@ export async function signAgreements(ctx: SigningContext, input: SignInput): Pro
     if (requestId) {
       const [updated] = await tx
         .update(legalSigningRequests)
-        .set({ status: "SIGNED", snapshotId: snap.id, otpId: otp.id, signedAt: p.acceptedAt, updatedAt: new Date() })
+        .set({ status: "SIGNED", snapshotId: snap.id, otpId: otp?.id ?? null, signatureMethod: method, signedAt: p.acceptedAt, updatedAt: new Date() })
         .where(and(eq(legalSigningRequests.id, requestId), eq(legalSigningRequests.status, "OPEN")))
         .returning({ id: legalSigningRequests.id });
       if (!updated) throw conflict("This signing link was already used or cancelled.");
     } else {
       const [req] = await tx
         .insert(legalSigningRequests)
-        .values({ shopId: ctx.shopId, ownerUserId: owner.id, reason, status: "SIGNED", initiatedByUserId: owner.id, initiatedAs: "SELF", snapshotId: snap.id, otpId: otp.id, signedAt: p.acceptedAt })
+        .values({ shopId: ctx.shopId, ownerUserId: owner.id, reason, status: "SIGNED", initiatedByUserId: owner.id, initiatedAs: "SELF", snapshotId: snap.id, otpId: otp?.id ?? null, signatureMethod: method, signedAt: p.acceptedAt })
         .returning({ id: legalSigningRequests.id });
       requestId = req.id;
     }
@@ -365,7 +402,8 @@ export async function signAgreements(ctx: SigningContext, input: SignInput): Pro
           ipAddress: input.ip,
           userAgent: input.userAgent?.slice(0, 500) ?? null,
           appPlatform: platform,
-          otpVerificationRef: otp.id,
+          otpVerificationRef: otp?.id ?? null,
+          signatureMethod: method,
           signerName,
           signerDesignation: input.designation,
           dataSnapshotId: snap.id,
@@ -401,7 +439,8 @@ export async function signAgreements(ctx: SigningContext, input: SignInput): Pro
         newValue: {
           signingRequestId: requestId,
           documents: finalRendered.map((r) => ({ docType: r.doc.docType, version: r.doc.version, verifyCode: r.verifyCode })),
-          otpId: otp.id,
+          otpId: otp?.id ?? null,
+          signatureMethod: method,
           platform,
           reason,
           snapshotSha256: p.snapshotHash,

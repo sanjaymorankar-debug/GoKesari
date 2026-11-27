@@ -3,13 +3,15 @@
  * registration draft (flow_version = 'v2'). Read-only helpers, imported by the wizard's view
  * (services/shop-registration-wizard.ts) — no import of the wizard here, so there is no cycle.
  *
- * v2 order: identity (Terms, e-mail, mobile) → referral → GST / PAN → (owner name) → fee (Shop or Wholesale,
- * paid on the draft) → shop type → licences (enter / upload / scan / later) → address → map pin → seller
+ * v2 order: identity (Terms, e-mail, mobile) → referral → GST / PAN → (owner name) → fee (the annual turnover band
+ * of the original wizard and its slab fee + GST, owner 27-Nov-2026; paid on the draft) → shop type → licences (enter / upload / scan / later) → address → map pin → seller
  * agreement (the shop row is created here, PENDING) → live. Every time is shown in IST.
  */
 import { and, eq, isNull } from "drizzle-orm";
 
-import { registrationFeeBreakdown } from "@/lib/registration-fee";
+import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { conflict, validationFailed } from "@/lib/errors";
+import { registrationFeeBreakdown, turnoverForSlab, turnoverSlabLabel } from "@/lib/registration-fee";
 import { isPlaceholderEmail } from "@/lib/placeholder-email";
 import { safeReturnPath } from "@/lib/onboarding-v2/return-to";
 import { db, type DbClient } from "@/server/db";
@@ -26,10 +28,15 @@ import { isLive, listIntentsFor } from "@/server/payments/intents";
 import { getRule } from "@/server/services/settings";
 import { formatIstStamp } from "./roles";
 
-/** The Terms the owner ticks on the v2 identity screen (recorded with the time, as consent TERMS_AND_PRIVACY). */
-export const ONBOARDING_V2_TERMS_VERSION = "2026-11-26";
+/**
+ * The Terms the owner ticks on the v2 identity screen (recorded with the time, as consent TERMS_AND_PRIVACY).
+ * QA D-168: one source of truth — the version every other Terms & Privacy consent records (/signin, the checkout
+ * login sheet, consents.ts recordConsent default and hasCurrentConsent): CURRENT_POLICY_VERSION.
+ */
+export const ONBOARDING_V2_TERMS_VERSION = CURRENT_POLICY_VERSION;
 export const DRAFT_FEE_PURPOSE = "SHOP_REGISTRATION_DRAFT_FEE" as const;
 export const WHOLESALE_SHOP_TYPE = "WHOLESALE_STORE";
+/** Drafts that chose a fee kind before the owner's 27-Nov-2026 decision (fee_kind column; new drafts leave it null). */
 export type V2FeeKind = "SHOP" | "WHOLESALE";
 
 /** What the v2 steps keep in the draft's `details` (besides the wizard's own keys). */
@@ -45,10 +52,34 @@ export interface V2DraftDetails {
   v2ReturnTo?: string;
 }
 
+/**
+ * What a v2 draft-fee checkout charges (kept in the checkout's metadata and on the draft; the capture applies exactly
+ * this). Owner, 27-Nov-2026: the original registration fee — the turnover slab of rule registrationFeeByTurnover
+ * (₹999 / ₹4,999 / ₹9,999 by default) or the flat fee when that rule is off — less an optional registration-fee
+ * coupon, plus GST, computed by quoteRegistrationFee as the original wizard's fee is.
+ */
 export interface V2FeeQuote {
-  kind: V2FeeKind;
+  /** The turnover slab chosen (1…); null when rule registrationFeeByTurnover is off (the flat fee). */
+  slab: number | null;
+  slabLabel: string | null;
+  /** The turnover recorded on the shop for that slab (turnoverForSlab), as the original wizard sends it. */
+  turnoverRupees: number | null;
   basePaise: number;
+  discountPaise: number;
+  couponCode: string | null;
+  couponId: string | null;
   gstRateBp: number;
+  gstPaise: number;
+  totalPaise: number;
+  /** Only on quotes made before 27-Nov-2026 (fee by kind). */
+  kind?: V2FeeKind;
+}
+
+/** One turnover band on the fee screen, with its fee before and after GST (no coupon). */
+export interface V2FeeSlab {
+  slab: number;
+  label: string;
+  basePaise: number;
   gstPaise: number;
   totalPaise: number;
 }
@@ -59,7 +90,7 @@ export interface V2LicenceView {
   level: "MUST_HAVE" | "PROMISE";
   /** A government / reader check exists for this number (FSSAI, Udyam, Shop Act). */
   checkable: boolean;
-  /** DEFAULT #12: a must-have licence never offers "Upload later". */
+  /** Owner, 27-Nov-2026: every licence offers "Upload later" (must-have ones too, within the follow-up's period). */
   laterAllowed: boolean;
   entry: {
     option: LicenceOption;
@@ -96,10 +127,16 @@ export interface V2View {
   };
   names: { shopName: string | null; ownerName: string | null };
   fee: {
-    shop: V2FeeQuote;
-    wholesale: V2FeeQuote;
-    gstExtra: boolean;
-    chosen: V2FeeKind | null;
+    /** Rule registrationFeeByTurnover on: the owner picks a turnover band (the original wizard's slabs). */
+    byTurnover: boolean;
+    slabs: V2FeeSlab[];
+    /** Rule off: the flat fee (+ GST). */
+    flat: { basePaise: number; gstPaise: number; totalPaise: number } | null;
+    /** The band (and coupon) of the last quote on this draft. */
+    chosenSlab: number | null;
+    couponCode: string | null;
+    /** A draft that paid the wholesale fee before 27-Nov-2026: its shop type stays Wholesale store. */
+    legacyWholesale: boolean;
     paid: boolean;
     paidAt: string | null;
     paidAtIst: string | null;
@@ -113,19 +150,70 @@ export interface V2View {
   promiseDueLabel: string;
   sla: { accepted: boolean; acceptedAtIst: string | null; agreementsEnabled: boolean; agreementsRequired: boolean };
   returnTo: string | null;
+  /**
+   * docs/flows-v3/wave3.md (flag flow_f4): the optional WhatsApp number and payment QR offered on the agreement step,
+   * once the shop row exists. Absent / null: not asked.
+   */
+  contact?: { whatsappNumber: string | null; qrVpa: string | null; qrPayeeName: string | null } | null;
 }
 
 export function v2Details(draft: Pick<ShopRegistrationDraft, "details">): V2DraftDetails {
   return ((draft.details as Record<string, unknown> | null) ?? {}) as V2DraftDetails;
 }
 
-/** The fee for a kind from rule onboardingV2 (stored before GST; GST on top when feeGstExtra — DEFAULT #9). */
-export async function v2FeeQuote(kind: V2FeeKind): Promise<V2FeeQuote> {
-  const rule = await getRule("onboardingV2");
-  const basePaise = kind === "WHOLESALE" ? rule.wholesaleFeePaise : rule.shopFeePaise;
-  const gstRateBp = rule.feeGstExtra ? await (await import("@/server/services/registration-fee-coupons")).registrationFeeGstRateBp() : 0;
+/**
+ * The v2 fee (owner, 27-Nov-2026: "keep the original fees as it is"): the turnover band's slab fee (rule
+ * registrationFeeByTurnover) or the flat fee when that rule is off, less a registration-fee coupon, plus GST — the
+ * same quoteRegistrationFee the original wizard's fee uses. Wholesale shops pay the same slabs.
+ */
+export async function v2FeeQuote(input: { ownerId: string; slab: number | null; couponCode?: string | null }): Promise<V2FeeQuote> {
+  const rule = await getRule("registrationFeeByTurnover");
+  let slab: number | null = null;
+  if (rule.enabled) {
+    if (input.slab == null) {
+      throw validationFailed("Please check the highlighted fields.", { fields: { annualTurnover: "Enter your annual turnover — it sets the registration fee." } });
+    }
+    if (!Number.isInteger(input.slab) || input.slab < 1 || input.slab > rule.slabs.length) {
+      throw conflict("The turnover bands have changed. Please choose yours again.", { fields: { annualTurnover: "Choose your annual turnover." } });
+    }
+    slab = input.slab;
+  }
+  const turnoverRupees = slab === null ? null : turnoverForSlab(slab, rule);
+  const coupons = await import("@/server/services/registration-fee-coupons");
+  const q = await coupons.quoteRegistrationFee({ ownerId: input.ownerId, couponCode: input.couponCode ?? null, turnoverRupees });
+  const couponId = q.couponCode ? ((await coupons.findRegistrationFeeCouponId(q.couponCode)) ?? null) : null;
+  return {
+    slab,
+    slabLabel: slab === null ? null : turnoverSlabLabel(slab, rule),
+    turnoverRupees,
+    basePaise: q.basePaise,
+    discountPaise: q.discountPaise,
+    couponCode: q.couponCode,
+    couponId,
+    gstRateBp: q.gstRateBp,
+    gstPaise: q.gstPaise,
+    totalPaise: q.totalPaise,
+  };
+}
+
+/** The fee screen's bands (or the flat fee), before any coupon. */
+async function v2FeeOptions(): Promise<{ byTurnover: boolean; slabs: V2FeeSlab[]; flat: V2View["fee"]["flat"] }> {
+  const rule = await getRule("registrationFeeByTurnover");
+  const coupons = await import("@/server/services/registration-fee-coupons");
+  const gstRateBp = await coupons.registrationFeeGstRateBp();
+  if (rule.enabled) {
+    return {
+      byTurnover: true,
+      flat: null,
+      slabs: rule.slabs.map((s, i) => {
+        const b = registrationFeeBreakdown(s.feePaise, 0, gstRateBp);
+        return { slab: i + 1, label: turnoverSlabLabel(i + 1, rule), basePaise: s.feePaise, gstPaise: b.gstPaise, totalPaise: b.totalPaise };
+      }),
+    };
+  }
+  const { basePaise } = await coupons.baseRegistrationFee(null);
   const b = registrationFeeBreakdown(basePaise, 0, gstRateBp);
-  return { kind, basePaise, gstRateBp, gstPaise: b.gstPaise, totalPaise: b.totalPaise };
+  return { byTurnover: false, slabs: [], flat: { basePaise, gstPaise: b.gstPaise, totalPaise: b.totalPaise } };
 }
 
 /** True while a shop created from a v2 draft waits for its seller agreement (it must not go live before). */
@@ -185,7 +273,7 @@ export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput)
   const intents = (await listIntentsFor(DRAFT_FEE_PURPOSE, draft.id)).filter((r) => r.userId === draft.ownerId);
   const latest = intents[0];
   const paid = draft.feePaidAt !== null;
-  const [shopQuote, wholesaleQuote] = await Promise.all([v2FeeQuote("SHOP"), v2FeeQuote("WHOLESALE")]);
+  const feeOptions = await v2FeeOptions();
   const paidIntent = draft.feePaymentIntentId ? intents.find((r) => r.id === draft.feePaymentIntentId) : undefined;
 
   const entries = await db.select().from(registrationLicenceEntries).where(eq(registrationLicenceEntries.draftId, draft.id));
@@ -196,7 +284,7 @@ export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput)
       label: l.label,
       level: l.level,
       checkable: l.checkable,
-      laterAllowed: l.level !== "MUST_HAVE",
+      laterAllowed: true,
       entry: e
         ? {
             option: e.option,
@@ -233,10 +321,10 @@ export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput)
     },
     names: { shopName: extra.v2ShopName ?? input.prefillShopName, ownerName: input.ownerName },
     fee: {
-      shop: shopQuote,
-      wholesale: wholesaleQuote,
-      gstExtra: rule.feeGstExtra,
-      chosen: draft.feeKind,
+      ...feeOptions,
+      chosenSlab: extra.v2Fee?.slab ?? null,
+      couponCode: extra.v2Fee?.couponCode ?? null,
+      legacyWholesale: draft.feeKind === "WHOLESALE" && draft.feePaidAt !== null,
       paid,
       paidAt: draft.feePaidAt?.toISOString() ?? null,
       paidAtIst: draft.feePaidAt ? formatIstStamp(draft.feePaidAt) : null,
@@ -254,5 +342,6 @@ export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput)
       agreementsRequired: input.agreementsRequired,
     },
     returnTo: safeReturnPath(extra.v2ReturnTo),
+    contact: draft.shopId && draft.slaAcceptedAt === null ? await (await import("@/server/flows/f4-onboarding")).registrationContactView(draft.shopId) : null,
   };
 }

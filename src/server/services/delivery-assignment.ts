@@ -63,6 +63,7 @@ import { getRoute } from "./routing";
 import { scheduledDispatchFrom } from "./scheduled-slots";
 import { checkDeliveryCode, freshCodeFields, generateDeliveryCode, needsDeliveryCode, sendDeliveryCodeToBuyer } from "./delivery-otp";
 import { getRule } from "./settings";
+import { dispatchRule } from "@/server/flows/wave2-rules";
 import { suspensionRecordFor } from "./shop-suspension-guard";
 import { holdsRiderDispatch } from "./fulfilment-guards";
 import {
@@ -1303,7 +1304,8 @@ type StopReason = NonNullable<RiderSearch["stopReason"]>;
 type DispatchRules = Awaited<ReturnType<typeof getDispatchRules>>;
 
 function getDispatchRules() {
-  return getRule("dispatch");
+  // docs/flows-v3/wave2.md (flag flow_f19): the search stops after orderFlowsV3.riderGiveUpMinutes.
+  return dispatchRule();
 }
 
 const STOP_MESSAGES: Record<StopReason, string> = {
@@ -2193,7 +2195,13 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
       precise: pickedUp,
     },
     gate: society
-      ? { entryMode: society.entryMode, contactName: society.contactName, contactPhone: society.contactPhone }
+      ? {
+          entryMode: society.entryMode,
+          contactName: society.contactName,
+          contactPhone: society.contactPhone,
+          // docs/flows-v3/wave5.md (flow_f15): the gate's delivery hours, when the society set them (new, optional field).
+          ...(society.deliveryHours ? { deliveryHours: society.deliveryHours } : {}),
+        }
       : null,
   };
 }

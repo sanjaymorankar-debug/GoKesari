@@ -21,6 +21,8 @@ import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { getShopFulfilmentViews, listDeliveryStaff, plannerOptions } from "@/server/services/fulfilment-options";
 import { getPickupQrsForOrders, PICKUP_QR_ORDER_STATUSES } from "@/server/services/pickup-qr";
 import { getShopOrderPartners } from "@/server/services/society-partner-access";
+import { ShopOrderRequests } from "@/components/flows-v3/shop-order-requests";
+import { flowOn } from "@/server/flows/wave2-rules";
 
 export const metadata = { title: "Shop Orders" };
 export const dynamic = "force-dynamic";
@@ -118,6 +120,8 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
         orders.filter((o) => (PICKUP_QR_ORDER_STATUSES as readonly string[]).includes(o.status)).map((o) => o.id),
       )
     : new Map<string, { svg: string; expiresAt: string }>();
+  // docs/flows-v3/wave2.md (flag flow_f3): "Packed & ready" straight from Accepted.
+  const packFromAccepted = await flowOn("flow_f3");
   // Candidates a shop can offer as a substitute (server re-checks price/stock).
   const substitutes = onlineProducts
     .filter((sp) => sp.onlinePricePaise != null)
@@ -129,6 +133,8 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
       {/* Shop wallet: below the minimum the shop cannot accept new orders (the server refuses too). */}
       <ShopWalletBanner {...wallet} lang={lang} />
 
+      {/* docs/flows-v3/wave2.md: cancel requests (flow_f16) and uncollected pickups (flow_f19); nothing while off. */}
+      <ShopOrderRequests shopId={shop.id} />
       <ListTabs tabs={tabs} active={tab} label={tr(UI.orders, lang)} />
 
       {orders.length === 0 ? (
@@ -177,8 +183,10 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
             })),
             fulfilmentPlan: plans.get(o.id) ?? null,
             hasAddress: o.deliveryAddressSnapshot != null,
+            addressPending: o.addressPendingSince != null,
             notes: o.notes,
             completedAt: o.completedAt ? o.completedAt.toISOString() : null,
+            packFromAccepted: packFromAccepted,
             deliveryPartner: partners.has(o.id) ? { label: partners.get(o.id)!.label, partner: partners.get(o.id)!.partner } : null,
             deliveryFeePaise: o.deliveryFeePaise,
             deliveryStatus: deliveryOrders.get(o.id)?.status ?? null,

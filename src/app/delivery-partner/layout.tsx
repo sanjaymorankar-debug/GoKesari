@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { RiderBottomNav } from "@/components/rider-bottom-nav";
 import { RiderShell, type RiderShellProps } from "@/components/rider-shell/rider-shell";
@@ -12,6 +13,10 @@ import { deliveryPartners, orders } from "@/server/db/schema";
 import { getMyActiveDeliveryOrder } from "@/server/services/delivery-assignment";
 import { getAvailabilityGate, getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
 import { getRule } from "@/server/services/settings";
+import { riderDualVerifyRedirect } from "@/server/dual-auth/policy";
+import { flowF11On } from "@/server/flows/wave5-flags";
+import { Alert } from "@/components/ui";
+import Link from "next/link";
 
 /** Rider pages that never get the v2 frame: the application and sign-up forms. */
 const NO_SHELL = ["/delivery-partner/apply", "/delivery-partner/register"];
@@ -52,6 +57,35 @@ async function loadShell(): Promise<RiderShellProps | null> {
   };
 }
 
+async function riderVerifyAt(): Promise<string | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const path = (await headers()).get(REQUEST_PATH_HEADER) || "/delivery-partner";
+  return riderDualVerifyRedirect(user.id, path);
+}
+
+/**
+ * docs/flows-v3/wave5.md (flag flow_f11): an approved rider with no photo is asked for one on every rider page
+ * until it is added. Non-blocking: the page works as usual.
+ */
+async function photoReminder(): Promise<React.ReactNode> {
+  if (!(await flowF11On())) return null;
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const profile = await getMyDeliveryPartnerProfile(user.id);
+  if (!profile || profile.status !== "APPROVED" || profile.profilePhotoUrl) return null;
+  return (
+    <div className="mx-auto mb-3 max-w-4xl px-4" data-testid="rider-photo-reminder">
+      <Alert tone="warning">
+        Please add your photo — it goes on your rider ID card.{" "}
+        <Link href="/gig/profile" className="font-medium underline">
+          Add photo
+        </Link>
+      </Alert>
+    </div>
+  );
+}
+
 /** The phone tab bar of docs/ux-mobile-2026-11, for delivery partners who do not get the v2 frame. */
 async function plainTabBar(): Promise<React.ReactNode> {
   const user = await getCurrentUser();
@@ -68,14 +102,27 @@ async function plainTabBar(): Promise<React.ReactNode> {
  * never both. Each page still runs its own sign-in and checks.
  */
 export default async function DeliveryPartnerLayout({ children }: { children: React.ReactNode }) {
+  // docs/flows-v3 (flag flow_f1, with dual_auth in force): applying and working as a rider need a verified mobile
+  // AND e-mail first. Off, or on error: the pages behave as before.
+  const verifyAt = await riderVerifyAt().catch(() => null);
+  if (verifyAt) redirect(verifyAt);
   const shell = await loadShell().catch((error) => {
     console.error("[rider-shell] frame skipped", error);
     return null;
   });
-  if (shell) return <RiderShell {...shell}>{children}</RiderShell>;
+  const reminder = await photoReminder().catch(() => null);
+  if (shell) {
+    return (
+      <RiderShell {...shell}>
+        {reminder}
+        {children}
+      </RiderShell>
+    );
+  }
   const tabBar = await plainTabBar().catch(() => null);
   return (
     <>
+      {reminder}
       {children}
       {tabBar}
     </>

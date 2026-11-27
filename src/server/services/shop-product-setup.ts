@@ -26,6 +26,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { updateShopProduct } from "./catalogue";
 import { getImportLimits } from "./product-import";
 import { addCategoryToShop, assertCanManageShopCategories, shopCarriesProductCategory } from "./product-categories";
+import { flowOn, flowsV3Rule } from "@/server/flows/wave2-rules";
 
 export interface SetupActor {
   id: string;
@@ -93,10 +94,14 @@ export async function listCategoryTiles(shopId: string): Promise<CategoryTile[]>
 }
 
 /** Adds the chosen categories. Never lists a product and never removes a category (removal is confirmed one by one). */
-export async function chooseCategories(shopId: string, categoryIds: string[], actor: SetupActor): Promise<{ added: number }> {
+export async function chooseCategories(
+  shopId: string,
+  categoryIds: string[],
+  actor: SetupActor,
+): Promise<{ added: number; listed?: number }> {
   await assertCanManageShopCategories(shopId, actor);
   if (categoryIds.length === 0) throw validationFailed("Choose at least one category.");
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     let added = 0;
     for (const id of new Set(categoryIds)) {
       if ((await addCategoryToShop(shopId, id, actor, { reason: "product_setup" }, tx)).added) added += 1;
@@ -104,6 +109,19 @@ export async function chooseCategories(shopId: string, categoryIds: string[], ac
     await saveSetupStep(shopId, 2, actor, tx);
     return { added };
   });
+  // docs/flows-v3/wave2.md (flag flow_f13): choosing a category lists every master product in it at the default
+  // stock (rule orderFlowsV3.defaultListingStock, 100). Products already listed are left as they are.
+  if (!(await flowOn("flow_f13"))) return result;
+  const { maxRows } = await getImportLimits();
+  const ids = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(and(masterLive, inArray(products.categoryId, [...new Set(categoryIds)]), notListed(shopId)))
+    .orderBy(asc(products.name))
+    .limit(maxRows);
+  if (ids.length === 0) return { ...result, listed: 0 };
+  const { added } = await addPickedProducts(shopId, ids.map((r) => r.id), actor);
+  return { ...result, listed: added };
 }
 
 /* ------------------------------------------------------ step 2: products */
@@ -253,6 +271,8 @@ export async function addPickedProducts(
     const have = new Map(existing.map((e) => [e.productId, e]));
     const fresh = eligible.filter((p) => !have.has(p.id));
     const removed = existing.filter((e) => e.deletedAt).map((e) => e.id);
+    // docs/flows-v3/wave2.md (flag flow_f13): new listings start at the default stock (100) instead of Needs Stock.
+    const startStock = (await flowOn("flow_f13")) ? (await flowsV3Rule()).defaultListingStock : 0;
 
     let added = 0;
     for (let i = 0; i < fresh.length; i += INSERT_BATCH) {
@@ -268,9 +288,9 @@ export async function addPickedProducts(
               offlinePricePaise: pricePaise,
               onlineSaleEnabled: pricePaise != null,
               offlineSaleEnabled: pricePaise != null,
-              onlineStock: 0,
+              onlineStock: startStock,
               offlineStock: 0,
-              stockPending: true,
+              stockPending: startStock <= 0,
             };
           }),
         )

@@ -17,6 +17,9 @@ import { db } from "../lib/db";
 import { addToCart, emptyCart, sellable } from "../lib/flows";
 import { call, expectStatus, RUN } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
+import { blockAtDualStepUp } from "../lib/dual-auth";
+import { flowOn, mockSmsCode } from "../lib/flows-v3-helpers";
+import { onboardingV2On, reverifyMobile } from "../lib/onboarding-v2-helpers";
 import { IS_LOCAL } from "../lib/target";
 import { world, type Role } from "../lib/world";
 
@@ -41,8 +44,20 @@ async function restoreDetails(role: Role, original: Profile) {
 
 async function restoreMobile(role: Role, original: Profile) {
   const ctx = await as(role);
-  if (original.phoneE164) await call(ctx, "PUT", "/api/me/phone", { mobile: original.phoneE164.slice(3) });
-  else await call(ctx, "DELETE", "/api/me/phone");
+  if (!original.phoneE164) {
+    await call(ctx, "DELETE", "/api/me/phone");
+    return;
+  }
+  const mobile = original.phoneE164.slice(3);
+  const res = await call(ctx, "PUT", "/api/me/phone", { mobile });
+  // flow_f18: a number that changed needs the SMS code sent to it again (the staging mock outbox).
+  if (res.status === 422 && res.body?.error?.details?.reason === "PHONE_CODE_REQUIRED") {
+    const since = Date.now();
+    const sent = await call(ctx, "POST", "/api/me/phone/code", { mobile });
+    const code = sent.status === 200 ? await mockSmsCode(mobile, since) : null;
+    if (code) await call(ctx, "PUT", "/api/me/phone", { mobile, code });
+    else console.log(`[auth-profile] ${role}'s mobile not restored: no SMS code (HTTP ${sent.status})`);
+  }
 }
 
 /** The first letter shown on whichever account button the page's header has. */
@@ -181,6 +196,20 @@ qa("TC-AUTH-024", "change the mobile, then remove it: the new number shows, then
     await phone.getByRole("button", { name: "Change" }).click();
     await phone.getByLabel("Mobile number").fill(mobile);
     await phone.getByRole("button", { name: "Save" }).click();
+    let smsNote = "";
+    if (await flowOn("flow_f18")) {
+      // docs/flows-v3/wave5.md (flag flow_f18): the new number is confirmed with an SMS code sent to it (the staging
+      // mock outbox, read with the admin session), then saved again.
+      const field = phone.getByTestId("phone-link-code");
+      await expect(field, "flow_f18: the SMS code of the new number is asked").toBeVisible();
+      await expect(phone).toContainText(`We sent a code to +91 ******${mobile.slice(-4)}`);
+      const code = (await mockSmsCode(mobile, before)) ?? blocked(`no SMS code for the new number …${mobile.slice(-4)} in the mock outbox (SMS_PROVIDER is not mock on this site?)`);
+      await field.fill(code);
+      await phone.getByRole("button", { name: "Save" }).click();
+      smsNote = "flow_f18: SMS code to the new number asked and entered; ";
+    }
+    // dual_auth (on on test.gokesari.com): changing a verified mobile is a sensitive action — SMS + e-mail codes first.
+    await blockAtDualStepUp(page, `${smsNote}changing the mobile`);
     await expect(phone).toContainText(`Mobile: +91 ${mobile.slice(0, 5)} ${mobile.slice(5)}`);
     const notes = await call(await as("customer"), "GET", "/api/notifications");
     const changed = (notes.body.notifications as { title: string; createdAt: string }[]).find((n) => n.title === "Mobile number changed" && new Date(n.createdAt).getTime() >= before - 5000);
@@ -191,11 +220,21 @@ qa("TC-AUTH-024", "change the mobile, then remove it: the new number shows, then
     await emptyCart();
     expectStatus(await addToCart("customer", listing.shopProductId, 1), [200, 201], "add a delivery item");
     await page.goto("/cart");
+    if (await onboardingV2On("customer")) {
+      // onboarding v2 (on on test.gokesari.com): the mobile is asked in the checkout sign-in sheet, not on the cart.
+      await expect(page.getByTestId("checkout-missing-details")).toHaveCount(0);
+      const sheet = await call(await as("customer"), "POST", "/api/onboarding-v2/customer/status", {});
+      expectStatus(sheet, 200, "login-sheet status");
+      expect(sheet.body.step, "v2: checkout asks for the mobile again (sheet step MOBILE)").toBe("MOBILE");
+      return `${smsNote}changed to +91 ${mobile} (shown; 'Mobile number changed' notice); removed → 'Not added'; onboarding v2: checkout asks for a mobile again in the sign-in sheet (step MOBILE)`;
+    }
     await expect(page.getByTestId("checkout-missing-details")).toContainText("Add your mobile number before ordering");
-    return `changed to +91 ${mobile} (shown; 'Mobile number changed' notice); removed → 'Not added'; the cart asks for a mobile again`;
+    return `${smsNote}changed to +91 ${mobile} (shown; 'Mobile number changed' notice); removed → 'Not added'; the cart asks for a mobile again`;
   } finally {
     await context.close();
     await restoreMobile("customer", original);
+    // QA E-42: a restored number is unverified; with v2 on that blocks every later customer checkout — verify it again.
+    if (original.phoneE164) console.log(`[TC-AUTH-024] ${await reverifyMobile("customer", original.phoneE164.slice(3))}`);
     await emptyCart().catch(() => {});
   }
 }, { ...signed, partial: "the notice is checked in-app; its email copy follows the customer's notification settings (notification specs)" });
@@ -301,6 +340,8 @@ qa("TC-AUTH-026", "changing the email to one another account uses is refused: 'T
     await box.getByRole("button", { name: "Change email" }).click();
     await box.getByLabel("New email address").fill(other.email);
     await box.getByRole("button", { name: "Send code" }).click();
+    // dual_auth (on on test.gokesari.com): an e-mail change is a sensitive action — SMS + e-mail codes come first.
+    await blockAtDualStepUp(page, "changing the e-mail");
     await expect(box).toContainText("This email address is already used by another account.");
     const api = await call(page.request, "POST", "/api/profile/email", { email: other.email });
     expect(api.status).toBe(409);

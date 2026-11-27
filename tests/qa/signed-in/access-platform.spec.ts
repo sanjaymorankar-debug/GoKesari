@@ -19,6 +19,7 @@ import { blocked, expect, need, qa } from "../lib/record";
 import { BASE_URL, IS_LOCAL } from "../lib/target";
 import { world } from "../lib/world";
 import { NO_SUCH_ID, openPage } from "../lib/access-helpers";
+import { PAY_BUTTON, pickPaymentIfNone } from "../lib/onboarding-v2-helpers";
 import { encodeSession } from "../lib/session-jwt";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
@@ -541,9 +542,11 @@ qa("TC-UX-002", "the cart page at phone width keeps the pay button and totals on
   const { context, page } = await pageAs(browser, "customer", { viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true });
   try {
     await openPage(page, "/cart");
+    // onboarding v2 (on on test.gokesari.com) preselects no payment: the wallet is chosen as a customer would.
+    await pickPaymentIfNone(page, "Wallet");
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow, "sideways overflow at 360 px").toBeLessThanOrEqual(2);
-    await expect(page.getByRole("button", { name: /Pay from wallet|Place order/i }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: PAY_BUTTON }).first()).toBeVisible();
   } finally {
     await context.close();
     await emptyCart();
@@ -634,6 +637,13 @@ qa(["TC-RBAC-002", "TC-SEC-001"], "a forged session cookie (claiming ADMIN, sign
       const to = res.location ? new URL(res.location, BASE_URL).pathname : "";
       if (isInPageSignInRedirect(path, res, shopNames)) {
         inPage.push(path);
+        continue;
+      }
+      // Guest cart (docs/guest-cart-2026-11; implied by onboarding_v2, both on on test.gokesari.com): /cart is open to
+      // a signed-out visitor and shows the browser's own cart — the forged cookie must get exactly that page.
+      if (path === "/cart" && res.status === 200 && res.text.includes('data-testid="guest-cart"')) {
+        if (res.text.includes("Wallet balance")) bad.push("/cart → the signed-in cart (wallet balance) for a forged cookie");
+        else inPage.push("/cart (the guest cart, as for any signed-out visitor)");
         continue;
       }
       if (!(res.status === 401 || res.status === 403 || ([302, 303, 307, 308].includes(res.status) && /\/signin/.test(to)))) bad.push(`${path} → ${res.status} ${to}`);

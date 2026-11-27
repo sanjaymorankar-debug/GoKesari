@@ -13,6 +13,8 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { getImportLimits } from "@/server/services/product-import";
 import { getSetupOverview } from "@/server/services/shop-product-setup";
 import { listShopsForOwner } from "@/server/services/shops";
+import { OwnProductTypeForm } from "@/components/flows-v3/own-product-type";
+import { flowOn } from "@/server/flows/wave2-rules";
 
 export const metadata = { title: "Set up your shop's products" };
 export const dynamic = "force-dynamic";
@@ -54,7 +56,7 @@ export default async function ShopProductSetupPage({
   }
   // Only the owner's own shops can be selected; anything else falls back to the first.
   const shop = await activeShop(shops, params.shop);
-  const [overview, limits] = await Promise.all([getSetupOverview(shop.id), getImportLimits()]);
+  const [overview, limits, ownTypes] = await Promise.all([getSetupOverview(shop.id), getImportLimits(), flowOn("flow_f13")]);
 
   const href = (extra: Record<string, string>) => {
     const query = new URLSearchParams({ ...(shops.length > 1 ? { shop: shop.id } : {}), ...extra });
@@ -126,6 +128,10 @@ export default async function ShopProductSetupPage({
                 <span className="mt-1 block text-sm text-ink-500">Download a file, fill it in and upload it.</span>
               </Link>
             </div>
+          ) : null}
+          {/* docs/flows-v3/wave2.md (flag flow_f13): every shop type may create its own product type. */}
+          {step === 2 && ownTypes ? (
+            <OwnProductTypeForm shopId={shop.id} categories={overview.tiles.filter((t) => t.selected).map((t) => ({ id: t.id, name: t.name }))} />
           ) : null}
           {step === 2 && params.mode === "screen" ? (
             <ProductPicker

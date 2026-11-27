@@ -22,7 +22,7 @@
  *
  * Only an admin changes the rules; operators see them. Every change is audited.
  */
-import { and, asc, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { DOCTOR_GROUP_NAMES } from "@/lib/health/specialties";
@@ -41,6 +41,7 @@ import {
 import { mandatoryLicenceFor } from "@/lib/shop-licences";
 import { db, type DbClient } from "@/server/db";
 import {
+  registrationLicenceEntries,
   sellerVerifications,
   shopDocumentRules,
   shopDocumentTypes,
@@ -213,6 +214,20 @@ export async function requirementsOnFile(
       withTeam = row?.status === "SUBMITTED";
     }
     out.push({ ...req, onFile, withTeam });
+  }
+  // docs/flows-v3/wave3.md (flag flow_f5): a licence given at an onboarding v2 registration (verified, or with
+  // GoKesari's team) is on file, as the documents follow-up already counts it — Shop Act / Udyam included, which have
+  // no register row.
+  const { wave3Switch } = await import("@/server/flows/wave3-rules");
+  if (out.some((r) => !r.onFile) && (await wave3Switch("registrationLicencesToRegister"))) {
+    const entries = await client
+      .select({ licenceKey: registrationLicenceEntries.licenceKey, status: registrationLicenceEntries.status })
+      .from(registrationLicenceEntries)
+      .where(and(eq(registrationLicenceEntries.shopId, shop.id), inArray(registrationLicenceEntries.status, ["VERIFIED", "PENDING_OPERATOR"])));
+    for (const r of out) {
+      const entry = r.onFile ? undefined : entries.find((e) => e.licenceKey === r.key);
+      if (entry) Object.assign(r, { onFile: true, withTeam: entry.status === "PENDING_OPERATOR" });
+    }
   }
   return out;
 }

@@ -59,6 +59,10 @@ import { db, type DbClient } from "@/server/db";
 import {
   accountDeletionRequests,
   addresses,
+  dealerCommissionLedger,
+  dealers,
+  franchiseAllocations,
+  userRoleGrants,
   bankAccounts,
   bankRefundRequests,
   deliveryOrders,
@@ -79,7 +83,11 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { sendEmail } from "@/server/email/transport";
-import { requestAccountActionOtp, verifyAccountActionOtp } from "@/server/otp/service";
+import { getOtpProvider } from "@/server/otp/providers";
+import { consumeCode, issueCode, requestAccountActionOtp, verifyAccountActionOtp } from "@/server/otp/service";
+import { flowF18On } from "@/server/flows/wave5-flags";
+import { OCCUPYING_STATUSES } from "@/lib/franchise";
+import { maskPhone } from "@/lib/phone";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { featureNotAvailable, isFeatureEnabled } from "./feature-flags";
 import { getRule } from "./settings";
@@ -114,7 +122,13 @@ export type DeletionBlockerCode =
   | "ACTIVE_SHOP"
   | "SHOP_STAFF"
   | "RIDER_LIVE_JOBS"
-  | "RIDER_UNSETTLED_DUES";
+  | "RIDER_UNSETTLED_DUES"
+  /* docs/flows-v3/wave5.md (flag flow_f18) */
+  | "NO_VERIFIED_MOBILE"
+  | "SHOP_OPEN_ORDERS"
+  | "DEALER_ACCOUNT_OPEN"
+  | "DEALER_UNPAID_COMMISSION"
+  | "FRANCHISE_ZONE_LIVE";
 
 export interface DeletionBlocker {
   code: DeletionBlockerCode;
@@ -139,6 +153,17 @@ export interface DeletionFacts {
   staffMemberships: number;
   rider: { liveJobs: number; unbatchedEarningsPaise: number; openPayouts: number } | null;
   liveSubscriptions: number;
+  /**
+   * docs/flows-v3/wave5.md (flag flow_f18; absent = the flag is off, checks as before). The owner's shops are hidden
+   * by the system at confirm instead of blocking, once their open orders are done; a dealer / franchise record is
+   * checked whatever the account's active role; closure asks a code by SMS too where SMS codes can be sent.
+   */
+  flowF18?: {
+    shopOpenOrders: number;
+    dealer: { open: boolean; unpaidPaise: number; liveZones: number } | null;
+    smsCodeNeeded: boolean;
+    verifiedPhone: string | null;
+  };
 }
 
 export interface DeletionPrecheck {
@@ -150,6 +175,10 @@ export interface DeletionPrecheck {
   promotionalForfeitPaise: number;
   /** Where the code goes, masked. Null when the account has no real email. */
   maskedEmail: string | null;
+  /** docs/flows-v3/wave5.md (flag flow_f18): the mobile the second code goes to, masked; null = no SMS code. */
+  maskedPhone?: string | null;
+  /** docs/flows-v3/wave5.md (flag flow_f18): shops the system hides with the account. */
+  shopsToHide?: number;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -211,7 +240,45 @@ export function blockersFrom(facts: DeletionFacts): DeletionBlocker[] {
       href: "/orders",
     });
   }
-  if (facts.activeShops > 0) {
+  const f18 = facts.flowF18;
+  if (f18?.smsCodeNeeded && !f18.verifiedPhone) {
+    out.push({
+      code: "NO_VERIFIED_MOBILE",
+      message: "Verify your mobile number first — a confirmation code is sent there as well as to your e-mail.",
+      href: "/account/verify?return=/profile/delete",
+    });
+  }
+  if (f18 && f18.shopOpenOrders > 0) {
+    out.push({
+      code: "SHOP_OPEN_ORDERS",
+      count: f18.shopOpenOrders,
+      message: `Your shop has ${plural(f18.shopOpenOrders, "order")} not yet delivered or cancelled. Finish ${f18.shopOpenOrders === 1 ? "it" : "them"} first; the shop is then closed with your account.`,
+      href: "/shop/orders",
+    });
+  }
+  if (f18?.dealer?.unpaidPaise) {
+    out.push({
+      code: "DEALER_UNPAID_COMMISSION",
+      message: `${formatPaise(f18.dealer.unpaidPaise)} of dealer commission is not yet paid out to you. Wait until it is paid, or contact support.`,
+      href: "/dealer",
+    });
+  }
+  if (f18?.dealer?.liveZones) {
+    out.push({
+      code: "FRANCHISE_ZONE_LIVE",
+      count: f18.dealer.liveZones,
+      message: `You hold ${plural(f18.dealer.liveZones, "franchise zone")}. GoKesari closes franchise zones: contact support.`,
+      href: "/support",
+    });
+  }
+  if (f18?.dealer?.open && SELF_DELETABLE_ROLES.includes(facts.role)) {
+    out.push({
+      code: "DEALER_ACCOUNT_OPEN",
+      message: "You have a dealer account. GoKesari closes dealer accounts: contact support.",
+      href: "/support",
+    });
+  }
+  if (facts.activeShops > 0 && !f18) {
     out.push({
       code: "ACTIVE_SHOP",
       count: facts.activeShops,
@@ -325,7 +392,10 @@ export async function gatherDeletionFacts(userId: string, client: DbClient = db)
     rider = { liveJobs: num(jobs?.n), unbatchedEarningsPaise: num(earnings?.total), openPayouts: num(payouts?.n) };
   }
 
+  const flowF18 = (await flowF18On()) ? await gatherFlowF18Facts(userId, client) : undefined;
+
   return {
+    ...(flowF18 ? { flowF18 } : {}),
     role: user.role,
     email: user.email,
     emailPlaceholder: user.emailPlaceholder,
@@ -342,6 +412,47 @@ export async function gatherDeletionFacts(userId: string, client: DbClient = db)
   };
 }
 
+/** Shops the system hides with the account (flag flow_f18): owned, not deleted, not already closed or rejected. */
+const hideableShopsWhere = (userId: string) => and(eq(shops.ownerId, userId), isNull(shops.deletedAt), notInArray(shops.status, ["INACTIVE", "REJECTED"]));
+
+/** docs/flows-v3/wave5.md (flag flow_f18): the extra facts. Commission not yet paid: EARNED / PENDING / APPROVED / ON_HOLD. */
+async function gatherFlowF18Facts(userId: string, client: DbClient): Promise<NonNullable<DeletionFacts["flowF18"]>> {
+  const [user] = await client.select({ phoneE164: users.phoneE164, phoneVerifiedAt: users.phoneVerifiedAt }).from(users).where(eq(users.id, userId));
+  const [shopOrders] = await client
+    .select({ n: count() })
+    .from(orders)
+    .where(and(inArray(orders.status, [...OPEN_ORDER_STATUSES]), sql`${orders.shopId} IN (SELECT ${shops.id} FROM ${shops} WHERE ${hideableShopsWhere(userId)})`));
+  const dealerRows = await client.select({ id: dealers.id, status: dealers.status }).from(dealers).where(eq(dealers.userId, userId));
+  let dealer: NonNullable<DeletionFacts["flowF18"]>["dealer"] = null;
+  if (dealerRows.length > 0) {
+    const ids = dealerRows.map((d) => d.id);
+    const [[unpaid], [zones]] = await Promise.all([
+      client
+        .select({ total: sql<string>`coalesce(sum(${dealerCommissionLedger.amountPaise}), 0)` })
+        .from(dealerCommissionLedger)
+        .where(and(inArray(dealerCommissionLedger.dealerId, ids), inArray(dealerCommissionLedger.status, ["EARNED", "PENDING", "APPROVED", "ON_HOLD"]))),
+      client
+        .select({ n: count() })
+        .from(franchiseAllocations)
+        .where(and(inArray(franchiseAllocations.ownerDealerId, ids), inArray(franchiseAllocations.status, [...OCCUPYING_STATUSES]))),
+    ]);
+    dealer = {
+      // DEFAULT – confirm with Sanjay: a dealer record that is pending, approved or suspended is closed by GoKesari.
+      open: dealerRows.some((d) => d.status === "PENDING" || d.status === "APPROVED" || d.status === "SUSPENDED"),
+      unpaidPaise: Math.max(0, Number(unpaid?.total ?? 0)),
+      liveZones: Number(zones?.n ?? 0),
+    };
+  }
+  const { closureSmsCode } = await getRule("flowsWave5");
+  const smsCodeNeeded = closureSmsCode && (await getOtpProvider("SMS")) !== null;
+  return {
+    shopOpenOrders: Number(shopOrders?.n ?? 0),
+    dealer,
+    smsCodeNeeded,
+    verifiedPhone: user?.phoneE164 && user.phoneVerifiedAt ? user.phoneE164 : null,
+  };
+}
+
 /** Pure: the precheck answer for a set of facts. */
 export function precheckFrom(facts: DeletionFacts): DeletionPrecheck {
   const blockers = blockersFrom(facts);
@@ -352,6 +463,12 @@ export function precheckFrom(facts: DeletionFacts): DeletionPrecheck {
     subscriptionsToCancel: facts.liveSubscriptions,
     promotionalForfeitPaise: Math.max(0, Math.min(facts.walletPromotionalPaise, facts.walletBalancePaise)),
     maskedEmail: realEmail ? maskEmailAddress(facts.email) : null,
+    ...(facts.flowF18
+      ? {
+          maskedPhone: facts.flowF18.smsCodeNeeded && facts.flowF18.verifiedPhone ? maskPhone(facts.flowF18.verifiedPhone) : null,
+          shopsToHide: facts.activeShops,
+        }
+      : {}),
   };
 }
 
@@ -433,7 +550,7 @@ function renderCodeEmail(code: string, expiryMinutes: number) {
 export async function requestAccountDeletionCode(
   actor: { id: string; role: UserRole },
   meta: RequestMeta = {},
-): Promise<{ maskedEmail: string; resendAfterSeconds: number; expiryMinutes: number; requestId: string }> {
+): Promise<{ maskedEmail: string; resendAfterSeconds: number; expiryMinutes: number; requestId: string; maskedPhone?: string | null }> {
   await requireFlag();
   const facts = await gatherDeletionFacts(actor.id);
   const blockers = blockersFrom(facts);
@@ -449,6 +566,12 @@ export async function requestAccountDeletionCode(
     ip: meta.ip ?? null,
     render: renderCodeEmail,
   });
+  // docs/flows-v3/wave5.md (flag flow_f18): a second code, by SMS to the verified mobile.
+  let maskedPhone: string | null = null;
+  if (facts.flowF18?.smsCodeNeeded && facts.flowF18.verifiedPhone) {
+    await issueCode({ email: facts.email, purpose: "ACCOUNT_DELETE_SMS", userId: actor.id, phoneE164: facts.flowF18.verifiedPhone, ip: meta.ip ?? null, bySms: true });
+    maskedPhone = maskPhone(facts.flowF18.verifiedPhone);
+  }
 
   // One open request per person: a resend refreshes it.
   const [open] = await db
@@ -481,7 +604,7 @@ export async function requestAccountDeletionCode(
     ipAddress: meta.ip ?? null,
     userAgent: meta.userAgent ?? null,
   });
-  return { ...sent, requestId };
+  return { ...sent, requestId, ...(facts.flowF18 ? { maskedPhone } : {}) };
 }
 
 
@@ -557,6 +680,8 @@ export function anonymisedUserPatch(userId: string, now: Date) {
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const SUBSCRIPTION_CANCEL_REASON = "Account deleted by the customer.";
+/** docs/flows-v3/wave5.md (flag flow_f18): the closure reason on a shop hidden with its owner's account. */
+export const SHOP_HIDDEN_REASON = "Closed with the owner's account (account deletion).";
 
 /** Cancels any subscription still live, inside the transaction (no notification: the account is going). */
 async function cancelLiveSubscriptionsInTx(tx: Tx, userId: string, now: Date, actorId: string | null): Promise<number> {
@@ -637,7 +762,7 @@ export interface DeleteAccountResult {
  */
 export async function deleteAccount(
   actor: { id: string; role: UserRole },
-  input: { code: string; confirmText: string; reason?: string | null; reasonCode?: string | null },
+  input: { code: string; confirmText: string; reason?: string | null; reasonCode?: string | null; smsCode?: string | null },
   meta: RequestMeta = {},
   deps: {
     cancelSubscription?: (id: string, reason: string, actor: { id: string; role: UserRole }) => Promise<unknown>;
@@ -656,13 +781,33 @@ export async function deleteAccount(
   const [before] = await db.select().from(users).where(eq(users.id, actor.id));
   if (!before || before.status !== "ACTIVE" || before.deletedAt) throw forbidden();
 
-  await verifyAccountActionOtp({
-    email: before.email,
-    userId: actor.id,
-    purpose: "ACCOUNT_DELETE",
-    code: input.code,
-    ip: meta.ip ?? null,
-  });
+  const verifyEmailCode = () =>
+    verifyAccountActionOtp({
+      email: before.email,
+      userId: actor.id,
+      purpose: "ACCOUNT_DELETE",
+      code: input.code,
+      ip: meta.ip ?? null,
+    });
+  // docs/flows-v3/wave5.md (flag flow_f18): both codes — the SMS one is checked first and used up only once the
+  // e-mail one is right too, so a mistake in one does not spend the other.
+  const pre = (await flowF18On()) ? await gatherFlowF18Facts(actor.id, db) : null;
+  if (pre?.smsCodeNeeded && pre.verifiedPhone) {
+    if (!input.smsCode?.trim()) {
+      throw validationFailed("Enter the code we sent to your mobile as well.", { fields: { smsCode: "Enter the SMS code." } });
+    }
+    await consumeCode({
+      email: before.email,
+      purpose: "ACCOUNT_DELETE_SMS",
+      code: input.smsCode,
+      ip: meta.ip ?? null,
+      phoneE164: pre.verifiedPhone,
+      userId: actor.id,
+      beforeConsume: verifyEmailCode,
+    });
+  } else {
+    await verifyEmailCode();
+  }
 
   const facts = await gatherDeletionFacts(actor.id);
   const blockers = blockersFrom(facts);
@@ -692,7 +837,7 @@ export async function deleteAccount(
   const now = deps.now?.() ?? new Date();
   const purgeAfter = coolingOffEnd(now, coolingOffDays);
 
-  const requestId = await db.transaction(async (tx) => {
+  const txResult = await db.transaction(async (tx) => {
     // Lock the account row: a second confirm, a sign-in update or a role change waits.
     const [locked] = await tx.select().from(users).where(eq(users.id, actor.id)).for("update");
     if (!locked || locked.status !== "ACTIVE" || locked.deletedAt) throw conflict("This account is already being deleted.");
@@ -718,13 +863,26 @@ export async function deleteAccount(
         .where(inArray(deliveryPartners.id, riders.map((r) => r.id)));
     }
 
+    // docs/flows-v3/wave5.md (flag flow_f18): the owner's shops are hidden by the system (closed, orders paused);
+    // their status before is kept to switch them back on a restore. Open shop orders were a blocker just above.
+    let hiddenShops: { id: string; status: string; ordersPaused: boolean }[] = [];
+    if (facts.flowF18) {
+      hiddenShops = await tx.select({ id: shops.id, status: shops.status, ordersPaused: shops.ordersPaused }).from(shops).where(hideableShopsWhere(actor.id));
+      if (hiddenShops.length > 0) {
+        await tx
+          .update(shops)
+          .set({ status: "INACTIVE", ordersPaused: true, closedAt: now, closedBy: actor.id, closureReason: SHOP_HIDDEN_REASON, statusActorId: actor.id, updatedAt: now })
+          .where(inArray(shops.id, hiddenShops.map((s) => s.id)));
+      }
+    }
+
     const values = {
       status: "COOLING_OFF" as const,
       reason,
       reasonCode,
       coolingStartedAt: now,
       purgeAfter,
-      hiddenState: { riderStatuses: riders },
+      hiddenState: { riderStatuses: riders, ...(hiddenShops.length > 0 ? { shops: hiddenShops } : {}) },
       blockers: [],
     };
     const [open] = await tx
@@ -753,16 +911,29 @@ export async function deleteAccount(
         entityType: "user",
         entityId: actor.id,
         previousValue: { status: locked.status },
-        newValue: { status: "PENDING_DELETION", requestId: id, purgeAfter: purgeAfter.toISOString(), coolingOffDays, subscriptionsCancelled, reasonCode, reason, ridersDeactivated: riders.length },
+        newValue: { status: "PENDING_DELETION", requestId: id, purgeAfter: purgeAfter.toISOString(), coolingOffDays, subscriptionsCancelled, reasonCode, reason, ridersDeactivated: riders.length, ...(hiddenShops.length > 0 ? { shopsHidden: hiddenShops.map((s) => s.id) } : {}) },
         ipAddress: meta.ip ?? null,
         userAgent: meta.userAgent ?? null,
       },
       tx,
     );
-    return id;
+    return { id, hiddenShops };
   });
+  const requestId = txResult.id;
 
   // After commit: side effects that may fail without undoing the request.
+  // docs/flows-v3/wave5.md (flag flow_f18): subscriptions to the hidden shops end, as when a shop closes.
+  for (const shopId of txResult.hiddenShops.map((s) => s.id)) {
+    const subs = await db
+      .select({ id: subscriptions.id })
+      .from(subscriptions)
+      .where(and(eq(subscriptions.shopId, shopId), notInArray(subscriptions.status, [...FINAL_SUBSCRIPTION_STATUSES])));
+    for (const sub of subs) {
+      await Promise.resolve(cancel(sub.id, "The shop has closed on GoKesari.", actor)).catch((error: unknown) =>
+        console.error("[account-deletion] could not cancel a shop subscription", sub.id, error),
+      );
+    }
+  }
   const offline = deps.goOffline ?? (await import("./delivery-partners")).goOfflineOnSignOut;
   await Promise.resolve(offline(actor.id)).catch((error: unknown) => console.error("[account-deletion] could not set the rider offline", error));
 
@@ -849,6 +1020,14 @@ export async function restoreAccount(
         .update(deliveryPartners)
         .set({ status: rider.status as (typeof deliveryPartners.$inferSelect)["status"], updatedAt: now })
         .where(and(eq(deliveryPartners.id, rider.id), eq(deliveryPartners.status, "DEACTIVATED")));
+    }
+    // docs/flows-v3/wave5.md (flag flow_f18): shops hidden with the account come back as they were, unless
+    // someone changed them in between.
+    for (const shop of request.hiddenState?.shops ?? []) {
+      await tx
+        .update(shops)
+        .set({ status: shop.status as (typeof shops.$inferSelect)["status"], ordersPaused: shop.ordersPaused, closedAt: null, closedBy: null, closureReason: null, statusActorId: actor.id, updatedAt: now })
+        .where(and(eq(shops.id, shop.id), eq(shops.status, "INACTIVE"), eq(shops.closureReason, SHOP_HIDDEN_REASON)));
     }
     await tx
       .update(accountDeletionRequests)
@@ -1011,6 +1190,13 @@ async function purgeOne(requestId: string, now: Date): Promise<"COMPLETED" | "BL
 
     const subscriptionsCancelled = await cancelLiveSubscriptionsInTx(tx, request.userId, now, null);
     await anonymiseInTx(tx, request.userId, now);
+    // docs/flows-v3/wave5.md (flag flow_f18): every role grant ends with the account.
+    if (await flowF18On()) {
+      await tx
+        .update(userRoleGrants)
+        .set({ status: "REVOKED", revokedAt: now })
+        .where(and(eq(userRoleGrants.userId, request.userId), eq(userRoleGrants.status, "ACTIVE")));
+    }
     await tx
       .update(accountDeletionRequests)
       .set({ status: "COMPLETED", completedAt: now, blockers: [] })

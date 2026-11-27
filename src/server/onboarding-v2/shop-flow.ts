@@ -7,13 +7,16 @@
  *   1  identity   Terms tick + e-mail (Google or a code) + mobile code; skipped for a signed-in customer whose
  *                 e-mail and mobile are both verified. Where no SMS can be sent and rule
  *                 onboardingV2.mobileOtpFallbackWhenNoSms is on, the mobile is saved unverified (DEFAULT #8).
- *   4  fee        straight after GST / PAN: Shop or Wholesale (DEFAULT #10), amount from rule onboardingV2 (+GST when
- *                 feeGstExtra), online only, a payment intent SHOP_REGISTRATION_DRAFT_FEE on the DRAFT (the shop row
- *                 does not exist yet). Not completed: the draft stays "pending payment" and resumes here.
- *   6  licences   per required licence: Enter details / Upload file / Scan / Upload later (PROMISED — not for a
- *                 MUST_HAVE licence, DEFAULT #12). Rows in registration_licence_entries.
+ *   4  fee        straight after GST / PAN (owner, 27-Nov-2026): the original fee — the annual turnover band of rule
+ *                 registrationFeeByTurnover (₹999 / ₹4,999 / ₹9,999 + GST by default; the flat fee when that rule is
+ *                 off), less an optional registration-fee coupon — online only, a payment intent
+ *                 SHOP_REGISTRATION_DRAFT_FEE on the DRAFT (the shop row does not exist yet). Not completed: the draft
+ *                 stays "pending payment" and resumes here. Wholesale stores pay the same and pick their type after.
+ *   6  licences   per required licence: Enter details / Upload file / Scan / Upload later (PROMISED — any licence,
+ *                 must-have ones included, owner 27-Nov-2026). Rows in registration_licence_entries. None holds go-live.
  *   6b agreement  the shop row is created (PENDING) when the owner reaches it — the agreements are built from the
- *                 shop row — and the owner signs (seller_agreements_enabled) or accepts the Seller Terms.
+ *                 shop row — and the owner accepts them with the ticks and their name, no OTP (owner, 27-Nov-2026;
+ *                 seller_agreements_enabled), or accepts the Seller Terms.
  *                 DEFAULT – confirm with Sanjay: the agreement comes after address + pin (both mandatory) so it is
  *                 personalised with the real address; it is still after the licences (DEFAULT #3).
  *   8  go-live    the fee paid on the draft is on the shop's ledger already; GST / PAN verified + fee paid → live
@@ -54,10 +57,12 @@ import { flagPaymentForSupport, lockIntent, transitionIntent } from "@/server/pa
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { recordConsent } from "@/server/services/consents";
 import { getRule } from "@/server/services/settings";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { getOrCreateShopWallet } from "@/server/services/shop-wallet";
 import { auditActorOf, findOpenDraft, lockOpenDraft, message, type Actor } from "@/server/services/shop-registration-draft";
 import { getWizardDraft, submitDraftDocument, submitDraftForPayment, toWizardView, type WizardView } from "@/server/services/shop-registration-wizard";
 import { onboardingV2Enabled, recordRoleChange } from "./roles";
-import { DRAFT_FEE_PURPOSE, ONBOARDING_V2_TERMS_VERSION, v2Details, v2FeeQuote, WHOLESALE_SHOP_TYPE, type V2FeeKind, type V2FeeQuote } from "./shop-view";
+import { DRAFT_FEE_PURPOSE, ONBOARDING_V2_TERMS_VERSION, v2FeeQuote, WHOLESALE_SHOP_TYPE, type V2FeeQuote } from "./shop-view";
 
 /* ------------------------------------------------------------- helpers */
 
@@ -225,12 +230,14 @@ export async function confirmV2MobileCode(actor: Actor, input: { mobile: string;
 
 /**
  * Step 4: the fee, straight after GST / PAN. The owner confirms the shop (and owner) name pre-filled from the record,
- * picks Shop or Wholesale and pays online. Returns where to send the browser (gateway or our sandbox page).
- * A checkout still open for the same amount is reused; a paid draft refuses a new one.
+ * picks the annual turnover band (owner, 27-Nov-2026: the original slabs and fees; wholesale shops pay the same and
+ * choose Wholesale store at the shop-type step), an optional registration-fee coupon, and pays online. Returns where
+ * to send the browser (gateway or our sandbox page). A checkout still open for the same quote is reused; a paid draft
+ * refuses a new one.
  */
 export async function startDraftFeeCheckout(
   actor: Actor,
-  input: { kind: V2FeeKind; shopName: string; ownerName?: string | null },
+  input: { slab: number | null; couponCode?: string | null; shopName: string; ownerName?: string | null },
 ): Promise<{ intentId: string | null; amountPaise: number; redirectUrl: string | null; view: WizardView }> {
   const draft = await openV2Draft(actor.id);
   if (draft.feePaidAt) throw conflict("The registration fee is already paid.", { reason: "FEE_PAID" });
@@ -244,19 +251,14 @@ export async function startDraftFeeCheckout(
   const ownerName = input.ownerName?.trim() || null;
   if (ownerName !== null && ownerName.length < 2) throw validationFailed("Please check the highlighted fields.", { fields: { ownerName: "Enter the owner's name." } });
 
-  const quote = await v2FeeQuote(input.kind);
-  const old = v2Details(draft) as Record<string, unknown>;
-  const typePatch =
-    input.kind === "WHOLESALE"
-      ? { shopType: WHOLESALE_SHOP_TYPE }
-      : old.shopType === WHOLESALE_SHOP_TYPE
-        ? { shopType: undefined }
-        : {};
+  const quote = await v2FeeQuote({ ownerId: actor.id, slab: input.slab, couponCode: input.couponCode ?? null });
+  // An unpaid choice of the old "wholesale" fee (before 27-Nov-2026) had set the shop type: the type step asks again.
+  const typePatch = draft.feeKind === "WHOLESALE" ? { shopType: undefined } : {};
   const paidNow = quote.totalPaise === 0;
   const saved = await patchDraft(
     actor.id,
     { v2ShopName: shopName, ...(ownerName ? { ownerName } : {}), v2Fee: quote, ...typePatch },
-    { feeKind: input.kind, feePaise: quote.basePaise, ...(paidNow ? { feePaidAt: new Date() } : {}) },
+    { feeKind: null, feePaise: quote.basePaise, ...(paidNow ? { feePaidAt: new Date() } : {}) },
   );
   if (paidNow) return { intentId: null, amountPaise: 0, redirectUrl: null, view: await toWizardView(saved) };
 
@@ -264,10 +266,10 @@ export async function startDraftFeeCheckout(
   const previous = allIntents.filter((r) => r.userId === actor.id);
   const sameQuote = (row: PaymentIntentRow) => {
     const q = intentQuote(row);
-    return q !== null && q.kind === quote.kind && q.totalPaise === quote.totalPaise && row.amountPaise === quote.totalPaise;
+    return q !== null && q.kind === undefined && q.slab === quote.slab && (q.couponCode ?? null) === quote.couponCode && q.totalPaise === quote.totalPaise && row.amountPaise === quote.totalPaise;
   };
   const open = previous.find((row) => isLive(row) && row.mode === "CHECKOUT" && sameQuote(row));
-  // Another kind or amount: the older open checkouts end here, so only the checkout for this quote can be paid. A late
+  // Another band, coupon or amount: the older open checkouts end here, so only the checkout for this quote can be paid. A late
   // payment of an ended one is not applied (payments/processing.ts flags it to support for a refund).
   for (const row of allIntents.filter((r) => isLive(r) && r.id !== open?.id)) await expireReplacedCheckout(row.id);
   const openUrl = open ? redirectUrlOf(open) : null;
@@ -288,12 +290,12 @@ export async function startDraftFeeCheckout(
         email: isPlaceholderEmail(owner.email) ? null : owner.email,
         phone: owner.phoneE164?.startsWith("+91") ? owner.phoneE164.slice(3) : null,
       },
-      description: `GoKesari ${input.kind === "WHOLESALE" ? "wholesale shop" : "shop"} registration fee — ${shopName}`,
+      description: `GoKesari shop registration fee${quote.slabLabel ? ` (turnover ${quote.slabLabel})` : ""} — ${shopName}`,
       // Same attempt → same intent; after a failed or expired attempt the count has moved on, so a retry is new.
       idempotencyKey: `shop-draft-fee:${draft.id}:${previous.length}`,
       mode: "CHECKOUT",
       returnPath: "/shop/register",
-      // What this checkout is for: the capture applies exactly this kind and amount (onDraftFeeCaptured).
+      // What this checkout is for: the capture applies exactly this band, coupon and amount (onDraftFeeCaptured).
       metadata: { v2Fee: quote },
     });
     const checkout = created.checkout;
@@ -305,13 +307,18 @@ export async function startDraftFeeCheckout(
   return { intentId, amountPaise: quote.totalPaise, redirectUrl, view: await toWizardView((await findOpenDraft(actor.id))!) };
 }
 
-/** The kind and amount a draft-fee checkout was opened for (its metadata), or null. */
+/**
+ * The quote a draft-fee checkout was opened for (its metadata), or null: a turnover-band quote (27-Nov-2026 on), or
+ * a fee-by-kind quote of a checkout opened before (still applied as it was paid).
+ */
 function intentQuote(row: Pick<PaymentIntentRow, "metadata">): V2FeeQuote | null {
   const q = (row.metadata as { v2Fee?: V2FeeQuote } | null)?.v2Fee;
-  return q && (q.kind === "SHOP" || q.kind === "WHOLESALE") && Number.isInteger(q.totalPaise) ? q : null;
+  if (!q || !Number.isInteger(q.totalPaise) || !Number.isInteger(q.basePaise)) return null;
+  if (q.kind === "SHOP" || q.kind === "WHOLESALE") return q;
+  return q.kind === undefined && (q.slab === null || Number.isInteger(q.slab)) ? q : null;
 }
 
-/** Ends a draft-fee checkout replaced by a newer one (another kind or amount). Already settled: left alone. */
+/** Ends a draft-fee checkout replaced by a newer one (another band, coupon or amount). Already settled: left alone. */
 async function expireReplacedCheckout(intentId: string): Promise<void> {
   await db.transaction(async (tx) => {
     const row = await lockIntent(tx, intentId);
@@ -341,11 +348,12 @@ export async function onDraftFeeCaptured(intent: PaymentIntentRef, client: DbCli
         : null;
   if (current && quote && !problem && !current.feePaidAt) {
     const details: Record<string, unknown> = { ...((current.details as Record<string, unknown> | null) ?? {}), v2Fee: quote };
+    // A fee-by-kind checkout opened before 27-Nov-2026 keeps its old meaning (wholesale fee → Wholesale store).
     if (quote.kind === "WHOLESALE") details.shopType = WHOLESALE_SHOP_TYPE;
-    else if (details.shopType === WHOLESALE_SHOP_TYPE) delete details.shopType;
+    else if (quote.kind === "SHOP" && details.shopType === WHOLESALE_SHOP_TYPE) delete details.shopType;
     await client
       .update(shopRegistrationDrafts)
-      .set({ feePaidAt: now, feePaymentIntentId: intent.id, feeKind: quote.kind, feePaise: quote.basePaise, details, updatedAt: now })
+      .set({ feePaidAt: now, feePaymentIntentId: intent.id, feeKind: quote.kind ?? null, feePaise: quote.basePaise, details, updatedAt: now })
       .where(eq(shopRegistrationDrafts.id, current.id));
   }
   if (problem) {
@@ -359,7 +367,7 @@ export async function onDraftFeeCaptured(intent: PaymentIntentRef, client: DbCli
       action: AUDIT_ACTIONS.SHOP_REGISTRATION_DRAFT_FEE_PAID,
       entityType: "shop_registration_draft",
       entityId: intent.referenceId,
-      newValue: { intentId: intent.id, amountPaise: intent.amountPaise, kind: quote?.kind ?? null, gateway: intent.gateway, applied: !problem, problem },
+      newValue: { intentId: intent.id, amountPaise: intent.amountPaise, slab: quote?.slab ?? null, couponCode: quote?.couponCode ?? null, kind: quote?.kind ?? null, gateway: intent.gateway, applied: !problem, problem },
     },
     client,
   );
@@ -410,7 +418,8 @@ const clean = (v: string | null | undefined, max: number) => {
  * Stores an uploaded / scanned licence file (encrypted). Returns its id.
  * DEFAULT – confirm with Sanjay: a registration file stays in registration_licence_files (operators open it from the
  * registration-licences queue); it is not copied into the shop's legal-documents register, where the owner can still
- * upload it after go-live (My shop → Documents).
+ * upload it after go-live (My shop → Documents). With flag flow_f5 (docs/flows-v3/wave3.md) it is copied there
+ * (flows/f5-licences.ts), so the register and its reminders count it as given.
  */
 async function storeLicenceFile(draft: ShopRegistrationDraft, licenceKey: string, file: NonNullable<LicenceEntryInput["file"]>): Promise<string> {
   if (file.data.length === 0) throw validationFailed("The file is empty.", { fields: { file: "Attach the document." } });
@@ -451,8 +460,8 @@ async function draftCheckOutcome(draftId: string, docType: string): Promise<{ st
  * Step 6: one licence answered with one of the four options. Enter / Scan: the number (verified online where an
  * adapter exists — FSSAI, Udyam, Shop Act — else checked by an operator). Upload: the file, read on the device where
  * possible (DEFAULT – confirm with Sanjay: the server's own OCR is not started, as for every upload since D-18),
- * then an operator. Later: the promise (not for a MUST_HAVE licence), which the existing document follow-up chases
- * once the shop is live (documents_promised_at).
+ * then an operator's check (never a hold on go-live). Later: the promise (any licence, must-have ones included — owner,
+ * 27-Nov-2026), which the existing document follow-up chases once the shop is live (documents_promised_at).
  */
 export async function saveLicenceEntry(actor: Actor, input: LicenceEntryInput): Promise<WizardView> {
   const draft = await openV2Draft(actor.id);
@@ -469,13 +478,8 @@ export async function saveLicenceEntry(actor: Actor, input: LicenceEntryInput): 
   const ocr = input.ocr ?? null;
 
   if (input.option === "LATER") {
-    // DEFAULT #12: a must-have licence is entered, uploaded or scanned — never promised.
-    if (licence.level === "MUST_HAVE") {
-      throw conflict(`${licence.label} is required by law before your shop can go live. Please enter, upload or scan it.`, {
-        reason: "LICENCE_MUST_HAVE",
-        fields: { option: "Upload later is not available for this licence." },
-      });
-    }
+    // Owner, 27-Nov-2026 (replaces DEFAULT #12 and, for v2, the 21-Nov "FSSAI before live" rule): every licence —
+    // must-have ones and FSSAI included — may be promised within the documents follow-up's period.
     if (input.promise !== true) {
       throw validationFailed("Tick the box to promise this document.", { fields: { promise: "Required to upload it later." } });
     }
@@ -595,6 +599,13 @@ export async function afterV2ShopCreated(shop: Shop, actor: Actor): Promise<void
   }).catch((error: unknown) => console.error("[onboarding-v2] role history not written", shop.id, error));
   // The fee paid on the draft: on the shop's ledger now; if this fails it is retried (ensureV2FeeOnLedger).
   await ensureV2FeeOnLedger(shop.id).catch((error: unknown) => console.error("[onboarding-v2] draft fee not on the shop's ledger yet (retried)", shop.id, error));
+  // docs/flows-v3 (flag flow_f14): the shop's prepaid wallet exists from the start (zero balance; idempotent).
+  // Off: it is created on first use, as before.
+  if (await isFeatureEnabled("flow_f14").catch(() => false)) {
+    await getOrCreateShopWallet(shop.id).catch((error: unknown) => console.error("[onboarding-v2] shop wallet not created yet (created on first use)", shop.id, error));
+  }
+  // docs/flows-v3/wave3.md (flag flow_f5): the licences given at registration go into the shop's licence register.
+  await (await import("@/server/flows/f5-licences")).copyRegistrationLicencesSafely(shop.id);
 }
 
 /**
@@ -713,6 +724,8 @@ export async function acceptV2Agreement(
     newValue: { draftId: draft.id, signedAgreements: signedInAgreements },
   });
   await goLiveV2(draft.shopId);
+  // docs/flows-v3/wave3.md (flag flow_f4): the accepted agreement is e-mailed now, in English, Marathi and Hindi.
+  await (await import("@/server/flows/f4-onboarding")).emailAgreementOnAcceptance(draft.shopId, now);
   const [final] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.id, draft.id));
   return toWizardView(final);
 }
@@ -793,8 +806,8 @@ export async function listRegistrationLicences(filter: { status?: LicenceEntrySt
 
 /**
  * An operator approves (VERIFIED) or rejects (REJECTED, the owner is asked again) a licence waiting for the team.
- * DEFAULT – confirm with Sanjay: the decision is on the registration record only; a shop held for it is then approved
- * in Admin → Shops as today (the existing operator review), not automatically.
+ * Owner, 27-Nov-2026: the team's check is for checking only — no licence entry holds a v2 shop's go-live (the shop
+ * goes live on its GST / PAN and fee). A rejected licence is no longer "given": the documents follow-up chases it.
  */
 export async function reviewRegistrationLicence(
   entryId: string,
@@ -826,6 +839,9 @@ export async function reviewRegistrationLicence(
     entityId: entryId,
     newValue: { approve: decision.approve, reason, licenceKey: entry.licenceKey, shopId: entry.shopId },
   });
+  // docs/flows-v3/wave3.md (flag flow_f5): the register copy follows the team's decision (approved / rejected).
+  await (await import("@/server/flows/f5-licences")).copyRegistrationLicencesSafely(entry.shopId);
+  if (decision.approve) await (await import("./document-reactivation")).afterShopDocumentGiven(entry.shopId);
   const [row] = (await listRegistrationLicences({ status: "ALL", limit: 500 })).filter((r) => r.id === entryId);
   return row;
 }

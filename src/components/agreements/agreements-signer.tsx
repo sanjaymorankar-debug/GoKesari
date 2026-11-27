@@ -101,7 +101,19 @@ function DocumentViewer({ src, onReadToEnd }: { src: string; onReadToEnd: () => 
   );
 }
 
-export function AgreementsSigner({ apiBase, onSigned }: { apiBase: string; onSigned?: () => void }) {
+export function AgreementsSigner({
+  apiBase,
+  onSigned,
+  registrationAccept = false,
+}: {
+  apiBase: string;
+  onSigned?: () => void;
+  /**
+   * Onboarding v2 shop registration (owner, 27-Nov-2026): accept with the ticks and the typed name, no SMS code.
+   * Everywhere else (the shop dashboard's review, owner links) the code is asked as before.
+   */
+  registrationAccept?: boolean;
+}) {
   const [view, setView] = useState<View | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lang, setLang] = useState<Lang>("en");
@@ -205,8 +217,8 @@ export function AgreementsSigner({ apiBase, onSigned }: { apiBase: string; onSig
       await call(apiBase, {
         method: "POST",
         body: JSON.stringify({
-          action: "sign",
-          code,
+          action: registrationAccept ? "accept" : "sign",
+          ...(registrationAccept ? {} : { code }),
           signerName: name,
           designation,
           constitution,
@@ -370,6 +382,18 @@ export function AgreementsSigner({ apiBase, onSigned }: { apiBase: string; onSig
                 <span>Record my location with the signature (optional).</span>
               </label>
 
+              {registrationAccept ? (
+                <div className="rounded-lg bg-cream-50 p-3 text-sm">
+                  <p className="mb-2 text-ink-700">
+                    By pressing Accept you accept these agreements with your name above as your signature. Signed copies in English, मराठी and हिंदी are
+                    e-mailed to you with your welcome kit.
+                  </p>
+                  <Button disabled={busy || !allTicked || !formOk} onClick={sign} data-testid="accept-agreements">
+                    Accept the agreements
+                  </Button>
+                  {!allTicked ? <p className="mt-1 text-xs text-ink-500">Tick every document above to continue.</p> : null}
+                </div>
+              ) : (
               <div className="rounded-lg bg-cream-50 p-3 text-sm">
                 <p className="mb-2 text-ink-700">
                   Sign with the one-time code sent to your registered mobile{view.maskedMobile ? ` (${view.maskedMobile})` : ""}. This is your electronic signature under the Information Technology Act, 2000.
@@ -398,6 +422,7 @@ export function AgreementsSigner({ apiBase, onSigned }: { apiBase: string; onSig
                 {codeSentTo ? <p className="mt-1 text-xs text-ink-500">Code sent to {codeSentTo}.</p> : null}
                 {!allTicked ? <p className="mt-1 text-xs text-ink-500">Tick every document above to continue.</p> : null}
               </div>
+              )}
             </div>
           ) : (
             <div className="space-y-2">

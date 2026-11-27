@@ -13,6 +13,8 @@ import type { Page } from "@playwright/test";
 import { expectStatus, RUN, why } from "../lib/http";
 import { expect, qa } from "../lib/record";
 import { BASE_URL } from "../lib/target";
+import { pickPaymentIfNone } from "../lib/onboarding-v2-helpers";
+import { paymentChoiceExplicit } from "../lib/flows-v3-helpers";
 import {
   cancelOwn,
   cartGroup,
@@ -188,7 +190,8 @@ qa("TC-LOC-022", "minimum order ₹200: below it the cart says 'add ₹X more' w
   const bread = listing("sharedA");
   const price = bread.pricePaise!;
   const exact = Math.ceil(20000 / price);
-  return withShop("A", { minOrderPaise: price * exact }, async () => {
+  // No opening hours for the check: at night shop A (06:00–22:00) first asks to confirm a closed-shop order (409).
+  return withShop("A", { minOrderPaise: price * exact, openingHours: [] }, async () => {
     const min = price * exact;
     await fillCart("customer", [{ item: bread, quantity: 2 }]);
     const short = min - 2 * price;
@@ -199,7 +202,9 @@ qa("TC-LOC-022", "minimum order ₹200: below it the cart says 'add ₹X more' w
       const warning = cartGroup(page, shopName("A")).getByTestId("delivery-warning");
       await expect(warning).toContainText(`needs a minimum order of ₹${min / 100} — add ₹${short / 100} more`);
       await expect(warning.getByRole("button", { name: "Add items" })).toBeVisible();
-      await expect(page.getByRole("button", { name: /Pay from wallet/ })).toBeDisabled();
+      // onboarding v2 (on on test.gokesari.com) preselects no payment: the wallet is chosen as a customer would.
+      await pickPaymentIfNone(page, "Wallet");
+      await expect(page.getByRole("button", { name: /Pay from wallet|Choose how to pay/ })).toBeDisabled();
       const refused = await checkoutAs("customer", { addressId: await homeAddressId(), paymentMethod: "WALLET" });
       expect(refused.status, why(refused)).toBe(422);
       expect(refused.body?.error?.message).toMatch(/minimum order/i);
@@ -209,6 +214,7 @@ qa("TC-LOC-022", "minimum order ₹200: below it the cart says 'add ₹X more' w
       await open(page, "/cart");
       await expect(cartGroup(page, shopName("A")).getByTestId("delivery-warning")).toHaveCount(0);
       await chooseDeliveryTime(page);
+      await pickPaymentIfNone(page, "Wallet");
       await expect(page.getByRole("button", { name: /Pay from wallet/ })).toBeEnabled();
       const res = await checkoutAs("customer", { addressId: await homeAddressId(), paymentMethod: "WALLET" });
       expectStatus(res, 201, `exactly ₹${min / 100}`);
@@ -242,6 +248,12 @@ qa("TC-LOC-023", "pause new orders: the shop leaves the delivering lists, the ca
     const warning = cartGroup(page, shopName("A")).getByTestId("delivery-warning");
     await expect(warning).toContainText("is not taking new orders right now");
     await expect(warning.getByRole("button", { name: "Remove these items" })).toBeVisible();
+    if (await paymentChoiceExplicit()) {
+      // flow_f2 (and onboarding v2): nothing preselected — "Choose how to pay", disabled; with the wallet picked the
+      // pay button still stays disabled while the shop is paused.
+      await expect(page.getByRole("button", { name: "Choose how to pay" }), "before a payment method is picked").toBeDisabled();
+      await page.getByTestId("payment-method").getByRole("radio", { name: "Wallet", exact: true }).check();
+    }
     await expect(page.getByRole("button", { name: /Pay from wallet/ })).toBeDisabled();
     const refused = await checkoutAs("customer", { addressId: await homeAddressId(), paymentMethod: "WALLET" });
     expect([409, 422], why(refused)).toContain(refused.status);
@@ -305,8 +317,11 @@ qa("TC-LOC-026", "opening hours are judged in IST: no hours = open; a closed day
     const { context, page } = await signedPage(browser, "customer", { timezoneId });
     const errors = watchPage(page);
     try {
-      await open(page, `/shops/${shopSlug("A")}`);
-      await expect(page.getByText("Open now", { exact: true }).first(), `no hours → open (${timezoneId})`).toBeVisible();
+      // "No hours" is set here: shop A keeps 06:00–22:00 on the test site, which is closed at night (baseline 27-Nov-2026).
+      await withShop("A", { openingHours: [] }, async () => {
+        await open(page, `/shops/${shopSlug("A")}`);
+        await expect(page.getByText("Open now", { exact: true }).first(), `no hours → open (${timezoneId})`).toBeVisible();
+      });
       await withShop("A", { openingHours: hoursClosedNow() }, async () => {
         await open(page, `/shops/${shopSlug("A")}`);
         await expect(page.getByText("Closed", { exact: true }).first(), `closed today in IST (${timezoneId})`).toBeVisible();

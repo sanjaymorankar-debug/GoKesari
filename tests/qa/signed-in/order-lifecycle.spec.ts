@@ -27,8 +27,8 @@ import {
   walletBalance,
   type PlacedOrder,
 } from "../lib/flows";
+import { flowOn, packedSelfCancelOpen } from "../lib/flows-v3-helpers";
 import { call, expectStatus, RUN, stash, unstash } from "../lib/http";
-import { ruleOn } from "../lib/orders-helpers";
 import { blocked, expect, qa } from "../lib/record";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
@@ -43,7 +43,12 @@ function current() {
 
 /** Status of the order as the customer's own order list shows it. */
 async function statusOf(id: string) {
-  return (await orderAs("customer", id))?.status ?? "missing";
+  const row = await orderAs("customer", id);
+  if (row) return row.status;
+  // GET /api/orders lists the customer's newest 25 orders only; the staging customer places many between the desktop
+  // and the phone run (baseline 27-Nov-2026), so the order's own cancellation quote (the buyer may read it) gives its status.
+  const quote = await call(await as("customer"), "GET", `/api/orders/${id}/cancellation-quote`);
+  return quote.status === 200 && typeof quote.body?.status === "string" ? (quote.body.status as string) : "missing";
 }
 
 qa(["TC-CART-001", "TC-CART-002"], "cart: add two products of one shop, change quantity, remove a line, empty", async () => {
@@ -124,8 +129,34 @@ qa("TC-CART-018", "/orders shows the new order with number, shop, amount and sta
   return `${order.orderNumber} card shows shop, amount and its status (${label.source})`;
 }, { ...signed, mobile: true, partial: "the card's action buttons are checked in the cancellation and support specs" });
 
-qa("TC-ORD-007", "the customer cannot cancel once the shop has accepted (ACCEPTED, PREPARING)", async () => {
+qa("TC-ORD-007", "customer cancel once the shop has accepted (ACCEPTED, PREPARING): refused (409) under the original rule; with flow_f16 allowed until packing, with a full refund", async () => {
   const order = current();
+  if (await flowOn("flow_f16")) {
+    // docs/flows-v3/wave2.md (flag flow_f16): the customer may cancel until packing, refunded in full (delivery fee
+    // included). Proven on separate orders, so the lifecycle order goes on to READY for the checks after this one.
+    const notes: string[] = [];
+    for (const stage of ["ACCEPTED", "PREPARING"] as const) {
+      const before = await walletBalance();
+      const other = await placeOrder({ method: "WALLET" });
+      expectStatus(await fulfil(other.id, "accept"), 200, `shop accepts ${other.orderNumber}`);
+      if (stage === "PREPARING") expectStatus(await fulfil(other.id, "start"), 200, `shop starts picking ${other.orderNumber}`);
+      expect(await statusOf(other.id), "the order's status before the cancel").toBe(stage);
+      const quote = await call(await as("customer"), "GET", `/api/orders/${other.id}/cancellation-quote`);
+      expectStatus(quote, 200, `cancellation quote at ${stage}`);
+      expect(quote.body.allowed, `the quote allows a cancel at ${stage}`).toBe(true);
+      expect(quote.body.breakdown?.refundPaise, `full refund quoted at ${stage}`).toBe(other.totalPaise);
+      const res = await call(await as("customer"), "PATCH", `/api/orders/${other.id}/status`, { status: "CANCELLED", note: "QA" });
+      expectStatus(res, 200, `customer cancels at ${stage}`);
+      expect(["CANCELLED", "REFUNDED"], `status after the cancel at ${stage}`).toContain(await statusOf(other.id));
+      expect(await walletBalance(), `wallet refunded in full after the cancel at ${stage}`).toBe(before);
+      notes.push(`${stage} → 200, ₹${other.totalPaise / 100} refunded`);
+    }
+    // The lifecycle order itself is accepted and picked for the next checks.
+    expectStatus(await fulfil(order.id, "accept"), 200, "shop accepts");
+    expectStatus(await fulfil(order.id, "start"), 200, "shop starts picking");
+    expect(await statusOf(order.id)).toBe("PREPARING");
+    return `flow_f16 on: customer cancel ${notes.join("; ")} (wallet back to its balance before each order)`;
+  }
   expectStatus(await fulfil(order.id, "accept"), 200, "shop accepts");
   const atAccepted = await call(await as("customer"), "PATCH", `/api/orders/${order.id}/status`, { status: "CANCELLED", note: "QA" });
   expect(atAccepted.status, "cancel at ACCEPTED").toBe(409);
@@ -146,10 +177,10 @@ qa(["TC-FUL-002", "TC-FUL-006"], "the shop marks the order READY and a rider is 
   return `READY; offer ${offer.deliveryOrderId} (${offer.status}) reached the rider`;
 }, { ...signed, partial: "'without explicit picks' is this run (no line was picked); the all-picked variant is in fulfilment.spec.ts" });
 
-qa("TC-ORD-007", "the customer cannot cancel at READY", async () => {
+qa("TC-ORD-007", "the customer cannot cancel at READY by themselves (with flow_f16 they may ask the shop instead)", async () => {
   const order = current();
   expect(await statusOf(order.id)).toBe("READY");
-  if (await ruleOn("afterPackingCancellation")) {
+  if (await packedSelfCancelOpen()) {
     // This site lets the customer cancel a packed order for a fee: the quote says so; the order stays for the rider checks.
     const quote = await call(await as("customer"), "GET", `/api/orders/${order.id}/cancellation-quote`);
     expectStatus(quote, 200, "cancellation quote");
@@ -158,6 +189,16 @@ qa("TC-ORD-007", "the customer cannot cancel at READY", async () => {
   }
   const res = await call(await as("customer"), "PATCH", `/api/orders/${order.id}/status`, { status: "CANCELLED" });
   expect(res.status).toBe(409);
+  if (await flowOn("flow_f16")) {
+    // flow_f16: a packed order is cancelled only when the shop agrees — the customer asks; withdrawn here so the order goes on.
+    const quote = await call(await as("customer"), "GET", `/api/orders/${order.id}/cancellation-quote`);
+    expect(quote.body?.allowed, "the quote refuses a self-cancel at READY").toBe(false);
+    const asked = await call(await as("customer"), "POST", `/api/orders/${order.id}/cancel-request`, { reason: "QA: asked, then withdrawn" });
+    expectStatus(asked, 201, "ask the shop to cancel the packed order");
+    expectStatus(await call(await as("customer"), "DELETE", `/api/orders/${order.id}/cancel-request`), 200, "withdraw the request");
+    expect(await statusOf(order.id), "still READY").toBe("READY");
+    return `cancel at READY → ${res.status}; flow_f16: quote refuses, asking the shop → 201 (withdrawn), order still READY`;
+  }
   return `cancel at READY → ${res.status}`;
 }, signed);
 
@@ -173,7 +214,7 @@ qa(["TC-DEL-001", "TC-DEL-010"], "the rider accepts the offer: ASSIGNED; the rid
     expect(text, "no delivery code").not.toMatch(/"(deliveryOtp|deliveryOtpHash|handoverCode)"\s*:\s*"/);
   }
   expect(view.text).toMatch(/needsPickupCode|needsDeliveryOtp/);
-  if (await ruleOn("afterPackingCancellation")) return "ASSIGNED; rider JSON has only needs* flags; customer cancel at ASSIGNED not tried (rule afterPackingCancellation is on here)";
+  if (await packedSelfCancelOpen()) return "ASSIGNED; rider JSON has only needs* flags; customer cancel at ASSIGNED not tried (rule afterPackingCancellation is on here)";
   const cancel = await call(await as("customer"), "PATCH", `/api/orders/${order.id}/status`, { status: "CANCELLED" });
   expect(cancel.status, "customer cannot cancel at ASSIGNED (TC-ORD-007)").toBe(409);
   return "ASSIGNED; rider JSON has only needs* flags; customer cancel at ASSIGNED refused";

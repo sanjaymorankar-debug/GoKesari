@@ -10,6 +10,7 @@ import { signIn } from "@/server/auth";
 import { emailMode } from "@/server/email/transport";
 import { verifyLoginOtp } from "@/server/otp/service";
 import { signInFromForm } from "@/server/signin-form";
+import { rememberSignUpTermsTick } from "@/server/flows/signup-terms";
 import { continueAfterFirstFactor } from "@/server/signin-otp";
 
 /**
@@ -82,8 +83,9 @@ export function ShopSignInCard() {
         {googleEnabled ? (
           <form
             className="mt-4"
-            action={async () => {
+            action={async (formData: FormData) => {
               "use server";
+              await rememberSignUpTermsTick(formData);
               await signInFromForm(() => signIn("google", { redirectTo: AFTER_SIGN_IN }));
             }}
           >

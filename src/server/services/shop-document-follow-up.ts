@@ -38,7 +38,17 @@ import { getEnv } from "@/lib/env";
 import { SELLER_DOC_LABELS, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
 import type { RuleValue } from "@/server/config/rules";
 import { db } from "@/server/db";
-import { sellerVerifications, shopDocumentReminders, shopDocumentWaivers, shopLegalDocuments, shopRegistrationDrafts, shops, users, type Shop } from "@/server/db/schema";
+import {
+  registrationLicenceEntries,
+  sellerVerifications,
+  shopDocumentReminders,
+  shopDocumentWaivers,
+  shopLegalDocuments,
+  shopRegistrationDrafts,
+  shops,
+  users,
+  type Shop,
+} from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { fssaiStatus } from "./document-uploads";
@@ -63,6 +73,8 @@ export interface ShopDocumentFollowUpResult {
   suspended: number;
   /** Shops whose documents are complete now: their reminder count was cleared. */
   cleared: number;
+  /** Onboarding v2 (owner, 27-Nov-2026): shops this follow-up had suspended, reinstated now their documents are given. */
+  reactivated: number;
   /** Reminders all sent, the promised date not reached yet. */
   waiting: number;
   failed: number;
@@ -95,7 +107,7 @@ export interface ShopMissingDocuments {
 
 /** Live shops with a mandatory document not verified — the admin "Missing documents" list and the job's input. */
 export async function shopsMissingDocuments(
-  options: { statuses?: Shop["status"][]; now?: Date } = {},
+  options: { statuses?: Shop["status"][]; now?: Date; shopIds?: string[] } = {},
 ): Promise<ShopMissingDocuments[]> {
   const statuses = options.statuses ?? ["APPROVED"];
   const now = (options.now ?? new Date()).getTime();
@@ -119,7 +131,7 @@ export async function shopsMissingDocuments(
       isDoctor: shopIsDoctorSql(),
     })
     .from(shops)
-    .where(and(inArray(shops.status, statuses), isNull(shops.deletedAt)))
+    .where(and(inArray(shops.status, statuses), isNull(shops.deletedAt), options.shopIds ? inArray(shops.id, options.shopIds.length ? options.shopIds : ["00000000-0000-0000-0000-000000000000"]) : undefined))
     .orderBy(shops.name);
 
   const ruleSet = await loadDocumentRuleSet();
@@ -127,7 +139,7 @@ export async function shopsMissingDocuments(
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
     const ids = chunk.map((r) => r.shop.id);
-    const [documents, reminders, licences, drafts] = await Promise.all([
+    const [documents, reminders, licences, drafts, registered] = await Promise.all([
       db
         .select({ shopId: sellerVerifications.shopId, docType: sellerVerifications.docType, status: sellerVerifications.status })
         .from(sellerVerifications)
@@ -144,10 +156,22 @@ export async function shopsMissingDocuments(
         .select({ shopId: shopRegistrationDrafts.shopId })
         .from(shopRegistrationDrafts)
         .where(and(inArray(shopRegistrationDrafts.shopId, ids), inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"]))),
+      // Onboarding v2: a licence entered, uploaded or scanned at registration (verified, or with GoKesari's team) is
+      // given — not chased. Only v2 registrations have these rows, so nothing changes for any other shop.
+      db
+        .select({ shopId: registrationLicenceEntries.shopId, licenceKey: registrationLicenceEntries.licenceKey })
+        .from(registrationLicenceEntries)
+        .where(and(inArray(registrationLicenceEntries.shopId, ids), inArray(registrationLicenceEntries.status, ["VERIFIED", "PENDING_OPERATOR"]))),
     ]);
     const wizardShops = new Set(drafts.map((d) => d.shopId));
     for (const row of chunk) {
       const status = new Map(documents.filter((d) => d.shopId === row.shop.id).map((d) => [d.docType, d.status as string]));
+      const givenAtRegistration = new Set(registered.filter((r) => r.shopId === row.shop.id).map((r) => r.licenceKey));
+      // A seller document given at v2 registration and not checked yet counts as with GoKesari's team (WITH_THE_TEAM).
+      for (const key of givenAtRegistration) {
+        const current = status.get(key as SellerDocType);
+        if (current !== "VERIFIED" && !WITH_THE_TEAM.has(current ?? "")) status.set(key as SellerDocType, "PENDING");
+      }
       const wizardRegistered = wizardShops.has(row.shop.id);
       // DF-08 (owner, 21-Nov-2026): "PAN / GST" — a wizard shop with either one verified is not chased for the other.
       const identityVerified = wizardRegistered && (status.get("GSTIN") === "VERIFIED" || status.get("PAN") === "VERIFIED");
@@ -165,6 +189,7 @@ export async function shopsMissingDocuments(
       const licenceNeeded = needed.filter(
         (r) =>
           r.kind !== "seller" &&
+          !givenAtRegistration.has(r.key) &&
           !shopLicences.some(
             (l) =>
               (r.kind === "custom" ? l.docType === "OTHER_LICENCE" && l.licenceKey === r.key : l.docType === r.key && l.licenceKey === "") &&
@@ -218,7 +243,20 @@ export async function runShopDocumentFollowUp(
   today: IsoDate = todayIn(getEnv().APP_TIMEZONE),
   now: Date = new Date(),
 ): Promise<ShopDocumentFollowUpResult> {
-  const result: ShopDocumentFollowUpResult = { day: today, acting: false, checked: 0, reminded: 0, suspended: 0, cleared: 0, waiting: 0, failed: 0 };
+  const result: ShopDocumentFollowUpResult = { day: today, acting: false, checked: 0, reminded: 0, suspended: 0, cleared: 0, reactivated: 0, waiting: 0, failed: 0 };
+  // docs/flows-v3/wave3.md (flag flow_f5): licences given at a v2 registration are in the shop's licence register
+  // (back-fill for shops created before), and promised licences given since are marked given — before anyone is chased.
+  await (await import("@/server/flows/f5-licences"))
+    .backfillRegistrationLicences()
+    .catch((error: unknown) => console.error("[shop-document-follow-up] registration licence back-fill failed", error));
+  // Onboarding v2 (owner, 27-Nov-2026): every day, the safety net for the automatic reinstatement that follows each
+  // document upload — a shop this follow-up suspended whose documents are all given now is live again.
+  result.reactivated = await (await import("@/server/onboarding-v2/document-reactivation"))
+    .reactivateDocumentSuspensions()
+    .catch((error: unknown) => {
+      console.error("[shop-document-follow-up] automatic reinstatement failed", error);
+      return 0;
+    });
   const rule = await getRule("shopDocumentFollowUp");
   if (!rule.enabled || !rule.reminderDaysOfMonth.includes(Number(today.slice(8, 10)))) return result;
   result.acting = true;
@@ -396,12 +434,17 @@ async function followUpShop(
       : c.ruleDueAt
       ? `Shop documents needed for this type of shop not uploaded by ${formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, c.ruleDueAt))}: ${labels}.`
       : `Shop documents not submitted after ${max} reminders: ${labels}.`;
+    // Onboarding v2 (owner, 27-Nov-2026): reinstated automatically as soon as the documents are given.
+    const automatic = await (await import("@/server/onboarding-v2/roles")).onboardingV2Enabled();
     await suspendShopWithPolicy(
       shop.id,
       {
         reason,
-        expectedAction: `Upload ${labels} on GoKesari (Shop → Verification). Our team reinstates the shop once they are verified.`,
+        expectedAction: automatic
+          ? `Upload ${labels} on GoKesari (Shop → Verification). Your shop is live again automatically as soon as they are uploaded.`
+          : `Upload ${labels} on GoKesari (Shop → Verification). Our team reinstates the shop once they are verified.`,
         mandatoryNotice: true,
+        source: "DOCUMENT_FOLLOW_UP",
       },
       null,
     );

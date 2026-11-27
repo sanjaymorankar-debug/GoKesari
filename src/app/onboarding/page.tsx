@@ -12,6 +12,7 @@ import { needsSignupReferralCode, shouldAskSignupReferral } from "@/server/servi
 import { getProfile, nextOnboardingStep } from "@/server/services/profile";
 import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 import { isSheetResumePath } from "@/lib/onboarding-v2-sheet";
+import { flowOn } from "@/server/flows/wave2-rules";
 
 export const metadata = { title: "Welcome" };
 export const dynamic = "force-dynamic";
@@ -56,7 +57,8 @@ export default async function OnboardingPage() {
   }
 
   // Referral code at registration (docs/four-features-2026-10, rule customerSignupReferral).
-  const askReferral = await shouldAskSignupReferral(user.id);
+  // docs/flows-v3/wave2.md (flag flow_f2): not asked before the first order (optional after payment).
+  const askReferral = !(await flowOn("flow_f2")) && (await shouldAskSignupReferral(user.id));
   const prefill = askReferral ? ((await cookies()).get(REFERRAL_COOKIE)?.value ?? "") : "";
   const requireReferral = askReferral && (await needsSignupReferralCode(user.id));
   // docs/referral-sharing-2026-11: "Referred by <name>".

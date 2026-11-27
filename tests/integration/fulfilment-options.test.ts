@@ -65,7 +65,14 @@ import { addToCart } from "@/server/services/cart";
 import { acceptDeliveryOffer, findRiderNow, markDelivered, markPickedUp, startDelivery } from "@/server/services/delivery-assignment";
 import { setCommissionRate } from "@/server/services/finance";
 import { acceptOrder, startPicking } from "@/server/services/fulfilment";
-import { pickupCodeFor, getBuyerFulfilmentViews, getShopFulfilmentViews } from "@/server/services/fulfilment-options";
+import {
+  ADDRESS_PENDING_NO_PICKUP,
+  ADDRESS_PENDING_NOT_OUT,
+  pickupCodeFor,
+  getBuyerFulfilmentViews,
+  getShopFulfilmentViews,
+} from "@/server/services/fulfilment-options";
+import { setDeliveryLocationAfterPayment } from "@/server/onboarding-v2/customer";
 import { cancelOrder, checkout } from "@/server/services/orders";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { adjustShopWallet } from "@/server/services/shop-wallet";
@@ -557,6 +564,80 @@ describe("shop's own delivery", () => {
     expect((await plan(noAddress.id, { option: "SHOP_DELIVERY", slotKey: nowSlot(), staffId: mine.id })).status).toBe(422);
     expect((await plan(noAddress.id, { option: "GOKESARI_PARTNER", slotKey: nowSlot() })).status).toBe(422);
     expect((await plan(noAddress.id, { option: "PICKUP", slotKey: nowSlot(), markReady: true })).status).toBe(200);
+  });
+});
+
+/* ------------------------- onboarding v2: delivery order paid before its address (QA D-166) */
+
+describe("address after payment (onboarding v2, QA D-166)", () => {
+  /** A paid delivery order placed with "Set the location after paying": no address yet, address_pending_since set. */
+  async function pendingAddressOrder(ctx: Awaited<ReturnType<typeof setup>>) {
+    const placed = await preparingOrder(ctx);
+    await db
+      .update(orders)
+      .set({ addressId: null, deliveryAddressSnapshot: null, addressPendingSince: new Date() })
+      .where(eq(orders.id, placed.order.id));
+    return placed;
+  }
+
+  it("TC-OV2-017: the shop packs it for a GoKesari rider; the rider is found only once the customer sets the location", async () => {
+    await enable();
+    const ctx = await setup({ withRider: true });
+    const { order, customer } = await pendingAddressOrder(ctx);
+    signIn(ctx.owner, "SHOP_OWNER");
+
+    // Pickup would turn a paid delivery order into a pickup order: refused.
+    const pickup = await plan(order.id, { option: "PICKUP", slotKey: nowSlot(), markReady: true });
+    expect(pickup.status).toBe(409);
+    expect(pickup.body.error.message).toBe(ADDRESS_PENDING_NO_PICKUP);
+    expect(await orderStatus(order.id)).toBe("PREPARING");
+
+    const ready = await plan(order.id, { option: "GOKESARI_PARTNER", slotKey: nowSlot(), markReady: true });
+    expect(ready.status, JSON.stringify(ready.body)).toBe(200);
+    expect(ready.body.order.status).toBe("READY");
+    expect(ready.body.plan).toMatchObject({ option: "GOKESARI_PARTNER" });
+    // No rider while the location is unknown.
+    expect(await db.select().from(deliveryOrders).where(eq(deliveryOrders.orderId, order.id))).toHaveLength(0);
+
+    // Changing it to pickup later is refused too; the plan stays a delivery.
+    const later = await plan(order.id, { option: "PICKUP", slotKey: nowSlot() });
+    expect(later.status).toBe(409);
+    expect((await planRow(order.id)).option).toBe("GOKESARI_PARTNER");
+
+    // The customer sets the location: the READY order now goes to the rider.
+    await setDeliveryLocationAfterPayment({ id: customer.id, role: "CUSTOMER" }, { orderIds: [order.id], addressId: await deliveryAddressId(customer.id) });
+    const [offer] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.orderId, order.id));
+    expect(offer?.status).toBe("OFFERED");
+  });
+
+  it("own delivery may be planned, but the order leaves only once the location is set", async () => {
+    await enable();
+    const ctx = await setup();
+    const staff = await addStaff(ctx.shop.id, ctx.owner);
+    const { order, customer } = await pendingAddressOrder(ctx);
+    signIn(ctx.owner, "SHOP_OWNER");
+    const ready = await plan(order.id, { option: "SHOP_DELIVERY", slotKey: nowSlot(), staffId: staff.id, markReady: true });
+    expect(ready.status, JSON.stringify(ready.body)).toBe(200);
+    expect(ready.body.order.status).toBe("READY");
+
+    const out = await handover(order.id, { action: "out_for_delivery" });
+    expect(out.status).toBe(409);
+    expect(out.body.error.message).toBe(ADDRESS_PENDING_NOT_OUT);
+    expect(await orderStatus(order.id)).toBe("READY");
+
+    await setDeliveryLocationAfterPayment({ id: customer.id, role: "CUSTOMER" }, { orderIds: [order.id], addressId: await deliveryAddressId(customer.id) });
+    const sent = await handover(order.id, { action: "out_for_delivery" });
+    expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+    expect(await orderStatus(order.id)).toBe("OUT_FOR_DELIVERY");
+  });
+
+  it("an order without an address that is not waiting for one (pickup shop) behaves as before", async () => {
+    await enable();
+    const ctx = await setup({ deliveryAvailable: false });
+    const { order } = await preparingOrder(ctx, { address: false });
+    signIn(ctx.owner, "SHOP_OWNER");
+    expect((await plan(order.id, { option: "GOKESARI_PARTNER", slotKey: nowSlot() })).status).toBe(422);
+    expect((await plan(order.id, { option: "PICKUP", slotKey: nowSlot(), markReady: true })).status).toBe(200);
   });
 });
 

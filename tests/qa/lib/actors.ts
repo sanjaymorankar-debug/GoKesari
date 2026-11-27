@@ -16,6 +16,7 @@ import { request as playwrightRequest, type APIRequestContext, type Browser, typ
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { ensureDualVerified } from "./dual-auth";
 import { encodeSession } from "./session-jwt";
 
 import { call } from "./http";
@@ -26,6 +27,13 @@ import { ROLE_NAMES, world, type Role } from "./world";
 const AUTH_DIR = process.env.E2E_AUTH_DIR ?? ".e2e-auth";
 /** Seller Central's shop switcher (ACTIVE_SHOP_COOKIE in src/lib/seller/active-shop.ts). */
 const ACTIVE_SHOP_COOKIE = "gk_shop";
+/**
+ * The board language (LANG_COOKIE in src/lib/board/i18n.ts). Since Module 6 (users.preferred_lang) a signed-in
+ * account without the cookie gets the language it last chose on the EN / हिं / मरा switch, so one check that
+ * switches to मरा would turn every later page of that account Marathi. The suite reads English: every session
+ * starts with gk_lang=en (a check that clicks the switch overrides it in its own context).
+ */
+const LANG_COOKIE = "gk_lang";
 const SECURE = BASE_URL.startsWith("https");
 const COOKIE = SECURE ? "__Secure-authjs.session-token" : "authjs.session-token";
 
@@ -46,7 +54,7 @@ export async function storageFor(role: Role): Promise<StorageState> {
     const value = await encodeSession({ token: { sub: user.id, email: user.email, name: role }, secret, salt: COOKIE });
     const url = new URL(BASE_URL);
     return {
-      cookies: [{ name: COOKIE, value, domain: url.hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" }],
+      cookies: [{ name: COOKIE, value, domain: url.hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" }, english()],
       origins: [],
     };
   }
@@ -54,16 +62,20 @@ export async function storageFor(role: Role): Promise<StorageState> {
   if (!existsSync(file)) blocked(`no saved ${ROLE_NAMES[role]} session for ${TARGET} (${file}); run scripts/qa/signin-staging.ts`);
   const shopKey = world().users[role]?.activeShop;
   const shopId = shopKey ? world().shops[shopKey]?.id : undefined;
-  if (!shopId) return file;
-  // An owner's pages open their newest shop unless the switcher chose another; this account owns several.
   const state = JSON.parse(readFileSync(file, "utf8")) as Exclude<StorageState, string | undefined>;
   return {
     ...state,
     cookies: [
-      ...state.cookies.filter((c) => c.name !== ACTIVE_SHOP_COOKIE),
-      { name: ACTIVE_SHOP_COOKIE, value: shopId, domain: new URL(BASE_URL).hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" },
+      ...state.cookies.filter((c) => c.name !== LANG_COOKIE && (!shopId || c.name !== ACTIVE_SHOP_COOKIE)),
+      english(),
+      // An owner's pages open their newest shop unless the switcher chose another; this account owns several.
+      ...(shopId ? [{ name: ACTIVE_SHOP_COOKIE, value: shopId, domain: new URL(BASE_URL).hostname, path: "/", expires: -1, httpOnly: true, secure: SECURE, sameSite: "Lax" as const }] : []),
     ],
   };
+}
+
+function english() {
+  return { name: LANG_COOKIE, value: "en", domain: new URL(BASE_URL).hostname, path: "/", expires: -1, httpOnly: false, secure: SECURE, sameSite: "Lax" as const };
 }
 
 const apis = new Map<Role, APIRequestContext>();
@@ -74,11 +86,14 @@ export async function as(role: Role): Promise<APIRequestContext> {
   if (existing) return existing;
   const ctx = await playwrightRequest.newContext({ baseURL: BASE_URL, storageState: await storageFor(role), timeout: 120_000 });
   apis.set(role, ctx);
+  // dual_auth (test site): complete a missing mobile factor once per account and worker (lib/dual-auth.ts).
+  await ensureDualVerified(role, ctx, async () => (role === "admin" ? null : as("admin").catch(() => null)));
   return ctx;
 }
 
 /** A browser context + page signed in as `role` (close the context when done). */
 export async function pageAs(browser: Browser, role: Role, options: Parameters<Browser["newContext"]>[0] = {}): Promise<{ context: BrowserContext; page: Page }> {
+  await as(role); // the account's factors (dual_auth) before its pages
   const context = await browser.newContext({ ...options, baseURL: BASE_URL, storageState: await storageFor(role) });
   const page = await context.newPage();
   if (IS_REMOTE) {

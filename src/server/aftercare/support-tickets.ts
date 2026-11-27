@@ -35,10 +35,12 @@ import {
   isTicketLive,
   LIVE_TICKET_STATUSES,
   TICKET_CATEGORIES,
-  TICKET_CATEGORY_LABELS,
+  SHOP_OWNER_FLOW_CATEGORIES,
   TICKET_PRIORITIES,
   TICKET_STATUS_LABELS,
+  ticketCategoryLabel,
   TICKET_TRANSITIONS,
+  type RaisableTicketCategory,
   type TicketCategory,
   type TicketPriority,
   type TicketStatus,
@@ -69,6 +71,8 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { getLiveDisputesForOrders } from "@/server/services/disputes";
 import { getRule } from "@/server/services/settings";
 import { listUserRoles } from "@/server/services/roles";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { addWorkingHours } from "@/lib/working-hours";
 
 export interface Actor {
   id: string;
@@ -76,7 +80,13 @@ export interface Actor {
 }
 type SystemActor = Actor | null;
 
-export type TicketAccess = "STAFF" | "REQUESTER" | "SHOP";
+/** DEALER (docs/flows-v3, flag flow_f17): the shop's area dealer, copied on the ticket — read-only. */
+export type TicketAccess = "STAFF" | "REQUESTER" | "SHOP" | "DEALER";
+
+/** docs/flows-v3 (wave 1): the F17 support changes apply only while this flag is on. */
+export async function flowF17On(): Promise<boolean> {
+  return isFeatureEnabled("flow_f17").catch(() => false);
+}
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -105,6 +115,7 @@ export async function ticketAccess(ticket: SupportTicket, actor: Actor, client: 
   if (ticket.assignedToUserId === actor.id && can(actor.role, PERMISSIONS.SUPPORT_TICKET_WORK_ASSIGNED)) return "STAFF";
   if (ticket.requesterId && ticket.requesterId === actor.id) return "REQUESTER";
   if (ticket.status === "AWAITING_SHOP" && ticket.shopId && (await shopOwnerOf(ticket.shopId, client)) === actor.id) return "SHOP";
+  if (ticket.ccDealerUserId && ticket.ccDealerUserId === actor.id && (await flowF17On())) return "DEALER";
   return null;
 }
 
@@ -222,9 +233,12 @@ export async function moveTicket(
   to: TicketStatus,
   actor: SystemActor,
   note: string | null,
+  /** docs/flows-v3 (flag flow_f17): the requester reopens a closed ticket (outside the regular state table). */
+  options: { reopenClosed?: boolean } = {},
 ): Promise<SupportTicket> {
   const from = ticket.status as TicketStatus;
-  if (!canMoveTicket(from, to)) {
+  const reopenClosed = Boolean(options.reopenClosed) && from === "CLOSED" && to === "REOPENED";
+  if (!reopenClosed && !canMoveTicket(from, to)) {
     throw conflict(`A ticket that is ${TICKET_STATUS_LABELS[from].toLowerCase()} cannot be moved to ${TICKET_STATUS_LABELS[to].toLowerCase()}.`);
   }
   const now = new Date();
@@ -238,6 +252,7 @@ export async function moveTicket(
   if (to === "REOPENED") {
     patch.reopenCount = ticket.reopenCount + 1;
     patch.resolvedAt = null;
+    if (reopenClosed) patch.closedAt = null;
   }
   if (to === "ESCALATED") {
     patch.escalationLevel = ticket.escalationLevel + 1;
@@ -266,7 +281,9 @@ export async function moveTicket(
     {
       type: "support_ticket.status_changed",
       subjectId: ticket.id,
-      transition: { from, to },
+      // A closed ticket reopened under flow_f17 is not in the state table: the move is recorded on the ticket's
+      // own event log above, and the event carries no transition to check.
+      transition: reopenClosed ? null : { from, to },
       actor: actor ?? { id: null, role: null },
       payload: {
         ticketId: ticket.id,
@@ -290,7 +307,8 @@ export async function moveTicket(
 /* ------------------------------------------------------------- raising */
 
 export interface CreateTicketInput {
-  category: TicketCategory;
+  /** The extra shop-owner topics (SHOP_OWNER_FLOW_CATEGORIES) only while flow_f17 is on (docs/flows-v3). */
+  category: RaisableTicketCategory;
   subject: string;
   description: string;
   orderId?: string | null;
@@ -299,9 +317,12 @@ export interface CreateTicketInput {
   priority?: TicketPriority;
 }
 
-function validateTicketInput(input: CreateTicketInput) {
+function validateTicketInput(input: CreateTicketInput, allowShopOwnerTopics = false) {
   const fields: Record<string, string> = {};
-  if (!TICKET_CATEGORIES.includes(input.category)) fields.category = "Choose what the ticket is about.";
+  const known =
+    (TICKET_CATEGORIES as readonly string[]).includes(input.category) ||
+    (allowShopOwnerTopics && (SHOP_OWNER_FLOW_CATEGORIES as readonly string[]).includes(input.category));
+  if (!known) fields.category = "Choose what the ticket is about.";
   if (input.subject.trim().length < 3) fields.subject = "Enter a subject.";
   if (input.subject.trim().length > 200) fields.subject = "Keep the subject under 200 characters.";
   if (input.description.trim().length < 10) fields.description = "Describe the problem in a bit more detail.";
@@ -312,8 +333,21 @@ function validateTicketInput(input: CreateTicketInput) {
 
 export async function slaDeadlines(receivedAt: Date) {
   const rule = await getRule("helpdesk");
+  const statutoryAck = new Date(receivedAt.getTime() + rule.acknowledgeWithinHours * HOUR);
+  let acknowledgeBy = statutoryAck;
+  // docs/flows-v3 (flag flow_f17): the first response is due within working hours (rule supportFlows), never
+  // later than the statutory acknowledgement deadline above.
+  if (await flowF17On()) {
+    const flows = await getRule("supportFlows");
+    const working = addWorkingHours(receivedAt, flows.firstResponseWorkingHours, {
+      workingDays: flows.workingDays,
+      startHour: flows.workdayStartHour,
+      endHour: flows.workdayEndHour,
+    });
+    if (working < statutoryAck) acknowledgeBy = working;
+  }
   return {
-    acknowledgeBy: new Date(receivedAt.getTime() + rule.acknowledgeWithinHours * HOUR),
+    acknowledgeBy,
     resolveBy: new Date(receivedAt.getTime() + rule.resolveWithinDays * DAY),
   };
 }
@@ -330,7 +364,7 @@ export async function announceCreated(tx: DbClient, ticket: SupportTicket, actor
         ticketId: ticket.id,
         ticketNumber: ticket.ticketNumber,
         subject: ticket.subject,
-        categoryLabel: TICKET_CATEGORY_LABELS[ticket.category as TicketCategory] ?? ticket.category,
+        categoryLabel: ticketCategoryLabel(ticket.category),
         requesterId: ticket.requesterId,
         requesterLabel,
         acknowledgeByLabel: formatIst(ticket.acknowledgeBy),
@@ -347,7 +381,9 @@ export async function createTicket(input: CreateTicketInput, actor: Actor): Prom
   if (!can(actor.role, PERMISSIONS.SUPPORT_TICKET_RAISE)) throw forbidden("You cannot raise support tickets.");
   const rule = await getRule("helpdesk");
   if (!rule.enabled) throw conflict("The help desk is not available right now. Please use the complaint form.");
-  validateTicketInput(input);
+  const shopOwnerTopic = (SHOP_OWNER_FLOW_CATEGORIES as readonly string[]).includes(input.category);
+  // docs/flows-v3 (flag flow_f17): the shop-owner topics need the flag; the requester role is checked below.
+  validateTicketInput(input, shopOwnerTopic && (await flowF17On()));
 
   let shopId: string | null = null;
   let orderId: string | null = null;
@@ -373,10 +409,14 @@ export async function createTicket(input: CreateTicketInput, actor: Actor): Prom
     requesterRole = "SHOP_OWNER";
   }
 
+  if (shopOwnerTopic && requesterRole !== "SHOP_OWNER") {
+    throw validationFailed("Please check the highlighted fields.", { fields: { category: "Choose what the ticket is about." } });
+  }
+
   const [user] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, actor.id));
   const now = new Date();
   const { acknowledgeBy, resolveBy } = await slaDeadlines(now);
-  return db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const [ticket] = await tx
       .insert(supportTickets)
       .values({
@@ -411,6 +451,22 @@ export async function createTicket(input: CreateTicketInput, actor: Actor): Prom
     await announceCreated(tx, ticket, actor, user?.name ?? user?.email ?? "a user");
     return ticket;
   });
+  return afterTicketOpened(created);
+}
+
+/**
+ * docs/flows-v3 (flag flow_f17): after a ticket is saved — auto-assignment by category and district, and the area
+ * dealer copied. Returns the ticket as it now stands. Never throws: the ticket is already raised whatever happens.
+ */
+export async function afterTicketOpened(ticket: SupportTicket): Promise<SupportTicket> {
+  try {
+    if (!(await flowF17On())) return ticket;
+    const { routeNewTicket } = await import("./ticket-routing");
+    return (await routeNewTicket(ticket.id)) ?? ticket;
+  } catch (error) {
+    console.error("[helpdesk] routing a new ticket failed", ticket.ticketNumber, error);
+    return ticket;
+  }
 }
 
 /**
@@ -426,7 +482,7 @@ export async function mirrorGrievanceToTicket(grievance: Grievance): Promise<Sup
     if (existing) return existing;
     const order = grievance.orderId ? await db.query.orders.findFirst({ where: eq(orders.id, grievance.orderId) }) : null;
     const { acknowledgeBy, resolveBy } = await slaDeadlines(grievance.createdAt);
-    return await db.transaction(async (tx) => {
+    const ticket = await db.transaction(async (tx) => {
       const [ticket] = await tx
         .insert(supportTickets)
         .values({
@@ -449,6 +505,7 @@ export async function mirrorGrievanceToTicket(grievance: Grievance): Promise<Sup
       await announceCreated(tx, ticket, null, grievance.name, true);
       return ticket;
     });
+    return await afterTicketOpened(ticket);
   } catch (error) {
     console.error("[helpdesk] could not open a ticket for grievance", grievance.ticketNumber, error);
     return null;
@@ -504,6 +561,8 @@ async function listRows(where: SQL | undefined, limit = 200): Promise<TicketList
 
 /** "My tickets" in the portal. */
 export async function listMyTickets(actor: Actor): Promise<TicketListRow[]> {
+  // docs/flows-v3 (flag flow_f17): an area dealer also sees the tickets they are copied on.
+  if (await flowF17On()) return listRows(or(eq(supportTickets.requesterId, actor.id), eq(supportTickets.ccDealerUserId, actor.id)));
   return listRows(eq(supportTickets.requesterId, actor.id));
 }
 
@@ -659,13 +718,14 @@ export async function getTicketDetail(ticketId: string, actor: Actor): Promise<T
   ]);
   const rule = await getRule("helpdesk");
   const status = ticket.status as TicketStatus;
+  const window = await reopenWindow();
   const reopenOpen =
-    status === "RESOLVED" && ticket.resolvedAt != null && Date.now() - ticket.resolvedAt.getTime() <= rule.reopenWithinDays * DAY;
+    window.statuses.includes(status) && ticket.resolvedAt != null && Date.now() - ticket.resolvedAt.getTime() <= window.days * DAY;
   return {
     ticket,
     access,
     statusLabel: TICKET_STATUS_LABELS[status],
-    categoryLabel: TICKET_CATEGORY_LABELS[ticket.category as TicketCategory] ?? ticket.category,
+    categoryLabel: ticketCategoryLabel(ticket.category),
     orderNumber: order?.orderNumber ?? null,
     disputeId: ticket.disputeId,
     grievanceNumber: grievance?.ticketNumber ?? null,
@@ -689,7 +749,7 @@ export async function getTicketDetail(ticketId: string, actor: Actor): Promise<T
       .map((e) => ({ kind: e.kind, fromStatus: e.fromStatus, toStatus: e.toStatus, note: e.note, createdAt: e.createdAt })),
     csat: csat ? { rating: csat.rating, comment: csat.comment } : null,
     can: {
-      reply: access === "SHOP" ? status === "AWAITING_SHOP" : status !== "CLOSED" && (staff || status !== "RESOLVED"),
+      reply: access === "DEALER" ? false : access === "SHOP" ? status === "AWAITING_SHOP" : status !== "CLOSED" && (staff || status !== "RESOLVED"),
       close: access === "REQUESTER" && status === "RESOLVED",
       reopen: access === "REQUESTER" && reopenOpen,
       rate: access === "REQUESTER" && status === "CLOSED" && rule.csatEnabled && !csat,
@@ -705,6 +765,15 @@ export async function getTicketDetail(ticketId: string, actor: Actor): Promise<T
 
 /* ---------------------------------------------------------- working it */
 
+/**
+ * How long, and from which statuses, the requester may reopen: rule helpdesk (resolved tickets only) — or, while
+ * flow_f17 is on, rule supportFlows.reopenWithinDays from resolved and closed tickets.
+ */
+async function reopenWindow(): Promise<{ days: number; statuses: TicketStatus[] }> {
+  if (await flowF17On()) return { days: (await getRule("supportFlows")).reopenWithinDays, statuses: ["RESOLVED", "CLOSED"] };
+  return { days: (await getRule("helpdesk")).reopenWithinDays, statuses: ["RESOLVED"] };
+}
+
 /** Status change by support (any legal move) or by the requester (close / reopen a resolved ticket). */
 export async function changeTicketStatus(ticketId: string, to: TicketStatus, actor: Actor, note?: string | null): Promise<SupportTicket> {
   return db.transaction(async (tx) => {
@@ -715,17 +784,20 @@ export async function changeTicketStatus(ticketId: string, to: TicketStatus, act
       return moveTicket(tx, ticket, to, actor, trimmed);
     }
     if (access === "REQUESTER") {
-      if (ticket.status !== "RESOLVED" || (to !== "CLOSED" && to !== "REOPENED")) {
+      const window = await reopenWindow();
+      // docs/flows-v3 (flag flow_f17): a closed ticket may be reopened too, within the window.
+      const closedReopen = ticket.status === "CLOSED" && to === "REOPENED" && window.statuses.includes("CLOSED");
+      if (!closedReopen && (ticket.status !== "RESOLVED" || (to !== "CLOSED" && to !== "REOPENED"))) {
         throw forbidden("You can close or reopen your ticket once it is resolved.");
       }
       if (to === "REOPENED") {
-        const { reopenWithinDays } = await getRule("helpdesk");
+        const reopenWithinDays = window.days;
         if (!ticket.resolvedAt || Date.now() - ticket.resolvedAt.getTime() > reopenWithinDays * DAY) {
           throw conflict(`A ticket can be reopened within ${reopenWithinDays} days of being resolved. Please raise a new ticket.`);
         }
         if (!trimmed) throw validationFailed("Tell us why the problem is not solved.");
       }
-      return moveTicket(tx, ticket, to, actor, trimmed);
+      return moveTicket(tx, ticket, to, actor, trimmed, { reopenClosed: closedReopen });
     }
     throw forbidden("The shop replies to a ticket; support changes its status.");
   });
@@ -854,6 +926,7 @@ export async function replyToTicket(ticketId: string, actor: Actor, input: Reply
     if (status === "CLOSED") throw conflict("This ticket is closed. Please raise a new ticket.");
     if (access === "REQUESTER" && status === "RESOLVED") throw conflict("This ticket is resolved — reopen it if the problem is not solved.");
     if (access === "SHOP" && status !== "AWAITING_SHOP") throw notFound("Ticket");
+    if (access === "DEALER") throw forbidden("You can read this ticket; support and the requester reply.");
 
     let body = input.body?.trim() ?? "";
     let cannedReplyId: string | null = null;
@@ -934,6 +1007,7 @@ export async function addTicketAttachment(
   return db.transaction(async (tx) => {
     const { ticket, access } = await loadForActor(tx, ticketId, actor, true);
     if (options.internal && access !== "STAFF") throw forbidden("Only support can add staff-only files.");
+    if (access === "DEALER") throw forbidden("You can read this ticket; support and the requester add files.");
     if (ticket.status === "CLOSED") throw conflict("This ticket is closed.");
     if (file.bytes.length === 0) throw validationFailed("The file is empty.");
     if (file.bytes.length > rule.maxAttachmentBytes) {
@@ -962,6 +1036,50 @@ export async function addTicketAttachment(
       })
       .returning({ id: supportTicketAttachments.id, fileName: supportTicketAttachments.fileName, contentType: supportTicketAttachments.contentType });
     await appendEvent(tx, ticket.id, { kind: "ATTACHMENT", actor, note: `File added: ${safeName}`, isPublic: !options.internal });
+    return row;
+  });
+}
+
+/** docs/flows-v3: the help desk's file checks (type by content, size) — the content type, or a validation error. */
+export async function checkTicketFile(bytes: Buffer): Promise<string> {
+  const rule = await getRule("helpdesk");
+  if (bytes.length === 0) throw validationFailed("The file is empty.");
+  if (bytes.length > rule.maxAttachmentBytes) {
+    throw validationFailed(`Files can be at most ${(rule.maxAttachmentBytes / 1_000_000).toFixed(1)} MB.`);
+  }
+  const contentType = detectFile(bytes);
+  if (!contentType) throw validationFailed("Attach a photo (JPEG, PNG or WebP) or a PDF.");
+  return contentType;
+}
+
+/**
+ * docs/flows-v3 (flag flow_f17): a file added by the system to a ticket it opened (the account-recovery form's ID
+ * proof). Same checks as addTicketAttachment (type, size, count); staff-only.
+ */
+export async function addSystemTicketAttachment(ticketId: string, file: { name: string; bytes: Buffer }) {
+  const rule = await getRule("helpdesk");
+  const contentType = await checkTicketFile(file.bytes);
+  const safeName = file.name.replace(/[^\w.\- ]+/g, "_").slice(0, 120) || "file";
+  return db.transaction(async (tx) => {
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(supportTicketAttachments)
+      .where(eq(supportTicketAttachments.ticketId, ticketId));
+    if (count >= rule.maxAttachmentsPerTicket) throw conflict(`A ticket can have at most ${rule.maxAttachmentsPerTicket} files.`);
+    const [row] = await tx
+      .insert(supportTicketAttachments)
+      .values({
+        ticketId,
+        uploadedBy: null,
+        fileName: safeName,
+        contentType,
+        sizeBytes: file.bytes.length,
+        sha256: createHash("sha256").update(file.bytes).digest("hex"),
+        internal: true,
+        data: file.bytes,
+      })
+      .returning({ id: supportTicketAttachments.id, fileName: supportTicketAttachments.fileName });
+    await appendEvent(tx, ticketId, { kind: "ATTACHMENT", actor: null, note: `File added: ${safeName}`, isPublic: false });
     return row;
   });
 }
@@ -1111,7 +1229,11 @@ export async function runHelpdeskSlaSweep(now = new Date()): Promise<{ ackBreach
         const patch: Partial<typeof supportTickets.$inferInsert> = {};
         if (!ticket.acknowledgedAt && !ticket.ackBreachedAt && ticket.acknowledgeBy < now) {
           patch.ackBreachedAt = now;
-          reasons.push(`not acknowledged within ${rule.acknowledgeWithinHours} hours`);
+          reasons.push(
+            ticket.acknowledgeBy.getTime() < ticket.createdAt.getTime() + rule.acknowledgeWithinHours * HOUR
+              ? "no first response by the working-hours deadline"
+              : `not acknowledged within ${rule.acknowledgeWithinHours} hours`,
+          );
           ackBreaches += 1;
         }
         if (!ticket.resolveBreachedAt && ticket.resolveBy < now) {

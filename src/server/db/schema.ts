@@ -619,6 +619,11 @@ export const users = pgTable(
     /** 0219: last reminder (in-app + SMS) to a mobile-only shop owner to add and verify an e-mail. */
     secondFactorRemindedAt: timestamp("second_factor_reminded_at", { withTimezone: true }),
     /**
+     * docs/flows-v3/wave5.md (0224, flag flow_f18): sessions signed in before this time are ended on their next
+     * request (sign out on all devices after an account recovery). Null = no marker.
+     */
+    sessionsValidAfter: timestamp("sessions_valid_after", { withTimezone: true }),
+    /**
      * Module 6 (migration 0194): language last chosen on the EN / हिं / मरा
      * switch — "en", "hi" or "mr"; null = never chosen (English). The gk_lang
      * cookie wins; this is the fallback on a new device and the language of
@@ -2933,6 +2938,8 @@ export const shopSuspensions = pgTable(
     /** Policy in force and the counts it produced — a snapshot, not a live view. */
     policy: jsonb("policy").$type<Record<string, string>>().notNull().default({}),
     impact: jsonb("impact").$type<Record<string, number>>().notNull().default({}),
+    /** 0220: what suspended the shop — DOCUMENT_FOLLOW_UP (reinstated automatically with onboarding_v2), else null. */
+    source: text("source", { enum: ["DOCUMENT_FOLLOW_UP"] }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -3082,7 +3089,7 @@ export const storedImages = pgTable(
     /** RIDER_KYC_DOC (C5): a rider's identity document — served to admins only. */
     /** DISPUTE_EVIDENCE (event layer): a photo on a dispute case — its customer, shop and support only. */
     purpose: text("purpose", {
-      enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO", "DELIVERY_PROOF", "RIDER_KYC_DOC", "DISPUTE_EVIDENCE"],
+      enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO", "DELIVERY_PROOF", "RIDER_KYC_DOC", "DISPUTE_EVIDENCE", "SOCIETY_PROOF" /* 0222 flow_f15 */],
     }).notNull(),
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
@@ -5017,6 +5024,8 @@ export const orderDisputes = pgTable(
     raisedByUserId: uuid("raised_by_user_id").references(() => users.id, { onDelete: "set null" }),
     /** The complaint this case came from, when it came from one. */
     grievanceId: uuid("grievance_id").references(() => grievances.id, { onDelete: "set null" }),
+    /** docs/flows-v3/wave2.md (0222, flag flow_f16): the declined return this case was opened from. Nullable. */
+    returnRequestId: uuid("return_request_id"),
 
     status: text("status", { enum: DISPUTE_STATUSES }).notNull().default("OPEN"),
     level: text("level", { enum: DISPUTE_LEVELS }).notNull().default("L1"),
@@ -5218,7 +5227,7 @@ export const accountDeletionRequests = pgTable(
     /** 0191: when the daily job anonymises the account. */
     purgeAfter: timestamp("purge_after", { withTimezone: true }),
     /** 0191: what was switched off when the account was hidden, switched back on a restore. */
-    hiddenState: jsonb("hidden_state").$type<{ riderStatuses?: { id: string; status: string }[] }>().notNull().default({}),
+    hiddenState: jsonb("hidden_state").$type<{ riderStatuses?: { id: string; status: string }[]; /** 0222 flow_f18: shops hidden with the account. */ shops?: { id: string; status: string; ordersPaused: boolean }[] }>().notNull().default({}),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     /** The person themselves (restore at sign-in) or the admin who cancelled it. */
     cancelledBy: uuid("cancelled_by"),
@@ -5678,6 +5687,21 @@ export const societies = pgTable(
     notifyCustomerAtGate: boolean("notify_customer_at_gate").notNull().default(true),
     /** GA-001: when true and the rider list is non-empty, only listed riders may deliver here. */
     exclusiveRiders: boolean("exclusive_riders").notNull().default(false),
+    /*
+     * docs/flows-v3/wave5.md (0224, flag flow_f15): the application's authorised person, number of flats and proof
+     * document (REGISTRATION_CERTIFICATE / COMMITTEE_LETTER: its number and an uploaded or scanned image), and the
+     * gate's delivery hours ("HH:MM", India time). requires_proof: applied while the flag was on, so verifying it
+     * needs the proof; false for every society from before.
+     */
+    authorisedPersonName: text("authorised_person_name"),
+    authorisedPersonRole: text("authorised_person_role"),
+    flatCount: integer("flat_count"),
+    proofType: text("proof_type", { enum: ["REGISTRATION_CERTIFICATE", "COMMITTEE_LETTER"] }),
+    proofNumber: text("proof_number"),
+    proofImageUrl: text("proof_image_url"),
+    requiresProof: boolean("requires_proof").notNull().default(false),
+    deliveryHoursStart: text("delivery_hours_start"),
+    deliveryHoursEnd: text("delivery_hours_end"),
     registeredBy: uuid("registered_by").references(() => users.id),
     verifiedBy: uuid("verified_by").references(() => users.id),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
@@ -5735,6 +5759,10 @@ export const societyRiders = pgTable(
     addedBy: uuid("added_by").references(() => users.id),
     revokedBy: uuid("revoked_by").references(() => users.id),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /** docs/flows-v3/wave5.md (0224, flag flow_f15): paused by the society until this time (null = not paused). */
+    suspendedUntil: timestamp("suspended_until", { withTimezone: true }),
+    suspendedReason: text("suspended_reason"),
+    suspendedBy: uuid("suspended_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -9857,11 +9885,18 @@ export const supportTickets = pgTable(
     changeRequestId: uuid("change_request_id"),
     opsTaskId: uuid("ops_task_id"),
     raisedByStaff: boolean("raised_by_staff"),
+    /* docs/flows-v3 (0221, flag flow_f17): a ticket the system opened for an event elsewhere — one per
+     * (source, source_ref) — and the area dealer copied on a shop's ticket (read-only). All nullable. */
+    source: text("source"),
+    sourceRef: text("source_ref"),
+    ccDealerUserId: uuid("cc_dealer_user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("support_tickets_number_unique").on(t.ticketNumber),
+    uniqueIndex("support_tickets_source_ref_unique").on(t.source, t.sourceRef).where(sql`${t.source} IS NOT NULL`),
+    index("support_tickets_cc_dealer_idx").on(t.ccDealerUserId).where(sql`${t.ccDealerUserId} IS NOT NULL`),
     index("support_tickets_status_idx").on(t.status),
     index("support_tickets_requester_idx").on(t.requesterId),
     index("support_tickets_shop_idx").on(t.shopId),
@@ -11189,12 +11224,52 @@ export const FEATURE_FLAG_KEYS = [
   // docs/seller-agreements-2026-11 (0213): personalised, OTP-signed Seller SLA (+ medical agreement) at registration and for
   // existing shops (blocking screen; no new orders after the grace period). Seeded OFF.
   "seller_agreements_enabled",
+  // docs/flows-v3/wave2.md (0222): flow spec v3 wave 2. F2 customer order, F20 multi-shop cart, F3 order fulfilment,
+  // F19 order timeouts, F16 cancellations / refunds / returns, F13 product and inventory setup.
+  // Seeded ON on the staging database (gokesari_test), OFF on production.
+  "flow_f2",
+  "flow_f20",
+  "flow_f3",
+  "flow_f19",
+  "flow_f16",
+  "flow_f13",
   // docs/onboarding-v2-2026-11 (0215): rebuilt customer / shop / franchise / team onboarding (owner brief 26-Nov-2026).
   // Seeded ON on the staging database (gokesari_test) and OFF on production until the production test pass.
   "onboarding_v2",
   // docs/dual-auth-2026-11 (0219): every account needs a verified mobile AND e-mail; device trust; two codes for
   // sensitive actions. Seeded ON on the staging database (gokesari_test), OFF on production until its test pass.
   "dual_auth",
+  // docs/flows-v3 (0221): flow spec v3 wave 1. F1 sign-up and verification (rider gate, Terms record for Google /
+  // e-mail-link sign-ups, referral link to sign-up); F14 shop wallet (created with the shop, ledger download); F17
+  // support (auto-assign, area dealer copied, system tickets, working-hours SLA, reopen, account recovery).
+  // Seeded ON on the staging database (gokesari_test), OFF on production.
+  "flow_f1",
+  "flow_f14",
+  "flow_f17",
+  // docs/flows-v3/wave3.md (0223): flow spec v3 wave 3. F4 shop onboarding (WhatsApp + payment QR at registration,
+  // agreement e-mailed on acceptance), F5 licence reminders (registration licences in the shop's register), F6 shop
+  // subscription (first year from go-live; reminders and online renewal on). Seeded ON on staging, OFF on production.
+  "flow_f4",
+  "flow_f5",
+  "flow_f6",
+  // docs/flows-v3/wave5.md (0224): F11 delivery partner (photo, verified mobile / e-mail), F15 society onboarding
+  // (authorised person, proof, gate hours, rider suspension, approved riders only for new societies), F18 account
+  // recovery and closure. Seeded ON on the staging database (gokesari_test), OFF on production.
+  "flow_f11",
+  "flow_f15",
+  "flow_f18",
+  // docs/flows-v3/wave4.md (0225): flow spec v3 wave 4. F7 franchise (live shop for every paid booking, renewal
+  // without PAN), F8 team (downgrade moves the agents), F9 recurring commission (own shops anywhere, the zone's first
+  // franchise keeps the others), F10 renewal (3-year cap on the tail), F12 referral codes for every dealer, shop and
+  // customer, F21 zone hold (one hold per dealer, 15 minutes, refund of a lost slot), F22 commission (held 3 days,
+  // GST on commission and its invoice). Seeded ON on the staging database (gokesari_test), OFF on production.
+  "flow_f7",
+  "flow_f8",
+  "flow_f9",
+  "flow_f10",
+  "flow_f12",
+  "flow_f21",
+  "flow_f22",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -12355,6 +12430,11 @@ export const dealerPayoutBatches = pgTable(
     paidBy: uuid("paid_by"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** 0225 (docs/flows-v3/wave4.md, flag flow_f22): GST added for a GST-registered dealer; net = gross + GST − TDS. */
+    gstPaise: integer("gst_paise").notNull().default(0),
+    gstRateBp: integer("gst_rate_bp").notNull().default(0),
+    /** 0222: the commission invoice (dealer_commission_invoices) issued for this payout. */
+    gstInvoiceId: uuid("gst_invoice_id"),
   },
   (t) => [
     index("dealer_payout_batches_dealer_idx").on(t.dealerId, t.createdAt),
@@ -13718,6 +13798,9 @@ export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)
 export * from "./legal-agreements-schema"; // docs/seller-agreements-2026-11 (0213)
+export * from "./flows-v3-wave2-schema"; // docs/flows-v3/wave2.md (0222)
 export * from "./onboarding-v2-schema"; // docs/onboarding-v2-2026-11 (0215)
 export * from "./dual-auth-schema"; // docs/dual-auth-2026-11 (0219)
+export * from "./flows-v3-schema"; // docs/flows-v3 (0221)
+export * from "./flows-v3-wave4-schema"; // docs/flows-v3/wave4.md (0225)
 /* <<< GoKesari Health */

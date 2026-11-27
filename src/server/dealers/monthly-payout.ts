@@ -121,6 +121,13 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
   // adjustment lines are written into this month and paid by this close.
   await (await import("@/server/franchise/commission")).lockFranchiseMonth(month, actor as never).catch((e: unknown) => console.error("[franchise] month lock before the close failed", month, e));
 
+  // docs/flows-v3/wave4.md F22 (flag flow_f22): entries earned less than the hold (3 days) ago wait for the next close;
+  // a GST-registered dealer's payout adds GST with a commission invoice.
+  const { commissionHoldCutoff, commissionGstFor, issueCommissionInvoice } = await import("@/server/flows/f22-commission");
+  const holdCutoff = await commissionHoldCutoff(now);
+  const f22 = holdCutoff !== null;
+  const held = holdCutoff ? or(lt(dealerCommissionLedger.createdAt, holdCutoff), eq(dealerCommissionLedger.kind, "REVERSAL")) : undefined;
+
   const result = await db.transaction(async (tx) => {
     const [claimed] = await tx.insert(dealerCommissionMonths).values({ periodMonth: month, closedBy: actor?.id ?? null }).onConflictDoNothing().returning();
     if (!claimed) return null;
@@ -146,6 +153,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
             eq(dealerCommissionLedger.kind, "ACCRUAL"),
             isNull(dealerCommissionLedger.payoutBatchId),
             lt(dealerCommissionLedger.createdAt, end),
+            held,
           ),
         )
         .returning({ id: dealerCommissionLedger.id });
@@ -162,7 +170,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
       await tx
         .selectDistinct({ dealerId: dealerCommissionLedger.dealerId, memberId: dealerCommissionLedger.payeeMemberId })
         .from(dealerCommissionLedger)
-        .where(and(isNull(dealerCommissionLedger.payoutBatchId), lt(dealerCommissionLedger.createdAt, end), payable))
+        .where(and(isNull(dealerCommissionLedger.payoutBatchId), lt(dealerCommissionLedger.createdAt, end), payable, held))
     ).sort((a, b) => a.dealerId.localeCompare(b.dealerId) || (a.memberId ?? "").localeCompare(b.memberId ?? ""));
 
     const payoutRule = await getRule("dealerPayouts");
@@ -186,6 +194,7 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
             isNull(dealerCommissionLedger.payoutBatchId),
             lt(dealerCommissionLedger.createdAt, end),
             payable,
+            held,
           ),
         );
       const total = rows.reduce((s, r) => s + r.amountPaise, 0);
@@ -215,6 +224,8 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
       }
       const tds = await payoutTds(tx, first.dealerId, first.memberId, total, new Date(end.getTime() - 1), panHash);
       const tdsPaise = tds.tdsPaise;
+      // F22: GST on one dealer's own payout (not a PAN shared across roles, never a team member's).
+      const gst = f22 && group.length === 1 ? await commissionGstFor(tx, first.dealerId, first.memberId, total) : null;
       const ids = group.flatMap((g) => g.rows.map((r) => r.id));
       const [batch] = await tx
         .insert(dealerPayoutBatches)
@@ -229,8 +240,10 @@ export async function closeCommissionMonth(month: string, actor: Actor | null, n
           periodMonth: month,
           note: `Commission for ${monthLabel(month)}${group.length > 1 ? ` (${group.length} roles, one PAN)` : ""}`,
           createdBy: actor?.id ?? null,
+          ...(gst ? { gstPaise: gst.gstPaise, gstRateBp: gst.rateBp } : {}),
         })
         .returning();
+      if (gst) await issueCommissionInvoice(tx, batch, gst, new Date());
       await tx.update(dealerCommissionLedger).set({ payoutBatchId: batch.id, updatedAt: new Date() }).where(inArray(dealerCommissionLedger.id, ids));
       payouts.push({ dealerId: first.dealerId, memberId: first.memberId, batchId: batch.id, totalPaise: total, tdsPaise, entries: ids.length });
     }
@@ -338,7 +351,7 @@ async function sendMonthStatements(month: string, start: Date, end: Date, payout
           userId: target.userId,
           recipientRole: "DEALER",
           title: `Your commission statement for ${s.label}`,
-          body: `Gross ${rupees(s.payout.totalPaise)}, TDS ${rupees(s.payout.tdsPaise)}, net ${rupees(s.payout.netPaise)}. The statement is attached (CSV) and on your dealer page.`,
+          body: `Gross ${rupees(s.payout.totalPaise)}, TDS ${rupees(s.payout.tdsPaise)}${s.payout.gstPaise ? `, GST ${rupees(s.payout.gstPaise)}` : ""}, net ${rupees(s.payout.netPaise)}. The statement is attached (CSV) and on your dealer page.`,
           actionUrl: `/dealer?statement=${month}`,
           category: "GENERAL",
         }).catch((error) => console.error("[dealer-monthly-payout] statement email failed", error));
@@ -414,8 +427,10 @@ export interface DealerMonthStatement {
   registrations: StatementRegistration[];
   /** Commission entries created in the month, whatever their status now. */
   entries: StatementEntry[];
-  /** totalPaise is the gross; netPaise = gross − TDS, the bank transfer. */
-  payout: (Pick<DealerPayoutBatch, "id" | "status" | "totalPaise" | "tdsPaise" | "tdsRateBp" | "paymentReference"> & { netPaise: number; paidAt: string | null; entries: StatementEntry[] }) | null;
+  /** totalPaise is the gross; netPaise = gross + GST − TDS, the bank transfer (GST: flag flow_f22, else 0). */
+  payout: (Pick<DealerPayoutBatch, "id" | "status" | "totalPaise" | "tdsPaise" | "tdsRateBp" | "gstPaise" | "paymentReference"> & { netPaise: number; paidAt: string | null; entries: StatementEntry[]; reversalsPaise: number }) | null;
+  /** docs/flows-v3/wave4.md F22 (flag flow_f22): the statement shows gross, reversals, TDS, GST and net. */
+  v3?: boolean;
   /** One line per entry type (direct-1, direct-2, override, renewal, development, bonus): earned in the month. */
   lines: { key: string; label: string; amountPaise: number }[];
   /** Whose statement: the dealer (null) or a team member. */
@@ -541,12 +556,15 @@ export async function dealerMonthStatement(dealerId: string, month: string, memb
           totalPaise: batch.totalPaise,
           tdsPaise: batch.tdsPaise,
           tdsRateBp: batch.tdsRateBp,
-          netPaise: batch.totalPaise - batch.tdsPaise,
+          gstPaise: batch.gstPaise,
+          netPaise: batch.totalPaise + batch.gstPaise - batch.tdsPaise,
           paymentReference: batch.paymentReference,
           paidAt: batch.paidAt?.toISOString() ?? null,
           entries: payoutEntries.map(strip),
+          reversalsPaise: payoutEntries.filter((e) => e.kind === "REVERSAL").reduce((t, e) => t + e.amountPaise, 0),
         }
       : null,
+    v3: await (await import("@/server/flows/wave4")).flow4On("flow_f22"),
     lines,
     payee: { memberId, name: member?.name ?? dealerRow?.name ?? "" },
     totals: {
@@ -617,8 +635,15 @@ export function monthStatementCsv(s: DealerMonthStatement): string {
     line(["Above the per-shop cap, pending (Rs)", r(s.totals.aboveCapPaise)]),
     line(["Reversed (Rs)", r(s.totals.reversedPaise)]),
     ...s.lines.map((l) => line([`  ${l.label} (Rs)`, r(l.amountPaise)])),
+    ...(s.v3
+      ? [
+          line(["Payout for the month, gross before reversals (Rs)", s.payout ? r(s.payout.totalPaise - s.payout.reversalsPaise) : "0.00"]),
+          line(["Reversals (clawback) taken from this payout (Rs)", s.payout ? r(s.payout.reversalsPaise) : "0.00"]),
+        ]
+      : []),
     line(["Payout for the month, gross (Rs)", s.payout ? r(s.payout.totalPaise) : "0.00"]),
     line(["TDS deducted (Rs)", s.payout ? r(s.payout.tdsPaise) : "0.00"]),
+    ...(s.v3 ? [line(["GST added (GST-registered dealer) (Rs)", s.payout ? r(s.payout.gstPaise) : "0.00"])] : []),
     line(["Net paid to your bank (Rs)", s.payout ? r(s.payout.netPaise) : "0.00"]),
     line(["Payout status", s.payout ? `${s.payout.status}${s.payout.paymentReference ? ` (UTR ${s.payout.paymentReference})` : ""}` : "—"]),
     line(["Carried forward, owed back (Rs)", r(s.totals.carriedForwardPaise)]),

@@ -11,7 +11,8 @@ import { forbidden } from "@/lib/errors";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
-import { createScheme } from "@/server/dealers/scheme-admin";
+import { createScheme, requireSchemePermission, schemePermissions } from "@/server/dealers/scheme-admin";
+import { isDealerStaff } from "@/server/dealers/staff-access";
 import { listSchemes } from "@/server/dealers/schemes";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,10 @@ export const GET = route(async () => {
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requireUser();
+  // D-170: answered before the request body is read. D-173: staff without the permission get the specific message.
+  const allowed = await schemePermissions(user);
+  if (!isDealerStaff(user.role) && !allowed.edit && !allowed.publish) throw forbidden();
+  await requireSchemePermission(user, "SCHEME_EDIT");
   enforceRateLimit(`dealer-schemes:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(
     request,

@@ -77,7 +77,7 @@ export async function payoutReport(report: PayoutReport, filter: ReportFilter = 
       return {
         title: "Failed transfers",
         header: ["Payout", "Month", "Payee", "Role", "Main dealer", "Net (Rs)", "Attempts", "Reason", "Needs review", "Next retry"],
-        rows: shown.map((b) => [b.id, b.periodMonth, payeeName(b.dealerId, b.memberId), NETWORK_ROLE_LABELS[roleOf(b.memberId)], dealer.get(b.dealerId)?.name ?? "—", rs(b.totalPaise - b.tdsPaise), b.attempts, b.failureReason, b.needsReview ? "yes" : "no", day(b.nextRetryAt)]),
+        rows: shown.map((b) => [b.id, b.periodMonth, payeeName(b.dealerId, b.memberId), NETWORK_ROLE_LABELS[roleOf(b.memberId)], dealer.get(b.dealerId)?.name ?? "—", rs(b.totalPaise + b.gstPaise - b.tdsPaise), b.attempts, b.failureReason, b.needsReview ? "yes" : "no", day(b.nextRetryAt)]),
       };
     }
     return {
@@ -93,7 +93,7 @@ export async function payoutReport(report: PayoutReport, filter: ReportFilter = 
         rs(b.totalPaise),
         rs(b.tdsPaise),
         b.tdsRateBp / 100,
-        rs(b.totalPaise - b.tdsPaise),
+        rs(b.totalPaise + b.gstPaise - b.tdsPaise),
         b.status,
         b.paymentReference,
         day(b.paidAt),

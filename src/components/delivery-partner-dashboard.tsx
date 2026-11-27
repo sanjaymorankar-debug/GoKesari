@@ -67,7 +67,7 @@ export interface ActiveDelivery {
   pickup?: { label: string; navigationUrl: string | null; notes: string | null };
   drop?: { label: string; navigationUrl: string | null; notes: string | null; precise: boolean };
   /** Society gate arrangement, for society deliveries. */
-  gate?: { entryMode: string; contactName: string | null; contactPhone: string | null } | null;
+  gate?: { entryMode: string; contactName: string | null; contactPhone: string | null; deliveryHours?: { start: string; end: string } } | null;
 }
 
 /**
@@ -869,6 +869,11 @@ export function DeliveryPartnerDashboard({
                     {GATE_MODE_LABEL[activeDelivery.gate.entryMode]
                       ? tr(GATE_MODE_LABEL[activeDelivery.gate.entryMode], lang)
                       : activeDelivery.gate.entryMode}
+                  </p>
+                ) : null}
+                {activeDelivery.gate?.deliveryHours ? (
+                  <p className="text-ink-600" data-testid="society-delivery-hours">
+                    {activeDelivery.gate.deliveryHours.start}–{activeDelivery.gate.deliveryHours.end}
                   </p>
                 ) : null}
                 {activeDelivery.societyInstructions ? (

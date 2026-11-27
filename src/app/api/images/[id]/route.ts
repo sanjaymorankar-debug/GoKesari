@@ -14,6 +14,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { AppError } from "@/lib/errors";
 import { errorResponse } from "@/server/api/handler";
 import { getCurrentUser } from "@/server/authz/guards";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getImageMeta, readImageBytes, type ImageSize } from "@/server/services/image-store";
 import { isHiddenProductFile, isImageStaff } from "@/server/services/product-images";
 import { canViewReturnImage } from "@/server/services/returns";
@@ -69,6 +70,13 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         throw new AppError("NOT_FOUND", "Image not found.");
       }
       cache = "private, max-age=300";
+    } else if (image.purpose === "SOCIETY_PROOF") {
+      // docs/flows-v3/wave5.md (flow_f15): a society's proof document — its uploader and operations only.
+      const user = await getCurrentUser();
+      if (!user || (user.id !== image.ownerId && !can(user.role, PERMISSIONS.SOCIETY_MANAGE_ANY))) {
+        throw new AppError("NOT_FOUND", "Image not found.");
+      }
+      cache = "private, no-store";
     } else if (image.purpose === "PRODUCT" && (await isHiddenProductFile(image.id))) {
       // F10: a photo awaiting (or refused) approval — its uploader and staff only.
       const user = await getCurrentUser();

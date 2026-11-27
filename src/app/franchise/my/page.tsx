@@ -7,12 +7,15 @@ import { dualVerifyRedirect } from "@/server/dual-auth/policy";
 
 import { AreaMap, type AreaShape } from "@/components/franchise/area-map";
 import { FranchiseActions } from "@/components/franchise/franchise-actions";
+import { HoldCountdown } from "@/components/franchise/hold-countdown";
 import { Alert, Badge, Card, LinkButton, PageHeader } from "@/components/ui";
 import { formatIst, rupees } from "@/lib/franchise";
 import { getCurrentUser } from "@/server/authz/guards";
 import { codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
 import { originFromHeaders } from "@/server/dealers/http";
+import { pendingPlanBookings } from "@/server/franchise/booking";
 import { ownerDashboard } from "@/server/franchise/dashboard";
+import { flow4On } from "@/server/flows/wave4";
 import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 
 export const metadata = { title: "My franchise" };
@@ -30,6 +33,8 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
   // docs/dual-auth-2026-11: team / franchise features need both factors verified (flag dual_auth).
   const verifyAt = await dualVerifyRedirect(user.id, "/franchise/my").catch(() => null);
   if (verifyAt) redirect(verifyAt);
+  // QA D-169: the buyer's own v2 checkouts left open past "held until" are released before they are listed.
+  if (await onboardingV2Enabled()) await pendingPlanBookings(user.id).catch((error: unknown) => console.error("[franchise/my] pending bookings", error));
   const d = await ownerDashboard(user.id);
   const sp = await searchParams;
   const origin = originFromHeaders(await headers());
@@ -42,6 +47,8 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
   const maps = ("maps" in d ? d.maps : []) as AreaShape[];
   const justPaid = sp.booking ? d.bookings.find((b) => b.id === sp.booking) : null;
   const pending = d.bookings.filter((b) => b.status === "RESERVED" || b.status === "PAYMENT_PENDING");
+  // docs/flows-v3/wave4.md F21 (flag flow_f21): a live countdown on each hold.
+  const countdown = await flow4On("flow_f21");
   return (
     <div className="mx-auto max-w-5xl space-y-4 px-4 py-6" data-testid="franchise-my">
       <PageHeader title="My franchise" description={d.status.hasDealer ? `${"dealerName" in d.status ? d.status.dealerName : ""} · Pune franchise zones` : "GoKesari Territory Franchise"} action={
@@ -141,8 +148,21 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
             <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cream-200 p-2 text-sm">
               <span>
                 {b.kind === "RENEWAL" ? "Renewal" : b.zones.join(", ")} · {rupees(b.totalPaise)} · held until {formatIst(b.holdExpiresAt)}
+                {countdown ? (
+                  <>
+                    {" · "}
+                    <HoldCountdown until={new Date(b.holdExpiresAt).toISOString()} />
+                  </>
+                ) : null}
               </span>
-              {b.status === "RESERVED" ? <FranchiseActions kind="pay" id={b.id} label="Pay now" cancel /> : <span className="text-ink-500">Payment being verified</span>}
+              {b.status === "RESERVED" ? (
+                <FranchiseActions kind="pay" id={b.id} label="Pay now" cancel />
+              ) : b.plan ? (
+                // QA D-169 (onboarding v2): an open checkout can be continued or given up.
+                <FranchiseActions kind="pay" id={b.id} label="Continue payment" cancel />
+              ) : (
+                <span className="text-ink-500">Payment being verified</span>
+              )}
             </div>
           ))}
         </Card>

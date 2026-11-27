@@ -53,6 +53,8 @@ export async function timeoutSweep() {
     shopOpening: await step("timeout-sweep", "shop-opening", errors, async () => (await import("@/server/services/shop-opening")).sendShopOpeningAlerts()),
     // docs/hdms-2026-11: delivery-partner bookings — status poll (webhooks are primary). Only while hdms_enabled is on.
     partnerBookings: await step("timeout-sweep", "partner-bookings", errors, async () => (await import("@/server/delivery/sweep")).runPartnerBookingSweep()),
+    // docs/flows-v3/wave2.md: no-rider cancels, uncollected pickups, failed-delivery refunds (each a no-op while its flag is off).
+    flowsV3: await step("timeout-sweep", "flows-v3", errors, async () => (await import("@/server/flows/sweep")).runFlowsV3Sweep()),
     errors,
   };
 }

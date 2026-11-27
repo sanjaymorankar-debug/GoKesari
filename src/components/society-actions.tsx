@@ -47,11 +47,47 @@ function Messages({ error, notice }: { error: string | null; notice: string | nu
   return notice ? <p className="mt-2 text-xs text-leaf-700">{notice}</p> : null;
 }
 
+/**
+ * docs/flows-v3/wave5.md (flag flow_f15): the proof document — a photo from the gallery or a scan with the phone's
+ * camera — uploaded as SOCIETY_PROOF; answers its /api/images/<id> address.
+ */
+async function uploadSocietyProof(file: File): Promise<string> {
+  const data = new FormData();
+  data.set("file", file);
+  data.set("purpose", "SOCIETY_PROOF");
+  const response = await fetch("/api/images", { method: "POST", body: data });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error?.message ?? "Could not upload the document.");
+  return String(payload.url);
+}
+
 /** Register a new society (the registrant becomes its first admin; operations verify it). */
-export function RegisterSocietyForm() {
+export function RegisterSocietyForm({ withProof = false }: { /** docs/flows-v3/wave5.md (flag flow_f15). */ withProof?: boolean } = {}) {
   const { busy, error, notice, send } = useSend();
   const [form, setForm] = useState({ name: "", addressLine1: "", area: "", city: "", pincode: "", unitLabel: "" });
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: e.target.value });
+  const [proof, setProof] = useState({ personName: "", personRole: "", flats: "", proofType: "", proofNumber: "" });
+  const setP = (key: keyof typeof proof) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setProof({ ...proof, [key]: e.target.value });
+  const [proofImageUrl, setProofImageUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const proofReady =
+    !withProof ||
+    (proof.personName.trim().length >= 2 && proof.personRole.trim().length >= 2 && proof.proofType !== "" && (proof.proofNumber.trim() !== "" || proofImageUrl !== null));
+
+  async function pickProof(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      setProofImageUrl(await uploadSocietyProof(file));
+    } catch (caught) {
+      setUploadError(caught instanceof Error ? caught.message : "Could not upload the document.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
@@ -73,14 +109,54 @@ export function RegisterSocietyForm() {
       <Field label="PIN code">
         <input className={inputClass} inputMode="numeric" maxLength={6} value={form.pincode} onChange={set("pincode")} />
       </Field>
+      {withProof ? (
+        <>
+          <Field label="Authorised person's name">
+            <input className={inputClass} value={proof.personName} onChange={setP("personName")} maxLength={120} />
+          </Field>
+          <Field label="Their role" hint="e.g. Secretary, Chairman, Treasurer">
+            <input className={inputClass} value={proof.personRole} onChange={setP("personRole")} maxLength={60} />
+          </Field>
+          <Field label="Number of flats (optional)">
+            <input className={inputClass} inputMode="numeric" value={proof.flats} onChange={setP("flats")} maxLength={6} />
+          </Field>
+          <Field label="Proof document">
+            <select className={inputClass} value={proof.proofType} onChange={setP("proofType")}>
+              <option value="">Choose…</option>
+              <option value="REGISTRATION_CERTIFICATE">Society registration certificate</option>
+              <option value="COMMITTEE_LETTER">Committee letter</option>
+            </select>
+          </Field>
+          <Field label="Document number">
+            <input className={inputClass} value={proof.proofNumber} onChange={setP("proofNumber")} maxLength={80} />
+          </Field>
+          <Field label="Upload or scan the document" hint={proofImageUrl ? "Document added." : "A clear photo of the certificate or letter."} error={uploadError ?? undefined}>
+            <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={pickProof} className="block w-full text-sm" data-testid="society-proof-file" />
+          </Field>
+        </>
+      ) : null}
       <div className="sm:col-span-2">
         <Button
-          disabled={busy || form.name.trim().length < 3 || !/^\d{6}$/.test(form.pincode)}
+          disabled={busy || uploading || form.name.trim().length < 3 || !/^\d{6}$/.test(form.pincode) || !proofReady}
           onClick={() =>
             send(
               "/api/societies",
               "POST",
-              { ...form, area: form.area || null, unitLabel: form.unitLabel || null },
+              {
+                ...form,
+                area: form.area || null,
+                unitLabel: form.unitLabel || null,
+                ...(withProof
+                  ? {
+                      authorisedPersonName: proof.personName,
+                      authorisedPersonRole: proof.personRole,
+                      flatCount: proof.flats.trim() ? Number(proof.flats) : null,
+                      proofType: proof.proofType || null,
+                      proofNumber: proof.proofNumber || null,
+                      proofImageUrl,
+                    }
+                  : {}),
+              },
               "Registered — our team will verify the society shortly.",
             )
           }
@@ -155,9 +231,14 @@ export function JoinSocietyForm() {
 export function SocietySettingsForm({
   societyId,
   initial,
+  withHours = false,
 }: {
   societyId: string;
+  /** docs/flows-v3/wave5.md (flag flow_f15): show the gate's delivery hours. */
+  withHours?: boolean;
   initial: {
+    deliveryHoursStart?: string | null;
+    deliveryHoursEnd?: string | null;
     deliveryInstructions: string | null;
     securityNotifyEnabled: boolean;
     exclusiveRiders: boolean;
@@ -179,6 +260,8 @@ export function SocietySettingsForm({
   const [gatePhone, setGatePhone] = useState(initial.gateContactPhone ?? "");
   const [shareContact, setShareContact] = useState(initial.shareGateContactWithRider);
   const [notifyCustomer, setNotifyCustomer] = useState(initial.notifyCustomerAtGate);
+  const [hoursStart, setHoursStart] = useState(initial.deliveryHoursStart ?? "");
+  const [hoursEnd, setHoursEnd] = useState(initial.deliveryHoursEnd ?? "");
 
   return (
     <div className="space-y-3">
@@ -206,6 +289,16 @@ export function SocietySettingsForm({
         <input type="checkbox" checked={notifyCustomer} onChange={(e) => setNotifyCustomer(e.target.checked)} />
         Tell the resident when the rider reaches the gate
       </label>
+      {withHours ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Deliveries from (optional)" hint="24-hour time, e.g. 07:00">
+            <input className={inputClass} type="time" value={hoursStart} onChange={(e) => setHoursStart(e.target.value)} />
+          </Field>
+          <Field label="Deliveries until (optional)" hint="e.g. 21:30">
+            <input className={inputClass} type="time" value={hoursEnd} onChange={(e) => setHoursEnd(e.target.value)} />
+          </Field>
+        </div>
+      ) : null}
       <Field label="Gate / parking / access instructions for riders">
         <textarea className={inputClass} rows={2} maxLength={500} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
       </Field>
@@ -236,6 +329,7 @@ export function SocietySettingsForm({
               securityNotifyEnabled: security,
               exclusiveRiders: exclusive,
               boundaryRadiusMeters: Number(radius),
+              ...(withHours ? { deliveryHoursStart: hoursStart || null, deliveryHoursEnd: hoursEnd || null } : {}),
             },
             "Saved.",
           )
@@ -332,11 +426,47 @@ export function AddRiderForm({ societyId }: { societyId: string }) {
   );
 }
 
-export function RiderLinkActions({ linkId, status, preferred }: { linkId: string; status: string; preferred: boolean }) {
+export function RiderLinkActions({
+  linkId,
+  status,
+  preferred,
+  pause,
+}: {
+  linkId: string;
+  status: string;
+  preferred: boolean;
+  /** docs/flows-v3/wave5.md (flag flow_f15): pausing is offered; `until` = paused now (ISO). */
+  pause?: { until: string | null };
+}) {
   const { busy, error, send } = useSend();
+  const [days, setDays] = useState("7");
+  const [reason, setReason] = useState("");
   if (status !== "ACTIVE") return <span className="text-xs text-ink-500">revoked</span>;
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex flex-wrap items-center gap-2">
+      {pause?.until ? (
+        <>
+          <span className="text-xs text-amber-700" data-testid="rider-paused">
+            paused until {new Date(pause.until).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" })}
+          </span>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => send(`/api/societies/riders/${linkId}`, "PATCH", { resume: true }, "Resumed")}>
+            Resume
+          </Button>
+        </>
+      ) : pause ? (
+        <>
+          <input className="w-14 rounded-lg border border-cream-200 px-2 py-1 text-xs" inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} aria-label="Days" />
+          <input className="w-32 rounded-lg border border-cream-200 px-2 py-1 text-xs" placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason" />
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy || reason.trim().length < 3 || !Number(days)}
+            onClick={() => send(`/api/societies/riders/${linkId}`, "PATCH", { suspendDays: Number(days), suspendReason: reason }, "Paused")}
+          >
+            Pause
+          </Button>
+        </>
+      ) : null}
       <Button
         size="sm"
         variant="ghost"

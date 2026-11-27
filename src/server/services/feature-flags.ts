@@ -102,8 +102,30 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   identity_verification_shop_owners_enabled: "Shop owners: verify identity before going live / accepting orders",
   seller_undertaking_gate_enabled: "Shop owners must accept the fresh-goods undertaking",
   seller_agreements_enabled: "Shop owners sign the personalised Seller SLA (OTP e-signature)",
+  flow_f2: "Flows v3 F2: no referral code before the first order, explicit Online / COD choice",
+  flow_f20: "Flows v3 F20: offer to cancel the rest of a multi-shop order when one shop declines",
+  flow_f3: "Flows v3 F3: mark packed straight from accepted, 2% commission when no rate is set",
+  flow_f19: "Flows v3 F19: 10-minute shop acceptance, rider search timings, no-rider and pickup no-show handling",
+  flow_f16: "Flows v3 F16: cancel until packing, shop-agreed cancel after packing, return rules, failed-delivery refund",
+  flow_f13: "Flows v3 F13: category adds items at stock 100, duplicate choice, own product types, product-upload e-mail",
   onboarding_v2: "Onboarding v2: sign-in at checkout, shop / franchise / team onboarding",
   dual_auth: "Dual authentication: verified mobile AND e-mail for every account",
+  flow_f1: "Flows v3 F1: rider verification gate, sign-up Terms record, referral link to sign-up",
+  flow_f14: "Flows v3 F14: shop wallet created with the shop, wallet ledger download",
+  flow_f17: "Flows v3 F17: support auto-assign, area dealer, system tickets, working-hours SLA, recovery form",
+  flow_f4: "Flows v3 F4: WhatsApp + payment QR at registration, agreement e-mailed on acceptance",
+  flow_f5: "Flows v3 F5: licences given at registration count in the shop's register, promises marked given",
+  flow_f6: "Flows v3 F6: first subscription year from go-live, expiry reminders and online renewal on",
+  flow_f11: "Flows v3 F11: rider photo, rider mobile and e-mail from the verified account",
+  flow_f15: "Flows v3 F15: society authorised person, proof document, gate hours, rider suspension",
+  flow_f18: "Flows v3 F18: recovery of a lost mobile or e-mail, code to a new mobile, closure codes to both",
+  flow_f7: "Flows v3 F7: a live shop for every paid franchise booking; renewal without PAN for onboarding v2 franchisees",
+  flow_f8: "Flows v3 F8: downgrading a team lead moves his agents instead of refusing",
+  flow_f9: "Flows v3 F9: recurring on the franchisee's own shops in any area; the zone's first franchise keeps the other shops",
+  flow_f10: "Flows v3 F10: commission after a franchise lapses stops 3 years after its first start",
+  flow_f12: "Flows v3 F12: every account's customer and shop referral codes made when its codes are listed",
+  flow_f21: "Flows v3 F21: one zone hold per dealer, released after 15 minutes, lost slot refunded automatically",
+  flow_f22: "Flows v3 F22: commission payable 3 days after it is earned; GST and invoice for GST-registered dealers",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -205,10 +227,54 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/seller-undertaking-2026-11: a shop owner who has not accepted the current seller undertaking (fresh, non-expired, compliant goods only; expiry / best-before date always shared) and the current Seller Terms sees a full-page acknowledgement instead of Seller Central, and their shops cannot accept new orders until they accept. Orders already accepted carry on as normal. Bumping the undertaking or Seller Terms version asks every owner again. Off: nobody is asked (new registrations still accept both).",
   seller_agreements_enabled:
     "docs/seller-agreements-2026-11 (Admin → Agreements): registration gets an Agreements step before the fee payment — the owner reads the Seller SLA (and, for medical shops, the Merchant Onboarding Agreement) filled in with their own shop and licence details, in English / मराठी / हिंदी, ticks each one and signs with their name, designation and an SMS code; signed PDFs are e-mailed (copy to ceo@agtci.com). Existing shops see a blocking screen after sign-in and take no new orders once the grace period (rule sellerAgreements.graceDays) has passed. Replaces the Seller Terms tick on the registration Payment step. Needs at least one published Seller SLA version. Off: nobody is asked; registration keeps the Seller Terms tick.",
+  flow_f2:
+    "docs/flows-v3/wave2.md (F2): no referral code is asked or required before the first order (the admin setting MANDATORY does not block checkout); the customer may give one after paying their first order (order page). Checkout asks the customer to choose Online or cash on delivery explicitly — nothing is preselected. Off: unchanged.",
+  flow_f20:
+    "docs/flows-v3/wave2.md (F20): when one shop of a multi-shop checkout declines or cancels its part, the customer is told and offered to cancel the other parts still cancellable (full refund each). Delivery fees stay the shop's own, shown per shop before payment. Off: unchanged.",
+  flow_f3:
+    "docs/flows-v3/wave2.md (F3): \"Mark packed\" works straight from Accepted (picking starts automatically); the commission is 2% (rule orderFlowsV3.defaultCommissionBps) where Admin → Finance has no rate. Off: unchanged.",
+  flow_f19:
+    "docs/flows-v3/wave2.md (F19, rule orderFlowsV3): shops accept within 10 minutes (reminder at half time in the app and, where shop WhatsApp is on, on WhatsApp); a silent shop's order is cancelled with a full refund and the customer is pointed to a nearby shop with the same items. The rider search widens every 5 minutes and stops after 20; if the shop has not switched to its own delivery or pickup within the set wait, the order is cancelled with a full refund. A pickup not collected 60 minutes after its slot may be cancelled by the shop. Off: unchanged.",
+  flow_f16:
+    "docs/flows-v3/wave2.md (F16, rule orderFlowsV3): customers may cancel until the order is packed (full refund, delivery fee included); after packing they can ask the shop, which agrees or declines (no charge). Returns within 2 days; food and medicine categories are not returnable (admin list) except for defects; a photo is needed only for damaged or wrong items; a declined return can be taken to a dispute; the shop is told when a return is refunded; a failed delivery is refunded automatically. Off: unchanged.",
+  flow_f13:
+    "docs/flows-v3/wave2.md (F13, rule orderFlowsV3): choosing a category lists every master product in it at stock 100; products picked from the master list start at stock 100; an exact name match asks the owner to use the existing product or add a new one; every shop type can create its own product type (sent for review); a shop going live by any approval path gets a \"ready for product upload\" e-mail. Off: unchanged.",
   onboarding_v2:
     "docs/onboarding-v2-2026-11 (owner brief 26-Nov-2026): guests browse and fill a cart with no sign-in anywhere; \"Place order\" opens a sign-in sheet (Terms tick, e-mail by Google or link, mobile code) and returns to the cart; the delivery address is asked after payment. Shop registration: identity → referral → GST/PAN → fee → shop type → licences (enter / upload / scan / later) → Seller SLA → address + pin → live. Franchise needs a live shop; free dealers go live at once; paid zones pay a plan up front and go live on payment (no 30-day KYC refund rule). Dealers build \"My team\" by inviting customers, who must accept. Off: every flow behaves exactly as before.",
   dual_auth:
     "docs/dual-auth-2026-11 (owner brief 26-Nov-2026 23.28 IST): an account counts only with a verified mobile (SMS code) and a verified e-mail (code, link or Google). One-factor accounts can browse but must verify the missing factor before ordering, shop / dealer / admin work or withdrawals. Sign-in on a new device asks both factors; a device that finished both is trusted 30 days (customers, shops, dealers, riders: one factor there; staff always both). Changing mobile / e-mail, bank or payout details, withdrawals, team roles and ownership changes always ask a code by SMS AND by e-mail. In force only where SMS codes can be sent.",
+  flow_f1:
+    "docs/flows-v3/wave1.md (F1): with dual_auth also in force, rider application and rider pages ask for a verified mobile AND e-mail first; a Google or e-mail-link sign-up keeps a server-side record of the Terms & Privacy tick (signed, time-stamped); a referral link opened by a signed-out visitor goes to sign-up with the code kept. Off: every flow behaves exactly as before.",
+  flow_f14:
+    "docs/flows-v3/wave1.md (F14): a shop registered through onboarding v2 gets its prepaid shop wallet at once (zero balance), and /shop/wallet offers the monthly ledger as a CSV download (without needing billing v2). Off: the wallet appears on first use and the download stays on the billing v2 statements page only.",
+  flow_f11:
+    "docs/flows-v3/wave5.md (F11): a new rider application needs a profile photo (uploaded in the form) and is checked for it again at approval; the application's mobile must be the account's verified mobile (SMS code) and its e-mail the account's verified e-mail; approved riders without a photo see a reminder on rider pages. Off: the application works exactly as before.",
+  flow_f15:
+    "docs/flows-v3/wave5.md (F15): a society application asks for the authorised person (name and role), the number of flats (optional) and a proof document (registration certificate or committee letter: number plus an uploaded or scanned photo), which operations must see before verifying it; the society sets delivery hours at the gate, can pause a rider for some days instead of removing them, and a society that applies while this is on lets only its approved riders deliver there once it has any. Existing societies are unchanged. Off: everything as before.",
+  flow_f18:
+    "docs/flows-v3/wave5.md (F18): /account/recover offers \"lost my mobile\" and \"lost my e-mail\": a code to the one still working (shop owners also confirm a GSTIN or PAN of their shop), then a code to the new mobile or e-mail, after which the account is signed out on every device and the old contact is told. Linking or changing a mobile needs a code sent to the new number. Account closure (with account_self_deletion_enabled) asks a code by e-mail and by SMS, hides the owner's shops itself, checks dealer / franchise balances for anyone with a dealer record, and removes role grants at the final deletion. Off: everything as before.",
+  flow_f17:
+    "docs/flows-v3/wave1.md (F17): new tickets are assigned automatically by category and the shop's district (Admin → Support → Routing; least-loaded person; no match = manual queue); the shop's area dealer is copied (read-only); the system opens tickets for failed GST/PAN or document checks, identity reviews, payment mismatches, disputes, delivery-code locks and society applications; first response due within working hours (rule supportFlows); reopen within 7 days, closed tickets too; a public form at /account/recover for people who lost both mobile and e-mail. Off: the help desk behaves exactly as before.",
+  flow_f4:
+    "docs/flows-v3/wave3.md (F4, rule shopFlowsV3): the onboarding v2 agreement step offers the shop's WhatsApp number and its payment QR, both optional (saved to the shop's settings; the QR is used on the welcome-kit banner); the seller agreement accepted at registration (no OTP) is e-mailed at once in English, Marathi and Hindi — the signed PDFs when the agreements engine made them, otherwise an e-mail with links to the terms. The fee stays the turnover slabs. Off: unchanged.",
+  flow_f5:
+    "docs/flows-v3/wave3.md (F5, rule shopFlowsV3): a licence entered, uploaded or scanned at an onboarding v2 registration is copied into the shop's licence register (submitted; approved once GoKesari's team or the online check verified it; rejected when the team rejects it) at shop creation and on the team's decision, and the daily documents follow-up back-fills older shops — so no register, reminder or suspension asks again for a licence already given. A licence promised at registration and given later is marked given in the registration-licences queue. Off: unchanged.",
+  flow_f6:
+    "docs/flows-v3/wave3.md (F6, rule shopFlowsV3): a new shop's first 12-month registration period starts the day it goes live (not the day the fee was paid); shops already live keep their dates. Expiry reminders (in-app, push, e-mail, payment link) and online renewal run even if rule shopMembership has them off. Off: unchanged.",
+  flow_f7:
+    "docs/flows-v3/wave4.md (F7): every paid franchise booking needs a live registered shop of the buyer, with or without a subscription plan (\"no shop, no franchise\"), at reserve and at payment; a franchisee who bought on a plan (onboarding v2) may renew before giving a PAN (PAN + bank are still needed before the first payout), and the renewal runs for the plan's own term. Off: unchanged.",
+  flow_f8:
+    "docs/flows-v3/wave4.md (F8): changing a team lead to an agent moves his active agents to the team lead chosen (or to the dealer) in the same step, instead of refusing until they are moved by hand. Off: unchanged.",
+  flow_f9:
+    "docs/flows-v3/wave4.md (F9): a paid franchise earns its recurring share on the owner's own shops (registered with his codes) in any area — outside his zones through his earliest franchise — and on the other shops of his zone; when a second franchise is bought in the zone the other shops stay with the first one (no 50/50 split) and the new owner earns only on the shops he registers himself; franchises sold after the first 25 get the launch recurring rate (20% + bonus up to 5%). Off: unchanged (shops of the zone shared between its franchises).",
+  flow_f10:
+    "docs/flows-v3/wave4.md (F10, rule franchiseFlowsV3.tailCapYears): the commission tail after a paid franchise lapses ends at most 3 years after the franchise first started — a renewal does not start a new 3 years (while the franchise is paid up it keeps earning). Free dealers: one-time commission for 12 months, no tail (unchanged). Off: tail = 2 years after the last expiry.",
+  flow_f12:
+    "docs/flows-v3/wave4.md (F12): the account's referral codes are completed whenever they are listed (Refer and share pages): a customer code for every account and a shop code for each live shop (while shop referrals are on), next to the dealer, team and franchise codes made at approval, so there is always a code to share by WhatsApp / SMS / e-mail. Off: customer and shop codes are made on first use of their own page only.",
+  flow_f21:
+    "docs/flows-v3/wave4.md (F21, rule franchiseFlowsV3): a dealer may hold one booking at a time; the hold is 15 minutes with a live countdown, and the slot is released 2 minutes after it even while the payment page is open (the gateway order ends with the hold, at the gateway's minimum); held slots show \"on hold\" to others. A payment that arrives later takes a slot that is still free (either slot of the zone), else the money for the lost zone(s) is refunded in full automatically through the payment gateway, and the admins are alerted. Off: unchanged.",
+  flow_f22:
+    "docs/flows-v3/wave4.md (F22, rule franchiseFlowsV3): a commission entry becomes payable 3 days after it is earned (return window + 1 day) — the month close leaves newer entries for the next month; a full refund of a shop fee through the payment gateway takes back the commission of everyone in the chain; a GST-registered dealer's payout adds GST (rate set by the admin, confirmed by the CA) with a commission invoice, and the statement shows gross, reversals, TDS, GST and net. Payouts on the 5th stay drafts for an admin. Off: unchanged.",
 };
 
 export interface FeatureFlagView {
