@@ -106,7 +106,7 @@ async function setRule(key: string, value: Record<string, unknown>) {
   clearRuleCache();
 }
 
-async function flag(key: string, enabled: boolean) {
+async function flag(key: "delivery_partner_picoxpress_enabled" | "pico_live_location_enabled", enabled: boolean) {
   await db.insert(featureFlags).values({ key, enabled }).onConflictDoUpdate({ target: featureFlags.key, set: { enabled } });
   clearFeatureFlagCache();
 }
