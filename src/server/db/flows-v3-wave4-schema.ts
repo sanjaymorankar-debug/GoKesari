@@ -1,5 +1,5 @@
 /**
- * Flow spec v3, wave 4 (docs/flows-v3/wave4.md; drizzle/0223_flows_v3_wave4.sql; flag flow_f22).
+ * Flow spec v3, wave 4 (docs/flows-v3/wave4.md; drizzle/0224_flows_v3_wave4.sql; flag flow_f22).
  *
  * dealer_commission_invoices: the commission invoice of a GST-registered dealer's monthly payout — the dealer is the
  * supplier, GoKesari the recipient; one per payout (unique batch_id), numbered "<prefix>/<yyYY>/<000001>" per

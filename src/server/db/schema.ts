@@ -11222,7 +11222,13 @@ export const FEATURE_FLAG_KEYS = [
   "flow_f1",
   "flow_f14",
   "flow_f17",
-  // docs/flows-v3/wave4.md (0223): flow spec v3 wave 4. F7 franchise (live shop for every paid booking, renewal
+  // docs/flows-v3/wave3.md (0223): flow spec v3 wave 3. F4 shop onboarding (WhatsApp + payment QR at registration,
+  // agreement e-mailed on acceptance), F5 licence reminders (registration licences in the shop's register), F6 shop
+  // subscription (first year from go-live; reminders and online renewal on). Seeded ON on staging, OFF on production.
+  "flow_f4",
+  "flow_f5",
+  "flow_f6",
+  // docs/flows-v3/wave4.md (0224): flow spec v3 wave 4. F7 franchise (live shop for every paid booking, renewal
   // without PAN), F8 team (downgrade moves the agents), F9 recurring commission (own shops anywhere, the zone's first
   // franchise keeps the others), F10 renewal (3-year cap on the tail), F12 referral codes for every dealer, shop and
   // customer, F21 zone hold (one hold per dealer, 15 minutes, refund of a lost slot), F22 commission (held 3 days,
@@ -12394,7 +12400,7 @@ export const dealerPayoutBatches = pgTable(
     paidBy: uuid("paid_by"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    /** 0223 (docs/flows-v3/wave4.md, flag flow_f22): GST added for a GST-registered dealer; net = gross + GST − TDS. */
+    /** 0224 (docs/flows-v3/wave4.md, flag flow_f22): GST added for a GST-registered dealer; net = gross + GST − TDS. */
     gstPaise: integer("gst_paise").notNull().default(0),
     gstRateBp: integer("gst_rate_bp").notNull().default(0),
     /** 0222: the commission invoice (dealer_commission_invoices) issued for this payout. */
@@ -13766,5 +13772,5 @@ export * from "./flows-v3-wave2-schema"; // docs/flows-v3/wave2.md (0222)
 export * from "./onboarding-v2-schema"; // docs/onboarding-v2-2026-11 (0215)
 export * from "./dual-auth-schema"; // docs/dual-auth-2026-11 (0219)
 export * from "./flows-v3-schema"; // docs/flows-v3 (0221)
-export * from "./flows-v3-wave4-schema"; // docs/flows-v3/wave4.md (0223)
+export * from "./flows-v3-wave4-schema"; // docs/flows-v3/wave4.md (0224)
 /* <<< GoKesari Health */

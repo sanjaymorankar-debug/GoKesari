@@ -28,7 +28,7 @@ function specFiles(dir = join(ROOT, "tests", "qa")): string[] {
 
 qa("TC-QA-001", "every case and scenario of the plan is declared in the suite (a check or manual() with its reason)", async () => {
   const declared = new Set<string>();
-  for (const file of specFiles()) for (const m of readFileSync(file, "utf8").matchAll(/"((?:TC-[A-Z]+|SC)-\d+)"/g)) declared.add(m[1]);
+  for (const file of specFiles()) for (const m of readFileSync(file, "utf8").matchAll(/"((?:TC-[A-Z][A-Z0-9]*|SC)-\d+)"/g)) declared.add(m[1]);
   const ids = [...catalog(), ...scenarios()].map((c) => c.id);
   const missing = ids.filter((id) => !declared.has(id));
   expect(missing, `${missing.length} of ${ids.length} not declared: ${missing.slice(0, 40).join(", ")}${missing.length > 40 ? " …" : ""}`).toEqual([]);
@@ -60,7 +60,7 @@ qa("TC-QA-003", "each check of this run left a complete result row (ID, status, 
   if (!rows.length) blocked("no result rows yet");
   const bad = rows.filter(
     (r) =>
-      !/^(TC-[A-Z]+|SC)-\d+$/.test(r.id) ||
+      !/^(TC-[A-Z][A-Z0-9]*|SC)-\d+$/.test(r.id) ||
       !["pass", "fail", "blocked", "skipped"].includes(r.status) ||
       typeof r.detail !== "string" ||
       !["guest", "signed", "local"].includes(r.tier) ||

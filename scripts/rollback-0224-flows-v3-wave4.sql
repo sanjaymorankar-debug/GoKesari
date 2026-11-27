@@ -1,5 +1,5 @@
--- Rollback of drizzle/0223_flows_v3_wave4.sql (docs/flows-v3/wave4.md).
--- Deploy the previous release's code first, then run this and delete the 0223 row from drizzle.__drizzle_migrations.
+-- Rollback of drizzle/0224_flows_v3_wave4.sql (docs/flows-v3/wave4.md).
+-- Deploy the previous release's code first, then run this and delete the 0224 row from drizzle.__drizzle_migrations.
 -- Idempotent. Dropping the invoice tables loses the commission invoices issued while flag flow_f22 was on: export
 -- them first (SELECT * FROM dealer_commission_invoices). Payouts drafted with GST keep their total; only the GST
 -- columns go, so pay such a draft by hand with its GST noted.
