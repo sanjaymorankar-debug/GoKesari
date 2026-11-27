@@ -37,6 +37,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { notify } from "./notifications";
 import { registrationFeeDue } from "./registration-fee-payment";
 import { getRule } from "./settings";
+import { shopMembershipRuleForFlows } from "@/server/flows/wave3-rules";
 import {
   isMembershipExempt,
   listMembershipPeriods,
@@ -162,7 +163,8 @@ export interface RenewalView {
 
 /** Everything the owner's Registration page shows about the membership. */
 export async function membershipRenewalView(shop: Shop, ownerId: string, now = new Date()): Promise<RenewalView> {
-  const rule = await getRule("shopMembership");
+  // docs/flows-v3/wave3.md (flag flow_f6): online renewal open even when rule shopMembership has it off.
+  const rule = await shopMembershipRuleForFlows();
   const [status, quote, periods, intents] = await Promise.all([
     shopMembershipStatus(shop, rule, now),
     renewalFeeQuote(shop, now),
@@ -228,7 +230,7 @@ export async function startMembershipRenewalCheckout(
   owner: Owner,
   now = new Date(),
 ): Promise<{ intentId: string; amountPaise: number; redirectUrl: string }> {
-  const rule = await getRule("shopMembership");
+  const rule = await shopMembershipRuleForFlows();
   if (!rule.renewalCheckoutEnabled) throw conflict(RENEWAL_REFUSAL_TEXT.CHECKOUT_OFF);
   const shop = await ownShop(shopId, owner.id);
   const status = await shopMembershipStatus(shop, rule, now);

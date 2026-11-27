@@ -11222,6 +11222,12 @@ export const FEATURE_FLAG_KEYS = [
   "flow_f1",
   "flow_f14",
   "flow_f17",
+  // docs/flows-v3/wave3.md (0223): flow spec v3 wave 3. F4 shop onboarding (WhatsApp + payment QR at registration,
+  // agreement e-mailed on acceptance), F5 licence reminders (registration licences in the shop's register), F6 shop
+  // subscription (first year from go-live; reminders and online renewal on). Seeded ON on staging, OFF on production.
+  "flow_f4",
+  "flow_f5",
+  "flow_f6",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 

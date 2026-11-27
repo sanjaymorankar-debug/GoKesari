@@ -655,6 +655,8 @@ export async function decideLegalDocument(
     }
     return updated;
   });
+  // docs/flows-v3/wave3.md (flag flow_f5): a licence copied from the registration — its registration entry follows.
+  await (await import("@/server/flows/f5-licences")).syncEntryFromRegister(row.id);
   if (input.decision === "approve") await approvalCheckAfterLicence(row.shopId);
   return toView(row, evaluateLegalDoc(row, rule), (await filesFor([row.id])).get(row.id) ?? []);
 }

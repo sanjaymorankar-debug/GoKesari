@@ -113,6 +113,9 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   flow_f1: "Flows v3 F1: rider verification gate, sign-up Terms record, referral link to sign-up",
   flow_f14: "Flows v3 F14: shop wallet created with the shop, wallet ledger download",
   flow_f17: "Flows v3 F17: support auto-assign, area dealer, system tickets, working-hours SLA, recovery form",
+  flow_f4: "Flows v3 F4: WhatsApp + payment QR at registration, agreement e-mailed on acceptance",
+  flow_f5: "Flows v3 F5: licences given at registration count in the shop's register, promises marked given",
+  flow_f6: "Flows v3 F6: first subscription year from go-live, expiry reminders and online renewal on",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -236,6 +239,12 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/flows-v3/wave1.md (F14): a shop registered through onboarding v2 gets its prepaid shop wallet at once (zero balance), and /shop/wallet offers the monthly ledger as a CSV download (without needing billing v2). Off: the wallet appears on first use and the download stays on the billing v2 statements page only.",
   flow_f17:
     "docs/flows-v3/wave1.md (F17): new tickets are assigned automatically by category and the shop's district (Admin → Support → Routing; least-loaded person; no match = manual queue); the shop's area dealer is copied (read-only); the system opens tickets for failed GST/PAN or document checks, identity reviews, payment mismatches, disputes, delivery-code locks and society applications; first response due within working hours (rule supportFlows); reopen within 7 days, closed tickets too; a public form at /account/recover for people who lost both mobile and e-mail. Off: the help desk behaves exactly as before.",
+  flow_f4:
+    "docs/flows-v3/wave3.md (F4, rule shopFlowsV3): the onboarding v2 agreement step offers the shop's WhatsApp number and its payment QR, both optional (saved to the shop's settings; the QR is used on the welcome-kit banner); the seller agreement accepted at registration (no OTP) is e-mailed at once in English, Marathi and Hindi — the signed PDFs when the agreements engine made them, otherwise an e-mail with links to the terms. The fee stays the turnover slabs. Off: unchanged.",
+  flow_f5:
+    "docs/flows-v3/wave3.md (F5, rule shopFlowsV3): a licence entered, uploaded or scanned at an onboarding v2 registration is copied into the shop's licence register (submitted; approved once GoKesari's team or the online check verified it; rejected when the team rejects it) at shop creation and on the team's decision, and the daily documents follow-up back-fills older shops — so no register, reminder or suspension asks again for a licence already given. A licence promised at registration and given later is marked given in the registration-licences queue. Off: unchanged.",
+  flow_f6:
+    "docs/flows-v3/wave3.md (F6, rule shopFlowsV3): a new shop's first 12-month registration period starts the day it goes live (not the day the fee was paid); shops already live keep their dates. Expiry reminders (in-app, push, e-mail, payment link) and online renewal run even if rule shopMembership has them off. Off: unchanged.",
 };
 
 export interface FeatureFlagView {

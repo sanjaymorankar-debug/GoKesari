@@ -2554,6 +2554,32 @@ export const RULES = {
     },
   },
   /* <<< docs/flows-v3 */
+  /* >>> docs/flows-v3/wave3.md (flags flow_f4, flow_f5, flow_f6): read only while the matching flag is on. */
+  shopFlowsV3: {
+    description:
+      "Flow spec v3, wave 3 (docs/flows-v3/wave3.md; each switch is read only while its feature flag is on; off, the site behaves as before). flow_f4 — askContactAtRegistration: the onboarding v2 agreement step offers two optional fields, the shop's WhatsApp number and its payment QR (saved to the shop's settings, used on the welcome-kit banner); agreementEmailOnAcceptance: the seller agreement accepted at registration is e-mailed at once in English, Marathi and Hindi (the signed PDFs when the agreements engine made them, else an e-mail with links to the terms). flow_f5 — registrationLicencesToRegister: a licence entered, uploaded or scanned at an onboarding v2 registration is copied into the shop's licence register (as submitted; as approved once verified) when the shop is created and when GoKesari's team decides it, and the daily documents follow-up back-fills shops created before; a licence promised at registration and given later is marked given. flow_f6 — subscriptionStartsAtGoLive: a new shop's first 12-month period starts the day it goes live instead of the day its fee was paid (shops already live are unchanged); remindersAndRenewalOn: expiry reminders (with the payment link) and online renewal run even when rule shopMembership has them off.",
+    schema: z.object({
+      askContactAtRegistration: z.boolean(),
+      agreementEmailOnAcceptance: z.boolean(),
+      registrationLicencesToRegister: z.boolean(),
+      subscriptionStartsAtGoLive: z.boolean(),
+      remindersAndRenewalOn: z.boolean(),
+    }),
+    defaults: {
+      // Owner, 27-Nov-2026: WhatsApp number and payment QR asked at registration, both optional.
+      askContactAtRegistration: true,
+      // Owner, 27-Nov-2026: the accepted agreement is e-mailed in three languages on acceptance.
+      agreementEmailOnAcceptance: true,
+      // Owner, 27-Nov-2026: a licence given at registration is never chased again.
+      registrationLicencesToRegister: true,
+      // Owner, 27-Nov-2026: the 1-year subscription starts at go-live.
+      subscriptionStartsAtGoLive: true,
+      // DEFAULT – confirm with Sanjay: with flow_f6 on, expiry reminders and online renewal run whatever rule
+      // shopMembership says (spec F6 steps 2-4); switch this off to leave them to rule shopMembership.
+      remindersAndRenewalOn: true,
+    },
+  },
+  /* <<< docs/flows-v3/wave3.md */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;
