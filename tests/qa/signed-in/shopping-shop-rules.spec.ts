@@ -14,6 +14,7 @@ import { expectStatus, RUN, why } from "../lib/http";
 import { expect, qa } from "../lib/record";
 import { BASE_URL } from "../lib/target";
 import { pickPaymentIfNone } from "../lib/onboarding-v2-helpers";
+import { paymentChoiceExplicit } from "../lib/flows-v3-helpers";
 import {
   cancelOwn,
   cartGroup,
@@ -247,6 +248,12 @@ qa("TC-LOC-023", "pause new orders: the shop leaves the delivering lists, the ca
     const warning = cartGroup(page, shopName("A")).getByTestId("delivery-warning");
     await expect(warning).toContainText("is not taking new orders right now");
     await expect(warning.getByRole("button", { name: "Remove these items" })).toBeVisible();
+    if (await paymentChoiceExplicit()) {
+      // flow_f2 (and onboarding v2): nothing preselected — "Choose how to pay", disabled; with the wallet picked the
+      // pay button still stays disabled while the shop is paused.
+      await expect(page.getByRole("button", { name: "Choose how to pay" }), "before a payment method is picked").toBeDisabled();
+      await page.getByTestId("payment-method").getByRole("radio", { name: "Wallet", exact: true }).check();
+    }
     await expect(page.getByRole("button", { name: /Pay from wallet/ })).toBeDisabled();
     const refused = await checkoutAs("customer", { addressId: await homeAddressId(), paymentMethod: "WALLET" });
     expect([409, 422], why(refused)).toContain(refused.status);

@@ -249,14 +249,21 @@ qa("TC-SUP-008", "rating the rider: saved, the rider sees the average on the das
   const self = await placeSimple();
   try {
     await driveTo(self.id, "PREPARING");
-    const restore = await withShopSettings({ deliveryAvailable: false });
-    const restoreRule = await withRuleOff("fulfilmentOptions");
+    // E-45: both changes are made inside the try, so shop A's delivery is put back even when the rule change is
+    // refused (withRuleOff blocks on a site with four-eye approval) — before, shop A was left not delivering.
+    let restore: (() => Promise<void>) | null = null;
+    let restoreRule: (() => Promise<void>) | null = null;
     try {
+      restore = await withShopSettings({ deliveryAvailable: false });
+      restoreRule = await withRuleOff("fulfilmentOptions");
       await driveTo(self.id, "READY", { from: "PREPARING" });
       expectStatus(await setStatus(self.id, "DELIVERED"), 200, "handed to the customer by the shop");
     } finally {
-      await restoreRule();
-      await restore();
+      try {
+        if (restoreRule) await restoreRule();
+      } finally {
+        if (restore) await restore();
+      }
     }
     expect(await statusOf(self.id)).toBe("DELIVERED");
     const elig = await call(await as("customer"), "GET", `/api/orders/${self.id}/rating`);

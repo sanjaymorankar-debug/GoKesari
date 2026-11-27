@@ -15,7 +15,9 @@ import type { Page } from "@playwright/test";
 import { as, pageAs } from "../lib/actors";
 import { keep, kept } from "../lib/auth-helpers";
 import { defaultAddress } from "../lib/flows";
+import { flowOn } from "../lib/flows-v3-helpers";
 import { call, expectStatus, RUN } from "../lib/http";
+import { png } from "../lib/orders-helpers";
 import { blocked, expect, need, qa } from "../lib/record";
 import { world } from "../lib/world";
 
@@ -49,14 +51,46 @@ async function registerForm(page: Page, values: { name: string; unit?: string; a
   await page.getByLabel("PIN code", { exact: true }).fill(values.pincode);
 }
 
+/**
+ * docs/flows-v3/wave5.md (flag flow_f15): the application's authorised person, flats and proof document. Every
+ * field is mandatory except the flats; "Register society" stays disabled until they are given. With `upload` the
+ * document is also uploaded (a photo, as from the phone's camera) and the hint must say it was added.
+ */
+async function proofForm(page: Page, options: { upload?: boolean } = {}) {
+  const button = page.getByRole("button", { name: "Register society" });
+  await expect(button, "disabled before the authorised person and the proof").toBeDisabled();
+  await page.getByLabel("Authorised person's name", { exact: true }).fill("QA Secretary");
+  await page.getByLabel(/^Their role/).fill("Secretary");
+  await page.getByLabel("Number of flats (optional)", { exact: true }).fill("48");
+  await page.getByLabel(/^Proof document/).selectOption("COMMITTEE_LETTER");
+  await expect(button, "disabled without the document's number or image").toBeDisabled();
+  if (options.upload) {
+    await page.getByTestId("society-proof-file").setInputFiles({ name: "committee-letter.png", mimeType: "image/png", buffer: png(400, 300) });
+    await expect(page.getByText("Document added.")).toBeVisible({ timeout: 30_000 });
+  }
+  await page.getByLabel("Document number", { exact: true }).fill(`QA/CL/${RUN}`);
+}
+
+/** The flow_f15 application details an API registration needs (ignored by the server while the flag is off). */
+const PROOF = {
+  authorisedPersonName: "QA Secretary",
+  authorisedPersonRole: "Secretary",
+  flatCount: 48,
+  proofType: "COMMITTEE_LETTER",
+  proofNumber: "QA/CL/1",
+} as const;
+
 /* ======================================================== registration */
 
 qa("TC-SOC-001", "register a society from /society: it is APPLIED and the registrant is its active ADMIN", async ({ browser }) => {
   const name = `QA Towers ${RUN}`;
+  const withProof = await flowOn("flow_f15");
   const { context, page } = await pageAs(browser, "customer2");
   try {
     await page.goto("/society");
     await registerForm(page, { name, unit: "B-12", pincode: "411038" });
+    // flow_f15: the authorised person and the proof (number + uploaded photo) are asked before the button opens.
+    if (withProof) await proofForm(page, { upload: true });
     await page.getByRole("button", { name: "Register society" }).click();
     await expect(page.getByText("Registered — our team will verify the society shortly.")).toBeVisible();
     const row = (await mine("customer2")).find((r) => r.society.name === name);
@@ -66,7 +100,7 @@ qa("TC-SOC-001", "register a society from /society: it is APPLIED and the regist
     await expect(page.getByText(name).first()).toBeVisible();
     await expect(page.getByText("admin · B-12 · society applied").first()).toBeVisible();
     keep(APPLIED_KEY, { id: row!.society.id, name });
-    return `"${name}" APPLIED; customer 2 is its ADMIN (ACTIVE, unit B-12)`;
+    return `"${name}" APPLIED; customer 2 is its ADMIN (ACTIVE, unit B-12)${withProof ? "; flow_f15: button disabled until the authorised person, role and proof were given; committee letter number and photo uploaded" : ""}`;
   } finally {
     await context.close();
   }
@@ -74,13 +108,14 @@ qa("TC-SOC-001", "register a society from /society: it is APPLIED and the regist
 
 qa("TC-SOC-002", "registering the same name and PIN again is refused (any letter case)", async ({ browser }) => {
   const first = kept<{ id: string; name: string }>(APPLIED_KEY) ?? blocked("needs the society registered by TC-SOC-001");
-  const api = await call(await as("customer2"), "POST", "/api/societies", { name: first.name.toUpperCase(), addressLine1: "Other road", city: "Pune", pincode: "411038" });
+  const api = await call(await as("customer2"), "POST", "/api/societies", { name: first.name.toUpperCase(), addressLine1: "Other road", city: "Pune", pincode: "411038", ...PROOF });
   expect(api.status, "API duplicate").toBe(409);
   expect(api.body.error.message).toBe("This society is already registered — ask to join it instead.");
   const { context, page } = await pageAs(browser, "customer");
   try {
     await page.goto("/society");
     await registerForm(page, { name: first.name, pincode: "411038" });
+    if (await flowOn("flow_f15")) await proofForm(page);
     await page.getByRole("button", { name: "Register society" }).click();
     await expect(page.getByText("This society is already registered — ask to join it instead.")).toBeVisible();
     const again = (await mine("customer")).filter((r) => r.society.name.toLowerCase() === first.name.toLowerCase());
@@ -93,7 +128,8 @@ qa("TC-SOC-002", "registering the same name and PIN again is refused (any letter
 
 qa("TC-FLD-104", "society registration fields: blank, spaces, 1 character and over 120 refused; script shown as text; Hindi kept; outer spaces trimmed; 6-digit PIN rule", async ({ browser }) => {
   const ctx = await as("customer2");
-  const post = (name: string, pincode = "411038") => call(ctx, "POST", "/api/societies", { name, addressLine1: "QA Society Road", city: "Pune", pincode });
+  const withProof = await flowOn("flow_f15");
+  const post = (name: string, pincode = "411038", extra: Record<string, unknown> = PROOF) => call(ctx, "POST", "/api/societies", { name, addressLine1: "QA Society Road", city: "Pune", pincode, ...extra });
   const out: string[] = [];
   for (const name of ["", "   ", "A"]) {
     const res = await post(name);
@@ -114,6 +150,28 @@ qa("TC-FLD-104", "society registration fields: blank, spaces, 1 character and ov
     expect(res.status, `PIN ${pincode}`).toBe(422);
   }
   out.push("PIN 5/7 digits, letters, a space → 422");
+  if (withProof) {
+    // flow_f15: the authorised person (name and role, 2+ characters), the proof type and its number or image.
+    const none = await post(`QA NoProof ${RUN}`, "411038", {});
+    expect(none.status, "no authorised person or proof").toBe(422);
+    expect(Object.keys(none.body?.error?.details?.fields ?? {}).sort(), "the fields named").toEqual(["authorisedPersonName", "authorisedPersonRole", "proofNumber", "proofType"]);
+    for (const [what, extra, field] of [
+      ["1-character name", { ...PROOF, authorisedPersonName: "A" }, "authorisedPersonName"],
+      ["spaces-only role", { ...PROOF, authorisedPersonRole: "   " }, "authorisedPersonRole"],
+      ["unknown proof type", { ...PROOF, proofType: "RATION_CARD" }, null],
+      ["no number and no image", { ...PROOF, proofNumber: null }, "proofNumber"],
+      ["0 flats", { ...PROOF, flatCount: 0 }, null],
+      ["an image that is not the registrant's upload", { ...PROOF, proofImageUrl: "/api/images/00000000-0000-4000-8000-000000000000" }, "proofImageUrl"],
+    ] as const) {
+      const res = await post(`QA Proof ${what} ${RUN}`, "411038", extra);
+      expect(res.status, what).toBe(422);
+      if (field) expect(Object.keys(res.body?.error?.details?.fields ?? {}), `${what}: field`).toContain(field);
+    }
+    const saved = await post(`QA Proof ok ${RUN}`, "411038", { ...PROOF, flatCount: null });
+    expectStatus(saved, 201, "authorised person + committee letter number, no flats");
+    expect([saved.body.authorisedPersonName, saved.body.authorisedPersonRole, saved.body.proofType, saved.body.requiresProof]).toEqual(["QA Secretary", "Secretary", "COMMITTEE_LETTER", true]);
+    out.push("flow_f15: no authorised person/proof → 422 naming the 4 fields; 1-char name, spaces role, unknown type, no number or image, 0 flats, a foreign image → 422; flats optional; saved with requiresProof");
+  }
   const script = `<script>alert(1)</script> QA ${RUN}`;
   const hindi = `श्री गणेश सोसायटी ${RUN}`;
   for (const name of [script, hindi]) expectStatus(await post(name), 201, `name ${name.slice(0, 12)}`);
@@ -128,12 +186,21 @@ qa("TC-FLD-104", "society registration fields: blank, spaces, 1 character and ov
     await expect(page.getByText(script, { exact: true }).first(), "script shown as text").toBeVisible();
     await expect(page.getByText(hindi, { exact: true }).first(), "Hindi kept").toBeVisible();
     expect(alerted, "no script ran").toBe(false);
+    if (withProof) {
+      // The proof given, so only the name and the PIN keep the button disabled below.
+      await page.getByLabel("Authorised person's name", { exact: true }).fill("QA Secretary");
+      await page.getByLabel(/^Their role/).fill("Secretary");
+      await page.getByLabel(/^Proof document/).selectOption("REGISTRATION_CERTIFICATE");
+      await page.getByLabel("Document number", { exact: true }).fill("QA/RC/1");
+    }
     await page.getByLabel("Society name", { exact: true }).fill("ab");
     await page.getByLabel("PIN code", { exact: true }).fill("411038");
     await expect(page.getByRole("button", { name: "Register society" }), "under 3 characters").toBeDisabled();
     await page.getByLabel("Society name", { exact: true }).fill("QA Disabled");
     await page.getByLabel("PIN code", { exact: true }).fill("4110");
     await expect(page.getByRole("button", { name: "Register society" }), "short PIN").toBeDisabled();
+    await page.getByLabel("PIN code", { exact: true }).fill("411038");
+    await expect(page.getByRole("button", { name: "Register society" }), "valid name and PIN (and proof): enabled").toBeEnabled();
     out.push("script and Hindi names saved and shown as plain text; the button stays disabled for a short name or PIN");
   } finally {
     await context.close();

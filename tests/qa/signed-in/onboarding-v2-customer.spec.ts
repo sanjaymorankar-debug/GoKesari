@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 
 import { as, pageAs } from "../lib/actors";
 import { addToCart, emptyCart, fulfil, sellable, walletBalance } from "../lib/flows";
+import { flowOn } from "../lib/flows-v3-helpers";
 import { anonymous, call, expectStatus, RUN, why } from "../lib/http";
 import { blocked, expect, qa } from "../lib/record";
 
@@ -60,17 +61,22 @@ async function orderDetail(id: string) {
   return row!;
 }
 
-qa(["TC-OV2-010"], "a guest opening a customer's /r/<code> link lands on the home page, not on sign-in", async () => {
+qa(["TC-OV2-010"], "a guest opening a customer's /r/<code> link is not sent to sign in but to the home page (onboarding v2); with flow_f1 to sign-up with the code kept (/signin?ref=<code>)", async () => {
   if (!(await v2On())) blocked("onboarding_v2 is off on this site");
   const summary = await call(await as("customer"), "GET", "/api/customer-referrals");
   expectStatus(summary, 200, "the customer's referral code");
   const code = summary.body.code as string;
+  // docs/flows-v3/wave1.md (F12 → F1, flag flow_f1): a signed-out visitor on a customer link goes to sign-up, the
+  // code kept in the gk_ref cookie and on the page (?ref=), instead of the onboarding-v2 home page.
+  const f1 = await flowOn("flow_f1");
+  const expected = f1 ? `/signin?ref=${encodeURIComponent(code)}` : "/";
   const guest = await anonymous();
   try {
     const res = await call(guest, "GET", `/r/${code}`, undefined, { maxRedirects: 0 });
     expect(res.status).toBe(307);
-    expect(res.location, "Location of /r/<code> for a guest").toBe("/");
-    return `/r/${code.slice(0, 3)}… → 307 Location "/"`;
+    expect(res.location, "Location of /r/<code> for a guest").toBe(expected);
+    if (f1) expect(res.headers["set-cookie"] ?? "", "the code is remembered (gk_ref cookie)").toContain(`gk_ref=${code}`);
+    return `/r/${code.slice(0, 3)}… → 307 Location "${expected.replace(code, `${code.slice(0, 3)}…`)}"${f1 ? " (flow_f1: sign-up with the code; gk_ref cookie set)" : ""}`;
   } finally {
     await guest.dispose();
   }
