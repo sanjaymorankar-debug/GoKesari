@@ -36,9 +36,9 @@ const T = {
   sending: L("Sending…", "भेज रहे हैं…", "पाठवत आहे…"),
   getCode: L("Get code", "कोड पाएँ", "कोड मिळवा"),
   codeByEmail: L(
-    "The sign-in code is sent by SMS to your verified mobile number, otherwise to your email.",
-    "साइन इन कोड आपके सत्यापित मोबाइल नंबर पर SMS से भेजा जाता है, नहीं तो आपके ईमेल पर।",
-    "साइन इन कोड तुमच्या पडताळलेल्या मोबाइल नंबरवर SMS ने पाठवला जातो, नाहीतर तुमच्या ईमेलवर.",
+    "With a mobile number the sign-in code comes by SMS; with an email it comes by email.",
+    "मोबाइल नंबर से साइन इन कोड SMS से आता है; ईमेल से, ईमेल पर।",
+    "मोबाइल नंबरने साइन इन कोड SMS ने येतो; ईमेलने, ईमेलवर.",
   ),
   enterEmail: L(
     "Enter your email address. We'll send the code there and link +91 {mobile} to your account.",
@@ -50,9 +50,9 @@ const T = {
   changeNumber: L("Change number", "नंबर बदलें", "नंबर बदला"),
   otpSent: L("OTP sent to your email", "OTP आपके ईमेल पर भेजा गया", "OTP तुमच्या ईमेलवर पाठवला"),
   otpSentMobile: L(
-    "OTP sent: if +91 {mobile} is registered, the code went by SMS to this number — or, if the number is not verified yet, to the email address on that account.",
-    "OTP भेजा गया: अगर +91 {mobile} रजिस्टर है, तो कोड इसी नंबर पर SMS से गया है — या, अगर नंबर अभी सत्यापित नहीं है, तो उस खाते के ईमेल पर।",
-    "OTP पाठवला: +91 {mobile} नोंदलेला असल्यास कोड याच नंबरवर SMS ने गेला आहे — किंवा, नंबर अजून पडताळलेला नसल्यास, त्या खात्याच्या ईमेलवर.",
+    "OTP sent by SMS to +91 {mobile}. If SMS is not available right now, an existing account gets it at its email address.",
+    "OTP SMS से +91 {mobile} पर भेजा गया। अगर अभी SMS उपलब्ध नहीं है, तो मौजूदा खाते के ईमेल पर भेजा जाता है।",
+    "OTP SMS ने +91 {mobile} वर पाठवला. आत्ता SMS उपलब्ध नसल्यास, असलेल्या खात्याच्या ईमेलवर पाठवला जातो.",
   ),
   codePlaceholder: L("Enter code", "कोड डालें", "कोड टाका"),
   codeLabel: L("One-time code", "एक बार का कोड", "एक-वेळ कोड"),
