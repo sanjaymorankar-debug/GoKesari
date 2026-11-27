@@ -621,6 +621,11 @@ export async function submitApplication(
   const dealer = await getDealerForUser(actor.id);
   if (!dealer) throw validationFailed("Save your application first.");
   if (dealer.status !== "DRAFT") throw conflict("Only a draft application can be submitted.");
+  // Owner, 27-Nov-2026: only the owner of a live GoKesari shop becomes a dealer or franchisee (rule dealerApplication).
+  if ((await getRule("dealerApplication")).requireLiveShop) {
+    const { liveShopForUser, SHOP_REGISTER_FOR_FRANCHISE } = await import("@/server/onboarding-v2/franchise");
+    if (!(await liveShopForUser(actor.id))) throw conflict("Register your shop first — a live GoKesari shop is needed to become a dealer or franchisee.", { reason: "SHOP_REQUIRED", redirect: SHOP_REGISTER_FOR_FRANCHISE });
+  }
   if (acceptAgreementVersion !== DEALER_AGREEMENT_VERSION) {
     throw validationFailed("Read and accept the current dealer agreement.", { fields: { agreement: "Accept the agreement." } });
   }
@@ -874,20 +879,27 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
       if (!DATE.test(decision.agreementStart) || !DATE.test(decision.agreementEnd) || decision.agreementEnd < decision.agreementStart) {
         throw validationFailed("Give the agreement's start and end dates (end on or after start).", { fields: { agreementStart: "Required.", agreementEnd: "Required." } });
       }
-      if (!dealer.mobileVerifiedAt && !decision.mobileConfirmedByCall) {
+      // Owner, 27-Nov-2026: a free franchisee request from a live shop (source SHOP_REQUEST) is approved on the shop's
+      // verified details — the shop must still be live; PAN and payout bank follow before the first payout.
+      const shopRequest = dealer.source === "SHOP_REQUEST";
+      if (shopRequest) {
+        const { liveShopForUser } = await import("@/server/onboarding-v2/franchise");
+        if (!dealer.userId || !(await liveShopForUser(dealer.userId, tx))) throw conflict("This request's shop is no longer live. Reject the request, or wait until the shop is live again.");
+      }
+      if (!shopRequest && !dealer.mobileVerifiedAt && !decision.mobileConfirmedByCall) {
         throw validationFailed("The mobile number is not verified. Confirm it by calling the dealer, then tick the box.", { fields: { mobile: "Not verified." } });
       }
       const view = await dealerView(dealer, tx);
-      const notAccepted = view.requirements.filter((r) => r.required && r.status !== "ACCEPTED" && r.status !== "VERIFIED_ONLINE");
+      const notAccepted = shopRequest ? [] : view.requirements.filter((r) => r.required && r.status !== "ACCEPTED" && r.status !== "VERIFIED_ONLINE");
       if (notAccepted.length) throw validationFailed(`Accept these documents first: ${notAccepted.map((r) => r.label).join(", ")}.`);
-      if (dealer.bankStatus !== "VERIFIED") {
+      if (!shopRequest && dealer.bankStatus !== "VERIFIED") {
         const bankProof = view.requirements.find((r) => r.docType === "BANK_PROOF");
         if (!decision.bankVerifiedByDocument || bankProof?.status !== "ACCEPTED") {
           throw validationFailed("The bank account is not verified. Accept the cancelled cheque / bank proof and confirm the account from it.", { fields: { bank: "Not verified." } });
         }
         Object.assign(extra, { bankStatus: "VERIFIED", bankVerifiedAt: now, bankStatusReason: "Verified by an admin from the bank proof." });
       }
-      if (!dealer.mobileVerifiedAt) Object.assign(extra, { mobileVerifiedAt: now, mobileVerificationMethod: "ADMIN_CALL" });
+      if (!dealer.mobileVerifiedAt && !shopRequest) Object.assign(extra, { mobileVerifiedAt: now, mobileVerificationMethod: "ADMIN_CALL" });
       Object.assign(extra, { agreementStart: decision.agreementStart, agreementEnd: decision.agreementEnd });
       to = "APPROVED";
       const existing = (await listDealerCodes(dealer.id, tx)).find((c) => c.kind !== "SALESPERSON" && c.status === "ACTIVE");
@@ -897,6 +909,9 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
       if (dealer.userId) await grantRole(dealer.userId, "DEALER", { source: "ADMIN", grantedBy: actor.id, activateIfCustomer: true }, tx);
       // docs/dealer-platform phase 2: onto the scheme version he chose and accepted.
       await (await import("./scheme-registration")).assignOnApproval(dealer, actor.id, tx);
+      if (shopRequest && dealer.userId) {
+        await (await import("@/server/onboarding-v2/roles")).recordRoleChange({ userId: dealer.userId, role: "dealer_free", action: "GRANTED", dealerId: dealer.id, actorUserId: actor.id, reason: "free franchisee request approved by an admin" }, tx);
+      }
     } else if (decision.action === "REJECT") {
       to = "REJECTED";
     } else if (decision.action === "SUSPEND") {

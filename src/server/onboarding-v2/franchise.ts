@@ -5,7 +5,7 @@
  *  1. Entry: "Become a franchisee" → /franchise/start (signed in).
  *  2. A LIVE registered shop is mandatory (no live shop, no franchise); without one the user is sent to shop
  *     registration with ?return=/franchise/start. The shop's and the account's verified details make the dealer row.
- *  3. Model: free dealer — approved at once with a GKD code (DEFAULT #15), no area; paid franchise — zones + a plan
+ *  3. Model: free dealer — a request an admin approves (owner, 27-Nov-2026), then a GKD code; no area; paid franchise — zones + a plan
  *     (franchise_plans) + optional coupon, paid online 100% upfront, live at payment with a GKF code (booking.ts).
  *  4. KYC: no 30-day rule. PAN and a verified payout bank are asked before the first payout only (payeeStatus).
  * Every role given here is written to onboarding_role_history (recordRoleChange); every change is audited.
@@ -276,10 +276,12 @@ export async function franchiseStartState(userId: string): Promise<StartState> {
 }
 
 /**
- * Model "free dealer" (DEFAULT #15): no area, live at once with a GKD code. Idempotent: an approved dealer gets his
- * code back. Needs the flag and a live shop.
+ * Model "free dealer": a REQUEST (owner, 27-Nov-2026; replaces "live at once", DEFAULT #15). From his live shop the
+ * dealer row is made and sent for approval (PENDING, source SHOP_REQUEST); an admin approves it in Admin → Dealers
+ * (decideDealer), which issues the GKD code and tells him. Idempotent: a pending request is returned as it is, an
+ * approved dealer gets his code back. Needs the flag and a live shop.
  */
-export async function becomeFreeDealer(actor: Actor): Promise<{ dealerId: string; code: string | null; approvedNow: boolean }> {
+export async function becomeFreeDealer(actor: Actor): Promise<{ dealerId: string; code: string | null; approvedNow: boolean; status: Dealer["status"] }> {
   await requireFlag();
   const result = await db.transaction(async (tx) => {
     // One start at a time per account (a double tap must not make two dealer rows).
@@ -287,15 +289,34 @@ export async function becomeFreeDealer(actor: Actor): Promise<{ dealerId: string
     const dealer = await ensureDealerFromShop(actor, tx);
     if (dealer.status === "APPROVED") {
       const code = (await listDealerCodes(dealer.id, tx)).find((c) => c.kind !== "SALESPERSON" && c.status === "ACTIVE")?.code ?? null;
-      return { dealerId: dealer.id, code, approvedNow: false };
+      return { dealerId: dealer.id, code, approvedNow: false, status: dealer.status, requestedNow: false, legalName: dealer.legalName };
     }
-    const r = await approveDealerInstantly(tx, dealer, "dealer_free", "Onboarding v2: free dealer live at once");
-    return { dealerId: dealer.id, code: r.code, approvedNow: r.approvedNow };
+    if (dealer.status === "PENDING") return { dealerId: dealer.id, code: null, approvedNow: false, status: dealer.status, requestedNow: false, legalName: dealer.legalName };
+    const now = new Date();
+    const [row] = await tx
+      .update(dealers)
+      .set({ status: "PENDING", source: "SHOP_REQUEST", submittedAt: now, statusReason: "Free franchisee request from a live shop", updatedAt: now })
+      .where(and(eq(dealers.id, dealer.id), eq(dealers.status, "DRAFT")))
+      .returning();
+    if (!row) throw conflict("Your request changed; reload and try again.");
+    await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_APPLICATION_SUBMITTED, entityType: "dealer", entityId: dealer.id, newValue: { status: "PENDING", via: "onboarding_v2_free_request" } }, tx);
+    return { dealerId: dealer.id, code: null, approvedNow: false, status: row.status, requestedNow: true, legalName: row.legalName };
   });
-  if (result.approvedNow) {
-    await notify({ userId: actor.id, type: NOTIFICATION_TYPES.DEALER_STATUS_CHANGED, vars: { statusLabel: "Approved", detail: `You are a GoKesari dealer. Your dealer code is ${result.code}. Share it with shops, or register shops from your dealer page.` }, actionUrl: "/dealer", dedupeKey: `ov2-dealer-live:${result.dealerId}` }).catch((e) => console.error("[onboarding-v2] dealer notice failed", result.dealerId, e));
+  if (result.requestedNow) {
+    await notify({ userId: actor.id, type: NOTIFICATION_TYPES.DEALER_APPLICATION_RECEIVED, vars: { legalName: result.legalName }, actionUrl: "/franchise/start", dedupeKey: `ov2-dealer-request:${result.dealerId}` }).catch((e) => console.error("[onboarding-v2] request notice failed", result.dealerId, e));
+    const admins = await db.select({ id: users.id }).from(users).where(and(eq(users.role, "ADMIN"), eq(users.status, "ACTIVE"), isNull(users.deletedAt)));
+    for (const a of admins) {
+      await notify({
+        userId: a.id,
+        type: NOTIFICATION_TYPES.DEALER_APPLICATION_RECEIVED,
+        title: `Free franchisee request: ${result.legalName}`,
+        body: `${result.legalName} (a live GoKesari shop) asks to become a free franchisee. Approve or reject it in Admin → Dealers → Pending approval; approval issues the dealer code.`,
+        actionUrl: `/admin/dealers/${result.dealerId}`,
+        dedupeKey: `ov2-dealer-request-admin:${result.dealerId}:${a.id}`,
+      }).catch((e) => console.error("[onboarding-v2] admin request notice failed", result.dealerId, e));
+    }
   }
-  return result;
+  return { dealerId: result.dealerId, code: result.code, approvedNow: result.approvedNow, status: result.status };
 }
 
 /**

@@ -21,6 +21,16 @@ describe("malformed ids", () => {
     }
   });
 
+  it("says plainly when every mailbox has used its quota (503, not a generic 500)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = Object.assign(new Error("All 11 mailboxes have sent 90 e-mails in the last 24 hours."), { name: "MailboxesExhaustedError" });
+    const result = toClientError(error);
+    expect(result.status).toBe(503);
+    expect(result.body.error.code).toBe("RATE_LIMITED");
+    expect(result.body.error.message).toMatch(/can't send e-mails right now/);
+    spy.mockRestore();
+  });
+
   it("leaves other database errors a generic 500", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     for (const error of [
