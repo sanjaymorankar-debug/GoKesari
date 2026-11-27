@@ -101,7 +101,7 @@ Pico's dashboard (Developer → Webhooks) takes only a URL, no header, so the to
 `Authorization: Bearer <token>` or `X-GoKesari-Webhook-Token: <token>`. Pico sends from **4.187.148.44**
 (sandbox, for test.gokesari.com) and **4.188.191.141** (production, for gokesari.com) — set them in rule
 `picoXpress.webhookIpAllowlist` on each site. Token checked in constant time; wrong / missing → 401; other
-address → 403; flag off → 404; Caddy's access log writes `token=REDACTED` (scripts/vps-app/lib.sh log filter, live on both sites since 27-Nov-2026 22.22 IST); body over 64 KB → 413; bad JSON → 400; rate limit 600 / minute per IP. The answer is sent at once and the payload is
+address → 403; flag off → 404; Caddy's access log writes `token=REDACTED` (scripts/vps-app/lib.sh log filter, live on both sites since 27-Nov-2026 22.12 IST); body over 64 KB → 413; bad JSON → 400; rate limit 600 / minute per IP. The answer is sent at once and the payload is
 processed straight after it (not by a cron). A missed webhook is recovered by "Refresh status" (operations)
 and by a safety-net pull of live shipments silent for 5+ minutes (every-minute cron, flag on only).
 
