@@ -1,5 +1,5 @@
--- Rollback of drizzle/0227_pico_xpress.sql (docs/pico-xpress-2026-11).
--- Deploy the previous release's code first, then run this and delete the 0227 row from drizzle.__drizzle_migrations.
+-- Rollback of drizzle/0228_pico_xpress.sql (docs/pico-xpress-2026-11).
+-- Deploy the previous release's code first, then run this and delete the 0228 row from drizzle.__drizzle_migrations.
 -- Check first that no Pico shipment is live (cancel them with Pico before dropping the tables):
 --   SELECT count(*) FROM delivery_shipments WHERE status NOT IN ('DELIVERED','RTO_DELIVERED','CANCELLED','LOST','DAMAGED');
 -- The delivery_bookings rows of Pico shipments are kept (HDMS history); the AWB pool is dropped, so export it

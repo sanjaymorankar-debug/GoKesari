@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Onboarding v2 — Flow 3 (docs/onboarding-v2-2026-11). Signed in, with a live registered shop (else shop
- * registration first, coming back here): choose free dealer (live at once, GKD code) or paid franchise (zones +
+ * registration first, coming back here): choose free dealer (a request an admin approves, then a GKD code — owner, 27-Nov-2026) or paid franchise (zones +
  * subscription plan + coupon, pay online, live at payment with a GKF code). Flag off: today's zone booking page.
  */
 export default async function FranchiseStartPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {

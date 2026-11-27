@@ -940,6 +940,12 @@ export const RULES = {
     }),
     defaults: { leadWindowDays: 30, maxOpenLeadsPerDealer: 200, duplicateDistanceMeters: 150, nameSimilarity: 80, assistedConsentMinutes: 60 },
   },
+  dealerApplication: {
+    description:
+      "Becoming a dealer / franchisee (owner, 27-Nov-2026): requireLiveShop — only an account with its own live (approved) GoKesari shop may submit a dealer application or a free franchisee request; without one he is sent to register his shop first. Free franchisee requests from a live shop wait for an admin's approval (Admin → Dealers → Pending approval), who then issues the dealer code.",
+    schema: z.object({ requireLiveShop: z.boolean() }),
+    defaults: { requireLiveShop: true },
+  },
   superFranchisee: {
     description:
       "Super franchisee (owner, 27-Nov-2026; docs/super-franchisee/). Only an admin makes a dealer a super franchisee (Admin → Dealers → the dealer) and assigns or moves other dealers (free or paid franchisees) into his team; a dealer is in at most one team. GoKesari pays the super franchisee EXTRA — nothing is taken from the franchisee's share — on his own team only: feeShareBp of every fee paid in his team (a team dealer's shop registration fee before GST after coupons, and a team dealer's own joining or franchise fee before GST), earned when the fee is paid and reversed if it is refunded; and orderShareBp of GoKesari's order commission on his team's activated shops, every month at the month close (net of refunds). A super franchisee may have his own rates (Admin → the dealer); empty = these. 0 switches that part off. Off: nothing is earned; an admin can still set up super franchisees and their teams.",

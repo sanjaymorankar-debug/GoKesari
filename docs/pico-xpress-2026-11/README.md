@@ -53,7 +53,7 @@ those, keyed to the HDMS booking rather than duplicating it.
 
 Code: `src/server/delivery/pico/` (config, client, errors, payload, status, awb-pool, codes, service,
 webhooks, webhook-auth, views, admin), `src/server/delivery/providers/pico.ts` (HDMS adapter), migration
-`drizzle/0227_pico_xpress.sql` (rollback `scripts/rollback-0227-pico-xpress.sql`).
+`drizzle/0228_pico_xpress.sql` (rollback `scripts/rollback-0228-pico-xpress.sql`).
 
 ## Switches and settings
 
@@ -155,4 +155,4 @@ there). No native change was needed, so no store release was made; silent update
 
 Switch `delivery_partner_picoxpress_enabled` off (the choice disappears; webhooks answer 404; live shipments
 stay readable). To remove it completely: cancel live shipments with Pico, deploy the previous release, run
-`scripts/rollback-0227-pico-xpress.sql`.
+`scripts/rollback-0228-pico-xpress.sql`.

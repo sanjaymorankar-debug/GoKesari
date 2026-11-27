@@ -129,6 +129,21 @@ export function toClientError(error: unknown): {
     return { status: 404, body: { error: { code: "NOT_FOUND", message: "Not found." } } };
   }
 
+  // EMAIL_POOL (src/server/email/mailbox-pool.ts): every mailbox has used its 24-hour quota. Matched by name, as
+  // lib/ cannot import the server module. Say so plainly instead of "Something went wrong" (staging, 27-Nov-2026).
+  if (error instanceof Error && error.name === "MailboxesExhaustedError") {
+    console.error("[email]", error.message);
+    return {
+      status: 503,
+      body: {
+        error: {
+          code: "RATE_LIMITED",
+          message: "We can't send e-mails right now. Please try again in an hour, or use your mobile number.",
+        },
+      },
+    };
+  }
+
   // docs/identity-verification-2026-11: identity numbers (Aadhaar-like 12-digit runs, PANs) are masked in the log.
   console.error("[unhandled]", redactForLog(error));
   // Drizzle's "Failed query" hides the driver's reason (auth, TLS, network).

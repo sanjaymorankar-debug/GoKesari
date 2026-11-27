@@ -1,5 +1,5 @@
 /**
- * Pico Xpress, the "gokesari.com delivery partner" (docs/pico-xpress-2026-11; drizzle/0227_pico_xpress.sql).
+ * Pico Xpress, the "gokesari.com delivery partner" (docs/pico-xpress-2026-11; drizzle/0228_pico_xpress.sql).
  *
  * A Pico shipment is an HDMS booking (delivery_bookings, provider PICO, external_ref = parent AWB), so the
  * order sync, customer tracking, wallet charge and admin lists of docs/hdms-2026-11 apply unchanged. These

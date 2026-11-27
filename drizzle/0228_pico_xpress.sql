@@ -1,6 +1,6 @@
 -- Pico Xpress, the "gokesari.com delivery partner" (docs/pico-xpress-2026-11). Additive only.
 -- A Pico shipment is an HDMS booking (delivery_bookings, provider PICO); these tables hold Pico's own data.
--- Rollback: scripts/rollback-0227-pico-xpress.sql.
+-- Rollback: scripts/rollback-0228-pico-xpress.sql.
 
 -- 1. AWB numbers fetched in bulk from Pico (doc page 2). Never reused, not even after a cancel.
 CREATE TABLE IF NOT EXISTS "delivery_awb_pool" (
