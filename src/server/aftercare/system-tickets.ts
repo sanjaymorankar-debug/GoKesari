@@ -29,6 +29,8 @@ export const SYSTEM_TICKET_KINDS = [
   "DELIVERY_CODE_LOCKOUT",
   "SOCIETY_REVIEW",
   "ACCOUNT_RECOVERY",
+  // docs/pico-xpress-2026-11: the delivery partner reports a parcel LOST or DAMAGED.
+  "DELIVERY_PARTNER_INCIDENT",
 ] as const;
 export type SystemTicketKind = (typeof SYSTEM_TICKET_KINDS)[number];
 
@@ -42,6 +44,7 @@ export const SYSTEM_TICKET_CATEGORY: Record<SystemTicketKind, string> = {
   DELIVERY_CODE_LOCKOUT: "DELIVERY",
   SOCIETY_REVIEW: "OTHER",
   ACCOUNT_RECOVERY: "ACCOUNT",
+  DELIVERY_PARTNER_INCIDENT: "DELIVERY",
 };
 
 export interface SystemTicketInput {

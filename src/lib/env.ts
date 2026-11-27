@@ -193,6 +193,16 @@ const serverEnvSchema = z.object({
    * PAN_ENCRYPTION_KEY. Back it up: losing it means every shop reconnects.
    */
   INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
+  /**
+   * Pico Xpress, the gokesari.com delivery partner (docs/pico-xpress-2026-11). Each site has its own set:
+   * test.gokesari.com → https://dev-api.picoxpress.com (Pico staging), gokesari.com → https://api.picoxpress.com.
+   * PICO_CLIENT_KEY goes in the clientKey query parameter, PICO_API_KEY (the client secret) in the Authorization
+   * header, PICO_WEBHOOK_TOKEN is the secret Pico sends to our webhooks. Never logged; without them Pico is off.
+   */
+  PICO_BASE_URL: z.string().url().optional(),
+  PICO_CLIENT_KEY: z.string().optional(),
+  PICO_API_KEY: z.string().optional(),
+  PICO_WEBHOOK_TOKEN: z.string().optional(),
   /** "off" stops running sync jobs straight after commit (tests run the dispatcher themselves). */
   INTEGRATION_AUTODISPATCH: z.enum(["on", "off"]).default("on"),
   /** Module 2: GoKesari's Zoho API client (api-console.zoho.in, server-based), redirect URI <AUTH_URL>/api/integrations/zoho/callback. */

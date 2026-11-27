@@ -17,6 +17,7 @@ export const PARTNER_NOTES: Record<Exclude<DeliveryProviderCode, "MOCK">, string
   PIDGE: "Pidge (v2) API: request the partner API document, sandbox credentials and webhook details from Pidge.",
   PORTER: "Porter for Business API: request the API key, sandbox access and webhook details from Porter.",
   BORZO: "Borzo (WeFast) business API: request the API token, test-server URL and callback signature key from Borzo.",
+  PICO: "Pico Xpress: integrated (docs/pico-xpress-2026-11). Booked from the shop's delivery choice; keys PICO_BASE_URL / PICO_CLIENT_KEY / PICO_API_KEY / PICO_WEBHOOK_TOKEN in the site's environment.",
 };
 
 function pending(code: Exclude<DeliveryProviderCode, "MOCK">): DeliveryProviderAdapter {

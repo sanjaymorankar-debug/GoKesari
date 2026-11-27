@@ -6,6 +6,8 @@
  *   POST  { option, slotKey, staffId?, markReady? }
  *         option: PICKUP | SHOP_DELIVERY | GOKESARI_PARTNER
  *         markReady: mark a PREPARING order ready with this plan (one step)
+ *         partner: "PICO" with GOKESARI_PARTNER — book the gokesari.com delivery partner (Pico Xpress);
+ *         ewayBillNo (goods over ₹50,000), numBoxes (default 1). The answer's `pico` says if it was booked.
  *         Without markReady: set or change the plan of an ACCEPTED, PREPARING,
  *         READY or ASSIGNED order (until collected / out for delivery / picked up).
  */
@@ -30,6 +32,10 @@ const schema = z.object({
   slotKey: z.string().regex(/^\d{4}-\d{2}-\d{2}@\d{2}:\d{2}$/, "Choose a time slot."),
   staffId: z.string().uuid().nullish(),
   markReady: z.boolean().optional(),
+  // docs/pico-xpress-2026-11: GOKESARI_PARTNER booked with Pico Xpress.
+  partner: z.literal("PICO").nullish(),
+  ewayBillNo: z.string().trim().regex(/^\d{12}$/, "The e-way bill number has 12 digits.").nullish(),
+  numBoxes: z.number().int().min(1).max(20).nullish(),
 });
 
 async function access(id: string, permission: "orders.view" | "orders.edit") {
@@ -54,5 +60,5 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   const body = await parseBody(request, schema);
   const result = await planFulfilment(id, body, user);
   const views = await getShopFulfilmentViews([id]);
-  return ok({ order: result.order, plan: views.get(id) ?? null });
+  return ok({ order: result.order, plan: views.get(id) ?? null, pico: result.pico ?? null });
 });

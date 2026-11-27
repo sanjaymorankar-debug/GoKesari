@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+
+import { PicoShipmentCard, fetchPicoOption, type PicoOption } from "@/components/pico-delivery";
 
 import { Alert, Badge, Button } from "@/components/ui";
 import { formatPaise } from "@/lib/money";
@@ -8,6 +10,8 @@ import {
   FULFILMENT_OPTION_HINTS,
   FULFILMENT_OPTION_KEYS,
   FULFILMENT_OPTION_LABELS,
+  PICO_PARTNER_HINT,
+  PICO_PARTNER_LABEL,
   type FulfilmentOptionKey,
   type SlotDay,
 } from "@/lib/fulfilment-options";
@@ -26,6 +30,8 @@ export interface PlannerPlan {
   riderSearchFrom: string | null;
   /** Pickup: the customer's delivery fee given back (paise). */
   deliveryFeeRefundedPaise?: number | null;
+  /** docs/pico-xpress-2026-11: booked with the Pico Xpress delivery partner. */
+  partner?: "PICO" | null;
 }
 
 export interface PlannerStaff {
@@ -94,6 +100,9 @@ export function FulfilmentPlanner({
       setEditing(false);
       setCode("");
       onChanged();
+      // docs/pico-xpress-2026-11: the plan is saved; the delivery partner booking may still have been refused.
+      if (payload?.pico?.booked === false) setError(`Plan saved, but the delivery partner was not booked: ${payload.pico.error}`);
+      else if (payload?.pico?.booked) setNotice(`Booked with the gokesari.com delivery partner (AWB ${payload.pico.awbNumber}).`);
       return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : fallback);
@@ -107,6 +116,19 @@ export function FulfilmentPlanner({
     post(`/api/orders/${orderId}/fulfilment-plan/handover`, body, "Could not update the order.");
 
   const showForm = choosing || editing;
+
+  // docs/pico-xpress-2026-11: ask whether the gokesari.com delivery partner can take this order when the form opens.
+  const [picoOption, setPicoOption] = useState<PicoOption | null>(null);
+  useEffect(() => {
+    if (!showForm || !shopDelivers || (!hasAddress && !addressPending)) return;
+    let cancelled = false;
+    void fetchPicoOption(orderId).then((o) => {
+      if (!cancelled) setPicoOption(o);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showForm, orderId, shopDelivers, hasAddress, addressPending]);
 
   return (
     <div className="mt-3 rounded-lg border border-cream-200 bg-cream-50 p-3 text-sm" data-testid="fulfilment-planner">
@@ -134,6 +156,8 @@ export function FulfilmentPlanner({
         </p>
       ) : null}
 
+      {plan?.partner === "PICO" && !editing ? <PicoShipmentCard orderId={orderId} onChanged={onChanged} /> : null}
+
       {plan?.option === "GOKESARI_PARTNER" && plan.riderSearchFrom && status === "READY" ? (
         <p className="mt-1 text-xs text-ink-600">
           The rider search starts at{" "}
@@ -158,6 +182,7 @@ export function FulfilmentPlanner({
           addressPending={addressPending}
           shopDelivers={shopDelivers}
           pickupRefundPaise={plan?.deliveryFeeRefundedPaise ? 0 : pickupRefundPaise}
+          picoOption={picoOption}
           busy={busy}
           submitBlocked={choosing && waitingOnCustomer}
           submitLabel={choosing ? "Packed — mark ready" : "Save the new plan"}
@@ -236,6 +261,7 @@ function PlanForm({
   addressPending,
   shopDelivers,
   pickupRefundPaise,
+  picoOption,
   busy,
   submitBlocked,
   submitLabel,
@@ -249,11 +275,19 @@ function PlanForm({
   addressPending: boolean;
   shopDelivers: boolean;
   pickupRefundPaise: number;
+  picoOption: PicoOption | null;
   busy: boolean;
   submitBlocked: boolean;
   submitLabel: string;
   onCancel?: () => void;
-  onSubmit: (input: { option: FulfilmentOptionKey; slotKey: string; staffId: string | null }) => void;
+  onSubmit: (input: {
+    option: FulfilmentOptionKey;
+    slotKey: string;
+    staffId: string | null;
+    partner?: "PICO";
+    ewayBillNo?: string | null;
+    numBoxes?: number;
+  }) => void;
 }) {
   const unavailable = (option: FulfilmentOptionKey): string | null => {
     // QA D-166: the customer paid for delivery and is setting the location — the shop plans a delivery now
@@ -265,7 +299,12 @@ function PlanForm({
     return null;
   };
   const firstOption = FULFILMENT_OPTION_KEYS.find((o) => !unavailable(o)) ?? "PICKUP";
-  const [option, setOption] = useState<FulfilmentOptionKey>(initial?.option ?? firstOption);
+  type Choice = FulfilmentOptionKey | "PICO";
+  const [option, setOption] = useState<Choice>(initial?.partner === "PICO" ? "PICO" : (initial?.option ?? firstOption));
+  const [ewayBillNo, setEwayBillNo] = useState("");
+  const [numBoxes, setNumBoxes] = useState(1);
+  const pico = option === "PICO";
+  const picoWhy = !picoOption ? null : picoOption.available || picoOption.booked ? null : (picoOption.reason ?? "Not available for this order.");
   // The current slot may have started already: it stays selectable while unchanged.
   const initialDay = initial ? initial.slotKey.split("@")[0] : days[0]?.date ?? "";
   const dayList = initial && !days.some((d) => d.date === initialDay)
@@ -287,6 +326,12 @@ function PlanForm({
       className="mt-2 space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
+        if (option === "PICO") {
+          // The delivery partner is booked now: the current slot (the first offered, or the plan's own).
+          const nowSlot = initial?.partner === "PICO" ? initial.slotKey : (days[0]?.slots[0]?.key ?? slotKey);
+          onSubmit({ option: "GOKESARI_PARTNER", partner: "PICO", slotKey: nowSlot, staffId: null, ewayBillNo: ewayBillNo.trim() || null, numBoxes });
+          return;
+        }
         onSubmit({ option, slotKey, staffId: option === "SHOP_DELIVERY" ? staffId : null });
       }}
     >
@@ -316,7 +361,60 @@ function PlanForm({
               </label>
             );
           })}
+          {picoOption?.enabled ? (
+            <label
+              className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2 ${pico ? "border-kesari-500 bg-white" : "border-cream-200 bg-white/60"} ${picoWhy ? "cursor-not-allowed opacity-60" : ""}`}
+              data-testid="pico-option"
+            >
+              <input
+                type="radio"
+                name="fulfilment-option"
+                value="PICO"
+                checked={pico}
+                disabled={Boolean(picoWhy)}
+                onChange={() => setOption("PICO")}
+                className="mt-0.5 accent-kesari-600"
+              />
+              <span>
+                <span className="block font-medium text-ink-900">{PICO_PARTNER_LABEL}</span>
+                <span className="block text-xs text-ink-500">{picoWhy ?? PICO_PARTNER_HINT}</span>
+              </span>
+            </label>
+          ) : null}
         </div>
+        {pico && picoOption ? (
+          <div className="mt-2 grid gap-2 sm:grid-cols-3" data-testid="pico-details">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-ink-600">Boxes</span>
+              <input
+                type="number"
+                min={1}
+                max={picoOption.maxBoxes}
+                value={numBoxes}
+                onChange={(e) => setNumBoxes(Math.max(1, Math.min(picoOption.maxBoxes, Number(e.target.value) || 1)))}
+                className="w-full rounded-lg border border-cream-200 bg-white px-2 py-1.5 text-sm"
+                aria-label="Number of boxes"
+              />
+            </label>
+            {picoOption.needsEwayBill ? (
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-medium text-ink-600">Part-A e-way bill number (goods over ₹50,000)</span>
+                <input
+                  inputMode="numeric"
+                  maxLength={12}
+                  value={ewayBillNo}
+                  onChange={(e) => setEwayBillNo(e.target.value.replace(/\D/g, ""))}
+                  className="w-full rounded-lg border border-cream-200 bg-white px-2 py-1.5 font-mono text-sm"
+                  aria-label="E-way bill number"
+                  required
+                />
+              </label>
+            ) : null}
+            <p className="text-xs text-ink-600 sm:col-span-3">
+              Booked now; a rider comes to your shop. {picoOption.paymentType === "COD" ? "The rider collects the cash from the customer." : "Paid order: the rider collects nothing."}
+            </p>
+          </div>
+        ) : null}
         {option === "PICKUP" && pickupRefundPaise > 0 ? (
           <p className="mt-1 text-xs text-ink-600" data-testid="pickup-fee-hint">
             With pickup, the customer&apos;s {formatPaise(pickupRefundPaise)} delivery fee goes back to them.
@@ -324,7 +422,7 @@ function PlanForm({
         ) : null}
       </fieldset>
 
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className={`grid gap-2 sm:grid-cols-3 ${pico ? "hidden" : ""}`}>
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-ink-600">{option === "PICKUP" ? "Pickup date" : "Delivery date"}</span>
           <select
@@ -369,7 +467,11 @@ function PlanForm({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" type="submit" disabled={busy || submitBlocked || !slotKey || (option === "SHOP_DELIVERY" && !staffId)}>
+        <Button
+          size="sm"
+          type="submit"
+          disabled={busy || submitBlocked || (!pico && !slotKey) || (option === "SHOP_DELIVERY" && !staffId) || (pico && (Boolean(picoWhy) || (picoOption?.needsEwayBill === true && ewayBillNo.length !== 12)))}
+        >
           {busy ? "Saving…" : submitLabel}
         </Button>
         {onCancel ? (

@@ -4,6 +4,7 @@ import Link from "next/link";
 export const DELIVERY_SECTIONS: { key: string; label: string; href: string }[] = [
   { key: "dashboard", label: "Dashboard", href: "/admin/delivery" },
   { key: "providers", label: "Delivery providers & API", href: "/admin/delivery/providers" },
+  { key: "pico", label: "Pico Xpress", href: "/admin/delivery/pico" },
   { key: "zones", label: "Delivery zones", href: "/admin/delivery/zones" },
   { key: "pricing", label: "Delivery pricing", href: "/admin/delivery/pricing" },
   { key: "allocation", label: "Allocation rules", href: "/admin/delivery/allocation" },

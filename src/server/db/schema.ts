@@ -7640,6 +7640,8 @@ export const orderFulfilmentArrangements = pgTable(
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
     option: text("option", { enum: FULFILMENT_OPTIONS }).notNull(),
+    /** 0227 (docs/pico-xpress-2026-11): "PICO" when the GoKesari-partner delivery is booked with Pico Xpress (no GoKesari rider search). */
+    externalPartner: text("external_partner").$type<"PICO">(),
     scheduledStart: timestamp("scheduled_start", { withTimezone: true }).notNull(),
     scheduledEnd: timestamp("scheduled_end", { withTimezone: true }).notNull(),
     staffId: uuid("staff_id").references(() => shopDeliveryStaff.id, { onDelete: "set null" }),
@@ -11270,6 +11272,11 @@ export const FEATURE_FLAG_KEYS = [
   "flow_f12",
   "flow_f21",
   "flow_f22",
+  // docs/pico-xpress-2026-11 (0227): Pico Xpress as the "gokesari.com delivery partner" — serviceability, booking,
+  // tracking webhooks, cancel. Seeded ON on the staging database (gokesari_test), OFF on production until its prod test.
+  "delivery_partner_picoxpress_enabled",
+  // Pico's live-location webhook is a paid add-on (charged per push): built, seeded OFF on both sites.
+  "pico_live_location_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -13849,6 +13856,7 @@ export * from "./whatsapp-customer-schema";
 export * from "./rbac-schema"; // docs/rbac (0170)
 export * from "./tax-register-schema"; // docs/tax-register (0187)
 export * from "./hdms-schema"; // docs/hdms-2026-11 (0189)
+export * from "./pico-schema"; // docs/pico-xpress-2026-11 (0227)
 export * from "./shop-gst-registrations-schema"; // many GSTINs per shop (0202)
 export * from "./referral-link-schema"; // docs/referral-sharing-2026-11 (0211)
 export * from "./rider-v2-schema"; // docs/rider-app-v2-2026-11 (0212)

@@ -1,3 +1,4 @@
+import { PicoCustomerCard } from "@/components/pico-delivery";
 import Link from "next/link";
 import { EmptyIllustration } from "@/components/empty-illustrations";
 import { HOME } from "@/lib/home-i18n";
@@ -401,6 +402,9 @@ export default async function OrdersPage({
               !["CANCELLED", "REFUNDED", "REFUND_PENDING"].includes(order.status) ? (
                 <OrderFulfilmentCard orderId={order.id} info={fulfilmentPlans.get(order.id)!} lang={lang} />
               ) : null}
+
+              {/* docs/pico-xpress-2026-11: gokesari.com delivery partner — timeline, rider, ETA (IST), code, map. */}
+              {fulfilmentPlans.get(order.id)?.partner === "PICO" ? <PicoCustomerCard orderId={order.id} /> : null}
 
               {order.status === "OUT_FOR_DELIVERY" && deliveryCodes.get(order.id) ? (
                 <DeliveryCodePanel

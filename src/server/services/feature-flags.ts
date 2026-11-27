@@ -126,6 +126,8 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   flow_f12: "Flows v3 F12: every account's customer and shop referral codes made when its codes are listed",
   flow_f21: "Flows v3 F21: one zone hold per dealer, released after 15 minutes, lost slot refunded automatically",
   flow_f22: "Flows v3 F22: commission payable 3 days after it is earned; GST and invoice for GST-registered dealers",
+  delivery_partner_picoxpress_enabled: "Pico Xpress: gokesari.com delivery partner (booking, tracking, cancel)",
+  pico_live_location_enabled: "Pico Xpress live rider location webhook (paid add-on)",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -275,6 +277,10 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/flows-v3/wave4.md (F21, rule franchiseFlowsV3): a dealer may hold one booking at a time; the hold is 15 minutes with a live countdown, and the slot is released 2 minutes after it even while the payment page is open (the gateway order ends with the hold, at the gateway's minimum); held slots show \"on hold\" to others. A payment that arrives later takes a slot that is still free (either slot of the zone), else the money for the lost zone(s) is refunded in full automatically through the payment gateway, and the admins are alerted. Off: unchanged.",
   flow_f22:
     "docs/flows-v3/wave4.md (F22, rule franchiseFlowsV3): a commission entry becomes payable 3 days after it is earned (return window + 1 day) — the month close leaves newer entries for the next month; a full refund of a shop fee through the payment gateway takes back the commission of everyone in the chain; a GST-registered dealer's payout adds GST (rate set by the admin, confirmed by the CA) with a commission invoice, and the statement shows gross, reversals, TDS, GST and net. Payouts on the 5th stay drafts for an admin. Off: unchanged.",
+  delivery_partner_picoxpress_enabled:
+    "docs/pico-xpress-2026-11: on a ready delivery order the shop can choose \"gokesari.com delivery partner (Pico Xpress)\" when Pico says the address is serviceable. The booking takes an AWB from the pool, sends the order to Pico with the customer's 6-digit delivery code and a pickup code for the shop, and Pico's tracking webhook moves the order on (rider details, map, ETA in IST). The shop, the customer and operations can cancel before pickup. Settings: rule picoXpress (bill-to, pickup types, weights, AWB pool, PAN-only shops). Off: the choice is hidden and the webhooks answer 404; existing bookings stay readable.",
+  pico_live_location_enabled:
+    "docs/pico-xpress-2026-11: store Pico's live rider location pushes (POST /api/webhooks/picoxpress/location) and show them on the customer's map. Pico charges per push, so keep it off until the add-on is agreed. Off: pushes are acknowledged and dropped.",
 };
 
 export interface FeatureFlagView {
