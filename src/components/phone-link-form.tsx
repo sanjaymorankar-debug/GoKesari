@@ -10,7 +10,7 @@ const inputClass =
   "min-w-0 flex-1 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none";
 
 /** My Profile: the mobile number used for login and by delivery partners. */
-export function PhoneLinkForm({ current }: { current: string | null }) {
+export function PhoneLinkForm({ current, verified = false }: { current: string | null; verified?: boolean }) {
   const router = useRouter();
   const [mobile, setMobile] = useState("");
   const [linked, setLinked] = useState(current);
@@ -54,7 +54,18 @@ export function PhoneLinkForm({ current }: { current: string | null }) {
         ) : null}
       </div>
       <p className="text-xs text-ink-500">
-        Needed to place orders. You can also log in with it — sign-in codes are always emailed to you.
+        Needed to place orders. You can also log in with it:{" "}
+        {verified
+          ? "sign-in codes for this number come by SMS."
+          : "until it is verified by SMS, sign-in codes for this number are e-mailed to you."}
+        {linked && !verified && !editing ? (
+          <>
+            {" "}
+            <a href="/account/verify?return=%2Fprofile" className="font-medium text-kesari-700 underline" data-testid="phone-verify-link">
+              Verify by SMS
+            </a>
+          </>
+        ) : null}
       </p>
       {editing ? (
         <div className="mt-2 flex items-center gap-2">
