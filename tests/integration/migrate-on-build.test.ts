@@ -116,8 +116,10 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
-    // Franchisee requests (0226): the dealers_source check gains SHOP_REQUEST.
-    await sql.unsafe(readFileSync("scripts/rollback-0226-franchisee-request.sql", "utf8"));
+    // Franchisee requests (0227): the dealers_source check gains SHOP_REQUEST.
+    await sql.unsafe(readFileSync("scripts/rollback-0227-franchisee-request.sql", "utf8"));
+    // docs/super-franchisee (0226): the team tables point at dealers and users.
+    await sql.unsafe(readFileSync("scripts/rollback-0226-super-franchisee.sql", "utf8"));
     // docs/flows-v3/wave4.md (0225): commission invoice tables point at dealer_payout_batches and dealers.
     await sql.unsafe(readFileSync("scripts/rollback-0225-flows-v3-wave4.sql", "utf8"));
     // Dealer platform roles (0181): a table and a flag row.

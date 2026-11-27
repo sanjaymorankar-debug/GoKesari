@@ -1588,7 +1588,14 @@
       "idx": 226,
       "version": "7",
       "when": 1793272600000,
-      "tag": "0226_franchisee_request",
+      "tag": "0226_super_franchisee",
+      "breakpoints": true
+    },
+    {
+      "idx": 227,
+      "version": "7",
+      "when": 1793272700000,
+      "tag": "0227_franchisee_request",
       "breakpoints": true
     }
   ]

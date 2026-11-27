@@ -45,6 +45,9 @@ export const COMMISSION_ENTRY_TYPES = [
   "SCHEME_TEAM",
   "SCHEME_RECURRING",
   "SCHEME_BONUS",
+  // 0226 super franchisee (owner, 27-Nov-2026): paid extra by GoKesari to the super franchisee above a dealer.
+  "SUPER_FEE",
+  "SUPER_ORDER",
 ] as const;
 export type CommissionEntryType = (typeof COMMISSION_ENTRY_TYPES)[number];
 
@@ -65,6 +68,8 @@ export const COMMISSION_ENTRY_TYPE_LABELS: Record<CommissionEntryType, string> =
   SCHEME_TEAM: "Scheme — team commission",
   SCHEME_RECURRING: "Scheme — monthly commission",
   SCHEME_BONUS: "Scheme — bonus",
+  SUPER_FEE: "Super franchisee share of fees",
+  SUPER_ORDER: "Super franchisee share of order commission",
 };
 
 /** Short names for the statement's "line per type" (direct-1, direct-2, override, renewal, development, bonus). */

@@ -11781,6 +11781,61 @@ export const dealerCodes = pgTable(
 );
 export type DealerCode = typeof dealerCodes.$inferSelect;
 
+/**
+ * 0226 super franchisee (owner, 27-Nov-2026; docs/super-franchisee/): a dealer an admin made the head of a team
+ * of other dealers. GoKesari pays him extra (rule superFranchisee) on his own team's fees and order commission.
+ * Null rates = the rule's. Removing him keeps the row (REMOVED) so the history and his earned lines stay.
+ */
+export const superFranchisees = pgTable(
+  "super_franchisees",
+  {
+    dealerId: uuid("dealer_id")
+      .primaryKey()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["ACTIVE", "REMOVED"] }).notNull().default("ACTIVE"),
+    feeShareBp: integer("fee_share_bp"),
+    orderShareBp: integer("order_share_bp"),
+    reason: text("reason").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removedBy: uuid("removed_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("super_franchisees_fee_bp", sql`${t.feeShareBp} IS NULL OR (${t.feeShareBp} >= 0 AND ${t.feeShareBp} <= 10000)`),
+    check("super_franchisees_order_bp", sql`${t.orderShareBp} IS NULL OR (${t.orderShareBp} >= 0 AND ${t.orderShareBp} <= 10000)`),
+  ],
+);
+export type SuperFranchisee = typeof superFranchisees.$inferSelect;
+
+/** 0226: which super franchisee's team a dealer is in, and since when. One open row (ends_at null) per dealer. */
+export const superFranchiseeMembers = pgTable(
+  "super_franchisee_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    superDealerId: uuid("super_dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    memberDealerId: uuid("member_dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    reason: text("reason").notNull(),
+    assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
+    endReason: text("end_reason"),
+    endedBy: uuid("ended_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("super_franchisee_members_open_unique").on(t.memberDealerId).where(sql`${t.endsAt} IS NULL`),
+    index("super_franchisee_members_super_idx").on(t.superDealerId, t.startsAt),
+    check("super_franchisee_members_not_self", sql`${t.superDealerId} <> ${t.memberDealerId}`),
+  ],
+);
+export type SuperFranchiseeMember = typeof superFranchiseeMembers.$inferSelect;
+
 /** A dealer's documented lead (0105): reserves the shop for the attribution window, with the owner's consent. */
 export const dealerLeads = pgTable(
   "dealer_leads",

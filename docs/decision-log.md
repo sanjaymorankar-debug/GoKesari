@@ -421,6 +421,6 @@ Plan, runbook and records: [docs/neon-to-vps-2026-11/](neon-to-vps-2026-11/) (da
 ## Becoming a franchisee: request, then admin approval (27-Nov-2026, owner)
 
 - *Owner, 27-Nov-2026:* "for free franchise shop owner should request to become franchisee and admin will approve his request, once admin approves it he will be promoted as dealer and he will get dealer code." **Replaces onboarding v2 DEFAULT #15 (free dealer live at once).**
-- Built: "Become a franchisee" → "Request to become a free franchisee" (live shop required) → dealer row PENDING, source `SHOP_REQUEST` (migration 0226) → the shop owner and the admins are told → an admin approves in Admin → Dealers → Pending approval on the shop's verified details (no documents, mobile call or bank check; PAN and payout bank before the first payout) → GKD code issued, DEALER role, role history `dealer_free`, e-mail with the code. Rejecting works as for any application.
+- Built: "Become a franchisee" → "Request to become a free franchisee" (live shop required) → dealer row PENDING, source `SHOP_REQUEST` (migration 0227) → the shop owner and the admins are told → an admin approves in Admin → Dealers → Pending approval on the shop's verified details (no documents, mobile call or bank check; PAN and payout bank before the first payout) → GKD code issued, DEALER role, role history `dealer_free`, e-mail with the code. Rejecting works as for any application.
 - The full dealer application (`/dealer/apply`) also needs a live shop now: rule `dealerApplication.requireLiveShop` (default on).
 
