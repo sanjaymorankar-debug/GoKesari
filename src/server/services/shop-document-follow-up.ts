@@ -244,6 +244,11 @@ export async function runShopDocumentFollowUp(
   now: Date = new Date(),
 ): Promise<ShopDocumentFollowUpResult> {
   const result: ShopDocumentFollowUpResult = { day: today, acting: false, checked: 0, reminded: 0, suspended: 0, cleared: 0, reactivated: 0, waiting: 0, failed: 0 };
+  // docs/flows-v3/wave3.md (flag flow_f5): licences given at a v2 registration are in the shop's licence register
+  // (back-fill for shops created before), and promised licences given since are marked given — before anyone is chased.
+  await (await import("@/server/flows/f5-licences"))
+    .backfillRegistrationLicences()
+    .catch((error: unknown) => console.error("[shop-document-follow-up] registration licence back-fill failed", error));
   // Onboarding v2 (owner, 27-Nov-2026): every day, the safety net for the automatic reinstatement that follows each
   // document upload — a shop this follow-up suspended whose documents are all given now is live again.
   result.reactivated = await (await import("@/server/onboarding-v2/document-reactivation"))

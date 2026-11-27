@@ -150,6 +150,11 @@ export interface V2View {
   promiseDueLabel: string;
   sla: { accepted: boolean; acceptedAtIst: string | null; agreementsEnabled: boolean; agreementsRequired: boolean };
   returnTo: string | null;
+  /**
+   * docs/flows-v3/wave3.md (flag flow_f4): the optional WhatsApp number and payment QR offered on the agreement step,
+   * once the shop row exists. Absent / null: not asked.
+   */
+  contact?: { whatsappNumber: string | null; qrVpa: string | null; qrPayeeName: string | null } | null;
 }
 
 export function v2Details(draft: Pick<ShopRegistrationDraft, "details">): V2DraftDetails {
@@ -337,5 +342,6 @@ export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput)
       agreementsRequired: input.agreementsRequired,
     },
     returnTo: safeReturnPath(extra.v2ReturnTo),
+    contact: draft.shopId && draft.slaAcceptedAt === null ? await (await import("@/server/flows/f4-onboarding")).registrationContactView(draft.shopId) : null,
   };
 }

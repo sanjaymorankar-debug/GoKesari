@@ -43,6 +43,8 @@ export async function reactivateIfDocumentsGiven(shopId: string): Promise<boolea
 /** After a document is given: never fails the caller (a problem is logged; the daily run retries). */
 export async function afterShopDocumentGiven(shopId: string | null | undefined): Promise<void> {
   if (!shopId) return;
+  // docs/flows-v3/wave3.md (flag flow_f5): a licence promised at registration and given now is marked given.
+  await (await import("@/server/flows/f5-licences")).markPromisesGiven(shopId).catch((error: unknown) => console.error("[flows-v3 f5] promise not marked given", shopId, error));
   await reactivateIfDocumentsGiven(shopId).catch((error: unknown) => console.error("[onboarding-v2] automatic reinstatement failed", shopId, error));
 }
 

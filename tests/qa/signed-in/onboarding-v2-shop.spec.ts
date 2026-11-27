@@ -7,7 +7,7 @@
  */
 import { as, pageAs } from "../lib/actors";
 import { call, expectStatus } from "../lib/http";
-import { blocked, expect, qa } from "../lib/record";
+import { blocked, expect, manual, qa } from "../lib/record";
 
 const OWNER = "shop" as const;
 
@@ -93,3 +93,15 @@ qa(["TC-OV2-036"], "GST/PAN → fee (Shop / Wholesale, sandbox pay page, leave u
     "not run on staging: a new registration's GST / PAN is checked live with the government (Sandbox.co.in) and needs an owner-agreed test PAN / GSTIN — owner decision 23-Nov-2026 (same block as TC-DOC-020…023). Covered locally by tests/integration/onboarding-v2-shop.test.ts (CI)",
   );
 }, { tier: "signed" });
+
+manual(
+  "TC-OV2-030",
+  "shop identity step: Terms tick with version, links open the Terms and Privacy pages, e-mail, mobile SMS code",
+  "the step needs a fresh shop-owner account mid-registration and an SMS code from the mock outbox; checked by hand in the onboarding v2 staging pass (docs/onboarding-v2-2026-11)",
+);
+
+manual(
+  "TC-OV2-035",
+  "referral step: Request a referral code opens the request form (name, mobile, shop type, address)",
+  "submitting creates a real request that e-mails the referral team; checked by hand on staging",
+);

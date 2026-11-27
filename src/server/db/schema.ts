@@ -619,7 +619,7 @@ export const users = pgTable(
     /** 0219: last reminder (in-app + SMS) to a mobile-only shop owner to add and verify an e-mail. */
     secondFactorRemindedAt: timestamp("second_factor_reminded_at", { withTimezone: true }),
     /**
-     * docs/flows-v3/wave5.md (0223, flag flow_f18): sessions signed in before this time are ended on their next
+     * docs/flows-v3/wave5.md (0224, flag flow_f18): sessions signed in before this time are ended on their next
      * request (sign out on all devices after an account recovery). Null = no marker.
      */
     sessionsValidAfter: timestamp("sessions_valid_after", { withTimezone: true }),
@@ -5688,7 +5688,7 @@ export const societies = pgTable(
     /** GA-001: when true and the rider list is non-empty, only listed riders may deliver here. */
     exclusiveRiders: boolean("exclusive_riders").notNull().default(false),
     /*
-     * docs/flows-v3/wave5.md (0223, flag flow_f15): the application's authorised person, number of flats and proof
+     * docs/flows-v3/wave5.md (0224, flag flow_f15): the application's authorised person, number of flats and proof
      * document (REGISTRATION_CERTIFICATE / COMMITTEE_LETTER: its number and an uploaded or scanned image), and the
      * gate's delivery hours ("HH:MM", India time). requires_proof: applied while the flag was on, so verifying it
      * needs the proof; false for every society from before.
@@ -5759,7 +5759,7 @@ export const societyRiders = pgTable(
     addedBy: uuid("added_by").references(() => users.id),
     revokedBy: uuid("revoked_by").references(() => users.id),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    /** docs/flows-v3/wave5.md (0223, flag flow_f15): paused by the society until this time (null = not paused). */
+    /** docs/flows-v3/wave5.md (0224, flag flow_f15): paused by the society until this time (null = not paused). */
     suspendedUntil: timestamp("suspended_until", { withTimezone: true }),
     suspendedReason: text("suspended_reason"),
     suspendedBy: uuid("suspended_by"),
@@ -11246,7 +11246,13 @@ export const FEATURE_FLAG_KEYS = [
   "flow_f1",
   "flow_f14",
   "flow_f17",
-  // docs/flows-v3/wave5.md (0223): F11 delivery partner (photo, verified mobile / e-mail), F15 society onboarding
+  // docs/flows-v3/wave3.md (0223): flow spec v3 wave 3. F4 shop onboarding (WhatsApp + payment QR at registration,
+  // agreement e-mailed on acceptance), F5 licence reminders (registration licences in the shop's register), F6 shop
+  // subscription (first year from go-live; reminders and online renewal on). Seeded ON on staging, OFF on production.
+  "flow_f4",
+  "flow_f5",
+  "flow_f6",
+  // docs/flows-v3/wave5.md (0224): F11 delivery partner (photo, verified mobile / e-mail), F15 society onboarding
   // (authorised person, proof, gate hours, rider suspension, approved riders only for new societies), F18 account
   // recovery and closure. Seeded ON on the staging database (gokesari_test), OFF on production.
   "flow_f11",

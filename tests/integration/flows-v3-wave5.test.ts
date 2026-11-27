@@ -1,5 +1,5 @@
 /**
- * Flow spec v3, wave 5 (docs/flows-v3/wave5.md; migration 0223). Every item with its flag ON, and the same path with
+ * Flow spec v3, wave 5 (docs/flows-v3/wave5.md; migration 0224). Every item with its flag ON, and the same path with
  * the flag OFF behaving exactly as before.
  *   F11 (flow_f11): rider photo at application and approval, verified mobile / e-mail, photo upload, photo reminder.
  *   F15 (flow_f15): society application details and proof, verify needs the proof, approved riders only for new

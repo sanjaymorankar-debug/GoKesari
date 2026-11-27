@@ -45,7 +45,7 @@ export interface SessionClaims {
   sub?: string | null;
   sid?: unknown;
   jti?: unknown;
-  /** docs/flows-v3/wave5.md (0223): when this session was signed in (ms). Older tokens have none. */
+  /** docs/flows-v3/wave5.md (0224): when this session was signed in (ms). Older tokens have none. */
   sat?: unknown;
 }
 
@@ -90,7 +90,7 @@ export async function readSession(token: SessionClaims): Promise<{ user: User | 
     // docs/account-deletion-2026-11: a deleted account — or one hidden in its cooling-off period
     // (0191, PENDING_DELETION) — ends every session it had, on every device.
     if (row.user.status === "DELETED" || row.user.status === "PENDING_DELETION" || row.user.deletedAt) return null;
-    // docs/flows-v3/wave5.md (0223, flag flow_f18): "signed out on all devices" — a session signed in before the
+    // docs/flows-v3/wave5.md (0224, flag flow_f18): "signed out on all devices" — a session signed in before the
     // account's marker ends. No marker (every account until a recovery sets one): as before.
     if (signedInBefore(token, row.user.sessionsValidAfter)) return null;
     return { user: row.user };

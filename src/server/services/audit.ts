@@ -659,7 +659,7 @@ export const AUDIT_ACTIONS = {
   SUPPORT_ROUTING_CHANGED: "support_routing.changed",
   SUPPORT_TICKET_ROUTED: "support_ticket.routed",
   ACCOUNT_RECOVERY_REQUESTED: "account.recovery_requested",
-  // docs/flows-v3/wave5.md (0223, flag flow_f18): recovery of a lost mobile or e-mail; sign out on all devices.
+  // docs/flows-v3/wave5.md (0224, flag flow_f18): recovery of a lost mobile or e-mail; sign out on all devices.
   ACCOUNT_RECOVERY_STARTED: "account.recovery_started",
   ACCOUNT_RECOVERY_VERIFIED: "account.recovery_verified",
   ACCOUNT_RECOVERY_COMPLETED: "account.recovery_completed",
