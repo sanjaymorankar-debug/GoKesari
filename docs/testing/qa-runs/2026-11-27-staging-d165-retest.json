@@ -1,0 +1,36 @@
+{
+  "run": {
+    "target": "staging",
+    "host": "test.gokesari.com",
+    "label": "d165-retest",
+    "note": "D-165 retest: TC-DOC-011 after PR #553",
+    "suiteCommit": "0ea74379",
+    "startedAt": "2026-11-27T11:59:58.000Z",
+    "finishedAt": "2026-11-27T12:00:12.078Z",
+    "cases": 1,
+    "rows": 1,
+    "totals": {
+      "pass": 1,
+      "fail": 0,
+      "blocked": 0,
+      "skipped": 0
+    }
+  },
+  "results": [
+    {
+      "id": "TC-DOC-011",
+      "title": "a Shop Act or FSSAI file over 5 MB is refused at upload with the 5 MB message; an 11 MB file with the 10 MB message; nothing is read or saved",
+      "status": "pass",
+      "detail": "SHOP_ACT 6 MB 422; FSSAI 6 MB 422; 11 MB file 422",
+      "partial": "Sent to the upload API, not through the page; the 4.9 MB file and the 6 MB PAN / GSTIN file would be read and kept, so they are not sent",
+      "tier": "signed",
+      "project": "desktop",
+      "target": "staging",
+      "host": "test.gokesari.com",
+      "spec": "tests/qa/signed-in/docs-franchise-2026-11-25.spec.ts",
+      "test": "TC-DOC-011 a Shop Act or FSSAI file over 5 MB is refused at upload with the 5 MB message; an 11 MB file with the 10 MB message; nothing is read or saved",
+      "at": "2026-11-27T12:00:12.078Z",
+      "durationMs": 4914
+    }
+  ]
+}
