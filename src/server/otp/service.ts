@@ -23,7 +23,7 @@ import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 
 import { isValidEmail, maskEmailAddress, normalizeEmail, parseIndianMobile } from "@/lib/contact";
-import { isPlaceholderEmail } from "@/lib/placeholder-email";
+import { isPlaceholderEmail, placeholderEmailFor } from "@/lib/placeholder-email";
 import { bootstrapAdminEmails, getEnv } from "@/lib/env";
 import { AppError, conflict, forbidden, isUniqueViolation, validationFailed } from "@/lib/errors";
 import { maskPhone } from "@/lib/phone";
@@ -463,18 +463,30 @@ export async function requestLoginOtp(input: {
     });
     const owner = await findLiveUserByPhone(mobile.e164);
     const followUp = async () => {
-      if (!owner) return;
+      if (!owner) {
+        // Owner 27-Nov-2026: a new mobile number signs up by SMS — the code goes to the number and, once it is
+        // used (with the Terms ticked), the account is created with a placeholder e-mail (added later). Not sent
+        // when SMS is unavailable here, or when the number's placeholder address still belongs to an account
+        // whose mobile was changed since (that account must never be reached through this number).
+        if ((await getOtpProvider("SMS")) === null) return;
+        const placeholderEmail = placeholderEmailFor(mobile.e164);
+        if (await findLiveUserByEmail(placeholderEmail)) return;
+        await issueCode({ email: placeholderEmail, purpose: "LOGIN", userId: null, phoneE164: mobile.e164, ip, bySms: true }).catch((error: unknown) => {
+          if (!(error instanceof AppError)) console.error("[otp] new-number sign-up code failed", error);
+        });
+        return;
+      }
       if (owner.status !== "ACTIVE" && !isPendingDeletion(owner)) {
         await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email: owner.email, phoneE164: mobile.e164, ip, reason: "account_blocked" });
         return;
       }
       // Module 3: an owner registered from a mobile number alone gets the code by SMS.
-      // Owner 26-Nov-2026 ("mobile number log-in and authentication using OTP"): once real SMS is set up on this
-      // server (SMSFortius / MSG91 + rule otp.smsEnabled), signing in with a mobile number that this account has
-      // already proven by an SMS code sends the code to that mobile. A number never verified by SMS still gets
-      // the code by e-mail, so a typed-in number can never take over an account.
+      // Owner 27-Nov-2026 ("if mobile number is entered then authentication should be via SMS"): whenever real SMS
+      // is set up on this server (SMSFortius / MSG91 + rule otp.smsEnabled), signing in with a mobile number sends
+      // the code to that mobile by SMS — also when the number was never verified before; using the code proves the
+      // number (phone_verified_at is set in verifyLoginOtp). Without SMS the code still goes to the e-mail.
       const placeholder = owner.emailPlaceholder || isPlaceholderEmail(owner.email);
-      const bySms = placeholder || (owner.phoneVerifiedAt !== null && (await getOtpProvider("SMS")) !== null);
+      const bySms = placeholder || (await getOtpProvider("SMS")) !== null;
       await issueCode({ email: owner.email, purpose: "LOGIN", userId: owner.id, phoneE164: mobile.e164, ip, bySms }).catch(
         (error: unknown) => {
           // Cooldowns and failed sends are audited by issueCode; the reply stays the same.
@@ -551,8 +563,8 @@ export async function verifyLoginOtp(input: {
     email = normalizeEmail(input.email);
   } else if (phoneE164) {
     const owner = await findLiveUserByPhone(phoneE164);
-    if (!owner) throw validationFailed(OTP_INVALID);
-    email = owner.email;
+    // A new number (owner 27-Nov-2026): its code was issued to the number's placeholder address by SMS.
+    email = owner ? owner.email : placeholderEmailFor(phoneE164);
   } else {
     throw validationFailed(OTP_INVALID);
   }
@@ -583,7 +595,12 @@ export async function verifyLoginOtp(input: {
     }
     if (existing.status !== "ACTIVE") throw forbidden(ACCOUNT_BLOCKED);
     const patch: Partial<typeof users.$inferInsert> = {};
-    if (!existing.emailVerified) patch.emailVerified = new Date();
+    // A code that went by SMS proves the mobile, not the e-mail (owner 27-Nov-2026: mobile sign-in by SMS).
+    if (otp.channel === "SMS") {
+      if (otp.phoneE164 && existing.phoneE164 === otp.phoneE164 && !existing.phoneVerifiedAt) patch.phoneVerifiedAt = new Date();
+    } else if (!existing.emailVerified) {
+      patch.emailVerified = new Date();
+    }
     if (otp.phoneE164 && !existing.phoneE164) {
       await assertPhoneFree(otp.phoneE164, existing.id);
       patch.phoneE164 = otp.phoneE164;
@@ -600,7 +617,7 @@ export async function verifyLoginOtp(input: {
     }
   } else {
     if (otp.phoneE164) await assertPhoneFree(otp.phoneE164, null);
-    user = await createCustomerAccount({ email, phoneE164: otp.phoneE164, ip });
+    user = await createCustomerAccount({ email, phoneE164: otp.phoneE164, ip, bySms: otp.channel === "SMS" });
     isNewUser = true;
   }
 
@@ -621,7 +638,9 @@ export async function assertPhoneFree(e164: string, exceptUserId: string | null)
 }
 
 /** First sign-in: CUSTOMER (or bootstrap ADMIN) with a wallet and the sign-up consent recorded. */
-async function createCustomerAccount(input: { email: string; phoneE164: string | null; ip: string | null }): Promise<User> {
+async function createCustomerAccount(input: { email: string; phoneE164: string | null; ip: string | null; bySms?: boolean }): Promise<User> {
+  // A code that went by SMS proves the mobile; an account created from it has a placeholder e-mail (not verified).
+  const placeholder = isPlaceholderEmail(input.email);
   const role: UserRole = bootstrapAdminEmails().includes(input.email) ? "ADMIN" : "CUSTOMER";
   let created: User;
   try {
@@ -630,8 +649,10 @@ async function createCustomerAccount(input: { email: string; phoneE164: string |
         .insert(users)
         .values({
           email: input.email,
-          emailVerified: new Date(),
+          emailVerified: placeholder ? null : new Date(),
+          emailPlaceholder: placeholder,
           phoneE164: input.phoneE164,
+          phoneVerifiedAt: input.bySms && input.phoneE164 ? new Date() : null,
           phone: input.phoneE164 ? input.phoneE164.slice(3) : null,
           role,
         })
