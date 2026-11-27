@@ -104,6 +104,10 @@ export async function startDualStepUp(userId: string, action: SensitiveAction, i
   if (!(await dualAuthInForce())) throw new AppError("CONFLICT", "No extra codes are needed on this site right now.");
   await assertDualVerified(userId, "SENSITIVE");
   const user = await loadUser(userId);
+  // An admin without a verified mobile (dualAuth.adminMobileOptional) verifies one first: the SMS code needs it.
+  if (!user.phoneE164 || !user.phoneVerifiedAt) {
+    throw new AppError("FORBIDDEN", "Verify your mobile number first (Account → Verify), then confirm this with the two codes.", { reason: "DUAL_AUTH_REQUIRED", verifyUrl: "/account/verify" });
+  }
   const sms = await issueCode({ email: user.email, purpose: "STEP_UP_SMS", userId: user.id, phoneE164: user.phoneE164, ip, bySms: true });
   const mail = await issueCode({ email: user.email, purpose: "STEP_UP_EMAIL", userId: user.id, phoneE164: null, ip });
   await recordAudit({ actorId: user.id, actorRole: user.role, action: AUDIT_ACTIONS.DUAL_AUTH_STEP_UP_SENT, entityType: "user", entityId: user.id, newValue: { action }, ipAddress: ip });
