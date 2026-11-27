@@ -37,6 +37,7 @@ import {
   walletOf,
   withShopSettings,
 } from "../lib/orders-helpers";
+import { flowOn, returnableListing } from "../lib/flows-v3-helpers";
 import { clickWrite } from "../lib/http";
 import { blocked, expect, qa, test } from "../lib/record";
 import { IS_LOCAL } from "../lib/target";
@@ -48,16 +49,30 @@ interface Delivered {
   id: string;
   orderNumber: string;
   items: { id: string; name: string; shopProductId: string; lineTotalPaise: number; quantityMilli: number }[];
+  /**
+   * docs/flows-v3/wave2.md (flag flow_f16): food (bakery, dairy …) and medicines cannot be returned except as damaged,
+   * wrong or expired, and the world's four lines are all food on the test site (E2E bakery). With the flag on the
+   * order also carries a returnable product (outside food and medicines), which the return-path checks use.
+   */
+  returnableId?: string;
 }
+
+type LineKey = "packaged" | "sharedA" | "milk" | "premium" | "returnable";
 
 function order(): Delivered {
   return kept<Delivered>("returns-order") ?? blocked("needs the delivered order of the first returns check in this run");
 }
 
-function line(o: Delivered, key: "packaged" | "sharedA" | "milk" | "premium") {
+function line(o: Delivered, key: LineKey) {
+  if (key === "returnable") return o.items.find((i) => i.shopProductId === o.returnableId) ?? blocked("the delivered order has no returnable (non-food) line");
   const id = world().listings[key]?.shopProductId;
   const found = o.items.find((i) => i.shopProductId === id) ?? (key === "packaged" ? o.items[0] : undefined);
   return found ?? blocked(`the delivered order has no ${key} line`);
+}
+
+/** The line a return-path check uses: the returnable product with flow_f16 on, else the world's line as before. */
+function forReturn(o: Delivered, key: Exclude<LineKey, "returnable">): LineKey {
+  return o.returnableId ? "returnable" : key;
 }
 
 async function ready() {
@@ -107,7 +122,7 @@ test.afterEach(async () => {
 });
 
 /** Opens a return (one unit of a line) with a photo; returns its id and number. */
-async function openReturn(o: Delivered, key: "packaged" | "sharedA" | "milk" | "premium", reason = "QUALITY_ISSUE", extra: Record<string, unknown> = {}) {
+async function openReturn(o: Delivered, key: LineKey, reason = "QUALITY_ISSUE", extra: Record<string, unknown> = {}) {
   const l = line(o, key);
   const photo = await evidencePhoto();
   const res = await requestReturn(o.id, { reason, items: [{ orderItemId: l.id, quantityMilli: 1000, condition: "OPENED", imageIds: [photo] }], ...extra });
@@ -198,6 +213,9 @@ async function enterHandover(browser: Browser, code: string) {
 qa(["TC-RET-001", "TC-FLD-095"], "the return form lists each line with its returnable quantity, condition, comment, photos and the reasons (no 'Changed my mind'), and the window end", async ({ browser }) => {
   await ready();
   const lines = [await listingOf("packaged"), await listingOf("sharedA"), await listingOf("milk"), await listingOf("premium")];
+  // flow_f16: a returnable fifth line (priced over ₹70.50 for TC-RET-010's partial refund), since food is not returnable.
+  const returnable = (await flowOn("flow_f16")) ? await returnableListing(7_100) : null;
+  if (returnable) lines.push(returnable);
   const placed = await checkoutLines(lines.map((listing) => ({ listing, quantity: 2 })));
   await driveTo(placed.id, "DELIVERED");
   const row = await orderRow(placed.id);
@@ -205,6 +223,7 @@ qa(["TC-RET-001", "TC-FLD-095"], "the return form lists each line with its retur
     id: placed.id,
     orderNumber: placed.orderNumber,
     items: row.items.map((i) => ({ id: i.id, name: i.productNameSnapshot, shopProductId: i.shopProductId, lineTotalPaise: i.lineTotalPaise, quantityMilli: i.quantityMilli })),
+    ...(returnable ? { returnableId: returnable.shopProductId } : {}),
   };
   keep("returns-order", delivered);
   const { context, page } = await pageAs(browser, "customer");
@@ -234,7 +253,7 @@ qa(["TC-RET-001", "TC-FLD-095"], "the return form lists each line with its retur
   expect(odd.status, "reason outside the list").toBe(422);
   expect(changed.status, "CHANGED_MIND (not offered)").toBe(422);
   expect(badCondition.status, "condition outside the list").toBe(422);
-  return `${placed.orderNumber} delivered (4 lines × 2); form: lines, max 2, condition, comment, photos, reasons without 'Changed my mind', window end; no reason → field message; API: BANANA ${odd.status}, CHANGED_MIND ${changed.status} ("${changed.body?.error?.message}"), bad condition ${badCondition.status}`;
+  return `${placed.orderNumber} delivered (${lines.length} lines × 2${returnable ? `, incl. returnable "${returnable.name}" (flow_f16)` : ""}); form: lines, max 2, condition, comment, photos, reasons without 'Changed my mind', window end; no reason → field message; API: BANANA ${odd.status}, CHANGED_MIND ${changed.status} ("${changed.body?.error?.message}"), bad condition ${badCondition.status}`;
 }, { ...signed, mobile: true, partial: "'each option saved and shown after reload' is shown for one reason/condition (DAMAGED, next check); the others are not each submitted" });
 
 qa(["TC-RET-002", "TC-FLD-097", "TC-RET-015"], "'Damaged' needs a photo: refused without; bad files refused; with a valid photo the return is created 'Under review' and the shop is told; the photo is private", async ({ browser }) => {
@@ -465,8 +484,8 @@ qa(["TC-RET-008", "TC-RET-010", "TC-RET-021"], "set off, a wrong handover code i
 qa(["TC-RET-010", "TC-FLD-098"], "inspection refund amount: 0, negative, text, 3 decimals, huge and more than paid are refused; ₹70.50 is stored as 7050 paise and refunded", async ({ browser }) => {
   await ready();
   const o = order();
-  const ghee = line(o, "premium");
-  const r = await openReturn(o, "premium");
+  const ghee = line(o, forReturn(o, "premium"));
+  const r = await openReturn(o, forReturn(o, "premium"));
   forRider(r.id);
   expectStatus(await act(r.id, { action: "approve" }), 200, "approve");
   await acceptAndSetOff(browser, r.id);
@@ -507,7 +526,16 @@ qa(["TC-RET-010", "TC-FLD-098"], "inspection refund amount: 0, negative, text, 3
 
 qa(["TC-RET-006", "TC-FLD-096"], "the shop rejects with a reason the customer sees; the comment keeps script and Marathi as text; over-long comments are refused at 1000 / 500 characters", async ({ browser }) => {
   const o = order();
-  const bread = line(o, "sharedA");
+  const foodRefusal: string[] = [];
+  if (o.returnableId) {
+    // flow_f16: food is not returnable for a reason outside damaged / wrong / expired (Bread, the E2E bakery's).
+    const food = line(o, "sharedA");
+    const refused = await requestReturn(o.id, { reason: "MISSING_ITEM", items: [{ orderItemId: food.id, quantityMilli: 1000, condition: "UNOPENED" }] });
+    expect(refused.status, `a return of ${food.name} (food) for 'Item missing'`).toBe(422);
+    expect(refused.body?.error?.message).toMatch(/cannot be returned \(food and medicines are not returnable\)/);
+    foodRefusal.push(`; flow_f16: ${food.name} (food) for 'Item missing' → 422 "${refused.body.error.message}"`);
+  }
+  const bread = line(o, forReturn(o, "sharedA"));
   const tooLong = await requestReturn(o.id, { reason: "MISSING_ITEM", comment: TEXT.long(1001), items: [{ orderItemId: bread.id, quantityMilli: 1000, condition: "OPENED" }] });
   const itemTooLong = await requestReturn(o.id, { reason: "MISSING_ITEM", items: [{ orderItemId: bread.id, quantityMilli: 1000, condition: "OPENED", comment: TEXT.long(501) }] });
   expect(tooLong.status, "1001-character comment").toBe(422);
@@ -545,13 +573,13 @@ qa(["TC-RET-006", "TC-FLD-096"], "the shop rejects with a reason the customer se
   } finally {
     await customer.context.close();
   }
-  return `1001/501-character comments → ${tooLong.status}/${itemTooLong.status}; script and Marathi kept and shown as text; rejected with a reason the customer sees on /returns/${id}`;
+  return `1001/501-character comments → ${tooLong.status}/${itemTooLong.status}; script and Marathi kept and shown as text (${bread.name}); rejected with a reason the customer sees on /returns/${id}${foodRefusal.join("")}`;
 }, { ...signed, mobile: true, partial: "a blank comment is the default of every other return here (accepted)" });
 
 qa(["TC-RET-009", "TC-RET-013"], "the rider reports 'could not collect': back to Approved, customer and shop told, the shop finds a rider again; the customer cancels before set-off", async ({ browser }) => {
   await ready();
   const o = order();
-  const r = await openReturn(o, "milk", "MISSING_ITEM");
+  const r = await openReturn(o, forReturn(o, "milk"), "MISSING_ITEM");
   forRider(r.id);
   expectStatus(await act(r.id, { action: "approve" }), 200, "approve");
   const { context, page } = await pageAs(browser, "rider", riderSpot());
@@ -595,7 +623,7 @@ qa(["TC-RET-009", "TC-RET-013"], "the rider reports 'could not collect': back to
 qa(["TC-RET-013", "TC-RET-022"], "after the rider sets off the customer cannot cancel (contact support); operations can, from the returns queue", async ({ browser }) => {
   await ready();
   const o = order();
-  const r = await openReturn(o, "milk", "MISSING_ITEM");
+  const r = await openReturn(o, forReturn(o, "milk"), "MISSING_ITEM");
   forRider(r.id);
   expectStatus(await act(r.id, { action: "approve" }), 200, "approve");
   await acceptAndSetOff(browser, r.id);
@@ -618,7 +646,7 @@ qa(["TC-RET-013", "TC-RET-022"], "after the rider sets off the customer cannot c
 qa(["TC-RET-008", "TC-RET-022", "TC-RET-011"], "five wrong handover codes leave the pickup to operations, who complete it from the queue; inspection rejects the goods: no refund", async ({ browser }) => {
   await ready();
   const o = order();
-  const r = await openReturn(o, "sharedA", "MISSING_ITEM");
+  const r = await openReturn(o, forReturn(o, "sharedA"), "MISSING_ITEM");
   forRider(r.id);
   expectStatus(await act(r.id, { action: "approve" }), 200, "approve");
   await acceptAndSetOff(browser, r.id);
@@ -653,7 +681,7 @@ qa("TC-RET-012", "a return to a shop that does not deliver: no rider pickup, 'Cu
   const restore = await withShopSettings({ deliveryAvailable: false });
   let r: { id: string; returnNumber: string };
   try {
-    r = await openReturn(o, "packaged", "MISSING_ITEM");
+    r = await openReturn(o, forReturn(o, "packaged"), "MISSING_ITEM");
   } finally {
     await restore();
   }

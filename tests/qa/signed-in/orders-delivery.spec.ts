@@ -385,55 +385,84 @@ qa(["TC-DEL-008", "TC-FLD-086", "TC-DEL-009", "TC-FLD-088"], "delivery code: mal
   return notes.join("; ");
 }, { ...signed, timeout: 360_000, partial: "the override note is checked as stored (rider history API); its display as plain text on an operator screen is not checked" });
 
-qa("TC-FLD-087", "failed-delivery reason: required (blank, spaces, 2 and 301 characters refused); free text is kept as written (the rider screen has no option list)", async ({ browser }) => {
+qa("TC-FLD-087", "failed-delivery reason: required (blank, spaces, 2 and 301 characters refused); with rule deliveryProof.failureReasons the rider picks from the fixed list with an optional note ('Other' needs one), else free text; the reason reaches the shop as written", async ({ browser }) => {
   await ready();
   const placed = await placeSimple();
   const seen: string[] = [];
+  let listShown = false;
   try {
     const driven = await driveTo(placed.id, "OUT_FOR_DELIVERY");
     const id = driven.deliveryOrderId!;
-    for (const [what, body] of [["no reason", {}], ["blank", { reason: "" }], ["spaces", { reason: "     " }], ["2 characters", { reason: "ab" }], ["301 characters", { reason: TEXT.long(301) }]] as const) {
+    for (const [what, body] of [["no reason", {}], ["blank", { reason: "" }], ["spaces", { reason: "     " }], ["2 characters", { reason: "ab" }], ["301 characters", { reason: TEXT.long(301) }], ["a code not on the list", { reasonCode: "BANANA" }]] as const) {
       const res = await riderAction(id, "fail", body);
       expect(res.status, what).toBe(422);
       seen.push(`${what} 422`);
     }
+    const note = `  ${TEXT.script} ${TEXT.marathi}  `;
     const { context, page } = await riderPage(browser);
     try {
       await page.goto("/delivery-partner");
       await page.getByRole("button", { name: "Could not deliver" }).click();
-      await expect(page.getByRole("button", { name: "Report failed delivery" }), "disabled with no reason").toBeDisabled();
-      await page.getByLabel("Reason the delivery failed").fill(`  ${TEXT.script} ${TEXT.marathi}  `);
-      await page.getByRole("button", { name: "Report failed delivery" }).click();
+      const report = page.getByRole("button", { name: "Report failed delivery" });
+      await expect(report, "disabled with no reason").toBeDisabled();
+      const list = page.getByTestId("fail-reason-list");
+      listShown = await list.isVisible();
+      if (listShown) {
+        // Module 4 (rule deliveryProof.failureReasons, on at the test site): the fixed list, then an optional note.
+        for (const label of ["Customer not available", "Wrong address", "Customer refused the order", "Customer's phone unreachable", "Other"]) {
+          await expect(list.getByRole("radio", { name: label, exact: true }), `reason "${label}" offered`).toBeVisible();
+        }
+        await list.getByRole("radio", { name: "Other", exact: true }).check();
+        await expect(report, "'Other' without a note").toBeDisabled();
+        await list.getByLabel("Note about the failed delivery").fill("ab");
+        await expect(report, "'Other' with a 2-character note").toBeDisabled();
+        await list.getByRole("radio", { name: "Customer not available", exact: true }).check();
+        await list.getByLabel("Note about the failed delivery").fill("");
+        await expect(report, "a listed reason needs no note").toBeEnabled();
+        await list.getByLabel("Note about the failed delivery").fill(note);
+        seen.push("rider screen: the 5 listed reasons; 'Other' needs a 3+ character note; a listed reason is enough alone");
+      } else {
+        await page.getByLabel("Reason the delivery failed").fill(note);
+      }
+      await report.click();
       await expect.poll(() => statusOf(placed.id), { timeout: 15_000 }).toBe("FAILED");
     } finally {
       await context.close();
     }
-    const told = await notesFor("shop", placed.orderNumber);
-    expect(told.map((n) => n.body).join(" | "), "reason reaches the shop as written").toContain(TEXT.marathi);
-    seen.push("free text with script and Marathi kept (trimmed) and sent to the shop");
-    const list = await (async () => {
-      const second = await placeSimple();
-      try {
-        const d = await driveTo(second.id, "OUT_FOR_DELIVERY");
-        return (await riderAction(d.deliveryOrderId!, "fail", { reason: "Banana" })).status;
-      } finally {
-        await abandon(second.id);
+    const told = (await notesFor("shop", placed.orderNumber)).map((n) => n.body).join(" | ");
+    expect(told, "reason reaches the shop as written").toContain(TEXT.marathi);
+    if (listShown) expect(told, "the shop sees the listed reason with the note").toContain("Customer not available — ");
+    seen.push(listShown ? "'Customer not available' + note with script and Marathi kept (trimmed) and sent to the shop" : "free text with script and Marathi kept (trimmed) and sent to the shop");
+    const second = await placeSimple();
+    try {
+      const d = await driveTo(second.id, "OUT_FOR_DELIVERY");
+      if (listShown) {
+        const other = await riderAction(d.deliveryOrderId!, "fail", { reasonCode: "OTHER" });
+        expect(other.status, "'Other' without a note (API)").toBe(422);
+        const coded = await riderAction(d.deliveryOrderId!, "fail", { reasonCode: "WRONG_ADDRESS" });
+        expectStatus(coded, 200, "a listed reason without a note");
+        seen.push(`API: OTHER without a note → ${other.status}; WRONG_ADDRESS alone → 200`);
+      } else {
+        // The rider types the reason (one free-text field, no list), so any 3–300 characters are accepted.
+        const free = await riderAction(d.deliveryOrderId!, "fail", { reason: "Banana" });
+        seen.push(`free-text reason "Banana" → ${free.status}`);
+        expect(free.status, `free text is accepted — ${seen.join("; ")}`).toBe(200);
       }
-    })();
-    seen.push(`free-text reason "Banana" → ${list}`);
-    // The rider types the reason (one free-text field, no list), so any 3–300 characters are accepted.
-    expect(list, `free text is accepted — ${seen.join("; ")}`).toBe(200);
+    } finally {
+      await abandon(second.id);
+    }
   } finally {
     await abandon(placed.id);
   }
   return seen.join("; ");
-}, { ...signed, timeout: 360_000, partial: "the failure reason is one free-text field (no option list, no separate note)" });
+}, { ...signed, timeout: 360_000, partial: "older apps may still send a free-text reason alone (3–300 characters), which the API keeps accepting" });
 
 qa("TC-FLD-089", "cash on delivery: Mark delivered stays disabled until the cash tick; without it, or with a non-boolean, the API refuses; with it the order is delivered and paid in cash", async ({ browser }) => {
   await ready();
   const restore = await withShopSettings({ codEnabled: true });
   try {
     const placed = await placeSimple({ method: "COD" });
+    let doorPhoto = "";
     try {
       const driven = await driveTo(placed.id, "OUT_FOR_DELIVERY");
       const otp = await buyerCode(placed.id);
@@ -449,7 +478,20 @@ qa("TC-FLD-089", "cash on delivery: Mark delivered stays disabled until the cash
         const tick = page.getByRole("checkbox", { name: /I collected/ });
         const button = page.getByRole("button", { name: "Mark delivered" });
         await expect(button, "disabled before the tick").toBeDisabled();
-        await tick.check();
+        const proof = page.getByTestId("delivery-proof");
+        if (await proof.isVisible()) {
+          // NEW-007 (rule deliveryProof, on at the test site): "Mark delivered" also needs the photo at the door.
+          await tick.check();
+          await expect(button, "ticked but no door photo yet").toBeDisabled();
+          await proof.locator('input[type="file"]').setInputFiles({ name: "door.png", mimeType: "image/png", buffer: png(320, 240) });
+          await expect(proof).toContainText("Photo at the door added", { timeout: 30_000 });
+          await page.getByLabel("Delivery code from the customer").fill(otp);
+          if (!(await tick.isChecked())) await tick.check();
+          await expect(button, "photo and tick: enabled").toBeEnabled();
+          doorPhoto = "door photo required: disabled with the tick alone, enabled once the photo was added; ";
+        } else {
+          await tick.check();
+        }
         await expect(button).toBeEnabled();
         await tick.uncheck();
         await expect(button, "disabled again after unticking").toBeDisabled();
@@ -466,7 +508,7 @@ qa("TC-FLD-089", "cash on delivery: Mark delivered stays disabled until the cash
       } finally {
         await customer.context.close();
       }
-      return `COD ${placed.orderNumber}: no tick → ${none.status} "${none.body?.error?.message}", "yes" → ${notBool.status}; tick on/off gates the button; delivered and 'paid in cash'`;
+      return `COD ${placed.orderNumber}: no tick → ${none.status} "${none.body?.error?.message}", "yes" → ${notBool.status}; ${doorPhoto}tick on/off gates the button; delivered and 'paid in cash'`;
     } finally {
       await abandon(placed.id);
     }

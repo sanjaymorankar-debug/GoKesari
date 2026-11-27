@@ -17,6 +17,8 @@ import { join } from "node:path";
 
 import { as, pageAs } from "../lib/actors";
 import { offerFor, packOrder, pickupCode, placeOrder, riderAction, shopOf, deliveryCode } from "../lib/flows";
+import { flowOn } from "../lib/flows-v3-helpers";
+import { png as photoPng } from "../lib/orders-helpers";
 import { call, poll, type Answer } from "../lib/http";
 import { expect, isBlocked, qa } from "../lib/record";
 import { HOST } from "../lib/target";
@@ -64,6 +66,9 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
     /* ---------------------------------------------------- 1 + 4: registration */
     let me = await call(rider, "GET", "/api/delivery-partner/me");
     const mobile = freshMobile();
+    // docs/flows-v3/wave5.md (flag flow_f11): the form takes the account's verified mobile and e-mail (shown, locked)
+    // and asks for the rider's photo; with the flag off both are typed as before.
+    const f11 = await flowOn("flow_f11");
     if (me.status === 200 && me.body?.id) {
       check(1, "customer2 already had a partner profile (re-run)", true, me.body.status);
     } else {
@@ -90,8 +95,21 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       const p = granted.page;
       await p.goto("/delivery-partner/register");
       await p.locator('input[name="fullName"]').fill("QA Gig Rider");
-      await p.locator('input[name="mobile"]').fill(mobile);
-      await p.locator('input[name="email"]').fill("sanjaymorankar+gk-cust@gmail.com");
+      let applied = mobile;
+      if (f11) {
+        const lockedMobile = p.getByTestId("rider-mobile-locked");
+        const lockedEmail = p.getByTestId("rider-email-locked");
+        await lockedMobile.waitFor({ timeout: 20_000 });
+        applied = await lockedMobile.inputValue();
+        check(1, "flow_f11: the account's verified mobile is filled in and locked", /^[6-9]\d{9}$/.test(applied) && (await lockedMobile.getAttribute("readonly")) !== null && (await p.locator('input[name="mobile"]').count()) === 0, `…${applied.slice(-4)}`);
+        check(1, "flow_f11: the account's verified e-mail is filled in and locked", (await lockedEmail.isVisible()) && (await lockedEmail.getAttribute("readonly")) !== null && /@/.test(await lockedEmail.inputValue()));
+        await p.getByTestId("rider-photo-file").setInputFiles({ name: "rider.png", mimeType: "image/png", buffer: photoPng(320, 320) });
+        await p.getByText("Photo added", { exact: true }).first().waitFor({ timeout: 30_000 });
+        check(1, "flow_f11: the rider's photo added on the form", true);
+      } else {
+        await p.locator('input[name="mobile"]').fill(mobile);
+        await p.locator('input[name="email"]').fill("sanjaymorankar+gk-cust@gmail.com");
+      }
       await p.locator('input[name="dateOfBirth"]').fill("1994-06-15");
       await p.locator('select[name="gender"]').selectOption("MALE");
       await p.locator('input[name="addressLine"]').fill("Flat 12, Kesari Residency, Baner Road");
@@ -128,7 +146,7 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       check(4, "registration location saved", Boolean(me.body?.registrationLocationAt) && me.body?.latitude != null, { latitude: me.body?.latitude });
       const dup = await call(customer, "POST", "/api/delivery-partner", {
         fullName: "Someone Else",
-        mobile,
+        mobile: applied,
         vehicleType: "SCOOTER",
         email: "dup@example.test",
         dateOfBirth: "1990-01-01",
@@ -142,7 +160,12 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
         latitude: lat,
         longitude: lng,
       });
-      check(1, "duplicate mobile refused for another account (409)", dup.status === 409, brief(dup));
+      if (f11) {
+        // flow_f11: an application must carry the applicant's own verified mobile, so another account is refused on the field.
+        check(1, "flow_f11: another account applying with this mobile is refused on the mobile field (422)", dup.status === 422 && Boolean(dup.body?.error?.details?.fields?.mobile), brief(dup));
+      } else {
+        check(1, "duplicate mobile refused for another account (409)", dup.status === 409, brief(dup));
+      }
     }
     const partnerId: string = me.body.id;
 
@@ -152,7 +175,15 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       const form = await pageAs(browser, "customer", { permissions: ["geolocation"], geolocation: { latitude: shopLat + 0.002, longitude: shopLng + 0.002 } });
       const f = form.page;
       await f.goto("/delivery-partner/register");
-      if (await f.getByRole("button", { name: /Share my location/ }).isVisible().catch(() => false)) {
+      if (f11 && (await f.getByRole("button", { name: /Share my location/ }).isVisible().catch(() => false))) {
+        // flow_f11: mobile and e-mail come from the account; without the rider's photo the form cannot be sent.
+        await f.locator('input[name="fullName"]').fill("QA Refusal Check");
+        await f.locator('input[name="addressPincode"]').fill("01234");
+        await f.getByRole("button", { name: /Share my location/ }).click();
+        await f.getByTestId("location-shared").waitFor({ timeout: 20_000 });
+        const send = f.getByRole("button", { name: /Submit and continue to KYC/ });
+        check(1, "flow_f11: the verified mobile is shown locked; Submit stays disabled without the rider's photo; what was typed is kept", (await send.isDisabled()) && (await f.locator('input[name="fullName"]').inputValue()) === "QA Refusal Check" && (await f.getByTestId("rider-mobile-locked").count()) === 1);
+      } else if (await f.getByRole("button", { name: /Share my location/ }).isVisible().catch(() => false)) {
         await f.locator('input[name="fullName"]').fill("QA Refusal Check");
         await f.locator('input[name="mobile"]').fill(freshMobile());
         await f.locator('input[name="email"]').fill("refusal@example.test");

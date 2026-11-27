@@ -7,7 +7,7 @@
  * "customer only" (dealer remove + admin override), so a re-run starts from the same place.
  */
 import { as, me, pageAs } from "../lib/actors";
-import { call, expectStatus, RUN, stash, unstash, why } from "../lib/http";
+import { call, expectStatus, RUN, stash, unstash, why, type Answer } from "../lib/http";
 import { blocked, expect, qa } from "../lib/record";
 
 const DEALER = "customer2" as const;
@@ -25,6 +25,27 @@ async function overview(role: Parameters<typeof as>[0] = DEALER): Promise<Overvi
 
 async function post(role: Parameters<typeof as>[0], body: Record<string, unknown>) {
   return call(await as(role), "POST", "/api/team", body);
+}
+
+/**
+ * dual_auth (docs/dual-auth-2026-11; in force on test.gokesari.com: flag on + SMS provider): every role change the
+ * dealer makes in My team (upgrade, downgrade, reassign, remove) is a TEAM_ROLE sensitive action — 403 until the
+ * dealer has entered a code sent by SMS AND a code sent by e-mail (src/server/dual-auth/step-up.ts). The SMS code is
+ * in the staging mock outbox, but the e-mailed code goes to the test inbox, which QA reads only for sign-in codes
+ * (Gmail approval D-041): such a check is reported "not automated" (the register's manual status) where it applies.
+ */
+const DUAL_MANUAL =
+  "not automated: dual_auth asks the dealer for an SMS code and an e-mailed code before a role change in My team (TEAM_ROLE step-up); the e-mailed code cannot be read by QA (Gmail is read only for sign-in codes, D-041)";
+
+function dualStepUp(res: Answer): boolean {
+  return res.status === 403 && res.body?.error?.details?.stepUp === "DUAL";
+}
+
+/** Checks the refusal is the TEAM_ROLE step-up asking both codes, then reports the case as manual. */
+function manualAtStepUp(res: Answer, what: string, after = ""): never {
+  expect(res.body?.error?.details?.action, `${what}: the step-up is for TEAM_ROLE`).toBe("TEAM_ROLE");
+  expect(res.body?.error?.message).toBe("For your safety, confirm this with a code sent to your mobile by SMS and a code sent to your e-mail.");
+  blocked(`${DUAL_MANUAL} — seen: ${what} → 403 DUAL_STEP_UP (TEAM_ROLE)${after}`);
 }
 
 async function memberOf(userId: string): Promise<Member | undefined> {
@@ -177,6 +198,7 @@ qa(["TC-OV2-065"], "downgrade of a team lead is refused while agents report to h
   const agent = unstash<{ memberId: string; userId: string }>("ov2-agent");
   if (!lead || !agent) blocked("needs TC-OV2-062/063's lead and agent");
   const refused = await post(DEALER, { action: "downgrade", memberId: lead.memberId });
+  if (dualStepUp(refused)) manualAtStepUp(refused, "dealer downgrades the team lead");
   expect(refused.status, why(refused)).toBe(409);
   const notLead = await post((await people()).lead, { action: "downgrade", memberId: lead.memberId });
   expect([403, 404, 409], `a team lead cannot change roles — ${why(notLead)}`).toContain(notLead.status);
@@ -195,9 +217,11 @@ qa(["TC-OV2-066"], "admin user page shows marketplace roles and role history (IS
   const agent = unstash<{ memberId: string; userId: string }>("ov2-agent");
   if (!agent) blocked("needs TC-OV2-063's member");
   const admin = await as("admin");
+  // TC-OV2-065 upgrades the agent to team lead; where dual_auth stops that change (manual there) it is still an agent.
+  const current = (await memberOf(agent.userId)) ?? blocked("the member of TC-OV2-063 is no longer in the team");
   const view = await call(admin, "GET", `/api/users/${agent.userId}/marketplace-roles`);
   expectStatus(view, 200, "marketplace roles");
-  expect(JSON.stringify(view.body.roles)).toMatch(/team_lead|TEAM_LEAD/i);
+  expect(JSON.stringify(view.body.roles), `the member's role now (${current.role})`).toMatch(current.role === "TEAM_LEAD" ? /team_lead/i : /"agent"|AGENT/i);
   const { page, context } = await pageAs(browser, "admin");
   try {
     await page.goto(`/admin/users/${agent.userId}`);
@@ -217,6 +241,11 @@ qa(["TC-OV2-067"], "dealer removes the remaining member's role (back to customer
   const lead = unstash<{ memberId: string; userId: string }>("ov2-lead");
   if (!lead) blocked("needs TC-OV2-062's member");
   const res = await post(DEALER, { action: "remove", memberId: lead.memberId });
+  if (dualStepUp(res)) {
+    // Put the person back to "customer only" the way TC-OV2-066 does (admin override, no step-up), so a re-run starts clean.
+    const over = await call(await as("admin"), "POST", `/api/users/${lead.userId}/marketplace-roles`, { to: "REMOVE", reason: `QA onboarding v2 test pass ${RUN}: tidy up (dealer remove needs dual_auth codes)` });
+    manualAtStepUp(res, "dealer removes the team lead's role", `; tidied up by admin override REMOVE → HTTP ${over.status}`);
+  }
   expectStatus(res, 200, "remove role");
   expect(await memberOf(lead.userId)).toBeUndefined();
   const data = await overview();

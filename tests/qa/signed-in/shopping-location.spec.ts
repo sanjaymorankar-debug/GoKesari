@@ -11,6 +11,7 @@
 import type { BrowserContext, Locator, Page } from "@playwright/test";
 
 import { as } from "../lib/actors";
+import { paymentChoiceExplicit } from "../lib/flows-v3-helpers";
 import { call, expectStatus, RUN, why } from "../lib/http";
 import { blocked, expect, need, qa } from "../lib/record";
 import { BASE_URL } from "../lib/target";
@@ -478,11 +479,18 @@ qa(["TC-LOC-018", "TC-LOC-020"], "cart: switching to an address the shop does no
   const item = listing("packaged");
   return withAddresses("customer", [{ ...FAR, label: `QA far ${RUN}`, line1: `QA far ${RUN}`, area: "Hinjewadi" }], async ([far]) => {
     await fillCart("customer", [{ item, quantity: 1 }]);
+    const explicit = await paymentChoiceExplicit();
     const { context, page } = await signedPage(browser, "customer");
     try {
       await open(page, "/cart");
       const group = cartGroup(page, shopName("A"));
       await chooseDeliveryTime(page);
+      if (explicit) {
+        // flow_f2 (and onboarding v2): no payment is preselected — the button reads "Choose how to pay" and is
+        // disabled until the customer picks a method.
+        await expect(page.getByRole("button", { name: "Choose how to pay" }), "before a payment method is picked").toBeDisabled();
+        await page.getByTestId("payment-method").getByRole("radio", { name: "Wallet", exact: true }).check();
+      }
       const pay = page.getByRole("button", { name: /Pay from wallet/ });
       await expect(pay).toBeEnabled();
       await page.evaluate(() => ((window as unknown as { __qaNoReload: boolean }).__qaNoReload = true));
@@ -503,7 +511,7 @@ qa(["TC-LOC-018", "TC-LOC-020"], "cart: switching to an address the shop does no
       await context.close();
       await clearCart("customer");
     }
-    return `far address → "${shopName("A")} does not deliver…" + Change address, pay disabled; near address → cleared, pay enabled; no reload`;
+    return `${explicit ? "pay button 'Choose how to pay' (disabled) until Wallet was picked; " : ""}far address → "${shopName("A")} does not deliver…" + Change address, pay disabled; near address → cleared, pay enabled; no reload`;
   });
 }, { ...SIGNED, mobile: true, partial: "the delivery fee does not depend on the address in this build (computeDeliveryFee uses the subtotal only), so only issues and eligibility change" });
 

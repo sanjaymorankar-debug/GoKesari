@@ -32,9 +32,9 @@ import {
   stockOf,
   walletOf,
   withShopSettings,
-  ruleOn,
 } from "../lib/orders-helpers";
 import { db } from "../lib/db";
+import { flowOn, packedSelfCancelOpen } from "../lib/flows-v3-helpers";
 import { blocked, expect, qa } from "../lib/record";
 import { IS_LOCAL } from "../lib/target";
 
@@ -51,7 +51,9 @@ function delivered() {
   return kept<{ id: string; orderNumber: string }>("cancel-delivered") ?? blocked("needs the order delivered by the TC-ORD-001 check in this run");
 }
 
-const label = (status: string) => status.replace(/_/g, " ").toLowerCase();
+/** The status words My Orders shows (src/lib/order-status-i18n.ts ORDER_STATUS_TEXT, English). */
+const STATUS_TEXT: Record<string, string> = { ASSIGNED: "rider assigned", PICKED: "packed" };
+const label = (status: string) => STATUS_TEXT[status] ?? status.replace(/_/g, " ").toLowerCase();
 
 qa("TC-ORD-001", "My Orders shows the matching status label at every step from CONFIRMED to DELIVERED", async ({ browser }) => {
   await readyRiders();
@@ -243,43 +245,81 @@ qa("TC-ORD-006", "the customer cancels a CONFIRMED order on My Orders: the quote
   }
 }, { ...signed, mobile: true, partial: "'shop notified' superseded by src/server/events/catalog.ts (order.cancelled, D10): a customer cancelling before the shop accepts is not announced to the shop" });
 
-qa("TC-ORD-007", "the customer cannot cancel at ACCEPTED, PREPARING, READY or ASSIGNED: no Cancel button, the quote says to contact the shop, no refund", async ({ browser }) => {
+qa("TC-ORD-007", "customer cancel after the shop accepted: original rule — no Cancel button at ACCEPTED, PREPARING, READY or ASSIGNED, the quote says to contact the shop, no refund; flow_f16 — Cancel until packing with a full refund, packed orders only by asking the shop", async ({ browser }) => {
   await readyRiders();
-  const start = await walletOf();
-  const placed = await placeSimple();
   const notes: string[] = [];
-  // Rule afterPackingCancellation (on at the test site) opens READY and ASSIGNED to a cancel for a fee.
-  const packedCancelOpen = await ruleOn("afterPackingCancellation");
+  const f16 = await flowOn("flow_f16");
+  // Rule afterPackingCancellation opens READY and ASSIGNED to a cancel for a fee — unless flow_f16 is on.
+  const packedCancelOpen = await packedSelfCancelOpen();
   const { context, page } = await pageAs(browser, "customer");
   try {
-    const attempt = async (stage: string) => {
-      const card = await customerCard(page, placed.orderNumber);
-      await expect(card.getByText(label(stage), { exact: true }).first()).toBeVisible();
-      if (packedCancelOpen && (stage === "READY" || stage === "ASSIGNED")) {
-        await expect(card.getByRole("button", { name: "Cancel order" }), `Cancel offered at ${stage} (rule on)`).toBeVisible();
-        const open = await call(await as("customer"), "GET", `/api/orders/${placed.id}/cancellation-quote`);
-        expectStatus(open, 200, "quote");
-        expect(open.body.allowed, `quote at ${stage}`).toBe(true);
-        notes.push(`${stage} open for a fee (rule on)`);
-        return;
+    if (f16) {
+      // docs/flows-v3/wave2.md (flag flow_f16): until packing the customer cancels with a full refund, delivery fee included.
+      for (const stage of ["ACCEPTED", "PREPARING"] as const) {
+        const before = await walletOf();
+        const early = await placeSimple();
+        try {
+          await driveTo(early.id, stage);
+          const card = await customerCard(page, early.orderNumber);
+          await expect(card.getByText(label(stage), { exact: true }).first()).toBeVisible();
+          await expect(card.getByRole("button", { name: "Cancel order" }), `Cancel offered at ${stage} (flow_f16)`).toBeVisible();
+          const quote = await call(await as("customer"), "GET", `/api/orders/${early.id}/cancellation-quote`);
+          expectStatus(quote, 200, "quote");
+          expect(quote.body.allowed, `quote at ${stage}`).toBe(true);
+          expect(quote.body.breakdown.refundPaise, `full refund quoted at ${stage}`).toBe(early.totalPaise);
+          const res = await call(await as("customer"), "POST", `/api/orders/${early.id}/cancel`, { reason: "QA", expectedRefundPaise: early.totalPaise });
+          expectStatus(res, 200, `cancel at ${stage}`);
+          expect(["CANCELLED", "REFUNDED"]).toContain(await statusOf(early.id));
+          expect(await walletOf(), `full refund after the cancel at ${stage}`).toBe(before);
+          notes.push(`${stage}: Cancel shown, 200, ₹${early.totalPaise / 100} refunded`);
+        } finally {
+          await abandon(early.id);
+        }
       }
-      await expect(card.getByRole("button", { name: "Cancel order" }), `no Cancel button at ${stage}`).toHaveCount(0);
-      const quote = await call(await as("customer"), "GET", `/api/orders/${placed.id}/cancellation-quote`);
-      expectStatus(quote, 200, "quote");
-      expect(quote.body.allowed, `quote at ${stage}`).toBe(false);
-      expect(quote.body.blockedReason).toMatch(/already being prepared.*contact the shop/i);
-      const res = await call(await as("customer"), "POST", `/api/orders/${placed.id}/cancel`, { reason: "QA" });
-      expect(res.status, `cancel at ${stage}`).toBe(409);
-      notes.push(`${stage} ${res.status}`);
-    };
-    await driveTo(placed.id, "ASSIGNED", { onStep: (s) => (s === "CONFIRMED" ? Promise.resolve() : attempt(s)) });
-    expect(await walletOf(), "no refund").toBe(start - placed.totalPaise);
+    }
+    const start = await walletOf();
+    const placed = await placeSimple();
+    try {
+      const attempt = async (stage: string) => {
+        if (f16 && (stage === "ACCEPTED" || stage === "PREPARING")) return; // proven above on their own orders
+        const card = await customerCard(page, placed.orderNumber);
+        await expect(card.getByText(label(stage), { exact: true }).first()).toBeVisible();
+        if (packedCancelOpen && (stage === "READY" || stage === "ASSIGNED")) {
+          await expect(card.getByRole("button", { name: "Cancel order" }), `Cancel offered at ${stage} (rule on)`).toBeVisible();
+          const open = await call(await as("customer"), "GET", `/api/orders/${placed.id}/cancellation-quote`);
+          expectStatus(open, 200, "quote");
+          expect(open.body.allowed, `quote at ${stage}`).toBe(true);
+          notes.push(`${stage} open for a fee (rule on)`);
+          return;
+        }
+        await expect(card.getByRole("button", { name: "Cancel order" }), `no Cancel button at ${stage}`).toHaveCount(0);
+        const quote = await call(await as("customer"), "GET", `/api/orders/${placed.id}/cancellation-quote`);
+        expectStatus(quote, 200, "quote");
+        expect(quote.body.allowed, `quote at ${stage}`).toBe(false);
+        expect(quote.body.blockedReason).toMatch(/already being prepared.*contact the shop/i);
+        const res = await call(await as("customer"), "POST", `/api/orders/${placed.id}/cancel`, { reason: "QA" });
+        expect(res.status, `cancel at ${stage}`).toBe(409);
+        if (f16 && stage === "READY") {
+          // flow_f16: the order page offers "Ask the shop to cancel" for a packed order instead.
+          await page.goto(`/orders/${placed.id}`);
+          await expect(page.getByTestId("flows-v3-order-actions"), "the order page offers to ask the shop").toContainText("Ask the shop to cancel");
+          notes.push(`${stage} ${res.status} (order page: 'Ask the shop to cancel')`);
+          return;
+        }
+        notes.push(`${stage} ${res.status}`);
+      };
+      await driveTo(placed.id, "ASSIGNED", { onStep: (s) => (s === "CONFIRMED" ? Promise.resolve() : attempt(s)) });
+      expect(await walletOf(), "no refund").toBe(start - placed.totalPaise);
+    } finally {
+      await abandon(placed.id);
+    }
   } finally {
     await context.close();
-    await abandon(placed.id);
   }
-  return `refused at ${notes.join(", ")}; message "already being prepared … contact the shop"; wallet unchanged`;
-}, { ...signed, mobile: true });
+  return f16
+    ? `flow_f16 on: ${notes.join("; ")}; message "already being prepared … contact the shop" after packing; wallet unchanged`
+    : `refused at ${notes.join(", ")}; message "already being prepared … contact the shop"; wallet unchanged`;
+}, { ...signed, mobile: true, timeout: 360_000 });
 
 qa("TC-ORD-008", "a customer cancelling after pickup gets the goods back, the delivery fee is kept, the rider is still paid and the assignment ends", async () => {
   await readyRiders();
