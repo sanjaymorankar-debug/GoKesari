@@ -188,6 +188,13 @@ export async function resetDatabase(): Promise<void> {
         INSERT INTO platform_settings (key, value) VALUES ('documentUpload', '{"fssaiMandatoryForFood": false}'::jsonb)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       `);
+      // Owner, 27-Nov-2026 (rule dealerApplication): only a live shop's owner may apply to be a dealer. Tests written
+      // before it apply without a shop, so they run with it off; tests/integration/onboarding-v2-franchise.test.ts
+      // switches it on for its own cases.
+      await db.execute(sql`
+        INSERT INTO platform_settings (key, value) VALUES ('dealerApplication', '{"requireLiveShop": false}'::jsonb)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      `);
       // DF-09 (0163, 0165): the shop document rules back to the seeded ones (they reference no user, so the
       // TRUNCATE above leaves a test's own rules and documents behind). Without the migration's
       // "live shops: 90 days from the release" date on the licence rows, so tests on fixed dates

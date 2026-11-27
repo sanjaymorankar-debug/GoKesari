@@ -11412,7 +11412,7 @@ export const dealers = pgTable(
     /** GoKesari Direct: holds codes that had no distributor; earns no commission. */
     isInternal: boolean("is_internal").notNull().default(false),
     legacyDistributorId: uuid("legacy_distributor_id").references(() => distributors.id, { onDelete: "set null" }),
-    source: text("source", { enum: ["APPLICATION", "LEGACY_MIGRATION", "ADMIN"] }).notNull().default("APPLICATION"),
+    source: text("source", { enum: ["APPLICATION", "LEGACY_MIGRATION", "ADMIN", "SHOP_REQUEST"] }).notNull().default("APPLICATION"),
     /** 0107: onboarding rating (0–10, steps of 0.5). start_rating is the floor an admin may set; rating_override a manual downgrade until the next slab. */
     startRating: numeric("start_rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
     rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
@@ -11462,7 +11462,7 @@ export const dealers = pgTable(
     check("dealers_status", sql`${t.status} in ('DRAFT', 'PENDING', 'APPROVED', 'SUSPENDED', 'REJECTED', 'TERMINATED')`),
     check("dealers_bank_status", sql`${t.bankStatus} in ('NOT_PROVIDED', 'PENDING', 'VERIFIED', 'FAILED')`),
     check("dealers_mobile_method", sql`${t.mobileVerificationMethod} IS NULL OR ${t.mobileVerificationMethod} in ('OTP', 'ADMIN_CALL', 'LEGACY')`),
-    check("dealers_source", sql`${t.source} in ('APPLICATION', 'LEGACY_MIGRATION', 'ADMIN')`),
+    check("dealers_source", sql`${t.source} in ('APPLICATION', 'LEGACY_MIGRATION', 'ADMIN', 'SHOP_REQUEST')`),
     check("dealers_agreement_dates", sql`${t.agreementEnd} IS NULL OR ${t.agreementStart} IS NULL OR ${t.agreementEnd} >= ${t.agreementStart}`),
     check("dealers_commission_percent", sql`${t.commissionPercentBp} IS NULL OR ${t.commissionPercentBp} BETWEEN 0 AND 10000`),
     check("dealers_rating_step", sql`${t.ratingStepBp} IS NULL OR ${t.ratingStepBp} BETWEEN 0 AND 1000`),

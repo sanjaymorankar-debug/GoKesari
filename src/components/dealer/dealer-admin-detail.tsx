@@ -351,6 +351,11 @@ export function DealerAdminDetail({
           <h2 className="text-base font-bold text-ink-900">Decision</h2>
           {dealer.status === "PENDING" ? (
             <div className="space-y-2">
+              {dealer.source === "SHOP_REQUEST" ? (
+                <Alert tone="info">
+                  Free franchisee request from a live GoKesari shop (owner rule, 27-Nov-2026). It is approved on the shop&apos;s verified details: no documents, mobile call or bank check needed now — PAN and the payout bank are asked before his first payout. Approval issues the dealer code and e-mails it to him.
+                </Alert>
+              ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Agreement starts">
                   <input type="date" className={inputClass} value={start} onChange={(e) => setStart(e.target.value)} />
@@ -359,12 +364,12 @@ export function DealerAdminDetail({
                   <input type="date" className={inputClass} value={end} onChange={(e) => setEnd(e.target.value)} />
                 </Field>
               </div>
-              {!dealer.mobileVerified ? (
+              {!dealer.mobileVerified && dealer.source !== "SHOP_REQUEST" ? (
                 <label className="flex min-h-11 items-center gap-2 text-sm">
                   <input type="checkbox" checked={byCall} onChange={(e) => setByCall(e.target.checked)} />I called the dealer on this number and confirmed it.
                 </label>
               ) : null}
-              {dealer.bank.status !== "VERIFIED" ? (
+              {dealer.bank.status !== "VERIFIED" && dealer.source !== "SHOP_REQUEST" ? (
                 <label className="flex min-h-11 items-center gap-2 text-sm">
                   <input type="checkbox" checked={bankByDoc} onChange={(e) => setBankByDoc(e.target.checked)} />I checked the account against the accepted cancelled cheque / bank proof.
                 </label>

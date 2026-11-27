@@ -1583,6 +1583,13 @@
       "when": 1793272500000,
       "tag": "0225_flows_v3_wave4",
       "breakpoints": true
+    },
+    {
+      "idx": 226,
+      "version": "7",
+      "when": 1793272600000,
+      "tag": "0226_franchisee_request",
+      "breakpoints": true
     }
   ]
 }
