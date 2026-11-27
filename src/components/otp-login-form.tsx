@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { useSignInConsent } from "@/components/signin-consent";
 import { EMAIL_HINT, isValidEmail, parseIndianMobile } from "@/lib/contact";
@@ -50,9 +50,9 @@ const T = {
   changeNumber: L("Change number", "नंबर बदलें", "नंबर बदला"),
   otpSent: L("OTP sent to your email", "OTP आपके ईमेल पर भेजा गया", "OTP तुमच्या ईमेलवर पाठवला"),
   otpSentMobile: L(
-    "OTP sent: if +91 {mobile} is registered, the code went by SMS to this number — or, if the number is not verified yet, to the email address on that account.",
-    "OTP भेजा गया: अगर +91 {mobile} रजिस्टर है, तो कोड इसी नंबर पर SMS से गया है — या, अगर नंबर अभी सत्यापित नहीं है, तो उस खाते के ईमेल पर।",
-    "OTP पाठवला: +91 {mobile} नोंदलेला असल्यास कोड याच नंबरवर SMS ने गेला आहे — किंवा, नंबर अजून पडताळलेला नसल्यास, त्या खात्याच्या ईमेलवर.",
+    "OTP sent for +91 {mobile}: by SMS to this number — or, if the number is not verified yet, to the email address on this account.",
+    "+91 {mobile} के लिए OTP भेजा गया: इसी नंबर पर SMS से — या, अगर नंबर अभी सत्यापित नहीं है, तो इस खाते के ईमेल पर।",
+    "+91 {mobile} साठी OTP पाठवला: याच नंबरवर SMS ने — किंवा, नंबर अजून पडताळलेला नसल्यास, या खात्याच्या ईमेलवर.",
   ),
   codePlaceholder: L("Enter code", "कोड डालें", "कोड टाका"),
   codeLabel: L("One-time code", "एक बार का कोड", "एक-वेळ कोड"),
@@ -61,7 +61,11 @@ const T = {
   resendIn: L("Resend code in {n}s", "{n} सेकंड में कोड फिर भेजें", "{n} सेकंदांत कोड पुन्हा पाठवा"),
   resend: L("Resend code", "कोड फिर भेजें", "कोड पुन्हा पाठवा"),
   different: L("Use a different number or email", "दूसरा नंबर या ईमेल डालें", "दुसरा नंबर किंवा ईमेल वापरा"),
-  newHere: L("New to GoKesari, or no email after a minute?", "GoKesari पर नए हैं, या एक मिनट बाद भी ईमेल नहीं आया?", "GoKesari वर नवीन आहात, किंवा एका मिनिटानंतरही ईमेल आला नाही?"),
+  notRegistered: L(
+    "This mobile number is not registered with GoKesari. Please enter your email ID instead — new users can sign up with their email.",
+    "यह मोबाइल नंबर GoKesari पर रजिस्टर नहीं है। कृपया इसकी जगह अपना ईमेल ID डालें — नए उपयोगकर्ता अपने ईमेल से साइन अप कर सकते हैं।",
+    "हा मोबाइल नंबर GoKesari वर नोंदलेला नाही. कृपया त्याऐवजी तुमचा ईमेल ID टाका — नवीन वापरकर्ते त्यांच्या ईमेलने साइन अप करू शकतात.",
+  ),
   signUpEmail: L("Sign up with your email", "अपने ईमेल से साइन अप करें", "तुमच्या ईमेलने साइन अप करा"),
 } as const;
 
@@ -81,12 +85,12 @@ const buttonClass =
   "min-h-11 rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800 disabled:bg-cream-200 disabled:text-ink-600";
 
 /**
- * Mobile number or email → code from email. A mobile number gets the same
- * reply whether or not it is registered, so a new number signs up from the
- * code step by giving an email. Verification is a server action that opens
- * the session.
+ * One box: mobile number or email → one-time code. A registered mobile gets its code (SMS to a verified
+ * number, otherwise the account's email); a number no account has is told so and can sign up with an email
+ * (owner, 27-Nov-2026). Verification is a server action that opens the session. `consent`, when given, is the
+ * "I agree" box, shown between the field and the button.
  */
-export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode; lang?: Lang }) {
+export function OtpLoginForm({ verify, lang = "en", consent }: { verify: VerifyLoginCode; lang?: Lang; consent?: ReactNode }) {
   const emailHint = lang === "en" ? EMAIL_HINT : tr(T.emailHint, lang);
   const [step, setStep] = useState<Step>("identify");
   const [identifier, setIdentifier] = useState("");
@@ -100,6 +104,8 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
   const [secondFactor, setSecondFactor] = useState<SecondFactorPrompt | null>(null);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** The typed mobile number when the server said no account has it: offers sign-up with an email. */
+  const [unregistered, setUnregistered] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(0);
@@ -114,6 +120,7 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
   async function requestCode(next: { mobile: string | null; email: string | null }) {
     setBusy(true);
     setError(null);
+    setUnregistered(null);
     try {
       const res = await fetch("/api/otp/request", {
         method: "POST",
@@ -122,6 +129,12 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
+        if (res.status === 404 && next.mobile && !next.email) {
+          setMobile(next.mobile);
+          setUnregistered(next.mobile);
+          setError(tr(T.notRegistered, lang));
+          return;
+        }
         setError(body?.error?.message != null ? errorText(body.error.message, lang, body.error.code) : tr(T.sendFailed, lang));
         return;
       }
@@ -182,6 +195,7 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
 
   function startOver() {
     setSecondFactor(null);
+    setUnregistered(null);
     setStep("identify");
     setCode("");
     setEmailInput("");
@@ -191,27 +205,69 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
   }
 
   return (
-    <div className="mt-6 border-t border-cream-200 pt-6" data-testid="otp-signin">
+    <div className={consent ? "mt-6" : "mt-6 border-t border-cream-200 pt-6"} data-testid="otp-signin">
       <p className="mb-2 text-sm font-medium text-ink-700">{tr(T.heading, lang)}</p>
 
       {step === "identify" ? (
         <form onSubmit={submitIdentifier}>
-          <div className="flex gap-2">
-            <input
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              autoComplete="username"
-              placeholder={tr(T.idPlaceholder, lang)}
-              aria-label={tr(T.idLabel, lang)}
-              className={`${inputClass} min-h-11 flex-1 text-base`}
-              required
-            />
-            <button type="submit" disabled={busy || !agreed} className={buttonClass}>
-              {busy ? tr(T.sending, lang) : tr(T.getCode, lang)}
-            </button>
-          </div>
+          {consent ? (
+            <>
+              {/* One box, then "I agree", then the button (owner, 27-Nov-2026). */}
+              <input
+                value={identifier}
+                onChange={(e) => {
+                  setIdentifier(e.target.value);
+                  if (unregistered) {
+                    setUnregistered(null);
+                    setError(null);
+                  }
+                }}
+                autoComplete="username"
+                autoFocus
+                placeholder={tr(T.idPlaceholder, lang)}
+                aria-label={tr(T.idLabel, lang)}
+                className={`${inputClass} min-h-11 w-full text-base`}
+                required
+              />
+              {consent}
+              <button type="submit" disabled={busy || !agreed} className={`${buttonClass} mt-3 w-full`}>
+                {busy ? tr(T.sending, lang) : tr(T.getCode, lang)}
+              </button>
+            </>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                autoComplete="username"
+                placeholder={tr(T.idPlaceholder, lang)}
+                aria-label={tr(T.idLabel, lang)}
+                className={`${inputClass} min-h-11 flex-1 text-base`}
+                required
+              />
+              <button type="submit" disabled={busy || !agreed} className={buttonClass}>
+                {busy ? tr(T.sending, lang) : tr(T.getCode, lang)}
+              </button>
+            </div>
+          )}
           {/* Why the button cannot be used yet (it used to just look faded). */}
           {!agreed ? <p className="mt-2 text-sm font-medium text-ink-700">{tr(T.tickAgree, lang)}</p> : null}
+          {unregistered ? (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="alert" data-testid="otp-not-registered">
+              <p>{error}</p>
+              <button
+                type="button"
+                className="mt-2 font-medium text-kesari-700 underline"
+                onClick={() => {
+                  setError(null);
+                  setUnregistered(null);
+                  setStep("email");
+                }}
+              >
+                {tr(T.signUpEmail, lang)}
+              </button>
+            </div>
+          ) : null}
           <p className="mt-2 text-sm text-ink-600">{tr(T.codeByEmail, lang)}</p>
         </form>
       ) : null}
@@ -286,27 +342,12 @@ export function OtpLoginForm({ verify, lang = "en" }: { verify: VerifyLoginCode;
               {tr(T.different, lang)}
             </button>
           </div>
-          {sentTo === null ? (
-            <p className="mt-3 text-xs text-ink-600">
-              {tr(T.newHere, lang)}{" "}
-              <button
-                type="button"
-                className="font-medium text-kesari-700 underline"
-                onClick={() => {
-                  setError(null);
-                  setStep("email");
-                }}
-              >
-                {tr(T.signUpEmail, lang)}
-              </button>
-            </p>
-          ) : null}
         </form>
       ) : null}
 
       {step === "sms" && secondFactor ? <SmsSecondFactor prompt={secondFactor} onCancel={startOver} /> : null}
 
-      {error && step !== "sms" ? (
+      {error && step !== "sms" && !unregistered ? (
         <p role="alert" className="mt-2 text-sm text-red-700">
           {error}
         </p>

@@ -3,20 +3,17 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
 import { OtpLoginForm } from "@/components/otp-login-form";
-import { ConsentSubmitButton, SignInConsentCheckbox, SignInConsentProvider } from "@/components/signin-consent";
+import { SignInConsentCheckbox, SignInConsentProvider } from "@/components/signin-consent";
 import { Card } from "@/components/ui";
 import { ReferredByView, referredByFor } from "@/components/referral-sharing/referred-by-banner";
 import { getEnv } from "@/lib/env";
-import { isMobileAppUserAgent } from "@/lib/mobile-app";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { signIn } from "@/server/auth";
-import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
 import { emailMode } from "@/server/email/transport";
 import { isTextChannelAvailable } from "@/server/messaging/sms-whatsapp";
 import { verifyLoginOtp } from "@/server/otp/service";
 import { signInFromForm } from "@/server/signin-form";
-import { rememberSignUpTermsTick } from "@/server/flows/signup-terms";
 import { continueAfterFirstFactor } from "@/server/signin-otp";
 import { GOOGLE_EMAIL_UNVERIFIED, GOOGLE_SIGN_UP_NEEDS_CODE } from "@/server/otp/google-second-factor";
 import { toClientError } from "@/lib/errors";
@@ -30,10 +27,10 @@ export const dynamic = "force-dynamic";
 const AFTER_SIGN_IN = "/onboarding";
 
 /**
- * Production sign-in methods: Google (§5) and, when an SMTP sender is
- * configured, an emailed one-time link (GS-001). A dev-only email form is
- * rendered outside production so the app is usable locally and in end-to-end
- * tests; it is never available in production.
+ * One sign-in box (owner, 27-Nov-2026): mobile number or email, the "I agree" tick, and a one-time code. The
+ * Continue with Google button and the "email me a sign-in link" form are no longer shown here (the emailed link
+ * is kept for verifying an email address only). A dev-only email form is rendered outside production so the app
+ * is usable locally and in end-to-end tests; it is never available in production.
  */
 export default async function SignInPage({
   searchParams,
@@ -44,13 +41,6 @@ export default async function SignInPage({
   if (user) redirect("/");
 
   const env = getEnv();
-  const googleEnabled = Boolean(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET);
-  // In the mobile app an emailed link opens in the phone's browser and signs
-  // that browser in, not the app — the app offers the emailed code instead.
-  // (Google works in the app: it hands the sign-in to the system browser and
-  // back, see src/server/mobile-auth.ts.)
-  const inMobileApp = isMobileAppUserAgent((await headers()).get("user-agent"));
-  const emailEnabled = emailSignInMode(env) !== "disabled" && !inMobileApp;
   const query = await searchParams;
   const lang = await getBoardLang();
   const checkEmail = Boolean(query["check-email"]);
@@ -125,9 +115,6 @@ export default async function SignInPage({
           A wallet is created for you automatically on first sign-in.
         </p>
 
-        {/* One agreement for every sign-in method below. */}
-        <SignInConsentCheckbox className="mt-6" />
-
         {accessDenied ? (
           <p
             role="alert"
@@ -155,7 +142,7 @@ export default async function SignInPage({
             className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
             data-testid="signin-sms-signup"
           >
-            To create a new account, use the sign-in code below: it asks for your email code and then a code by SMS to your mobile. After that, Continue with Google works too.
+            To create a new account, use the sign-in code below: it asks for your email code and then a code by SMS to your mobile.
           </p>
         ) : null}
 
@@ -169,29 +156,8 @@ export default async function SignInPage({
           </p>
         ) : null}
 
-        {googleEnabled ? (
-          <form
-            className="mt-6"
-            action={async (formData: FormData) => {
-              "use server";
-              // docs/flows-v3 (flag flow_f1): keep the Terms tick for the account record. Off: nothing.
-              await rememberSignUpTermsTick(formData);
-              await signInFromForm(() => signIn("google", { redirectTo: AFTER_SIGN_IN }));
-            }}
-          >
-            <ConsentSubmitButton className="flex w-full items-center justify-center gap-2 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-50">
-              Continue with Google
-            </ConsentSubmitButton>
-          </form>
-        ) : (
-          <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            Google sign-in is not configured. Set <code>AUTH_GOOGLE_ID</code> and{" "}
-            <code>AUTH_GOOGLE_SECRET</code> to enable it.
-          </p>
-        )}
-
         {otpEmailAvailable ? (
-          <OtpLoginForm verify={verifyLoginCode} lang={lang} />
+          <OtpLoginForm verify={verifyLoginCode} lang={lang} consent={<SignInConsentCheckbox className="mt-3" />} />
         ) : (
           <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             Sign-in codes cannot be emailed: set <code>AUTH_EMAIL_FROM</code> and <code>AUTH_EMAIL_SERVER</code>.
@@ -206,41 +172,6 @@ export default async function SignInPage({
             Check your email — we sent you a sign-in link. It works once and expires in 15
             minutes.
           </p>
-        ) : null}
-
-        {emailEnabled ? (
-          <form
-            className="mt-6 border-t border-cream-200 pt-6"
-            action={async (formData: FormData) => {
-              "use server";
-              await rememberSignUpTermsTick(formData);
-              // A suspended or closed account is refused here: shown as the notice above (TC-AUTH-027).
-              await signInFromForm(() =>
-                signIn(EMAIL_PROVIDER_ID, {
-                  email: String(formData.get("email") ?? ""),
-                  redirectTo: AFTER_SIGN_IN,
-                }),
-              );
-            }}
-          >
-            <label htmlFor="magic-link-email" className="mb-1 block text-sm font-medium text-ink-700">
-              Or get a sign-in link by email
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="magic-link-email"
-                type="email"
-                name="email"
-                required
-                autoComplete="email"
-                placeholder="you@example.com"
-                className="min-w-0 flex-1 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none"
-              />
-              <ConsentSubmitButton className="rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-50">
-                Email me a link
-              </ConsentSubmitButton>
-            </div>
-          </form>
         ) : null}
 
         {devLoginEnabled ? (

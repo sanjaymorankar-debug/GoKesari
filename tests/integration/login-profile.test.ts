@@ -48,6 +48,7 @@ import { loginOtps, notificationDeliveries, users, wallets } from "@/server/db/s
 import {
   EMAIL_IN_USE,
   MOBILE_IN_USE,
+  MOBILE_NOT_REGISTERED,
   OTP_INVALID,
   createLoginTicket,
   linkPhone,
@@ -116,8 +117,8 @@ function signInAs(user: { id: string; email: string; name: string | null; role: 
 }
 
 describe("new user via mobile number", () => {
-  it("gets the same reply as a registered number, then signs up with an email and gets the number and a wallet", async () => {
-    expect(await requestLoginOtp({ mobile: "98765 43210" })).toMatchObject({ status: "SENT_IF_REGISTERED" });
+  it("is told the number is not registered, then signs up with an email and gets the number and a wallet", async () => {
+    await expect(requestLoginOtp({ mobile: "98765 43210" })).rejects.toThrow(MOBILE_NOT_REGISTERED);
     expect(state.outbox).toHaveLength(0);
 
     const sent = await requestLoginOtp({ mobile: "9876543210", email: "Sanjay@Example.com" });
@@ -182,11 +183,10 @@ describe("new user via mobile number", () => {
 });
 
 describe("mobile number on its own", () => {
-  it("gives the same reply whether or not the number is registered", async () => {
+  it("sends a registered number its code and tells an unregistered number to use an email (owner, 27-Nov-2026)", async () => {
     await createUser({ email: "known@example.com", mobile: "9555555555" });
-    const registered = await requestLoginOtp({ mobile: "9555555555" });
-    const unregistered = await requestLoginOtp({ mobile: "9666666666" });
-    expect(registered).toEqual(unregistered);
+    expect(await requestLoginOtp({ mobile: "9555555555" })).toMatchObject({ status: "SENT_IF_REGISTERED" });
+    await expect(requestLoginOtp({ mobile: "9666666666" })).rejects.toThrow(MOBILE_NOT_REGISTERED);
     expect(state.outbox.map((m) => m.to)).toEqual(["known@example.com"]);
   });
 
@@ -201,7 +201,7 @@ describe("mobile number on its own", () => {
     expect(lastCodeTo("later@example.com")).toMatch(/^\d+$/);
   });
 
-  it("rate-limits each number the same way whether or not it is registered", async () => {
+  it("rate-limits each number whether or not it is registered", async () => {
     await createUser({ email: "busy@example.com", mobile: "9555511111" });
     for (const mobile of ["9555511111", "9666611111"]) {
       const outcomes: string[] = [];
@@ -209,7 +209,7 @@ describe("mobile number on its own", () => {
         await expireCooldown("busy@example.com");
         outcomes.push(await requestLoginOtp({ mobile }).then((r) => r.status, (e: Error) => e.message));
       }
-      expect(outcomes).toContain("SENT_IF_REGISTERED");
+      expect(outcomes).toContain(mobile === "9555511111" ? "SENT_IF_REGISTERED" : MOBILE_NOT_REGISTERED);
       expect(outcomes.at(-1)).toMatch(/too many/i);
     }
   });
@@ -427,17 +427,19 @@ describe("wrong or expired code", () => {
     await expect(requestLoginOtp({ email: "spam@example.com" })).rejects.toThrow(/Please wait \d+ seconds/);
   });
 
-  it("sends no code to a suspended account, with the same reply as any other", async () => {
+  it("sends no code to a suspended account, with the same reply as an active one", async () => {
     const user = await createUser({ email: "bad@example.com", mobile: "9999900000" });
+    await createUser({ email: "good@example.com", mobile: "9999900001" });
     await db.update(users).set({ status: "SUSPENDED" }).where(eq(users.id, user.id));
-    expect(await requestLoginOtp({ mobile: "9999900000" })).toEqual(await requestLoginOtp({ mobile: "9999900001" }));
+    const suspended = await requestLoginOtp({ mobile: "9999900000", defer: () => {} });
+    expect(suspended).toEqual(await requestLoginOtp({ mobile: "9999900001", defer: () => {} }));
     expect(await requestLoginOtp({ email: "bad@example.com" })).toMatchObject({ status: "SENT", maskedEmail: "ba***@example.com" });
     expect(state.outbox).toHaveLength(0);
   });
 });
 
 describe("POST /api/otp/request", () => {
-  it("validates input and gives a mobile number the same reply as an email", async () => {
+  it("validates input and says plainly when a mobile number is not registered", async () => {
     expect((await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: {} })).status).toBe(422);
     const badMobile = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "12345" } });
     expect(badMobile.status).toBe(422);
@@ -445,8 +447,8 @@ describe("POST /api/otp/request", () => {
     expect(badEmail.status).toBe(422);
 
     const unknown = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "9812345678" } });
-    expect(unknown.status).toBe(200);
-    expect(unknown.body).toMatchObject({ status: "SENT_IF_REGISTERED" });
+    expect(unknown.status).toBe(404);
+    expect(unknown.body).toMatchObject({ error: { code: "NOT_FOUND", message: MOBILE_NOT_REGISTERED } });
 
     const byEmail = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { email: "route@example.com" } });
     expect(byEmail.body).toMatchObject({ status: "SENT", maskedEmail: "ro***@example.com" });
@@ -455,12 +457,12 @@ describe("POST /api/otp/request", () => {
     expect(info.body).toMatchObject({ email: true, codeLength: 6 });
   });
 
-  it("answers a registered number exactly as an unregistered one, and emails the code after replying", async () => {
+  it("answers a registered number without naming its email, and emails the code after replying", async () => {
     await createUser({ email: "member@example.com", mobile: "9812300000" });
     const registered = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "9812300000" } });
-    const unregistered = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "9812399999" } });
-    expect(registered.status).toBe(unregistered.status);
-    expect(registered.body).toEqual(unregistered.body);
+    expect(registered.status).toBe(200);
+    expect(registered.body).toMatchObject({ status: "SENT_IF_REGISTERED" });
+    expect(registered.body).not.toHaveProperty("maskedEmail");
 
     await vi.waitFor(() => expect(lastCodeTo("member@example.com")).toMatch(/^\d+$/));
   });

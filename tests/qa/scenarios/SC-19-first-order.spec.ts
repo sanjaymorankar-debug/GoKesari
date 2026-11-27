@@ -142,7 +142,7 @@ qa("SC-28", "field validation along the first-order journey: each invalid entry 
     if ((await id.inputValue()) !== "12345") bad.push("the typed mobile was cleared");
     await id.fill(mobile);
     await page.getByRole("button", { name: "Get code" }).click();
-    await expect(page.getByTestId("otp-sent-to")).toBeVisible();
+    await expect(page.getByTestId("otp-not-registered")).toBeVisible();
     await page.getByRole("button", { name: "Sign up with your email" }).click();
     const emailField = page.getByLabel("Email address");
     await emailField.fill("qa-sc28@");

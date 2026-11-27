@@ -130,8 +130,8 @@ export interface CodeSignIn {
 
 /**
  * Requests a code on /signin for `identifier` (a mobile or an email) and
- * moves to the code step. With `signupEmail`, a mobile with no account signs
- * up from the code step ("Sign up with your email").
+ * moves to the code step. With `signupEmail`, a mobile with no account gets
+ * the "not registered" notice and signs up from it ("Sign up with your email").
  */
 export async function requestCodeOnPage(page: Page, identifier: string, options: { signupEmail?: string; codeEmail?: string } = {}): Promise<Omit<CodeSignIn, "code"> & { code: () => Promise<string> }> {
   await openSignIn(page);
@@ -140,13 +140,15 @@ export async function requestCodeOnPage(page: Page, identifier: string, options:
   let since = Date.now();
   await page.getByRole("button", { name: "Get code" }).click();
   const sentTo = page.getByTestId("otp-sent-to");
-  await expect(sentTo, "the code step opens").toBeVisible();
   if (options.signupEmail) {
+    await expect(page.getByTestId("otp-not-registered"), "the number is reported as not registered").toBeVisible();
     await page.getByRole("button", { name: "Sign up with your email" }).click();
     await page.getByLabel("Email address").fill(options.signupEmail);
     since = Date.now();
     await page.getByRole("button", { name: "Send code" }).click();
     await expect(sentTo).toContainText("***@");
+  } else {
+    await expect(sentTo, "the code step opens").toBeVisible();
   }
   const email = (options.signupEmail ?? options.codeEmail ?? identifier).trim().toLowerCase();
   const text = (await sentTo.innerText()).trim();

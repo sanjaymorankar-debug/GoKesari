@@ -465,15 +465,17 @@ export async function requestLoginOtp(input: {
   if (input.mobile?.trim() && !email) {
     const mobile = parseMobile(input.mobile);
     const rules = await effectiveOtpRules("EMAIL");
-    // Limited per number whether or not it is registered, so hitting the
-    // limit tells nothing either.
+    // Limited per number whether or not it is registered.
     enforceRateLimit(`otp-mobile:${mobile.e164}`, {
       limit: rules.maxResendsPerWindow,
       windowMs: rules.resendWindowMinutes * 60_000,
     });
     const owner = await findLiveUserByPhone(mobile.e164);
+    // Owner 27-Nov-2026 (sign-in page, one box): a number no account has is told so plainly, so the person signs
+    // in or signs up with their email instead of waiting for a code that never comes. This replaces the earlier
+    // "same reply for every number"; the per-number and per-IP limits still apply.
+    if (!owner) throw new AppError("NOT_FOUND", MOBILE_NOT_REGISTERED);
     const followUp = async () => {
-      if (!owner) return;
       if (owner.status !== "ACTIVE" && !isPendingDeletion(owner)) {
         await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email: owner.email, phoneE164: mobile.e164, ip, reason: "account_blocked" });
         return;
@@ -517,6 +519,9 @@ export async function requestLoginOtp(input: {
   const sent = await issueCode({ email, purpose: "LOGIN", userId: owner?.id ?? null, phoneE164, ip });
   return { status: "SENT", maskedEmail: maskEmailAddress(email), ...sent };
 }
+
+export const MOBILE_NOT_REGISTERED =
+  "This mobile number is not registered with GoKesari. Please enter your email ID instead — new users can sign up with their email.";
 
 const ACCOUNT_BLOCKED =
   "This account is suspended or closed, so it cannot sign in. If you think this is a mistake, contact us through the grievance form.";

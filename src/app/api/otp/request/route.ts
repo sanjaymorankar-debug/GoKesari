@@ -1,9 +1,9 @@
 /**
- * Request a sign-in code. Codes are always emailed.
+ * Request a sign-in code (by SMS to a verified mobile, otherwise by email).
  *
- * POST { mobile }          → { status: "SENT_IF_REGISTERED" }, the same reply whether or not
- *                            the number is registered; a registered number's code goes to its
- *                            account's email, sent after the response
+ * POST { mobile }          → { status: "SENT_IF_REGISTERED" } for a registered number (its code
+ *                            goes out after the response); 404 NOT_FOUND "This mobile number is
+ *                            not registered…" for a number no account has (owner, 27-Nov-2026)
  * POST { mobile, email }   → { status: "SENT", maskedEmail }: code sent to that email (sign-up
  *                            with a new number, linked on sign-in if it is free)
  * POST { email }           → { status: "SENT", maskedEmail }: code sent to that email

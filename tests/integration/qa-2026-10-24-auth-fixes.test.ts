@@ -330,22 +330,13 @@ async function signInPage(query: Record<string, string> = {}) {
   return elements(await SignInPage({ searchParams: Promise.resolve(query) }));
 }
 
-/** The server action of the form that holds the element with this id. */
-function formActionAround(tree: AnyElement[], inputId: string) {
-  const form = tree.find((e) => e.type === "form" && elements(e.props.children).some((c) => c.props.id === inputId));
-  if (!form || typeof form.props.action !== "function") throw new Error(`no form around #${inputId}`);
-  return form.props.action as (data: FormData) => Promise<void>;
-}
-
 describe("TC-AUTH-027: a refused sign-in from the sign-in page's forms", () => {
-  it("'Email me a link' for a suspended account lands on /signin?error=AccessDenied, not the error page, and sends no link", async () => {
-    const suspended = await createUser({ email: "suspended-link@test.local" });
-    await db.update(users).set({ status: "SUSPENDED" }).where(eq(users.id, suspended.id));
-    const emailLink = formActionAround(await signInPage(), "magic-link-email");
-    const form = new FormData();
-    form.set("email", suspended.email);
-    await expect(emailLink(form)).rejects.toThrow("REDIRECT:/signin?error=AccessDenied");
-    expect(state.outbox).toHaveLength(0);
+  it("the sign-in page has one box only: no 'Email me a link' form and no Continue with Google (owner, 27-Nov-2026)", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const html = renderToStaticMarkup(await SignInPage({ searchParams: Promise.resolve({}) }));
+    expect(html).not.toContain("magic-link-email");
+    expect(html).not.toContain("Email me a link");
+    expect(html).not.toContain("Continue with Google");
   });
 
   it("the page it lands on shows the suspended notice with the grievance link", async () => {
