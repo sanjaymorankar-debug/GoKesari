@@ -47,6 +47,8 @@ const schema = z.object({
    * batch-2026-10 WS-A: ONLINE — pay at the payment gateway (rule onlinePayments, default off).
    */
   paymentMethod: z.enum(["WALLET", "COD", "ONLINE"]).optional(),
+  /** Owner 27-Nov-2026: cash on delivery with no delivery address — the customer picks the order up from the shop. */
+  pickupAtShop: z.boolean().optional(),
   /** Shops the customer was warned are closed and chose to order from anyway. */
   acknowledgeClosedShopIds: z.array(z.string().uuid()).max(20).optional(),
   /** F7: order-level coupon code; validated and priced server-side. */
@@ -82,10 +84,11 @@ export const POST = route(async (request: NextRequest) => {
     deliveryWindows: body.deliveryWindows,
     scheduledSlots: body.scheduledSlots,
     paymentMethod: body.paymentMethod,
+    pickupAtShop: body.pickupAtShop === true && !body.addressId && body.paymentMethod === "COD",
     acknowledgeClosedShopIds: body.acknowledgeClosedShopIds,
     couponCode: body.couponCode ?? null,
     buyerGstin: body.buyerGstin ?? null,
-    ...(v2 && !body.addressId && (body.orderType ?? "PERSONAL") === "PERSONAL"
+    ...(v2 && !body.addressId && !(body.pickupAtShop === true && body.paymentMethod === "COD") && (body.orderType ?? "PERSONAL") === "PERSONAL"
       ? { addressAfterPayment: true, addressLaterLocation: await bestKnownLocation(user.id) }
       : {}),
   };
