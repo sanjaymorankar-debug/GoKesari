@@ -113,7 +113,8 @@ afterEach(async () => {
 });
 
 function lastEmailCode(email: string): string {
-  const message = [...state.outbox].reverse().find((m) => m.to === email);
+  // The newest code e-mail (a "New sign-in" notice to the same address may arrive after it).
+  const message = [...state.outbox].reverse().find((m) => m.to === email && /^\d{4,8} /.test(m.subject));
   const code = message?.subject.match(/^(\d{4,8}) /)?.[1];
   if (!code) throw new Error(`no code was emailed to ${email}`);
   return code;
@@ -514,6 +515,7 @@ describe("mobile-number sign-in by SMS (owner 26-Nov-2026)", () => {
     expect(row.phoneVerifiedAt).toBeNull();
     const next = await afterEmailFactor(row, null, "SMS");
     expect(next.secondFactor?.kind).toBe("EMAIL");
+    expect(next.secondFactor?.sendError ?? null).toBeNull();
     expect(next.ticket).toBeUndefined();
     const emailCode = lastEmailCode(user.email);
     await expect(verifySecondFactorCode({ challenge: next.secondFactor!.challenge, code: emailCode === "000000" ? "111111" : "000000" })).rejects.toThrow(OTP_INVALID);
@@ -530,6 +532,7 @@ describe("mobile-number sign-in by SMS (owner 26-Nov-2026)", () => {
     const { user: first } = await verifyLoginOtp({ mobile, code: await lastSmsCode(`+91${mobile}`) });
     const step = await afterEmailFactor(first, null, "SMS");
     expect(step.secondFactor?.kind).toBe("EMAIL");
+    expect(step.secondFactor?.sendError ?? null).toBeNull();
     await verifySecondFactorCode({ challenge: step.secondFactor!.challenge, code: lastEmailCode(user.email) });
     // Next time (dual_auth off): the verified number signs in with its SMS code alone.
     await db.update(loginOtps).set({ createdAt: new Date(Date.now() - 2 * 60 * 60_000) });
