@@ -13,7 +13,6 @@ import { chooseDeliveryTime } from "../lib/shopping-helpers";
 import { deliveryCode, emptyCart, offerFor, onlyRiderOnline, packOrder, pickupCode, riderAction, sellable, shopOf } from "../lib/flows";
 import { call, expectStatus, RUN, stash, unstash, why } from "../lib/http";
 import { cancelAsCustomer, checkoutNow, fillCart, onlineStock, orderOf, ordersOf, placeVia, runKey, walletOf } from "../lib/money-helpers";
-import { onboardingV2On } from "../lib/onboarding-v2-helpers";
 import { blocked, expect, need, qa, test } from "../lib/record";
 import { world } from "../lib/world";
 
