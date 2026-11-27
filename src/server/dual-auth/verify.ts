@@ -20,6 +20,7 @@ import { AppError, conflict, forbidden, isUniqueViolation, validationFailed } fr
 import { maskPhone } from "@/lib/phone";
 import { db } from "@/server/db";
 import { users, type User } from "@/server/db/schema";
+import { getOtpProvider } from "@/server/otp/providers";
 import { markPhoneVerified } from "@/server/otp/second-factor";
 import { auditOtp, consumeCode, issueCode } from "@/server/otp/service";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
@@ -196,8 +197,11 @@ export async function confirmEmailFactorCode(userId: string, email: string | nul
 }
 
 /** The DualVerify page's view of the account. */
-export async function dualVerifyStatus(userId: string): Promise<FactorState & { inForce: boolean }> {
+export async function dualVerifyStatus(userId: string): Promise<FactorState & { inForce: boolean; canVerify: boolean }> {
   const user = await loadLiveUser(userId);
   const { dualAuthInForce } = await import("./policy");
-  return { ...(await factorState(user)), inForce: await dualAuthInForce() };
+  // Owner 27-Nov-2026: an account may verify its mobile by SMS whenever SMS codes can be sent on this site, also
+  // with the dual_auth flag off (the flag only decides whether both factors are *required*).
+  const canVerify = (await getOtpProvider("SMS")) !== null;
+  return { ...(await factorState(user)), inForce: await dualAuthInForce(), canVerify };
 }

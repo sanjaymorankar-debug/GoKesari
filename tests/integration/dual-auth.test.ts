@@ -267,6 +267,23 @@ describe("DualVerify: completing a missing factor, account check", () => {
     expect(await isDeviceTrusted(user.id)).toBe(true);
   });
 
+  it("TC-DUAL-025 flag off but SMS available (production 27-Nov-2026): an existing account still verifies its own mobile by SMS", async () => {
+    await setDualAuth(false);
+    const user = await createUser({ mobile: uniqueMobile() });
+    await db.update(users).set({ emailVerified: new Date(), phoneVerifiedAt: null }).where(eq(users.id, user.id));
+    signInAs(user);
+    const { dualVerifyStatus } = await import("@/server/dual-auth/verify");
+    expect(await dualVerifyStatus(user.id)).toMatchObject({ inForce: false, canVerify: true, mobileVerified: false, missing: ["MOBILE"] });
+    const sent = await call(verifyRoute, "/api/dual-auth/verify", { method: "POST", body: { action: "mobile-code" } });
+    expect(sent.status).toBe(200);
+    const code = await lastSmsCode(user.phoneE164!);
+    const done = await call(verifyRoute, "/api/dual-auth/verify", { method: "POST", body: { action: "mobile-verify", code } });
+    expect(done.status).toBe(200);
+    expect(done.body.status).toMatchObject({ mobileVerified: true, missing: [] });
+    const [row] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(row.phoneVerifiedAt).toBeInstanceOf(Date);
+  });
+
   it("TC-DUAL-021 mobile of another account: no answer before the code; after it, the conflict message + audit for review", async () => {
     const other = await createUser();
     const user = await createUser({ mobile: null });
