@@ -288,6 +288,12 @@ describe("Pico security helpers", () => {
     expect(checkWebhookAuth(new Headers({ authorization: "Bearer good" }), null, [])).toMatchObject({ ok: false, status: 503 });
     expect(checkWebhookAuth(new Headers({ authorization: "Bearer good", "x-forwarded-for": "5.6.7.8" }), "good", ["1.2.3.4"])).toMatchObject({ ok: false, status: 403 });
     expect(ipAllowed("10.1.2.3", ["10.1."])).toBe(true);
+    // Pico's dashboard takes only a URL: the token may come as ?token= (headers still win).
+    expect(presentedToken(new Headers({}), "https://test.gokesari.com/api/webhooks/picoxpress/shipment-status?token=tok-3")).toBe("tok-3");
+    expect(checkWebhookAuth(new Headers({}), "good", [], "/api/webhooks/picoxpress/location?token=good")).toEqual({ ok: true });
+    expect(checkWebhookAuth(new Headers({}), "good", [], "/api/webhooks/picoxpress/location?token=bad")).toMatchObject({ ok: false, status: 401 });
+    expect(checkWebhookAuth(new Headers({ "x-forwarded-for": "4.187.148.44" }), "good", ["4.187.148.44"], "/x?token=good")).toEqual({ ok: true });
+    expect(checkWebhookAuth(new Headers({ "x-forwarded-for": "9.9.9.9" }), "good", ["4.187.148.44"], "/x?token=good")).toMatchObject({ ok: false, status: 403 });
   });
 
   it("environment guard: gokesari.com uses Pico production only; other sites never do", () => {

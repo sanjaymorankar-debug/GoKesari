@@ -1,6 +1,6 @@
 /**
  * Pico Xpress webhook (docs/pico-xpress-2026-11): POST /api/webhooks/picoxpress/shipment-status.
- * Auth: "Authorization: Bearer <PICO_WEBHOOK_TOKEN>" or "X-GoKesari-Webhook-Token". Answers within 2 s;
+ * Auth: "Authorization: Bearer <PICO_WEBHOOK_TOKEN>" or "X-GoKesari-Webhook-Token", or ?token= in the URL (Pico's dashboard takes only a URL). Answers within 2 s;
  * the payload is processed straight after the answer (server/delivery/pico/webhooks.ts).
  */
 import { after, NextResponse, type NextRequest } from "next/server";
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (declared > MAX_WEBHOOK_BYTES) return NextResponse.json({ error: "Payload too large." }, { status: 413 });
   const rawBody = await request.text();
   try {
-    const result = await handleShipmentStatusWebhook(rawBody, request.headers, (task) => after(task));
+    const result = await handleShipmentStatusWebhook(rawBody, request.headers, (task) => after(task), request.url);
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {
     console.error("[webhook:picoxpress] failed", "shipment-status", error instanceof Error ? error.message : error);

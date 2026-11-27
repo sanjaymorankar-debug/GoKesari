@@ -22,11 +22,11 @@ export interface WebhookAnswer {
   body: Record<string, unknown>;
 }
 
-async function guard(rawBody: string, headers: Headers, flagOn: boolean): Promise<WebhookAnswer | { json: unknown }> {
+async function guard(rawBody: string, headers: Headers, flagOn: boolean, url?: string | null): Promise<WebhookAnswer | { json: unknown }> {
   if (!flagOn) return { status: 404, body: { error: "Not found." } };
   const cfg = picoConfig();
   const rules = await getRule("picoXpress");
-  const auth = checkWebhookAuth(headers, cfg.ok ? cfg.config.webhookToken : null, rules.webhookIpAllowlist);
+  const auth = checkWebhookAuth(headers, cfg.ok ? cfg.config.webhookToken : null, rules.webhookIpAllowlist, url);
   if (!auth.ok) return { status: auth.status, body: { error: auth.reason } };
   if (Buffer.byteLength(rawBody, "utf8") > MAX_WEBHOOK_BYTES) return { status: 413, body: { error: "Payload too large." } };
   try {
@@ -36,9 +36,9 @@ async function guard(rawBody: string, headers: Headers, flagOn: boolean): Promis
   }
 }
 
-export async function handleShipmentStatusWebhook(rawBody: string, headers: Headers, defer?: Defer): Promise<WebhookAnswer> {
+export async function handleShipmentStatusWebhook(rawBody: string, headers: Headers, defer?: Defer, url?: string | null): Promise<WebhookAnswer> {
   const { picoEnabled, processTracking } = await import("./service");
-  const g = await guard(rawBody, headers, await picoEnabled());
+  const g = await guard(rawBody, headers, await picoEnabled(), url);
   if (!("json" in g)) return g;
   const trackings = parseTrackingPayload(g.json);
   if (trackings.length === 0) return { status: 400, body: { error: "No AWB number or status in the payload." } };
@@ -56,9 +56,9 @@ export async function handleShipmentStatusWebhook(rawBody: string, headers: Head
   return { status: 200, body: { ok: true, received: trackings.length } };
 }
 
-export async function handleLocationWebhook(rawBody: string, headers: Headers, defer?: Defer): Promise<WebhookAnswer> {
+export async function handleLocationWebhook(rawBody: string, headers: Headers, defer?: Defer, url?: string | null): Promise<WebhookAnswer> {
   const { picoEnabled, processLocationPing } = await import("./service");
-  const g = await guard(rawBody, headers, await picoEnabled());
+  const g = await guard(rawBody, headers, await picoEnabled(), url);
   if (!("json" in g)) return g;
   const { isFeatureEnabled } = await import("@/server/services/feature-flags");
   // The add-on is paid per push: while its flag is off, pushes are acknowledged and dropped.

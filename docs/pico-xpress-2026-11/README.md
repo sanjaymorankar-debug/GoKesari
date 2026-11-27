@@ -61,7 +61,7 @@ webhooks, webhook-auth, views, admin), `src/server/delivery/providers/pico.ts` (
 |---|---|---|
 | `delivery_partner_picoxpress_enabled` | Admin → Feature flags | ON on test.gokesari.com, OFF on gokesari.com until the production test |
 | `pico_live_location_enabled` | Admin → Feature flags | OFF on both (Pico charges per push) |
-| Rule `picoXpress` | Admin → Business rules | AWB refill threshold 200, batch 500; bill-to = AGTCI (legal name, GSTIN 27ABCCA8318D1ZV, Kharadi address); pickup type RETAIL_STORE, per shop type map; default box weight 1,000 g, per shop type map; up to 10 boxes; e-way bill above ₹50,000; PAN-only shops HIDE_OPTION; cancel reasons; webhook IP allowlist (empty) |
+| Rule `picoXpress` | Admin → Business rules | AWB refill threshold 200, batch 500; bill-to = AGTCI (legal name, GSTIN 27ABCCA8318D1ZV, Kharadi address); pickup type RETAIL_STORE, per shop type map; default box weight 1,000 g, per shop type map; up to 10 boxes; e-way bill above ₹50,000; PAN-only shops HIDE_OPTION; cancel reasons; webhook IP allowlist (staging 4.187.148.44, production 4.188.191.141, set per site) |
 
 `nonGstShops = USE_AGTCI_GSTIN` sends AGTCI's GSTIN for PAN-only shops. **Switch it only after Pico
 confirms in writing** (question 1 below).
@@ -96,9 +96,12 @@ sudo gk-deploy restart gokesari-staging
 | Shipment status (doc page 6) | `https://test.gokesari.com/api/webhooks/picoxpress/shipment-status` | `https://gokesari.com/api/webhooks/picoxpress/shipment-status` |
 | Live location (doc page 7, paid) | `https://test.gokesari.com/api/webhooks/picoxpress/location` | `https://gokesari.com/api/webhooks/picoxpress/location` |
 
-Auth header: `Authorization: Bearer <PICO_WEBHOOK_TOKEN>` (or `X-GoKesari-Webhook-Token: <token>` if Pico
-cannot set Authorization). Checked in constant time; wrong / missing → 401; flag off → 404; body over 64 KB
-→ 413; bad JSON → 400; rate limit 600 / minute per IP. The answer is sent at once and the payload is
+Pico's dashboard (Developer → Webhooks) takes only a URL, no header, so the token goes in the URL:
+`…/shipment-status?token=<PICO_WEBHOOK_TOKEN>` (and `…/location?token=…`). The code also accepts
+`Authorization: Bearer <token>` or `X-GoKesari-Webhook-Token: <token>`. Pico sends from **4.187.148.44**
+(sandbox, for test.gokesari.com) and **4.188.191.141** (production, for gokesari.com) — set them in rule
+`picoXpress.webhookIpAllowlist` on each site. Token checked in constant time; wrong / missing → 401; other
+address → 403; flag off → 404; body over 64 KB → 413; bad JSON → 400; rate limit 600 / minute per IP. The answer is sent at once and the payload is
 processed straight after it (not by a cron). A missed webhook is recovered by "Refresh status" (operations)
 and by a safety-net pull of live shipments silent for 5+ minutes (every-minute cron, flag on only).
 
@@ -136,8 +139,8 @@ there). No native change was needed, so no store release was made; silent update
 
 1. The pickup GSTIN is mandatory. How do we book for shops registered with PAN only? May we send AGTCI's
    GSTIN (27ABCCA8318D1ZV) as the pickup GSTIN for them?
-2. Can your webhook send our `Authorization: Bearer <token>` header (or a custom header)? From which IP
-   addresses will it come? What is the retry policy when we do not answer 200?
+2. What is the webhook retry policy when we do not answer 200? (Answered 27-Nov-2026 by the dashboard: no
+   header field, so the token goes in the URL; IPs 4.187.148.44 sandbox, 4.188.191.141 production.)
 3. AWBs per bulk call: page 2 says 10,000; is 1,000 a safer limit? (We ask for ≤ 1,000.)
 4. Which webhook field names are final — `orderStatus` or `shipmentState`, `createdTimestamp` or
    `shipmentCreatedTime`? The webhook table on page 6 also omits OUT_FOR_DELIVERY and ARRIVED_AT_LOCATION
