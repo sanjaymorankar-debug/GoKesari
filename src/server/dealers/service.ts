@@ -1071,6 +1071,19 @@ export async function createDealerByAdmin(input: AdminDealerInput, actor: Dealer
     );
     return { dealer, code };
   });
+  // Owner, 27-Nov-2026: the dealer added by an admin is welcomed with his code (e-mail + in-app), like an approved
+  // application. Only when the dealer is linked to a sign-in account (an e-mail of an existing account was given).
+  if (result.dealer.userId) {
+    await notify({
+      userId: result.dealer.userId,
+      type: NOTIFICATION_TYPES.DEALER_STATUS_CHANGED,
+      title: `Welcome to GoKesari as a franchisee — your dealer code is ${result.code}`,
+      body: `GoKesari has made ${result.dealer.legalName} a franchisee (dealer). Your dealer code is ${result.code}: shops that register with it are counted for you, and you earn commission on them. Share it with shops, or register shops from your dealer page. Add your PAN and payout bank account on your dealer page before your first payout.`,
+      vars: { statusLabel: "Approved", detail: `Your dealer code is ${result.code}.` },
+      actionUrl: "/dealer",
+      dedupeKey: `dealer-admin-added:${result.dealer.id}`,
+    }).catch((e: unknown) => console.error("[dealers] welcome notice failed", result.dealer.id, e instanceof Error ? e.message : e));
+  }
   return result;
 }
 

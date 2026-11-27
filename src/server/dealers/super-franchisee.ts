@@ -34,7 +34,9 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { franchiseBookings } from "@/server/db/franchise-schema";
+import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
+import { notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { feeBasePaise, feeWaived } from "./commission";
 
@@ -386,6 +388,24 @@ export async function accrueSuperFranchiseeMonth(tx: DbClient, month: string, st
 
 /* ================================================================= admin */
 
+const pctText = (bp: number) => `${(bp / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}%`;
+
+/**
+ * Owner, 27-Nov-2026: the people concerned hear of every super franchisee change (e-mail + in-app), after the commit.
+ * Never throws: a failed notice is logged, the change stands.
+ */
+async function tellDealer(dealerId: string, title: string, message: string, key: string): Promise<void> {
+  try {
+    const [d] = await db.select({ userId: dealers.userId, isInternal: dealers.isInternal }).from(dealers).where(eq(dealers.id, dealerId));
+    if (!d?.userId || d.isInternal) return;
+    await notify({ userId: d.userId, type: NOTIFICATION_TYPES.DEALER_TEAM_CHANGED, title, vars: { message }, actionUrl: "/dealer", dedupeKey: key });
+  } catch (error) {
+    console.error("[super-franchisee] notice failed", dealerId, error instanceof Error ? error.message : error);
+  }
+}
+
+const nameOf = async (dealerId: string) => (await db.select({ n: dealers.legalName }).from(dealers).where(eq(dealers.id, dealerId)))[0]?.n ?? "a dealer";
+
 async function lockDealer(tx: DbClient, dealerId: string): Promise<Dealer> {
   const [d] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
   if (!d) throw notFound("Dealer");
@@ -412,6 +432,15 @@ export async function promoteSuperFranchisee(dealerId: string, input: { reason: 
       : await tx.insert(superFranchisees).values({ dealerId, status: "ACTIVE", feeShareBp, orderShareBp, reason, createdBy: actor.id }).returning();
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.SUPER_FRANCHISEE_CHANGED, entityType: "dealer", entityId: dealerId, previousValue: before ? { status: before.status } : null, newValue: { status: "ACTIVE", feeShareBp, orderShareBp, reason } }, tx);
     return row;
+  }).then(async (row) => {
+    const rates = await ratesFor(row);
+    await tellDealer(
+      dealerId,
+      "You are now a GoKesari super franchisee",
+      `GoKesari has made you a super franchisee. GoKesari will put franchisees in your team; you earn ${pctText(rates.feeShareBp)} of every fee paid in your team and ${pctText(rates.orderShareBp)} of GoKesari's order commission on your team's shops every month — paid by GoKesari on top, nothing is taken from your franchisees. You get an e-mail when a franchisee joins or leaves your team and when a shop registers in it; your team's numbers come in your Monday and monthly reports.`,
+      `super-promoted:${dealerId}:${row.updatedAt.getTime()}`,
+    );
+    return row;
   });
 }
 
@@ -430,6 +459,14 @@ export async function removeSuperFranchisee(dealerId: string, reasonInput: strin
       .returning({ member: superFranchiseeMembers.memberDealerId });
     await tx.update(superFranchisees).set({ status: "REMOVED", removedAt: now, removedBy: actor.id, updatedAt: now }).where(eq(superFranchisees.dealerId, dealerId));
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.SUPER_FRANCHISEE_CHANGED, entityType: "dealer", entityId: dealerId, previousValue: { status: "ACTIVE" }, newValue: { status: "REMOVED", reason, teamReleased: released.map((r) => r.member) } }, tx);
+    return released.map((r) => r.member);
+  }).then(async (released) => {
+    const stamp = Date.now();
+    const superName = await nameOf(dealerId);
+    await tellDealer(dealerId, "You are no longer a GoKesari super franchisee", `GoKesari has ended your super franchisee role (${reason}). What you have earned so far stays and is paid as usual; nothing new is earned on the team from now.`, `super-removed:${dealerId}:${stamp}`);
+    for (const member of released) {
+      await tellDealer(member, "Your super franchisee team changed", `${superName} is no longer a super franchisee, so you are not in a super franchisee's team for now. Your own commission is not affected.`, `super-released:${member}:${stamp}`);
+    }
   });
 }
 
@@ -483,6 +520,16 @@ export async function assignToSuperFranchisee(superDealerId: string, memberDeale
     );
     return row;
   });
+  const [superName, memberName] = [await nameOf(superDealerId), await nameOf(memberDealerId)];
+  await tellDealer(superDealerId, `${memberName} joined your team`, `GoKesari has put ${memberName} in your super franchisee team. From now you earn your share of the fees paid in ${memberName}'s business and of GoKesari's order commission on ${memberName}'s shops.`, `super-joined:${link.id}`);
+  await tellDealer(memberDealerId, `You are now in ${superName}'s team`, `GoKesari has put you in the team of super franchisee ${superName}. Your own commission does not change — ${superName}'s share is paid by GoKesari on top.`, `super-member-joined:${link.id}`);
+  const [previous] = await db
+    .select({ superDealerId: superFranchiseeMembers.superDealerId, id: superFranchiseeMembers.id })
+    .from(superFranchiseeMembers)
+    .where(and(eq(superFranchiseeMembers.memberDealerId, memberDealerId), isNotNull(superFranchiseeMembers.endsAt), eq(superFranchiseeMembers.endsAt, link.startsAt)));
+  if (previous && previous.superDealerId !== superDealerId) {
+    await tellDealer(previous.superDealerId, `${memberName} left your team`, `GoKesari has moved ${memberName} to another super franchisee's team. What you earned on ${memberName}'s business so far stays; nothing new is earned on it from now.`, `super-left:${previous.id}`);
+  }
   // Fees: the ones paid from now (and, if asked, in the days before) are credited at once when the rule is on.
   await syncSuperFees(db, actor, { memberDealerId, backdateFrom: backdateDays > 0 ? new Date(link.startsAt.getTime() - backdateDays * 86_400_000) : undefined }).catch((e: unknown) =>
     console.error("[super-franchisee] fee catch-up after assignment failed", memberDealerId, e instanceof Error ? e.message : e),
@@ -499,6 +546,11 @@ export async function removeFromTeam(memberDealerId: string, reasonInput: string
     if (!open) throw conflict("This dealer is not in a super franchisee's team.");
     await tx.update(superFranchiseeMembers).set({ endsAt: new Date(), endReason: reason, endedBy: actor.id }).where(eq(superFranchiseeMembers.id, open.id));
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.SUPER_FRANCHISEE_TEAM_CHANGED, entityType: "dealer", entityId: memberDealerId, previousValue: { superDealerId: open.superDealerId }, newValue: { superDealerId: null, reason } }, tx);
+    return open;
+  }).then(async (open) => {
+    const [superName, memberName] = [await nameOf(open.superDealerId), await nameOf(memberDealerId)];
+    await tellDealer(open.superDealerId, `${memberName} left your team`, `GoKesari has taken ${memberName} out of your super franchisee team. What you earned on ${memberName}'s business so far stays; nothing new is earned on it from now.`, `super-left:${open.id}`);
+    await tellDealer(memberDealerId, "Your super franchisee team changed", `GoKesari has taken you out of ${superName}'s team. Your own commission is not affected.`, `super-member-left:${open.id}`);
   });
 }
 

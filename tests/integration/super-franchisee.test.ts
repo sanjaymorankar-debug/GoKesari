@@ -255,4 +255,33 @@ describe("super franchisee", () => {
     const dolkeNotes = await db.select().from(notifications).where(and(eq(notifications.userId, dolke.userId!), eq(notifications.type, "dealer.shop_attributed"), eq(notifications.channel, "IN_APP")));
     expect(dolkeNotes).toHaveLength(1);
   });
+
+  it("e-mails: promotion, joining, moving, taking out, removal; an admin-added dealer is welcomed with his code", async () => {
+    const titlesOf = async (userId: string | null) =>
+      (await db.select().from(notifications).where(and(eq(notifications.userId, userId!), eq(notifications.channel, "IN_APP")))).map((n) => n.title);
+    const deepak = await dealer("Deepak");
+    const sanjay = await dealer("Sanjay");
+    const dolke = await dealer("Dolke");
+    await promoteSuperFranchisee(deepak.id, { reason: "owner decision" }, admin);
+    await promoteSuperFranchisee(sanjay.id, { reason: "owner decision" }, admin);
+    expect(await titlesOf(deepak.userId)).toContain("You are now a GoKesari super franchisee");
+    await assignToSuperFranchisee(deepak.id, dolke.id, { reason: "his reference" }, admin);
+    expect(await titlesOf(deepak.userId)).toContain("Dolke joined your team");
+    expect(await titlesOf(dolke.userId)).toContain("You are now in Deepak's team");
+    await assignToSuperFranchisee(sanjay.id, dolke.id, { reason: "moved by the owner" }, admin);
+    expect(await titlesOf(deepak.userId)).toContain("Dolke left your team");
+    expect(await titlesOf(sanjay.userId)).toContain("Dolke joined your team");
+    await removeFromTeam(dolke.id, "owner decision", admin);
+    expect((await titlesOf(sanjay.userId)).filter((t) => t === "Dolke left your team")).toHaveLength(1);
+    expect(await titlesOf(dolke.userId)).toContain("Your super franchisee team changed");
+    await removeSuperFranchisee(deepak.id, "owner decision", admin);
+    expect(await titlesOf(deepak.userId)).toContain("You are no longer a GoKesari super franchisee");
+
+    // An admin adds a franchisee directly, linked to his account: welcomed with his code.
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const { createDealerByAdmin } = await import("@/server/dealers/service");
+    const added = await createDealerByAdmin({ legalName: "New Franchisee", contactName: "New Franchisee", dealerType: "PROPRIETORSHIP", stateCode: "MH", email: owner.email, reason: "owner decision" }, admin);
+    expect((await titlesOf(owner.id)).some((t) => t === `Welcome to GoKesari as a franchisee — your dealer code is ${added.code}`)).toBe(true);
+  });
 });
+
