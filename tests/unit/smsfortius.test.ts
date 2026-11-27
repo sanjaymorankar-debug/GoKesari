@@ -36,7 +36,9 @@ describe("SMSFortius request", () => {
     expect(url.searchParams.get("senderid")).toBe("GOKSRI");
     expect(url.searchParams.get("templateid")).toBe("1207176000000000001");
     expect(url.searchParams.get("number")).toBe("9876543210");
-    expect(url.searchParams.get("message")).toBe("482913 is your GoKesari code. It expires in 5 minutes. Do not share it with anyone. -GoKesari");
+    expect(url.searchParams.get("message")).toBe("Dear Customer, your GoKesari account verification OTP is 482913. This OTP is valid for 5 minutes. Please do not share it with anyone. - Team GoKesari");
+    // Spaces travel as %20 (never a raw space, which cut the text to "Dear" in a hand-made test on 27-Nov-2026).
+    expect(buildSmsFortiusUrl({ toE164: "+919876543210", text }, env())).toContain("message=Dear%20Customer%2C%20your%20GoKesari");
   });
 
   it("refuses a non-Indian number and an unset provider", () => {

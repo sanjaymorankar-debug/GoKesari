@@ -6,6 +6,7 @@
  */
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { codeFromSmsOtpText } from "@/server/otp/providers";
 
 import type { UserRole } from "@/server/db/schema";
 
@@ -125,7 +126,7 @@ async function lastSmsCode(e164: string): Promise<string> {
     .where(and(eq(outboundTestMessages.toAddress, e164), eq(outboundTestMessages.purpose, "otp")))
     .orderBy(desc(outboundTestMessages.createdAt))
     .limit(1);
-  const code = row?.body.match(/^(\d{4,8}) is your GoKesari code/)?.[1];
+  const code = (row ? codeFromSmsOtpText(row.body) : null);
   if (!code) throw new Error(`no SMS code was sent to ${e164.slice(-4)}`);
   return code;
 }
@@ -481,7 +482,7 @@ describe("Admin → Sign-in security (GET/PUT /api/admin/sign-in-security)", () 
 
 // Keep the mock outbox small for other suites.
 afterEach(async () => {
-  await db.delete(outboundTestMessages).where(like(outboundTestMessages.body, "%is your GoKesari code%"));
+  await db.delete(outboundTestMessages).where(like(outboundTestMessages.body, "%GoKesari account verification OTP%"));
 });
 
 describe("mobile-number sign-in by SMS (owner 26-Nov-2026)", () => {
