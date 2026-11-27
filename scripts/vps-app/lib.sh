@@ -190,6 +190,12 @@ $tls_line
 			roll_size 50MiB
 			roll_keep_for 336h
 		}
+		# Hide webhook secrets passed in the URL (?token=, Pico Xpress) from the access log.
+		format filter {
+			request>uri query {
+				replace token REDACTED
+			}
+		}
 	}
 	# Active colour; gk-deploy moves it (blue $SITE_PORT_BLUE, green $SITE_PORT_GREEN).
 	reverse_proxy 127.0.0.1:$port
