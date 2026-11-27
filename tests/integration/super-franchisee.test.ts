@@ -111,7 +111,7 @@ describe("super franchisee", () => {
     await expect(promoteSuperFranchisee(s.id, { reason: "owner decision" }, operator)).rejects.toThrow(/admin/i);
     await promoteSuperFranchisee(s.id, { reason: "owner decision" }, admin);
     await expect(assignToSuperFranchisee(s.id, m.id, { reason: "his reference" }, operator)).rejects.toThrow(/admin/i);
-    await expect(promoteSuperFranchisee(s.id, { reason: "x" }, admin)).rejects.toThrow(/reason/i);
+    await expect(promoteSuperFranchisee(s.id, { reason: "x" }, admin)).rejects.toThrow(/say why/i);
   });
 
   it("pays 3% of a team shop's fee and 2% of GoKesari's order commission, extra, once, own team only", async () => {
