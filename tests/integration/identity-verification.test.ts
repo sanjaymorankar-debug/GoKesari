@@ -281,7 +281,8 @@ describe("guests and the data kept", () => {
     for (const row of rows) {
       const { id: _id, userId: _u, idToken: _t, createdAt: _c, updatedAt: _up, consentAt: _ca, verifiedAt: _v, sessionExpiresAt: _s, ...text } = row;
       void [_id, _u, _t, _c, _up, _ca, _v, _s];
-      const flat = JSON.stringify(text);
+      // Generated uuids (e.g. in the mock providerRef) can end in 12 digits by chance: not an identity number.
+      const flat = JSON.stringify(text).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<uuid>");
       expect(flat).not.toMatch(/\d{12}/);
       expect(flat).not.toMatch(/\d{4}\s\d{4}\s\d{4}/);
       expect(flat).not.toContain("ABCPE1234F");
