@@ -1,7 +1,8 @@
 /**
  * SMSFortius (docs/sms-2fa-2026-11): one-time codes by SMS in India, the owner's DLT-registered vendor
  * (26-Nov-2026). Indian SMS must use a DLT-registered sender header and content template (TRAI TCCCPR 2018);
- * the text sent here is exactly the registered template (smsOtpText), with its two {#var#} filled in.
+ * the text sent here is exactly the registered template (smsOtpText), with its two {#var#} filled in; any other
+ * wording is rejected by the operator (SMSFortius error 633).
  *
  *   GET {SMSFORTIUS_API_URL}?apikey=…&senderid=GOKSRI&templateid=<DLT template id>&number=9XXXXXXXXX&message=<text>
  *
@@ -30,7 +31,9 @@ export function buildSmsFortiusUrl(input: { toE164: string; text: string }, env:
   url.searchParams.set("templateid", env.SMSFORTIUS_OTP_TEMPLATE_ID!.trim());
   url.searchParams.set("number", input.toE164.slice(3));
   url.searchParams.set("message", input.text);
-  return url.toString();
+  // Spaces as %20 rather than "+": DLT matching compares the text word for word, so it must reach the operator
+  // exactly as written whichever way the vendor decodes the query.
+  return url.toString().replace(/\+/g, "%20");
 }
 
 /**

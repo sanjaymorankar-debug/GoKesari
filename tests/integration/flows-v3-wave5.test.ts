@@ -11,6 +11,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { codeFromSmsOtpText } from "@/server/otp/providers";
 
 import type { FeatureFlagKey, UserRole } from "@/server/db/schema";
 
@@ -106,7 +107,7 @@ async function lastSms(e164: string) {
 
 async function lastSmsCode(e164: string): Promise<string> {
   const row = await lastSms(e164);
-  const code = row?.body.match(/^(\d{4,8}) is your GoKesari code/)?.[1];
+  const code = (row ? codeFromSmsOtpText(row.body) : null);
   if (!code) throw new Error(`no SMS code was sent to …${e164.slice(-4)}`);
   return code;
 }
