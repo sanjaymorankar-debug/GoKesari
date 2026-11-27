@@ -15,6 +15,7 @@ import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
 import { dealerFourEyeOn, requestDealerApproval } from "@/server/approvals";
 import { compareVersions, deleteDraft, publishVersion, requireSchemePermission, saveDraft, schemePermissions, setSchemeStatus } from "@/server/dealers/scheme-admin";
+import { isDealerStaff } from "@/server/dealers/staff-access";
 
 export const dynamic = "force-dynamic";
 
@@ -29,13 +30,16 @@ const Body = z.discriminatedUnion("action", [
 export const POST = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
   const user = await requireUser();
-  // D-170: staff only — answered before the request body is read.
+  // D-170: staff only — answered before the request body is read. D-173: operators who may only view still reach
+  // "compare"; every change checks its own permission below ("You may not change dealer schemes.").
   const allowed = await schemePermissions(user);
-  if (!allowed.edit && !allowed.publish) throw forbidden();
+  const viewer = isDealerStaff(user.role);
+  if (!viewer && !allowed.edit && !allowed.publish) throw forbidden();
   enforceRateLimit(`dealer-scheme:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, Body);
   switch (body.action) {
     case "saveDraft":
+      await requireSchemePermission(user, "SCHEME_EDIT");
       return ok({ version: await saveDraft(user, id, { versionId: body.versionId, terms: body.terms, label: body.label, reason: body.reason }) });
     case "publish":
       // Phase 6: with dealer_platform_four_eye on, a second admin approves (the permission is checked now too).
@@ -51,10 +55,10 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
       }
       return ok({ scheme: await setSchemeStatus(user, id, body.to, body.reason) });
     case "deleteDraft":
+      await requireSchemePermission(user, "SCHEME_EDIT");
       await deleteDraft(user, body.versionId, body.reason);
       return ok({ deleted: true });
-    case "compare":
-      if (user.role !== "ADMIN" && user.role !== "OPERATOR") throw forbidden();
+    case "compare": // read-only: every dealer staff member (checked above)
       return ok(await compareVersions(body.a, body.b));
   }
 });
