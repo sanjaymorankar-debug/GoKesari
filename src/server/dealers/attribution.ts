@@ -325,6 +325,22 @@ export async function recordShopAttribution(shopId: string, actor: Actor, option
         },
         tx,
       );
+      // 0226 super franchisee (owner, 27-Nov-2026): the head of the dealer's team hears about it at the same time.
+      const team = await (await import("./super-franchisee")).teamAt(tx, dealerId, new Date());
+      if (team && team.sf.status === "ACTIVE" && team.superDealer.userId && !team.superDealer.isInternal) {
+        const [own] = await tx.select({ name: dealers.legalName }).from(dealers).where(eq(dealers.id, dealerId));
+        await notify(
+          {
+            userId: team.superDealer.userId,
+            type: NOTIFICATION_TYPES.DEALER_SHOP_ATTRIBUTED,
+            title: `New shop in your team: ${shop.name}`,
+            body: `${shop.name}${shop.area ?? shop.city ? ` (${shop.area ?? shop.city})` : ""} registered with ${own?.name ?? "a dealer"}'s code, in your super franchisee team. You earn your share of its fee once it is paid, and of GoKesari's order commission every month.`,
+            actionUrl: "/dealer",
+            dedupeKey: `super-shop:${shopId}:${team.superDealer.id}`,
+          },
+          tx,
+        );
+      }
     }
     for (const c of closed) {
       const d = userOf.get(c.dealerId);

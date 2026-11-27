@@ -40,8 +40,8 @@ describe("schedule", () => {
         "dealer-territory-daily",
         // Owner, 5 Nov 2026: dealer team reports (daily, and weekly on Mondays).
         "dealer-team-report-daily", "dealer-team-report-weekly",
-        // Owner, 27 Nov 2026: dealers' month-end report on the last day from 20:00 IST (every 15 minutes, a no-op otherwise).
-        "dealer-month-end-report",
+        // Owner, 27 Nov 2026: dealers' monthly report on the 1st (daily run, a no-op on other days).
+        "dealer-monthly-report",
         "document-emails", "finance-weekly", "gst-reminders", "integration-sync", "notification-retry", "operator-onboarding",
         // 0157 franchise (21 Nov 2026): holds, expiry, reminders, digest and the monthly run (every 5 minutes).
         "franchise",
@@ -85,8 +85,8 @@ describe("schedule", () => {
   });
 
   it("runs the finance week on Mondays only; the payout cycle every day (it acts on Saturdays)", () => {
-    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "dealer-team-report-weekly", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention", "photo-listing-purge", "account-deletion-purge"]); // Monday
-    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention", "photo-listing-purge", "account-deletion-purge"]); // Saturday
+    expect(names(dueDaily("2026-10-19"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "finance-weekly", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "dealer-team-report-weekly", "dealer-monthly-report", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention", "photo-listing-purge", "account-deletion-purge"]); // Monday
+    expect(names(dueDaily("2026-10-24"))).toEqual(["daily-orders", "seller-verification", "gst-reminders", "payout-cycle", "dealer-territory-daily", "dealer-monthly-payout", "dealer-tiered-daily", "dealer-team-report-daily", "dealer-monthly-report", "purchase-list-reminders", "shop-document-follow-up", "billing-daily", "smart-list-photo-retention", "photo-listing-purge", "account-deletion-purge"]); // Saturday
   });
 });
 

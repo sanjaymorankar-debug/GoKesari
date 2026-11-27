@@ -1,7 +1,7 @@
 /**
  * Dealer report e-mails, additions (owner, 27-Nov-2026):
  *   - the Monday weekly report lists the shops (by name) registered under the dealer last week;
- *   - a month-end report on the LAST day of the month (20:00 IST) with this month's shops and commission;
+ *   - a monthly report on the 1st of every month (05:00 IST) with last month's shops and commission;
  *   - a super franchisee (0226) also gets his team: each team dealer's shops and commission, and his own share.
  * Shops come from shop_attributions, so every dealer model is covered (not only TIERED networks):
  *   "live" = paid and approved (activated) in the period; "started" = registered with his code in the period, not live yet.
@@ -17,8 +17,6 @@ import { notify } from "@/server/services/notifications";
 
 const ZONE = "Asia/Kolkata";
 const OFFSET = "+05:30";
-/** Month-end report: from this IST hour on the last day of the month. */
-export const MONTH_END_HOUR_IST = 20;
 /** At most this many shop lines in one e-mail; the rest are counted. */
 const MAX_SHOP_LINES = 40;
 
@@ -122,30 +120,28 @@ export async function superTeamLines(superDealerId: string, from: Date, to: Date
   return { lines, active, teamSize: team.length };
 }
 
-/* ======================================================= month-end report */
+/* ======================================================= monthly report */
 
-/** True from MONTH_END_HOUR_IST on the last day of the month (IST). */
-export function isMonthEndWindow(now: Date = new Date()): boolean {
+/** The calendar month before `now` (IST): its key, [from, to) and label. */
+export function previousMonth(now: Date = new Date()): { month: string; from: Date; to: Date; label: string } {
   const today = todayIn(ZONE, now);
-  if (!addDays(today, 1).endsWith("-01")) return false;
-  const hour = Number(now.toLocaleString("en-GB", { hour: "2-digit", hour12: false, timeZone: ZONE }).slice(0, 2));
-  return hour >= MONTH_END_HOUR_IST;
+  const to = new Date(`${today.slice(0, 7)}-01T00:00:00${OFFSET}`);
+  const lastDay = addDays(`${today.slice(0, 7)}-01` as Parameters<typeof addDays>[0], -1);
+  const month = lastDay.slice(0, 7);
+  const from = new Date(`${month}-01T00:00:00${OFFSET}`);
+  return { month, from, to, label: from.toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: ZONE }) };
 }
 
 /**
- * The month-end report (owner, 27-Nov-2026): on the last day of the month from 20:00 IST, to every approved dealer
- * with a sign-in — this month's shops by name (live / started), the commission earned this month, and for a super
- * franchisee his team. Sent even when the month was quiet, once per dealer and month. The statement and payout on
- * the 5th stay as they are. Run every 15 minutes; a no-op outside the window or while the dealer programme is off.
+ * The monthly report (owner, 27-Nov-2026: "on the 1st of every month"): at the 05:00 IST daily run on the 1st, to every
+ * approved dealer with a sign-in — last month's shops by name (live / started), the commission earned in it, and for a
+ * super franchisee his team. Sent even when the month was quiet, once per dealer and month. The statement and payout
+ * on the payout day (the 5th) stay as they are. A no-op on other days or while the dealer programme is off.
  */
-export async function sendMonthEndReports(now: Date = new Date()): Promise<{ sent: number } | { skipped: string }> {
-  if (!isMonthEndWindow(now)) return { skipped: "not the month-end window" };
+export async function sendMonthlyReports(now: Date = new Date()): Promise<{ sent: number } | { skipped: string }> {
+  if (!todayIn(ZONE, now).endsWith("-01")) return { skipped: "not the 1st" };
   if (!(await getFeatureFlag("dealer_programme_enabled")).enabled) return { skipped: "dealer programme off" };
-  const today = todayIn(ZONE, now);
-  const month = today.slice(0, 7);
-  const from = new Date(`${month}-01T00:00:00${OFFSET}`);
-  const to = now;
-  const monthLabel = from.toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: ZONE });
+  const { month, from, to, label } = previousMonth(now);
   const list = await db.select().from(dealers).where(and(eq(dealers.status, "APPROVED"), eq(dealers.isInternal, false)));
   let sent = 0;
   for (const dealer of list) {
@@ -155,15 +151,15 @@ export async function sendMonthEndReports(now: Date = new Date()): Promise<{ sen
     const team = await superTeamLines(dealer.id, from, to);
     const live = own.filter((s) => s.state === "LIVE").length;
     const started = own.filter((s) => s.state === "STARTED").length;
-    const detail: DetailLine[] = [{ label: "This month", value: `${live} shops live, ${started} registrations started, ${inr(totalPaise)} commission earned` }, ...shopLines(own), ...team.lines];
+    const detail: DetailLine[] = [{ label: label, value: `${live} shops live, ${started} registrations started, ${inr(totalPaise)} commission earned` }, ...shopLines(own), ...team.lines];
     await notify({
       userId: dealer.userId,
       type: NOTIFICATION_TYPES.DEALER_TEAM_REPORT,
-      vars: { period: "Month-end", label: `${monthLabel} — ${dealer.legalName}`, started, registered: live, commission: inr(totalPaise) },
+      vars: { period: "Monthly", label: `${label} — ${dealer.legalName}`, started, registered: live, commission: inr(totalPaise) },
       actionUrl: "/dealer#team-performance",
       channels: ["EMAIL"],
       emailDetail: detail,
-      dedupeKey: `dealer-month-end-report:${month}:${dealer.id}:${dealer.userId}`,
+      dedupeKey: `dealer-monthly-report:${month}:${dealer.id}:${dealer.userId}`,
     });
     sent += 1;
   }

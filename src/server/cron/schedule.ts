@@ -203,8 +203,6 @@ export const EVERY_MINUTE: readonly Job[] = [
   // 09:00 IST (rule shopRegistrationSubscription.reminderHourIst) the day's reminders and the CC digest — each sent
   // once (claimed per shop, stage and day). Reminders are a no-op while rule shopMembership.remindersEnabled is off.
   { name: "shop-registration", everyMinutes: 15, run: async () => (await import("@/server/services/shop-registration-subscription")).runRegistrationSubscriptionJob() },
-  // Owner, 27-Nov-2026: dealers' month-end report on the last day of the month from 20:00 IST (once per dealer); a no-op otherwise.
-  { name: "dealer-month-end-report", everyMinutes: 15, run: async () => (await import("@/server/dealers/report-extras")).sendMonthEndReports() },
   { name: "dealer-scheme-launches", everyMinutes: 5, run: async () => (await import("@/server/dealers/scheme-admin")).runScheduledSchemeLaunches() },
   // docs/onboarding-v2-2026-11: orders still waiting for the customer's delivery location past rule
   // onboardingV2.addressPendingAutoCancelHours are cancelled with a full refund (nothing waits while the flag is off).
@@ -259,6 +257,8 @@ export const DAILY: readonly Job[] = [
   // Owner, 5 Nov 2026: dealer team reports — yesterday's every day, last week's on Mondays (dealer, team leads, admins).
   { name: "dealer-team-report-daily", run: async () => (await import("@/server/dealers/team-report")).sendTeamReports("DAY") },
   { name: "dealer-team-report-weekly", weekday: 1, run: async () => (await import("@/server/dealers/team-report")).sendTeamReports("WEEK") },
+  // Owner, 27-Nov-2026: on the 1st, every dealer's report for last month (shops by name, commission, a super franchisee's team).
+  { name: "dealer-monthly-report", run: async () => (await import("@/server/dealers/report-extras")).sendMonthlyReports() },
   // docs/purchase-lists-2026-10: "time to reorder" for weekly / monthly lists that are due again.
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
   // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.
