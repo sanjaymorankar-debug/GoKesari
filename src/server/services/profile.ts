@@ -21,6 +21,8 @@ export interface Profile {
   email: string;
   gender: Gender | null;
   phoneE164: string | null;
+  /** The mobile was proven by an SMS code. */
+  phoneVerified: boolean;
   profileCompletedAt: Date | null;
   addressCount: number;
   hasDefaultAddress: boolean;
@@ -44,6 +46,7 @@ export async function getProfile(userId: string): Promise<Profile> {
     email: user.email,
     gender: user.gender,
     phoneE164: user.phoneE164,
+    phoneVerified: Boolean(user.phoneE164 && user.phoneVerifiedAt),
     profileCompletedAt: user.profileCompletedAt,
     addressCount: Number(total),
     hasDefaultAddress: Boolean(defaultAddress),

@@ -53,7 +53,7 @@ export default async function DualVerifyPage({ searchParams }: { searchParams: P
           work and withdrawals need both.
         </p>
         <div className="mt-5">
-          {status.inForce || status.missing.length === 0 ? (
+          {status.inForce || status.canVerify || status.missing.length === 0 ? (
             <DualVerifyPanel initial={status} returnTo={returnTo} linkAction={linkAvailable ? emailLink : undefined} />
           ) : (
             <p className="text-sm text-ink-600" data-testid="dual-verify-not-in-force">
