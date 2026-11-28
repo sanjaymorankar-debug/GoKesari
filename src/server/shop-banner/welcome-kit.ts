@@ -39,6 +39,7 @@ import {
   localBannerLanguage,
   parseUpiQr,
   renderShopBanner,
+  shopBannerLanguages,
   shopPageUrl,
   upiBannerPayload,
   type BannerLanguage,
@@ -65,7 +66,7 @@ export function welcomeKitTitle(shopName: string): string {
 
 export const PRINT_STEPS = [
   "Print in COLOUR on a colour page — not black and white. The GoKesari saffron colours are part of the banner.",
-  "Print the attached PDFs on A4 paper (landscape, \"Fit to page\"): one banner in English, one in your local language. A print shop can also make them as a sticker or flex board from the same files.",
+  "Print the attached PDFs on A4 paper (landscape, \"Fit to page\"): one banner each in English, Marathi and Hindi — put up the ones your customers read. A print shop can also make them as a sticker or flex board from the same files.",
   "Before you put it up, scan the QR code with your phone: it must open your shop's page on GoKesari.",
   "Put it at your counter or shop entrance at eye level, where every customer can see and scan it. Laminate it to keep it safe from rain and dust.",
   "Tell your customers: \"Scan this to order from our shop on GoKesari.\"",
@@ -73,9 +74,15 @@ export const PRINT_STEPS = [
 
 /** One line in the local language, so the owner sees the key instruction in their own language too. */
 export const LOCAL_PRINT_LINE: Record<Exclude<BannerLanguage, "en">, string> = {
-  mr: "तुमचे GoKesari बॅनर (इंग्रजी आणि मराठी) रंगीत प्रिंट करा आणि दुकानात ग्राहकांना दिसेल अशा ठिकाणी लावा.",
-  hi: "अपने GoKesari बैनर (अंग्रेज़ी और हिंदी) रंगीन प्रिंट करें और दुकान में ग्राहकों को दिखे ऐसी जगह लगाएँ।",
+  mr: "तुमचे GoKesari बॅनर (इंग्रजी, मराठी आणि हिंदी) रंगीत प्रिंट करा आणि दुकानात ग्राहकांना दिसेल अशा ठिकाणी लावा.",
+  hi: "अपने GoKesari बैनर (अंग्रेज़ी, मराठी और हिंदी) रंगीन प्रिंट करें और दुकान में ग्राहकों को दिखे ऐसी जगह लगाएँ।",
 };
+
+/** "English, Marathi (मराठी) and Hindi (हिंदी)" in the shop's banner order. */
+export function bannerLanguageList(local: Exclude<BannerLanguage, "en">, wrap: (label: string) => string = (l) => l): string {
+  const labels = shopBannerLanguages(local).map((lang) => wrap(BANNER_LANGUAGE_LABEL[lang]));
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+}
 
 /** What the welcome e-mail says about one shop. */
 export interface WelcomeKitContent {
@@ -111,12 +118,12 @@ export const contactLine = () => `Questions? Write to ${SUPPORT_EMAIL} or call $
 export function welcomeKitText(c: WelcomeKitContent): string {
   return [
     c.kind === "update" ? welcomeKitOpening(c) : `${welcomeKitOpening(c)} — customers near you can now find your shop and order from it.`,
-    `Your two shop banners are attached — English and ${BANNER_LANGUAGE_LABEL[c.local]} — as print-ready PDFs. Each shows your shop's name${c.ownerName ? ", your name" : ""} and an "Order online" QR code of your own shop page. Customers who scan it come straight to your shop — no need to search on GoKesari or on Google: ${c.shopUrl}`,
+    `Your three shop banners are attached — ${bannerLanguageList(c.local)} — as print-ready PDFs. Each shows your shop's name${c.ownerName ? ", your name" : ""} and an "Order online" QR code of your own shop page. Customers who scan it come straight to your shop — no need to search on GoKesari or on Google: ${c.shopUrl}`,
     upiLine(c),
     `Print them in colour and put them up at your shop:\n${PRINT_STEPS.map((step, i) => `${i + 1}. ${step}`).join("\n")}`,
     LOCAL_PRINT_LINE[c.local],
     `Next: add your products so customers can order — ${siteBase()}/shop/manage/products`,
-    `You can download both banners again at any time from Seller Central → Marketing: ${siteBase()}/shop/marketing. Help: ${siteBase()}/support`,
+    `You can download all three banners again at any time from Seller Central → Marketing: ${siteBase()}/shop/marketing. Help: ${siteBase()}/support`,
     contactLine(),
     WELCOME_FOOTER,
   ].join("\n\n");
@@ -146,9 +153,9 @@ export function welcomeKitHtml(c: WelcomeKitContent): string {
         : `${escapeHtml(welcomeKitGreeting(c.ownerName))} congratulations! <strong>${name}</strong> is now live on GoKesari.com — customers near you can now find your shop and order from it.`,
     ) +
     p(
-      `Here are your two shop banners — <strong>English</strong> and <strong>${escapeHtml(BANNER_LANGUAGE_LABEL[c.local])}</strong>. Each shows your shop's name${c.ownerName ? ", your name" : ""} and an <strong>"Order online"</strong> QR code of your own shop page. Customers who scan it come straight to your shop — no need to search on GoKesari or on Google.`,
+      `Here are your three shop banners — ${bannerLanguageList(c.local, (l) => `<strong>${escapeHtml(l)}</strong>`)}. Each shows your shop's name${c.ownerName ? ", your name" : ""} and an <strong>"Order online"</strong> QR code of your own shop page. Customers who scan it come straight to your shop — no need to search on GoKesari or on Google.`,
     ) +
-    (["en", c.local] as const)
+    shopBannerLanguages(c.local)
       .map(
         (lang) =>
           `<p style="margin:0 0 12px"><img src="cid:${welcomeBannerCid(lang)}" alt="Your GoKesari shop banner for ${name} (${escapeHtml(BANNER_LANGUAGE_LABEL[lang])})" width="560" style="display:block;width:100%;max-width:560px;height:auto;border:0"></p>`,
@@ -162,7 +169,7 @@ export function welcomeKitHtml(c: WelcomeKitContent): string {
     p(`Your shop page: ${link(c.shopUrl, c.shopUrl)}`) +
     `<p style="margin:16px 0"><a href="${base}/shop/manage/products" style="background:#c2410c;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;display:inline-block">Add your products</a></p>` +
     p(`Questions? Write to ${link(`mailto:${SUPPORT_EMAIL}`, SUPPORT_EMAIL)} or call ${link(`tel:${SUPPORT_PHONE.replace(/\s+/g, "")}`, SUPPORT_PHONE)}.`) +
-    `<p style="color:#78716c;font-size:12px;line-height:1.5;margin:0 0 8px">You can download both banners again at any time from ${link(`${base}/shop/marketing`, "Seller Central → Marketing", "#78716c")}. Help: ${link(`${base}/support`, `${base}/support`, "#78716c")}</p>` +
+    `<p style="color:#78716c;font-size:12px;line-height:1.5;margin:0 0 8px">You can download all three banners again at any time from ${link(`${base}/shop/marketing`, "Seller Central → Marketing", "#78716c")}. Help: ${link(`${base}/support`, `${base}/support`, "#78716c")}</p>` +
     `<p style="color:#78716c;font-size:12px;line-height:1.5;margin:0">${escapeHtml(WELCOME_FOOTER)}</p>` +
     `</div>`
   );
@@ -411,7 +418,7 @@ export async function welcomeKitStatuses(shopIds: readonly string[], docType: st
 /* ------------------------------------------------------------ files */
 
 /**
- * The shop's banners — English and its local language — as the welcome e-mail, the Marketing download and the
+ * The shop's banners — English, its local language and the other site language (owner, 28-Nov-2026) — as the welcome e-mail, the Marketing download and the
  * admin resend all use them (one renderer, so PNG, PDF and e-mail match). Null when the shop is gone or not live.
  */
 export async function shopBannerFiles(shopId: string) {
@@ -421,7 +428,7 @@ export async function shopBannerFiles(shopId: string) {
   const content = contentFor(shop);
   const upiPayload = upiBannerPayload({ uploadedQr: shop.bannerUpiQr, vpa: shop.upiVpa, shopName: shop.name });
   const banners = await Promise.all(
-    (["en", content.local] as const).map(async (lang) => ({
+    shopBannerLanguages(content.local).map(async (lang) => ({
       lang,
       basename: bannerBasename(shop.slug, lang),
       banner: await renderShopBanner({ shopName: shop.name, url: content.shopUrl, lang, ownerName: shop.ownerName, upiPayload }),

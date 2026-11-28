@@ -256,7 +256,7 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
               <li key={row.id} className={box} data-testid="welcome-kit-shop">
                 <p className="truncate text-base font-bold text-ink-900">{row.name}</p>
                 <p className="text-xs text-ink-600">
-                  {[row.registrationNumber, `${row.city} ${row.pincode}`, `English + ${LANGUAGE[row.local]}`].filter(Boolean).join(" · ")}
+                  {[row.registrationNumber, `${row.city} ${row.pincode}`, `English + ${LANGUAGE[row.local]} + ${LANGUAGE[row.local === "mr" ? "hi" : "mr"]}`].filter(Boolean).join(" · ")}
                 </p>
                 <p className="mt-1 text-sm text-ink-800" data-testid="welcome-kit-status">
                   {statusText(row.welcomeKit)}
@@ -281,6 +281,9 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
                   </a>
                   <a className={secondary} href={`/api/shops/${row.id}/banner?lang=local`}>
                     {LANGUAGE[row.local]} PDF
+                  </a>
+                  <a className={secondary} href={`/api/shops/${row.id}/banner?lang=${row.local === "mr" ? "hi" : "mr"}`}>
+                    {LANGUAGE[row.local === "mr" ? "hi" : "mr"]} PDF
                   </a>
                 </div>
               </li>

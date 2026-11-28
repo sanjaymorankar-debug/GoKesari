@@ -1,9 +1,9 @@
 /**
  * docs/shop-welcome-kit-2026-11: download the shop's printable banner again
- * (the welcome e-mail sends both on go-live). The shop's owner and operations
+ * (the welcome e-mail sends all three on go-live). The shop's owner and operations
  * (shop:update:any) only.
  *
- *   ?lang=en | local      English (default) or the shop's local language
+ *   ?lang=en | mr | hi | local   English (default), Marathi, Hindi or the shop's local language
  *   ?format=pdf | png     A4 landscape PDF (default) or the full-size PNG
  */
 import { NextResponse, type NextRequest } from "next/server";
@@ -23,9 +23,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
     const files = await shopBannerFiles(id);
     if (!files) throw new AppError("CONFLICT", "The banner is ready once your shop is approved and live.");
-    const wantLocal = request.nextUrl.searchParams.get("lang") === "local";
+    const asked = request.nextUrl.searchParams.get("lang");
+    const lang = asked === "local" ? files.local : asked === "mr" || asked === "hi" ? asked : "en";
     const png = request.nextUrl.searchParams.get("format") === "png";
-    const chosen = files.banners.find((b) => b.lang === (wantLocal ? files.local : "en")) ?? files.banners[0];
+    const chosen = files.banners.find((b) => b.lang === lang) ?? files.banners[0];
     const body = png ? chosen.banner.png : chosen.banner.pdf;
     return new NextResponse(new Uint8Array(body), {
       headers: {

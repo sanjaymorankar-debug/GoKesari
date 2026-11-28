@@ -73,7 +73,7 @@ const kitRows = (shopId: string) =>
   db.select().from(documentEmails).where(and(eq(documentEmails.docType, "SHOP_WELCOME_KIT"), eq(documentEmails.docId, shopId)));
 
 describe("shop welcome kit", () => {
-  it("queues the welcome e-mail with the approval and sends both banners (English + Marathi)", async () => {
+  it("queues the welcome e-mail with the approval and sends all three banners (English, Marathi, Hindi)", async () => {
     const { owner, shop } = await liveShop("Maharashtra");
     const rows = await kitRows(shop.id);
     expect(rows).toHaveLength(1);
@@ -86,12 +86,15 @@ describe("shop welcome kit", () => {
     expect(email.to).toBe(owner.email);
     expect(email.html).toContain("cid:gk-shop-banner-en");
     expect(email.html).toContain("cid:gk-shop-banner-mr");
+    expect(email.html).toContain("cid:gk-shop-banner-hi");
     const files = email.attachments!.map((a) => a.filename).sort();
     expect(files).toEqual([
       `GoKesari-banner-en-${shop.slug}.jpg`,
       `GoKesari-banner-en-${shop.slug}.pdf`,
       `GoKesari-banner-mr-${shop.slug}.jpg`,
       `GoKesari-banner-mr-${shop.slug}.pdf`,
+      `GoKesari-banner-hi-${shop.slug}.jpg`,
+      `GoKesari-banner-hi-${shop.slug}.pdf`,
     ].sort());
     for (const pdf of email.attachments!.filter((a) => a.contentType === "application/pdf")) {
       expect(pdf.content.subarray(0, 5).toString()).toBe("%PDF-");
@@ -144,6 +147,10 @@ describe("banner download (Seller Central → Marketing)", () => {
     expect(png.disposition).toContain(`GoKesari-banner-mr-${shop.slug}.png`);
     const { data, info } = await sharp(png.body).extract({ left: 1120, top: 590, width: 260, height: 240 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     expect(jsQR(new Uint8ClampedArray(data), info.width, info.height)?.data).toMatch(new RegExp(`/shops/${shop.slug}$`));
+    // 28-Nov-2026: every shop also downloads the third language (Hindi for a Maharashtra shop).
+    const hindi = await banner(shop.id, "?lang=hi");
+    expect(hindi).toMatchObject({ status: 200, type: "application/pdf" });
+    expect(hindi.disposition).toContain(`GoKesari-banner-hi-${shop.slug}.pdf`);
 
     signInAs(await createUser({ role: "OPERATOR" }));
     expect((await banner(shop.id, "?lang=local")).status).toBe(200);

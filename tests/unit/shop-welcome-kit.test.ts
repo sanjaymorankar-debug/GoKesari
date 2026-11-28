@@ -230,9 +230,9 @@ describe("welcome e-mail", () => {
     expect(welcomeKitHtml(content({ upi: null }))).toContain("/shop/accounts/settings");
   });
 
-  it("tells the owner to print both banners in colour and put them up at the shop", () => {
+  it("tells the owner to print all three banners in colour and put them up at the shop", () => {
     const text = welcomeKitText(content());
-    expect(text).toContain("English and Marathi");
+    expect(text).toContain("English, Marathi (मराठी) and Hindi (हिंदी)");
     expect(text).toMatch(/Print in COLOUR on a colour page/);
     expect(text).toContain(shopUrl);
     expect(text).toContain(LOCAL_PRINT_LINE.mr);
@@ -256,10 +256,11 @@ describe("welcome e-mail", () => {
     expect(welcomeKitHtml(content())).toContain(LOCAL_PRINT_LINE.mr);
   });
 
-  it("shows both banners inline and escapes the shop name", () => {
+  it("shows all three banners inline and escapes the shop name", () => {
     const html = welcomeKitHtml(content({ shopName: "Ram & Sons", local: "hi" }));
     expect(html).toContain(`cid:${welcomeBannerCid("en")}`);
     expect(html).toContain(`cid:${welcomeBannerCid("hi")}`);
+    expect(html).toContain(`cid:${welcomeBannerCid("mr")}`);
     expect(html).toContain("Ram &amp; Sons");
     expect(html).toContain("Print them in colour");
   });

@@ -91,7 +91,7 @@ async function pendingShop(name = "Samarth Tea Center", ownerName = "SUNITA PATI
   return { admin: { id: admin.id, role: "ADMIN" as const, email: admin.email, name: admin.name }, owner, shop };
 }
 
-/** The one welcome e-mail, delivered: personalised, both banners, the contact line and the footer. */
+/** The one welcome e-mail, delivered: personalised, all three banners, the contact line and the footer. */
 async function expectOneWelcome(shopId: string, ownerEmail: string) {
   expect(await statusOf(shopId)).toBe("APPROVED");
   expect(await kitRows(shopId)).toHaveLength(1);
@@ -103,7 +103,7 @@ async function expectOneWelcome(shopId: string, ownerEmail: string) {
   expect(mails[0].text).toContain("support@gokesari.com");
   expect(mails[0].text).toContain("+91 91751 93009");
   expect(mails[0].text).toContain("gokesari.com is a unit of ASMY GLOBAL TRADING & CONSULTANCY INDIA PRIVATE LIMITED");
-  expect(mails[0].attachments!.filter((a) => a.contentType === "application/pdf")).toHaveLength(2);
+  expect(mails[0].attachments!.filter((a) => a.contentType === "application/pdf")).toHaveLength(3);
 }
 
 describe("TC-WKIT-025 … 028: every payment path sends one personalised welcome kit", () => {
@@ -214,7 +214,7 @@ describe("TC-WKIT-032 … 034: existing shops, resend, payment QR", () => {
     expect(update.to).toBe(owner.email);
     expect(update.text).toContain("Dear Sunita Patil, here are the updated GoKesari banners for Samarth Tea Center.");
     expect(update.text).not.toContain("congratulations");
-    expect(update.attachments!.filter((a) => a.contentType === "application/pdf")).toHaveLength(2);
+    expect(update.attachments!.filter((a) => a.contentType === "application/pdf")).toHaveLength(3);
     expect(await kitRows(shop.id)).toHaveLength(1); // the welcome kit itself is untouched
     expect(await db.select().from(auditLogs).where(and(eq(auditLogs.action, "shop.banner_resent"), eq(auditLogs.entityId, shop.id)))).toHaveLength(1);
     // After the guard, it can be sent again (same row re-armed).
