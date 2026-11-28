@@ -107,7 +107,7 @@ function disputeBody(orderId: string, over: Record<string, unknown> = {}, type =
         dispute_amount: 250,
         created_at: "2026-11-24T09:59:00+05:30",
         updated_at: "2026-11-24T10:00:00+05:30",
-        respond_by: "2026-11-27T23:59:00+05:30",
+        respond_by: "2099-11-27T23:59:00+05:30",
         resolved_at: null,
         dispute_status: "CHARGEBACK_CREATED",
         ...over,
@@ -261,7 +261,7 @@ describe("CHARGEBACK", () => {
       reason: "Goods or Services not provided",
       gatewayPaymentId: "5114910000001",
     });
-    expect(cb.respondBy!.toISOString()).toBe("2026-11-27T18:29:00.000Z");
+    expect(cb.respondBy!.toISOString()).toBe("2099-11-27T18:29:00.000Z");
     expect(await intentOf(intent.id)).toMatchObject({ settlementState: "CHARGEBACK", status: "CAPTURED" });
     const history = await db.select().from(paymentIntentEvents).where(eq(paymentIntentEvents.intentId, intent.id));
     expect(history).toEqual([expect.objectContaining({ fromStatus: "RECONCILED", toStatus: "CHARGEBACK", source: "WEBHOOK" })]);
