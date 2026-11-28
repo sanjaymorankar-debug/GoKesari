@@ -68,6 +68,7 @@ import { hasCurrentConsent } from "@/server/services/consents";
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
+import { licenceBlockers } from "@/server/legal-agreements/requirements";
 import { createPaymentIntent, getPaymentIntent } from "@/server/payments/intents";
 import {
   acceptV2Agreement,
@@ -510,6 +511,21 @@ describe("owner 27-Nov-2026: licences after go-live, suspension and automatic re
   };
   const shopStatus = async (id: string) => (await db.select({ status: shops.status }).from(shops).where(eq(shops.id, id)))[0].status;
   const asOwner = () => ({ id: owner.id, role: "SHOP_OWNER" as const });
+
+  it("FSSAI upload later does not block signing the seller agreement (prod 28-Nov-2026: BKS-000022 stuck)", async () => {
+    await setRule("documentUpload", { fssaiMandatoryForFood: true }, admin);
+    await walkToFee();
+    await payFee(1);
+    await saveDraftShopType({ actor: owner, shopType: "GROCERY_KIRANA" });
+    await saveLicenceEntry(owner, { licenceKey: "FSSAI", option: "LATER", promise: true });
+    await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
+    await addressAndPin();
+    const v = await prepareV2Agreement(owner);
+    const [shop] = await db.select().from(shops).where(eq(shops.id, v.shop!.id));
+    expect(shop.status).toBe("PENDING_APPROVAL");
+    // The licences are promised: nothing to upload before the owner can sign (an expired one would still block).
+    expect(await licenceBlockers(shop)).toEqual([]);
+  });
 
   it("FSSAI upload later → live; suspended after the period; reinstated automatically once every document is given", async () => {
     const shopId = await liveFoodShopWithPromises();
