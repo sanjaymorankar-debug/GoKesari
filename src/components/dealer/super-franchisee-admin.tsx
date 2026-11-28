@@ -33,13 +33,15 @@ export function SuperFranchiseeAdmin({ dealerId, dealerName, isAdmin, view: init
   const [member, setMember] = useState("");
   const [backdate, setBackdate] = useState("0");
   const [joinSuper, setJoinSuper] = useState("");
+  const [reasonText, setReasonText] = useState("");
 
   const isSuper = view.self?.status === "ACTIVE";
 
   async function send(body: Record<string, unknown>, done: string, ask = true) {
-    const reason = ask ? window.prompt("Reason (kept in the audit log):") : "";
-    if (ask && (!reason || reason.trim().length < 5)) {
-      setError("Give a reason of at least 5 characters.");
+    // Owner, 28-Nov-2026: the reason is typed on the page (a browser pop-up is blocked in some browsers and apps).
+    const reason = ask ? reasonText.trim() : "";
+    if (ask && reason.length < 5) {
+      setError("Type the reason (at least 5 characters) in the Reason box first. It is kept in the audit log.");
       return;
     }
     setBusy(true);
@@ -67,6 +69,12 @@ export function SuperFranchiseeAdmin({ dealerId, dealerName, isAdmin, view: init
       {!view.enabled ? <Alert tone="info">Switched off (rule superFranchisee): teams can be set up, but nothing is earned until an admin switches it on.</Alert> : null}
       {error ? <Alert tone="danger" title="Could not save">{error}</Alert> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
+      {isAdmin ? (
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-ink-700">Reason (kept in the audit log; needed for every change here)</span>
+          <input className="w-full rounded-lg border border-cream-200 bg-white px-3 py-2 text-sm" value={reasonText} onChange={(e) => setReasonText(e.target.value)} maxLength={300} aria-label="Reason" data-testid="super-franchisee-reason" />
+        </label>
+      ) : null}
 
       {isSuper && view.self ? (
         <div className="space-y-3" data-testid="super-franchisee-self">

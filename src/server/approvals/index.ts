@@ -10,6 +10,7 @@ import "@/server/rbac-support/change-requests"; // Phase 5 handlers: SHOP_CHANGE
 import "@/server/rbac-support/documents"; // documents: DOCUMENT_DELETE (two admins)
 import "./dealer-platform"; // docs/dealer-platform: scheme publish / status, dealer scheme change, franchise refund
 import "./dealer-promotion"; // owner 28-Nov-2026: a shop owner's promotion to dealer, confirmed by a second admin / operator
+import "./super-dealer-request"; // owner 28-Nov-2026: a dealer asks to become a super dealer; one admin / operator decides
 
 export * from "./engine";
 export {

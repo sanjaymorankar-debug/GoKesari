@@ -867,6 +867,11 @@ export async function onFranchiseFeeCaptured(intent: PaymentIntentRef, client: D
         },
       );
       if (!done) await recordAudit({ action: AUDIT_ACTIONS.FRANCHISE_ALLOCATION_CHANGED, entityType: "franchise_booking", entityId: booking.id, newValue: { problem: "v2_go_live_failed", retry: "franchise job", error: "see server log" } }, client);
+      // Owner, 28-Nov-2026: a "make me a super dealer" wish made before paying is acted on once he is a dealer.
+      if (done && afterCommit) {
+        const ownerDealerId = booking.ownerDealerId;
+        afterCommit(async () => (await import("@/server/dealers/super-requests")).afterDealerApproved(ownerDealerId));
+      }
       [ownerRow] = await client.select().from(dealers).where(eq(dealers.id, booking.ownerDealerId));
     }
     // F21 (flag flow_f21): the money for the zones lost is refunded automatically — all of it when every zone was
