@@ -6,7 +6,8 @@
  *   name, address or owner changed since the last signature.
  * Existing shops get a grace period (rule sellerAgreements.graceDays) from the first time they are asked,
  * then take no new orders until they sign. New registrations sign before paying, so no grace applies.
- * Signing is refused while a licence the shop type requires is missing or expired.
+ * Signing is refused while a licence the shop type requires is missing or expired — except a missing licence of an
+ * onboarding v2 registration, which may be uploaded after go-live (owner, 27-Nov-2026: every licence incl. FSSAI).
  */
 import { and, desc, eq, isNull, lte } from "drizzle-orm";
 
@@ -17,6 +18,7 @@ import {
   legalDocumentSnapshots,
   legalShopAgreementStates,
   shopLegalDocuments,
+  shopRegistrationDrafts,
   shops,
   type LegalLanguage,
   type Shop,
@@ -72,17 +74,20 @@ async function loadShop(shopId: string): Promise<Shop> {
 /** A licence the shop type requires that is missing, rejected or expired — signing waits for it. */
 export async function licenceBlockers(shop: Pick<Shop, "id" | "shopType">, now: Date = new Date()): Promise<string[]> {
   const today = new Date(now.getTime() + 330 * 60_000).toISOString().slice(0, 10);
-  const [required, mustHave, rows] = await Promise.all([
+  const [required, mustHave, rows, uploadLater] = await Promise.all([
     requiredLegalDocTypes(shop),
     missingMustHaveDocuments(shop),
     db.select().from(shopLegalDocuments).where(eq(shopLegalDocuments.shopId, shop.id)),
+    isV2Registration(shop.id),
   ]);
-  const blockers = mustHave.map((label) => `${label}: upload it first.`);
+  // Onboarding v2 (owner, 27-Nov-2026): a missing licence, FSSAI included, is uploaded after go-live on the
+  // document follow-up grace period, so it does not hold up the agreement. An expired one still does.
+  const blockers = uploadLater ? [] : mustHave.map((label) => `${label}: upload it first.`);
   for (const type of required) {
     const docs = rows.filter((r) => r.docType === type && (r.status === "SUBMITTED" || r.status === "APPROVED"));
     const label = legalDocLabel({ docType: type, licenceName: null });
     if (docs.length === 0) {
-      if (!blockers.some((b) => b.startsWith(label))) blockers.push(`${label}: upload it first.`);
+      if (!uploadLater && !blockers.some((b) => b.startsWith(label))) blockers.push(`${label}: upload it first.`);
       continue;
     }
     const valid = docs.some((d) => !d.expiryDate || d.expiryDate >= today);
@@ -92,6 +97,16 @@ export async function licenceBlockers(shop: Pick<Shop, "id" | "shopType">, now: 
     }
   }
   return blockers;
+}
+
+/** The shop was registered through onboarding v2 (its licences may follow after go-live). */
+async function isV2Registration(shopId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: shopRegistrationDrafts.id })
+    .from(shopRegistrationDrafts)
+    .where(and(eq(shopRegistrationDrafts.shopId, shopId), eq(shopRegistrationDrafts.flowVersion, "v2")))
+    .limit(1);
+  return Boolean(row);
 }
 
 /** The latest acceptance of each document type for the shop, and the snapshot it was signed with. */
