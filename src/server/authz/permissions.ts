@@ -138,6 +138,8 @@ export const PERMISSIONS = {
   REGISTRATION_FEE_MANAGE: "registration-fee:manage",
   /** Set a shop's registration details, fee and status. OPERATOR/ADMIN. */
   SHOP_REGISTRATION_MANAGE: "shop-registration:manage",
+  /** Owner, 28-Nov-2026: send one shop its welcome kit, resend its banners and download them (Admin → Send welcome kit). Bulk runs stay ADMIN. */
+  SHOP_WELCOME_KIT_SEND: "shop-welcome-kit:send",
   PAYMENT_VIEW_OWN: "payment:view:own",
   PAYMENT_VIEW_ANY: "payment:view:any",
   /** Record a received payment, or a reversal/refund. */
@@ -513,6 +515,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
 ];
 
 const OPERATOR_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.SHOP_WELCOME_KIT_SEND, // owner, 28-Nov-2026: send / resend a shop's banners and download them
   PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE, // 0210 registration subscription (owner brief 25-Nov-2026)
   PERMISSIONS.CONSULT_MANAGE, // consultant appointments: operators run consultant onboarding and bookings with admins
   PERMISSIONS.CONSULT_ONBOARD,
@@ -699,6 +702,7 @@ const SUPPORT_MANAGER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.GRIEVANCE_MANAGE,
   PERMISSIONS.DISPUTE_MANAGE,
   PERMISSIONS.CATALOGUE_BROWSE,
+  PERMISSIONS.SHOP_WELCOME_KIT_SEND, // owner, 28-Nov-2026: support sends / resends a shop's banners
   // Deliberately absent: SHOP_UPDATE_ANY, SHOP_PRODUCT_MANAGE_ANY, ORDER_REFUND, USER_SET_ROLE.
 ];
 
@@ -708,6 +712,7 @@ const SUPPORT_USER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.SHOP_CHANGE_PROPOSE,
   PERMISSIONS.MASTER_DATA_CORRECTION_PROPOSE,
   PERMISSIONS.CATALOGUE_BROWSE,
+  PERMISSIONS.SHOP_WELCOME_KIT_SEND, // owner, 28-Nov-2026: support sends / resends a shop's banners
   // Deliberately absent: SUPPORT_TICKET_MANAGE (sees every ticket), SHOP_UPDATE_ANY and
   // SHOP_PRODUCT_MANAGE_ANY (direct writes), PRODUCT_MRP_MANAGE (master MRP), SHOP_COST_VIEW.
 ];
@@ -721,6 +726,7 @@ const OPERATIONS_MANAGER_PERMISSIONS: readonly Permission[] = [
   // continuing one for the owner, the onboarding funnel) — as the Operator role has them.
   PERMISSIONS.SHOP_GST_PAN_VERIFY,
   PERMISSIONS.SHOP_REGISTRATION_MANAGE,
+  PERMISSIONS.SHOP_WELCOME_KIT_SEND, // owner, 28-Nov-2026: as the Operator role has it
 ];
 /* <<< RBAC v2 */
 
@@ -887,6 +893,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.SHOP_CREATE]: "Submit a shop registration",
   [PERMISSIONS.SHOP_UPDATE_OWN]: "Edit own shop details",
   [PERMISSIONS.SHOP_UPDATE_ANY]: "Edit any shop's details",
+  [PERMISSIONS.SHOP_WELCOME_KIT_SEND]: "Send a shop its welcome kit, resend its banners and download them",
   [PERMISSIONS.SHOP_APPROVE]: "Approve a pending shop",
   [PERMISSIONS.SHOP_REJECT]: "Reject a pending shop",
   [PERMISSIONS.SHOP_SUSPEND]: "Suspend an approved shop",

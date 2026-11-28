@@ -73,7 +73,7 @@ const kitRows = (shopId: string) =>
   db.select().from(documentEmails).where(and(eq(documentEmails.docType, "SHOP_WELCOME_KIT"), eq(documentEmails.docId, shopId)));
 
 describe("shop welcome kit", () => {
-  it("queues the welcome e-mail with the approval and sends both banners (English + Marathi)", async () => {
+  it("queues the welcome e-mail with the approval and sends all three banners (English, Marathi, Hindi)", async () => {
     const { owner, shop } = await liveShop("Maharashtra");
     const rows = await kitRows(shop.id);
     expect(rows).toHaveLength(1);
@@ -86,12 +86,15 @@ describe("shop welcome kit", () => {
     expect(email.to).toBe(owner.email);
     expect(email.html).toContain("cid:gk-shop-banner-en");
     expect(email.html).toContain("cid:gk-shop-banner-mr");
+    expect(email.html).toContain("cid:gk-shop-banner-hi");
     const files = email.attachments!.map((a) => a.filename).sort();
     expect(files).toEqual([
       `GoKesari-banner-en-${shop.slug}.jpg`,
       `GoKesari-banner-en-${shop.slug}.pdf`,
       `GoKesari-banner-mr-${shop.slug}.jpg`,
       `GoKesari-banner-mr-${shop.slug}.pdf`,
+      `GoKesari-banner-hi-${shop.slug}.jpg`,
+      `GoKesari-banner-hi-${shop.slug}.pdf`,
     ].sort());
     for (const pdf of email.attachments!.filter((a) => a.contentType === "application/pdf")) {
       expect(pdf.content.subarray(0, 5).toString()).toBe("%PDF-");
@@ -144,9 +147,18 @@ describe("banner download (Seller Central → Marketing)", () => {
     expect(png.disposition).toContain(`GoKesari-banner-mr-${shop.slug}.png`);
     const { data, info } = await sharp(png.body).extract({ left: 1120, top: 590, width: 260, height: 240 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     expect(jsQR(new Uint8ClampedArray(data), info.width, info.height)?.data).toMatch(new RegExp(`/shops/${shop.slug}$`));
+    // 28-Nov-2026: every shop also downloads the third language (Hindi for a Maharashtra shop).
+    const hindi = await banner(shop.id, "?lang=hi");
+    expect(hindi).toMatchObject({ status: 200, type: "application/pdf" });
+    expect(hindi.disposition).toContain(`GoKesari-banner-hi-${shop.slug}.pdf`);
 
     signInAs(await createUser({ role: "OPERATOR" }));
     expect((await banner(shop.id, "?lang=local")).status).toBe(200);
+    // Owner, 28-Nov-2026: support staff download any live shop's banners too.
+    signInAs(await createUser({ role: "SUPPORT_USER" as UserRole }));
+    expect((await banner(shop.id, "?lang=hi")).status).toBe(200);
+    signInAs(await createUser({ role: "ACCOUNTANT" as UserRole }));
+    expect((await banner(shop.id)).status).toBe(403);
   });
 
   it("refuses a shop that is not live yet (its QR page would not open)", async () => {
@@ -187,8 +199,8 @@ describe("admin: send welcome kit to shops that were already live", () => {
     };
   }
 
-  it("is off by default, admin only, and sends each shop the kit once", async () => {
-    const { admin, a } = await existingShops();
+  it("is off by default, staff with shop-welcome-kit:send only, bulk admin only, and sends each shop the kit once", async () => {
+    const { admin, a, b } = await existingShops();
     // Existing live shops are never e-mailed by themselves.
     expect(await db.select().from(documentEmails).where(eq(documentEmails.docType, "SHOP_WELCOME_KIT"))).toHaveLength(0);
 
@@ -199,10 +211,17 @@ describe("admin: send welcome kit to shops that were already live", () => {
     expect((await call(adminKitGet, "/api/admin/shops/welcome-kit?q=Kirana")).body).toMatchObject({ enabled: false, total: 4 });
 
     await setFeatureFlag("shop_welcome_kit_admin_send_enabled", { enabled: true, districtCodes: null }, "QA: welcome kit admin send", admin);
-    signInAs(await createUser({ role: "OPERATOR" }));
-    expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: a.id } })).status).toBe(403);
-    signInAs(await createUser({ role: "SHOP_OWNER" }));
-    expect((await call(adminKitGet, "/api/admin/shops/welcome-kit")).status).toBe(403);
+    // Owner, 28-Nov-2026: Operator, Operations manager and Support may send one shop; bulk stays ADMIN.
+    for (const role of ["OPERATOR", "OPERATIONS_MANAGER", "SUPPORT_MANAGER", "SUPPORT_USER"] as UserRole[]) {
+      signInAs(await createUser({ role }));
+      expect((await call(adminKitGet, "/api/admin/shops/welcome-kit")).status).toBe(200);
+      expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { bulk: { all: true } } })).status).toBe(403);
+    }
+    for (const role of ["SHOP_OWNER", "OPERATOR_LIMITED", "ACCOUNTANT"] as UserRole[]) {
+      signInAs(await createUser({ role }));
+      expect((await call(adminKitGet, "/api/admin/shops/welcome-kit")).status).toBe(403);
+      expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: a.id } })).status).toBe(403);
+    }
 
     signInAs(admin);
     const first = await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: a.id } });
@@ -219,6 +238,13 @@ describe("admin: send welcome kit to shops that were already live", () => {
     const pendingOwner = await createUser({ role: "SHOP_OWNER" });
     const pending = await createShop(pendingOwner.id, { status: "PENDING_APPROVAL" });
     expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: pending.id } })).status).toBe(409);
+
+    // Support staff send one shop its kit (audited as them).
+    const support = await createUser({ role: "SUPPORT_USER" as UserRole });
+    signInAs(support);
+    expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: b.id } })).body).toMatchObject({ shopId: b.id, result: "QUEUED" });
+    const [byStaff] = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "shop.welcome_kit_sent"), eq(auditLogs.entityId, b.id)));
+    expect(byStaff).toMatchObject({ actorId: support.id });
   });
 
   it("bulk by city: previews, then queues only the live shops there that never had it (for the outbox sweep)", async () => {

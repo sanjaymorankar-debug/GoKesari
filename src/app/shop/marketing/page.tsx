@@ -51,6 +51,7 @@ export default async function ShopMarketingPage() {
   const shop = await activeShop(shops);
   // docs/shop-welcome-kit-2026-11: the banner's second language (Marathi in Maharashtra / Goa, else Hindi).
   const localLanguage = localBannerLanguage(shop) === "mr" ? "Marathi" : "Hindi";
+  const otherLanguage = localLanguage === "Marathi" ? { code: "hi", label: "Hindi" } : { code: "mr", label: "Marathi" };
   // Item B: live limits (rules `marketing` and `cod`).
   const [MARKETING_LIMITS, COD_LIMITS] = await Promise.all([getRule("marketing"), getCodLimits()]);
 
@@ -85,11 +86,17 @@ export default async function ShopMarketingPage() {
             <a className="inline-flex min-h-11 items-center rounded-lg bg-kesari-700 px-3 py-2 text-white" href={`/api/shops/${shop.id}/banner?lang=local`} data-testid="banner-local-pdf">
               {localLanguage} banner (PDF)
             </a>
+            <a className="inline-flex min-h-11 items-center rounded-lg bg-kesari-700 px-3 py-2 text-white" href={`/api/shops/${shop.id}/banner?lang=${otherLanguage.code}`} data-testid="banner-other-pdf">
+              {otherLanguage.label} banner (PDF)
+            </a>
             <a className="inline-flex min-h-11 items-center rounded-lg border border-[var(--gk-line)] px-3 py-2 text-ink-900" href={`/api/shops/${shop.id}/banner?lang=en&format=png`} data-testid="banner-en-png">
               English (PNG)
             </a>
             <a className="inline-flex min-h-11 items-center rounded-lg border border-[var(--gk-line)] px-3 py-2 text-ink-900" href={`/api/shops/${shop.id}/banner?lang=local&format=png`} data-testid="banner-local-png">
               {localLanguage} (PNG)
+            </a>
+            <a className="inline-flex min-h-11 items-center rounded-lg border border-[var(--gk-line)] px-3 py-2 text-ink-900" href={`/api/shops/${shop.id}/banner?lang=${otherLanguage.code}&format=png`} data-testid="banner-other-png">
+              {otherLanguage.label} (PNG)
             </a>
           </div>
           <ShopBannerUpiQr shopId={shop.id} upiVpa={bannerSettings?.upiVpa ?? null} uploaded={uploadedUpiQr} />

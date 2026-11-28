@@ -49,7 +49,7 @@ async function call<T>(input: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; districts: { code: string; name: string }[] }) {
+export function AdminWelcomeKit({ enabled, districts, canBulk = true }: { enabled: boolean; districts: { code: string; name: string }[]; canBulk?: boolean }) {
   const [q, setQ] = useState("");
   const [notWelcomed, setNotWelcomed] = useState(true);
   const [rows, setRows] = useState<WelcomeKitShopRow[] | null>(null);
@@ -203,6 +203,7 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
         </form>
       </section>
 
+      {canBulk ? (
       <section className={box} aria-labelledby="wk-bulk">
         <h2 id="wk-bulk" className="text-base font-bold text-ink-900">Bulk run by city or district</h2>
         <p className="mt-1 text-sm text-ink-700">
@@ -245,6 +246,7 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
           </div>
         ) : null}
       </section>
+      ) : null}
 
       {rows ? (
         <section aria-label="Shops">
@@ -256,7 +258,7 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
               <li key={row.id} className={box} data-testid="welcome-kit-shop">
                 <p className="truncate text-base font-bold text-ink-900">{row.name}</p>
                 <p className="text-xs text-ink-600">
-                  {[row.registrationNumber, `${row.city} ${row.pincode}`, `English + ${LANGUAGE[row.local]}`].filter(Boolean).join(" · ")}
+                  {[row.registrationNumber, `${row.city} ${row.pincode}`, `English + ${LANGUAGE[row.local]} + ${LANGUAGE[row.local === "mr" ? "hi" : "mr"]}`].filter(Boolean).join(" · ")}
                 </p>
                 <p className="mt-1 text-sm text-ink-800" data-testid="welcome-kit-status">
                   {statusText(row.welcomeKit)}
@@ -281,6 +283,9 @@ export function AdminWelcomeKit({ enabled, districts }: { enabled: boolean; dist
                   </a>
                   <a className={secondary} href={`/api/shops/${row.id}/banner?lang=local`}>
                     {LANGUAGE[row.local]} PDF
+                  </a>
+                  <a className={secondary} href={`/api/shops/${row.id}/banner?lang=${row.local === "mr" ? "hi" : "mr"}`}>
+                    {LANGUAGE[row.local === "mr" ? "hi" : "mr"]} PDF
                   </a>
                 </div>
               </li>

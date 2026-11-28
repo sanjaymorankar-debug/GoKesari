@@ -42,13 +42,18 @@ process.env.FONTCONFIG_FILE ??= BANNER_FONTCONFIG_PATH;
 process.env.PANGOCAIRO_BACKEND ??= "fc";
 
 /**
- * The banner's languages (owner, 20-Nov-2026: every shop gets two banners, English and its local
- * language). en is the owner's design; mr / hi are built from it by
+ * The banner's languages (owner, 20-Nov-2026: English and the shop's local language; 28-Nov-2026:
+ * every shop gets all three — English, Marathi and Hindi — see shopBannerLanguages). en is the owner's design; mr / hi are built from it by
  * scripts/shop-banner/make-local-templates.py with the same layout.
  */
 export const BANNER_LANGUAGES = ["en", "mr", "hi"] as const;
 export type BannerLanguage = (typeof BANNER_LANGUAGES)[number];
 export const BANNER_LANGUAGE_LABEL: Record<BannerLanguage, string> = { en: "English", mr: "Marathi (मराठी)", hi: "Hindi (हिंदी)" };
+
+/** Every banner a shop gets (owner, 28-Nov-2026): English first, then its local language, then the other one. */
+export function shopBannerLanguages(local: Exclude<BannerLanguage, "en">): BannerLanguage[] {
+  return ["en", local, local === "mr" ? "hi" : "mr"];
+}
 
 export function bannerTemplatePath(lang: BannerLanguage): string {
   return lang === "en" ? BANNER_TEMPLATE_PATH : path.join(ASSETS, `template-${lang}.png`);
