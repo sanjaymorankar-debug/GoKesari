@@ -171,8 +171,9 @@ jobs:
         run: npm run build
         env:
           # Same heap as the server's builds (scripts/vps-app/lib.sh, BUILD_NODE_OPTIONS):
-          # Node's default ran out of memory here once GoKesari Health was added (20-Nov-2026).
-          NODE_OPTIONS: --max-old-space-size=6144
+          # Node's default ran out of memory here once GoKesari Health was added (20-Nov-2026). 28-Nov-2026 (#679):
+          # 6 GB ran out on staging after #692 (heap ~5.3 GB); the runner has 16 GB, the server builds with 7 GB.
+          NODE_OPTIONS: --max-old-space-size=8192
 
   mobile:
     # The Android/iOS app (mobile/): a separate Expo project with its own
