@@ -354,7 +354,8 @@ export async function proposeDealerPromotion(
 ): Promise<{ pendingApproval: true; approvalId: string; message: string }> {
   const service = await import("./service");
   const { requireDealerPermission, requireDealerInScope } = await import("./staff-access");
-  requireDealerPermission(actor, PERMISSIONS.DEALER_APPROVE, "decide dealers");
+  // Owner, 28-Nov-2026: an operator may start a shop owner's promotion too (the second person still confirms it).
+  if (actor.role !== "OPERATOR") requireDealerPermission(actor, PERMISSIONS.DEALER_APPROVE, "decide dealers");
   if (actor.role === "REGIONAL_ADMIN") await requireDealerInScope(actor, await service.getDealer(dealerId));
   // The shop's details first (an older request may predate the reuse), then the same checks as the approval.
   await applyShopDetails(dealerId, actor);
@@ -391,7 +392,7 @@ export async function proposeDealerPromotion(
       userId: s.id,
       type: NOTIFICATION_TYPES.STAFF_APPROVAL_PENDING,
       title: `Confirm a promotion to dealer: ${dealer.legalName}`,
-      body: `An admin approved the ${kind} of ${dealer.legalName}, a live GoKesari shop. A second admin or operator must confirm it before the dealer code is issued: Admin → Dealers.`,
+      body: `An ${actor.role === "OPERATOR" ? "operator" : "admin"} approved the ${kind} of ${dealer.legalName}, a live GoKesari shop. A second admin or operator must confirm it before the dealer code is issued: Admin → Dealers.`,
       actionUrl: `/admin/dealers/${dealerId}`,
       dedupeKey: `dealer-promotion:${request.id}:${s.id}`,
     }).catch((e) => console.error("[dealers] promotion notice failed", dealerId, e));

@@ -92,6 +92,7 @@ export interface NewMoveRequest {
 }
 
 export async function createMoveRequest(input: NewMoveRequest, actor: MoveActor): Promise<ReferralMoveRequest> {
+  await requireMovesOn();
   requireAdmin(actor);
   const reason = cleanReason(input.reason);
   const toDealer = await approvedDealer(db, input.toDealerId);
@@ -135,7 +136,18 @@ export async function createMoveRequest(input: NewMoveRequest, actor: MoveActor)
 }
 
 /** The consent letters still missing before the request can be approved. */
+/** Rule referralMoves (owner, 28-Nov-2026): the on / off switch and whether consent letters are required. */
+export async function referralMoveSettings(): Promise<{ enabled: boolean; requireConsents: boolean }> {
+  const { getRule } = await import("@/server/services/settings");
+  return getRule("referralMoves");
+}
+
+async function requireMovesOn(): Promise<void> {
+  if (!(await referralMoveSettings()).enabled) throw conflict("Referral moves are switched off (Admin → Business rules → referralMoves).", { reason: "REFERRAL_MOVES_OFF" });
+}
+
 export async function missingDocuments(request: ReferralMoveRequest, client: DbClient = db): Promise<{ kind: MoveDocKind; shopId: string | null; label: string }[]> {
+  if (!(await referralMoveSettings()).requireConsents) return [];
   const docs = await client.select({ kind: referralMoveDocuments.kind, shopId: referralMoveDocuments.shopId }).from(referralMoveDocuments).where(eq(referralMoveDocuments.requestId, request.id));
   const has = (kind: MoveDocKind, shopId: string | null = null) => docs.some((d) => d.kind === kind && (shopId == null || d.shopId === shopId));
   const out: { kind: MoveDocKind; shopId: string | null; label: string }[] = [];
@@ -208,6 +220,7 @@ export async function decideMoveRequest(id: string, input: { approve: boolean; n
   const r = await getRequest(id);
   if (r.status !== "PENDING") throw conflict("This request has already been decided.");
   if (r.requestedBy === actor.id) throw forbidden("A different admin must approve or reject this request.");
+  if (input.approve) await requireMovesOn();
   if (!input.approve) {
     const [row] = await db.update(referralMoveRequests).set({ status: "REJECTED", decidedBy: actor.id, decidedAt: new Date(), decisionNote: note }).where(and(eq(referralMoveRequests.id, id), eq(referralMoveRequests.status, "PENDING"))).returning();
     if (!row) throw conflict("The request was decided meanwhile.");
@@ -419,7 +432,8 @@ export async function searchShopsForMove(q: string) {
     .from(shops)
     .leftJoin(shopAttributions, eq(shopAttributions.shopId, shops.id))
     .leftJoin(referralCodes, eq(referralCodes.id, shops.referralCodeId))
-    .where(and(isNull(shops.deletedAt), isUuid ? eq(shops.id, term) : or(ilike(shops.name, `%${term.replace(/[%_]/g, "")}%`), sql`${shops.phone} like ${"%" + term.replace(/\D/g, "").slice(-10) + "%"}`)))
+    // A phone match only for a term with 3+ digits (an empty digit string matched every shop with a phone).
+    .where(and(isNull(shops.deletedAt), isUuid ? eq(shops.id, term) : or(ilike(shops.name, `%${term.replace(/[%_]/g, "")}%`), ...(term.replace(/\D/g, "").length >= 3 ? [sql`${shops.phone} like ${"%" + term.replace(/\D/g, "").slice(-10) + "%"}`] : []))))
     .limit(20);
   const dIds = [...new Set(rows.map((r) => r.dealerId).filter((x): x is string => !!x))];
   const names = new Map((dIds.length ? await db.select({ id: dealers.id, name: dealers.legalName }).from(dealers).where(inArray(dealers.id, dIds)) : []).map((d) => [d.id, d.name]));

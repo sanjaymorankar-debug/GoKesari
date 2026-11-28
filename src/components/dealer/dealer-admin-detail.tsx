@@ -72,8 +72,11 @@ export function DealerAdminDetail({
   today,
   rating,
   promotion = { fourEye: false, pending: false },
+  operatorMayDecide = false,
 }: {
   isAdmin: boolean;
+  /** Owner, 28-Nov-2026: an operator approves (four-eye) or rejects a shop owner's request to become a dealer. */
+  operatorMayDecide?: boolean;
   /** Owner, 28-Nov-2026: a shop owner's promotion — the Approve waits for a different admin or operator to confirm. */
   promotion?: { fourEye: boolean; pending: boolean };
   dealer: Dealer;
@@ -349,7 +352,7 @@ export function DealerAdminDetail({
         </ul>
       </Card>
 
-      {isAdmin && !dealer.isInternal ? (
+      {(isAdmin || (operatorMayDecide && dealer.status === "PENDING")) && !dealer.isInternal ? (
         <Card className="space-y-3 p-4" data-testid="dealer-decision">
           <h2 className="text-base font-bold text-ink-900">Decision</h2>
           {dealer.status === "PENDING" ? (

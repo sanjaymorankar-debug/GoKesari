@@ -70,6 +70,7 @@ export default async function AdminDealerPage({ params }: { params: Promise<{ id
       ) : null}
       <DealerAdminDetail
         isAdmin={user.role === "ADMIN"}
+        operatorMayDecide={user.role === "OPERATOR" && promotion}
         promotion={{ fourEye: promotion, pending: !!pendingPromotion }}
         dealer={JSON.parse(JSON.stringify(view))}
         employees={JSON.parse(JSON.stringify(employees))}

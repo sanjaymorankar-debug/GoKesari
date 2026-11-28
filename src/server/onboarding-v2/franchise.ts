@@ -304,13 +304,14 @@ export async function becomeFreeDealer(actor: Actor): Promise<{ dealerId: string
   });
   if (result.requestedNow) {
     await notify({ userId: actor.id, type: NOTIFICATION_TYPES.DEALER_APPLICATION_RECEIVED, vars: { legalName: result.legalName }, actionUrl: "/franchise/start", dedupeKey: `ov2-dealer-request:${result.dealerId}` }).catch((e) => console.error("[onboarding-v2] request notice failed", result.dealerId, e));
-    const admins = await db.select({ id: users.id }).from(users).where(and(eq(users.role, "ADMIN"), eq(users.status, "ACTIVE"), isNull(users.deletedAt)));
+    // Owner, 28-Nov-2026: admins and operators (either may approve a shop owner's request; a second person confirms).
+    const admins = await db.select({ id: users.id }).from(users).where(and(inArray(users.role, ["ADMIN", "OPERATOR"]), eq(users.status, "ACTIVE"), isNull(users.deletedAt)));
     for (const a of admins) {
       await notify({
         userId: a.id,
         type: NOTIFICATION_TYPES.DEALER_APPLICATION_RECEIVED,
         title: `Free franchisee request: ${result.legalName}`,
-        body: `${result.legalName} (a live GoKesari shop) asks to become a free franchisee. Approve or reject it in Admin → Dealers → Pending approval; approval issues the dealer code.`,
+        body: `${result.legalName} (a live GoKesari shop) asks to become a free franchisee. An admin or operator approves or rejects it in Admin → Dealers → Pending approval; a second admin / operator confirms, then the dealer code is issued.`,
         actionUrl: `/admin/dealers/${result.dealerId}`,
         dedupeKey: `ov2-dealer-request-admin:${result.dealerId}:${a.id}`,
       }).catch((e) => console.error("[onboarding-v2] admin request notice failed", result.dealerId, e));

@@ -1,5 +1,5 @@
 /**
- * POST — ADMIN only: { action: "APPROVE", agreementStart, agreementEnd, mobileConfirmedByCall?,
+ * POST — ADMIN (an OPERATOR: approve / reject a shop owner's promotion only, owner 28-Nov-2026): { action: "APPROVE", agreementStart, agreementEnd, mobileConfirmedByCall?,
  * bankVerifiedByDocument? } or { action: "REJECT" | "SUSPEND" | "REACTIVATE" | "TERMINATE", reason }.
  * docs/dealer-programme, GKS-DR-001/002.
  * Owner, 28-Nov-2026: approving a shop owner's promotion (a free franchisee request, or the dealer application of a
@@ -9,6 +9,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { forbidden } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireRole } from "@/server/authz/guards";
 import { requireDealerProgramme } from "@/server/dealers/http";
@@ -30,10 +31,15 @@ const schema = z.discriminatedUnion("action", [
 
 export const POST = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   await requireDealerProgramme();
-  const admin = await requireRole("ADMIN");
+  const admin = await requireRole("ADMIN", "OPERATOR");
   const id = z.string().uuid().parse((await context.params).id);
   const body = await parseBody(request, schema);
-  if (body.action === "APPROVE" && (await isShopOwnerPromotion(await getDealer(id)))) {
+  const promotion = await isShopOwnerPromotion(await getDealer(id));
+  // Owner, 28-Nov-2026: an operator may approve (as the first or the second person) or reject a shop owner's request.
+  if (admin.role === "OPERATOR" && (!promotion || (body.action !== "APPROVE" && body.action !== "REJECT"))) {
+    throw forbidden("An operator may only approve or reject a shop owner's request to become a dealer.");
+  }
+  if (body.action === "APPROVE" && promotion) {
     return ok(await proposeDealerPromotion(id, body, admin), 202);
   }
   const result = await decideDealer(id, body, admin);

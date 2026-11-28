@@ -11425,6 +11425,9 @@ export const dealers = pgTable(
     isInternal: boolean("is_internal").notNull().default(false),
     legacyDistributorId: uuid("legacy_distributor_id").references(() => distributors.id, { onDelete: "set null" }),
     source: text("source", { enum: ["APPLICATION", "LEGACY_MIGRATION", "ADMIN", "SHOP_REQUEST"] }).notNull().default("APPLICATION"),
+    /** 0233 (owner, 28-Nov-2026): "also make me / him a super dealer" asked before the dealer was approved; acted on at approval. */
+    wantsSuperAt: timestamp("wants_super_at", { withTimezone: true }),
+    wantsSuperBy: uuid("wants_super_by"),
     /** 0107: onboarding rating (0–10, steps of 0.5). start_rating is the floor an admin may set; rating_override a manual downgrade until the next slab. */
     startRating: numeric("start_rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
     rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),

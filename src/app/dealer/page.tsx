@@ -36,6 +36,7 @@ import { DealerSchemeCard } from "@/components/dealer/dealer-scheme-card";
 import { ShopLogoUpload } from "@/components/delta/shop-logo-upload";
 import { SHOP_LOGO_FLAG } from "@/lib/delta/shop-logo";
 import { describeCharge } from "@/lib/dealer-schemes";
+import { SuperDealerRequest } from "@/components/dealer/super-dealer-request";
 import { getRule } from "@/server/services/settings";
 import { listShopCategories } from "@/server/services/shop-categories";
 import { listShopTypes } from "@/server/services/shop-types";
@@ -144,6 +145,8 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
         </p>
       ) : null}
       {schemeCard ? <DealerSchemeCard {...JSON.parse(JSON.stringify(schemeCard))} /> : null}
+      {/* Owner, 28-Nov-2026: a dealer may ask to become a super dealer (an admin / operator approves). */}
+      <SuperDealerRequest />
       {logoOn ? (
         <ShopLogoUpload shopId={dealer.id} initialLogoUrl={dealer.logoUrl} endpoint="/api/dealer/logo" heading="Dealer logo" hint="A square JPEG, PNG or WebP picture works best. It is shown on your dealer profile." />
       ) : null}
