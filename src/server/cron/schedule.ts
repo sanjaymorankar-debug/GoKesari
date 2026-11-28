@@ -219,6 +219,9 @@ export const HOURLY: readonly Job[] = [
   { name: "dual-auth-reminders", run: async () => (await import("@/server/dual-auth/reminders")).runSecondFactorReminders() },
   { name: "risk-rules", run: async () => (await import("@/server/services/risk")).runRiskRules(SYSTEM) },
   { name: "dispute-escalation", run: async () => (await import("@/server/services/disputes")).runDisputeEscalationSweep() },
+  // 0232 (owner, 28-Nov-2026): held v2 / v3 shops, pay-later requests and shops not selling 10 days after go-live —
+  // franchisee → operator queue (7 days) → admin team (10 days), rule supportEscalation. Idempotent.
+  { name: "support-escalations", run: async () => (await import("@/server/services/support-escalations")).runSupportEscalations() },
   { name: "aftercare", run: aftercare },
   { name: "payout-retries", run: payoutRetries },
   // docs/gig-bank-payouts-2026-10: rider monthly payout on the 5th from 09:00 IST (a no-op at other times

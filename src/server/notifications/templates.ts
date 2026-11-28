@@ -152,6 +152,9 @@ export const TEMPLATES: Record<string, Template> = {
     "Pay-later request: {{shopName}}",
     "{{ownerName}} asked to pay the registration fee of {{amount}} for {{shopName}} later. Approve or reject it under Admin → Shops → Pay-later requests.",
   ),
+  // 0232 support escalations: the text is built by services/support-escalations.ts.
+  [T.SUPPORT_ESCALATION_ASSIGNED]: t("{{title}}", "{{message}}"),
+  [T.SHOP_SUPPORT_REMINDER]: t("{{title}}", "{{message}}"),
   [T.DEALER_SHOP_FEE_PAY_LATER_REQUESTED]: t(
     "Pay-later request from your shop: {{shopName}}",
     "{{ownerName}} registered {{shopName}} with your code {{code}} and asked to pay the registration fee of {{amount}} later. Approve or reject it in your dealer portal → Pay-later requests. Approved, the shop goes live and the fee is taken from its payouts.",

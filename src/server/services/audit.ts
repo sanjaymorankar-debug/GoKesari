@@ -231,6 +231,12 @@ export const AUDIT_ACTIONS = {
   SHOP_FEE_PAY_LATER_REJECTED: "shop.fee_pay_later_rejected",
   SHOP_FEE_PAY_LATER_SETTLED: "shop.fee_pay_later_settled",
   SHOP_FEE_RECOVERED_FROM_PAYOUT: "shop.fee_recovered_from_payout",
+  // 0232 (owner, 28-Nov-2026): v2 / v3 go-live rule and the support escalation ladder
+  SUPPORT_ESCALATION_OPENED: "support_escalation.opened",
+  SUPPORT_ESCALATION_ESCALATED: "support_escalation.escalated",
+  SUPPORT_ESCALATION_RESOLVED: "support_escalation.resolved",
+  SHOP_REVIEW_FLAG_RAISED: "shop.review_flag_raised",
+  SHOP_REVIEW_FLAG_RESOLVED: "shop.review_flag_resolved",
   SHOP_REGISTRATION_LINK_CREATED: "shop.registration_link_created",
   SHOP_REGISTRATION_LINK_CANCELLED: "shop.registration_link_cancelled",
   SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",

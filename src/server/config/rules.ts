@@ -694,6 +694,20 @@ export const RULES = {
       scheduleHorizonDays: 7,
     },
   },
+  supportEscalation: {
+    description:
+      "Support escalation ladder (owner, 28-Nov-2026; 0232). A held onboarding-v2 / v3 shop (another owner's shop has the same GSTIN or PAN), a pay-later request waiting for a decision, and a v2 / v3 shop live for noSalesAfterDays with no product listed or no sale yet go first to the franchisee behind the shop's referral code (the code's free dealer / franchisee, or the franchisee above a team member). Not closed within franchiseeDays it moves to the operator queue, within adminDays (counted from the day it opened) to the admin team. Each step tells whoever now has it (in-app + e-mail) and reminds the shop owner; every hand-over is audited. A shop with no franchisee starts with the operators. Run by the hourly job.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** Owner: "if he did not act within 1 week it should be escalated to operator". */
+      franchiseeDays: int(1, 60),
+      /** Owner: "in 10 days it should be escalated to admin team" (from the day it opened). */
+      adminDays: int(1, 90),
+      /** Owner: "if shop did not upload product list and start selling in 10 days" (from go-live). */
+      noSalesAfterDays: int(1, 90),
+    }),
+    defaults: { enabled: true, franchiseeDays: 7, adminDays: 10, noSalesAfterDays: 10 },
+  },
   shopDocumentFollowUp: {
     description:
       "Shop documents (owner decision, 29 Oct 2026). The registration fee is paid only once the shop's documents are verified (at least one); an owner without the rest ticks \"I will provide all relevant documents within <promiseDays> days\" (promiseDays; 90 since the owner decision of 29 Oct 2026, was 30) and the shop waits for an admin or operator to approve it. When enabled, on each day in reminderDaysOfMonth (the 1st and 15th, India time) every live shop still missing a mandatory document (PAN, GSTIN or the no-GST declaration, Shop Act, FSSAI for food) is e-mailed a reminder; at the run after the last of remindersBeforeSuspension reminders, and not before its promised date, it is suspended and the owner is e-mailed. These e-mails are sent even when the owner has switched shop e-mails off. A shop approved without its documents (an admin's waiver) or on the promise has graceDays (3 months, owner decision 29 Oct 2026) from its latest waiver or its approval: it is reminded on every reminder day until then and suspended at the first run after.",

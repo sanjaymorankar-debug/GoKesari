@@ -10,11 +10,13 @@ import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db, type DbClient } from "@/server/db";
 import { userRoleGrants, users, type UserRole } from "@/server/db/schema";
 
-export type Audience = "SUPPORT" | "SUPPORT_LEAD";
+export type Audience = "SUPPORT" | "SUPPORT_LEAD" | "OPERATIONS";
 
 const AUDIENCE_ROLES: Record<Audience, UserRole[]> = {
   SUPPORT: ["OPERATOR", "ADMIN"],
   SUPPORT_LEAD: ["ADMIN"],
+  // 0232 support escalations: the operator queue (operators only; the admin team is SUPPORT_LEAD).
+  OPERATIONS: ["OPERATOR"],
 };
 
 export async function listAudienceUserIds(audience: Audience, client: DbClient = db): Promise<string[]> {

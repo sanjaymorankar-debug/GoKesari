@@ -67,6 +67,8 @@ describe("schedule", () => {
         "address-pending-orders",
         // docs/onboarding-v2-2026-11: a v2 registration fee captured on the draft but missing from the shop's ledger (every 5 minutes).
         "onboarding-v2-fee-ledger",
+        // 0232 (28 Nov 2026): support escalations — franchisee → operator (7 days) → admin (10 days) (hourly).
+        "support-escalations",
       ].sort(),
     );
   });

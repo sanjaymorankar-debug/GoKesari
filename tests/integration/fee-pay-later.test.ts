@@ -85,12 +85,14 @@ describe("request and decision", () => {
     await expect(requestShopFeePayLater(shop.id, { id: stranger.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("PL-02 only an administrator decides; a rejection needs a reason the owner sees", async () => {
+  it("PL-02 only GoKesari's team decides (no dealer code); a rejection needs a reason the owner sees", async () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id, { status: "APPROVED", registrationFeePaise: 118_000 });
     const req = await requestShopFeePayLater(shop.id, { id: owner.id });
-    const operator = await createUser({ role: "OPERATOR" });
-    await expect(decidePayLater(req.id, "APPROVE", null, { id: operator.id, role: "OPERATOR" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    // 0232 (owner, 28-Nov-2026): with no franchisee the request starts in the operator queue, so an operator may
+    // decide it too; someone outside GoKesari's team may not.
+    const stranger = await createUser({ role: "SHOP_OWNER" });
+    await expect(decidePayLater(req.id, "APPROVE", null, { id: stranger.id, role: "SHOP_OWNER" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(decidePayLater(req.id, "REJECT", "  ", admin)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     const rejected = await decidePayLater(req.id, "REJECT", "Please pay within 7 days", admin);
     expect(rejected.request).toMatchObject({ status: "REJECTED", decisionNote: "Please pay within 7 days", decidedBy: admin.id });

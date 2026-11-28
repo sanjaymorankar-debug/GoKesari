@@ -102,6 +102,12 @@ const RESET_TABLES = [
   // docs/onboarding-v2-2026-11 (0215, 0217): Flow 2 licence entries and their files — no foreign keys.
   "registration_licence_entries",
   "registration_licence_files",
+  // 0232: no foreign keys to users / shops (support_escalation_events cascades from support_escalations).
+  "support_escalations",
+  "shop_review_flags",
+  // 0229 pay-later requests have no foreign keys either (shop_fee_recoveries cascades); left behind, the 0232
+  // escalation job would pick up another test's requests.
+  "shop_fee_pay_later",
   "onboarding_role_history",
   "grievances",
   "user_consents",

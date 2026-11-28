@@ -1378,10 +1378,17 @@ export async function saveDraftLocation(input: { actor: Actor; latitude: number;
 function registrationChecks(draft: ShopRegistrationDraft, checks: ShopRegistrationDraftCheck[], details: DraftShopDetails, threshold: number): RegistrationCheck[] {
   const out: RegistrationCheck[] = [];
   const gst = draft.gstRecord ?? {};
+  // 0232 (owner, 28-Nov-2026 ~12.00 IST): a v2 / v3 registration goes live on a GST or PAN number the government
+  // source verified. A weak name match, a name the source did not return, or a GSTIN whose linked PAN is not the one
+  // inside it keeps the number VERIFIED and is recorded for review after go-live (details.reviewFlag, read by
+  // gov-auto-approval.ts → shop_review_flags), never a hold. The original wizard (v1) is unchanged.
+  const v2 = draft.flowVersion === "v2";
+  const V2_GST_REVIEW: Record<string, string> = { gstin_pan_mismatch: "PAN_NOT_IN_GSTIN", name_not_returned: "NAME_NOT_RETURNED" };
+  const gstReview = v2 && draft.gstStatus === "MANUAL_REVIEW" && draft.gstErrorCode && draft.gstProviderId ? (V2_GST_REVIEW[draft.gstErrorCode] ?? null) : null;
   if (draft.route === "GSTIN" && draft.gstinEncrypted && draft.gstinMasked && draft.gstinHash) {
     out.push({
       docType: "GSTIN",
-      status: draft.gstStatus,
+      status: gstReview ? "VERIFIED" : draft.gstStatus,
       numberEncrypted: draft.gstinEncrypted,
       numberMasked: draft.gstinMasked,
       numberHash: draft.gstinHash,
@@ -1399,15 +1406,16 @@ function registrationChecks(draft: ShopRegistrationDraft, checks: ShopRegistrati
         address: gst.address ?? null,
         panLinked: gst.panLinked ?? null,
         ...(draft.panHash ? { embeddedPanHash: draft.panHash } : {}),
+        ...(gstReview ? { reviewFlag: gstReview, reviewReason: draft.gstErrorCode } : {}),
       },
       providerId: draft.gstProviderId,
       providerRef: draft.gstProviderRef,
-      errorCode: draft.gstErrorCode,
+      errorCode: gstReview ? null : draft.gstErrorCode,
       idempotencyKey: draft.gstIdempotencyKey,
       consentGivenAt: draft.consentGivenAt,
       consentVersion: draft.consentVersion,
       checkedAt: draft.gstCheckedAt,
-      verifiedAt: draft.gstVerifiedAt,
+      verifiedAt: gstReview ? (draft.gstVerifiedAt ?? draft.gstCheckedAt) : draft.gstVerifiedAt,
     });
   }
   if (draft.panEncrypted && draft.panMasked && draft.panHash) {
@@ -1415,13 +1423,24 @@ function registrationChecks(draft: ShopRegistrationDraft, checks: ShopRegistrati
     let status = draft.panStatus;
     let errorCode = draft.panErrorCode;
     let score = draft.panNameMatchScore;
+    let reviewFlag: string | null = null;
     // No GST record to compare with: the PAN holder must be the owner (or the business) named on the shop.
     if (draft.route === "PAN_ONLY" && status === "VERIFIED" && str(pan.name)) {
       score = bestNameMatch([str(pan.name)], [details.ownerName, details.name]).score;
       if (score < threshold) {
-        status = "MANUAL_REVIEW";
-        errorCode = "name_mismatch";
+        // 0232: v2 / v3 — verified number, weak name: live, flagged for review after go-live.
+        if (v2) reviewFlag = "NAME_MATCH_LOW";
+        else {
+          status = "MANUAL_REVIEW";
+          errorCode = "name_mismatch";
+        }
       }
+    }
+    // 0232: v2 / v3 — the source verified the PAN but its name did not match the GST names or was not returned.
+    if (v2 && status === "MANUAL_REVIEW" && draft.panProviderId && (errorCode === "name_mismatch" || errorCode === "name_not_returned")) {
+      reviewFlag = errorCode === "name_mismatch" ? "NAME_MATCH_LOW" : "NAME_NOT_RETURNED";
+      status = "VERIFIED";
+      errorCode = null;
     }
     out.push({
       docType: "PAN",
@@ -1433,7 +1452,7 @@ function registrationChecks(draft: ShopRegistrationDraft, checks: ShopRegistrati
       verifiedName: str(pan.name),
       nameMatchScore: score,
       validUntil: null,
-      details: { docStatus: pan.docStatus ?? null, recordName: pan.name ?? null, holderType: pan.holderType ?? null },
+      details: { docStatus: pan.docStatus ?? null, recordName: pan.name ?? null, holderType: pan.holderType ?? null, ...(reviewFlag ? { reviewFlag } : {}) },
       providerId: draft.panProviderId,
       providerRef: draft.panProviderRef,
       errorCode,
@@ -1441,7 +1460,7 @@ function registrationChecks(draft: ShopRegistrationDraft, checks: ShopRegistrati
       consentGivenAt: draft.consentGivenAt,
       consentVersion: draft.consentVersion,
       checkedAt: draft.panCheckedAt,
-      verifiedAt: status === "VERIFIED" ? draft.panVerifiedAt : null,
+      verifiedAt: status === "VERIFIED" ? (draft.panVerifiedAt ?? (reviewFlag ? draft.panCheckedAt : null)) : null,
     });
   }
   for (const row of checks) {
