@@ -66,6 +66,12 @@ const serverEnvSchema = z.object({
    */
   EMAIL_REDIRECT_TO: z.union([z.literal(""), z.string().trim().email()]).optional(),
   /**
+   * Test site only (owner, 28 Nov 2026): with SMS_PROVIDER=mock, every SMS written to the test outbox
+   * (one-time codes included) is also e-mailed to this inbox, the code in the subject. Ignored on
+   * gokesari.com. Empty = off.
+   */
+  SMS_MOCK_EMAIL_TO: z.union([z.literal(""), z.string().trim().email()]).optional(),
+  /**
    * Mailbox rotation (owner, 21 Nov 2026; src/server/email/mailbox-pool.ts).
    * Hostinger lets each mailbox send about 100 e-mails in any 24 hours, so
    * mail goes out from these mailboxes in turn: each sends up to
