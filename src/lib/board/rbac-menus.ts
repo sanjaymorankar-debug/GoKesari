@@ -107,4 +107,12 @@ export const STAFF_MENUS: readonly BoardMenu[] = [
       { key: "mine", label: L("My help tickets", "मेरे टिकट", "माझी तिकिटे"), short: L("Tickets", "टिकट", "तिकिटे"), icon: "life-buoy", href: "/support", permission: PERMISSIONS.SUPPORT_TICKET_RAISE },
     ],
   },
+  /* ------------------------------------------------------------- Shop banners (owner, 28-Nov-2026) */
+  {
+    key: "shopBanners", label: L("Shop banners & welcome kit", "दुकान बैनर और वेलकम किट", "दुकान बॅनर व वेलकम किट"), short: L("Banners", "बैनर", "बॅनर"), icon: "megaphone", tone: "kesari", href: "/admin/shops/welcome-kit",
+    permission: PERMISSIONS.SHOP_WELCOME_KIT_SEND,
+    items: [
+      { key: "welcomeKit", label: L("Send welcome kit / banners", "वेलकम किट / बैनर भेजें", "वेलकम किट / बॅनर पाठवा"), short: L("Send", "भेजें", "पाठवा"), icon: "megaphone", href: "/admin/shops/welcome-kit", permission: PERMISSIONS.SHOP_WELCOME_KIT_SEND },
+    ],
+  },
 ];

@@ -154,6 +154,11 @@ describe("banner download (Seller Central → Marketing)", () => {
 
     signInAs(await createUser({ role: "OPERATOR" }));
     expect((await banner(shop.id, "?lang=local")).status).toBe(200);
+    // Owner, 28-Nov-2026: support staff download any live shop's banners too.
+    signInAs(await createUser({ role: "SUPPORT_USER" as UserRole }));
+    expect((await banner(shop.id, "?lang=hi")).status).toBe(200);
+    signInAs(await createUser({ role: "ACCOUNTANT" as UserRole }));
+    expect((await banner(shop.id)).status).toBe(403);
   });
 
   it("refuses a shop that is not live yet (its QR page would not open)", async () => {
@@ -194,8 +199,8 @@ describe("admin: send welcome kit to shops that were already live", () => {
     };
   }
 
-  it("is off by default, admin only, and sends each shop the kit once", async () => {
-    const { admin, a } = await existingShops();
+  it("is off by default, staff with shop-welcome-kit:send only, bulk admin only, and sends each shop the kit once", async () => {
+    const { admin, a, b } = await existingShops();
     // Existing live shops are never e-mailed by themselves.
     expect(await db.select().from(documentEmails).where(eq(documentEmails.docType, "SHOP_WELCOME_KIT"))).toHaveLength(0);
 
@@ -206,10 +211,17 @@ describe("admin: send welcome kit to shops that were already live", () => {
     expect((await call(adminKitGet, "/api/admin/shops/welcome-kit?q=Kirana")).body).toMatchObject({ enabled: false, total: 4 });
 
     await setFeatureFlag("shop_welcome_kit_admin_send_enabled", { enabled: true, districtCodes: null }, "QA: welcome kit admin send", admin);
-    signInAs(await createUser({ role: "OPERATOR" }));
-    expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: a.id } })).status).toBe(403);
-    signInAs(await createUser({ role: "SHOP_OWNER" }));
-    expect((await call(adminKitGet, "/api/admin/shops/welcome-kit")).status).toBe(403);
+    // Owner, 28-Nov-2026: Operator, Operations manager and Support may send one shop; bulk stays ADMIN.
+    for (const role of ["OPERATOR", "OPERATIONS_MANAGER", "SUPPORT_MANAGER", "SUPPORT_USER"] as UserRole[]) {
+      signInAs(await createUser({ role }));
+      expect((await call(adminKitGet, "/api/admin/shops/welcome-kit")).status).toBe(200);
+      expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { bulk: { all: true } } })).status).toBe(403);
+    }
+    for (const role of ["SHOP_OWNER", "OPERATOR_LIMITED", "ACCOUNTANT"] as UserRole[]) {
+      signInAs(await createUser({ role }));
+      expect((await call(adminKitGet, "/api/admin/shops/welcome-kit")).status).toBe(403);
+      expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: a.id } })).status).toBe(403);
+    }
 
     signInAs(admin);
     const first = await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: a.id } });
@@ -226,6 +238,13 @@ describe("admin: send welcome kit to shops that were already live", () => {
     const pendingOwner = await createUser({ role: "SHOP_OWNER" });
     const pending = await createShop(pendingOwner.id, { status: "PENDING_APPROVAL" });
     expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: pending.id } })).status).toBe(409);
+
+    // Support staff send one shop its kit (audited as them).
+    const support = await createUser({ role: "SUPPORT_USER" as UserRole });
+    signInAs(support);
+    expect((await call(adminKitPost, "/api/admin/shops/welcome-kit", { method: "POST", body: { shopId: b.id } })).body).toMatchObject({ shopId: b.id, result: "QUEUED" });
+    const [byStaff] = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "shop.welcome_kit_sent"), eq(auditLogs.entityId, b.id)));
+    expect(byStaff).toMatchObject({ actorId: support.id });
   });
 
   it("bulk by city: previews, then queues only the live shops there that never had it (for the outbox sweep)", async () => {
