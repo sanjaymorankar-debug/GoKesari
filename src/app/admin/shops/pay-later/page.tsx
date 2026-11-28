@@ -52,13 +52,17 @@ export default async function FeePayLaterPage({ searchParams }: { searchParams: 
     shopName: r.shopName,
     shopStatus: r.shopStatus,
     registrationNumber: r.registrationNumber,
+    referralCode: r.referralCode,
+    approver: r.approverName ? `${r.approverName}${r.referralCode ? ` (${r.referralCode})` : ""}` : null,
+    // Owner, 28-Nov-2026: the dealer / franchise whose code the shop used decides; admins decide the rest.
+    canDecide: r.decider === "ADMIN",
   }));
   const tabs: (ShopFeePayLaterStatus | "ALL")[] = ["REQUESTED", "APPROVED", "SETTLED", "REJECTED", "CANCELLED", "ALL"];
   return (
     <div className="space-y-4">
       <PageHeader
         title="Pay-later requests"
-        description="Shop owners who asked to pay the registration fee later. Approved: the shop goes live and the fee is taken from its payouts (all of a payout when it is smaller than the fee) until paid; the owner is reminded every week. Times in IST."
+        description="Shop owners who asked to pay the registration fee later. The dealer / franchise whose referral code the shop used approves or rejects in their dealer portal; you decide only requests without such a dealer (or whose dealer is no longer active). Approved: the shop goes live and the fee is taken from its payouts (all of a payout when it is smaller than the fee) until paid; the owner is reminded every week. Times in IST."
       />
       {!enabled ? <p className="text-sm text-ink-600">The Pay later choice is switched off (feature flag shop_fee_pay_later_enabled): owners cannot ask now. Approved requests are still recovered from payouts.</p> : null}
       <nav className="flex flex-wrap gap-2 text-sm" aria-label="Filter">

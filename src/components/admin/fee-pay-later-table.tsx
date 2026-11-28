@@ -21,6 +21,11 @@ export interface PayLaterTableRow {
   shopName: string | null;
   shopStatus: string | null;
   registrationNumber: string | null;
+  referralCode: string | null;
+  /** "Dealer name (code)" when a dealer / franchise decides; null = GoKesari. */
+  approver: string | null;
+  /** The person viewing may approve / reject this row. */
+  canDecide: boolean;
 }
 
 const TONE: Record<PayLaterTableRow["status"], "warning" | "success" | "danger" | "neutral" | "info"> = {
@@ -31,8 +36,11 @@ const TONE: Record<PayLaterTableRow["status"], "warning" | "success" | "danger" 
   SETTLED: "success",
 };
 
-/** docs/fee-pay-later-2026-11 (0229): Admin → Shops → Pay-later requests — approve or reject each request. */
-export function FeePayLaterTable({ rows }: { rows: PayLaterTableRow[] }) {
+/**
+ * docs/fee-pay-later-2026-11 (0229): pay-later requests — approve or reject. The dealer / franchise whose code the
+ * shop used decides (dealer portal, `apiPath` /api/dealer/fee-pay-later); GoKesari's administrators decide the rest.
+ */
+export function FeePayLaterTable({ rows, apiPath = "/api/admin/fee-pay-later", showApprover = true }: { rows: PayLaterTableRow[]; apiPath?: string; showApprover?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -46,7 +54,7 @@ export function FeePayLaterTable({ rows }: { rows: PayLaterTableRow[] }) {
     }
     setBusy(row.id);
     setMessage(null);
-    const response = await fetch("/api/admin/fee-pay-later", {
+    const response = await fetch(apiPath, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestId: row.id, decision, note: note || null }),
@@ -81,6 +89,7 @@ export function FeePayLaterTable({ rows }: { rows: PayLaterTableRow[] }) {
               <th className="px-2 py-2">Still owed</th>
               <th className="px-2 py-2">Asked (IST)</th>
               <th className="px-2 py-2">Status</th>
+              {showApprover ? <th className="px-2 py-2">Decided by</th> : null}
               <th className="px-2 py-2">Decision</th>
             </tr>
           </thead>
@@ -94,7 +103,7 @@ export function FeePayLaterTable({ rows }: { rows: PayLaterTableRow[] }) {
                         {r.shopName}
                       </a>
                     ) : (
-                      <span>Registration in progress</span>
+                      <span>{r.shopName ?? "Registration in progress"}</span>
                     )}
                     {r.registrationNumber ? <span className="ml-1 text-ink-500">({r.registrationNumber})</span> : null}
                   </div>
@@ -112,8 +121,15 @@ export function FeePayLaterTable({ rows }: { rows: PayLaterTableRow[] }) {
                   {r.decidedAt ? <div className="mt-1 text-xs text-ink-500">{r.decidedAt}</div> : null}
                   {r.decisionNote ? <div className="mt-1 text-xs text-ink-600">{r.decisionNote}</div> : null}
                 </td>
+                {showApprover ? (
+                  <td className="px-2 py-2 text-xs text-ink-700">
+                    {r.approver ?? "GoKesari (admin)"}
+                    {!r.approver && r.referralCode ? <div className="text-ink-500">Code {r.referralCode}</div> : null}
+                  </td>
+                ) : null}
                 <td className="px-2 py-2">
-                  {r.status === "REQUESTED" ? (
+                  {r.status === "REQUESTED" && !r.canDecide ? <span className="text-xs text-ink-500">Waiting for the dealer</span> : null}
+                  {r.status === "REQUESTED" && r.canDecide ? (
                     <div className="flex min-w-48 flex-col gap-2">
                       <input
                         className="rounded-md border border-ink-300 px-2 py-1 text-sm"

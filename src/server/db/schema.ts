@@ -13892,6 +13892,13 @@ export const shopFeePayLater = pgTable(
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
     status: text("status", { enum: SHOP_FEE_PAY_LATER_STATUSES }).notNull().default("REQUESTED"),
     ownerNote: text("owner_note"),
+    /**
+     * Who decides (owner, 28-Nov-2026): the dealer / franchise whose referral code the shop registered with (their
+     * account); null → GoKesari's administrators. Also the administrators when that dealer is no longer active.
+     */
+    referralCode: text("referral_code"),
+    approverDealerId: uuid("approver_dealer_id"),
+    approverUserId: uuid("approver_user_id"),
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     decidedBy: uuid("decided_by"),
@@ -13904,6 +13911,7 @@ export const shopFeePayLater = pgTable(
     uniqueIndex("shop_fee_pay_later_open_draft_uq").on(t.draftId).where(sql`${t.status} IN ('REQUESTED','APPROVED') AND ${t.draftId} IS NOT NULL`),
     uniqueIndex("shop_fee_pay_later_open_shop_uq").on(t.shopId).where(sql`${t.status} IN ('REQUESTED','APPROVED') AND ${t.shopId} IS NOT NULL`),
     index("shop_fee_pay_later_status_idx").on(t.status, t.requestedAt),
+    index("shop_fee_pay_later_approver_idx").on(t.approverUserId, t.status).where(sql`${t.approverUserId} IS NOT NULL`),
   ],
 );
 export type ShopFeePayLater = typeof shopFeePayLater.$inferSelect;

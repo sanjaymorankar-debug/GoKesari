@@ -5,7 +5,9 @@
  *   1. The owner chooses "Pay later" on the registration fee step (onboarding v2, before the shop exists) or on
  *      Pay registration fee for a shop that owes it. A request (shop_fee_pay_later, REQUESTED) goes to the
  *      administrators.
- *   2. An administrator approves (APPROVED) or rejects (REJECTED). Approved, the fee no longer holds the shop back:
+ *   2. The dealer / franchise whose referral code the shop registered with approves (APPROVED) or rejects (REJECTED)
+ *      in the dealer portal (owner, 28-Nov-2026); with no such code, or when that dealer is no longer active,
+ *      GoKesari's administrators decide. Approved, the fee no longer holds the shop back:
  *      it goes live at once when nothing else does (instant approval, else the approval with the documents
  *      promise), or as soon as the owner finishes registering. Rejected, the owner pays the fee as before.
  *   3. While the fee is owed the owner gets the fee reminder every week from the approval (in-app + push + e-mail
@@ -26,7 +28,11 @@ import { formatPaise } from "@/lib/money";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
 import {
+  dealerCodes,
+  dealers,
+  franchiseCodes,
   orderFinancials,
+  referralCodes,
   shopFeePayLater,
   shopFeeRecoveries,
   shopPayments,
@@ -101,6 +107,48 @@ export async function feeDeferredByApproval(shopId: string, client: DbClient = d
   return row?.status === "APPROVED";
 }
 
+/* ============================================================ approver */
+
+export interface PayLaterApprover {
+  dealerId: string;
+  userId: string;
+  name: string;
+  code: string;
+}
+
+/**
+ * The dealer / franchise whose referral code this is (owner, 28-Nov-2026: they decide pay-later requests): a dealer
+ * or salesperson code → its dealer; a franchise code (GKF-) → the franchise owner; else the code's referrer when they
+ * are a dealer. Only an APPROVED dealer with a GoKesari account; otherwise null (GoKesari's administrators decide).
+ */
+export async function payLaterApproverForCode(code: { id?: string | null; text?: string | null }, client: DbClient = db): Promise<PayLaterApprover | null> {
+  const text = code.text?.trim().toUpperCase() || null;
+  if (!code.id && !text) return null;
+  const [rc] = await client
+    .select()
+    .from(referralCodes)
+    .where(code.id ? eq(referralCodes.id, code.id) : sql`upper(${referralCodes.code}) = ${text}`)
+    .limit(1);
+  if (!rc) return null;
+  const [viaDealerCode] = await client.select({ dealerId: dealerCodes.dealerId }).from(dealerCodes).where(eq(dealerCodes.referralCodeId, rc.id)).limit(1);
+  const [viaFranchise] = viaDealerCode ? [] : await client.select({ dealerId: franchiseCodes.ownerDealerId }).from(franchiseCodes).where(eq(franchiseCodes.referralCodeId, rc.id)).limit(1);
+  const dealerId = viaDealerCode?.dealerId ?? viaFranchise?.dealerId ?? null;
+  const [dealer] = dealerId
+    ? await client.select().from(dealers).where(eq(dealers.id, dealerId)).limit(1)
+    : rc.referrerUserId
+      ? await client.select().from(dealers).where(eq(dealers.userId, rc.referrerUserId)).limit(1)
+      : [];
+  if (!dealer || dealer.status !== "APPROVED" || !dealer.userId) return null;
+  return { dealerId: dealer.id, userId: dealer.userId, name: dealer.legalName, code: rc.code };
+}
+
+/** The request's dealer still decides (approved dealer with an account); else GoKesari's administrators do. */
+async function dealerStillDecides(request: Pick<ShopFeePayLater, "approverDealerId" | "approverUserId">, client: DbClient = db): Promise<boolean> {
+  if (!request.approverDealerId || !request.approverUserId) return false;
+  const [dealer] = await client.select({ status: dealers.status, userId: dealers.userId }).from(dealers).where(eq(dealers.id, request.approverDealerId)).limit(1);
+  return dealer?.status === "APPROVED" && dealer.userId === request.approverUserId;
+}
+
 /* ============================================================ request */
 
 /**
@@ -108,7 +156,16 @@ export async function feeDeferredByApproval(shopId: string, client: DbClient = d
  * One open request per draft / shop: asking again returns the open one.
  */
 export async function createPayLaterRequest(
-  input: { ownerId: string; draftId?: string | null; shopId?: string | null; amountPaise: number; note?: string | null; shopName: string },
+  input: {
+    ownerId: string;
+    draftId?: string | null;
+    shopId?: string | null;
+    amountPaise: number;
+    note?: string | null;
+    shopName: string;
+    /** The referral code the shop registered with (its dealer / franchise decides). */
+    referral?: { id?: string | null; text?: string | null };
+  },
   client: DbClient = db,
 ): Promise<{ request: ShopFeePayLater; created: boolean }> {
   if (!input.draftId && !input.shopId) throw validationFailed("A registration or a shop is required.");
@@ -116,9 +173,19 @@ export async function createPayLaterRequest(
   const existing = input.shopId ? await openPayLaterForShop(input.shopId, client) : await openPayLaterForDraft(input.draftId!, client);
   if (existing) return { request: existing, created: false };
   const note = input.note?.trim().slice(0, 500) || null;
+  const approver = input.referral ? await payLaterApproverForCode(input.referral, client) : null;
   const [request] = await client
     .insert(shopFeePayLater)
-    .values({ ownerId: input.ownerId, draftId: input.draftId ?? null, shopId: input.shopId ?? null, amountPaise: input.amountPaise, ownerNote: note })
+    .values({
+      ownerId: input.ownerId,
+      draftId: input.draftId ?? null,
+      shopId: input.shopId ?? null,
+      amountPaise: input.amountPaise,
+      ownerNote: note,
+      referralCode: approver?.code ?? input.referral?.text?.trim().toUpperCase() ?? null,
+      approverDealerId: approver?.dealerId ?? null,
+      approverUserId: approver?.userId ?? null,
+    })
     .returning();
   await recordAudit(
     {
@@ -127,17 +194,33 @@ export async function createPayLaterRequest(
       action: AUDIT_ACTIONS.SHOP_FEE_PAY_LATER_REQUESTED,
       entityType: input.shopId ? "shop" : "shop_registration_draft",
       entityId: input.shopId ?? input.draftId!,
-      newValue: { requestId: request.id, amountPaise: input.amountPaise, note },
+      newValue: { requestId: request.id, amountPaise: input.amountPaise, note, approver: approver ? { dealerId: approver.dealerId, code: approver.code } : "ADMIN" },
     },
     client,
   );
   return { request, created: true };
 }
 
-/** After the request is committed: the administrators are told (in-app + e-mail). Never throws. */
+/**
+ * After the request is committed: whoever decides is told (in-app + e-mail) — the dealer / franchise whose code the
+ * shop used, else the administrators. Never throws.
+ */
 export async function tellAdminsOfPayLaterRequest(request: ShopFeePayLater, shopName: string): Promise<void> {
   try {
     const [owner] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, request.ownerId));
+    if (request.approverUserId && (await dealerStillDecides(request))) {
+      await notify({
+        userId: request.approverUserId,
+        type: NOTIFICATION_TYPES.DEALER_SHOP_FEE_PAY_LATER_REQUESTED,
+        vars: { shopName, ownerName: owner?.name ?? owner?.email ?? "A shop owner", amount: formatPaise(request.amountPaise), code: request.referralCode ?? "" },
+        actionUrl: "/dealer/pay-later",
+        channels: ["PUSH", "EMAIL"],
+        mandatory: true,
+        dedupeKey: `shop-fee-pay-later-requested:${request.id}:${request.approverUserId}`,
+        metadata: { requestId: request.id },
+      });
+      return;
+    }
     const admins = await listAudienceUserIds("SUPPORT_LEAD");
     for (const userId of admins) {
       await notify({
@@ -161,7 +244,7 @@ export async function requestShopFeePayLater(shopId: string, owner: { id: string
   if (!shop || shop.ownerId !== owner.id || shop.deletedAt) throw notFound("Shop");
   if (shop.status !== "PENDING_APPROVAL" && shop.status !== "APPROVED") throw conflict("This shop cannot ask to pay later.");
   const due = registrationFeeDue(shop);
-  const { request, created } = await createPayLaterRequest({ ownerId: owner.id, shopId, amountPaise: due, note, shopName: shop.name });
+  const { request, created } = await createPayLaterRequest({ ownerId: owner.id, shopId, amountPaise: due, note, shopName: shop.name, referral: { id: shop.referralCodeId } });
   if (created) await tellAdminsOfPayLaterRequest(request, shop.name);
   return request;
 }
@@ -176,8 +259,21 @@ export async function linkPayLaterToShop(draftId: string, shopId: string, client
 
 /* ============================================================ decision */
 
-function assertCanDecide(actor: PayLaterActor): void {
-  if (!can(actor.role, PERMISSIONS.REGISTRATION_FEE_MANAGE)) throw forbidden("Only an administrator approves paying the registration fee later.");
+/**
+ * Owner, 28-Nov-2026: the dealer / franchise whose referral code the shop used decides; GoKesari's administrators
+ * decide only requests with no such dealer, or whose dealer is no longer active.
+ */
+async function assertCanDecide(request: ShopFeePayLater, actor: PayLaterActor, client: DbClient): Promise<void> {
+  if (await dealerStillDecides(request, client)) {
+    if (actor.id !== request.approverUserId) throw forbidden(`This request is decided by the dealer whose code the shop used (${request.referralCode ?? "their code"}).`);
+    return;
+  }
+  if (!can(actor.role, PERMISSIONS.REGISTRATION_FEE_MANAGE)) throw forbidden("Only an administrator decides this pay-later request.");
+}
+
+/** Who decides a request now: "DEALER" (its dealer / franchise) or "ADMIN". */
+export async function payLaterDecider(request: Pick<ShopFeePayLater, "approverDealerId" | "approverUserId">): Promise<"DEALER" | "ADMIN"> {
+  return (await dealerStillDecides(request)) ? "DEALER" : "ADMIN";
 }
 
 export interface PayLaterDecisionResult {
@@ -199,13 +295,13 @@ export async function decidePayLater(
   note: string | null,
   actor: PayLaterActor,
 ): Promise<PayLaterDecisionResult> {
-  assertCanDecide(actor);
   const reason = note?.trim().slice(0, 500) || null;
   if (decision === "REJECT" && !reason) throw validationFailed("Give a reason for the shop owner.", { fields: { note: "Required." } });
   const now = new Date();
   const request = await db.transaction(async (tx) => {
     const [row] = await tx.select().from(shopFeePayLater).where(eq(shopFeePayLater.id, requestId)).for("update");
     if (!row) throw notFound("Pay-later request");
+    await assertCanDecide(row, actor, tx);
     if (row.status !== "REQUESTED") throw conflict(`This request is already ${row.status.toLowerCase()}.`);
     const [updated] = await tx
       .update(shopFeePayLater)
@@ -251,6 +347,8 @@ async function approveDeferredShop(shop: Shop, actor: PayLaterActor): Promise<{ 
   const { v2SlaPendingForShop } = await import("@/server/onboarding-v2/shop-view");
   if (await v2SlaPendingForShop(shop.id)) return { live: false, waitingFor: "the owner to accept the seller agreement (the shop goes live when they do)" };
   if (await autoApproveShopIfReady(shop.id).catch(() => false)) return { live: true, waitingFor: null };
+  // A dealer's answer clears only the fee: anything else is GoKesari's team's to approve (the shop waits in Admin → Shops).
+  if (!can(actor.role, PERMISSIONS.SHOP_APPROVE)) return { live: false, waitingFor: "GoKesari's team to finish its checks (the fee no longer holds the shop)" };
   const { getRule } = await import("./settings");
   const rule = await getRule("sellerVerification");
   const classification = shop.classification ?? rule.autoApproveClassification;
@@ -482,6 +580,11 @@ export async function payLaterStatement(shop: Shop): Promise<PayLaterStatement> 
 
 export interface PayLaterAdminRow {
   id: string;
+  referralCode: string | null;
+  /** The dealer / franchise who decides, or null (GoKesari's administrators). */
+  approverName: string | null;
+  /** Who decides now (an inactive dealer's requests fall back to the administrators). */
+  decider: "DEALER" | "ADMIN";
   status: ShopFeePayLaterStatus;
   amountPaise: number;
   ownerNote: string | null;
@@ -499,14 +602,23 @@ export interface PayLaterAdminRow {
   recoveredPaise: number;
 }
 
-/** Admin: requests by status (newest first), with what has been recovered so far. */
-export async function listPayLaterRequests(filter: ShopFeePayLaterStatus | "ALL" = "REQUESTED", limit = 200): Promise<{ rows: PayLaterAdminRow[]; counts: Record<ShopFeePayLaterStatus, number> }> {
+/**
+ * Requests by status (newest first), with what has been recovered so far. Admin: all of them. A dealer
+ * (`approverUserId`): only the requests of shops registered with their codes.
+ */
+export async function listPayLaterRequests(
+  filter: ShopFeePayLaterStatus | "ALL" = "REQUESTED",
+  options: { approverUserId?: string; limit?: number } = {},
+): Promise<{ rows: PayLaterAdminRow[]; counts: Record<ShopFeePayLaterStatus, number> }> {
+  const limit = options.limit ?? 200;
+  const scope = options.approverUserId ? eq(shopFeePayLater.approverUserId, options.approverUserId) : undefined;
   const rows = await db
-    .select({ r: shopFeePayLater, shop: shops, ownerName: users.name, ownerEmail: users.email, ownerPhone: users.phoneE164 })
+    .select({ r: shopFeePayLater, shop: shops, ownerName: users.name, ownerEmail: users.email, ownerPhone: users.phoneE164, approverName: dealers.legalName, approverStatus: dealers.status, approverAccount: dealers.userId })
     .from(shopFeePayLater)
     .leftJoin(shops, eq(shops.id, shopFeePayLater.shopId))
     .leftJoin(users, eq(users.id, shopFeePayLater.ownerId))
-    .where(filter === "ALL" ? undefined : eq(shopFeePayLater.status, filter))
+    .leftJoin(dealers, eq(dealers.id, shopFeePayLater.approverDealerId))
+    .where(and(filter === "ALL" ? undefined : eq(shopFeePayLater.status, filter), scope))
     .orderBy(desc(shopFeePayLater.requestedAt))
     .limit(limit);
   const ids = rows.map((r) => r.r.id);
@@ -518,13 +630,16 @@ export async function listPayLaterRequests(filter: ShopFeePayLaterStatus | "ALL"
         .groupBy(shopFeeRecoveries.payLaterId)
     : [];
   const recoveredBy = new Map(recovered.map((r) => [r.id, Number(r.sum)]));
-  const countRows = await db.select({ status: shopFeePayLater.status, n: sql<number>`count(*)::int` }).from(shopFeePayLater).groupBy(shopFeePayLater.status);
+  const countRows = await db.select({ status: shopFeePayLater.status, n: sql<number>`count(*)::int` }).from(shopFeePayLater).where(scope).groupBy(shopFeePayLater.status);
   const counts = { REQUESTED: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0, SETTLED: 0 } as Record<ShopFeePayLaterStatus, number>;
   for (const c of countRows) counts[c.status] = Number(c.n);
   return {
     counts,
-    rows: rows.map(({ r, shop, ownerName, ownerEmail, ownerPhone }) => ({
+    rows: rows.map(({ r, shop, ownerName, ownerEmail, ownerPhone, approverName, approverStatus, approverAccount }) => ({
       id: r.id,
+      referralCode: r.referralCode,
+      approverName: r.approverDealerId ? approverName : null,
+      decider: r.approverDealerId && approverStatus === "APPROVED" && approverAccount === r.approverUserId ? ("DEALER" as const) : ("ADMIN" as const),
       status: r.status,
       amountPaise: Number(r.amountPaise),
       ownerNote: r.ownerNote,

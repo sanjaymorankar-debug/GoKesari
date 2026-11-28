@@ -152,6 +152,10 @@ export const TEMPLATES: Record<string, Template> = {
     "Pay-later request: {{shopName}}",
     "{{ownerName}} asked to pay the registration fee of {{amount}} for {{shopName}} later. Approve or reject it under Admin → Shops → Pay-later requests.",
   ),
+  [T.DEALER_SHOP_FEE_PAY_LATER_REQUESTED]: t(
+    "Pay-later request from your shop: {{shopName}}",
+    "{{ownerName}} registered {{shopName}} with your code {{code}} and asked to pay the registration fee of {{amount}} later. Approve or reject it in your dealer portal → Pay-later requests. Approved, the shop goes live and the fee is taken from its payouts.",
+  ),
   [T.SHOP_REGISTRATION_PAYMENT_LINK]: t("{{title}}", "{{message}}"),
   [T.SHOP_REGISTRATION_EXPIRY_CHANGED]: t("{{title}}", "{{message}}"),
   [T.SHOP_REGISTRATION_CONFIRMED]: t("{{title}}", "{{message}}"),

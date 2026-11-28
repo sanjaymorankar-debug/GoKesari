@@ -26,6 +26,8 @@ export const NOTIFICATION_TYPES = {
   SHOP_FEE_PAY_LATER: "shop.fee_pay_later",
   /** docs/fee-pay-later-2026-11 (0229): to administrators — an owner asked to pay the registration fee later. */
   SUPPORT_SHOP_FEE_PAY_LATER_REQUESTED: "support.shop_fee_pay_later_requested",
+  /** docs/fee-pay-later-2026-11 (0229): to the dealer / franchise whose referral code the shop used — approve or reject. */
+  DEALER_SHOP_FEE_PAY_LATER_REQUESTED: "dealer.shop_fee_pay_later_requested",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",
   /** To the shop: a customer subscribed (one product, or several newspapers together) — docs/newspaper-subscriptions-2026-11. */

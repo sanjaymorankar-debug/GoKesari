@@ -343,7 +343,8 @@ export async function requestDraftFeePayLater(
   const now = new Date();
   await patchDraft(actor.id, { v2ShopName: shopName, ...(ownerName ? { ownerName } : {}), v2Fee: quote, ...typePatch }, { feeKind: null, feePaise: quote.basePaise, feeDeferredAt: draft.feeDeferredAt ?? now });
   const { request, created } = await db.transaction((tx) =>
-    feePayLater.createPayLaterRequest({ ownerId: actor.id, draftId: draft.id, amountPaise: quote.totalPaise, note: input.note ?? null, shopName }, tx),
+    // Owner, 28-Nov-2026: the dealer / franchise whose referral code the owner entered decides.
+    feePayLater.createPayLaterRequest({ ownerId: actor.id, draftId: draft.id, amountPaise: quote.totalPaise, note: input.note ?? null, shopName, referral: { text: draft.referralCode } }, tx),
   );
   // Asked again with another band or coupon before a decision: the request follows the new quote.
   if (!created && request.status === "REQUESTED" && Number(request.amountPaise) !== quote.totalPaise) {

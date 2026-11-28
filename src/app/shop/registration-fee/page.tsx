@@ -89,13 +89,13 @@ const T = {
   /* 0229 (docs/fee-pay-later-2026-11): pay later */
   payLater: L("Pay later", "बाद में भुगतान करें", "नंतर भरा"),
   payLaterBusy: L("Sending…", "भेज रहे हैं…", "पाठवत आहोत…"),
-  payLaterNote: L("Anything GoKesari should know (optional)", "GoKesari के लिए कोई बात (वैकल्पिक)", "GoKesari ला काही सांगायचे असल्यास (ऐच्छिक)"),
+  payLaterNote: L("A note for whoever decides (optional)", "निर्णय लेने वाले के लिए कोई बात (वैकल्पिक)", "निर्णय घेणाऱ्यासाठी काही सांगायचे असल्यास (ऐच्छिक)"),
   payLaterExplain: L(
-    "Ask GoKesari to let you pay the fee later. Once approved, your shop goes live and the fee is taken from your payouts until it is paid (all of a payout when it is smaller than the fee). You can still pay it any time.",
-    "GoKesari से शुल्क बाद में देने की अनुमति माँगें। मंज़ूरी के बाद आपकी दुकान लाइव होगी और शुल्क पूरा होने तक आपके पेआउट से काटा जाएगा (पेआउट शुल्क से कम हो तो पूरा पेआउट)। आप कभी भी भुगतान कर सकते हैं।",
-    "GoKesari कडे शुल्क नंतर भरण्याची परवानगी मागा. मंजुरीनंतर तुमचे दुकान लाइव्ह होईल आणि शुल्क पूर्ण होईपर्यंत तुमच्या पेआउटमधून कापले जाईल (पेआउट शुल्कापेक्षा कमी असल्यास संपूर्ण पेआउट). तुम्ही कधीही भरू शकता.",
+    "Ask to pay the fee later. The dealer whose referral code you registered with decides (GoKesari, if you used none). Once approved, your shop goes live and the fee is taken from your payouts until it is paid (all of a payout when it is smaller than the fee). You can still pay it any time.",
+    "शुल्क बाद में देने की अनुमति माँगें — जिस डीलर का रेफ़रल कोड आपने इस्तेमाल किया वह निर्णय लेगा (कोई कोड नहीं तो GoKesari)। मंज़ूरी के बाद आपकी दुकान लाइव होगी और शुल्क पूरा होने तक आपके पेआउट से काटा जाएगा (पेआउट शुल्क से कम हो तो पूरा पेआउट)। आप कभी भी भुगतान कर सकते हैं।",
+    "शुल्क नंतर भरण्याची परवानगी मागा — ज्या डीलरचा रेफरल कोड तुम्ही वापरला तो निर्णय घेईल (कोड नसल्यास GoKesari). मंजुरीनंतर तुमचे दुकान लाइव्ह होईल आणि शुल्क पूर्ण होईपर्यंत तुमच्या पेआउटमधून कापले जाईल (पेआउट शुल्कापेक्षा कमी असल्यास संपूर्ण पेआउट). तुम्ही कधीही भरू शकता.",
   ),
-  payLaterRequested: L("Pay later: waiting for GoKesari's approval", "बाद में भुगतान: GoKesari की मंज़ूरी का इंतज़ार", "नंतर भरणे: GoKesari च्या मंजुरीची प्रतीक्षा"),
+  payLaterRequested: L("Pay later: waiting for approval by your dealer (or GoKesari)", "बाद में भुगतान: आपके डीलर (या GoKesari) की मंज़ूरी का इंतज़ार", "नंतर भरणे: तुमच्या डीलरच्या (किंवा GoKesari च्या) मंजुरीची प्रतीक्षा"),
   payLaterRequestedText: L("We will tell you as soon as it is answered. You can still pay now.", "जवाब मिलते ही हम आपको बताएँगे। आप अभी भी भुगतान कर सकते हैं।", "उत्तर मिळताच आम्ही कळवू. तुम्ही आताही भरू शकता."),
   payLaterApproved: L("Pay later approved", "बाद में भुगतान मंज़ूर", "नंतर भरणे मंजूर"),
   payLaterApprovedText: L(

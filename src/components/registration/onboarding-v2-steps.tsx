@@ -324,10 +324,10 @@ export function FeeStep({ v2, ownerName, onError }: { v2: V2State; ownerName: st
         laterOpen ? (
           <div className="space-y-2 rounded-xl border border-[var(--gk-line)] p-3" data-testid="v2-pay-later-form">
             <p className="text-sm text-ink-700">
-              Ask GoKesari to let you pay {chosen ? rupees(chosen.totalPaise) : "the fee"} later. Finish your registration meanwhile; once GoKesari approves, your shop goes live and the fee is
+              Ask to pay {chosen ? rupees(chosen.totalPaise) : "the fee"} later. The dealer whose referral code you used decides (GoKesari, if you used none). Finish your registration meanwhile; once approved, your shop goes live and the fee is
               taken from your payouts until it is paid (all of a payout when it is smaller than the fee). You can still pay it any time.
             </p>
-            <Field label="Anything GoKesari should know (optional)">
+            <Field label="A note for whoever decides (optional)">
               <textarea className={inputClass} rows={2} maxLength={500} value={laterNote} onChange={(e) => setLaterNote(e.target.value)} />
             </Field>
             <Button variant="secondary" className="w-full" disabled={busy || shopName.trim().length < 2 || !chosen} onClick={() => void payLater()} data-testid="v2-pay-later-submit">
@@ -575,7 +575,7 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
           {v2.fee.paidAtIst ? <li>Fee paid on {v2.fee.paidAtIst}</li> : null}
           {!v2.fee.paidAtIst && v2.fee.payLater ? (
             <li data-testid="v2-pay-later-summary">
-              Fee {rupees(v2.fee.payLater.amountPaise)}: pay later — {v2.fee.payLater.status === "APPROVED" ? "approved by GoKesari" : "waiting for GoKesari's approval"}
+              Fee {rupees(v2.fee.payLater.amountPaise)}: pay later — {v2.fee.payLater.status === "APPROVED" ? "approved" : "waiting for approval by your dealer (or GoKesari)"}
             </li>
           ) : null}
         </ul>
@@ -683,7 +683,7 @@ export function V2WaitingStep({ state }: { state: V2WizardLike }) {
             ? `${state.shop?.name}: paying the fee later is approved. It is waiting for a quick check of your GST / PAN details. We'll e-mail you as soon as your shop is live.`
             : v2.fee.payLater.status === "REJECTED"
               ? `Paying the fee later was not approved${v2.fee.payLater.decisionNote ? ` (${v2.fee.payLater.decisionNote})` : ""}. Please pay the registration fee to put ${state.shop?.name} live.`
-              : `${state.shop?.name} is waiting for GoKesari to approve paying the registration fee later. We'll e-mail you the answer. You can also pay the fee now from Registration fee.`}
+              : `${state.shop?.name} is waiting for your dealer (the one whose referral code you used — or GoKesari, if you used none) to approve paying the registration fee later. We'll e-mail you the answer. You can also pay the fee now.`}
         </Alert>
       ) : null}
       {v2.fee.payLater && !v2.fee.paid && state.shop ? (

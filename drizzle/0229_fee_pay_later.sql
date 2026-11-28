@@ -13,6 +13,11 @@ CREATE TABLE IF NOT EXISTS "shop_fee_pay_later" (
   "amount_paise" bigint NOT NULL CHECK ("amount_paise" > 0),
   "status" text NOT NULL DEFAULT 'REQUESTED' CHECK ("status" IN ('REQUESTED','APPROVED','REJECTED','CANCELLED','SETTLED')),
   "owner_note" text,
+  -- Who decides (owner, 28-Nov-2026): the dealer / franchise whose referral code the shop registered with; no such
+  -- code (or that dealer is no longer active) → GoKesari's administrators.
+  "referral_code" text,
+  "approver_dealer_id" uuid,
+  "approver_user_id" uuid,
   "requested_at" timestamp with time zone NOT NULL DEFAULT now(),
   "decided_at" timestamp with time zone,
   "decided_by" uuid,
@@ -28,6 +33,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS "shop_fee_pay_later_open_draft_uq" ON "shop_fe
 CREATE UNIQUE INDEX IF NOT EXISTS "shop_fee_pay_later_open_shop_uq" ON "shop_fee_pay_later" ("shop_id") WHERE "status" IN ('REQUESTED','APPROVED') AND "shop_id" IS NOT NULL;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "shop_fee_pay_later_status_idx" ON "shop_fee_pay_later" ("status", "requested_at");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "shop_fee_pay_later_approver_idx" ON "shop_fee_pay_later" ("approver_user_id", "status") WHERE "approver_user_id" IS NOT NULL;
 --> statement-breakpoint
 
 -- 2. Each amount taken out of a payout for the fee (one row per payout cycle / weekly settlement and shop).

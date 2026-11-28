@@ -14,12 +14,16 @@ vi.mock("@/server/email/transport", async (importOriginal) => {
   return { ...actual, emailMode: () => "smtp" as const, sendEmail: vi.fn(async () => {}) };
 });
 
+import { issueCode } from "@/server/dealers/codes";
+import { newReferralCode } from "@/server/services/referrals";
 import { db } from "@/server/db";
-import { notifications, payoutCycleLines, payoutItems, shopFeePayLater, shopFeeRecoveries, shopPayments, shops, shopSettlements } from "@/server/db/schema";
+import { dealers, notifications, payoutCycleLines, payoutItems, shopFeePayLater, shopFeeRecoveries, shopPayments, shops, shopSettlements } from "@/server/db/schema";
 import { closePayoutCycle } from "@/server/payouts/cycle";
 import {
   decidePayLater,
   feeDeferredByApproval,
+  listPayLaterRequests,
+  payLaterApproverForCode,
   payLaterStatement,
   recoveryFrom,
   requestShopFeePayLater,
@@ -29,7 +33,7 @@ import { prepareShopSettlements, previousWeekStart, setCommissionRate } from "@/
 import { recordPayment } from "@/server/services/shop-payments";
 import { payLaterReminderPlan } from "@/server/services/shop-registration-subscription";
 import { addDaysIso, deliveredOrder, gstShop, IST_TODAY, resetBatchE, rules, verifiedBank } from "../helpers/batch-e";
-import { createShop, createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
+import { createShop, createUser, resetDatabase, uniqueMobile, verifySellerDocuments } from "../helpers/fixtures";
 
 let admin = { id: "", role: "ADMIN" as const };
 const today = IST_TODAY();
@@ -115,6 +119,81 @@ describe("request and decision", () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id, { status: "APPROVED", registrationFeePaise: 118_000 });
     await expect(requestShopFeePayLater(shop.id, { id: owner.id })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+});
+
+describe("owner 28-Nov-2026: the dealer / franchise whose code the shop used decides", () => {
+  async function approvedDealer(name: string) {
+    const user = await createUser({ role: "DEALER", name });
+    const [dealer] = await db
+      .insert(dealers)
+      .values({ userId: user.id, legalName: name, contactName: name, dealerType: "PROPRIETORSHIP", status: "APPROVED", mobileE164: `+91${uniqueMobile()}`, decidedAt: new Date() })
+      .returning();
+    const issued = await db.transaction((tx) => issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: newReferralCode, label: name }, admin));
+    return { user, dealer, code: issued.code, referralCodeId: issued.dealerCode.referralCodeId };
+  }
+  async function shopWithCode(referralCodeId: string | null, status: "APPROVED" | "PENDING_APPROVAL" = "APPROVED") {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, { status, registrationFeePaise: 118_000 });
+    if (referralCodeId) await db.update(shops).set({ referralCodeId }).where(eq(shops.id, shop.id));
+    return { owner, shop };
+  }
+
+  it("PL-30 the code's dealer is told (not the admins), decides alone; admins and other dealers may not", async () => {
+    const d = await approvedDealer("Pune Dealer");
+    const other = await approvedDealer("Other Dealer");
+    const { owner, shop } = await shopWithCode(d.referralCodeId);
+    const req = await requestShopFeePayLater(shop.id, { id: owner.id });
+    expect(req).toMatchObject({ approverDealerId: d.dealer.id, approverUserId: d.user.id, referralCode: d.code });
+    // The code as typed on the registration (any case) finds the same dealer.
+    expect(await payLaterApproverForCode({ text: ` ${d.code.toLowerCase()} ` })).toMatchObject({ dealerId: d.dealer.id, userId: d.user.id, code: d.code });
+    expect(await payLaterApproverForCode({ text: "NO-SUCH-CODE" })).toBeNull();
+    const toDealer = await db.select().from(notifications).where(and(eq(notifications.userId, d.user.id), eq(notifications.type, "dealer.shop_fee_pay_later_requested")));
+    expect(toDealer).toHaveLength(1);
+    const toAdmin = await db.select().from(notifications).where(and(eq(notifications.userId, admin.id), eq(notifications.type, "support.shop_fee_pay_later_requested")));
+    expect(toAdmin).toHaveLength(0);
+
+    await expect(decidePayLater(req.id, "APPROVE", null, admin)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(decidePayLater(req.id, "APPROVE", null, { id: other.user.id, role: "DEALER" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const decided = await decidePayLater(req.id, "APPROVE", null, { id: d.user.id, role: "DEALER" });
+    expect(decided.request).toMatchObject({ status: "APPROVED", decidedBy: d.user.id });
+    expect(await feeDeferredByApproval(shop.id)).toBe(true);
+
+    // His list shows only his shops; the admin list shows who decides.
+    const mine = await listPayLaterRequests("ALL", { approverUserId: d.user.id });
+    expect(mine.rows.map((r) => r.id)).toEqual([req.id]);
+    expect((await listPayLaterRequests("ALL", { approverUserId: other.user.id })).rows).toHaveLength(0);
+    const all = await listPayLaterRequests("ALL");
+    expect(all.rows[0]).toMatchObject({ decider: "DEALER", approverName: "Pune Dealer", referralCode: d.code });
+  });
+
+  it("PL-31 a dealer's approval clears only the fee: a pending shop with other checks open waits for GoKesari's team", async () => {
+    const d = await approvedDealer("Pune Dealer");
+    const { owner, shop } = await shopWithCode(d.referralCodeId, "PENDING_APPROVAL");
+    const req = await requestShopFeePayLater(shop.id, { id: owner.id });
+    const decided = await decidePayLater(req.id, "APPROVE", null, { id: d.user.id, role: "DEALER" });
+    expect(decided.live).toBe(false);
+    expect(decided.waitingFor).toMatch(/GoKesari's team/);
+    expect((await shopRow(shop.id)).status).toBe("PENDING_APPROVAL");
+    // The admin approves the shop as usual: the fee no longer blocks it.
+    await verifySellerDocuments(shop.id);
+    const { approveShop } = await import("@/server/services/shops");
+    await approveShop(shop.id, { classification: "KESARI" }, admin);
+    expect((await shopRow(shop.id)).status).toBe("APPROVED");
+  });
+
+  it("PL-32 no dealer code, or the dealer is no longer active: GoKesari's administrators decide", async () => {
+    const { owner, shop } = await shopWithCode(null);
+    const req = await requestShopFeePayLater(shop.id, { id: owner.id });
+    expect(req.approverUserId).toBeNull();
+
+    const d = await approvedDealer("Gone Dealer");
+    const second = await shopWithCode(d.referralCodeId);
+    const req2 = await requestShopFeePayLater(second.shop.id, { id: second.owner.id });
+    await db.update(dealers).set({ status: "SUSPENDED" }).where(eq(dealers.id, d.dealer.id));
+    await expect(decidePayLater(req2.id, "APPROVE", null, { id: d.user.id, role: "DEALER" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const decided = await decidePayLater(req2.id, "APPROVE", null, admin);
+    expect(decided.request.status).toBe("APPROVED");
   });
 });
 
