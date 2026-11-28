@@ -121,7 +121,7 @@ describe("TC-WKIT-039 … 042: one e-mail for a new shop — the welcome kit car
     expect(mail.to).toBe(owner.email);
     expect(mail.subject).toContain(KIT);
     expect(pdfs(mail)).toEqual(expect.arrayContaining(["seller-sla-v1.0-en-signed.pdf", "seller-sla-v1.0-mr-signed.pdf", "seller-sla-v1.0-hi-signed.pdf"]));
-    expect(pdfs(mail).filter((f) => !f.includes("seller-sla"))).toHaveLength(2); // English + Marathi banners
+    expect(pdfs(mail).filter((f) => !f.includes("seller-sla"))).toHaveLength(3); // English, Marathi and Hindi banners
     expect(mail.cc).toEqual((await getRule("sellerAgreements")).ccEmails);
     expect(mail.html).toContain("Your signed agreements");
     expect(mail.text).toContain("Dear Sunita Patil, congratulations!");
