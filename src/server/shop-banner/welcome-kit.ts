@@ -457,10 +457,13 @@ export async function renderShopWelcomeKit(shopId: string, kind: WelcomeKitConte
           })
       : null;
   const html = welcomeKitHtml({ ...files.content, kind });
+  // Owner, 28-Nov-2026: an admin's "Resend updated banner" is copied to the company address(es) that get every
+  // signed-agreement e-mail (rule sellerAgreements.ccEmails, ceo@agtci.com).
+  const updateCc = kind === "update" ? (await getRule("sellerAgreements")).ccEmails : [];
   return {
     html: agreements ? html.replace(AGREEMENTS_SLOT, agreements.html) : html.replace(AGREEMENTS_SLOT, ""),
     attachments: agreements ? [...attachments, ...agreements.attachments] : attachments,
     ...(agreements ? { text: `${welcomeKitText({ ...files.content, kind })}\n\n${agreements.text}` } : {}),
-    ...(agreements?.cc.length ? { cc: agreements.cc } : {}),
+    ...(agreements?.cc.length ? { cc: agreements.cc } : updateCc.length ? { cc: updateCc } : {}),
   };
 }

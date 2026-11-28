@@ -24,7 +24,7 @@ vi.mock("@/server/auth", () => ({ auth: async () => state.session, handlers: {},
 
 const sent = vi.hoisted(() => ({
   fail: 0,
-  emails: [] as { to: string; subject: string; text: string; html?: string; attachments?: { filename: string; contentType: string; content: Buffer; cid?: string }[] }[],
+  emails: [] as { to: string; cc?: string[]; subject: string; text: string; html?: string; attachments?: { filename: string; contentType: string; content: Buffer; cid?: string }[] }[],
 }));
 vi.mock("@/server/email/transport", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/email/transport")>();
@@ -212,6 +212,7 @@ describe("TC-WKIT-032 … 034: existing shops, resend, payment QR", () => {
     await deliverDocumentEmails();
     const update = sent.emails.find((e) => e.subject.includes("updated GoKesari banners"))!;
     expect(update.to).toBe(owner.email);
+    expect(update.cc).toEqual(["ceo@agtci.com"]); // owner, 28-Nov-2026: the company gets a copy of every banner resend
     expect(update.text).toContain("Dear Sunita Patil, here are the updated GoKesari banners for Samarth Tea Center.");
     expect(update.text).not.toContain("congratulations");
     expect(update.attachments!.filter((a) => a.contentType === "application/pdf")).toHaveLength(3);
