@@ -140,7 +140,10 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
     payments: viaGateway.map((p) => ({ method: p.method, amountPaise: Number(p.amountPaise), reference: p.reference, paidAt: p.paidAt.toISOString() })),
     otherPaise: payments.filter((p) => !viaGateway.includes(p)).reduce((sum, p) => sum + Number(p.amountPaise), 0),
   };
-  if (shop.feePaymentStatus !== "PAID") reasons.push("registration fee not paid");
+  // 0229 (docs/fee-pay-later-2026-11): an administrator approved paying the fee later — the fee does not hold the shop.
+  const payLater = shop.feePaymentStatus !== "PAID" && (await (await import("./fee-pay-later")).feeDeferredByApproval(shop.id));
+  if (payLater) evidence.payLater = { approved: true, duePaise: Math.max(0, fee - shop.amountPaidPaise) };
+  else if (shop.feePaymentStatus !== "PAID") reasons.push("registration fee not paid");
   else if (fee > 0 && gatewayPaise < fee) reasons.push("registration fee not confirmed by the payment gateway");
 
   // The documents every approval needs today (the database refuses an approval without them).

@@ -217,6 +217,12 @@ export const AUDIT_ACTIONS = {
   SHOP_MEMBERSHIP_RENEWAL_PAID: "shop.membership_renewal_paid",
   // 0210 registration subscription (docs/shop-registration-subscription-2026-11)
   SHOP_REGISTRATION_REMINDER_SENT: "shop.registration_reminder_sent",
+  // docs/fee-pay-later-2026-11 (0229): registration fee paid later, out of payouts
+  SHOP_FEE_PAY_LATER_REQUESTED: "shop.fee_pay_later_requested",
+  SHOP_FEE_PAY_LATER_APPROVED: "shop.fee_pay_later_approved",
+  SHOP_FEE_PAY_LATER_REJECTED: "shop.fee_pay_later_rejected",
+  SHOP_FEE_PAY_LATER_SETTLED: "shop.fee_pay_later_settled",
+  SHOP_FEE_RECOVERED_FROM_PAYOUT: "shop.fee_recovered_from_payout",
   SHOP_REGISTRATION_LINK_CREATED: "shop.registration_link_created",
   SHOP_REGISTRATION_LINK_CANCELLED: "shop.registration_link_cancelled",
   SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",

@@ -2,9 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { DocumentsPromiseForm } from "@/components/documents-promise-form";
+import { FeePayLaterRequestButton } from "@/components/fee-pay-later";
 import { RegistrationFeePayButton } from "@/components/registration-fee-pay-button";
 import { Alert, Badge, Card, LinkButton, Money, PageHeader } from "@/components/ui";
 import { SELLER_DOC_LABELS } from "@/lib/kyc/doc-formats";
+import { formatPaise } from "@/lib/money";
 import { formatGstRate, formatRupeesIndian } from "@/lib/registration-fee";
 import { L, tr } from "@/lib/board/i18n";
 import { getBoardLang } from "@/server/board-lang";
@@ -19,6 +21,7 @@ import { shopDocumentGate } from "@/server/services/shop-document-gate";
 import { listShopsForOwner } from "@/server/services/shops";
 import { wizardContinuePath } from "@/server/services/shop-registration-wizard";
 import { isWizardRegisteredShop } from "@/server/services/shop-onboarding";
+import { payLaterEnabled, payLaterStatement } from "@/server/services/fee-pay-later";
 
 export const metadata = { title: "Registration fee" };
 export const dynamic = "force-dynamic";
@@ -83,6 +86,34 @@ const T = {
   verified: L("Verified: {docs}", "सत्यापित: {docs}", "पडताळलेले: {docs}"),
   verifyDocs: L("Verify my documents", "मेरे दस्तावेज़ सत्यापित करें", "माझी कागदपत्रे पडताळा"),
   uploadCopies: L("Upload document copies", "दस्तावेज़ों की कॉपी अपलोड करें", "कागदपत्रांच्या प्रती अपलोड करा"),
+  /* 0229 (docs/fee-pay-later-2026-11): pay later */
+  payLater: L("Pay later", "बाद में भुगतान करें", "नंतर भरा"),
+  payLaterBusy: L("Sending…", "भेज रहे हैं…", "पाठवत आहोत…"),
+  payLaterNote: L("A note for whoever decides (optional)", "निर्णय लेने वाले के लिए कोई बात (वैकल्पिक)", "निर्णय घेणाऱ्यासाठी काही सांगायचे असल्यास (ऐच्छिक)"),
+  payLaterExplain: L(
+    "Ask to pay the fee later. The dealer whose referral code you registered with decides (GoKesari, if you used none). Once approved, your shop goes live and the fee is taken from your payouts until it is paid (all of a payout when it is smaller than the fee). You can still pay it any time.",
+    "शुल्क बाद में देने की अनुमति माँगें — जिस डीलर का रेफ़रल कोड आपने इस्तेमाल किया वह निर्णय लेगा (कोई कोड नहीं तो GoKesari)। मंज़ूरी के बाद आपकी दुकान लाइव होगी और शुल्क पूरा होने तक आपके पेआउट से काटा जाएगा (पेआउट शुल्क से कम हो तो पूरा पेआउट)। आप कभी भी भुगतान कर सकते हैं।",
+    "शुल्क नंतर भरण्याची परवानगी मागा — ज्या डीलरचा रेफरल कोड तुम्ही वापरला तो निर्णय घेईल (कोड नसल्यास GoKesari). मंजुरीनंतर तुमचे दुकान लाइव्ह होईल आणि शुल्क पूर्ण होईपर्यंत तुमच्या पेआउटमधून कापले जाईल (पेआउट शुल्कापेक्षा कमी असल्यास संपूर्ण पेआउट). तुम्ही कधीही भरू शकता.",
+  ),
+  payLaterRequested: L("Pay later: waiting for approval by your dealer (or GoKesari)", "बाद में भुगतान: आपके डीलर (या GoKesari) की मंज़ूरी का इंतज़ार", "नंतर भरणे: तुमच्या डीलरच्या (किंवा GoKesari च्या) मंजुरीची प्रतीक्षा"),
+  payLaterRequestedText: L("We will tell you as soon as it is answered. You can still pay now.", "जवाब मिलते ही हम आपको बताएँगे। आप अभी भी भुगतान कर सकते हैं।", "उत्तर मिळताच आम्ही कळवू. तुम्ही आताही भरू शकता."),
+  payLaterApproved: L("Pay later approved", "बाद में भुगतान मंज़ूर", "नंतर भरणे मंजूर"),
+  payLaterApprovedText: L(
+    "The fee is taken from your payouts until it is paid. Pay now to keep your full payouts.",
+    "शुल्क पूरा होने तक आपके पेआउट से काटा जाता है। पूरा पेआउट पाने के लिए अभी भुगतान करें।",
+    "शुल्क पूर्ण होईपर्यंत तुमच्या पेआउटमधून कापले जाते. पूर्ण पेआउटसाठी आत्ताच भरा.",
+  ),
+  payLaterRejected: L("Pay later not approved", "बाद में भुगतान मंज़ूर नहीं", "नंतर भरणे मंजूर नाही"),
+  statement: L("Registration fee statement", "पंजीकरण शुल्क विवरण", "नोंदणी शुल्क विवरण"),
+  stFee: L("Registration fee", "पंजीकरण शुल्क", "नोंदणी शुल्क"),
+  stRecovered: L("Taken from your payouts", "आपके पेआउट से काटा गया", "तुमच्या पेआउटमधून कापले"),
+  stPaidOther: L("Paid by you", "आपके द्वारा भुगतान", "तुम्ही भरले"),
+  stLeft: L("Still to pay", "अभी बाकी", "अजून बाकी"),
+  stCommission: L("GoKesari's commission on your orders so far", "अब तक आपके ऑर्डर पर GoKesari का कमीशन", "आतापर्यंत तुमच्या ऑर्डरवर GoKesari चे कमिशन"),
+  stOrders: L("{n} delivered orders worth {amount}", "{n} डिलीवर ऑर्डर, कुल {amount}", "{n} पोहोचवलेल्या ऑर्डर, एकूण {amount}"),
+  stDeductions: L("Deductions", "कटौतियाँ", "कपात"),
+  stNone: L("Nothing taken from your payouts yet.", "अभी तक पेआउट से कुछ नहीं काटा गया।", "अजून पेआउटमधून काहीही कापले नाही."),
+  stRow: L("{date}: {amount} of a payout of {payout}", "{date}: {payout} के पेआउट में से {amount}", "{date}: {payout} पेआउटपैकी {amount}"),
 } as const;
 
 /**
@@ -113,8 +144,11 @@ export default async function RegistrationFeePage({
   const shop = await checkRegistrationFeePayment(shopId, params.intent ?? null, user.id).catch(() => null);
   if (!shop) redirect("/shop");
   const due = registrationFeeDue(shop);
+  // 0229: the pay-later request and its statement (kept on show once the fee is paid from payouts).
+  const [payLaterOn, statement] = await Promise.all([payLaterEnabled(), payLaterStatement(shop)]);
+  const payLaterShown = statement.request !== null && statement.request.status !== "CANCELLED";
   // Paid (or nothing due) on a wizard registration: carry on in the wizard (Phase B, G13).
-  if (due === 0) {
+  if (due === 0 && !payLaterShown) {
     const next = await wizardContinuePath(user.id, shop.id);
     if (next) redirect(next);
   }
@@ -249,6 +283,12 @@ export default async function RegistrationFeePage({
                   </Alert>
                 ) : null}
                 <RegistrationFeePayButton shopId={shop.id} amountPaise={due} />
+                {payLaterOn && !statement.request?.status.match(/^(REQUESTED|APPROVED|REJECTED)$/) && (shop.status === "PENDING_APPROVAL" || shop.status === "APPROVED") ? (
+                  <FeePayLaterRequestButton
+                    shopId={shop.id}
+                    labels={{ button: tr(T.payLater, lang), busy: tr(T.payLaterBusy, lang), note: tr(T.payLaterNote, lang), explain: tr(T.payLaterExplain, lang) }}
+                  />
+                ) : null}
               </>
             ) : (
               <div className="space-y-3" data-testid="documents-before-fee">
@@ -274,6 +314,72 @@ export default async function RegistrationFeePage({
           </>
         )}
       </Card>
+
+      {payLaterShown && statement.request ? (
+        <Card className="mt-4 space-y-3 p-5" data-testid="fee-pay-later-statement">
+          {statement.request.status === "REQUESTED" ? (
+            <Alert tone="info" title={tr(T.payLaterRequested, lang)}>
+              {tr(T.payLaterRequestedText, lang)}
+            </Alert>
+          ) : statement.request.status === "APPROVED" ? (
+            <Alert tone="success" title={tr(T.payLaterApproved, lang)}>
+              {tr(T.payLaterApprovedText, lang)}
+            </Alert>
+          ) : statement.request.status === "REJECTED" ? (
+            <Alert tone="warning" title={tr(T.payLaterRejected, lang)}>
+              {statement.request.decisionNote ?? ""}
+            </Alert>
+          ) : null}
+          <h2 className="font-semibold text-ink-900">{tr(T.statement, lang)}</h2>
+          <dl className="grid grid-cols-2 gap-y-1 text-sm">
+            <dt className="text-ink-500">{tr(T.stFee, lang)}</dt>
+            <dd className="text-right text-ink-900">
+              <Money paise={statement.feePaise} />
+            </dd>
+            <dt className="text-ink-500">{tr(T.stRecovered, lang)}</dt>
+            <dd className="text-right text-ink-900" data-testid="fee-recovered">
+              <Money paise={statement.recoveredPaise} />
+            </dd>
+            {statement.paidOtherwisePaise > 0 ? (
+              <>
+                <dt className="text-ink-500">{tr(T.stPaidOther, lang)}</dt>
+                <dd className="text-right text-ink-900">
+                  <Money paise={statement.paidOtherwisePaise} />
+                </dd>
+              </>
+            ) : null}
+            <dt className="font-semibold text-ink-700">{tr(T.stLeft, lang)}</dt>
+            <dd className="text-right font-semibold text-ink-900" data-testid="fee-left">
+              <Money paise={statement.duePaise} />
+            </dd>
+            <dt className="text-ink-500">{tr(T.stCommission, lang)}</dt>
+            <dd className="text-right text-ink-900" data-testid="fee-commission">
+              <Money paise={statement.commissionEarnedPaise} />
+            </dd>
+          </dl>
+          <p className="text-xs text-ink-500">
+            {tr(T.stOrders, lang).replace("{n}", String(statement.deliveredOrders)).replace("{amount}", formatPaise(statement.goodsPaise))}
+          </p>
+          <div>
+            <h3 className="text-sm font-semibold text-ink-700">{tr(T.stDeductions, lang)}</h3>
+            {statement.deductions.length === 0 ? (
+              <p className="text-sm text-ink-500">{tr(T.stNone, lang)}</p>
+            ) : (
+              <ul className="mt-1 space-y-1 text-sm text-ink-700">
+                {statement.deductions.map((d) => (
+                  <li key={`${d.at.toISOString()}-${d.amountPaise}`}>
+                    {tr(T.stRow, lang)
+                      .replace("{date}", dateIn(d.at))
+                      .replace("{amount}", formatPaise(d.amountPaise))
+                      .replace("{payout}", formatPaise(d.payoutBeforePaise))}
+                    {d.reference ? <span className="text-ink-500"> ({d.reference})</span> : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Card>
+      ) : null}
     </div>
   );
 }

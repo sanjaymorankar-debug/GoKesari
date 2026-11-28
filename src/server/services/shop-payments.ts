@@ -225,6 +225,11 @@ export async function recordPayment(
       });
       // 0210 registration subscription: last payment, start date, overrides ended by a new period.
       await noteRegistrationPayment(tx, shop.id, payment, membership.periodEnd);
+      // 0229 (docs/fee-pay-later-2026-11): a fee paid in full ends the shop's pay-later request.
+      if (settlement.feePaymentStatus === "PAID") {
+        const { settlePayLater } = await import("./fee-pay-later");
+        await settlePayLater(tx, shop.id, payment.method === "PAYOUT_DEDUCTION" ? "paid in full from payouts" : `payment ${payment.reference}`);
+      }
     } else if (input.paymentType === "REFUND") {
       await rollBackUnpaidMembershipPeriods(tx, shop.id, payment.id, `refund ${payment.reference}`);
     }

@@ -40,6 +40,7 @@ import {
   registrationLicenceEntries,
   registrationLicenceFiles,
   shopRegistrationDraftChecks,
+  shopFeePayLater,
   shopRegistrationDrafts,
   shops,
   users,
@@ -245,7 +246,8 @@ export async function startDraftFeeCheckout(
   const allIntents = await listIntentsFor(DRAFT_FEE_PURPOSE, draft.id);
   if (allIntents.some((row) => isPaid(row))) throw conflict("The registration fee is already paid.", { reason: "FEE_PAID" });
   const view = await toWizardView(draft);
-  if (view.nextStep !== "FEE") throw conflict("Please finish the earlier steps first.", { reason: "STEP_OPEN", nextStep: view.nextStep });
+  // 0229: after "Pay later" the owner may still pay now (the request then ends when the payment is captured).
+  if (view.nextStep !== "FEE" && !draft.feeDeferredAt) throw conflict("Please finish the earlier steps first.", { reason: "STEP_OPEN", nextStep: view.nextStep });
   const shopName = input.shopName.trim();
   if (shopName.length < 2 || shopName.length > 120) throw validationFailed("Please check the highlighted fields.", { fields: { shopName: "Enter your shop's name." } });
   const ownerName = input.ownerName?.trim() || null;
@@ -308,6 +310,51 @@ export async function startDraftFeeCheckout(
 }
 
 /**
+ * 0229 (docs/fee-pay-later-2026-11; flag shop_fee_pay_later_enabled): "Pay later" on the fee step. The fee is quoted
+ * exactly as for a payment (band, coupon, GST), open checkouts end, and a request goes to the administrators; the
+ * owner carries on with the next steps meanwhile. The shop is created owing the fee; once an administrator approves,
+ * the fee no longer holds it back and it is taken from the shop's payouts (services/fee-pay-later.ts). Rejected, the
+ * registration returns to this step. Owner only, as for the payment.
+ */
+export async function requestDraftFeePayLater(
+  actor: Actor,
+  input: { slab: number | null; couponCode?: string | null; shopName: string; ownerName?: string | null; note?: string | null },
+): Promise<{ view: WizardView; amountPaise: number }> {
+  const feePayLater = await import("@/server/services/fee-pay-later");
+  if (!(await feePayLater.payLaterEnabled())) throw conflict("Pay later is not available. Please pay the registration fee.", { reason: "PAY_LATER_OFF" });
+  const draft = await openV2Draft(actor.id);
+  if (draft.feePaidAt) throw conflict("The registration fee is already paid.", { reason: "FEE_PAID" });
+  const allIntents = await listIntentsFor(DRAFT_FEE_PURPOSE, draft.id);
+  if (allIntents.some((row) => isPaid(row))) throw conflict("The registration fee is already paid.", { reason: "FEE_PAID" });
+  const latest = await feePayLater.latestPayLaterForDraft(draft.id);
+  if (latest?.status === "REJECTED") throw conflict("Your request to pay later was not approved. Please pay the registration fee.", { reason: "PAY_LATER_REJECTED" });
+  const view = await toWizardView(draft);
+  if (view.nextStep !== "FEE" && !draft.feeDeferredAt) throw conflict("Please finish the earlier steps first.", { reason: "STEP_OPEN", nextStep: view.nextStep });
+  const shopName = input.shopName.trim();
+  if (shopName.length < 2 || shopName.length > 120) throw validationFailed("Please check the highlighted fields.", { fields: { shopName: "Enter your shop's name." } });
+  const ownerName = input.ownerName?.trim() || null;
+  if (ownerName !== null && ownerName.length < 2) throw validationFailed("Please check the highlighted fields.", { fields: { ownerName: "Enter the owner's name." } });
+
+  const quote = await v2FeeQuote({ ownerId: actor.id, slab: input.slab, couponCode: input.couponCode ?? null });
+  if (quote.totalPaise === 0) return startDraftFeeCheckout(actor, input).then((r) => ({ view: r.view, amountPaise: 0 }));
+  // A checkout left open would let a late payment and the pay-later request both stand: it ends here.
+  for (const row of allIntents.filter((r) => isLive(r))) await expireReplacedCheckout(row.id);
+  const typePatch = draft.feeKind === "WHOLESALE" ? { shopType: undefined } : {};
+  const now = new Date();
+  await patchDraft(actor.id, { v2ShopName: shopName, ...(ownerName ? { ownerName } : {}), v2Fee: quote, ...typePatch }, { feeKind: null, feePaise: quote.basePaise, feeDeferredAt: draft.feeDeferredAt ?? now });
+  const { request, created } = await db.transaction((tx) =>
+    // Owner, 28-Nov-2026: the dealer / franchise whose referral code the owner entered decides.
+    feePayLater.createPayLaterRequest({ ownerId: actor.id, draftId: draft.id, amountPaise: quote.totalPaise, note: input.note ?? null, shopName, referral: { text: draft.referralCode } }, tx),
+  );
+  // Asked again with another band or coupon before a decision: the request follows the new quote.
+  if (!created && request.status === "REQUESTED" && Number(request.amountPaise) !== quote.totalPaise) {
+    await db.update(shopFeePayLater).set({ amountPaise: quote.totalPaise, updatedAt: now }).where(eq(shopFeePayLater.id, request.id));
+  }
+  if (created) await feePayLater.tellAdminsOfPayLaterRequest(request, shopName);
+  return { view: await toWizardView((await findOpenDraft(actor.id))!), amountPaise: quote.totalPaise };
+}
+
+/**
  * The quote a draft-fee checkout was opened for (its metadata), or null: a turnover-band quote (27-Nov-2026 on), or
  * a fee-by-kind quote of a checkout opened before (still applied as it was paid).
  */
@@ -355,6 +402,13 @@ export async function onDraftFeeCaptured(intent: PaymentIntentRef, client: DbCli
       .update(shopRegistrationDrafts)
       .set({ feePaidAt: now, feePaymentIntentId: intent.id, feeKind: quote.kind ?? null, feePaise: quote.basePaise, details, updatedAt: now })
       .where(eq(shopRegistrationDrafts.id, current.id));
+  }
+  if (current && quote && !problem && !current.feePaidAt) {
+    // 0229: paid after asking to pay later — the request is no longer needed.
+    await client
+      .update(shopFeePayLater)
+      .set({ status: "CANCELLED", decisionNote: "Fee paid online before the shop was created.", updatedAt: now })
+      .where(and(eq(shopFeePayLater.draftId, current.id), inArray(shopFeePayLater.status, ["REQUESTED", "APPROVED"])));
   }
   if (problem) {
     console.error("[onboarding-v2] draft fee capture not applied — refund needed", intent.id, problem);
@@ -466,8 +520,9 @@ async function draftCheckOutcome(draftId: string, docType: string): Promise<{ st
 export async function saveLicenceEntry(actor: Actor, input: LicenceEntryInput): Promise<WizardView> {
   const draft = await openV2Draft(actor.id);
   const view = await toWizardView(draft);
-  if (!view.v2?.fee.paid || !view.shopType) throw conflict("Please pay the fee and choose your shop type first.", { reason: "STEP_OPEN", nextStep: view.nextStep });
-  const licence = view.v2.licences.find((l) => l.key === input.licenceKey);
+  // 0229: "Pay later" asked (or approved) passes the fee step as a payment does.
+  if ((!view.v2?.fee.paid && !draft.feeDeferredAt) || !view.shopType) throw conflict("Please pay the fee and choose your shop type first.", { reason: "STEP_OPEN", nextStep: view.nextStep });
+  const licence = view.v2!.licences.find((l) => l.key === input.licenceKey);
   if (!licence) throw notFound("Licence");
   const now = new Date();
   let status: LicenceEntryStatus;
@@ -587,6 +642,14 @@ export async function prepareV2Agreement(actor: Actor, input: { ip?: string | nu
 
 /** After registerShop (called by the wizard): ledger entry for the paid fee, the owner's wallet, the role history. */
 export async function afterV2ShopCreated(shop: Shop, actor: Actor): Promise<void> {
+  // 0229 (docs/fee-pay-later-2026-11): a "pay later" request made on the draft now belongs to the shop (also linked
+  // on first read if this fails).
+  const [draftRow] = await db.select({ id: shopRegistrationDrafts.id }).from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.shopId, shop.id)).limit(1);
+  if (draftRow) {
+    await (await import("@/server/services/fee-pay-later"))
+      .linkPayLaterToShop(draftRow.id, shop.id)
+      .catch((error: unknown) => console.error("[onboarding-v2] pay-later request not linked yet", shop.id, error));
+  }
   // The customer side always exists for a shop owner (never a separate sign-up): one wallet per account.
   await db.insert(wallets).values({ userId: shop.ownerId }).onConflictDoNothing();
   await recordRoleChange({

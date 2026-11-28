@@ -58,6 +58,11 @@ export default async function MyFranchisePage({ searchParams }: { searchParams: 
                 My team
               </LinkButton>
             ) : null}
+            {d.status.hasDealer ? (
+              <LinkButton href="/dealer/pay-later" variant="secondary">
+                Pay-later requests
+              </LinkButton>
+            ) : null}
             <LinkButton href={ov2 ? "/franchise/start?model=paid" : "/franchise/book"}>Book zones</LinkButton>
           </div>
         } />

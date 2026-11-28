@@ -768,8 +768,10 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
     throw conflict("Payout deductions are on: shops are paid through the payout cycle (Admin → Payouts), which withholds TCS and TDS.");
   }
   const settlementRule = await getRule("settlement");
+  // 0229 (docs/fee-pay-later-2026-11): the fee deductions of this run, told to their owners once it commits.
+  let feeNotices: { shopId: string; amountPaise: number; payoutBeforePaise: number; label: string }[] = [];
 
-  return db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const eligibleOrders = await tx
       .select({ financial: orderFinancials })
       .from(orderFinancials)
@@ -801,6 +803,10 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
       ...eligibleAdjustments.map((a) => a.shopId!),
     ]);
     const created: ShopSettlement[] = [];
+    // 0229: shops whose registration fee an administrator let them pay later — the settlement pays it first.
+    const { feeRecoveriesDue, recordFeeRecovery, recoveryFrom } = await import("./fee-pay-later");
+    const feesDue = await feeRecoveriesDue([...shopIds], tx);
+    const notices: typeof feeNotices = [];
     for (const shopId of shopIds) {
       const lines = eligibleOrders.filter((r) => r.financial.shopId === shopId).map((r) => r.financial);
       const adjustments = eligibleAdjustments.filter((a) => a.shopId === shopId);
@@ -810,6 +816,10 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
       const refundsPaise = adjustments.filter((a) => a.type === "REFUND_SHOP").reduce((sum, a) => sum + a.amountPaise, 0);
       const adjustmentsPaise = adjustments.filter((a) => a.type !== "REFUND_SHOP").reduce((sum, a) => sum + a.amountPaise, 0);
       if (lines.length === 0 && adjustments.length === 0) continue;
+      const netBefore = goodsPaise - commissionPaise + refundsPaise + adjustmentsPaise;
+      const feeDue = feesDue.get(shopId);
+      // The fee is shown in the settlement's adjustments (−) and taken off its net payable.
+      const feeRecovered = feeDue ? recoveryFrom(netBefore, feeDue.duePaise) : 0;
 
       const [settlement] = await tx
         .insert(shopSettlements)
@@ -821,11 +831,16 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
           goodsPaise,
           commissionPaise,
           refundsPaise,
-          adjustmentsPaise,
-          netPayablePaise: goodsPaise - commissionPaise + refundsPaise + adjustmentsPaise,
+          adjustmentsPaise: adjustmentsPaise - feeRecovered,
+          netPayablePaise: netBefore - feeRecovered,
           createdBy: actor.id,
         })
         .returning();
+      if (feeDue && feeRecovered > 0) {
+        const label = `the settlement for the week of ${start}`;
+        await recordFeeRecovery(tx, { shopId, due: feeDue, amountPaise: feeRecovered, payoutBeforePaise: netBefore, sourceType: "SHOP_SETTLEMENT", sourceId: settlement.id, label });
+        notices.push({ shopId, amountPaise: feeRecovered, payoutBeforePaise: netBefore, label });
+      }
       if (lines.length > 0) {
         await tx
           .update(orderFinancials)
@@ -851,8 +866,11 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
       );
       created.push(settlement);
     }
+    feeNotices = notices;
     return created;
   });
+  if (feeNotices.length) await (await import("./fee-pay-later")).tellOwnersOfRecoveries(feeNotices);
+  return created;
 }
 
 /**
