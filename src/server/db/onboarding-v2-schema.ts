@@ -140,6 +140,12 @@ export const registrationLicenceEntries = pgTable(
     /** 0217: the operator who decided a PENDING_OPERATOR entry (Admin → Shop documents → Registration licences). */
     reviewedBy: uuid("reviewed_by"),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    /**
+     * 0231 (owner, 28-Nov-2026): an EXPIRED licence promised for renewal at registration (option LATER, status PROMISED):
+     * the expiry date the owner was shown, and when the renewal was promised. Chased like a missing promised licence.
+     */
+    expiredOn: text("expired_on"),
+    renewalPromisedAt: timestamp("renewal_promised_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

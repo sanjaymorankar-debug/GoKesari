@@ -112,16 +112,30 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
   const statements = await Promise.all(months.map((m) => dealerMonthStatement(dealer.id, m)));
   // Onboarding v2 (docs/onboarding-v2-2026-11): "My team" (built at /dealer/team) and the upgrade through Become a franchisee.
   const ov2 = await (await import("@/server/onboarding-v2/roles")).onboardingV2Enabled();
+  // docs/fee-pay-later-2026-11 (0229): pay-later requests of shops registered with his codes, waiting for his answer.
+  const payLaterWaiting = (await (await import("@/server/services/fee-pay-later")).listPayLaterRequests("REQUESTED", { approverUserId: user.id, limit: 50 }).catch(() => null))?.counts.REQUESTED ?? 0;
+  // 0232 (owner, 28-Nov-2026): the franchisee's open support items — held shops, pay-later requests, shops not selling.
+  const escalationsOpen = (await (await import("@/server/services/support-escalations")).countOpenEscalations(user.id).catch(() => null))?.total ?? 0;
   // Dates become ISO strings for the client component.
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" action={<div className="flex flex-wrap gap-2"><LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton>{ov2 ? <LinkButton href="/dealer/team" variant="secondary">My team</LinkButton> : null}<LinkButton href={ov2 ? "/franchise/start?model=paid" : "/franchise"} variant="secondary">Upgrade to Paid Franchise</LinkButton></div>} />
+      <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" action={<div className="flex flex-wrap gap-2"><LinkButton href="/dealer/commission-chart" variant="secondary">Commission chart</LinkButton>{ov2 ? <LinkButton href="/dealer/team" variant="secondary">My team</LinkButton> : null}<LinkButton href="/dealer/pay-later" variant="secondary">{payLaterWaiting > 0 ? `Pay-later requests (${payLaterWaiting})` : "Pay-later requests"}</LinkButton><LinkButton href="/dealer/escalations" variant="secondary">{escalationsOpen > 0 ? `Shops needing help (${escalationsOpen})` : "Shops needing help"}</LinkButton><LinkButton href={ov2 ? "/franchise/start?model=paid" : "/franchise"} variant="secondary">Upgrade to Paid Franchise</LinkButton></div>} />
       <p className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
         <Badge tone="success">Approved</Badge>
         {dealer.agreementStart && dealer.agreementEnd ? <span>Agreement {dealer.agreementStart} to {dealer.agreementEnd}</span> : null}
         <Link className="underline" href="/dealer/apply">Your details</Link>
       </p>
+      {payLaterWaiting > 0 ? (
+        <Alert tone="warning" title={`${payLaterWaiting} shop${payLaterWaiting === 1 ? "" : "s"} asked to pay the registration fee later`}>
+          <Link className="underline" href="/dealer/pay-later">Approve or reject</Link> — shops registered with your code wait for your answer.
+        </Alert>
+      ) : null}
+      {escalationsOpen > 0 ? (
+        <Alert tone="warning" title={`${escalationsOpen} shop${escalationsOpen === 1 ? "" : "s"} registered with your code need${escalationsOpen === 1 ? "s" : ""} you`}>
+          <Link className="underline" href="/dealer/escalations">Open the list</Link> — a shop held for review, a pay-later request or a shop that has not started selling. Items not closed in 7 days go to GoKesari&apos;s operators.
+        </Alert>
+      ) : null}
       {held ? <PayoutHeldBanner {...held} panHref="/dealer/apply#documents" bankHref="/dealer/apply#bank" /> : null}
       {scheme ? (
         <p className="text-sm text-ink-700" data-testid="dealer-my-scheme">

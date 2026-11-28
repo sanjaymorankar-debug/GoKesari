@@ -7,6 +7,8 @@ import { DEALER_STATUS_LABELS, DEALER_STATUSES, DEALER_TYPE_LABELS, type DealerS
 import { getCurrentUser } from "@/server/authz/guards";
 import { isDealerStaff } from "@/server/dealers/staff-access";
 import { DocRequirementsAdmin } from "@/components/dealer/doc-requirements-admin";
+import { PromotionConfirmations } from "@/components/dealer/promotion-confirmations";
+import { listPendingPromotions, PROMOTION_CONFIRMER_ROLES } from "@/server/dealers/promotion";
 import { dealersOverview } from "@/server/dealers/performance";
 import { listDealers, listDocumentRequirements } from "@/server/dealers/service";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
@@ -36,7 +38,7 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
   const params = await searchParams;
   const status: DealerStatus | "ALL" =
     params.status === "ALL" ? "ALL" : (DEALER_STATUSES as readonly string[]).includes(params.status ?? "") ? (params.status as DealerStatus) : "PENDING";
-  const [rows, overview, requirements] = await Promise.all([listDealers({ status, q: params.q?.slice(0, 80) }), dealersOverview(), listDocumentRequirements()]);
+  const [rows, overview, requirements, promotions] = await Promise.all([listDealers({ status, q: params.q?.slice(0, 80) }), dealersOverview(), listDocumentRequirements(), listPendingPromotions()]);
   const stats = new Map(overview.map((o) => [o.id, o]));
   // Approved / all: highest rating first (the rating list across dealers).
   if (status === "APPROVED" || status === "ALL") rows.sort((x, y) => (stats.get(y.id)?.rating ?? 0) - (stats.get(x.id)?.rating ?? 0));
@@ -56,6 +58,8 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/referral-moves">Referral moves</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/claims">Attribution claims</Link> — dealers who say a shop is theirs. · <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/analytics">Coverage & analytics</Link>
       </p>
+      {/* Owner, 28-Nov-2026: shop owners' promotions an admin approved, waiting for a different admin or operator. */}
+      <PromotionConfirmations items={promotions} viewerId={user.id} canDecide={PROMOTION_CONFIRMER_ROLES.includes(user.role)} />
       {user.role === "ADMIN" ? <AddDealerForm states={(await listStates()).map((a) => ({ code: a.code, name: a.name }))} /> : null}
       <nav className="mb-3 flex flex-wrap gap-2" aria-label="Filter by status">
         {filters.map((f) => (

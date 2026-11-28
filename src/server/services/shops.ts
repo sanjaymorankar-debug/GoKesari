@@ -970,10 +970,16 @@ async function autoApproveShopIfReadyInner(shopId: string): Promise<boolean> {
   // docs/dealer-programme (GKS-SH-004): instant approval on government GST/PAN verification + online payment,
   // where that flag is on. When it cannot approve, the existing rule below decides exactly as before.
   if (await approveOnGovVerification(shopId)) return true;
+  // 0232 (owner, 28-Nov-2026): for a v2 / v3 registration the instant approval above IS the go-live rule and is always
+  // on (rule sellerVerification.autoApproveShop does not apply): what it refused is a duplicate GSTIN / PAN of another
+  // owner (the SHOP_REVIEW escalation), or the fee / GST / PAN still missing — never approved here around it.
+  if (await isV2RegisteredShop(shopId)) return false;
   const rule = await getRule("sellerVerification");
   if (!rule.autoApproveShop) return false;
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
-  if (!shop || shop.status !== "PENDING_APPROVAL" || shop.feePaymentStatus !== "PAID") return false;
+  if (!shop || shop.status !== "PENDING_APPROVAL") return false;
+  // 0229 (docs/fee-pay-later-2026-11): a fee an administrator approved to pay later does not hold the shop back.
+  if (shop.feePaymentStatus !== "PAID" && !(await (await import("./fee-pay-later")).feeDeferredByApproval(shop.id))) return false;
   if ((await missingMandatoryDocuments(shop, db, { countDeferred: true })).length > 0) return false;
 
   let approved: Shop;
@@ -1022,8 +1028,19 @@ async function approveOnGovVerification(shopId: string): Promise<boolean> {
   if (!shop || shop.status !== "PENDING_APPROVAL" || shop.deletedAt) return false;
   if (!(await govAutoApprovalApplies())) return false;
   const decision = await decideGovAutoApproval(shop);
+  // 0232 (v2 / v3): a weak name match or a PAN that is not the one inside the GSTIN is looked at after go-live.
+  if (decision.reviewFlags?.length) {
+    await (await import("./support-escalations")).recordReviewFlags(shopId, decision.reviewFlags).catch((error: unknown) => console.error("[shops] review flags not recorded", shopId, error));
+  }
   if (!decision.approve) {
     await logGovDecision(shopId, "PENDING", decision.reasons, decision.evidence);
+    // 0232: held only for another owner's shop with the same GSTIN / PAN — the franchisee behind the shop's referral
+    // code reviews it first (support escalation SHOP_REVIEW: 7 days → operators, 10 days → admins).
+    if (decision.v2 && decision.duplicateOfOtherOwner && decision.reasons.length === 1) {
+      await (await import("./support-escalations"))
+        .openShopReview(shop, decision.duplicateOfOtherOwner)
+        .catch((error: unknown) => console.error("[shops] shop review escalation not opened", shopId, error));
+    }
     return false;
   }
   const rule = await getRule("sellerVerification");
@@ -1117,12 +1134,17 @@ function approveShopTransaction(
     if (shop.status === "APPROVED") {
       throw conflict("This shop is already approved.");
     }
+    // 0232 (owner, 28-Nov-2026 ~12.00 IST): a v2 / v3 registration goes live on its referral code, GST / PAN verified,
+    // the terms accepted and the fee — the owner's identity and mobile / e-mail checks below do not hold it (sign-in
+    // rules are unchanged; new orders still wait for the identity check after its grace period).
+    const v2Registration = await isV2RegisteredShop(shop.id, tx);
     // docs/identity-verification-2026-11 (flag on): a shop goes live only once its owner's identity is verified.
-    await assertOwnerIdentityAllowsGoLive(shop.ownerId);
+    // DEFAULT – confirm with Sanjay: not a go-live hold for a v2 / v3 registration either ("only these are required").
+    if (!v2Registration) await assertOwnerIdentityAllowsGoLive(shop.ownerId);
     // docs/dual-auth-2026-11 (flag dual_auth): a shop — also one registered by an admin, operator, dealer or another
     // shop owner on the owner's behalf — goes live only once its owner has verified both mobile and e-mail. It goes
     // live by itself when the owner finishes (dual-auth/verify.ts → releaseShopsHeldForDualAuth).
-    await assertOwnerDualVerifiedForGoLive(shop.ownerId);
+    if (!v2Registration) await assertOwnerDualVerifiedForGoLive(shop.ownerId);
     // Approve without FSSAI (admin only): recorded only when the shop sells food and no valid
     // licence is on file; with one on file the approval goes ahead as usual.
     if (waiveFssai && (actor.role !== "ADMIN" || !actor.id)) {
@@ -1189,7 +1211,8 @@ function approveShopTransaction(
     // SM-002: documents, then fee — the order of the onboarding stages.
     const blocker = await onboardingApprovalBlocker(shop, tx);
     if (blocker) throw conflict(blocker, { lifecycleStatus: shop.lifecycleStatus });
-    assertRegistrationFeeSettled(shop);
+    // 0229 (docs/fee-pay-later-2026-11): an administrator approved paying the fee later — recovered from payouts.
+    if (!(await (await import("./fee-pay-later")).feeDeferredByApproval(shop.id, tx))) assertRegistrationFeeSettled(shop);
     if (waiveFssai && (fssaiMissing || mustHaveMissing.length > 0)) {
       await recordFssaiWaiver(tx, shop, waiveFssai.reason, actor, new Date(), { fssai: fssaiMissing });
     }
@@ -1198,7 +1221,7 @@ function approveShopTransaction(
     // Onboarding v2 (owner, 27-Nov-2026): a v2 registration's licences — must-have and FSSAI included — follow
     // go-live within the documents follow-up's period; the follow-up suspends and reinstates the shop. No licence,
     // and no operator's check, holds its go-live.
-    const licencesFollowGoLive = await isV2RegisteredShop(shop.id, tx);
+    const licencesFollowGoLive = v2Registration;
     // DF-09: the admin's other must-have documents for this kind of shop are on file, or waived as above.
     if (!fssaiWaived && !licencesFollowGoLive) {
       const missingMust = await missingMustHaveDocuments(shop, tx);
@@ -1253,6 +1276,8 @@ function approveShopTransaction(
       },
       tx,
     );
+    // 0232: a v2 / v3 shop held for review (duplicate GSTIN / PAN of another owner) is no longer held.
+    await (await import("./support-escalations")).resolveEscalationFor("SHOP_REVIEW", shopId, "APPROVED", actor, null, tx);
     // Onboarding wizard: the owner's registration is complete once the shop is live.
     await tx
       .update(shopRegistrationDrafts)
@@ -1308,6 +1333,10 @@ export async function rejectShop(
     previousValue: { status: "PENDING_APPROVAL" },
     newValue: { status: "REJECTED", reason: trimmed },
   });
+  // 0232: a shop held for review is closed with the rejection.
+  await (await import("./support-escalations"))
+    .resolveEscalationFor("SHOP_REVIEW", shopId, "REJECTED", actor, trimmed)
+    .catch((error: unknown) => console.error("[shops] review escalation not closed (the hourly job closes it)", shopId, error));
 
   await notify({
     userId: updated.ownerId,

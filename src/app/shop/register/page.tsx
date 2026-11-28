@@ -16,6 +16,9 @@ import { safeReturnPath } from "@/lib/onboarding-v2/return-to";
 import { getBoardLang } from "@/server/board-lang";
 import { isPlaceholderEmail } from "@/lib/placeholder-email";
 import { ShopSignInCard } from "./sign-in-card";
+import { GuestShopStart } from "./guest-start";
+import { applyGuestReferral, checkLinkReferral } from "@/server/onboarding-v2/early-agreement";
+import { onboardingV2Enabled } from "@/server/onboarding-v2/roles";
 
 export const metadata = { title: "Register your shop" };
 export const dynamic = "force-dynamic";
@@ -23,7 +26,16 @@ export const dynamic = "force-dynamic";
 export default async function RegisterShopPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string | string[]; code?: string | string[]; new?: string | string[]; form?: string | string[]; wizard?: string | string[]; return?: string | string[] }>;
+  searchParams: Promise<{
+    ref?: string | string[];
+    code?: string | string[];
+    new?: string | string[];
+    form?: string | string[];
+    wizard?: string | string[];
+    return?: string | string[];
+    /** 0231: the guest confirmed the referral step (with ?ref=, or "I don't have one") before the login sheet. */
+    confirmed?: string | string[];
+  }>;
 }) {
   const params = await searchParams;
   // docs/dealer-programme: a dealer's share link (/shop/register?ref=CODE) fills in the referral code;
@@ -35,6 +47,25 @@ export default async function RegisterShopPage({
   // docs/onboarding-v2-2026-11 (Flow 2): ?return=<same-site path> — where the owner goes after go-live.
   const returnTo = safeReturnPath(typeof params.return === "string" ? params.return : null);
   const user = await getCurrentUser();
+  if (!user && (await onboardingV2Enabled())) {
+    // 0231 (owner, 28-Nov-2026): no separate customer sign-up first — step 1 is the referral code, then the login
+    // sheet (Terms, e-mail code, mobile code) is the identity step, shared with customers.
+    const guestRef = ref ?? (await sharedShopCode());
+    // Owner, 28-Nov-2026 (~11.45 IST): a shared link's code is checked silently — valid, the referral step is never
+    // shown (it is saved once signed in); missing or invalid, step 1 asks for it.
+    const link = await checkLinkReferral(guestRef);
+    return (
+      <div className="mx-auto max-w-2xl">
+        <PageHeader title="Register your shop" description="Your email and mobile — one GoKesari account for shopping and your shop. Then the seller agreement, GST or PAN, the fee, your shop type and address — and your shop goes live." />
+        <ReferredByView data={await referredByFor({ audience: "shop-owner", code: link.ok ? link.code : guestRef }).catch(() => null)} />
+        {link.ok ? (
+          <GuestShopStart initialCode={link.code} referralRequired={false} linkCode={link.code} />
+        ) : (
+          <GuestShopStart initialCode={guestRef} referralRequired={await isReferralRequired("shop")} linkProblem={link.message} />
+        )}
+      </div>
+    );
+  }
   if (!user) {
     // 0120 (FLOW_2026-10-30.md): the owner signs in here — the code comes by email.
     return (
@@ -73,6 +104,19 @@ export default async function RegisterShopPage({
   if ((wantsNew || (current?.status === "OPEN" && current.v2 && returnTo)) && !(await waitingRegistration(user.id))) {
     current = (await startV2Draft(user, { returnTo })) ?? current;
   }
+  // 0231: back from the login sheet — the referral the guest confirmed is saved with the REFERRAL step's own function.
+  // Owner, 28-Nov-2026 (~11.45 IST): a shared link's code (?ref= or the gk_ref_link cookie) is checked silently and
+  // saved the same way (v3 drafts), so the referral step is not shown; an invalid one is explained on that step.
+  let linkProblem: string | null = null;
+  if (current?.status === "OPEN" && current.v2 && !current.referral.answered) {
+    if (params.confirmed === "1") {
+      if (await applyGuestReferral(user, ref, "GUEST_CONFIRMED")) current = await getWizardDraft(user);
+    } else if (current.v2.order === "v3") {
+      const link = await checkLinkReferral(ref ?? (await sharedShopCode()));
+      if (link.ok && (await applyGuestReferral(user, link.code, "SHARED_LINK"))) current = await getWizardDraft(user);
+      else if (!link.ok) linkProblem = link.message;
+    }
+  }
   if (current?.v2 && current.nextStep === "FEE" && (await refreshDraftFeeAttempt(user.id))) current = await getWizardDraft(user);
   // A v2 shop whose fee (paid on the draft) did not reach its ledger yet: retried on every visit.
   if (current?.v2 && current.shop && current.shop.feeDuePaise > 0 && (await ensureV2FeeOnLedger(current.shop.id).catch(() => false))) current = await getWizardDraft(user);
@@ -91,6 +135,11 @@ export default async function RegisterShopPage({
         <p className="mb-3 rounded-lg border border-leaf-300 bg-leaf-50 px-3 py-2 text-sm text-leaf-700" data-testid="registering-as">
           ✓ Signed in{user.email && !isPlaceholderEmail(user.email) ? ` as ${user.email}` : ""} — your shop is added to this account.
         </p>
+      ) : null}
+      {linkProblem && draft?.nextStep === "REFERRAL" ? (
+        <div data-testid="referral-link-problem">
+          <Alert tone="warning">{linkProblem}</Alert>
+        </div>
       ) : null}
       {waiting ? (
         <div className="space-y-3" data-testid="registration-waiting">

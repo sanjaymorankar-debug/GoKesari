@@ -128,6 +128,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   flow_f22: "Flows v3 F22: commission payable 3 days after it is earned; GST and invoice for GST-registered dealers",
   delivery_partner_picoxpress_enabled: "Pico Xpress: gokesari.com delivery partner (booking, tracking, cancel)",
   pico_live_location_enabled: "Pico Xpress live rider location webhook (paid add-on)",
+  shop_fee_pay_later_enabled: "Shop registration fee: Pay later (admin approval, recovered from payouts)",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -281,6 +282,8 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "docs/pico-xpress-2026-11: on a ready delivery order the shop can choose \"gokesari.com delivery partner (Pico Xpress)\" when Pico says the address is serviceable. The booking takes an AWB from the pool, sends the order to Pico with the customer's 6-digit delivery code and a pickup code for the shop, and Pico's tracking webhook moves the order on (rider details, map, ETA in IST). The shop, the customer and operations can cancel before pickup. Settings: rule picoXpress (bill-to, pickup types, weights, AWB pool, PAN-only shops). Off: the choice is hidden and the webhooks answer 404; existing bookings stay readable.",
   pico_live_location_enabled:
     "docs/pico-xpress-2026-11: store Pico's live rider location pushes (POST /api/webhooks/picoxpress/location) and show them on the customer's map. Pico charges per push, so keep it off until the add-on is agreed. Off: pushes are acknowledged and dropped.",
+  shop_fee_pay_later_enabled:
+    "docs/fee-pay-later-2026-11: on the registration fee step (and on Pay registration fee for a shop that owes it) the owner can choose \"Pay later\". The request goes to Admin → Shops → Pay-later requests; once an administrator approves it the fee no longer holds the shop back (it goes live as soon as nothing else does), the owner gets the weekly fee reminder with a Pay now link, and the fee is taken out of the shop's payouts (payout cycle or weekly settlement) until it is paid in full — all of a payout when the payout is smaller. The owner's Registration fee page shows the fee, every deduction, what is left and GoKesari's commission so far. Off: the choice is hidden; approved requests already running keep being recovered from payouts.",
 };
 
 export interface FeatureFlagView {

@@ -62,7 +62,11 @@ export const signBody = z.object({
  * Onboarding v2 registration (owner, 27-Nov-2026): the same form without the SMS code — accepted with the ticks and
  * the typed name, only while the shop's v2 registration is at its agreement step (acceptAgreementsAtRegistration).
  */
-export const registrationAcceptBody = signBody.omit({ action: true, code: true }).extend({ action: z.literal("accept") });
+export const registrationAcceptBody = signBody.omit({ action: true, code: true }).extend({
+  action: z.literal("accept"),
+  /** Owner, 28-Nov-2026: the promise to renew an expired licence after go-live (AgreementStatus.renewals). */
+  renewalPromise: z.boolean().optional(),
+});
 
 /** Everything the Agreements screen needs for one shop. */
 export async function ownerAgreementsView(shopId: string) {

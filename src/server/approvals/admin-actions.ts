@@ -17,6 +17,14 @@ import { revokeRole } from "@/server/services/roles";
 import { resetRule, setRule } from "@/server/services/settings";
 import { setCommissionRate } from "@/server/services/finance";
 import { setRegistrationFee } from "@/server/services/registration-fees";
+import {
+  applyTurnoverFeeSwitch,
+  assertResetKeepsTurnoverEnabled,
+  keepTurnoverEnabled,
+  TURNOVER_FEE_SWITCH,
+  TURNOVER_RULE_KEY,
+  TURNOVER_SWITCH_ROLES,
+} from "@/server/services/turnover-fee-switch";
 import type { RuleKey } from "@/server/config/rules";
 import { reinstateUser, setUserRole, suspendUser, updateUserPrivileges } from "@/server/services/users";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
@@ -35,6 +43,8 @@ export const FOUR_EYE_TYPES = {
   RULE_RESET: "RULE_RESET",
   COMMISSION_RATE_SET: "COMMISSION_RATE_SET",
   REGISTRATION_FEE_SET: "REGISTRATION_FEE_SET",
+  // Owner, 28-Nov-2026: the turnover fee slabs' On/Off button — always four-eye, admin or operator (turnover-fee-switch.ts).
+  TURNOVER_FEE_SWITCH,
 } as const;
 
 /** Emergency suspensions must be confirmed by a second admin within this many hours. */
@@ -136,7 +146,10 @@ registerApprovalHandler({
   checker: "ADMIN",
   async apply(context) {
     const p = context.request.payload;
-    await setRule(str(p.key, "key") as RuleKey, p.value, requester(context));
+    const key = str(p.key, "key") as RuleKey;
+    // The turnover slabs' enabled is switched only by TURNOVER_FEE_SWITCH: a slab change keeps it as it is now.
+    const value = key === TURNOVER_RULE_KEY ? await keepTurnoverEnabled((p.value as Record<string, unknown>) ?? {}) : p.value;
+    await setRule(key, value, requester(context));
   },
 });
 
@@ -144,7 +157,9 @@ registerApprovalHandler({
   type: FOUR_EYE_TYPES.RULE_RESET,
   checker: "ADMIN",
   async apply(context) {
-    await resetRule(str(context.request.payload.key, "key") as RuleKey, requester(context));
+    const key = str(context.request.payload.key, "key") as RuleKey;
+    if (key === TURNOVER_RULE_KEY) await assertResetKeepsTurnoverEnabled();
+    await resetRule(key, requester(context));
   },
 });
 
@@ -163,6 +178,19 @@ registerApprovalHandler({
   async apply(context) {
     const p = context.request.payload as unknown as Parameters<typeof setRegistrationFee>[0];
     await setRegistrationFee(p, requester(context));
+  },
+});
+
+registerApprovalHandler({
+  type: FOUR_EYE_TYPES.TURNOVER_FEE_SWITCH,
+  checker: "ADMIN",
+  // Owner, 28-Nov-2026: an admin or an operator asks, a different admin or operator approves; never the requester.
+  deciderRoles: TURNOVER_SWITCH_ROLES,
+  strictFourEye: true,
+  async apply(context) {
+    const p = context.request.payload;
+    if (typeof p.enabled !== "boolean") throw new AppError("INTERNAL", "Approval payload is missing enabled.");
+    await applyTurnoverFeeSwitch(p.enabled, requester(context));
   },
 });
 

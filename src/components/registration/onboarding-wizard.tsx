@@ -25,7 +25,7 @@ import { LegalDocumentsPanel, type LegalDocCard } from "@/components/legal-docum
 import { DocumentScan } from "./document-scan";
 import { ReferralByPin } from "./referral-by-pin";
 import { StarterShelf } from "./starter-shelf";
-import { FeeStep, ReturnToLink, SlaStep, V2IdentityStep, V2LicencesStep, V2WaitingStep, type V2State } from "./onboarding-v2-steps";
+import { FeeStep, ReturnToLink, SlaStep, V2IdentityStep, V2LicencesStep, V2WaitingStep, V3AgreementStep, V3LicencesStep, type V2State } from "./onboarding-v2-steps";
 
 /**
  * Shop onboarding wizard — owner brief 08-Nov-2026 (docs/shop-onboarding-identity-first-2026-11):
@@ -70,7 +70,10 @@ type Step =
   | "V2_IDENTITY"
   | "FEE"
   | "V2_LICENCES"
-  | "SLA";
+  | "SLA"
+  // 0231 (v3 order): the seller agreement at step 2 and the licences after go-live.
+  | "V3_AGREEMENT"
+  | "V3_LICENCES";
 
 interface CheckView {
   numberMasked: string | null;
@@ -217,6 +220,47 @@ const V2_TILES = [
   { n: 6, label: { en: "Live", hi: "लाइव", mr: "लाइव्ह" }, icon: "🚀" },
 ] as const;
 
+/** 0231 (owner, 28-Nov-2026), v3: referral + identity + agreement, verify, pay, shop, live. */
+const V3_TILES = [
+  { n: 1, label: { en: "Sign in", hi: "साइन इन", mr: "साइन इन" }, icon: "🔐" },
+  { n: 2, label: { en: "Agreement", hi: "अनुबंध", mr: "करार" }, icon: "✍️" },
+  { n: 3, label: { en: "Verify", hi: "सत्यापन", mr: "पडताळणी" }, icon: "🛡️" },
+  { n: 4, label: { en: "Pay", hi: "भुगतान", mr: "पेमेंट" }, icon: "💳" },
+  { n: 5, label: { en: "Shop", hi: "दुकान", mr: "दुकान" }, icon: "📍" },
+  { n: 6, label: { en: "Live", hi: "लाइव", mr: "लाइव्ह" }, icon: "🚀" },
+] as const;
+
+function v3TileOf(step: Step): number {
+  switch (step) {
+    case "REFERRAL":
+    case "V2_IDENTITY":
+      return 1;
+    case "V3_AGREEMENT":
+      return 2;
+    case "IDENTITY":
+    case "EMAIL":
+    case "OWNER":
+      return 3;
+    case "FEE":
+      return 4;
+    case "TYPE":
+    case "ADDRESS":
+    case "PIN":
+      return 5;
+    case "SLA":
+    case "WAITING":
+    case "LIVE":
+    case "LOCATION":
+    case "V3_LICENCES":
+      return 6;
+    case "CATEGORY":
+    case "PRODUCTS":
+      return 7;
+    default:
+      return 8;
+  }
+}
+
 function v2TileOf(step: Step): number {
   switch (step) {
     case "V2_IDENTITY":
@@ -284,6 +328,10 @@ function tileOf(step: Step): number {
     case "V2_LICENCES":
       return 2;
     case "SLA":
+      return 5;
+    case "V3_AGREEMENT":
+      return 1;
+    case "V3_LICENCES":
       return 5;
   }
 }
@@ -593,8 +641,9 @@ function StepCard({ title, intro, children }: { title: string; intro?: ReactNode
 
 function TileSteps({ step, state, onOpen, lang }: { step: Step; state: WizardState | null; onOpen: (s: Step) => void; lang: Lang }) {
   const v2 = Boolean(state?.v2);
-  const tiles: readonly { n: number; label: { en: string; hi: string; mr: string }; icon: string }[] = v2 ? V2_TILES : TILES;
-  const at = v2 ? v2TileOf(step) : tileOf(step);
+  const v3 = state?.v2?.order === "v3";
+  const tiles: readonly { n: number; label: { en: string; hi: string; mr: string }; icon: string }[] = v3 ? V3_TILES : v2 ? V2_TILES : TILES;
+  const at = v3 ? v3TileOf(step) : v2 ? v2TileOf(step) : tileOf(step);
   const shown = Math.min(at, tiles.length);
   return (
     <div className="space-y-1.5">
@@ -609,7 +658,7 @@ function TileSteps({ step, state, onOpen, lang }: { step: Step; state: WizardSta
         {tiles.map((t) => {
           const done = t.n < at;
           const current = t.n === at;
-          const target = state ? (v2 ? (state.status === "OPEN" && t.n === 2 && state.v2?.identity.done ? "IDENTITY" : null) : stepForTile(t.n, state)) : null;
+          const target = state ? (v2 ? (state.status === "OPEN" && t.n === (v3 ? 3 : 2) && state.v2?.identity.done && (!v3 || state.v2?.early?.accepted) ? "IDENTITY" : null) : stepForTile(t.n, state)) : null;
           const tone = current
             ? "border-kesari-600 bg-kesari-600 text-white shadow-sm"
             : done
@@ -702,7 +751,7 @@ export function OnboardingWizard({
     if ((path.endsWith("/submit") || path.endsWith("/documents-step")) && result.data.nextStep === "PAYMENT") setOpenPayment(true);
     // Flow 2: once live (or with the team), an owner who came from another flow (?return=) goes back there.
     const returnTo = result.data.v2?.returnTo;
-    if (path.endsWith("/v2/agreement") && returnTo && !staffDraftOnPage() && ["LIVE", "DONE", "LOCATION", "WAITING"].includes(result.data.nextStep)) {
+    if (path.endsWith("/v2/agreement") && returnTo && !staffDraftOnPage() && ["LIVE", "DONE", "LOCATION", "WAITING", "V3_LICENCES"].includes(result.data.nextStep)) {
       window.location.assign(returnTo);
       return true;
     }
@@ -775,6 +824,15 @@ export function OnboardingWizard({
           back={state.v2.fee.legacyWholesale ? null : back("TYPE")}
         />
       ) : null}
+      {step === "V3_AGREEMENT" && state?.v2 && !staffDraft ? (
+        <V3AgreementStep v2={state.v2} busy={busy} fields={fields} send={send} ownerName={state.account?.name ?? state.ownerName} />
+      ) : null}
+      {step === "V3_AGREEMENT" && state?.v2 && staffDraft ? (
+        <StepCard title="Seller agreement">
+          <p className="text-sm text-ink-700">The owner accepts the seller agreement from their own account (Register your shop). Send them the link to continue.</p>
+        </StepCard>
+      ) : null}
+      {step === "V3_LICENCES" && state?.v2 && state.shop && !staffDraft ? <V3LicencesStep state={state} busy={busy} send={send} /> : null}
       {step === "SLA" && state?.v2 ? (
         <SlaStep
           state={state}
@@ -793,7 +851,7 @@ export function OnboardingWizard({
           busy={busy}
           fields={fields}
           send={send}
-          next={() => setViewing(state?.canContinue ? null : "IDENTITY")}
+          next={() => setViewing(state?.v2?.order === "v3" || state?.canContinue ? null : "IDENTITY")}
           lang={lang}
           staff={Boolean(staffDraft)}
           referralByPin={referralByPin}
@@ -819,7 +877,7 @@ export function OnboardingWizard({
       {step === "TYPE" && state ? <TypeStep state={state} busy={busy} fields={fields} send={send} back={back(state.prefill.ownerName ? "IDENTITY" : "OWNER")} lang={lang} /> : null}
       {step === "LICENCES" && state ? <LicencesStep state={state} busy={busy} fields={fields} send={send} back={back("TYPE")} staff={Boolean(staffDraft)} /> : null}
       {step === "ADDRESS" && state ? (
-        <AddressStep state={state} busy={busy} fields={fields} send={send} back={back(state.v2 ? "V2_LICENCES" : state.shopType ? "LICENCES" : state.prefill.ownerName ? "IDENTITY" : "OWNER")} />
+        <AddressStep state={state} busy={busy} fields={fields} send={send} back={back(state.v2?.order === "v3" ? "TYPE" : state.v2 ? "V2_LICENCES" : state.shopType ? "LICENCES" : state.prefill.ownerName ? "IDENTITY" : "OWNER")} />
       ) : null}
       {step === "PIN" && state ? <PinStep state={state} busy={busy} fields={fields} send={send} back={back("ADDRESS")} /> : null}
       {step === "SHOP" && state ? (

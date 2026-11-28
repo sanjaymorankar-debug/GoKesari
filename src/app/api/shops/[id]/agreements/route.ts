@@ -97,6 +97,7 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
             ip: clientIp(request),
             userAgent: request.headers.get("user-agent"),
             geo: body.geo ?? null,
+            renewalPromise: body.renewalPromise === true,
           },
         ),
       );

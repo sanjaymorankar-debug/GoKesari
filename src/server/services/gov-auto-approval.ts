@@ -31,16 +31,22 @@
  * and the reasons are logged. Every decision is in shop_auto_approval_log.
  * A provider outage leaves the verification PENDING; the seller-verification
  * sweep retries it and, once VERIFIED, calls autoApproveShopIfReady again.
+ *
+ * 0232 (owner, 28-Nov-2026 ~12.00 IST) — an onboarding v2 / v3 registration: live on GST or PAN verified (a
+ * reviewer's verification counts), the fee through the gateway (or pay-later approved) and the agreement (checked
+ * before this runs). A weak / missing name or a PAN that is not the one inside the GSTIN is a review flag, not a
+ * reason; the only hold is another OWNER's shop with the same GSTIN or PAN (decision.duplicateOfOtherOwner → the
+ * SHOP_REVIEW escalation, support-escalations.ts).
  */
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 
 import { getEnv } from "@/lib/env";
 import { SELLER_DOC_LABELS } from "@/lib/kyc/doc-formats";
 import { db } from "@/server/db";
-import { sellerVerifications, shopAutoApprovalLog, shopPayments, shops, type Shop } from "@/server/db/schema";
+import { sellerVerifications, shopAutoApprovalLog, shopPayments, shops, type Shop, type ShopReviewFlagType } from "@/server/db/schema";
 import { findLikelyDuplicate } from "@/server/dealers/attribution";
 import { getRule } from "./settings";
-import { deferredReviewDocTypes, isDocumentsLaterShop, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
+import { deferredReviewDocTypes, isDocumentsLaterShop, isV2RegisteredShop, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
 
 /** Payment methods only a verified gateway webhook writes. */
 export const GATEWAY_CONFIRMED_METHODS = ["ONLINE", "CASHFREE", "RAZORPAY"] as const;
@@ -49,6 +55,39 @@ export interface GovDecision {
   approve: boolean;
   reasons: string[];
   evidence: Record<string, unknown>;
+  /** 0232: the shop came from an onboarding v2 / v3 registration (the owner's go-live rule of 28-Nov-2026). */
+  v2?: boolean;
+  /** 0232 (v2 / v3): what to look at after go-live — never a hold (shop_review_flags). */
+  reviewFlags?: { flag: ShopReviewFlagType; details: Record<string, unknown> }[];
+  /** 0232 (v2 / v3): another owner's shop has the same GSTIN or PAN — the only hold left (SHOP_REVIEW escalation). */
+  duplicateOfOtherOwner?: { shopId: string; reasons: ("GSTIN" | "PAN")[] } | null;
+}
+
+/**
+ * 0232 (owner, 28-Nov-2026): another owner's shop (not closed, not rejected) with the same GSTIN or PAN. The same
+ * owner's other shops never count.
+ */
+export async function otherOwnerWithSameIdentity(shop: Pick<Shop, "id" | "ownerId" | "gstin" | "panHash">): Promise<{ shopId: string; reasons: ("GSTIN" | "PAN")[] } | null> {
+  if (!shop.gstin && !shop.panHash) return null;
+  const rows = await db
+    .select({ id: shops.id, gstin: shops.gstin, panHash: shops.panHash })
+    .from(shops)
+    .where(
+      and(
+        ne(shops.id, shop.id),
+        ne(shops.ownerId, shop.ownerId),
+        isNull(shops.deletedAt),
+        ne(shops.status, "REJECTED"),
+        or(shop.gstin ? eq(shops.gstin, shop.gstin) : undefined, shop.panHash ? eq(shops.panHash, shop.panHash) : undefined),
+      ),
+    )
+    .limit(1);
+  const hit = rows[0];
+  if (!hit) return null;
+  const reasons: ("GSTIN" | "PAN")[] = [];
+  if (shop.gstin && hit.gstin === shop.gstin) reasons.push("GSTIN");
+  if (shop.panHash && hit.panHash === shop.panHash) reasons.push("PAN");
+  return { shopId: hit.id, reasons };
 }
 
 /**
@@ -65,9 +104,17 @@ export const isWizardShop = (shopId: string): Promise<boolean> => isWizardRegist
 
 type VerificationRow = typeof sellerVerifications.$inferSelect;
 
-function sourceCheck(v: VerificationRow | undefined, threshold: number, productionKyc: boolean): { ok: boolean; reason: string | null; evidence: Record<string, unknown> | null } {
-  if (!v) return { ok: false, reason: "not submitted", evidence: null };
-  const details = (v.details ?? {}) as { docStatus?: string };
+function sourceCheck(
+  v: VerificationRow | undefined,
+  threshold: number,
+  productionKyc: boolean,
+  /** 0232: a v2 / v3 registration — a weak or missing name is a review flag, not a hold; a reviewer's verification counts. */
+  v2 = false,
+): { ok: boolean; reason: string | null; evidence: Record<string, unknown> | null; flags: ShopReviewFlagType[] } {
+  const flags: ShopReviewFlagType[] = [];
+  const result = (ok: boolean, reason: string | null, evidence: Record<string, unknown> | null) => ({ ok, reason, evidence, flags });
+  if (!v) return result(false, "not submitted", null);
+  const details = (v.details ?? {}) as { docStatus?: string; reviewFlag?: string };
   const evidence = {
     verificationId: v.id,
     status: v.status,
@@ -81,14 +128,21 @@ function sourceCheck(v: VerificationRow | undefined, threshold: number, producti
     lastError: v.lastErrorCode,
   };
   if (v.status !== "VERIFIED") {
-    return { ok: false, reason: v.status === "PENDING" ? "waiting for the government source (will retry)" : `status ${v.status.toLowerCase().replace("_", " ")}${v.lastErrorCode ? ` (${v.lastErrorCode})` : ""}`, evidence };
+    return result(false, v.status === "PENDING" ? "waiting for the government source (will retry)" : `status ${v.status.toLowerCase().replace("_", " ")}${v.lastErrorCode ? ` (${v.lastErrorCode})` : ""}`, evidence);
   }
-  if (v.reviewerId) return { ok: false, reason: "verified by a reviewer, not by the government source", evidence };
-  if (!v.providerId) return { ok: false, reason: "no provider on record", evidence };
-  if (productionKyc && v.providerId === "mock") return { ok: false, reason: "verified by the test provider, not the government source", evidence };
-  if (details.docStatus && details.docStatus !== "active") return { ok: false, reason: `source status ${details.docStatus}`, evidence };
-  if (v.nameMatchScore != null && v.nameMatchScore < threshold) return { ok: false, reason: `name match ${v.nameMatchScore} below ${threshold}`, evidence };
-  return { ok: true, reason: null, evidence };
+  // 0232: DEFAULT – confirm with Sanjay: for a v2 / v3 registration a number GoKesari's reviewer verified counts as
+  // "GST or PAN verified" (the owner's rule), so a shop whose source check needed a person still goes live.
+  if (v.reviewerId && !v2) return result(false, "verified by a reviewer, not by the government source", evidence);
+  if (!v.providerId && !(v2 && v.reviewerId)) return result(false, "no provider on record", evidence);
+  if (productionKyc && v.providerId === "mock") return result(false, "verified by the test provider, not the government source", evidence);
+  if (details.docStatus && details.docStatus !== "active") return result(false, `source status ${details.docStatus}`, evidence);
+  if (v2 && (details.reviewFlag === "NAME_MATCH_LOW" || details.reviewFlag === "NAME_NOT_RETURNED" || details.reviewFlag === "PAN_NOT_IN_GSTIN")) flags.push(details.reviewFlag);
+  if (v.nameMatchScore != null && v.nameMatchScore < threshold) {
+    // 0232 (owner, 28-Nov-2026): not a hold for a v2 / v3 registration when the number itself is verified.
+    if (!v2) return result(false, `name match ${v.nameMatchScore} below ${threshold}`, evidence);
+    if (!flags.includes("NAME_MATCH_LOW")) flags.push("NAME_MATCH_LOW");
+  }
+  return result(true, null, evidence);
 }
 
 /** The decision for one pending shop, with every reason it cannot be approved yet. */
@@ -96,6 +150,17 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
   const reasons: string[] = [];
   const evidence: Record<string, unknown> = { pincode: shop.pincode };
   if (shop.status !== "PENDING_APPROVAL") reasons.push(`shop is ${shop.status.toLowerCase().replace("_", " ")}`);
+  // 0232 (owner, 28-Nov-2026 ~12.00 IST): a v2 / v3 registration goes live on its referral code, GST or PAN verified,
+  // every term accepted (checked before this runs) and the fee through the gateway (or pay-later approved). The rest
+  // is a review flag after go-live; the only hold is another owner's shop with the same GSTIN or PAN.
+  const v2 = await isV2RegisteredShop(shop.id);
+  const flags: { flag: ShopReviewFlagType; details: Record<string, unknown> }[] = [];
+  const addFlags = (docType: "GSTIN" | "PAN", found: ShopReviewFlagType[], row: VerificationRow | undefined) => {
+    for (const flag of found) {
+      if (!flags.some((f) => f.flag === flag)) flags.push({ flag, details: { docType, verificationId: row?.id ?? null, nameMatchScore: row?.nameMatchScore ?? null, threshold: null } });
+    }
+  };
+  if (v2) evidence.flowVersion = "v2";
 
   // Government verification: GSTIN when the shop has one, else PAN.
   const rule = await getRule("sellerVerification");
@@ -110,20 +175,31 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
   if (await isDocumentsLaterShop(shop.id)) {
     evidence.documentsLater = true;
   } else if (shop.gstin) {
-    const gst = sourceCheck(latest("GSTIN"), rule.nameMatchAutoApprove, productionKyc);
+    const gst = sourceCheck(latest("GSTIN"), rule.nameMatchAutoApprove, productionKyc, v2);
     evidence.gstin = gst.evidence;
     if (!gst.ok) reasons.push(`GSTIN: ${gst.reason}`);
+    addFlags("GSTIN", gst.flags, latest("GSTIN"));
     // With both given, a verified PAN is recorded too, and it must be the PAN inside the GSTIN
     // (whichever was checked first — a PAN added after the GSTIN is compared here as well).
     const panRow = latest("PAN");
-    if (panRow) evidence.pan = sourceCheck(panRow, rule.nameMatchAutoApprove, productionKyc).evidence;
+    if (panRow) {
+      const pan = sourceCheck(panRow, rule.nameMatchAutoApprove, productionKyc, v2);
+      evidence.pan = pan.evidence;
+      addFlags("PAN", pan.flags, panRow);
+    }
     const embedded = (latest("GSTIN")?.details as Record<string, unknown> | null)?.embeddedPanHash;
-    if (panRow?.numberHash && typeof embedded === "string" && panRow.numberHash !== embedded) reasons.push("PAN is not the one inside the GSTIN");
+    if (panRow?.numberHash && typeof embedded === "string" && panRow.numberHash !== embedded) {
+      // 0232: a v2 / v3 registration with a verified GSTIN goes live; the PAN difference is looked at after go-live.
+      if (v2) addFlags("PAN", ["PAN_NOT_IN_GSTIN"], panRow);
+      else reasons.push("PAN is not the one inside the GSTIN");
+    }
   } else {
-    const pan = sourceCheck(latest("PAN"), rule.nameMatchAutoApprove, productionKyc);
+    const pan = sourceCheck(latest("PAN"), rule.nameMatchAutoApprove, productionKyc, v2);
     evidence.pan = pan.evidence;
     if (!pan.ok) reasons.push(`PAN: ${pan.reason}`);
+    addFlags("PAN", pan.flags, latest("PAN"));
   }
+  for (const f of flags) f.details.threshold = rule.nameMatchAutoApprove;
 
   // The fee, through the gateway only.
   const fee = shop.registrationFeePaise ?? 0;
@@ -140,7 +216,10 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
     payments: viaGateway.map((p) => ({ method: p.method, amountPaise: Number(p.amountPaise), reference: p.reference, paidAt: p.paidAt.toISOString() })),
     otherPaise: payments.filter((p) => !viaGateway.includes(p)).reduce((sum, p) => sum + Number(p.amountPaise), 0),
   };
-  if (shop.feePaymentStatus !== "PAID") reasons.push("registration fee not paid");
+  // 0229 (docs/fee-pay-later-2026-11): an administrator approved paying the fee later — the fee does not hold the shop.
+  const payLater = shop.feePaymentStatus !== "PAID" && (await (await import("./fee-pay-later")).feeDeferredByApproval(shop.id));
+  if (payLater) evidence.payLater = { approved: true, duePaise: Math.max(0, fee - shop.amountPaidPaise) };
+  else if (shop.feePaymentStatus !== "PAID") reasons.push("registration fee not paid");
   else if (fee > 0 && gatewayPaise < fee) reasons.push("registration fee not confirmed by the payment gateway");
 
   // The documents every approval needs today (the database refuses an approval without them).
@@ -153,6 +232,14 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
   // Another owner's shop with the same GSTIN, PAN or mobile.
   const duplicate = await findLikelyDuplicate(shop.id);
   evidence.duplicate = duplicate;
+  if (v2) {
+    // 0232: held ONLY when a shop of a DIFFERENT owner has the same GSTIN or PAN; the same owner's shops never.
+    const other = await otherOwnerWithSameIdentity(shop);
+    evidence.identityDuplicate = other;
+    if (other) reasons.push(`likely duplicate of another owner's shop (${other.reasons.join(", ").toLowerCase()})`);
+    if (flags.length) evidence.reviewFlags = flags.map((f) => f.flag);
+    return { approve: reasons.length === 0, reasons, evidence, v2: true, reviewFlags: flags, duplicateOfOtherOwner: other };
+  }
   // Owner, 08-Nov-2026: verified and paid means live. A registration through the wizard is held only when
   // another shop has the same GSTIN or PAN; a similar name nearby or a shared mobile is recorded, not held.
   const heldOnlyForIdentity = await isWizardShop(shop.id);

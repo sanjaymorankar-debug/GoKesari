@@ -102,6 +102,12 @@ const RESET_TABLES = [
   // docs/onboarding-v2-2026-11 (0215, 0217): Flow 2 licence entries and their files — no foreign keys.
   "registration_licence_entries",
   "registration_licence_files",
+  // 0232: no foreign keys to users / shops (support_escalation_events cascades from support_escalations).
+  "support_escalations",
+  "shop_review_flags",
+  // 0229 pay-later requests have no foreign keys either (shop_fee_recoveries cascades); left behind, the 0232
+  // escalation job would pick up another test's requests.
+  "shop_fee_pay_later",
   "onboarding_role_history",
   "grievances",
   "user_consents",
@@ -193,6 +199,13 @@ export async function resetDatabase(): Promise<void> {
       // switches it on for its own cases.
       await db.execute(sql`
         INSERT INTO platform_settings (key, value) VALUES ('dealerApplication', '{"requireLiveShop": false}'::jsonb)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      `);
+      // Owner, 28-Nov-2026: the turnover fee slabs are off by default (flat ₹999; rule registrationFeeByTurnover).
+      // Tests written before it charge by turnover slab, so they run with the slabs on;
+      // tests/integration/turnover-fee-switch.test.ts removes this row to test the default.
+      await db.execute(sql`
+        INSERT INTO platform_settings (key, value) VALUES ('registrationFeeByTurnover', '{"enabled": true}'::jsonb)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       `);
       // DF-09 (0163, 0165): the shop document rules back to the seeded ones (they reference no user, so the

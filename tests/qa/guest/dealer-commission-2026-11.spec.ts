@@ -33,9 +33,16 @@ qa("TC-SREF-008", "guest: /shop/register asks to sign in first; the 'Request a r
   try {
     const res = await call(guest, "GET", "/shop/register", undefined, { maxRedirects: 3 });
     expect(res.status).toBe(200);
+    expect(res.text, "no request dialog before sign-in").not.toContain('data-testid="request-referral-code"');
+    // Owner, 28-Nov-2026 (#697, onboarding_v2 on): a guest starts with the referral code (step 1), then the shared
+    // identity step (the login sheet); no separate sign-in card. With onboarding_v2 off: the original sign-in card.
+    if (res.text.includes('data-testid="guest-shop-start"')) {
+      expect(res.text).toContain('data-testid="guest-referral-code"');
+      expect(res.text, "no separate sign-in card").not.toContain('data-testid="shop-register-sign-in"');
+      return "v3 guest start: referral code first, sign-in comes in step 2; no request dialog before it";
+    }
     expect(res.text).toContain("Step 1 of 5: sign in with your email.");
     expect(res.text).toContain('data-testid="shop-register-sign-in"');
-    expect(res.text, "no request dialog before sign-in").not.toContain('data-testid="request-referral-code"');
     return "sign-in step shown; the request link comes after sign-in";
   } finally {
     await guest.dispose();

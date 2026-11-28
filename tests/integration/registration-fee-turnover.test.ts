@@ -3,7 +3,7 @@
  *
  *   - owner, 28 Oct 2026: by declared annual turnover, in three slabs — up to
  *     ₹2 crore, up to ₹10 crore, above ₹10 crore — each with a fee the admin
- *     sets (rule registrationFeeByTurnover, on by default), GST on top
+ *     sets (rule registrationFeeByTurnover; off by default since 28-Nov-2026), GST on top
  *   - with the rule switched off: the flat fee (Admin → Registration fee)
  *   - the fee is computed on the server and snapshotted on the shop
  *   - a self-service registration must declare its turnover
@@ -103,7 +103,8 @@ describe("a flat fee while an admin has the slabs switched off", () => {
   });
 });
 
-describe("the fee follows the declared turnover slab (on by default)", () => {
+// Owner, 28-Nov-2026: the slabs are off by default; tests/helpers/fixtures.ts switches them on for these tests.
+describe("the fee follows the declared turnover slab (when switched on)", () => {
   it("slab 1 up to ₹2 crore, slab 2 up to ₹10 crore, slab 3 above — snapshotted with the turnover", async () => {
     const cases: [number, number][] = [
       [15_00_000, 99_900],
@@ -141,7 +142,7 @@ describe("the fee follows the declared turnover slab (on by default)", () => {
   it("follows an admin's new amounts for new shops and leaves registered shops as they were", async () => {
     const admin = await createUser({ role: "ADMIN" });
     const before = await registerShop(shopInput(1 * CRORE), asActor(await createUser()));
-    await setRule("registrationFeeByTurnover", { slab1FeePaise: 1_49_900 }, asActor(admin));
+    await setRule("registrationFeeByTurnover", { enabled: true, slab1FeePaise: 1_49_900 }, asActor(admin));
     clearRuleCache();
     const after = await registerShop(shopInput(1 * CRORE), asActor(await createUser()));
 

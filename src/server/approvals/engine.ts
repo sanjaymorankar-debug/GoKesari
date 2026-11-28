@@ -69,6 +69,13 @@ export interface ApprovalHandler {
   onRejected?(request: ApprovalRequest, decidedBy: ApprovalActor): Promise<void>;
   /** Optional: CA_THEN_ADMIN stage 1 approved, now waiting for an admin. */
   onAdvanced?(request: ApprovalRequest, decidedBy: ApprovalActor): Promise<void>;
+  /**
+   * ADMIN checker only: the roles that may decide (default: ADMIN alone). The turnover fee switch (owner,
+   * 28-Nov-2026) is decided by an admin or an operator.
+   */
+  deciderRoles?: readonly UserRole[];
+  /** Strict four-eye: never the Super Admin's single-admin approval of their own request. */
+  strictFourEye?: boolean;
 }
 
 const handlers = new Map<string, ApprovalHandler>();
@@ -197,7 +204,12 @@ export interface DecideResult {
  * Who may decide this request now. Returns whether the decision is a single-admin (bootstrap)
  * approval. Throws FORBIDDEN otherwise.
  */
-async function assertMayDecide(request: ApprovalRequest, actor: ApprovalActor, decision: "APPROVE" | "REJECT"): Promise<{ singleAdmin: boolean }> {
+async function assertMayDecide(
+  request: ApprovalRequest,
+  actor: ApprovalActor,
+  decision: "APPROVE" | "REJECT",
+  handler: ApprovalHandler,
+): Promise<{ singleAdmin: boolean }> {
   const self = request.requestedBy === actor.id;
   const stageChecker: "ADMIN" | "CA" | "SHOP_OWNER" =
     request.checker === "CA_THEN_ADMIN" ? (request.stage === 1 ? "CA" : "ADMIN") : request.checker;
@@ -216,8 +228,11 @@ async function assertMayDecide(request: ApprovalRequest, actor: ApprovalActor, d
     return { singleAdmin: false };
   }
 
-  // ADMIN
-  if (actor.role !== "ADMIN") throw forbidden("Only an admin can decide this request.");
+  // ADMIN (or the handler's own decider roles, e.g. admin or operator)
+  const deciders: readonly UserRole[] = handler.deciderRoles ?? ["ADMIN"];
+  if (!deciders.includes(actor.role)) {
+    throw forbidden(deciders.length === 1 ? "Only an admin can decide this request." : "Only an admin or an operator can decide this request.");
+  }
   if (request.checker === "CA_THEN_ADMIN") {
     const [stageOne] = await db
       .select({ actorId: approvalDecisions.actorId })
@@ -232,6 +247,7 @@ async function assertMayDecide(request: ApprovalRequest, actor: ApprovalActor, d
   // The requester may reject (withdraw by deciding) their own request? No: use cancel. Self-approval
   // is allowed only to the Super Admin while fewer than two admins are active (brief §3.1).
   if (decision === "REJECT") throw forbidden("Cancel your own request instead of rejecting it.");
+  if (handler.strictFourEye) throw forbidden("A different person must approve this request: you cannot approve your own.");
   const email = actor.email?.toLowerCase() ?? (await emailOf(actor.id));
   if (email !== superAdminEmail()) throw forbidden("A different admin must approve this request.");
   if ((await countActiveAdmins()) >= 2) throw forbidden("A different admin must approve this request (two admins are active).");
@@ -245,7 +261,7 @@ export async function decideApproval(input: DecideApprovalInput): Promise<Decide
   const handler = getApprovalHandler(current.type);
   if (current.status !== "PENDING") throw conflict("This request has already been decided.");
   if (current.expiresAt && current.expiresAt.getTime() < Date.now()) throw conflict("This request has expired.");
-  const { singleAdmin } = await assertMayDecide(current, input.actor, input.decision);
+  const { singleAdmin } = await assertMayDecide(current, input.actor, input.decision, handler);
   if (input.items?.length && !handler.itemDecisions) throw validationFailed("This request is decided as a whole.");
   for (const item of input.items ?? []) {
     if (item.decision === "REJECT" && !(item.comment?.trim() || comment)) {

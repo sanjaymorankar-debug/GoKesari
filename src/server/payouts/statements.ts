@@ -28,6 +28,7 @@ export const LINE_LABELS: Record<string, string> = {
   REGISTRATION_FEE: "Registration fees (already paid)",
   WALLET_TOPUP: "Shop wallet top-up",
   CARRY_FORWARD: "Carried from earlier cycles",
+  REGISTRATION_FEE_RECOVERY: "Registration fee (pay later) taken from this payout",
   SEC95_GST: "s.9(5) GST paid by GoKesari",
 };
 

@@ -28,6 +28,8 @@ const STEP: Record<string, string> = {
   FEE: "Pay the fee (pending payment)",
   V2_LICENCES: "Licences",
   SLA: "Seller agreement",
+  // 0231 (v3 order).
+  V3_AGREEMENT: "Seller agreement (step 2)",
 };
 const idle = (h: number) => (h >= 48 ? `${Math.floor(h / 24)} d` : `${h} h`);
 

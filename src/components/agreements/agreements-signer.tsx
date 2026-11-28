@@ -25,6 +25,8 @@ type View = {
   reason: "REGISTRATION" | "EXISTING_SHOP" | "NEW_VERSION" | "ANNEXURE_UPDATE" | null;
   documents: DocStatus[];
   blockers: string[];
+  /** Owner, 28-Nov-2026: expired licences a registration (not live yet) may renew after go-live on a promise. */
+  renewals?: { key: string; label: string; expiredOn: string; days: number; message: string }[];
   graceUntil: string | null;
   overdue: boolean;
   noPublishedDocuments: boolean;
@@ -127,6 +129,7 @@ export function AgreementsSigner({
   const [pharmacistReg, setPharmacistReg] = useState("");
   const [shareLocation, setShareLocation] = useState(false);
   const [policies, setPolicies] = useState(false);
+  const [renewalPromise, setRenewalPromise] = useState(false);
   const [code, setCode] = useState("");
   const [codeSentTo, setCodeSentTo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -226,6 +229,7 @@ export function AgreementsSigner({
           accepted: toSign.map((d) => ({ docType: d.docType, version: d.version, scrolledToEnd: true })),
           languageViewed: lang,
           acceptPolicies: policies,
+          ...(registrationAccept && (view?.renewals?.length ?? 0) > 0 ? { renewalPromise } : {}),
           geo: await position(),
         }),
       });
@@ -382,13 +386,24 @@ export function AgreementsSigner({
                 <span>Record my location with the signature (optional).</span>
               </label>
 
+              {registrationAccept && view.renewals && view.renewals.length > 0 ? (
+                <Alert tone="warning" title="Expired licence">
+                  <ul className="list-disc pl-5" data-testid="renewal-lines">
+                    {view.renewals.map((r) => <li key={r.key}>{r.message}</li>)}
+                  </ul>
+                  <label className="mt-2 flex items-start gap-2 text-sm text-ink-700">
+                    <input type="checkbox" className="mt-1" checked={renewalPromise} onChange={(e) => setRenewalPromise(e.target.checked)} data-testid="accept-renewal" />
+                    <span>I will renew {view.renewals.length === 1 ? "this licence" : "these licences"} and upload the new one in time. GoKesari will remind me by e-mail and my shop can be paused if I don&apos;t.</span>
+                  </label>
+                </Alert>
+              ) : null}
               {registrationAccept ? (
                 <div className="rounded-lg bg-cream-50 p-3 text-sm">
                   <p className="mb-2 text-ink-700">
                     By pressing Accept you accept these agreements with your name above as your signature. Signed copies in English, मराठी and हिंदी are
                     e-mailed to you with your welcome kit.
                   </p>
-                  <Button disabled={busy || !allTicked || !formOk} onClick={sign} data-testid="accept-agreements">
+                  <Button disabled={busy || !allTicked || !formOk || ((view.renewals?.length ?? 0) > 0 && !renewalPromise)} onClick={sign} data-testid="accept-agreements">
                     Accept the agreements
                   </Button>
                   {!allTicked ? <p className="mt-1 text-xs text-ink-500">Tick every document above to continue.</p> : null}

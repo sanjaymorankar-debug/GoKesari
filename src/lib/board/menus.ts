@@ -446,6 +446,10 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
       // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
       { key: "registration-subscriptions", label: L("Unpaid & expiring registrations", "अवैतनिक और समाप्त होते पंजीकरण", "न भरलेल्या व संपणाऱ्या नोंदण्या"), icon: "calendar-clock", href: "/admin/shops/registrations", permission: PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE },
+      // docs/fee-pay-later-2026-11 (0229): owners asking to pay the registration fee later; recovered from payouts.
+      { key: "feePayLater", label: L("Pay-later requests", "बाद में भुगतान अनुरोध", "नंतर भरण्याच्या विनंत्या"), icon: "calendar-clock", href: "/admin/shops/pay-later", permission: PERMISSIONS.REGISTRATION_FEE_MANAGE, feature: "shop_fee_pay_later_enabled" },
+      // 0232 (owner, 28-Nov-2026): held v2 / v3 shops, pay-later requests, shops not selling — franchisee → operator → admin.
+      { key: "supportEscalations", label: L("Escalations", "एस्केलेशन", "एस्कलेशन"), icon: "file-check", href: "/admin/shops/escalations", permission: PERMISSIONS.SHOP_APPROVE },
       { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },
@@ -671,6 +675,10 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
       // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
       { key: "registration-subscriptions", label: L("Unpaid & expiring registrations", "अवैतनिक और समाप्त होते पंजीकरण", "न भरलेल्या व संपणाऱ्या नोंदण्या"), icon: "calendar-clock", href: "/admin/shops/registrations", permission: PERMISSIONS.SHOP_REGISTRATION_SUBSCRIPTION_MANAGE },
+      // docs/fee-pay-later-2026-11 (0229): owners asking to pay the registration fee later; recovered from payouts.
+      { key: "feePayLater", label: L("Pay-later requests", "बाद में भुगतान अनुरोध", "नंतर भरण्याच्या विनंत्या"), icon: "calendar-clock", href: "/admin/shops/pay-later", permission: PERMISSIONS.REGISTRATION_FEE_MANAGE, feature: "shop_fee_pay_later_enabled" },
+      // 0232 (owner, 28-Nov-2026): held v2 / v3 shops, pay-later requests, shops not selling — franchisee → operator → admin.
+      { key: "supportEscalations", label: L("Escalations", "एस्केलेशन", "एस्कलेशन"), icon: "file-check", href: "/admin/shops/escalations", permission: PERMISSIONS.SHOP_APPROVE },
       { key: "memberships", label: L("Shop memberships", "दुकान सदस्यता", "दुकान सदस्यत्व"), icon: "calendar-clock", href: "/admin/shops/memberships", permission: PERMISSIONS.PAYMENT_VIEW_ANY },
     ],
   },

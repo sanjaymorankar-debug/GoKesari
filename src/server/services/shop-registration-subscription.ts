@@ -26,6 +26,7 @@ import { db, type DbClient } from "@/server/db";
 import {
   paymentIntents,
   referralCodes,
+  shopFeePayLater,
   shopMembershipPeriods,
   shopPayments,
   shopRegistrationDigests,
@@ -135,6 +136,22 @@ export function reminderPlanFor(
   return null;
 }
 
+/** Pure (0229): a pay-later fee is reminded every 7 days from the day it was approved (W1 = day 7, W2 = day 14 …). */
+export function payLaterReminderPlan(approvedOn: IsoDate, today: IsoDate): { kind: "UNPAID"; stage: string } | null {
+  const days = daysBetween(approvedOn, today);
+  return days > 0 && days % 7 === 0 ? { kind: "UNPAID", stage: `PL${days / 7}` } : null;
+}
+
+/** Shops with an open pay-later request: when it was approved, or null while it waits for an administrator. */
+async function approvedPayLaterByShop(shopIds: string[]): Promise<Map<string, Date | null>> {
+  if (shopIds.length === 0) return new Map();
+  const rows = await db
+    .select({ shopId: shopFeePayLater.shopId, status: shopFeePayLater.status, decidedAt: shopFeePayLater.decidedAt })
+    .from(shopFeePayLater)
+    .where(and(inArray(shopFeePayLater.shopId, shopIds), inArray(shopFeePayLater.status, ["REQUESTED", "APPROVED"])));
+  return new Map(rows.filter((r) => r.shopId).map((r) => [r.shopId!, r.status === "APPROVED" ? r.decidedAt : null]));
+}
+
 /** English + Marathi reminder text (owner brief: bilingual, GoKesari branding is the e-mail layout). */
 export function reminderText(input: {
   kind: "UNPAID" | "RENEWAL";
@@ -146,7 +163,21 @@ export function reminderText(input: {
   daysLeft: number | null;
   /** The shop is already live (approved): it keeps its orders, so the "no orders until paid" line is left out. */
   live?: boolean;
+  /** 0229 (docs/fee-pay-later-2026-11): an administrator approved paying later — the fee is also taken from payouts. */
+  payLater?: boolean;
 }): { title: string; message: string } {
+  if (input.kind === "UNPAID" && input.payLater) {
+    return {
+      title: `Registration fee pending — ${input.shopName}`,
+      message: [
+        `${input.shopName}: your registration fee of ${input.amount} is still to be paid. Until it is paid it will be taken from your payouts (all of a payout when it is smaller than the fee). Pay now to keep your full payouts:`,
+        input.link,
+        "",
+        `${input.shopName}: ${input.amount} नोंदणी शुल्क भरणे बाकी आहे. ते भरेपर्यंत ही रक्कम तुमच्या पेआउटमधून कापली जाईल (पेआउट शुल्कापेक्षा कमी असल्यास संपूर्ण पेआउट). पूर्ण पेआउट मिळण्यासाठी आत्ताच भरा:`,
+        input.link,
+      ].join("\n"),
+    };
+  }
   if (input.kind === "UNPAID") {
     const en = input.live
       ? `${input.shopName}: registration payment pending. Please pay the registration fee of ${input.amount}. Your registration is valid for 1 year from the day you pay.`
@@ -662,6 +693,7 @@ async function sendReminder(
   actor: StaffActor | null,
   today: IsoDate,
   now: Date,
+  options: { payLater?: boolean } = {},
 ): Promise<{ sent: boolean; reason?: string }> {
   // The automatic one claims its (shop, stage, day) first — a second run the same day sends nothing.
   let reminderId: string | null = null;
@@ -695,6 +727,7 @@ async function sendReminder(
     link: payUrl,
     daysLeft: daysLeft(shop.membershipValidUntil, now, tz()),
     live: shop.status === "APPROVED",
+    payLater: options.payLater ?? false,
   });
   await notify({
     userId: shop.ownerId,
@@ -1110,11 +1143,28 @@ async function sendDueReminders(now: Date, today: IsoDate): Promise<{ checked: n
       ),
     );
   const slugs = rule.exemptCategorySlugs.length > 0 ? await shopCategorySlugsByShop(candidates.map((c) => c.id)) : new Map<string, string[]>();
+  // 0229 (docs/fee-pay-later-2026-11): a fee an administrator let the shop pay later is reminded every week from the approval.
+  const payLater = await approvedPayLaterByShop(candidates.map((c) => c.id));
   let sent = 0;
   let failed = 0;
   for (const shop of candidates) {
     const status = registrationStatusOf(shop, membershipStatus(shop, rule, now, slugs.get(shop.id) ?? []));
     const until = shop.membershipValidUntil;
+    // Waiting for an administrator's answer: no fee reminder meanwhile.
+    if (payLater.has(shop.id) && payLater.get(shop.id) === null && status === "UNPAID") continue;
+    const approvedAt = payLater.get(shop.id);
+    if (approvedAt && status === "UNPAID") {
+      const weekly = payLaterReminderPlan(todayIn(tz(), approvedAt), today);
+      if (!weekly || registrationFeeDue(shop) === 0) continue;
+      try {
+        const r = await sendReminder(shop, weekly, null, today, now, { payLater: true });
+        if (r.sent) sent += 1;
+      } catch (error) {
+        failed += 1;
+        console.error("[registration-subscription] pay-later reminder failed", shop.id, weekly.stage, error);
+      }
+      continue;
+    }
     const plan = reminderPlanFor(
       {
         status,

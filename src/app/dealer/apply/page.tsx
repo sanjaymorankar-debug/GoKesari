@@ -12,6 +12,7 @@ import { franchiseZones } from "@/server/db/schema";
 import { smsAvailable } from "@/server/dealers/http";
 import { bankCheckAvailable } from "@/server/dealers/online-verify";
 import { applicationCustomFields } from "@/server/dealers/custom-fields";
+import { shopDetailsForUser } from "@/server/dealers/promotion";
 import { chosenScheme, joiningChargeView, offeredSchemes } from "@/server/dealers/scheme-registration";
 import { dealerView, documentRequirements, getDealerForUser } from "@/server/dealers/service";
 import { getFeatureFlag } from "@/server/services/feature-flags";
@@ -50,6 +51,8 @@ export default async function DealerApplyPage({ searchParams }: { searchParams: 
           charge: dealer ? await joiningChargeView(dealer) : null,
           questions: dealer ? await applicationCustomFields(dealer) : null,
         };
+  // Owner, 28-Nov-2026: a shop owner's details come from his live shop (read-only, "from your shop"), never typed again.
+  const fromShop = !dealer || ["DRAFT", "REJECTED"].includes(dealer.status) ? await shopDetailsForUser(user.id) : null;
   const [zone] = zoneId ? await db.select({ id: franchiseZones.zoneId, name: franchiseZones.name }).from(franchiseZones).where(and(eq(franchiseZones.zoneId, zoneId), eq(franchiseZones.isTest, false))) : [];
 
   return (
@@ -67,6 +70,7 @@ export default async function DealerApplyPage({ searchParams }: { searchParams: 
         workZone={view?.franchiseZones.length ? null : (zone ?? null)}
         bankCheckAvailable={bankCheckAvailable()}
         scheme={scheme ? JSON.parse(JSON.stringify(scheme)) : null}
+        fromShop={fromShop}
       />
       {view?.status === "TERMINATED" ? (
         <p className="mt-4 text-sm text-ink-700">

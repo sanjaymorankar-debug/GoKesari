@@ -22,6 +22,16 @@ export const NOTIFICATION_TYPES = {
   SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",
   /** 0210: registration / renewal received (online or recorded offline) — valid until the new date. */
   SHOP_REGISTRATION_CONFIRMED: "shop.registration_confirmed",
+  /** docs/fee-pay-later-2026-11 (0229): to the owner — the pay-later request was approved / rejected, or a fee deduction was taken from a payout. */
+  SHOP_FEE_PAY_LATER: "shop.fee_pay_later",
+  /** docs/fee-pay-later-2026-11 (0229): to administrators — an owner asked to pay the registration fee later. */
+  SUPPORT_SHOP_FEE_PAY_LATER_REQUESTED: "support.shop_fee_pay_later_requested",
+  /** docs/fee-pay-later-2026-11 (0229): to the dealer / franchise whose referral code the shop used — approve or reject. */
+  DEALER_SHOP_FEE_PAY_LATER_REQUESTED: "dealer.shop_fee_pay_later_requested",
+  /** 0232 (owner, 28-Nov-2026): to whoever now has a support escalation (franchisee, operators, admins) — act on it. */
+  SUPPORT_ESCALATION_ASSIGNED: "support.escalation_assigned",
+  /** 0232: to the shop owner — a reminder at each step of the escalation ladder (held shop, pay later, no products / sales). */
+  SHOP_SUPPORT_REMINDER: "shop.support_reminder",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",
   /** To the shop: a customer subscribed (one product, or several newspapers together) — docs/newspaper-subscriptions-2026-11. */

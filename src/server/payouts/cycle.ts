@@ -21,6 +21,9 @@
  *   − SEC95_GST        GST GoKesari pays on a restaurant's food under s.9(5)
  *                      (billing_v2; informational while it is off)
  *     REGISTRATION_FEE informational
+ *   − REGISTRATION_FEE_RECOVERY  a "pay later" registration fee (0229, docs/fee-pay-later-2026-11): all of the fee
+ *                      still owed, or all of the payout when that is smaller — before the wallet top-up and the
+ *                      minimum-payout check. Recorded as a fee payment (PAYOUT_DEDUCTION) on the shop's ledger.
  *
  * Statutory rates are the ones in force on each supply's own date
  * (statutory_rates), so a rate change inside a cycle applies from its day.
@@ -79,6 +82,7 @@ import { financialYearOf } from "@/server/services/invoices";
 import { isServiceEarning, payoutDeductionsOn } from "@/server/tax/payout-deductions";
 import { getRule } from "@/server/services/settings";
 import { getShopWalletBalance } from "@/server/services/shop-wallet";
+import { feeRecoveriesDue, recordFeeRecovery, recoveryFrom, tellOwnersOfRecoveries, type RecoveryDue } from "@/server/services/fee-pay-later";
 import { istDay, sec95RestaurantOn, statutoryResolver, tcsOn, tdsOn, unregisteredRulesOn } from "@/server/statutory/rates";
 import { resolveListingTaxClasses } from "@/server/gst/product-rates";
 import { chargesGst } from "@/server/gst/tax-data-check";
@@ -170,6 +174,8 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
   ]);
   const actor = options.actor;
 
+  // 0229: the fee deductions of this close, told to their owners once it commits.
+  let feeNotices: { shopId: string; amountPaise: number; payoutBeforePaise: number; label: string }[] = [];
   const outcome = await db.transaction(async (tx) => {
     // One close at a time, taken before the first seller read: the lines already paid (payout_cycle_lines,
     // seller) are then read from a snapshot that includes any close that finished while this one waited.
@@ -648,11 +654,30 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
     const accountByShop = new Map(accounts.map((a) => [a.shopId!, a]));
 
     const itemDrafts: { shopId: string; amountPaise: number; breakdown: Record<string, number>; bankAccountId: string | null; holdReason: string | null }[] = [];
+    // 0229: shops whose registration fee an administrator let them pay later — the payout pays it first.
+    const feesDue = await feeRecoveriesDue(shopIds, tx);
+    const recoveries: { shopId: string; due: RecoveryDue; amountPaise: number; payoutBeforePaise: number }[] = [];
     for (const shopId of shopIds) {
       const mine = linesByShop.get(shopId) ?? [];
       let net = mine.reduce((s, l) => s + l.amountPaise, 0);
       const moving = mine.some((l) => l.amountPaise !== 0);
       if (!moving) continue;
+      const feeDue = feesDue.get(shopId);
+      const recovered = feeDue ? recoveryFrom(net, feeDue.duePaise) : 0;
+      if (feeDue && recovered > 0) {
+        mine.push({
+          shopId,
+          lineType: "REGISTRATION_FEE_RECOVERY",
+          sourceType: "shop_fee_pay_later",
+          sourceId: `${cycle.id}:${shopId}`,
+          description: `Registration fee (pay later): ${formatPaise(recovered)} of ${formatPaise(feeDue.duePaise)} still owed`,
+          amountPaise: -recovered,
+          occurredOn: addDays(window.end, -1),
+          meta: { payLaterId: feeDue.payLaterId, duePaise: feeDue.duePaise, payoutBeforePaise: net, leftPaise: feeDue.duePaise - recovered },
+        });
+        recoveries.push({ shopId, due: feeDue, amountPaise: recovered, payoutBeforePaise: net });
+        net -= recovered;
+      }
       const account = accountByShop.get(shopId);
       let holdReason: string | null = null;
       if (net <= 0) holdReason = "NOT_POSITIVE";
@@ -701,6 +726,10 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
         );
       }
     }
+    for (const r of recoveries) {
+      await recordFeeRecovery(tx, { ...r, sourceType: "PAYOUT_CYCLE", sourceId: cycle.id, label: `the payout for ${period}` });
+    }
+    feeNotices = recoveries.map((r) => ({ shopId: r.shopId, amountPaise: r.amountPaise, payoutBeforePaise: r.payoutBeforePaise, label: `the payout for ${period}` }));
     if (adjustments.length) {
       await tx.update(financialAdjustments).set({ status: "SETTLED" }).where(inArray(financialAdjustments.id, adjustments.filter((a) => a.shopId && shopById.has(a.shopId)).map((a) => a.id)));
     }
@@ -821,6 +850,7 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
     const raced = await loadCycle(window.start);
     return raced ? { ...raced, created: false } : null;
   }
+  if (feeNotices.length) await tellOwnersOfRecoveries(feeNotices);
   return outcome;
 }
 

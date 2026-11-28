@@ -86,6 +86,8 @@ beforeEach(async () => {
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, role: "ADMIN" };
   await flag("onboarding_v2", true);
+  // These cases walk the v2 order (drafts started before 28-Nov-2026); the v3 order is onboarding-v3-shop.test.ts.
+  await setRule("onboardingV2", { shopRegistrationOrder: "v2" }, admin);
   for (const f of ["flow_f4", "flow_f5", "flow_f6"] as const) await flag(f, false);
   const u = await createUser({ role: "CUSTOMER" });
   await db.update(users).set({ emailVerified: new Date(), phoneVerifiedAt: new Date() }).where(eq(users.id, u.id));
