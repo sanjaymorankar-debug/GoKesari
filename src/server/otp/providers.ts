@@ -44,8 +44,10 @@ export const emailOtpProvider: OtpProvider = {
     // Sent directly, never queued: a code must not sit in the notification tables.
     const message =
       rendered ?? (purpose === "EMAIL_CHANGE" ? renderEmailChangeOtpEmail(code, expiryMinutes) : renderOtpEmail(code, expiryMinutes));
-    // A sign-in code stays with its account even where the test site sends other mail to one inbox.
-    await sendEmail({ to, ...message, keepRecipient: !rendered && purpose !== "EMAIL_CHANGE" });
+    // A one-time code always goes to the address it verifies, even where the test site sends other mail to one
+    // inbox (28-Nov-2026: a shop owner registering on test.gokesari.com never saw the e-mail code, which went to
+    // the shared test inbox). Ready-made e-mails (rendered) keep the normal routing.
+    await sendEmail({ to, ...message, keepRecipient: !rendered });
   },
 };
 
