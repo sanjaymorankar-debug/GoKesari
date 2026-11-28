@@ -63,12 +63,14 @@ export type StatusEntity = "SHOP" | "RIDER" | "SUBSCRIPTION";
  * Every other move is the F1 set with PENDING read as "any onboarding stage";
  * REJECTED → ACTIVE stays (approving a rejected shop directly, as before), and
  * approveShop() checks documents and fee for that path too.
+ * 0229 (docs/fee-pay-later-2026-11): PAYMENT_PENDING → ACTIVE for a shop whose fee was approved to be paid later
+ * (recovered from payouts); approveShop() refuses it for every other unpaid shop.
  */
 const ONBOARDING = SHOP_ONBOARDING_STAGES;
 const otherStages = (s: ShopOnboardingStage) => ONBOARDING.filter((x) => x !== s);
 export const SHOP_TRANSITIONS: Record<ShopLifecycleStatus, readonly ShopLifecycleStatus[]> = {
   KYC_PENDING: [...otherStages("KYC_PENDING"), "REJECTED", "SUSPENDED", "CLOSED"],
-  PAYMENT_PENDING: [...otherStages("PAYMENT_PENDING"), "REJECTED", "SUSPENDED", "CLOSED"],
+  PAYMENT_PENDING: [...otherStages("PAYMENT_PENDING"), "ACTIVE", "REJECTED", "SUSPENDED", "CLOSED"],
   VERIFIED: [...otherStages("VERIFIED"), "ACTIVE", "PAUSED", "REJECTED", "SUSPENDED", "CLOSED"],
   ACTIVE: ["PAUSED", "SUSPENDED", "CLOSED", ...ONBOARDING, "REJECTED"],
   PAUSED: ["ACTIVE", "SUSPENDED", "CLOSED", ...ONBOARDING, "REJECTED"],
