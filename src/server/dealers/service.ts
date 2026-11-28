@@ -907,7 +907,9 @@ export async function decideDealer(
   // docs/dealer-platform phase 6: approve / reject — DEALER_APPROVE; suspend / reactivate / terminate — DEALER_SUSPEND;
   // a Regional Admin only in his regions (checked below, once the dealer is read).
   const { requireDealerPermission, requireDealerInScope } = await import("./staff-access");
-  requireDealerPermission(actor, decision.action === "APPROVE" || decision.action === "REJECT" ? PERMISSIONS.DEALER_APPROVE : PERMISSIONS.DEALER_SUSPEND, "decide dealers");
+  // Owner, 28-Nov-2026: an operator may approve (four-eye, as either person) or reject a shop owner's promotion.
+  const operatorOnPromotion = actor.role === "OPERATOR" && (decision.action === "APPROVE" ? !!options.promotionApproval : decision.action === "REJECT");
+  if (!operatorOnPromotion) requireDealerPermission(actor, decision.action === "APPROVE" || decision.action === "REJECT" ? PERMISSIONS.DEALER_APPROVE : PERMISSIONS.DEALER_SUSPEND, "decide dealers");
   if (actor.role === "REGIONAL_ADMIN") await requireDealerInScope(actor, await getDealer(dealerId));
   const reason = decision.action === "APPROVE" ? null : clean(decision.reason, 500);
   if (decision.action !== "APPROVE" && (!reason || reason.length < 5)) throw validationFailed("Give the reason (it is sent to the dealer).", { fields: { reason: "Required." } });
@@ -918,6 +920,9 @@ export async function decideDealer(
     const [dealer] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
     if (!dealer) throw notFound("Dealer");
     if (dealer.isInternal) throw conflict("GoKesari Direct cannot be changed here.");
+    if (operatorOnPromotion && !(await (await import("./promotion")).isShopOwnerPromotion(dealer, tx))) {
+      throw forbidden("An operator may only decide a shop owner's request to become a dealer.");
+    }
     const from = dealer.status;
     const allowed: Record<DealerDecision["action"], DealerStatus[]> = {
       APPROVE: ["PENDING"],
@@ -1039,6 +1044,8 @@ export async function decideDealer(
   if (decision.action === "REACTIVATE") await holdDealerCommission(dealerId, false, actor);
   // Pay first, KYC after (22-Nov-2026): a franchise he paid for goes live once his KYC and bank are approved.
   if (decision.action === "APPROVE" || decision.action === "REACTIVATE") await franchiseGoLive(dealerId);
+  // Owner, 28-Nov-2026: "also make me / him a super dealer" asked before the approval (src/server/dealers/super-requests.ts).
+  if (decision.action === "APPROVE") await (await import("./super-requests")).afterDealerApproved(dealerId);
   return result;
 }
 

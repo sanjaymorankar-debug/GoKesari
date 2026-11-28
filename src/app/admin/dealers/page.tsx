@@ -49,17 +49,21 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
       <Link href={user.role === "ADMIN" ? "/admin/menu/shops" : "/admin/menu/onboarding"} className="mb-2 inline-flex min-h-11 items-center text-sm font-semibold text-kesari-800 hover:underline">
         ← Shops
       </Link>
-      <PageHeader title="Dealers" description="Applications waiting for approval, and every dealer. Only an admin approves, rejects, suspends or terminates; every decision is logged." />
+      <PageHeader title="Dealers" description="Applications waiting for approval, and every dealer. A shop owner's request is approved by an admin or operator and confirmed by a different one; everything else is decided by an admin. Every decision is logged." />
       <p className="mb-3 text-sm">
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/dashboard">Dashboard</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/schemes">Schemes</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/commission">Commission, rating & payouts</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/franchise">Franchise (territories)</Link> ·{" "}
+        <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/promote">Promote to dealer / super dealer</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/referral-moves">Referral moves</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/claims">Attribution claims</Link> — dealers who say a shop is theirs. · <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/analytics">Coverage & analytics</Link>
       </p>
       {/* Owner, 28-Nov-2026: shop owners' promotions an admin approved, waiting for a different admin or operator. */}
       <PromotionConfirmations items={promotions} viewerId={user.id} canDecide={PROMOTION_CONFIRMER_ROLES.includes(user.role)} />
+      <p className="mb-3 text-sm text-ink-700">
+        Promoting the owner of a shop already on GoKesari? Use <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/promote">Promote to dealer / super dealer</Link> — it finds the shop and reuses its verified details. Add dealer below is for a dealer with no GoKesari shop.
+      </p>
       {user.role === "ADMIN" ? <AddDealerForm states={(await listStates()).map((a) => ({ code: a.code, name: a.name }))} /> : null}
       <nav className="mb-3 flex flex-wrap gap-2" aria-label="Filter by status">
         {filters.map((f) => (

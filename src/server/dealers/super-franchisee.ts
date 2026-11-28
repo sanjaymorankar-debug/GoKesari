@@ -413,8 +413,16 @@ async function lockDealer(tx: DbClient, dealerId: string): Promise<Dealer> {
 }
 
 /** Makes a dealer a super franchisee (or brings a removed one back). Optional own rates; null = the rule's. */
-export async function promoteSuperFranchisee(dealerId: string, input: { reason: string; feeShareBp?: number | string | null; orderShareBp?: number | string | null }, actor: SuperActor): Promise<SuperFranchisee> {
-  requireAdmin(actor);
+export async function promoteSuperFranchisee(
+  dealerId: string,
+  input: { reason: string; feeShareBp?: number | string | null; orderShareBp?: number | string | null },
+  actor: SuperActor,
+  /** Owner, 28-Nov-2026: a super dealer request an admin OR an operator approved (src/server/dealers/super-requests.ts). */
+  options: { viaApprovedRequest?: boolean } = {},
+): Promise<SuperFranchisee> {
+  if (options.viaApprovedRequest) {
+    if (actor.role !== "ADMIN" && actor.role !== "OPERATOR") throw forbidden("Only an admin or operator can approve a super dealer request.");
+  } else requireAdmin(actor);
   const reason = cleanReason(input.reason);
   const feeShareBp = bpOrNull(input.feeShareBp, "feeShareBp");
   const orderShareBp = bpOrNull(input.orderShareBp, "orderShareBp");

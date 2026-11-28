@@ -967,6 +967,12 @@ export const RULES = {
     }),
     defaults: { leadWindowDays: 30, maxOpenLeadsPerDealer: 200, duplicateDistanceMeters: 150, nameSimilarity: 80, assistedConsentMinutes: 60 },
   },
+  referralMoves: {
+    description:
+      "Referral moves (Admin → Dealers → Referral moves; owner 22-Nov-2026, switch 28-Nov-2026): moving shops — or a team member with his code and shops — from one referral code / dealer team to another. enabled: off = no new move request can be raised and no waiting request can be approved (waiting ones stay as they are). requireConsents: on = the signed consent letters (each shop owner, the old dealer, the new dealer; for a member move the member too) must be uploaded before approval; off = the letters are optional. A different admin than the one who raised it always approves; commission already earned stays where it was earned.",
+    schema: z.object({ enabled: z.boolean(), requireConsents: z.boolean() }),
+    defaults: { enabled: true, requireConsents: true },
+  },
   dealerApplication: {
     description:
       "Becoming a dealer / franchisee (owner, 27-Nov-2026): requireLiveShop — only an account with its own live (approved) GoKesari shop may submit a dealer application or a free franchisee request; without one he is sent to register his shop first. Free franchisee requests from a live shop wait for an admin's approval (Admin → Dealers → Pending approval), who then issues the dealer code.",

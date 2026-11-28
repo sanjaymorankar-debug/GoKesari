@@ -9,6 +9,7 @@ import { useState, type ComponentProps } from "react";
 
 import { Alert, Badge, Button, Card } from "@/components/ui";
 import type { StartState } from "@/server/onboarding-v2/franchise";
+import { SuperDealerRequest } from "@/components/dealer/super-dealer-request";
 import { ZoneBooking, type PlanOption } from "./zone-booking";
 
 type BookingProps = Omit<ComponentProps<typeof ZoneBooking>, "signedIn" | "v2" | "initialJoin"> & { plans: PlanOption[] };
@@ -22,6 +23,8 @@ export function FranchiseStart({ state, initialModel, booking }: { state: StartS
   const [error, setError] = useState<string | null>(null);
   const [freeCode, setFreeCode] = useState<string | null>(state.isFreeDealer || state.isFranchisee ? state.dealer?.code ?? null : null);
   const [requested, setRequested] = useState(state.dealer?.status === "PENDING" && !state.isFranchisee);
+  // Owner, 28-Nov-2026: a shop owner may also ask to become a super dealer (an admin / operator approves it).
+  const [wantsSuper, setWantsSuper] = useState(false);
   const { plans, ...zoneProps } = booking;
   const rates = booking.rates;
 
@@ -30,7 +33,7 @@ export function FranchiseStart({ state, initialModel, booking }: { state: StartS
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/franchise/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: which }) });
+      const res = await fetch("/api/franchise/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: which, wantsSuper }) });
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
         const to = payload?.error?.details?.redirect as string | undefined;
@@ -85,6 +88,7 @@ export function FranchiseStart({ state, initialModel, booking }: { state: StartS
             ) : null}
           </div>
           <p className="text-sm text-ink-700">Share your code with shops, or register shops from your dealer page. Build your team under &quot;My team&quot;.</p>
+          <SuperDealerRequest compact />
           {state.payoutMissing.length ? <Alert tone="info">Before your first payout, add your {state.payoutMissing.join(" and ")} on your dealer page. Going live does not wait for them.</Alert> : null}
           <div className="flex flex-wrap gap-2">
             <Link className="inline-flex min-h-10 items-center rounded-lg bg-kesari-600 px-4 text-sm font-semibold text-white" href="/dealer">
@@ -103,6 +107,14 @@ export function FranchiseStart({ state, initialModel, booking }: { state: StartS
       ) : null}
 
       <h2 className="text-lg font-bold text-ink-900">{live ? "Own a zone too?" : "Choose how you want to work"}</h2>
+      {!live && !requested ? (
+        <label className="flex min-h-11 items-start gap-2 rounded-lg border border-cream-200 bg-cream-50 p-3 text-sm text-ink-800" data-testid="franchise-start-wants-super">
+          <input type="checkbox" className="mt-1" checked={wantsSuper} onChange={(e) => setWantsSuper(e.target.checked)} />
+          <span>
+            <strong>I also want to become a super dealer.</strong> A super dealer leads a team of dealers and earns extra on his team&apos;s business, paid by GoKesari. An admin or operator approves it once you are a dealer.
+          </span>
+        </label>
+      ) : null}
       <div className="grid gap-3 md:grid-cols-2">
         {!live && !requested ? (
           <Card className={`flex flex-col gap-3 p-4 ${model === "free" ? "ring-2 ring-kesari-500" : ""}`} data-testid="model-free">
