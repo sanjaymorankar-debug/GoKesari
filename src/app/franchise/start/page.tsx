@@ -2,6 +2,8 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { FranchiseStart } from "@/components/franchise/franchise-start";
+import { FromShopDetailsCard } from "@/components/dealer/from-shop-details";
+import { shopDetailsForUser } from "@/server/dealers/promotion";
 import { Alert, LinkButton, PageHeader } from "@/components/ui";
 import { franchiseAgreementFor, rupees } from "@/lib/franchise";
 import { planPriceLabel } from "@/lib/franchise-plans";
@@ -68,9 +70,16 @@ export default async function FranchiseStartPage({ searchParams }: { searchParam
     .filter((z) => known.has(z))
     .slice(0, 20);
   const model = one(sp.model);
+  // Owner, 28-Nov-2026: his shop account becomes the dealer account — the details are shown, never asked again.
+  const fromShop = !state.dealer || ["DRAFT", "PENDING"].includes(state.dealer.status) ? await shopDetailsForUser(user.id) : null;
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      <PageHeader title="Become a franchisee" description={`Using your shop ${state.shop.name} and your verified account details. Free dealer: live at once. Paid franchise: own up to ${offer.maxOwnersPerZone === 1 ? "the only slot" : `one of ${offer.maxOwnersPerZone} slots`} in a zone, live as soon as you pay. All times IST.`} />
+      <PageHeader title="Become a franchisee" description={`Using your shop ${state.shop.name} and your verified account details. Free dealer: a request GoKesari approves (two of our team check it). Paid franchise: own up to ${offer.maxOwnersPerZone === 1 ? "the only slot" : `one of ${offer.maxOwnersPerZone} slots`} in a zone, live as soon as you pay. All times IST.`} />
+      {fromShop ? (
+        <div className="mb-4">
+          <FromShopDetailsCard details={fromShop} note="Your shop account becomes your dealer / franchise account: these come from your shop and are not asked again. A free franchisee request is approved by an admin and confirmed by a second admin or operator; a paid franchise is live as soon as you pay." />
+        </div>
+      ) : null}
       {pending.length ? (
         <div className="mb-4 space-y-2 rounded-lg border border-kesari-200 bg-kesari-50 p-4" data-testid="franchise-pending-bookings">
           <h2 className="text-base font-bold text-ink-900">Your booking is waiting for payment</h2>
